@@ -90,7 +90,7 @@ import torch
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.training import suggest_train_args, search_defaults
-from emulator.experiment import EmulatorExperiment
+from emulator.experiment import EmulatorExperiment, validate_sweep_paths
 
 # one shared study name inside the journal file; the file path (not
 # this name) is what separates studies.
@@ -302,6 +302,14 @@ def main():
   # (training.py) pulls out just the [default, min, max, kind] leaves.
   raw_ta = exp.raw_train_args
   ranges = search_defaults(train_args=raw_ta)
+  # validate_sweep_paths (experiment.py): reject phase-schedule search
+  # axes (head. / trunk_epochs / trunk.) on a single-phase model before
+  # any worker spawns, so a dead or disguised search dimension fails at
+  # startup instead of being sampled every trial. ranges is keyed by the
+  # searched dotted paths, so its keys are exactly the leaves to check.
+  validate_sweep_paths(
+    paths=list(ranges),
+    two_phase=hasattr(exp.model_cls, "set_train_phase"))
   if not ranges:
     log("WARNING: no [default, min, max, kind] search ranges in "
         "train_args: every trial is identical.")

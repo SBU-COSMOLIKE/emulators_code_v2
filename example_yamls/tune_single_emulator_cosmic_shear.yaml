@@ -11,7 +11,11 @@
 # trial is fast. String-valued keys (model.name / model.ia /
 # model.activation / loss_mode / shapes) are fixed across the study, so
 # run one study per choice to compare them. The training YAML's
-# trunk_epochs / head two-phase keys work here too (fixed scalars).
+# trunk_epochs / head two-phase keys are fixed scalars here on a
+# two-phase model (rescnn / restrf); on a single-phase model (any
+# name: resmlp, including ia nla / tatt) a range over head. /
+# trunk_epochs / trunk. is rejected at startup (it would be demoted
+# away, so every trial would be identical).
 #
 # Multi-GPU: with more than one visible CUDA device (cap with
 # --n-gpus) the trials run in parallel, one worker per GPU, all

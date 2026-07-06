@@ -35,8 +35,11 @@
 #     multigate | gated_power) by setting it on the experiment;
 #     leave the --activation flag unset for that sweep.
 #   - a missing intermediate block is created (head.lr_base works
-#     with no head: block in train_args), but guards still apply
-#     (trunk/head overrides need trunk_epochs > 0).
+#     with no head: block in train_args). On a two-phase model
+#     (rescnn / restrf) the phase axes sweep as written; on a
+#     single-phase model (any name: resmlp, including ia nla / tatt)
+#     a head. or trunk_epochs sweep is rejected at startup (the axis
+#     would be demoted away) and trunk.X sweeps the top-level key X.
 
 sweep:
   parameter: lr.lr_base
@@ -79,8 +82,8 @@ sweep:
 #     - 3
 #     - 5
 #
-# sweep:                       # head-phase base lr (two-phase runs;
-#   parameter: head.lr_base    # needs trunk_epochs > 0)
+# sweep:                       # head-phase base lr (two-phase only;
+#   parameter: head.lr_base    # rejected at startup on single-phase)
 #   values:
 #     - 0.0005
 #     - 0.0010

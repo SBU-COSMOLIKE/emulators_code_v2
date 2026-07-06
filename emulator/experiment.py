@@ -457,6 +457,66 @@ def resolve_phase_args(train_args, two_phase):
   return resolved, "single-phase model: " + "; ".join(parts)
 
 
+def validate_sweep_paths(paths, two_phase):
+  """
+  Reject phase-schedule sweep axes a single-phase model would silently drop.
+
+  A standalone pure function (no torch), the one source of truth both sweep
+  drivers call. On a two-phase model every path is valid (returns
+  silently). On a single-phase model (the caller probes
+  hasattr(model_cls, "set_train_phase")) resolve_phase_args demotes the
+  phase keys before training, so a search over one of them is silently
+  degraded: a head. or trunk_epochs axis makes every point identical (the
+  axis is dropped), and a trunk. axis sweeps the merged top-level key in
+  disguise. This turns that into a loud startup error naming every
+  offending path and the concrete key to sweep instead.
+
+  Arguments:
+    paths     = iterable of dotted train_args paths a sweep / search will
+                vary (the sweep parameter, or a study's range-leaf paths).
+    two_phase = whether the model supports the trunk-then-head schedule
+                (hasattr(model_cls, "set_train_phase")); True skips the
+                whole check (all phase axes are valid there).
+
+  Returns:
+    None (a pure guard: it either raises or returns).
+
+  Raises:
+    ValueError listing every offending path: a head. / trunk_epochs axis
+    (dropped by resolve_phase_args on a single-phase model), or a trunk.
+    axis (demoted to a top-level key), each with the concrete fix.
+  """
+  if two_phase:
+    return None
+  problems = []
+  for path in paths:
+    segs = str(path).split(".")
+    if segs[0] in ("head", "trunk_epochs"):
+      problems.append(
+        f"{path!r}: a single-phase model (no set_train_phase) has "
+        f"resolve_phase_args drop this axis, so every sweep point would be "
+        f"identical; sweep a real top-level train_args leaf instead")
+    elif segs[0] == "trunk":
+      # trunk: merges into the top level on a single-phase model, so
+      # trunk.X really sweeps X (lr_base nests as lr.lr_base). Name it.
+      sub = segs[1] if len(segs) > 1 else None
+      if sub == "lr_base":
+        concrete = "lr.lr_base"
+      elif sub is not None:
+        concrete = sub
+      else:
+        concrete = "the matching top-level key"
+      problems.append(
+        f"{path!r}: on a single-phase model trunk: merges into the top "
+        f"level, so this sweeps {concrete!r} in disguise; sweep "
+        f"{concrete!r} directly")
+  if problems:
+    raise ValueError(
+      "phase-schedule sweep axis on a single-phase model (no "
+      "set_train_phase):\n  " + "\n  ".join(problems))
+  return None
+
+
 class EmulatorExperiment:
   """
   Configuration + environment for one single-network cosmic-shear (xi)
@@ -542,8 +602,9 @@ class EmulatorExperiment:
                        per-phase overrides (lr_base / loss_mode /
                        trim / focus / clip / rewind) over the shared
                        top-level defaults; need trunk_epochs > 0,
-                       see run_emulator. On a single-phase model (no
-                       set_train_phase, e.g. resmlp / nla) train()
+                       see run_emulator. On a single-phase model (any
+                       name: resmlp, including ia nla / tatt; no
+                       set_train_phase, unlike rescnn / restrf) train()
                        demotes these through resolve_phase_args: head:
                        and trunk_epochs are dropped and trunk: is merged
                        into the top level (with a quiet-gated notice), so
@@ -1213,11 +1274,12 @@ class EmulatorExperiment:
     """
     train_args = self.train_args if train_args is None else train_args
     # resolve_phase_args (above): a shared YAML may carry the two-phase
-    # keys (trunk_epochs / trunk: / head:), but a single-phase model (no
-    # set_train_phase, e.g. resmlp or nla) would die in run_emulator's
-    # capability guard. For such a model demote the phase keys (drop head:
-    # / trunk_epochs, merge trunk: into the top level) here, once, at the
-    # choke point every driver funnels through; a two-phase model is an
+    # keys (trunk_epochs / trunk: / head:), but a single-phase model (any
+    # name: resmlp, including ia nla / tatt; no set_train_phase, unlike
+    # rescnn / restrf) would die in run_emulator's capability guard. For
+    # such a model demote the phase keys (drop head: / trunk_epochs, merge
+    # trunk: into the top level) here, once, at the choke point every
+    # driver funnels through; a two-phase model is an
     # exact no-op. It never mutates train_args (a sweep reuses it across
     # points); the notice is quiet-gated like the config banner.
     two_phase = hasattr(self.model_cls, "set_train_phase")

@@ -98,7 +98,7 @@ import torch
 
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
-from emulator.experiment import EmulatorExperiment
+from emulator.experiment import EmulatorExperiment, validate_sweep_paths
 from emulator.results import save_sweep_table
 from emulator.scheduling import (
   even_assign, run_gpu_pool, GPU_TOKENS,
@@ -129,9 +129,10 @@ def set_by_path(train_args, path, value):
   Walks the nested mapping along `path` ("lr.lr_base" -> ["lr",
   "lr_base"]), creating intermediate mappings that do not exist yet
   (so `head.lr_base` sweeps even when the YAML has no head: block;
-  run_emulator's trunk_epochs guard still applies), and sets the
-  final key. The input is never mutated; each sweep point gets its
-  own copy.
+  a head. / trunk_epochs / trunk. sweep on a single-phase model is
+  rejected up front by validate_sweep_paths, since resolve_phase_args
+  would demote it away), and sets the final key. The input is never
+  mutated; each sweep point gets its own copy.
 
   Arguments:
     train_args = the resolved train_args mapping to copy.
@@ -343,6 +344,14 @@ def main():
                                        rescale=args.rescale,
                                        activation=args.activation,
                                        quiet=args.quiet)
+  # validate_sweep_paths (experiment.py): fail before any dispatch (the
+  # serial loop below and the gpu pool) if this sweep axis would be
+  # silently demoted away on a single-phase model. act_mode sweeps the
+  # activation family, not a train_args path, so skip the check there.
+  if not act_mode:
+    validate_sweep_paths(
+      paths=[param],
+      two_phase=hasattr(exp.model_cls, "set_train_phase"))
   if exp.device.type == "cpu":
     raise RuntimeError(
       "no GPU found (need CUDA, or Apple MPS on the dev machine): "
