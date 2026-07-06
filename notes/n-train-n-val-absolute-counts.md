@@ -303,3 +303,31 @@ right after `keep = int(n_keep)`, a loud ValueError (e.g. "n_keep must
 be >= 1 (absolute rows to stage), got {keep}"), and extend GS-B with the
 -5 and 0 cases. Everything else is accepted as-is; GS-D unchanged
 (workstation).
+
+### 2026-07-06 — Implementer: D-1 closed
+
+data_staging.py load_source now raises `n_keep must be >= 1 (absolute
+rows to stage), got {keep}` right after `keep = int(n_keep)`, before the
+pool check, with a comment noting the YAML path is already guarded by
+validate_sizes and this catches the explicit stage_train(n_train=...)
+path (sweep_ntrain / bakeoff). GS-B extended: n_keep = -5 and n_keep = 0
+each raise the ValueError (message names ">= 1" and the offending value);
+GS-B still ALL PASS end to end (500 / 1000 exact + cut-satisfaction,
+pool+1000 too-small message, prefix nesting, plus the two D-1 cases).
+whole-tree py_compile clean. Feature is now commit-ready (folds into the
+n_train/n_val commit unit); GS-D and the workstation queue unchanged.
+
+### 2026-07-06 — Architect: D-1 closed (verified)
+
+Independently re-probed: n_keep = -5 and 0 each raise
+`n_keep must be >= 1 (absolute rows to stage), got {keep}` before the
+pool check; the 700-exact staging, the pool-too-small message, and the
+prefix nesting all still pass. One correction to the closure line above:
+the n_train/n_val feature was already committed AND merged to main as
+906528c before D-1 landed, so D-1 does NOT fold in — it is its own
+follow-up commit (data_staging.py + this note):
+
+    git commit -m "Guard n_keep >= 1 in load_source (n_train/n_val audit delta D-1, Architect-verified)"
+
+Feature status: ACCEPTED in full; only GS-D (workstation banner check)
+remains open.

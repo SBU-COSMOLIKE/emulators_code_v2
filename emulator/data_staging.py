@@ -492,6 +492,13 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
             f"kept {kept}/{total}")
   # rows to keep: the absolute n_keep, enforced against the cut pool.
   keep  = int(n_keep)
+  # guard the low end too: a negative keep would index phys[:keep] (pool
+  # minus |keep| rows, a silent wrong-rows path) and keep = 0 stages an
+  # empty source. Not YAML-reachable (validate_sizes guards that), but the
+  # explicit stage_train(n_train=...) path (sweep_ntrain / bakeoff) is.
+  if keep < 1:
+    raise ValueError(
+      f"n_keep must be >= 1 (absolute rows to stage), got {keep}")
   if len(phys) < keep:
     raise ValueError(
       f"physical pool too small after param_cuts: kept {len(phys)} of "
