@@ -449,6 +449,54 @@ def audit_devices(model, lossfn, device):
   return bad
 
 
+# the batch-size scale the validation pass aims for. Not a YAML key: the
+# eval batch is a performance choice with a computable optimum (see
+# derive_eval_bs), so it is derived, not user-selected. Only sets the
+# scale, since the forward + chi2 matmuls saturate the GPU by a few
+# hundred rows.
+_EVAL_BS_TARGET = 1024
+
+
+def derive_eval_bs(n_val, target, load):
+  """
+  The validation batch size, derived from n_val (no user knob).
+
+  The eval pass is pure inference over a fixed n_val, so its batch is a
+  performance choice with a computable optimum, not something to expose.
+  The free integer is the batch count, not the size: pick
+  k = ceil(n_val / target), then equalize the size bs = ceil(n_val / k).
+  The fixed-shape tail padding is then k*bs - n_val < k rows (fewer padded
+  rows than batches; 0 at n_val = 5000, where bs = 1000 beats both 1024
+  and 2048). bs is clamped to `load` on the memmap-streaming path: a batch
+  never spans a chunk, so a bs above the chunk size would pad every chunk.
+
+  Arguments:
+    n_val  = number of validation rows (>= 1); exact at config time via
+             the absolute n_val count.
+    target = the batch-size scale to aim for (_EVAL_BS_TARGET); it only
+             sets the scale, since the forward + chi2 matmuls saturate
+             the GPU by a few hundred rows.
+    load   = rows per streamed chunk; the ceiling for bs (a batch stays
+             within one chunk).
+
+  Returns:
+    the eval batch size (a positive int, <= min(n_val, load)).
+
+  Raises:
+    ValueError if n_val < 1 (nothing to evaluate).
+  """
+  if n_val < 1:
+    raise ValueError(
+      f"derive_eval_bs needs n_val >= 1 (validation rows), got {n_val}")
+  # the free integer is the batch count; equalize the size across it.
+  # (a + b - 1) // b is ceil(a / b), the integer-ceil idiom used for the
+  # chunk count below.
+  k  = (n_val + target - 1) // target    # batches at the ~target scale
+  bs = (n_val + k - 1) // k              # equalized batch size
+  # a batch never spans a streamed chunk, so cap bs at the chunk size.
+  return min(bs, load)
+
+
 def eval_val(model, lossfn, data, load, bs, thresholds,
              fwd_chi2=None):
   """
@@ -502,8 +550,9 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
                  (global validation row indices; read into the
                  local vidx).
     load       = rows per streamed chunk.
-    bs         = model batch size (same as training), so the
-                 compiled graph sees one fixed input shape.
+    bs         = model batch size (the derived eval batch, see
+                 derive_eval_bs; independent of the training bs), so
+                 the compiled graph sees one fixed input shape.
     thresholds = 1D tensor of delta-chi2 cutoffs; the returned
                  fraction counts val points above each.
     fwd_chi2   = optional (xb, yb) -> (bs,) per-sample-chi2
@@ -843,12 +892,20 @@ def training_loop_batched(nepochs,
   # handoff the incoming model is phase 1's best (the zero-init
   # head makes them identical), and this seed guarantees phase 2
   # returns at least that even if its first epochs wander.
+  # derive_eval_bs (above): run the validation pass at a batch derived
+  # from n_val (~_EVAL_BS_TARGET rows), decoupled from the training bs, so
+  # a small training bs does not multiply the eval's launch count.
+  # Computed once here (n_val is exact) and reused by the baseline and
+  # every epoch, so the compiled fwd_chi2 twin keeps one static shape.
+  eval_bs = derive_eval_bs(n_val=len(data["val"]["idx"]),
+                           target=_EVAL_BS_TARGET,
+                           load=load)
   model.eval()
   b_median, b_mean, b_frac = eval_val(model=model,
                                       lossfn=lossfn,
                                       data=data["val"],
                                       load=load,
-                                      bs=bs,
+                                      bs=eval_bs,
                                       thresholds=thresholds,
                                       fwd_chi2=fwd_chi2)
   best_frac   = b_frac[0].item()
@@ -958,7 +1015,7 @@ def training_loop_batched(nepochs,
                                   lossfn=lossfn,
                                   data=data["val"],
                                   load=load,
-                                  bs=bs,
+                                  bs=eval_bs,
                                   thresholds=thresholds,
                                   fwd_chi2=fwd_chi2)
     train_losses.append(train_loss)

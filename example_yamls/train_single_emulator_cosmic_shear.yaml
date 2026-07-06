@@ -58,7 +58,9 @@ data:
 
 train_args:
   nepochs:   1600
-  bs:        256
+  bs:        256         # training batch; validation runs at a derived
+                        # ~1024-row batch (see derive_eval_bs), independent
+                        # of bs, so a small bs does not slow the eval pass
   loss_mode: sqrt        # sqrt | chi2 | sqrt_dchi2
   silent:    false       # false -> per-epoch progress lines
 
