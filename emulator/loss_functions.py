@@ -228,11 +228,11 @@ class CosmolikeChi2:
                     hardness h = c/(c+focus_scale) crosses 0.5 at
                     c = focus_scale.
       berhu_knot  = the lower C1 knot t1 for "berhu" / "berhu_capped"
-                    (train_args.berhu.knot, default 0.2); a 0-dim
+                    (train_args.loss.berhu.knot, default 0.2); a 0-dim
                     device tensor (see _reduce). None (default) for
                     every other mode.
       berhu_cap   = the upper C1 knot t2 for "berhu_capped"
-                    (train_args.berhu.cap, default 10.0); a 0-dim
+                    (train_args.loss.berhu.cap, default 10.0); a 0-dim
                     device tensor. None otherwise. A berhu mode
                     missing its required knot(s) raises.
     Returns:
@@ -298,11 +298,11 @@ class CosmolikeChi2:
                     surface as a CPU input that breaks CUDA-graph
                     replay).
       berhu_knot  = the lower C1 knot t1 for "berhu" / "berhu_capped"
-                    (train_args.berhu.knot, default 0.2); a 0-dim
+                    (train_args.loss.berhu.knot, default 0.2); a 0-dim
                     device tensor, the same graph-safe-tensor
                     discipline as focus_scale. None for other modes.
       berhu_cap   = the upper C1 knot t2 for "berhu_capped"
-                    (train_args.berhu.cap, default 10.0); a 0-dim
+                    (train_args.loss.berhu.cap, default 10.0); a 0-dim
                     device tensor. None otherwise. A berhu mode
                     missing a required knot raises.
 
@@ -341,8 +341,8 @@ class CosmolikeChi2:
       # branches, so both must be finite for c >= 0 (they are).
       if berhu_knot is None:
         raise ValueError(
-          "loss_mode 'berhu' needs a berhu_knot (the C1 knot); the "
-          "training loop passes train_args.berhu.knot")
+          "mode 'berhu' needs a berhu_knot (the C1 knot); the "
+          "training loop passes train_args.loss.berhu.knot")
       v = torch.where(c <= berhu_knot, torch.sqrt(c),
                       (c + berhu_knot) / (2.0 * torch.sqrt(berhu_knot)))
     elif mode == "berhu_capped":
@@ -353,9 +353,9 @@ class CosmolikeChi2:
       # into the loss shape). Reduces exactly to berhu for c <= t2.
       if berhu_knot is None or berhu_cap is None:
         raise ValueError(
-          "loss_mode 'berhu_capped' needs both berhu_knot and berhu_cap "
+          "mode 'berhu_capped' needs both berhu_knot and berhu_cap "
           "(the two C1 knots); the training loop passes "
-          "train_args.berhu.knot and .cap")
+          "train_args.loss.berhu.knot and .cap")
       v = torch.where(
         c <= berhu_knot, torch.sqrt(c),
         torch.where(

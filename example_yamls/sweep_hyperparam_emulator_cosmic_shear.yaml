@@ -124,7 +124,8 @@ data:
 train_args:
   nepochs:   1600
   bs:        256
-  loss_mode: sqrt        # sqrt | chi2 | sqrt_dchi2
+  loss:                  # nested loss block (absent -> mode sqrt)
+    mode: sqrt           # sqrt | chi2 | sqrt_dchi2 | berhu | berhu_capped
   silent:    false
 
   model:

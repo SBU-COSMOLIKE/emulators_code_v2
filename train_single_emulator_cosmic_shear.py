@@ -50,7 +50,7 @@ is never loaded whole.
 #    after param_cuts), split settings (split_seed, ram_frac),
 #    cosmolike dataset (cosmolike_data_dir, cosmolike_dataset; resolved under
 #    $ROOTDIR/external_modules/data, not --root).
-#  - `train_args`: knobs (nepochs, bs, loss_mode, silent) plus sub-blocks model
+#  - `train_args`: knobs (nepochs, bs, loss, silent) plus sub-blocks model
 #    (name = the architecture, resmlp | rescnn | restrf; ia = the factored
 #    intrinsic-alignment design layered on it (omit for plain); `nla` =
 #    the model emits three templates the loss combines as
@@ -64,8 +64,8 @@ is never loaded whole.
 #    channels); trf {n_heads, n_blocks, n_mlp_blocks, shared_mlp, film,
 #    gate_init} for restrf, whose tokens live at the natural bin width),
 #    optional trunk_epochs (two-phase schedule) + symmetric trunk / head
-#    blocks (per-phase overrides over the shared defaults: lr_base /
-#    loss_mode / trim / focus / clip / rewind), optional stability
+#    blocks (per-phase overrides over the shared defaults: lr / loss /
+#    trim / focus / clip / rewind), optional stability
 #    guards clip (per-step gradient-norm ceiling, 0 = off) and rewind
 #    (reload the best weights + optimizer snapshot at every plateau lr
 #    cut), optimizer (weight_decay),

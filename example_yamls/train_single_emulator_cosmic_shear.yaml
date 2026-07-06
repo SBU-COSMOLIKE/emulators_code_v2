@@ -61,18 +61,17 @@ train_args:
   bs:        256         # training batch; validation runs at a derived
                          # ~1024-row batch (see derive_eval_bs), independent
                          # of bs, so a small bs does not slow the eval pass
-  loss_mode: sqrt        # sqrt | chi2 | sqrt_dchi2 | berhu | berhu_capped
-                         # (berhu = sqrt below the knot, chi2-like above, C1
-                         # there; berhu_capped also plateaus the tail vote
-                         # above the cap, monster-robust). The knots default
-                         # to 0.2 / 10.0; set them in the berhu: block below
-                         # (it errors on a non-berhu loss_mode).
-  # berhu:                 # the C1 knots of berhu / berhu_capped
-  #   knot: 0.2            # sqrt below this chi2 (default 0.2, the
-  #                        # frac>0.2 goal threshold)
-  #   cap:  10             # berhu_capped: sqrt-shaped again above (default
-  #                        # 10; accepted but unused under plain berhu). A
-  #                        # per-phase berhu: block full-replaces this one.
+  loss:                    # nested loss block (absent -> mode sqrt)
+    mode: sqrt             # sqrt | chi2 | sqrt_dchi2 | berhu | berhu_capped
+                           # (berhu = sqrt below the knot, chi2-like above,
+                           # C1 there; berhu_capped also plateaus the tail
+                           # vote above the cap, monster-robust)
+    # berhu:               # the C1 knots of berhu / berhu_capped (defaults
+    #   knot: 0.2          # 0.2 / 10.0). knot = sqrt below this chi2 (the
+    #   cap:  10           # frac>0.2 goal threshold); cap = berhu_capped
+    #                      # sqrt-shaped again above (accepted but unused
+    #                      # under plain berhu). Valid only beside a berhu
+    #                      # mode; a per-phase loss: block full-replaces it.
   silent:    false       # false -> per-epoch progress lines
 
   # Stability guards (both optional, both default off; the trunk: /
@@ -118,14 +117,15 @@ train_args:
 
   # Per-phase overrides, symmetric (both need trunk_epochs > 0; error
   # otherwise). Each block mirrors the top-level train_args schema
-  # key-for-key; the seven keys are lr / scheduler / loss_mode / trim /
+  # key-for-key; the seven keys are lr / scheduler / loss / trim /
   # focus / clip / rewind, each optional and falling back to the run
   # default. lr is an overlay {lr_base, warmup_epochs} onto the top-level
   # lr: block (bs_base stays run-global, so a phase never sets it);
   # scheduler is a full replacement of the scheduler kwargs (the run's
   # scheduler class stays); trim / focus are full-replacement blocks
   # (same keys as the main ones, incl. kappa, no merging), restarting at
-  # the phase's own epoch 1; loss_mode / clip / rewind replace their value.
+  # the phase's own epoch 1; loss (the nested {mode, berhu} block) / clip /
+  # rewind replace their value.
   # On a single-phase model (any name: resmlp, including ia nla / tatt;
   # rescnn / restrf are the two-phase models) train() ignores head: and
   # trunk_epochs and merges trunk: into the top level, printing a one-line
@@ -133,7 +133,8 @@ train_args:
   # trunk:                   # phase 1 (pure-trunk training)
   #   lr:
   #     lr_base:   0.0025    # phase-1 base lr (same sqrt-batch rule)
-  #   loss_mode: sqrt
+  #   loss:
+  #     mode: sqrt
   #   trim:
   #     start:         0.1
   #     end:           0.01  # floor, never 0.0: the worst fraction
@@ -156,14 +157,15 @@ train_args:
   #     mode:     min        # the run's scheduler class stays. A lower
   #     patience: 10         # head patience cuts the lr sooner on the
   #     factor:   0.8        # frozen-trunk phase.
-  #   loss_mode: berhu_capped # a natural head loss: sqrt bulk + chi2
-  #                          # window, the tail vote capped above chi2=10
-  #                          # (monster-robust, so clip is often redundant).
-  #                          # Alternatives: berhu (same but the tail vote
-  #                          # rises unbounded); sqrt (as phase 1); chi2 is
-  #                          # sharper on the tail but needs the trim floor
-  #                          # + clip (an untrimmed quadratic loss fits the
-  #                          # monster tail at the bulk's expense)
+  #   loss:                  # the head's loss block (full replacement): a
+  #     mode: berhu_capped   # natural head loss, sqrt bulk + chi2 window,
+  #     berhu:               # the tail vote capped above chi2=10
+  #       knot: 0.2          # (monster-robust, so clip is often redundant).
+  #       cap:  10           # Alternatives: mode berhu (tail rises unbounded);
+  #                          # sqrt (as phase 1); chi2 is sharper on the tail
+  #                          # but needs the trim floor + clip (an untrimmed
+  #                          # quadratic loss fits the monster tail at the
+  #                          # bulk's expense)
   #   trim:
   #     start:         0.03
   #     end:           0.01  # floor, never 0.0

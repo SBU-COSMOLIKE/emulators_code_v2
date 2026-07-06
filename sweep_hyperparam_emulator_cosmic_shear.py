@@ -111,10 +111,10 @@ from emulator.scheduling import (
 # would be ignored, and the sweep would train the same config N
 # times. model.* keys are further validated by build_specs
 # (MODEL_BLOCK_KEYS) at train time, loudly.
-SWEEPABLE_TOP_KEYS = ("nepochs", "bs", "loss_mode", "trunk_epochs",
+SWEEPABLE_TOP_KEYS = ("nepochs", "bs", "loss", "trunk_epochs",
                       "clip", "rewind", "trunk", "head", "model",
                       "optimizer", "lr", "scheduler", "trim",
-                      "focus", "ema", "berhu")
+                      "focus", "ema")
 
 # dotted paths that sweep the activation family: these are resolved
 # by from_config into exp.activation (build_specs deliberately does

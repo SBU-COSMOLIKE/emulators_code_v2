@@ -447,7 +447,7 @@ to a card, ≤ 40% two to a card, bigger ones exclusive (off by default — on a
 [Multi-GPU execution and packing](#6a-multi-gpu) below.
 
 The YAML has two blocks: `data` (bare input filenames resolved under
-`--root/chains`, the physical density windows in a nested `param_cuts:` sub-block, the split, the cosmolike dataset) and `train_args` (`nepochs`, `bs`, `loss_mode`, the `model` /
+`--root/chains`, the physical density windows in a nested `param_cuts:` sub-block, the split, the cosmolike dataset) and `train_args` (`nepochs`, `bs`, the nested `loss:` block (`mode` + the berhu `knot`/`cap`), the `model` /
 `optimizer` / `lr` / `scheduler` / `trim` / `focus` sub-blocks, the two-phase
 schedule — `trunk_epochs` plus the symmetric `trunk:` / `head:` per-phase
 override blocks — and the stability guards `clip` (per-step gradient-norm

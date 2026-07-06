@@ -298,15 +298,24 @@ Leg 2 (golden + head run):
       > /tmp/be_post.log 2>&1
     diff <(grep -E '^(phase|epoch|best)' /tmp/be_pre.log) \
          <(grep -E '^(phase|epoch|best)' /tmp/be_post.log)   # EMPTY
-    # a real mixed run (the D-B1 production shape): a two-phase YAML with
-    #   loss_mode: sqrt
-    #   berhu: {knot: 0.2, cap: 10}     # top-level, inherited by the head
-    #   head:  {loss_mode: berhu_capped}
-    # the trunk banner reads plain "loss_mode sqrt" (block inherited, not
-    # used) and the head banner "loss_mode berhu_capped (knot 0.2,
-    # cap 10)"; loss decreases; frac>0.2 tracked vs the sqrt-head baseline.
+    # a real head-berhu run (the production shape under the nested loss:
+    # schema, [[loss-block-nesting]]: the head owns its loss block, knots
+    # included; the D-B1 top-level inheritance is gone):
+    #   loss:
+    #     mode: sqrt
+    #   head:
+    #     loss:
+    #       mode: berhu_capped
+    #       berhu:
+    #         knot: 0.2
+    #         cap:  10
+    # the trunk banner reads plain "loss_mode sqrt" and the head banner
+    # "loss_mode berhu_capped (knot 0.2, cap 10)"; loss decreases; frac>0.2
+    # tracked vs the sqrt-head baseline.
 
-Open: GB-C (workstation) + the Architect re-audit (D-B1).
+Open: GB-C / GL-D (workstation, one golden + head run under the nested
+loss: schema). D-B1 was closed + committed; [[loss-block-nesting]] then
+deleted its inheritance machinery (the knots travel with the mode now).
 
 ### 2026-07-06 — Architect re-audit: ACCEPTED with ONE delta (D-B1,
 ### a spec gap the Architect owns)

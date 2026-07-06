@@ -9,7 +9,7 @@
 # The first value is the default (the training driver uses it; this
 # search warm-starts trial 0 from it). Lower nepochs here so each
 # trial is fast. String-valued keys (model.name / model.ia /
-# model.activation / loss_mode (sqrt | chi2 | sqrt_dchi2 | berhu |
+# model.activation / loss.mode (sqrt | chi2 | sqrt_dchi2 | berhu |
 # berhu_capped) / shapes) are fixed across the study, so run one study
 # per choice to compare them. The training YAML's
 # trunk_epochs / head two-phase keys are fixed scalars here on a
@@ -58,7 +58,8 @@ data:
 train_args:
   nepochs:   900         # lower than training -> faster trials
   bs:        256
-  loss_mode: sqrt
+  loss:                  # nested loss block; loss.mode is a fixed string
+    mode: sqrt           # key per study, loss.berhu.knot / .cap the knots
   # clip:   1.0          # per-step gradient-norm ceiling (0 / absent
   #                      # = off); rewind = reload best weights +
   # rewind: true         # optimizer on every plateau lr cut. See the

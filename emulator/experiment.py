@@ -77,7 +77,8 @@ from .activations import make_activation
 from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
   default_train_args, eval_source_chi2,
-  validate_phase_block, _PHASE_BLOCK_KEYS)
+  validate_phase_block, _PHASE_BLOCK_KEYS,
+  validate_loss, _loss_migration_message)
 
 
 # (architecture, ia) -> model class. Two orthogonal YAML choices:
@@ -391,8 +392,20 @@ def resolve_phase_args(train_args, two_phase):
     ValueError / TypeError from validate_phase_block on a malformed trunk:
     or head: block (a flat lr_base migration, an unknown key, a bs_base in
     the phase lr, a cls in the phase scheduler, or a non-mapping block) —
-    the same errors the two-phase run_emulator path raises.
+    the same errors the two-phase run_emulator path raises. Also a
+    ValueError on a flat top-level loss_mode / berhu key (loss options now
+    nest under a loss: block), printing the paste-ready block.
   """
+  # loud no-alias migration: the flat top-level loss_mode / berhu keys are
+  # gone, replaced by a nested loss: block (validate_loss). Reject them here,
+  # before any early return or demotion, so single- and two-phase models
+  # fail identically. run_emulator's validate_loss covers the loss block
+  # itself; this covers a top-level flat key that would otherwise be
+  # silently dropped (experiment.train reads only train_args["loss"]).
+  if "loss_mode" in train_args or "berhu" in train_args:
+    raise ValueError(_loss_migration_message(
+      train_args.get("loss_mode"), train_args.get("berhu"), "train_args"))
+
   # a two-phase model, or a plain single-phase YAML: nothing to resolve.
   has_phase = ("trunk_epochs" in train_args or "trunk" in train_args
                or "head" in train_args)
@@ -585,19 +598,25 @@ class EmulatorExperiment:
                    Top keys:
                      nepochs = passes over the training set;
                      bs = minibatch size;
-                     loss_mode = optional (default "sqrt"): per-sample
-                       transform "sqrt" / "chi2" / "sqrt_dchi2" /
-                       "berhu" (reversed Huber: sqrt below the berhu
-                       knot, chi2-like above, C1 there) / "berhu_capped"
-                       (berhu with the tail vote plateauing above the
-                       berhu cap, monster-robust);
+                     loss = optional nested block {mode, berhu} (absent or
+                       no mode -> mode "sqrt"): mode the per-sample
+                       transform "sqrt" / "chi2" / "sqrt_dchi2" / "berhu"
+                       (reversed Huber: sqrt below the berhu knot, chi2-like
+                       above, C1 there) / "berhu_capped" (berhu with the
+                       tail vote plateauing above the cap, monster-robust);
+                       berhu the {knot, cap} knot sub-block (defaults 0.2 /
+                       10.0), valid only beside a berhu mode (a berhu
+                       sub-block on a non-berhu mode raises, see
+                       validate_loss); per-phase overridable (full
+                       replacement) and sweepable (loss.mode /
+                       loss.berhu.knot / loss.berhu.cap);
                      silent = optional (default False): silence the run;
                      trunk_epochs = optional (default 0): two-phase
                        schedule, see run_emulator;
                      trunk / head = optional symmetric mappings of
-                       per-phase overrides (lr_base / loss_mode /
-                       trim / focus / clip / rewind) over the shared
-                       top-level defaults; need trunk_epochs > 0,
+                       per-phase overrides (lr / loss / trim / focus /
+                       clip / rewind) over the shared top-level
+                       defaults; need trunk_epochs > 0,
                        see run_emulator. On a single-phase model (any
                        name: resmlp, including ia nla / tatt; no
                        set_train_phase, unlike rescnn / restrf) train()
@@ -617,11 +636,6 @@ class EmulatorExperiment:
                        use the average, the scheduler the raw median,
                        and the shipped model is the best average, see
                        run_emulator;
-                     berhu = optional mapping {knot, cap} (defaults 0.2
-                       / 10.0) setting the C1 knots of loss_mode "berhu"
-                       / "berhu_capped"; per-phase overridable and
-                       sweepable; a berhu block with a non-berhu
-                       loss_mode raises (see validate_berhu).
                    Plus six constructible sub-blocks (each a mapping):
                      model = the nested model block: "name" (the
                        architecture: resmlp | rescnn | restrf) and
@@ -895,7 +909,7 @@ class EmulatorExperiment:
     ph = (f"  (two-phase: {tk} trunk + {ta['nepochs'] - tk} head)"
           if tk else "")
     self.log(f"run: nepochs {ta['nepochs']}  bs {ta['bs']}  "
-             f"loss_mode {ta.get('loss_mode', 'sqrt')}{ph}")
+             f"loss_mode {(ta.get('loss') or {}).get('mode', 'sqrt')}{ph}")
     # the stability guards (training.py run_emulator: clip = per-step
     # gradient-norm ceiling, rewind = reload the best snapshot at every
     # plateau lr cut); printed only when set, like the two-phase line.
@@ -1311,15 +1325,18 @@ class EmulatorExperiment:
       param_geometry=self.pgeom,
       nepochs=train_args["nepochs"],
       bs=train_args["bs"],
-      loss_mode=train_args.get("loss_mode", "sqrt"),
+      # nested loss block {mode, berhu} (absent -> mode sqrt); run_emulator
+      # validates it and resolves it per pass (a phase loss: full-replaces
+      # it). The flat loss_mode / berhu keys are gone (resolve_phase_args
+      # rejects them with the migration message).
+      loss=train_args.get("loss"),
       # two-phase schedule (trunk-then-head, factored conv/TRF heads):
       # epochs of pure-trunk training before the trunk freezes and the
       # head learns the residual; 0 / absent = ordinary joint training.
       # The symmetric trunk: / head: blocks override each pass's
-      # objective (lr_base / loss_mode / trim / focus) over the shared
-      # top-level defaults, by the handoff the trunk has absorbed
-      # most outliers, so the head may want e.g. loss_mode chi2 with
-      # no trim.
+      # objective (lr / loss / trim / focus) over the shared top-level
+      # defaults, by the handoff the trunk has absorbed most outliers, so
+      # the head may want e.g. loss {mode: chi2} with no trim.
       trunk_epochs=train_args.get("trunk_epochs", 0),
       trunk_opts=train_args.get("trunk"),
       head_opts=train_args.get("head"),
@@ -1336,10 +1353,6 @@ class EmulatorExperiment:
       # off = a byte-identical run. run_emulator validates the block and
       # couples the average to its snapshot/rewind (see training.py).
       ema=train_args.get("ema"),
-      # optional berhu loss knots (train_args.berhu {knot, cap}); absent
-      # = defaults. run_emulator resolves it per pass (phase full-replace)
-      # and validates against the pass's loss_mode.
-      berhu=train_args.get("berhu"),
       thresholds=self.thresholds,
       use_amp=self.use_amp,
       silent=silent_run,

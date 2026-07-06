@@ -216,17 +216,17 @@ def make_scheduler(optimizer, sched_opts):
   return cls(optimizer, **extra)
 
 
-# the eight keys a per-phase override block (train_args.trunk / .head) may
+# the seven keys a per-phase override block (train_args.trunk / .head) may
 # carry, mirroring the top-level train_args schema key-for-key: lr is an
 # overlay onto the top-level lr block, scheduler a full replacement of the
-# scheduler kwargs, the other six (loss_mode / trim / focus / clip /
-# rewind / berhu) replace their same-named top-level value (berhu is the
-# loss-family knot block, validated separately by validate_berhu against
-# the pass's loss_mode). validate_phase_block is the one whitelist,
-# imported by experiment.py (training must not import experiment, so the
-# validator lives here).
-_PHASE_BLOCK_KEYS = ("lr", "scheduler", "loss_mode", "trim", "focus",
-                     "clip", "rewind", "berhu")
+# scheduler kwargs, the other five (loss / trim / focus / clip / rewind)
+# replace their same-named top-level value (loss is the nested loss block
+# {mode, berhu}, full replacement like trim/focus and validated by
+# validate_loss). validate_phase_block is the one whitelist, imported by
+# experiment.py (training must not import experiment, so the validator
+# lives here).
+_PHASE_BLOCK_KEYS = ("lr", "scheduler", "loss", "trim", "focus",
+                     "clip", "rewind")
 
 
 def _phase_lr_migration_message(block, which):
@@ -272,11 +272,12 @@ def validate_phase_block(block, which):
   Raises:
     TypeError if the block (or its lr / scheduler sub-block) is present but
     not a mapping (a scalar `trunk: sqrt` is a config error, not a silent
-    no-op). ValueError on a bare lr_base (a migration error printing the
-    paste-ready nested lr: block), an unknown key (the seven-key
-    whitelist), a bs_base inside the phase lr (the sqrt-rule batch anchor
-    is run-global), or a cls inside the phase scheduler (the scheduler
-    class is the run's; a phase overrides only its kwargs).
+    no-op). ValueError on a bare lr_base or a flat loss_mode / berhu (each
+    a migration error printing the paste-ready nested block), an unknown
+    key (the seven-key whitelist), a bs_base inside the phase lr (the
+    sqrt-rule batch anchor is run-global), or a cls inside the phase
+    scheduler (the scheduler class is the run's; a phase overrides only its
+    kwargs).
   """
   if block is None:
     return None
@@ -288,6 +289,12 @@ def validate_phase_block(block, which):
   # to paste in its place (the phase blocks now mirror the top-level lr:).
   if "lr_base" in block:
     raise ValueError(_phase_lr_migration_message(block, which))
+  # the flat loss_mode / berhu keys are gone: loss options nest under one
+  # loss: block now. Reject either with the paste-ready loss: block, not a
+  # bare unknown-key error.
+  if "loss_mode" in block or "berhu" in block:
+    raise ValueError(_loss_migration_message(
+      block.get("loss_mode"), block.get("berhu"), which))
   unknown = set(block) - set(_PHASE_BLOCK_KEYS)
   if unknown:
     raise ValueError(
@@ -321,6 +328,11 @@ def validate_phase_block(block, which):
         f"train_args.{which}.scheduler must not set cls: the scheduler "
         f"class is the run's; a phase overrides only its kwargs "
         f"(mode / patience / factor / ...)")
+  # loss is the nested loss block {mode, berhu}; validate it here so a
+  # malformed phase loss block fails identically on the two-phase path
+  # (run_emulator) and the single-phase demotion (resolve_phase_args), and
+  # even when the block is later dropped (a head: on a single-phase model).
+  validate_loss(block.get("loss"), which)
   return block
 
 
@@ -564,48 +576,50 @@ def audit_devices(model, lossfn, device):
 # hundred rows.
 _EVAL_BS_TARGET = 1024
 
-# the default knot / cap of the berhu loss family (loss_mode "berhu" /
-# "berhu_capped"), used when a berhu mode runs with no train_args.berhu
-# block. knot 0.2 is the frac>0.2 goal threshold; cap 10.0 the
+# the default knot / cap of the berhu loss family (mode "berhu" /
+# "berhu_capped"), used when a berhu mode runs with no berhu: sub-block in
+# its loss block. knot 0.2 is the frac>0.2 goal threshold; cap 10.0 the
 # catastrophic band above which berhu_capped stops escalating the vote.
 _BERHU_DEFAULTS = {"knot": 0.2, "cap": 10.0}
 
 
 def validate_berhu(berhu, loss_mode, which):
   """
-  Validate a train_args.berhu block and resolve it to {knot, cap}.
+  Validate a berhu knot sub-block and resolve it to {knot, cap}.
 
-  A standalone pure function (no torch), beside validate_ema /
-  validate_phase_block. The berhu family's two knots are YAML parameters;
-  this fills the defaults, enforces the shape, and rejects a berhu block
-  paired with a non-berhu loss_mode (a silent no-op is a config error, the
-  trunk-without-trunk_epochs precedent).
+  A standalone pure function (no torch), called by validate_loss to check
+  the berhu: sub-block of a loss block. The berhu family's two knots are
+  YAML parameters; this fills the defaults, enforces the shape, and rejects
+  a berhu sub-block paired with a non-berhu mode (a silent no-op is a config
+  error, the trunk-without-trunk_epochs precedent). The enclosing loss block
+  always passes a concrete mode, so the check is unconditional.
 
   Arguments:
-    berhu     = the raw berhu block (train_args["berhu"] or a phase's), or
-                None when absent.
-    loss_mode = the resolved loss_mode this block applies to.
-    which     = "train_args" / "trunk" / "head", named in error messages.
+    berhu     = the raw berhu sub-block (loss["berhu"]), or None when
+                absent.
+    loss_mode = the resolved mode of the enclosing loss block.
+    which     = "loss" / "trunk.loss" / "head.loss", named in error
+                messages (the sub-block is train_args.{which}.berhu).
 
   Returns:
     the resolved {"knot", "cap"} mapping (defaults filled).
 
   Raises:
-    ValueError on: a berhu block with a non-berhu loss_mode; an unknown
+    ValueError on: a berhu sub-block with a non-berhu mode; an unknown
     key; a non-positive / non-numeric (bool rejected) knot or cap; or
     knot >= cap. TypeError if berhu is present but not a mapping.
   """
   is_berhu = loss_mode in ("berhu", "berhu_capped")
   if berhu is None:
-    # no block: the defaults (harmless for a non-berhu mode; the knots
+    # no sub-block: the defaults (harmless for a non-berhu mode; the knots
     # are built but the specialization never reads them).
     return dict(_BERHU_DEFAULTS)
-  if loss_mode is not None and not is_berhu:
+  if not is_berhu:
     raise ValueError(
-      f"train_args.{which} has a berhu: block but loss_mode is "
-      f"{loss_mode!r}, not a berhu mode; drop the block or set loss_mode "
-      f"to berhu / berhu_capped (a berhu block on a non-berhu loss is a "
-      f"silent no-op)")
+      f"train_args.{which} has a berhu: sub-block but mode is "
+      f"{loss_mode!r}, not a berhu mode; drop the sub-block or set mode "
+      f"to berhu / berhu_capped (a berhu sub-block on a non-berhu mode is "
+      f"a silent no-op)")
   if not isinstance(berhu, dict):
     raise TypeError(
       f"train_args.{which}.berhu must be a mapping {{knot, cap}}, got "
@@ -634,6 +648,117 @@ def validate_berhu(berhu, loss_mode, which):
       f"train_args.{which}.berhu needs knot < cap, got knot "
       f"{out['knot']}, cap {out['cap']}")
   return out
+
+
+# the five loss transforms CosmolikeChi2._reduce implements; validate_loss
+# whitelists them at config time, so a typo'd mode fails at startup instead
+# of surviving to the first compiled loss call. Order matches the _reduce
+# ladder.
+_LOSS_MODES = ("chi2", "sqrt", "sqrt_dchi2", "berhu", "berhu_capped")
+
+# the keys a train_args.loss block accepts: the mode string and the berhu
+# knot sub-block (valid only beside a berhu mode; see validate_loss).
+_LOSS_KEYS = ("mode", "berhu")
+
+
+def validate_loss(loss, which):
+  """
+  Validate a train_args.loss block and resolve it to {mode, berhu}.
+
+  A standalone pure function (no torch), beside validate_ema /
+  validate_berhu. The loss block localizes every loss option: the mode
+  string and, for the berhu family, its {knot, cap} sub-block. Absent (or
+  no mode key) resolves to plain "sqrt", the run default, byte-identical to
+  a run with no loss block. The berhu sub-block routes through
+  validate_berhu against this block's own mode, so "a berhu sub-block on a
+  non-berhu mode" is a purely local error (no cross-pass logic).
+
+  Arguments:
+    loss  = the raw loss block (train_args["loss"] or a phase's), or None
+            when absent.
+    which = "train_args" / "trunk" / "head", naming the block's container
+            in error messages (the block itself is {which}.loss).
+
+  Returns:
+    a {"mode", "berhu"} mapping: mode one of _LOSS_MODES; berhu the resolved
+    {knot, cap} for a berhu mode, or None for a non-berhu mode (which
+    carries no knots, the training loop uses the unused defaults).
+
+  Raises:
+    TypeError if loss is present but not a mapping. ValueError on an unknown
+    key, an unknown mode (naming the five), or (via validate_berhu) a berhu
+    sub-block paired with a non-berhu mode / a malformed knot pair.
+  """
+  qual = ("train_args.loss" if which == "train_args"
+          else f"train_args.{which}.loss")
+  if loss is None:
+    return {"mode": "sqrt", "berhu": None}
+  if not isinstance(loss, dict):
+    raise TypeError(
+      f"{qual} must be a mapping {{mode, berhu}}, got "
+      f"{type(loss).__name__}")
+  unknown = set(loss) - set(_LOSS_KEYS)
+  if unknown:
+    raise ValueError(
+      f"unknown {qual} key(s): {sorted(unknown)}; allowed: "
+      f"{list(_LOSS_KEYS)}")
+  mode = loss.get("mode", "sqrt")
+  if mode not in _LOSS_MODES:
+    raise ValueError(
+      f"unknown {qual}.mode {mode!r}; one of {list(_LOSS_MODES)}")
+  # the berhu sub-block is validated against this block's mode (the local
+  # check that replaces the deleted cross-pass D-B1 machinery). validate_berhu
+  # names it train_args.{which_berhu}.berhu, so pass "loss" / "trunk.loss".
+  which_berhu = "loss" if which == "train_args" else f"{which}.loss"
+  resolved = validate_berhu(loss.get("berhu"), mode, which_berhu)
+  # a non-berhu mode carries no knots (None -> the training loop's unused
+  # defaults); a berhu mode keeps the resolved pair for its knot tensors.
+  berhu = resolved if mode in ("berhu", "berhu_capped") else None
+  return {"mode": mode, "berhu": berhu}
+
+
+def _loss_migration_message(loss_mode, berhu, which):
+  """
+  Build the paste-ready nested loss: block for the flat-key migration.
+
+  The flat train_args.loss_mode string and the top-level train_args.berhu
+  block are gone (the no-alias rule); both nest under one loss: block. This
+  renders the offending flat values as a valid loss: sub-block to paste in
+  their place, the param_cuts / phase-lr migration precedent.
+
+  Arguments:
+    loss_mode = the offending flat loss_mode value, or None when absent.
+    berhu     = the offending flat berhu block, or None when absent.
+    which     = "train_args" / "trunk" / "head"; the flat keys sit directly
+                under it, and the message names it.
+
+  Returns:
+    a multi-line message whose body is a paste-ready loss: block carrying
+    the old flat values over.
+  """
+  prefix = ("train_args" if which == "train_args"
+            else f"train_args.{which}")
+  gone = []
+  if loss_mode is not None:
+    gone.append(f"{prefix}.loss_mode")
+  if berhu is not None:
+    gone.append(f"{prefix}.berhu")
+  verb  = "is" if len(gone) == 1 else "are"
+  it    = "it" if len(gone) == 1 else "them"
+  under = "" if which == "train_args" else f" under {which}:"
+  lines = [
+    f"{' and '.join(gone)} {verb} gone: loss options now nest under a "
+    f"single loss: block. Replace {it}{under} with:",
+    "",
+    "  loss:",
+    f"    mode: {loss_mode if loss_mode is not None else 'berhu_capped'}",
+  ]
+  if isinstance(berhu, dict):
+    lines.append("    berhu:")
+    for key in ("knot", "cap"):
+      if key in berhu:
+        lines.append(f"      {key}: {berhu[key]}")
+  return "\n".join(lines)
 
 
 def derive_eval_bs(n_val, target, load):
@@ -1034,11 +1159,12 @@ def training_loop_batched(nepochs,
                  scheduler stays on the raw median (dynamics
                  unchanged). The returned model carries the best
                  average.
-    berhu      = the resolved {knot, cap} for loss_mode berhu /
-                 berhu_capped (run_emulator validated it against this
-                 pass's loss_mode); None -> the defaults. Built into
-                 the 0-dim knot / cap tensors the loss reads; the
-                 non-berhu modes ignore them.
+    berhu      = the resolved {knot, cap} for the berhu / berhu_capped
+                 modes (run_emulator resolved it from the pass's loss
+                 block via validate_loss); None -> the defaults (a
+                 non-berhu mode carries none). Built into the 0-dim
+                 knot / cap tensors the loss reads; the non-berhu modes
+                 ignore them.
 
   Returns:
     train_losses, medians, means, fracs = per-epoch lists
@@ -1143,8 +1269,8 @@ def training_loop_batched(nepochs,
   # everywhere; kappa is fixed per pass, so it is created once, not
   # filled per epoch.
   kappa_t = torch.as_tensor(float(kappa), device=device)
-  # the berhu family knots (loss_mode "berhu" / "berhu_capped"), resolved
-  # from the train_args.berhu block (run_emulator passed the validated
+  # the berhu family knots (mode "berhu" / "berhu_capped"), resolved from
+  # the pass's loss block (run_emulator passed the validate_loss'd
   # {knot, cap}; None = the defaults). Built once per pass as 0-dim device
   # tensors, the same graph-safe discipline as kappa_t (a Python float in
   # the traced closure can surface as a CPU input and kill CUDA-graph
@@ -1526,7 +1652,7 @@ def run_emulator(train_set,
                  device,
                  bs=128,
                  nepochs=300,
-                 loss_mode="sqrt",
+                 loss=None,
                  model_opts=None,
                  opt_opts=None,
                  lr_opts=None,
@@ -1543,8 +1669,7 @@ def run_emulator(train_set,
                  trunk_epochs=0,
                  trunk_opts=None,
                  head_opts=None,
-                 ema=None,
-                 berhu=None):
+                 ema=None):
   """
   One training run; model, optimizer, schedule auto-built.
 
@@ -1567,7 +1692,7 @@ def run_emulator(train_set,
        │  head + gates only, from the zero-init identity start, so
        │  the loss is continuous at the handoff (fresh optimizer /
        │  warmup / scheduler; the trunk: / head: blocks override
-       │  lr_base / loss_mode / trim / focus / clip / rewind per
+       │  lr / loss / trim / focus / clip / rewind per
        │  phase)
        ▼
     model restored to the head pass's best frac>0.2 epoch
@@ -1590,12 +1715,16 @@ def run_emulator(train_set,
                      torch.device) would fail the .type checks.
     bs           = minibatch size.
     nepochs      = number of passes over the training set.
-    loss_mode    = loss transform ("sqrt", "chi2", "sqrt_dchi2",
-                   "berhu" = sqrt below the berhu knot, chi2-like
-                   above; "berhu_capped" = the same but the tail vote
-                   plateaus above the berhu cap, monster-robust; C1 at
-                   the knots, see CosmolikeChi2._reduce + the berhu
-                   block).
+    loss         = optional nested loss block {mode, berhu} (None or no
+                   mode key -> {mode: "sqrt"}, byte-identical to the old
+                   default). mode one of "sqrt" / "chi2" / "sqrt_dchi2" /
+                   "berhu" (sqrt below the berhu knot, chi2-like above) /
+                   "berhu_capped" (the tail vote plateaus above the cap,
+                   monster-robust; C1 at the knots, see
+                   CosmolikeChi2._reduce). berhu = the {knot, cap} knot
+                   sub-block (defaults 0.2 / 10.0), valid only beside a
+                   berhu mode. Resolved per pass (a phase loss: block
+                   full-replaces it); validate_loss enforces the schema.
     model_opts   = model spec dict (see make_model): "cls" the
                    model class + constructor settings. None ->
                    ResMLP, int_dim_res 128, n_blocks 4, block_opts
@@ -1670,7 +1799,9 @@ def run_emulator(train_set,
                        kwargs (mode / patience / factor / ...), keeping
                        the run's scheduler class (a lower head patience
                        lives here);
-                     "loss_mode" -> the pass's loss transform;
+                     "loss"      -> the pass's nested loss block
+                       {mode, berhu}, a full replacement (a berhu head
+                       restates its whole loss block, knots included);
                      "trim"      -> the pass's trim schedule, a
                        full replacement block (its hold/anneal
                        count from the pass's own epoch 1);
@@ -1694,14 +1825,6 @@ def run_emulator(train_set,
                    the plateau scheduler stays on the raw median, and
                    the returned model carries the best average. Off =
                    a byte-identical run. Re-initialized per phase.
-    berhu        = optional top-level berhu block {knot, cap} for the
-                   berhu / berhu_capped losses (defaults 0.2 / 10.0). A
-                   phase berhu: full-replaces it for that phase and is
-                   mode-checked against that phase's own loss_mode (a
-                   phase-scoped block on a non-berhu phase raises); the
-                   top-level block is inherited by whichever pass runs a
-                   berhu mode, rejected up front only when no pass runs
-                   one. None = the defaults.
 
   Returns:
     model        = trained network, restored to the best frac>0.2
@@ -1733,30 +1856,11 @@ def run_emulator(train_set,
   # it per phase. Fails before any setup work, like the guards above.
   ema = validate_ema(ema)
 
-  # a top-level berhu: block that no pass can consume is a silent no-op
-  # (the trunk-without-trunk_epochs precedent). The block is inherited by
-  # whichever pass runs a berhu mode, so gather the loss_mode of every
-  # pass that will run (the run mode, or each phase's resolved mode under
-  # the two-phase schedule) and reject the block up front when none is a
-  # berhu mode. A phase's own berhu: block is mode-checked later, per pass.
-  if berhu is not None:
-    if trunk_epochs > 0:
-      pass_modes = [(trunk_opts or {}).get("loss_mode", loss_mode),
-                    (head_opts or {}).get("loss_mode", loss_mode)]
-    else:
-      pass_modes = [loss_mode]
-    any_berhu = False
-    for m in pass_modes:
-      if m in ("berhu", "berhu_capped"):
-        any_berhu = True
-    if not any_berhu:
-      where = ("the run or either phase" if trunk_epochs > 0
-               else "the run")
-      raise ValueError(
-        f"train_args has a berhu: block but no pass runs a berhu mode "
-        f"(loss_mode is not berhu / berhu_capped in {where}); drop the "
-        f"block or set a berhu loss_mode (a berhu block with no berhu "
-        f"mode is a silent no-op)")
+  # validate the optional loss block once, up front (None or no mode key ->
+  # {mode: sqrt}, byte-identical to the old default): the mode whitelist and
+  # the berhu sub-block's local mode check, before any setup work. Each pass
+  # re-resolves it below (a phase loss: full-replaces the top-level one).
+  validate_loss(loss, "train_args")
 
   if model_opts is None:
     model_opts = {"cls": ResMLP,
@@ -1952,8 +2056,9 @@ def run_emulator(train_set,
     # their own pass. The seven keys mirror the top-level schema: lr is
     # an overlay {lr_base (same sqrt-batch rule), warmup_epochs}, scheduler
     # a full replacement of the kwargs (the run's class stays), and
-    # loss_mode / trim / focus / clip / rewind replace their value (trim /
-    # focus each restart at the pass's own epoch 1, like the main ones).
+    # loss / trim / focus / clip / rewind replace their value (loss is the
+    # nested {mode, berhu} block, resolved just below; trim / focus each
+    # restart at the pass's own epoch 1, like the main ones).
     phase_opts = None
     if phase == "trunk":
       phase_opts = trunk_opts
@@ -1962,7 +2067,6 @@ def run_emulator(train_set,
     lr_pass     = learning_rate
     wmupe_pass  = wmupe
     sched_pass  = sched_opts
-    mode_pass   = loss_mode
     trim_pass   = trim_opts
     focus_pass  = focus_opts
     clip_pass   = clip
@@ -1978,29 +2082,22 @@ def run_emulator(train_set,
       # scheduler: full replacement of the kwargs, keeping the run's class.
       if "scheduler" in phase_opts:
         sched_pass = {"cls": sched_opts["cls"], **phase_opts["scheduler"]}
-      mode_pass   = phase_opts.get("loss_mode", loss_mode)
       trim_pass   = phase_opts.get("trim", trim_opts)
       focus_pass  = phase_opts.get("focus", focus_opts)
       clip_pass   = phase_opts.get("clip", clip)
       rewind_pass = phase_opts.get("rewind", rewind)
-    # resolve the effective berhu block for this pass. A phase berhu:
-    # full-replaces the top-level one (trim/focus semantics) and is
-    # mode-checked against this pass's loss_mode: a phase-scoped block on
-    # a non-berhu phase is genuinely inert -> a loud error. An inherited
-    # top-level block, though, legitimately serves whichever pass runs a
-    # berhu mode, so it is validated for shape only (loss_mode=None); the
-    # run-level guard above already rejected a top-level block no pass
-    # uses. Fills the {knot, cap} defaults either way.
-    phase_owns_berhu = phase_opts is not None and "berhu" in phase_opts
-    if phase_owns_berhu:
-      raw_berhu  = phase_opts["berhu"]
-      berhu_mode = mode_pass
-      which_b    = phase
-    else:
-      raw_berhu  = berhu
-      berhu_mode = mode_pass if phase is None else None
-      which_b    = "train_args"
-    berhu_pass = validate_berhu(raw_berhu, berhu_mode, which_b)
+    # resolve the effective loss block for this pass: a phase loss:
+    # full-replaces the top-level one (the scheduler/trim/focus full
+    # replacement), then validate_loss resolves {mode, berhu}. The berhu
+    # sub-block's mode check is local to its loss block, so no cross-pass
+    # logic is needed (a berhu head simply restates its own loss block).
+    loss_raw = loss
+    if phase_opts is not None and "loss" in phase_opts:
+      loss_raw = phase_opts["loss"]
+    which_l = phase if phase is not None else "train_args"
+    loss_pass  = validate_loss(loss_raw, which_l)
+    mode_pass  = loss_pass["mode"]
+    berhu_pass = loss_pass["berhu"]
     if phase is not None and not silent:
       noted = []
       if wmupe_pass != wmupe:
