@@ -72,6 +72,17 @@ train_args:
     #                      # sqrt-shaped again above (accepted but unused
     #                      # under plain berhu). Valid only beside a berhu
     #                      # mode; a per-phase loss: block full-replaces it.
+    #   anneal:            # optional (presence = on; absent = full berhu
+    #                      # from epoch 1). Start as plain sqrt everywhere
+    #                      # and blend into the berhu shape on a trim-style
+    #                      # schedule, so the escalated (knot, cap) window
+    #                      # votes arrive late (few outliers still pass
+    #                      # down through the window by then). Advice: set
+    #                      # hold_epochs >= the trim hold, so trim absorbs
+    #                      # the monsters while berhu is still soft.
+    #     hold_epochs:   50    # plain sqrt through here (s = 0)
+    #     anneal_epochs: 300   # then ramp s 0 -> 1 over this many epochs
+    #     shape:         cosine  # cosine | linear | step | const
   silent:    false       # false -> per-epoch progress lines
 
   # Stability guards (both optional, both default off; the trunk: /

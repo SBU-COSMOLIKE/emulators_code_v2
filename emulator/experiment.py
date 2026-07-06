@@ -607,9 +607,13 @@ class EmulatorExperiment:
                        berhu the {knot, cap} knot sub-block (defaults 0.2 /
                        10.0), valid only beside a berhu mode (a berhu
                        sub-block on a non-berhu mode raises, see
-                       validate_loss); per-phase overridable (full
-                       replacement) and sweepable (loss.mode /
-                       loss.berhu.knot / loss.berhu.cap);
+                       validate_loss), with an optional anneal: sub-block
+                       {hold_epochs, anneal_epochs, shape} (presence = on)
+                       ramping the loss from plain sqrt into the full berhu
+                       shape (the escalated window votes arrive late);
+                       per-phase overridable (full replacement) and
+                       sweepable (loss.mode / loss.berhu.knot /
+                       loss.berhu.cap / loss.berhu.anneal.hold_epochs);
                      silent = optional (default False): silence the run;
                      trunk_epochs = optional (default 0): two-phase
                        schedule, see run_emulator;

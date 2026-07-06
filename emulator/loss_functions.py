@@ -194,7 +194,8 @@ class CosmolikeChi2:
     return torch.einsum("bi,ij,bj->b", r, geo.Cinv_sq, r)
 
   def loss(self, pred, target, mode="sqrt", trim=0.05,
-           focus=0.0, focus_scale=1.0, berhu_knot=None, berhu_cap=None):
+           focus=0.0, focus_scale=1.0, berhu_knot=None, berhu_cap=None,
+           berhu_s=None):
     """
     Scalar training loss from the per-sample chi2.
 
@@ -235,16 +236,21 @@ class CosmolikeChi2:
                     (train_args.loss.berhu.cap, default 10.0); a 0-dim
                     device tensor. None otherwise. A berhu mode
                     missing its required knot(s) raises.
+      berhu_s     = optional blend factor for the berhu anneal
+                    (train_args.loss.berhu.anneal): a 0-dim device tensor
+                    in [0, 1], s = 0 -> plain sqrt, s = 1 -> the full berhu
+                    form (see _reduce). None (default) -> no blend, the
+                    berhu branch is byte-identical.
     Returns:
       a scalar loss tensor (the trimmed, focal-weighted mean).
     """
     c = self.chi2(pred=pred, target=target)   # per-sample chi2, (B,)
     return self._reduce(c=c, mode=mode, trim=trim, focus=focus,
                         focus_scale=focus_scale, berhu_knot=berhu_knot,
-                        berhu_cap=berhu_cap)
+                        berhu_cap=berhu_cap, berhu_s=berhu_s)
 
   def _reduce(self, c, mode, trim, focus, focus_scale, berhu_knot=None,
-              berhu_cap=None):
+              berhu_cap=None, berhu_s=None):
     """
     Per-sample chi2 -> scalar loss: trim, transform, focal mean.
     Shared by every loss variant (the subclasses change how c is
@@ -305,6 +311,13 @@ class CosmolikeChi2:
                     (train_args.loss.berhu.cap, default 10.0); a 0-dim
                     device tensor. None otherwise. A berhu mode
                     missing a required knot raises.
+      berhu_s     = optional berhu anneal blend factor (0-dim device
+                    tensor in [0, 1]): v = (1 - s) sqrt(c) + s v_berhu, so
+                    s = 0 is exactly sqrt and s = 1 exactly the berhu form.
+                    Every intermediate is C1 (a convex combination of two
+                    C1 functions). None (default) leaves the berhu branch
+                    byte-identical (a static per-pass specialization: the
+                    blend ops only enter the graph when berhu_s is passed).
 
     Returns:
       a scalar loss tensor.
@@ -345,6 +358,10 @@ class CosmolikeChi2:
           "training loop passes train_args.loss.berhu.knot")
       v = torch.where(c <= berhu_knot, torch.sqrt(c),
                       (c + berhu_knot) / (2.0 * torch.sqrt(berhu_knot)))
+      if berhu_s is not None:
+        # anneal: blend from plain sqrt (s=0) into the berhu form (s=1);
+        # C1 for every s (convex combo of two C1 functions).
+        v = (1.0 - berhu_s) * torch.sqrt(c) + berhu_s * v
     elif mode == "berhu_capped":
       # berhu up to a second knot t2 = berhu_cap, then sqrt-shaped again:
       # region 3 is a*sqrt(c)+b (a = sqrt(t2/t1), b = (t1-t2)/(2 sqrt t1)),
@@ -363,6 +380,10 @@ class CosmolikeChi2:
           (c + berhu_knot) / (2.0 * torch.sqrt(berhu_knot)),
           (2.0 * torch.sqrt(berhu_cap * c) + berhu_knot - berhu_cap)
           / (2.0 * torch.sqrt(berhu_knot))))
+      if berhu_s is not None:
+        # anneal: blend from plain sqrt (s=0) into the capped form (s=1);
+        # C1 for every s (convex combo of two C1 functions).
+        v = (1.0 - berhu_s) * torch.sqrt(c) + berhu_s * v
     else:
       raise ValueError(f"unknown loss mode: {mode}")
 

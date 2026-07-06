@@ -183,7 +183,7 @@ class NLAAmpFactoredChi2(CosmolikeChi2):
                         column).
       *args, **kwargs = reduction knobs forwarded verbatim to the
                         base loss (mode, trim, focus, focus_scale,
-                        berhu_knot, berhu_cap).
+                        berhu_knot, berhu_cap, berhu_s).
 
     Returns:
       the scalar training loss.
@@ -339,7 +339,7 @@ class TemplateFactoredChi2(CosmolikeChi2):
                         last n_amps columns).
       *args, **kwargs = reduction knobs forwarded verbatim to the
                         base loss (mode, trim, focus, focus_scale,
-                        berhu_knot, berhu_cap).
+                        berhu_knot, berhu_cap, berhu_s).
 
     Returns:
       the scalar training loss.

@@ -582,17 +582,79 @@ _EVAL_BS_TARGET = 1024
 # catastrophic band above which berhu_capped stops escalating the vote.
 _BERHU_DEFAULTS = {"knot": 0.2, "cap": 10.0}
 
+# the keys the optional berhu anneal: sub-block accepts (trim's argument
+# names) and the schedule shapes it may name (the anneal_value helper's
+# set). Present -> the loss ramps from plain sqrt into the full berhu shape
+# over the schedule; see _validate_berhu_anneal and the s_t threading in
+# training_loop_batched.
+_ANNEAL_KEYS   = ("hold_epochs", "anneal_epochs", "shape")
+_ANNEAL_SHAPES = ("const", "linear", "cosine", "step")
+
+
+def _validate_berhu_anneal(anneal, which):
+  """
+  Validate the optional anneal: sub-block of a loss.berhu block.
+
+  The anneal schedule (trim's argument names) ramps a blend factor s from 0
+  to 1, so a berhu run starts as plain sqrt and eases into the full berhu
+  shape; the training loop feeds {start: 0, end: 1, **this block} to the
+  existing anneal_value helper (no new schedule code). Standalone / pure
+  (no torch).
+
+  Arguments:
+    anneal = the raw anneal sub-block (loss["berhu"]["anneal"]).
+    which  = "loss" / "trunk.loss" / "head.loss"; the block is
+             train_args.{which}.berhu.anneal, named in error messages.
+
+  Returns:
+    the validated anneal mapping (a copy).
+
+  Raises:
+    TypeError if anneal is not a mapping. ValueError on an unknown key, a
+    missing key, a non-integer / negative hold_epochs, an anneal_epochs
+    below 1 (bool rejected in both), or an unknown shape.
+  """
+  q = f"train_args.{which}.berhu.anneal"
+  if not isinstance(anneal, dict):
+    raise TypeError(
+      f"{q} must be a mapping {{hold_epochs, anneal_epochs, shape}}, got "
+      f"{type(anneal).__name__}")
+  unknown = set(anneal) - set(_ANNEAL_KEYS)
+  if unknown:
+    raise ValueError(
+      f"unknown {q} key(s): {sorted(unknown)}; allowed: "
+      f"{sorted(_ANNEAL_KEYS)}")
+  for key in _ANNEAL_KEYS:
+    if key not in anneal:
+      raise ValueError(
+        f"{q} needs '{key}' (the sub-block is {{{', '.join(_ANNEAL_KEYS)}}})")
+  # hold_epochs >= 0, anneal_epochs >= 1, both integers (bool is an int
+  # subclass but never an epoch count).
+  for key, lo in (("hold_epochs", 0), ("anneal_epochs", 1)):
+    val = anneal[key]
+    if isinstance(val, bool) or not isinstance(val, int):
+      raise ValueError(
+        f"{q}.{key} must be an integer >= {lo}, got {val!r}")
+    if val < lo:
+      raise ValueError(f"{q}.{key} must be >= {lo}, got {val}")
+  shape = anneal["shape"]
+  if shape not in _ANNEAL_SHAPES:
+    raise ValueError(
+      f"unknown {q}.shape {shape!r}; one of {list(_ANNEAL_SHAPES)}")
+  return dict(anneal)
+
 
 def validate_berhu(berhu, loss_mode, which):
   """
-  Validate a berhu knot sub-block and resolve it to {knot, cap}.
+  Validate a berhu knot sub-block and resolve it to {knot, cap, anneal}.
 
   A standalone pure function (no torch), called by validate_loss to check
   the berhu: sub-block of a loss block. The berhu family's two knots are
-  YAML parameters; this fills the defaults, enforces the shape, and rejects
-  a berhu sub-block paired with a non-berhu mode (a silent no-op is a config
-  error, the trunk-without-trunk_epochs precedent). The enclosing loss block
-  always passes a concrete mode, so the check is unconditional.
+  YAML parameters, plus an optional anneal: sub-block (the sqrt -> berhu
+  ramp); this fills the defaults, enforces the shape, and rejects a berhu
+  sub-block paired with a non-berhu mode (a silent no-op is a config error,
+  the trunk-without-trunk_epochs precedent). The enclosing loss block always
+  passes a concrete mode, so the check is unconditional.
 
   Arguments:
     berhu     = the raw berhu sub-block (loss["berhu"]), or None when
@@ -602,18 +664,23 @@ def validate_berhu(berhu, loss_mode, which):
                 messages (the sub-block is train_args.{which}.berhu).
 
   Returns:
-    the resolved {"knot", "cap"} mapping (defaults filled).
+    the resolved {"knot", "cap", "anneal"} mapping (defaults filled; anneal
+    the validated sub-block or None when absent).
 
   Raises:
     ValueError on: a berhu sub-block with a non-berhu mode; an unknown
-    key; a non-positive / non-numeric (bool rejected) knot or cap; or
-    knot >= cap. TypeError if berhu is present but not a mapping.
+    key; a non-positive / non-numeric (bool rejected) knot or cap;
+    knot >= cap; or a malformed anneal sub-block (see
+    _validate_berhu_anneal). TypeError if berhu (or its anneal) is present
+    but not a mapping.
   """
   is_berhu = loss_mode in ("berhu", "berhu_capped")
   if berhu is None:
     # no sub-block: the defaults (harmless for a non-berhu mode; the knots
-    # are built but the specialization never reads them).
-    return dict(_BERHU_DEFAULTS)
+    # are built but the specialization never reads them). No anneal.
+    out = dict(_BERHU_DEFAULTS)
+    out["anneal"] = None
+    return out
   if not is_berhu:
     raise ValueError(
       f"train_args.{which} has a berhu: sub-block but mode is "
@@ -624,11 +691,11 @@ def validate_berhu(berhu, loss_mode, which):
     raise TypeError(
       f"train_args.{which}.berhu must be a mapping {{knot, cap}}, got "
       f"{type(berhu).__name__}")
-  unknown = set(berhu) - {"knot", "cap"}
+  unknown = set(berhu) - {"knot", "cap", "anneal"}
   if unknown:
     raise ValueError(
       f"unknown train_args.{which}.berhu key(s): {sorted(unknown)}; "
-      f"allowed: ['cap', 'knot']")
+      f"allowed: ['anneal', 'cap', 'knot']")
   out = dict(_BERHU_DEFAULTS)
   for key in ("knot", "cap"):
     if key not in berhu:
@@ -647,6 +714,11 @@ def validate_berhu(berhu, loss_mode, which):
     raise ValueError(
       f"train_args.{which}.berhu needs knot < cap, got knot "
       f"{out['knot']}, cap {out['cap']}")
+  # the optional anneal: sub-block (presence = on; the sqrt -> berhu ramp).
+  if "anneal" in berhu:
+    out["anneal"] = _validate_berhu_anneal(berhu["anneal"], which)
+  else:
+    out["anneal"] = None
   return out
 
 
@@ -1159,12 +1231,16 @@ def training_loop_batched(nepochs,
                  scheduler stays on the raw median (dynamics
                  unchanged). The returned model carries the best
                  average.
-    berhu      = the resolved {knot, cap} for the berhu / berhu_capped
-                 modes (run_emulator resolved it from the pass's loss
-                 block via validate_loss); None -> the defaults (a
-                 non-berhu mode carries none). Built into the 0-dim
-                 knot / cap tensors the loss reads; the non-berhu modes
-                 ignore them.
+    berhu      = the resolved {knot, cap, anneal} for the berhu /
+                 berhu_capped modes (run_emulator resolved it from the
+                 pass's loss block via validate_loss); None -> the defaults
+                 (a non-berhu mode carries none). knot / cap feed the 0-dim
+                 tensors the loss reads (non-berhu modes ignore them). A
+                 present anneal sub-block {hold_epochs, anneal_epochs,
+                 shape} enables the sqrt -> berhu blend: a 0-dim s_t tensor
+                 filled in place per epoch from anneal_value (start 0,
+                 end 1) and passed as berhu_s; absent -> no blend (the
+                 branch is byte-identical to before this feature).
 
   Returns:
     train_losses, medians, means, fracs = per-epoch lists
@@ -1278,8 +1354,27 @@ def training_loop_batched(nepochs,
   berhu_r = _BERHU_DEFAULTS if berhu is None else berhu
   knot_t = torch.as_tensor(float(berhu_r["knot"]), device=device)
   cap_t  = torch.as_tensor(float(berhu_r["cap"]), device=device)
+  # the berhu anneal schedule (loss.berhu.anneal), if present: blend the
+  # loss from plain sqrt (s = 0) into the full berhu form (s = 1) over a
+  # trim-style schedule, so the escalated (knot, cap) window votes arrive
+  # late (few points still pass down through the window by then). s_t is a
+  # 0-dim device tensor filled in place per epoch (the trim_t / focus_t
+  # pattern), passed to _fwd_loss as berhu_s; None when the anneal block is
+  # absent, so the blend ops never enter the compiled graph (static
+  # specialization -> byte-identical to a run without the block). start 0 /
+  # end 1 feed the existing anneal_value helper (no new schedule code).
+  berhu_anneal = berhu_r.get("anneal")
+  s_t    = None
+  s_opts = None
+  if berhu_anneal is not None:
+    s_t = torch.zeros((), device=device)
+    s_opts = {"shape":         berhu_anneal["shape"],
+              "start":         0.0,
+              "end":           1.0,
+              "hold_epochs":   berhu_anneal["hold_epochs"],
+              "anneal_epochs": berhu_anneal["anneal_epochs"]}
 
-  def _fwd_loss(xb, yb, trim, focus):
+  def _fwd_loss(xb, yb, trim, focus, berhu_s):
     # the model forward under autocast (unchanged semantics); the
     # loss math stays outside it, in full precision.
     with torch.autocast(device.type,
@@ -1291,10 +1386,11 @@ def training_loop_batched(nepochs,
                          params_whitened=xb, mode=mode,
                          trim=trim, focus=focus,
                          focus_scale=kappa_t, berhu_knot=knot_t,
-                         berhu_cap=cap_t)
+                         berhu_cap=cap_t, berhu_s=berhu_s)
     return lossfn.loss(pred, target=yb, mode=mode, trim=trim,
                        focus=focus, focus_scale=kappa_t,
-                       berhu_knot=knot_t, berhu_cap=cap_t)
+                       berhu_knot=knot_t, berhu_cap=cap_t,
+                       berhu_s=berhu_s)
 
   # the eval twin: model forward + per-sample chi2 in one compiled
   # graph, handed to eval_val (same launch-bound argument, and it
@@ -1423,6 +1519,12 @@ def training_loop_batched(nepochs,
     # compiled fwd_loss reads (in-place: no recompile, no realloc).
     trim_t.fill_(rob)
     focus_t.fill_(focus)
+    # the berhu anneal blend factor s (0 -> plain sqrt, 1 -> full berhu),
+    # on the same in-place per-epoch schedule; only when the anneal block is
+    # present (s_t stays None otherwise, so the blend is absent from the
+    # compiled graph). The schedule restarts at this pass's own epoch 1.
+    if s_t is not None:
+      s_t.fill_(anneal_value(epoch=epoch, opts=s_opts))
 
     # epoch training loss, accumulated on-device
     run_sum = torch.zeros((),
@@ -1450,7 +1552,7 @@ def training_loop_batched(nepochs,
       # data is permanently lost.
       n_full = (Cc.shape[0] // bs) * bs   # whole batches only
       for s in range(0, n_full, bs):
-        loss = fwd_loss(Cc[s:s+bs], dvc[s:s+bs], trim_t, focus_t)
+        loss = fwd_loss(Cc[s:s+bs], dvc[s:s+bs], trim_t, focus_t, s_t)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         # gradient-norm clipping (0 = off): rescale the full
@@ -1723,7 +1825,10 @@ def run_emulator(train_set,
                    monster-robust; C1 at the knots, see
                    CosmolikeChi2._reduce). berhu = the {knot, cap} knot
                    sub-block (defaults 0.2 / 10.0), valid only beside a
-                   berhu mode. Resolved per pass (a phase loss: block
+                   berhu mode, with an optional anneal: sub-block
+                   {hold_epochs, anneal_epochs, shape} that ramps the loss
+                   from plain sqrt into the full berhu shape (presence =
+                   on). Resolved per pass (a phase loss: block
                    full-replaces it); validate_loss enforces the schema.
     model_opts   = model spec dict (see make_model): "cls" the
                    model class + constructor settings. None ->
@@ -2115,12 +2220,19 @@ def run_emulator(train_set,
       tail = (f"  [{phase} overrides: {', '.join(noted)}]"
               if noted else "")
       # berhu prints its resolved knot(s) (the cap too for the capped
-      # variant); other modes are unchanged.
-      if mode_pass == "berhu":
-        knot_note = f" (knot {berhu_pass['knot']:g})"
-      elif mode_pass == "berhu_capped":
-        knot_note = (f" (knot {berhu_pass['knot']:g}, "
-                     f"cap {berhu_pass['cap']:g})")
+      # variant) and, when the anneal: schedule is set, its hold + ramp;
+      # other modes are unchanged.
+      if mode_pass in ("berhu", "berhu_capped"):
+        if mode_pass == "berhu":
+          knot_note = f" (knot {berhu_pass['knot']:g}"
+        else:
+          knot_note = (f" (knot {berhu_pass['knot']:g}, "
+                       f"cap {berhu_pass['cap']:g}")
+        an = berhu_pass.get("anneal")
+        if an is not None:
+          knot_note += (f"; anneal: hold {an['hold_epochs']} + "
+                        f"{an['anneal_epochs']} {an['shape']}")
+        knot_note += ")"
       else:
         knot_note = ""
       print(f"phase '{phase}': {n_pass} epochs, lr restarts "
