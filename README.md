@@ -324,7 +324,7 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 
 | File | Role |
 |---|---|
-| `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical cuts (`omega_b h^2` bound, optional `omegam^2 h^2` window). Memmaps the dv dump (never loads it whole). |
+| `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical density windows (`omega_b h^2` bound, plus the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Memmaps the dv dump (never loads it whole). |
 | `geometries_parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. |
 | `geometries_output.py` | Output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry` (theta order, for a CNN), `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** |
 | `analytics.py` | Closed-form analytic xi (Eisenstein-Hu) to divide out broadband cosmology dependence — the optional rescaling `R`. |
@@ -377,6 +377,7 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 | how parameters are whitened (input) | `geometries_parameter.py` |
 | dv whitening / cosmolike reading (output) | `geometries_output.py` |
 | data loading / the physical cut / staging | `data_staging.py` |
+| restrict the training pool by a density window | the `data:` block window keys (`omegabh2_*`, `omegam2h2_*`, `omegamh2_*`, `omegamh2ns_*`); a new window is one row in `data_staging.phys_cut_idx`'s table |
 | the GPU-memory regime / batching | `batching.py` |
 | the optimizer/scheduler build or the training loop | `training.py` |
 | the end-to-end setup wiring | `experiment.py` |
@@ -707,7 +708,7 @@ Turns on-disk dumps into in-memory "source" dicts.
 
 - `load_source(...)` — orchestrator: memmap the dv, load + cut the params, keep `N_train` rows, stage, return `{C, dv, idx (+ means)}`.
 - `stage_source(C, dv, idx, ram_frac)` — materialize the used rows in RAM if they fit, else keep the memmap (reindex local).
-- `phys_cut_idx(C, idx, names, cut, omegabh2_lo, omegam2h2_lo, omegam2h2_hi)` — keep the rows with `omega_b h^2` in `(omegabh2_lo, cut)` and (optionally) `lo < omegam^2 h^2 < hi`.
+- `phys_cut_idx(C, idx, names, cut, omegabh2_lo, omegam2h2_lo/hi, omegamh2_lo/hi, omegamh2ns_lo/hi, param_file)` — keep the rows inside every active physical-density window (a small quantity table, one row per window: `omega_b h^2` in `(omegabh2_lo, cut)`, and the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Returns `(kept_idx, report)` with a per-window survivor count for the banner; raises on `lo >= hi` or a window whose column (e.g. `ns`) is missing.
 - `stream_chunks(idx, chunk)` — yield sorted row-index blocks (sequential disk reads).
 - `stream_stats(mm, idx, method, CHUNK)` — per-column mean/std (or min/max) over the used rows, streamed (never loads the dump whole).
 - `param_stats(arr, idx, method)` — the same stats for the in-RAM parameter array.

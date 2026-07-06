@@ -117,3 +117,8 @@ Only the user commits. Neither the Architect nor the Implementer ever runs
 uncommitted working-tree changes on the session's branch, and the handoff
 (or final report) prints the exact command block for the user to run.
 Do not offer to commit; offer the commands.
+
+Addendum (2026-07-06): when handing the user the command block, always
+include a concrete commit sentence, e.g.
+`git commit -m "Add omegamh2 window cuts (gates passed)"` — never a bare
+"commit it".

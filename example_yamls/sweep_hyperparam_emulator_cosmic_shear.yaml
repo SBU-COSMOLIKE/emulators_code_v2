@@ -100,6 +100,10 @@ data:
   omegabh2_lo:   0.014
   omegam2h2_lo:  0.015
   omegam2h2_hi:  0.08
+  # omegamh2_lo:    0.10   # omegamh2 = Omega_m (H0/100)^2 window (Planck 0.143)
+  # omegamh2_hi:    0.18
+  # omegamh2ns_lo:  0.10   # omegamh2 * n_s window (needs ns; Planck 0.138)
+  # omegamh2ns_hi:  0.17
   train_divisor: 10      # fixed N_train for every sweep point (the
                          # N_train axis is sweep_ntrain's job)
   val_divisor:   50

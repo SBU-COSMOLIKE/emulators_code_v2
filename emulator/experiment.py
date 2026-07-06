@@ -175,6 +175,22 @@ ARCH_HEAD = {"resmlp": None, "rescnn": "cnn", "restrf": "trf"}
 # and the best-model-selection metric.
 DEFAULT_THRESHOLDS = torch.tensor([0.2, 0.5, 1.0, 10.0, 100.0])
 
+# the allowed "data" block keys; from_config rejects any other, so a
+# mistyped window key (the omegamh2-vs-omegam2h2 one-character trap)
+# fails loudly instead of silently not cutting. Keep in sync with the
+# data-block docstring in __init__.
+DATA_KEYS = {
+  "train_dv", "train_params", "train_covmat",
+  "val_dv", "val_params",
+  "cosmolike_data_dir", "cosmolike_dataset",
+  "omegabh2_cut", "omegabh2_lo",
+  "omegam2h2_lo", "omegam2h2_hi",
+  "omegamh2_lo", "omegamh2_hi",
+  "omegamh2ns_lo", "omegamh2ns_hi",
+  "train_divisor", "val_divisor",
+  "split_seed", "ram_frac",
+}
+
 
 class EmulatorExperiment:
   """
@@ -227,6 +243,11 @@ class EmulatorExperiment:
                      omegam2h2_lo / omegam2h2_hi = optional window on
                        omegam^2 h^2 = (Omega_m H0/100)^2; rows outside
                        are dropped (omit a key for no cut on that side);
+                     omegamh2_lo / omegamh2_hi = optional window on
+                       omegamh2 = Omega_m (H0/100)^2 (Planck ~ 0.143);
+                     omegamh2ns_lo / omegamh2ns_hi = optional window on
+                       omegamh2 * n_s (Planck ~ 0.138; needs the ns
+                       parameter column, else a loud error);
                      train_divisor / val_divisor = keep N // divisor of
                        train / val rows;
                      split_seed = seed for the cut+shuffle picking train /
@@ -385,6 +406,13 @@ class EmulatorExperiment:
       if block not in cfg:
         raise KeyError(
           f"config is missing the required block: {block!r}")
+    # reject unknown "data" keys (the omegamh2-vs-omegam2h2 one-character
+    # trap): a misspelled window key otherwise silently fails to cut.
+    unknown = set(cfg["data"]) - DATA_KEYS
+    if unknown:
+      raise KeyError(
+        f"unknown data-block key(s): {sorted(unknown)}; allowed: "
+        f"{sorted(DATA_KEYS)}")
     # default_train_args (training.py): walk train_args, collapsing every
     # [default, min, max, kind] search range to its default (first) value,
     # so a tuning YAML builds a concrete run.
@@ -525,7 +553,11 @@ class EmulatorExperiment:
     self.log(f"cuts: omegabh2 in "
              f"({d.get('omegabh2_lo')}, {d.get('omegabh2_cut')})  "
              f"omegam2h2 in "
-             f"({d.get('omegam2h2_lo')}, {d.get('omegam2h2_hi')})")
+             f"({d.get('omegam2h2_lo')}, {d.get('omegam2h2_hi')})  "
+             f"omegamh2 in "
+             f"({d.get('omegamh2_lo')}, {d.get('omegamh2_hi')})  "
+             f"omegamh2ns in "
+             f"({d.get('omegamh2ns_lo')}, {d.get('omegamh2ns_hi')})")
 
   # --- staging + geometry (the expensive, cached pieces) ---
   def stage_train(self, n_train=None):
@@ -558,6 +590,10 @@ class EmulatorExperiment:
       omegabh2_lo=d.get("omegabh2_lo"),
       omegam2h2_lo=d.get("omegam2h2_lo"),
       omegam2h2_hi=d.get("omegam2h2_hi"),
+      omegamh2_lo=d.get("omegamh2_lo"),
+      omegamh2_hi=d.get("omegamh2_hi"),
+      omegamh2ns_lo=d.get("omegamh2ns_lo"),
+      omegamh2ns_hi=d.get("omegamh2ns_hi"),
       divisor=(None if n_train is not None else d["train_divisor"]),
       n_keep=n_train,
       gen=gen,
@@ -593,6 +629,10 @@ class EmulatorExperiment:
       omegabh2_lo=d.get("omegabh2_lo"),
       omegam2h2_lo=d.get("omegam2h2_lo"),
       omegam2h2_hi=d.get("omegam2h2_hi"),
+      omegamh2_lo=d.get("omegamh2_lo"),
+      omegamh2_hi=d.get("omegamh2_hi"),
+      omegamh2ns_lo=d.get("omegamh2ns_lo"),
+      omegamh2ns_hi=d.get("omegamh2ns_hi"),
       divisor=(None if n_val is not None else d["val_divisor"]),
       n_keep=n_val,
       gen=gen,
@@ -619,14 +659,20 @@ class EmulatorExperiment:
     # chi2), as load_source does by default.
     C   = np.loadtxt(d["train_params"], dtype="float32")[:, slice(2, -1)]
     idx = np.arange(C.shape[0])
-    # phys_cut_idx (data_staging.py): keep rows with omega_b h^2 < cut
-    # and omegam^2 h^2 inside the optional window (both rarefied,
-    # catastrophically-failing corners).
-    phys = phys_cut_idx(C=C, idx=idx, names=self.names,
-                        cut=d["omegabh2_cut"],
-                        omegabh2_lo=d.get("omegabh2_lo"),
-                        omegam2h2_lo=d.get("omegam2h2_lo"),
-                        omegam2h2_hi=d.get("omegam2h2_hi"))
+    # phys_cut_idx (data_staging.py): keep rows inside the omega_b h^2
+    # bound plus the optional omegam2h2 / omegamh2 / omegamh2*ns
+    # windows (same cuts as stage_train); the report is unused here,
+    # only the survivor count.
+    phys, _ = phys_cut_idx(C=C, idx=idx, names=self.names,
+                           cut=d["omegabh2_cut"],
+                           omegabh2_lo=d.get("omegabh2_lo"),
+                           omegam2h2_lo=d.get("omegam2h2_lo"),
+                           omegam2h2_hi=d.get("omegam2h2_hi"),
+                           omegamh2_lo=d.get("omegamh2_lo"),
+                           omegamh2_hi=d.get("omegamh2_hi"),
+                           omegamh2ns_lo=d.get("omegamh2ns_lo"),
+                           omegamh2ns_hi=d.get("omegamh2ns_hi"),
+                           param_file=d["train_params"])
     return int(len(phys))
 
   def build_geometry(self, train_set=None):

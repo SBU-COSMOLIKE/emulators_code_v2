@@ -18,8 +18,8 @@ The staging pipeline, per source (load_source top to bottom):
        │  np.loadtxt                   │  np.load(mmap_mode="r")
        ▼                               ▼
     C  (N, cols)                    dv (N, total_size), on disk
-       │  phys_cut_idx: omegabh2 bound (+ optional lower bound)
-       │  and the optional omegam2h2 window
+       │  phys_cut_idx: the omegabh2 bound plus the optional
+       │  omegam2h2 / omegamh2 / omegamh2*ns windows
        ▼
     pool = surviving row indices
        │  keep N // divisor rows (or n_keep), one seeded shuffle
@@ -211,59 +211,165 @@ def stage_source(C, dv, idx, ram_frac=0.7):
   return C, dv, idx
 
 
-def phys_cut_idx(C, idx, names, cut, omegabh2_lo=None,
-                 omegam2h2_lo=None, omegam2h2_hi=None):
+# --- derived physical densities the training-pool windows cut on ---
+# Each formula takes col, a dict mapping a parameter name to that
+# column of the candidate rows (col["H0"] = C[idx, names.index("H0")]),
+# and returns the derived quantity per row. The window table in
+# phys_cut_idx pairs one formula with its lo / hi bounds, so a new
+# window (say omegamh2 * ns * As) is one helper plus one table row,
+# not a new branch in the cut logic.
+def _omega_b_h2(col):
+  # omega_b h^2 = Omega_b * (H0/100)^2.
+  return col["omegab"] * (col["H0"] / 100.0) ** 2
+
+
+def _omega_m2_h2(col):
+  # omegam^2 h^2 = (Omega_m * H0/100)^2 = Gamma^2, the transfer shape.
+  return (col["omegam"] * col["H0"] / 100.0) ** 2
+
+
+def _omega_m_h2(col):
+  # omegam h^2 = Omega_m * (H0/100)^2 (Planck ~ 0.143).
+  return col["omegam"] * (col["H0"] / 100.0) ** 2
+
+
+def _omega_m_h2_ns(col):
+  # omegam h^2 * n_s (Planck ~ 0.138).
+  return _omega_m_h2(col) * col["ns"]
+
+
+def phys_cut_idx(C, idx, names, cut,
+                 omegabh2_lo=None,
+                 omegam2h2_lo=None, omegam2h2_hi=None,
+                 omegamh2_lo=None, omegamh2_hi=None,
+                 omegamh2ns_lo=None, omegamh2ns_hi=None,
+                 param_file="<param dump>"):
   """
-  Keep only rows inside the physical-density cuts.
+  Keep only rows inside the physical-density windows.
 
-  Two cuts, each on a derived product a per-parameter scan misses:
+  Cuts on derived products a per-parameter scan misses (all strict,
+  lo < quantity < hi):
 
-    omega_b h^2  = Omega_b * (H0/100)^2   inside (omegabh2_lo, cut)
-    omegam^2 h^2 = (Omega_m * H0/100)^2   inside (omegam2h2_lo,
-                                                  omegam2h2_hi)
+    omegabh2   = Omega_b (H0/100)^2      (omegabh2_lo, cut)
+    omegam2h2  = (Omega_m H0/100)^2      (omegam2h2_lo, omegam2h2_hi)
+    omegamh2   = Omega_m (H0/100)^2      (omegamh2_lo, omegamh2_hi)
+    omegamh2ns = omegamh2 * n_s          (omegamh2ns_lo, omegamh2ns_hi)
 
-  The high-omega_b h^2 cosmologies (a sparse, ~2x Planck corner)
-  fail catastrophically and no real posterior visits them.
-  omegam^2 h^2 is Gamma^2, the transfer-shape parameter squared,
-  and it is the coordinate along the sampling cloud's long axis:
-  both of its tails are rarefied (few training neighbours) and
-  carry the catastrophic failures, so the window keeps the
-  well-covered core around Planck's Gamma^2 ~ 0.045. Either bound
-  may be None (that side is not cut), so old configs without the
-  window keys behave exactly as before.
+  The high-omega_b h^2 cosmologies (a sparse, ~2x Planck corner) fail
+  catastrophically and no real posterior visits them. omegam^2 h^2 is
+  Gamma^2, the transfer-shape parameter squared and the coordinate
+  along the sampling cloud's long axis; its window keeps the
+  well-covered core around Planck's Gamma^2 ~ 0.045. omegamh2 (Planck
+  ~ 0.143) and its n_s product omegamh2ns (~ 0.138) window the
+  hardness direction the forensics flagged. Every bound may be None
+  (that side is not cut) and the whole set defaults off, so a config
+  without the window keys selects exactly the rows it did before.
+
+  A window's quantity is computed only when the window is active, so a
+  dump without an `ns` column is fine unless an omegamh2ns bound is
+  set (then a loud error names the column and the file).
+
+    window table                per row, over the candidate idx
+       │  each active window: check its columns exist, compute its
+       │  formula, keep lo < quantity < hi (strict, either side
+       │  optional)
+       ▼
+    keep  (len(idx),) bool       rows clearing every active window
+       │  idx[keep]
+       ▼
+    kept idx  +  report          one (name, tag, lo, hi, kept, total)
+                                 per active window, for the banner
+
+  (legend: idx = the candidate row indices; keep = the boolean mask,
+  True for a row that clears every active window (the running
+  intersection of the window masks); report = the per-window survivor
+  counts, name = the window key, tag = its formula, lo / hi = its
+  bounds, kept = rows that window alone keeps, total = len(idx).)
 
   Arguments:
-    C     = full parameter dump, (N, n_param), physical units,
-            column order given by `names`.
-    idx   = candidate row indices into C (e.g. a shuffle).
-    names = parameter column names in C's column order; locate
-            the omegab, omegam, and H0 columns by name.
-    cut   = upper bound on omega_b h^2 (rows >= cut dropped).
-    omegabh2_lo  = optional lower bound on omega_b h^2 (rows at or
-                   below it dropped; None = no lower cut).
-    omegam2h2_lo = optional lower bound on omegam^2 h^2 (rows at
-                   or below it dropped; None = no lower cut).
-    omegam2h2_hi = optional upper bound on omegam^2 h^2 (rows at
-                   or above it dropped; None = no upper cut).
+    C          = full parameter dump, (N, n_param), physical units,
+                 column order given by `names`.
+    idx        = candidate row indices into C (e.g. a shuffle).
+    names      = parameter column names in C's column order; the
+                 windows locate their columns (omegab / omegam / H0 /
+                 ns) by name.
+    cut        = upper bound on omega_b h^2 (rows >= cut dropped), the
+                 one always-applied bound.
+    omegabh2_lo   = optional lower bound on omega_b h^2 (None = no
+                    lower cut).
+    omegam2h2_lo  = optional lower bound on omegam^2 h^2 = Gamma^2
+                    (None = no lower cut).
+    omegam2h2_hi  = optional upper bound on omegam^2 h^2 (None = no
+                    upper cut).
+    omegamh2_lo   = optional lower bound on omegam h^2 = Omega_m
+                    (H0/100)^2 (None = no lower cut).
+    omegamh2_hi   = optional upper bound on omegam h^2 (None = no
+                    upper cut).
+    omegamh2ns_lo = optional lower bound on omegam h^2 * n_s (needs
+                    the ns column; None = no lower cut).
+    omegamh2ns_hi = optional upper bound on omegam h^2 * n_s (None =
+                    no upper cut).
+    param_file    = the dump path, named in the missing-column error.
 
   Returns:
-    the subset of idx passing every given cut, in idx's order.
+    (kept_idx, report): kept_idx = the subset of idx passing every
+    active window, in idx's order; report = a list, one
+    (name, tag, lo, hi, kept, total) tuple per active window, where
+    kept = rows that window alone keeps (marginal) and total =
+    len(idx).
+
+  Raises:
+    ValueError if a window is given lo >= hi, or an active window
+    needs a parameter column absent from `names`.
   """
-  i_ob = names.index("omegab")     # baryon density column
-  i_h0 = names.index("H0")         # Hubble column (km/s/Mpc)
-  obh2 = C[idx, i_ob] * (C[idx, i_h0] / 100.0) ** 2
-  keep = obh2 < cut
-  if omegabh2_lo is not None:
-    keep &= obh2 > omegabh2_lo
-  if omegam2h2_lo is not None or omegam2h2_hi is not None:
-    i_om = names.index("omegam")   # matter density column
-    #   omegam^2 h^2 = (Omega_m * H0/100)^2 = Gamma^2
-    g2 = (C[idx, i_om] * C[idx, i_h0] / 100.0) ** 2
-    if omegam2h2_lo is not None:
-      keep &= g2 > omegam2h2_lo
-    if omegam2h2_hi is not None:
-      keep &= g2 < omegam2h2_hi
-  return idx[keep]
+  # window table: name, banner tag (the formula), the columns the
+  # formula needs, the formula, and its (lo, hi) bounds. A new window
+  # is one row here (see the _omega_* helpers above), not a new
+  # branch; obh2's hi is the always-applied `cut`.
+  windows = [
+    ("omegabh2",   "Om_b (H0/100)^2",  ("omegab", "H0"),
+     _omega_b_h2,    omegabh2_lo,   cut),
+    ("omegam2h2",  "(Om H0/100)^2",    ("omegam", "H0"),
+     _omega_m2_h2,   omegam2h2_lo,  omegam2h2_hi),
+    ("omegamh2",   "Om (H0/100)^2",    ("omegam", "H0"),
+     _omega_m_h2,    omegamh2_lo,   omegamh2_hi),
+    ("omegamh2ns", "Om (H0/100)^2 ns", ("omegam", "H0", "ns"),
+     _omega_m_h2_ns, omegamh2ns_lo, omegamh2ns_hi),
+  ]
+
+  # keep = the running intersection of the active windows' masks (starts all-True);
+  # report = one row per active window for the loading banner.
+  keep   = np.ones(len(idx), dtype=bool)
+  report = []
+  for name, tag, need_cols, formula, lo, hi in windows:
+    # a window with neither bound is inactive: skip it, so its
+    # columns are never even required.
+    if lo is None and hi is None:
+      continue
+    # both bounds given -> the window must be a real interval.
+    if lo is not None and hi is not None and lo >= hi:
+      raise ValueError(
+        f"the {name} window needs lo < hi, got ({lo}, {hi})")
+    # resolve the columns this window's formula needs; a missing one
+    # (e.g. ns absent from the dump) is a loud error naming the
+    # column and the file, not a silent no-cut.
+    col = {}
+    for cname in need_cols:
+      if cname not in names:
+        raise ValueError(
+          f"the {name} window needs the {cname!r} parameter column, "
+          f"but {param_file} has none (columns: {names})")
+      col[cname] = C[idx, names.index(cname)]
+    q = formula(col)
+    # strict window: keep lo < q < hi (either side optional).
+    wmask = np.ones(len(idx), dtype=bool)
+    if lo is not None:
+      wmask &= q > lo
+    if hi is not None:
+      wmask &= q < hi
+    keep &= wmask
+    report.append((name, tag, lo, hi, int(wmask.sum()), len(idx)))
+  return idx[keep], report
 
 
 def read_param_names(covmat_path, comment="#"):
@@ -290,16 +396,21 @@ def load_source(dv_path, params_path, names, cut, divisor=None,
                 gen=None, ram_frac=0.7, with_means=False,
                 param_cols=slice(2, -1), verbose=True, n_keep=None,
                 omegabh2_lo=None,
-                omegam2h2_lo=None, omegam2h2_hi=None):
+                omegam2h2_lo=None, omegam2h2_hi=None,
+                omegamh2_lo=None, omegamh2_hi=None,
+                omegamh2ns_lo=None, omegamh2ns_hi=None):
   """
   Load, physically cut, and stage one dv/param source.
 
   Memmaps the dv dump (never reading it whole), keeps the
-  modeled param columns, applies the physical cuts (omega_b h^2
-  bound + the optional omegam^2 h^2 window), takes the
-  first N // divisor cut rows of a fixed shuffle, stages that
-  subset, and, when with_means, computes the centering means.
-  Wraps phys_cut_idx / stage_source / stream_stats / param_stats.
+  modeled param columns, applies the physical windows (the
+  omega_b h^2 bound plus the optional omegam^2 h^2 / omegamh2 /
+  omegamh2*ns windows, see phys_cut_idx), takes the first
+  N // divisor cut rows of a fixed shuffle, stages that subset,
+  and, when with_means, computes the centering means. When
+  verbose, prints one per-window kept/total line so a mistyped
+  window value is visible at once. Wraps phys_cut_idx /
+  stage_source / stream_stats / param_stats.
 
   Arguments:
     dv_path     = .npy data-vector dump (memmapped).
@@ -331,6 +442,12 @@ def load_source(dv_path, params_path, names, cut, divisor=None,
                    lower cut).
     omegam2h2_hi = optional upper bound on omegam^2 h^2 (None =
                    no upper cut).
+    omegamh2_lo / omegamh2_hi     = optional window on omegam h^2 =
+                   Omega_m (H0/100)^2 (see phys_cut_idx; None on a
+                   side = not cut there).
+    omegamh2ns_lo / omegamh2ns_hi = optional window on omegam h^2 *
+                   n_s (needs the ns column; None on a side = not
+                   cut there).
 
   Returns:
     a source dict {"C", "dv", "idx"} (plus "C_mean" / "dv_mean"
@@ -353,10 +470,22 @@ def load_source(dv_path, params_path, names, cut, divisor=None,
 
   n     = C.shape[0]
   order = torch.randperm(n, generator=gen).numpy()
-  phys  = phys_cut_idx(C=C, idx=order, names=names, cut=cut,
-                       omegabh2_lo=omegabh2_lo,
-                       omegam2h2_lo=omegam2h2_lo,
-                       omegam2h2_hi=omegam2h2_hi)
+  phys, cut_report = phys_cut_idx(C=C, idx=order, names=names, cut=cut,
+                                  omegabh2_lo=omegabh2_lo,
+                                  omegam2h2_lo=omegam2h2_lo,
+                                  omegam2h2_hi=omegam2h2_hi,
+                                  omegamh2_lo=omegamh2_lo,
+                                  omegamh2_hi=omegamh2_hi,
+                                  omegamh2ns_lo=omegamh2ns_lo,
+                                  omegamh2ns_hi=omegamh2ns_hi,
+                                  param_file=params_path)
+  if verbose:
+    # per-window survivor counts: a value typed against the wrong
+    # quantity (the omegamh2-vs-omegam2h2 one-character trap) shows up
+    # here as an obviously wrong kept count.
+    for name, tag, lo, hi, kept, total in cut_report:
+      print(f"  cut {name} = {tag} in ({lo}, {hi}): "
+            f"kept {kept}/{total}")
   # rows to keep: an absolute n_keep, or N // divisor.
   keep  = int(n_keep) if n_keep is not None else int(n // divisor)
   if len(phys) < keep:

@@ -25,6 +25,10 @@ data:
   omegam2h2_lo:  0.015   # keep omegam^2 h^2 = (Omega_m H0/100)^2 above this
   omegam2h2_hi:  0.08    # ... and below this (both tails are rarefied and
                          # fail; Planck sits at 0.045; omit a key for no cut)
+  # omegamh2_lo:    0.10   # optional window on omegamh2 = Omega_m (H0/100)^2
+  # omegamh2_hi:    0.18   #   (Planck 0.143); omit both keys for no cut
+  # omegamh2ns_lo:  0.10   # optional window on omegamh2 * n_s (needs the ns
+  # omegamh2ns_hi:  0.17   #   column; Planck 0.138); omit both for no cut
   train_divisor: 10      # N_train = N // train_divisor
   val_divisor:   50      # N_val   = N // val_divisor
   split_seed:    0
