@@ -586,7 +586,11 @@ class EmulatorExperiment:
                      nepochs = passes over the training set;
                      bs = minibatch size;
                      loss_mode = optional (default "sqrt"): per-sample
-                       transform "sqrt" / "chi2" / "sqrt_dchi2";
+                       transform "sqrt" / "chi2" / "sqrt_dchi2" /
+                       "berhu" (reversed Huber: sqrt below the berhu
+                       knot, chi2-like above, C1 there) / "berhu_capped"
+                       (berhu with the tail vote plateauing above the
+                       berhu cap, monster-robust);
                      silent = optional (default False): silence the run;
                      trunk_epochs = optional (default 0): two-phase
                        schedule, see run_emulator;
@@ -612,7 +616,12 @@ class EmulatorExperiment:
                        snapshot / rewind; selection + reported metrics
                        use the average, the scheduler the raw median,
                        and the shipped model is the best average, see
-                       run_emulator.
+                       run_emulator;
+                     berhu = optional mapping {knot, cap} (defaults 0.2
+                       / 10.0) setting the C1 knots of loss_mode "berhu"
+                       / "berhu_capped"; per-phase overridable and
+                       sweepable; a berhu block with a non-berhu
+                       loss_mode raises (see validate_berhu).
                    Plus six constructible sub-blocks (each a mapping):
                      model = the nested model block: "name" (the
                        architecture: resmlp | rescnn | restrf) and
@@ -1327,6 +1336,10 @@ class EmulatorExperiment:
       # off = a byte-identical run. run_emulator validates the block and
       # couples the average to its snapshot/rewind (see training.py).
       ema=train_args.get("ema"),
+      # optional berhu loss knots (train_args.berhu {knot, cap}); absent
+      # = defaults. run_emulator resolves it per pass (phase full-replace)
+      # and validates against the pass's loss_mode.
+      berhu=train_args.get("berhu"),
       thresholds=self.thresholds,
       use_amp=self.use_amp,
       silent=silent_run,

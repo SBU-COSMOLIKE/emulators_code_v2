@@ -114,7 +114,7 @@ from emulator.scheduling import (
 SWEEPABLE_TOP_KEYS = ("nepochs", "bs", "loss_mode", "trunk_epochs",
                       "clip", "rewind", "trunk", "head", "model",
                       "optimizer", "lr", "scheduler", "trim",
-                      "focus", "ema")
+                      "focus", "ema", "berhu")
 
 # dotted paths that sweep the activation family: these are resolved
 # by from_config into exp.activation (build_specs deliberately does

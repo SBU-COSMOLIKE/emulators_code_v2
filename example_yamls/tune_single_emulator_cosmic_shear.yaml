@@ -9,8 +9,9 @@
 # The first value is the default (the training driver uses it; this
 # search warm-starts trial 0 from it). Lower nepochs here so each
 # trial is fast. String-valued keys (model.name / model.ia /
-# model.activation / loss_mode / shapes) are fixed across the study, so
-# run one study per choice to compare them. The training YAML's
+# model.activation / loss_mode (sqrt | chi2 | sqrt_dchi2 | berhu |
+# berhu_capped) / shapes) are fixed across the study, so run one study
+# per choice to compare them. The training YAML's
 # trunk_epochs / head two-phase keys are fixed scalars here on a
 # two-phase model (rescnn / restrf); the phase lr nests, so a head base
 # lr is head.lr.lr_base. On a single-phase model (any name: resmlp,

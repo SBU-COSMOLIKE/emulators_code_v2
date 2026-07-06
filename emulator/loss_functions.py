@@ -103,8 +103,8 @@ class CosmolikeChi2:
        ▼
     c  (B,)                      per-sample chi2
        │  loss() only: drop the worst `trim` fraction (topk) ->
-       │  mode transform (chi2 | sqrt | sqrt_dchi2) -> focal
-       │  weights -> normalized weighted mean
+       │  mode transform (chi2 | sqrt | sqrt_dchi2 | berhu |
+       │  berhu_capped) -> focal weights -> normalized weighted mean
        ▼
     scalar training loss
 
@@ -194,7 +194,7 @@ class CosmolikeChi2:
     return torch.einsum("bi,ij,bj->b", r, geo.Cinv_sq, r)
 
   def loss(self, pred, target, mode="sqrt", trim=0.05,
-           focus=0.0, focus_scale=1.0):
+           focus=0.0, focus_scale=1.0, berhu_knot=None, berhu_cap=None):
     """
     Scalar training loss from the per-sample chi2.
 
@@ -210,6 +210,13 @@ class CosmolikeChi2:
                "chi2"       -> c
                "sqrt"       -> sqrt(c)
                "sqrt_dchi2" -> sqrt(1+2c)-1 (pseudo-Huber)
+               "berhu"      -> sqrt(c) below the knot t1, chi2-like
+                 (c+t1)/(2 sqrt(t1)) above (reversed Huber, C1 at
+                 t1 = berhu_knot); needs berhu_knot
+               "berhu_capped" -> berhu up to a second knot
+                 t2 = berhu_cap, then sqrt-shaped again above (the
+                 per-sample tail vote plateaus, so a monster chi2 is
+                 bounded; C1 at both knots); needs berhu_knot + berhu_cap
       trim   = fraction of the worst (largest-chi2) samples to
                drop before averaging; 0 disables trimming.
       focus  = focal weight exponent gamma. <= 0 -> plain mean;
@@ -220,14 +227,24 @@ class CosmolikeChi2:
       focus_scale = chi2 scale where the focal weight turns on;
                     hardness h = c/(c+focus_scale) crosses 0.5 at
                     c = focus_scale.
+      berhu_knot  = the lower C1 knot t1 for "berhu" / "berhu_capped"
+                    (train_args.berhu.knot, default 0.2); a 0-dim
+                    device tensor (see _reduce). None (default) for
+                    every other mode.
+      berhu_cap   = the upper C1 knot t2 for "berhu_capped"
+                    (train_args.berhu.cap, default 10.0); a 0-dim
+                    device tensor. None otherwise. A berhu mode
+                    missing its required knot(s) raises.
     Returns:
       a scalar loss tensor (the trimmed, focal-weighted mean).
     """
     c = self.chi2(pred=pred, target=target)   # per-sample chi2, (B,)
     return self._reduce(c=c, mode=mode, trim=trim, focus=focus,
-                        focus_scale=focus_scale)
+                        focus_scale=focus_scale, berhu_knot=berhu_knot,
+                        berhu_cap=berhu_cap)
 
-  def _reduce(self, c, mode, trim, focus, focus_scale):
+  def _reduce(self, c, mode, trim, focus, focus_scale, berhu_knot=None,
+              berhu_cap=None):
     """
     Per-sample chi2 -> scalar loss: trim, transform, focal mean.
     Shared by every loss variant (the subclasses change how c is
@@ -239,7 +256,8 @@ class CosmolikeChi2:
          │  keep = 1 for the first k entries, 0 after
          │                          k = round((1-trim)*B), >= 1
          ▼
-         │  v = mode transform      (chi2 | sqrt | sqrt_dchi2)
+         │  v = mode transform      (chi2 | sqrt | sqrt_dchi2 |
+         │                           berhu | berhu_capped)
          │  w = keep * (c/(c+focus_scale))**max(focus,0)  detached
          ▼
       loss = (w*v).sum() / (w.sum() + eps)
@@ -266,8 +284,9 @@ class CosmolikeChi2:
 
     Arguments:
       c           = (B,) per-sample chi2.
-      mode        = "chi2" | "sqrt" | "sqrt_dchi2" (a static
-                    string: one specialization per mode).
+      mode        = "chi2" | "sqrt" | "sqrt_dchi2" | "berhu" |
+                    "berhu_capped" (a static string: one
+                    specialization per mode).
       trim        = worst fraction dropped (0 = none); float or
                     0-dim tensor.
       focus       = focal exponent gamma; float or 0-dim tensor
@@ -278,6 +297,14 @@ class CosmolikeChi2:
                     torch-version-dependent under compile and can
                     surface as a CPU input that breaks CUDA-graph
                     replay).
+      berhu_knot  = the lower C1 knot t1 for "berhu" / "berhu_capped"
+                    (train_args.berhu.knot, default 0.2); a 0-dim
+                    device tensor, the same graph-safe-tensor
+                    discipline as focus_scale. None for other modes.
+      berhu_cap   = the upper C1 knot t2 for "berhu_capped"
+                    (train_args.berhu.cap, default 10.0); a 0-dim
+                    device tensor. None otherwise. A berhu mode
+                    missing a required knot raises.
 
     Returns:
       a scalar loss tensor.
@@ -306,6 +333,36 @@ class CosmolikeChi2:
       v = torch.sqrt(c)
     elif mode == "sqrt_dchi2":
       v = torch.sqrt(1.0 + 2.0 * c) - 1.0
+    elif mode == "berhu":
+      # reversed Huber: sqrt(c) below the knot t1 (every bulk sample an
+      # equal gradient vote, sqrt's virtue), chi2-like (c+t1)/(2 sqrt(t1))
+      # above (a rising tail pressure). C1 at t1: both branches value
+      # sqrt(t1), both slopes 1/(2 sqrt(t1)). where() evaluates both
+      # branches, so both must be finite for c >= 0 (they are).
+      if berhu_knot is None:
+        raise ValueError(
+          "loss_mode 'berhu' needs a berhu_knot (the C1 knot); the "
+          "training loop passes train_args.berhu.knot")
+      v = torch.where(c <= berhu_knot, torch.sqrt(c),
+                      (c + berhu_knot) / (2.0 * torch.sqrt(berhu_knot)))
+    elif mode == "berhu_capped":
+      # berhu up to a second knot t2 = berhu_cap, then sqrt-shaped again:
+      # region 3 is a*sqrt(c)+b (a = sqrt(t2/t1), b = (t1-t2)/(2 sqrt t1)),
+      # C1-matched at t2, so the per-sample tail vote plateaus instead of
+      # rising forever (a monster chi2 stays bounded, robustness baked
+      # into the loss shape). Reduces exactly to berhu for c <= t2.
+      if berhu_knot is None or berhu_cap is None:
+        raise ValueError(
+          "loss_mode 'berhu_capped' needs both berhu_knot and berhu_cap "
+          "(the two C1 knots); the training loop passes "
+          "train_args.berhu.knot and .cap")
+      v = torch.where(
+        c <= berhu_knot, torch.sqrt(c),
+        torch.where(
+          c <= berhu_cap,
+          (c + berhu_knot) / (2.0 * torch.sqrt(berhu_knot)),
+          (2.0 * torch.sqrt(berhu_cap * c) + berhu_knot - berhu_cap)
+          / (2.0 * torch.sqrt(berhu_knot))))
     else:
       raise ValueError(f"unknown loss mode: {mode}")
 

@@ -61,7 +61,18 @@ train_args:
   bs:        256         # training batch; validation runs at a derived
                          # ~1024-row batch (see derive_eval_bs), independent
                          # of bs, so a small bs does not slow the eval pass
-  loss_mode: sqrt        # sqrt | chi2 | sqrt_dchi2
+  loss_mode: sqrt        # sqrt | chi2 | sqrt_dchi2 | berhu | berhu_capped
+                         # (berhu = sqrt below the knot, chi2-like above, C1
+                         # there; berhu_capped also plateaus the tail vote
+                         # above the cap, monster-robust). The knots default
+                         # to 0.2 / 10.0; set them in the berhu: block below
+                         # (it errors on a non-berhu loss_mode).
+  # berhu:                 # the C1 knots of berhu / berhu_capped
+  #   knot: 0.2            # sqrt below this chi2 (default 0.2, the
+  #                        # frac>0.2 goal threshold)
+  #   cap:  10             # berhu_capped: sqrt-shaped again above (default
+  #                        # 10; accepted but unused under plain berhu). A
+  #                        # per-phase berhu: block full-replaces this one.
   silent:    false       # false -> per-epoch progress lines
 
   # Stability guards (both optional, both default off; the trunk: /
@@ -145,10 +156,14 @@ train_args:
   #     mode:     min        # the run's scheduler class stays. A lower
   #     patience: 10         # head patience cuts the lr sooner on the
   #     factor:   0.8        # frozen-trunk phase.
-  #   loss_mode: sqrt        # chi2 is sharper on the tail but needs
-  #                          # the trim floor + clip (an untrimmed
-  #                          # quadratic loss will fit the monster
-  #                          # tail at the bulk's expense)
+  #   loss_mode: berhu_capped # a natural head loss: sqrt bulk + chi2
+  #                          # window, the tail vote capped above chi2=10
+  #                          # (monster-robust, so clip is often redundant).
+  #                          # Alternatives: berhu (same but the tail vote
+  #                          # rises unbounded); sqrt (as phase 1); chi2 is
+  #                          # sharper on the tail but needs the trim floor
+  #                          # + clip (an untrimmed quadratic loss fits the
+  #                          # monster tail at the bulk's expense)
   #   trim:
   #     start:         0.03
   #     end:           0.01  # floor, never 0.0

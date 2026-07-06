@@ -181,8 +181,9 @@ class NLAAmpFactoredChi2(CosmolikeChi2):
       target          = (B, n_keep) whitened xi.
       params_whitened = (B, n_param) encoded params (A1_1 last
                         column).
-      *args, **kwargs = reduction knobs forwarded to the base
-                        loss (mode, trim, focus, focus_scale).
+      *args, **kwargs = reduction knobs forwarded verbatim to the
+                        base loss (mode, trim, focus, focus_scale,
+                        berhu_knot, berhu_cap).
 
     Returns:
       the scalar training loss.
@@ -336,8 +337,9 @@ class TemplateFactoredChi2(CosmolikeChi2):
       target          = (B, n_keep) whitened xi.
       params_whitened = (B, n_param) encoded params (amplitudes
                         last n_amps columns).
-      *args, **kwargs = reduction knobs (mode, trim, focus,
-                        focus_scale).
+      *args, **kwargs = reduction knobs forwarded verbatim to the
+                        base loss (mode, trim, focus, focus_scale,
+                        berhu_knot, berhu_cap).
 
     Returns:
       the scalar training loss.

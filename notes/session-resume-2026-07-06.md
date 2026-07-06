@@ -1,75 +1,91 @@
 ---
 name: session-resume-2026-07-06
-description: "Post-compact pickup pointer for the 2026-07-05/06 Opus session on branch amazing-keller: the package style/doc audit plus three data-cut features. Consolidates the commit state (two committed, two uncommitted-in-worktree), the full WORKSTATION-DEFERRED validation queue (item 27 + G1 runtime import + G-F + GN-F + GT-B/GT-C), the Architect re-audit still owed on the two uncommitted features, and the Mac exec-extract test method that gated everything. Details live in the four per-feature notes."
+description: "Post-compact READ-FIRST pointer for the long 2026-07-05/06 Opus (Implementer) session on branch amazing-keller. Consolidates the commit chain (audit + ten features committed, tip 76ef641), the ONE uncommitted unit (loss_mode berhu/berhu_capped, Revision 2, awaiting the user's commit + an Architect re-audit), the full WORKSTATION-DEFERRED validation queue across every feature, and the re-audits owed. Per-feature detail + raw gate evidence live in each feature's own note; MEMORY.md indexes them all as IMPLEMENTED."
 metadata:
   node_type: memory
   type: project
 ---
 
-# Session resume (2026-07-05/06, Opus on amazing-keller)
+# Session resume (2026-07-05/06, Opus Implementer on amazing-keller)
 
-One Implementer session (dual-agent, Fable = Architect) did a whole-package
-style/doc audit and three physical-cut features, each with its own note and
-gate evidence. This is the consolidated pickup after a compaction.
+One long dual-agent session (Fable = Architect, Opus = Implementer). The
+Architect relayed feature handoffs; the Implementer executed each with Mac
+gate evidence and emitted IMPLEMENTER_HANDOFF blocks. Every feature has its
+own `notes/` entry with resume state + raw gate outputs; this is the
+consolidated pickup after a compaction.
 
-## What was done (each has its own note + resume + raw gate evidence)
+## Commit chain (git log on amazing-keller, newest first)
 
-1. Package style/doc audit -> [[audit-package-style-2026-07-05]] (items 1-29,
-   D1-D6). COMMITTED (`e2394ed`).
-2. omegamh2 + omegamh2*ns window cuts -> [[omegamh2-ns-product-cuts]]
-   (phys_cut_idx quantity table). COMMITTED (`a0cd132`).
-3. data.param_cuts nested block + cut -> omegabh2_hi rename ->
-   [[param-cuts-nested-block]]. UNCOMMITTED (in the worktree).
-4. Triangle cut-shading, all four windows -> [[triangle-cut-shading-all-windows]]
-   (plotting.py). UNCOMMITTED (in the worktree).
+- `76ef641` phase blocks (nested lr + per-phase scheduler) — [[phase-blocks-nested-lr-scheduler]]
+- `7ebc061` weight EMA (folds eval-bs D-E1/D-E2 + D-M1) — [[weight-ema-snapshot-coupled]]
+- `46ec5e1` eval batch from n_val — [[eval-bs-decoupling]]
+- `4471539` sweep-guards + D-P1 — [[driver-audit-phase-sweep-guards]]
+- `2b7a2af` resolve_phase_args — [[resolve-phase-args-single-phase]]
+- `9950692` D-1 n_keep>=1 guard; `906528c` n_train/n_val — [[n-train-n-val-absolute-counts]]
+- `dba7588` param_cuts nesting + triangle shading; `a0cd132` window cuts;
+  `e2394ed` package audit (the early features).
 
-## Commit state (git log on amazing-keller)
+All the above are Architect-verified and committed. `aaa02f1` / `f67e9c3`
+are Architect note commits.
 
-- `a0cd132` window cuts, `e2394ed` audit, then the base `13d832e`.
-- Working tree = features 3 + 4 together (they share plotting.py /
-  experiment.py / data_staging.py / train_single / README / the 3 YAMLs;
-  10 files). The user commits each feature as its own unit; the Implementer
-  never commits.
+## THE ONE UNCOMMITTED UNIT: loss_mode berhu / berhu_capped
 
-## Owed to the Architect (re-audit)
+[[loss-mode-berhu]], Revision 2 (YAML-configurable knots). IMPLEMENTED +
+GB-A/A2/B all PASS on the Mac; NOT yet committed and NOT yet re-audited.
+The note was revised twice mid-build (derived knot -> derived two knots ->
+Revision 2's `train_args.berhu {knot, cap}`); delivered = Revision 2.
+Files + the commit command are in the note's execution section (one clean
+unit: loss_functions.py, training.py, IA/loss_functions.py, experiment.py,
+sweep_hyperparam.py, the 2 train_single/tune YAMLs, the note, MEMORY.md).
+The user commits (never the Implementer).
 
-- Re-audit features 3 and 4 on THIS branch (amazing-keller), not the
-  Architect's stale sleepy-lumiere checkout. Features 1 and 2 were already
-  Architect-verified before their commits.
+## Owed to the Architect (re-audits)
 
-## WORKSTATION-DEFERRED validation queue (needs torch + cosmolike +
-## matplotlib/getdist, none on the Mac dev box)
+- Re-audit **berhu D-B1** on amazing-keller — the inheritance fix (a
+  phase-owned berhu block is mode-checked against its pass; an inherited
+  top-level block is shape-only via the loss_mode=None hook; a new
+  run-level inertness guard rejects a top-level block no pass consumes).
+  Berhu Revision 2 itself was already Architect-ACCEPTED (with D-B1 as
+  the one delta); D-B1 is now executed + Mac-gated (see the berhu note's
+  D-B1 section). Every other feature is Architect-ACCEPTED.
 
-Run these in one workstation session (see [[test-workstation-gpus]] for how
-to pin the right GPU):
+## WORKSTATION-DEFERRED validation queue (torch + cosmolike; none on the
+## Mac). Most fold into a few train_single runs.
 
-- item 27 (audit): geometries_output.py calls `ci.init_probes` twice
-  (~lines 209 and 217); resolve with chi2 A/B evidence (identical with /
-  without the second call -> delete the duplicate; else a comment citing what
-  broke). Never resolved statically.
-- G1 runtime leg (audit): `python -c "import emulator, emulator.IA,
-  emulator.PCE, emulator.parallel"` clean on a torch machine (py_compile
-  already clean tree-wide; the import needs torch + cosmolike).
-- G-F (window cuts): one short training with a tight omegamh2 window; the
-  pool shrinkage matches the load banner's per-window kept/total.
-- GN-F (param_cuts nesting): one load with the nested `param_cuts:` block
-  shows the normal banner (content byte-identical to the old flat layout).
-- GT-B (triangle shading): a synthetic-sample triangle with all four windows
-  active has contourf artists on exactly the coverage-table panels (assert on
-  the axes' artist lists), same rgba, plus the omh2-marginal axvspans.
-- GT-C (triangle shading): regenerate the diagnostics PDF for the flagged run
-  (diagnostic_rescnn_t16_ntrain25000-style); grey now adjoins the omh2
-  marginal cliff at 0.20 and the (ns, omh2) 0.17 corner.
+- **GB-C** (berhu): the embedded unbound-`_reduce` torch script (berhu==sqrt
+  below knot, capped==berhu below cap, non-default knots, autograd C1 at
+  both knots) + a golden non-berhu byte-identity run + a real `berhu_capped`
+  head run. Script embedded in [[loss-mode-berhu]].
+- **GH-E** (phase blocks): a head `scheduler.patience: 10` cadence run +
+  a no-blocks golden `diff`.
+- **GM-C/D** (EMA): off-mode byte-identity golden + on-mode smoke
+  (post-rewind EMA jumps with raw).
+- **GE-C** (eval-bs): the partition-invariance + timing script (embedded).
+- **GP-D** (resolve_phase_args): the failing `name: resmlp` + two-phase YAML
+  now trains; a rescnn+nla control is a no-op.
+- **GS-D** (n_train/n_val): banner shows the `sizes:` line + `used N of P
+  cut rows`.
+- **Older, still open:** G-F (window smoke), GN-F (param_cuts load),
+  GT-B/GT-C (triangle render + PDF), G1 runtime `import emulator...` leg,
+  and **item-27** (audit): the duplicate `ci.init_probes` in
+  geometries_output.py, resolved by a chi2 A/B (identical -> delete; else a
+  why-comment). See [[audit-package-style-2026-07-05]] P6.
 
-## The Mac test method (why the Mac gates could run at all)
+The Architect closes the remaining gates on the pasted outputs in one
+workstation pass; each recipe is in its feature note.
 
-The Mac dev python has numpy + stdlib but NOT torch / cosmolike / matplotlib /
-getdist / pyyaml, and the package modules import those at load. So the gates
-ran by EXTRACTING the pure functions from source (ast-parse, take the
-function/const nodes by name, `exec` their source span into a numpy-only
-namespace) and testing those in isolation, plus AST/tokenize scans and
-`py_compile` (which compile without importing). This is the durable enabler
-for Implementer-side validation on the Mac; captured in
-[[dev-machine-mac-m2-32gb]]. The scan/rewrite/astdiff/codeskel tools and the
-per-feature test harnesses lived in the session scratchpad (ephemeral); the
-method, not the files, is what carries over.
+## Method that made Mac-side gating possible
+
+The Mac dev python has numpy + stdlib but NOT torch / cosmolike /
+matplotlib / getdist / pyyaml. Gates ran by EXEC-EXTRACTING the pure
+functions from source (ast-parse, take the def/const nodes by name, exec
+their span into a numpy-only namespace) + AST/tokenize scans + py_compile,
+and — for functions using torch/psutil internally — exec'ing the whole
+module with numpy-backed torch/psutil stubs in sys.modules. Captured in
+[[dev-machine-mac-m2-32gb]]. The scan/harness scripts lived in the session
+scratchpad (ephemeral); the method carries over, not the files.
+
+## Superseded
+
+The [[session-status-2026-07-06]] note and the earlier body of this file
+described only the first four features; this consolidation replaces them.
