@@ -332,3 +332,16 @@ each of the two continuation lines.
 
 Commit waits on D-E1 + D-E2 (both one-line). GE-C then rides the
 workstation queue unchanged.
+
+### 2026-07-06 — timing-puzzle root causes CLOSED (user-confirmed)
+
+The bs=64 vs 32 puzzle that motivated this feature is fully explained:
+(1) per-step cost 2.05 ms identical across bs -> launch-bound (nvidia-smi
+during a run: GPU util ~37% alternating with ~0%, never near 100%);
+(2) the x1.5 mid-run drift was NOT clocks or thermals (sm steady at
+1807 MHz, 49-54 C) — the user traced it to a CONCURRENT job on the same
+box saving checkpoints: host-side work (D2H copy, pickle, disk flush)
+that a launch-bound loop feels 1:1, where a compute-bound run would
+barely notice. No governor change needed. Mitigations if it ever
+matters: nice/ionice the checkpointing job, checkpoint to a different
+disk, or pin the training process to dedicated cores.

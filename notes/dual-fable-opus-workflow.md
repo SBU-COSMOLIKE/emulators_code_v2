@@ -130,3 +130,9 @@ Addendum (2026-07-06b): any change that adds or modifies YAML config keys is
 reported with a paste-ready snippet showing the keys inside their block
 (block style, one key per line, comments with formula/meaning, example
 values) — never a prose list of key names.
+
+Addendum (2026-07-06c, sharpened by the user): the rule above covers EVERY
+change to a YAML file — values, comments, and formatting/alignment included,
+not just schema keys. A comment or alignment fix is reported by showing the
+final corrected block verbatim, never by describing the edit ("add one
+leading space" is not a report).
