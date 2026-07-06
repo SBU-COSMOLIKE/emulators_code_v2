@@ -225,7 +225,10 @@ class ToyChi2:
 
 
 loss = ToyChi2()
-thresholds = torch.tensor([0.2, 0.5, 1.0], device=DEV)
+# thresholds stay on CPU: eval_val moves c to CPU before the frac
+# comparison (as the real pipeline does with DEFAULT_THRESHOLDS), so a
+# device tensor here would mismatch on CUDA (D-E1).
+thresholds = torch.tensor([0.2, 0.5, 1.0])
 
 
 def toy_data():

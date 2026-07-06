@@ -59,8 +59,8 @@ data:
 train_args:
   nepochs:   1600
   bs:        256         # training batch; validation runs at a derived
-                        # ~1024-row batch (see derive_eval_bs), independent
-                        # of bs, so a small bs does not slow the eval pass
+                         # ~1024-row batch (see derive_eval_bs), independent
+                         # of bs, so a small bs does not slow the eval pass
   loss_mode: sqrt        # sqrt | chi2 | sqrt_dchi2
   silent:    false       # false -> per-epoch progress lines
 
@@ -80,6 +80,19 @@ train_args:
   # inside the wreckage and freezing there. Plateau scheduler only.
   # clip:   1.0
   # rewind: true
+
+  # Weight averaging (Polyak / ema), optional, off when absent. Keeps a
+  # running average of the weights and ships that instead of the single
+  # best epoch: it stabilizes the tail metric (frac>0.2) at every batch
+  # size for a few percent overhead. The average is coupled to the loop's
+  # best-snapshot and rewind (restored together), so an excursion the
+  # rewind discards also leaves the average. horizon_epochs is the
+  # averaging window in epochs (beta is derived from the steps per epoch,
+  # so the window is the same at any bs). Selection and the reported
+  # metrics use the average; the plateau scheduler stays on the raw
+  # median. A quality knob, sweepable.
+  # ema:
+  #   horizon_epochs: 3
 
   # Two-phase schedule (a factored correction head: name rescnn |
   # restrf + ia: nla; omit or 0 = joint training).

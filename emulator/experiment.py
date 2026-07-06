@@ -613,7 +613,14 @@ class EmulatorExperiment:
                        gradient-norm ceiling, see run_emulator;
                      rewind = optional (default False): reload the
                        best weights + optimizer snapshot at every
-                       plateau lr cut, see run_emulator.
+                       plateau lr cut, see run_emulator;
+                     ema = optional mapping {horizon_epochs} (absent =
+                       off = a byte-identical run): keep a Polyak weight
+                       average over horizon_epochs, coupled to the best
+                       snapshot / rewind; selection + reported metrics
+                       use the average, the scheduler the raw median,
+                       and the shipped model is the best average, see
+                       run_emulator.
                    Plus six constructible sub-blocks (each a mapping):
                      model = the nested model block: "name" (the
                        architecture: resmlp | rescnn | restrf) and
@@ -1324,6 +1331,10 @@ class EmulatorExperiment:
       # `patience` epochs instead of freezing the run there.
       clip=train_args.get("clip", 0.0),
       rewind=train_args.get("rewind", False),
+      # optional weight ema (train_args.ema {horizon_epochs}); absent =
+      # off = a byte-identical run. run_emulator validates the block and
+      # couples the average to its snapshot/rewind (see training.py).
+      ema=train_args.get("ema"),
       thresholds=self.thresholds,
       use_amp=self.use_amp,
       silent=silent_run,

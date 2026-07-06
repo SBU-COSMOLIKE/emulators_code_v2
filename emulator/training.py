@@ -497,6 +497,83 @@ def derive_eval_bs(n_val, target, load):
   return min(bs, load)
 
 
+# the keys the optional train_args.ema block accepts (the weight-averaging
+# window). horizon_epochs is the only one; the whitelist is the typo guard.
+_EMA_KEYS = {"horizon_epochs"}
+
+
+def validate_ema(ema):
+  """
+  Validate the optional train_args.ema block (weight ema / Polyak).
+
+  A standalone pure function (no torch), so it is unit-testable in
+  isolation. None (the block absent) is the disabled sentinel and the
+  loop stays byte-identical; otherwise the block must be a mapping with a
+  positive horizon_epochs and no other key.
+
+  Arguments:
+    ema = the train_args["ema"] value, or None when the block is absent.
+
+  Returns:
+    the validated ema mapping, or None when it was absent (disabled).
+
+  Raises:
+    ValueError on an unknown ema key, a missing horizon_epochs, or a
+    non-positive / non-numeric horizon_epochs (bool rejected).
+    TypeError if ema is present but not a mapping.
+  """
+  if ema is None:
+    return None
+  if not isinstance(ema, dict):
+    raise TypeError(
+      f"train_args.ema must be a mapping ({{horizon_epochs: ...}}), got "
+      f"{type(ema).__name__}")
+  unknown = set(ema) - _EMA_KEYS
+  if unknown:
+    raise ValueError(
+      f"unknown train_args.ema key(s): {sorted(unknown)}; allowed: "
+      f"{sorted(_EMA_KEYS)}")
+  if "horizon_epochs" not in ema:
+    raise ValueError(
+      "train_args.ema needs 'horizon_epochs' (the averaging window in "
+      "epochs, a positive number)")
+  h = ema["horizon_epochs"]
+  # bool is an int subclass, but True/False is never an epoch count.
+  if isinstance(h, bool) or not isinstance(h, (int, float)):
+    raise ValueError(
+      f"train_args.ema.horizon_epochs must be a positive number of "
+      f"epochs, got {h!r}")
+  if h <= 0:
+    raise ValueError(
+      f"train_args.ema.horizon_epochs must be > 0, got {h}")
+  return ema
+
+
+def derive_ema_beta(horizon_epochs, steps_per_epoch):
+  """
+  The per-step ema decay beta from a horizon given in epochs.
+
+  Averaging over `horizon_epochs` epochs means a per-step decay
+  beta = 1 - 1/(horizon_epochs * steps_per_epoch): the count of steps in
+  the window, not the batch size, sets beta, so the effective window is
+  batch-size-invariant (the same reasoning as derive_eval_bs). A tiny run
+  whose window holds under one step gets beta 0 (theta_bar tracks theta
+  exactly, a harmless no-op), never a negative beta.
+
+  Arguments:
+    horizon_epochs  = the averaging window in epochs (> 0).
+    steps_per_epoch = optimizer steps per epoch (the loop's real
+                      full-batch count).
+
+  Returns:
+    beta in [0, 1): the per-step decay for theta_bar.
+  """
+  denom = horizon_epochs * steps_per_epoch
+  if denom < 1:
+    return 0.0
+  return 1.0 - 1.0 / denom
+
+
 def eval_val(model, lossfn, data, load, bs, thresholds,
              fwd_chi2=None):
   """
@@ -697,7 +774,8 @@ def training_loop_batched(nepochs,
                           silent=False,
                           use_amp=False,
                           clip=0.0,
-                          rewind=False):
+                          rewind=False,
+                          ema=None):
   """
   Train the emulator, with a validation pass per epoch.
 
@@ -762,6 +840,20 @@ def training_loop_batched(nepochs,
                  scheduler like CosineAnnealingLR changes the lr
                  every epoch; rewinding on each change would pin
                  the run to its best forever).
+    ema        = optional validated ema block ({horizon_epochs}) or
+                 None (off = a byte-identical loop). When set, a
+                 Polyak weight average theta_bar is kept from the end
+                 of warmup: updated after every optimizer.step at
+                 beta = derive_ema_beta(horizon_epochs,
+                 steps_per_epoch), evaluated per epoch by swapping it
+                 into the model in place, and coupled to the best
+                 snapshot as one unit {theta, optimizer, theta_bar}
+                 (saved on best, restored on rewind), so anything the
+                 rewind un-lives leaves the average too. Selection and
+                 the printed metrics then use the average; the plateau
+                 scheduler stays on the raw median (dynamics
+                 unchanged). The returned model carries the best
+                 average.
 
   Returns:
     train_losses, medians, means, fracs = per-epoch lists
@@ -784,6 +876,35 @@ def training_loop_batched(nepochs,
   if not silent:
     print(f"{load} rows/chunk, {nchunks} chunks/epoch, "
           f"amp={use_amp}, loss mode = {mode}")
+
+  # ema (weight averaging) state, all gated on an ema block being set:
+  # when ema is None every ema branch below is skipped and the loop is
+  # byte-identical to before the feature. validate_ema already ran in
+  # run_emulator, so a non-None block is well-formed here.
+  ema_on         = ema is not None
+  theta_bar      = None    # the running average; allocated at warmup end
+  ema_tmp        = None    # param-sized scratch for the in-place eval swap
+  best_theta_bar = None    # the average at the best epoch (the shipped one)
+  best_is_ema    = False   # does the current best snapshot carry theta_bar?
+  if ema_on:
+    # steps_per_epoch = the loop's real full-batch count (whole batches
+    # per chunk, summed over chunks), so the horizon is counted in steps
+    # and beta comes out batch-size-invariant.
+    steps_per_epoch = 0
+    for cs in range(0, ntrain, load):
+      chunk = min(load, ntrain - cs)
+      steps_per_epoch += chunk // bs
+    beta = derive_ema_beta(horizon_epochs=ema["horizon_epochs"],
+                           steps_per_epoch=steps_per_epoch)
+    # the live parameter tensors (reached through any torch.compile
+    # wrapper). The in-place foreach ops below mutate their storage, the
+    # storage the compiled graph captured, so replay stays valid; never
+    # rebind a parameter's .data or the list entry.
+    ema_params = list(model.parameters())
+    if not silent:
+      print(f"ema: horizon {ema['horizon_epochs']} epochs "
+            f"(beta {beta:.6f}; selection + metrics on the average, "
+            f"scheduler on the raw median)")
 
   train_losses, medians, means, fracs = [], [], [], []
 
@@ -950,6 +1071,18 @@ def training_loop_batched(nepochs,
       scale = epoch / warmup_epochs
       for grp, base in zip(optimizer.param_groups, base_lrs):
         grp["lr"] = base * scale
+    # initialize the weight average at the end of warmup (the high-lr
+    # ramp is not worth averaging): the first post-warmup epoch clones
+    # theta into theta_bar + the scratch buffers, then the per-step
+    # update below starts. Before this, ema_on runs the loop as usual.
+    if ema_on and theta_bar is None and epoch > warmup_epochs:
+      theta_bar      = []
+      ema_tmp        = []
+      best_theta_bar = []
+      for p in ema_params:
+        theta_bar.append(p.detach().clone())
+        ema_tmp.append(p.detach().clone())
+        best_theta_bar.append(p.detach().clone())
     model.train()
     perm = tidx[torch.randperm(ntrain).numpy()]
 
@@ -1007,17 +1140,50 @@ def training_loop_batched(nepochs,
           nn.utils.clip_grad_norm_(model.parameters(),
                                    max_norm=clip)
         optimizer.step()
+        # weight-average update (once ema is live): theta_bar <-
+        # beta*theta_bar + (1-beta)*theta, a handful of fused foreach
+        # launches (~tens of us vs the ~2 ms step). In-place on
+        # theta_bar (a private buffer, not graph-captured), reading the
+        # just-stepped params; no_grad, no autograd trail.
+        if theta_bar is not None:
+          with torch.no_grad():
+            torch._foreach_lerp_(theta_bar, ema_params, 1.0 - beta)
         run_sum += loss.detach() * bs
         run_n   += bs
     train_loss = (run_sum / run_n).item()
     model.eval()
-    median, mean, frac = eval_val(model=model,
-                                  lossfn=lossfn,
-                                  data=data["val"],
-                                  load=load,
-                                  bs=eval_bs,
-                                  thresholds=thresholds,
-                                  fwd_chi2=fwd_chi2)
+    # the raw eval drives the plateau scheduler (its dynamics are
+    # unchanged); when ema is off this is also the selected / printed
+    # metric, so the loop stays byte-identical.
+    raw_median, raw_mean, raw_frac = eval_val(model=model,
+                                              lossfn=lossfn,
+                                              data=data["val"],
+                                              load=load,
+                                              bs=eval_bs,
+                                              thresholds=thresholds,
+                                              fwd_chi2=fwd_chi2)
+    if theta_bar is not None:
+      # swap the average into the model in place (foreach copy_, never
+      # rebind a parameter: the compiled graph holds the storage
+      # pointers), eval, then restore theta. selection + the printed
+      # metrics are the average's, the model that would actually ship.
+      with torch.no_grad():
+        torch._foreach_copy_(ema_tmp, ema_params)      # stash theta
+        torch._foreach_copy_(ema_params, theta_bar)    # theta <- average
+      median, mean, frac = eval_val(model=model,
+                                    lossfn=lossfn,
+                                    data=data["val"],
+                                    load=load,
+                                    bs=eval_bs,
+                                    thresholds=thresholds,
+                                    fwd_chi2=fwd_chi2)
+      with torch.no_grad():
+        torch._foreach_copy_(ema_params, ema_tmp)      # restore theta
+    else:
+      median, mean, frac = raw_median, raw_mean, raw_frac
+    # the scheduler always steps on the raw median (== median when ema is
+    # off), so its plateau dynamics never change.
+    sched_median = raw_median
     train_losses.append(train_loss)
     medians.append(median)
     means.append(mean)
@@ -1050,6 +1216,14 @@ def training_loop_batched(nepochs,
       # a possible rewind (see the baseline seed above).
       if rewind:
         best_opt_state = copy.deepcopy(optimizer.state_dict())
+      # couple the average into this snapshot: the best now carries its
+      # theta_bar as one unit, so a later rewind restores the average
+      # too and the shipped model is this epoch's average. Only once ema
+      # is live (theta_bar set); a pre-warmup best stays raw-only.
+      if theta_bar is not None:
+        best_is_ema = True
+        with torch.no_grad():
+          torch._foreach_copy_(best_theta_bar, theta_bar)
 
     # the scheduler takes over once the warmup ramp (applied at the
     # top of the epoch) is done, not stepped during warmup, since
@@ -1064,7 +1238,7 @@ def training_loop_batched(nepochs,
         lrs_before = []
         for grp in optimizer.param_groups:
           lrs_before.append(grp["lr"])
-        scheduler.step(median)
+        scheduler.step(sched_median)
         # rewind-to-best: a plateau lr cut means `patience` epochs
         # brought no median improvement, either a true plateau
         # (rewind to best is a no-op, best ~= current) or the run
@@ -1084,6 +1258,17 @@ def training_loop_batched(nepochs,
             lrs_new.append(grp["lr"])
           model.load_state_dict(best_state)
           optimizer.load_state_dict(best_opt_state)
+          # the invariant: whatever the rewind un-lives must also leave
+          # the average. Restore theta_bar as part of the same snapshot
+          # when the best carried one; if the best predates ema, re-base
+          # the average onto the restored (best) weights so it holds no
+          # rejected trajectory.
+          if theta_bar is not None:
+            with torch.no_grad():
+              if best_is_ema:
+                torch._foreach_copy_(theta_bar, best_theta_bar)
+              else:
+                torch._foreach_copy_(theta_bar, ema_params)
           for grp, lr_new in zip(optimizer.param_groups, lrs_new):
             grp["lr"] = lr_new
           if not silent:
@@ -1111,8 +1296,14 @@ def training_loop_batched(nepochs,
             f"  frac>[{fr}]  {dt:5.1f}s")
 
   # restore the best epoch's weights (possibly the epoch-0 baseline:
-  # the pass then returns exactly what it was handed).
+  # the pass then returns exactly what it was handed). load_state_dict
+  # brings back the raw weights + the constant buffers; when the best
+  # carried an average, overwrite the parameters in place with it, so
+  # the shipped model is the best average (buffers unchanged).
   model.load_state_dict(best_state)
+  if best_is_ema:
+    with torch.no_grad():
+      torch._foreach_copy_(ema_params, best_theta_bar)
   if not silent:
     print(f"best epoch {best_epoch}: "
           f"frac>0.2 {best_frac:.4f}")
@@ -1155,7 +1346,8 @@ def run_emulator(train_set,
                  rewind=False,
                  trunk_epochs=0,
                  trunk_opts=None,
-                 head_opts=None):
+                 head_opts=None,
+                 ema=None):
   """
   One training run; model, optimizer, schedule auto-built.
 
@@ -1285,10 +1477,18 @@ def run_emulator(train_set,
                    level and drops head: / trunk_epochs); a direct
                    caller passes clean args and the guards below stay
                    strict.
+    ema          = optional weight-averaging block ({horizon_epochs})
+                   or None (off). When set, a Polyak average of the
+                   weights is kept, coupled to the best snapshot and
+                   the rewind as one unit (see training_loop_batched):
+                   selection and the reported metrics use the average,
+                   the plateau scheduler stays on the raw median, and
+                   the returned model carries the best average. Off =
+                   a byte-identical run. Re-initialized per phase.
 
   Returns:
     model        = trained network, restored to the best frac>0.2
-                   epoch.
+                   epoch (the best average when ema is set).
     train_losses = per-epoch training loss (list).
     medians      = per-epoch val median chi2 (list).
     means        = per-epoch val mean chi2 (list).
@@ -1305,6 +1505,10 @@ def run_emulator(train_set,
       "per-phase overrides (the train_args trunk: / head: blocks) "
       "need trunk_epochs > 0: without the two-phase schedule "
       "they would silently do nothing")
+  # validate the optional weight-averaging block once, up front (None =
+  # off = a byte-identical run); training_loop_batched derives beta from
+  # it per phase. Fails before any setup work, like the guards above.
+  ema = validate_ema(ema)
 
   if model_opts is None:
     model_opts = {"cls": ResMLP,
@@ -1559,9 +1763,12 @@ def run_emulator(train_set,
                                  use_amp=use_amp,
                                  silent=silent,
                                  clip=clip_pass,
-                                 rewind=rewind_pass)
+                                 rewind=rewind_pass,
+                                 ema=ema)
     # histories concatenate across phases: one continuous per-epoch
-    # record, as a single-pass run produces.
+    # record, as a single-pass run produces. ema re-initializes inside
+    # each pass (theta_bar at the pass's own warmup end), so the average
+    # never spans the trunk -> head regime change.
     train_losses += tl
     medians      += md
     means        += mn
