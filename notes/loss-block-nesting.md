@@ -302,3 +302,59 @@ Commit (user):
 
     git add -A
     git commit -m "Nest loss options under train_args.loss (mode + berhu knots localized; D-B1 inheritance machinery deleted; early mode validation; gates GL-A-C Architect-verified)"
+
+### 2026-07-06 — D-L1 (user report): the family-block name needs teaching
+
+The user wrote `loss: {mode: berhu_capped, berhu_capped: {...}}` on a
+real config — the natural mistake: the mode string and the parameter
+sub-block do not share a name, because ONE `berhu:` block serves the
+whole family (both modes read the same knots; that is also what lets a
+sweep flip mode without touching the block). Three-layer fix, doc/error
+only, no schema change:
+
+1. **Did-you-mean error (the layer that matters):** in validate_loss,
+   when the unknown-key set inside loss: contains a MODE string used
+   as a key (berhu_capped, berhu is already valid, sqrt, chi2,
+   sqrt_dchi2), extend the unknown-key ValueError with one sentence:
+   the parameter sub-block is named 'berhu' for the whole berhu family
+   (mode picks berhu | berhu_capped; the block holds knot / cap /
+   anneal for either). The generic allowed-keys listing stays.
+2. **YAML comments:** the train_single commented loss block gains one
+   line — "the sub-block is 'berhu:' for BOTH berhu modes (the family
+   name, so a mode sweep reuses one block)".
+3. **Docstrings:** validate_loss + the experiment.__init__ loss-block
+   entry state the family-naming rule explicitly.
+
+Gate D-L1: the did-you-mean message fires for `berhu_capped:` as a key
+(and for `sqrt:` as a key) but NOT for a plain typo (`berhus:` gets
+the generic message); YAML/docstring lines present; scans + py_compile.
+Folds into the pending berhu-anneal commit unit.
+
+### 2026-07-06 — D-L1 upgraded (user directive): the error carries the fix
+
+Layer 1 is upgraded from a did-you-mean sentence to the full house
+migration pattern: when the unknown key inside loss: is a mode string
+used as a key (the user's real mistake, `berhu_capped:` holding the
+knots), the ValueError body IS the corrected paste-ready block with
+the offending values CARRIED OVER — rename the key to `berhu:`, keep
+its contents (knot / cap / anneal) verbatim, e.g. for the user's exact
+config the error prints:
+
+    loss:
+      mode: berhu_capped
+      berhu:                  # 'berhu:' for both modes, never 'berhu_capped:'
+        knot: 0.2
+        cap:  10
+        anneal:               # counts from the pass's own epoch 1
+          hold_epochs:   50
+          anneal_epochs: 300
+          shape:         cosine
+
+(one rendering helper, the _loss_migration_message pattern; nested
+sub-blocks rendered recursively with the file's two-space indent). A
+mode string as a key WITHOUT block content (`sqrt: true`) still gets
+the one-sentence did-you-mean; a plain typo (`berhus:`) keeps the
+generic unknown-key message. Gate D-L1 extended: the error for the
+user's exact config contains the block above verbatim (values 0.2 /
+10 / 50 / 300 / cosine present); the reference example with the
+inline family-name comment lands in the train_single YAML.

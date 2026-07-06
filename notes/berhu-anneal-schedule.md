@@ -279,3 +279,10 @@ Commit (user, after confirming the presence semantics):
 
     git add -A
     git commit -m "Anneal the berhu loss from sqrt on a trim-style schedule (loss.berhu.anneal {hold_epochs, anneal_epochs, shape}; C1 blend, graph-safe s tensor; gates GBA-A/A2/B Architect-verified)"
+
+### 2026-07-06 — presence semantics CONFIRMED (implicitly, by use)
+
+The user's production YAML writes the anneal: sub-block by presence
+(no bool), matching the built pattern — taken as confirmation; the
+explicit-bool alternative is closed. The combined commit now waits
+only on D-L1.
