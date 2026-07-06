@@ -24,7 +24,7 @@ so an array larger than RAM is never loaded whole.
 #  float / log (a whitespace string "default min max kind" also works). A range
 #  may sit at any nesting depth: inside the model sub-blocks (model.mlp.width,
 #  model.cnn.kernel_size), the schedules (trim.start), or the per-phase
-#  trunk / head override blocks (head.lr_base):
+#  trunk / head override blocks (head.lr.lr_base):
 #
 #      lr:
 #        lr_base: [0.0025, 1.0e-5, 1.0e-1, log]   # searched, log scale

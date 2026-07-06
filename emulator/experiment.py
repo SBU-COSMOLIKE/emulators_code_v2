@@ -76,7 +76,8 @@ from .IA.loss_functions import (TemplateFactoredChi2, nla_coeffs,
 from .activations import make_activation
 from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
-  default_train_args, eval_source_chi2)
+  default_train_args, eval_source_chi2,
+  validate_phase_block, _PHASE_BLOCK_KEYS)
 
 
 # (architecture, ia) -> model class. Two orthogonal YAML choices:
@@ -360,16 +361,6 @@ def validate_sizes(data):
   return sizes[0], sizes[1]
 
 
-# the six per-phase override keys a trunk: / head: block may carry (the
-# run_emulator docstring). Five have same-named top-level keys; the base
-# learning rate is the exception, nested top-level as
-# lr: {lr_base, bs_base, warmup_epochs} but a bare lr_base inside a phase
-# block. resolve_phase_args demotes a single-phase model's trunk: block
-# through this list (lr_base landing in lr.lr_base).
-_PHASE_TRUNK_KEYS = ("lr_base", "loss_mode", "trim", "focus", "clip",
-                     "rewind")
-
-
 def resolve_phase_args(train_args, two_phase):
   """
   Resolve the two-phase schedule keys against the model's real capability.
@@ -397,14 +388,23 @@ def resolve_phase_args(train_args, two_phase):
     quiet-gated banner), or None when nothing changed.
 
   Raises:
-    ValueError on an unknown key inside a demoted trunk: block (naming the
-    six allowed keys, the usual typo guard).
+    ValueError / TypeError from validate_phase_block on a malformed trunk:
+    or head: block (a flat lr_base migration, an unknown key, a bs_base in
+    the phase lr, a cls in the phase scheduler, or a non-mapping block) —
+    the same errors the two-phase run_emulator path raises.
   """
   # a two-phase model, or a plain single-phase YAML: nothing to resolve.
   has_phase = ("trunk_epochs" in train_args or "trunk" in train_args
                or "head" in train_args)
   if two_phase or not has_phase:
     return train_args, None
+
+  # validate both blocks first (validate_phase_block, training.py), so a
+  # typo / flat lr_base / bs_base / cls fails identically here and on the
+  # two-phase path. head: is dropped below, but a malformed head: block is
+  # still a config error worth catching on a shared YAML.
+  validate_phase_block(train_args.get("trunk"), "trunk")
+  validate_phase_block(train_args.get("head"), "head")
 
   # single-phase model carrying two-phase keys: demote on a shallow copy,
   # so the caller's dict (a sweep's shared self.train_args) is untouched.
@@ -418,22 +418,18 @@ def resolve_phase_args(train_args, two_phase):
 
   merged = []
   if isinstance(trunk, dict):
-    # an unknown trunk: key is a typo; name the six allowed overrides.
-    unknown = set(trunk) - set(_PHASE_TRUNK_KEYS)
-    if unknown:
-      raise ValueError(
-        f"unknown train_args.trunk key(s): {sorted(unknown)}; a trunk "
-        f"block overrides only {list(_PHASE_TRUNK_KEYS)}")
-    # merge each present key into the top level, full replacement (the
-    # same semantics the key has as a phase override: trim / focus replace
-    # whole blocks, never deep-merge). lr_base is the one that nests: it
-    # lands in lr.lr_base, preserving the lr block's bs_base / warmup.
-    for key in _PHASE_TRUNK_KEYS:
+    # prefix-strip: every trunk key merges to its same-named top-level key
+    # (the blocks mirror the top level, so demotion is a plain move). lr
+    # overlays the top-level lr block (bs_base and any key the phase does
+    # not set are preserved); scheduler and the other five full-replace,
+    # the same semantics they have as a phase override.
+    for key in _PHASE_BLOCK_KEYS:
       if key not in trunk:
         continue
-      if key == "lr_base":
+      if key == "lr":
         lr_blk = dict(resolved.get("lr", {}))   # copy: never touch input
-        lr_blk["lr_base"] = trunk["lr_base"]
+        for k2 in trunk["lr"]:
+          lr_blk[k2] = trunk["lr"][k2]
         resolved["lr"] = lr_blk
       else:
         resolved[key] = trunk[key]
@@ -497,15 +493,11 @@ def validate_sweep_paths(paths, two_phase):
         f"resolve_phase_args drop this axis, so every sweep point would be "
         f"identical; sweep a real top-level train_args leaf instead")
     elif segs[0] == "trunk":
-      # trunk: merges into the top level on a single-phase model, so
-      # trunk.X really sweeps X (lr_base nests as lr.lr_base). Name it.
-      sub = segs[1] if len(segs) > 1 else None
-      if sub == "lr_base":
-        concrete = "lr.lr_base"
-      elif sub is not None:
-        concrete = sub
-      else:
-        concrete = "the matching top-level key"
+      # trunk: mirrors the top level and merges up on a single-phase
+      # model, so trunk.X.Y is just the top-level X.Y. Strip the prefix
+      # (e.g. trunk.lr.lr_base -> lr.lr_base, trunk.scheduler.patience ->
+      # scheduler.patience).
+      concrete = ".".join(segs[1:]) or "the matching top-level key"
       problems.append(
         f"{path!r}: on a single-phase model trunk: merges into the top "
         f"level, so this sweeps {concrete!r} in disguise; sweep "

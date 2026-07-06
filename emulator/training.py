@@ -216,6 +216,112 @@ def make_scheduler(optimizer, sched_opts):
   return cls(optimizer, **extra)
 
 
+# the seven keys a per-phase override block (train_args.trunk / .head) may
+# carry, mirroring the top-level train_args schema key-for-key: lr is an
+# overlay onto the top-level lr block, scheduler a full replacement of the
+# scheduler kwargs, the other five (loss_mode / trim / focus / clip /
+# rewind) replace their same-named top-level value. validate_phase_block
+# is the one whitelist, imported by experiment.py (training must not
+# import experiment, so the validator lives here).
+_PHASE_BLOCK_KEYS = ("lr", "scheduler", "loss_mode", "trim", "focus",
+                     "clip", "rewind")
+
+
+def _phase_lr_migration_message(block, which):
+  """Build the paste-ready nested lr: block for the flat lr_base migration.
+
+  Arguments:
+    block = the phase block holding the offending flat lr_base.
+    which = "trunk" or "head", named in the message.
+
+  Returns:
+    a multi-line message whose body is a valid, paste-ready lr: sub-block
+    carrying the old lr_base value over.
+  """
+  lines = [
+    f"train_args.{which}.lr_base is gone: the phase blocks now mirror the",
+    "top-level lr: schema, so the base learning rate nests under an lr:",
+    f"sub-block. Replace it under {which}: with:",
+    "",
+    "  lr:",
+    f"    lr_base: {block['lr_base']}",
+  ]
+  return "\n".join(lines)
+
+
+def validate_phase_block(block, which):
+  """
+  Validate one per-phase override block (train_args.trunk or .head).
+
+  A standalone pure function (no torch), so experiment.py can import it for
+  the single-phase demotion path and it is unit-testable in isolation. The
+  phase blocks mirror the top-level train_args schema: lr is a nested
+  sub-block (overlay), scheduler a nested kwargs block (full replacement),
+  the other five keys scalars / their own blocks. Absent (None) validates
+  trivially and the run is unchanged.
+
+  Arguments:
+    block = the trunk: or head: mapping, or None when the block is absent.
+    which = "trunk" or "head", named in every error message.
+
+  Returns:
+    the block unchanged (or None).
+
+  Raises:
+    TypeError if the block (or its lr / scheduler sub-block) is present but
+    not a mapping (a scalar `trunk: sqrt` is a config error, not a silent
+    no-op). ValueError on a bare lr_base (a migration error printing the
+    paste-ready nested lr: block), an unknown key (the seven-key
+    whitelist), a bs_base inside the phase lr (the sqrt-rule batch anchor
+    is run-global), or a cls inside the phase scheduler (the scheduler
+    class is the run's; a phase overrides only its kwargs).
+  """
+  if block is None:
+    return None
+  if not isinstance(block, dict):
+    raise TypeError(
+      f"train_args.{which} must be a mapping of per-phase overrides, got "
+      f"{type(block).__name__}")
+  # the old flat lr_base -> a migration error printing the nested lr: block
+  # to paste in its place (the phase blocks now mirror the top-level lr:).
+  if "lr_base" in block:
+    raise ValueError(_phase_lr_migration_message(block, which))
+  unknown = set(block) - set(_PHASE_BLOCK_KEYS)
+  if unknown:
+    raise ValueError(
+      f"unknown train_args.{which} key(s): {sorted(unknown)}; a phase "
+      f"block overrides only {list(_PHASE_BLOCK_KEYS)}")
+  # lr is an overlay of {lr_base, warmup_epochs}; bs_base is run-global.
+  lr = block.get("lr")
+  if lr is not None:
+    if not isinstance(lr, dict):
+      raise TypeError(
+        f"train_args.{which}.lr must be a mapping {{lr_base, "
+        f"warmup_epochs}}, got {type(lr).__name__}")
+    if "bs_base" in lr:
+      raise ValueError(
+        f"train_args.{which}.lr must not set bs_base: the sqrt-rule batch "
+        f"anchor is run-global (set it once in the top-level lr: block)")
+    lr_unknown = set(lr) - {"lr_base", "warmup_epochs"}
+    if lr_unknown:
+      raise ValueError(
+        f"unknown train_args.{which}.lr key(s): {sorted(lr_unknown)}; a "
+        f"phase lr overlays only lr_base / warmup_epochs")
+  # scheduler is a full replacement of the kwargs; the class stays the run's.
+  sched = block.get("scheduler")
+  if sched is not None:
+    if not isinstance(sched, dict):
+      raise TypeError(
+        f"train_args.{which}.scheduler must be a mapping of scheduler "
+        f"kwargs, got {type(sched).__name__}")
+    if "cls" in sched:
+      raise ValueError(
+        f"train_args.{which}.scheduler must not set cls: the scheduler "
+        f"class is the run's; a phase overrides only its kwargs "
+        f"(mode / patience / factor / ...)")
+  return block
+
+
 def build_run_specs(train_args, model_cls, opt_cls, sched_cls):
   """
   Assemble the six run_emulator spec dicts from a config mapping.
@@ -1453,14 +1559,21 @@ def run_emulator(train_set,
     trunk_opts   = optional trunk-phase (phase 1) overrides;
     head_opts    = optional head-phase (phase 2) overrides.
                    Two symmetric blocks (two-phase runs only; need
-                   trunk_epochs > 0): the top-level loss_mode /
-                   lr / trim / focus are the shared defaults, and
-                   each phase's block overrides them for its own
-                   pass. (Typical use: by the handoff the trunk
-                   has absorbed most outliers, so the head phase
-                   wants a different objective.) Keys, each
-                   absent -> the main value is reused:
-                     "lr_base"   -> the pass's base lr (sqrt rule);
+                   trunk_epochs > 0) that mirror the top-level
+                   train_args schema key-for-key; each phase's block
+                   overrides the run defaults for its own pass.
+                   (Typical use: by the handoff the trunk has absorbed
+                   most outliers, so the head phase wants a different
+                   objective, or a lower scheduler patience.) Validated
+                   by validate_phase_block; the seven keys, each absent
+                   -> the run default is reused:
+                     "lr"        -> an overlay {lr_base (the pass's base
+                       lr, same sqrt-batch rule), warmup_epochs (the
+                       pass's own warmup)}; bs_base stays run-global;
+                     "scheduler" -> a full replacement of the scheduler
+                       kwargs (mode / patience / factor / ...), keeping
+                       the run's scheduler class (a lower head patience
+                       lives here);
                      "loss_mode" -> the pass's loss transform;
                      "trim"      -> the pass's trim schedule, a
                        full replacement block (its hold/anneal
@@ -1505,6 +1618,12 @@ def run_emulator(train_set,
       "per-phase overrides (the train_args trunk: / head: blocks) "
       "need trunk_epochs > 0: without the two-phase schedule "
       "they would silently do nothing")
+  # validate each present phase block up front (None = absent = no-op):
+  # the seven-key whitelist, the flat lr_base migration, the bs_base / cls
+  # rejections. Same errors the demotion path raises (both call this), so
+  # a typo fails identically whether the model is one- or two-phase.
+  validate_phase_block(trunk_opts, "trunk")
+  validate_phase_block(head_opts, "head")
   # validate the optional weight-averaging block once, up front (None =
   # off = a byte-identical run); training_loop_batched derives beta from
   # it per phase. Fails before any setup work, like the guards above.
@@ -1699,27 +1818,37 @@ def run_emulator(train_set,
       model.set_train_phase(phase)
 
     # per-pass knob resolution: each pass restarts the lr at its base
-    # (never the other phase's decayed floor) and falls back to the
-    # main loss_mode / trim / focus; the symmetric trunk: / head:
-    # blocks override them for their own pass, a different lr_base
-    # (same sqrt-batch rule), another loss_mode, and full-replacement
-    # trim / focus schedules (each restarts at the pass's own epoch 1,
-    # like the main ones do per pass).
+    # (never the other phase's decayed floor) and falls back to the run
+    # defaults; the symmetric trunk: / head: blocks override them for
+    # their own pass. The seven keys mirror the top-level schema: lr is
+    # an overlay {lr_base (same sqrt-batch rule), warmup_epochs}, scheduler
+    # a full replacement of the kwargs (the run's class stays), and
+    # loss_mode / trim / focus / clip / rewind replace their value (trim /
+    # focus each restart at the pass's own epoch 1, like the main ones).
     phase_opts = None
     if phase == "trunk":
       phase_opts = trunk_opts
     elif phase == "head":
       phase_opts = head_opts
     lr_pass     = learning_rate
+    wmupe_pass  = wmupe
+    sched_pass  = sched_opts
     mode_pass   = loss_mode
     trim_pass   = trim_opts
     focus_pass  = focus_opts
     clip_pass   = clip
     rewind_pass = rewind
     if phase_opts:
-      if "lr_base" in phase_opts:
-        lr_pass = (phase_opts["lr_base"]
-                   * (bs / lr_opts["bs_base"]) ** 0.5)
+      # lr: overlay lr_base and/or warmup_epochs; bs_base stays run-global.
+      phase_lr = phase_opts.get("lr")
+      if phase_lr:
+        if "lr_base" in phase_lr:
+          lr_pass = (phase_lr["lr_base"]
+                     * (bs / lr_opts["bs_base"]) ** 0.5)
+        wmupe_pass = phase_lr.get("warmup_epochs", wmupe)
+      # scheduler: full replacement of the kwargs, keeping the run's class.
+      if "scheduler" in phase_opts:
+        sched_pass = {"cls": sched_opts["cls"], **phase_opts["scheduler"]}
       mode_pass   = phase_opts.get("loss_mode", loss_mode)
       trim_pass   = phase_opts.get("trim", trim_opts)
       focus_pass  = phase_opts.get("focus", focus_opts)
@@ -1727,6 +1856,10 @@ def run_emulator(train_set,
       rewind_pass = phase_opts.get("rewind", rewind)
     if phase is not None and not silent:
       noted = []
+      if wmupe_pass != wmupe:
+        noted.append(f"warmup {wmupe_pass}")
+      if sched_pass is not sched_opts:
+        noted.append("scheduler")
       if trim_pass is not trim_opts:
         noted.append("trim")
       if focus_pass is not focus_opts:
@@ -1738,14 +1871,14 @@ def run_emulator(train_set,
       tail = (f"  [{phase} overrides: {', '.join(noted)}]"
               if noted else "")
       print(f"phase '{phase}': {n_pass} epochs, lr restarts "
-            f"at {lr_pass:.2e} (+ {wmupe}-epoch warmup), "
+            f"at {lr_pass:.2e} (+ {wmupe_pass}-epoch warmup), "
             f"loss_mode {mode_pass}{tail}")
 
     opt   = make_optimizer(model=model,
                            opt_opts=opt_opts,
                            lr=lr_pass,
                            device=device)
-    sched = make_scheduler(optimizer=opt, sched_opts=sched_opts)
+    sched = make_scheduler(optimizer=opt, sched_opts=sched_pass)
 
     (tl, md, mn,
      fr) = training_loop_batched(nepochs=n_pass,
@@ -1757,7 +1890,7 @@ def run_emulator(train_set,
                                  mode=mode_pass,
                                  data=data,
                                  thresholds=thresholds,
-                                 warmup_epochs=wmupe,
+                                 warmup_epochs=wmupe_pass,
                                  trim_opts=trim_pass,
                                  focus_opts=focus_pass,
                                  use_amp=use_amp,

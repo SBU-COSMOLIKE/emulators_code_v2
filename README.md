@@ -488,11 +488,11 @@ sweep:
 
 | Rule | Why |
 |---|---|
-| any `train_args` leaf sweeps by dotted path (`bs`, `trim.start`, `model.cnn.kernel_size`, `model.cnn.film`, `head.lr_base`, …) | the sweep deep-copies `train_args` and sets that one leaf per point |
+| any `train_args` leaf sweeps by dotted path (`bs`, `trim.start`, `model.cnn.kernel_size`, `model.cnn.film`, `head.lr.lr_base`, …) | the sweep deep-copies `train_args` and sets that one leaf per point |
 | `model.activation` (or `.type`) is a special case | the activation family is resolved onto the experiment at build, not read from `train_args`; the driver sets it per value — leave `--activation` unset |
 | `model.name` / `model.ia` are refused | they change the model *class*; run one sweep per architecture and overlay the tables |
 | an unknown first segment is refused | a typo'd path would otherwise silently train the same config N times |
-| a missing intermediate block is created (`head.lr_base` with no `head:` block) | the usual guards still fire (`trunk`/`head` overrides need `trunk_epochs > 0`) |
+| a missing intermediate block is created (`head.lr.lr_base` with no `head:` block) | but a phase axis (`head.*` / `trunk_epochs` / `trunk.*`) on a single-phase model is rejected up front by `validate_sweep_paths` (it would be demoted away) |
 
 Outputs under `--fileroot`: `<--out>.txt` (`save_sweep_table`: numeric values
 as a value/frac table; categorical or boolean values as an index/frac table

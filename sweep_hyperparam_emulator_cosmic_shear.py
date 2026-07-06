@@ -39,8 +39,9 @@ loaded whole.
 #  Any train_args leaf works by its dotted path: top-level knobs (bs, clip,
 #  trunk_epochs), sub-block knobs (scheduler.patience, trim.start,
 #  model.cnn.kernel_size, model.cnn.film, model.mlp.width), and per-phase
-#  overrides (head.lr_base, whose block is created if the YAML omits it; the
-#  usual trunk_epochs > 0 guard still applies). Values may be numbers, strings,
+#  overrides (head.lr.lr_base, whose intermediate blocks are created if the
+#  YAML omits them; a phase axis on a single-phase model is rejected at
+#  startup by validate_sweep_paths). Values may be numbers, strings,
 #  or booleans (film: [false, true]).
 #
 #  Two special cases:
@@ -128,7 +129,7 @@ def set_by_path(train_args, path, value):
 
   Walks the nested mapping along `path` ("lr.lr_base" -> ["lr",
   "lr_base"]), creating intermediate mappings that do not exist yet
-  (so `head.lr_base` sweeps even when the YAML has no head: block;
+  (so `head.lr.lr_base` sweeps even when the YAML has no head: block;
   a head. / trunk_epochs / trunk. sweep on a single-phase model is
   rejected up front by validate_sweep_paths, since resolve_phase_args
   would demote it away), and sets the final key. The input is never

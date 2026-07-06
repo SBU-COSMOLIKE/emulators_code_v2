@@ -43,7 +43,7 @@ data:
 # value at fixed N_train; outputs a value/frac table + figure like the
 # N_train sweep). Any leaf works: bs, lr.lr_base, scheduler.patience,
 # trim.start, model.mlp.width, model.cnn.kernel_size, model.cnn.film
-# (values true/false), head.lr_base, ... Special case: parameter
+# (values true/false), head.lr.lr_base, ... Special case: parameter
 # model.activation sweeps the activation family (values H / power /
 # multigate / gated_power; leave --activation unset). model.name and
 # model.ia are refused (they change the model class, so use one sweep
@@ -106,18 +106,22 @@ train_args:
   # trunk_epochs: 1500
 
   # Per-phase overrides, symmetric (both need trunk_epochs > 0; error
-  # otherwise). The top-level loss_mode / lr / trim / focus / clip /
-  # rewind are the shared defaults; the trunk: block overrides them
-  # for phase 1 and the head: block for phase 2. Every key is
-  # optional and falls back to the shared value; trim / focus are
-  # full replacement blocks (same keys as the main ones, incl. kappa,
-  # with no merging), restarting at the phase's own epoch 1.
+  # otherwise). Each block mirrors the top-level train_args schema
+  # key-for-key; the seven keys are lr / scheduler / loss_mode / trim /
+  # focus / clip / rewind, each optional and falling back to the run
+  # default. lr is an overlay {lr_base, warmup_epochs} onto the top-level
+  # lr: block (bs_base stays run-global, so a phase never sets it);
+  # scheduler is a full replacement of the scheduler kwargs (the run's
+  # scheduler class stays); trim / focus are full-replacement blocks
+  # (same keys as the main ones, incl. kappa, no merging), restarting at
+  # the phase's own epoch 1; loss_mode / clip / rewind replace their value.
   # On a single-phase model (any name: resmlp, including ia nla / tatt;
   # rescnn / restrf are the two-phase models) train() ignores head: and
   # trunk_epochs and merges trunk: into the top level, printing a one-line
   # notice, so this same YAML also drives a plain baseline with no edits.
   # trunk:                   # phase 1 (pure-trunk training)
-  #   lr_base:   0.0025
+  #   lr:
+  #     lr_base:   0.0025    # phase-1 base lr (same sqrt-batch rule)
   #   loss_mode: sqrt
   #   trim:
   #     start:         0.1
@@ -134,7 +138,13 @@ train_args:
   #     shape:         linear
   #     kappa:         0.15
   # head:                    # phase 2 (frozen trunk, head only)
-  #   lr_base:   0.001       # phase-2 base lr (same sqrt-batch rule)
+  #   lr:
+  #     lr_base:       0.001 # phase-2 base lr (same sqrt-batch rule)
+  #     warmup_epochs: 5     # optional per-phase warmup (default: global)
+  #   scheduler:             # full replacement of the scheduler kwargs;
+  #     mode:     min        # the run's scheduler class stays. A lower
+  #     patience: 10         # head patience cuts the lr sooner on the
+  #     factor:   0.8        # frozen-trunk phase.
   #   loss_mode: sqrt        # chi2 is sharper on the tail but needs
   #                          # the trim floor + clip (an untrimmed
   #                          # quadratic loss will fit the monster
@@ -319,7 +329,9 @@ train_args:
     warmup_epochs: 10
     # Two-phase runs: each phase restarts at its base lr with a fresh
     # warmup + scheduler (never phase 1's decayed lr); a head-specific
-    # base goes in the head: block above, not here.
+    # base goes in the head: block above as head.lr.lr_base (and its own
+    # head.lr.warmup_epochs / head.scheduler), not here. bs_base is
+    # run-global: it belongs only in this top-level lr: block.
 
   scheduler:             # cls is fixed to ReduceLROnPlateau
     mode:     min
