@@ -43,10 +43,11 @@ is never loaded whole.
 #- `--yaml` (default test.yaml): config file under --fileroot, holding every
 #  hyperparameter (no magic numbers in code). Two blocks:
 #  - `data`: input file names (train_dv, train_params, train_covmat, val_dv,
-#    val_params, bare filenames resolved under --root/chains), cut/split
-#    settings (omegabh2_cut and the optional omegabh2_lo lower bound; the
-#    optional omegam2h2_lo / omegam2h2_hi window on omegam^2 h^2;
-#    train_divisor, val_divisor, split_seed, ram_frac),
+#    val_params, bare filenames resolved under --root/chains), the physical
+#    window cuts in a nested param_cuts sub-block (omegabh2_hi required, the
+#    former omegabh2_cut; optional omegabh2_lo, omegam2h2_lo / _hi, omegamh2_lo
+#    / _hi, omegamh2ns_lo / _hi), split settings (train_divisor, val_divisor,
+#    split_seed, ram_frac),
 #    cosmolike dataset (cosmolike_data_dir, cosmolike_dataset; resolved under
 #    $ROOTDIR/external_modules/data, not --root).
 #  - `train_args`: knobs (nepochs, bs, loss_mode, silent) plus sub-blocks model
@@ -382,10 +383,10 @@ def main():
                      hard_dir=hd,
                      val_set=exp.val_set,
                      names=exp.names,
-                     cuts={"omegabh2_cut": cfg["data"].get("omegabh2_cut"),
-                           "omegabh2_lo": cfg["data"].get("omegabh2_lo"),
-                           "omegam2h2_lo": cfg["data"].get("omegam2h2_lo"),
-                           "omegam2h2_hi": cfg["data"].get("omegam2h2_hi")},
+                     # the validated param_cuts sub-block (omegabh2_hi /
+                     # _lo, omegam2h2_lo / _hi are what _shade_cuts reads;
+                     # any other window key is ignored).
+                     cuts=cfg["data"].get("param_cuts", {}),
                      savepath=diag_path)
     log(f"saved diagnostics -> {diag_path}")
 

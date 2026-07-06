@@ -531,7 +531,13 @@ _CUT_ROLES = (
   ("ob",   ("omegab", "omega_b")),
   ("om",   ("omegam", "omega_m")),
   ("omh2", ("omegamh2",)),
+  ("ns",   ("ns",)),
 )
+
+# same semi-transparent grey for every window; separate fills alpha-stack,
+# so a double overlap darkens visibly and the union's outer edge traces the
+# allowed region, while a triple still sits clearly under the points.
+_CUT_GREY = (0.55, 0.55, 0.55, 0.30)
 
 
 def _cut_role(name):
@@ -544,48 +550,66 @@ def _cut_role(name):
   return None
 
 
-def _cut_exclusion(rx, ry, xx, yy, cuts):
+def _window_masks(rx, ry, xx, yy, cuts):
   """
-  Boolean mask of the physically-cut region on one triangle panel.
+  Per-window physical-cut exclusion masks sharp on one triangle panel.
 
-  A cut on a derived product is a sharp 2D region only on a panel
-  whose two axes determine that product:
+  Returns one boolean grid per active window that this panel's two axes
+  make sharp (a list of (window_name, mask)); empty when no window is
+  sharp here. A window is sharp only where its derived quantity is a
+  function of the panel's axes (the "sharp only" rule): every other
+  panel merely thins the cloud marginally and gets nothing. The
+  formulas mirror phys_cut_idx's quantity table (data_staging.py)
+  exactly.
 
-    omega_b h^2  = Omega_b (H0/100)^2      on the (H0, Omega_b) panel
-    omegam^2 h^2 = (Omega_m H0/100)^2      on (H0, Omega_m),
-                 = Omega_m * (Omega_m h^2) on (Omega_m, omegam h^2),
-                 = (Omega_m h^2)^2/(H0/100)^2 on (H0, omegam h^2).
-
-  Every other panel only thins marginally, so it gets no shading.
+  Sharp panels (the coverage table in
+  notes/triangle-cut-shading-all-windows.md):
+    omegabh2   = Omega_b (H0/100)^2          on (ob, h0)
+    omegam2h2  = (Omega_m H0/100)^2          on (om, h0),
+               = Omega_m * omegamh2          on (om, omh2),
+               = omegamh2^2 / (H0/100)^2     on (h0, omh2)
+    omegamh2   = Omega_m (H0/100)^2          on (om, h0),
+               = the omh2 axis value         on any panel with an omh2 axis
+    omegamh2ns = omegamh2 * n_s              on (ns, omh2)
 
   Arguments:
     rx, ry = cut roles of the panel's x and y axes (see _cut_role).
     xx, yy = meshgrid of axis values covering the panel.
-    cuts   = mapping with "omegabh2_cut" / "omegabh2_lo" /
-             "omegam2h2_lo" / "omegam2h2_hi" (any may be None =
-             that cut is off).
+    cuts   = the validated param_cuts mapping (omegabh2_lo / _hi,
+             omegam2h2_lo / _hi, omegamh2_lo / _hi, omegamh2ns_lo /
+             _hi; any absent = that side not cut).
 
   Returns:
-    a boolean grid, True where the cuts exclude, or None when this
-    panel determines no cut variable (or the cut is off).
+    a list of (window_name, boolean_grid), True where that window
+    excludes; empty when no window is sharp or active on this panel.
   """
-  obcut = cuts.get("omegabh2_cut")
-  oblo  = cuts.get("omegabh2_lo")
-  lo    = cuts.get("omegam2h2_lo")
-  hi    = cuts.get("omegam2h2_hi")
   pair  = {rx, ry}
+  masks = []
 
-  if pair == {"h0", "ob"} and (obcut is not None or oblo is not None):
+  # add a window's mask: excluded where q <= lo or q >= hi, matching
+  # phys_cut_idx's strict keep window lo < q < hi (an inactive side is
+  # skipped; an all-False mask is dropped).
+  def add(name, q, lo, hi):
+    if lo is None and hi is None:
+      return
+    bad = np.zeros(q.shape, dtype=bool)
+    if lo is not None:
+      bad |= q <= lo
+    if hi is not None:
+      bad |= q >= hi
+    if bad.any():
+      masks.append((name, bad))
+
+  # omegabh2 = Omega_b (H0/100)^2, sharp on (ob, h0).
+  # (phys_cut_idx quantity table: _omega_b_h2.)
+  if pair == {"h0", "ob"}:
     h0 = xx if rx == "h0" else yy
     ob = yy if rx == "h0" else xx
-    obh2 = ob * (h0 / 100.0) ** 2
-    bad = np.zeros(obh2.shape, dtype=bool)
-    if obcut is not None:
-      bad |= obh2 >= obcut
-    if oblo is not None:
-      bad |= obh2 <= oblo
-    return bad
+    add("omegabh2", ob * (h0 / 100.0) ** 2,
+        cuts.get("omegabh2_lo"), cuts.get("omegabh2_hi"))
 
+  # omegam2h2 = (Omega_m H0/100)^2 = Gamma^2, sharp three ways.
+  # (phys_cut_idx quantity table: _omega_m2_h2.)
   g2 = None
   if pair == {"h0", "om"}:
     h0 = xx if rx == "h0" else yy
@@ -599,34 +623,55 @@ def _cut_exclusion(rx, ry, xx, yy, cuts):
     h0   = xx if rx == "h0" else yy
     omh2 = yy if rx == "h0" else xx
     g2 = omh2 ** 2 / (h0 / 100.0) ** 2
-  if g2 is None or (lo is None and hi is None):
-    return None
-  bad = np.zeros(g2.shape, dtype=bool)
-  if lo is not None:
-    bad |= g2 <= lo
-  if hi is not None:
-    bad |= g2 >= hi
-  return bad
+  if g2 is not None:
+    add("omegam2h2", g2,
+        cuts.get("omegam2h2_lo"), cuts.get("omegam2h2_hi"))
+
+  # omegamh2 = Omega_m (H0/100)^2, sharp on (om, h0); on any panel with
+  # an omh2 axis it is that axis value directly, so a 1-D band across it.
+  # (phys_cut_idx quantity table: _omega_m_h2.)
+  if pair == {"h0", "om"}:
+    h0 = xx if rx == "h0" else yy
+    om = yy if rx == "h0" else xx
+    add("omegamh2", om * (h0 / 100.0) ** 2,
+        cuts.get("omegamh2_lo"), cuts.get("omegamh2_hi"))
+  elif "omh2" in pair:
+    omh2 = xx if rx == "omh2" else yy
+    add("omegamh2", omh2,
+        cuts.get("omegamh2_lo"), cuts.get("omegamh2_hi"))
+
+  # omegamh2ns = omegamh2 * n_s, sharp on (ns, omh2).
+  # (phys_cut_idx quantity table: _omega_m_h2_ns.)
+  if pair == {"ns", "omh2"}:
+    ns   = xx if rx == "ns" else yy
+    omh2 = yy if rx == "ns" else xx
+    add("omegamh2ns", ns * omh2,
+        cuts.get("omegamh2ns_lo"), cuts.get("omegamh2ns_hi"))
+
+  return masks
 
 
 def _shade_cuts(g, plot_names, cuts):
   """
   Gray out the physically-cut regions on a getdist triangle.
 
-  Walks the lower-triangle panels; where a panel's two axes
-  determine a cut variable (see _cut_exclusion), fills the excluded
-  region light gray under the points, so an empty corner reads as
-  "removed by the cut", not as an emulator failure. Adds one caption
-  line naming the convention.
+  Walks the lower-triangle panels; on each, every window the two axes
+  make sharp (see _window_masks) fills its excluded region in the same
+  semi-transparent grey under the points, so the fills alpha-stack and
+  the union's outer edge traces the allowed region. The derived
+  omega_m h^2 axis also gets a 1-D exclusion band on its diagonal
+  marginal. One caption line names the convention, so an empty corner
+  reads as "removed by the cut", not as an emulator failure.
 
   Arguments:
     g          = the getdist subplot plotter (after triangle_plot).
     plot_names = the plotted column names, in triangle order
                  (panel [i][j] has x = plot_names[j],
                  y = plot_names[i]).
-    cuts       = the cut values (see _cut_exclusion).
+    cuts       = the validated param_cuts mapping (see _window_masks).
   """
   n = len(plot_names)
+  # lower-triangle 2-D panels: one grey fill per sharp window, stacked.
   for i in range(1, n):
     for j in range(i):
       ax = g.subplots[i][j]
@@ -639,19 +684,57 @@ def _shade_cuts(g, plot_names, cuts):
       xs = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 200)
       ys = np.linspace(ax.get_ylim()[0], ax.get_ylim()[1], 200)
       xx, yy = np.meshgrid(xs, ys)
-      bad = _cut_exclusion(rx=rx, ry=ry, xx=xx, yy=yy, cuts=cuts)
-      if bad is None or not bad.any():
+      masks = _window_masks(rx=rx, ry=ry, xx=xx, yy=yy, cuts=cuts)
+      if not masks:
         continue
-      # zorder 0 renders the fill under the already-drawn points;
-      # the [0.5, 1.5] level band selects exactly the True cells.
-      ax.contourf(xx, yy, bad.astype(float),
-                  levels=[0.5, 1.5], colors=["0.88"], zorder=0)
+      for _name, bad in masks:
+        # one fill per window, all the same grey; zorder 0 renders them
+        # under the already-drawn points, and the separate artists
+        # alpha-stack so overlaps darken. The [0.5, 1.5] band selects
+        # exactly the True cells.
+        ax.contourf(xx, yy, bad.astype(float),
+                    levels=[0.5, 1.5], colors=[_CUT_GREY], zorder=0)
       # contourf can widen the limits; pin them back to the data's.
       ax.set_xlim(xs[0], xs[-1])
       ax.set_ylim(ys[0], ys[-1])
+  # the omega_m h^2 1-D marginal (a diagonal panel) gets a band too.
+  _shade_omh2_marginal(g=g, plot_names=plot_names, cuts=cuts)
   g.fig.text(0.99, 0.99,
              "gray: region removed by the physical cuts",
              ha="right", va="top", fontsize=9, color="0.35")
+
+
+def _shade_omh2_marginal(g, plot_names, cuts):
+  """
+  Band out the omega_m h^2 window on its 1-D diagonal marginal.
+
+  omegamh2 is a derived triangle axis, so its cut is a plain interval
+  on the omh2 marginal: axvspan the excluded low / high ends in the
+  same grey, drawing nothing when the window is off, the omh2 axis is
+  absent, or a bound sits outside the panel range. (phys_cut_idx
+  quantity table: _omega_m_h2.)
+
+  Arguments:
+    g          = the getdist subplot plotter.
+    plot_names = the plotted column names, triangle order.
+    cuts       = the validated param_cuts mapping.
+  """
+  lo = cuts.get("omegamh2_lo")
+  hi = cuts.get("omegamh2_hi")
+  if (lo is None and hi is None) or "omegamh2" not in plot_names:
+    return
+  k  = plot_names.index("omegamh2")
+  ax = g.subplots[k][k]
+  if ax is None:
+    return
+  x0, x1 = ax.get_xlim()
+  # excluded omh2 < lo and omh2 > hi, each drawn only where it lands
+  # inside the panel's x range (a bound outside it shades nothing).
+  if lo is not None and lo > x0:
+    ax.axvspan(x0, min(lo, x1), color=_CUT_GREY, zorder=0)
+  if hi is not None and hi < x1:
+    ax.axvspan(max(hi, x0), x1, color=_CUT_GREY, zorder=0)
+  ax.set_xlim(x0, x1)
 
 
 def _lcdm_triangle_fig(source, names, dchi2, cuts=None):
@@ -673,11 +756,12 @@ def _lcdm_triangle_fig(source, names, dchi2, cuts=None):
     names  = parameter column names, in the dump's column order.
     dchi2  = (N,) per-row delta-chi2, sorted-idx order (as returned
              by coverage_diagnostic / eval_source_chi2).
-    cuts   = optional mapping with the physical-cut values
-             ("omegabh2_cut" / "omegam2h2_lo" / "omegam2h2_hi");
-             when given, the excluded regions are shaded gray on the
-             panels that determine them (see _shade_cuts), so an
-             empty corner is not mistaken for an emulator failure.
+    cuts   = optional validated param_cuts mapping (omegabh2_lo /
+             _hi, omegam2h2_lo / _hi, omegamh2_lo / _hi, omegamh2ns_lo
+             / _hi); when given, each window's excluded region is
+             shaded grey on the panels it makes sharp (see
+             _shade_cuts / _window_masks), so an empty corner is not
+             mistaken for an emulator failure.
 
   Returns:
     the matplotlib Figure of the triangle, or None.
@@ -983,7 +1067,7 @@ def plot_diagnostics(train_losses,
     val_set  = the validation source dict ("C" / "idx"), or None;
                its rows must be the ones coverage's dchi2 scored.
     names    = parameter column names in the dump's order, or None.
-    cuts     = optional physical-cut values ("omegabh2_cut" /
+    cuts     = optional physical-cut values ("omegabh2_hi" /
                "omegam2h2_lo" / "omegam2h2_hi") to shade gray on the
                triangle page (empty cut regions then read as removed,
                not as failures).

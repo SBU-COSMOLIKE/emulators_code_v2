@@ -35,14 +35,15 @@ data:
   cosmolike_data_dir: lsst_y1
   cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
 
-  omegabh2_cut:  0.035
-  omegabh2_lo:   0.014
-  omegam2h2_lo:  0.015
-  omegam2h2_hi:  0.08
-  # omegamh2_lo:    0.10   # omegamh2 = Omega_m (H0/100)^2 window (Planck 0.143)
-  # omegamh2_hi:    0.18
-  # omegamh2ns_lo:  0.10   # omegamh2 * n_s window (needs ns; Planck 0.138)
-  # omegamh2ns_hi:  0.17
+  param_cuts:
+    omegabh2_hi:   0.035   # required upper bound (was omegabh2_cut)
+    omegabh2_lo:   0.014
+    omegam2h2_lo:  0.015
+    omegam2h2_hi:  0.08
+    # omegamh2_lo:    0.10   # omegamh2 = Omega_m (H0/100)^2 window (Planck 0.143)
+    # omegamh2_hi:    0.18
+    # omegamh2ns_lo:  0.10   # omegamh2 * n_s window (needs ns; Planck 0.138)
+    # omegamh2ns_hi:  0.17
   train_divisor: 10
   val_divisor:   50
   split_seed:    0

@@ -122,3 +122,11 @@ Addendum (2026-07-06): when handing the user the command block, always
 include a concrete commit sentence, e.g.
 `git commit -m "Add omegamh2 window cuts (gates passed)"` — never a bare
 "commit it".
+The command block always ends with the merge-to-main steps (cd to the main
+checkout, `git merge <branch>`) — the commit alone strands the work on the
+worktree branch.
+
+Addendum (2026-07-06b): any change that adds or modifies YAML config keys is
+reported with a paste-ready snippet showing the keys inside their block
+(block style, one key per line, comments with formula/meaning, example
+values) — never a prose list of key names.

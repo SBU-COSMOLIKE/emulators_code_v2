@@ -175,21 +175,118 @@ ARCH_HEAD = {"resmlp": None, "rescnn": "cnn", "restrf": "trf"}
 # and the best-model-selection metric.
 DEFAULT_THRESHOLDS = torch.tensor([0.2, 0.5, 1.0, 10.0, 100.0])
 
-# the allowed "data" block keys; from_config rejects any other, so a
-# mistyped window key (the omegamh2-vs-omegam2h2 one-character trap)
-# fails loudly instead of silently not cutting. Keep in sync with the
-# data-block docstring in __init__.
+# the allowed "data" block keys; from_config rejects any other. The
+# physical window cuts live in the nested param_cuts sub-block (its own
+# whitelist below), not flat here. Keep in sync with the data-block
+# docstring in __init__.
 DATA_KEYS = {
   "train_dv", "train_params", "train_covmat",
   "val_dv", "val_params",
   "cosmolike_data_dir", "cosmolike_dataset",
-  "omegabh2_cut", "omegabh2_lo",
-  "omegam2h2_lo", "omegam2h2_hi",
-  "omegamh2_lo", "omegamh2_hi",
-  "omegamh2ns_lo", "omegamh2ns_hi",
+  "param_cuts",
   "train_divisor", "val_divisor",
   "split_seed", "ram_frac",
 }
+
+# the keys the nested data.param_cuts sub-block accepts (the physical
+# window bounds threaded to phys_cut_idx). omegabh2_hi is required
+# inside the block (the former mandatory omegabh2_cut, renamed); the
+# other seven are optional. The whitelist is the omegamh2-vs-omegam2h2
+# one-character typo guard.
+PARAM_CUTS_KEYS = {
+  "omegabh2_lo", "omegabh2_hi",
+  "omegam2h2_lo", "omegam2h2_hi",
+  "omegamh2_lo", "omegamh2_hi",
+  "omegamh2ns_lo", "omegamh2ns_hi",
+}
+
+
+def _param_cuts_migration_message(data, flat):
+  """Build the paste-ready param_cuts block for the flat-key migration.
+
+  Arguments:
+    data = the flat "data" mapping (read for the offending keys' values).
+    flat = the cut keys found flat under data (including the legacy
+           omegabh2_cut).
+
+  Returns:
+    a multi-line message whose body is a valid, paste-ready
+    param_cuts: block, with omegabh2_cut renamed to omegabh2_hi and
+    every offending key's value carried over.
+  """
+  lines = [
+    "the physical cut keys moved into a nested data.param_cuts sub-block,",
+    "and omegabh2_cut was renamed omegabh2_hi. Replace the flat keys "
+    "under data: with:",
+    "",
+    "  param_cuts:",
+  ]
+  for k in flat:
+    new_k = "omegabh2_hi" if k == "omegabh2_cut" else k
+    lines.append(f"    {new_k}: {data[k]}")
+  return "\n".join(lines)
+
+
+def validate_param_cuts(data):
+  """
+  Validate the data.param_cuts sub-block (the physical window cuts).
+
+  A standalone pure function (no torch), so it is unit-testable in
+  isolation. Raises loudly on the migration from the old flat layout,
+  on the renamed / unknown keys, and on a missing required bound;
+  otherwise returns the param_cuts mapping unchanged.
+
+  Arguments:
+    data = the parsed "data" block mapping.
+
+  Returns:
+    the validated data["param_cuts"] mapping.
+
+  Raises:
+    ValueError on: any cut key (including omegabh2_cut) still flat under
+    data (a migration error printing the paste-ready block); a missing
+    param_cuts block; omegabh2_cut written inside param_cuts (naming the
+    rename); an unknown param_cuts key; a missing required omegabh2_hi.
+    TypeError if param_cuts is not a mapping.
+  """
+  # the old flat layout: any cut key (incl. the renamed omegabh2_cut)
+  # directly under data -> a migration error printing the block to
+  # paste in its place.
+  flat = []
+  for k in data:
+    if k in PARAM_CUTS_KEYS or k == "omegabh2_cut":
+      flat.append(k)
+  if flat:
+    raise ValueError(_param_cuts_migration_message(data, flat))
+  # param_cuts is required.
+  if "param_cuts" not in data:
+    raise ValueError(
+      "data is missing the required 'param_cuts' block; add e.g.\n"
+      "  param_cuts:\n"
+      "    omegabh2_hi:  0.035   # required (the former omegabh2_cut)\n"
+      "    omegabh2_lo:  0.005")
+  pc = data["param_cuts"]
+  if not isinstance(pc, dict):
+    raise TypeError(
+      f"data.param_cuts must be a mapping of window bounds, got "
+      f"{type(pc).__name__}")
+  # omegabh2_cut written inside param_cuts -> name the rename.
+  if "omegabh2_cut" in pc:
+    raise ValueError(
+      "data.param_cuts has 'omegabh2_cut'; it was renamed 'omegabh2_hi' "
+      "(rename the key, keep the value)")
+  # unknown key inside param_cuts (the omegamh2-vs-omegam2h2 typo guard).
+  unknown = set(pc) - PARAM_CUTS_KEYS
+  if unknown:
+    raise ValueError(
+      f"unknown data.param_cuts key(s): {sorted(unknown)}; allowed: "
+      f"{sorted(PARAM_CUTS_KEYS)}")
+  # omegabh2_hi is the one required bound (the former omegabh2_cut).
+  if "omegabh2_hi" not in pc:
+    raise ValueError(
+      "data.param_cuts is missing the required 'omegabh2_hi' (the upper "
+      "omega_b h^2 bound, the former omegabh2_cut)")
+  return pc
 
 
 class EmulatorExperiment:
@@ -237,17 +334,24 @@ class EmulatorExperiment:
                        external_modules/data;
                      cosmolike_dataset = .dataset ini naming the cov /
                        mask / data-vector files;
-                     omegabh2_cut = drop rows with omega_b h^2 >= this;
-                     omegabh2_lo = optional lower bound on omega_b h^2
-                       (rows at or below it dropped; omit for no cut);
-                     omegam2h2_lo / omegam2h2_hi = optional window on
-                       omegam^2 h^2 = (Omega_m H0/100)^2; rows outside
-                       are dropped (omit a key for no cut on that side);
-                     omegamh2_lo / omegamh2_hi = optional window on
-                       omegamh2 = Omega_m (H0/100)^2 (Planck ~ 0.143);
-                     omegamh2ns_lo / omegamh2ns_hi = optional window on
-                       omegamh2 * n_s (Planck ~ 0.138; needs the ns
-                       parameter column, else a loud error);
+                     param_cuts = nested sub-block of physical density
+                       windows (required; validated + flattened by
+                       validate_param_cuts). Its keys:
+                         omegabh2_hi = required upper bound on
+                           omega_b h^2 (the former flat omegabh2_cut,
+                           renamed);
+                         omegabh2_lo = optional lower bound on
+                           omega_b h^2;
+                         omegam2h2_lo / omegam2h2_hi = optional window on
+                           omegam^2 h^2 = (Omega_m H0/100)^2;
+                         omegamh2_lo / omegamh2_hi = optional window on
+                           omegamh2 = Omega_m (H0/100)^2 (Planck ~ 0.143);
+                         omegamh2ns_lo / omegamh2ns_hi = optional window
+                           on omegamh2 * n_s (Planck ~ 0.138; needs the
+                           ns column).
+                       Omit an optional key for no cut on that side; a
+                       cut key left flat under data raises a migration
+                       error printing the paste-ready block;
                      train_divisor / val_divisor = keep N // divisor of
                        train / val rows;
                      split_seed = seed for the cut+shuffle picking train /
@@ -406,8 +510,12 @@ class EmulatorExperiment:
       if block not in cfg:
         raise KeyError(
           f"config is missing the required block: {block!r}")
-    # reject unknown "data" keys (the omegamh2-vs-omegam2h2 one-character
-    # trap): a misspelled window key otherwise silently fails to cut.
+    # validate_param_cuts (below): the physical window cuts now live in
+    # data.param_cuts; run this before the generic whitelist so a flat
+    # cut key (the old layout) gets the migration message, not a bare
+    # "unknown key".
+    validate_param_cuts(cfg["data"])
+    # reject any other unknown "data" key.
     unknown = set(cfg["data"]) - DATA_KEYS
     if unknown:
       raise KeyError(
@@ -550,14 +658,15 @@ class EmulatorExperiment:
                   "trunk", "head"):
       if block in ta:
         self.log(f"{block}: {ta[block]}")
+    pc = d.get("param_cuts", {})
     self.log(f"cuts: omegabh2 in "
-             f"({d.get('omegabh2_lo')}, {d.get('omegabh2_cut')})  "
+             f"({pc.get('omegabh2_lo')}, {pc.get('omegabh2_hi')})  "
              f"omegam2h2 in "
-             f"({d.get('omegam2h2_lo')}, {d.get('omegam2h2_hi')})  "
+             f"({pc.get('omegam2h2_lo')}, {pc.get('omegam2h2_hi')})  "
              f"omegamh2 in "
-             f"({d.get('omegamh2_lo')}, {d.get('omegamh2_hi')})  "
+             f"({pc.get('omegamh2_lo')}, {pc.get('omegamh2_hi')})  "
              f"omegamh2ns in "
-             f"({d.get('omegamh2ns_lo')}, {d.get('omegamh2ns_hi')})")
+             f"({pc.get('omegamh2ns_lo')}, {pc.get('omegamh2ns_hi')})")
 
   # --- staging + geometry (the expensive, cached pieces) ---
   def stage_train(self, n_train=None):
@@ -576,24 +685,25 @@ class EmulatorExperiment:
       the training source dict.
     """
     d   = self.data
+    pc  = d["param_cuts"]     # the validated physical-window bounds
     gen = torch.Generator().manual_seed(int(d["split_seed"]))
     # load_source (data_staging.py): memmap the dv .npy, apply the physical
-    # cuts (omega_b h^2 < cut; optional omegam^2 h^2 window), keep n_keep
-    # (or N // divisor) rows of the seeded shuffle, stage in RAM if they
-    # fit (else the memmap), return {C, dv, idx} (+ C_mean / dv_mean with
-    # with_means).
+    # cuts (omega_b h^2 < omegabh2_hi; optional omegam^2 h^2 / omegamh2 /
+    # omegamh2*ns windows), keep n_keep (or N // divisor) rows of the seeded
+    # shuffle, stage in RAM if they fit (else the memmap), return
+    # {C, dv, idx} (+ C_mean / dv_mean with with_means).
     self.train_set = load_source(
       dv_path=d["train_dv"],
       params_path=d["train_params"],
       names=self.names,
-      cut=d["omegabh2_cut"],
-      omegabh2_lo=d.get("omegabh2_lo"),
-      omegam2h2_lo=d.get("omegam2h2_lo"),
-      omegam2h2_hi=d.get("omegam2h2_hi"),
-      omegamh2_lo=d.get("omegamh2_lo"),
-      omegamh2_hi=d.get("omegamh2_hi"),
-      omegamh2ns_lo=d.get("omegamh2ns_lo"),
-      omegamh2ns_hi=d.get("omegamh2ns_hi"),
+      omegabh2_hi=pc["omegabh2_hi"],
+      omegabh2_lo=pc.get("omegabh2_lo"),
+      omegam2h2_lo=pc.get("omegam2h2_lo"),
+      omegam2h2_hi=pc.get("omegam2h2_hi"),
+      omegamh2_lo=pc.get("omegamh2_lo"),
+      omegamh2_hi=pc.get("omegamh2_hi"),
+      omegamh2ns_lo=pc.get("omegamh2ns_lo"),
+      omegamh2ns_hi=pc.get("omegamh2ns_hi"),
       divisor=(None if n_train is not None else d["train_divisor"]),
       n_keep=n_train,
       gen=gen,
@@ -618,6 +728,7 @@ class EmulatorExperiment:
       the validation source dict.
     """
     d   = self.data
+    pc  = d["param_cuts"]     # the validated physical-window bounds
     gen = torch.Generator().manual_seed(int(d["split_seed"]))
     # load_source (data_staging.py): same staging as stage_train, on the
     # val files; with_means=False (val borrows the training centers).
@@ -625,14 +736,14 @@ class EmulatorExperiment:
       dv_path=d["val_dv"],
       params_path=d["val_params"],
       names=self.names,
-      cut=d["omegabh2_cut"],
-      omegabh2_lo=d.get("omegabh2_lo"),
-      omegam2h2_lo=d.get("omegam2h2_lo"),
-      omegam2h2_hi=d.get("omegam2h2_hi"),
-      omegamh2_lo=d.get("omegamh2_lo"),
-      omegamh2_hi=d.get("omegamh2_hi"),
-      omegamh2ns_lo=d.get("omegamh2ns_lo"),
-      omegamh2ns_hi=d.get("omegamh2ns_hi"),
+      omegabh2_hi=pc["omegabh2_hi"],
+      omegabh2_lo=pc.get("omegabh2_lo"),
+      omegam2h2_lo=pc.get("omegam2h2_lo"),
+      omegam2h2_hi=pc.get("omegam2h2_hi"),
+      omegamh2_lo=pc.get("omegamh2_lo"),
+      omegamh2_hi=pc.get("omegamh2_hi"),
+      omegamh2ns_lo=pc.get("omegamh2ns_lo"),
+      omegamh2ns_hi=pc.get("omegamh2ns_hi"),
       divisor=(None if n_val is not None else d["val_divisor"]),
       n_keep=n_val,
       gen=gen,
@@ -654,7 +765,8 @@ class EmulatorExperiment:
     Returns:
       the number of training rows passing the physical cuts (an int).
     """
-    d = self.data
+    d  = self.data
+    pc = d["param_cuts"]     # the validated physical-window bounds
     # modeled parameter columns (drop leading weight / lnp and trailing
     # chi2), as load_source does by default.
     C   = np.loadtxt(d["train_params"], dtype="float32")[:, slice(2, -1)]
@@ -664,14 +776,14 @@ class EmulatorExperiment:
     # windows (same cuts as stage_train); the report is unused here,
     # only the survivor count.
     phys, _ = phys_cut_idx(C=C, idx=idx, names=self.names,
-                           cut=d["omegabh2_cut"],
-                           omegabh2_lo=d.get("omegabh2_lo"),
-                           omegam2h2_lo=d.get("omegam2h2_lo"),
-                           omegam2h2_hi=d.get("omegam2h2_hi"),
-                           omegamh2_lo=d.get("omegamh2_lo"),
-                           omegamh2_hi=d.get("omegamh2_hi"),
-                           omegamh2ns_lo=d.get("omegamh2ns_lo"),
-                           omegamh2ns_hi=d.get("omegamh2ns_hi"),
+                           omegabh2_hi=pc["omegabh2_hi"],
+                           omegabh2_lo=pc.get("omegabh2_lo"),
+                           omegam2h2_lo=pc.get("omegam2h2_lo"),
+                           omegam2h2_hi=pc.get("omegam2h2_hi"),
+                           omegamh2_lo=pc.get("omegamh2_lo"),
+                           omegamh2_hi=pc.get("omegamh2_hi"),
+                           omegamh2ns_lo=pc.get("omegamh2ns_lo"),
+                           omegamh2ns_hi=pc.get("omegamh2ns_hi"),
                            param_file=d["train_params"])
     return int(len(phys))
 

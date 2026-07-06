@@ -238,7 +238,7 @@ def _omega_m_h2_ns(col):
   return _omega_m_h2(col) * col["ns"]
 
 
-def phys_cut_idx(C, idx, names, cut,
+def phys_cut_idx(C, idx, names, omegabh2_hi,
                  omegabh2_lo=None,
                  omegam2h2_lo=None, omegam2h2_hi=None,
                  omegamh2_lo=None, omegamh2_hi=None,
@@ -250,7 +250,7 @@ def phys_cut_idx(C, idx, names, cut,
   Cuts on derived products a per-parameter scan misses (all strict,
   lo < quantity < hi):
 
-    omegabh2   = Omega_b (H0/100)^2      (omegabh2_lo, cut)
+    omegabh2   = Omega_b (H0/100)^2      (omegabh2_lo, omegabh2_hi)
     omegam2h2  = (Omega_m H0/100)^2      (omegam2h2_lo, omegam2h2_hi)
     omegamh2   = Omega_m (H0/100)^2      (omegamh2_lo, omegamh2_hi)
     omegamh2ns = omegamh2 * n_s          (omegamh2ns_lo, omegamh2ns_hi)
@@ -293,8 +293,8 @@ def phys_cut_idx(C, idx, names, cut,
     names      = parameter column names in C's column order; the
                  windows locate their columns (omegab / omegam / H0 /
                  ns) by name.
-    cut        = upper bound on omega_b h^2 (rows >= cut dropped), the
-                 one always-applied bound.
+    omegabh2_hi   = upper bound on omega_b h^2 (rows >= it dropped),
+                    the one always-applied bound (renamed from `cut`).
     omegabh2_lo   = optional lower bound on omega_b h^2 (None = no
                     lower cut).
     omegam2h2_lo  = optional lower bound on omegam^2 h^2 = Gamma^2
@@ -325,10 +325,10 @@ def phys_cut_idx(C, idx, names, cut,
   # window table: name, banner tag (the formula), the columns the
   # formula needs, the formula, and its (lo, hi) bounds. A new window
   # is one row here (see the _omega_* helpers above), not a new
-  # branch; obh2's hi is the always-applied `cut`.
+  # branch; obh2's hi is the always-applied `omegabh2_hi`.
   windows = [
     ("omegabh2",   "Om_b (H0/100)^2",  ("omegab", "H0"),
-     _omega_b_h2,    omegabh2_lo,   cut),
+     _omega_b_h2,    omegabh2_lo,   omegabh2_hi),
     ("omegam2h2",  "(Om H0/100)^2",    ("omegam", "H0"),
      _omega_m2_h2,   omegam2h2_lo,  omegam2h2_hi),
     ("omegamh2",   "Om (H0/100)^2",    ("omegam", "H0"),
@@ -392,7 +392,7 @@ def read_param_names(covmat_path, comment="#"):
     return f.readline().lstrip(comment).split()
 
 
-def load_source(dv_path, params_path, names, cut, divisor=None,
+def load_source(dv_path, params_path, names, omegabh2_hi, divisor=None,
                 gen=None, ram_frac=0.7, with_means=False,
                 param_cols=slice(2, -1), verbose=True, n_keep=None,
                 omegabh2_lo=None,
@@ -419,7 +419,9 @@ def load_source(dv_path, params_path, names, cut, divisor=None,
     names       = parameter column names (covmat order, the kept
                   columns); phys_cut_idx finds the omegab / H0
                   columns by them.
-    cut         = upper bound on omega_b h^2 (rows >= cut dropped).
+    omegabh2_hi  = upper bound on omega_b h^2 (rows >= it dropped);
+                   required, threaded to phys_cut_idx (renamed from
+                   the former `cut`).
     divisor     = keep N // divisor rows (10 -> ~1/10 for train);
                   pass this or n_keep (exactly one).
     gen         = torch.Generator seeding the cut+shuffle (required).
@@ -436,7 +438,7 @@ def load_source(dv_path, params_path, names, cut, divisor=None,
                   learning-curve sweep at explicit sizes). Pass
                   this or divisor.
     omegabh2_lo  = optional lower bound on omega_b h^2 (None = no
-                   lower cut; `cut` stays the upper bound).
+                   lower cut; omegabh2_hi stays the upper bound).
     omegam2h2_lo = optional lower bound on omegam^2 h^2 (the
                    Gamma^2 window, see phys_cut_idx; None = no
                    lower cut).
@@ -470,7 +472,8 @@ def load_source(dv_path, params_path, names, cut, divisor=None,
 
   n     = C.shape[0]
   order = torch.randperm(n, generator=gen).numpy()
-  phys, cut_report = phys_cut_idx(C=C, idx=order, names=names, cut=cut,
+  phys, cut_report = phys_cut_idx(C=C, idx=order, names=names,
+                                  omegabh2_hi=omegabh2_hi,
                                   omegabh2_lo=omegabh2_lo,
                                   omegam2h2_lo=omegam2h2_lo,
                                   omegam2h2_hi=omegam2h2_hi,

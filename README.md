@@ -135,7 +135,7 @@ and only `N_train` rows are kept. The result is a "source" dict (`C`, `dv`,
                            ▼
                  seeded shuffle             randperm(n, gen)   (split_seed)
                            ▼
-                 physical cuts              phys_cut_idx: keep lo < omega_b h^2 < cut
+                 physical cuts              phys_cut_idx: keep lo < omega_b h^2 < omegabh2_hi
                            ▼                 + lo < omegam^2 h^2 < hi (lower bounds
                            │                 + window optional); omegab/omegam/H0
                            │                 columns found by name
@@ -377,7 +377,7 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 | how parameters are whitened (input) | `geometries_parameter.py` |
 | dv whitening / cosmolike reading (output) | `geometries_output.py` |
 | data loading / the physical cut / staging | `data_staging.py` |
-| restrict the training pool by a density window | the `data:` block window keys (`omegabh2_*`, `omegam2h2_*`, `omegamh2_*`, `omegamh2ns_*`); a new window is one row in `data_staging.phys_cut_idx`'s table |
+| restrict the training pool by a density window | the `data.param_cuts:` sub-block keys (`omegabh2_hi` required, `omegabh2_lo`, `omegam2h2_*`, `omegamh2_*`, `omegamh2ns_*`); a new window is one row in `data_staging.phys_cut_idx`'s table |
 | the GPU-memory regime / batching | `batching.py` |
 | the optimizer/scheduler build or the training loop | `training.py` |
 | the end-to-end setup wiring | `experiment.py` |
@@ -447,7 +447,7 @@ to a card, ≤ 40% two to a card, bigger ones exclusive (off by default — on a
 [Multi-GPU execution and packing](#6a-multi-gpu) below.
 
 The YAML has two blocks: `data` (bare input filenames resolved under
-`--root/chains`, the cut/split, the cosmolike dataset) and `train_args` (`nepochs`, `bs`, `loss_mode`, the `model` /
+`--root/chains`, the physical density windows in a nested `param_cuts:` sub-block, the split, the cosmolike dataset) and `train_args` (`nepochs`, `bs`, `loss_mode`, the `model` /
 `optimizer` / `lr` / `scheduler` / `trim` / `focus` sub-blocks, the two-phase
 schedule — `trunk_epochs` plus the symmetric `trunk:` / `head:` per-phase
 override blocks — and the stability guards `clip` (per-step gradient-norm
@@ -708,7 +708,7 @@ Turns on-disk dumps into in-memory "source" dicts.
 
 - `load_source(...)` — orchestrator: memmap the dv, load + cut the params, keep `N_train` rows, stage, return `{C, dv, idx (+ means)}`.
 - `stage_source(C, dv, idx, ram_frac)` — materialize the used rows in RAM if they fit, else keep the memmap (reindex local).
-- `phys_cut_idx(C, idx, names, cut, omegabh2_lo, omegam2h2_lo/hi, omegamh2_lo/hi, omegamh2ns_lo/hi, param_file)` — keep the rows inside every active physical-density window (a small quantity table, one row per window: `omega_b h^2` in `(omegabh2_lo, cut)`, and the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Returns `(kept_idx, report)` with a per-window survivor count for the banner; raises on `lo >= hi` or a window whose column (e.g. `ns`) is missing.
+- `phys_cut_idx(C, idx, names, omegabh2_hi, omegabh2_lo, omegam2h2_lo/hi, omegamh2_lo/hi, omegamh2ns_lo/hi, param_file)` — keep the rows inside every active physical-density window (a small quantity table, one row per window: `omega_b h^2` in `(omegabh2_lo, omegabh2_hi)`, and the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). The YAML supplies these through the nested `data.param_cuts:` block; `omegabh2_hi` was the former flat `omegabh2_cut`. Returns `(kept_idx, report)` with a per-window survivor count for the banner; raises on `lo >= hi` or a window whose column (e.g. `ns`) is missing.
 - `stream_chunks(idx, chunk)` — yield sorted row-index blocks (sequential disk reads).
 - `stream_stats(mm, idx, method, CHUNK)` — per-column mean/std (or min/max) over the used rows, streamed (never loads the dump whole).
 - `param_stats(arr, idx, method)` — the same stats for the in-RAM parameter array.
