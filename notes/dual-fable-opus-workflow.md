@@ -109,3 +109,11 @@ commands vanish. FIX = uncheck "worktree" + open the `dev` folder (commands are
 committed at `dev/.claude/commands/`). Worktree is ALSO wrong for this loop on
 its own merits — it hands each session an isolated checkout, splitting the
 shared `notes/` the Architect and Implementer hand off through.
+
+## Git discipline (user directive, 2026-07-05)
+
+Only the user commits. Neither the Architect nor the Implementer ever runs
+`git commit`, `git merge`, or `git push` — work is always left as
+uncommitted working-tree changes on the session's branch, and the handoff
+(or final report) prints the exact command block for the user to run.
+Do not offer to commit; offer the commands.

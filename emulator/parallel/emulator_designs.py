@@ -32,8 +32,14 @@ component has unit variance (the network's working basis).
 
 import torch.nn as nn
 
+# activation_fcn (../activations.py): the learned gated activation H(x) =
+# gate(x)*x, the default act factory shared with the root package.
 from ..activations import activation_fcn
+# Affine, ResBlock (../emulator_designs_building_blocks.py): the shared
+# scalar scale-and-shift layer and the width-preserving residual block.
 from ..emulator_designs_building_blocks import Affine, ResBlock
+# GroupedCNNBlock (emulator_designs_building_blocks.py): the per-bin
+# grouped 1D conv, this subpackage's one grouped twin of the conv head.
 from .emulator_designs_building_blocks import GroupedCNNBlock
 
 
@@ -76,13 +82,13 @@ class ParallelResCNN(nn.Module):
       (legend: B = batch rows; input_dim = number of cosmological
        parameters; W = int_dim_res, the trunk width; n_bins =
        number of tomographic (pair, xi+/xi-) bins; max_bin = the
-       longest bin's kept theta count -- LSST-Y1 example: 30 bins
-       of up to 26 angles; n_keep = output_dim, the kept
+       longest bin's kept theta count (LSST-Y1 example: 30 bins
+       of up to 26 angles); n_keep = output_dim, the kept
        data-vector length the network emulates.)
 
   The targets must stay in theta order within each bin for the conv
   to see the angular axis, so this model requires the
-  DiagonalGeometry whitening (scale-only, no rotation) -- a
+  DiagonalGeometry whitening (scale-only, no rotation): a
   full-eigenbasis whitening would scramble the axis the kernel
   slides along. Unlike the production ResCNN, there are no
   basis-change buffers here: the whole pipeline lives in the
@@ -112,8 +118,14 @@ class ParallelResCNN(nn.Module):
   needs_geom = True
   needs_bins = True
 
-  def __init__(self, input_dim, output_dim, int_dim_res, geom,
-               kernel_size=11, channels=16, n_blocks=3,
+  def __init__(self,
+               input_dim,
+               output_dim,
+               int_dim_res,
+               geom,
+               kernel_size=11,
+               channels=16,
+               n_blocks=3,
                block_opts=None):
     super().__init__()
     if block_opts is None:
@@ -131,12 +143,14 @@ class ParallelResCNN(nn.Module):
     layers.append(nn.Linear(in_features=input_dim, out_features=int_dim_res))
 
     for _ in range(n_blocks):
-      layers.append(ResBlock(int_dim_res, **block_opts))
+      # ResBlock's first parameter is size; **block_opts forwards the
+      # optional n_layers / norm / act (never size).
+      layers.append(ResBlock(size=int_dim_res, **block_opts))
 
     # expand to the padded per-bin layout.
     layers.append(nn.Linear(in_features=int_dim_res, out_features=cnn_dim))
 
-    # per-bin (grouped) convolution -- no cross-bin mixing.
+    # per-bin (grouped) convolution: no cross-bin mixing.
     layers.append(GroupedCNNBlock(n_groups=n_bins,
                                   group_len=max_bin,
                                   kernel_size=kernel_size,

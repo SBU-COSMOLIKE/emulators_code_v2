@@ -5,7 +5,7 @@ under a trainable refiner network, differing in how base and refiner
 combine: PCEResidualChi2 is additive in the whitened basis (the
 refiner learns truth minus base), PCERatioChi2 multiplicative in the
 physical basis (the refiner learns a fractional correction). Either
-way the chi2 stays the plain masked Mahalanobis distance -- the base
+way the chi2 stays the plain masked Mahalanobis distance, the base
 moves only the target's zero point or scale, never the metric.
 
 Both declare needs_params = True (encode / decode evaluate the base
@@ -18,7 +18,12 @@ trim / focus / focus_scale reduction is inherited from CosmolikeChi2
 PS: frozen = evaluated under no_grad, never trained; base = the
 closed-form PCE prediction; refiner = the SGD-trained network (any
 model spec) correcting it; Mahalanobis distance = r^T Cinv r, the
-covariance-weighted squared residual.
+covariance-weighted squared residual; whitened = rotated into the
+covariance eigenbasis and scaled to unit variance (decorrelated);
+encoded = a dv put through the geometry's encode (kept entries,
+centered, whitened); squeeze = keep only the unmasked dv entries; a
+loader is a closure load(rows) -> a ready-to-train batch on the
+device.
 """
 
 import torch
@@ -43,7 +48,7 @@ class PCEResidualChi2(CosmolikeChi2):
          ▼
       target (B, n_keep)         the refiner's residual target
 
-  Loss: plain chi2 on (pred - target) -- the base cancels in the
+  Loss: plain chi2 on (pred - target), the base cancels in the
   residual, (base + pred) - truth == pred - target, so the metric
   is exact. Decode inverts: geom.decode(y + PCE(theta)).
 
@@ -54,7 +59,7 @@ class PCEResidualChi2(CosmolikeChi2):
 
   The refiner is any model spec (ResMLP, ResCNN, ...) trained by
   run_emulator with the robust chi2 loss. It outputs the full dv
-  correction, so it is not confined to the PCE's K-mode subspace --
+  correction, so it is not confined to the PCE's K-mode subspace,
   a too-small K only costs a smaller head start, never caps
   accuracy (the conservative high-T property). For a ResCNN
   refiner, pass a DiagonalGeometry geom (theta order), as in the
@@ -66,31 +71,89 @@ class PCEResidualChi2(CosmolikeChi2):
   needs_params = True
 
   def __init__(self, geom, pce):
+    """Hold the output geometry and the frozen PCE base.
+
+    Arguments:
+      geom = the output DataVectorGeometry (whitening + chi2).
+      pce  = the fitted, frozen PCEEmulator; evaluated in the
+             whitened basis as the base prediction.
+    """
     super().__init__(geom)
     self.pce = pce          # frozen PCE base (whitened dv)
 
   def _base(self, params_whitened):
-    # frozen base -> no grad flows into the PCE.
+    """Evaluate the frozen PCE base under no_grad.
+
+    Arguments:
+      params_whitened = (B, n_param) whitened model inputs.
+
+    Returns:
+      (B, n_keep) whitened base prediction; no grad flows into it.
+    """
     with torch.no_grad():
       return self.pce(params_whitened)
 
   def encode(self, dv, params_whitened):
-    # whitened truth minus PCE base = the residual target.
+    """Raw dv -> the refiner's residual target.
+
+    Arguments:
+      dv              = (B, total_size) raw data vectors.
+      params_whitened = (B, n_param) whitened inputs (for the base).
+
+    Returns:
+      (B, n_keep) whitened truth minus the PCE base = the residual
+      the refiner learns.
+    """
     return self.geom.encode(dv) - self._base(params_whitened)
 
   def decode(self, y, params_whitened):
-    # add the base back (whitened), then geometry decode.
+    """Refiner output -> physical dv (inverse of encode).
+
+    Arguments:
+      y               = (B, n_keep) refiner output (the residual).
+      params_whitened = (B, n_param) whitened inputs (for the base).
+
+    Returns:
+      (B, total_size) physical dv: geom.decode(y + base).
+    """
     return self.geom.decode(y + self._base(params_whitened))
 
   def chi2(self, pred, target, params_whitened=None,
            full=False):
-    # plain: base baked into target, so pred - target ==
-    # full_pred - truth. params accepted but unused.
+    """Per-sample chi2 of a residual prediction against its target.
+
+    The base is baked into target at encode time, so pred - target
+    equals full_pred - truth and the plain chi2 is exact.
+
+    Arguments:
+      pred            = (B, n_keep) refiner output.
+      target          = (B, n_keep) residual target from encode.
+      params_whitened = accepted for the needs_params signature,
+                        unused here (the base is already in target).
+      full            = if True, contract the full-length precision
+                        (diagnostics); else the kept sub-block.
+
+    Returns:
+      (B,) per-sample chi2.
+    """
     return CosmolikeChi2.chi2(self, pred=pred, target=target, full=full)
 
   def loss(self, pred, target, params_whitened,
            *args, **kwargs):
-    # needs_params signature; the plain chi2 needs no params.
+    """Training loss: the base CosmolikeChi2 reduction on the residual.
+
+    Arguments:
+      pred            = (B, n_keep) refiner output.
+      target          = (B, n_keep) residual target.
+      params_whitened = the needs_params argument, unused (the plain
+                        chi2 needs no params).
+      *args, **kwargs = the mode / trim / focus reduction controls,
+                        forwarded positionally (never keyword pred /
+                        target before the *args forwarder).
+
+    Returns:
+      a scalar loss tensor.
+    """
     return CosmolikeChi2.loss(
       self, pred, target, *args, **kwargs)
 
@@ -104,7 +167,7 @@ class PCERatioChi2(CosmolikeChi2):
 
   Speed design: the frozen base is precomputed once at load time
   and packed with the truth into the encoded target, so the chi2
-  never re-runs the PCE in the training loop -- it just unpacks
+  never re-runs the PCE in the training loop, it just unpacks
   and forms b * (1 + delta). The loader stages the wider target
   via the target_dim attribute (batching.py reads it).
 
@@ -145,35 +208,88 @@ class PCERatioChi2(CosmolikeChi2):
   needs_params = True
 
   def __init__(self, geom, pce):
+    """Hold the output geometry and the frozen PCE base.
+
+    Arguments:
+      geom = the output DataVectorGeometry (squeeze / decode + chi2).
+      pce  = the fitted, frozen PCEEmulator; its whitened output is
+             decoded to the physical base b.
+    """
     super().__init__(geom)
     self.pce = pce
 
   @property
   def target_dim(self):
-    # encode packs [base ; truth], so the loader stages a target
-    # twice the kept-vector width.
+    """Staged-target width: encode packs [base ; truth].
+
+    Returns:
+      2 * n_keep, so batching.py stages a target twice the kept
+      vector width (the base cached beside the truth).
+    """
     return 2 * self.geom.dest_idx.numel()
 
   def _base_phys(self, params_whitened):
+    """Frozen physical base b = geom.decode(PCE(theta)).
+
+    Arguments:
+      params_whitened = (B, n_param) whitened model inputs.
+
+    Returns:
+      (B, n_keep) physical base, under no_grad.
+    """
     with torch.no_grad():
       return self.geom.decode(self.pce(params_whitened))
 
   def encode(self, dv, params_whitened):
-    # precompute the frozen base (once per row at load) and pack it
-    # with the physical truth (see Speed in the class doc).
+    """Raw dv -> the packed [base ; physical truth] target.
+
+    Precomputes the frozen base once per row at load, so the hot
+    chi2 never re-runs the PCE (see Speed in the class docstring).
+
+    Arguments:
+      dv              = (B, total_size) raw data vectors.
+      params_whitened = (B, n_param) whitened inputs (for the base).
+
+    Returns:
+      (B, 2*n_keep) target = [b ; xi] (physical base, physical
+      kept truth).
+    """
     b  = self._base_phys(params_whitened)
     xi = self.geom.squeeze(dv).float()
     return torch.cat([b, xi], dim=1)         # (B, 2*n_keep)
 
   def decode(self, pred, params_whitened):
-    # only used by the per-element diagnostics (not hot), so
-    # recomputing the base here is fine.
+    """Fractional correction -> physical dv (diagnostics only).
+
+    Arguments:
+      pred            = (B, n_keep) fractional correction delta.
+      params_whitened = (B, n_param) whitened inputs (for the base).
+
+    Returns:
+      (B, n_keep) physical prediction b * (1 + delta). Not hot, so
+      recomputing the base here is fine.
+    """
     b = self._base_phys(params_whitened)
     return b * (1.0 + pred)
 
   def chi2(self, pred, target, params_whitened=None,
            full=False):
-    # unpack the cached base and truth -- no PCE recompute.
+    """Per-sample chi2 of b*(1 + pred) against the truth.
+
+    Unpacks the base and truth cached in target, so the PCE is
+    never recomputed in the loop.
+
+    Arguments:
+      pred            = (B, n_keep) fractional correction delta.
+      target          = (B, 2*n_keep) packed [b ; xi] from encode.
+      params_whitened = accepted for the needs_params signature,
+                        unused (the base is already in target).
+      full            = if True, contract the full-length precision
+                        (diagnostics); else the kept sub-block.
+
+    Returns:
+      (B,) per-sample chi2 of r = b*(1 + pred) - xi.
+    """
     nk  = self.geom.dest_idx.numel()
     b   = target[:, :nk]
     xi  = target[:, nk:]
@@ -188,6 +304,19 @@ class PCERatioChi2(CosmolikeChi2):
 
   def loss(self, pred, target, params_whitened,
            *args, **kwargs):
-    # base is already in `target`; the plain chi2 needs no params.
+    """Training loss: the base CosmolikeChi2 reduction.
+
+    Arguments:
+      pred            = (B, n_keep) fractional correction.
+      target          = (B, 2*n_keep) packed [b ; xi].
+      params_whitened = the needs_params argument, unused (the base
+                        is already in target).
+      *args, **kwargs = the mode / trim / focus reduction controls,
+                        forwarded positionally (never keyword pred /
+                        target before the *args forwarder).
+
+    Returns:
+      a scalar loss tensor.
+    """
     return CosmolikeChi2.loss(self, pred, target,
                               *args, **kwargs)

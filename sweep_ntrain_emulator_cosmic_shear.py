@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
-"""N_train learning curve: f(delta-chi2 > thr) vs N_train for one config."""
+"""This driver traces the f(delta-chi2 > thr) vs N_train learning curve.
+
+PS: a loader is a closure load(rows) -> a ready-to-train batch on the
+device, hiding where the data lives; dump = the full on-disk array from the
+data-generation run (the dv dump is the .npy, the param dump the .txt);
+memmap = a NumPy array backed by that file, read in slices so it is never
+loaded whole.
+"""
 
 #-------------------------------------------------------------------------------
 # Example how to run this program
 #-------------------------------------------------------------------------------
-# Sweeps the training-set size for one fixed config, recording validation
-# f(delta-chi2 > threshold) at each size -- the learning curve telling whether
-# the floor is data-limited (still falling at the largest N) or capacity /
-# architecture-limited (a flat tail).
+# This driver sweeps the training-set size for one fixed config, recording
+# validation f(delta-chi2 > threshold) at each size: the learning curve telling
+# whether the floor is data-limited (still falling at the largest N) or
+# capacity / architecture-limited (a flat tail).
 #
-#     python external_modules/code/emulators/emultrf/dev/sweep_ntrain_emulator_cosmic_shear.py \
-#       --root projects/lsst_y1/ \
-#       --fileroot emulators/training_scripts/ \
-#       --yaml train_single_emulator_cosmic_shear.yaml \
-#       --n-min 2000 --n-points 6 --out ntrain_resmlp
+# python .../emultrf/dev/sweep_ntrain_emulator_cosmic_shear.py \
+#   --root projects/lsst_y1/ \
+#   --fileroot emulators/training_scripts/ \
+#   --yaml train_single_emulator_cosmic_shear.yaml \
+#   --n-min 2000 --n-points 6 --out ntrain_resmlp
 #
 #- Reuses the training driver's YAML (and its model/rescale/activation choices).
 #  To compare architectures or chi2 modes, run once per config (vary
@@ -46,7 +53,7 @@
 #  (an RTX 3060: the fixed overhead alone is ~17% of 12 GB, and co-located
 #  contexts would crowd out the data). If a point outgrows its estimate the
 #  loaders degrade to streaming against the real free VRAM rather than crash.
-#  Keep it off for timing measurements -- co-located points contend and their
+#  Keep it off for timing measurements: co-located points contend and their
 #  s/epoch is not comparable to exclusive runs.
 #
 #- `--root` (required): project folder under $ROOTDIR (data resolves under it);
@@ -57,7 +64,7 @@
 #  (resmlp | rescnn | restrf) and model.ia the factored IA design layered
 #  on it (omit | nla | tatt), with the nested mlp / activation / cnn /
 #  trf sub-blocks, the optional two-phase trunk_epochs + trunk / head
-#  override blocks, and the clip / rewind guards -- see the training
+#  override blocks, and the clip / rewind guards; see the training
 #  driver's header for every key. The `data` block lists bare filenames,
 #  resolved under --root/chains.
 #- `--rescale` / `--activation`: as in the training driver, fixed across the
@@ -72,7 +79,7 @@
 #- `--quiet`: suppress stdout (txt and pdf still written).
 #
 #- Trains one full model per grid point (--n-points trainings, divided across
-#  the GPUs) -- run it on the workstation, where cosmolike lives.
+#  the GPUs), so run it on the workstation, where cosmolike lives.
 #-------------------------------------------------------------------------------
 
 import argparse
@@ -133,9 +140,9 @@ def _sweep_job(gpu_id, exp, N, extra):
   set. Total by design (any failure returns frac = nan instead of
   killing the lane), and it returns this point's GPU tensors before
   finishing so the next point (possibly a co-located lane's) sizes
-  its loaders against the true free memory -- the caching allocator
+  its loaders against the true free memory (the caching allocator
   would otherwise keep the VRAM reserved and mem_get_info would
-  under-report.
+  under-report).
 
   Arguments:
     gpu_id = CUDA device index (result bookkeeping only).
@@ -144,7 +151,7 @@ def _sweep_job(gpu_id, exp, N, extra):
     extra  = the parent's payload dict (reads threshold).
 
   Returns:
-    (N, frac, gpu_id, seconds) -- one result row for the parent.
+    (N, frac, gpu_id, seconds), one result row for the parent.
   """
   t0 = time.time()
   try:
@@ -200,11 +207,12 @@ def _run_parallel(cfg, sizes, n_workers, args, log):
   worker_cfg["data"] = dict(cfg["data"])
   worker_cfg["data"]["ram_frac"] = 0.0
 
-  # LPT split: largest N first, each to the least-loaded GPU. Bucket
-  # order is big-first, which is also the right queue order under
-  # packing (the exclusive points start first, the small ones fill
-  # the remaining lanes).
-  buckets = lpt_assign(sizes, n_workers)
+  # lpt_assign (scheduling.py): the Longest-Processing-Time split,
+  # largest N first, each to the least-loaded GPU. Bucket order is
+  # big-first, which is also the right queue order under packing (the
+  # exclusive points start first, the small ones fill the remaining
+  # lanes).
+  buckets = lpt_assign(sizes=sizes, n_workers=n_workers)
   for k, b in enumerate(buckets):
     log(f"  gpu {k}: {len(b)} points, total N {sum(b)}  ->  {sorted(b)}")
 
@@ -213,14 +221,27 @@ def _run_parallel(cfg, sizes, n_workers, args, log):
   # (<=20% of the card -> 4 per GPU, <=40% -> 2, else exclusive).
   # The estimate reads the dv dump's width (an upper bound on the
   # staged target width) and GPU 0's total memory (a homogeneous-GPU
-  # assumption -- true on amypond's pair and on an H200 node).
+  # assumption, true on amypond's pair and on an H200 node).
   lanes = 1
   job_tokens = None
   if args.gpu_pack:
     dv_width = np.load(cfg["data"]["train_dv"], mmap_mode="r").shape[1]
+    # get_device_properties(0): the positional 0 is the CUDA device
+    # index (GPU 0, under the homogeneous-GPU assumption above).
     total    = torch.cuda.get_device_properties(0).total_memory
     def job_tokens(N):
-      return vram_tokens(estimate_train_vram_fraction(
+      """
+      run_gpu_pool token callback: this N_train point's token count.
+
+      Arguments:
+        N = the point's N_train (its VRAM share scales with it).
+
+      Returns:
+        the capacity tokens this point needs (out of GPU_TOKENS).
+      """
+      # estimate_train_vram_fraction / vram_tokens (scheduling.py):
+      # fraction of a card for this N, then capacity tokens to pack on.
+      return vram_tokens(fraction=estimate_train_vram_fraction(
         n_rows=int(N), dv_width=dv_width, total_bytes=total))
     lanes = GPU_TOKENS
     toks = []
@@ -236,6 +257,16 @@ def _run_parallel(cfg, sizes, n_workers, args, log):
   # the parent logs each point as it lands (workers run quiet, so
   # multiple streams do not interleave).
   def on_result(r):
+    """
+    run_gpu_pool result callback: log one N_train point as it lands.
+
+    Arguments:
+      r = one result tuple (N, frac, gpu_id, seconds) from a finished
+          _sweep_job.
+
+    Returns:
+      None (prints one line through the quiet-gated logger).
+    """
     N, f, gpu, secs = r
     log(f"  N_train {N:8d}  f(>{args.threshold:g}) {f:.4f}  "
         f"(gpu {gpu}, {secs:.0f}s)")
@@ -339,10 +370,11 @@ def main():
   # so the children inherit it.
   os.environ.setdefault("MPLBACKEND", "Agg")
 
-  # resolve the cocoa layout and read the config once (data paths made
-  # absolute under $ROOTDIR/<root>). The parent uses cfg for the grid and
-  # hands a copy (host-RAM budget set for streaming) to each GPU process;
-  # absolute paths mean every spawned worker reads the same files.
+  # resolve_cocoa_config (cocoa.py): resolve the cocoa layout and read the
+  # config once (data paths made absolute under $ROOTDIR/<root>). The parent
+  # uses cfg for the grid and hands a copy (host-RAM budget set for streaming)
+  # to each GPU process; absolute paths mean every spawned worker reads the
+  # same files.
   cfg, fileroot, _ = resolve_cocoa_config(args)
 
   # build the experiment on the real compute device (CUDA, or Apple MPS on the
@@ -369,8 +401,9 @@ def main():
   if args.n_min >= n_max:
     raise ValueError(
       f"--n-min {args.n_min} must be below n_max {n_max} (pool {pool})")
+  # geomspace positional start/stop = n_min, n_max; num = the point count.
   sizes = np.unique(
-    np.geomspace(args.n_min, n_max, args.n_points).astype(int))
+    np.geomspace(args.n_min, n_max, num=args.n_points).astype(int))
 
   # how many GPUs to use: capped by what is visible, by --n-gpus, and by the
   # point count (no idle workers).
@@ -378,16 +411,16 @@ def main():
   n_request = n_cuda if args.n_gpus is None else min(args.n_gpus, n_cuda)
   n_workers = min(n_request, len(sizes))
 
-  # print_design (experiment.py): the startup banner -- the resolved
+  # print_design (experiment.py): the startup banner (the resolved
   # model block, run knobs, guards, every train_args sub-block, and the
-  # physical cuts. A stale YAML here would waste a whole sweep, not one
+  # physical cuts). A stale YAML here would waste a whole sweep, not one
   # training. Shared with the train / tune drivers.
   exp.print_design()
   log(f"pool {pool}  |  N_train grid: {sizes.tolist()}")
 
   # 1 worker (single GPU, or the MPS dev machine) -> serial on this one device,
   # reusing the experiment; otherwise one process per GPU, LPT-balanced.
-  # Exception: --gpu-pack engages the pool even on a SINGLE CUDA card (its
+  # Exception: --gpu-pack engages the pool even on a single CUDA card (its
   # whole point there: up to 4 small trainings co-located on one big GPU,
   # e.g. a lone H200 allocation).
   use_pool = (n_workers > 1
@@ -417,9 +450,11 @@ def main():
                           args=args,
                           log=log)
 
-  # save the curve + its config as a plain-text table, so several runs (one per
-  # architecture / chi2 mode) overlay later (np.loadtxt-loadable; # headers
-  # skipped). Outputs land under the emulator's fileroot.
+  # cocoa_output (cocoa.py) joins the fileroot to each output name.
+  # save_learning_curves (results.py) writes the curve + its config as a
+  # plain-text table, so several runs (one per architecture / chi2 mode)
+  # overlay later (np.loadtxt-loadable; # headers skipped). Outputs land
+  # under the emulator's fileroot.
   out_txt = cocoa_output(fileroot, args.out + ".txt")
   out_pdf = cocoa_output(fileroot, args.out + ".pdf")
   save_learning_curves(
@@ -434,7 +469,8 @@ def main():
           "n_gpus": n_workers})
   log(f"saved curve data -> {out_txt}")
 
-  # one-curve figure (overlay several <out>.txt yourself to compare).
+  # plot_learning_curves (plotting.py): one-curve figure (overlay several
+  # <out>.txt yourself to compare).
   from emulator.plotting import plot_learning_curves
   plot_learning_curves(
     curves={f"{model_name} ({args.rescale})": (sizes, fracs)},

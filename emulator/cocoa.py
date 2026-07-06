@@ -25,7 +25,7 @@ import yaml
 
 
 # data-block keys naming input files on disk; each is resolved against the
-# project root. The cosmolike_* keys are NOT here: they resolve against
+# project root. The cosmolike_* keys are absent here: they resolve against
 # $ROOTDIR/external_modules/data inside the output geometry, not the project.
 _DATA_PATH_KEYS = (
   "train_dv",
@@ -76,7 +76,7 @@ def resolve_cocoa_config(args):
   Reads $ROOTDIR, joins --root and --fileroot under it, ensures the
   project chains/ folder exists, loads the YAML from the fileroot
   (test.yaml when --yaml is unset), and rewrites every data-block file
-  path (train / val dv, params, covmat -- bare filenames in the YAML) to
+  path (train / val dv, params, covmat, bare filenames in the YAML) to
   an absolute path under the project's chains/ folder. Resolving here,
   not in the YAML, lets the driver run from $ROOTDIR (the cocoa launch
   directory) without a cwd-relative path breaking.
@@ -115,7 +115,7 @@ def resolve_cocoa_config(args):
     raise ValueError(f"config did not parse to a mapping: {yaml_path}")
 
   # rewrite each input data path to absolute, under the project chains/
-  # folder -- where dataset_generator_lensing.py writes the dvs / params /
+  # folder, where dataset_generator_lensing.py writes the dvs / params /
   # covmat. The YAML lists bare filenames; os.path.join puts each under
   # root/chains (and passes an absolute path through unchanged). The
   # block-presence check is left to EmulatorExperiment.from_config, which

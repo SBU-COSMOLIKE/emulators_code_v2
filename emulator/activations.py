@@ -25,7 +25,7 @@ class activation_fcn(nn.Module):
     Each feature has its own learnable gamma and beta (length-`dim`
     vectors). The gate gamma + (1 - gamma) sigmoid(beta x) runs from gamma
     (x -> -inf) to 1 (x -> +inf), making H asymptotically linear at both
-    tails (slope gamma left, 1 right) -- non-saturating, hence better than
+    tails (slope gamma left, 1 right), non-saturating, hence better than
     tanh here. gamma = beta = 0 at init, so H starts as 0.5 * x
     (sigmoid(0) = 0.5); training then shapes each feature's curve. The
     Gated/Power/GatedPower variants generalize this same gate.
@@ -56,7 +56,7 @@ class GatedActivation(nn.Module):
 
   Every term is a bounded sigmoid times x, keeping the output
   asymptotically linear (slope a0 as x->-inf, a0+sum_k w_k as
-  x->+inf) -- non-saturating like H, never blows up.
+  x->+inf), non-saturating like H, never blows up.
 
   H = (gamma + (1-gamma) sigmoid(beta x)) x is the K=1 case
   (a0=gamma, w=1-gamma, mu=0); the general form also frees the
@@ -84,6 +84,8 @@ class GatedActivation(nn.Module):
     w0[0] = 1.0
     if K > 1:
       beta0[1:] = 1.0
+      # linspace positional args are (start, stop, steps): K gate
+      # centers evenly spaced over [-1.5, 1.5], then drop gate 0.
       mu0[1:] = torch.linspace(-1.5, 1.5, K)[1:, None]
     self.w    = nn.Parameter(w0)
     self.beta = nn.Parameter(beta0)
@@ -115,8 +117,8 @@ class PowerGatedActivation(nn.Module):
   psi_p has slope 1 at x=0 for any p (the /p normalizes it), so p
   reshapes only the tail, not the behavior near 0. The base
   1+|x| >= 1 keeps any real p finite (no NaN), and the sigmoid box
-  blocks a blow-up power -- safe on a narrow prior, unlike a raw
-  x^n. rho=0 at init -> p=1 -> starts as H.
+  blocks a blow-up power (safe on a narrow prior, unlike a raw
+  x^n). rho=0 at init -> p=1 -> starts as H.
 
   Arguments:
     dim   = feature width (per-element gamma/beta/rho vectors).
@@ -153,7 +155,7 @@ class GatedPowerActivation(nn.Module):
   The full activation: a K-component multi-gate (bulk slope
   schedule) times a bounded power-tail transform. Merges
   GatedActivation (K gates) and PowerGatedActivation (tail
-  exponent) -- the two orthogonal generalizations of H(x).
+  exponent), the two orthogonal generalizations of H(x).
 
     gate(x) = a0 + sum_k w_k * sigmoid(beta_k * (x - mu_k))
     psi_p(x) = sign(x) * ((1 + |x|)^p - 1) / p
@@ -189,7 +191,8 @@ class GatedPowerActivation(nn.Module):
     w0[0] = 1.0                                # gate 0 -> H init
     if K > 1:
       # extra gates: active (beta=1), spread centers, but w=0
-      # (inactive) until training engages them.
+      # (inactive) until training engages them. linspace positional
+      # args are (start, stop, steps).
       beta0[1:] = 1.0
       mu0[1:] = torch.linspace(-1.5, 1.5, K)[1:, None]
     self.w    = nn.Parameter(w0)
@@ -221,9 +224,9 @@ def make_activation(name, n_gates=3):
   """
   Activation factory by name, for a ResBlock's `act` slot.
 
-  Maps a short name to a factory callable act(dim) -> module -- the
+  Maps a short name to a factory callable act(dim) -> module, the
   contract ResBlock's `act` expects (it calls act(size) once per
-  layer) -- letting a driver or YAML pick the activation by string
+  layer), letting a driver or YAML pick the activation by string
   rather than importing a class. The gated families use
   K = n_gates gates.
 

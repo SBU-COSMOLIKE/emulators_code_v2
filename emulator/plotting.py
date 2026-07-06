@@ -1,15 +1,21 @@
 """Training-history, learning-curve, coverage, and xi plots.
 
-The matplotlib figures (a colorblind-safe palette, no red/green).
-plot_history draws the training history, plot_diagnostics the multipage
-diagnostics PDF (history, coverage, the local-linear floor, the
-hard-direction regression, a chi2-colored LCDM triangle, and the
-ln-parameter PCA plane colored by chi2 and by training sparsity), and
-plot_learning_curves overlays
-f(delta-chi2 > thr) vs N_train curves (the sweep / bake-off output).
-source_param_samples, dv_to_xi, and plot_xi handle the parameter-coverage
-triangle and the xi correlation-function curves. The "_"-prefixed helpers
-draw the individual panels the public functions share.
+This module draws every matplotlib figure the package produces, all in
+a colorblind-safe palette (never red with green). plot_history draws
+the training history, plot_diagnostics the multipage diagnostics PDF
+(history, coverage, the local-linear floor, the hard-direction
+regression, a chi2-colored lcdm triangle, and the ln-parameter PCA
+plane colored by chi2 and by training sparsity), and
+plot_learning_curves overlays f(delta-chi2 > thr) vs N_train curves
+(the sweep / bake-off output). source_param_samples, dv_to_xi, and
+plot_xi handle the parameter-coverage triangle and the xi
+correlation-function curves. The "_"-prefixed helpers draw the
+individual panels the public functions share.
+
+PS: whitened = rotated into the covariance eigenbasis and scaled to
+unit variance, the decorrelated space the chi2 residuals live in;
+dump = the full on-disk array from the data-generation run, one row
+per cosmology (the dv dump is the .npy, the param dump the .txt).
 """
 
 import itertools
@@ -30,7 +36,7 @@ def _finish(fig, savepath):
   """Save the figure and close, or show it.
 
   If savepath is given, write the figure there (format from the
-  extension, e.g. .pdf) and close it -- a batch script has no
+  extension, e.g. .pdf) and close it, a batch script has no
   display; if None, show it interactively.
   """
   if savepath is not None:
@@ -127,7 +133,7 @@ def _coverage_panels(ax_scatter, ax_hist, knn_dist, dchi2, k_nn):
   ax_scatter: per-val hardness log10(dchi2) vs local sparsity (mean
   distance to the k nearest training points), with the 0.2 goal
   line. ax_hist: sparsity distributions of the good (dchi2<=0.2) and
-  bad (dchi2>0.2) populations -- a right-shifted "bad" histogram
+  bad (dchi2>0.2) populations, a right-shifted "bad" histogram
   means failures live where training is scarce.
 
   Arguments:
@@ -166,7 +172,7 @@ def _coverage_panels(ax_scatter, ax_hist, knn_dist, dchi2, k_nn):
   # bins so the two histograms are comparable. The range clips the
   # far knn tails (a lone outlier stretches equal-width bins until
   # the narrow population falls into a single bar), and the bin
-  # width follows the NARROWER population (Freedman-Diaconis per
+  # width follows the narrower population (Freedman-Diaconis per
   # population, take the smaller), so a tight "good" peak still
   # shows its shape next to a broad "bad" one.
   lo = np.percentile(knn_dist, 0.5)
@@ -456,7 +462,7 @@ def _save_pages(figs, savepath):
   Save figures as a multipage PDF, or show them.
 
   If savepath is given, write every figure as one page of a single
-  PDF (matplotlib's PdfPages) and close them -- a batch script has
+  PDF (matplotlib's PdfPages) and close them, a batch script has
   no display; if None, show them interactively.
 
   Arguments:
@@ -473,7 +479,7 @@ def _save_pages(figs, savepath):
       plt.close(f)
 
 
-# The basic LCDM subset for the chi2-colored triangle: lowercased dump
+# The basic lcdm subset for the chi2-colored triangle: lowercased dump
 # names seen in covmat headers, each with its getdist LaTeX label (no
 # surrounding $). tau is not sampled in these dumps; w0 / wa and the
 # nuisances are deliberately left out (the triangle reads best small).
@@ -494,7 +500,7 @@ _LCDM_ALIASES = (
 
 def _lcdm_columns(names):
   """
-  The LCDM subset of a dump's parameter names, with LaTeX labels.
+  The lcdm subset of a dump's parameter names, with LaTeX labels.
 
   Matches each name (case-insensitively) against _LCDM_ALIASES and
   returns the ones present, in the alias table's canonical order
@@ -650,16 +656,16 @@ def _shade_cuts(g, plot_names, cuts):
 
 def _lcdm_triangle_fig(source, names, dchi2, cuts=None):
   """
-  getdist triangle of a source's LCDM parameters, colored by chi2.
+  getdist triangle of a source's lcdm parameters, colored by chi2.
 
   Each off-diagonal panel is a scatter of the source's cosmologies
   (one point per used row, in the same sorted-idx order
   eval_source_chi2 scores), colored by log10 delta-chi2; the
-  diagonal shows the 1D densities. It answers where in LCDM space
+  diagonal shows the 1D densities. It answers where in lcdm space
   the emulator fails, not just how often. When both Omega_m and H0
   are present, the derived omega_m h^2 = Omega_m (H0/100)^2 (the
   structure-amplitude direction) is appended as an extra triangle
-  axis. Returns None when fewer than two LCDM columns are
+  axis. Returns None when fewer than two lcdm columns are
   recognized in `names`.
 
   Arguments:
@@ -954,14 +960,14 @@ def plot_diagnostics(train_losses,
     delta-chi2), if `floor` is given.
   Page 3: the hard-direction regression (univariate ranking and
     joint log-linear coefficients), if `hard_dir` is given.
-  Page 4: the getdist LCDM triangle of the val cosmologies, colored
+  Page 4: the getdist lcdm triangle of the val cosmologies, colored
     by log10 delta-chi2, if `val_set` and `names` are given.
   Page 5: the first two ln-parameter PCA directions of the val
     cosmologies, colored the same way (a principal direction in ln
     space is a product of parameter powers), same condition.
   Page 6: the same PCA plane colored by local training sparsity
     (coverage's knn_dist), with the fitted sparsity direction
-    annotated -- names the combinations where training is thin,
+    annotated, names the combinations where training is thin,
     independent of the chi2; same condition.
 
   floor / hard_dir / val_set are optional so a run can drop a page
@@ -1009,10 +1015,10 @@ def plot_diagnostics(train_losses,
     figs.append(f3)
 
   # pages 4-6: where in parameter space the failures live. Page 4 is
-  # the LCDM triangle (getdist lays it out itself, so no
+  # the lcdm triangle (getdist lays it out itself, so no
   # tight_layout); page 5 the ln-parameter PCA plane colored by chi2
   # (hardness); page 6 the same plane colored by local training
-  # sparsity (coverage), with the fitted sparsity direction --
+  # sparsity (coverage), with the fitted sparsity direction,
   # aligned gradients on 5 and 6 say the failures are coverage,
   # diverging ones say the hardness is intrinsic.
   if val_set is not None and names is not None:
@@ -1062,7 +1068,7 @@ def source_param_samples(source, names, labels, label):
   Pulls the rows the source actually uses (source["idx"]) from its
   parameter dump and wraps them as equally-weighted samples for a
   coverage triangle (no likelihood, no chi2). Reads no module
-  globals -- source, names, labels, and the legend label all arrive
+  globals, source, names, labels, and the legend label all arrive
   as arguments.
 
   Arguments:
@@ -1076,7 +1082,7 @@ def source_param_samples(source, names, labels, label):
   Returns:
     an MCSamples over the source's used parameter rows.
   """
-  # the rows this source uses -- coverage is about what was
+  # the rows this source uses, coverage is about what was
   # trained / validated on, not the whole file.
   rows = np.sort(source["idx"])
   # raw physical parameters of those rows (never whitened).
@@ -1128,7 +1134,7 @@ def dv_to_xi(dv_row, geom):
 
 def plot_xi(pm, xi, xi_ref = None, param = None, colorbarlabel = None,
             marker = None, linestyle = None, linewidth = None,
-            ylim = [0.88,1.12], cmap = 'gist_rainbow', legend = None,
+            ylim = [0.88,1.12], cmap = "viridis", legend = None,
             legendloc = (0.6,0.78), yaxislabelsize = 16, yaxisticklabelsize = 10,
             xaxisticklabelsize = 20, bintextpos = [[0.8, 0.875],[0.2,0.875]],
             bintextsize = 15, figsize = (12, 12), show = None, thetashow=[3,1000],
@@ -1141,7 +1147,9 @@ def plot_xi(pm, xi, xi_ref = None, param = None, colorbarlabel = None,
     from the notebook, so its body keeps the original style.
 
     Arguments:
-      pm            = "p", "m", or "pm": which of xi+ / xi- to draw.
+      pm            = integer selecting the correlation sign: pm > 0
+                      draws xi+, pm <= 0 draws xi- (the body tests
+                      `pm > 0`, not a string mode).
       xi            = list of (theta, xip, xim) triples (dv_to_xi
                       output), one curve set per line drawn.
       xi_ref        = reference triple; when given, panels show the
@@ -1154,7 +1162,9 @@ def plot_xi(pm, xi, xi_ref = None, param = None, colorbarlabel = None,
       linestyle     = linestyle cycle (list); solid when None.
       linewidth     = linewidth cycle (list) or None.
       ylim          = y range of the ratio panels.
-      cmap          = matplotlib colormap name for param coloring.
+      cmap          = matplotlib colormap name for param coloring;
+                      the default "viridis" is sequential and
+                      colorblind-safe (the palette rule).
       legend        = per-curve legend labels or None.
       legendloc     = legend anchor (axes fraction).
       yaxislabelsize / yaxisticklabelsize / xaxisticklabelsize
@@ -1163,12 +1173,15 @@ def plot_xi(pm, xi, xi_ref = None, param = None, colorbarlabel = None,
                       anchors of the per-panel bin annotation.
       bintextsize   = font size of that annotation.
       figsize       = figure size in inches.
-      show          = list of (i, j) bin pairs to draw; None = all.
+      show          = display toggle: not None calls fig.show() and
+                      returns None; None returns (fig, axes).
       thetashow     = [min, max] theta range (arcmin) shown.
       colorbar      = 1 to draw the param colorbar, None to skip.
 
     Returns:
-      the matplotlib figure (0 on malformed input, with a message).
+      (fig, axes) when show is None; None when show is set (the
+      figure is displayed instead); 0 (int) on malformed input,
+      after printing a message.
     """
 
     (theta, xip, xim) = xi[0]

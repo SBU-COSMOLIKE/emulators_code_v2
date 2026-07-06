@@ -1,8 +1,9 @@
 """Raw data loading, streaming statistics, and the physical cut.
 
-The bottom of the pipeline: turns the on-disk parameter (.txt) and
-data-vector (.npy) dumps into the in-memory "source" dicts the rest of the
-package consumes, never loading the (memmap-sized) dv file whole.
+This module is the bottom of the pipeline: it turns the on-disk
+parameter (.txt) and data-vector (.npy) dumps into the in-memory
+"source" dicts the rest of the package consumes, never loading the
+(memmap-sized) dv file whole.
 stream_chunks, stream_stats, and param_stats compute per-column
 normalization stats over selected rows; stage_source materializes a row
 subset in RAM if it fits (else keeps the memmap); phys_cut_idx applies the
@@ -34,7 +35,9 @@ The staging pipeline, per source (load_source top to bottom):
      (weight, lnp, params, chi2); total_size = full dv length;
      divisor / n_keep = the size knobs, exactly one given;
      C_mean / dv_mean = training-subset means the geometries
-     center on; local reindex = idx becomes arange so the staged
+     center on; ram_frac = the fraction of free RAM the staged
+     subset may occupy (materialize only if it fits, else keep the
+     memmap); local reindex = idx becomes arange so the staged
      arrays and the loaders agree on row numbering.)
 
 PS: a dump is the full on-disk array from the data-generation run, every
@@ -42,7 +45,11 @@ simulated cosmology stored as one row (the data-vector dump is the .npy
 file, the parameter dump the .txt); a training run draws its N_train
 subset of rows from it. a memmap (memory-mapped array) is a NumPy array
 backed by the file on disk and read in slices, so an array larger than RAM
-is never loaded whole.
+is never loaded whole. a loader is a closure load(rows) -> a
+ready-to-train batch on the device, hiding where the data lives (resident
+on the GPU, streamed from RAM, or read from the memmap). to whiten is to
+rotate into the covariance eigenbasis and scale to unit variance, so
+correlated quantities become decorrelated and equally scaled.
 """
 
 import os
@@ -58,7 +65,7 @@ def stream_chunks(idx, chunk):
 
   A generator (it `yield`s, so blocks are produced lazily). Each
   block is sorted so that indexing a memmap with it walks the
-  file in increasing order -- sequential disk access, not random
+  file in increasing order, sequential disk access, not random
   seeks.
 
   Arguments:
@@ -264,7 +271,7 @@ def read_param_names(covmat_path, comment="#"):
   Parameter column names from a covmat header line.
 
   Reads only the first line, strips the leading comment marker,
-  splits on whitespace -- the column order the parameter arrays
+  splits on whitespace, the column order the parameter arrays
   (and ParamGeometry) use.
 
   Arguments:
@@ -291,7 +298,7 @@ def load_source(dv_path, params_path, names, cut, divisor=None,
   modeled param columns, applies the physical cuts (omega_b h^2
   bound + the optional omegam^2 h^2 window), takes the
   first N // divisor cut rows of a fixed shuffle, stages that
-  subset, and -- when with_means -- computes the centering means.
+  subset, and, when with_means, computes the centering means.
   Wraps phys_cut_idx / stage_source / stream_stats / param_stats.
 
   Arguments:

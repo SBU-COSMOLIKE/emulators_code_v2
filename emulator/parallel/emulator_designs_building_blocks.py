@@ -18,6 +18,8 @@ layers never share learnable parameters.
 
 import torch.nn as nn
 
+# activation_fcn (../activations.py): the learned gated activation H(x) =
+# gate(x)*x, the default act factory shared with the root package.
 from ..activations import activation_fcn
 
 
@@ -32,7 +34,7 @@ class GroupedCNNBlock(nn.Module):
 
   Two convs with a nonlinearity between: an expand conv (1 -> F
   filters per group) and a collapse conv (F -> 1 per group). The
-  middle activation is what makes the F filters useful -- two
+  middle activation is what makes the F filters useful: two
   stacked linear convs would compose into a single 1 -> 1 kernel
   and waste the channels (the expand-then-collapse rule, as in the
   root package's conv blocks).
@@ -61,7 +63,7 @@ class GroupedCNNBlock(nn.Module):
 
       (legend: B = batch rows; G = n_groups, the tomographic bins;
        L = group_len, the padded per-bin length (the longest bin's
-       kept theta count -- LSST-Y1 example: 26); F = channels, the
+       kept theta count, LSST-Y1 example: 26); F = channels, the
        conv filters per bin; k = kernel_size, same-padded so L is
        preserved.)
 
@@ -76,8 +78,12 @@ class GroupedCNNBlock(nn.Module):
                   a shared instance). Defaults to activation_fcn,
                   the paper's H.
   """
-  def __init__(self, n_groups, group_len, kernel_size=11,
-               channels=16, act=activation_fcn):
+  def __init__(self,
+               n_groups,
+               group_len,
+               kernel_size=11,
+               channels=16,
+               act=activation_fcn):
     super().__init__()
     assert kernel_size % 2 == 1, "kernel_size must be odd"
     pad = (kernel_size - 1) // 2

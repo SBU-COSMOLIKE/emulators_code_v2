@@ -1,4 +1,4 @@
-"""One configured single-network cosmic-shear emulator run.
+"""The EmulatorExperiment: one configured cosmic-shear emulator run.
 
 This class factors the driver setup boilerplate (parse the config, pick the
 device, stage the sources, build the parameter + data-vector geometries and
@@ -26,6 +26,12 @@ not copy. What exp.run() orchestrates:
     model + histories on the instance, ready for diagnostics
        (frac_above, eval_source_chi2, plotting)
 
+(legend: each box is the run's state at that stage, and the label on
+each arrow is the EmulatorExperiment method that produces it; ia =
+the model.ia key (None / "nla" / "tatt"), the factored-design
+choice; needs_bins = the bin-token head's capability flag, which
+asks build_geometry for the per-bin split.)
+
 Build it from a YAML file (from_yaml) or a parsed config mapping (from_config,
 e.g. load the YAML once and rebuild from a tweaked copy per sweep point); both
 resolve the model class from train_args.model.name through MODELS. The
@@ -41,6 +47,16 @@ expensive pieces are built by explicit methods and cached:
       exp.stage_train(); exp.stage_val(); exp.build_geometry()
       for v in values:
         exp.train(train_args=tweaked_copy_with(v))
+
+PS: to whiten is to rotate into the covariance eigenbasis and scale to
+unit variance, so correlated quantities become decorrelated; encoded =
+a dv put through the geometry's encode (kept entries, centered,
+whitened); loader = a closure load(rows) -> a ready-to-train batch on
+the device, hiding where the data lives (resident on the GPU, streamed
+from RAM, or read from a disk memmap); dump = the full on-disk array
+from the data-generation run, one row per cosmology (the dv dump is
+the .npy, the param dump the .txt); memmap = a NumPy array backed by
+that on-disk file, read in slices so it is never fully loaded.
 """
 
 import yaml
@@ -64,7 +80,7 @@ from .training import (
 
 
 # (architecture, ia) -> model class. Two orthogonal YAML choices:
-# train_args.model.name picks the ARCHITECTURE (resmlp = residual MLP;
+# train_args.model.name picks the architecture (resmlp = residual MLP;
 # rescnn = + a theta-order 1D-CNN correction head; restrf = + a
 # bin-token transformer correction head, attention across the
 # tomographic bins with per-bin unique MLPs), and the separate
@@ -72,9 +88,9 @@ from .training import (
 # on it (absent/None = the plain emulator; "nla" = the model emits
 # three templates from the non-amplitude inputs and the loss combines
 # them in closed form as K0 + A1*K1 + A1^2*K2, so the amplitude never
-# enters the network -- exact generalization in A1; "tatt" = the
+# enters the network, exact generalization in A1; "tatt" = the
 # same factoring with 3 amplitudes (a1, a2, b_TA) and 10 templates,
-# exact in all three -- see tatt_coeffs). The classes carry
+# exact in all three, see tatt_coeffs). The classes carry
 # capability flags build_geometry / build_specs read: factored
 # (AmplitudeFactorGeometry input + the template-combining loss),
 # needs_geom (geom injected for the fixed full<->theta basis buffers;
@@ -87,9 +103,9 @@ MODELS = {("resmlp", None):   ResMLP,
           ("resmlp", "nla"):  TemplateMLP,
           ("rescnn", "nla"):  TemplateResCNN,
           ("restrf", "nla"):  TemplateResTRF,
-          # tatt reuses the SAME factored classes: only the
+          # tatt reuses the same factored classes: only the
           # IA_DESIGNS entry (amplitude columns, polynomial,
-          # template count) differs -- the classes are generic in
+          # template count) differs, the classes are generic in
           # n_amps / n_templates.
           ("resmlp", "tatt"): TemplateMLP,
           ("rescnn", "tatt"): TemplateResCNN,
@@ -115,9 +131,9 @@ TATT_AMP_NAMES = ["LSST_A1_1", "LSST_A2_1", "LSST_BTA_1"]
 # polynomial, and the template count the model emits. Everything
 # downstream (AmplitudeFactorGeometry, TemplateFactoredChi2, the
 # models' n_amps / n_templates, the conv head's groups values) reads
-# this entry -- a new design is a new entry, never new code paths.
-# NOTE (tatt): the entry is live, but the template training dumps do
-# not exist yet -- a tatt run needs dv dumps holding the 10 templates.
+# this entry, a new design is a new entry, never new code paths.
+# note (tatt): the entry is live, but the template training dumps do
+# not exist yet, a tatt run needs dv dumps holding the 10 templates.
 IA_DESIGNS = {"nla":  {"amp_names":   NLA_AMP_NAMES,
                        "coeff_fn":    nla_coeffs,
                        "n_templates": 3},
@@ -127,7 +143,7 @@ IA_DESIGNS = {"nla":  {"amp_names":   NLA_AMP_NAMES,
 
 # The nested model-block schema. The YAML groups each component's
 # knobs in its own sub-block (mlp / activation / cnn / trf), so the
-# nesting carries the context and the keys stay short -- no
+# nesting carries the context and the keys stay short, no
 # n_blocks-vs-n_blocks_cnn suffixes. The tables below map each
 # sub-block's YAML keys onto the model constructors' flat argument
 # names (the constructors are internal API; the YAML is the
@@ -226,24 +242,24 @@ class EmulatorExperiment:
                        transform "sqrt" / "chi2" / "sqrt_dchi2";
                      silent = optional (default False): silence the run;
                      trunk_epochs = optional (default 0): two-phase
-                       schedule -- see run_emulator;
+                       schedule, see run_emulator;
                      trunk / head = optional symmetric mappings of
                        per-phase overrides (lr_base / loss_mode /
                        trim / focus / clip / rewind) over the shared
-                       top-level defaults; need trunk_epochs > 0 --
+                       top-level defaults; need trunk_epochs > 0,
                        see run_emulator;
                      clip = optional (default 0.0 = off): per-step
-                       gradient-norm ceiling -- see run_emulator;
+                       gradient-norm ceiling, see run_emulator;
                      rewind = optional (default False): reload the
                        best weights + optimizer snapshot at every
-                       plateau lr cut -- see run_emulator.
+                       plateau lr cut, see run_emulator.
                    Plus six constructible sub-blocks (each a mapping):
-                     model = the NESTED model block: "name" (the
+                     model = the nested model block: "name" (the
                        architecture: resmlp | rescnn | restrf) and
                        "ia" (the factored IA design layered on it:
                        omit for plain, "nla" or "tatt"; the pair
                        picks the class), then one sub-block per
-                       component --
+                       component,
                        "mlp" (width, n_blocks; the trunk, required),
                        "activation" ({type, n_gates} or a bare type
                        string; see the `activation` argument below),
@@ -251,9 +267,9 @@ class EmulatorExperiment:
                        separable, film, n_blocks, gate_init; name
                        rescnn only), "trf" (n_heads, n_blocks,
                        n_mlp_blocks, shared_mlp, film, gate_init;
-                       name restrf only --
+                       name restrf only,
                        the tokens live at the natural bin width, so
-                       there is no width knob) --
+                       there is no width knob),
                        plus an optional flat "compile_mode".
                        build_specs translates the nesting onto the
                        constructors' flat kwargs (MODEL_BLOCK_KEYS)
@@ -263,9 +279,9 @@ class EmulatorExperiment:
                        lr = lr_base * sqrt(bs / bs_base));
                      scheduler = mode, patience, factor (ReduceLROnPlateau
                        kwargs);
-                     trim = trim schedule -- start, end, hold_epochs,
+                     trim = trim schedule, start, end, hold_epochs,
                        anneal_epochs, shape (see anneal_value);
-                     focus = focal-weight schedule -- start, end,
+                     focus = focal-weight schedule, start, end,
                        hold_epochs, anneal_epochs, shape, kappa.
       model_cls  = the model class (ResMLP / ResCNN); from_config
                    resolves it from train_args.model.name.
@@ -296,7 +312,7 @@ class EmulatorExperiment:
     # from_config with the YAML's composed name/ia. The
     # direct-construction fallbacks: a factored class defaults to
     # "nla" (a direct-construction tatt run must set exp.ia = "tatt"
-    # itself -- from_config does this from the YAML); arch stays
+    # itself, from_config does this from the YAML); arch stays
     # None, which skips build_specs' head-block-vs-architecture check.
     self.model_name = model_cls.__name__.lower()
     self.ia = ("nla" if getattr(model_cls, "factored", False)
@@ -373,9 +389,9 @@ class EmulatorExperiment:
     # [default, min, max, kind] search range to its default (first) value,
     # so a tuning YAML builds a concrete run.
     ta = default_train_args(cfg["train_args"])
-    # read (not pop) name / ia -- build_specs strips both from the
+    # read (not pop) name / ia, build_specs strips both from the
     # spread, so they never reach the model constructor. A YAML `ia:
-    # none` parses as the STRING "none" (YAML's nulls are null/~), so
+    # none` parses as the string "none" (YAML's nulls are null/~), so
     # accept it as None too.
     name = str(ta["model"].get("name", "resmlp")).lower()
     ia   = ta["model"].get("ia")
@@ -431,7 +447,9 @@ class EmulatorExperiment:
 
     Arguments:
       path   = path to the YAML config (data + train_args blocks).
-      models = name -> class registry (default MODELS).
+      models = (name, ia) -> class registry (default MODELS; keyed
+               by the architecture-name and IA-design tuple, as in
+               from_config).
       **kwargs = forwarded to from_config -> __init__.
 
     Returns:
@@ -516,7 +534,7 @@ class EmulatorExperiment:
 
     A generator freshly seeded from data["split_seed"] fixes the
     cut+shuffle pool, so slicing it to different sizes gives nested subsets
-    -- the right thing for a learning-curve sweep.
+    the right thing for a learning-curve sweep.
 
     Arguments:
       n_train = absolute number of training rows to keep; None (default)
@@ -554,7 +572,7 @@ class EmulatorExperiment:
 
     Seeded from data["split_seed"] like the train source (the val file
     differs, so the same seed gives an independent selection). Carries no
-    means -- geometry centers come from the training source only.
+    means, geometry centers come from the training source only.
 
     Arguments:
       n_val = absolute number of validation rows to keep; None (default)
@@ -585,7 +603,7 @@ class EmulatorExperiment:
 
   def pool_size(self):
     """
-    Number of physically-cut training rows available -- the natural top
+    Number of physically-cut training rows available, the natural top
     of an N_train sweep.
 
     Loads the training parameter file, keeps the modeled columns, applies
@@ -636,7 +654,7 @@ class EmulatorExperiment:
         f"model {self.model_name!r} does not compose with --rescale "
         "(the factored loss owns the target construction)")
     # lazy import: DataVectorGeometry.from_cosmolike pulls in cosmolike,
-    # which lives only on the workstation -- importing here keeps the module
+    # which lives only on the workstation, importing here keeps the module
     # importable for the config logic without cosmolike.
     from .geometries_output import DataVectorGeometry
 
@@ -645,7 +663,7 @@ class EmulatorExperiment:
     # picked by model.ia) instead whiten only the non-amplitude
     # columns and append the raw amplitudes last
     # (AmplitudeFactorGeometry), so the model can drop them and the loss
-    # can read them -- the amplitudes never enter the network. Which
+    # can read them, the amplitudes never enter the network. Which
     # columns / polynomial / template count is the IA_DESIGNS[self.ia]
     # entry.
     if getattr(self.model_cls, "factored", False):
@@ -665,7 +683,7 @@ class EmulatorExperiment:
         covmat_path=d["train_covmat"])
 
     # DataVectorGeometry.from_cosmolike (geometries_output.py): the output
-    # geometry -- read cosmolike's cov / mask / inverse-cov, eigendecompose
+    # geometry, read cosmolike's cov / mask / inverse-cov, eigendecompose
     # the kept (unmasked) block, so encode()/chi2 whiten + score the dv.
     self.geom = DataVectorGeometry.from_cosmolike(
       device=self.device,
@@ -677,17 +695,18 @@ class EmulatorExperiment:
     # bin-token heads (restrf; the needs_bins flag) split the dv per
     # tomographic bin: build_shear_angle_map (geometries_output.py)
     # attaches bin_sizes to the geometry, reading only the dataset ini
-    # and the n(z) file -- no cosmolike.
+    # and the n(z) file, no cosmolike.
     if getattr(self.model_cls, "needs_bins", False):
       from .geometries_output import build_shear_angle_map
       build_shear_angle_map(geom=self.geom,
                             data_dir=d["cosmolike_data_dir"],
                             dataset=d["cosmolike_dataset"])
 
-    # The loss. The factored designs combine the model's templates in
-    # closed form (nla: xi = K0 + A1*K1 + A1^2*K2 via nla_coeffs),
-    # reading each sample's own amplitudes off the encoded input's last
-    # columns, then score the plain chi2 on the combined xi.
+    # TemplateFactoredChi2 (IA/loss_functions.py): the factored-design
+    # loss. It combines the model's templates in closed form (nla:
+    # xi = K0 + A1*K1 + A1^2*K2 via nla_coeffs), reading each sample's
+    # own amplitudes off the encoded input's last columns, then scores
+    # the plain chi2 on the combined xi.
     if getattr(self.model_cls, "factored", False):
       des = IA_DESIGNS[self.ia]
       self.chi2fn = TemplateFactoredChi2(
@@ -696,7 +715,7 @@ class EmulatorExperiment:
         n_amps=len(des["amp_names"]))
       return self.pgeom, self.geom, self.chi2fn
 
-    # make_chi2 (loss_functions.py): wrap geom in the loss -- plain
+    # make_chi2 (loss_functions.py): wrap geom in the loss, plain
     # CosmolikeChi2, or the analytic-R RescaledChi2 / ResidualBaseChi2 when
     # rescale != "none". cosmo_mid = training-cloud mean (R = 1 there for a
     # rescaled chi2; the plain chi2 ignores it).
@@ -716,7 +735,7 @@ class EmulatorExperiment:
     Assemble the six run_emulator spec dicts for one run.
 
     build_run_specs from train_args, then inject the named activation and
-    -- for ResCNN only -- the data geometry (see body comments). A
+    for ResCNN only, the data geometry (see body comments). A
     hyperparameter sweep passes a varied train_args.
 
     Arguments:
@@ -736,10 +755,10 @@ class EmulatorExperiment:
     # an explicit --activation), so only its n_gates is consumed here;
     # compile_mode passes through (make_model strips it). Everything
     # else must be one of the component sub-blocks. A head block for a
-    # head this architecture does not have is IGNORED, not an error:
+    # head this architecture does not have is ignored, not an error:
     # keeping cnn: and trf: both configured lets a run switch
-    # architectures by changing name: alone. Unknown keys -- top-level
-    # or inside the ACTIVE blocks -- still raise, so a misspelled knob
+    # architectures by changing name: alone. Unknown keys, top-level
+    # or inside the active blocks, still raise, so a misspelled knob
     # that would affect the run fails loudly.
     ta = dict(train_args)
     model_opts = {}
@@ -757,7 +776,7 @@ class EmulatorExperiment:
         continue
       if key in MODEL_BLOCK_KEYS:
         # skip the inactive head's block entirely (its contents are
-        # not even validated -- a stale key in a block that cannot
+        # not even validated, a stale key in a block that cannot
         # affect this run should not stop it). With arch unknown
         # (direct construction) every present block is translated.
         if (self.arch is not None and key != "mlp"
@@ -777,7 +796,7 @@ class EmulatorExperiment:
         "compile_mode")
     if "int_dim_res" not in model_opts:
       raise ValueError(
-        "the model.mlp block (width, n_blocks) is required -- every "
+        "the model.mlp block (width, n_blocks) is required: every "
         "architecture is built on the ResMLP trunk")
     ta["model"] = model_opts
 
@@ -842,7 +861,7 @@ class EmulatorExperiment:
                    regardless of self.quiet.
 
     Returns:
-      (model, train_losses, medians, means, fracs) -- run_emulator's
+      (model, train_losses, medians, means, fracs), run_emulator's
       return, the model at its best frac>0.2 epoch.
     """
     train_args = self.train_args if train_args is None else train_args
@@ -868,7 +887,7 @@ class EmulatorExperiment:
       # head learns the residual; 0 / absent = ordinary joint training.
       # The symmetric trunk: / head: blocks override each pass's
       # objective (lr_base / loss_mode / trim / focus) over the shared
-      # top-level defaults -- by the handoff the trunk has absorbed
+      # top-level defaults, by the handoff the trunk has absorbed
       # most outliers, so the head may want e.g. loss_mode chi2 with
       # no trim.
       trunk_epochs=train_args.get("trunk_epochs", 0),
@@ -903,7 +922,7 @@ class EmulatorExperiment:
 
     Arguments:
       n_train    = absolute training-row count (default: the YAML
-                   divisor) -- the N_train sweep knob.
+                   divisor), the N_train sweep knob.
       train_args = resolved train_args for this run (default:
                    self.train_args).
 
@@ -921,7 +940,7 @@ class EmulatorExperiment:
     Fraction of a source's points with delta-chi2 > threshold.
 
     Scores the trained model on a source (default the val set) with
-    eval_source_chi2 -- the learning-curve / sweep metric (the number
+    eval_source_chi2, the learning-curve / sweep metric (the number
     frac>thresholds[0] tracks per epoch, recomputed here).
 
     Arguments:
@@ -933,7 +952,7 @@ class EmulatorExperiment:
       the fraction over `threshold`, a float.
     """
     source = self.val_set if source is None else source
-    # eval_source_chi2 (training.py): score every row of `source` -- encode
+    # eval_source_chi2 (training.py): score every row of `source`, encode
     # params -> model -> per-row delta-chi2 against the encoded truth
     # (returns numpy params + dchi2, aligned row-for-row).
     _, dchi2 = eval_source_chi2(

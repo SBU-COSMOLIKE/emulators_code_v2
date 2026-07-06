@@ -1,8 +1,8 @@
 """Memory sizing and the regime-aware data loaders.
 
-Decides where each source's data lives and hands the training loop two
-closures (rows -> whitened param inputs, rows -> encoded targets) that
-hide it. compute_batch_size_bytes, compute_model_size_bytes, and
+This module decides where each source's data lives and hands the
+training loop two closures (rows -> whitened param inputs, rows ->
+encoded targets) that hide it. compute_batch_size_bytes, compute_model_size_bytes, and
 batches_per_load estimate per-batch and resident memory.
 _build_loaders_one picks one of three regimes against a VRAM budget
 (pre-encode the target set on the GPU, stream from RAM, or stream from a
@@ -34,7 +34,9 @@ The regime ladder, per source:
      resident = model + Cinv + encoded params, bytes pinned on
      the GPU for the whole run; tgt_dim = target width, out_dim
      unless the loss stages a wider one via target_dim; budget =
-     the VRAM bytes this source may plan against.)
+     the VRAM bytes this source may plan against; 0.8 = the planning
+     headroom factor (plan against 0.8 * budget, leaving ~20% for
+     allocator slack and fragmentation), as in batches_per_load.)
 
 PS: a loader is a closure load(rows) -> tensor mapping global row indices
 to a ready-to-train batch on the compute device. It hides where the data
@@ -46,7 +48,12 @@ into the covariance eigenbasis and scaled to unit variance, so the
 components are decorrelated (the form the network sees). encoded = a data
 vector through the geometry's encode (keep unmasked entries, subtract the
 training mean, whiten), the form trained against. resident = held in GPU
-memory for the whole run, not re-loaded per batch.
+memory for the whole run, not re-loaded per batch. dump = the full
+on-disk array from the data-generation run, one row per cosmology (the
+dv dump is the .npy, the param dump the .txt); memmap = a NumPy array
+backed by that file, read in slices so it is never loaded whole;
+squeeze = keep only the unmasked dv entries (the geometry's squeeze),
+the smaller vector the network emulates.
 """
 
 import numpy as np
@@ -124,7 +131,7 @@ def compute_batch_size_bytes(model, bs, sample_dims, dv_len=3000):
   # the chi2 runs outside model(x), so the hook never sees it.
   # Per batch it builds a few full-length float64 buffers (the
   # unsqueezed residual, the r @ Cinv product, the copy autograd
-  # saves for backward) -- budget three (bs, dv_len) doubles.
+  # saves for backward), budget three (bs, dv_len) doubles.
   chi2 = 3 * bs * dv_len * 8
 
   return total + io + chi2
@@ -187,6 +194,15 @@ def batches_per_load(model,
     number of bs-row batches per streamed chunk (at least 1).
   """
   cinv     = dv_len * dv_len * 8
+  # resident = model (weights + grads + optimizer state) + Cinv.
+  # Honest accounting, both directions (the shared-budget rule): the
+  # caller's already-staged encoded params (enc_params in
+  # _build_loaders_one) are resident too but are not passed here, so
+  # this under-counts resident and over-estimates the free VRAM (the
+  # unsafe direction, not the reassuring one). enc_params is small
+  # (ncosmo floats per used row) next to one dv chunk, so the chunk
+  # is at most slightly over-sized; thread enc_params in if a tight
+  # card OOMs on the streaming regimes.
   resident = compute_model_size_bytes(model) + cinv
   free = 0.8 * budget - resident
   per  = compute_batch_size_bytes(model=model,
@@ -201,8 +217,8 @@ def _build_loaders_one(device, C, dv, idx,
                        model, bs, budget,
                        dv_len=3000, CHUNK=1000):
   """
-  Build the two data loaders for one source -- a train or val
-  file -- and decide where that source's data lives. Both take
+  Build the two data loaders for one source, a train or val
+  file, and decide where that source's data lives. Both take
   global row indices into the full C/dv dump; a `slots` helper
   maps those to local positions in the compact resident subset
   (see below), so the rest of the pipeline is identical wherever
@@ -269,7 +285,7 @@ def _build_loaders_one(device, C, dv, idx,
   # attribute. getattr(obj, "name", default) returns obj.name if
   # present, else `default` (never raises), so a loss without
   # target_dim falls back to out_dim and stages the plain truth
-  # -- the same opt-in pattern as needs_params below.
+  #, the same opt-in pattern as needs_params below.
   tgt_dim   = getattr(chi2fn, "target_dim", out_dim)
 
   # used_rows = the distinct rows this source loads. np.unique

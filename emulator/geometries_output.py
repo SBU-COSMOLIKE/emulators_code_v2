@@ -1,8 +1,9 @@
 """Output (data-vector) geometries and the shear angle map.
 
-The output side: every transform between a raw cosmolike data vector and
-the whitened, masked target the network predicts, plus the chi2's
-covariance. DataVectorGeometry is the base (squeeze to the unmasked
+This module is the output side: it owns every transform between a raw
+cosmolike data vector and the whitened, masked target the network
+predicts, plus the chi2's covariance. DataVectorGeometry is the base
+(squeeze to the unmasked
 entries, center, whiten in the covariance eigenbasis, and invert each
 step). DiagonalGeometry whitens by the marginal sigma only (theta order
 kept, for a 1D-CNN head); BlockDiagonalGeometry whitens each tomographic
@@ -14,7 +15,9 @@ PS: to whiten is to rotate into the covariance eigenbasis and scale to
 unit variance (decorrelated, equally-hard-to-fit components). To squeeze
 is to keep only the unmasked entries of the full data vector (the masked
 ones the analysis drops). encode = squeeze, center, then whiten, the form
-the network predicts.
+the network predicts. The Mahalanobis distance r^T Cinv r is a squared
+residual r weighted by the inverse covariance Cinv (the chi2 this geometry
+owns), summed over the kept entries.
 
     dv (B, total_size)       raw cosmolike data vector
        │  squeeze            keep the unmasked entries (dest_idx)
@@ -156,6 +159,14 @@ class DataVectorGeometry:
     state's keys match __init__, so cls(device, **state)
     reconstructs the geometry with no cosmolike read. cls
     (not the class name) keeps a subclass's type correct.
+
+    Arguments:
+      device = device to place the rebuilt tensors on.
+      state  = dict from state() (total_size, dest_idx, evecs,
+               sqrt_ev, Cinv, center, ...), splatted into __init__.
+
+    Returns:
+      a DataVectorGeometry (or subclass, via cls).
     """
     return cls(device, **state)
 
@@ -240,12 +251,12 @@ class DataVectorGeometry:
     # mask is the full-vector keep/drop flag (1 = unmasked).
     # mask[block_global] picks out this probe's entries in
     # block order; nonzero(...)[0] gives the surviving offsets
-    # within block_global -- e.g. block_global [10,11,12,13,14,
+    # within block_global, e.g. block_global [10,11,12,13,14,
     # 15] with 12 and 14 masked gives kept_cols [0,1,3,5].
     mask = np.asarray(ci.get_mask())
     kept_cols = np.nonzero(mask[block_global] > 0)[0]
     # dest_idx = those survivors as positions in the full 3x2pt
-    # vector -- the index everything downstream uses (squeeze,
+    # vector, the index everything downstream uses (squeeze,
     # unsqueeze, center, Cinv_sq). For xi it equals kept_cols
     # (the xi block starts at 0); for gammat/wtheta the block
     # starts further in, so only the global dest_idx is correct.
@@ -293,11 +304,17 @@ class DataVectorGeometry:
   def squeeze(self, dv):
     """Keep only the unmasked entries of the full dv.
 
-    dv has shape (B, total_size) -- the full 3x2pt data
+    dv has shape (B, total_size), the full 3x2pt data
     vector; the result is (B, n_keep). B = batch size
     (cosmologies in the minibatch). Indexing columns by
     dest_idx (global positions) makes a copy, not a view,
     and works for any probe block.
+
+    Arguments:
+      dv = (B, total_size) full 3x2pt data vectors.
+
+    Returns:
+      (B, n_keep) the unmasked entries, in dest_idx order.
     """
     # dv[:, dest_idx] is fancy (advanced) indexing: dest_idx is
     # a 1-D LongTensor of column numbers, so this gathers those
@@ -312,6 +329,13 @@ class DataVectorGeometry:
     kept entries at their dest_idx slots in a fresh
     (B, total_size) zero tensor, so the full masked Cinv can
     be applied. Masked-out slots stay 0.
+
+    Arguments:
+      sq = (B, n_keep) kept entries (squeeze output).
+
+    Returns:
+      (B, total_size) full vector, sq scattered to dest_idx, 0
+      elsewhere.
     """
     full = torch.zeros(sq.shape[0],
                        self.total_size,
@@ -319,7 +343,7 @@ class DataVectorGeometry:
                        device=sq.device)
     # Fancy-index assignment: full[:, dest_idx] = sq writes
     # column sq[:, k] into full's column dest_idx[k] for every
-    # row at once -- scattering the n_keep kept values to their
+    # row at once, scattering the n_keep kept values to their
     # global slots (other columns stay 0). NB: this method is
     # the geometry's own "unsqueeze" (scatter to the full
     # vector), not torch's tensor.unsqueeze, which only inserts
@@ -334,6 +358,13 @@ class DataVectorGeometry:
     divide by sqrt_ev: decorrelated, unit variance. Computed
     in self.dtype, returned float32 to match the model and
     keep the dv chunk single.
+
+    Arguments:
+      centered_sq = (B, n_keep) squeezed dv with the center
+                    already subtracted.
+
+    Returns:
+      (B, n_keep) whitened target, float32.
     """
     y = (centered_sq.to(self.dtype) @ self.evecs)
     return (y / self.sqrt_ev).float()
@@ -344,6 +375,12 @@ class DataVectorGeometry:
     Multiply by sqrt_ev and rotate back (@ evecs.T). evecs
     is orthonormal, so this inverts whiten exactly. The chi2
     contracts the result with Cinv (same dtype).
+
+    Arguments:
+      whitened_sq = (B, n_keep) whitened kept-entry vector.
+
+    Returns:
+      (B, n_keep) un-whitened (centered) residual/dv, in self.dtype.
     """
     w = whitened_sq.to(self.dtype)
     return (w * self.sqrt_ev) @ self.evecs.T
@@ -354,6 +391,12 @@ class DataVectorGeometry:
 
     Squeeze to the kept entries, subtract the center, then
     whiten.
+
+    Arguments:
+      dv = (B, total_size) full 3x2pt data vectors.
+
+    Returns:
+      (B, n_keep) whitened target the network predicts.
     """
     return self.whiten(self.squeeze(dv) - self.center)
 
@@ -361,6 +404,12 @@ class DataVectorGeometry:
     """Network output -> physical dv.
 
     Unwhiten, then add the center back.
+
+    Arguments:
+      whitened_sq = (B, n_keep) whitened network output.
+
+    Returns:
+      (B, n_keep) physical (kept-entry) data vector.
     """
     return self.unwhiten(whitened_sq).float() + self.center
 
@@ -371,13 +420,13 @@ class DiagonalGeometry(DataVectorGeometry):
   element by its marginal error bar sigma = sqrt(diag(cov)), no
   rotation. Unlike full cov-eigenbasis whitening, this keeps the
   data-vector order (theta within each bin), so an axis-aware
-  model -- a 1D CNN over the output (ResCNN) -- sees the real
+  model, a 1D CNN over the output (ResCNN), sees the real
   theta axis instead of a scrambled eigenbasis.
 
   Targets are unit-marginal-variance but not decorrelated, so
   ||pred - target||^2 is the marginal chi2, not the full one. The
-  reported chi2 is unchanged -- the inherited chi2 multiplies
-  sigma back and contracts with the full Cinv_sq -- so keep the
+  reported chi2 is unchanged, the inherited chi2 multiplies
+  sigma back and contracts with the full Cinv_sq, so keep the
   explicit Cinv contraction; do not 'simplify' the loss to MSE.
 
   encode/decode/chi2 inherit unchanged (calling the overridden
@@ -387,20 +436,39 @@ class DiagonalGeometry(DataVectorGeometry):
   _sigma = None     # cached per-element sigma (lazy)
 
   def _diag_sigma(self):
+    """Per-element marginal sigma sqrt(diag(cov)), cached (lazy).
+
+    cov = U diag(ev) U^T, so diag_i = sum_k (U_ik * sqrt_ev_k)^2.
+
+    Returns:
+      (n_keep,) per-element sigma.
+    """
     if self._sigma is None:
-      # sqrt(diag(cov)) from cov = U diag(ev) U^T:
-      #   diag_i = sum_k (U_ik * sqrt_ev_k)^2.
       self._sigma = torch.sqrt(
         ((self.evecs * self.sqrt_ev) ** 2).sum(1))
     return self._sigma
 
   def whiten(self, centered_sq):
-    # per-element scaling (no rotation) -> theta order kept.
+    """Scale each element by 1/sigma (no rotation, theta order kept).
+
+    Arguments:
+      centered_sq = (B, n_keep) squeezed dv, center subtracted.
+
+    Returns:
+      (B, n_keep) diagonally-whitened target, float32.
+    """
     return (centered_sq.to(self.dtype)
             / self._diag_sigma()).float()
 
   def unwhiten(self, whitened_sq):
-    # exact inverse: multiply each element by its sigma.
+    """Exact inverse: multiply each element by its sigma.
+
+    Arguments:
+      whitened_sq = (B, n_keep) diagonally-whitened vector.
+
+    Returns:
+      (B, n_keep) un-whitened (centered) vector, in self.dtype.
+    """
     return whitened_sq.to(self.dtype) * self._diag_sigma()
 
 
@@ -457,13 +525,13 @@ class BlockDiagonalGeometry(DataVectorGeometry):
     s = self.sqrt_ev.detach().cpu().numpy().astype("float64")
     # (U * s**2) scales each column k of U by eigenvalue s_k**2
     # (broadcasting the length-n vector across the columns); the
-    # @ U.T sums those rank-1 pieces back into Cb -- U diag(s**2)
+    # @ U.T sums those rank-1 pieces back into Cb, U diag(s**2)
     # U^T without materializing the diagonal.
     Cb = (U * s**2) @ U.T
 
     # Build one whitening basis per bin. A bin occupies a
     # contiguous block of columns [start : start+n] of the kept
-    # (squeezed) vector -- contiguous because dest_idx is in
+    # (squeezed) vector, contiguous because dest_idx is in
     # (xi+/-, pair, theta) order and bin_sizes are that order's
     # run lengths.
     self._b_evecs, self._b_sqrt, self._b_slices = [], [], []
@@ -492,7 +560,15 @@ class BlockDiagonalGeometry(DataVectorGeometry):
       start += n   # advance to the next bin's first column
 
   def whiten(self, centered_sq):
-    """Per-bin: rotate into the bin's eigenbasis, scale to 1."""
+    """Per-bin: rotate into the bin's eigenbasis, scale to 1.
+
+    Arguments:
+      centered_sq = (B, n_keep) squeezed dv, center subtracted.
+
+    Returns:
+      (B, n_keep) block-whitened target (each bin decorrelated
+      within itself, no cross-bin mixing), float32.
+    """
     # Build the per-bin basis on first use (cached afterward).
     if self._b_evecs is None:
       self._build_block()
@@ -504,7 +580,7 @@ class BlockDiagonalGeometry(DataVectorGeometry):
     # Per bin: take its columns x[:, sl], rotate into the bin's
     # eigenbasis (@ V), divide by the scale (sqrt of eigenvalues)
     # for unit variance, write back into that bin's slice. No
-    # cross-bin mixing -- each bin uses only its own V / sb / sl.
+    # cross-bin mixing, each bin uses only its own V / sb / sl.
     for V, sb, sl in zip(self._b_evecs, self._b_sqrt,
                          self._b_slices):
       out[:, sl] = (x[:, sl] @ V) / sb
@@ -512,7 +588,14 @@ class BlockDiagonalGeometry(DataVectorGeometry):
     return out.float()
 
   def unwhiten(self, whitened_sq):
-    """Exact inverse of whiten, per bin (V orthonormal)."""
+    """Exact inverse of whiten, per bin (V orthonormal).
+
+    Arguments:
+      whitened_sq = (B, n_keep) block-whitened vector.
+
+    Returns:
+      (B, n_keep) un-whitened (centered) vector, in self.dtype.
+    """
     if self._b_evecs is None:
       self._build_block()
     w = whitened_sq.to(self.dtype)
@@ -542,7 +625,7 @@ def build_shear_angle_map(geom,
   pair); contiguous in dest_idx order, summing to n_keep) that a
   per-bin BlockDiagonalGeometry / ParallelResMLP split on (the
   Returns block lists each). Reads the dataset ini and the
-  source n(z) file only -- no cosmolike.
+  source n(z) file only, no cosmolike.
 
   Assumes xi ordering xi_plus then xi_minus, each looping source
   pairs (i<=j) outer and theta inner. Verify against your
@@ -635,7 +718,7 @@ def build_shear_angle_map(geom,
 
   # Per-bin sizes for the per-bin model/geometry. A bin =
   # (xi+/-, source pair) = a contiguous run of kept elements
-  # sharing the same (pm, zsrc_i, zsrc_j) -- contiguous because
+  # sharing the same (pm, zsrc_i, zsrc_j), contiguous because
   # the layout above is pm/pair outer, theta inner, so one bin's
   # thetas sit together. Run-length encode: walk the kept
   # elements in order; start a new bin whenever the key changes,

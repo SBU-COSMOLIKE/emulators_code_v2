@@ -1,8 +1,9 @@
 """Device selection, construction factories, evaluation, and training.
 
-The run layer tying the package together. pick_device and make_logger are
-setup helpers. make_model, make_optimizer, and make_scheduler each build one
-component from a {cls, **kwargs} spec dict; build_run_specs assembles the six
+This module is the run layer that ties the package together. pick_device
+and make_logger are setup helpers. make_model, make_optimizer, and
+make_scheduler each build one component from a {cls, **kwargs} spec
+dict; build_run_specs assembles the six
 spec dicts from a config (with the default / suggest / search resolvers for the
 [default, min, max, kind] hyperparameter ranges). eval_val and eval_source_chi2
 score the model, training_loop_batched is the per-epoch loop (trim / focus
@@ -16,7 +17,11 @@ ready-to-train batch already on the compute device, hiding where the data lives
 the encoded targets (load_dv) per source; the loop here just asks for the rows
 it wants. whitened = rotated into a covariance eigenbasis and scaled to unit
 variance, decorrelating the components (the form the model sees, input and
-target).
+target). encoded = a dv put through the geometry's encode (kept entries,
+centered, whitened). dump = the full on-disk array from the data-generation
+run, one row per cosmology (the dv dump is the .npy, the param dump the .txt).
+memmap = a NumPy array backed by that file, read in slices so it is never
+loaded whole.
 """
 
 import copy
@@ -59,7 +64,7 @@ def make_logger(quiet=False):
   Build a print function gated by a quiet flag.
 
   Returns a `log(*args, **kwargs)` callable that forwards to the
-  builtin print when `quiet` is False and is a no-op when True --
+  builtin print when `quiet` is False and is a no-op when True,
   the standard "--quiet" stdout gate a CLI driver wraps its prints
   in. `quiet` is captured once, at build time.
 
@@ -82,7 +87,7 @@ def make_model(model_opts, input_dim, output_dim, device):
   Build the network from a spec dict.
 
   Mirrors make_optimizer: the model class is a value in the spec
-  dict, its settings the other keys -- swapping architectures is
+  dict, its settings the other keys, so swapping architectures is
   a one-dict change.
 
   Arguments:
@@ -100,7 +105,7 @@ def make_model(model_opts, input_dim, output_dim, device):
 
   compile_mode (CUDA only; default "reduce-overhead"):
     "reduce-overhead" = inductor + CUDA graphs; fastest but fragile
-      -- large constant buffers or a skip-add of the trunk output
+      large constant buffers or a skip-add of the trunk output
       can trip CUDA-graph-trees bookkeeping (internal
       AssertionError during warmup).
     "default" = inductor kernel fusion, no CUDA graphs (robust).
@@ -137,7 +142,7 @@ def make_optimizer(model, opt_opts, lr, device):
   Mirrors make_model / make_scheduler: the optimizer class is a
   value in the dict, its settings the other keys. Parameters split
   into two groups so weight decay falls only on the weight matrices
-  (ndim>=2), never on the 1D params below -- decaying those would
+  (ndim>=2), never on the 1D params below, decaying those would
   pull a unit-init gain toward 0 and attenuate signal.
 
   Arguments:
@@ -216,7 +221,7 @@ def build_run_specs(train_args, model_cls, opt_cls, sched_cls):
   Assemble the six run_emulator spec dicts from a config mapping.
 
   Each constructible component is a {"cls": <class>, **kwargs}
-  spec -- the first-class-class trick make_model / make_optimizer
+  spec, the first-class-class trick make_model / make_optimizer
   / make_scheduler consume. The caller picks the class (a driver
   fixes ResMLP / AdamW / ReduceLROnPlateau, or swaps any), its
   settings come from the matching sub-block of train_args, spread
@@ -244,7 +249,7 @@ def build_run_specs(train_args, model_cls, opt_cls, sched_cls):
 
   Returns:
     dict with keys model_opts, opt_opts, lr_opts, sched_opts,
-    trim_opts, focus_opts -- the six spec dicts run_emulator takes.
+    trim_opts, focus_opts, the six spec dicts run_emulator takes.
   """
   return {
     "model_opts": {"cls": model_cls, **train_args["model"]},
@@ -306,8 +311,9 @@ def _suggest_range(trial, name, rng):
 def _walk_train_args(train_args, path, on_leaf):
   """Recurse train_args, applying on_leaf(path, value) to each leaf.
 
-  Returns a new mapping with the same nesting (the comprehensions
-  copy, so the input is never mutated); on_leaf decides each leaf.
+  Returns a new mapping with the same nesting (an explicit loop
+  rebuilds each level, so the input is never mutated); on_leaf
+  decides each leaf.
   """
   if isinstance(train_args, dict):
     out = {}
@@ -320,12 +326,12 @@ def _walk_train_args(train_args, path, on_leaf):
 
 def default_train_args(train_args):
   """
-  Resolve every search range to its default -- a fixed config.
+  Resolve every search range to its default, a fixed config.
 
   Walks train_args (any nesting) and replaces each
   [default, min, max, kind] range with its default value, leaving
   scalars untouched. This lets the plain training driver consume a
-  YAML that also carries search ranges -- it uses each range's
+  YAML that also carries search ranges, it uses each range's
   first value, so one YAML serves both the plain and search drivers.
 
   Arguments:
@@ -348,7 +354,7 @@ def suggest_train_args(trial, train_args):
   Optuna suggestion named by its dotted path (e.g. "lr.lr_base"),
   each scalar kept. Returns a fully-resolved train_args (same nested
   shape) ready for build_run_specs / run_emulator. Never imports
-  optuna -- it only calls the passed trial's suggest_* .
+  optuna, it only calls the passed trial's suggest_* .
 
   Arguments:
     trial      = an optuna Trial (the source of the suggestions).
@@ -399,7 +405,7 @@ def audit_devices(model, lossfn, device):
   owner. This walk names owners directly. Checked: every model
   parameter and buffer (named_* reach through a torch.compile
   wrapper), and every tensor attribute of lossfn and of
-  lossfn.geom -- the loss's geometry carries the whitening /
+  lossfn.geom, the loss's geometry carries the whitening /
   covariance tensors the chi2 contracts with, so they enter the
   traced graph too.
 
@@ -450,7 +456,7 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
 
   Streams the val rows in chunks of `load`, runs the model in
   fixed bs-sized batches, and reduces every batch to its
-  per-sample chi2 immediately -- consume, don't stash:
+  per-sample chi2 immediately (consume, don't stash):
 
     xb, yb  (bs, ...)         one padded val batch
        │  fwd_chi2            model forward + per-sample chi2,
@@ -465,12 +471,18 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
                               need the full distribution at once,
                               so they reduce here, not per chunk)
 
+  (legend: bs = model batch size; xb / yb = one padded batch's
+  inputs / targets; c_b = the batch's per-sample chi2, shape (bs,);
+  n_val = number of validation points; c = per-sample chi2 over the
+  whole val set, shape (n_val,); frac = fraction over each
+  threshold.)
+
   The previous form stashed every batch's full prediction (with a
-  per-batch clone of (bs, out_dim) -- reduce-overhead reuses its
+  per-batch clone of (bs, out_dim); reduce-overhead reuses its
   output buffer) and concatenated them all before one big chi2:
   for the factored heads that meant ~1 GB of VRAM churn per epoch.
-  Reducing per batch keeps only (bs,) scalars alive -- the clone
-  survives but copies bs floats, not bs x out_dim -- and the
+  Reducing per batch keeps only (bs,) scalars alive (the clone
+  survives but copies bs floats, not bs x out_dim) and the
   device-to-host traffic stays at one small transfer per eval,
   which matters when the GPU hangs off a bandwidth- and
   latency-limited link (an eGPU over Thunderbolt).
@@ -486,8 +498,9 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
     model      = the network, in eval mode.
     lossfn     = CosmolikeChi2; .chi2 gives the per-sample chi2 of
                  a prediction against its target.
-    data       = dict with load_C, load_dv (the loaders) and vidx
-                 (global validation row indices).
+    data       = dict with load_C, load_dv (the loaders) and idx
+                 (global validation row indices; read into the
+                 local vidx).
     load       = rows per streamed chunk.
     bs         = model batch size (same as training), so the
                  compiled graph sees one fixed input shape.
@@ -542,7 +555,7 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
           yb = torch.cat([yb, dvc[:1].expand(bs - n, -1)], dim=0)
         # clone: under reduce-overhead (CUDA graphs) the compiled
         # graph reuses a static output buffer per call, so the
-        # next call overwrites this result before the cat -- but
+        # next call overwrites this result before the cat, but
         # the stash is now (bs,) floats, not (bs, out_dim).
         chi2s.append(fwd_chi2(xb, yb)[:n].clone())
 
@@ -657,8 +670,11 @@ def training_loop_batched(nepochs,
     lossfn     = CosmolikeChi2; .loss(pred, target, mode) is
                  the training loss, .chi2 the eval metric.
     mode       = loss mode passed to .loss ("sqrt", "chi2", ...).
-    data       = dict with load_C, load_dv (loaders), tidx
-                 (training rows), and load (rows per chunk).
+    data       = nested source dict: data["train"] and data["val"],
+                 each with load_C, load_dv (the loaders), idx
+                 (global rows into the full dump), and load (rows
+                 per streamed chunk). The val sub-dict is handed to
+                 eval_val each epoch.
     trim_opts  = trim schedule (see anneal_value): "start"/"end"
                  trim fractions, "hold_epochs"/"anneal_epochs",
                  "shape". None -> hold 5% then cosine-anneal to 0.
@@ -666,7 +682,10 @@ def training_loop_batched(nepochs,
                  per-epoch focus exponent gamma (0 = uniform,
                  higher = harder points weighted more), via
                  "start"/"end", "hold_epochs"/"anneal_epochs",
-                 "shape". None -> no focal weighting (gamma = 0).
+                 "shape", plus "kappa" (the chi2 scale where the
+                 focal weight turns on, fixed over the run, read as
+                 focus_scale; default 1.0). None -> no focal
+                 weighting (gamma = 0).
     thresholds = delta-chi2 cutoffs for the val fractions.
     warmup_epochs = epochs of linear lr ramp before the plateau
                     scheduler takes over (0 = none).
@@ -676,19 +695,19 @@ def training_loop_batched(nepochs,
                  the loss stays in float32/64.
     clip       = gradient-norm ceiling per optimizer step (0 =
                  off, the default). Each step, the norm of the
-                 FULL gradient vector (all trainable parameters
+                 full gradient vector (all trainable parameters
                  together) is measured; if it exceeds clip, every
-                 gradient is rescaled by clip/norm -- same
-                 direction, bounded size. Kills the single-batch
+                 gradient is rescaled by clip/norm (same
+                 direction, bounded size). Kills the single-batch
                  kick a monster-outlier batch produces under a
                  quadratic loss, regardless of loss mode.
     rewind     = if True, whenever the plateau scheduler cuts the
-                 lr, reload the best-so-far weights AND the
+                 lr, reload the best-so-far weights and the
                  optimizer state snapshotted with them, then keep
                  the new (reduced) lr. An excursion into a bad
                  basin then costs at most `patience` epochs: the
                  median stalls, the scheduler fires, and the run
-                 resumes from its best point at a lower lr --
+                 resumes from its best point at a lower lr,
                  instead of decaying the lr inside the wreckage.
                  Applies only to ReduceLROnPlateau (an epoch
                  scheduler like CosineAnnealingLR changes the lr
@@ -703,7 +722,7 @@ def training_loop_batched(nepochs,
   # / dv targets on the GPU (the regime hides where they live).
   load_C  = data["train"]["load_C"]
   load_dv = data["train"]["load_dv"]
-  tidx    = data["train"]["idx"]   # global training rows (into C0/dv0)
+  tidx    = data["train"]["idx"]   # global training rows into the dump
   # device the model lives on; place new tensors here too.
   # model.parameters() is an iterator, so next(...), not [0].
   device  = next(model.parameters()).device
@@ -720,7 +739,7 @@ def training_loop_batched(nepochs,
   train_losses, medians, means, fracs = [], [], [], []
 
   # MPS (Apple Silicon) has no float64. Accumulate the loss in
-  # float64 where supported (CUDA/CPU), float32 on MPS -- only
+  # float64 where supported (CUDA/CPU), float32 on MPS: only
   # the epoch-mean train loss, so the fallback is harmless.
   acc_dtype = (torch.float32 if device.type == "mps"
                              else torch.float64)
@@ -742,10 +761,10 @@ def training_loop_batched(nepochs,
   # ---- the combined forward+loss step (the launch-bound fix) ----
   # A tiny model's step is dozens of micro-kernels, each launched
   # by the CPU; the GPU spends the step waiting on those launches
-  # (and on any CPU contention). Compiling the model ALONE (as
-  # make_model does) collapses its launches but leaves the loss --
+  # (and on any CPU contention). Compiling the model alone (as
+  # make_model does) collapses its launches but leaves the loss,
   # a dozen kernels forward, more backward, plus its per-step
-  # Python -- eager. Tracing model + loss together collapses the
+  # Python, eager. Tracing model + loss together collapses the
   # whole step to a few graph replays:
   #
   #    xb, yb  (contiguous batch views, see the pre-shuffle below)
@@ -757,13 +776,13 @@ def training_loop_batched(nepochs,
   #    scalar loss              one compiled graph for all of it
   #
   # Off-CUDA (or compile disabled) fwd_loss is this same function,
-  # simply not compiled -- one code path, two execution modes.
+  # simply not compiled, one code path, two execution modes.
   needs_p = getattr(lossfn, "needs_params", False)
 
   # kappa as a 0-dim device tensor, like trim_t / focus_t below: a
   # Python float in the traced closure is torch-version-dependent
-  # -- some versions specialize it to a constant, others lift it as
-  # an UNSPECIALIZED float backed by a 0-dim CPU tensor input,
+  #, some versions specialize it to a constant, others lift it as
+  # an unspecialized float backed by a 0-dim CPU tensor input,
   # which silently disables CUDA-graph replay ("skipping cudagraphs
   # due to cpu device (primals_N)"). A device tensor is graph-safe
   # everywhere; kappa is fixed per pass, so it is created once, not
@@ -788,7 +807,7 @@ def training_loop_batched(nepochs,
   # the eval twin: model forward + per-sample chi2 in one compiled
   # graph, handed to eval_val (same launch-bound argument, and it
   # lets eval reduce each batch immediately instead of stashing
-  # every full prediction -- see eval_val's docstring).
+  # every full prediction, see eval_val's docstring).
   def _fwd_chi2(xb, yb):
     pred = model(xb)
     if needs_p:
@@ -815,10 +834,10 @@ def training_loop_batched(nepochs,
   trim_t  = torch.zeros((), device=device)
   focus_t = torch.zeros((), device=device)
 
-  # track the best epoch by the inference metric -- the fraction
-  # of val points with chi2 > the first threshold (0.2) -- to keep
-  # the best model, not the last. Seeded by a BASELINE eval of the
-  # INCOMING weights (epoch 0, before any training), so a pass can
+  # track the best epoch by the inference metric, the fraction
+  # of val points with chi2 > the first threshold (0.2), to keep
+  # the best model, not the last. Seeded by a baseline eval of the
+  # incoming weights (epoch 0, before any training), so a pass can
   # never end worse than it started: ordinarily the baseline is a
   # random init and is overtaken immediately, but at the two-phase
   # handoff the incoming model is phase 1's best (the zero-init
@@ -840,11 +859,11 @@ def training_loop_batched(nepochs,
   best_state = {}
   for k, v in model.state_dict().items():
     best_state[k] = v.detach().clone()
-  # rewind needs the optimizer state that BELONGS to the best
+  # rewind needs the optimizer state that belongs to the best
   # weights (Adam's moments track a trajectory; moments from a bad
   # basin would kick the restored weights right back out). deepcopy:
   # state_dict() returns live tensor references. At this baseline
-  # the optimizer is fresh, so the snapshot is the empty state --
+  # the optimizer is fresh, so the snapshot is the empty state,
   # restoring it simply resets the moments.
   best_opt_state = None
   if rewind:
@@ -863,11 +882,11 @@ def training_loop_batched(nepochs,
 
   for epoch in range(1, nepochs + 1):
     t_epoch = time.perf_counter()
-    # warmup BEFORE this epoch trains: epoch e (of W) runs at
-    # base*e/W, so epoch 1 uses base/W -- protecting exactly the
+    # warmup before this epoch trains: epoch e (of W) runs at
+    # base*e/W, so epoch 1 uses base/W, protecting exactly the
     # steps warmup exists for. (It used to be applied after the
-    # epoch: epoch 1 of every pass then trained at the FULL base lr
-    # while printing the ramped value it had just set for epoch 2 --
+    # epoch: epoch 1 of every pass then trained at the full base lr
+    # while printing the ramped value it had just set for epoch 2,
     # at a two-phase handoff that full-strength first epoch could
     # wreck the identity start.)
     if epoch <= warmup_epochs:
@@ -905,7 +924,7 @@ def training_loop_batched(nepochs,
       dvc = load_dv(rows)
       # pre-shuffle once per chunk (the rows arrive sorted, for
       # host-side read locality): applying the batch permutation
-      # here makes every step's batch a contiguous slice -- a free
+      # here makes every step's batch a contiguous slice, a free
       # view, replacing the per-step gather kernels (the factored
       # path gathered Cc twice and dvc once per step). Costs one
       # transient chunk-sized copy on the GPU.
@@ -915,7 +934,7 @@ def training_loop_batched(nepochs,
       # Drop the ragged last batch so every batch is one size.
       # This matters under torch.compile: it specializes per input
       # shape, and reduce-overhead (CUDA graphs) needs it fixed. bp
-      # reshuffles each epoch, so dropped tail rows rotate -- no
+      # reshuffles each epoch, so dropped tail rows rotate, no
       # data is permanently lost.
       n_full = (Cc.shape[0] // bs) * bs   # whole batches only
       for s in range(0, n_full, bs):
@@ -926,7 +945,7 @@ def training_loop_batched(nepochs,
         # gradient vector to norm <= clip before the step, so one
         # monster-outlier batch cannot kick the weights (direction
         # kept, size bounded). clip_grad_norm_ skips parameters
-        # whose grad is None -- the frozen trunk in a head phase.
+        # whose grad is None, the frozen trunk in a head phase.
         if clip > 0.0:
           nn.utils.clip_grad_norm_(model.parameters(),
                                    max_norm=clip)
@@ -948,7 +967,7 @@ def training_loop_batched(nepochs,
     fracs.append(frac)
 
     # f0 = this epoch's fraction of val points with chi2 >
-    # thresholds[0] (0.2) -- the inference goal we minimize.
+    # thresholds[0] (0.2), the inference goal we minimize.
     # frac[0] is a 0-dim tensor; .item() pulls it to a Python
     # float (one host sync, once per epoch).
     f0 = frac[0].item()
@@ -976,9 +995,9 @@ def training_loop_batched(nepochs,
         best_opt_state = copy.deepcopy(optimizer.state_dict())
 
     # the scheduler takes over once the warmup ramp (applied at the
-    # top of the epoch) is done -- not stepped during warmup, since
+    # top of the epoch) is done, not stepped during warmup, since
     # the plateau scheduler's no-improvement counter must not run
-    # while the lr rises. Steps once per epoch -- right for
+    # while the lr rises. Steps once per epoch, right for
     # ReduceLROnPlateau and epoch schedulers (StepLR,
     # CosineAnnealingLR); a per-batch scheduler (OneCycleLR) would
     # step inside the batch loop instead.
@@ -990,13 +1009,13 @@ def training_loop_batched(nepochs,
           lrs_before.append(grp["lr"])
         scheduler.step(median)
         # rewind-to-best: a plateau lr cut means `patience` epochs
-        # brought no median improvement -- either a true plateau
+        # brought no median improvement, either a true plateau
         # (rewind to best is a no-op, best ~= current) or the run
         # wandered into a bad basin (rewind is the rescue: without
-        # it the scheduler keeps decaying the lr INSIDE the
+        # it the scheduler keeps decaying the lr inside the
         # wreckage and freezes the run there). Restore the best
         # weights and their optimizer snapshot, then reapply the
-        # NEW (reduced) lrs -- load_state_dict would otherwise
+        # new (reduced) lrs, load_state_dict would otherwise
         # bring back the snapshot's old lr.
         cut = False
         for grp, lr_old in zip(optimizer.param_groups, lrs_before):
@@ -1043,7 +1062,7 @@ def training_loop_batched(nepochs,
 
   if not silent:
     # total wall time and the steady-state per-epoch rate (epochs
-    # 2..N, dropping epoch 1's compile warmup) -- the numbers to
+    # 2..N, dropping epoch 1's compile warmup), the numbers to
     # compare GPUs by.
     total = time.perf_counter() - t_run
     if nepochs > 1:
@@ -1056,14 +1075,30 @@ def training_loop_batched(nepochs,
   return train_losses, medians, means, fracs
 
 
-def run_emulator(train_set, val_set, chi2fn, param_geometry,
-                 bs=128, nepochs=300, loss_mode="sqrt",
-                 model_opts=None, opt_opts=None, lr_opts=None,
-                 sched_opts=None, trim_opts=None, focus_opts=None,
-                 thresholds=None, gpu_mem_gb=16, use_amp=False,
-                 silent=False, device='gpu', seed=0,
-                 clip=0.0, rewind=False,
-                 trunk_epochs=0, trunk_opts=None, head_opts=None):
+def run_emulator(train_set,
+                 val_set,
+                 chi2fn,
+                 param_geometry,
+                 device,
+                 bs=128,
+                 nepochs=300,
+                 loss_mode="sqrt",
+                 model_opts=None,
+                 opt_opts=None,
+                 lr_opts=None,
+                 sched_opts=None,
+                 trim_opts=None,
+                 focus_opts=None,
+                 thresholds=None,
+                 gpu_mem_gb=16,
+                 use_amp=False,
+                 silent=False,
+                 seed=0,
+                 clip=0.0,
+                 rewind=False,
+                 trunk_epochs=0,
+                 trunk_opts=None,
+                 head_opts=None):
   """
   One training run; model, optimizer, schedule auto-built.
 
@@ -1091,12 +1126,22 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
        ▼
     model restored to the head pass's best frac>0.2 epoch
 
+  (legend: trunk_epochs = epochs of phase 1, the pure trunk; nepochs
+  = total epochs, so phase 2 runs nepochs - trunk_epochs; frac>0.2 =
+  fraction of val points with delta-chi2 > 0.2, the best-epoch
+  selection metric.)
+
   Arguments:
     train_set    = training source dict: "C" full param dump,
                    "dv" full dv dump, "idx" rows to train on.
     val_set      = validation source dict, same three keys.
     chi2fn         = CosmolikeChi2 (output geometry + loss).
     param_geometry = ParamGeometry (input whitening).
+    device         = torch.device the model, geometry, and batches
+                     live on (from pick_device); required, no
+                     default. make_model and make_optimizer branch
+                     on device.type, so a string here (not a
+                     torch.device) would fail the .type checks.
     bs           = minibatch size.
     nepochs      = number of passes over the training set.
     loss_mode    = loss transform ("sqrt", "chi2", "sqrt_dchi2").
@@ -1112,7 +1157,7 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
                        (lr = lr_base * sqrt(bs / bs_base))
                      "warmup_epochs"     -> linear lr warmup
                    None -> a sensible default. Each phase of a
-                   two-phase run RESTARTS at its base lr with a
+                   two-phase run restarts at its base lr with a
                    fresh warmup + scheduler, never at the other
                    phase's decayed lr.
     sched_opts   = scheduler spec dict (see make_scheduler):
@@ -1126,7 +1171,10 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
                    per-epoch focus exponent gamma (0 = uniform,
                    higher = harder points weighted more), via
                    "start"/"end", "hold_epochs"/"anneal_epochs",
-                   "shape". None -> no focal weighting (gamma = 0).
+                   "shape", plus "kappa" (the chi2 scale where the
+                   focal weight turns on, fixed over the run, read as
+                   focus_scale; default 1.0). None -> no focal
+                   weighting (gamma = 0).
     thresholds   = delta-chi2 cutoffs for the val fractions
                    (None -> [0.2, 1, 10, 100]).
     gpu_mem_gb   = emulated budget in GB (non-CUDA only; on CUDA
@@ -1166,10 +1214,10 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
                      "lr_base"   -> the pass's base lr (sqrt rule);
                      "loss_mode" -> the pass's loss transform;
                      "trim"      -> the pass's trim schedule, a
-                       FULL replacement block (its hold/anneal
+                       full replacement block (its hold/anneal
                        count from the pass's own epoch 1);
                      "focus"     -> the pass's focus schedule,
-                       ditto (include kappa -- no merge with the
+                       ditto (include kappa, no merge with the
                        main block);
                      "clip"      -> the pass's gradient-norm
                        ceiling (0 = off);
@@ -1193,7 +1241,7 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
   if (trunk_opts or head_opts) and trunk_epochs == 0:
     raise ValueError(
       "per-phase overrides (the train_args trunk: / head: blocks) "
-      "need trunk_epochs > 0 -- without the two-phase schedule "
+      "need trunk_epochs > 0: without the two-phase schedule "
       "they would silently do nothing")
 
   if model_opts is None:
@@ -1231,7 +1279,7 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
   if focus_opts is None:
     # default: no focal weighting (the opt-in baseline). shape
     # "const" holds start every epoch, and a gamma (start) of
-    # -1 is <= 0, so loss() takes the plain-mean path -- runs
+    # -1 is <= 0, so loss() takes the plain-mean path, runs
     # match no-focus unless a real focus_opts is passed.
     focus_opts = {"shape": "const",
                   "start": -1.0}
@@ -1244,9 +1292,9 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
 
   torch.manual_seed(seed)
 
-  # input width = the ENCODED width, read off the geometry when it
+  # input width = the encoded width, read off the geometry when it
   # advertises one (encoded_dim); the raw parameter count otherwise.
-  # The geometry owns its output width -- the model should size itself
+  # The geometry owns its output width, the model should size itself
   # by that statement, not by re-deriving it from the dump.
   in_dim = getattr(param_geometry, "encoded_dim",
                    train_set["C"].shape[1])
@@ -1262,13 +1310,13 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
   # parameters, so they never appear here anyway).
   #
   # The second number excludes the pure linear transformations: a Linear
-  # or Affine sitting DIRECTLY in a Sequential composition (the input
+  # or Affine sitting directly in a Sequential composition (the input
   # projection, the output projection, the final Affine) is an affine map
-  # with no nonlinearity of its own -- it adds width, not shape, and the
+  # with no nonlinearity of its own, it adds width, not shape, and the
   # output projection alone scales with 3*n_keep, dominating the total.
   # The Linears inside ResBlock and the head convs stay
-  # counted: interleaved with activations, they ARE the nonlinear map.
-  # A separable head's depthwise+pointwise pair also stays counted --
+  # counted: interleaved with activations, they are the nonlinear map.
+  # A separable head's depthwise+pointwise pair also stays counted,
   # the pair is itself linear (no activation between), but it is a
   # cheap factorization of the plain conv it replaces, and the block
   # activation follows it just the same; its Sequential holds only
@@ -1296,7 +1344,7 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
     # / ResTRF) and at .model on ResMLP and the factored trunks
     # (TemplateMLP / TemplateResCNN / TemplateResTRF); getattr
     # reaches through a torch.compile wrapper. Everything outside
-    # it -- convs, TRF blocks, gates -- is the head; printed only
+    # it (convs, TRF blocks, gates) is the head; printed only
     # when a head exists (a pure trunk has nothing to split).
     trunk = getattr(model, "mlp", None)
     if trunk is None:
@@ -1348,11 +1396,11 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
   # forward+loss disables CUDA-graph replay silently (inductor's
   # "skipping cudagraphs due to cpu device (primals_N)" names a
   # position, not an owner). Name the owners loudly instead; the
-  # run still proceeds -- this costs performance, not correctness.
+  # run still proceeds, this costs performance, not correctness.
   if not silent:
     for msg in audit_devices(model=model, lossfn=chi2fn,
                              device=device):
-      print(f"device audit: {msg} -- expected {device}; an "
+      print(f"device audit: {msg}: expected {device}; an "
             "off-device tensor in the compiled step disables "
             "CUDA-graph replay")
 
@@ -1360,14 +1408,14 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
 
   # phases to run: one (nepochs, phase-name) pair for ordinary
   # training, two for the trunk-then-head schedule. Each pass gets a
-  # FRESH optimizer + scheduler + warmup: make_optimizer collects
+  # fresh optimizer + scheduler + warmup: make_optimizer collects
   # every parameter, but frozen ones (requires_grad False) never
-  # receive a gradient and AdamW skips grad-None params entirely --
-  # no step, no state, no weight decay -- so rebuilding per phase
+  # receive a gradient and AdamW skips grad-None params entirely,
+  # no step, no state, no weight decay, so rebuilding per phase
   # both resets the lr schedule for the new phase and leaves the
   # frozen group untouched. training_loop_batched restores its own
   # best-frac>0.2 weights at the end of each pass, so phase 2
-  # starts from phase 1's BEST trunk (not its last epoch), with the
+  # starts from phase 1's best trunk (not its last epoch), with the
   # zero-init head making the handoff loss-continuous.
   if trunk_epochs > 0:
     plan = [(trunk_epochs, "trunk"),
@@ -1382,8 +1430,8 @@ def run_emulator(train_set, val_set, chi2fn, param_geometry,
 
     # per-pass knob resolution: each pass restarts the lr at its base
     # (never the other phase's decayed floor) and falls back to the
-    # main loss_mode / trim / focus; the SYMMETRIC trunk: / head:
-    # blocks override them for their own pass -- a different lr_base
+    # main loss_mode / trim / focus; the symmetric trunk: / head:
+    # blocks override them for their own pass, a different lr_base
     # (same sqrt-batch rule), another loss_mode, and full-replacement
     # trim / focus schedules (each restarts at the pass's own epoch 1,
     # like the main ones do per pass).

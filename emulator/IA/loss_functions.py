@@ -1,4 +1,20 @@
-"""Factored intrinsic-alignment losses and amplitude coefficients."""
+"""Factored intrinsic-alignment losses and amplitude coefficients.
+
+This module holds the losses for the factored IA emulators and the
+amplitude-polynomial coefficient functions they use. nla_coeffs and
+tatt_coeffs turn the raw IA amplitudes into the closed-form
+coefficients that combine the model's whitened templates into a data
+vector, and TemplateFactoredChi2 applies that combine and then scores
+the result with the full chi2. The amplitudes enter only here, never
+the network.
+
+PS: whitened = rotated into the covariance eigenbasis and scaled to
+unit variance, so correlated dv entries become decorrelated and
+equally hard to fit; encoded = a dv put through the geometry's encode
+(kept entries, centered, whitened); squeeze = keep only the unmasked
+dv entries (the geometry's squeeze), the smaller vector the network
+emulates.
+"""
 
 import torch
 
@@ -68,7 +84,7 @@ class NLAAmpFactoredChi2(CosmolikeChi2):
   (the appended last column of the encoded params) and combines
   them in closed form, xi = GG + A1_1*GI + A1_1^2*II, then scores
   the standard chi2 on the combined xi. The A1_1 dependence is
-  imposed, not learned, and A1_1 never enters the network -- so it
+  imposed, not learned, and A1_1 never enters the network, so it
   generalizes perfectly, free at inference, prior-width-
   independent.
 
@@ -77,7 +93,7 @@ class NLAAmpFactoredChi2(CosmolikeChi2):
   the center is absorbed into the GG template automatically (the
   net learns whatever matches geom.encode(xi)). A1_1 is physical
   (A1_1 = 0 is the no-IA limit). Trained on the existing
-  (cosmo, A1_2, A1_1) -> xi samples -- A1_1 is read per sample, not
+  (cosmo, A1_2, A1_1) -> xi samples, A1_1 is read per sample, not
   extracted.
 
   needs_params = True (the loss needs A1_1).
@@ -188,7 +204,7 @@ class TemplateFactoredChi2(CosmolikeChi2):
   The amplitude dependence is imposed, not learned; the amplitudes
   never enter the network, so the emulator generalizes perfectly in
   them, free at inference, and the amplitude prior costs zero
-  training coverage -- the win that grows from NLA's 1 amplitude to
+  training coverage, the win that grows from NLA's 1 amplitude to
   TATT's coupled, wide-prior 3. The combine is linear, so it
   commutes with the whitening; the center is absorbed into the GG
   (constant-coefficient) template. Amplitudes are physical (all
@@ -197,7 +213,7 @@ class TemplateFactoredChi2(CosmolikeChi2):
     pred (B, T, n_keep)          whitened templates (the model)
        │
        │    A (B, n_amps)        raw amplitudes, sliced off the
-       │       │                 END of the encoded params
+       │       │                 end of the encoded params
        │       │  coeff_fn       the closed-form polynomial
        │       ▼
        │    c (B, T)             per-template coefficients

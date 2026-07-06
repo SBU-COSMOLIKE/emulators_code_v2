@@ -1,13 +1,18 @@
-"""Model diagnostics over a validation set.
+"""This module runs model diagnostics over a validation set.
 
-Three post-training analyses that say why the metric sits where it does
-(each returns a dict the plotting reads). coverage_diagnostic asks whether
-the failing val points sit in sparse regions of the training set (a
-kNN-distance vs delta-chi2 correlation, i.e. data coverage).
-local_linear_floor compares the model to a local-linear interpolation of
-the training targets (the data-only floor; plain chi2 only).
-hard_direction_regression fits log10 delta-chi2 against the (log)
-parameters to find which combination predicts the per-point hardness.
+It provides three post-training analyses that say why the metric sits
+where it does (each returns a dict the plotting reads).
+coverage_diagnostic asks whether the failing val points sit in sparse
+regions of the training set (a kNN-distance vs delta-chi2 correlation,
+i.e. data coverage). local_linear_floor compares the model to a
+local-linear interpolation of the training targets (the data-only floor;
+plain chi2 only). hard_direction_regression fits log10 delta-chi2 against
+the (log) parameters to find which combination predicts the per-point
+hardness.
+
+PS: whitened = rotated into the covariance eigenbasis and scaled to unit
+variance, so correlated quantities become decorrelated and equally hard
+to fit.
 """
 
 import numpy as np
@@ -18,15 +23,21 @@ from scipy.stats import spearmanr
 from .training import eval_source_chi2
 
 
-def coverage_diagnostic(model, param_geometry, chi2fn, train_set,
-                        val_set, device, k_nn=8, bs=256):
+def coverage_diagnostic(model,
+                        param_geometry,
+                        chi2fn,
+                        train_set,
+                        val_set,
+                        device,
+                        k_nn=8,
+                        bs=256):
   """
   Do the failing val points sit in sparse regions of training?
 
   For each validation cosmology, measure its mean distance to the
   k nearest training cosmologies in whitened (param_geometry)
-  parameter space -- Euclidean distance there weights each direction
-  by its prior spread, so no single wide param dominates -- and
+  parameter space (Euclidean distance there weights each direction
+  by its prior spread, so no single wide param dominates) and
   relate that local sparsity to the per-point delta-chi2. A positive
   rank correlation (sparser neighbourhoods at the failures) means
   the floor is data coverage, not the model. Model-agnostic: any
@@ -62,6 +73,8 @@ def coverage_diagnostic(model, param_geometry, chi2fn, train_set,
                   median_bad > median_good, spearman > 0.1).
   """
   # per-val delta-chi2 from the model (sorted-idx order).
+  # eval_source_chi2 (training.py): runs the model over a source in
+  # eval mode and returns (params, per-point delta-chi2) row-aligned.
   _, dchi2 = eval_source_chi2(model=model,
                               param_geometry=param_geometry,
                               chi2fn=chi2fn,
@@ -83,7 +96,7 @@ def coverage_diagnostic(model, param_geometry, chi2fn, train_set,
     ).float().to(device)).cpu().numpy()
 
   # mean distance from each val point to its k nearest training
-  # points -- a local sparsity measure (large = under-covered).
+  # points: a local sparsity measure (large = under-covered).
   # cKDTree.query returns (distances, indices); keep distances.
   tree = cKDTree(Xtr)
   dists, _ = tree.query(Xva, k=k_nn)     # (Nval, k_nn)
@@ -108,8 +121,14 @@ def coverage_diagnostic(model, param_geometry, chi2fn, train_set,
           "coverage_limited": bool(cov)}
 
 
-def local_linear_floor(model, param_geometry, chi2fn, train_set,
-                       val_set, device, k_nn=40, bs=256):
+def local_linear_floor(model,
+                       param_geometry,
+                       chi2fn,
+                       train_set,
+                       val_set,
+                       device,
+                       k_nn=40,
+                       bs=256):
   """
   The data-only floor: a local linear map vs the trained model.
 
@@ -170,7 +189,7 @@ def local_linear_floor(model, param_geometry, chi2fn, train_set,
 
   # local linear fit: target ~ b + A (x - x_val) over the
   # neighbours, with intercept b = the prediction at x_val.
-  # Solve on CPU (batched lstsq is not on MPS) -- one-time.
+  # Solve on CPU (batched lstsq is not on MPS), one-time.
   Xn = Xtr[nbr]                                   # (Nval, k, n_param)
   Yn = Ttr[nbr]                                   # (Nval, k, out_dim)
   dX = (Xn - Xva[:, None, :]).cpu()
@@ -182,6 +201,8 @@ def local_linear_floor(model, param_geometry, chi2fn, train_set,
 
   dchi2_floor = chi2fn.chi2(pred=Tlin,
                             target=Tva).double().cpu().numpy()
+  # eval_source_chi2 (training.py): runs the model over a source in
+  # eval mode and returns (params, per-point delta-chi2) row-aligned.
   _, dchi2_model = eval_source_chi2(model=model,
                                     param_geometry=param_geometry,
                                     chi2fn=chi2fn, source=val_set,
@@ -196,15 +217,20 @@ def local_linear_floor(model, param_geometry, chi2fn, train_set,
           "median_model": float(np.median(dchi2_model))}
 
 
-def hard_direction_regression(model, param_geometry, chi2fn,
-                              val_set, device, bs=256, log_set=None):
+def hard_direction_regression(model,
+                              param_geometry,
+                              chi2fn,
+                              val_set,
+                              device,
+                              bs=256,
+                              log_set=None):
   """
   Which log-param combination predicts the per-point hardness?
 
   Fits log10 dchi2 ~ c0 + sum_i c_i z_i, with z_i = standardized
   ln(param / median) for the positive multiplicative cosmological
   params and standardized centered-linear for the additive
-  nuisances (photo-z DZ, IA A1 -- which can be <= 0). Reports each
+  nuisances (photo-z DZ, IA A1, which can be <= 0). Reports each
   feature's univariate correlation (a collinearity-robust ranking),
   the joint OLS coefficients (the alpha, beta, ... combination) and
   joint R^2 (how much of the difficulty is a clean log-linear
@@ -231,6 +257,9 @@ def hard_direction_regression(model, param_geometry, chi2fn,
   """
   if log_set is None:
     log_set = {"As_1e9", "ns", "H0", "omegam", "omegab"}
+  # eval_source_chi2 (training.py): runs the model over a source in
+  # eval mode and returns (params, per-point delta-chi2) row-aligned;
+  # here the params feed the hard-direction regression.
   params, dchi2 = eval_source_chi2(model=model,
                                    param_geometry=param_geometry,
                                    chi2fn=chi2fn, source=val_set,

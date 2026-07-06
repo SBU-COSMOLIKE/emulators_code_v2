@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
-"""Optuna search over single xi emulator hyperparams (any architecture)."""
+"""This driver runs an Optuna search over one xi emulator's hyperparameters.
+
+PS: memmap = a NumPy array backed by the on-disk dump file, read in slices
+so an array larger than RAM is never loaded whole.
+"""
 
 #-------------------------------------------------------------------------------
 # How to run this program
 #-------------------------------------------------------------------------------
-# Tuning twin of train_single_emulator_cosmic_shear.py: same single cosmic-shear
-# (xi) emulator setup (resmlp | rescnn | restrf, optionally with a factored
-# ia design, per the YAML), but runs an Optuna study minimizing validation
-# f(delta-chi2 > 0.2) rather than one run.
+# This driver is the tuning twin of train_single_emulator_cosmic_shear.py: it
+# reuses the same single cosmic-shear (xi) emulator setup (resmlp | rescnn |
+# restrf, optionally with a factored ia design, per the YAML), but runs an
+# Optuna study minimizing validation f(delta-chi2 > 0.2) rather than one run.
 #
-#     python external_modules/code/emulators/emultrf/dev/tune_single_emulator_cosmic_shear.py \
-#       --root projects/lsst_y1/ \
-#       --fileroot emulators/training_scripts/ \
-#       --yaml train_single_emulator_cosmic_shear.yaml \
-#       --n-trials 50 --timeout 4200
+# python .../emultrf/dev/tune_single_emulator_cosmic_shear.py \
+#   --root projects/lsst_y1/ \
+#   --fileroot emulators/training_scripts/ \
+#   --yaml train_single_emulator_cosmic_shear.yaml \
+#   --n-trials 50 --timeout 4200
 #
 #- The searched hyperparameters come from the YAML train_args block. Each leaf is
 #  a fixed scalar or a range: a 4-item list [default, min, max, kind], kind int /
 #  float / log (a whitespace string "default min max kind" also works). A range
-#  may sit at any nesting depth -- inside the model sub-blocks (model.mlp.width,
+#  may sit at any nesting depth: inside the model sub-blocks (model.mlp.width,
 #  model.cnn.kernel_size), the schedules (trim.start), or the per-phase
 #  trunk / head override blocks (head.lr_base):
 #
@@ -31,15 +35,15 @@
 #          n_blocks: 4                            # fixed
 #
 #  The first value is the default: the training driver uses it and this search
-#  warm-starts trial 0 from it -- one YAML serves both drivers.
+#  warm-starts trial 0 from it, so one YAML serves both drivers.
 #
 #- Multiple GPUs (one node): trials are independent trainings, so the study
-#  parallelizes -- one worker process per GPU (spawn), all sharing ONE study
+#  parallelizes, one worker process per GPU (spawn), all sharing a single study
 #  through an Optuna journal-file storage under --fileroot. Each worker builds
 #  its own experiment on its GPU, asks the shared study for suggestions
 #  (sampler seeded per worker), and reports results back; --n-trials is the
-#  TOTAL across workers. The journal file persists: rerunning with the same
-#  --journal RESUMES the study (more trials on top of the recorded ones);
+#  total across workers. The journal file persists: rerunning with the same
+#  --journal resumes the study (more trials on top of the recorded ones);
 #  delete the file (or pass a fresh --journal name) to start over. One GPU
 #  (or the Apple-MPS dev machine) keeps the original serial in-memory study,
 #  no file written.
@@ -68,8 +72,8 @@
 #  restrf, plus model.ia = omit | nla | tatt), also fixed; only hyperparameters
 #  vary.
 #
-#- Output: stdout -- a per-trial line (frac>0.2, running best, params) and a
-#  final summary of the best frac>0.2 and params -- plus, in the parallel
+#- Output: stdout, a per-trial line (frac>0.2, running best, params) and a
+#  final summary of the best frac>0.2 and params, plus, in the parallel
 #  path, the persistent journal file.
 #-------------------------------------------------------------------------------
 
@@ -106,7 +110,7 @@ def journal_storage(path):
 
   Arguments:
     path = the journal file's path (created if absent; appending to
-           an existing file RESUMES its studies).
+           an existing file resumes its studies).
 
   Returns:
     an optuna.storages.JournalStorage.
@@ -126,10 +130,10 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
 
   Pins its GPU, builds and stages its own EmulatorExperiment there
   (each process has its own cosmolike global state), loads the
-  SHARED study from the journal file, and runs its share of trials:
+  shared study from the journal file, and runs its share of trials:
   Optuna serializes suggestions/reports through the storage, so
   workers cooperate on one search history. The sampler is seeded
-  per worker (seed = gpu_id) -- identical seeds would propose
+  per worker (seed = gpu_id) because identical seeds would propose
   identical points in parallel.
 
   Arguments:
@@ -165,7 +169,20 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
     sampler=optuna.samplers.TPESampler(seed=gpu_id))
 
   def objective(trial):
-    ta = suggest_train_args(trial, raw_ta)
+    """
+    Score one Optuna trial: resolve its train_args, train, return frac>0.2.
+
+    Arguments:
+      trial = the Optuna trial (its suggestions resolve the searched
+              train_args leaves).
+
+    Returns:
+      the best epoch's frac>0.2 (minimized); the median is stashed as
+      a trial user attribute for the tiebreak/report.
+    """
+    # suggest_train_args (training.py): draw each searched leaf's value
+    # from the trial and fold it into a concrete train_args mapping.
+    ta = suggest_train_args(trial=trial, train_args=raw_ta)
     (_m, _tl, medians,
      _mn, fracs) = exp.train(train_args=ta, silent=True)
     best = min(range(len(fracs)),
@@ -174,6 +191,16 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
     return fracs[best][0].item()
 
   def log_trial(study_, trial):
+    """
+    Optuna callback: print this worker's per-trial result line.
+
+    Arguments:
+      study_ = the shared study (read for the running best value).
+      trial  = the trial that just finished (number, value, params).
+
+    Returns:
+      None (prints a line unless --quiet).
+    """
     if not quiet:
       print(f"[gpu {gpu_id}] trial {trial.number:3d}  "
             f"frac>0.2 {trial.value:.4f}  "
@@ -235,7 +262,7 @@ def main():
                       help="journal file (under --fileroot) the "
                            "parallel workers share the study "
                            "through (default tune_journal.log). "
-                           "Persistent: the same name RESUMES the "
+                           "Persistent: the same name resumes the "
                            "recorded study, a new name starts fresh",
                       type=str,
                       default="tune_journal.log")
@@ -246,13 +273,13 @@ def main():
                       action="store_true")
   args, unknown = parser.parse_known_args()
 
-  # Resolve the cocoa layout (data under $ROOTDIR/<root>, YAML under
-  # <fileroot>); loads the YAML and makes its data paths absolute. The
-  # fileroot also hosts the parallel path's journal file.
+  # resolve_cocoa_config (cocoa.py): resolve the cocoa layout (data under
+  # $ROOTDIR/<root>, YAML under <fileroot>), load the YAML, and make its data
+  # paths absolute. The fileroot also hosts the parallel path's journal file.
   cfg, fileroot, _ = resolve_cocoa_config(args)
 
-  # Setup -- config parse, model resolution, device, data staging, geometry,
-  # chi2, per-run spec assembly -- lives in EmulatorExperiment, shared with the
+  # Setup (config parse, model resolution, device, data staging, geometry,
+  # chi2, per-run spec assembly) lives in EmulatorExperiment, shared with the
   # training driver. Geometry / chi2 / activation are fixed, so build them once
   # here; only the searched train_args vary per trial. Single-emulator choices are
   # EmulatorExperiment defaults; model is the YAML's (train_args.model.name).
@@ -262,21 +289,22 @@ def main():
                                        quiet=args.quiet)
   # the experiment's quiet-gated logger
   log = exp.log
-  # print_design (experiment.py): the startup banner -- the resolved
+  # print_design (experiment.py): the startup banner (the resolved
   # model block, run knobs, guards, every train_args sub-block, and the
-  # physical cuts (search ranges already collapsed to their defaults; the
+  # physical cuts; search ranges already collapsed to their defaults, the
   # study varies them per trial from there). A stale YAML here would
   # waste a whole study, not one training. Shared with the train / sweep
   # drivers.
   exp.print_design()
 
   # raw_train_args keeps the ranges (exp.train_args collapsed them to defaults);
-  # suggest_train_args resolves them per trial
+  # suggest_train_args (training.py) resolves them per trial. search_defaults
+  # (training.py) pulls out just the [default, min, max, kind] leaves.
   raw_ta = exp.raw_train_args
-  ranges = search_defaults(raw_ta)
+  ranges = search_defaults(train_args=raw_ta)
   if not ranges:
     log("WARNING: no [default, min, max, kind] search ranges in "
-        "train_args -- every trial is identical.")
+        "train_args: every trial is identical.")
 
   # quiet Optuna's per-trial INFO spam (we print our own line)
   optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -297,11 +325,23 @@ def main():
     exp.build_geometry()
 
     def objective(trial):
-      # this trial's concrete train_args (each range -> a suggestion); exp.train
-      # builds the per-run specs (model / optimizer / scheduler + activation +
-      # ResCNN geom) on the fixed data + geometry. silent=True keeps each trial
-      # quiet even when the study isn't.
-      ta = suggest_train_args(trial, raw_ta)
+      """
+      Score one serial-path trial: resolve train_args, train, return frac>0.2.
+
+      Arguments:
+        trial = the Optuna trial (each searched range becomes one
+                suggestion).
+
+      Returns:
+        the best epoch's frac>0.2 (minimized); the median is stashed
+        as a trial user attribute for the tiebreak/report.
+      """
+      # suggest_train_args (training.py): fold this trial's suggestions
+      # into a concrete train_args mapping. exp.train then builds the
+      # per-run specs (model / optimizer / scheduler + activation +
+      # ResCNN geom) on the fixed data + geometry; silent=True keeps
+      # each trial quiet even when the study isn't.
+      ta = suggest_train_args(trial=trial, train_args=raw_ta)
       (_m, _tl, medians,
        _mn, fracs) = exp.train(train_args=ta, silent=True)
       # the run restored its best-frac>0.2 epoch (median tiebreaker); minimize
@@ -311,6 +351,16 @@ def main():
       return fracs[best][0].item()
 
     def log_trial(study_, trial):
+      """
+      Optuna callback: print the serial study's per-trial result line.
+
+      Arguments:
+        study_ = the study (read for the running best value).
+        trial  = the trial that just finished (number, value, params).
+
+      Returns:
+        None (prints one line through the quiet-gated logger).
+      """
       log(f"trial {trial.number:3d}  frac>0.2 {trial.value:.4f}"
           f"  best {study_.best_value:.4f}  {trial.params}")
 
@@ -318,8 +368,8 @@ def main():
     study = optuna.create_study(
       direction="minimize",
       sampler=optuna.samplers.TPESampler(seed=0))
-    # warm-start trial 0 from the YAML defaults (range first values) --
-    # begin at the known-good config
+    # warm-start trial 0 from the YAML defaults (range first values),
+    # beginning at the known-good config
     if ranges:
       study.enqueue_trial(ranges)
     study.optimize(objective,
@@ -328,12 +378,13 @@ def main():
                    callbacks=[log_trial])
   else:
     # Parallel study: one spawned process per GPU, all cooperating on
-    # ONE study through the journal file (Optuna's multi-process
+    # a single study through the journal file (Optuna's multi-process
     # storage; see journal_storage). The parent creates the study,
     # warm-starts it once, splits the trial budget, and reads the
     # result back after the workers join.
     import torch.multiprocessing as mp
 
+    # cocoa_output (cocoa.py): join the fileroot to the journal name.
     journal_path = cocoa_output(fileroot, args.journal)
     study = optuna.create_study(
       study_name=STUDY_NAME,
@@ -344,12 +395,12 @@ def main():
     if done:
       log(f"resuming study in {journal_path}: {done} recorded "
           f"trial(s); adding {args.n_trials} more")
-    # warm-start only a fresh study -- a resumed one already ran the
+    # warm-start only a fresh study; a resumed one already ran the
     # defaults as its trial 0.
     if ranges and done == 0:
       study.enqueue_trial(ranges)
 
-    # split the TOTAL trial budget across workers (first workers take
+    # split the total trial budget across workers (first workers take
     # the remainder), and divide the host-RAM staging budget so the
     # per-worker private copies of the same subset cannot together
     # overflow RAM (stage_source falls back to the shared memmap when
@@ -370,6 +421,10 @@ def main():
     ctx = mp.get_context("spawn")
     procs = []
     for k in range(n_workers):
+      # args positional order matches _tune_worker's signature:
+      # (gpu_id, n_trials, cfg, rescale, activation, journal_path,
+      #  timeout, quiet). Process forwards them positionally, so the
+      # tuple order is load-bearing.
       p = ctx.Process(target=_tune_worker,
                       args=(k,
                             shares[k],
@@ -393,7 +448,7 @@ def main():
         finished = True
     if not finished:
       raise RuntimeError(
-        "no trial completed -- check the worker stderr above "
+        "no trial completed; check the worker stderr above "
         f"(journal: {journal_path})")
 
   log("\n--- search complete ---")

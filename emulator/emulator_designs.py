@@ -17,13 +17,18 @@ data vector. Where this file sits in the training pipeline:
      ▼
   chi2 = r^T Cinv r
 
+(legend: each box is the data at that stage and the file on each
+arrow does the transform; r = the physical residual, prediction
+minus truth, scattered to full 3x2pt length; Cinv = the masked
+inverse covariance; chi2 = r^T Cinv r, the Mahalanobis distance.)
+
 ResMLP is the baseline: input projection, a stack of identical
 ResBlocks, output projection, final Affine. ResCNN and ResTRF add a
 correction appendix on a ResMLP trunk: the trunk predicts in the full
 (cov-eigenbasis) whitening, fixed buffers map its output into theta
-order, a structured head corrects it there -- a 1D conv along the
+order, a structured head corrects it there, a 1D conv along the
 angular axis (ResCNN), or a transformer whose tokens are the
-tomographic bins (ResTRF) -- and a learnable gate adds the correction
+tomographic bins (ResTRF), and a learnable gate adds the correction
 back, so swapping the architecture changes only the model. Per-bin
 conv variants live in parallel/.
 
@@ -54,6 +59,10 @@ class ResMLP(nn.Module):
        │  Linear: int_dim_res -> output_dim;  Affine
        ▼
     dv (B, output_dim)    whitened data vector
+
+  (legend: B = batch rows; input_dim = number of cosmological
+  parameters; int_dim_res = internal residual width; output_dim =
+  whitened data-vector length.)
 
   Arguments:
     input_dim   = number of cosmological parameters
@@ -143,30 +152,30 @@ class ResCNN(nn.Module):
   bins become the conv's channels: one Conv1d(n_bins -> n_bins,
   kernel_size) slides a single kernel along theta over the whole
   data vector at once. At every theta position each output bin
-  reads a kernel_size-wide window of all the bins -- theta-local
+  reads a kernel_size-wide window of all the bins, theta-local
   and cross-bin (the bins share one angular grid, so channel mixing
   couples different bins at like angular scales, up to per-bin mask
   offsets). No channel expansion: the head's tensors never grow
   beyond the (padded) dv size, so the bandwidth wall the old
   expand-to-C-filters head hit cannot occur by construction. Each
   block is one conv + one activation (the nonlinearity between
-  stacked blocks -- without it two convs fold into a single
+  stacked blocks, without it two convs fold into a single
   kernel). The head hyperparameters are kernel_size (+ the
   rescale_kernel flag), n_blocks_cnn, groups, separable, film, and
   gate_init.
 
   groups restricts that channel mixing along the one physical cut
   the channel order offers. The channels are the bins in dv order
-  -- the xi+ pairs first, then the xi- pairs (cosmolike's layout,
-  reconstructed by build_shear_angle_map) -- and a grouped conv
+  the xi+ pairs first, then the xi- pairs (cosmolike's layout,
+  reconstructed by build_shear_angle_map), and a grouped conv
   splits the channels into `groups` consecutive blocks that never
   mix:
 
     channels:   xi+ pair 1 .. P │ xi- pair 1 .. P
                                 │
-    groups=1:   no cut -- every output bin reads every bin (the
+    groups=1:   no cut, every output bin reads every bin (the
                 default: full cross-bin mixing)
-    groups=2:   cut at the │ -- xi+ never mixes with xi-, but
+    groups=2:   cut at the │, xi+ never mixes with xi-, but
                 bins still mix freely within their branch
 
   (legend: P = n_bins/2 source pairs per xi branch; per-block conv
@@ -174,10 +183,10 @@ class ResCNN(nn.Module):
   the cut also halves the head's conv weights. The boundary is
   validated against geom.pm_kept at build: bin_sizes drops
   fully-masked bins, so a wholly-masked bin on one branch would
-  silently shift the cut -- that fails loudly instead.)
+  silently shift the cut, that fails loudly instead.)
 
-  separable factors the remaining sum's two jobs -- smoothing
-  along theta and mixing channels -- into two cheaper layers per
+  separable factors the remaining sum's two jobs, smoothing
+  along theta and mixing channels, into two cheaper layers per
   block:
 
     c  (B, C, max_bin)
@@ -191,8 +200,8 @@ class ResCNN(nn.Module):
 
   versus the plain block's joint C*(C/groups)*k. No activation
   sits between the two layers, so the pair composes into a single
-  constrained conv -- weights w[o, c, t] = pointwise[o, c] *
-  depthwise[c, t] -- i.e. a low-rank factorization of the plain
+  constrained conv, weights w[o, c, t] = pointwise[o, c] *
+  depthwise[c, t], i.e. a low-rank factorization of the plain
   block's sum, not a different operation. The assumption the
   factorization adds: the theta-smoothing profile a channel needs
   does not depend on which channel it mixes into (plausible for
@@ -236,13 +245,13 @@ class ResCNN(nn.Module):
                    bin_sizes; its evecs / sqrt_ev define the basis
                    buffers.
     kernel_size  = conv kernel width (odd, same-padded), tuned as
-                   if the head had ONE block. With rescale_kernel
+                   if the head had one block. With rescale_kernel
                    it states the target receptive field; without,
                    it is used verbatim for every block.
     rescale_kernel = False (default): every block uses kernel_size
                    as given. True: the per-block kernel shrinks
                    with depth so the n_blocks_cnn-deep stack keeps
-                   a single kernel_size-wide block's view --
+                   a single kernel_size-wide block's view,
                    receptive field n*(k-1)+1 >= kernel_size, see
                    rescale_kernel_size. Depth then buys
                    nonlinearity at a fixed total view (and
@@ -266,7 +275,7 @@ class ResCNN(nn.Module):
                    parameters into every block as a per-channel
                    affine, conv -> gamma(x)*c + beta(x) -> act,
                    with one identity-initialized FiLMGenerator
-                   per block (Linear(input_dim, 2*n_bins) --
+                   per block (Linear(input_dim, 2*n_bins),
                    ~2*n_bins*input_dim parameters each, see the
                    generator's docstring and
                    notes/film-conditioning.md). The gate stays as
@@ -277,7 +286,7 @@ class ResCNN(nn.Module):
     n_blocks_cnn = stacked conv+activation correction blocks.
     gate_init    = initial value of the scalar scaling the
                    correction. Small (default 0.1) to start near the
-                   pure ResMLP; not 0 -- a 0 gate strands the CNN
+                   pure ResMLP; not 0, a 0 gate strands the CNN
                    with no gradient, so it never learns.
     block_opts   = ResBlock options (None -> {}); its "act" is also
                    handed to the CNN head, so head and trunk share
@@ -302,7 +311,7 @@ class ResCNN(nn.Module):
     assert kernel_size % 2 == 1, (
       "kernel_size must be odd so same-padding keeps the length")
     assert hasattr(geom, "bin_sizes"), (
-      "ResCNN needs geom.bin_sizes -- run build_shear_angle_map"
+      "ResCNN needs geom.bin_sizes: run build_shear_angle_map"
       "(geom) first (EmulatorExperiment does this for models with "
       "the needs_bins flag)")
 
@@ -338,8 +347,8 @@ class ResCNN(nn.Module):
     cnn_act = block_opts.get("act", activation_fcn)
     # rescale_kernel: kernel_size was tuned for a single block, so
     # shrink the per-block kernel with depth to keep that block's
-    # view -- receptive field n*(k-1)+1 >= kernel_size, see
-    # rescale_kernel_size -- instead of over-growing it.
+    # view, receptive field n*(k-1)+1 >= kernel_size, see
+    # rescale_kernel_size, instead of over-growing it.
     if rescale_kernel:
       kernel_size = rescale_kernel_size(kernel_size=kernel_size,
                                         n_blocks_cnn=n_blocks_cnn)
@@ -353,7 +362,7 @@ class ResCNN(nn.Module):
     # 1 = xi-), so the run starts give the per-bin branch; the
     # first half of the bins must all be xi+ and the second half
     # xi- (a fully-masked bin on one branch would silently shift
-    # the boundary -- fail loudly instead).
+    # the boundary, fail loudly instead).
     assert groups in (1, 2), (
       "ResCNN groups must be 1 (dense) or 2 (xi+ never mixes "
       "with xi-); the channels are single bins, so no other cut "
@@ -362,14 +371,29 @@ class ResCNN(nn.Module):
       assert hasattr(geom, "pm_kept") and self.n_bins % 2 == 0, (
         "groups=2 needs geom.pm_kept (build_shear_angle_map) and "
         "an even bin count")
+      # pm_bins[b] = the branch (0 = xi+, 1 = xi-) of bin b, read
+      # from its first kept element geom.pm_kept[start]. This
+      # assumes each bin is pm-homogeneous (its kept angular bins
+      # all share one branch), which holds for the xi geometry; a
+      # mixed-pm bin would be represented by its first element only
+      # and could pass the split check silently.
       pm_bins = []
       start = 0
       for s in sizes:
         pm_bins.append(int(geom.pm_kept[start]))
         start += s
       half = self.n_bins // 2
-      assert (all(pm == 0 for pm in pm_bins[:half])
-              and all(pm == 1 for pm in pm_bins[half:])), (
+      # construction-time check (not hot, so a plain loop, not a
+      # comprehension): the first half of the bins must be xi+
+      # (pm 0) and the second half xi- (pm 1).
+      split_ok = True
+      for pm in pm_bins[:half]:
+        if pm != 0:
+          split_ok = False
+      for pm in pm_bins[half:]:
+        if pm != 1:
+          split_ok = False
+      assert split_ok, (
         "groups=2 needs the first half of the bins to be xi+ and "
         "the second half xi- (a fully-masked bin on one branch "
         f"breaks the split); per-bin branches here: {pm_bins}")
@@ -381,7 +405,7 @@ class ResCNN(nn.Module):
         # depthwise-separable factorization (see the class
         # docstring): a per-channel k-tap theta filter (groups =
         # n_bins: no mixing), then a pointwise 1x1 channel mix
-        # honoring `groups`. No activation between the two -- the
+        # honoring `groups`. No activation between the two, the
         # pair is a low-rank factorization of the plain block's
         # conv, and the block's one activation follows as usual.
         # Sequential keeps forward unchanged (convs[i] is callable
@@ -465,7 +489,7 @@ class ResCNN(nn.Module):
       if self.film_gens is not None:
         # FiLM re-injection: a per-bin affine whose coefficients
         # depend on the parameters (identity at init). unsqueeze
-        # broadcasts (B, n_bins) over the theta axis -- the
+        # broadcasts (B, n_bins) over the theta axis, the
         # modulation is per channel, never per position.
         gamma, beta = self.film_gens[i](x)
         c = gamma.unsqueeze(-1) * c + beta.unsqueeze(-1)
@@ -521,12 +545,13 @@ class ResTRF(nn.Module):
   needs_bins flag is set). Bins differ in length, so each is padded
   to max_bin (the longest bin's kept theta count) inside a fixed
   index buffer (pad_idx scatters the n_keep theta-order entries
-  into the padded (G, max_bin) layout and gathers the corrections
-  back; the pad positions stay zero and drop at the gather).
+  into the padded (n_bins, max_bin) layout and gathers the
+  corrections back; the pad positions stay zero and drop at the
+  gather).
 
   The tokens live at their natural width: max_bin, the padded bin
   length. There is deliberately no embedding layer in and no output
-  projection out -- those adapters are what a transformer needs
+  projection out, those adapters are what a transformer needs
   when its sequence is synthetic (a flat latent split into tokens,
   as in the published CMB design, where they were the parameter-
   heaviest layers); here the sequence structure is physical, so the
@@ -534,7 +559,7 @@ class ResTRF(nn.Module):
   in dv layout. The correction is corr = blocks(h) - h: every
   TRFBlock is exactly the identity at init (its branch outputs are
   zero-initialized, see TRFBlock), so corr = 0 and the model equals
-  its trunk at epoch 1 -- the same zero-init identity start as the
+  its trunk at epoch 1, the same zero-init identity start as the
   conv heads, with the same wake-up chain (the zeroed branch layers
   get real gradients through the nonzero gate at step 1).
 
@@ -558,10 +583,10 @@ class ResTRF(nn.Module):
     n_blocks_trf = stacked transformer blocks.
     n_mlp_blocks = depth of each bin's private MLP stack inside
                    every TRFBlock.
-    gate_init    = initial correction-gate scale (small, not 0 --
+    gate_init    = initial correction-gate scale (small, not 0,
                    a 0 gate strands the head with no gradient).
     shared_mlp   = False (default): per-bin unique MLPs. True: one
-                   MLP shared by every bin -- the textbook block,
+                   MLP shared by every bin, the textbook block,
                    the ablation isolating the unique-MLP deviation
                    (see TRFBlock's permutation-equivariance caveat).
     film         = False (default): the head is one fixed map,
@@ -591,7 +616,7 @@ class ResTRF(nn.Module):
     if block_opts is None:
       block_opts = {}
     assert hasattr(geom, "bin_sizes"), (
-      "ResTRF needs geom.bin_sizes -- run build_shear_angle_map"
+      "ResTRF needs geom.bin_sizes: run build_shear_angle_map"
       "(geom) first (EmulatorExperiment does this for models with "
       "the needs_bins flag)")
 
@@ -613,7 +638,7 @@ class ResTRF(nn.Module):
     # pad_idx maps each kept theta-order position to its slot in the
     # padded (n_bins, max_bin) layout: bin g's j-th entry sits at
     # g*max_bin + j, the tail slots of short bins stay zero. One
-    # fixed buffer serves both directions -- scatter to pad, gather
+    # fixed buffer serves both directions, scatter to pad, gather
     # to unpad.
     pos = []
     for g in range(self.n_bins):
@@ -655,7 +680,7 @@ class ResTRF(nn.Module):
 
     # Frozen basis-change buffers, exactly ResCNN's (reminder:
     # W_fd = f -> d, full-whitened -> diagonal theta order /sigma;
-    # W_df = d -> f, its inverse -- subscripts in multiply order).
+    # W_df = d -> f, its inverse, subscripts in multiply order).
     evecs   = geom.evecs.detach()
     sqrt_ev = geom.sqrt_ev.detach()
     sigma   = torch.sqrt(((evecs * sqrt_ev) ** 2).sum(1))
@@ -676,8 +701,8 @@ class ResTRF(nn.Module):
     # assignment places the n_keep real entries.
     padded = h.new_zeros(h.shape[0], self.n_bins * self.max_bin)
     padded[:, self.pad_idx] = h
-    # (B, G*max_bin) -> (B, G, max_bin): each bin one token row, at
-    # its natural width -- the blocks run directly on these.
+    # (B, n_bins*max_bin) -> (B, n_bins, max_bin): each bin one token row, at
+    # its natural width, the blocks run directly on these.
     t0 = padded.view(-1, self.n_bins, self.max_bin)
     t = t0
     n = len(self.trf)
@@ -686,7 +711,7 @@ class ResTRF(nn.Module):
       if self.film_gens is not None:
         # FiLM re-injection: a per-token affine whose coefficients
         # depend on the parameters (identity at init). unsqueeze
-        # broadcasts (B, n_bins) over the token width -- per bin,
+        # broadcasts (B, n_bins) over the token width, per bin,
         # never per position.
         gamma, beta = self.film_gens[i](x)
         t = gamma.unsqueeze(-1) * t + beta.unsqueeze(-1)

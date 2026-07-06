@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Activation bake-off: f(delta-chi2 > thr) vs N_train, one curve per act."""
+"""Activation bake-off: f(delta-chi2 > thr) vs N_train, one curve per act.
+
+PS: resident = held in GPU memory the whole run, not re-loaded per batch;
+a loader is a closure load(rows) -> a ready-to-train batch on the device;
+dump = the full on-disk array from the data-generation run (the dv dump is
+the .npy, the param dump the .txt); memmap = a NumPy array backed by that
+file, read in slices so it is never loaded whole.
+"""
 
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
@@ -12,7 +19,7 @@
 # the curve shape: a real inductive-bias win keeps descending (lower sample
 # complexity) where others flatten, not a single-N offset.
 #
-#     python external_modules/code/emulators/emultrf/dev/bakeoff_activation_emulator_cosmic_shear.py \
+#     python .../emultrf/dev/bakeoff_activation_emulator_cosmic_shear.py \
 #       --root projects/lsst_y1/ \
 #       --fileroot emulators/training_scripts/ \
 #       --yaml train_single_emulator_cosmic_shear.yaml \
@@ -30,7 +37,7 @@
 #  the N_train sweep). At most len(activations) GPUs used; default 4
 #  activations, 8 GPUs, 4 idle. With --n-gpus 4:
 #
-#     python external_modules/code/emulators/emultrf/dev/bakeoff_activation_emulator_cosmic_shear.py \
+#     python .../emultrf/dev/bakeoff_activation_emulator_cosmic_shear.py \
 #       --root projects/lsst_y1/ \
 #       --fileroot emulators/training_scripts/ \
 #       --yaml train_single_emulator_cosmic_shear.yaml \
@@ -39,9 +46,10 @@
 #  One GPU (or none, e.g. the Apple-MPS dev machine) runs the serial double
 #  loop, so one script runs everywhere.
 #
-#- Reuses the training driver's YAML (data, model = ResMLP / ResCNN via
-#  train_args.model.name, rest of train_args). The YAML activation and usual
-#  --activation flag are ignored; this driver sweeps it.
+#- Reuses the training driver's YAML (data, model = ResMLP / ResCNN /
+#  ResTRF via train_args.model.name, rest of train_args). The YAML
+#  activation and usual --activation flag are ignored; this driver
+#  sweeps it.
 #
 #- `--root` (required): project folder under $ROOTDIR (data resolves under it);
 #  `--fileroot` (required): subfolder holding the YAML and curve outputs (e.g.
@@ -63,7 +71,7 @@
 #- `--quiet`: suppress stdout (txt and pdf still written).
 #
 #- One full model per (N_train, activation): len(grid) x len(activations)
-#  trainings long -- run it on the workstation.
+#  trainings long, run it on the workstation.
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 
@@ -365,8 +373,12 @@ def main():
   n_request = n_cuda if args.n_gpus is None else min(args.n_gpus, n_cuda)
   n_workers = min(n_request, len(activations))
 
-  log(f"model: {model_name}  |  rescale: {args.rescale}  "
-      f"|  activations: {activations}")
+  # print_design (experiment.py): the shared startup banner (device,
+  # model class, activation, rescale, the resolved spec, the cuts),
+  # so a stale YAML is caught at launch; then the bake-off's own
+  # sweep axes (the activations swept and the N_train grid).
+  exp.print_design()
+  log(f"activations: {activations}")
   log(f"pool {pool}  |  N_train grid: {sizes.tolist()}")
 
   # 1 worker (single GPU, or the MPS dev machine) -> serial, reusing the built

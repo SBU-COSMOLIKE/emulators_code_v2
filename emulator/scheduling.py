@@ -1,4 +1,5 @@
-"""Work-balancing and process-pool helpers for multi-GPU sweeps.
+"""This module provides work-balancing and process-pool helpers for
+multi-GPU sweeps.
 
 A sweep of many independent jobs (one training run per N_train value,
 or per hyperparameter value) must split the jobs so every GPU finishes
@@ -6,7 +7,7 @@ at about the same time. lpt_assign partitions jobs of unequal cost by
 the Longest-Processing-Time rule; even_assign splits equal-cost jobs
 round-robin. run_gpu_pool then executes the buckets: one spawned
 process per (GPU, lane), each building its own experiment once and
-draining its GPU's job queue -- with optional VRAM-token packing
+draining its GPU's job queue, with optional VRAM-token packing
 (estimate_train_vram_fraction + vram_tokens) so several small
 trainings can share one large GPU.
 
@@ -23,23 +24,30 @@ The pool's execution model, one GPU shown:
        │
        │  gate (packing only): a per-GPU Lock + Semaphore(4); a
        │  lane holds the lock while acquiring its job's tokens, so
-       │  token grabs never interleave (no deadlock -- releases by
+       │  token grabs never interleave (no deadlock: releases by
        │  finishing lanes need no lock and unblock the holder)
        ▼
     result queue -> the parent drains one result per job
 
-    (legend: g = GPU index; lane = one worker process pinned to GPU
-     g (lanes_per_gpu of them under packing, else 1); tokens = the
-     job's VRAM share in quarters of a GPU, from vram_tokens;
-     setup_fn / job_fn = the driver's module-level callables, which
-     spawn pickles by qualified name.)
+    (legend: g = GPU index; L = number of lanes on GPU g
+     (lanes_per_gpu of them under packing, else 1), so the lanes are
+     lane 0 .. lane L-1; lane = one worker process pinned to GPU g;
+     tokens = the job's VRAM share in quarters of a GPU, from
+     vram_tokens; setup_fn / job_fn = the driver's module-level
+     callables, which spawn pickles by qualified name.)
 
 PS: spawn = the multiprocessing start method that launches a fresh
 interpreter per child (a forked child cannot reuse the parent's CUDA
 context); sentinel = a special queue item (None here) telling a
 worker to exit; LPT = Longest-Processing-Time, biggest job first to
 the least-loaded worker; token = one quarter of a GPU's capacity in
-the packing model.
+the packing model; resident = held in GPU memory the whole run, not
+re-loaded each batch; loader = a closure load(rows) -> a
+ready-to-train batch on the device, hiding where the data lives
+(resident on GPU, streamed from RAM, or read from a disk memmap);
+dump = the full on-disk array from the data-generation run, one row
+per cosmology; encoded = a dv put through the geometry's encode (kept
+entries, centered, whitened).
 """
 
 import queue as queue_mod
@@ -191,8 +199,14 @@ def vram_tokens(fraction):
   return GPU_TOKENS
 
 
-def _lane_main(gpu_id, lane_id, setup_fn, job_fn, jobs_q, result_q,
-               gate, extra):
+def _lane_main(gpu_id,
+               lane_id,
+               setup_fn,
+               job_fn,
+               jobs_q,
+               result_q,
+               gate,
+               extra):
   """
   One worker process: pin the GPU, set up once, drain the job queue.
 
@@ -226,7 +240,7 @@ def _lane_main(gpu_id, lane_id, setup_fn, job_fn, jobs_q, result_q,
 
   try:
     state = setup_fn(gpu_id, extra)
-  except Exception as err:              # noqa: BLE001 -- report, not raise
+  except Exception as err:              # noqa: BLE001 (report, not raise)
     result_q.put(("__lane_failed__", gpu_id, repr(err)))
     return
 
@@ -252,8 +266,13 @@ def _lane_main(gpu_id, lane_id, setup_fn, job_fn, jobs_q, result_q,
           sem.release()
 
 
-def run_gpu_pool(setup_fn, job_fn, buckets, extra,
-                 lanes_per_gpu=1, job_tokens=None, on_result=None):
+def run_gpu_pool(setup_fn,
+                 job_fn,
+                 buckets,
+                 extra,
+                 lanes_per_gpu=1,
+                 job_tokens=None,
+                 on_result=None):
   """
   Run pre-assigned job buckets across GPUs, one process per lane.
 
@@ -295,18 +314,23 @@ def run_gpu_pool(setup_fn, job_fn, buckets, extra,
   # The parent must hold its own references to every per-GPU queue
   # and gate until the workers exit: a Process releases its args
   # after start() (Python 3.14), and a garbage-collected Lock /
-  # Semaphore / Queue unlinks its named OS semaphore -- a child that
+  # Semaphore / Queue unlinks its named OS semaphore, so a child that
   # has not finished booting then dies rebuilding it
   # (FileNotFoundError in SemLock._rebuild).
   keepalive = []
   for g, bucket in enumerate(buckets):
     if not bucket:
       continue
+
+    # size GPU g: how many lanes, and (packing only) build its gate.
     total += len(bucket)
     n_lanes = min(lanes_per_gpu, len(bucket))
     gate = None
     if n_lanes > 1:
       gate = (ctx.Lock(), ctx.Semaphore(GPU_TOKENS))
+
+    # build and fill this GPU's job queue: one (payload, tokens) item
+    # per job, then one None sentinel per lane so each lane exits.
     jobs_q = ctx.Queue()
     keepalive.append((jobs_q, gate))
     for payload in bucket:
@@ -314,6 +338,8 @@ def run_gpu_pool(setup_fn, job_fn, buckets, extra,
       jobs_q.put((payload, tokens))
     for _ in range(n_lanes):
       jobs_q.put(None)                  # one exit sentinel per lane
+
+    # launch the lanes: one spawned worker process per lane on GPU g.
     for lane in range(n_lanes):
       p = ctx.Process(target=_lane_main,
                       args=(g,
@@ -343,7 +369,7 @@ def run_gpu_pool(setup_fn, job_fn, buckets, extra,
       if not alive:
         raise RuntimeError(
           f"GPU pool workers all exited with {total - got} job(s) "
-          "unreported -- check the worker stderr above")
+          "unreported; check the worker stderr above")
       continue
     if isinstance(r, tuple) and len(r) == 3 and r[0] == "__lane_failed__":
       raise RuntimeError(

@@ -1,23 +1,23 @@
 # Config for tune_single_emulator_cosmic_shear.py
 #
-# Same schema as the training YAML, except a NUMERIC train_args leaf may
-# be a SEARCH RANGE instead of a fixed scalar:
+# Same schema as the training YAML, except a numeric train_args leaf may
+# be a search range instead of a fixed scalar:
 #
 #     knob: value                       # fixed
 #     knob: [default, min, max, kind]   # searched; kind = int|float|log
 #
-# The first value is the DEFAULT (the training driver uses it; this
+# The first value is the default (the training driver uses it; this
 # search warm-starts trial 0 from it). Lower nepochs here so each
 # trial is fast. String-valued keys (model.name / model.ia /
-# model.activation / loss_mode / shapes) are FIXED across the study --
+# model.activation / loss_mode / shapes) are fixed across the study, so
 # run one study per choice to compare them. The training YAML's
 # trunk_epochs / head two-phase keys work here too (fixed scalars).
 #
 # Multi-GPU: with more than one visible CUDA device (cap with
 # --n-gpus) the trials run in parallel, one worker per GPU, all
-# cooperating on ONE study through a journal file (--journal, default
-# tune_journal.log under --fileroot). --n-trials is the TOTAL across
-# workers. The journal persists: rerunning with the same name RESUMES
+# cooperating on one study through a journal file (--journal, default
+# tune_journal.log under --fileroot). --n-trials is the total across
+# workers. The journal persists: rerunning with the same name resumes
 # the study; delete it (or pass a new name) to start fresh. See the
 # README section "Multi-GPU execution and packing".
 #
@@ -54,9 +54,9 @@ train_args:
   #                      # training YAML for the full explanation.
 
   model:                 # name + ia pick the class; nested sub-blocks
-    # name = the ARCHITECTURE (resmlp | rescnn | restrf); ia = the factored
+    # name = the architecture (resmlp | rescnn | restrf); ia = the factored
     # intrinsic-alignment design layered on it (omit for the plain
-    # emulator; nla | tatt). Both fixed across the study -- see the training
+    # emulator; nla | tatt). Both fixed across the study; see the training
     # YAML's model block for the full nested schema. Any numeric leaf
     # inside a sub-block may be a [default, min, max, kind] range.
     name: resmlp
@@ -73,13 +73,13 @@ train_args:
     #   rescale_kernel: true # kernel_size = one block's view; deeper
     #                        # stacks shrink the per-block kernel
     #   groups:      1       # fixed choice per study (1 | 2 plain;
-    #                        # 1 | 3 | 6 with ia: nla) -- not a range
+    #                        # 1 | 3 | 6 with ia: nla), not a range
     #   separable:   false   # depthwise + pointwise factorization
     #   film:        false   # cosmology-aware per-channel affine
     #   n_blocks:    [1, 1, 3, int]
     #   gate_init:   0.1
     # trf:                   # name: restrf only (tokens at the natural
-    #                        # bin width -- no width knob)
+    #                        # bin width, no width knob)
     #   n_heads:      2      # must divide the padded bin length
     #                        # max_bin (LSST-Y1 keeps max_bin = 26
     #                        # theta points -> n_heads 1 | 2 | 13)

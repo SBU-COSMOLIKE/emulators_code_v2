@@ -3,7 +3,7 @@
 This subpackage holds the polynomial-chaos side of the NPCE (Neural
 PCE) experiment: PCEEmulator, a closed-form sparse-Legendre expansion
 mapping the cosmological parameters to the whitened data vector with
-no network, plus its three fit helpers -- pce_multi_index (the sparse
+no network, plus its three fit helpers, pce_multi_index (the sparse
 candidate basis), pce_design (the normalized-Legendre design matrix),
 and select_lars_loo (greedy term selection with a leave-one-out
 stop). The companion loss_functions.py wraps a frozen PCEEmulator as
@@ -71,7 +71,7 @@ def pce_multi_index(n_dim, p_max=12, r_max=3, q=0.6):
   interaction counts as one degree-4 variable. At q < 1 spreading a
   degree over k variables costs k^(1/q) instead of k (the two- and
   four-variable terms score 8 and 16, past p_max = 4), dropping
-  high-interaction cross-terms first -- the sparsity-of-effects
+  high-interaction cross-terms first, the sparsity-of-effects
   prior. Smaller q = sparser basis.
 
   Arguments:
@@ -142,8 +142,18 @@ def pce_design(Xm, multi_index):
 def select_lars_loo(Psi, y, max_terms=150, patience=10):
   """
   Greedy least-angle / OMP selection with a leave-one-out (LOO)
-  stop -- the self-contained stand-in for UQLab's LARS+LOO sparse-
+  stop, the self-contained stand-in for UQLab's LARS+LOO sparse-
   PCE selection.
+
+  Arguments:
+    Psi       = (n_samples, n_terms) PCE design matrix, each column
+                one basis polynomial evaluated at the samples.
+    y         = (n_samples,) target values to fit.
+    max_terms = cap on the number of selected basis terms.
+    patience  = stop after this many consecutive term additions
+                bring no leave-one-out improvement (the early stop
+                that keeps a wiggly high-degree term from poisoning
+                the fit).
 
   Returns:
     support = int array of selected column indices.
@@ -204,7 +214,7 @@ def select_lars_loo(Psi, y, max_terms=150, patience=10):
 
 class PCEEmulator(nn.Module):
   """
-  Sparse-Legendre Polynomial Chaos Expansion (PCE) emulator -- the
+  Sparse-Legendre Polynomial Chaos Expansion (PCE) emulator, the
   analytic "base" of the NPCE (Neural PCE). It maps the cosmological
   parameters to the whitened data vector with no network: every
   coefficient is a closed-form least-squares fit, built in one pass
@@ -226,8 +236,8 @@ class PCEEmulator(nn.Module):
   (geom.encode), ensemble-centered, and SVD-compressed to K leading
   modes; those K amplitudes are the lambda_i (eq-9
   principal-component amplitudes). Compressing in the whitened basis
-  is deliberate -- that basis is the chi2 metric (chi2 == ||.||^2)
-  -- so (a) the least-squares PCE on each mode directly minimizes
+  is deliberate, that basis is the chi2 metric (chi2 == ||.||^2)
+  so (a) the least-squares PCE on each mode directly minimizes
   the expected chi2, and (b) dropping a mode costs its
   singular-value^2 / N in mean chi2, bounding the truncation error
   in the reported metric.
@@ -243,7 +253,7 @@ class PCEEmulator(nn.Module):
     - Keep the degree low. A high-degree Legendre fit Runge-
       oscillates, and subtracting a wiggly base makes the refiner's
       residual harder. Degree (p_max) is the smoothness knob; term
-      count (max_terms) only adds richness within that degree -- so
+      count (max_terms) only adds richness within that degree, so
       max_terms is generous and the LOO, not the cap, decides each
       mode's term count.
 
@@ -285,6 +295,21 @@ class PCEEmulator(nn.Module):
   """
 
   def __init__(self, lo, hi, multi_index, C, Vk, Ybar):
+    """Store the fitted PCE as registered buffers (no training).
+
+    Alternative constructor from_training fits these; __init__ just
+    stores them so state_dict save/load round-trips.
+
+    Arguments:
+      lo, hi      = per-input min / max used to map X to [-1, 1].
+      multi_index = (n_terms, n_dim) Legendre multi-indices of the
+                    selected basis terms.
+      C           = (n_terms, k) coefficients onto the k leading
+                    output modes.
+      Vk          = (out_dim, k) the k retained output eigenvectors.
+      Ybar        = (out_dim,) output mean added back after the
+                    mode expansion.
+    """
     super().__init__()
     self.register_buffer("lo", lo)
     self.register_buffer("hi", hi)
@@ -339,7 +364,7 @@ class PCEEmulator(nn.Module):
       max_terms = per-mode active-set cap.
       max_fail = stop after this many consecutive gate failures
                  (leading modes are the predictable ones, so a run
-                 of misses means the rest miss too -- avoids fitting
+                 of misses means the rest miss too, avoids fitting
                  modes that will only be dropped).
       silent   = suppress the fit report.
     Returns:
@@ -405,7 +430,7 @@ class PCEEmulator(nn.Module):
       tried = ", ".join(tried_vals)
       print(f"PCE fit: N {N}  n_dim {n_dim}  "
             f"candidates {Psi.shape[1]}  fit {len(all_loo)}")
-      print(f"  KEPT {K} (loo<{loo_max})  "
+      print(f"  kept {K} (loo<{loo_max})  "
             f"mean dropped chi2 {drop_chi2:.4f}")
       print(f"  active/mode: median {int(np.median(act))}"
             f"  max {int(act.max())}")
@@ -420,6 +445,17 @@ class PCEEmulator(nn.Module):
                Ybar=torch.tensor(Ybar, dtype=f, device=device))
 
   def forward(self, X):
+    """Evaluate the closed-form PCE base at the given inputs.
+
+    Arguments:
+      X = (B, n_dim) whitened inputs (the same whitening the
+          training used); mapped to [-1, 1] for the Legendre basis.
+
+    Returns:
+      (B, out_dim) base prediction Ybar + (Psi @ C) @ Vk^T.
+    """
+    # map each input to [-1, 1] (Legendre domain), then clamp so a
+    # test point just outside the training box stays in range.
     Xm  = 2.0 * (X - self.lo) / (self.hi - self.lo) - 1.0
     Xm  = Xm.clamp(-1.0, 1.0)
     Psi = pce_design(Xm=Xm, multi_index=self.multi_index)

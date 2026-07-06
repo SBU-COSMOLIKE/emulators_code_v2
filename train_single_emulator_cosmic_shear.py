@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
-"""Train one cosmic-shear (xi) emulator (ResMLP or ResCNN) from a YAML."""
+"""Train one cosmic-shear (xi) emulator (resmlp, rescnn, or restrf) from a YAML.
+
+PS: whitened = rotated into the covariance eigenbasis and scaled to unit
+variance (the decorrelated form the network sees); dump = the full on-disk
+array from the data-generation run (the dv dump is the .npy, the param dump
+the .txt); memmap = a NumPy array backed by that file, read in slices so it
+is never loaded whole.
+"""
 
 #-------------------------------------------------------------------------------
 # Example how to run this program
 #-------------------------------------------------------------------------------
-# Trains one cosmic-shear (xi) emulator -- ResMLP or ResCNN (ResMLP trunk +
-# 1D-CNN appendix), chosen in the YAML -- from cosmological parameters to the
-# whitened, masked xi data vector. Loss = full-3x2pt chi2 (cosmolike's masked
-# inverse covariance).
+# This driver trains one cosmic-shear (xi) emulator, chosen in the YAML from
+# resmlp (plain residual MLP), rescnn (ResMLP trunk + 1D-CNN correction head),
+# or restrf (ResMLP trunk + bin-token transformer head), mapping cosmological
+# parameters to the whitened, masked xi data vector. Loss = full-3x2pt chi2
+# (cosmolike's masked inverse covariance).
 #
-#     python external_modules/code/emulators/emultrf/dev/train_single_emulator_cosmic_shear.py \
-#       --root projects/lsst_y1/ \
-#       --fileroot emulators/training_scripts/ \
-#       --yaml train_single_emulator_cosmic_shear.yaml \
-#       --diagnostic diagnostic
+# python .../emultrf/dev/train_single_emulator_cosmic_shear.py \
+#   --root projects/lsst_y1/ \
+#   --fileroot emulators/training_scripts/ \
+#   --yaml train_single_emulator_cosmic_shear.yaml \
+#   --diagnostic diagnostic
 #
 #- Cocoa layout: export $ROOTDIR, then --root names the project folder under it
 #  ($ROOTDIR/projects/lsst_y1) and --fileroot a subfolder of it holding this
@@ -35,7 +43,7 @@
 #- `--yaml` (default test.yaml): config file under --fileroot, holding every
 #  hyperparameter (no magic numbers in code). Two blocks:
 #  - `data`: input file names (train_dv, train_params, train_covmat, val_dv,
-#    val_params -- bare filenames, resolved under --root/chains), cut/split
+#    val_params, bare filenames resolved under --root/chains), cut/split
 #    settings (omegabh2_cut and the optional omegabh2_lo lower bound; the
 #    optional omegam2h2_lo / omegam2h2_hi window on omegam^2 h^2;
 #    train_divisor, val_divisor, split_seed, ram_frac),
@@ -43,12 +51,12 @@
 #    $ROOTDIR/external_modules/data, not --root).
 #  - `train_args`: knobs (nepochs, bs, loss_mode, silent) plus sub-blocks model
 #    (name = the architecture, resmlp | rescnn | restrf; ia = the factored
-#    intrinsic-alignment design layered on it -- omit for plain; `nla` =
+#    intrinsic-alignment design layered on it (omit for plain); `nla` =
 #    the model emits three templates the loss combines as
 #    K0 + A1 K1 + A1^2 K2, so the LSST_A1_1 amplitude never enters the
 #    network; `tatt` = the same closed-form combine over ten templates
 #    and the three amplitudes LSST_A1_1 / LSST_A2_1 / LSST_BTA_1 (needs
-#    dv dumps holding the ten templates); then one NESTED sub-block per
+#    dv dumps holding the ten templates); then one nested sub-block per
 #    component: mlp {width, n_blocks} = the trunk; activation {type,
 #    n_gates}; cnn {kernel_size, rescale_kernel, groups, separable,
 #    film, n_blocks, gate_init} for rescnn (the bins are the conv
@@ -104,18 +112,18 @@
 #  per-cosmology 1/R factor); `residual` = ResidualBaseChi2 (v2: R moves the
 #  baseline only, plain chi2). Both need cosmolike's angle map.
 #
-#- `--activation` (optional): ResBlock activation -- `H` (paper's leaky/Swish
+#- `--activation` (optional): ResBlock activation, `H` (paper's leaky/Swish
 #  gate), `power` (bounded learnable tail exponent), `multigate` (K gates), or
 #  `gated_power` (K gates + tail exponent); K = YAML model.n_gates (default 3).
 #  Set it in the YAML instead as train_args.model.activation; the flag, when
 #  given, overrides the YAML, and with neither the default is `H`.
 #
-#- `--quiet` (optional): suppresses all stdout -- driver prints, load_source's
-#  per-source line, run_emulator's per-epoch log. The --diagnostic PDF still writes.
+#- `--quiet` (optional): suppresses all stdout (driver prints, load_source's
+#  per-source line, run_emulator's per-epoch log). The --diagnostic PDF still writes.
 #
-#- Fixed single-emulator choices -- probe = xi, AdamW, ReduceLROnPlateau,
+#- Fixed single-emulator choices (probe = xi, AdamW, ReduceLROnPlateau,
 #  use_amp = False, reported delta-chi2 thresholds [0.2, 0.5, 1, 10, 100]
-#  (0.2 = goal and model-selection metric), the (name, ia) MODELS registry -- are
+#  with 0.2 = goal and model-selection metric, the (name, ia) MODELS registry) are
 #  EmulatorExperiment defaults (emulator/experiment.py, which also holds the
 #  setup for a sweep to reuse). The model is the YAML's choice
 #  (train_args.model.name).
@@ -237,15 +245,15 @@ def main():
                       action="store_true")
   args, unknown = parser.parse_known_args()
 
-  # Resolve the cocoa layout: $ROOTDIR/<root> holds the data, <fileroot>
-  # (under root) holds this emulator's YAML; run products (the diagnostics
-  # PDF) go to the project chains/ folder. Loads the YAML and rewrites its
-  # data paths to absolute, so the run does not depend on the launch
-  # directory.
+  # resolve_cocoa_config (cocoa.py): resolve the cocoa layout ($ROOTDIR/<root>
+  # holds the data, <fileroot> under root holds this emulator's YAML; run
+  # products such as the diagnostics PDF go to the project chains/ folder),
+  # then load the YAML and rewrite its data paths to absolute, so the run does
+  # not depend on the launch directory.
   cfg, _, chains = resolve_cocoa_config(args)
 
-  # All setup -- config parse + model resolution + device + data staging +
-  # geometry + chi2 + spec assembly -- lives in EmulatorExperiment, so a sweep
+  # All setup (config parse, model resolution, device, data staging,
+  # geometry, chi2, spec assembly) lives in EmulatorExperiment, so a sweep
   # script reuses it rather than copying it. The fixed single-emulator choices
   # are its defaults; the model is the YAML's choice. This driver passes only
   # what it varies (rescale, activation, quiet).
@@ -255,9 +263,9 @@ def main():
                                        quiet=args.quiet)
   # the experiment's quiet-gated logger, reused below
   log = exp.log
-  # print_design (experiment.py): the startup banner -- the resolved
+  # print_design (experiment.py): the startup banner (the resolved
   # model block, run knobs, guards, every train_args sub-block, and the
-  # physical cuts -- so a stale YAML is caught here and not 17 minutes
+  # physical cuts), so a stale YAML is caught here and not 17 minutes
   # later. Shared with the sweep / tune drivers.
   exp.print_design()
   log("loading sources:")
@@ -272,11 +280,13 @@ def main():
       f"frac>0.2 {fracs[best][0].item():.4f}  "
       f"median {medians[best]:.4f}")
 
-  # Persist the trained emulator first, before any diagnostics can fail:
+  # Persist the trained emulator first, before any diagnostics can fail.
+  # cocoa_output (cocoa.py) joins the chains/ folder to the name root; the
+  # run products land there (with the dvs). save_emulator (results.py) then
+  # writes both files:
   # <save>_<tag>.emul = the best-epoch weights (torch state_dict, cpu);
   # <save>_<tag>.h5   = both whitening geometries (from_state-ready),
   # the per-epoch histories, the full config, and the run identity.
-  # Run products go to the project chains/ folder (with the dvs).
   save_root = cocoa_output(chains, f"{args.save}_{run_tag(cfg, exp)}")
   emul_path, h5_path = save_emulator(
     path_root=save_root,
@@ -332,9 +342,9 @@ def main():
         f"{cov['median_good']:.3f} bad {cov['median_bad']:.3f}  "
         f"|  frac>0.2 dense {cov['frac_dense']:.3f} sparse "
         f"{cov['frac_sparse']:.3f}")
-    log("=> " + ("COVERAGE-limited: failures sit in sparse regions"
+    log("=> " + ("coverage-limited: failures sit in sparse regions"
                  if cov["coverage_limited"]
-                 else "NOT clearly coverage: failures not sparser"))
+                 else "not clearly coverage: failures not sparser"))
     # (2) hard-direction regression (works for any chi2fn).
     hd = hard_direction_regression(model=model,
                                    param_geometry=exp.pgeom,
@@ -343,7 +353,7 @@ def main():
                                    device=exp.device)
     log(f"hardness: joint log-linear R2 {hd['r2']:.3f}  |  "
         f"ln(omega_b h2) alone {hd['r2_omega']:.3f}")
-    # (3) local-linear data floor -- plain chi2fn only (rescaled encode/chi2
+    # (3) local-linear data floor, plain chi2fn only (rescaled encode/chi2
     # would need each point's own R).
     floor = None
     if not getattr(exp.chi2fn, "needs_params", False):

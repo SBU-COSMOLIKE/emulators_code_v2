@@ -73,7 +73,7 @@ def save_sweep_table(path, param, values, fracs, meta=None):
 
   The generic twin of save_learning_curves for an arbitrary swept
   knob. Numeric values become the first data column; categorical
-  values (strings, or booleans -- a film on/off sweep) become an
+  values (strings, or booleans, a film on/off sweep) become an
   integer index column with the label map on a "# values:" comment
   line, so the body stays np.loadtxt-loadable either way. Layouts:
 
@@ -205,7 +205,7 @@ def save_emulator(path_root,
   str_dt  = h5py.string_dtype(encoding="utf-8")
 
   def write_state(group, state):
-    # Write one geometry state() dict recursively, so ANY geometry
+    # Write one geometry state() dict recursively, so every geometry
     # saves without per-class code: tensors -> datasets, name lists
     # -> string datasets, nested dicts (a composed geometry, e.g.
     # AmplitudeFactorGeometry's pg_keep) -> subgroups, scalars and
@@ -226,11 +226,13 @@ def save_emulator(path_root,
         group.attrs[k] = str(v)   # torch.dtype and friends
 
   with h5py.File(h5_path, "w") as f:
-    # input whitening, keys exactly param_geometry.state().
+    # input whitening. param_geometry.state() (geometries_parameter.py):
+    # the input-whitening tensors keyed exactly as from_state expects.
     write_state(f.create_group("param_geometry"),
                 param_geometry.state())
 
-    # output geometry, keys exactly geometry.state().
+    # output geometry. geometry.state() (geometries_output.py): the
+    # output-geometry tensors keyed exactly as from_state expects.
     write_state(f.create_group("dv_geometry"), geometry.state())
 
     # per-epoch histories; fracs stack to (nepochs, n_thresholds).

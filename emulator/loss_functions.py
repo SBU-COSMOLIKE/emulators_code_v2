@@ -12,7 +12,9 @@ a geometry and a rescale mode.
 
 PS: the Mahalanobis distance r^T Cinv r is a squared residual r weighted
 by the inverse covariance Cinv (this is the chi2); "masked" means only
-the unmasked data-vector entries the analysis keeps enter the sum.
+the unmasked data-vector entries the analysis keeps enter the sum; a loader
+is a closure load(rows) -> a ready-to-train batch on the device (built in
+batching.py), the source of the batches these losses score.
 """
 
 import numpy as np
@@ -27,14 +29,14 @@ def anneal_value(epoch, opts):
   Holds opts["start"] for the first hold_epochs, ramps toward
   opts["end"] over the next anneal_epochs, then stays at end.
   shape picks the schedule:
-    "const"  -- fixed at start forever (no annealing); the
+    "const" , fixed at start forever (no annealing); the
                 fixed-trim baseline. end / hold_epochs /
                 anneal_epochs are ignored.
-    "linear" -- straight ramp start -> end.
-    "cosine" -- smooth ease, zero slope at both ends, avoiding
+    "linear", straight ramp start -> end.
+    "cosine", smooth ease, zero slope at both ends, avoiding
                 the abrupt loss jumps a discrete schedule causes
                 (those can mislead a reactive ReduceLROnPlateau).
-    "step"   -- the linear ramp floored to a 0.01 grid, the
+    "step"  , the linear ramp floored to a 0.01 grid, the
                 literal 5% -> 4% -> 3% drop.
 
   Arguments:
@@ -81,7 +83,7 @@ class CosmolikeChi2:
 
   Composition, not inheritance: a CosmolikeChi2 holds a
   DataVectorGeometry (self.geom) rather than being one, so one
-  geometry (built once -- one cosmolike read, one
+  geometry (built once, one cosmolike read, one
   eigendecomposition) is shared by several loss variants (plain,
   rescaled, element-weighted) without rebuilding. self.geom owns
   the masked-dv geometry and transforms; this class adds the chi2
@@ -97,7 +99,7 @@ class CosmolikeChi2:
     r  (B, out_dim)              physical residual, kept entries
        │  einsum r^T Cinv_sq r   (full=True: unsqueeze r to the
        │                         full dv, contract the full Cinv
-       │                         -- the slow reference path)
+       │                        , the slow reference path)
        ▼
     c  (B,)                      per-sample chi2
        │  loss() only: drop the worst `trim` fraction (topk) ->
@@ -130,28 +132,53 @@ class CosmolikeChi2:
   # differs, not how it is used.
   @property
   def dest_idx(self):
+    """The geometry's global kept-entry positions (Returns: a long tensor)."""
     return self.geom.dest_idx
 
   @property
   def total_size(self):
+    """The geometry's full 3x2pt dv length (Returns: an int)."""
     return self.geom.total_size
 
   def encode(self, dv):
+    """Forward to geom.encode.
+
+    Arguments:
+      dv = (B, total_size) raw data vectors.
+
+    Returns:
+      (B, out_dim) encoded targets (squeezed, centered, whitened).
+    """
     return self.geom.encode(dv)
 
   def decode(self, whitened_sq):
+    """Forward to geom.decode (inverse of encode).
+
+    Arguments:
+      whitened_sq = (B, out_dim) whitened kept-entry vector.
+
+    Returns:
+      (B, total_size) physical dv scattered to full length.
+    """
     return self.geom.decode(whitened_sq)
 
   def chi2(self, pred, target, full=False):
     """
     Per-sample chi2 = r^T Cinv r, two equal ways (the chi2 sanity
-    test proves they match; pass 0/1 or False/True):
-      full=False (0, default) -- contract the squeezed residual
-        with the masked sub-block Cinv_sq (out_dim x out_dim).
-        Fast: no unsqueeze, small einsum. Needs geom.Cinv_sq.
-      full=True  (1) -- unsqueeze the residual to the full vector
-        and contract with the full Cinv (total_size). The slower
-        reference; masked entries contribute 0.
+    test proves they match; pass 0/1 or False/True).
+
+    Arguments:
+      pred   = network outputs in the whitened space, (B, out_dim).
+      target = whitened targets, same shape.
+      full   = False (0, default): contract the squeezed residual
+               with the masked sub-block Cinv_sq (out_dim x out_dim),
+               fast (no unsqueeze, small einsum, needs geom.Cinv_sq).
+               True (1): unsqueeze the residual to the full vector and
+               contract the full Cinv (total_size), the slower
+               reference (masked entries contribute 0).
+
+    Returns:
+      (B,) per-sample chi2.
     """
     # geo = self.geom (unwhiten / unsqueeze / Cinv live there).
     geo = self.geom
@@ -217,9 +244,16 @@ class CosmolikeChi2:
          ▼
       loss = (w*v).sum() / (w.sum() + eps)
 
+    (legend: B = batch rows, the per-sample chi2 count; c = the
+    per-sample chi2 vector; k = kept-sample count round((1-trim)*B),
+    floored at 1; keep = the 1/0 prefix mask over the sorted c;
+    v = the mode-transformed per-sample loss; w = the detached focal
+    weight; eps = a tiny constant guarding the w.sum() denominator
+    against a fully-trimmed batch; loss = the final weighted mean.)
+
     Why sort + a zero-weight prefix mask instead of topk(c, k):
-    the value is identical -- the kept set is the same k smallest
-    samples, and a weighted mean does not care about order -- but
+    the value is identical, the kept set is the same k smallest
+    samples, and a weighted mean does not care about order, but
     topk's output shape depends on k, and k anneals every epoch.
     Under torch.compile that would recompile (and re-capture CUDA
     graphs) once per epoch; the sorted-mask form keeps every shape
@@ -240,7 +274,7 @@ class CosmolikeChi2:
                     (<= 0 -> plain mean, since h**0 = 1).
       focus_scale = focal turn-on scale, fixed per run; float or
                     0-dim tensor (the training loop passes a
-                    device tensor -- a closure float is
+                    device tensor, a closure float is
                     torch-version-dependent under compile and can
                     surface as a CPU input that breaks CUDA-graph
                     replay).
@@ -251,7 +285,7 @@ class CosmolikeChi2:
     B = c.numel()
     # ascending sort: the kept (smallest-chi2) samples come first,
     # so the keep mask is a prefix. Sorting when trim = 0 changes
-    # nothing -- the weighted mean is permutation-invariant.
+    # nothing, the weighted mean is permutation-invariant.
     c = torch.sort(c).values
     # keep-count k = round((1-trim)*B), floored at 1 so a tiny
     # batch never keeps zero samples. Computed in float64 so a
@@ -281,14 +315,14 @@ class CosmolikeChi2:
     # priority, so the optimizer cannot lower the loss by shrinking
     # a point's weight instead of fitting it. gamma = max(focus, 0):
     # a negative focus (the "off" sentinel) clamps to 0 and h**0 = 1
-    # everywhere, collapsing the weighted mean to the plain mean --
+    # everywhere, collapsing the weighted mean to the plain mean,
     # no fragile "focus == 0" test or special case.
     gamma = torch.clamp(
       torch.as_tensor(focus, dtype=c.dtype, device=c.device),
       min=0.0)
     h = (c / (c + focus_scale)).detach()
     # the trim enters as a weight: dropped samples get w = 0, so
-    # both sums below run over the kept prefix only -- the same
+    # both sums below run over the kept prefix only, the same
     # numerator and normalizer as the old topk form.
     w = keep * h ** gamma
     # normalized weighted mean (stable scale as w anneals).
@@ -300,20 +334,20 @@ class RescaledChi2(CosmolikeChi2):
   CosmolikeChi2 with an analytic per-element rescaling R of the
   target: the network emulates the reshaped dv (dv*R, flatter
   across cosmologies), but the chi2 stays on the original
-  physical dv -- R is divided back out of the residual, leaving
+  physical dv, R is divided back out of the residual, leaving
   the covariance and reported chi2 unchanged. R = 1 recovers the
   base class exactly.
 
   R is never stored: a deterministic function of the cosmological
   params, recomputed on-device from the whitened model-input params
   this class is handed (decoded back to physical via the param
-  geometry). Two consumers, one source -- encode builds the target
+  geometry). Two consumers, one source, encode builds the target
   with R, chi2 undoes R, both calling _R on the same params, so
   they share a bit-identical R and no (N_rows, n_keep) array ever
   exists.
 
   A subclass, so the base (no-reshape) path is untouched and the
-  two are A/B-swappable. Build by wrapping a geometry --
+  two are A/B-swappable. Build by wrapping a geometry,
   RescaledChi2(geom); then call build_shear_angle_map(geom) and
   configure_rescaling to attach the rescale state before training.
   """
@@ -327,7 +361,7 @@ class RescaledChi2(CosmolikeChi2):
   # capability flag: this loss's encode/decode/chi2/loss take the
   # whitened params (to build R). The pipeline branches on
   # getattr(chi2fn, "needs_params", False) instead of isinstance,
-  # so a future param-aware loss only has to set this True -- it
+  # so a future param-aware loss only has to set this True, it
   # need not subclass RescaledChi2.
   needs_params = True
     
@@ -351,7 +385,7 @@ class RescaledChi2(CosmolikeChi2):
                        to _analytic_R (standard run: True).
       u_star         = kernel-peak lens position (~0.5).
     """
-    # build_shear_angle_map(geom) must run first -- _R reads
+    # build_shear_angle_map(geom) must run first, _R reads
     # these off geom. Fail loudly if the order is wrong.
     for a in ("theta_kept", "zsrc_i", "zsrc_j"):
       assert hasattr(self.geom, a), (
@@ -396,6 +430,9 @@ class RescaledChi2(CosmolikeChi2):
         geo.theta_kept, dtype=torch.float32, device=dev)
       self._zeff_t = torch.as_tensor(
         zeff, dtype=torch.float32, device=dev)
+    # _analytic_R (analytics.py): the closed-form Eisenstein-Hu xi
+    # ratio R = xi_analytic(mid) / xi_analytic(cosmo), evaluated per
+    # angular bin and effective redshift.
     return _analytic_R(theta_arcmin=self._theta_t,
                        z_eff=self._zeff_t,
                        cosmo=phys,
@@ -405,24 +442,56 @@ class RescaledChi2(CosmolikeChi2):
                        include_amp=self.include_amp)
 
   def encode(self, dv, params_whitened):
-    # squeeze -> apply the analytic rescaling -> center +
-    # whiten. params_whitened gives R per row and element.
+    """Raw dv -> analytic-rescaled encoded target.
+
+    Squeeze, multiply by the analytic rescaling R, then center and
+    whiten.
+
+    Arguments:
+      dv              = (B, total_size) raw data vectors.
+      params_whitened = (B, n_param) whitened inputs; set R per row
+                        and element.
+
+    Returns:
+      (B, out_dim) encoded (rescaled, centered, whitened) target.
+    """
     geo = self.geom
     R = self._R(params_whitened)
     return geo.whiten(geo.squeeze(dv) * R - geo.center)
 
   def decode(self, y, params_whitened):
-    # network output -> reshaped dv -> physical dv (/ R).
+    """Network output -> physical dv (inverse of encode, divides R).
+
+    Arguments:
+      y               = (B, out_dim) whitened network output.
+      params_whitened = (B, n_param) whitened inputs (set R).
+
+    Returns:
+      (B, out_dim) physical dv: (unwhiten(y) + center) / R.
+    """
     geo = self.geom
     R = self._R(params_whitened)
     return (geo.unwhiten(y).float() + geo.center) / R
 
   def chi2(self, pred, target, params_whitened=None,
                full=False):
-    # residual in reshaped-whitened space, divided by R back to a
-    # physical squeezed residual, then the usual masked Mahalanobis
-    # (the center cancels in pred - target). params_whitened=None
-    # -> use the stash set by loss().
+    """Per-sample chi2 with the residual divided back by R.
+
+    The residual is un-whitened and divided by R to a physical
+    squeezed residual (the center cancels in pred - target), then
+    the usual masked Mahalanobis contraction.
+
+    Arguments:
+      pred            = (B, out_dim) network output, whitened space.
+      target          = (B, out_dim) whitened target.
+      params_whitened = whitened inputs (set R); None -> the stash
+                        set by loss().
+      full            = full-length precision (diagnostics) vs the
+                        kept sub-block; see CosmolikeChi2.chi2.
+
+    Returns:
+      (B,) per-sample chi2.
+    """
     if params_whitened is None:
       params_whitened = self._params
     if params_whitened is None:
@@ -442,9 +511,23 @@ class RescaledChi2(CosmolikeChi2):
 
   def loss(self, pred, target, params_whitened,
            *args, **kwargs):
-    # stash params for the inherited reduction, which calls
-    # self.chi2(pred=pred, target=target) -> picks up self._params.
-    # No copy of the base loss body.
+    """Training loss: stash R's params, then the inherited reduction.
+
+    The inherited CosmolikeChi2.loss calls self.chi2(pred, target),
+    which picks up self._params, so the base loss body is reused, not
+    copied.
+
+    Arguments:
+      pred            = (B, out_dim) network output.
+      target          = (B, out_dim) whitened target.
+      params_whitened = whitened inputs, stashed on self for chi2.
+      *args, **kwargs = mode / trim / focus reduction controls,
+                        forwarded positionally (never keyword pred /
+                        target before the *args forwarder).
+
+    Returns:
+      a scalar loss tensor.
+    """
     self._params = params_whitened
     return super().loss(pred, target, *args, **kwargs)
 
@@ -458,15 +541,15 @@ class ResidualBaseChi2(RescaledChi2):
   Both use the same analytic R. The difference is where R enters
   the network's reconstruction d_pred (u = unwhiten of the net
   output, c = center):
-    A (RescaledChi2):  d_pred = (u + c) / R  -- R divides the
+    A (RescaledChi2):  d_pred = (u + c) / R , R divides the
         net output, so the chi2 gradient carries diag(1/R), a
         per-cosmology conditioning factor.
-    B (this class):    d_pred =  u + c / R   -- R moves only the
+    B (this class):    d_pred =  u + c / R  , R moves only the
         constant baseline c -> c/R; the net output enters at unit
         gain, so the chi2 is plain (no /R, no conditioning
         factor).
   So B puts R in the target, never in the loss: it overrides
-  encode (c -> c/R) and decode but not chi2 -- inheriting the plain
+  encode (c -> c/R) and decode but not chi2, inheriting the plain
   CosmolikeChi2 chi2.
 
   Reuses RescaledChi2's R machinery (_R, configure_rescaling, the
@@ -476,43 +559,74 @@ class ResidualBaseChi2(RescaledChi2):
   """
 
   def encode(self, dv, params_whitened):
-    # target = whiten(squeeze(dv) - center/R): the plain encode with
-    # the constant baseline center swapped for the analytic-moved
-    # center/R. R is baked into the target, so chi2 needs no R.
+    """Raw dv -> target with R moved into the baseline (the "B" form).
+
+    The plain encode with the constant baseline center swapped for
+    the analytic-moved center/R, so R is baked into the target and
+    chi2 needs no R.
+
+    Arguments:
+      dv              = (B, total_size) raw data vectors.
+      params_whitened = (B, n_param) whitened inputs (set R).
+
+    Returns:
+      (B, out_dim) encoded target = whiten(squeeze(dv) - center/R).
+    """
     geo = self.geom
     R = self._R(params_whitened)
     return geo.whiten(geo.squeeze(dv) - geo.center / R)
 
   def decode(self, y, params_whitened):
-    # physical dv = unwhiten(y) + center/R (baseline added back).
-    # The net output enters at unit gain -- no /R.
+    """Network output -> physical dv (baseline center/R added back).
+
+    The net output enters at unit gain (no /R), unlike the A form.
+
+    Arguments:
+      y               = (B, out_dim) whitened network output.
+      params_whitened = (B, n_param) whitened inputs (set R).
+
+    Returns:
+      (B, out_dim) physical dv = unwhiten(y) + center/R.
+    """
     geo = self.geom
     R = self._R(params_whitened)
     return geo.unwhiten(y).float() + geo.center / R
 
   def chi2(self, pred, target, params_whitened=None,
            full=False):
-    # plain chi2: R is already in the target, so do not divide it
-    # out of the residual -- that absent /R is the whole point vs
-    # the A form. params_whitened is accepted (the loader and eval
-    # pass it, since this is a RescaledChi2 subclass) but ignored.
+    """Plain chi2: R is already in the target, so it is not divided out.
+
+    That absent /R (versus the A form's diag(1/R) conditioning) is
+    the whole point of the B form.
+
+    Arguments:
+      pred            = (B, out_dim) network output, whitened space.
+      target          = (B, out_dim) whitened target (holds R).
+      params_whitened = accepted (the loader/eval pass it, since this
+                        subclasses RescaledChi2) but ignored here.
+      full            = full vs kept-sub-block precision; see
+                        CosmolikeChi2.chi2.
+
+    Returns:
+      (B,) per-sample chi2.
+    """
     return CosmolikeChi2.chi2(self, pred=pred, target=target, full=full)
 
 
 class ElementWeightedChi2(CosmolikeChi2):
   """
   CosmolikeChi2 with a per-element focal weight in the training
-  loss (no rescaling -- isolates the per-element weight from the
+  loss (no rescaling, isolates the per-element weight from the
   analytic R, to test one thing at a time).
 
   Each dv element's residual is scaled by a detached factor >= 1
   before the chi2 sums over elements, so the network spends
   accuracy on the elements it currently fits worst in error-bar
-  units -- the tight-covariance, most-constraining block. Mirrors
+  units, the tight-covariance, most-constraining block. Mirrors
   the per-sample focal but over elements:
     hardness e_i = batch-mean marginal chi2 of element i,
     scale_i      = sqrt(1 + beta * (e/(e+kappa))**gamma).
-  Easy elements keep scale 1 (never zeroed -- they sit near
+  Easy elements keep scale 1 (never zeroed, they sit near
   budget too). The inherited chi2 is unchanged, so eval reports
   the true (unweighted) chi2; only the training loss is shaped.
   """
@@ -541,8 +655,14 @@ class ElementWeightedChi2(CosmolikeChi2):
     return self
 
   def _elem_sigma(self):
-    # per-element marginal error bar sqrt(diag(cov)), cached.
-    # cov = U diag(ev) U^T -> diag_i = sum_k (U_ik sqrt(ev_k))^2.
+    """Per-element marginal error bar sqrt(diag(cov)), cached.
+
+    cov = U diag(ev) U^T, so diag_i = sum_k (U_ik sqrt(ev_k))^2;
+    computed once from the geometry's eigenbasis and cached on self.
+
+    Returns:
+      (out_dim,) per-element sigma.
+    """
     if self._sigma_cache is None:
       self._sigma_cache = torch.sqrt(
         ((self.geom.evecs * self.geom.sqrt_ev) ** 2).sum(1))
@@ -570,7 +690,7 @@ class ElementWeightedChi2(CosmolikeChi2):
     """
     # per-element focal (see class doc): scale each element's
     # residual by a detached factor >= 1 from its batch-mean
-    # marginal chi2. No rescaling -- residual = unwhiten(pred-target).
+    # marginal chi2. No rescaling, residual = unwhiten(pred-target).
     r = self.geom.unwhiten(pred - target)       # (B, n_keep)
     z = r / self._elem_sigma()                  # marginal resid
     e = (z * z).mean(0).detach()                # element hardness
@@ -582,7 +702,7 @@ class ElementWeightedChi2(CosmolikeChi2):
     # weighted residual rs; contracts to per-sample chi2 (b,).
     c = torch.einsum("bi,ij,bj->b", rs, self.geom.Cinv_sq, rs)
     # the reduction (trim / mode transform / focal mean) is the
-    # base class's, in its static-shape form -- see _reduce.
+    # base class's, in its static-shape form, see _reduce.
     return self._reduce(c=c, mode=mode, trim=trim, focus=focus,
                         focus_scale=focus_scale)
 
@@ -609,7 +729,7 @@ def make_chi2(geom, rescale="none", param_geometry=None,
               "residual" -> ResidualBaseChi2 (v2, "B" form): R
                             moves only the baseline; the net enters
                             at unit gain and the chi2 is plain
-                            (no /R) -- clean prior isolation.
+                            (no /R), clean prior isolation.
 
   Both variants need the per-element angle/tomography map on the
   geometry (build_shear_angle_map, imported lazily so a plain build

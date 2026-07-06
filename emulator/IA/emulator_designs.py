@@ -1,4 +1,20 @@
-"""Factored intrinsic-alignment template models."""
+"""Factored intrinsic-alignment template emulators.
+
+These are the full networks for the factored intrinsic-alignment (IA)
+designs. Each maps the non-amplitude parameters to a stack of whitened
+templates, and the loss combines those templates with the IA
+amplitudes in closed form, so the amplitudes never enter the network
+(the source of the exact, prior-width-independent generalization in
+them). TemplateMLP is the trunk; TemplateResCNN and TemplateResTRF add
+a conv or transformer correction head on top of it.
+
+PS: whitened = rotated into the covariance eigenbasis and scaled to
+unit variance, so correlated dv entries become decorrelated and
+equally hard to fit; encoded = a dv or parameter vector put through
+the geometry's encode (kept entries, centered, whitened); squeeze =
+keep only the unmasked dv entries (the geometry's squeeze), the
+smaller vector the network actually emulates.
+"""
 
 import torch
 import torch.nn as nn
@@ -8,72 +24,12 @@ from ..emulator_designs_building_blocks import (
   Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size)
 
 
-class NLATemplateMLP(nn.Module):
-  """
-  Factored NLA emulator: maps the 11 non-A1_1 params (cosmo + A1_2)
-  to three whitened templates [GG, GI, II]. The IA amplitude A1_1 is
-  applied in closed form by the loss (xi = GG + A1_1*GI +
-  A1_1^2*II), so it never enters the network -- making the A1_1
-  generalization exact.
-
-  Input layout (NLAInputGeometry.encode): last column is the raw
-  A1_1 (for the loss); the model uses only [:, :-1]. output_dim =
-  n_keep (one template width); emits 3*n_keep, reshapes to
-  (B, 3, n_keep).
-  """
-  def __init__(self, input_dim, output_dim, int_dim_res,
-               n_blocks=4, block_opts=None):
-    """Build the residual trunk and the 3-template output head.
-
-    Arguments:
-      input_dim   = full encoded input width (12 = 11 model
-                    features + the appended A1_1 column).
-      output_dim  = one template's length (n_keep, the unmasked dv
-                    size); 3 are emitted.
-      int_dim_res = internal residual width.
-      n_blocks    = number of residual blocks.
-      block_opts  = ResBlock options dict (None -> {}).
-    """
-    super().__init__()
-    if block_opts is None:
-      block_opts = {}
-    self.n_keep = output_dim
-    # n_in = real input width: drop the 1 appended A1_1 column
-    # (the loss's input, not the net's).
-    self.n_in   = input_dim - 1
-    layers = [nn.Linear(in_features=self.n_in, out_features=int_dim_res)]
-    for _ in range(n_blocks):
-      layers.append(ResBlock(int_dim_res, **block_opts))
-    # one output projection emitting all three templates stacked.
-    layers.append(nn.Linear(in_features=int_dim_res, out_features=3 * output_dim))
-    layers.append(Affine())
-    self.model = nn.Sequential(*layers)
-
-  def forward(self, x):
-    """Map cosmo + A1_2 to the three whitened templates.
-
-    Arguments:
-      x = (B, input_dim) encoded parameters; the last column is
-          A1_1 (ignored), [:, :-1] the whitened cosmo + A1_2
-          features the templates depend on.
-
-    Returns:
-      (B, 3, n_keep): the whitened templates [GG, GI, II].
-    """
-    h = self.model(x[:, :self.n_in])           # (B, 3*n_keep)
-    # view reshapes without copying: the flat (B, 3*n_keep) row
-    # splits into (B, 3, n_keep) -- first n_keep entries GG, next
-    # GI, last II. (view needs contiguous memory, which a Linear
-    # output is, so the reshape is free.)
-    return h.view(x.shape[0], 3, self.n_keep)   # (B, 3, n_keep)
-
-
 class TemplateMLP(nn.Module):
   """
   Factored IA emulator: maps the non-amplitude parameters (cosmo +
   photo-z + the IA evolution powers eta) to n_templates whitened
   templates. The IA amplitudes are applied in closed form by the
-  loss, so they never enter the network -- making the amplitude
+  loss, so they never enter the network, making the amplitude
   generalization exact and prior-width-independent.
 
   Input layout (AmplitudeFactorGeometry.encode): last n_amps columns
@@ -91,7 +47,7 @@ class TemplateMLP(nn.Module):
        │  view: one slice per template (no copy)
        ▼
     t  (B, T, n_keep)            whitened templates, coeff_fn order
-       │  in the LOSS (TemplateFactoredChi2), not in the model:
+       │  in the loss (TemplateFactoredChi2), not in the model:
        │  xi = sum_t coeff_t(A) * t_t, then chi2 vs the truth
        ▼
     chi2
@@ -100,7 +56,7 @@ class TemplateMLP(nn.Module):
   n_amps appended amplitude columns; T = n_templates (3 nla / 10
   tatt); n_keep = kept dv length = output_dim, one template's width;
   coeff_t(A) = the closed-form amplitude polynomial of the raw
-  amplitudes A -- nla_coeffs / tatt_coeffs in IA/loss_functions.py.)
+  amplitudes A, nla_coeffs / tatt_coeffs in IA/loss_functions.py.)
 
   factored = True is a capability flag (like the losses'
   needs_params): EmulatorExperiment reads it to pick the
@@ -158,7 +114,7 @@ class TemplateMLP(nn.Module):
     """
     h = self.model(x[:, :self.n_in])
     # view reshapes the flat (B, n_templates*n_keep) output into
-    # (B, n_templates, n_keep) without copying -- each template's
+    # (B, n_templates, n_keep) without copying, each template's
     # n_keep values one slice along axis 1.
     return h.view(x.shape[0], self.n_templates, self.n_keep)
 
@@ -209,10 +165,10 @@ class TemplateResCNN(nn.Module):
   The head is ResCNN's bins-as-channels design with the templates
   joining the channel axis: each template's theta-order dv splits
   into its (xi+/-, source-pair) bins, and the conv channels are the
-  (template, bin) pairs -- one Conv1d(n_templates*n_bins ->
+  (template, bin) pairs, one Conv1d(n_templates*n_bins ->
   n_templates*n_bins, kernel_size) slides a single kernel along
   theta over everything at once, so the correction is theta-local,
-  cross-BIN, and cross-TEMPLATE in one map. No channel expansion:
+  cross-bin, and cross-template in one map. No channel expansion:
   the head's tensors never grow beyond the (padded) templates'
   size, so the bandwidth wall the old expand-to-C-filters head hit
   cannot occur by construction. Each block is one conv + one
@@ -221,7 +177,7 @@ class TemplateResCNN(nn.Module):
   gate_init. The
   A1 exactness is untouched: it lives in the loss's combine, and
   the head emits amplitude-blind templates (true for every groups
-  choice -- the head acts before the combine).
+  choice, the head acts before the combine).
 
   groups restricts that cross-bin + cross-template mixing along
   the two physical cuts the channel order offers. The channels are
@@ -234,11 +190,11 @@ class TemplateResCNN(nn.Module):
 
       GG xi+ │ GG xi- ┃ GI xi+ │ GI xi- ┃ II xi+ │ II xi-
 
-    groups=1:    no cut -- every output reads every (template,
+    groups=1:    no cut, every output reads every (template,
                  bin) pair (the default: full mixing)
-    groups=T:    cuts at the ┃ -- GG / GI / II corrected in
+    groups=T:    cuts at the ┃, GG / GI / II corrected in
                  isolation, bins still mix within a template
-    groups=2*T:  cuts at ┃ and │ -- templates isolated AND xi+
+    groups=2*T:  cuts at ┃ and │, templates isolated and xi+
                  isolated from xi-; only bins of the same
                  (template, branch) mix
 
@@ -247,20 +203,20 @@ class TemplateResCNN(nn.Module):
   n_ch * (n_ch/groups) * kernel_size + n_ch with n_ch = T*n_bins,
   so the cuts divide the conv weights by `groups`. Physics
   framing: groups=1 encodes the hypothesis that the trunk's GG /
-  GI / II residuals share structure -- they come from the same
-  underlying power-spectrum integrals -- and groups=T / 2*T are
+  GI / II residuals share structure, they come from the same
+  underlying power-spectrum integrals, and groups=T / 2*T are
   its ablations. The xi boundary is validated against geom.pm_kept
   at build: bin_sizes drops fully-masked bins, so a wholly-masked
-  bin on one branch would silently shift the cut -- that fails
+  bin on one branch would silently shift the cut, that fails
   loudly instead.)
 
-  separable factors each block's remaining sum -- smoothing along
-  theta and mixing channels -- into a depthwise per-channel k-tap
+  separable factors each block's remaining sum, smoothing along
+  theta and mixing channels, into a depthwise per-channel k-tap
   theta filter (n_ch*k weights) followed by a pointwise 1x1
   channel mix honoring `groups` (n_ch*(n_ch/groups) weights),
   versus the plain block's joint n_ch*(n_ch/groups)*k. With no
   activation between them the pair composes into one constrained
-  conv, w[o, c, t] = pointwise[o, c] * depthwise[c, t] -- a
+  conv, w[o, c, t] = pointwise[o, c] * depthwise[c, t], a
   low-rank factorization of the same sum, ~k/2 times fewer
   weights; the zero-init identity start moves to the last block's
   pointwise. Full graph and the assumption it adds: see ResCNN's
@@ -281,13 +237,13 @@ class TemplateResCNN(nn.Module):
 
   Input layout is TemplateMLP's (last n_amps columns are the raw
   amplitudes, dropped from the trunk input); output is
-  (B, n_templates, n_keep), what TemplateFactoredChi2 consumes --
+  (B, n_templates, n_keep), what TemplateFactoredChi2 consumes,
   so swapping the architecture (name: resmlp -> rescnn at ia: nla)
   changes only the model.
 
   The head starts as an exact identity (the last block's output
   layer is zero-initialized, and the final activation maps 0 -> 0),
-  so at epoch 1 the model IS its trunk -- no random-weight
+  so at epoch 1 the model IS its trunk, no random-weight
   perturbation. That also enables two-phase training
   (train_args.trunk_epochs > 0, orchestrated by run_emulator via
   set_train_phase): first train the trunk alone with the head
@@ -329,7 +285,7 @@ class TemplateResCNN(nn.Module):
                      bin_sizes; its evecs / sqrt_ev define the
                      basis-change buffers.
       kernel_size  = conv kernel width (odd, same-padded), tuned
-                     as if the head had ONE block. With
+                     as if the head had one block. With
                      rescale_kernel it states the target receptive
                      field; without, it is used verbatim for every
                      block.
@@ -344,7 +300,7 @@ class TemplateResCNN(nn.Module):
       groups       = channel-mixing restriction: 1 (default,
                      dense mixing), n_templates (GG / GI / II
                      never mix), or 2*n_templates (templates
-                     isolated AND xi+ isolated from xi-). See the
+                     isolated and xi+ isolated from xi-). See the
                      groups paragraph and graph in the class
                      docstring; other values error, and the xi
                      boundary is validated against geom.pm_kept
@@ -357,13 +313,13 @@ class TemplateResCNN(nn.Module):
                      paragraph in the class docstring.
       film         = False (default): the head is one fixed map,
                      blind to the cosmology. True: re-inject the
-                     NON-AMPLITUDE parameters into every block as
+                     non-amplitude parameters into every block as
                      a per-(template, bin)-channel affine, conv ->
                      gamma(z)*c + beta(z) -> act, one
                      identity-initialized FiLMGenerator per block
                      (Linear(n_in, 2*n_ch); see its docstring and
                      notes/film-conditioning.md). The conditioning
-                     is x[:, :n_in] -- the amplitudes NEVER enter,
+                     is x[:, :n_in], the amplitudes never enter,
                      so the head stays amplitude-blind and the
                      closed-form amplitude exactness survives. The
                      per-template gate stays as the outer valve.
@@ -371,7 +327,7 @@ class TemplateResCNN(nn.Module):
       n_blocks_cnn = stacked conv+activation correction blocks.
       gate_init    = initial per-template correction scale. Small
                      (default 0.1) to start near the pure trunk;
-                     not 0 -- a 0 gate strands the CNN with no
+                     not 0, a 0 gate strands the CNN with no
                      gradient, so it never learns.
       block_opts   = ResBlock options (None -> {}); its "act" is
                      also handed to the CNN head, so head and trunk
@@ -384,7 +340,7 @@ class TemplateResCNN(nn.Module):
     assert kernel_size % 2 == 1, (
       "kernel_size must be odd so same-padding keeps the length")
     assert hasattr(geom, "bin_sizes"), (
-      "TemplateResCNN needs geom.bin_sizes -- run "
+      "TemplateResCNN needs geom.bin_sizes: run "
       "build_shear_angle_map(geom) first (EmulatorExperiment does "
       "this for models with the needs_bins flag)")
     self.n_keep      = output_dim
@@ -418,15 +374,15 @@ class TemplateResCNN(nn.Module):
       "pad_idx", torch.tensor(pos, dtype=torch.long))
 
     # the head: n_blocks_cnn x (one conv + one activation), with the
-    # (template, bin) pairs as the channels -- a single kernel over
+    # (template, bin) pairs as the channels, a single kernel over
     # everything (see the class docstring). Takes the trunk's
     # activation so head and trunk share one family; act(max_bin)
     # gives per-position parameters, broadcast over the channels.
     cnn_act = block_opts.get("act", activation_fcn)
     # rescale_kernel: kernel_size was tuned for a single block, so
     # shrink the per-block kernel with depth to keep that block's
-    # view -- receptive field n*(k-1)+1 >= kernel_size, see
-    # rescale_kernel_size -- instead of over-growing it.
+    # view, receptive field n*(k-1)+1 >= kernel_size, see
+    # rescale_kernel_size, instead of over-growing it.
     if rescale_kernel:
       kernel_size = rescale_kernel_size(kernel_size=kernel_size,
                                         n_blocks_cnn=n_blocks_cnn)
@@ -445,21 +401,36 @@ class TemplateResCNN(nn.Module):
     assert groups in (1, n_templates, 2 * n_templates), (
       f"TemplateResCNN groups must be 1 (dense), n_templates "
       f"({n_templates}: templates never mix) or 2*n_templates "
-      f"({2 * n_templates}: templates never mix AND xi+ never "
+      f"({2 * n_templates}: templates never mix and xi+ never "
       "mixes with xi-); the channels are template-major, so no "
       "other cut has a physical meaning")
     if groups == 2 * n_templates:
       assert hasattr(geom, "pm_kept") and self.n_bins % 2 == 0, (
         "the branch cut needs geom.pm_kept "
         "(build_shear_angle_map) and an even bin count")
+      # pm_bins[b] = the branch (0 = xi+, 1 = xi-) of bin b, read
+      # from its first kept element geom.pm_kept[start]. This
+      # assumes each bin is pm-homogeneous (its kept angular bins
+      # all share one branch), which holds for the xi geometry; a
+      # mixed-pm bin would be represented by its first element only
+      # and could pass the split check silently.
       pm_bins = []
       start = 0
       for s in sizes:
         pm_bins.append(int(geom.pm_kept[start]))
         start += s
       half = self.n_bins // 2
-      assert (all(pm == 0 for pm in pm_bins[:half])
-              and all(pm == 1 for pm in pm_bins[half:])), (
+      # construction-time check (not hot, so a plain loop, not a
+      # comprehension): the first half of each template's bins must
+      # be xi+ (pm 0) and the second half xi- (pm 1).
+      split_ok = True
+      for pm in pm_bins[:half]:
+        if pm != 0:
+          split_ok = False
+      for pm in pm_bins[half:]:
+        if pm != 1:
+          split_ok = False
+      assert split_ok, (
         "the branch cut needs the first half of each template's "
         "bins to be xi+ and the second half xi- (a fully-masked "
         "bin on one branch breaks the split); per-bin branches "
@@ -473,7 +444,7 @@ class TemplateResCNN(nn.Module):
         # depthwise-separable factorization (see the class
         # docstring): a per-channel k-tap theta filter (groups =
         # n_ch: no mixing), then a pointwise 1x1 channel mix
-        # honoring `groups`. No activation between the two -- the
+        # honoring `groups`. No activation between the two, the
         # pair is a low-rank factorization of the plain block's
         # conv; the block's one activation follows as usual.
         # Sequential keeps forward unchanged (convs[i] is callable
@@ -503,15 +474,15 @@ class TemplateResCNN(nn.Module):
     self.gate = nn.Parameter(
       torch.full((n_templates, 1), float(gate_init)))
 
-    # Zero-init the LAST conv, so the head starts as an exact
+    # Zero-init the last conv, so the head starts as an exact
     # identity on the model output: the activation maps 0 -> 0, so a
-    # zeroed conv gives corr = 0 and out = trunk exactly -- no
+    # zeroed conv gives corr = 0 and out = trunk exactly, no
     # random-weight perturbation at epoch 1 (or at a phase handoff).
     # Gradients still reach the zeroed conv (d corr/d w depends on
-    # its INPUT, not its weights, times the nonzero gate), so it
+    # its input, not its weights, times the nonzero gate), so it
     # grows from 0 as soon as a correction helps; earlier blocks
     # wake up one step later. The standard zero-init-residual-branch
-    # trick. Only the last conv is zeroed -- zeroing all would kill
+    # trick. Only the last conv is zeroed, zeroing all would kill
     # every gradient path. In a separable block the zero lives on
     # the pointwise (second) conv; the depthwise filter keeps its
     # init (zeroing both would zero the pointwise's input and
@@ -522,7 +493,7 @@ class TemplateResCNN(nn.Module):
 
     # FiLM (film=True): one identity-initialized generator per
     # block predicts a per-(template, bin) (gamma, beta) from the
-    # NON-amplitude parameters (n_cond = n_in: the amplitudes never
+    # non-amplitude parameters (n_cond = n_in: the amplitudes never
     # enter, so the head stays amplitude-blind and the closed-form
     # amplitude exactness survives). At init gamma = 1 / beta = 0,
     # so the identity start above is untouched. None (default) =
@@ -536,9 +507,9 @@ class TemplateResCNN(nn.Module):
       self.film_gens = nn.ModuleList(gens)
 
     # training phase, set by set_train_phase: "joint" (default,
-    # everything trains), "trunk" (head frozen AND bypassed -- the
+    # everything trains), "trunk" (head frozen and bypassed, the
     # model runs as a pure TemplateMLP at TemplateMLP cost), "head"
-    # (trunk frozen and run under no_grad -- backward touches the
+    # (trunk frozen and run under no_grad, backward touches the
     # head only). A plain Python attribute: torch.compile guards on
     # it and recompiles once per phase switch.
     self._phase = "joint"
@@ -560,11 +531,11 @@ class TemplateResCNN(nn.Module):
     Freezes/unfreezes the parameter groups and sets the forward
     behavior:
       "joint" = everything trains, head active (the default).
-      "trunk" = head frozen and BYPASSED: forward returns the bare
+      "trunk" = head frozen and bypassed: forward returns the bare
                 templates, so phase-1 epochs cost exactly a
                 TemplateMLP (no head compute, no head gradients).
                 With the zero-init head this changes nothing
-                numerically -- corr was already 0.
+                numerically, corr was already 0.
       "head"  = trunk frozen and run under no_grad: backward
                 touches only the conv head + gates, so phase-2
                 epochs skip the whole trunk backward. The head
@@ -617,14 +588,14 @@ class TemplateResCNN(nn.Module):
       y = self.model(x[:, :self.n_in]).view(
         B, self.n_templates, self.n_keep)    # (B, T, n_keep)
     # "trunk" phase: the head is frozen at its zero-init identity,
-    # so its output is known to be y -- skip the compute entirely.
+    # so its output is known to be y, skip the compute entirely.
     if self._phase == "trunk":
       return y
     # theta order per template (the matmul broadcasts over (B, T)),
     # then scatter into the padded per-bin layout: the (template,
     # bin) pairs become the conv channels. (reminder: W_fd = f -> d,
     # full-whitened -> diagonal theta order; W_df = d -> f, its
-    # inverse -- subscripts read in multiply order.)
+    # inverse, subscripts read in multiply order.)
     h = y @ self.W_fd                         # (B, T, n_keep) theta
     padded = h.new_zeros(B, self.n_templates,
                          self.n_bins * self.max_bin)
@@ -636,8 +607,8 @@ class TemplateResCNN(nn.Module):
       c = self.convs[i](c)                    # cross-bin+template
       if self.film_gens is not None:
         # FiLM re-injection: a per-(template, bin) affine whose
-        # coefficients depend on the NON-amplitude parameters
-        # (identity at init; amplitude-blind by construction --
+        # coefficients depend on the non-amplitude parameters
+        # (identity at init; amplitude-blind by construction,
         # the slice below is the same one the trunk consumes).
         # unsqueeze broadcasts (B, T*n_bins) over the theta axis.
         gamma, beta = self.film_gens[i](x[:, :self.n_in])
@@ -655,19 +626,19 @@ class TemplateResTRF(nn.Module):
   """
   Factored IA emulator with a transformer correction head: the
   TemplateMLP trunk emits n_templates whitened templates, and a
-  transformer whose TOKENS are the (template, bin) pairs corrects
+  transformer whose tokens are the (template, bin) pairs corrects
   them before the loss combines them in closed form. The amplitude
   polynomial is untouched, so the correction inherits the factored
   design's exactness in the amplitudes (that exactness lives in the
   loss's combine; the head only ever sees amplitude-blind
   templates).
 
-  The tokens live at their NATURAL width (max_bin, the padded bin
-  length), with no embedding in and no projection out -- the same
+  The tokens live at their natural width (max_bin, the padded bin
+  length), with no embedding in and no projection out, the same
   no-adapter design as ResTRF, and the same pairs-as-tokens move as
   the conv head's pairs-as-channels (TemplateResCNN). Attention
-  therefore runs across ALL n_templates*n_bins tokens at once:
-  cross-bin AND cross-template in one map; each token's own MLP
+  therefore runs across all n_templates*n_bins tokens at once:
+  cross-bin and cross-template in one map; each token's own MLP
   stack (BinLinear; the deviation from the textbook shared FFN,
   which also replaces the positional encoding) specializes its
   correction. Bins differ in length, so each is padded to max_bin
@@ -687,7 +658,7 @@ class TemplateResTRF(nn.Module):
        ▼
     t0 (B, T*n_bins, max_bin)    one token per (template, bin) pair
        │  n_blocks_trf x TRFBlock
-       │                         cross-bin AND cross-template
+       │                         cross-bin and cross-template
        │                         attention + per-token MLPs
        ▼
     t  (B, T*n_bins, max_bin)
@@ -705,7 +676,7 @@ class TemplateResTRF(nn.Module):
 
   The correction is corr = blocks(h) - h: every TRFBlock is exactly
   the identity at init (zero-initialized branch outputs, see
-  TRFBlock), so corr = 0 and the model equals its trunk at epoch 1 --
+  TRFBlock), so corr = 0 and the model equals its trunk at epoch 1,
   enabling the two-phase schedule (train_args.trunk_epochs,
   orchestrated by run_emulator via set_train_phase): first the
   trunk alone with the head bypassed (pure-TemplateMLP cost), then
@@ -752,11 +723,11 @@ class TemplateResTRF(nn.Module):
       n_mlp_blocks = depth of each token's private MLP stack inside
                      every TRFBlock.
       gate_init    = initial per-template correction scale (small,
-                     not 0 -- a 0 gate strands the head with no
+                     not 0, a 0 gate strands the head with no
                      gradient).
       shared_mlp   = False (default): per-token unique MLPs. True:
                      one MLP shared by every (template, bin) token
-                     -- the textbook block, the ablation isolating
+                     the textbook block, the ablation isolating
                      the unique-MLP deviation (see TRFBlock's
                      permutation-equivariance caveat).
       film         = False (default): the head is one fixed map,
@@ -765,7 +736,7 @@ class TemplateResTRF(nn.Module):
                      per-(template, bin)-token affine gamma(z)*t +
                      beta(z) from an identity-initialized
                      FiLMGenerator (one per block), conditioned on
-                     x[:, :n_in] only -- the amplitudes never
+                     x[:, :n_in] only, the amplitudes never
                      enter, so the head stays amplitude-blind and
                      the closed-form amplitude exactness survives.
                      Identity init keeps corr = 0 at epoch 1. See
@@ -778,7 +749,7 @@ class TemplateResTRF(nn.Module):
     if block_opts is None:
       block_opts = {}
     assert hasattr(geom, "bin_sizes"), (
-      "TemplateResTRF needs geom.bin_sizes -- run "
+      "TemplateResTRF needs geom.bin_sizes: run "
       "build_shear_angle_map(geom) first (EmulatorExperiment does "
       "this for models with the needs_bins flag)")
     self.n_keep      = output_dim
@@ -814,7 +785,7 @@ class TemplateResTRF(nn.Module):
       "pad_idx", torch.tensor(pos, dtype=torch.long))
 
     # the head: n_blocks_trf transformer blocks straight on the
-    # (template, bin) tokens at their natural width max_bin -- no
+    # (template, bin) tokens at their natural width max_bin, no
     # embedding, no output projection (the same pairs-as-tokens move
     # as the conv head's pairs-as-channels). Every block is the
     # identity at init, so blocks(h) - h = 0 exactly. The trunk's
@@ -831,7 +802,7 @@ class TemplateResTRF(nn.Module):
 
     # FiLM (film=True): one identity-initialized generator per TRF
     # block predicts a per-(template, bin)-token (gamma, beta) from
-    # the NON-amplitude parameters (n_cond = n_in: the amplitudes
+    # the non-amplitude parameters (n_cond = n_in: the amplitudes
     # never enter, so the head stays amplitude-blind and the
     # closed-form amplitude exactness survives). At init gamma = 1
     # / beta = 0, so blocks(t0) == t0 and corr = 0 still hold
@@ -861,7 +832,7 @@ class TemplateResTRF(nn.Module):
       "W_df", (sigma[:, None] * evecs) / sqrt_ev[None, :])
 
     # training phase, set by set_train_phase (see TemplateResCNN):
-    # "joint" (default), "trunk" (head frozen AND bypassed), "head"
+    # "joint" (default), "trunk" (head frozen and bypassed), "head"
     # (trunk frozen and run under no_grad).
     self._phase = "joint"
 
@@ -869,7 +840,7 @@ class TemplateResTRF(nn.Module):
     """Switch the two-phase training mode (run_emulator calls this).
 
     Identical contract to TemplateResCNN.set_train_phase: "joint"
-    trains everything; "trunk" freezes AND bypasses the head (pure
+    trains everything; "trunk" freezes and bypasses the head (pure
     TemplateMLP cost; numerically a no-op thanks to the zero-init
     identity); "head" freezes the trunk and runs it under no_grad,
     so backward touches only the TRF head + gates.
@@ -918,20 +889,20 @@ class TemplateResTRF(nn.Module):
       y = self.model(x[:, :self.n_in]).view(
         B, self.n_templates, self.n_keep)    # (B, T, n_keep)
     # "trunk" phase: the head is frozen at its zero-init identity,
-    # so its output is known to be y -- skip the compute entirely.
+    # so its output is known to be y, skip the compute entirely.
     if self._phase == "trunk":
       return y
 
     # theta order per template (the matmul broadcasts over (B, T)),
     # then scatter into the padded per-bin layout. (reminder: W_fd =
     # f -> d, full-whitened -> diagonal theta order; W_df = d -> f,
-    # its inverse -- subscripts read in multiply order.)
+    # its inverse, subscripts read in multiply order.)
     h = y @ self.W_fd                        # (B, T, n_keep)
     padded = h.new_zeros(B, self.n_templates,
                          self.n_bins * self.max_bin)
     padded[..., self.pad_idx] = h
-    # (B, T, G*max_bin) -> (B, T*G, max_bin): one token per
-    # (template, bin) pair at its natural width, template-major --
+    # (B, T, n_bins*max_bin) -> (B, T*n_bins, max_bin): one token per
+    # (template, bin) pair at its natural width, template-major,
     # the same order as the conv head's channels. view is free
     # (padded is contiguous).
     t0 = padded.view(B, self.n_templates * self.n_bins,
@@ -942,7 +913,7 @@ class TemplateResTRF(nn.Module):
       t = self.trf[i](t)            # cross-bin + cross-template
       if self.film_gens is not None:
         # FiLM re-injection: a per-(template, bin)-token affine
-        # whose coefficients depend on the NON-amplitude
+        # whose coefficients depend on the non-amplitude
         # parameters (identity at init; amplitude-blind by
         # construction). unsqueeze broadcasts (B, T*n_bins) over
         # the token width.
@@ -950,7 +921,7 @@ class TemplateResTRF(nn.Module):
         t = gamma.unsqueeze(-1) * t + beta.unsqueeze(-1)
     # the correction is what the blocks added (t - t0 = 0 at init:
     # every block starts as the identity). Unpack the tokens back to
-    # (B, T, G*max_bin), gather the real entries out of the padding,
+    # (B, T, n_bins*max_bin), gather the real entries out of the padding,
     # return to the full-whitened basis (reminder: @ W_df goes
     # d -> f), add through the per-template gate.
     corr = (t - t0).view(B, self.n_templates,

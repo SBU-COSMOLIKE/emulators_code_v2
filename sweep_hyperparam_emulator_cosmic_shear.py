@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
-"""Sweep ONE YAML-chosen hyperparameter at fixed N_train."""
+"""Sweep one YAML-chosen hyperparameter at fixed N_train.
+
+PS: a loader is a closure load(rows) -> a ready-to-train batch on the
+device, hiding where the data lives; dump = the full on-disk array from the
+data-generation run (the dv dump is the .npy, the param dump the .txt);
+memmap = a NumPy array backed by that file, read in slices so it is never
+loaded whole.
+"""
 
 #-------------------------------------------------------------------------------
 # Example how to run this program
 #-------------------------------------------------------------------------------
-# Sweeps a single hyperparameter -- chosen in the YAML, one value per training
-# run at a fixed N_train -- and records validation f(delta-chi2 > threshold)
-# per value, with the same table + figure outputs as the N_train sweep.
-# sweep_ntrain_emulator_cosmic_shear.py stays the driver for the N_train axis
-# (its points have unequal cost and its staging differs per point); this one
-# covers every other knob: batch size, learning rate, kernel size, film
+# This driver sweeps a single hyperparameter (chosen in the YAML, one value per
+# training run at a fixed N_train) and records validation f(delta-chi2 >
+# threshold) per value, with the same table + figure outputs as the N_train
+# sweep. sweep_ntrain_emulator_cosmic_shear.py stays the driver for the N_train
+# axis (its points have unequal cost and its staging differs per point); this
+# one covers every other knob: batch size, learning rate, kernel size, film
 # on/off, the activation family, ...
 #
-#     python external_modules/code/emulators/emultrf/dev/sweep_hyperparam_emulator_cosmic_shear.py \
-#       --root projects/lsst_y1/ \
-#       --fileroot emulators/training_scripts/ \
-#       --yaml train_single_emulator_cosmic_shear.yaml \
-#       --out lrsweep_rescnn
+# python .../emultrf/dev/sweep_hyperparam_emulator_cosmic_shear.py \
+#   --root projects/lsst_y1/ \
+#   --fileroot emulators/training_scripts/ \
+#   --yaml train_single_emulator_cosmic_shear.yaml \
+#   --out lrsweep_rescnn
 #
 #- The swept knob lives in a `sweep` block of the same training YAML (one YAML
-#  serves every driver). `parameter` is the dotted path of ONE train_args leaf;
-#  `values` the list to try:
+#  serves every driver). `parameter` is the dotted path of exactly one
+#  train_args leaf; `values` the list to try:
 #
 #      sweep:
 #        parameter: lr.lr_base
@@ -32,31 +39,31 @@
 #  Any train_args leaf works by its dotted path: top-level knobs (bs, clip,
 #  trunk_epochs), sub-block knobs (scheduler.patience, trim.start,
 #  model.cnn.kernel_size, model.cnn.film, model.mlp.width), and per-phase
-#  overrides (head.lr_base -- the block is created if the YAML omits it; the
+#  overrides (head.lr_base, whose block is created if the YAML omits it; the
 #  usual trunk_epochs > 0 guard still applies). Values may be numbers, strings,
 #  or booleans (film: [false, true]).
 #
 #  Two special cases:
-#  - model.activation (or model.activation.type) sweeps the activation FAMILY:
+#  - model.activation (or model.activation.type) sweeps the activation family:
 #    the driver sets the experiment's resolved activation per value (the
 #    --activation flag must then be left unset); values are the family names
 #    (H, power, multigate, gated_power). model.activation.n_gates sweeps as an
 #    ordinary leaf.
-#  - model.name / model.ia are refused: they change the model CLASS, so
+#  - model.name / model.ia are refused: they change the model class, so
 #    comparing architectures is one sweep per architecture (or the bake-off
 #    driver), not one sweep across them.
 #
-#- Per value: a fresh model is trained on the SAME staged data and geometry
-#  (staged once per worker -- the data does not vary across values, unlike the
-#  N_train sweep) and scored as f(delta-chi2 > --threshold) on the fixed val
-#  set.
+#- Per value: a fresh model is trained on the same staged data and geometry
+#  (staged once per worker, since the data does not vary across values, unlike
+#  the N_train sweep) and scored as f(delta-chi2 > --threshold) on the fixed
+#  val set.
 #
 #- Multiple GPUs (one node): values are near-equal-cost jobs, so they split
 #  round-robin, one process per GPU (spawn; each worker stages its own copy
 #  and streams from the shared dump memmap). One GPU (or the Apple-MPS dev
 #  machine) falls back to a serial loop. `--gpu-pack` (off by default)
 #  additionally co-locates up to 4 trainings per GPU when each is estimated
-#  at <= 20% of the card (<= 40% -> 2) -- worth it on an H200, not on an
+#  at <= 20% of the card (<= 40% -> 2), worth it on an H200, not on an
 #  RTX 3060; see sweep_ntrain's header for the full rationale and caveats.
 #
 #- `--root` / `--fileroot` / `--yaml`: the cocoa layout, as in the training
@@ -72,7 +79,7 @@
 #  label map line) and <out>.pdf (plot_sweep_curve), under --fileroot.
 #- `--quiet`: suppress stdout (txt and pdf still written).
 #
-#- Trains one full model per value -- run it on the workstation, where
+#- Trains one full model per value, so run it on the workstation, where
 #  cosmolike lives.
 #-------------------------------------------------------------------------------
 
@@ -108,9 +115,9 @@ SWEEPABLE_TOP_KEYS = ("nepochs", "bs", "loss_mode", "trunk_epochs",
                       "optimizer", "lr", "scheduler", "trim",
                       "focus")
 
-# dotted paths that sweep the activation FAMILY: these are resolved
+# dotted paths that sweep the activation family: these are resolved
 # by from_config into exp.activation (build_specs deliberately does
-# NOT re-read the YAML block, so a train_args copy would be
+# not re-read the YAML block, so a train_args copy would be
 # ignored); the job sets exp.activation per value instead.
 ACTIVATION_PATHS = ("model.activation", "model.activation.type")
 
@@ -123,7 +130,7 @@ def set_by_path(train_args, path, value):
   "lr_base"]), creating intermediate mappings that do not exist yet
   (so `head.lr_base` sweeps even when the YAML has no head: block;
   run_emulator's trunk_epochs guard still applies), and sets the
-  final key. The input is never mutated -- each sweep point gets its
+  final key. The input is never mutated; each sweep point gets its
   own copy.
 
   Arguments:
@@ -175,7 +182,7 @@ def read_sweep_block(cfg):
       "and a non-empty `values` list")
   if param in ("model.name", "model.ia"):
     raise ValueError(
-      f"cannot sweep {param}: it changes the model class -- run "
+      f"cannot sweep {param}: it changes the model class: run "
       "one sweep per architecture (or the activation bake-off "
       "driver) and overlay the saved tables")
   act_mode = param in ACTIVATION_PATHS
@@ -191,7 +198,7 @@ def _hyper_setup(gpu_id, extra):
   """
   Per-worker setup for run_gpu_pool: experiment + data, staged once.
 
-  Unlike the N_train sweep, the data and geometry are FIXED across
+  Unlike the N_train sweep, the data and geometry are fixed across
   the sweep points, so each worker stages train + val and builds the
   geometry a single time; jobs then only train.
 
@@ -221,15 +228,15 @@ def _hyper_job(gpu_id, exp, payload, extra):
 
   Ordinary knobs go through set_by_path into a per-point train_args
   copy; the activation special case sets exp.activation instead (the
-  train_args stay untouched -- build_specs reads the family off the
-  experiment). Total by design: a failed point returns frac = nan.
+  train_args stay untouched, since build_specs reads the family off
+  the experiment). Total by design: a failed point returns frac = nan.
 
   Arguments:
     gpu_id  = CUDA device index (bookkeeping; also used by the
               serial path with gpu_id 0).
     exp     = this lane's staged experiment from _hyper_setup.
     payload = (index, value): the point's position in the value list
-              (results realign by it -- values need not be unique)
+              (results realign by it, so values need not be unique)
               and the value to try.
     extra   = the parent's payload dict (param, act_mode, threshold).
 
@@ -321,6 +328,8 @@ def main():
   # worker spawns (children inherit it).
   os.environ.setdefault("MPLBACKEND", "Agg")
 
+  # resolve_cocoa_config (cocoa.py): load the YAML and make its data paths
+  # absolute under $ROOTDIR/<root>; fileroot receives the sweep outputs.
   cfg, fileroot, _ = resolve_cocoa_config(args)
   param, values, act_mode = read_sweep_block(cfg)
   if act_mode and args.activation is not None:
@@ -341,7 +350,7 @@ def main():
       "CPU")
   log = exp.log
   # print_design (experiment.py): the startup banner; the sweep then
-  # overrides ONE leaf of what it shows, per point.
+  # overrides one leaf of what it shows, per point.
   exp.print_design()
   log(f"sweep: {param}  ->  {values}"
       + ("  (activation family)" if act_mode else ""))
@@ -356,7 +365,7 @@ def main():
   for i, v in enumerate(values):
     payloads.append((i, v))
 
-  # --gpu-pack engages the pool even on a SINGLE CUDA card (its whole
+  # --gpu-pack engages the pool even on a single CUDA card (its whole
   # point there: up to 4 small trainings co-located on one big GPU,
   # e.g. a lone H200 allocation).
   use_pool = (n_workers > 1
@@ -389,7 +398,9 @@ def main():
     worker_cfg = dict(cfg)
     worker_cfg["data"] = dict(cfg["data"])
     worker_cfg["data"]["ram_frac"] = 0.0
-    buckets = even_assign(payloads, n_pool)
+    # even_assign (scheduling.py): split the payloads round-robin into
+    # one bucket per GPU (near-equal counts, since the jobs cost alike).
+    buckets = even_assign(jobs=payloads, n_workers=n_pool)
     for k, b in enumerate(buckets):
       vals = []
       for i, v in b:
@@ -404,12 +415,28 @@ def main():
     if args.gpu_pack:
       dv = np.load(cfg["data"]["train_dv"], mmap_mode="r")
       n_est = dv.shape[0] // int(cfg["data"].get("train_divisor", 1))
+      # get_device_properties(0): the positional 0 is the CUDA device
+      # index (GPU 0; a homogeneous-GPU assumption for the estimate).
       total = torch.cuda.get_device_properties(0).total_memory
+      # estimate_train_vram_fraction / vram_tokens (scheduling.py): turn
+      # the point's row/width estimate into a fraction of a card, then
+      # into capacity tokens the pool packs against.
       frac  = estimate_train_vram_fraction(n_rows=n_est,
                                            dv_width=dv.shape[1],
                                            total_bytes=total)
-      tokens = vram_tokens(frac)
+      tokens = vram_tokens(fraction=frac)
       def job_tokens(payload):
+        """
+        run_gpu_pool token callback: this point's VRAM token count.
+
+        Arguments:
+          payload = the (index, value) sweep point (unused; every
+                    point stages the same N_train, so the token count
+                    is constant).
+
+        Returns:
+          the shared per-point token count (out of GPU_TOKENS).
+        """
         return tokens
       lanes = GPU_TOKENS
       log(f"  gpu-pack on: est. {frac:.2f} of a GPU per point "
@@ -423,6 +450,16 @@ def main():
              "threshold":  args.threshold}
 
     def on_result(r):
+      """
+      run_gpu_pool result callback: log one sweep point as it lands.
+
+      Arguments:
+        r = one result tuple (index, frac, gpu_id, seconds) from a
+            finished _hyper_job.
+
+      Returns:
+        None (prints one line through the quiet-gated logger).
+      """
       idx, f, gpu, secs = r
       log(f"  {param} = {values[idx]!r:>12}  "
           f"f(>{args.threshold:g}) {f:.4f}  (gpu {gpu}, {secs:.0f}s)")
@@ -439,7 +476,9 @@ def main():
       fracs[idx] = f
 
   # table + figure, like the N_train sweep (overlay several <out>.txt
-  # yourself to compare configs).
+  # yourself to compare configs). cocoa_output (cocoa.py) joins the
+  # fileroot to each output name; save_sweep_table (results.py) writes
+  # the value/frac table.
   out_txt = cocoa_output(fileroot, args.out + ".txt")
   out_pdf = cocoa_output(fileroot, args.out + ".pdf")
   save_sweep_table(
@@ -455,6 +494,7 @@ def main():
           "n_gpus": n_workers})
   log(f"saved sweep table -> {out_txt}")
 
+  # plot_sweep_curve (plotting.py): render the value/frac sweep figure.
   from emulator.plotting import plot_sweep_curve
   plot_sweep_curve(param=param,
                    values=values,

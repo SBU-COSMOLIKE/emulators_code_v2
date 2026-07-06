@@ -55,7 +55,7 @@ emulator/                              the library (pure torch, except geometrie
   geometries_output.py                 OUTPUT geometry + chi2 covariance (imports cosmolike)
   analytics.py                         analytic xi rescaling R (optional preprocessing)
   activations.py                       learnable activations (H + variants)
-  emulator_designs_building_blocks.py  Affine, ResBlock, CNNBlock, BinLinear, TRFBlock
+  emulator_designs_building_blocks.py  Affine, ResBlock, BinLinear, TRFBlock, FiLMGenerator
   emulator_designs.py                  ResMLP, ResCNN, ResTRF
   loss_functions.py                    chi2 losses + make_chi2
   batching.py                          memory sizing + regime-aware data loaders
@@ -90,7 +90,7 @@ imports cosmolike, so training runs on the workstation where cosmolike lives.
 The goal is to replace an expensive physics code with a network that maps a
 handful of cosmological parameters to the cosmic-shear data vector, fast enough
 to call inside a cosmological inference and accurate enough that the data
-vector's [**chi2**](#7-appendix-the-chi2-metric-mahalanobis) — its distance from
+vector's [**chi2**](#8-appendix-the-chi2-metric-mahalanobis) — its distance from
 truth measured in the data covariance (a Mahalanobis distance; see the appendix),
 the quantity inference actually cares about — stays small. Two ideas run through the
 whole pipeline. **Whitening**: both the inputs and the outputs are rotated and
@@ -262,8 +262,9 @@ layers a factored intrinsic-alignment design on it (omit for the plain
 emulator; `ia: nla` (1 amplitude, 3 templates) or `ia: tatt` (3 amplitudes,
 10 templates) makes the model emit templates the loss combines in closed
 form, so the IA amplitudes never enter the network — `TemplateMLP` for
-`resmlp`, `TemplateResCNN` for `rescnn`, whose gated conv corrects each
-template before the combine).
+`resmlp`, `TemplateResCNN` for `rescnn` (whose gated conv corrects each
+template before the combine), and `TemplateResTRF` for `restrf` (the
+bin-token transformer correction head)).
 
 **6. Feed the GPU** (`batching.py`). The staged data may or may not fit in GPU
 memory, so the loaders pick a regime — hold the whole encoded set resident on the
@@ -324,7 +325,7 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 | File | Role |
 |---|---|
 | `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical cuts (`omega_b h^2` bound, optional `omegam^2 h^2` window). Memmaps the dv dump (never loads it whole). |
-| `geometries_parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `NLAInputGeometry` / `AmplitudeFactorGeometry`. |
+| `geometries_parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. |
 | `geometries_output.py` | Output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry` (theta order, for a CNN), `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** |
 | `analytics.py` | Closed-form analytic xi (Eisenstein-Hu) to divide out broadband cosmology dependence — the optional rescaling `R`. |
 
@@ -333,8 +334,8 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 | File | Role |
 |---|---|
 | `activations.py` | Learnable activations: the paper's `H` plus Power / Gated / GatedPower variants; `make_activation` maps a name → factory. |
-| `emulator_designs_building_blocks.py` | The small `nn.Module`s models are built from: `Affine`, `ResBlock`, `CNNBlock`. |
-| `emulator_designs.py` | The full networks: `ResMLP` (baseline) and `ResCNN` (ResMLP trunk + a gated 1D-CNN correction in theta order). |
+| `emulator_designs_building_blocks.py` | The small `nn.Module`s models are built from: `Affine`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, plus `rescale_kernel_size`. |
+| `emulator_designs.py` | The full networks: `ResMLP` (baseline), `ResCNN` (ResMLP trunk + a gated 1D-CNN correction in theta order), and `ResTRF` (a bin-token transformer correction head). |
 
 **Loss & training**
 
@@ -453,9 +454,17 @@ ceiling) and `rewind` (reload the best weights + optimizer on every plateau
 lr cut)). Pick the model
 with `train_args.model.name` (the architecture, `resmlp` | `rescnn` | `restrf`) plus the
 optional `train_args.model.ia` key (the factored IA design, `nla` | `tatt`;
-omit for plain). The same YAML drives both
+omit for plain). The `model` block nests each component's knobs in its own
+sub-block: `model.mlp` (the ResMLP trunk — `width`, `n_blocks`),
+`model.activation` (the learnable-activation family, e.g. `H` / `power` /
+`multigate` / `gated_power`), `model.cnn` (the `rescnn` head — see its
+appendix), and `model.trf` (the `restrf` head — `n_heads`, `n_blocks`,
+`n_mlp_blocks`, `shared_mlp`, `film`, `gate_init`); an unknown or misplaced
+sub-block key raises. The same YAML drives both
 `train_single` and `tune_single` — a scalar trains, a `[default, min, max, kind]`
-list is searched. Templates live in `example_yamls/` — one per driver style:
+list is searched. `sweep_ntrain` and `bakeoff_activation` reuse this same
+`train_single` YAML unchanged: their sweep axis is a command-line grid, and
+any search ranges collapse to their defaults. Templates live in `example_yamls/` — one per driver style:
 `train_single_…` (fully documented train_args), `tune_single_…` (search
 ranges), `sweep_hyperparam_…` (the `sweep:` block, with common sweeps ready
 to swap in). Copy one into your `--fileroot` and edit it.
@@ -712,8 +721,7 @@ Input side: raw parameters → whitened network input.
   - `from_covmat` / `from_state` / `state` — build from a covmat file / saved tensors; tensors to save.
   - `whiten` / `unwhiten`, `encode` / `decode` — the transform and its exact inverse.
 - `LogParamGeometry` — `ParamGeometry` that whitens in log space for the multiplicative params (`from_samples`, `_to_t` / `_from_t`).
-- `NLAInputGeometry` — whiten all but the IA amplitude `A1_1`, append it raw (factored NLA).
-- `AmplitudeFactorGeometry` — same, generalized to any number of IA amplitudes (TATT).
+- `AmplitudeFactorGeometry` — whiten every parameter except the IA amplitude(s), append them raw for the loss's closed-form combine (NLA: one amplitude; TATT: three).
 
 ### `emulator/geometries_output.py` <a name="apx-geometries_output"></a>
 
@@ -751,6 +759,8 @@ The small `nn.Module`s the models are assembled from.
 - `ResBlock` — width-preserving residual block (n dense layers, each with a norm + activation factory, pre-activation skip).
 - `BinLinear` — G per-token *unique* linear layers as one batched einsum; the unique weights also replace the positional encoding.
 - `TRFBlock` — one pre-LN transformer block over tokens at their *natural* width (the padded bin length — no embedding/output adapters): shared-weight attention across tokens + a per-token unique MLP stack (the deviation from the textbook shared FFN). Exactly the identity at init (zero-initialized branch outputs), so a stack satisfies `blocks(x) == x`.
+- `FiLMGenerator` — per-channel `gamma` / `beta` produced from the non-amplitude parameters, an identity-init FiLM conditioning of a correction head (amplitude-blind, so the factored exactness holds).
+- `rescale_kernel_size` — pick an odd conv kernel width scaled to the bin length.
 
 ### `emulator/emulator_designs.py` <a name="apx-emulator_designs"></a>
 
@@ -776,7 +786,7 @@ The full networks.
 chi2 losses; each holds a geometry (composition).
 
 - `anneal_value(epoch, opts)` — the per-epoch trim / focus schedule.
-- `CosmolikeChi2` — the plain chi2: `chi2` ([Mahalanobis](#7-appendix-the-chi2-metric-mahalanobis) distance), `loss` (trim / focus / sqrt transform), and thin delegation to the held geometry.
+- `CosmolikeChi2` — the plain chi2: `chi2` ([Mahalanobis](#8-appendix-the-chi2-metric-mahalanobis) distance), `loss` (trim / focus / sqrt transform), and thin delegation to the held geometry.
 - `RescaledChi2` — analytic-R "A" form (R divides the net output); `configure_rescaling`, `_R`, `encode` / `decode` / `chi2` / `loss`.
 - `ResidualBaseChi2` — analytic-R "B" form (R moves only the baseline; the chi2 stays plain).
 - `ElementWeightedChi2` — a per-element focal weight in the training loss (`set_elem_weight`).
@@ -811,6 +821,7 @@ The run layer that ties everything together.
 - `eval_val` / `eval_source_chi2` — score the model on the val set / per-cosmology delta-chi2.
 - `training_loop_batched(...)` — the per-epoch loop (trim / focus annealing, best-epoch tracking).
 - `run_emulator(...)` — top-level: build model + optimizer + scheduler + loaders, train, return the histories.
+- `audit_devices(model, lossfn, device)` — name every tensor that should live on `device` but does not (a placement check for the compiled forward + loss).
 
 ### `emulator/experiment.py` <a name="apx-experiment"></a>
 
@@ -821,6 +832,7 @@ The run layer that ties everything together.
 - `build_geometry` / `build_specs` — the input/output geometry + chi2; the `run_emulator` spec dicts.
 - `train` / `run` — train on the staged data; the full stage→build→train pipeline in one call.
 - `frac_above(threshold, ...)` — the sweep metric (fraction of points with delta-chi2 over a cutoff).
+- `print_design()` — the shared startup banner: the resolved run design (device, model class, spec sub-blocks, physical cuts) printed before anything trains, so a stale YAML is caught at launch.
 
 ### `emulator/scheduling.py` <a name="apx-scheduling"></a>
 
@@ -840,7 +852,7 @@ The run layer that ties everything together.
 
 Figures (colorblind-safe palette, no red/green).
 
-- `plot_history` / `plot_learning_curves` / `plot_diagnostics` — the public figures (training history; learning-curve overlay; the multipage diagnostics PDF).
+- `plot_history` / `plot_learning_curves` / `plot_sweep_curve` / `plot_diagnostics` — the public figures (training history; learning-curve overlay; one-knob hyperparameter-sweep curve; the multipage diagnostics PDF).
 - `plot_xi` / `dv_to_xi` / `source_param_samples` — xi correlation-function curves, the dv→matrix reshape, and the coverage-triangle samples.
 - `_history_panels` / `_coverage_panels` / `_floor_panel` / `_hard_direction_panels` / `_finish` / `_save_pages` — the shared panel and save helpers.
 
@@ -874,8 +886,8 @@ NPCE: a sparse-Legendre polynomial-chaos base plus a neural refiner.
 
 Factored intrinsic alignment: emulate cosmology-only templates, apply the IA-amplitude polynomial in closed form.
 
-- `emulator_designs.py` — `NLATemplateMLP`, `TemplateMLP` (emit the templates).
-- `loss_functions.py` — `NLAAmpFactoredChi2`, `TemplateFactoredChi2`, `tatt_coeffs` (apply the amplitude polynomial in the loss).
+- `emulator_designs.py` — `TemplateMLP`, `TemplateResCNN`, `TemplateResTRF` (emit the templates, plus optional conv / transformer correction heads).
+- `loss_functions.py` — `nla_coeffs`, `tatt_coeffs` (the amplitude polynomials), `NLAAmpFactoredChi2`, `TemplateFactoredChi2` (apply the polynomial in the loss).
 
 ### drivers (beside `emulator/`) <a name="apx-drivers"></a>
 

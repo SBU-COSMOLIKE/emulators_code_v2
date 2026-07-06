@@ -1,8 +1,8 @@
 """Shared nn building blocks (Affine, ResBlock, rescale_kernel_size,
 FiLMGenerator, BinLinear, TRFBlock).
 
-The small nn.Modules the emulator models (emulator_designs.py) are
-assembled from. Where each piece sits:
+This module holds the small nn.Modules that the emulator models
+(emulator_designs.py) are assembled from. Each piece sits as follows:
 
   ResMLP = Linear -> n_blocks x ResBlock -> Linear -> Affine
   ResCNN = ResMLP trunk + conv correction head (bare nn.Conv1d
@@ -22,11 +22,17 @@ flag). BinLinear and TRFBlock are the ResTRF
 head's pieces: per-token unique linears and a transformer block
 whose tokens are the tomographic bins. Grouped / per-bin conv twins
 live in parallel/.
+
+PS: whitened = rotated into the covariance eigenbasis and scaled to unit
+variance (defined in the geometry modules, geometries_parameter /
+geometries_output); these blocks operate on already-whitened tensors.
 """
 
 import torch
 import torch.nn as nn
 
+# activation_fcn (activations.py): the learned gated activation H(x) =
+# gate(x)*x, the default act factory for ResBlock and the conv/TRF heads.
 from .activations import activation_fcn
 
 
@@ -44,6 +50,17 @@ class Affine(nn.Module):
     kept off both (make_optimizer decays only ndim >= 2 weight
     matrices): decaying gain toward 0 would attenuate the signal,
     and decaying a bias has no principled meaning.
+
+    Arguments:
+      (constructor takes no arguments; gain and bias are the only
+       state, both created internally.)
+
+    forward Arguments:
+      x = input tensor of any shape; every element is transformed.
+
+    Returns:
+      x * gain + bias, the same shape as x (gain and bias broadcast
+      from their size-1 shape).
     """
     def __init__(self):
         super(Affine, self).__init__()
@@ -84,6 +101,14 @@ class ResBlock(nn.Module):
     norm = lambda s: Affine()   (Affine accepts no size)
     act  = activation_fcn       (accepts size)
     act  = lambda s: nn.Tanh()  (Tanh accepts no size)
+
+  forward Arguments:
+    x = input tensor of shape (B, size); B = batch rows, size = the
+        block's feature width.
+
+  Returns:
+    a tensor of shape (B, size): the residual output, with the input
+    skip added to the last dense layer before its norm and activation.
   """
   def __init__(self,
                size,
@@ -137,7 +162,7 @@ def rescale_kernel_size(kernel_size, n_blocks_cnn):
 
   Why: write r = (k_n - 1)/2 for the kernel radius (odd kernel,
   same-padded). One conv's output at position p is a weighted sum
-  of the k_n inputs p-r .. p+r -- one layer sees k_n positions.
+  of the k_n inputs p-r .. p+r, so one layer sees k_n positions.
   Stack a second conv: its output at p reads the k_n layer-1
   positions p-r .. p+r, and each of those sees its own k_n-wide
   input window. Consecutive layer-1 positions hold windows shifted
@@ -168,6 +193,13 @@ def rescale_kernel_size(kernel_size, n_blocks_cnn):
          ╱          ╲             per layer
     x[p - n*r] .. x[p + n*r]      input window = 2*n*r + 1
                                                = n*(k_n - 1) + 1
+
+  (legend: p = a position along the theta axis; r = (k_n - 1)/2, the
+  kernel radius per side; k_n = the per-block kernel width; n =
+  n_blocks_cnn, the number of stacked conv blocks; x[.] = an input
+  position, h[.] = a layer-1 output position, y[.] = the final output
+  position; RF = the receptive field, the count of input positions one
+  output sees.)
 
   (Same-padding does not change the count: where the cone hangs
   past the signal's edge it reads padded zeros, not extra data.)
@@ -214,26 +246,26 @@ def rescale_kernel_size(kernel_size, n_blocks_cnn):
 class FiLMGenerator(nn.Module):
   """
   Predicts a per-channel affine modulation (gamma, beta) from a
-  conditioning vector -- the generator half of FiLM (Feature-wise
+  conditioning vector: the generator half of FiLM (Feature-wise
   Linear Modulation; Dumoulin et al. 2018, and the recovered
   design note notes/film-conditioning.md).
 
     z  (B, n_cond)            conditioning vector (here: the
-       │                      NON-amplitude whitened parameters)
+       │                      non-amplitude whitened parameters)
        │  Linear(n_cond, 2*C)
        ▼
     out (B, 2*C)
        │  split at C
        ▼
-    gamma (B, C), beta (B, C)     one scale + one shift PER
-                                  CHANNEL, per sample
+    gamma (B, C), beta (B, C)     one scale and one shift per
+                                  channel, per sample
 
   The caller applies them to a feature map h of shape (B, C, L) as
 
     gamma.unsqueeze(-1) * h + beta.unsqueeze(-1)
 
   broadcasting over the length axis: the modulation depends on the
-  cosmology and the channel, never on the position -- cosmology
+  cosmology and the channel, never on the position, because cosmology
   sets a global property of each channel's piece of the data
   vector, not a per-theta local correction. This is what
   re-injects parameter information into a correction head that
@@ -243,22 +275,29 @@ class FiLMGenerator(nn.Module):
   to amplify or suppress, and by how much.
 
   Identity at init: the weight is zeroed and the bias set to
-  gamma = 1, beta = 0, so FiLM starts as a no-op for every input
-  -- the same identity-start convention as the zero-init conv and
+  gamma = 1, beta = 0, so FiLM starts as a no-op for every input,
+  the same identity-start convention as the zero-init conv and
   the TRFBlock branches (the model still equals its trunk exactly
   at epoch 1 and at a two-phase handoff). Gradients reach the
   zeroed weight through the inputs, so it wakes as soon as a
   cosmology-dependent modulation helps.
 
-  (legend: B = batch rows; n_cond = conditioning width -- the
+  (legend: B = batch rows; n_cond = conditioning width (the
   factored heads pass the non-amplitude parameter slice, keeping
   the head amplitude-blind so the closed-form amplitude exactness
-  survives; C = number of channels to modulate; L = the broadcast
+  survives); C = number of channels to modulate; L = the broadcast
   length axis, max_bin here.)
 
   Arguments:
     n_cond     = conditioning-vector width.
     n_channels = number of channels C to modulate.
+
+  forward Arguments:
+    z = conditioning tensor of shape (B, n_cond); B = batch rows.
+
+  Returns:
+    (gamma, beta), each of shape (B, C): the per-channel scale and
+    shift for the batch (C = n_channels).
   """
   def __init__(self, n_cond, n_channels):
     super().__init__()
@@ -284,22 +323,22 @@ class FiLMGenerator(nn.Module):
 
 class BinLinear(nn.Module):
   """
-  G independent Linear(in_features, out_features) layers -- one per
-  token -- run as a single batched einsum instead of a Python loop
+  G independent Linear(in_features, out_features) layers, one per
+  token, run as a single batched einsum instead of a Python loop
   over G modules. The weights stack into (G, in, out), the biases
   into (G, out); token g's rows only ever meet weight[g].
 
   This is the "unique per token" piece of the ResTRF head: a
   standard transformer applies one shared MLP to every token,
   whereas here each token gets its own weights. The tokens are
-  physically distinct -- a tomographic bin (plain ResTRF) or a
-  (template, bin) pair (the factored version) -- and the unique
+  physically distinct (a tomographic bin in plain ResTRF, or a
+  (template, bin) pair in the factored version), and the unique
   weights also make them distinguishable to the model, doing the
   job a positional encoding does in a standard transformer, so
   ResTRF needs none.
 
   These per-token layers live in the correction head, after
-  attention has shared information across tokens -- the trunk's
+  attention has shared information across tokens; the trunk's
   parameter sharing (the expensive cosmology map, learned once) is
   untouched.
 
@@ -307,8 +346,19 @@ class BinLinear(nn.Module):
     n_tokens     = number of independent tokens G.
     in_features  = input width per token.
     out_features = output width per token.
+
+  forward Arguments:
+    x = input tensor of shape (B, G, in_features); B = batch rows,
+        G = n_tokens.
+
+  Returns:
+    a tensor of shape (B, G, out_features): token g's slice passed
+    through its own weight[g] and bias[g].
   """
-  def __init__(self, n_tokens, in_features, out_features):
+  def __init__(self,
+               n_tokens,
+               in_features,
+               out_features):
     super().__init__()
     # build G ordinary nn.Linear layers just to borrow their init,
     # then stack their weights/biases and discard them. l.weight is
@@ -327,8 +377,8 @@ class BinLinear(nn.Module):
 
   def forward(self, x):
     # x: (B, G, in). einsum("bgi,gio->bgo", x, weight): g appears in
-    # both operands and the output, so it is a batch axis -- token g
-    # uses weight[g] only, all G in one batched matmul; i appears in
+    # both operands and the output, so it is a batch axis (token g
+    # uses weight[g] only, all G in one batched matmul); i appears in
     # both inputs but not the output, so einsum sums over it (the
     # matmul contraction); b and o are kept.
     y = torch.einsum("bgi,gio->bgo", x, self.weight)
@@ -340,14 +390,14 @@ class BinLinear(nn.Module):
 class TRFBlock(nn.Module):
   """
   One transformer block over tokens at their natural width: no
-  embedding in, no projection out -- the tokens are the (padded)
-  physical bin segments themselves, so dim = max_bin, the padded
-  bin length. (A learned embedding is what a transformer needs when
-  its sequence is synthetic -- a flat latent vector split into
-  tokens; here the sequence structure is physical, so the adapter
-  layers and their parameters are simply not needed.)
-  Self-attention across the G tokens, then a per-token MLP branch
-  -- both pre-norm residual branches, as in a standard pre-LN
+  embedding in, no projection out, because the tokens are the
+  (padded) physical bin segments themselves, so dim = max_bin, the
+  padded bin length. (A learned embedding is what a transformer needs
+  when its sequence is synthetic, i.e. a flat latent vector split
+  into tokens; here the sequence structure is physical, so the
+  adapter layers and their parameters are simply not needed.)
+  Self-attention across the G tokens, then a per-token MLP branch,
+  both pre-norm residual branches, as in a standard pre-LN
   transformer:
 
     x  (B, G, dim)             G tokens (bins) of width dim
@@ -380,16 +430,16 @@ class TRFBlock(nn.Module):
     standard transformer applies one shared MLP to every token.
     The unique weights specialize each token's correction and
     stand in for the positional encoding (see BinLinear).
-    shared_mlp=True restores the textbook shared MLP -- the
+    shared_mlp=True restores the textbook shared MLP, the
     ablation baseline isolating that deviation. Caveat: with the
     MLP shared (and the attention maps always shared), nothing in
-    the block tells the tokens apart structurally -- the head
+    the block tells the tokens apart structurally, so the head
     becomes permutation-equivariant over tokens, with no
     positional encoding; token identity then comes only from the
     segments' content.
 
   The attention projections (wq / wk / wv / wo) are shared across
-  tokens, as in any transformer -- shared maps are what let every
+  tokens, as in any transformer: shared maps are what let every
   token attend to every other with one set of weights; the
   per-token specialization lives in the MLPs.
 
@@ -397,7 +447,7 @@ class TRFBlock(nn.Module):
   (wo and the last MLP layer) are zero-initialized, so x passes
   through untouched. A stack of these blocks therefore satisfies
   blocks(x) == x at init, which is what lets the ResTRF head
-  define its correction as blocks(h) - h == 0 -- the zero-init
+  define its correction as blocks(h) - h == 0, the zero-init
   identity start, with no output projection to host it. Gradients
   still reach the zeroed layers (a layer's weight gradient depends
   on its inputs, not on its own weights); the layers behind them
@@ -423,11 +473,24 @@ class TRFBlock(nn.Module):
                    activation_fcn, the paper's H).
     shared_mlp   = False (default): per-token unique MLPs
                    (BinLinear). True: one MLP shared by every
-                   token (plain nn.Linear applied position-wise)
-                   -- the textbook block, see the caveat above.
+                   token (plain nn.Linear applied position-wise),
+                   the textbook block, see the caveat above.
+
+  forward Arguments:
+    x = input tensor of shape (B, G, dim); B = batch rows, G =
+        n_tokens, dim = the per-token width.
+
+  Returns:
+    a tensor of shape (B, G, dim): the block's output, equal to x
+    at init (both residual branches are zero-initialized).
   """
-  def __init__(self, dim, n_tokens, n_heads=2, n_mlp_blocks=2,
-               act=activation_fcn, shared_mlp=False):
+  def __init__(self,
+               dim,
+               n_tokens,
+               n_heads=2,
+               n_mlp_blocks=2,
+               act=activation_fcn,
+               shared_mlp=False):
     super().__init__()
     assert dim % n_heads == 0, (
       f"the token width ({dim} = the padded bin length) must be "
@@ -436,7 +499,7 @@ class TRFBlock(nn.Module):
     self.d_head  = dim // n_heads
 
     # attention branch: pre-norm, shared Q/K/V/output projections.
-    self.ln_att = nn.LayerNorm(dim)
+    self.ln_att = nn.LayerNorm(normalized_shape=dim)
     self.wq = nn.Linear(in_features=dim, out_features=dim)
     self.wk = nn.Linear(in_features=dim, out_features=dim)
     self.wv = nn.Linear(in_features=dim, out_features=dim)
@@ -447,13 +510,15 @@ class TRFBlock(nn.Module):
     # with shared_mlp one nn.Linear serves every token (a Linear on
     # a (B, G, dim) tensor applies position-wise to the last axis,
     # which is exactly the textbook transformer FFN).
-    self.ln_mlp = nn.LayerNorm(dim)
+    self.ln_mlp = nn.LayerNorm(normalized_shape=dim)
     lins, acts = [], []
     for _ in range(n_mlp_blocks):
       if shared_mlp:
         lins.append(nn.Linear(in_features=dim, out_features=dim))
       else:
-        lins.append(BinLinear(n_tokens, dim, dim))
+        lins.append(BinLinear(n_tokens=n_tokens,
+                              in_features=dim,
+                              out_features=dim))
       acts.append(act(dim))
     self.mlp_lins = nn.ModuleList(lins)
     self.mlp_acts = nn.ModuleList(acts)
@@ -467,7 +532,7 @@ class TRFBlock(nn.Module):
     nn.init.zeros_(self.mlp_lins[-1].bias)
 
   def forward(self, x):
-    # x: (B, G, dim) -- G tokens of width dim.
+    # x: (B, G, dim), i.e. G tokens of width dim.
     B, G, _ = x.shape
 
     # --- attention branch (pre-LN residual) ---

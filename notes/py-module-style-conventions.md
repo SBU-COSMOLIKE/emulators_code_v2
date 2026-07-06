@@ -182,3 +182,12 @@ amplitude branch), geometries_parameter.py / geometries_output.py
 experiment.py (exp.run orchestration). Also banked in the
 pytorch-teaching-style SKILL ("Shape-flow diagrams" section, format
 spec + trigger) and the auto-memory (shape-flow-diagrams.md).
+
+**AMENDMENT (2026-07-05, Architect ruling during the whole-package style
+audit, [[audit-package-style-2026-07-05]]):** rules 3/14 (paren-alignment)
+vs rule 4 (90 columns) can conflict on deeply-indented call sites.
+Precedence: 90 columns is the hard gate; paren-alignment one-item-per-line
+is the preferred layout when it fits; when alignment under the opening paren
+would exceed 90, fall back to one-item-per-line at a 2-space hanging indent
+(never multiple items per line), and keep one style per file (experiment.py
+uses the fallback file-wide). The user may override this ruling.
