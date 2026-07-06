@@ -360,6 +360,103 @@ def validate_sizes(data):
   return sizes[0], sizes[1]
 
 
+# the six per-phase override keys a trunk: / head: block may carry (the
+# run_emulator docstring). Five have same-named top-level keys; the base
+# learning rate is the exception, nested top-level as
+# lr: {lr_base, bs_base, warmup_epochs} but a bare lr_base inside a phase
+# block. resolve_phase_args demotes a single-phase model's trunk: block
+# through this list (lr_base landing in lr.lr_base).
+_PHASE_TRUNK_KEYS = ("lr_base", "loss_mode", "trim", "focus", "clip",
+                     "rewind")
+
+
+def resolve_phase_args(train_args, two_phase):
+  """
+  Resolve the two-phase schedule keys against the model's real capability.
+
+  A standalone pure function (no torch), so it is unit-testable in
+  isolation, and it never mutates its input (a hyperparameter sweep reuses
+  one train_args across points). One shared YAML can then carry the
+  two-phase keys (trunk_epochs, the symmetric trunk: / head: blocks) and
+  still drive a single-phase model: for such a model head: and trunk_epochs
+  are dropped and trunk: is merged into the top level (the trunk becomes
+  the global objective, the user's rule), with a notice naming what
+  happened. For a two-phase model it is an exact no-op.
+
+  Arguments:
+    train_args = the resolved train_args mapping (range-free).
+    two_phase  = whether the model supports the trunk-then-head schedule
+                 (hasattr(model_cls, "set_train_phase")); the caller
+                 probes the class, mirroring run_emulator's duck-typed
+                 instance guard.
+
+  Returns:
+    (resolved, notice): resolved = train_args unchanged when two_phase or
+    when no phase keys are present, else a copy with the phase keys
+    demoted; notice = a one-line string naming the demotion (for the
+    quiet-gated banner), or None when nothing changed.
+
+  Raises:
+    ValueError on an unknown key inside a demoted trunk: block (naming the
+    six allowed keys, the usual typo guard).
+  """
+  # a two-phase model, or a plain single-phase YAML: nothing to resolve.
+  has_phase = ("trunk_epochs" in train_args or "trunk" in train_args
+               or "head" in train_args)
+  if two_phase or not has_phase:
+    return train_args, None
+
+  # single-phase model carrying two-phase keys: demote on a shallow copy,
+  # so the caller's dict (a sweep's shared self.train_args) is untouched.
+  had_trunk = "trunk" in train_args
+  had_head  = "head" in train_args
+  had_epochs = "trunk_epochs" in train_args
+  resolved = dict(train_args)
+  trunk = resolved.pop("trunk", None)
+  resolved.pop("head", None)
+  resolved.pop("trunk_epochs", None)
+
+  merged = []
+  if isinstance(trunk, dict):
+    # an unknown trunk: key is a typo; name the six allowed overrides.
+    unknown = set(trunk) - set(_PHASE_TRUNK_KEYS)
+    if unknown:
+      raise ValueError(
+        f"unknown train_args.trunk key(s): {sorted(unknown)}; a trunk "
+        f"block overrides only {list(_PHASE_TRUNK_KEYS)}")
+    # merge each present key into the top level, full replacement (the
+    # same semantics the key has as a phase override: trim / focus replace
+    # whole blocks, never deep-merge). lr_base is the one that nests: it
+    # lands in lr.lr_base, preserving the lr block's bs_base / warmup.
+    for key in _PHASE_TRUNK_KEYS:
+      if key not in trunk:
+        continue
+      if key == "lr_base":
+        lr_blk = dict(resolved.get("lr", {}))   # copy: never touch input
+        lr_blk["lr_base"] = trunk["lr_base"]
+        resolved["lr"] = lr_blk
+      else:
+        resolved[key] = trunk[key]
+      merged.append(key)
+
+  # the notice names only what actually happened: the keys really merged,
+  # and each block only when it was present.
+  parts = []
+  if merged:
+    parts.append(
+      f"trunk: merged into the top level ({', '.join(merged)})")
+  elif had_trunk:
+    parts.append("trunk: ignored (no keys)")
+  dropped = []
+  if had_head:
+    dropped.append("head:")
+  if had_epochs:
+    dropped.append("trunk_epochs")
+  if dropped:
+    parts.append(f"{' and '.join(dropped)} ignored")
+  return resolved, "single-phase model: " + "; ".join(parts)
+
+
 class EmulatorExperiment:
   """
   Configuration + environment for one single-network cosmic-shear (xi)
@@ -445,7 +542,12 @@ class EmulatorExperiment:
                        per-phase overrides (lr_base / loss_mode /
                        trim / focus / clip / rewind) over the shared
                        top-level defaults; need trunk_epochs > 0,
-                       see run_emulator;
+                       see run_emulator. On a single-phase model (no
+                       set_train_phase, e.g. resmlp / nla) train()
+                       demotes these through resolve_phase_args: head:
+                       and trunk_epochs are dropped and trunk: is merged
+                       into the top level (with a quiet-gated notice), so
+                       one shared YAML serves both model families;
                      clip = optional (default 0.0 = off): per-step
                        gradient-norm ceiling, see run_emulator;
                      rewind = optional (default False): reload the
@@ -1110,6 +1212,19 @@ class EmulatorExperiment:
       return, the model at its best frac>0.2 epoch.
     """
     train_args = self.train_args if train_args is None else train_args
+    # resolve_phase_args (above): a shared YAML may carry the two-phase
+    # keys (trunk_epochs / trunk: / head:), but a single-phase model (no
+    # set_train_phase, e.g. resmlp or nla) would die in run_emulator's
+    # capability guard. For such a model demote the phase keys (drop head:
+    # / trunk_epochs, merge trunk: into the top level) here, once, at the
+    # choke point every driver funnels through; a two-phase model is an
+    # exact no-op. It never mutates train_args (a sweep reuses it across
+    # points); the notice is quiet-gated like the config banner.
+    two_phase = hasattr(self.model_cls, "set_train_phase")
+    train_args, phase_notice = resolve_phase_args(train_args=train_args,
+                                                  two_phase=two_phase)
+    if phase_notice is not None:
+      self.log(phase_notice)
     specs = self.build_specs(train_args=train_args)
     # None -> the config/quiet default; a search driver forces silent.
     silent_run = (train_args.get("silent", False) or self.quiet

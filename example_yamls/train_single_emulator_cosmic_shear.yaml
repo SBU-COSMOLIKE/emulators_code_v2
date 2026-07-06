@@ -97,6 +97,10 @@ train_args:
   # optional and falls back to the shared value; trim / focus are
   # full replacement blocks (same keys as the main ones, incl. kappa,
   # with no merging), restarting at the phase's own epoch 1.
+  # On a single-phase model (name: resmlp, or an ia without a factored
+  # head) train() ignores head: and trunk_epochs and merges trunk: into
+  # the top level, printing a one-line notice, so this same YAML also
+  # drives a plain baseline with no edits.
   # trunk:                   # phase 1 (pure-trunk training)
   #   lr_base:   0.0025
   #   loss_mode: sqrt

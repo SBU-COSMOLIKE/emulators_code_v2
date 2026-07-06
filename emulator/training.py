@@ -1223,6 +1223,11 @@ def run_emulator(train_set,
                        ceiling (0 = off);
                      "rewind"    -> the pass's rewind-on-lr-cut
                        switch (true / false).
+                   EmulatorExperiment.train resolves these away for
+                   single-phase models (it merges trunk: into the top
+                   level and drops head: / trunk_epochs); a direct
+                   caller passes clean args and the guards below stay
+                   strict.
 
   Returns:
     model        = trained network, restored to the best frac>0.2
@@ -1373,10 +1378,14 @@ def run_emulator(train_set,
   # hasattr reaches through a torch.compile wrapper, which forwards
   # attribute lookups to the wrapped module.
   if trunk_epochs > 0 and not hasattr(model, "set_train_phase"):
+    # name the real class, not the torch.compile wrapper: a compiled model
+    # is an OptimizedModule forwarding attribute lookups to model._orig_mod,
+    # so type(model).__name__ would unhelpfully report "OptimizedModule".
+    real_cls = type(getattr(model, "_orig_mod", model)).__name__
     raise ValueError(
       "trunk_epochs needs a two-phase model (one defining "
       "set_train_phase, e.g. name: rescnn + ia: nla); this model is "
-      f"{type(model).__name__}")
+      f"{real_cls}")
 
   if device.type == "cuda":
     budget = torch.cuda.mem_get_info()[0]   # NVIDIA only
