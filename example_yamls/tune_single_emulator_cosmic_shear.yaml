@@ -44,8 +44,8 @@ data:
     # omegamh2_hi:    0.18
     # omegamh2ns_lo:  0.10   # omegamh2 * n_s window (needs ns; Planck 0.138)
     # omegamh2ns_hi:  0.17
-  train_divisor: 10
-  val_divisor:   50
+  n_train:       25000   # absolute training rows kept after param_cuts
+  n_val:         5000    # absolute validation rows, same rule
   split_seed:    0
   ram_frac:      0.7
 

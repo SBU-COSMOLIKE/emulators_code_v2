@@ -46,8 +46,8 @@ is never loaded whole.
 #    val_params, bare filenames resolved under --root/chains), the physical
 #    window cuts in a nested param_cuts sub-block (omegabh2_hi required, the
 #    former omegabh2_cut; optional omegabh2_lo, omegam2h2_lo / _hi, omegamh2_lo
-#    / _hi, omegamh2ns_lo / _hi), split settings (train_divisor, val_divisor,
-#    split_seed, ram_frac),
+#    / _hi, omegamh2ns_lo / _hi), absolute sizes (n_train, n_val; rows kept
+#    after param_cuts), split settings (split_seed, ram_frac),
 #    cosmolike dataset (cosmolike_data_dir, cosmolike_dataset; resolved under
 #    $ROOTDIR/external_modules/data, not --root).
 #  - `train_args`: knobs (nepochs, bs, loss_mode, silent) plus sub-blocks model

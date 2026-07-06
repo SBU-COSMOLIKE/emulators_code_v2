@@ -184,7 +184,7 @@ DATA_KEYS = {
   "val_dv", "val_params",
   "cosmolike_data_dir", "cosmolike_dataset",
   "param_cuts",
-  "train_divisor", "val_divisor",
+  "n_train", "n_val",
   "split_seed", "ram_frac",
 }
 
@@ -289,6 +289,77 @@ def validate_param_cuts(data):
   return pc
 
 
+# the train_divisor / val_divisor -> n_train / n_val migration message,
+# printed verbatim by validate_sizes. No automatic value conversion: a
+# divisor kept a fraction of the pre-cut dump, an absolute count guarantees
+# rows after the cuts, so the placeholder numbers below are the user's to
+# set. Follows the paste-ready-YAML rule (a block-context snippet with
+# example values, not a prose key list).
+_SIZES_MIGRATION_MESSAGE = (
+  "train_divisor / val_divisor are gone: run sizes are now the absolute "
+  "row counts data.n_train / data.n_val, enforced after param_cuts, not a "
+  "fraction of the pre-cut dump. The semantics changed (a divisor kept a "
+  "fraction of the whole dump; a count guarantees that many rows survive "
+  "the cuts), so there is no automatic conversion; choose the counts you "
+  "want. Replace the two flat keys under data: with (example values, set "
+  "your own):\n\n"
+  "  n_train: 25000     # absolute training rows kept after param_cuts\n"
+  "  n_val:   5000      # absolute validation rows, same rule")
+
+# placeholder counts named in the missing-key error (the same scale the
+# example YAMLs ship), so the message shows a concrete key: value to add.
+_SIZES_PLACEHOLDER = {"n_train": 25000, "n_val": 5000}
+
+
+def validate_sizes(data):
+  """
+  Validate the absolute run sizes data.n_train / data.n_val.
+
+  A standalone pure function (no torch), so it is unit-testable in
+  isolation. Raises loudly on the migration from the old fractional
+  train_divisor / val_divisor, and on a missing / non-integer /
+  non-positive count; otherwise returns the validated pair. The counts
+  are enforced after param_cuts by load_source's physical-pool check, not
+  here (this only checks the values are well-formed).
+
+  Arguments:
+    data = the parsed "data" block mapping.
+
+  Returns:
+    the validated (n_train, n_val) integer pair (absolute row counts).
+
+  Raises:
+    ValueError on: either legacy divisor key still present (a migration
+    error naming both new keys, with the semantics-changed warning and
+    placeholder example values); a missing n_train / n_val; a
+    non-integer (bool rejected) or < 1 count.
+  """
+  # the old fractional layout -> a migration error. No automatic
+  # conversion: a divisor kept a fraction of the pre-cut dump, a count
+  # guarantees rows after the cuts, so the value is the user's choice.
+  if "train_divisor" in data or "val_divisor" in data:
+    raise ValueError(_SIZES_MIGRATION_MESSAGE)
+  sizes = []
+  for key in ("n_train", "n_val"):
+    if key not in data:
+      raise ValueError(
+        f"data is missing the required '{key}' (absolute rows kept after "
+        f"param_cuts, a positive int); add e.g. "
+        f"{key}: {_SIZES_PLACEHOLDER[key]}")
+    val = data[key]
+    # bool is an int subclass, but True / False is never a row count.
+    if isinstance(val, bool) or not isinstance(val, int):
+      raise ValueError(
+        f"data.{key} must be a positive int (absolute rows kept after "
+        f"param_cuts), got {val!r}")
+    if val < 1:
+      raise ValueError(
+        f"data.{key} must be >= 1 (absolute rows kept after param_cuts), "
+        f"got {val}")
+    sizes.append(val)
+  return sizes[0], sizes[1]
+
+
 class EmulatorExperiment:
   """
   Configuration + environment for one single-network cosmic-shear (xi)
@@ -352,8 +423,10 @@ class EmulatorExperiment:
                        Omit an optional key for no cut on that side; a
                        cut key left flat under data raises a migration
                        error printing the paste-ready block;
-                     train_divisor / val_divisor = keep N // divisor of
-                       train / val rows;
+                     n_train / n_val = absolute training / validation rows
+                       to keep (required positive ints, enforced after
+                       param_cuts: the cut pool must supply them, else
+                       load_source raises);
                      split_seed = seed for the cut+shuffle picking train /
                        val rows;
                      ram_frac = optional (default 0.7): RAM fraction the
@@ -515,6 +588,11 @@ class EmulatorExperiment:
     # cut key (the old layout) gets the migration message, not a bare
     # "unknown key".
     validate_param_cuts(cfg["data"])
+    # validate_sizes (below): n_train / n_val are absolute row counts
+    # enforced after param_cuts; run this before the generic whitelist too,
+    # so a legacy train_divisor / val_divisor gets the migration message,
+    # not a bare "unknown key".
+    validate_sizes(cfg["data"])
     # reject any other unknown "data" key.
     unknown = set(cfg["data"]) - DATA_KEYS
     if unknown:
@@ -625,7 +703,10 @@ class EmulatorExperiment:
            |                      only when present in train_args
            v
         cuts                      the physical omegabh2 / omegam2h2
-                                  windows from the data block
+           |                      windows from the data block
+           v
+        sizes                     n_train / n_val, the absolute row
+                                  counts enforced after the cuts
 
     A sweep or a study varies pieces per point / per trial; this
     banner shows the resolved defaults those variations start from.
@@ -667,6 +748,10 @@ class EmulatorExperiment:
              f"({pc.get('omegamh2_lo')}, {pc.get('omegamh2_hi')})  "
              f"omegamh2ns in "
              f"({pc.get('omegamh2ns_lo')}, {pc.get('omegamh2ns_hi')})")
+    # the absolute run sizes, next to the cuts they are enforced against
+    # (load_source raises if the post-cut pool cannot supply them).
+    self.log(f"sizes: n_train {d.get('n_train')}  "
+             f"n_val {d.get('n_val')} (enforced after param_cuts)")
 
   # --- staging + geometry (the expensive, cached pieces) ---
   def stage_train(self, n_train=None):
@@ -679,7 +764,7 @@ class EmulatorExperiment:
 
     Arguments:
       n_train = absolute number of training rows to keep; None (default)
-                uses the YAML data["train_divisor"] (N // divisor).
+                uses the YAML data["n_train"].
 
     Returns:
       the training source dict.
@@ -689,7 +774,7 @@ class EmulatorExperiment:
     gen = torch.Generator().manual_seed(int(d["split_seed"]))
     # load_source (data_staging.py): memmap the dv .npy, apply the physical
     # cuts (omega_b h^2 < omegabh2_hi; optional omegam^2 h^2 / omegamh2 /
-    # omegamh2*ns windows), keep n_keep (or N // divisor) rows of the seeded
+    # omegamh2*ns windows), keep the first n_keep rows of the seeded
     # shuffle, stage in RAM if they fit (else the memmap), return
     # {C, dv, idx} (+ C_mean / dv_mean with with_means).
     self.train_set = load_source(
@@ -697,6 +782,7 @@ class EmulatorExperiment:
       params_path=d["train_params"],
       names=self.names,
       omegabh2_hi=pc["omegabh2_hi"],
+      n_keep=(n_train if n_train is not None else d["n_train"]),
       omegabh2_lo=pc.get("omegabh2_lo"),
       omegam2h2_lo=pc.get("omegam2h2_lo"),
       omegam2h2_hi=pc.get("omegam2h2_hi"),
@@ -704,8 +790,6 @@ class EmulatorExperiment:
       omegamh2_hi=pc.get("omegamh2_hi"),
       omegamh2ns_lo=pc.get("omegamh2ns_lo"),
       omegamh2ns_hi=pc.get("omegamh2ns_hi"),
-      divisor=(None if n_train is not None else d["train_divisor"]),
-      n_keep=n_train,
       gen=gen,
       ram_frac=d.get("ram_frac", 0.7),
       with_means=True,
@@ -722,7 +806,7 @@ class EmulatorExperiment:
 
     Arguments:
       n_val = absolute number of validation rows to keep; None (default)
-              uses the YAML data["val_divisor"].
+              uses the YAML data["n_val"].
 
     Returns:
       the validation source dict.
@@ -737,6 +821,7 @@ class EmulatorExperiment:
       params_path=d["val_params"],
       names=self.names,
       omegabh2_hi=pc["omegabh2_hi"],
+      n_keep=(n_val if n_val is not None else d["n_val"]),
       omegabh2_lo=pc.get("omegabh2_lo"),
       omegam2h2_lo=pc.get("omegam2h2_lo"),
       omegam2h2_hi=pc.get("omegam2h2_hi"),
@@ -744,8 +829,6 @@ class EmulatorExperiment:
       omegamh2_hi=pc.get("omegamh2_hi"),
       omegamh2ns_lo=pc.get("omegamh2ns_lo"),
       omegamh2ns_hi=pc.get("omegamh2ns_hi"),
-      divisor=(None if n_val is not None else d["val_divisor"]),
-      n_keep=n_val,
       gen=gen,
       ram_frac=d.get("ram_frac", 0.7),
       with_means=False,
@@ -761,6 +844,10 @@ class EmulatorExperiment:
     the physical cuts (the omega_b h^2 bound and the optional
     omegam^2 h^2 window, same cuts as stage_train), counts the survivors.
     Order-independent, so no shuffle or staging.
+
+    This is the ceiling for n_train: a run's n_train must not exceed it
+    (load_source raises otherwise), and an N_train sweep caps its largest
+    point here.
 
     Returns:
       the number of training rows passing the physical cuts (an int).
@@ -1080,7 +1167,7 @@ class EmulatorExperiment:
 
     Arguments:
       n_train    = absolute training-row count (default: the YAML
-                   divisor), the N_train sweep knob.
+                   data["n_train"]), the N_train sweep knob.
       train_args = resolved train_args for this run (default:
                    self.train_args).
 

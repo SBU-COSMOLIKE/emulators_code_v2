@@ -408,13 +408,14 @@ def main():
       log(f"  gpu {k}: {len(b)} points  ->  {vals}")
 
     # --gpu-pack: every point stages the same N_train, so one token
-    # count covers all jobs. The row estimate is the pre-cut
-    # rows // divisor (an upper bound on the staged subset).
+    # count covers all jobs. n_train is the exact staged row count
+    # (post-cut, enforced by load_source), so the estimate is exact;
+    # the memmap stays open only for the dv width dv.shape[1].
     lanes = 1
     job_tokens = None
     if args.gpu_pack:
       dv = np.load(cfg["data"]["train_dv"], mmap_mode="r")
-      n_est = dv.shape[0] // int(cfg["data"].get("train_divisor", 1))
+      n_est = int(cfg["data"]["n_train"])
       # get_device_properties(0): the positional 0 is the CUDA device
       # index (GPU 0; a homogeneous-GPU assumption for the estimate).
       total = torch.cuda.get_device_properties(0).total_memory
@@ -490,7 +491,7 @@ def main():
           "rescale": args.rescale,
           "activation": ("swept" if act_mode else args.activation),
           "threshold": args.threshold,
-          "train_divisor": cfg["data"].get("train_divisor"),
+          "n_train": cfg["data"]["n_train"],
           "n_gpus": n_workers})
   log(f"saved sweep table -> {out_txt}")
 

@@ -139,7 +139,7 @@ and only `N_train` rows are kept. The result is a "source" dict (`C`, `dv`,
                            ▼                 + lo < omegam^2 h^2 < hi (lower bounds
                            │                 + window optional); omegab/omegam/H0
                            │                 columns found by name
-                 keep N_train               idx = phys[:n_keep  or  N // divisor]
+                 keep N_train               idx = phys[:n_train]  (absolute, post-cut)
                            ▼
             stage_source:  subset bytes < ram_frac · available RAM ?
                  ┌─────────┴──────────┐

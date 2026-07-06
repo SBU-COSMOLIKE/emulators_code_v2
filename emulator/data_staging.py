@@ -22,7 +22,7 @@ The staging pipeline, per source (load_source top to bottom):
        │  omegam2h2 / omegamh2 / omegamh2*ns windows
        ▼
     pool = surviving row indices
-       │  keep N // divisor rows (or n_keep), one seeded shuffle
+       │  keep the first n_keep cut rows, one seeded shuffle
        ▼
     idx = this run's rows
        │  stage_source: do the used rows fit ram_frac of free RAM?
@@ -33,7 +33,9 @@ The staging pipeline, per source (load_source top to bottom):
 
     (legend: N = rows in the dump; cols = the .txt columns
      (weight, lnp, params, chi2); total_size = full dv length;
-     divisor / n_keep = the size knobs, exactly one given;
+     n_keep = the absolute number of cut rows to stage (enforced
+     here, after the cuts; load_source raises if the pool is
+     smaller);
      C_mean / dv_mean = training-subset means the geometries
      center on; ram_frac = the fraction of free RAM the staged
      subset may occupy (materialize only if it fits, else keep the
@@ -392,9 +394,9 @@ def read_param_names(covmat_path, comment="#"):
     return f.readline().lstrip(comment).split()
 
 
-def load_source(dv_path, params_path, names, omegabh2_hi, divisor=None,
+def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                 gen=None, ram_frac=0.7, with_means=False,
-                param_cols=slice(2, -1), verbose=True, n_keep=None,
+                param_cols=slice(2, -1), verbose=True,
                 omegabh2_lo=None,
                 omegam2h2_lo=None, omegam2h2_hi=None,
                 omegamh2_lo=None, omegamh2_hi=None,
@@ -406,7 +408,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, divisor=None,
   modeled param columns, applies the physical windows (the
   omega_b h^2 bound plus the optional omegam^2 h^2 / omegamh2 /
   omegamh2*ns windows, see phys_cut_idx), takes the first
-  N // divisor cut rows of a fixed shuffle, stages that subset,
+  n_keep cut rows of a fixed shuffle, stages that subset,
   and, when with_means, computes the centering means. When
   verbose, prints one per-window kept/total line so a mistyped
   window value is visible at once. Wraps phys_cut_idx /
@@ -422,8 +424,13 @@ def load_source(dv_path, params_path, names, omegabh2_hi, divisor=None,
     omegabh2_hi  = upper bound on omega_b h^2 (rows >= it dropped);
                    required, threaded to phys_cut_idx (renamed from
                    the former `cut`).
-    divisor     = keep N // divisor rows (10 -> ~1/10 for train);
-                  pass this or n_keep (exactly one).
+    n_keep      = absolute number of rows to stage (required, an int
+                  >= 1); the first n_keep of the physically-cut,
+                  seeded-shuffled pool. The cut pool must supply them,
+                  else this raises (the post-cut enforcement point). A
+                  row count here (dump rows staged), not the kept
+                  data-vector length also called n_keep in
+                  geometries_output / emulator_designs.
     gen         = torch.Generator seeding the cut+shuffle (required).
     ram_frac    = fraction of available RAM stage_source may fill
                   (default 0.7).
@@ -434,9 +441,6 @@ def load_source(dv_path, params_path, names, omegabh2_hi, divisor=None,
                   the trailing chi2 column).
     verbose     = if True (default), print a one-line summary
                   (shapes, rows, in-RAM).
-    n_keep      = absolute rows to keep (overrides divisor; for a
-                  learning-curve sweep at explicit sizes). Pass
-                  this or divisor.
     omegabh2_lo  = optional lower bound on omega_b h^2 (None = no
                    lower cut; omegabh2_hi stays the upper bound).
     omegam2h2_lo = optional lower bound on omegam^2 h^2 (the
@@ -455,13 +459,10 @@ def load_source(dv_path, params_path, names, omegabh2_hi, divisor=None,
     a source dict {"C", "dv", "idx"} (plus "C_mean" / "dv_mean"
     when with_means), ready for build_loaders / run_emulator.
   """
-  # require a generator and exactly one sizing rule.
+  # require a generator (n_keep is a required positional arg, so a
+  # missing size is a plain TypeError at the call site).
   if gen is None:
     raise ValueError("load_source needs a torch.Generator (gen=)")
-  if (divisor is None) == (n_keep is None):
-    raise ValueError(
-      "pass exactly one of divisor (keep N // divisor rows) or "
-      "n_keep (an absolute row count)")
   dv = np.load(dv_path, mmap_mode="r", allow_pickle=False)
   # keep only the modeled parameter columns (see param_cols).
   C  = np.loadtxt(params_path, dtype="float32")[:, param_cols]
@@ -489,11 +490,14 @@ def load_source(dv_path, params_path, names, omegabh2_hi, divisor=None,
     for name, tag, lo, hi, kept, total in cut_report:
       print(f"  cut {name} = {tag} in ({lo}, {hi}): "
             f"kept {kept}/{total}")
-  # rows to keep: an absolute n_keep, or N // divisor.
-  keep  = int(n_keep) if n_keep is not None else int(n // divisor)
+  # rows to keep: the absolute n_keep, enforced against the cut pool.
+  keep  = int(n_keep)
   if len(phys) < keep:
     raise ValueError(
-      f"physical pool too small: {len(phys)} < {keep}")
+      f"physical pool too small after param_cuts: kept {len(phys)} of "
+      f"{n} rows, requested n_keep = {keep} "
+      f"({os.path.basename(dv_path)}); loosen the windows or enlarge "
+      f"the dump")
   idx = phys[:keep]
 
   # stage the cut rows in RAM if they fit, else keep the memmap.
@@ -510,7 +514,10 @@ def load_source(dv_path, params_path, names, omegabh2_hi, divisor=None,
 
   if verbose:
     in_ram = not isinstance(dv_src, np.memmap)
+    # "used K of P cut rows": the staged count out of the post-cut pool,
+    # so the absolute-count enforcement is visible on every run, not only
+    # when the pool is too small.
     print(f"  {os.path.basename(dv_path)}: C {tuple(C_src.shape)} "
-          f"dv {tuple(dv_src.shape)} used {idx_src.shape[0]} rows "
+          f"dv {tuple(dv_src.shape)} used {keep} of {len(phys)} cut rows "
           f"| in RAM: {in_ram}")
   return src

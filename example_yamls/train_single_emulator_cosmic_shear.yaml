@@ -31,8 +31,9 @@ data:
     # omegamh2_hi:    0.18   #   (Planck 0.143); omit both keys for no cut
     # omegamh2ns_lo:  0.10   # optional window on omegamh2 * n_s (needs the ns
     # omegamh2ns_hi:  0.17   #   column; Planck 0.138); omit both for no cut
-  train_divisor: 10      # N_train = N // train_divisor
-  val_divisor:   50      # N_val   = N // val_divisor
+  n_train:       25000   # absolute training rows kept after param_cuts
+                         # (raises if the cut pool is smaller; your scale)
+  n_val:         5000    # absolute validation rows, same rule
   split_seed:    0
   ram_frac:      0.7     # RAM fraction stage_source may fill
 
