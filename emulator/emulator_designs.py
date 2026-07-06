@@ -46,7 +46,60 @@ from .emulator_designs_building_blocks import (
   Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size)
 
 
-class ResMLP(nn.Module):
+class DesignSpec:
+  """
+  Shared spec machinery for the emulator design classes.
+
+  Every design class declares a head_block class attribute (None for a
+  trunk-only model, "cnn" / "trf" for the two correction-head families);
+  __init_subclass__ enforces it at class-definition time, so a new
+  architecture that forgets it fails loudly at import, not silently in a
+  banner. head_block is the single source of head-knowledge: build_specs
+  (experiment.py) reads it to skip the inactive head's YAML block, and
+  describe_spec renders the banner's model-spec line. The models mix this in
+  beside nn.Module (a plain base, no __init__, so nn.Module's method
+  resolution is unchanged).
+  """
+
+  def __init_subclass__(cls, **kwargs):
+    # runs when a design class is defined; a missing head_block is a
+    # class-definition-time error, not a silent trunk-only default.
+    super().__init_subclass__(**kwargs)
+    if "head_block" not in cls.__dict__:
+      raise TypeError(
+        f"{cls.__name__} must declare a head_block class attribute "
+        f"(None | 'cnn' | 'trf'): it is the single source of "
+        f"head-knowledge (build_specs / describe_spec)")
+
+  @classmethod
+  def describe_spec(cls, model_block):
+    """
+    Render the model-spec banner line: only the keys this class consumes.
+
+    A shared YAML carries cnn: and trf: for every architecture (so one file
+    switches models by name: alone), but the banner shows the truth about
+    this run, so the inactive head block is dropped. Renders, in order,
+    name / ia / mlp / activation / this class's own head block (head_block)
+    / compile_mode, each only when present in model_block.
+
+    Arguments:
+      model_block = the raw train_args["model"] mapping.
+
+    Returns:
+      a str: the dict of the consumed keys, in display order.
+    """
+    order = ["name", "ia", "mlp", "activation"]
+    if cls.head_block is not None:
+      order.append(cls.head_block)
+    order.append("compile_mode")
+    shown = {}
+    for key in order:
+      if key in model_block:
+        shown[key] = model_block[key]
+    return str(shown)
+
+
+class ResMLP(DesignSpec, nn.Module):
   """
   The baseline emulator: input projection, a stack of identical
   residual blocks, output projection, final learnable affine.
@@ -77,6 +130,8 @@ class ResMLP(nn.Module):
   leak between them. All blocks share one configuration, capping
   the hyperparameter count.
   """
+  head_block = None                # trunk only, no correction head
+
   def __init__(self,
                input_dim,
                output_dim,
@@ -112,7 +167,7 @@ class ResMLP(nn.Module):
     return self.model(x)
 
 
-class ResCNN(nn.Module):
+class ResCNN(DesignSpec, nn.Module):
   """
   ResMLP trunk + a bins-as-channels 1D-CNN correction appendix. The
   trunk is identical to the standalone ResMLP and predicts in the
@@ -300,6 +355,7 @@ class ResCNN(nn.Module):
   """
   needs_geom = True
   needs_bins = True
+  head_block = "cnn"               # the bins-as-channels conv head
 
   def __init__(self, input_dim, output_dim, int_dim_res, geom,
                kernel_size=11, rescale_kernel=False, groups=1,
@@ -501,7 +557,7 @@ class ResCNN(nn.Module):
     return y + self.gate * (corr @ self.W_df)
 
 
-class ResTRF(nn.Module):
+class ResTRF(DesignSpec, nn.Module):
   """
   ResMLP trunk + a bin-token transformer correction appendix. The
   trunk is the standalone ResMLP, predicting in the full
@@ -607,6 +663,7 @@ class ResTRF(nn.Module):
   """
   needs_geom = True
   needs_bins = True
+  head_block = "trf"               # the bin-token transformer head
 
   def __init__(self, input_dim, output_dim, int_dim_res, geom,
                n_heads=2, n_blocks=4, n_blocks_trf=1,

@@ -20,11 +20,12 @@ import torch
 import torch.nn as nn
 
 from ..activations import activation_fcn
+from ..emulator_designs import DesignSpec
 from ..emulator_designs_building_blocks import (
   Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size)
 
 
-class TemplateMLP(nn.Module):
+class TemplateMLP(DesignSpec, nn.Module):
   """
   Factored IA emulator: maps the non-amplitude parameters (cosmo +
   photo-z + the IA evolution powers eta) to n_templates whitened
@@ -64,7 +65,8 @@ class TemplateMLP(nn.Module):
   loss, so a new factored model opts in by setting the flag rather
   than by being added to an isinstance check.
   """
-  factored = True
+  factored   = True
+  head_block = None                # trunk only, no correction head
 
   def __init__(self, input_dim, output_dim, n_amps,
                n_templates, int_dim_res, n_blocks=4,
@@ -119,7 +121,7 @@ class TemplateMLP(nn.Module):
     return h.view(x.shape[0], self.n_templates, self.n_keep)
 
 
-class TemplateResCNN(nn.Module):
+class TemplateResCNN(DesignSpec, nn.Module):
   """
   Factored IA emulator with a bins-as-channels 1D-CNN correction
   head: the TemplateMLP trunk emits n_templates whitened templates,
@@ -263,6 +265,7 @@ class TemplateResCNN(nn.Module):
   factored   = True
   needs_geom = True
   needs_bins = True
+  head_block = "cnn"               # the bins-as-channels conv head
 
   def __init__(self, input_dim, output_dim, n_amps,
                n_templates, int_dim_res, geom, kernel_size=11,
@@ -622,7 +625,7 @@ class TemplateResCNN(nn.Module):
     return y + self.gate * (corr @ self.W_df)
 
 
-class TemplateResTRF(nn.Module):
+class TemplateResTRF(DesignSpec, nn.Module):
   """
   Factored IA emulator with a transformer correction head: the
   TemplateMLP trunk emits n_templates whitened templates, and a
@@ -693,6 +696,7 @@ class TemplateResTRF(nn.Module):
   factored   = True
   needs_geom = True
   needs_bins = True
+  head_block = "trf"               # the bin-token transformer head
 
   def __init__(self, input_dim, output_dim, n_amps,
                n_templates, int_dim_res, geom, n_heads=2,

@@ -168,11 +168,6 @@ MODEL_BLOCK_KEYS = {
           "gate_init":    "gate_init"},
 }
 
-# which head sub-block each architecture accepts (None = trunk only);
-# a cnn: block under name: restrf (etc.) is a config error, caught in
-# build_specs.
-ARCH_HEAD = {"resmlp": None, "rescnn": "cnn", "restrf": "trf"}
-
 # default reported delta-chi2 cutoffs; the first (0.2) is the emulator goal
 # and the best-model-selection metric.
 DEFAULT_THRESHOLDS = torch.tensor([0.2, 0.5, 1.0, 10.0, 100.0])
@@ -836,8 +831,9 @@ class EmulatorExperiment:
     # the composed display name (run_tag / the banner / file names):
     # the architecture, suffixed by the IA design when one is layered
     # (resmlp_nla, rescnn_nla). exp.ia drives the factored-design
-    # lookups (IA_DESIGNS) and exp.arch the head-block validation
-    # (ARCH_HEAD) in build_geometry / build_specs.
+    # lookups (IA_DESIGNS); exp.arch gates head-block filtering in
+    # build_specs (which reads model_cls.head_block, the class's own
+    # head-knowledge; None on direct construction translates every block).
     exp.model_name = name if ia is None else f"{name}_{ia}"
     exp.ia   = ia
     exp.arch = name
@@ -875,17 +871,28 @@ class EmulatorExperiment:
     sweep / study) later. Shared by every driver; quiet-gated through
     self.log, so --quiet silences it with the rest.
 
+    Every line is the resolved, consumed view, not the raw YAML: phases
+    resolved against the model's real capability (resolve_phase_args, so a
+    single-phase model that carries two-phase keys prints them demoted, with
+    the notice) and the model spec filtered to the chosen architecture (the
+    class's own describe_spec). The banner then cannot contradict what the
+    run executes (the banner-prints-consumed-view directive).
+
     Lines printed, in order:
 
         device / model class / activation / rescale
            |  the environment line: what runs where
            v
-        model spec                the resolved model block (name, ia,
-           |                      mlp / cnn / trf sub-blocks) after
-           |                      default_train_args collapsed ranges
+        [notice]                  the phase-resolution notice, only on a
+           |                      single-phase model that carried phase keys
            v
-        run: nepochs bs loss_mode (+ the two-phase split when
-           |                       trunk_epochs > 0)
+        model spec                only the sub-blocks this architecture
+           |                      consumes (name / ia / mlp / activation /
+           |                      its own head / compile_mode), the class
+           |                      describing itself via describe_spec
+           v
+        run: nepochs bs loss_mode (+ the two-phase split, only when the
+           |                       model is two-phase and trunk_epochs > 0)
            v
         guards: clip / rewind     only when either is set
            |
@@ -903,13 +910,25 @@ class EmulatorExperiment:
     A sweep or a study varies pieces per point / per trial; this
     banner shows the resolved defaults those variations start from.
     """
-    ta = self.train_args
+    # display the consumed view (the banner-prints-consumed-view directive):
+    # resolve the phase schedule against the model's real capability, so a
+    # single-phase model carrying two-phase keys prints them demoted (no
+    # two-phase fragment, no trunk: / head: lines) exactly as train() runs
+    # it. resolve_phase_args is pure (no mutation); a two-phase model
+    # resolves to a no-op and prints as before.
+    two_phase = hasattr(self.model_cls, "set_train_phase")
+    ta, notice = resolve_phase_args(train_args=self.train_args,
+                                    two_phase=two_phase)
     d  = self.data
     self.log(f"device: {self.device}  |  "
              f"model: {self.model_cls.__name__}  |  "
              f"activation: {self.activation}  |  "
              f"rescale: {self.rescale}")
-    self.log(f"model spec: {ta['model']}")
+    if notice is not None:
+      self.log(notice)
+    # the model class describes itself: only the sub-blocks this
+    # architecture consumes (its own head, never the inactive cnn: / trf:).
+    self.log(f"model spec: {self.model_cls.describe_spec(ta['model'])}")
     # trunk_epochs > 0 = the two-phase schedule (trunk then frozen-trunk
     # head); print it only when active, so ordinary runs stay unchanged.
     tk = ta.get("trunk_epochs", 0)
@@ -1200,7 +1219,10 @@ class EmulatorExperiment:
     ta = dict(train_args)
     model_opts = {}
     n_gates = 3
-    head = ARCH_HEAD.get(self.arch) if self.arch is not None else None
+    # the model class owns its head-knowledge (head_block: None | "cnn" |
+    # "trf"); with arch known (from_config ran) skip the inactive head's
+    # block, with arch None (direct construction) translate every block.
+    head = self.model_cls.head_block if self.arch is not None else None
     for key, sub in ta["model"].items():
       if key in ("name", "ia"):
         continue

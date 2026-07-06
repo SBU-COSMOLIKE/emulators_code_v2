@@ -306,3 +306,117 @@ prints byte-identically to today (golden, string compare of the
 banner); a two-phase config with trunk_epochs >= nepochs still dies
 on run_emulator's existing guard (banner does not pre-judge it).
 Folds into the pending unit (anneal + D-L1v3).
+
+### 2026-07-06 — D-P2 extended to D-P2v2 (adds D-P3; the design follows
+### the user's class-prints-itself tip and the standing directive
+### [[banner-prints-consumed-view]])
+
+Leg (a), phases — unchanged from D-P2: print_design resolves via the
+pure resolve_phase_args + the capability probe and prints the resolved
+view (no two-phase fragment / trunk: / head: lines on a single-phase
+model; the notice joins the banner; two-phase unchanged).
+
+Leg (b), model spec (D-P3, user report: raw cnn:/trf: blocks printed
+under TemplateMLP): each design class gains a `head_block` class
+attribute (None for ResMLP/TemplateMLP, "cnn" for the CNN pair, "trf"
+for the TRF pair) and a shared `describe_spec(model_block)`
+classmethod rendering ONLY name / ia / mlp / activation / the class's
+own head block / compile_mode. print_design's line becomes the pure
+delegation `self.model_cls.describe_spec(ta["model"])`. ARCH_HEAD is
+RETIRED: build_specs and build_geometry read model_cls.head_block
+(one source of head-knowledge; a new architecture without head_block
+fails at class definition, not silently in a banner). build_specs'
+tolerant consumption (inactive head blocks ignored, active-block
+typos loud) is behavior-unchanged.
+
+Gate D-P2v2: (a) the user's resmlp config — banner has no two-phase
+fragment / negative number, carries the notice; rescnn+nla banner
+unchanged EXCEPT the model-spec line, asserted separately: (b) on
+TemplateMLP the spec line contains mlp/activation/compile_mode and NOT
+cnn/trf; on TemplateResCNN it contains cnn and not trf; on ResTRF trf
+and not cnn/ia; every design class defines head_block; ARCH_HEAD has
+zero remaining consumers (grep); build_specs behavior byte-identical
+(inactive-ignore + active-typo-raise cases re-run); scans + whole-tree
+py_compile. Folds into the pending unit (D-L1v3, closed, awaits this).
+
+### 2026-07-06 — Implementer (Opus 4.8): D-P2v2 executed (BOTH legs)
+
+Process finding (flagged): the handoff says leg (a) is "unchanged from
+D-P2", but D-P2's banner code was never committed -- HEAD 5b65fd5's
+"capability-aware banner (D-P2)" was a note-only commit (its
+c328da9->5b65fd5 diff and print_design both confirm print_design still read
+the RAW train_args). So I implemented BOTH legs.
+
+**Leg (a) -- print_design (experiment.py):** probe
+`two_phase = hasattr(self.model_cls, "set_train_phase")`, resolve
+`ta, notice = resolve_phase_args(self.train_args, two_phase)` (the pure,
+non-mutating function train() uses), print the notice when non-None, and
+drive every downstream line off the resolved ta -- a single-phase model
+that carried two-phase keys now prints them demoted (no two-phase fragment,
+no negative head count, no trunk:/head: lines); a two-phase model resolves
+to a no-op and prints as before. Docstring updated to the consumed-view
+contract.
+
+**Leg (b) -- the class prints itself:** a `DesignSpec` mixin
+(emulator_designs.py) provides `head_block` (enforced at class-definition
+via __init_subclass__ -- a new architecture that forgets it fails at
+import) + a shared `describe_spec(model_block)` classmethod rendering only
+name / ia / mlp / activation / this class's own head / compile_mode. All
+six design classes mix it in: ResMLP / TemplateMLP head_block=None, the CNN
+pair "cnn", the TRF pair "trf" (== the old ARCH_HEAD per architecture). IA
+classes import DesignSpec from ..emulator_designs. print_design's spec line
+is now `self.model_cls.describe_spec(ta["model"])`. ARCH_HEAD is DELETED;
+build_specs reads `self.model_cls.head_block` (the one line changed; the
+skip + typo-raise loop is textually unchanged, so its behavior is
+byte-identical); the from_config comment updated.
+
+**Gate D-P2v2 (raw, Mac -- exec-extract, no torch):**
+
+    leg (a) capability-aware banner .... 5/5 OK  (single-phase demotes:
+      trunk_epochs 0, head count 1000 not -1000, trunk/head lines gone,
+      notice present; two-phase resolve is a no-op -> banner unchanged)
+    leg (b) describe_spec + head_block .. 4/4 OK  (MLP shows mlp/activation/
+      compile_mode not cnn/trf; CNN shows cnn not trf; TRF shows trf not
+      cnn/ia; a class missing head_block fails at class definition)
+    static: six classes + retirement .... 15/15 OK  (each class head_block
+      == old ARCH_HEAD + mixes in DesignSpec; ARCH_HEAD gone; build_specs
+      reads head_block; print_design delegates + resolves + prints notice)
+    build_specs loop (unchanged) ........ 2/2 OK  (resmlp inactive-ignore:
+      a cnn: typo is skipped, not raised; rescnn active-typo: the cnn: typo
+      raises model.cnn.bogus_key)
+
+    D-P2v2 gate: ALL PASS
+
+    House scans: 0 over-width, 0 new ` -- `, new all-caps = {IA, YAML}
+    (allowlisted acronyms; de-capped CONSUMED / THIS / MRO in the added
+    docstrings). Whole-tree py_compile OK.
+
+**Commit:** the handoff expected a fold-in, but D-L1v3 is already committed
+(5b65fd5). So D-P2v2 lands as its own follow-up commit (files:
+emulator/experiment.py, emulator/emulator_designs.py,
+emulator/IA/emulator_designs.py, this note + banner-prints-consumed-view.md
++ MEMORY.md). Awaits the Architect re-audit.
+
+### 2026-07-06 — Architect: D-P2v2 verified CLOSED (both legs)
+
+Independently verified (own harness, 18 checks, all PASS; display
+surfaces read directly per the standing directive). Leg (a): the
+user's exact config resolves to no two-phase fragment / no negative
+number with the notice present; a two-phase model keeps the fragment
+(no-op resolution); print_design is ordered probe -> resolve ->
+describe, the fragment is gated on the RESOLVED trunk_epochs, and the
+block lines print from the resolved ta (trunk/head vanish on
+single-phase). Leg (b): DesignSpec.describe_spec exercised with fake
+classes on the user's exact model block (None-head shows no cnn/trf;
+cnn-head shows cnn not trf; trf-head the reverse);
+__init_subclass__ raises at class definition when head_block is
+missing (the fail-at-import guarantee); all six design classes declare
+the correct head_block; ARCH_HEAD has zero references anywhere;
+build_specs' diff is exactly one line (the head lookup), so the
+tolerant-consumption behavior is unchanged by construction. Scans +
+whole-tree py_compile clean.
+
+The unit (D-L1v3 + D-P2v2) is complete. Commit (user):
+
+    git add -A
+    git commit -m "Accept the mode-named berhu block (D-L1v3) + consumed-view banner via class-owned describe_spec, ARCH_HEAD retired (D-P2v2); Architect-verified"
