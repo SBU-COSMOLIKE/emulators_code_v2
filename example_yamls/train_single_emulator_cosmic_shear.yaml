@@ -72,6 +72,9 @@ train_args:
     #                      # sqrt-shaped again above (accepted but unused
     #                      # under plain berhu). Valid only beside a berhu
     #                      # mode; a per-phase loss: block full-replaces it.
+    #                      # Name the block berhu: (works for every mode,
+    #                      # sweep-safe) or exactly after the chosen mode
+    #                      # (berhu_capped: under mode berhu_capped).
     #   anneal:            # optional (presence = on; absent = full berhu
     #                      # from epoch 1). Start as plain sqrt everywhere
     #                      # and blend into the berhu shape on a trim-style

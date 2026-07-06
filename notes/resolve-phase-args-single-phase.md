@@ -272,3 +272,37 @@ correctly; the note line was stale. Commit split at acceptance:
 D-1 = data_staging.py + its note (ready now); resolve_phase_args =
 experiment.py + training.py + the YAML + its note + MEMORY.md (after
 D-P1).
+
+### 2026-07-06 — D-P2 (user-found bug): the banner is not
+### capability-aware
+
+User report: with name: resmlp (TemplateMLP, single-phase) and
+nepochs 1000 / trunk_epochs 2000, print_design printed
+`(two-phase: 2000 trunk + -1000 head)` — a negative head count for a
+run that will train single-phase. print_design computes the split
+from the RAW train_args and never probes the model; the demotion
+feature made train() capability-aware but not the banner (an
+Architect audit gap: GP-B checked train(), not print_design).
+
+Fix (experiment.py, print_design only): resolve first, print the
+truth —
+1. probe two_phase = hasattr(self.model_cls, "set_train_phase") (the
+   same probe train() uses);
+2. call resolve_phase_args(self.train_args, two_phase) — pure and
+   non-mutating, so the banner reuses the real machinery instead of
+   duplicating its logic;
+3. print every block line from the RESOLVED args: on a single-phase
+   model the two-phase fragment and the trunk:/head: block lines
+   disappear, the merged values appear in the top-level lines, and
+   the resolution notice is printed as part of the banner (the
+   train-time repeat of the notice is harmless; sweeps run quiet);
+4. two-phase models print exactly as today (resolution is a no-op).
+
+Gate D-P2: for the user's exact config (resmlp + nepochs 1000 +
+trunk_epochs 2000 + trunk berhu / head blocks) the banner contains NO
+two-phase fragment and NO negative number, shows the trunk-merged
+loss in the run line, and carries the notice; a rescnn+nla config
+prints byte-identically to today (golden, string compare of the
+banner); a two-phase config with trunk_epochs >= nepochs still dies
+on run_emulator's existing guard (banner does not pre-judge it).
+Folds into the pending unit (anneal + D-L1v3).

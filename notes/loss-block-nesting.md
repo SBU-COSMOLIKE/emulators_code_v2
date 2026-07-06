@@ -358,3 +358,113 @@ generic unknown-key message. Gate D-L1 extended: the error for the
 user's exact config contains the block above verbatim (values 0.2 /
 10 / 50 / 300 / cosine present); the reference example with the
 inline family-name comment lands in the train_single YAML.
+
+### 2026-07-06 — D-L1 v3 (user directive, SUPERSEDES both earlier
+### D-L1 sections): accept the mode-named sub-block
+
+The user rejected the gracious-error design: writing the block as
+`berhu_capped:` under `mode: berhu_capped` should simply WORK — a trap
+with a good apology is still a trap. New rule, principled (not a
+free-floating alias): the parameter sub-block is accepted under the
+FAMILY name `berhu` or under THE EXACT ACTIVE MODE string.
+
+    mode: berhu          + berhu:         -> valid
+    mode: berhu_capped   + berhu:         -> valid (family spelling)
+    mode: berhu_capped   + berhu_capped:  -> valid (mode spelling; the
+                                             user's natural config)
+    mode: berhu          + berhu_capped:  -> MISMATCH error (the config
+                                             contradicts itself); the
+                                             error names both fixes
+                                             (change mode, or rename the
+                                             block)
+    both berhu: and berhu_capped: present -> error (one block only)
+    non-berhu mode + either block         -> the existing local inert
+                                             error (unchanged)
+
+Implementation: in validate_loss, canonicalize before the whitelist —
+when mode is berhu-family and the mode string is present as a key
+(and "berhu" is not), treat it as the berhu block in the RESOLVED
+output (no input mutation); everything downstream (validate_berhu, the
+threading, the anneal) sees the one canonical form. The whitelist
+error for a plain typo (berhus:) is unchanged.
+
+Sweep note, documented in the YAML comment: `berhu:` is the SWEEP-SAFE
+spelling — a loss.mode sweep across [sqrt, berhu, berhu_capped] reuses
+one family-named block, whereas a mode-named block mismatches when the
+sweep leaves that mode. Comment wording: "name the block berhu: (works
+for every mode; sweep-safe) or exactly after the chosen mode".
+
+Gate D-L1v3: the user's exact config (mode berhu_capped +
+berhu_capped: {knot, cap, anneal}) validates and resolves EQUAL to the
+berhu:-spelled config (dict equality of validate_loss outputs);
+family spelling still valid under both modes; the mismatch case errors
+naming both fixes; both-blocks errors; berhus: keeps the generic
+message; non-berhu inert error unchanged; input never mutated; YAML +
+docstrings carry the two-spellings rule + the sweep-safe note; scans +
+py_compile. Folds into the pending berhu-anneal commit unit.
+
+### 2026-07-06 — Implementer (Opus 4.8): D-L1 v3 executed
+
+Base: berhu-anneal committed (a043e28 / c328da9). c328da9's "D-L1
+gracious family-block error" was a NOTE-only commit (the a043e28 ->
+c328da9 diff touched notes only; no gracious-error / did-you-mean code
+ever landed), so v3 supersedes a design, not committed code -- nothing to
+delete. This delta is the last blocker before the combined commit.
+
+**Change (training.py validate_loss, before the whitelist; no input
+mutation):** read `mode` first, then canonicalize the knot-block spelling.
+When mode is berhu-family: a `berhu_capped:` key under mode berhu is a
+wrong-mode block -> a ValueError naming both fixes (name it berhu:
+(sweep-safe) or set mode: berhu_capped); a `berhu_capped:` key under mode
+berhu_capped is the mode spelling -> renamed to `berhu` on a copy (both
+spellings present -> a both-blocks error). "berhu" is always the family
+spelling (valid under either mode). Everything downstream (whitelist,
+validate_berhu, the anneal, the threading) sees the one canonical `berhu`
+key. A plain typo (berhus:) is untouched -> the generic unknown-key
+message; a berhu:/berhu_capped: block on a non-berhu mode still routes to
+validate_berhu's local inert error. Docs: validate_loss + experiment.
+__init__ docstrings carry the two-spellings + sweep-safe rule; the
+train_single YAML comment states it.
+
+**Gate D-L1v3 (raw, Mac -- exec-extract validate_loss, no torch):**
+
+    === D-L1v3  mode-named / family-named knot block ===   (14/14 OK)
+      mode berhu_capped + berhu_capped: resolves EQUAL to the berhu:-
+      spelled config (dict equality, knots + anneal carried); family
+      spelling valid under both modes; mode berhu + berhu_capped: mismatch
+      names both fixes; both-blocks errors; berhus: -> generic unknown-key;
+      sqrt + berhu: -> local inert (unchanged); input never mutated; phase
+      which -> train_args.head.loss in the error; sqrt / absent regress OK.
+    === D-L1v3  static ===   (4/4 OK)
+      validate_loss + experiment docstrings + YAML carry the rule;
+      canonicalization sits before the whitelist.
+
+    D-L1v3 gate: ALL PASS.  GBA gate re-run: ALL PASS (no regression).
+    House scans: 0 over-width, 0 ` -- `, 0 new caps. Whole-tree py_compile
+    OK. (The historical GL harness's 3 exact-dict asserts now read the
+    +anneal key -- an expected shape shift from berhu-anneal, not a
+    regression; GBA-A2 covers the {knot, cap, anneal} shape.)
+
+**Commit:** folds into the berhu-anneal unit (the note's Sequencing
+command); the presence-semantics and D-L1 v3 are the last blockers, now
+closed pending the Architect re-audit.
+
+### 2026-07-06 — Architect: D-L1 v3 verified CLOSED
+
+Independently re-verified (own harness, 16 checks, all PASS): the
+user's exact spelling (mode berhu_capped + berhu_capped: holding
+knot/cap/anneal) resolves dict-EQUAL to the family spelling under the
+canonical berhu key; family spelling valid under both modes; the
+mismatch (mode berhu + berhu_capped:) errors naming both fixes; both
+spellings together errors; berhu: under sqrt keeps the inert error and
+berhu_capped: under sqrt the generic unknown-key (loud either way);
+berhus: typo untouched; input never mutated; canonicalization sits
+before the whitelist; the YAML carries the two-spellings + sweep-safe
+comment; scans + whole-tree py_compile clean. No dead v2 machinery
+remains (c328da9's D-L1 layer was minimal; the v3 overlay is clean).
+
+Remaining in the pending uncommitted unit: D-P2 (the capability-aware
+banner). Combined commit once D-P2 closes:
+
+    git add -A
+    git commit -m "Accept the mode-named berhu block (D-L1v3 canonicalization, supersedes the v2 error) + capability-aware banner (D-P2); Architect-verified"

@@ -610,8 +610,11 @@ class EmulatorExperiment:
                        validate_loss), with an optional anneal: sub-block
                        {hold_epochs, anneal_epochs, shape} (presence = on)
                        ramping the loss from plain sqrt into the full berhu
-                       shape (the escalated window votes arrive late);
-                       per-phase overridable (full replacement) and
+                       shape (the escalated window votes arrive late). The
+                       knot block may be spelled berhu: (the family name,
+                       sweep-safe) or the exact active mode (berhu_capped:
+                       under mode berhu_capped); a wrong-mode block raises.
+                       Per-phase overridable (full replacement) and
                        sweepable (loss.mode / loss.berhu.knot /
                        loss.berhu.cap / loss.berhu.anneal.hold_epochs);
                      silent = optional (default False): silence the run;

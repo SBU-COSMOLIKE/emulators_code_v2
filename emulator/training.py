@@ -743,7 +743,12 @@ def validate_loss(loss, which):
   no mode key) resolves to plain "sqrt", the run default, byte-identical to
   a run with no loss block. The berhu sub-block routes through
   validate_berhu against this block's own mode, so "a berhu sub-block on a
-  non-berhu mode" is a purely local error (no cross-pass logic).
+  non-berhu mode" is a purely local error (no cross-pass logic). The knot
+  sub-block is accepted under the family name berhu: or the exact active
+  mode string (a berhu_capped: block under mode berhu_capped); either
+  canonicalizes to a single berhu: key. berhu: is the sweep-safe spelling
+  (valid across a loss.mode sweep); a mode-named block mismatches once the
+  sweep leaves that mode.
 
   Arguments:
     loss  = the raw loss block (train_args["loss"] or a phase's), or None
@@ -758,8 +763,9 @@ def validate_loss(loss, which):
 
   Raises:
     TypeError if loss is present but not a mapping. ValueError on an unknown
-    key, an unknown mode (naming the five), or (via validate_berhu) a berhu
-    sub-block paired with a non-berhu mode / a malformed knot pair.
+    key, an unknown mode (naming the five), a mode/knot-block mismatch or
+    both spellings of the knot block present, or (via validate_berhu) a
+    berhu sub-block paired with a non-berhu mode / a malformed knot pair.
   """
   qual = ("train_args.loss" if which == "train_args"
           else f"train_args.{which}.loss")
@@ -769,12 +775,36 @@ def validate_loss(loss, which):
     raise TypeError(
       f"{qual} must be a mapping {{mode, berhu}}, got "
       f"{type(loss).__name__}")
+  mode = loss.get("mode", "sqrt")
+  # canonicalize the knot-block spelling before the whitelist: it is
+  # accepted under the family name berhu: or the exact active mode string,
+  # and collapses to a single berhu: key (no input mutation) so the
+  # whitelist and validate_berhu see one form. Only "berhu" is a valid
+  # spelling under either berhu mode; "berhu_capped" is the mode-string
+  # spelling, valid only under mode berhu_capped.
+  if mode in ("berhu", "berhu_capped"):
+    # a berhu-family mode string that is not the active mode is a wrong-mode
+    # block (only "berhu_capped" under mode berhu; "berhu" is the family
+    # name, valid under either mode).
+    other = "berhu_capped" if mode == "berhu" else None
+    if other is not None and other in loss:
+      raise ValueError(
+        f"{qual} has a {other}: block but mode is {mode!r}; name the knot "
+        f"sub-block berhu: (works for every mode; sweep-safe) or set "
+        f"mode: {other}")
+    if mode != "berhu" and mode in loss:
+      # the mode-string spelling (berhu_capped:) -> the family key.
+      if "berhu" in loss:
+        raise ValueError(
+          f"{qual} has both a berhu: and a {mode}: block naming the same "
+          f"knot sub-block; keep one (berhu: is the sweep-safe spelling)")
+      loss = dict(loss)
+      loss["berhu"] = loss.pop(mode)
   unknown = set(loss) - set(_LOSS_KEYS)
   if unknown:
     raise ValueError(
       f"unknown {qual} key(s): {sorted(unknown)}; allowed: "
       f"{list(_LOSS_KEYS)}")
-  mode = loss.get("mode", "sqrt")
   if mode not in _LOSS_MODES:
     raise ValueError(
       f"unknown {qual}.mode {mode!r}; one of {list(_LOSS_MODES)}")
