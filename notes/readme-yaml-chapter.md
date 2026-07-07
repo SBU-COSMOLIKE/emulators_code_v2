@@ -415,3 +415,151 @@ USER-VETO-ABLE — split into three sections on request.
 
 Open: the Architect re-audit of GYC-A..E (+ a ruling on the
 optimizer/lr/scheduler grouping). No workstation leg (docs only).
+
+## Addendum 2026-07-07: the TATT polynomial (user directive)
+
+The model section's IA paragraph shows only the nla polynomial and
+waves at tatt ("10 templates, 3 amplitudes"). User: "needs to also
+show the formula on TATT." Micro-unit, doc-only, one insertion in
+the main README's model section (post-reorg numbering), replacing
+the "(tatt = 10 templates, 3 amplitudes.)" parenthetical:
+
+    For `tatt` (10 templates; amplitudes $a_1, a_2, b_{TA}$ — the
+    IA field is $a_1 O_1 + a_2 O_2 + a_1 b_{TA} O_{1\delta}$, so
+    $\xi$ is quadratic in it: 1 GG + 3 GI + 6 II terms):
+
+    $$\xi = K_0 + a_1 K_1 + a_2 K_2 + a_1 b_{TA} K_3
+    + a_1^2 K_4 + a_2^2 K_5 + (a_1 b_{TA})^2 K_6
+    + a_1 a_2 K_7 + a_1^2 b_{TA} K_8 + a_1 a_2 b_{TA} K_9$$
+
+Source of truth: tatt_coeffs (IA/loss_functions.py) — template
+order [GG, GI1, GI2, GI1d, II11, II22, II1d1d, II12, II11d, II21d],
+coefficients [1, a1, a2, a1 b, a1^2, a2^2, (a1 b)^2, a1 a2,
+a1^2 b, a1 a2 b] with b = b_TA; the K indices above follow that
+order exactly. GRO-G policy holds: $b_{TA}$ is a braced subscript
+on a single letter, no code-name underscores enter the math.
+
+Gate GTC-A: the equation's ten terms match tatt_coeffs order +
+forms verbatim; the math scanner stays clean; doc-only diff.
+
+### ARCHITECT_HANDOFF
+Task: micro-unit — add the TATT polynomial to the main README's
+model section (spec: this addendum in notes/readme-yaml-chapter.md;
+the insertion text is verbatim above). Base: the reorg commit;
+`git log -1` must show it — else STOP. DOC-ONLY: one insertion,
+zero .py / .yaml. Gate GTC-A (verify each term against
+tatt_coeffs, run the GRO-G math scanner, anchors unaffected,
+py_compile regardless). Report: brief IMPLEMENTER_HANDOFF + one
+line appended here; do not commit, print the suggested commit
+command.
+### END
+
+## Addendum 2 (2026-07-07, same micro-unit): subsection code blocks
+
+User: the model section's `### mlp` "does not have a code block.
+CNN also does not have a code block." STYLE RULE (extends the
+chapter's one-example-per-section rule, binding on future edits):
+every ### subsection documenting YAML knobs carries its own small
+YAML block. Fixes, values verbatim from the train_single template:
+
+    ### mlp gains:
+        mlp:
+          width:    128
+          n_blocks: 4
+
+    ### activation gains (same rule, same gap):
+        activation:
+          type:    H
+          n_gates: 3
+
+    ### cnn gains:
+        cnn:
+          kernel_size:    11
+          rescale_kernel: false
+          groups:         1
+          separable:      false
+          film:           false
+          n_blocks:       1
+          gate_init:      0.1
+          # activation:        # optional: the head's own family
+          #   type: gated_power
+
+    ### trf: already carried by the section-closing model example
+    (no change; add a trf: block only if the closing example ever
+    loses it).
+
+Gate GTC-B: the three blocks present, one per subsection, values
+byte-matching the template (the GYC-C rule); budget unchanged
+(each block <= 10 lines).
+
+The micro-unit handoff above now covers BOTH addenda (the TATT
+polynomial + these blocks), gates GTC-A + GTC-B, still doc-only.
+
+## Addendum 3 (2026-07-07, same micro-unit): the n_heads diagram
+
+User: the trf table's n_heads row ("must divide the token width")
+is worth a graph explaining attention heads. Insert in the ### trf
+subsection, beneath the knob table (verbatim; the arithmetic is
+TRFBlock's: assert dim % n_heads == 0, d_head = dim // n_heads,
+q/k/v .view(B, G, H, d_head), att = softmax(q k / sqrt(d_head)),
+concat + wo):
+
+    one token = one bin, width 26            n_heads: 2 -> d_head = 13
+
+        ┌──────────────┬───────────────┐
+        │ head 1: 1-13 │ head 2: 14-26 │     the feature axis is SLICED
+        └──────┬───────┴───────┬───────┘     into n_heads equal parts:
+               │               │             26 = n_heads x d_head, so
+        G x G attention  G x G attention     n_heads must divide 26
+        over ALL bins,   over ALL bins,      (1 | 2 | 13)
+        using slice 1    using slice 2
+               │               │
+               └─── concat ────┴──▶ width 26 again (wo mixes the heads)
+
+    One line beneath: the four projections (wq / wk / wv / wo) are
+    26 x 26 at ANY n_heads — same parameters, same FLOPs; more
+    heads = more, narrower attention patterns per bin pair.
+
+Gate GTC-C: the diagram present in ### trf; its arithmetic matches
+TRFBlock (the divisibility assert, d_head = dim // n_heads, per-head
+G x G maps, concat back); the same-params/same-FLOPs line verified
+against the 26 x 26 projections (they never depend on n_heads).
+
+The micro-unit handoff covers addenda 1 + 2 + 3; gates GTC-A/B/C;
+still doc-only.
+
+IMPLEMENTED 2026-07-07 (Opus, base 29b23dd): all three addenda inserted in
+README section 10 — the TATT $$ polynomial (GTC-A: the 10 monomials match
+tatt_coeffs K0..K9 exactly, parsed both sides and compared), the mlp /
+activation / cnn blocks (GTC-B: verbatim template values, cnn exactly 10
+lines), and the n_heads diagram (GTC-C: arithmetic cross-checked against
+TRFBlock — dim % n_heads == 0, d_head = dim // n_heads, wq/wk/wv/wo all
+dim x dim). GRO-G clean (14 $$ blocks, zero underscores), anchors unaffected,
+doc-only diff (README.md). Deviation declared: the diagram's SLICED/ALL/ANY
+de-capped to obey the standing de-caps rule (same character widths, so the
+ASCII alignment holds). Also flagged: the relayed handoff block named only
+GTC-A, while this note folds all three addenda into the micro-unit — executed
+all three per the note. Uncommitted; awaiting Architect re-audit.
+
+### 2026-07-07 — Architect re-audit of the micro-unit: ACCEPTED
+
+All three addenda verified on the raw diff + corrected harnesses:
+GTC-A all ten TATT monomials match tatt_coeffs's cat order exactly
+(my first probe matched the NLA display — the file's first xi
+equation — and my GTC-B slicer was broken; both MY harness bugs,
+re-run correctly, the diff itself was unambiguous throughout);
+GTC-B the three subsection blocks present verbatim with template
+values; GTC-C the diagram + the 26x26-projections line, arithmetic
+matching TRFBlock; GRO-G scanner clean; anchors resolve; doc-only.
+
+Deviations RULED: (1) executing all three addenda off the note
+while the relayed block named only the first — ACCEPTED, the note
+is the spec of record (the D-DOC9 precedent, correctly applied);
+(2) de-capping SLICED/ALL/ANY — ACCEPTED, and the caps were in MY
+spec text; the house rule the audits enforce applies to my
+insertion texts too; (3) backticked identifiers — ACCEPTED.
+
+COMMIT-READY. Suggested sentence: "Model-section polish: the TATT
+polynomial (ten terms verbatim from tatt_coeffs), YAML blocks for
+the mlp / activation / cnn subsections, and the n_heads multi-head
+attention diagram (gates GTC-A/B/C Architect-verified)".

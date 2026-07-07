@@ -484,11 +484,23 @@ emulator is exact in them). For `nla` (3 templates, amplitude $A_1$):
 
 $$\xi = K_0 + A_1 K_1 + A_1^2 K_2$$
 
-(`tatt` = 10 templates, 3 amplitudes.)
+For `tatt` (10 templates; amplitudes $a_1, a_2, b_{TA}$ — the
+IA field is $a_1 O_1 + a_2 O_2 + a_1 b_{TA} O_{1\delta}$, so
+$\xi$ is quadratic in it: 1 GG + 3 GI + 6 II terms):
+
+$$\xi = K_0 + a_1 K_1 + a_2 K_2 + a_1 b_{TA} K_3
++ a_1^2 K_4 + a_2^2 K_5 + (a_1 b_{TA})^2 K_6
++ a_1 a_2 K_7 + a_1^2 b_{TA} K_8 + a_1 a_2 b_{TA} K_9$$
 
 ### `mlp`
 
 The trunk (required — every architecture is built on it): `width`, `n_blocks`.
+
+```yaml
+  mlp:
+    width:    128
+    n_blocks: 4
+```
 
 ### `activation`
 
@@ -500,6 +512,12 @@ family (trunk + default). A `rescnn` / `restrf` head may pin its own with
 frozen-trunk head phase, `head: activation:` is its alias, and the precedence
 + warning are precedence
 [A](#15-appendix-precedence--who-wins-when-settings-collide).
+
+```yaml
+  activation:
+    type:    H
+    n_gates: 3
+```
 
 ### `cnn` (name `rescnn`)
 
@@ -514,6 +532,19 @@ frozen-trunk head phase, `head: activation:` is its alias, and the precedence
 | `gate_init` | initial correction-gate scale (small, not 0) |
 | `activation` | the head's own family (above) |
 
+```yaml
+  cnn:
+    kernel_size:    11
+    rescale_kernel: false
+    groups:         1
+    separable:      false
+    film:           false
+    n_blocks:       1
+    gate_init:      0.1
+    # activation:        # optional: the head's own family
+    #   type: gated_power
+```
+
 ### `trf` (name `restrf`)
 
 | knob | what |
@@ -525,6 +556,24 @@ frozen-trunk head phase, `head: activation:` is its alias, and the precedence
 | `film` | cosmology-aware per-token affine (as `cnn.film`) |
 | `gate_init` | initial correction-gate scale |
 | `activation` | the head's own family (above) |
+
+```
+one token = one bin, width 26            n_heads: 2 -> d_head = 13
+
+    ┌──────────────┬───────────────┐
+    │ head 1: 1-13 │ head 2: 14-26 │     the feature axis is sliced
+    └──────┬───────┴───────┬───────┘     into n_heads equal parts:
+           │               │             26 = n_heads x d_head, so
+    G x G attention  G x G attention     n_heads must divide 26
+    over all bins,   over all bins,      (1 | 2 | 13)
+    using slice 1    using slice 2
+           │               │
+           └─── concat ────┴──▶ width 26 again (wo mixes the heads)
+```
+
+The four projections (`wq` / `wk` / `wv` / `wo`) are 26 x 26 at any
+`n_heads` — same parameters, same FLOPs; more heads = more, narrower
+attention patterns per bin pair.
 
 `compile_mode` (optional, flat) sets the CUDA `torch.compile` mode; the
 defaults are precedence
