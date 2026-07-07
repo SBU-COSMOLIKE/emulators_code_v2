@@ -83,10 +83,13 @@ train_args:
     mlp:
       width:    [128, 64, 256, int]    # searched
       n_blocks: [4, 2, 6, int]         # searched
-    # activation: H          # type, fixed across the study (the
-    #                        # --activation flag overrides); nest
-    #                        # type: / n_gates: sub-keys for the
-    #                        # multi-gate families
+    # activation: H          # type, fixed across the study (H / power /
+    #                        # multigate / gated_power / relu / tanh; the
+    #                        # --activation flag overrides); nest type: /
+    #                        # n_gates: sub-keys for the multi-gate families
+    # norm: affine           # affine (default) | per_feature | none, a
+    #                        # fixed categorical per study; batchnorm not
+    #                        # offered (see the README norm knob)
     # cnn:                   # name: rescnn only
     #   kernel_size: [11, 5, 21, int]
     #   rescale_kernel: true # kernel_size = one block's view; deeper

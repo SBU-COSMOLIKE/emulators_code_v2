@@ -289,11 +289,25 @@ train_args:
     #   power        H with a bounded learnable tail exponent
     #   multigate    K independent gates (K = n_gates)
     #   gated_power  K gates + the tail exponent
+    #   relu         a plain rectifier (parameter-free)
+    #   tanh         the classic tanh (parameter-free; pair with
+    #                norm: per_feature to guard its saturation)
     # The --activation flag, when given, overrides type. A bare
    # string (activation: H) is accepted as shorthand for the type.
    # activation:
     #   type:    H
     #   n_gates: 3         # gates K for multigate / gated_power
+    #
+    # ResBlock normalization before each activation (the paper's
+    # saturation guard; the trunk only, not the conv / TRF heads):
+    #   affine       one scalar g*x + b per layer (default, the paper)
+    #   per_feature  a per-feature (per-width) gain / bias; the tanh
+    #                saturation guard
+    #   none         no normalization (an ablation)
+    # batchnorm is deliberately not offered (batch coupling would
+    # confound the bs / EMA experiments; its train/eval split leaves
+    # buffers outside the EMA average; see the README norm knob).
+    # norm: affine
     #
     # Conv head (name: rescnn only). The channels are the bins
     # themselves (with ia: nla, the (template, bin) pairs, so the head

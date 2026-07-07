@@ -158,8 +158,9 @@ def make_optimizer(model, opt_opts, lr, device):
   Arguments:
     model    = network whose parameters are optimized;
                named_parameters() splits into weight matrices
-               (ndim>=2, decayed) and 1D params (biases, Affine
-               gain/bias, activation gamma/beta) not decayed.
+               (ndim>=2, decayed) and 1D params (biases, Affine /
+               FeatureAffine gain/bias, activation gamma/beta) not
+               decayed.
     opt_opts = optimizer spec dict. "cls" is the optimizer
                class (e.g. optim.AdamW), stored as a value;
                "weight_decay" (optional, default 0.0) decays

@@ -213,13 +213,15 @@ Learnable activations for the ResBlock `act` slot.
 
 - `activation_fcn` — the paper's `H` (a learnable identity↔Swish interpolation).
 - `GatedActivation` / `PowerGatedActivation` / `GatedPowerActivation` — generalizations (more gates, a bounded power tail, both).
-- `make_activation(name, n_gates)` — map a name to a factory `act(dim) -> module`.
+- `make_activation(name, n_gates)` — map a name (`H` / `power` / `multigate` / `gated_power` learnable, plus the parameter-free `relu` / `tanh`) to a factory `act(dim) -> module`.
 
 ### `emulator/emulator_designs_building_blocks.py` <a name="apx-building_blocks"></a>
 
 The small `nn.Module`s the models are assembled from.
 
-- `Affine` — a learnable scalar scale + shift.
+- `Affine` — a learnable scalar scale + shift (the default ResBlock norm).
+- `FeatureAffine` — the per-feature sibling of `Affine`: a length-width gain / bias (one pair per feature; `model.norm per_feature`).
+- `make_norm(name)` — map `model.norm` (`affine` / `per_feature` / `none`) to a ResBlock norm factory `norm(size) -> module`; batchnorm deliberately not offered.
 - `ResBlock` — width-preserving residual block (n dense layers, each with a norm + activation factory, pre-activation skip).
 - `BinLinear` — G per-token *unique* linear layers as one batched einsum; the unique weights also replace the positional encoding.
 - `TRFBlock` — one pre-LN transformer block over tokens at their *natural* width (the padded bin length — no embedding/output adapters): shared-weight attention across tokens + a per-token unique MLP stack (the deviation from the textbook shared FFN). The MLP is `n_mlp_blocks` deep and every layer runs at the token width — the interior is pinned to the bin length by design, no width knob. Exactly the identity at init (zero-initialized branch outputs), so a stack satisfies `blocks(x) == x`.

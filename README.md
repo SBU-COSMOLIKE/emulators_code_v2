@@ -504,8 +504,10 @@ The trunk (required — every architecture is built on it): `width`, `n_blocks`.
 
 ### `activation`
 
-The learnable-activation family, `{type, n_gates}` or a bare type string; the
-families and their math are the
+The activation family, `{type, n_gates}` or a bare type string: the four
+learnable families `H` / `power` / `multigate` / `gated_power` plus the
+parameter-free `relu` / `tanh` (pair `tanh` with `norm: per_feature`, the
+saturation guard); their math is the
 [activation appendix](#14-appendix-activation-functions). This sets the shared
 family (trunk + default). A `rescnn` / `restrf` head may pin its own with
 `model.cnn`/`.trf.activation` (absent = share the trunk's); the pin needs a
@@ -518,6 +520,58 @@ frozen-trunk head phase, `head: activation:` is its alias, and the precedence
     type:    H
     n_gates: 3
 ```
+
+### `norm`
+
+The ResBlock normalization slot, applied inside the trunk before each
+activation — the paper's saturation guard. One of three:
+
+- `affine` (default; absent = this) — the paper's per-layer $g x + b$,
+  one scalar gain/bias pair per layer (`Affine`); byte-identical to the
+  model today.
+- `per_feature` — a width-long gain/bias, one pair per feature
+  (`FeatureAffine`); the escalation when one scalar pair cannot hold
+  every unit's operating point. Pair it with `tanh`.
+- `none` — `nn.Identity`, no normalization (an ablation).
+
+```yaml
+  norm: affine    # affine (default) | per_feature | none
+```
+
+Only the trunk ResBlocks read it — the transformer head's internal
+LayerNorm and the conv head have no norm slot.
+
+**Why no batchnorm.** Batch normalization is deliberately not offered:
+its batch coupling would confound the batch-size and EMA experiments,
+and its train/eval running-stats split — with buffers outside the EMA
+weight average — risks baking a fixed mode under the compiled eval twin.
+The paper prescribes the affine as batchnorm's replacement, and
+`per_feature` is the escalation.
+
+A "feature" is one coordinate of the hidden vector flowing through the
+trunk — the ResBlock width (`model.mlp.width`). Inside every ResBlock the
+batch is a `(B, width)` tensor: B rows (cosmologies), width columns — the
+columns are the features:
+
+```
+                 features (columns, width = model.mlp.width) ─▶
+          ┌─  x_1   x_2   x_3   ...   x_128 ─┐
+  B rows  │  (one row = one cosmology's       │
+  (batch) │   hidden representation)          │
+          └───────────────────────────────────┘
+
+  per layer   :  g·x + b       one (g, b) pair for the whole tensor
+  per feature :  g_i·x_i + b_i  one pair per column, shared by every row
+```
+
+Not a data-vector element, not a cosmological parameter, not a sample —
+the same sense in which H's gamma / beta are per-feature.
+
+| | `affine` (per layer — the paper's) | `per_feature` |
+|---|---|---|
+| parameters | one pair $(g, b)$ for the whole layer — 2 | vectors $g_i, b_i$ — 2·width (256 at width 128) |
+| action | $g \cdot x + b$ broadcast over all features | $g_i x_i + b_i$, each feature its own |
+| what it can fix | a global scale drift | each unit's individual operating point |
 
 ### `cnn` (name `rescnn`)
 
@@ -1001,9 +1055,14 @@ $3K + 2$ vectors per feature.
 | `multigate` | `GatedActivation` | K-sigmoid bulk slope schedule | 3K + 1 |
 | `power` | `PowerGatedActivation` | bounded learnable tail exponent | 3 |
 | `gated_power` | `GatedPowerActivation` | both of the above | 3K + 2 |
+| `relu` | `nn.ReLU` | parameter-free (a plain rectifier) | 0 |
+| `tanh` | `nn.Tanh` | parameter-free; saturates (pair with `norm: per_feature`) | 0 |
 
 $K$ (the gate count for the multi-gate families) is `make_activation`'s
-`n_gates`, default 3.
+`n_gates`, default 3. `relu` and `tanh` are the two parameter-free
+(non-learnable) baselines — a plain rectifier and the classic saturating
+tanh; the paper's affine `norm` (`per_feature`) is `tanh`'s saturation
+guard.
 
 ---
 

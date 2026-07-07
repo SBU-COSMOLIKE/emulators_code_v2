@@ -74,6 +74,95 @@ class Affine(nn.Module):
         return x * self.gain + self.bias
 
 
+class FeatureAffine(nn.Module):
+    """
+    A learnable per-feature scale and shift: out = x * gain + bias,
+    gain and bias length-`size` vectors (one pair per feature) — the
+    per-feature sibling of Affine.
+
+    A "feature" is one coordinate of the width-wide hidden vector
+    flowing through the trunk (the ResBlock width, model.mlp.width):
+    inside a ResBlock the batch is a (B, size) tensor, and gain / bias
+    hold one (g_i, b_i) pair per column, shared across the B rows.
+    Affine is the scalar case (one pair for the whole tensor);
+    FeatureAffine gives every feature its own operating point, the
+    saturation guard the paper's affine escalates to (model.norm
+    per_feature). It is the same per-feature sense in which H's gamma /
+    beta are learned.
+
+    gain inits to 1, bias to 0, so at init it is the identity. Both are
+    nn.Parameter of shape (size,); weight decay is kept off both
+    automatically (make_optimizer decays only ndim >= 2 weight
+    matrices, and these are ndim 1), exactly as for Affine.
+
+    Arguments:
+      size = feature width (the ResBlock width): one gain / bias per
+             feature.
+
+    forward Arguments:
+      x = input tensor of shape (B, size); each column is scaled and
+          shifted by its own gain / bias.
+
+    Returns:
+      x * gain + bias, the same shape as x (gain and bias broadcast
+      over the batch rows from their (size,) shape).
+    """
+    def __init__(self, size):
+        super(FeatureAffine, self).__init__()
+        # one learnable scale (gain, init 1) and shift (bias, init 0)
+        # per feature (per column of the (B, size) tensor), broadcast
+        # over the batch rows.
+        self.gain = nn.Parameter(torch.ones(size))
+        self.bias = nn.Parameter(torch.zeros(size))
+    def forward(self, x):
+        # per-feature: column i scaled by gain[i], shifted by bias[i]
+        # (both broadcast over the batch rows from their (size,) shape).
+        return x * self.gain + self.bias
+
+
+def make_norm(name):
+  """
+  ResBlock norm-factory by name, for the model.norm knob.
+
+  Maps a short name to a norm factory norm(size) -> module, the contract
+  ResBlock's `norm` slot expects (invoked once per dense layer). The
+  parallel of make_activation: a driver or YAML picks the trunk's
+  normalization by string. Only the trunk ResBlocks read it (the TRF
+  block's internal LayerNorm and the CNN head have no norm slot).
+
+  Arguments:
+    name = one of:
+             "affine"      -> lambda s: Affine(), the paper's per-layer
+                              g x + b (one scalar pair per layer); the
+                              default, byte-identical to the ResBlock
+                              default norm.
+             "per_feature" -> FeatureAffine, a length-size gain / bias
+                              (one pair per feature; the tanh
+                              saturation guard).
+             "none"        -> lambda s: nn.Identity(), no norm (an
+                              ablation).
+
+  batchnorm is deliberately not offered (see the README model.norm
+  knob): its batch coupling would confound the batch-size / EMA
+  experiments, its train / eval running-stats split risks baking a mode
+  under the compiled eval twin, and its buffers sit outside the EMA
+  weight average. The paper prescribes the affine as batchnorm's
+  replacement; per_feature is the escalation.
+
+  Returns:
+    a factory norm(size) -> nn.Module.
+  """
+  if name == "affine":
+    return lambda s: Affine()
+  if name == "per_feature":
+    return FeatureAffine
+  if name == "none":
+    return lambda s: nn.Identity()
+  raise ValueError(
+    f"unknown model.norm {name!r}; one of: affine (the paper's "
+    f"per-layer g x + b) / per_feature / none")
+
+
 class ResBlock(nn.Module):
   """
   Width-preserving residual block: n_layers dense layers between

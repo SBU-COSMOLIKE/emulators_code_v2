@@ -85,8 +85,8 @@ class DesignSpec:
     A shared YAML carries cnn: and trf: for every architecture (so one file
     switches models by name: alone), but the banner shows the truth about
     this run, so the inactive head block is dropped. Renders, in order,
-    name / ia / mlp / activation / this class's own head block (head_block)
-    / compile_mode, each only when present in model_block.
+    name / ia / mlp / activation / norm / this class's own head block
+    (head_block) / compile_mode, each only when present in model_block.
 
     Arguments:
       model_block = the raw train_args["model"] mapping.
@@ -94,7 +94,7 @@ class DesignSpec:
     Returns:
       a str: the dict of the consumed keys, in display order.
     """
-    order = ["name", "ia", "mlp", "activation"]
+    order = ["name", "ia", "mlp", "activation", "norm"]
     if cls.head_block is not None:
       order.append(cls.head_block)
     order.append("compile_mode")

@@ -7,8 +7,9 @@ the paper's H(x) = (gamma + (1-gamma) sigmoid(beta x)) x, a learnable
 identity<->Swish interpolation; GatedActivation (K gates),
 PowerGatedActivation (a bounded power tail), and GatedPowerActivation
 (both) generalize it. make_activation maps a short name ("H", "power",
-"multigate", "gated_power") to the matching factory, so the activation
-can be chosen by string from a driver or YAML.
+"multigate", "gated_power", plus the parameter-free "relu" / "tanh") to
+the matching factory, so the activation can be chosen by string from a
+driver or YAML.
 """
 
 import torch
@@ -239,8 +240,12 @@ def make_activation(name, n_gates=3):
                 "multigate"   -> GatedActivation (K = n_gates).
                 "gated_power" -> GatedPowerActivation (K gates plus
                                  the tail exponent).
+                "relu"        -> nn.ReLU, parameter-free.
+                "tanh"        -> nn.Tanh, parameter-free (pair with
+                                 model.norm per_feature to guard its
+                                 saturation, per the paper).
     n_gates = number of gates K for the multi-gate families
-              (default 3); ignored by "H" and "power".
+              (default 3); ignored by "H" / "power" / "relu" / "tanh".
 
   Returns:
     a factory act(dim) -> nn.Module.
@@ -253,4 +258,12 @@ def make_activation(name, n_gates=3):
     return lambda dim: GatedActivation(dim, n_gates=n_gates)
   if name == "gated_power":
     return lambda dim: GatedPowerActivation(dim, n_gates=n_gates)
-  raise ValueError(f"unknown activation: {name!r}")
+  # parameter-free families: the factory ignores dim (ReLU / Tanh take
+  # no shape argument), still honoring the act(dim) -> module contract.
+  if name == "relu":
+    return lambda dim: nn.ReLU()
+  if name == "tanh":
+    return lambda dim: nn.Tanh()
+  raise ValueError(
+    f"unknown activation {name!r}; one of: H / power / multigate / "
+    f"gated_power / relu / tanh")

@@ -74,6 +74,7 @@ from .IA.emulator_designs import (TemplateMLP, TemplateResCNN,
 from .IA.loss_functions import (TemplateFactoredChi2, nla_coeffs,
                                 tatt_coeffs)
 from .activations import make_activation
+from .emulator_designs_building_blocks import make_norm
 from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
   default_train_args, eval_source_chi2,
@@ -1441,6 +1442,8 @@ class EmulatorExperiment:
     ta = dict(train_args)
     model_opts = {}
     n_gates = 3
+    norm_name = "affine"             # model.norm (absent = the paper's
+                                     # per-layer affine, byte-identical)
     head_pin = None                  # the model.<head>.activation pin
     # the model class owns its head-knowledge (head_block: None | "cnn" |
     # "trf"); with arch known (from_config ran) skip the inactive head's
@@ -1452,6 +1455,12 @@ class EmulatorExperiment:
       if key == "activation":
         if isinstance(sub, dict) and "n_gates" in sub:
           n_gates = int(sub["n_gates"])
+        continue
+      if key == "norm":
+        # a model-level string like activation (not a sub-block): its
+        # factory is built into block_opts["norm"] after build_run_specs
+        # (make_norm validates the three-value whitelist there).
+        norm_name = sub
         continue
       if key == "compile_mode":
         model_opts["compile_mode"] = sub
@@ -1484,7 +1493,7 @@ class EmulatorExperiment:
         continue
       raise ValueError(
         f"unknown model key {key!r}; the model block nests its "
-        "knobs: name / ia / mlp / activation / cnn / trf / "
+        "knobs: name / ia / mlp / activation / norm / cnn / trf / "
         "compile_mode")
     if "int_dim_res" not in model_opts:
       raise ValueError(
@@ -1534,6 +1543,16 @@ class EmulatorExperiment:
     specs["model_opts"].setdefault(
       "block_opts", {})["act"] = make_activation(self.activation,
                                                  n_gates=n_gates)
+
+    # make_norm (emulator_designs_building_blocks.py): map model.norm to
+    # the ResBlock norm factory norm(size) -> module (affine = the
+    # paper's per-layer g x + b, the default and byte-identical;
+    # per_feature = a dim-sized gain/bias; none = Identity), injected
+    # into the same trunk block_opts, so it reaches every architecture's
+    # ResBlock trunk (the TRF LayerNorm and the CNN head keep their own).
+    # make_norm validates the three-value whitelist loudly.
+    specs["model_opts"].setdefault(
+      "block_opts", {})["norm"] = make_norm(norm_name)
 
     # Geometry-consuming heads (the needs_geom flag: the conv and TRF
     # models) get geom injected for their fixed full<->theta

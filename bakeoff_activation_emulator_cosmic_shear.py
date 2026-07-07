@@ -93,8 +93,14 @@ from emulator.experiment import EmulatorExperiment, _pinned_head_warning
 from emulator.results import save_learning_curves
 
 
-# activations this driver can build (make_activation names).
+# the default bake-off set: the four learnable families. relu / tanh are
+# buildable too (parameter-free), but they join only when named in
+# --activations, so a default bake-off compares the learnable families.
 ACTS = ["H", "power", "multigate", "gated_power"]
+# every activation this driver can build (make_activation names): the four
+# learnable plus the two parameter-free ones. --activations is validated
+# against this wider set, the default stays ACTS.
+BUILDABLE_ACTS = ACTS + ["relu", "tanh"]
 
 
 def _bakeoff_worker(gpu_id, my_acts, sizes, cfg, rescale,
@@ -260,9 +266,9 @@ def main():
   add_cocoa_path_args(parser)
   parser.add_argument("--activations",
                       dest="activations",
-                      help="comma-separated activations to bake off, a "
-                           "subset of H,power,multigate,gated_power "
-                           "(default: all four)",
+                      help="comma-separated activations to bake off, from "
+                           "H,power,multigate,gated_power,relu,tanh "
+                           "(default: the four learnable families)",
                       type=str,
                       default=",".join(ACTS))
   parser.add_argument("--rescale",
@@ -325,11 +331,11 @@ def main():
   # collect any unknown names.
   bad = []
   for a in activations:
-    if a not in ACTS:
+    if a not in BUILDABLE_ACTS:
       bad.append(a)
   if bad:
     raise ValueError(
-      f"unknown activation(s) {bad}; choose from {ACTS}")
+      f"unknown activation(s) {bad}; choose from {BUILDABLE_ACTS}")
 
   # headless figure output: pick a non-interactive matplotlib backend before
   # emulator.plotting imports pyplot (lazily, below) and any worker spawns, so
