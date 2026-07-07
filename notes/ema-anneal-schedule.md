@@ -113,7 +113,91 @@ then `cd ../../..` and `git merge claude/amazing-keller-e798b6`.
 
 ## Resume state (Implementer appends below)
 
-(none yet)
+### 2026-07-06 — Implementer (Opus 4.8) execution
+
+Clean base: D-P2v2 committed 07e4564. This unit (ema-anneal + the GMP
+phase-block amendment) lands as its own commit.
+
+**Done (training.py):**
+
+- Generalized `_validate_berhu_anneal` -> shared `_validate_anneal_block(
+  anneal, which)` (`q = f"train_args.{which}.anneal"`); the berhu call site
+  now passes `f"{which}.berhu"`, so `train_args.loss.berhu.anneal` errors are
+  unchanged. `_ANNEAL_KEYS`/`_ANNEAL_SHAPES` comment notes it is shared.
+- `_EMA_KEYS` += "anneal". `validate_ema(ema, which="train_args")` gains
+  `which`, routes `ema["anneal"]` through the shared validator (path
+  `train_args.{which}.ema.anneal`), and returns `{horizon_epochs, anneal}`
+  (anneal resolved or None), or None when absent.
+- training_loop_batched: the target beta is the s=1 value; when `ema.anneal`
+  is present, `ema_s_opts` (start 0/end 1) feeds anneal_value and beta is
+  recomputed per epoch `beta(e) = derive_ema_beta(horizon * s(e), steps)` --
+  an EAGER Python float (the lerp is uncompiled; a prominent comment forbids
+  turning it into a tensor or copying the pattern to compiled schedules).
+  Live point = max(warmup end, first s>0). No-anneal path keeps the one-time
+  constant beta and the byte-identical banner; annealed banner marks the
+  target with `beta -> ...` + the schedule.
+- GMP: "ema" rejoins `_PHASE_BLOCK_KEYS` (8); validate_phase_block validates
+  the phase ema sub-block (ema: null accepted = the opt-out); run_emulator
+  per pass resolves `ema_pass` beside `loss_pass` (key-present incl null
+  replaces, absent inherits) via `validate_ema(phase_opts["ema"], which_l)`,
+  passes `ema=ema_pass` to the loop, and the phase banner notes ema
+  override/off. Demotion + sweep are automatic (prefix-strip / generic
+  strip; SWEEPABLE already carries "ema").
+
+**Docs:** experiment.__init__ ema entry (anneal + phase override + sweep);
+train_single YAML commented anneal twins + the ema: null opt-out note;
+run_emulator ema + phase-key docstrings; the weight-ema note gains a pointer.
+
+**Deviations:** none. Interface: validate_ema gained `which`
+(default "train_args", back-compatible); validate_ema's return shape is now
+{horizon_epochs, anneal} (was the input dict) -- declared.
+
+**Gate evidence (raw, Mac -- exec-extract + numpy, no torch):**
+
+    === GME-A  h(e)=target*s(e) ===  beta 0 through hold + while h*steps<1;
+      ramp-end beta == the no-anneal target exactly; monotone; clamp-boundary
+      continuity (beta(1/steps)=0 -> small); cosine + linear; hold 0 +
+      anneal>>nepochs edges.  ALL OK
+    === GME-A2  _EMA_KEYS {horizon_epochs, anneal}; shared validator ===
+      the 9 anneal rejection cases each raise on BOTH paths, ema.anneal
+      vs loss.berhu.anneal error text path-correct; validate_ema(None)/None.
+      ALL OK
+    === GMP-A  phase ema resolution + demotion ===  trunk-only / head-only;
+      per-phase horizons; ema: null disables inherited; key-absent inherits;
+      trunk.ema demotes (incl null -> off); error path train_args.trunk.ema;
+      validate_phase_block validates + accepts ema: null.  ALL OK
+    === GMP-B / GME-B  static ===  ema in _PHASE_BLOCK_KEYS(8); ema_pass
+      beside loss_pass; ema=ema_pass; shared validator rename + both call
+      paths; live point; per-epoch beta; eager-float comment; byte-identity
+      constant beta; banner.  ALL OK
+
+    GME/GMP gate: ALL PASS
+
+    House scans: 0 over-width, 0 new ` -- ` (de-dashed 4), new all-caps =
+    {EMA} (de-capped PYTHON/FLOAT/EAGER/LIVE/POINT/NOTE). Whole-tree
+    py_compile OK.
+
+**GME-C (workstation, rides the queue).** From $ROOTDIR:
+
+    R=--root=<root> ; F=--fileroot=<fileroot>
+    Y=--yaml=train_single_emulator_cosmic_shear.yaml
+    # leg 1 golden: an ema run WITHOUT anneal is byte-identical pre/post.
+    #   ema: {horizon_epochs: 3}   (NO anneal key)
+    git stash && python train_single_emulator_cosmic_shear.py $R $F $Y \
+      > /tmp/me_pre.log 2>&1
+    git stash pop && python train_single_emulator_cosmic_shear.py $R $F $Y \
+      > /tmp/me_post.log 2>&1
+    diff <(grep -E '^(phase|epoch|best|ema)' /tmp/me_pre.log) \
+         <(grep -E '^(phase|epoch|best|ema)' /tmp/me_post.log)   # EMPTY
+    # leg 2 smoke: ema: {horizon_epochs: 3, anneal: {hold_epochs: 5,
+    #   anneal_epochs: 10, shape: cosine}}. Banner: "ema: horizon 3 epochs
+    #   (beta -> 0.99...; anneal: hold 5 + 10 cosine; ...)". EMA metrics
+    #   (the average's val line) FIRST appear at the live point (epoch 6+,
+    #   after the hold + warmup), and the printed metrics converge toward the
+    #   raw ones' smoothed neighborhood as s -> 1 by epoch 15.
+
+**Commit (user-side).** One unit; the note's Sequencing command. Open:
+GME-C (workstation) + the Architect re-audit.
 
 ### ARCHITECT_HANDOFF: READY FOR EXECUTION (after the D-P2v2 unit)
 
@@ -179,3 +263,31 @@ Gate additions (GMP):
 - GMP-B (static): "ema" in _PHASE_BLOCK_KEYS (8); ema_pass resolution
   beside loss_pass; per-pass banner; the up-front top-level
   validate_ema stays (absent-phase inheritance validates once).
+
+### 2026-07-06 — Architect re-audit: ACCEPTED (no deltas; one harness
+### self-correction)
+
+Verified independently (own harness, 28 checks after redoing one my
+harness had mis-called). GME-A: beta == 0 through the hold; ramp-end
+beta EQUALS the no-anneal target exactly; the cosine midpoint equals
+beta(h = 1.5) to machine precision; the clamp region keeps beta 0
+while h(e)*steps < 1 (the continuous live point). GME-A2/GMP config:
+validate_ema returns the normalized {horizon_epochs, anneal}; error
+paths name train_args.trunk.ema.anneal and train_args.loss.berhu.anneal
+correctly (the berhu regression re-run with the proper 3-arg call
+after my harness's 2-arg mistake produced a spurious pass — corrected,
+genuinely PASS); the shared validator rejects the missing-key /
+zero-span / bad-shape cases. GMP-A: trunk-only, head-only, different
+horizons, the ema: null opt-out, key-absent inheritance, and the
+demotion legs (trunk.ema merges; trunk ema null -> top-level off) all
+exact, input unmutated. Statics: _EMA_KEYS with anneal;
+_PHASE_BLOCK_KEYS == 8 with ema; the eager-float comment guards the
+beta(e) recomputation; the no-anneal path is guard-gated
+(byte-identity); the per-pass banner notes "ema off" / the horizon.
+Scans + whole-tree py_compile clean. Both declared deviations
+accepted (which= back-compatible; normalized return).
+
+Commit (user):
+
+    git add -A
+    git commit -m "Anneal the EMA horizon + per-phase ema blocks (ema.anneal via the shared schedule validator; eager-float beta(e); ema joins the phase whitelist with null opt-out; gates GME-A/A2/B + GMP-A/B Architect-verified)"

@@ -631,13 +631,19 @@ class EmulatorExperiment:
                      rewind = optional (default False): reload the
                        best weights + optimizer snapshot at every
                        plateau lr cut, see run_emulator;
-                     ema = optional mapping {horizon_epochs} (absent =
-                       off = a byte-identical run): keep a Polyak weight
-                       average over horizon_epochs, coupled to the best
-                       snapshot / rewind; selection + reported metrics
-                       use the average, the scheduler the raw median,
-                       and the shipped model is the best average, see
-                       run_emulator;
+                     ema = optional mapping {horizon_epochs, anneal}
+                       (absent = off = a byte-identical run): keep a
+                       Polyak weight average over horizon_epochs, coupled
+                       to the best snapshot / rewind; selection + reported
+                       metrics use the average, the scheduler the raw
+                       median, and the shipped model is the best average.
+                       An optional anneal: sub-block {hold_epochs,
+                       anneal_epochs, shape} (the berhu-anneal twins) ramps
+                       the horizon from 0, deferring the average past the
+                       terrible early era; per-phase overridable (a phase
+                       ema: full-replaces, ema: null disables it there) and
+                       sweepable (ema.horizon_epochs /
+                       ema.anneal.hold_epochs), see run_emulator;
                    Plus six constructible sub-blocks (each a mapping):
                      model = the nested model block: "name" (the
                        architecture: resmlp | rescnn | restrf) and

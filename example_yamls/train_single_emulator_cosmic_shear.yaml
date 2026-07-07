@@ -117,6 +117,19 @@ train_args:
   # median. A quality knob, sweepable.
   # ema:
   #   horizon_epochs: 3
+  #   anneal:                # optional (presence = on; absent = full
+  #                          # horizon from the live point). Ramps the
+  #                          # averaging window from 0 (the berhu-anneal
+  #                          # twins): h(e) = horizon * s(e), so the average
+  #                          # has no memory through the terrible early era
+  #                          # and grows to the full horizon as s -> 1. The
+  #                          # average goes live only once s > 0.
+  #     hold_epochs:   50    # window 0 (average dormant) through here
+  #     anneal_epochs: 300   # then ramp the horizon 0 -> full over these
+  #     shape:         cosine  # cosine | linear | step | const
+  # A per-phase ema: (under trunk: / head:) full-replaces this one for that
+  # pass; ema: null (the key with an empty value) disables an inherited
+  # top-level ema for that phase.
 
   # Two-phase schedule (a factored correction head: name rescnn |
   # restrf + ia: nla; omit or 0 = joint training).

@@ -216,17 +216,19 @@ def make_scheduler(optimizer, sched_opts):
   return cls(optimizer, **extra)
 
 
-# the seven keys a per-phase override block (train_args.trunk / .head) may
+# the eight keys a per-phase override block (train_args.trunk / .head) may
 # carry, mirroring the top-level train_args schema key-for-key: lr is an
 # overlay onto the top-level lr block, scheduler a full replacement of the
-# scheduler kwargs, the other five (loss / trim / focus / clip / rewind)
+# scheduler kwargs, the other six (loss / trim / focus / clip / rewind / ema)
 # replace their same-named top-level value (loss is the nested loss block
-# {mode, berhu}, full replacement like trim/focus and validated by
-# validate_loss). validate_phase_block is the one whitelist, imported by
+# {mode, berhu}, ema the weight-average block {horizon_epochs, anneal}; both
+# full replacement like trim/focus and validated by validate_loss /
+# validate_ema (a phase ema: null disables an inherited top-level ema for
+# that pass). validate_phase_block is the one whitelist, imported by
 # experiment.py (training must not import experiment, so the validator
 # lives here).
 _PHASE_BLOCK_KEYS = ("lr", "scheduler", "loss", "trim", "focus",
-                     "clip", "rewind")
+                     "clip", "rewind", "ema")
 
 
 def _phase_lr_migration_message(block, which):
@@ -328,11 +330,14 @@ def validate_phase_block(block, which):
         f"train_args.{which}.scheduler must not set cls: the scheduler "
         f"class is the run's; a phase overrides only its kwargs "
         f"(mode / patience / factor / ...)")
-  # loss is the nested loss block {mode, berhu}; validate it here so a
-  # malformed phase loss block fails identically on the two-phase path
+  # loss / ema are the nested blocks a phase may carry; validate them here so
+  # a malformed phase block fails identically on the two-phase path
   # (run_emulator) and the single-phase demotion (resolve_phase_args), and
   # even when the block is later dropped (a head: on a single-phase model).
+  # A phase ema: null (key present, value None) validates trivially; it is
+  # the opt-out (disable an inherited top-level ema for that pass).
   validate_loss(block.get("loss"), which)
+  validate_ema(block.get("ema"), which)
   return block
 
 
@@ -582,29 +587,30 @@ _EVAL_BS_TARGET = 1024
 # catastrophic band above which berhu_capped stops escalating the vote.
 _BERHU_DEFAULTS = {"knot": 0.2, "cap": 10.0}
 
-# the keys the optional berhu anneal: sub-block accepts (trim's argument
-# names) and the schedule shapes it may name (the anneal_value helper's
-# set). Present -> the loss ramps from plain sqrt into the full berhu shape
-# over the schedule; see _validate_berhu_anneal and the s_t threading in
+# the keys an anneal: sub-block accepts (trim's argument names) and the
+# schedule shapes it may name (the anneal_value helper's set). Shared by the
+# two anneal features: loss.berhu.anneal ramps the berhu blend, ema.anneal
+# ramps the average's horizon; both feed {start: 0, end: 1, **this block} to
+# anneal_value. See _validate_anneal_block + the s_t / beta(e) threading in
 # training_loop_batched.
 _ANNEAL_KEYS   = ("hold_epochs", "anneal_epochs", "shape")
 _ANNEAL_SHAPES = ("const", "linear", "cosine", "step")
 
 
-def _validate_berhu_anneal(anneal, which):
+def _validate_anneal_block(anneal, which):
   """
-  Validate the optional anneal: sub-block of a loss.berhu block.
+  Validate an optional anneal: sub-block (the trim-style 0 -> 1 schedule).
 
-  The anneal schedule (trim's argument names) ramps a blend factor s from 0
-  to 1, so a berhu run starts as plain sqrt and eases into the full berhu
-  shape; the training loop feeds {start: 0, end: 1, **this block} to the
-  existing anneal_value helper (no new schedule code). Standalone / pure
-  (no torch).
+  Shared by loss.berhu.anneal (ramps the sqrt -> berhu blend) and ema.anneal
+  (ramps the average's horizon); the anneal is feature-agnostic in substance
+  (trim's argument names, fed to the existing anneal_value helper with
+  start 0 / end 1, no new schedule code). Standalone / pure (no torch).
 
   Arguments:
-    anneal = the raw anneal sub-block (loss["berhu"]["anneal"]).
-    which  = "loss" / "trunk.loss" / "head.loss"; the block is
-             train_args.{which}.berhu.anneal, named in error messages.
+    anneal = the raw anneal sub-block.
+    which  = the owning block's path below train_args (e.g. "loss.berhu",
+             "trunk.loss.berhu", "ema", "trunk.ema"); the block is
+             train_args.{which}.anneal, named in error messages.
 
   Returns:
     the validated anneal mapping (a copy).
@@ -614,7 +620,7 @@ def _validate_berhu_anneal(anneal, which):
     missing key, a non-integer / negative hold_epochs, an anneal_epochs
     below 1 (bool rejected in both), or an unknown shape.
   """
-  q = f"train_args.{which}.berhu.anneal"
+  q = f"train_args.{which}.anneal"
   if not isinstance(anneal, dict):
     raise TypeError(
       f"{q} must be a mapping {{hold_epochs, anneal_epochs, shape}}, got "
@@ -671,7 +677,7 @@ def validate_berhu(berhu, loss_mode, which):
     ValueError on: a berhu sub-block with a non-berhu mode; an unknown
     key; a non-positive / non-numeric (bool rejected) knot or cap;
     knot >= cap; or a malformed anneal sub-block (see
-    _validate_berhu_anneal). TypeError if berhu (or its anneal) is present
+    _validate_anneal_block). TypeError if berhu (or its anneal) is present
     but not a mapping.
   """
   is_berhu = loss_mode in ("berhu", "berhu_capped")
@@ -715,8 +721,10 @@ def validate_berhu(berhu, loss_mode, which):
       f"train_args.{which}.berhu needs knot < cap, got knot "
       f"{out['knot']}, cap {out['cap']}")
   # the optional anneal: sub-block (presence = on; the sqrt -> berhu ramp).
+  # the shared validator names the block train_args.{which}.anneal, so pass
+  # the berhu path so it reads train_args.loss.berhu.anneal.
   if "anneal" in berhu:
-    out["anneal"] = _validate_berhu_anneal(berhu["anneal"], which)
+    out["anneal"] = _validate_anneal_block(berhu["anneal"], f"{which}.berhu")
   else:
     out["anneal"] = None
   return out
@@ -903,56 +911,71 @@ def derive_eval_bs(n_val, target, load):
   return min(bs, load)
 
 
-# the keys the optional train_args.ema block accepts (the weight-averaging
-# window). horizon_epochs is the only one; the whitelist is the typo guard.
-_EMA_KEYS = {"horizon_epochs"}
+# the keys the optional train_args.ema block accepts: horizon_epochs (the
+# weight-averaging window) and an optional anneal: sub-block ramping the
+# horizon from 0 to the target (the berhu-anneal twins). The whitelist is
+# the typo guard.
+_EMA_KEYS = {"horizon_epochs", "anneal"}
 
 
-def validate_ema(ema):
+def validate_ema(ema, which="train_args"):
   """
-  Validate the optional train_args.ema block (weight ema / Polyak).
+  Validate a train_args.ema block and resolve it to {horizon_epochs, anneal}.
 
   A standalone pure function (no torch), so it is unit-testable in
-  isolation. None (the block absent) is the disabled sentinel and the
-  loop stays byte-identical; otherwise the block must be a mapping with a
-  positive horizon_epochs and no other key.
+  isolation. None (the block absent) is the disabled sentinel and the loop
+  stays byte-identical; otherwise the block must be a mapping with a positive
+  horizon_epochs, plus an optional anneal: sub-block (the same schedule the
+  berhu anneal uses, via the shared _validate_anneal_block) that ramps the
+  averaging window from 0.
 
   Arguments:
-    ema = the train_args["ema"] value, or None when the block is absent.
+    ema   = the train_args["ema"] value (or a phase's), or None when absent.
+    which = "train_args" / "trunk" / "head", naming the block's container in
+            error messages (the block itself is {which}.ema).
 
   Returns:
-    the validated ema mapping, or None when it was absent (disabled).
+    a {"horizon_epochs", "anneal"} mapping (anneal the validated sub-block or
+    None), or None when ema was absent (disabled).
 
   Raises:
-    ValueError on an unknown ema key, a missing horizon_epochs, or a
-    non-positive / non-numeric horizon_epochs (bool rejected).
-    TypeError if ema is present but not a mapping.
+    ValueError on an unknown ema key, a missing horizon_epochs, a
+    non-positive / non-numeric horizon_epochs (bool rejected), or a malformed
+    anneal sub-block. TypeError if ema (or its anneal) is present but not a
+    mapping.
   """
+  qual = "train_args.ema" if which == "train_args" else f"train_args.{which}.ema"
   if ema is None:
     return None
   if not isinstance(ema, dict):
     raise TypeError(
-      f"train_args.ema must be a mapping ({{horizon_epochs: ...}}), got "
+      f"{qual} must be a mapping ({{horizon_epochs: ...}}), got "
       f"{type(ema).__name__}")
   unknown = set(ema) - _EMA_KEYS
   if unknown:
     raise ValueError(
-      f"unknown train_args.ema key(s): {sorted(unknown)}; allowed: "
+      f"unknown {qual} key(s): {sorted(unknown)}; allowed: "
       f"{sorted(_EMA_KEYS)}")
   if "horizon_epochs" not in ema:
     raise ValueError(
-      "train_args.ema needs 'horizon_epochs' (the averaging window in "
-      "epochs, a positive number)")
+      f"{qual} needs 'horizon_epochs' (the averaging window in epochs, a "
+      f"positive number)")
   h = ema["horizon_epochs"]
   # bool is an int subclass, but True/False is never an epoch count.
   if isinstance(h, bool) or not isinstance(h, (int, float)):
     raise ValueError(
-      f"train_args.ema.horizon_epochs must be a positive number of "
-      f"epochs, got {h!r}")
+      f"{qual}.horizon_epochs must be a positive number of epochs, got "
+      f"{h!r}")
   if h <= 0:
     raise ValueError(
-      f"train_args.ema.horizon_epochs must be > 0, got {h}")
-  return ema
+      f"{qual}.horizon_epochs must be > 0, got {h}")
+  # the optional anneal: sub-block (presence = on; the horizon ramp). The
+  # shared validator names it train_args.{path}.anneal, so pass the ema path.
+  which_anneal = "ema" if which == "train_args" else f"{which}.ema"
+  anneal = None
+  if "anneal" in ema:
+    anneal = _validate_anneal_block(ema["anneal"], which_anneal)
+  return {"horizon_epochs": h, "anneal": anneal}
 
 
 def derive_ema_beta(horizon_epochs, steps_per_epoch):
@@ -1247,10 +1270,10 @@ def training_loop_batched(nepochs,
                  scheduler like CosineAnnealingLR changes the lr
                  every epoch; rewinding on each change would pin
                  the run to its best forever).
-    ema        = optional validated ema block ({horizon_epochs}) or
-                 None (off = a byte-identical loop). When set, a
-                 Polyak weight average theta_bar is kept from the end
-                 of warmup: updated after every optimizer.step at
+    ema        = optional validated ema block ({horizon_epochs, anneal})
+                 or None (off = a byte-identical loop). When set, a
+                 Polyak weight average theta_bar is kept from the live
+                 point: updated after every optimizer.step at
                  beta = derive_ema_beta(horizon_epochs,
                  steps_per_epoch), evaluated per epoch by swapping it
                  into the model in place, and coupled to the best
@@ -1260,7 +1283,12 @@ def training_loop_batched(nepochs,
                  the printed metrics then use the average; the plateau
                  scheduler stays on the raw median (dynamics
                  unchanged). The returned model carries the best
-                 average.
+                 average. With an anneal sub-block {hold_epochs,
+                 anneal_epochs, shape} the horizon ramps from 0:
+                 h(e) = horizon_epochs * s(e), beta(e) an eager per-epoch
+                 float (the lerp is uncompiled), and the live point moves
+                 to max(warmup end, first s > 0); absent = the constant
+                 beta from warmup end (byte-identical).
     berhu      = the resolved {knot, cap, anneal} for the berhu /
                  berhu_capped modes (run_emulator resolved it from the
                  pass's loss block via validate_loss); None -> the defaults
@@ -1299,10 +1327,11 @@ def training_loop_batched(nepochs,
   # byte-identical to before the feature. validate_ema already ran in
   # run_emulator, so a non-None block is well-formed here.
   ema_on         = ema is not None
-  theta_bar      = None    # the running average; allocated at warmup end
+  theta_bar      = None    # the running average; allocated at the live point
   ema_tmp        = None    # param-sized scratch for the in-place eval swap
   best_theta_bar = None    # the average at the best epoch (the shipped one)
   best_is_ema    = False   # does the current best snapshot carry theta_bar?
+  ema_s_opts     = None    # the horizon-anneal schedule (None = no anneal)
   if ema_on:
     # steps_per_epoch = the loop's real full-batch count (whole batches
     # per chunk, summed over chunks), so the horizon is counted in steps
@@ -1311,17 +1340,47 @@ def training_loop_batched(nepochs,
     for cs in range(0, ntrain, load):
       chunk = min(load, ntrain - cs)
       steps_per_epoch += chunk // bs
-    beta = derive_ema_beta(horizon_epochs=ema["horizon_epochs"],
-                           steps_per_epoch=steps_per_epoch)
+    horizon = ema["horizon_epochs"]
+    # the target beta (the full-horizon value, s = 1): the no-anneal run's
+    # constant beta and the anneal ramp's endpoint.
+    target_beta = derive_ema_beta(horizon_epochs=horizon,
+                                  steps_per_epoch=steps_per_epoch)
+    # optional horizon anneal (ema.anneal): schedule the horizon, not a
+    # blend. h(e) = horizon * s(e), beta(e) = derive_ema_beta(h(e), ...);
+    # s = 0 gives beta = 0 (the existing denom<1 clamp -> theta_bar tracks
+    # theta, no memory of the terrible early era), growing to the target as s
+    # ramps. ema_s_opts feeds the shared anneal_value helper (start 0/end 1).
+    ema_anneal = ema.get("anneal")
+    if ema_anneal is not None:
+      ema_s_opts = {"shape":         ema_anneal["shape"],
+                    "start":         0.0,
+                    "end":           1.0,
+                    "hold_epochs":   ema_anneal["hold_epochs"],
+                    "anneal_epochs": ema_anneal["anneal_epochs"]}
+    # beta this epoch. Note: beta is a per-epoch Python float, deliberately;
+    # the EMA lerp below is eager (theta_bar is a private buffer, never
+    # graph-captured), unlike trim_t / focus_t / s_t which feed the compiled
+    # step. Do not turn beta into a device tensor, and do not copy this float
+    # pattern into any compiled-side schedule. With no anneal it is the target
+    # every epoch (the one-time constant, byte-identical); with anneal it is
+    # recomputed per epoch in the loop below.
+    beta = target_beta
     # the live parameter tensors (reached through any torch.compile
     # wrapper). The in-place foreach ops below mutate their storage, the
     # storage the compiled graph captured, so replay stays valid; never
     # rebind a parameter's .data or the list entry.
     ema_params = list(model.parameters())
     if not silent:
-      print(f"ema: horizon {ema['horizon_epochs']} epochs "
-            f"(beta {beta:.6f}; selection + metrics on the average, "
-            f"scheduler on the raw median)")
+      # the no-anneal banner is byte-identical; the anneal banner marks the
+      # target as the ramp endpoint and names the schedule.
+      if ema_anneal is None:
+        beta_note = f"beta {target_beta:.6f}"
+      else:
+        beta_note = (f"beta -> {target_beta:.6f}; anneal: hold "
+                     f"{ema_anneal['hold_epochs']} + "
+                     f"{ema_anneal['anneal_epochs']} {ema_anneal['shape']}")
+      print(f"ema: horizon {horizon} epochs ({beta_note}; selection + "
+            f"metrics on the average, scheduler on the raw median)")
 
   train_losses, medians, means, fracs = [], [], [], []
 
@@ -1519,11 +1578,16 @@ def training_loop_batched(nepochs,
       scale = epoch / warmup_epochs
       for grp, base in zip(optimizer.param_groups, base_lrs):
         grp["lr"] = base * scale
-    # initialize the weight average at the end of warmup (the high-lr
-    # ramp is not worth averaging): the first post-warmup epoch clones
-    # theta into theta_bar + the scratch buffers, then the per-step
-    # update below starts. Before this, ema_on runs the loop as usual.
-    if ema_on and theta_bar is None and epoch > warmup_epochs:
+    # initialize the weight average at the live point: the later of warmup
+    # end (the high-lr ramp is not worth averaging) and the first epoch the
+    # horizon anneal leaves the hold (s > 0, so the average never starts in
+    # the dead-memory hold). No anneal -> the warmup-end floor alone,
+    # unchanged. The first post-warmup live epoch clones theta into
+    # theta_bar + the scratch buffers, then the per-step update starts;
+    # before this, ema_on runs the loop as usual.
+    if (ema_on and theta_bar is None and epoch > warmup_epochs
+        and (ema_s_opts is None
+             or anneal_value(epoch=epoch, opts=ema_s_opts) > 0.0)):
       theta_bar      = []
       ema_tmp        = []
       best_theta_bar = []
@@ -1555,6 +1619,14 @@ def training_loop_batched(nepochs,
     # compiled graph). The schedule restarts at this pass's own epoch 1.
     if s_t is not None:
       s_t.fill_(anneal_value(epoch=epoch, opts=s_opts))
+    # the ema horizon anneal: recompute beta from this epoch's scheduled
+    # horizon h(e) = horizon * s(e) (an eager Python float; see the ema setup
+    # note above). Only when ema.anneal is present; without it beta stays the
+    # one-time target (byte-identical). The lerp reads this beta below.
+    if ema_s_opts is not None:
+      s_ema = anneal_value(epoch=epoch, opts=ema_s_opts)
+      beta = derive_ema_beta(horizon_epochs=horizon * s_ema,
+                             steps_per_epoch=steps_per_epoch)
 
     # epoch training loss, accumulated on-device
     run_sum = torch.zeros((),
@@ -1925,7 +1997,7 @@ def run_emulator(train_set,
                    (Typical use: by the handoff the trunk has absorbed
                    most outliers, so the head phase wants a different
                    objective, or a lower scheduler patience.) Validated
-                   by validate_phase_block; the seven keys, each absent
+                   by validate_phase_block; the eight keys, each absent
                    -> the run default is reused:
                      "lr"        -> an overlay {lr_base (the pass's base
                        lr, same sqrt-batch rule), warmup_epochs (the
@@ -1946,20 +2018,27 @@ def run_emulator(train_set,
                      "clip"      -> the pass's gradient-norm
                        ceiling (0 = off);
                      "rewind"    -> the pass's rewind-on-lr-cut
-                       switch (true / false).
+                       switch (true / false);
+                     "ema"       -> the pass's weight-average block
+                       {horizon_epochs, anneal}, a full replacement; a
+                       null block (key present, value None) disables an
+                       inherited top-level ema for that pass.
                    EmulatorExperiment.train resolves these away for
                    single-phase models (it merges trunk: into the top
                    level and drops head: / trunk_epochs); a direct
                    caller passes clean args and the guards below stay
                    strict.
-    ema          = optional weight-averaging block ({horizon_epochs})
-                   or None (off). When set, a Polyak average of the
-                   weights is kept, coupled to the best snapshot and
+    ema          = optional weight-averaging block ({horizon_epochs,
+                   anneal}) or None (off). When set, a Polyak average of
+                   the weights is kept, coupled to the best snapshot and
                    the rewind as one unit (see training_loop_batched):
                    selection and the reported metrics use the average,
                    the plateau scheduler stays on the raw median, and
-                   the returned model carries the best average. Off =
-                   a byte-identical run. Re-initialized per phase.
+                   the returned model carries the best average. An anneal
+                   sub-block ramps the horizon from 0 (defers the average
+                   past the terrible early era). Off = a byte-identical
+                   run. Resolved + re-initialized per phase (a phase ema:
+                   full-replaces it, or ema: null disables it there).
 
   Returns:
     model        = trained network, restored to the best frac>0.2
@@ -2233,6 +2312,15 @@ def run_emulator(train_set,
     loss_pass  = validate_loss(loss_raw, which_l)
     mode_pass  = loss_pass["mode"]
     berhu_pass = loss_pass["berhu"]
+    # resolve the effective ema block for this pass (the loss/trim/focus
+    # full-replacement semantics): a phase ema: replaces the top-level one
+    # when the key is present (including ema: null, which disables it for
+    # this pass, validate_ema(None) -> off); key-absent inherits. theta_bar
+    # already re-initializes per pass, so per-phase ema is independent.
+    if phase_opts is not None and "ema" in phase_opts:
+      ema_pass = validate_ema(phase_opts["ema"], which_l)
+    else:
+      ema_pass = ema
     if phase is not None and not silent:
       noted = []
       if wmupe_pass != wmupe:
@@ -2247,6 +2335,12 @@ def run_emulator(train_set,
         noted.append(f"clip {clip_pass:g}")
       if rewind_pass != rewind:
         noted.append(f"rewind {rewind_pass}")
+      # ema: note when the phase sets its own (a null phase block disables
+      # an inherited one); the full horizon / beta / anneal line then prints
+      # from training_loop_batched's own ema banner for this pass.
+      if ema_pass is not ema:
+        noted.append("ema off" if ema_pass is None
+                     else f"ema horizon {ema_pass['horizon_epochs']:g}")
       tail = (f"  [{phase} overrides: {', '.join(noted)}]"
               if noted else "")
       # berhu prints its resolved knot(s) (the cap too for the capped
@@ -2292,7 +2386,7 @@ def run_emulator(train_set,
                                  silent=silent,
                                  clip=clip_pass,
                                  rewind=rewind_pass,
-                                 ema=ema,
+                                 ema=ema_pass,
                                  berhu=berhu_pass)
     # histories concatenate across phases: one continuous per-epoch
     # record, as a single-pass run produces. ema re-initializes inside

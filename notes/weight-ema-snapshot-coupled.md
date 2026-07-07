@@ -8,6 +8,11 @@ metadata:
 
 # Weight EMA, coupled to the snapshot/rewind state
 
+> Follow-on: [[ema-anneal-schedule]] adds an optional `ema.anneal` sub-block
+> that ramps the horizon from 0 (beta(e) via the same derive_ema_beta, eager
+> per-epoch float), defers the average past the terrible early era, and
+> brings ema into the phase-block whitelist (per-phase / `ema: null` opt-out).
+
 User request 2026-07-06, from the batch-size generalization gap
 (frac>0.2: 0.065 at bs 64, 0.071 at 128, 0.10 at 768 despite the
 sqrt-bs lr rule): EMA is the one lever that helps the tail metric at
