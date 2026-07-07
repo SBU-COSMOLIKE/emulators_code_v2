@@ -11,10 +11,10 @@
     "gate_configs": "Per-gate bespoke smoke YAML (relative to yaml_dir). A null entry = the gate reports its config missing and is skipped, naming the file to author."
   },
 
-  "rootdir": null,
-  "driver_root": null,
-  "driver_fileroot": null,
-  "yaml_dir": null,
+ "rootdir": "/home/vivianmiranda/extra_data/VivianMiranda/june2026/cocoa/Cocoa",
+  "driver_root": "projects/lsst_y1",
+  "driver_fileroot": "<your usual --fileroot value>",
+  "yaml_dir": "external_modules/code/emulators_code_v2/example_yamls",
   "saved_emulator_root": null,
   "evaluate_yaml": "cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml",
 
