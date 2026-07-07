@@ -1,0 +1,38 @@
+# GB-C leg 2: head-berhu under the nested loss schema (loss-mode-berhu.md:290-314). Trunk banner 'loss_mode sqrt', head banner 'loss_mode berhu_capped (knot 0.2, cap 10)'.
+#
+data:
+  train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
+  train_params: w0wa_takahashi_params_train_cs_16.1.txt
+  train_covmat: w0wa_takahashi_params_train_cs_16.covmat
+  val_dv:       w0wa_takahashi_dvs_train_cs_8.npy
+  val_params:   w0wa_takahashi_params_train_cs_8.1.txt
+  cosmolike_data_dir: lsst_y1
+  cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
+  param_cuts:
+    omegabh2_hi:   0.035
+    omegabh2_lo:   0.014
+    omegam2h2_lo:  0.015
+    omegam2h2_hi:  0.08
+  n_train:       25000
+  n_val:         5000
+  split_seed:    0
+  ram_frac:      0.7
+
+train_args:
+  nepochs: 60
+  bs:      256
+  loss:
+    mode: sqrt
+  trunk_epochs: 30
+  head:
+    loss:
+      mode: berhu_capped
+      berhu:
+        knot: 0.2
+        cap:  10
+  model:
+    name: rescnn
+    ia:   nla
+    mlp:
+      width:    128
+      n_blocks: 4

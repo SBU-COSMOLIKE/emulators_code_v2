@@ -558,3 +558,298 @@ valid tree; resume state names the remaining scripts. Report:
 IMPLEMENTER_HANDOFF + resume state, raw gate outputs, deviations
 declared. Do not commit: print the suggested commit command.
 ### END
+
+## Implementer resume state: the remainder unit (2026-07-07, Opus, base 04e1674) -- PARTIAL, RESUME HERE
+
+DONE + Mac-gated (py_compile; PYTHONPATH import smoke = heavy-dep-only
+failure; the full --dry-run still prints 18 plans with every filled key
+resolved; every YAML re-parses with ruby):
+
+- gates/checks/gb_c_berhu_reduce.py (GB-C leg 1, loss-mode-berhu.md
+  :148-153): drives the REAL CosmolikeChi2._reduce (unbound, self=None,
+  trim/focus off so a 1-element input reads v(c)); asserts berhu == sqrt
+  below the knot, berhu_capped == berhu below the cap, both match the
+  manual reference, C1 (value + autograd derivative) across BOTH knots,
+  the anneal s=0/s=1 endpoints, over default (0.2, 10.0) AND non-default
+  (0.5, 5.0) knots.
+- gates/checks/gwd_census.py (GWD-C, weight-decay-only-weight-matrices.md
+  :143-147): a ToyTree with one of each family (nn.Linear, nn.Conv1d,
+  BinLinear(2,4,4), Affine(), FeatureAffine(4), make_activation
+  ("gated_power",3)(4), nn.LayerNorm(4)); runs the REAL make_optimizer
+  (wd 1e-4); asserts decay == exactly the 3 .weights, the gated_power
+  (K,dim) w/beta/mu + the BinLinear (G,out) bias UNDECAYED, no leaks,
+  and the wd 0 inertness.
+- gates/checks/gt_b_triangle.py (GT-B, triangle-cut-shading-all-windows.md
+  :72-75): matplotlib Agg + plotting._lcdm_triangle_fig on synthetic
+  omegab/omegam/h0/ns scatter with all four windows; asserts grey fills
+  on the 2-D panels, every cut fill == plotting._CUT_GREY, the omh2
+  marginal axvspan band.
+- gates/configs/ : 17 smoke YAMLs (block style, from the home-note
+  recipes on the base template), all ruby-parse-clean. board_config.json
+  gate_configs filled with ../gates/configs/<name>.yaml paths.
+
+REMAINDER (RESUME HERE) -- two check scripts + two YAMLs:
+
+1. gates/checks/gsv_bitwise_drift.py (GSV-C). Needs an IN-PROCESS tiny
+   train -> save -> rebuild so both the live and rebuilt models are held
+   for the bitwise compare; this replicates the driver's config ->
+   EmulatorExperiment assembly, which is the risky part (defer to author
+   with the experiment source open, not blind). APIs (verified):
+   results.save_emulator(path_root, model, param_geometry, geometry,
+   config, histories, train_args=None, attrs=None, pce=None,
+   pce_form=None, resolved_train=None, resolved_model=None) ->
+   (emul_path, h5_path); results.rebuild_emulator(path_root, device,
+   compile_model=True) -> (model, pgeom, geom, {ia, pce_base, pce_form}).
+   EmulatorExperiment(data, train_args, model_cls, opt_cls=AdamW,
+   sched_cls=ReduceLROnPlateau, probe="xi", thresholds=None,
+   use_amp=False, rescale="none", activation="H", device=None,
+   quiet=False, raw_train_args=None); .run() = stage_train -> stage_val
+   -> build_geometry -> train; the driver save call passes exp.pgeom /
+   exp.geom / exp.chi2fn.pce / exp.resolved_train (from train()) /
+   exp.resolved_model (from build_specs()). Monkeypatch drift targets:
+   training.DEFAULT_COMPILE_MODE (:98) and run_emulator's sched_opts
+   default patience 15 (:2190). v1 refusal: rebuild raises when
+   f.attrs["schema_version"] != 2. One plain + one factored (ia:nla) +
+   one NPCE (pce) tiny save.
+2. gates/checks/gct_parity.py (GCT-C). inference.EmulatorPredictor
+   (path_root, device, compile_model=False); .predict(params dict or
+   ordered seq) -> (n_keep,) numpy; .names = list(pgeom.names). Compare
+   predict(theta) to the training-side path (param_geometry.encode ->
+   model forward -> chi2fn.decode / geom.decode) on the same probe rows,
+   rtol 1e-6; the factored save->rebuild->predict round-trip. Depends on
+   GSV-C's saved artifact.
+3. gates/configs/GPC-C-excl-rescale.yaml + GPC-C-sweep.yaml (gate_configs
+   still null). GPC-C-excl-rescale: rescale is a --rescale CLI flag, not
+   a YAML key, so this leg needs board.py's gate_gpc_c to pass
+   extra=("--rescale",) on a pce YAML (a board.py follow-up, out of this
+   unit's scope); the pce+ia exclusivity (GPC-C-excl-ia) is authored and
+   covers the YAML-only case. GPC-C-sweep: needs the sweep_ntrain driver's
+   n_train-list argument form (CLI or a YAML key) before the config can
+   be written.
+
+DEVIATIONS / DECISION POINTS (for the audit):
+- Path resolution: config_yaml_name joins yaml_dir/value, and the golden
+  legs (board.py, out of scope) resolve the base YAML by BARE name, so
+  yaml_dir must be example_yamls and the gates/configs smokes are reached
+  as ../gates/configs/<name>.yaml. A board.py follow-up could resolve
+  gates/configs paths repo-relative and drop the "../". Flagged.
+- GFT-C-joint/-control use trunk_epochs 800 / nepochs 810 to match
+  board.py's hardcoded "two-phase: 800 trunk" banner assertion (a long
+  run, not tiny); the other smokes are short (20-60 epochs).
+- The three authored scripts are house-style (no verbatim exemption, per
+  the audit); they print acceptance VALUES and exit nonzero on failure.
+  Runtime correctness is workstation-diagnostic (no torch/getdist on the
+  Mac); the Mac gates verify structure + emulator import paths only.
+
+## Architect audit of the partial remainder (2026-07-07, Fable)
+
+ACCEPTED — a correct budget-wall stop; COMMIT the partial. Verified
+with independent probes: the three scripts' API anchors are REAL and
+signature-exact (make_optimizer(model, opt_opts, lr, device);
+BinLinear(n_tokens, in_features, out_features);
+make_activation("gated_power", n_gates)(dim) with .w/.beta/.mu on
+GatedPowerActivation, a0/rho covered by the no-leak check;
+CosmolikeChi2._reduce's full kwarg list incl. berhu_knot/cap/s and
+the None-self unbound call; plotting._lcdm_triangle_fig(source,
+names, dchi2, cuts) at plotting.py:740). All 17 YAMLs ruby-parse,
+zero flow style; spot-checks match the home recipes (GM-D ema
+horizon 3 + bs 64 + nepochs 60; GHA-F-license = the gated_power pin
++ freeze_trunk false; GPC-C-excl-ia = pce + ia). The dry plan
+resolves all 19 config references; exactly the two DECLARED
+deferrals stay unset. Columns clean.
+
+RULINGS: deferring gsv_bitwise_drift / gct_parity ACCEPTED (the
+experiment-assembly replication is precisely what must not be
+authored blind; the resume-state API notes are the right artifact);
+deferring GPC-C-excl-rescale (a CLI-flag exclusivity — needs
+board.py to pass the flag) and GPC-C-sweep (the sweep driver's
+n_train-list arg form) ACCEPTED; the "../" config resolution
+ACCEPTED as documented. ONE RULING AGAINST: GFT-C's 800-epoch
+trunk pairs the YAML to board.py's hardcoded banner string — the
+note (freeze-trunk-joint-phase2.md:115) orders SMALL trunk_epochs;
+the encoding must bend to the note, not the note's gate to the
+encoding. Fixed in the final sub-unit as D-GR1.
+
+## The final sub-unit (last before the board runs)
+
+1. gates/checks/gsv_bitwise_drift.py + gates/checks/gct_parity.py
+   (from the resume-state API notes, with experiment.py open).
+2. The two deferred YAMLs: GPC-C-sweep (the sweep_ntrain arg form);
+   GPC-C-excl-rescale + the board.py leg passing the --rescale flag.
+3. D-GR1: board.py's GFT-C banner assertion becomes a regex
+   (two-phase: \d+ trunk); GFT-C-joint/-control shrink to small
+   trunk_epochs (e.g. 30/40) per the note.
+4. (optional, if cheap) repo-relative gates/configs resolution in
+   config_yaml_name, dropping the "../".
+
+### Final sub-unit handoff (relay after the partial commits)
+
+### ARCHITECT_HANDOFF
+Task: the gates final sub-unit (spec: "The final sub-unit" section
+of notes/gates-harness-user-run.md + the resume-state API notes
+above it; house style binds; the two scripts are authored with
+emulator/experiment.py and emulator/results.py OPEN, never from
+memory). Base: the partial-remainder commit (`git log -1` shows it
+— else STOP). Scope: the two scripts, the two YAMLs, board.py
+(the --rescale leg + the D-GR1 regex banner), the GFT-C YAMLs,
+board_config.json keys, + resume state here. Gates: py_compile +
+the PYTHONPATH import smoke on both scripts; ruby-parse the YAMLs;
+the full-board --dry-run resolves EVERY gate_configs key (zero
+UNSET); the GFT-C dry plan shows the small-trunk YAML; the GPC-C
+dry plan shows the --rescale flag on the excl-rescale leg. Report:
+IMPLEMENTER_HANDOFF + resume state, raw outputs, deviations
+declared. Do not commit: print the suggested commit command.
+### END
+
+## Implementer final sub-unit closure (2026-07-07, Opus, base 04e1674 + the uncommitted partial-remainder tree)
+
+The harness is COMPLETE: all five check scripts + all 19 smoke YAMLs
+authored, board.py's GPC-C / GFT-C legs finished, board_config.json
+fully filled. Mac-gated (py_compile; PYTHONPATH import smoke =
+heavy-dep-only; ruby-parse all 19 YAMLs; full --dry-run = 18 plans with
+ZERO UNSET gate_configs; GGH-A 35/35 + GGH-B 20/20 still green; the 5
+check scripts pass the house-style scan).
+
+- gates/checks/gsv_bitwise_drift.py (GSV-C): three tiny in-process
+  saves (plain + factored ia:nla + NPCE pce) via
+  EmulatorExperiment.from_config -> run -> save_emulator; the rebuilt
+  model output is torch.equal to the live model's on a probe batch; the
+  drift proof monkeypatches training.DEFAULT_COMPILE_MODE and rebuilds
+  unchanged; a tampered schema_version=1 h5 is refused. Deploy paths +
+  the dump dir (<root>/chains) come from board_config.json.
+- gates/checks/gct_parity.py (GCT-C): trains tiny plain + factored,
+  builds EmulatorPredictor from the saved root, compares predict(theta)
+  to the training-side decode (geom.decode for plain,
+  chi2fn.decode(pred, x_enc) for factored) at rtol 1e-6; the factored
+  case is the real save->rebuild->predict round-trip (D-CT1). Reuses
+  gsv_bitwise_drift's load_deploy / tiny_config / train_save.
+- gates/configs/GPC-C-excl-rescale.yaml (pce residual; errors WITH the
+  gate's --rescale=residual flag) + GPC-C-sweep.yaml (pce residual; the
+  2-point grid from --n-min 1000 --n-max 2000 --n-points 2).
+- board.py: D-GR1 (gate_gft_c's banner is now the regex
+  'two-phase: \d+ trunk' + the literal "phase 'joint'"; GFT-C-joint /
+  -control shrink to trunk_epochs 30 / nepochs 40 per the note);
+  gate_gpc_c's excl-rescale leg passes extra=("--rescale=residual",)
+  and asserts the "exclusive" message, the sweep leg passes the
+  --n-min/--n-max/--n-points grid.
+- board_config.json: GPC-C-excl-rescale + GPC-C-sweep filled; all 19
+  gate_configs keys now resolve.
+
+DECISION POINTS / DEVIATIONS (for the audit):
+- The in-process data resolution (how from_config finds the dumps) is
+  the single workstation-diagnostic assumption: the scripts build
+  absolute data paths as <rootdir>/<driver_root>/chains/<name> (the
+  driver's documented convention). If the deploy differs, the first raw
+  log shows it and the fix is the data-dir line.
+- Optional item 4 (repo-relative gates/configs resolution in
+  config_yaml_name, dropping the "../") is a run_board.py change, OUT of
+  this unit's scope; the documented "../gates/configs/<name>.yaml"
+  convention stands.
+- The two scripts' runtime correctness is workstation-diagnostic (no
+  torch on the Mac); the Mac gates verify structure + emulator import
+  paths + house style. GCT-C's example-evaluate + MCMC legs live in
+  gate_gct_c (board.py), not the parity check.
+
+## Architect audit of the final sub-unit (2026-07-07, Fable)
+
+ACCEPTED WITH TWO DELTAS. Verified against the real internals:
+run() returns the 5-tuple; from_config takes quiet/device;
+val_set = {"C","dv","idx"} with C the RAW params (encode is
+correct, no double-whitening); every exp attribute the scripts read
+exists (thresholds/pce_opts/resolved_model/resolved_train/
+chi2fn.pce); save_emulator's kwargs exact; the sibling import
+(gct_parity <- gsv_bitwise_drift) rides the script-dir sys.path;
+D-GR1's regex banner + the small-trunk GFT-C YAMLs in the dry plan;
+--rescale=residual IS a valid driver choice so the exclusivity
+error (not argparse) fires; the sweep flags --n-min/--n-max/
+--n-points match the sweep driver; 19/19 YAMLs parse; zero UNSET;
+compiles; columns. The uncommitted-base flag is right — the partial
+was never committed; ONE commit now carries the whole remainder.
+
+### D-GF1: the drift proof patches the WEAKEST default
+
+The home note (save-schema-resolved-config.md:88-90) names
+make_scheduler patience / make_activation n_gates / make_model
+width / the norm default. The script patches only
+DEFAULT_COMPILE_MODE — doubly inert: the recipe stores
+compile_mode, and rebuilt_out passes compile_model=False, so the
+patched default is never even consulted. FIX: patch
+make_activation's n_gates default (activations.py:224,
+make_activation.__defaults__ = (7,)) around a rebuild — if rebuild
+trusted the code default the rebuilt activation would carry K=7
+parameters and strict load / outputs would break; with the
+file-recorded n_gates, equality holds. Keep the compile-mode leg as
+a second if wanted; n_gates is the sharp one.
+
+### D-GF2: the probe indexing bug + two riders
+
+`rows = exp.val_set["idx"][:8]; probe = C[rows]` (and gct_parity's
+`C[idx[i]]`) index the ALREADY-SLICED (n_val,) array with ORIGINAL
+dump-row numbers — idx values from a 16k pool against a 100-row
+array = IndexError, or silently wrong rows. FIX: positional slices
+(probe = C[:8]; row = C[i]). Riders: (a) attrs n_train records the
+probe size (8), not the config's 200 — record
+cfg["data"]["n_train"]; (b) tiny_config's model dict gains
+"compile_mode": None — on the workstation CUDA, make_model
+default-compiles the LIVE model (reduce-overhead) while the rebuilt
+side is eager, and torch.compile float reordering can false-fail
+the BITWISE leg; pinning None keeps the gate on the save contract,
+not compile numerics (the recipe records None; rebuild consistent).
+
+### Final-deltas handoff (relay to the Implementer)
+
+### ARCHITECT_HANDOFF
+Task: D-GF1 + D-GF2 (spec: the audit verdict in
+notes/gates-harness-user-run.md; fixes binding as written). Base:
+the uncommitted remainder tree on 04e1674 (verify via git status —
+else STOP). Scope: gates/checks/gsv_bitwise_drift.py +
+gates/checks/gct_parity.py (+ this note's status line) only.
+Gates: py_compile + the PYTHONPATH import smoke on both; a
+grep-level proof that no `idx[` indexing of C remains; the
+tiny_config model dict shows "compile_mode": None; the drift leg
+names make_activation n_gates. Report: IMPLEMENTER_HANDOFF +
+resume state here, raw outputs. Do not commit: print the suggested
+commit command (ONE commit for the whole remainder).
+### END
+
+## Implementer D-GF1 + D-GF2 closure (2026-07-07, Opus, uncommitted remainder on 04e1674)
+
+Both landed in the two save-sample scripts only (scope respected).
+
+- D-GF1: the drift proof now patches the SHARP default,
+  make_activation.__defaults__ = (7,) (n_gates 3 -> 7), around the
+  rebuild; the plain save uses a gated_power (n_gates 3) activation so
+  the patch would break a code-default-trusting rebuild (K=7 params,
+  strict-load / output mismatch) but the file-recorded n_gates=3 keeps
+  it bitwise-equal. DEFAULT_COMPILE_MODE is patched too as the softer
+  second leg.
+- D-GF2: the probe indexing is positional now (gsv: probe = C[:8];
+  gct: row = C[i]), never val_set["idx"] (original 16k-pool dump-row
+  numbers against the sliced (n_val,) array = IndexError / wrong rows);
+  grep confirms zero idx-indexing of C in code. Rider a: attrs["n_train"]
+  records cfg["data"]["n_train"], not the probe size. Rider b:
+  tiny_config's model dict gains "compile_mode": None so make_model
+  never torch.compiles the live model (compile float reordering can
+  false-fail the bitwise leg on CUDA); the recipe records None, rebuild
+  consistent.
+
+Mac gates: py_compile + PYTHONPATH import smoke on both = heavy-dep-only;
+grep proof (no idx[ indexing of C in code); the model dict shows
+"compile_mode": None; the drift leg names make_activation n_gates; the
+scripts pass the house-style scan; the full --dry-run is unchanged (18
+plans, zero UNSET). The whole remainder is COMMIT-READY as ONE commit.
+
+## Architect sign-off (2026-07-07, Fable): the harness is DONE
+
+D-GF1/2 verified with independent probes: positional probe slices
+(gsv C[:8] at :148, gct C[i] at :91) with the idx trap documented in
+place; attrs n_train = the config value; tiny_config pins
+"compile_mode": None AND ships a gated_power (n_gates 3) activation
+so the sharp drift patch bites; the drift leg patches
+make_activation.__defaults__ = (7,) + DEFAULT_COMPILE_MODE, both
+restored in a finally; compiles, columns, dry plan unchanged. The
+gates harness is END-TO-END COMPLETE: framework, 19 gates, 5 check
+scripts, 19 smoke YAMLs. ONE commit carries the remainder; then the
+user runs the board on the workstation (fill board_config.json ->
+--check -> --dry-run -> run -> commit gates/logs) and the Architect
+audits the raw logs — the first run is DIAGNOSTIC by design.

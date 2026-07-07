@@ -522,7 +522,7 @@ def gate_gft_c(ctx):
   """GFT-C: freeze_trunk false joint phase 2 trains both stacks.
 
   A restrf + nla run with small trunk_epochs and freeze_trunk false:
-  the startup says "(two-phase: 800 trunk + M joint)", phase 2 says
+  the startup says "(two-phase: N trunk + M joint)", phase 2 says
   "phase 'joint': ...", loss is continuous at the handoff, and the
   phase-2 epoch time sits visibly above a freeze_trunk true control
   (the trunk backward returned). Plus the golden absent-key leg.
@@ -533,9 +533,10 @@ def gate_gft_c(ctx):
               gate_id="GFT-C",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best|run:)")
-  out = _smoke_driver(ctx=ctx,
-                      config_key="GFT-C-joint",
-                      required_banners=["two-phase: 800 trunk", "phase 'joint'"])
+  # the joint run (D-GR1: the trunk-count banner is matched by regex, so
+  # the YAML uses a small trunk_epochs per the note, not a pinned 800).
+  joint_yaml = ctx.require_config("GFT-C-joint")
+  rc_j, out = ctx.run_driver(yaml_path=joint_yaml, allow_fail=True)
   # D-GH5e: RUN the freeze_trunk:true control (not just name it) and log
   # both phase-2 epoch times side by side; the visual comparison stays,
   # but the log must carry both numbers.
@@ -543,6 +544,15 @@ def gate_gft_c(ctx):
   rc_c, out_c = ctx.run_driver(yaml_path=control_yaml, allow_fail=True)
   if ctx.dry:
     return
+  ctx.expect(label="GFT-C joint run completes",
+             ok=(rc_j == 0),
+             detail="joint exit code " + str(rc_j))
+  ctx.expect(label="GFT-C two-phase banner (regex 'two-phase: \\d+ trunk')",
+             ok=logscan.search(text=out, pattern=r"two-phase: \d+ trunk"),
+             detail="D-GR1: the trunk count is matched by regex, not pinned")
+  ctx.expect(label="GFT-C phase 'joint' banner",
+             ok=logscan.contains(text=out, needle="phase 'joint'"),
+             detail="phase 2 must announce the joint pass")
   ctx.expect(label="GFT-C freeze_trunk:true control run completes",
              ok=(rc_c == 0),
              detail="control exit code " + str(rc_c))
@@ -668,28 +678,37 @@ def gate_gpc_c(ctx):
   _smoke_driver(ctx=ctx,
                 config_key="GPC-C-ratio",
                 required_banners=["pce"])
-  # D-GH5c: the exclusivity errors (pce + rescale, pce + ia) are each
-  # invalid and must error loudly (npce-yaml-wiring.md:117-122).
-  excl_runs = []
-  for key in ("GPC-C-excl-rescale", "GPC-C-excl-ia"):
-    yaml_path = ctx.require_config(key)
-    rc_e, out_e = ctx.run_driver(yaml_path=yaml_path, allow_fail=True)
-    excl_runs.append((key, rc_e, out_e))
+  # D-GH5c: the exclusivity errors, each must error loudly
+  # (npce-yaml-wiring.md:117-122). pce + ia is invalid via the YAML
+  # alone; pce + rescale is a CLI exclusivity, so the excl-rescale leg
+  # passes --rescale=residual (--rescale is a flag, never a YAML key).
+  ia_yaml = ctx.require_config("GPC-C-excl-ia")
+  rc_ia, out_ia = ctx.run_driver(yaml_path=ia_yaml, allow_fail=True)
+  rs_yaml = ctx.require_config("GPC-C-excl-rescale")
+  rc_rs, out_rs = ctx.run_driver(yaml_path=rs_yaml,
+                                 extra=("--rescale=residual",),
+                                 allow_fail=True)
   # the 2-point sweep_ntrain smoke: the base refits per point. D-GH7:
-  # this runs the sweep-over-n_train driver, not the single-train one.
+  # the sweep-over-n_train driver, with a 2-point geometric grid
+  # (--n-min / --n-max / --n-points), not the single-train driver.
   sweep_yaml = ctx.require_config("GPC-C-sweep")
-  rc_s, out_s = ctx.run_driver(yaml_path=sweep_yaml,
-                               driver=SWEEP_NTRAIN_DRIVER,
-                               allow_fail=True)
+  rc_s, out_s = ctx.run_driver(
+    yaml_path=sweep_yaml,
+    driver=SWEEP_NTRAIN_DRIVER,
+    extra=("--n-min=1000", "--n-max=2000", "--n-points=2"),
+    allow_fail=True)
   if ctx.dry:
     return
-  for key, rc_e, out_e in excl_runs:
-    ctx.expect(
-      label="GPC-C exclusivity error (" + key + ")",
-      ok=(rc_e != 0 and logscan.search(text=out_e,
-                                       pattern=r"(?i)exclus|incompat|cannot")),
-      detail="pce + the excluded feature must exit nonzero with the "
-             "exclusivity message (rc " + str(rc_e) + ")")
+  ctx.expect(
+    label="GPC-C exclusivity error (pce + ia)",
+    ok=(rc_ia != 0 and logscan.search(text=out_ia, pattern=r"(?i)exclusive")),
+    detail="pce + model.ia must exit nonzero with the exclusive message "
+           "(rc " + str(rc_ia) + ")")
+  ctx.expect(
+    label="GPC-C exclusivity error (pce + --rescale)",
+    ok=(rc_rs != 0 and logscan.search(text=out_rs, pattern=r"(?i)exclusive")),
+    detail="pce + --rescale=residual must exit nonzero with the exclusive "
+           "message (rc " + str(rc_rs) + ")")
   refits = logscan.matching_lines(text=out_s, pattern=r"(?i)pce|refit|kept")
   ctx.expect(
     label="GPC-C 2-point sweep_ntrain refits the base per point",
