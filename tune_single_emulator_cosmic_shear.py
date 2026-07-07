@@ -13,7 +13,7 @@ so an array larger than RAM is never loaded whole.
 # restrf, optionally with a factored ia design, per the YAML), but runs an
 # Optuna study minimizing validation f(delta-chi2 > 0.2) rather than one run.
 #
-# python .../emultrf/dev/tune_single_emulator_cosmic_shear.py \
+# python .../emultrfv2/tune_single_emulator_cosmic_shear.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
 #   --yaml train_single_emulator_cosmic_shear.yaml \
@@ -82,7 +82,7 @@ import argparse
 import optuna
 import torch
 
-# This script sits beside the emulator/ package (same .../emultrf/dev/ folder),
+# This script sits beside the emulator/ package (same .../emultrfv2/ folder),
 # so launching it by path makes its own directory sys.path[0] and
 # `import emulator` resolves with no path manipulation. Run it from $ROOTDIR;
 # emulator.cocoa reads $ROOTDIR to resolve the data paths.

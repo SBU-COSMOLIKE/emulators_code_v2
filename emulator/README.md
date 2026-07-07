@@ -64,7 +64,7 @@ example_yamls/                         template YAMLs; copy one into a project's
 The driver scripts sit beside `emulator/` (no `driver/` subfolder): launching one
 puts its own folder on `sys.path`, so `import emulator` resolves with no path
 setup. In a cocoa install this folder is
-`external_modules/code/emulators/emultrf/dev/`; run the drivers from `$ROOTDIR`.
+`external_modules/code/emulators/emultrfv2/`; run the drivers from `$ROOTDIR`.
 
 Only `geometries_output.py` imports cosmolike, so training runs on a machine
 with a working Cocoa installation; the library everywhere else is pure PyTorch
@@ -319,7 +319,8 @@ The run layer that ties everything together.
 
 - `save_learning_curves(path, sizes, curves, meta)` — write a `np.loadtxt`-friendly plain-text table.
 - `save_sweep_table(path, param, values, fracs, meta)` — the one-knob sweep table (numeric values as a column; categorical as an index + label map).
-- `save_emulator(path_root, model, param_geometry, geometry, config, histories, train_args, attrs)` — persist a trained run: `.emul` (cpu state_dict, compile prefix stripped) + `.h5` (geometry `state()` groups, per-epoch histories, config YAML, run-identity attrs).
+- `save_emulator(path_root, model, param_geometry, geometry, config, histories, train_args, attrs, pce, pce_form, resolved_train, resolved_model)` — persist a trained run: `.emul` (cpu state_dict, compile prefix stripped) + `.h5` (geometry `state()` groups, per-epoch histories, raw config YAML, run-identity attrs; schema v2 adds `config_resolved_yaml` + `model_recipe` + `schema_version`/git, and a `pce` group for NPCE).
+- `rebuild_emulator(path_root, device)` — reconstruct `(model, param_geometry, geometry)` from the `.h5` + `.emul` alone (schema v2), remaking factories from the recipe names; the h5-only guarantee (a missing key is loud, never a code default), so a saved run rebuilds bit-exactly even if code defaults later drift. Refuses a v1 file.
 
 ### `emulator/plotting.py` <a name="apx-plotting"></a>
 

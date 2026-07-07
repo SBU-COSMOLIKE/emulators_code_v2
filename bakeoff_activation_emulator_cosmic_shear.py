@@ -19,7 +19,7 @@ file, read in slices so it is never loaded whole.
 # the curve shape: a real inductive-bias win keeps descending (lower sample
 # complexity) where others flatten, not a single-N offset.
 #
-#     python .../emultrf/dev/bakeoff_activation_emulator_cosmic_shear.py \
+#     python .../emultrfv2/bakeoff_activation_emulator_cosmic_shear.py \
 #       --root projects/lsst_y1/ \
 #       --fileroot emulators/training_scripts/ \
 #       --yaml train_single_emulator_cosmic_shear.yaml \
@@ -37,7 +37,7 @@ file, read in slices so it is never loaded whole.
 #  the N_train sweep). At most len(activations) GPUs used; default 4
 #  activations, 8 GPUs, 4 idle. With --n-gpus 4:
 #
-#     python .../emultrf/dev/bakeoff_activation_emulator_cosmic_shear.py \
+#     python .../emultrfv2/bakeoff_activation_emulator_cosmic_shear.py \
 #       --root projects/lsst_y1/ \
 #       --fileroot emulators/training_scripts/ \
 #       --yaml train_single_emulator_cosmic_shear.yaml \
@@ -83,7 +83,7 @@ import time
 import numpy as np
 import torch
 
-# This script sits beside the emulator/ package (same .../emultrf/dev/ folder),
+# This script sits beside the emulator/ package (same .../emultrfv2/ folder),
 # so launching it by path makes its own directory sys.path[0] and
 # `import emulator` resolves with no path manipulation. Run it from $ROOTDIR;
 # emulator.cocoa reads $ROOTDIR to resolve the data paths.

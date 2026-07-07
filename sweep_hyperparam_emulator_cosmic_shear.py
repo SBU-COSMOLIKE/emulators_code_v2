@@ -19,7 +19,7 @@ loaded whole.
 # one covers every other knob: batch size, learning rate, kernel size, film
 # on/off, the activation family, ...
 #
-# python .../emultrf/dev/sweep_hyperparam_emulator_cosmic_shear.py \
+# python .../emultrfv2/sweep_hyperparam_emulator_cosmic_shear.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
 #   --yaml train_single_emulator_cosmic_shear.yaml \
@@ -92,7 +92,7 @@ import time
 import numpy as np
 import torch
 
-# This script sits beside the emulator/ package (same .../emultrf/dev/ folder),
+# This script sits beside the emulator/ package (same .../emultrfv2/ folder),
 # so launching it by path makes its own directory sys.path[0] and
 # `import emulator` resolves with no path manipulation. Run it from $ROOTDIR;
 # emulator.cocoa reads $ROOTDIR to resolve the data paths.

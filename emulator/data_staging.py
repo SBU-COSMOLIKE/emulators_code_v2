@@ -394,6 +394,54 @@ def read_param_names(covmat_path, comment="#"):
     return f.readline().lstrip(comment).split()
 
 
+def check_paramnames(sidecar_path, covmat_names):
+  """
+  Cross-check a getdist .paramnames sidecar against the covmat-header names.
+
+  Two independent name sources exist: read_param_names reads the covmat
+  header; the <train_params>.paramnames sidecar declares the .txt columns.
+  They agree by generator construction, but a divergence would silently pair
+  wrong columns with wrong covmat rows in the whitening. When the sidecar is
+  present, its first column (the cobaya names, minus the trailing starred
+  derived entries getdist marks, e.g. chi2* — which the staging slice already
+  drops) must equal the covmat-header names ORDER INCLUDED; a mismatch is a
+  loud error naming both lists. Absent sidecar = no check (back-compatible),
+  handled by the caller (this reads a file it is told exists).
+
+  Arguments:
+    sidecar_path = path to the .paramnames file to read.
+    covmat_names = the covmat-header names (read_param_names), the order the
+                   whitening uses.
+
+  Returns:
+    the sidecar's non-derived name list (equals covmat_names on success).
+
+  Raises:
+    ValueError if the two lists differ (order included), naming both.
+  """
+  sidecar = []
+  with open(sidecar_path) as fh:
+    for line in fh:
+      line = line.strip()
+      if not line:
+        continue
+      first = line.split()[0]
+      # getdist marks derived params with a trailing * (chi2* etc.); the
+      # staging slice drops them, so they are not covmat columns.
+      if first.endswith("*"):
+        continue
+      sidecar.append(first)
+  covmat = list(covmat_names)
+  if sidecar != covmat:
+    raise ValueError(
+      "the .paramnames sidecar and the covmat header disagree on the "
+      "parameter names (order included), so the whitening would pair wrong "
+      f"columns with wrong covmat rows:\n"
+      f"  .paramnames:   {sidecar}\n"
+      f"  covmat header: {covmat}")
+  return sidecar
+
+
 def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                 gen=None, ram_frac=0.7, with_means=False,
                 param_cols=slice(2, -1), verbose=True,
@@ -463,6 +511,13 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   # missing size is a plain TypeError at the call site).
   if gen is None:
     raise ValueError("load_source needs a torch.Generator (gen=)")
+  # naming-integrity cross-check: when a getdist .paramnames sidecar sits
+  # beside train_params, its non-derived first column must match the
+  # covmat-header `names` (order included), else the whitening pairs wrong
+  # columns with wrong covmat rows. Absent sidecar = no check.
+  sidecar = os.path.splitext(params_path)[0] + ".paramnames"
+  if os.path.exists(sidecar):
+    check_paramnames(sidecar, names)
   dv = np.load(dv_path, mmap_mode="r", allow_pickle=False)
   # keep only the modeled parameter columns (see param_cols).
   C  = np.loadtxt(params_path, dtype="float32")[:, param_cols]

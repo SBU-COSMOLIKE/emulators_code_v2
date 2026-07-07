@@ -13,6 +13,8 @@ parameters and buffers; whitening = the center/rotate/scale transform the
 geometries apply to parameters (input) and data vectors (output).
 """
 
+import os
+import subprocess
 import time
 
 import numpy as np
@@ -136,7 +138,9 @@ def save_emulator(path_root,
                   train_args=None,
                   attrs=None,
                   pce=None,
-                  pce_form=None):
+                  pce_form=None,
+                  resolved_train=None,
+                  resolved_model=None):
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
@@ -166,6 +170,15 @@ def save_emulator(path_root,
                      epoch, one column per threshold), thresholds.
     config_yaml      the driver's resolved config (data + train_args
                      blocks), as YAML text.
+    config_resolved_yaml  schema v2: the CONSUMED config, defaults
+                     materialized (resolved_train + the data block), so a
+                     saved run reconstructs even if code defaults drift.
+    model_recipe     schema v2: the serializable model rebuild recipe
+                     (class qualname, dims, every constructor kwarg, the
+                     act / norm / head factories by name), read by
+                     rebuild_emulator (h5-only, a missing key loud, never a
+                     code default). Root attrs schema_version = 2 +
+                     git_commit mark a v2 file (rebuild refuses one without).
     train_args_yaml  the collapsed train_args actually used (search
                      ranges resolved to their defaults), as YAML.
   plus one root attribute per entry of `attrs` (run identity:
@@ -278,6 +291,26 @@ def save_emulator(path_root,
                                            sort_keys=False),
                        dtype=str_dt)
 
+    # schema v2: the CONSUMED view, defaults materialized, so a saved run
+    # reconstructs even if code defaults drift (the standing rule). The raw
+    # config_yaml / train_args_yaml above stay as the provenance of what was
+    # WRITTEN; these record what the run RESOLVED.
+    if resolved_train is not None:
+      f.create_dataset(
+        "config_resolved_yaml",
+        data=yaml.safe_dump({"train_args": resolved_train,
+                             "data": config.get("data", {})},
+                            sort_keys=False),
+        dtype=str_dt)
+    if resolved_model is not None:
+      # the model rebuild recipe as a YAML string (plain dict, not tensors),
+      # read back by rebuild_emulator; a missing recipe key there is loud,
+      # never a code default.
+      f.create_dataset(
+        "model_recipe",
+        data=yaml.safe_dump(resolved_model, sort_keys=False),
+        dtype=str_dt)
+
     # run identity + provenance as root attributes. str() guards the
     # str subclasses h5py rejects (torch.__version__ is one: numpy
     # coerces a str subclass to a fixed-width unicode dtype h5py has
@@ -287,5 +320,131 @@ def save_emulator(path_root,
         f.attrs[k] = str(v) if isinstance(v, str) else v
     f.attrs["created"]       = time.strftime("%Y-%m-%d %H:%M:%S")
     f.attrs["torch_version"] = str(torch.__version__)
+    # schema_version marks a file that carries the resolved recipe (both v2
+    # payloads present); rebuild_emulator refuses any file without it. The
+    # code commit is best-effort provenance (rev-parse, else "unknown").
+    if resolved_train is not None and resolved_model is not None:
+      f.attrs["schema_version"] = 2
+      try:
+        f.attrs["git_commit"] = subprocess.check_output(
+          ["git", "rev-parse", "HEAD"],
+          cwd=os.path.dirname(os.path.abspath(__file__)),
+          stderr=subprocess.DEVNULL).decode().strip()
+      except Exception:
+        f.attrs["git_commit"] = "unknown"
 
   return emul_path, h5_path
+
+
+def rebuild_emulator(path_root, device):
+  """
+  Reconstruct a saved emulator from <path_root>.h5 + .emul, using ONLY the
+  file (save schema v2). The in-package inference entry point and the proof
+  of the schema-v2 guarantee: every knob comes from the resolved recipe in
+  the h5, so a run rebuilds bit-exactly even if code defaults later drift. A
+  missing recipe key is a loud error, NEVER a fallback to a code default; a
+  v1 file (no schema_version) is refused (it predates the guarantee).
+
+  Arguments:
+    path_root = the output path without extension (as passed to
+                save_emulator); reads <path_root>.h5 and <path_root>.emul.
+    device    = device to rebuild the module and geometries on.
+
+  Returns:
+    (model, param_geometry, geometry): the inference-ready triple; the model
+    in eval() with the best-epoch weights loaded (strict). When the run used
+    an NPCE base, its PCEEmulator is rebuilt from the h5 pce group too (the
+    reconstruction guarantee covers it).
+
+  Raises:
+    ValueError if the .h5 is not schema v2; KeyError naming any missing
+    recipe / geometry key (never a code-default fallback).
+  """
+  import importlib
+
+  from .geometries_parameter import ParamGeometry
+  from .geometries_output import DataVectorGeometry
+  from .activations import make_activation
+  from .emulator_designs_building_blocks import make_norm
+
+  def _read_group(g):
+    # inverse of save's write_state: numeric datasets -> tensors, string
+    # datasets (names) -> str lists, attrs -> scalars (a "torch.<dtype>"
+    # string restored to the torch.dtype), subgroups -> nested dicts.
+    state = {}
+    for k in g:
+      item = g[k]
+      if isinstance(item, h5py.Group):
+        state[k] = _read_group(item)
+      elif h5py.check_string_dtype(item.dtype) is not None:
+        vals = np.atleast_1d(item[()])
+        state[k] = [s.decode() if isinstance(s, bytes) else str(s)
+                    for s in vals]
+      else:
+        state[k] = torch.as_tensor(np.asarray(item[()])).to(device)
+    for k, v in g.attrs.items():
+      if isinstance(v, str) and v.startswith("torch."):
+        state[k] = getattr(torch, v.split(".", 1)[1])
+      else:
+        state[k] = v
+    return state
+
+  def _need(d, k, where):
+    if k not in d:
+      raise KeyError(
+        f"{path_root}.h5 {where} is missing {k!r}; rebuild_emulator reads "
+        "only the file and never falls back to a code default")
+    return d[k]
+
+  with h5py.File(path_root + ".h5", "r") as f:
+    sv = f.attrs.get("schema_version")
+    if sv != 2:
+      raise ValueError(
+        f"{path_root}.h5 is not a schema-v2 emulator (schema_version={sv!r}): "
+        "rebuild_emulator needs the resolved model recipe a v2 save writes. "
+        "v1 files predate the reconstruction guarantee; retrain + save to "
+        "upgrade.")
+    if "model_recipe" not in f:
+      raise KeyError(f"{path_root}.h5 is missing the model_recipe")
+    recipe = yaml.safe_load(f["model_recipe"][()])
+    pgeom = ParamGeometry.from_state(device, _read_group(f["param_geometry"]))
+    geom  = DataVectorGeometry.from_state(device, _read_group(f["dv_geometry"]))
+    pce_base = None
+    if "pce" in f:
+      from .PCE.emulator_designs import PCEEmulator
+      pce_base = PCEEmulator.from_state(_read_group(f["pce"]), device)
+
+  # rebuild the module from the recipe (h5-only; a missing key is loud).
+  cls_path = _need(recipe, "cls", "model_recipe")
+  mod_name, _, qual = cls_path.rpartition(".")
+  cls = getattr(importlib.import_module(mod_name), qual)
+  kwargs = dict(_need(recipe, "kwargs", "model_recipe"))
+  # re-make the factory objects from their serialized names.
+  if "block_opts" in kwargs:
+    bo  = kwargs["block_opts"]
+    act = _need(bo, "act", "model_recipe.kwargs.block_opts")
+    kwargs["block_opts"] = {
+      "act": make_activation(_need(act, "type", "block_opts.act"),
+                             n_gates=_need(act, "n_gates", "block_opts.act")),
+      "norm": make_norm(_need(bo, "norm", "model_recipe.kwargs.block_opts")),
+    }
+  if kwargs.get("head_act") is not None:
+    ha = kwargs["head_act"]
+    kwargs["head_act"] = make_activation(
+      _need(ha, "type", "head_act"),
+      n_gates=_need(ha, "n_gates", "head_act"))
+  if _need(recipe, "needs_geom", "model_recipe"):
+    kwargs["geom"] = geom
+  model = cls(input_dim=_need(recipe, "input_dim", "model_recipe"),
+              output_dim=_need(recipe, "output_dim", "model_recipe"),
+              **kwargs).to(device)
+  # the .emul holds the plain (compile-prefix-stripped) state_dict; load it
+  # strict into the eager module, then re-compile per the recipe on CUDA (the
+  # NPCE base, when present, rides on pce_base above).
+  sd = torch.load(path_root + ".emul", map_location=device)
+  model.load_state_dict(sd, strict=True)
+  model.eval()
+  cm = recipe.get("compile_mode")
+  if device.type == "cuda" and cm is not None:
+    model = torch.compile(model, mode=cm)
+  return model, pgeom, geom

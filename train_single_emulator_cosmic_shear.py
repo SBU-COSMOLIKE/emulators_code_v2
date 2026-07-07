@@ -17,7 +17,7 @@ is never loaded whole.
 # parameters to the whitened, masked xi data vector. Loss = full-3x2pt chi2
 # (cosmolike's masked inverse covariance).
 #
-# python .../emultrf/dev/train_single_emulator_cosmic_shear.py \
+# python .../emultrfv2/train_single_emulator_cosmic_shear.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
 #   --yaml train_single_emulator_cosmic_shear.yaml \
@@ -33,7 +33,7 @@ is never loaded whole.
 #  $ROOTDIR/external_modules/data. Training runs on a machine with a working
 #  Cocoa installation (cosmolike).
 #
-#- This script sits beside the emulator/ package (same .../emultrf/dev/ folder),
+#- This script sits beside the emulator/ package (same .../emultrfv2/ folder),
 #  so `import emulator` needs no sys.path edit; just run it from $ROOTDIR.
 #
 #- `--root` (required): project folder under $ROOTDIR (e.g. projects/lsst_y1);
@@ -161,7 +161,7 @@ import argparse
 import os
 import re
 
-# This script sits beside the emulator/ package (same .../emultrf/dev/ folder),
+# This script sits beside the emulator/ package (same .../emultrfv2/ folder),
 # so launching it by path makes its own directory sys.path[0] and
 # `import emulator` resolves with no path manipulation. Run it from $ROOTDIR;
 # emulator.cocoa reads $ROOTDIR to resolve the data paths.
@@ -313,6 +313,10 @@ def main():
     # rebuilds base + refiner off the h5); None for a plain run.
     pce=(exp.chi2fn.pce if exp.pce_opts is not None else None),
     pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
+    # schema v2: the resolved recipes (consumed view), so the saved run
+    # rebuilds bit-exactly even if code defaults later drift.
+    resolved_train=exp.resolved_train,
+    resolved_model=exp.resolved_model,
     attrs={"model":       str(cfg["train_args"]["model"]
                               .get("name", "resmlp")).lower(),
            "activation":  exp.activation,

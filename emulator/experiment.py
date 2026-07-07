@@ -77,7 +77,7 @@ from .activations import make_activation
 from .emulator_designs_building_blocks import make_norm
 from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
-  default_train_args, eval_source_chi2,
+  default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
   validate_phase_block, _PHASE_BLOCK_KEYS,
   validate_loss, _loss_migration_message)
 
@@ -1038,6 +1038,11 @@ class EmulatorExperiment:
     # the validated top-level pce: block (None = NPCE off), set by
     # from_config; every wiring point guards on it (absent = byte-identical).
     self.pce_opts = None
+    # the consumed-view save recipes (save schema v2): resolved_model is
+    # assembled in build_specs, resolved_train is returned by run_emulator
+    # and stored by train(). None until those run.
+    self.resolved_model = None
+    self.resolved_train = None
 
   # --- alternative constructors ---
   @classmethod
@@ -1721,6 +1726,58 @@ class EmulatorExperiment:
       specs["model_opts"].setdefault("n_templates",
                                      des["n_templates"])
 
+    # exp.resolved_model: a serializable rebuild recipe, assembled HERE
+    # beside the specs by the same code that built them, so it cannot
+    # diverge (the consumed-view doctrine for artifacts). It records every
+    # constructor kwarg make_model will actually pass, callables serialized
+    # by name: block_opts act -> {type, n_gates}, norm -> the make_norm name,
+    # head_act -> {type, n_gates} | None. geom is not serialized (rebuild
+    # passes the saved geometry; needs_geom records that it is needed); the
+    # dims match run_emulator's make_model call exactly (in_dim / out_dim).
+    mo = specs["model_opts"]
+    in_dim = getattr(self.pgeom, "encoded_dim",
+                     self.train_set["C"].shape[1])
+    recipe = {
+      "cls": self.model_cls.__module__ + "." + self.model_cls.__qualname__,
+      "name": self.arch,
+      "ia": self.ia,
+      "input_dim": int(in_dim),
+      "output_dim": int(self.geom.dest_idx.numel()),
+      "compile_mode": mo.get("compile_mode", DEFAULT_COMPILE_MODE),
+      "needs_geom": bool(getattr(self.model_cls, "needs_geom", False)),
+      "kwargs": {},
+    }
+    for k, v in mo.items():
+      # cls -> the qualname above; compile_mode -> the top level (make_model
+      # consumes it, not the constructor); geom -> the saved geometry;
+      # head_act -> recorded below for every head model.
+      if k in ("cls", "compile_mode", "geom", "head_act"):
+        continue
+      if k == "block_opts":
+        recipe["kwargs"]["block_opts"] = {
+          "act": {"type": self.activation, "n_gates": int(n_gates)},
+          "norm": norm_name,
+        }
+      else:
+        recipe["kwargs"][k] = v
+    if getattr(self.model_cls, "head_block", None) is not None:
+      recipe["kwargs"]["head_act"] = (
+        None if head_pin is None
+        else {"type": head_pin["type"],
+              "n_gates": int(head_pin["n_gates"])})
+    # materialize every remaining constructor default the YAML did not set
+    # (the standing rule: the recipe records values, never "it was defaulted",
+    # so rebuild is immune to a default drifting later). input_dim / output_dim
+    # are the top-level dims, block_opts is the factory dict above, geom is the
+    # saved-geometry allowlist; every other defaulted param joins the recipe.
+    import inspect
+    for pn, pm in inspect.signature(self.model_cls.__init__).parameters.items():
+      if pn in ("self", "input_dim", "output_dim", "block_opts", "geom"):
+        continue
+      if pm.default is not inspect.Parameter.empty:
+        recipe["kwargs"].setdefault(pn, pm.default)
+    self.resolved_model = recipe
+
     return specs
 
   def train(self, train_args=None, silent=None):
@@ -1815,9 +1872,13 @@ class EmulatorExperiment:
       device=self.device,
       **specs)
 
+    # run_emulator now returns resolved_train (save schema v2); store it on
+    # the instance for save_emulator, and return the original 5-tuple so the
+    # drivers' interface is unchanged (the added return is contained here).
     (self.model, self.train_losses, self.medians,
-     self.means, self.fracs) = out
-    return out
+     self.means, self.fracs, self.resolved_train) = out
+    return (self.model, self.train_losses, self.medians,
+            self.means, self.fracs)
 
   def run(self, n_train=None, train_args=None):
     """

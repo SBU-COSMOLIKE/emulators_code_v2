@@ -59,7 +59,7 @@ folder once:
 # --fileroot = a subfolder of it holding this emulator's YAML + outputs; --yaml =
 # a bare filename under --fileroot. Data (dv/params/covmat) lives in
 # --root/chains, the project's data folder.
-D=external_modules/code/emulators/emultrf/dev
+D=external_modules/code/emulators/emultrfv2
 ```
 
 One training run — train the YAML's model once; `--diagnostic` adds a
@@ -289,9 +289,9 @@ for no cut on that side, and `lo >= hi` raises.
 
 | keys | quantity | formula | Planck |
 |---|---|---|---|
-| `omegabh2_lo/_hi` | $\Omega_b h^2$ | $\Omega_b\,(H_0/100)^2$ | 0.0224 |
-| `omegam2h2_lo/_hi` | $\Omega_m^2 h^2$ | $(\Omega_m\,H_0/100)^2$ | 0.045 |
-| `omegamh2_lo/_hi` | $\Omega_m h^2$ | $\Omega_m\,(H_0/100)^2$ | 0.143 |
+| `omegabh2_lo/_hi` | $\Omega_b h^2$ | $\Omega_b (H_0/100)^2$ | 0.0224 |
+| `omegam2h2_lo/_hi` | $\Omega_m^2 h^2$ | $(\Omega_m H_0/100)^2$ | 0.045 |
+| `omegamh2_lo/_hi` | $\Omega_m h^2$ | $\Omega_m (H_0/100)^2$ | 0.143 |
 | `omegamh2ns_lo/_hi` | $\Omega_m h^2 n_s$ | $\Omega_m h^2 \cdot n_s$ | 0.138 |
 
 The last needs the $n_s$ column in the params file.
@@ -322,7 +322,7 @@ The run-level knobs that are not their own block.
   rescaled toward the ceiling, keeping its direction, so one monster-outlier
   batch (a batch with one extreme sample) cannot kick the weights:
 
-$$g \leftarrow g \cdot \min\!\left(1,\ \frac{\mathrm{clip}}{\lVert g \rVert}\right)$$
+$$g \leftarrow g \cdot \min\left(1,\ \frac{\mathrm{clip}}{\lVert g \rVert}\right)$$
 
 - `rewind` — on every plateau lr cut (the scheduler's, [section 6](#6-optimizer-lr-scheduler)), reload the best weights + optimizer
   snapshot (keeping the reduced lr), bounding an excursion into a bad basin to
@@ -358,13 +358,13 @@ sample's gradient vote scales with its misfit:
 In closed form, `chi2` is $c$, `sqrt` is $\sqrt{c}$, and `sqrt_dchi2` is
 $\sqrt{1+2c}-1$. `berhu` is the reversed Huber,
 
-$$L(c) = \begin{cases} \sqrt{c} & c \le k \\[4pt]
-\dfrac{c+k}{2\sqrt{k}} & c > k \end{cases}$$
+$$L_{\mathrm{berhu}}(c) = \sqrt{c} \ \ (c \le k), \qquad
+\dfrac{c+k}{2\sqrt{k}} \ \ (c > k)$$
 
 and `berhu_capped` adds $\dfrac{2\sqrt{Kc}+k-K}{2\sqrt{k}}$ for $c > K$.
 
-$C^1$ at every knot. $k = $ `berhu.knot` (default 0.2, the frac>0.2 goal),
-$K = $ `berhu.cap` (default 10). This is textbook BerHu in the whitened
+$C^1$ at every knot. $k$ = `berhu.knot` (default 0.2, the frac>0.2 goal),
+$K$ = `berhu.cap` (default 10). This is textbook BerHu in the whitened
 residual norm with $\delta = \sqrt{k}$ — the knots are in chi2 units, applied
 per sample (the Mahalanobis aggregate). Vote intuition: `sqrt` gives every
 sample an equal vote; `chi2`'s vote grows with $c$ (the tail dominates);
@@ -378,7 +378,7 @@ both is an error, see precedence
 `anneal:` (presence = on) starts as plain sqrt and blends into the berhu shape
 on the [shared schedule](#7-trim), $s: 0 \to 1$:
 
-$$L_s = (1-s)\,\sqrt{c} + s\,L(c)$$
+$$L_s = (1-s) \sqrt{c} + s L(c)$$
 
 ```yaml
   loss:
@@ -407,7 +407,7 @@ together.
   (bigger batches average away gradient noise, so the step can grow with
   sqrt(bs)), then a linear warmup:
 
-$$\mathrm{lr} = \ell\,\sqrt{B/B_0}$$
+$$\mathrm{lr} = \ell \sqrt{B/B_0}$$
 
   with $\ell$ = `lr_base`, $B$ = `bs`, $B_0$ = `bs_base`.
   `bs_base` is the run-global anchor (never inside a phase block);
@@ -434,7 +434,7 @@ $$\mathrm{lr} = \ell\,\sqrt{B/B_0}$$
 **Weight decay — only true weight matrices.** AdamW's decoupled decay adds a
 small pull toward 0 beside the gradient step:
 
-$$w \leftarrow w - \mathrm{lr}\,\lambda\,w$$
+$$w \leftarrow w - \mathrm{lr} \lambda w$$
 
 with $\lambda$ = `weight_decay` (AdamW's decoupled decay, applied beside the
 gradient step). Membership is decided by module role, not tensor shape:
@@ -537,7 +537,7 @@ head.
 An optional Polyak weight average (a running average of the network weights;
 the averaged copy is what ships), updated after every optimizer step:
 
-$$\bar\theta \leftarrow \beta\,\bar\theta + (1-\beta)\,\theta
+$$\bar\theta \leftarrow \beta \bar\theta + (1-\beta) \theta
 \qquad \beta = 1 - \frac{1}{H S}$$
 
 with $H$ = `horizon_epochs` and $S$ = steps per epoch. The horizon is set
@@ -598,9 +598,9 @@ For `tatt` (10 templates; amplitudes $a_1, a_2, b_{TA}$ — the
 IA field is $a_1 O_1 + a_2 O_2 + a_1 b_{TA} O_{1\delta}$, so
 $\xi$ is quadratic in it: 1 GG + 3 GI + 6 II terms):
 
-$$\xi = K_0 + a_1 K_1 + a_2 K_2 + a_1 b_{TA} K_3
-+ a_1^2 K_4 + a_2^2 K_5 + (a_1 b_{TA})^2 K_6
-+ a_1 a_2 K_7 + a_1^2 b_{TA} K_8 + a_1 a_2 b_{TA} K_9$$
+$$\xi = K_0 + a_1 K_1 + a_2 K_2 + a_1 b_{TA} K_3 +
+a_1^2 K_4 + a_2^2 K_5 + (a_1 b_{TA})^2 K_6 +
+a_1 a_2 K_7 + a_1^2 b_{TA} K_8 + a_1 a_2 b_{TA} K_9$$
 
 ### `mlp`
 
@@ -821,7 +821,7 @@ cosmology dependence; the refiner corrects whatever the base misses — "trunk
 Two combine forms (`form`, required):
 
 $$\mathrm{pred} = B(\theta) + f(\theta) \qquad
-\mathrm{pred} = B(\theta)\,(1 + f(\theta))$$
+\mathrm{pred} = B(\theta) (1 + f(\theta))$$
 
 with $B$ = the closed-form base, $f$ = the refiner. `residual` (additive, in
 the whitened basis) is the usual choice; `ratio` (multiplicative, physical)

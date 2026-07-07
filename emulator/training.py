@@ -92,6 +92,12 @@ def make_logger(quiet=False):
   return log
 
 
+# the default torch.compile mode on CUDA; the one source of truth make_model
+# applies and the save recipe records, so a persisted compile_mode can never
+# diverge from what the model was actually built with.
+DEFAULT_COMPILE_MODE = "reduce-overhead"
+
+
 def make_model(model_opts, input_dim, output_dim, device):
   """
   Build the network from a spec dict.
@@ -125,7 +131,7 @@ def make_model(model_opts, input_dim, output_dim, device):
   """
   cls = model_opts["cls"]
   compile_mode = model_opts.get(
-    "compile_mode", "reduce-overhead")
+    "compile_mode", DEFAULT_COMPILE_MODE)
   # forward every key except cls / compile_mode to the constructor.
   extra = {}
   for k, v in model_opts.items():
@@ -1583,6 +1589,9 @@ def training_loop_batched(nepochs,
   eval_bs = derive_eval_bs(n_val=len(data["val"]["idx"]),
                            target=_EVAL_BS_TARGET,
                            load=load)
+  # stash the derived eval batch so resolved_train (save schema v2) records
+  # the real value, not a re-derivation (data is run_emulator's loaders dict).
+  data["eval_bs"] = eval_bs
   model.eval()
   b_median, b_mean, b_frac = eval_val(model=model,
                                       lossfn=lossfn,
@@ -2496,4 +2505,36 @@ def run_emulator(train_set,
     means        += mn
     fracs        += fr
 
-  return model, train_losses, medians, means, fracs
+  # resolved_train (save schema v2): the consumed training config, defaults
+  # materialized, for config_resolved_yaml. Assembled from the values this
+  # run actually used (never a re-derivation): the resolved *_opts, the
+  # computed lr, the derived eval batch (off the loaders), the per-phase
+  # override blocks as validated. Class objects serialize by qualname (the
+  # recipe, not the object). Provenance only: the model reconstructs from
+  # resolved_model + the geometry states, not from this.
+  def _qual(c):
+    return c.__module__ + "." + c.__qualname__
+  resolved_train = {
+    "bs": bs, "nepochs": nepochs, "seed": seed,
+    "thresholds": [float(t) for t in thresholds],
+    "use_amp": bool(use_amp), "clip": clip, "rewind": bool(rewind),
+    "trunk_epochs": trunk_epochs,
+    "freeze_trunk": (freeze_trunk is not False),
+    "loss": loss, "ema": ema,
+    "lr": {"lr_base": lr_opts["lr_base"], "bs_base": lr_opts["bs_base"],
+           "warmup_epochs": lr_opts.get("warmup_epochs"),
+           "lr": learning_rate},
+    "optimizer": {"cls": _qual(opt_opts["cls"]),
+                  "weight_decay": opt_opts.get("weight_decay", 0.0),
+                  "extras": {k: v for k, v in opt_opts.items()
+                             if k not in ("cls", "weight_decay")}},
+    "scheduler": {"cls": _qual(sched_opts["cls"]),
+                  "kwargs": {k: v for k, v in sched_opts.items()
+                             if k != "cls"}},
+    "trim": trim_opts, "focus": focus_opts,
+    "trunk": trunk_opts, "head": head_opts,
+    "eval_bs": (data.get("eval_bs") if isinstance(data, dict) else None),
+    "device": str(device),
+  }
+
+  return (model, train_losses, medians, means, fracs, resolved_train)
