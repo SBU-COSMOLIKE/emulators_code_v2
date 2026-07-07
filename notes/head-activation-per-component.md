@@ -274,14 +274,13 @@ trunk_epochs at build_specs; message in
 in order: UNIT A = train_args.freeze_trunk (spec + gates GFT-A/B in
 [[freeze-trunk-joint-phase2]]; the unit-B license check reads it, so
 A lands first); UNIT B = this feature; UNIT C = the
-(the cycle also closes D-DOC2b — three enumeration sites listed in
-[[audit-docs-2026-07-06]]'s re-audit verdict: the run_emulator
-two-phase diagram legend and the YAML walkthrough fall to unit A,
-the train() comment to unit B)
 README precedence appendix per [[readme-precedence-appendix]] —
 the Architect's rule inventory is in that note; verify the two
 flagged rows against the tree and declare any correction; gate
-GPR-A there.
+GPR-A there. The cycle also closes D-DOC2b (three enumeration
+sites listed in [[audit-docs-2026-07-06]]'s re-audit verdict): the
+run_emulator two-phase diagram legend and the YAML walkthrough
+fall to unit A, the train() comment to unit B.
 Gates: GHA-A..E incl. D2 on the Mac (recipes above; GHA-F embedded
 for the workstation queue) + GFT-A/B for unit A + GPR-A for unit
 C. Report: raw gate

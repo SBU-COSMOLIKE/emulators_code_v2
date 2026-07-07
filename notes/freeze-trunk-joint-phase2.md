@@ -135,3 +135,137 @@ may train trunk + head together (set_train_phase('joint') existed,
 now reachable; needs trunk_epochs > 0; demotion + sweep guards
 mirror trunk_epochs; banner says joint; gates GFT-A/B
 Architect-verified)".
+
+## Resume state (Implementer appends below)
+
+### 2026-07-06 — Implementer (Opus 4.8): UNIT A executed
+
+Clean base: the doc-audit commit landed at 2d2f68d; started there.
+GFT-A/B pass on the Mac. This is commit unit A of the three-unit
+head-activation cycle; B (per-head activation) and C (precedence
+appendix) follow after A is committed (shared files -> sequential
+commits; B's license check reads freeze_trunk).
+
+**Done:**
+
+- training.py: run_emulator gains `freeze_trunk=None` (None = absent =
+  the frozen default, byte-identical). Early guard beside the trunk_opts
+  guard: non-bool -> TypeError; explicit value with trunk_epochs == 0 ->
+  ValueError ("would silently do nothing"). Phase logic:
+  `freeze = freeze_trunk is not False`; the pass ROLE stays "trunk" /
+  "head" (selects opts, drives the best-epoch restore, labels the tail),
+  and only the model phase name changes:
+  `model_phase = "head" if freeze else "joint"` for the head pass,
+  consumed by `set_train_phase(model_phase)` (single-phase phase=None ->
+  model_phase None -> no call). The per-pass banner prints model_phase
+  ("head" frozen = byte-identical, "joint" when false). The optimizer
+  build (make_optimizer over every param; freeze via requires_grad) is
+  UNCHANGED. Docstring: the two-phase diagram + the freeze_trunk arg
+  entry; D-DOC2b obs2 (the diagram legend gains scheduler + ema).
+- experiment.py: train() passes `freeze_trunk=train_args.get("freeze_trunk")`;
+  resolve_phase_args demotes freeze_trunk on a single-phase model (drops
+  it, names it in the notice, like trunk_epochs) and lists it in
+  has_phase; validate_sweep_paths rejects a freeze_trunk sweep axis on
+  single-phase; print_design's two-phase fragment reads
+  "(two-phase: N trunk + M joint)" when freeze_trunk false ("head"
+  byte-identical otherwise); __init__ docstring gains the freeze_trunk
+  entry + the demotion sentence.
+- sweep_hyperparam: "freeze_trunk" joins SWEEPABLE_TOP_KEYS.
+- train_single YAML: the freeze_trunk explanation + commented key beside
+  trunk_epochs; the phase-2 prose now says "by default"; D-DOC2b obs3
+  (the phase-block full-replacement walkthrough gains ema).
+- DEFERRED to unit B (per the re-audit's D-DOC2b assignment + ruling d):
+  the license check (a per-head activation needs trunk_epochs > 0 AND
+  freeze_trunk true) lives in build_specs, which unit B adds; obs1 (the
+  experiment.py train() `(lr / loss / trim / focus)` enumeration) is
+  unit B's. Unit A leaves both untouched.
+
+**Deviations from spec:** none behavioral. Declared interface addition:
+run_emulator gained a `freeze_trunk` kwarg (default None); experiment.train
+passes it. The phase-2 call uses a `model_phase` local (the role/name
+split) so head_opts, banner-role, and the best-epoch restore keep keying
+off the "head" role while set_train_phase receives "joint" — the note's
+"'head' if ... else 'joint'" literal is exact at the call site.
+
+**Gate evidence (raw, Mac; no torch — exec-extracted from the tree):**
+
+- GFT-A (validation / demotion / sweep guard): resolve_phase_args
+  two-phase no-op (freeze_trunk preserved) vs single-phase drop
+  (notice "single-phase model: trunk_epochs and freeze_trunk ignored";
+  freeze_trunk-only also demotes); validate_sweep_paths allows the axis
+  on two-phase, rejects it loudly on single-phase; the run_emulator guard
+  over 9 cases (None any trunk_epochs -> no raise; True/False +
+  trunk_epochs 0 -> ValueError; str/int/float -> TypeError; valid
+  two-phase -> no raise); freeze = `is not False` (None/True->True,
+  False->False) and model_phase (trunk->trunk, head+freeze->head
+  byte-identical, head+joint->joint, None->None). ALL PASS.
+- GFT-B (static): the call-site literal `"head" if freeze else "joint"`
+  present at training.py; the make_optimizer call text byte-identical to
+  HEAD (optimizer path untouched — the ~2258 "collects every parameter"
+  comment intact); print_design phase2 gating (absent/true -> "head"
+  byte-identical, false -> "joint"); whole-tree py_compile clean; house
+  scans clean (0 over 90 cols, 0 double-dash, 0 new caps emphasis after
+  de-capping one "ROLE" comment). AST-minus-docstrings: training.py,
+  experiment.py, sweep driver all CODE CHANGED as expected.
+
+**GFT-C (workstation, rides the queue).** Run from $ROOTDIR on a torch
+box, two-phase model (restrf + ia nla), small trunk_epochs:
+
+    R=--root=<root> ; F=--fileroot=<fileroot>
+    Y=--yaml=train_single_emulator_cosmic_shear.yaml
+    # golden: absent freeze_trunk is byte-identical pre/post the feature
+    git stash && python train_single_emulator_cosmic_shear.py $R $F $Y \
+      > /tmp/ft_pre.log 2>&1
+    git stash pop && python train_single_emulator_cosmic_shear.py $R $F $Y \
+      > /tmp/ft_post.log 2>&1
+    diff <(grep -E '^(phase|epoch|best|run:)' /tmp/ft_pre.log) \
+         <(grep -E '^(phase|epoch|best|run:)' /tmp/ft_post.log)   # EMPTY
+    # then a joint run: set (restrf/nla) trunk_epochs: 800, freeze_trunk: false
+    #   startup: "run: ... (two-phase: 800 trunk + M joint)"
+    #   phase 2: "phase 'joint': M epochs, lr restarts ..."
+    #   loss continuous at the handoff (the zero-init head starts identity);
+    #   phase-2 epoch time visibly ABOVE a freeze_trunk: true control run
+    #   (the trunk backward returns) — the GFT-C sanity signal.
+
+Open: GFT-C (workstation) + the Architect re-audit of GFT-A/B. Unit A
+commit is independent; units B/C follow on the committed base.
+
+### 2026-07-06 — Architect re-audit: ACCEPTED, no deltas
+
+Own harnesses, base 2d2f68d confirmed:
+
+- Footprint exact: AST-minus-docstrings — CODE CHANGED only in
+  training.py / experiment.py / sweep_hyperparam driver; YAML
+  doc-only; all other files CODE-IDENTICAL.
+- GFT-A reproduced 14/14 (exec of the real resolve_phase_args /
+  validate_sweep_paths; the run_emulator guard exec-extracted
+  verbatim via ast): two-phase no-op preserves the key;
+  single-phase drops it with the notice naming it (freeze_trunk-only
+  YAML also demotes); input unmutated; sweep axis rejected
+  single-phase / allowed two-phase; guard passes None/True/False
+  legal cases, raises ValueError on explicit + trunk_epochs 0 and
+  TypeError on "false" / 1 / 0.0 (int/float correctly non-bool);
+  the freeze / model_phase truth table (9 cells) exact from the
+  verbatim expressions.
+- GFT-B reproduced: the '"head" if freeze else "joint"' literal at
+  the call site; zero make_optimizer hunks (optimizer path
+  untouched); print_design fragment defaults to "head"
+  (byte-identical text, tk-gated); banner prints model_phase (trunk
+  and frozen-head labels unchanged); D-DOC2b obs2 (diagram legend
+  now eight keys) + obs3 (YAML walkthrough gains ema) both paid;
+  scans clean (0 long lines, 0 double-hyphen, caps = YAML only);
+  py_compile OK.
+- Declared deviation ACCEPTED: the role/name split (pass role stays
+  "trunk"/"head" for opts / restore / tail; only the
+  set_train_phase name flips to "joint") is the right refinement —
+  head_opts semantics ("head: is the phase-2 block in either mode")
+  hold exactly as the spec's docs sentence requires. run_emulator's
+  freeze_trunk=None kwarg + experiment.train pass-through accepted
+  as the declared interface addition.
+- Noted, not a delta: a non-bool freeze_trunk renders as "head" in
+  print_design before run_emulator's TypeError stops the run — the
+  same banner-before-guard ordering every run_emulator-guarded key
+  has; the run never executes against the wrong display.
+
+UNIT A COMMIT-READY (sentence above). Units B/C proceed on the
+committed base; GFT-C rides the workstation queue.

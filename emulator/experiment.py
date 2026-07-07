@@ -364,9 +364,10 @@ def resolve_phase_args(train_args, two_phase):
   A standalone pure function (no torch), so it is unit-testable in
   isolation, and it never mutates its input (a hyperparameter sweep reuses
   one train_args across points). One shared YAML can then carry the
-  two-phase keys (trunk_epochs, the symmetric trunk: / head: blocks) and
-  still drive a single-phase model: for such a model head: and trunk_epochs
-  are dropped and trunk: is merged into the top level (the trunk becomes
+  two-phase keys (trunk_epochs, freeze_trunk, the symmetric trunk: / head:
+  blocks) and still drive a single-phase model: for such a model head:,
+  trunk_epochs, and freeze_trunk are dropped and trunk: is merged into the
+  top level (the trunk becomes
   the global objective, the user's rule), with a notice naming what
   happened. For a two-phase model it is an exact no-op.
 
@@ -403,7 +404,7 @@ def resolve_phase_args(train_args, two_phase):
 
   # a two-phase model, or a plain single-phase YAML: nothing to resolve.
   has_phase = ("trunk_epochs" in train_args or "trunk" in train_args
-               or "head" in train_args)
+               or "head" in train_args or "freeze_trunk" in train_args)
   if two_phase or not has_phase:
     return train_args, None
 
@@ -419,10 +420,12 @@ def resolve_phase_args(train_args, two_phase):
   had_trunk = "trunk" in train_args
   had_head  = "head" in train_args
   had_epochs = "trunk_epochs" in train_args
+  had_freeze = "freeze_trunk" in train_args
   resolved = dict(train_args)
   trunk = resolved.pop("trunk", None)
   resolved.pop("head", None)
   resolved.pop("trunk_epochs", None)
+  resolved.pop("freeze_trunk", None)
 
   merged = []
   if isinstance(trunk, dict):
@@ -456,6 +459,8 @@ def resolve_phase_args(train_args, two_phase):
     dropped.append("head:")
   if had_epochs:
     dropped.append("trunk_epochs")
+  if had_freeze:
+    dropped.append("freeze_trunk")
   if dropped:
     parts.append(f"{' and '.join(dropped)} ignored")
   return resolved, "single-phase model: " + "; ".join(parts)
@@ -495,7 +500,7 @@ def validate_sweep_paths(paths, two_phase):
   problems = []
   for path in paths:
     segs = str(path).split(".")
-    if segs[0] in ("head", "trunk_epochs"):
+    if segs[0] in ("head", "trunk_epochs", "freeze_trunk"):
       problems.append(
         f"{path!r}: a single-phase model (no set_train_phase) has "
         f"resolve_phase_args drop this axis, so every sweep point would be "
@@ -615,6 +620,12 @@ class EmulatorExperiment:
                      silent = optional (default False): silence the run;
                      trunk_epochs = optional (default 0): two-phase
                        schedule, see run_emulator;
+                     freeze_trunk = optional (default true): phase-2 mode.
+                       True freezes the trunk and trains the head alone;
+                       false trains trunk + head together (a joint
+                       fine-tune). Needs trunk_epochs > 0; sweepable on a
+                       two-phase model; demoted (dropped) on a single-phase
+                       one, see run_emulator;
                      trunk / head = optional symmetric mappings of
                        per-phase overrides (lr / scheduler / loss / trim /
                        focus / clip / rewind / ema, the eight-key phase
@@ -623,10 +634,11 @@ class EmulatorExperiment:
                        see run_emulator. On a single-phase model (any
                        name: resmlp, including ia nla / tatt; no
                        set_train_phase, unlike rescnn / restrf) train()
-                       demotes these through resolve_phase_args: head:
-                       and trunk_epochs are dropped and trunk: is merged
-                       into the top level (with a quiet-gated notice), so
-                       one shared YAML serves both model families;
+                       demotes these through resolve_phase_args: head:,
+                       trunk_epochs, and freeze_trunk are dropped and
+                       trunk: is merged into the top level (with a
+                       quiet-gated notice), so one shared YAML serves both
+                       model families;
                      clip = optional (default 0.0 = off): per-step
                        gradient-norm ceiling, see run_emulator;
                      rewind = optional (default False): reload the
@@ -941,7 +953,10 @@ class EmulatorExperiment:
     # trunk_epochs > 0 = the two-phase schedule (trunk then frozen-trunk
     # head); print it only when active, so ordinary runs stay unchanged.
     tk = ta.get("trunk_epochs", 0)
-    ph = (f"  (two-phase: {tk} trunk + {ta['nepochs'] - tk} head)"
+    # phase 2 is the frozen-trunk head by default, or a joint trunk + head
+    # fine-tune when freeze_trunk is false (consumed view: name what runs).
+    phase2 = "head" if ta.get("freeze_trunk", True) else "joint"
+    ph = (f"  (two-phase: {tk} trunk + {ta['nepochs'] - tk} {phase2})"
           if tk else "")
     self.log(f"run: nepochs {ta['nepochs']}  bs {ta['bs']}  "
              f"loss_mode {(ta.get('loss') or {}).get('mode', 'sqrt')}{ph}")
@@ -1376,6 +1391,10 @@ class EmulatorExperiment:
       # defaults, by the handoff the trunk has absorbed most outliers, so
       # the head may want e.g. loss {mode: chi2} with no trim.
       trunk_epochs=train_args.get("trunk_epochs", 0),
+      # freeze_trunk (None = absent = today's frozen default): false trains
+      # trunk + head together in phase 2 (a joint fine-tune) instead of
+      # freezing the trunk at the handoff. Needs trunk_epochs > 0.
+      freeze_trunk=train_args.get("freeze_trunk"),
       trunk_opts=train_args.get("trunk"),
       head_opts=train_args.get("head"),
       # stability guards (both default off; the trunk: / head:

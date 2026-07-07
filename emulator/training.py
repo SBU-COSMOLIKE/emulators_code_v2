@@ -1881,6 +1881,7 @@ def run_emulator(train_set,
                  clip=0.0,
                  rewind=False,
                  trunk_epochs=0,
+                 freeze_trunk=None,
                  trunk_opts=None,
                  head_opts=None,
                  ema=None):
@@ -1900,16 +1901,19 @@ def run_emulator(train_set,
        ▼
     best trunk weights restored  (best frac>0.2 epoch, never the
        │                          last one)
-       │  set_train_phase("head"): trunk frozen, run under no_grad
+       │  set_train_phase("head" if freeze_trunk else "joint"): the
+       │  trunk freezes and the head trains alone (the default), or
+       │  trunk + head train together (freeze_trunk false, a joint
+       │  fine-tune warm-started by phase 1)
        ▼
-    phase "head"   (the remaining nepochs - trunk_epochs epochs)
-       │  head + gates only, from the zero-init identity start, so
+    phase "head" / "joint"   (the remaining nepochs - trunk_epochs
+       │  epochs) head + gates from the zero-init identity start, so
        │  the loss is continuous at the handoff (fresh optimizer /
        │  warmup / scheduler; the trunk: / head: blocks override
-       │  lr / loss / trim / focus / clip / rewind per
-       │  phase)
+       │  lr / scheduler / loss / trim / focus / clip / rewind / ema
+       │  per phase)
        ▼
-    model restored to the head pass's best frac>0.2 epoch
+    model restored to the pass's best frac>0.2 epoch
 
   (legend: trunk_epochs = epochs of phase 1, the pure trunk; nepochs
   = total epochs, so phase 2 runs nepochs - trunk_epochs; frac>0.2 =
@@ -1992,12 +1996,22 @@ def run_emulator(train_set,
                    the first trunk_epochs epochs train the trunk
                    alone with the head bypassed (pure-trunk cost),
                    then the loop restores that phase's best
-                   weights, freezes the trunk, and trains the head
-                   only for the remaining nepochs - trunk_epochs
-                   epochs (fresh optimizer, scheduler, and warmup;
-                   the zero-init head starts as an exact identity,
-                   so the handoff is loss-continuous). 0 (default)
-                   = ordinary joint training.
+                   weights and trains phase 2 for the remaining
+                   nepochs - trunk_epochs epochs (fresh optimizer,
+                   scheduler, and warmup; the zero-init head starts
+                   as an exact identity, so the handoff is
+                   loss-continuous). Phase 2 freezes the trunk and
+                   trains the head alone by default, or trains trunk
+                   + head together when freeze_trunk is false. 0
+                   (default) = ordinary joint training from epoch 1.
+    freeze_trunk = phase-2 mode (None / absent = the frozen default,
+                   byte-identical). True: freeze the trunk at the
+                   handoff and train the head alone. False: train
+                   trunk + head together (a joint fine-tune
+                   warm-started by phase 1) via set_train_phase
+                   ("joint") — costlier per epoch (the trunk backward
+                   returns). Needs trunk_epochs > 0 (else a config
+                   error); a non-bool is rejected.
     trunk_opts   = optional trunk-phase (phase 1) overrides;
     head_opts    = optional head-phase (phase 2) overrides.
                    Two symmetric blocks (two-phase runs only; need
@@ -2069,6 +2083,19 @@ def run_emulator(train_set,
       "per-phase overrides (the train_args trunk: / head: blocks) "
       "need trunk_epochs > 0: without the two-phase schedule "
       "they would silently do nothing")
+  # freeze_trunk (None = absent = the frozen-trunk default, byte-identical)
+  # only means something with a two-phase schedule: a non-bool is a typo,
+  # and an explicit value without trunk_epochs > 0 would silently do nothing
+  # (the trunk: / head: precedent).
+  if freeze_trunk is not None:
+    if not isinstance(freeze_trunk, bool):
+      raise TypeError(
+        f"train_args.freeze_trunk must be a bool (true / false), got "
+        f"{type(freeze_trunk).__name__}")
+    if trunk_epochs == 0:
+      raise ValueError(
+        "train_args.freeze_trunk needs trunk_epochs > 0: without the "
+        "two-phase schedule it would silently do nothing")
   # validate each present phase block up front (None = absent = no-op):
   # the eight-key whitelist, the flat lr_base migration, the bs_base / cls
   # rejections. Same errors the demotion path raises (both call this), so
@@ -2262,7 +2289,10 @@ def run_emulator(train_set,
   # frozen group untouched. training_loop_batched restores its own
   # best-frac>0.2 weights at the end of each pass, so phase 2
   # starts from phase 1's best trunk (not its last epoch), with the
-  # zero-init head making the handoff loss-continuous.
+  # zero-init head making the handoff loss-continuous. With
+  # freeze_trunk false phase 2 runs "joint" instead: the trunk is not
+  # frozen, so its backward returns (a costlier fine-tune).
+  freeze = freeze_trunk is not False
   if trunk_epochs > 0:
     plan = [(trunk_epochs, "trunk"),
             (nepochs - trunk_epochs, "head")]
@@ -2271,8 +2301,16 @@ def run_emulator(train_set,
 
   train_losses, medians, means, fracs = [], [], [], []
   for n_pass, phase in plan:
-    if phase is not None:
-      model.set_train_phase(phase)
+    # phase 2 runs "joint" (trunk + head together) when freeze_trunk is
+    # false; the set_train_phase name is then "joint", but the pass role
+    # stays "head" — it still selects head_opts, drives the best-epoch
+    # restore, and labels the override tail. freeze_trunk None/absent/true
+    # keeps the frozen default, byte-identical.
+    model_phase = phase
+    if phase == "head":
+      model_phase = "head" if freeze else "joint"
+    if model_phase is not None:
+      model.set_train_phase(model_phase)
 
     # per-pass knob resolution: each pass restarts the lr at its base
     # (never the other phase's decayed floor) and falls back to the run
@@ -2370,7 +2408,7 @@ def run_emulator(train_set,
         knot_note += ")"
       else:
         knot_note = ""
-      print(f"phase '{phase}': {n_pass} epochs, lr restarts "
+      print(f"phase '{model_phase}': {n_pass} epochs, lr restarts "
             f"at {lr_pass:.2e} (+ {wmupe_pass}-epoch warmup), "
             f"loss_mode {mode_pass}{knot_note}{tail}")
 

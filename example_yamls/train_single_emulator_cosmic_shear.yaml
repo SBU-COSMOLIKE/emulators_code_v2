@@ -135,12 +135,19 @@ train_args:
   # restrf + ia: nla; omit or 0 = joint training).
   # Phase 1 (epochs 1..trunk_epochs): the correction head is bypassed,
   # so the model trains as pure nla at nla cost per epoch. Phase 2 (the
-  # remaining nepochs - trunk_epochs): the trunk freezes at phase 1's
-  # best epoch and runs under no_grad (no trunk backward); only the
-  # head + gates train, from a zero-init identity start, so the loss is
+  # remaining nepochs - trunk_epochs): by default the trunk freezes at
+  # phase 1's best epoch and runs under no_grad (no trunk backward); only
+  # the head + gates train, from a zero-init identity start, so the loss is
   # continuous at the handoff. Fresh optimizer / lr warmup / scheduler /
   # trim / focus schedules per phase.
   # trunk_epochs: 1500
+
+  # freeze_trunk (default true = today): phase 2 freezes the trunk and
+  # trains the head alone. Set false to train trunk + head together (a
+  # joint fine-tune warm-started by phase 1); costs more per epoch (the
+  # trunk backward returns). Needs trunk_epochs > 0; sweepable on a
+  # two-phase model, dropped on a single-phase one.
+  # freeze_trunk: false
 
   # Per-phase overrides, symmetric (both need trunk_epochs > 0; error
   # otherwise). Each block mirrors the top-level train_args schema
@@ -151,8 +158,9 @@ train_args:
   # scheduler is a full replacement of the scheduler kwargs (the run's
   # scheduler class stays); trim / focus are full-replacement blocks
   # (same keys as the main ones, incl. kappa, no merging), restarting at
-  # the phase's own epoch 1; loss (the nested {mode, berhu} block) / clip /
-  # rewind replace their value.
+  # the phase's own epoch 1; loss (the nested {mode, berhu} block), ema
+  # (the {horizon_epochs, anneal} block; ema: null disables an inherited
+  # one), clip, and rewind replace their value.
   # On a single-phase model (any name: resmlp, including ia nla / tatt;
   # rescnn / restrf are the two-phase models) train() ignores head: and
   # trunk_epochs and merges trunk: into the top level, printing a one-line

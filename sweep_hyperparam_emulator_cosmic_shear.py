@@ -112,8 +112,8 @@ from emulator.scheduling import (
 # times. model.* keys are further validated by build_specs
 # (MODEL_BLOCK_KEYS) at train time, loudly.
 SWEEPABLE_TOP_KEYS = ("nepochs", "bs", "loss", "trunk_epochs",
-                      "clip", "rewind", "trunk", "head", "model",
-                      "optimizer", "lr", "scheduler", "trim",
+                      "freeze_trunk", "clip", "rewind", "trunk", "head",
+                      "model", "optimizer", "lr", "scheduler", "trim",
                       "focus", "ema")
 
 # dotted paths that sweep the activation family: these are resolved
