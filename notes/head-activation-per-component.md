@@ -299,3 +299,215 @@ optional model.cnn/.trf activation {type, n_gates} pins the head's
 family (absent = share the trunk's; head trains in phase 2, so this
 is the head-phase activation with no mid-run swap; gates GHA-A..E
 Architect-verified)".
+
+## Resume state (Implementer appends below)
+
+### 2026-07-06 — Implementer (Opus 4.8): UNIT B executed
+
+Base: unit A committed at ebd9869 (freeze_trunk); started there.
+GHA-A..E (incl. D2) pass on the Mac. Commit unit B of the three-unit
+cycle; unit C (README precedence appendix) follows after B is committed.
+
+**Done, by seam:**
+
+- Seam 1 (model classes): head_act=None ctor kwarg on ResCNN /
+  ResTRF (emulator_designs.py) + TemplateResCNN / TemplateResTRF (IA),
+  the seam `cnn_act/trf_act = head_act if head_act is not None else
+  block_opts.get("act", activation_fcn)` at all four sites; TRFBlock
+  still receives act=trf_act; docstring Arguments entry each.
+- Seam 2 (build_specs): "activation" joins the cnn + trf
+  MODEL_BLOCK_KEYS tables (-> "head_act"; NOT mlp). Two pure helpers:
+  `_head_activation_spec(value, source)` (strict {type, n_gates} or
+  bare string) and `_resolve_head_activation(canonical, alias,
+  head_block, trunk_epochs, freeze_trunk)` (both-spellings error +
+  ruling-(d) license). The loop special-cases k2 == "activation"
+  before the generic copy (validates -> head_pin, only the ACTIVE
+  head reaches it); post-loop resolves canonical vs the head: alias,
+  licenses, and builds `model_opts["head_act"] = make_activation(...)`.
+- Seam 3 (banner): describe_spec already renders the active head's
+  block verbatim, so the head activation prints free (GHA-D). The
+  ruling-(a) warning: `_activation_flag_notice(flag_type, head_block,
+  head_pin)` (pure), built in from_config (which captures the explicit
+  flag before the block-fallback), stored on exp._activation_notice,
+  emitted by print_design after the env line, quiet-gated.
+- Seam 4 (drivers): a shared pure `_pinned_head_warning(train_args,
+  head_block, what_varies)`; bakeoff logs it at startup; sweep_hyperparam
+  logs it in the ACTIVATION_PATHS (act_mode) branch. Both quiet-gated
+  through the experiment's log, one warning line each.
+- Ruling (c) alias: validate_phase_block accepts "activation" for
+  which == "head" only (a ninth, head-only, non-training key; the
+  per-pass resolution never reads it); trunk: activation: raises the
+  asymmetry-teaching error. run_emulator head_opts docstring notes the
+  alias is consumed upstream.
+- D-DOC2b obs1: the train() `(lr / loss / trim / focus)` comment
+  completed to the eight-key whitelist + the activation alias.
+- Docs: train_single YAML (commented activation: in cnn + trf), tune
+  YAML (one note), README section 6 + section 10 (ResCNN + ResTRF head
+  knobs), train_single driver header, experiment __init__ model entry,
+  MODEL_BLOCK_KEYS comment.
+
+**Deviations / declared:**
+
+- The warning helpers take `head_pin` (the resolved pin value from
+  EITHER spelling), not the spec's literal `(flag_type, head_block,
+  model_block)`. This is strictly more correct: ruling (c) requires the
+  head: alias to trigger the ruling-(a) warning too, which a
+  model_block-only read would miss. Flag if the Architect wants the
+  narrower canonical-only form.
+- The two teaching messages (the license error and the trunk-asymmetry
+  error) are reproduced verbatim from this note / freeze-trunk EXCEPT
+  the one word "IS" -> "is" (house caps rule: no all-caps emphasis in
+  strings/comments). Flag if verbatim "IS" is required; trivial to
+  restore.
+- Interface additions: head_act=None on the four head classes; module
+  functions _head_activation_spec / _resolve_head_activation /
+  _activation_flag_notice / _pinned_head_warning; exp._activation_notice
+  attribute (None on direct __init__). No behavioral change to any
+  existing path (absent activation = byte-identical; describe_spec code
+  untouched; ACTIVATION_PATHS / _PHASE_BLOCK_KEYS / resolve_phase_args
+  unchanged).
+
+**Gate evidence (raw, Mac; no torch — exec-extracted from the tree):**
+
+- GHA-A (translation, pure + loop exec-extract): _head_activation_spec
+  (bare string / dict / n_gates default 3 / no-type + unknown-subkey ->
+  ValueError / non-str-dict -> TypeError); the real build_specs loop +
+  post-resolution over 9 cases (active cnn dict -> head_act factory;
+  bare-string trf; absent -> NO head_act; inactive cnn/trf on resmlp
+  ignored; model.mlp.activation -> unknown-key error; unknown head
+  sub-key raises; a pin with trunk_epochs 0 -> license error end to
+  end; head: alias -> head_act; canonical + alias -> error). ALL PASS.
+- GHA-A(c/d): _resolve_head_activation both-spellings-even-equal error +
+  license (trunk_epochs>0 AND freeze_trunk not False, else the teaching
+  error; covers joint + trunk_epochs 0); validate_phase_block accepts
+  head: activation:, rejects trunk: activation: with the asymmetry
+  message, still rejects an unknown head key. ALL PASS.
+- GHA-B (seam, static): head_act=None in all 4 signatures; the fallback
+  expression at all 4 sites; act=trf_act intact (2). PASS.
+- GHA-C (static): "activation" in cnn + trf tables only; the special
+  case ordered before the generic copy; ACTIVATION_PATHS + _PHASE_BLOCK_KEYS
+  + resolve_phase_args untouched. PASS.
+- GHA-D (banner): describe_spec (exec-extracted) shows the active head's
+  activation dict and drops the inactive head (code byte-identical to
+  HEAD); _activation_flag_notice rendered only on a differing explicit
+  flag vs pin, None when the flag is absent / agrees / no pin / no head.
+  PASS.
+- GHA-D2 (drivers, static): the bakeoff + sweep ACTIVATION_PATHS
+  warnings present at their call sites, quiet-gated through log, one line
+  each. PASS.
+- GHA-E: 0 py/yaml additions over 90 cols; 0 ` -- `; added caps are
+  domain acronyms only (TRF/CNN/MLP/CMB/GG/GI/II + YAML) after de-capping
+  six emphasis tokens; the two train_single activation blocks align their
+  inline comments at col 30; whole-tree py_compile clean. AST-minus-
+  docstrings: the seam files + drivers CODE CHANGED as expected, the
+  train_single driver comment-only.
+
+**GHA-F (workstation, rides the queue).** Run from $ROOTDIR on a torch
+box, two-phase model, a frozen-trunk head phase:
+
+    R=--root=<root> ; F=--fileroot=<fileroot>
+    Y=--yaml=train_single_emulator_cosmic_shear.yaml
+    # golden: absent per-head activation is byte-identical pre/post
+    git stash && python train_single_emulator_cosmic_shear.py $R $F $Y \
+      > /tmp/ha_pre.log 2>&1
+    git stash pop && python train_single_emulator_cosmic_shear.py $R $F $Y \
+      > /tmp/ha_post.log 2>&1
+    diff <(grep -E '^(phase|epoch|best|model spec)' /tmp/ha_pre.log) \
+         <(grep -E '^(phase|epoch|best|model spec)' /tmp/ha_post.log)  # EMPTY
+    # then a pinned-head run: restrf + ia nla, trunk_epochs: 800,
+    # freeze_trunk: true (or absent), and under model.trf:
+    #   activation:
+    #     type:    gated_power
+    #     n_gates: 3
+    #   the "model spec:" banner shows the trf activation dict;
+    #   the head param count rises vs the shared H (the gated_power
+    #   gamma/beta per token MLP feature); the handoff stays
+    #   loss-continuous (the zero-init head is identity at any family).
+    # flag-vs-pin: add --activation power -> the startup warning prints
+    #   "warning: --activation power sets the trunk/default only; the head
+    #    keeps its model.trf.activation pin (gated_power)".
+    # license: set freeze_trunk: false (or trunk_epochs: 0) with the pin
+    #   -> build_specs errors with the frozen-trunk-head-phase message.
+
+Open: GHA-F (workstation) + the Architect re-audit of GHA-A..E. Unit B
+commit is independent; unit C (README precedence appendix) follows on
+the committed base.
+
+### 2026-07-06 — Architect re-audit: ACCEPTED, no deltas
+
+Own harnesses on the confirmed base ebd9869:
+
+- Footprint exact (AST-minus-docstrings): CODE CHANGED only in
+  training.py / experiment.py / the two design files / the two warned
+  drivers; train_single driver comment-only; building_blocks, tune,
+  sweep_ntrain untouched.
+- 30/30 own-harness checks: _head_activation_spec (bare string, dict,
+  n_gates default, three rejects); _resolve_head_activation
+  (both-spellings error EVEN WHEN EQUAL; the license blocks
+  trunk_epochs 0 with freeze_trunk None/True/False AND trunk_epochs>0
+  + freeze_trunk False, message teaching); _activation_flag_notice
+  full truth table (differing fires, absent/agree/no-pin/no-head
+  None, bare-string pin works); _pinned_head_warning (canonical +
+  alias spellings, None cases); validate_phase_block asymmetry
+  (head: activation accepted, trunk: activation raises the teaching
+  error, unknown-key error gains the head-only hint on head and NOT
+  on trunk, the eight training keys unchanged at 8).
+- Statics: describe_spec and resolve_phase_args AST-identical to
+  HEAD; ACTIVATION_PATHS unchanged; all four head_act seams present
+  (2 per file pattern) with act=trf_act intact; train() resolves
+  phases before build_specs (the alias-only-for-a-real-head claim
+  holds); the two >90-col added lines are README one-line rows (the
+  file's convention); py_compile clean.
+- One harness bug of MINE mid-audit (owned): validate_phase_block's
+  internal validate_loss/validate_ema calls needed stubs; re-run
+  correctly, all pass. Not a code finding.
+
+Deviations RULED:
+- head_pin-based warning-helper signature: ACCEPTED — strictly more
+  correct (ruling (c) requires the head: alias to trigger the
+  ruling-(a) warning; a model_block-only read would miss it).
+- "IS" -> "is" in the two teaching strings: ACCEPTED — the house
+  caps rule governs runtime strings; the note's caps were emphasis,
+  not content.
+- The interface additions (head_act=None x4, the four pure helpers,
+  exp._activation_notice) accepted as declared.
+
+UNIT B COMMIT-READY. Suggested sentence: "Per-head-component
+activation: model.cnn/.trf activation {type, n_gates} pins the
+head's family (head: activation: alias accepted, trunk: errors
+teaching the asymmetry; both spellings = error; licensed by a
+frozen-trunk head phase — trunk_epochs > 0 + freeze_trunk true;
+flag-vs-pin + pinned-head warnings; gates GHA-A..E incl. D2
+Architect-verified)". Unit C proceeds on the committed base; GHA-F
+rides the workstation queue.
+
+## Proceed directive (Architect, 2026-07-06, after unit A acceptance)
+
+Unit A (freeze_trunk) is Architect-ACCEPTED (re-audit verdict in
+[[freeze-trunk-joint-phase2]]: 14/14 + statics, no deltas) and goes
+to the user for its commit. Units B (this note) + C
+([[readme-precedence-appendix]]) are AUTHORIZED to proceed on the
+unit-A committed base:
+
+- Precondition: `git log -1` shows the unit-A sentence
+  ("train_args.freeze_trunk (default true): ..."). If the tree still
+  carries uncommitted unit-A changes, STOP and report.
+- Unit B scope = this note in full: the four seams; ruling (a) as
+  amended (pin holds + the flag-vs-pin warning + the bakeoff /
+  sweep one-liners); superseded ruling (c) (head: activation: alias
+  accepted for which == "head" only, both-spellings error even when
+  equal, trunk: activation: asymmetry-teaching error verbatim);
+  ruling (d) license at build_specs (trunk_epochs > 0 AND
+  freeze_trunk not False — absent counts as true; wording in
+  [[freeze-trunk-joint-phase2]]); D-DOC2b obs1 (the train() comment
+  enumeration); docs per the note. Gates GHA-A..E incl. D2; GHA-F
+  recipe embedded for the workstation queue.
+- Unit C after B's commit: the appendix per
+  [[readme-precedence-appendix]] including the freeze_trunk rows;
+  verify the two flagged rows against the tree, declare any
+  correction; gate GPR-A.
+- Report per unit (an IMPLEMENTER_HANDOFF after B, another after
+  C), resume state appended per unit, raw gate outputs, every YAML
+  change as a paste-ready block, deviations declared. Do not
+  commit: leave each diff uncommitted and print its suggested
+  commit command.

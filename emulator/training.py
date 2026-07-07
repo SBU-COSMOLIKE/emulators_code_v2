@@ -272,7 +272,12 @@ def validate_phase_block(block, which):
   phase blocks mirror the top-level train_args schema: lr is a nested
   sub-block (overlay), scheduler a nested kwargs block (full replacement),
   the other six keys scalars / their own blocks. Absent (None) validates
-  trivially and the run is unchanged.
+  trivially and the run is unchanged. The head block alone also accepts a
+  ninth key, activation: the head-only alias for the per-head activation
+  pin (model.<head>.activation), a construction knob consumed by
+  build_specs, not a training key (the per-pass resolution never reads it);
+  trunk: activation: is a config error (the trunk is the same modules in
+  both phases).
 
   Arguments:
     block = the trunk: or head: mapping, or None when the block is absent.
@@ -307,11 +312,29 @@ def validate_phase_block(block, which):
   if "loss_mode" in block or "berhu" in block:
     raise ValueError(_loss_migration_message(
       block.get("loss_mode"), block.get("berhu"), which))
-  unknown = set(block) - set(_PHASE_BLOCK_KEYS)
+  # head: activation: is the head-only alias for the per-head activation
+  # pin (model.<head>.activation): a construction knob consumed by
+  # build_specs, not a training key, so it is accepted here for the head
+  # block only (the per-pass resolution never reads it). trunk: activation:
+  # is a config error, the trunk being the same modules in both phases.
+  allowed = set(_PHASE_BLOCK_KEYS)
+  if "activation" in block:
+    if which != "head":
+      raise ValueError(
+        f"train_args.{which}.activation: the trunk is the same modules "
+        f"in both phases, so it cannot have a phase-local activation — "
+        f"set model.activation (the run's trunk + default family). "
+        f"head: activation: is accepted (the head only trains in phase "
+        f"2); its canonical spelling is model.cnn.activation / "
+        f"model.trf.activation.")
+    allowed = allowed | {"activation"}
+  unknown = set(block) - allowed
   if unknown:
     raise ValueError(
       f"unknown train_args.{which} key(s): {sorted(unknown)}; a phase "
-      f"block overrides only {list(_PHASE_BLOCK_KEYS)}")
+      f"block overrides only {list(_PHASE_BLOCK_KEYS)}"
+      + (" (plus activation, the head-only pin alias)"
+         if which == "head" else ""))
   # lr is an overlay of {lr_base, warmup_epochs}; bs_base is run-global.
   lr = block.get("lr")
   if lr is not None:
@@ -2047,6 +2070,11 @@ def run_emulator(train_set,
                        {horizon_epochs, anneal}, a full replacement; a
                        null block (key present, value None) disables an
                        inherited top-level ema for that pass.
+                   The head block alone may also carry activation: the
+                   head-only alias for the per-head activation pin
+                   (model.<head>.activation), consumed upstream by
+                   build_specs, not here (run_emulator never reads it, so a
+                   direct caller gets no alias).
                    EmulatorExperiment.train resolves these away for
                    single-phase models (it merges trunk: into the top
                    level and drops head: / trunk_epochs); a direct

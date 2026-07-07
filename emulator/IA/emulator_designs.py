@@ -271,7 +271,7 @@ class TemplateResCNN(DesignSpec, nn.Module):
                n_templates, int_dim_res, geom, kernel_size=11,
                rescale_kernel=False, groups=1, separable=False,
                film=False, n_blocks=4, n_blocks_cnn=1,
-               gate_init=0.1, block_opts=None):
+               gate_init=0.1, head_act=None, block_opts=None):
     """Build the template trunk, the conv head, the buffers.
 
     Arguments:
@@ -332,10 +332,15 @@ class TemplateResCNN(DesignSpec, nn.Module):
                      (default 0.1) to start near the pure trunk;
                      not 0, a 0 gate strands the CNN with no
                      gradient, so it never learns.
-      block_opts   = ResBlock options (None -> {}); its "act" is
-                     also handed to the CNN head, so head and trunk
-                     share one activation family (falls back to
-                     activation_fcn, the paper's H).
+      head_act     = the CNN head's own activation factory (None ->
+                     share block_opts["act"], the trunk's family;
+                     byte-identical to before). build_specs builds it
+                     from model.cnn.activation (or the head:
+                     activation: alias); set, it pins the head only.
+      block_opts   = ResBlock options (None -> {}); its "act" is the
+                     trunk family and, unless head_act is set, the CNN
+                     head's too (falls back to activation_fcn, the
+                     paper's H).
     """
     super().__init__()
     if block_opts is None:
@@ -378,10 +383,12 @@ class TemplateResCNN(DesignSpec, nn.Module):
 
     # the head: n_blocks_cnn x (one conv + one activation), with the
     # (template, bin) pairs as the channels, a single kernel over
-    # everything (see the class docstring). Takes the trunk's
-    # activation so head and trunk share one family; act(max_bin)
-    # gives per-position parameters, broadcast over the channels.
-    cnn_act = block_opts.get("act", activation_fcn)
+    # everything (see the class docstring). head_act (the
+    # model.cnn.activation pin) wins when set; else the trunk's shared
+    # family; act(max_bin) gives per-position parameters, broadcast
+    # over the channels.
+    cnn_act = (head_act if head_act is not None
+               else block_opts.get("act", activation_fcn))
     # rescale_kernel: kernel_size was tuned for a single block, so
     # shrink the per-block kernel with depth to keep that block's
     # view, receptive field n*(k-1)+1 >= kernel_size, see
@@ -702,7 +709,7 @@ class TemplateResTRF(DesignSpec, nn.Module):
                n_templates, int_dim_res, geom, n_heads=2,
                n_blocks=4, n_blocks_trf=1, n_mlp_blocks=2,
                gate_init=0.1, shared_mlp=False, film=False,
-               block_opts=None):
+               head_act=None, block_opts=None):
     """Build the template trunk, the TRF head, the buffers.
 
     Arguments:
@@ -747,9 +754,14 @@ class TemplateResTRF(DesignSpec, nn.Module):
                      the closed-form amplitude exactness survives.
                      Identity init keeps corr = 0 at epoch 1. See
                      FiLMGenerator and notes/film-conditioning.md.
-      block_opts   = ResBlock options (None -> {}); its "act" also
-                     reaches the TRF MLPs, so head and trunk share
-                     one activation family.
+      head_act     = the TRF head's own activation factory (None ->
+                     share block_opts["act"], the trunk's family;
+                     byte-identical to before). build_specs builds it
+                     from model.trf.activation (or the head:
+                     activation: alias); set, it pins the head only.
+      block_opts   = ResBlock options (None -> {}); its "act" is the
+                     trunk family and, unless head_act is set, reaches
+                     the TRF MLPs too.
     """
     super().__init__()
     if block_opts is None:
@@ -794,9 +806,11 @@ class TemplateResTRF(DesignSpec, nn.Module):
     # (template, bin) tokens at their natural width max_bin, no
     # embedding, no output projection (the same pairs-as-tokens move
     # as the conv head's pairs-as-channels). Every block is the
-    # identity at init, so blocks(h) - h = 0 exactly. The trunk's
-    # activation reaches the TRF MLPs too.
-    trf_act = block_opts.get("act", activation_fcn)
+    # identity at init, so blocks(h) - h = 0 exactly. head_act (the
+    # model.trf.activation pin) wins when set; else the trunk's
+    # shared family reaches the TRF MLPs too.
+    trf_act = (head_act if head_act is not None
+               else block_opts.get("act", activation_fcn))
     trf = []
     for _ in range(n_blocks_trf):
       trf.append(TRFBlock(self.max_bin,

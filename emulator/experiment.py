@@ -149,7 +149,10 @@ IA_DESIGNS = {"nla":  {"amp_names":   NLA_AMP_NAMES,
 # n_blocks-vs-n_blocks_cnn suffixes. The tables below map each
 # sub-block's YAML keys onto the model constructors' flat argument
 # names (the constructors are internal API; the YAML is the
-# interface). An unknown key raises, listing what is allowed.
+# interface). An unknown key raises, listing what is allowed. The
+# cnn / trf "activation" key maps to head_act (the per-head activation
+# pin), but build_specs special-cases its value (a {type, n_gates}
+# factory spec, not a scalar) before the generic copy.
 MODEL_BLOCK_KEYS = {
   "mlp": {"width":        "int_dim_res",
           "n_blocks":     "n_blocks"},
@@ -159,14 +162,180 @@ MODEL_BLOCK_KEYS = {
           "separable":      "separable",
           "film":           "film",
           "n_blocks":       "n_blocks_cnn",
-          "gate_init":      "gate_init"},
+          "gate_init":      "gate_init",
+          "activation":     "head_act"},
   "trf": {"n_heads":      "n_heads",
           "n_blocks":     "n_blocks_trf",
           "n_mlp_blocks": "n_mlp_blocks",
           "shared_mlp":   "shared_mlp",
           "film":         "film",
-          "gate_init":    "gate_init"},
+          "gate_init":    "gate_init",
+          "activation":   "head_act"},
 }
+
+def _head_activation_spec(value, source):
+  """
+  Validate a per-head activation value into a {type, n_gates} spec.
+
+  The per-head pin (model.cnn / .trf.activation, or the head: activation:
+  alias) takes the same two shapes as the top-level model.activation: a
+  bare type string, or a mapping {type, n_gates}. Unlike the top-level key
+  it is strict (an unknown sub-key raises instead of being silently
+  ignored), so a per-head typo cannot quietly fall back to the shared
+  family. A standalone pure function (no torch), so build_specs stays
+  unit-testable.
+
+  Arguments:
+    value  = the raw YAML value: a str (the type), or a mapping with
+             "type" (required) and an optional "n_gates".
+    source = the config path, named in every error (e.g.
+             "model.trf.activation").
+
+  Returns:
+    {"type": str, "n_gates": int} (n_gates default 3, the make_activation
+    default), ready for make_activation(type, n_gates=...).
+
+  Raises:
+    TypeError if value is neither a str nor a mapping; ValueError on a
+    mapping without "type" or carrying a key outside {type, n_gates}.
+  """
+  if isinstance(value, str):
+    return {"type": value, "n_gates": 3}
+  if not isinstance(value, dict):
+    raise TypeError(
+      f"{source} must be a type string or a mapping {{type, n_gates}}, "
+      f"got {type(value).__name__}")
+  unknown = set(value) - {"type", "n_gates"}
+  if unknown:
+    raise ValueError(
+      f"unknown key(s) {sorted(unknown)} in {source}; a per-head "
+      f"activation takes only type / n_gates")
+  if "type" not in value:
+    raise ValueError(
+      f"{source} needs a 'type' (the activation family, e.g. H / "
+      f"gated_power)")
+  return {"type": str(value["type"]),
+          "n_gates": int(value.get("n_gates", 3))}
+
+
+def _resolve_head_activation(canonical, alias, head_block, trunk_epochs,
+                             freeze_trunk):
+  """
+  Resolve the per-head activation pin (canonical vs alias) and license it.
+
+  The head's activation may be pinned canonically
+  (model.<head_block>.activation) or through the head: activation: alias;
+  they are one setting, so giving both is a config error (no silent
+  winner, even when the two agree — the loss berhu: / mode-named
+  precedent). The pin is licensed only by a frozen-trunk head phase: the
+  head family is the head-phase family, so it needs trunk_epochs > 0 and
+  freeze_trunk true (absent = true). When the trunk and head train
+  together the network keeps one family. Pure (no torch).
+
+  Arguments:
+    canonical    = the {type, n_gates} spec from model.<head>.activation,
+                   or None (already validated by _head_activation_spec).
+    alias        = the {type, n_gates} spec from head: activation:, or
+                   None (already validated).
+    head_block   = the active head's block name ("cnn" / "trf"), named in
+                   every message as the canonical spelling.
+    trunk_epochs = the resolved trunk_epochs (0 = no two-phase schedule).
+    freeze_trunk = the resolved freeze_trunk (None / True = a frozen head
+                   phase, False = joint).
+
+  Returns:
+    the pin spec {type, n_gates}, or None when neither spelling is set.
+
+  Raises:
+    ValueError when both spellings are given, or when a pin is set without
+    a frozen-trunk head phase (the license rule).
+  """
+  if canonical is not None and alias is not None:
+    raise ValueError(
+      f"the head activation is set twice: model.{head_block}.activation "
+      f"and the head: activation: alias name the same family; keep one "
+      f"(the canonical model.{head_block}.activation is recommended, it "
+      f"also reads on single-phase YAMLs)")
+  pin = canonical if canonical is not None else alias
+  if pin is None:
+    return None
+  if not (trunk_epochs > 0 and freeze_trunk is not False):
+    raise ValueError(
+      f"model.{head_block}.activation: a per-head activation needs a "
+      f"frozen-trunk head phase (trunk_epochs > 0 and freeze_trunk "
+      f"true): the head family is the head-phase family. With the trunk "
+      f"and head training together the network keeps one family — set "
+      f"model.activation only.")
+  return pin
+
+
+def _activation_flag_notice(flag_type, head_block, head_pin):
+  """
+  The startup warning when an explicit --activation flag meets a head pin.
+
+  Ruling (a): --activation (and model.activation) set the trunk + default
+  family; an explicit per-head pin (model.<head>.activation or the head:
+  activation: alias) holds for the head. When the two name different
+  families the pin silently wins for the head, so one line names both. No
+  warning when the flag is absent (the drivers pass None), when no head pin
+  exists, or when the flag and the pin agree (no surprise). Pure (no
+  torch), so it is exercised case-by-case off the tree.
+
+  Arguments:
+    flag_type  = the explicit --activation type string, or None when the
+                 flag was absent (the driver default).
+    head_block = the active head's block name ("cnn" / "trf"), or None
+                 (a resmlp / plain model has no head to pin).
+    head_pin   = the active head's activation pin, from either spelling: a
+                 type string, a mapping {type, n_gates}, or None.
+
+  Returns:
+    the warning string, or None when no surprise is possible.
+  """
+  if flag_type is None or head_block is None or head_pin is None:
+    return None
+  pin_type = (head_pin.get("type") if isinstance(head_pin, dict)
+              else head_pin)
+  if pin_type is None or str(pin_type) == str(flag_type):
+    return None
+  return (f"warning: --activation {flag_type} sets the trunk/default "
+          f"only; the head keeps its model.{head_block}.activation pin "
+          f"({pin_type})")
+
+
+def _pinned_head_warning(train_args, head_block, what_varies):
+  """
+  One-line warning when the active head is pinned while a driver sweeps the
+  shared activation family.
+
+  The bake-off and a model.activation sweep write the shared / trunk family
+  per curve; a per-head pin (model.<head>.activation or the head:
+  activation: alias) stays fixed across every curve, so it is worth a
+  heads-up (unlike the from_config warning, this fires whenever a pin
+  exists, since the swept value changes per curve). None when there is no
+  head (resmlp) or no pin. Pure (no torch).
+
+  Arguments:
+    train_args  = the resolved train_args mapping.
+    head_block  = the active head's block name ("cnn" / "trf"), or None.
+    what_varies = the tail clause naming what the driver sweeps (e.g.
+                  "it stays fixed across the bake-off").
+
+  Returns:
+    the warning string, or None.
+  """
+  if head_block is None:
+    return None
+  model = train_args.get("model", {})
+  pin = model.get(head_block, {}).get("activation")
+  if pin is None and isinstance(train_args.get("head"), dict):
+    pin = train_args["head"].get("activation")
+  if pin is None:
+    return None
+  pin_type = pin.get("type") if isinstance(pin, dict) else pin
+  return (f"warning: model.{head_block}.activation pins the head family "
+          f"({pin_type}); {what_varies}")
+
 
 # default reported delta-chi2 cutoffs; the first (0.2) is the emulator goal
 # and the best-model-selection metric.
@@ -668,15 +837,21 @@ class EmulatorExperiment:
                        "activation" ({type, n_gates} or a bare type
                        string; see the `activation` argument below),
                        "cnn" (kernel_size, rescale_kernel, groups,
-                       separable, film, n_blocks, gate_init; name
-                       rescnn only), "trf" (n_heads, n_blocks,
-                       n_mlp_blocks, shared_mlp, film, gate_init;
-                       name restrf only,
+                       separable, film, n_blocks, gate_init,
+                       activation; name rescnn only), "trf" (n_heads,
+                       n_blocks, n_mlp_blocks, shared_mlp, film,
+                       gate_init, activation; name restrf only,
                        the tokens live at the natural bin width, so
                        there is no width knob, and the per-token MLP
                        layers run at that width too, n_mlp_blocks is
-                       depth only),
-                       plus an optional flat "compile_mode".
+                       depth only). The head's activation ({type,
+                       n_gates} or a bare string) pins its own family
+                       (absent = shares model.activation, the trunk's;
+                       the head trains only in phase 2, so it needs a
+                       frozen-trunk head phase: trunk_epochs > 0 and
+                       freeze_trunk true). head: activation: is the
+                       head-only alias; trunk: activation: is an error.
+                       Plus an optional flat "compile_mode".
                        build_specs translates the nesting onto the
                        constructors' flat kwargs (MODEL_BLOCK_KEYS)
                        and rejects unknown or misplaced keys;
@@ -761,6 +936,9 @@ class EmulatorExperiment:
     self.geom      = None
     self.chi2fn    = None
     self.model     = None
+    # the ruling-(a) flag-vs-pin warning, set by from_config (which alone
+    # knows whether --activation was explicit); None on direct __init__.
+    self._activation_notice = None
 
   # --- alternative constructors ---
   @classmethod
@@ -838,6 +1016,7 @@ class EmulatorExperiment:
     # string (activation: H) is accepted as shorthand for the type.
     # build_specs consumes n_gates and drops the block (it is not a
     # model-constructor kwarg).
+    explicit_flag = kwargs.get("activation")   # the raw flag: None = absent
     if kwargs.get("activation") is None:
       act_blk = ta["model"].get("activation")
       if isinstance(act_blk, dict):
@@ -858,6 +1037,20 @@ class EmulatorExperiment:
     exp.model_name = name if ia is None else f"{name}_{ia}"
     exp.ia   = ia
     exp.arch = name
+    # ruling (a) amendment: an explicit --activation flag meeting a
+    # differing per-head pin is a surprise (the pin silently wins for the
+    # head). Build the one-line warning once, here — the only place that
+    # knew the flag was explicit (the drivers pass None when absent) — and
+    # let print_design emit it, quiet-gated. The pin reads from either
+    # spelling: canonical model.<head>.activation or the head: alias.
+    head_block = exp.model_cls.head_block
+    head_pin = None
+    if head_block is not None:
+      head_pin = ta["model"].get(head_block, {}).get("activation")
+      if head_pin is None and isinstance(ta.get("head"), dict):
+        head_pin = ta["head"].get("activation")
+    exp._activation_notice = _activation_flag_notice(
+      flag_type=explicit_flag, head_block=head_block, head_pin=head_pin)
     return exp
 
   @classmethod
@@ -947,6 +1140,11 @@ class EmulatorExperiment:
              f"rescale: {self.rescale}")
     if notice is not None:
       self.log(notice)
+    # ruling (a): the flag-vs-pin surprise warning (an explicit --activation
+    # meeting a differing per-head pin), built in from_config (the only
+    # place that knew the flag was explicit); quiet-gated like the notice.
+    if getattr(self, "_activation_notice", None) is not None:
+      self.log(self._activation_notice)
     # the model class describes itself: only the sub-blocks this
     # architecture consumes (its own head, never the inactive cnn: / trf:).
     self.log(f"model spec: {self.model_cls.describe_spec(ta['model'])}")
@@ -1243,6 +1441,7 @@ class EmulatorExperiment:
     ta = dict(train_args)
     model_opts = {}
     n_gates = 3
+    head_pin = None                  # the model.<head>.activation pin
     # the model class owns its head-knowledge (head_block: None | "cnn" |
     # "trf"); with arch known (from_config ran) skip the inactive head's
     # block, with arch None (direct construction) translate every block.
@@ -1271,6 +1470,16 @@ class EmulatorExperiment:
             raise ValueError(
               f"unknown key model.{key}.{k2}; allowed: "
               f"{' / '.join(sorted(table))}")
+          if k2 == "activation":
+            # the per-head activation pin: its value is a factory spec
+            # (type + optional n_gates), not a scalar to copy — validate
+            # it now (strict), then resolve it against the head: alias +
+            # license it after the loop and build the factory. Only the
+            # active head's block reaches here (the inactive one is
+            # skipped above), so head_pin is that head's pin.
+            head_pin = _head_activation_spec(v2,
+                                             f"model.{key}.activation")
+            continue
           model_opts[table[k2]] = v2
         continue
       raise ValueError(
@@ -1282,6 +1491,29 @@ class EmulatorExperiment:
         "the model.mlp block (width, n_blocks) is required: every "
         "architecture is built on the ResMLP trunk")
     ta["model"] = model_opts
+
+    # the per-head activation (rulings c/d, notes head-activation-per-
+    # component + freeze-trunk-joint-phase2): the canonical pin
+    # (model.<head>.activation, in head_pin) and the head: activation:
+    # alias are one setting — resolve them (both given = a loud error),
+    # license the pin against a frozen-trunk head phase (trunk_epochs > 0
+    # and freeze_trunk not False; the head family is the head-phase
+    # family), then build the factory into head_act. resolve_phase_args
+    # has already dropped head: on a single-phase model, so the alias
+    # reaches here only for a real head.
+    head_alias = None
+    head_blk = train_args.get("head")
+    if isinstance(head_blk, dict) and "activation" in head_blk:
+      head_alias = _head_activation_spec(head_blk["activation"],
+                                         "head.activation")
+    head_pin = _resolve_head_activation(
+      canonical=head_pin, alias=head_alias,
+      head_block=self.model_cls.head_block,
+      trunk_epochs=train_args.get("trunk_epochs", 0),
+      freeze_trunk=train_args.get("freeze_trunk"))
+    if head_pin is not None:
+      model_opts["head_act"] = make_activation(head_pin["type"],
+                                               n_gates=head_pin["n_gates"])
 
     # build_run_specs (training.py): turn the train_args sub-blocks into the
     # six {cls, **kwargs} spec dicts run_emulator consumes (model_opts /
@@ -1387,9 +1619,11 @@ class EmulatorExperiment:
       # epochs of pure-trunk training before the trunk freezes and the
       # head learns the residual; 0 / absent = ordinary joint training.
       # The symmetric trunk: / head: blocks override each pass's
-      # objective (lr / loss / trim / focus) over the shared top-level
-      # defaults, by the handoff the trunk has absorbed most outliers, so
-      # the head may want e.g. loss {mode: chi2} with no trim.
+      # objective (the eight-key whitelist lr / scheduler / loss / trim /
+      # focus / clip / rewind / ema; the head: block also accepts the
+      # activation pin alias) over the shared top-level defaults; by the
+      # handoff the trunk has absorbed most outliers, so the head may want
+      # e.g. loss {mode: chi2} with no trim.
       trunk_epochs=train_args.get("trunk_epochs", 0),
       # freeze_trunk (None = absent = today's frozen default): false trains
       # trunk + head together in phase 2 (a joint fine-tune) instead of

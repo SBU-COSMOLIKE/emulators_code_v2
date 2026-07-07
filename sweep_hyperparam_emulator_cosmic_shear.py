@@ -99,7 +99,8 @@ import torch
 
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
-from emulator.experiment import EmulatorExperiment, validate_sweep_paths
+from emulator.experiment import (
+  EmulatorExperiment, validate_sweep_paths, _pinned_head_warning)
 from emulator.results import save_sweep_table
 from emulator.scheduling import (
   even_assign, run_gpu_pool, GPU_TOKENS,
@@ -364,6 +365,14 @@ def main():
   exp.print_design()
   log(f"sweep: {param}  ->  {values}"
       + ("  (activation family)" if act_mode else ""))
+  # ruling (a): sweeping the shared activation family leaves a per-head pin
+  # fixed across every point; flag it once, quiet-gated through log.
+  if act_mode:
+    _pin_warn = _pinned_head_warning(
+      exp.train_args, exp.model_cls.head_block,
+      "the sweep varies the shared family, not this pin")
+    if _pin_warn is not None:
+      log(_pin_warn)
 
   n_cuda    = torch.cuda.device_count()
   n_request = n_cuda if args.n_gpus is None else min(args.n_gpus,

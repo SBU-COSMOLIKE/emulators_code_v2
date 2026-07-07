@@ -349,10 +349,15 @@ class ResCNN(DesignSpec, nn.Module):
                    correction. Small (default 0.1) to start near the
                    pure ResMLP; not 0, a 0 gate strands the CNN
                    with no gradient, so it never learns.
-    block_opts   = ResBlock options (None -> {}); its "act" is also
-                   handed to the CNN head, so head and trunk share
-                   one activation family. Defaults to activation_fcn
-                   (the paper's H) when block_opts sets no "act".
+    head_act     = the CNN head's own activation factory (None ->
+                   share block_opts["act"], the trunk's family;
+                   byte-identical to before). build_specs builds it
+                   from model.cnn.activation (or the head: activation:
+                   alias); set, it pins the head family only.
+    block_opts   = ResBlock options (None -> {}); its "act" is the
+                   trunk family and, unless head_act is set, the CNN
+                   head's too. Defaults to activation_fcn (the paper's
+                   H) when block_opts sets no "act".
 
   needs_geom / needs_bins are capability flags EmulatorExperiment
   reads: geom injected (basis buffers + bin sizes), compile_mode
@@ -366,7 +371,8 @@ class ResCNN(DesignSpec, nn.Module):
   def __init__(self, input_dim, output_dim, int_dim_res, geom,
                kernel_size=11, rescale_kernel=False, groups=1,
                separable=False, film=False, n_blocks=3,
-               n_blocks_cnn=1, gate_init=0.1, block_opts=None):
+               n_blocks_cnn=1, gate_init=0.1, head_act=None,
+               block_opts=None):
     super().__init__()
     if block_opts is None:
       block_opts = {}
@@ -402,11 +408,13 @@ class ResCNN(DesignSpec, nn.Module):
       "pad_idx", torch.tensor(pos, dtype=torch.long))
 
     # the head: n_blocks_cnn x (one bins-as-channels conv + one
-    # activation). The activation is the run's (block_opts["act"],
-    # the --activation choice injected by EmulatorExperiment),
-    # falling back to activation_fcn (the paper's H); act(max_bin)
-    # gives per-position parameters, broadcast over the bin axis.
-    cnn_act = block_opts.get("act", activation_fcn)
+    # activation). head_act (the model.cnn.activation pin) wins when set;
+    # else the run's shared family (block_opts["act"], the --activation
+    # choice injected by EmulatorExperiment), falling back to
+    # activation_fcn (the paper's H); act(max_bin) gives per-position
+    # parameters, broadcast over the bin axis.
+    cnn_act = (head_act if head_act is not None
+               else block_opts.get("act", activation_fcn))
     # rescale_kernel: kernel_size was tuned for a single block, so
     # shrink the per-block kernel with depth to keep that block's
     # view, receptive field n*(k-1)+1 >= kernel_size, see
@@ -665,9 +673,14 @@ class ResTRF(DesignSpec, nn.Module):
                    corrections to amplify; identity init keeps
                    corr = 0 at epoch 1. See FiLMGenerator and
                    notes/film-conditioning.md.
-    block_opts   = ResBlock options (None -> {}); its "act" also
-                   reaches the TRF MLPs, so head and trunk share
-                   one activation family.
+    head_act     = the TRF head's own activation factory (None ->
+                   share block_opts["act"], the trunk's family;
+                   byte-identical to before). build_specs builds it
+                   from model.trf.activation (or the head: activation:
+                   alias); set, it pins the head family only.
+    block_opts   = ResBlock options (None -> {}); its "act" is the
+                   trunk family and, unless head_act is set, reaches
+                   the TRF MLPs too.
   """
   needs_geom = True
   needs_bins = True
@@ -676,7 +689,7 @@ class ResTRF(DesignSpec, nn.Module):
   def __init__(self, input_dim, output_dim, int_dim_res, geom,
                n_heads=2, n_blocks=4, n_blocks_trf=1,
                n_mlp_blocks=2, gate_init=0.1, shared_mlp=False,
-               film=False, block_opts=None):
+               film=False, head_act=None, block_opts=None):
     super().__init__()
     if block_opts is None:
       block_opts = {}
@@ -715,9 +728,11 @@ class ResTRF(DesignSpec, nn.Module):
     # the head: n_blocks_trf transformer blocks straight on the
     # padded bin tokens (width = max_bin; no embedding, no output
     # projection). Every block is the identity at init, so
-    # blocks(h) - h = 0 exactly. The trunk's activation reaches the
+    # blocks(h) - h = 0 exactly. head_act (the model.trf.activation
+    # pin) wins when set; else the trunk's shared family reaches the
     # TRF MLPs too.
-    trf_act = block_opts.get("act", activation_fcn)
+    trf_act = (head_act if head_act is not None
+               else block_opts.get("act", activation_fcn))
     trf = []
     for _ in range(n_blocks_trf):
       trf.append(TRFBlock(self.max_bin, n_tokens=self.n_bins,

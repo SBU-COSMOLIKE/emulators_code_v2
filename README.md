@@ -474,7 +474,13 @@ appendix), and `model.trf` (the `restrf` head — `n_heads`, `n_blocks`,
 `n_mlp_blocks` (depth only — every per-token MLP layer runs at the token
 width, pinned to the bin length by design, no width knob), `shared_mlp`,
 `film`, `gate_init`); an unknown or misplaced
-sub-block key raises. The same YAML drives both
+sub-block key raises. Each head block also takes its own `activation`
+(`model.cnn`/`.trf.activation`, the same `{type, n_gates}` / bare-string
+schema as `model.activation`): it pins the head's family, absent = share
+the trunk's. The head trains only in phase 2, so a pin needs a frozen-trunk
+head phase (`trunk_epochs > 0` and `freeze_trunk` true); `head: activation:`
+is a head-only alias, and `trunk: activation:` is an error (the trunk is
+the same modules in both phases). The same YAML drives both
 `train_single` and `tune_single` — a scalar trains, a `[default, min, max, kind]`
 list is searched. `sweep_ntrain` and `bakeoff_activation` reuse this same
 `train_single` YAML unchanged: their sweep axis is a command-line grid, and
@@ -781,7 +787,7 @@ The small `nn.Module`s the models are assembled from.
 The full networks.
 
 - `ResMLP` — input projection → residual blocks → output projection → Affine.
-- `ResCNN` — ResMLP trunk + a gated bins-as-channels 1D-CNN correction in theta order (one `Conv1d(n_bins → n_bins, k)` kernel over the padded per-bin layout — theta-local and cross-bin, no channel expansion), via fixed basis-change buffers `W_fd` / `W_df` and the `pad_idx` scatter/gather. Head knobs (YAML `model.cnn`): `kernel_size` (tuned as if one block) + `rescale_kernel` (shrink the per-block kernel with depth at a fixed receptive field), `groups` (physical channel cuts: `2` = xi+ never mixes with xi−; on the factored head `3` = GG/GI/II isolated, `6` = both cuts — validated against the mask, other values error), `separable` (factor each block into a depthwise theta filter + pointwise channel mix — a low-rank factorization of the same conv, ~k/2 fewer weights), `film` (re-inject the non-amplitude parameters into every block as an identity-initialized per-channel affine — the head becomes cosmology-aware instead of one fixed map; see `notes/film-conditioning.md`), `n_blocks`, `gate_init`:
+- `ResCNN` — ResMLP trunk + a gated bins-as-channels 1D-CNN correction in theta order (one `Conv1d(n_bins → n_bins, k)` kernel over the padded per-bin layout — theta-local and cross-bin, no channel expansion), via fixed basis-change buffers `W_fd` / `W_df` and the `pad_idx` scatter/gather. Head knobs (YAML `model.cnn`): `kernel_size` (tuned as if one block) + `rescale_kernel` (shrink the per-block kernel with depth at a fixed receptive field), `groups` (physical channel cuts: `2` = xi+ never mixes with xi−; on the factored head `3` = GG/GI/II isolated, `6` = both cuts — validated against the mask, other values error), `separable` (factor each block into a depthwise theta filter + pointwise channel mix — a low-rank factorization of the same conv, ~k/2 fewer weights), `film` (re-inject the non-amplitude parameters into every block as an identity-initialized per-channel affine — the head becomes cosmology-aware instead of one fixed map; see `notes/film-conditioning.md`), `n_blocks`, `gate_init`, `activation` (the head's own `{type, n_gates}` family; absent = share the trunk's `model.activation`; a pin needs a frozen-trunk head phase, and `head: activation:` is its alias):
 
 ```
   params ─▶ ResMLP trunk ─▶ y    (full-whitened, well-conditioned)
@@ -793,7 +799,7 @@ The full networks.
               y + gate · correction   ─▶   whitened data vector
 ```
 
-- `ResTRF` — ResMLP trunk + a gated bin-token transformer correction: the theta-order dv splits into its (xi+/-, source-pair) bins (`pad_idx` scatter/gather to a padded per-bin layout, `bin_sizes` from `build_shear_angle_map`), each bin is one token at its natural width (the per-token `n_mlp_blocks`-deep MLPs run at that token width too — no width knob), `TRFBlock`s attend across bins, and the correction is `blocks(h) − h` — zero at epoch 1 because every block starts as the identity. No embedding or output layers (the sequence structure is physical, unlike the published CMB design's latent sequence).
+- `ResTRF` — ResMLP trunk + a gated bin-token transformer correction: the theta-order dv splits into its (xi+/-, source-pair) bins (`pad_idx` scatter/gather to a padded per-bin layout, `bin_sizes` from `build_shear_angle_map`), each bin is one token at its natural width (the per-token `n_mlp_blocks`-deep MLPs run at that token width too — no width knob), `TRFBlock`s attend across bins, and the correction is `blocks(h) − h` — zero at epoch 1 because every block starts as the identity. No embedding or output layers (the sequence structure is physical, unlike the published CMB design's latent sequence). Head knobs (YAML `model.trf`): `n_heads`, `n_blocks`, `n_mlp_blocks`, `shared_mlp`, `film`, `gate_init`, and `activation` (the head's own `{type, n_gates}` family; absent = share the trunk's `model.activation`; a pin needs a frozen-trunk head phase, `head: activation:` its alias).
 
 ### `emulator/loss_functions.py` <a name="apx-loss_functions"></a>
 

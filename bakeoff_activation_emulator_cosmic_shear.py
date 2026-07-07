@@ -89,7 +89,7 @@ import torch
 
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
-from emulator.experiment import EmulatorExperiment
+from emulator.experiment import EmulatorExperiment, _pinned_head_warning
 from emulator.results import save_learning_curves
 
 
@@ -379,6 +379,12 @@ def main():
   # sweep axes (the activations swept and the N_train grid).
   exp.print_design()
   log(f"activations: {activations}")
+  # ruling (a): a per-head activation pin stays fixed while the bake-off
+  # sweeps the shared family; flag it once, quiet-gated through log.
+  _pin_warn = _pinned_head_warning(exp.train_args, exp.model_cls.head_block,
+                                   "it stays fixed across the bake-off")
+  if _pin_warn is not None:
+    log(_pin_warn)
   log(f"pool {pool}  |  N_train grid: {sizes.tolist()}")
 
   # 1 worker (single GPU, or the MPS dev machine) -> serial, reusing the built

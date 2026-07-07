@@ -74,7 +74,10 @@ train_args:
     # intrinsic-alignment design layered on it (omit for the plain
     # emulator; nla | tatt). Both fixed across the study; see the training
     # YAML's model block for the full nested schema. Any numeric leaf
-    # inside a sub-block may be a [default, min, max, kind] range.
+    # inside a sub-block may be a [default, min, max, kind] range. A
+    # per-head activation (model.cnn / .trf.activation) is a fixed family
+    # per study like model.activation, its n_gates a numeric leaf; it
+    # needs a frozen-trunk head phase (trunk_epochs > 0 + freeze_trunk).
     name: resmlp
     # ia:  nla
     mlp:

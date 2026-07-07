@@ -60,11 +60,15 @@ is never loaded whole.
 #    dv dumps holding the ten templates); then one nested sub-block per
 #    component: mlp {width, n_blocks} = the trunk; activation {type,
 #    n_gates}; cnn {kernel_size, rescale_kernel, groups, separable,
-#    film, n_blocks, gate_init} for rescnn (the bins are the conv
-#    channels); trf {n_heads, n_blocks, n_mlp_blocks, shared_mlp, film,
-#    gate_init} for restrf, whose tokens live at the natural bin width
-#    (n_mlp_blocks sets depth only; every per-token MLP layer runs at
-#    that token width, no width knob)),
+#    film, n_blocks, gate_init, activation} for rescnn (the bins are
+#    the conv channels); trf {n_heads, n_blocks, n_mlp_blocks,
+#    shared_mlp, film, gate_init, activation} for restrf, whose tokens
+#    live at the natural bin width (n_mlp_blocks sets depth only; every
+#    per-token MLP layer runs at that token width, no width knob). The
+#    head's activation pins its own family (absent = shares the trunk's
+#    model.activation; the head trains in phase 2, so it needs a
+#    frozen-trunk head phase: trunk_epochs > 0 + freeze_trunk true;
+#    head: activation: is the alias, trunk: activation: an error)),
 #    optional trunk_epochs (two-phase schedule) + symmetric trunk / head
 #    blocks (per-phase overrides over the shared defaults, the eight-key
 #    phase whitelist: lr / scheduler / loss / trim / focus / clip /
