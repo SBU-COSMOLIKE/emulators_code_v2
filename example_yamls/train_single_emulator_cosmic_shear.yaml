@@ -144,9 +144,9 @@ train_args:
 
   # Per-phase overrides, symmetric (both need trunk_epochs > 0; error
   # otherwise). Each block mirrors the top-level train_args schema
-  # key-for-key; the seven keys are lr / scheduler / loss / trim /
-  # focus / clip / rewind, each optional and falling back to the run
-  # default. lr is an overlay {lr_base, warmup_epochs} onto the top-level
+  # key-for-key; the eight keys are lr / scheduler / loss / trim /
+  # focus / clip / rewind / ema, each optional and falling back to
+  # the run default. lr is an overlay {lr_base, warmup_epochs} onto the
   # lr: block (bs_base stays run-global, so a phase never sets it);
   # scheduler is a full replacement of the scheduler kwargs (the run's
   # scheduler class stays); trim / focus are full-replacement blocks
@@ -342,7 +342,9 @@ train_args:
     #                      # and FLOPs at any value, but must divide
     #                      # the bin length (26 -> 1 | 2 | 13)
     #   n_blocks:     1    # stacked transformer blocks
-    #   n_mlp_blocks: 2    # each token's private MLP depth per block
+    #   n_mlp_blocks: 2    # each token's private MLP depth per block;
+    #                      # every layer at the token width, pinned to
+    #                      # the bin length, no width knob (depth only)
     #   shared_mlp: false  # true = one MLP for every token (the
     #                      # textbook block; ablation of the unique-MLP
     #                      # deviation, so then nothing structural tells

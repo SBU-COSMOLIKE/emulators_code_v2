@@ -32,6 +32,12 @@ tomographic bins (ResTRF), and a learnable gate adds the correction
 back, so swapping the architecture changes only the model. Per-bin
 conv variants live in parallel/.
 
+Each class mixes in DesignSpec: a head_block class attribute (None /
+"cnn" / "trf") plus a shared describe_spec classmethod make the class the
+single source of its own head-knowledge, read alike by build_specs,
+build_geometry, and the startup banner; an architecture that omits
+head_block fails at class-definition time.
+
 Whitened = rotated into the covariance eigenbasis and scaled to unit
 variance, leaving the components decorrelated and equally hard to fit;
 done by the geometry classes (geometries_parameter /
@@ -638,7 +644,9 @@ class ResTRF(DesignSpec, nn.Module):
     n_blocks     = residual blocks in the trunk.
     n_blocks_trf = stacked transformer blocks.
     n_mlp_blocks = depth of each bin's private MLP stack inside
-                   every TRFBlock.
+                   every TRFBlock; every layer runs at the token
+                   width (dim -> dim), the interior pinned to the bin
+                   length by design (no width knob, depth only).
     gate_init    = initial correction-gate scale (small, not 0,
                    a 0 gate strands the head with no gradient).
     shared_mlp   = False (default): per-bin unique MLPs. True: one

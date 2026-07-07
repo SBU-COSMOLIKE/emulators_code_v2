@@ -616,8 +616,9 @@ class EmulatorExperiment:
                      trunk_epochs = optional (default 0): two-phase
                        schedule, see run_emulator;
                      trunk / head = optional symmetric mappings of
-                       per-phase overrides (lr / loss / trim / focus /
-                       clip / rewind) over the shared top-level
+                       per-phase overrides (lr / scheduler / loss / trim /
+                       focus / clip / rewind / ema, the eight-key phase
+                       whitelist) over the shared top-level
                        defaults; need trunk_epochs > 0,
                        see run_emulator. On a single-phase model (any
                        name: resmlp, including ia nla / tatt; no
@@ -660,7 +661,9 @@ class EmulatorExperiment:
                        n_mlp_blocks, shared_mlp, film, gate_init;
                        name restrf only,
                        the tokens live at the natural bin width, so
-                       there is no width knob),
+                       there is no width knob, and the per-token MLP
+                       layers run at that width too, n_mlp_blocks is
+                       depth only),
                        plus an optional flat "compile_mode".
                        build_specs translates the nesting onto the
                        constructors' flat kwargs (MODEL_BLOCK_KEYS)
@@ -674,7 +677,7 @@ class EmulatorExperiment:
                        anneal_epochs, shape (see anneal_value);
                      focus = focal-weight schedule, start, end,
                        hold_epochs, anneal_epochs, shape, kappa.
-      model_cls  = the model class (ResMLP / ResCNN); from_config
+      model_cls  = the model class (ResMLP / ResCNN / ResTRF); from_config
                    resolves it from train_args.model.name.
       opt_cls    = optimizer class (default AdamW).
       sched_cls  = scheduler class (default ReduceLROnPlateau).
@@ -903,9 +906,9 @@ class EmulatorExperiment:
         guards: clip / rewind     only when either is set
            |
            v
-        one line per sub-block    optimizer / lr / scheduler / trim /
-           |                      focus / trunk / head, each printed
-           |                      only when present in train_args
+        one line per sub-block    optimizer / lr / scheduler / loss /
+           |                      trim / focus / ema / trunk / head, each
+           |                      printed only when present in train_args
            v
         cuts                      the physical omegabh2 / omegam2h2
            |                      windows from the data block
@@ -952,8 +955,8 @@ class EmulatorExperiment:
     # the remaining train_args sub-blocks, one dict per line (including
     # the per-phase trunk / head override blocks), so the whole resolved
     # config is on the terminal.
-    for block in ("optimizer", "lr", "scheduler", "trim", "focus",
-                  "trunk", "head"):
+    for block in ("optimizer", "lr", "scheduler", "loss", "trim", "focus",
+                  "ema", "trunk", "head"):
       if block in ta:
         self.log(f"{block}: {ta[block]}")
     pc = d.get("param_cuts", {})

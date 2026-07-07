@@ -62,15 +62,19 @@ is never loaded whole.
 #    n_gates}; cnn {kernel_size, rescale_kernel, groups, separable,
 #    film, n_blocks, gate_init} for rescnn (the bins are the conv
 #    channels); trf {n_heads, n_blocks, n_mlp_blocks, shared_mlp, film,
-#    gate_init} for restrf, whose tokens live at the natural bin width),
+#    gate_init} for restrf, whose tokens live at the natural bin width
+#    (n_mlp_blocks sets depth only; every per-token MLP layer runs at
+#    that token width, no width knob)),
 #    optional trunk_epochs (two-phase schedule) + symmetric trunk / head
-#    blocks (per-phase overrides over the shared defaults: lr / loss /
-#    trim / focus / clip / rewind), optional stability
+#    blocks (per-phase overrides over the shared defaults, the eight-key
+#    phase whitelist: lr / scheduler / loss / trim / focus / clip /
+#    rewind / ema), optional stability
 #    guards clip (per-step gradient-norm ceiling, 0 = off) and rewind
 #    (reload the best weights + optimizer snapshot at every plateau lr
 #    cut), optimizer (weight_decay),
 #    lr (lr_base, bs_base, warmup_epochs), scheduler (mode, patience, factor),
-#    trim / focus (robustness schedules).
+#    trim / focus (robustness schedules), ema (optional Polyak
+#    weight-average block {horizon_epochs, anneal}; absent = off).
 #
 #- `--diagnostic` (optional): the name root of a multipage diagnostics PDF,
 #  saved under --root/chains (an absolute path keeps its folder). The driver

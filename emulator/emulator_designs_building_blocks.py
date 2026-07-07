@@ -467,7 +467,10 @@ class TRFBlock(nn.Module):
     n_tokens     = number of tokens G.
     n_heads      = attention heads (each head attends over all G
                    tokens with dim/n_heads of the features).
-    n_mlp_blocks = depth of each token's private MLP stack.
+    n_mlp_blocks = depth of each token's private MLP stack; every
+                   layer runs at the token width (dim -> dim), the
+                   interior width pinned to the bin length by design
+                   (no width knob, n_mlp_blocks sets depth only).
     act          = activation factory act(dim) -> module for the
                    MLP layers (the run's activation; defaults to
                    activation_fcn, the paper's H).
@@ -505,8 +508,9 @@ class TRFBlock(nn.Module):
     self.wv = nn.Linear(in_features=dim, out_features=dim)
     self.wo = nn.Linear(in_features=dim, out_features=dim)
 
-    # MLP branch: pre-norm, n_mlp_blocks layers, each its own
-    # activation instance. Per-token unique (BinLinear) by default;
+    # MLP branch: pre-norm, n_mlp_blocks layers each dim -> dim (the
+    # interior width is pinned to the token width, no width knob), each
+    # its own activation instance. Per-token unique (BinLinear) by default;
     # with shared_mlp one nn.Linear serves every token (a Linear on
     # a (B, G, dim) tensor applies position-wise to the last axis,
     # which is exactly the textbook transformer FFN).

@@ -3,12 +3,13 @@
 The loss layer: each class holds a DataVectorGeometry (composition, not
 inheritance) and adds the chi2 (the masked Mahalanobis distance
 r^T Cinv r per sample) and the training loss on it. CosmolikeChi2 is the
-plain loss (trimming, a focal hardness weight, a sqrt / pseudo-Huber
-transform). RescaledChi2 and ResidualBaseChi2 are the two analytic-R
-variants (R divides the net output, versus R moves only the baseline).
-ElementWeightedChi2 up-weights the worst-fit dv elements. anneal_value is
-the per-epoch trim / focus schedule; make_chi2 builds the right loss from
-a geometry and a rescale mode.
+plain loss (trimming, a focal hardness weight, and the sqrt / pseudo-Huber
+/ berhu / berhu_capped transform ladder). RescaledChi2 and ResidualBaseChi2
+are the two analytic-R variants (R divides the net output, versus R moves
+only the baseline). ElementWeightedChi2 up-weights the worst-fit dv
+elements. anneal_value is the per-epoch schedule shared by four knobs
+(trim, focus, the berhu sqrt-blend, and the EMA horizon); make_chi2 builds
+the right loss from a geometry and a rescale mode.
 
 PS: the Mahalanobis distance r^T Cinv r is a squared residual r weighted
 by the inverse covariance Cinv (this is the chi2); "masked" means only

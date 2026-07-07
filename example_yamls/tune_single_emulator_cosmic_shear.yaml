@@ -61,7 +61,9 @@ train_args:
   loss:                  # nested loss block; loss.mode is a fixed string
     mode: sqrt           # key per study, loss.berhu.knot / .cap the knots
                          # and loss.berhu.anneal.{hold_epochs, anneal_epochs}
-                         # legitimate numeric search leaves
+                         # legitimate numeric search leaves (as are
+                         # ema.horizon_epochs and ema.anneal.{hold_epochs,
+                         # anneal_epochs} when an ema block is set)
   # clip:   1.0          # per-step gradient-norm ceiling (0 / absent
   #                      # = off); rewind = reload best weights +
   # rewind: true         # optimizer on every plateau lr cut. See the
@@ -99,6 +101,9 @@ train_args:
     #                        # theta points -> n_heads 1 | 2 | 13)
     #   n_blocks:     [1, 1, 3, int]
     #   n_mlp_blocks: [2, 1, 4, int]
+    #                        # depth only; every layer at the token
+    #                        # width, no width knob (the interior is
+    #                        # pinned to the bin length)
     #   shared_mlp:   false    # true = textbook shared-MLP ablation
     #   film:         false    # cosmology-aware per-token affine
     #   gate_init:    0.1

@@ -6,9 +6,19 @@ make_scheduler each build one component from a {cls, **kwargs} spec
 dict; build_run_specs assembles the six
 spec dicts from a config (with the default / suggest / search resolvers for the
 [default, min, max, kind] hyperparameter ranges). eval_val and eval_source_chi2
-score the model, training_loop_batched is the per-epoch loop (trim / focus
-annealing, best-epoch tracking), and run_emulator orchestrates: builds
-everything, trains, and returns the model plus the per-epoch histories.
+score the model, training_loop_batched is the per-epoch loop (trim / focus /
+berhu-blend / EMA annealing, best-epoch tracking on the EMA average when ema:
+is set), and run_emulator orchestrates: builds everything, trains, and returns
+the model plus the per-epoch histories.
+
+In front of the loop sits a pure configuration layer: validate_phase_block,
+validate_loss, validate_berhu, and validate_ema check and canonicalize the
+train_args blocks (the eight-key per-phase whitelist, the nested loss {mode,
+berhu} block, the berhu {knot, cap, anneal} schedule, the ema {horizon_epochs,
+anneal} block) before anything runs; derive_eval_bs and derive_ema_beta turn
+run-global targets into the evaluation batch size and the per-epoch EMA decay.
+The loss modes the loop can apply are chi2 / sqrt / sqrt_dchi2 / berhu /
+berhu_capped (loss_functions.py).
 
 PS: a loader is a closure load(rows) -> tensor mapping global row indices to a
 ready-to-train batch already on the compute device, hiding where the data lives
@@ -261,7 +271,7 @@ def validate_phase_block(block, which):
   the single-phase demotion path and it is unit-testable in isolation. The
   phase blocks mirror the top-level train_args schema: lr is a nested
   sub-block (overlay), scheduler a nested kwargs block (full replacement),
-  the other five keys scalars / their own blocks. Absent (None) validates
+  the other six keys scalars / their own blocks. Absent (None) validates
   trivially and the run is unchanged.
 
   Arguments:
@@ -276,7 +286,7 @@ def validate_phase_block(block, which):
     not a mapping (a scalar `trunk: sqrt` is a config error, not a silent
     no-op). ValueError on a bare lr_base or a flat loss_mode / berhu (each
     a migration error printing the paste-ready nested block), an unknown
-    key (the seven-key whitelist), a bs_base inside the phase lr (the
+    key (the eight-key whitelist), a bs_base inside the phase lr (the
     sqrt-rule batch anchor is run-global), or a cls inside the phase
     scheduler (the scheduler class is the run's; a phase overrides only its
     kwargs).
@@ -2060,7 +2070,7 @@ def run_emulator(train_set,
       "need trunk_epochs > 0: without the two-phase schedule "
       "they would silently do nothing")
   # validate each present phase block up front (None = absent = no-op):
-  # the seven-key whitelist, the flat lr_base migration, the bs_base / cls
+  # the eight-key whitelist, the flat lr_base migration, the bs_base / cls
   # rejections. Same errors the demotion path raises (both call this), so
   # a typo fails identically whether the model is one- or two-phase.
   validate_phase_block(trunk_opts, "trunk")
@@ -2267,12 +2277,13 @@ def run_emulator(train_set,
     # per-pass knob resolution: each pass restarts the lr at its base
     # (never the other phase's decayed floor) and falls back to the run
     # defaults; the symmetric trunk: / head: blocks override them for
-    # their own pass. The seven keys mirror the top-level schema: lr is
+    # their own pass. The eight keys mirror the top-level schema: lr is
     # an overlay {lr_base (same sqrt-batch rule), warmup_epochs}, scheduler
     # a full replacement of the kwargs (the run's class stays), and
-    # loss / trim / focus / clip / rewind replace their value (loss is the
-    # nested {mode, berhu} block, resolved just below; trim / focus each
-    # restart at the pass's own epoch 1, like the main ones).
+    # loss / trim / focus / clip / rewind / ema replace their value (loss
+    # is the nested {mode, berhu} block and ema the {horizon_epochs,
+    # anneal} block, both resolved just below; trim / focus each restart
+    # at the pass's own epoch 1, like the main ones).
     phase_opts = None
     if phase == "trunk":
       phase_opts = trunk_opts

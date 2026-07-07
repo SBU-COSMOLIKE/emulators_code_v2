@@ -484,3 +484,23 @@ switched to the mixed config above (the production shape D-B1 enables).
 Open: GB-C (workstation, unchanged leg 1 + the mixed leg 2) + the
 Architect's D-B1 re-audit. The commit is unchanged (D-B1 folds into the
 one berhu unit).
+
+### 2026-07-06 — naming ruling (user question, Architect answer, kept)
+
+The user checked the textbook BerHu (x below delta, (x^2+delta^2)/
+(2 delta) above, x = |pred - truth|) and asked whether the name is
+fair given ours runs on chi2 with a covariance. Ruling: the name is
+EXACT, not just fair — in whitened space chi2 = ||z||^2, and with
+x = sqrt(chi2) (the Mahalanobis residual norm) and delta = sqrt(knot),
+our two branches ARE the textbook forms constant-for-constant
+((chi2 + knot)/(2 sqrt knot) = (x^2 + delta^2)/(2 delta)). Two real
+caveats are documentation duties, not naming flaws: (1) UNITS — the
+knot is in delta-chi2 units, so textbook delta = sqrt(knot) ~ 0.447
+at knot 0.2 (a literature reader can mis-translate by a square);
+(2) AGGREGATE — we apply the shape to the per-SAMPLE total misfit
+(the norm over ~780 whitened elements, the robust-M-estimation
+Mahalanobis convention), not elementwise, which matches the frac>0.2
+goal metric that counts samples. Name kept (the literature anchor is
+worth more than a bespoke name); an optional one-sentence docstring
+addition stating both caveats was offered and left to the user
+(berhu_capped has no literature counterpart — no porting risk there).

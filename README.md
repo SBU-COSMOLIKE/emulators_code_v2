@@ -299,7 +299,9 @@ which regime is in play, so the loop code is identical no matter the data size.
 **7. Train** (`training.py`). `run_emulator` builds the model, optimizer, and
 scheduler from spec dicts, runs the per-epoch loop (annealed robustness, a
 validation pass each epoch, keeping the best epoch by `f(dchi2 > 0.2)`), and
-returns the histories.
+returns the histories. When an `ema:` block is set the selection and reported
+metrics run on a Polyak weight average (the scheduler still steps on the raw
+median), and the shipped model is the best average.
 
 `experiment.py` (`EmulatorExperiment`) ties steps 1–7 into one object, so each
 driver is a thin wrapper that varies one knob:
@@ -341,9 +343,9 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 
 | File | Role |
 |---|---|
-| `loss_functions.py` | chi2 losses on the whitened residual: `CosmolikeChi2` (plain), `RescaledChi2` / `ResidualBaseChi2` (analytic-R), `ElementWeightedChi2`; `anneal_value` (trim/focus schedule); `make_chi2`. |
+| `loss_functions.py` | chi2 losses on the whitened residual: `CosmolikeChi2` (plain; the `sqrt` / pseudo-Huber / `berhu` / `berhu_capped` mode ladder), `RescaledChi2` / `ResidualBaseChi2` (analytic-R), `ElementWeightedChi2`; `anneal_value` (the shared trim / focus / berhu-blend / EMA-horizon schedule); `make_chi2`. |
 | `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. |
-| `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the per-epoch loop, and `run_emulator`. |
+| `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the config validator / derivation layer (`validate_phase_block` / `validate_loss` / `validate_berhu` / `validate_ema`, `derive_eval_bs` / `derive_ema_beta`), the per-epoch loop, and `run_emulator`. |
 
 **Orchestration & output**
 
@@ -448,11 +450,20 @@ to a card, ≤ 40% two to a card, bigger ones exclusive (off by default — on a
 
 The YAML has two blocks: `data` (bare input filenames resolved under
 `--root/chains`, the physical density windows in a nested `param_cuts:` sub-block, the split, the cosmolike dataset) and `train_args` (`nepochs`, `bs`, the nested `loss:` block (`mode` + the berhu `knot`/`cap`), the `model` /
-`optimizer` / `lr` / `scheduler` / `trim` / `focus` sub-blocks, the two-phase
-schedule — `trunk_epochs` plus the symmetric `trunk:` / `head:` per-phase
-override blocks — and the stability guards `clip` (per-step gradient-norm
-ceiling) and `rewind` (reload the best weights + optimizer on every plateau
-lr cut)). Pick the model
+`optimizer` / `lr` / `scheduler` / `trim` / `focus` sub-blocks, the optional
+`ema:` weight-averaging block (`horizon_epochs` plus an optional `anneal:`
+schedule), the two-phase schedule — `trunk_epochs` plus the symmetric
+`trunk:` / `head:` per-phase override blocks — and the stability guards
+`clip` (per-step gradient-norm ceiling) and `rewind` (reload the best weights
++ optimizer on every plateau lr cut)). Each `trunk:` / `head:` block mirrors
+the top-level schema over an eight-key whitelist — `lr` / `scheduler` /
+`loss` / `trim` / `focus` / `clip` / `rewind` / `ema`, each optional and
+falling back to the run default, with `lr` a nested `{lr_base, warmup_epochs}`
+overlay; on a single-phase model (any `resmlp`) `train()` demotes them
+(`head:` and `trunk_epochs` drop, `trunk:` merges into the top level, with a
+one-line notice), so one YAML serves both model families. The evaluation
+batch size is derived (a ~1024-row target) and independent of the training
+`bs`, so scoring memory does not track the training batch. Pick the model
 with `train_args.model.name` (the architecture, `resmlp` | `rescnn` | `restrf`) plus the
 optional `train_args.model.ia` key (the factored IA design, `nla` | `tatt`;
 omit for plain). The `model` block nests each component's knobs in its own
@@ -460,7 +471,9 @@ sub-block: `model.mlp` (the ResMLP trunk — `width`, `n_blocks`),
 `model.activation` (the learnable-activation family, e.g. `H` / `power` /
 `multigate` / `gated_power`), `model.cnn` (the `rescnn` head — see its
 appendix), and `model.trf` (the `restrf` head — `n_heads`, `n_blocks`,
-`n_mlp_blocks`, `shared_mlp`, `film`, `gate_init`); an unknown or misplaced
+`n_mlp_blocks` (depth only — every per-token MLP layer runs at the token
+width, pinned to the bin length by design, no width knob), `shared_mlp`,
+`film`, `gate_init`); an unknown or misplaced
 sub-block key raises. The same YAML drives both
 `train_single` and `tune_single` — a scalar trains, a `[default, min, max, kind]`
 list is searched. `sweep_ntrain` and `bakeoff_activation` reuse this same
@@ -759,7 +772,7 @@ The small `nn.Module`s the models are assembled from.
 - `Affine` — a learnable scalar scale + shift.
 - `ResBlock` — width-preserving residual block (n dense layers, each with a norm + activation factory, pre-activation skip).
 - `BinLinear` — G per-token *unique* linear layers as one batched einsum; the unique weights also replace the positional encoding.
-- `TRFBlock` — one pre-LN transformer block over tokens at their *natural* width (the padded bin length — no embedding/output adapters): shared-weight attention across tokens + a per-token unique MLP stack (the deviation from the textbook shared FFN). Exactly the identity at init (zero-initialized branch outputs), so a stack satisfies `blocks(x) == x`.
+- `TRFBlock` — one pre-LN transformer block over tokens at their *natural* width (the padded bin length — no embedding/output adapters): shared-weight attention across tokens + a per-token unique MLP stack (the deviation from the textbook shared FFN). The MLP is `n_mlp_blocks` deep and every layer runs at the token width — the interior is pinned to the bin length by design, no width knob. Exactly the identity at init (zero-initialized branch outputs), so a stack satisfies `blocks(x) == x`.
 - `FiLMGenerator` — per-channel `gamma` / `beta` produced from the non-amplitude parameters, an identity-init FiLM conditioning of a correction head (amplitude-blind, so the factored exactness holds).
 - `rescale_kernel_size` — pick an odd conv kernel width scaled to the bin length.
 
@@ -780,14 +793,15 @@ The full networks.
               y + gate · correction   ─▶   whitened data vector
 ```
 
-- `ResTRF` — ResMLP trunk + a gated bin-token transformer correction: the theta-order dv splits into its (xi+/-, source-pair) bins (`pad_idx` scatter/gather to a padded per-bin layout, `bin_sizes` from `build_shear_angle_map`), each bin is one token at its natural width, `TRFBlock`s attend across bins, and the correction is `blocks(h) − h` — zero at epoch 1 because every block starts as the identity. No embedding or output layers (the sequence structure is physical, unlike the published CMB design's latent sequence).
+- `ResTRF` — ResMLP trunk + a gated bin-token transformer correction: the theta-order dv splits into its (xi+/-, source-pair) bins (`pad_idx` scatter/gather to a padded per-bin layout, `bin_sizes` from `build_shear_angle_map`), each bin is one token at its natural width (the per-token `n_mlp_blocks`-deep MLPs run at that token width too — no width knob), `TRFBlock`s attend across bins, and the correction is `blocks(h) − h` — zero at epoch 1 because every block starts as the identity. No embedding or output layers (the sequence structure is physical, unlike the published CMB design's latent sequence).
 
 ### `emulator/loss_functions.py` <a name="apx-loss_functions"></a>
 
 chi2 losses; each holds a geometry (composition).
 
-- `anneal_value(epoch, opts)` — the per-epoch trim / focus schedule.
-- `CosmolikeChi2` — the plain chi2: `chi2` ([Mahalanobis](#8-appendix-the-chi2-metric-mahalanobis) distance), `loss` (trim / focus / sqrt transform), and thin delegation to the held geometry.
+- `anneal_value(epoch, opts)` — the per-epoch schedule shared by four knobs: trim, focus, the berhu sqrt-blend, and the EMA horizon.
+- `CosmolikeChi2` — the plain chi2: `chi2` ([Mahalanobis](#8-appendix-the-chi2-metric-mahalanobis) distance), `loss` (trim / focus, and the `chi2` / `sqrt` / `sqrt_dchi2` / `berhu` / `berhu_capped` transform ladder), and thin delegation to the held geometry.
+- `berhu` / `berhu_capped` — the reversed-Huber loss modes, configured by a YAML `berhu:` `{knot, cap, anneal}` block: `sqrt(chi2)` below the `knot` chi2, chi2-like above it, and (for `berhu_capped`) sqrt-shaped again past the `cap` so a monster sample's gradient vote is bounded; the optional `anneal:` schedule blends `sqrt` → `berhu` over the run. This is textbook BerHu in the whitened residual norm with delta = sqrt(`knot`), applied per sample as the Mahalanobis aggregate — so `knot` / `cap` are in chi2 units, not residual units.
 - `RescaledChi2` — analytic-R "A" form (R divides the net output); `configure_rescaling`, `_R`, `encode` / `decode` / `chi2` / `loss`.
 - `ResidualBaseChi2` — analytic-R "B" form (R moves only the baseline; the chi2 stays plain).
 - `ElementWeightedChi2` — a per-element focal weight in the training loss (`set_elem_weight`).
@@ -818,9 +832,11 @@ The run layer that ties everything together.
 - `pick_device` / `make_logger` — setup helpers.
 - `make_model` / `make_optimizer` / `make_scheduler` — build one component from a `{cls, **kwargs}` spec dict.
 - `build_run_specs(...)` — config → the six `run_emulator` spec dicts.
+- `validate_phase_block` / `validate_loss` / `validate_berhu` / `validate_ema` — the pure config validators: the eight-key phase whitelist, the nested `loss:` `{mode, berhu}` block, the berhu `{knot, cap, anneal}` schedule, and the `ema:` `{horizon_epochs, anneal}` block, each checked and canonicalized before the run.
+- `derive_eval_bs` / `derive_ema_beta` — turn run-global targets into the derived evaluation batch size (a ~1024-row target) and the per-epoch EMA decay from the horizon.
 - `default_train_args` / `suggest_train_args` / `search_defaults` (+ `_as_search_range`, `_range_default`, `_suggest_range`, `_walk_train_args`) — the `[default, min, max, kind]` search resolvers.
 - `eval_val` / `eval_source_chi2` — score the model on the val set / per-cosmology delta-chi2.
-- `training_loop_batched(...)` — the per-epoch loop (trim / focus annealing, best-epoch tracking).
+- `training_loop_batched(...)` — the per-epoch loop (trim / focus / berhu-blend / EMA annealing, best-epoch tracking; an optional Polyak weight average coupled to the best snapshot / rewind).
 - `run_emulator(...)` — top-level: build model + optimizer + scheduler + loaders, train, return the histories.
 - `audit_devices(model, lossfn, device)` — name every tensor that should live on `device` but does not (a placement check for the compiled forward + loss).
 
@@ -829,11 +845,13 @@ The run layer that ties everything together.
 `EmulatorExperiment`: the whole setup as one reusable object.
 
 - `from_yaml` / `from_config` — build from a YAML file / an already-parsed dict.
+- `validate_param_cuts` / `validate_sizes` — check the `data` block: the physical-window keys and the absolute `n_train` / `n_val` row counts.
+- `resolve_phase_args` / `validate_sweep_paths` — resolve the two-phase keys against the model's real capability (the single-phase demotion) and concretize a sweep's dotted path against that resolved schema.
 - `stage_train` / `stage_val` / `pool_size` — stage the sources; the physical-cut pool size (the sweep's top N).
 - `build_geometry` / `build_specs` — the input/output geometry + chi2; the `run_emulator` spec dicts.
 - `train` / `run` — train on the staged data; the full stage→build→train pipeline in one call.
 - `frac_above(threshold, ...)` — the sweep metric (fraction of points with delta-chi2 over a cutoff).
-- `print_design()` — the shared startup banner: the resolved run design (device, model class, spec sub-blocks, physical cuts) printed before anything trains, so a stale YAML is caught at launch.
+- `print_design()` — the shared startup banner: renders the resolved, consumed view (phases resolved to the model's real capability, the model describing itself via `describe_spec`) — device, model class, spec sub-blocks, physical cuts — before anything trains, so a stale YAML is caught at launch.
 
 ### `emulator/scheduling.py` <a name="apx-scheduling"></a>
 

@@ -725,7 +725,9 @@ class TemplateResTRF(DesignSpec, nn.Module):
       n_blocks     = residual blocks in the trunk.
       n_blocks_trf = stacked transformer blocks.
       n_mlp_blocks = depth of each token's private MLP stack inside
-                     every TRFBlock.
+                     every TRFBlock; every layer runs at the token
+                     width (dim -> dim), the interior pinned to the bin
+                     length by design (no width knob, depth only).
       gate_init    = initial per-template correction scale (small,
                      not 0, a 0 gate strands the head with no
                      gradient).
