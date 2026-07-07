@@ -21,7 +21,7 @@ optional per-channel, cosmology-dependent modulation (the film
 flag). BinLinear and TRFBlock are the ResTRF
 head's pieces: per-token unique linears and a transformer block
 whose tokens are the tomographic bins. Grouped / per-bin conv twins
-live in parallel/.
+were tried and removed (see git history).
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
 variance (defined in the geometry modules, geometries_parameter /

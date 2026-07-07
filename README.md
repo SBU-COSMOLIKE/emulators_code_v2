@@ -7,101 +7,600 @@ A neural emulator that maps cosmological parameters to the masked cosmic-shear
 
 One line: raw dumps → stage → whiten params (input) and data vector (output) →
 ResMLP / ResCNN / ResTRF → chi2 loss → train. `EmulatorExperiment` wires it together; each
-driver varies one thing (one run, a tune, an `N_train` sweep, an activation
-bake-off).
+driver varies one thing (one run, a tune, an `N_train` sweep, an activation bake-off).
+
+The code map — how the package is laid out, what each file does, and where to
+edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 
 ## Contents
 
-1. [Layout](#1-layout)
-2. [Pipeline](#2-pipeline)
-3. [What each file does](#3-what-each-file-does)
-4. [Change X → edit Y](#4-change-x--edit-y)
-5. [Variants](#5-variants)
-6. [Run it](#6-run-it)
-    1. [The `sweep:` block (one-knob sweeps)](#6a-sweep-block)
-    2. [Multi-GPU execution and packing](#6a-multi-gpu)
-7. [The YAML file](#7-the-yaml-file)
-8. [`data`](#8-data)
-9. [Training globals](#9-training-globals)
-10. [`loss`](#10-loss)
-11. [optimizer, lr, scheduler](#11-optimizer-lr-scheduler)
-12. [`trim`](#12-trim)
-13. [`focus`](#13-focus)
-14. [`ema`](#14-ema)
-15. [`model`](#15-model)
-16. [Two-phase schedule + the `trunk:` / `head:` blocks](#16-two-phase-schedule--the-trunk--head-blocks)
-17. [Appendix: AI-Usage](#17-appendix-ai-usage)
-18. [Appendix: the chi2 metric (Mahalanobis)](#18-appendix-the-chi2-metric-mahalanobis)
-19. [Appendix: activation functions](#19-appendix-activation-functions)
-20. [Appendix: precedence — who wins when settings collide](#20-appendix-precedence--who-wins-when-settings-collide)
-21. [Appendix: every file's functions](#21-appendix-every-files-functions)
-    1. [`data_staging.py`](#apx-data_staging)
-    2. [`geometries_parameter.py`](#apx-geometries_parameter)
-    3. [`geometries_output.py`](#apx-geometries_output)
-    4. [`analytics.py`](#apx-analytics)
-    5. [`activations.py`](#apx-activations)
-    6. [`emulator_designs_building_blocks.py`](#apx-building_blocks)
-    7. [`emulator_designs.py`](#apx-emulator_designs)
-    8. [`loss_functions.py`](#apx-loss_functions)
-    9. [`batching.py`](#apx-batching)
-    10. [`training.py`](#apx-training)
-    11. [`experiment.py`](#apx-experiment)
-    12. [`scheduling.py`](#apx-scheduling)
-    13. [`results.py`](#apx-results)
-    14. [`plotting.py`](#apx-plotting)
-    15. [`diagnostics.py`](#apx-diagnostics)
-    16. [`parallel/`](#apx-parallel)
-    17. [`PCE/`](#apx-pce)
-    18. [`IA/`](#apx-ia)
-    19. [drivers](#apx-drivers)
+- **Code map** (layout, file roles, change X → edit Y): [`emulator/README.md`](emulator/README.md)
+
+1. [Run it](#1-run-it)
+    1. [The `sweep:` block (one-knob sweeps)](#sweep-block)
+    2. [Multi-GPU execution and packing](#multi-gpu)
+2. [The YAML file](#2-the-yaml-file)
+3. [`data`](#3-data)
+4. [Training globals](#4-training-globals)
+5. [`loss`](#5-loss)
+6. [optimizer, lr, scheduler](#6-optimizer-lr-scheduler)
+7. [`trim`](#7-trim)
+8. [`focus`](#8-focus)
+9. [`ema`](#9-ema)
+10. [`model`](#10-model)
+11. [Two-phase schedule + the `trunk:` / `head:` blocks](#11-two-phase-schedule--the-trunk--head-blocks)
+12. [Appendix: the pipeline](#12-appendix-the-pipeline)
+13. [Appendix: the chi2 metric (Mahalanobis)](#13-appendix-the-chi2-metric-mahalanobis)
+14. [Appendix: activation functions](#14-appendix-activation-functions)
+15. [Appendix: precedence — who wins when settings collide](#15-appendix-precedence--who-wins-when-settings-collide)
+16. [AI-Usage](#16-ai-usage)
 
 ---
 
-## 1. Layout
+## 1. Run it
 
+cosmolike runs only on the workstation, so train there.
+
+```bash
+# run from $ROOTDIR (cocoa exports it). --root = project folder under $ROOTDIR;
+# --fileroot = a subfolder of it holding this emulator's YAML + outputs; --yaml =
+# a bare filename under --fileroot. Data (dv/params/covmat) lives in --root/chains.
+D=external_modules/code/emulators/emultrf/dev
+
+# one run
+python $D/train_single_emulator_cosmic_shear.py \
+  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
+  --yaml train_single_emulator_cosmic_shear.yaml --diagnostic diagnostic
+
+# N_train learning curve across all GPUs
+python $D/sweep_ntrain_emulator_cosmic_shear.py \
+  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
+  --yaml train_single_emulator_cosmic_shear.yaml --n-points 8 --out curve
+
+# one-knob sweep (the knob + values live in the YAML's sweep: block)
+python $D/sweep_hyperparam_emulator_cosmic_shear.py \
+  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
+  --yaml train_single_emulator_cosmic_shear.yaml --out lrsweep
+
+# Optuna search across all GPUs (one shared study via a journal file)
+python $D/tune_single_emulator_cosmic_shear.py \
+  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
+  --yaml tune_single_emulator_cosmic_shear.yaml --n-trials 64
+
+# activation bake-off across GPUs
+python $D/bakeoff_activation_emulator_cosmic_shear.py \
+  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
+  --yaml train_single_emulator_cosmic_shear.yaml --out bakeoff
 ```
-emulator/                              the library (pure torch, except geometries_output)
-  data_staging.py                      load dumps -> "source" dicts; the physical cut
-  geometries_parameter.py              INPUT whitening (params -> network input)
-  geometries_output.py                 OUTPUT geometry + chi2 covariance (imports cosmolike)
-  analytics.py                         analytic xi rescaling R (optional preprocessing)
-  activations.py                       learnable activations (H + variants)
-  emulator_designs_building_blocks.py  Affine, ResBlock, BinLinear, TRFBlock, FiLMGenerator
-  emulator_designs.py                  ResMLP, ResCNN, ResTRF
-  loss_functions.py                    chi2 losses + make_chi2
-  batching.py                          memory sizing + regime-aware data loaders
-  training.py                          build model/opt/sched, training loop, run_emulator
-  experiment.py                        EmulatorExperiment: the whole setup as one object
-  scheduling.py                        GPU job balancing + worker pool + VRAM packing
-  results.py                           save_learning_curves; save_emulator (.emul + .h5)
-  plotting.py                          history / learning-curve / coverage / xi plots
-  diagnostics.py                       coverage, local-linear floor, hard-direction fits
-  parallel/  PCE/  IA/                 experimental variants (section 5)
 
-train_single_*.py                      CLI: one training run (+ optional diagnostics PDF)
-tune_single_*.py                       CLI: Optuna hyperparameter search (multi-GPU)
-sweep_ntrain_*.py                      CLI: f(dchi2 > thr) vs N_train   (multi-GPU)
-sweep_hyperparam_*.py                  CLI: sweep ONE YAML-chosen knob  (multi-GPU)
-bakeoff_activation_*.py                CLI: one curve per activation    (multi-GPU)
-example_yamls/                         template YAMLs; copy one into a project's --fileroot
+On a card with far more memory than one training needs (an H200), add
+`--gpu-pack` to either sweep: points estimated at ≤ 20% of the GPU run four
+to a card, ≤ 40% two to a card, bigger ones exclusive (off by default — on a
+12 GB RTX 3060 one training is the card). The details live in
+[Multi-GPU execution and packing](#multi-gpu) below.
+
+The YAML has two top-level blocks — `data` and `train_args`. The next
+chapter ([The YAML file](#2-the-yaml-file), sections 2–11) documents every
+block with its math, options, and a small example; templates live in
+`example_yamls/` (one per driver style — copy one into your `--fileroot` and
+edit it). The `sweep:` block is documented [below](#sweep-block).
+
+### The `sweep:` block (one-knob sweeps) <a name="sweep-block"></a>
+
+`sweep_hyperparam_emulator_cosmic_shear.py` reads one extra top-level YAML
+block (the other drivers ignore it) naming exactly one `train_args` leaf by
+its dotted path, and the values to try — one full training per value at
+fixed `N_train`:
+
+```yaml
+sweep:
+  parameter: lr.lr_base
+  values:
+    - 0.0010
+    - 0.0025
+    - 0.0063
 ```
 
-The driver scripts sit beside `emulator/` (no `driver/` subfolder): launching one
-puts its own folder on `sys.path`, so `import emulator` resolves with no path
-setup. In a cocoa install this folder is
-`external_modules/code/emulators/emultrf/dev/`; run the drivers from `$ROOTDIR`.
+| Rule | Why |
+|---|---|
+| any `train_args` leaf sweeps by dotted path (`bs`, `trim.start`, `model.cnn.kernel_size`, `model.cnn.film`, `head.lr.lr_base`, …) | the sweep deep-copies `train_args` and sets that one leaf per point |
+| `model.activation` (or `.type`) is a special case | the activation family is resolved onto the experiment at build, not read from `train_args`; the driver sets it per value — leave `--activation` unset |
+| `model.name` / `model.ia` are refused | they change the model *class*; run one sweep per architecture and overlay the tables |
+| an unknown first segment is refused | a typo'd path would otherwise silently train the same config N times |
+| a missing intermediate block is created (`head.lr.lr_base` with no `head:` block) | but a phase axis (`head.*` / `trunk_epochs` / `trunk.*`) on a single-phase model is rejected up front by `validate_sweep_paths` (it would be demoted away) |
 
-The library is pure PyTorch and reviewable anywhere; only `geometries_output.py`
-imports cosmolike, so training runs on the workstation where cosmolike lives.
+Outputs under `--fileroot`: `<--out>.txt` (`save_sweep_table`: numeric values
+as a value/frac table; categorical or boolean values as an index/frac table
+with a `# values: 0=…, 1=…` label line — `np.loadtxt` reads either) and
+`<--out>.pdf` (`plot_sweep_curve`). The full template is
+`example_yamls/sweep_hyperparam_emulator_cosmic_shear.yaml`, with the common
+sweeps (bs, activation family, film on/off, conv depth, head lr) ready to
+swap in.
+
+### Multi-GPU execution and packing <a name="multi-gpu"></a>
+
+Every hyperparameter driver uses all visible CUDA devices by default
+(`--n-gpus` caps it; one GPU or Apple MPS runs serially). Jobs never split
+across GPUs — one whole training per spawned worker:
+
+| Driver | Jobs | Split across GPUs | Extra flags |
+|---|---|---|---|
+| `sweep_ntrain` | one training per `N_train` | LPT (cost ∝ N: biggest first to the least-loaded GPU) | `--gpu-pack` |
+| `sweep_hyperparam` | one training per value | round-robin (equal cost) | `--gpu-pack` |
+| `bakeoff_activation` | one learning curve per activation | by activation | |
+| `tune_single` | Optuna trials | one worker per GPU, one shared study | `--journal` |
+
+**`--gpu-pack` (both sweep drivers; off by default)** co-locates small
+trainings on one card: a point's estimated VRAM share sets its token cost
+(≤ 20% → 4 per GPU, ≤ 40% → 2, larger runs exclusive), so launch-bound runs
+share a card. Use it on big cards with small-to-mid `N_train`, not on small
+cards or when per-epoch timings must stay comparable; the token math lives in
+`scheduling.py` (`estimate_train_vram_fraction`, `vram_tokens`).
+
+**Parallel Optuna (`tune_single --n-gpus N`)** shares a single study through a
+journal file (`--journal`): the parent enqueues the warm-start, `--n-trials`
+splits across workers, and reusing the journal resumes it (serial on 1 GPU/MPS).
 
 ---
 
-## 2. Pipeline
+## 2. The YAML file
+
+Two top-level blocks: `data` (where the training vectors come from and how
+many) and `train_args` (the whole run — objective, optimizer, schedules,
+model). Any numeric leaf may be a scalar (the train drivers use it) or a
+`[default, min, max, kind]` search range (`tune_single` searches it, the
+others collapse it to the default). Sections 3–11 document each block; the
+collision rules (which source wins when two set the same thing) live in the
+[precedence appendix](#15-appendix-precedence--who-wins-when-settings-collide),
+templates in `example_yamls/`, and the `sweep:` block in [Run it](#sweep-block).
+
+One compact production run (two-phase `restrf` + `nla`, a berhu head):
+
+```yaml
+data:
+  train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
+  train_params: w0wa_takahashi_params_train_cs_16.1.txt
+  train_covmat: w0wa_takahashi_params_train_cs_16.covmat
+  val_dv:       w0wa_takahashi_dvs_train_cs_8.npy
+  val_params:   w0wa_takahashi_params_train_cs_8.1.txt
+  cosmolike_data_dir: lsst_y1
+  cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
+  n_train: 25000
+  n_val:   5000
+train_args:
+  nepochs: 1600
+  bs:      256
+  loss:
+    mode: sqrt
+  model:
+    name: restrf
+    ia:   nla
+    mlp:
+      width:    128
+      n_blocks: 4
+```
+
+---
+
+## 3. `data`
+
+The training and validation vectors, and how many rows to keep. Five bare
+filenames resolve under `--root/chains` (three train: `train_dv` /
+`train_params` / `train_covmat`; two val: `val_dv` / `val_params`); the
+`cosmolike_data_dir` / `cosmolike_dataset` pair instead resolves under
+`$ROOTDIR/external_modules/data`. `n_train` and `n_val` are **absolute row
+counts** (not fractions), enforced *after* the physical cuts — if the cut pool
+holds fewer rows the run raises rather than training on less than you asked.
+`split_seed` seeds the shuffle; `ram_frac` is the fraction of free RAM staging
+may fill before it streams from the disk memmap instead.
+
+```
+dv/params dump ─▶ seeded shuffle ─▶ param_cuts ─▶ first n_train (+ n_val)
+                                                        │
+                          fits ram_frac of free RAM? ───┤
+                             yes: resident in RAM   no: streamed from the memmap
+```
+
+```yaml
+data:
+  train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
+  train_params: w0wa_takahashi_params_train_cs_16.1.txt
+  train_covmat: w0wa_takahashi_params_train_cs_16.covmat
+  val_dv:       w0wa_takahashi_dvs_train_cs_8.npy
+  val_params:   w0wa_takahashi_params_train_cs_8.1.txt
+  cosmolike_data_dir: lsst_y1
+  cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
+  n_train:    25000
+  n_val:      5000
+  split_seed: 0
+  ram_frac:   0.7
+```
+
+### `param_cuts`
+
+Physical density windows that keep the training set inside the region the
+emulator must be accurate on. Each window is a `_lo` / `_hi` pair; omit a key
+for no cut on that side, and `lo >= hi` raises.
+
+| keys | quantity | formula | Planck |
+|---|---|---|---|
+| `omegabh2_lo/_hi` | $\Omega_b h^2$ | $\Omega_b\,(H_0/100)^2$ | 0.0224 |
+| `omegam2h2_lo/_hi` | $\Omega_m^2 h^2$ | $(\Omega_m\,H_0/100)^2$ | 0.045 |
+| `omegamh2_lo/_hi` | $\Omega_m h^2$ | $\Omega_m\,(H_0/100)^2$ | 0.143 |
+| `omegamh2ns_lo/_hi` | $\Omega_m h^2 n_s$ | $\Omega_m h^2 \cdot n_s$ | 0.138 |
+
+The last needs the $n_s$ column in the params file.
+
+```yaml
+  param_cuts:
+    omegabh2_hi:  0.035
+    omegabh2_lo:  0.014
+    omegam2h2_lo: 0.015
+    omegam2h2_hi: 0.08
+```
+
+---
+
+## 4. Training globals
+
+The run-level knobs that are not their own block.
+
+- `nepochs` — passes over the training set.
+- `bs` — the training minibatch. The validation pass uses a **derived**
+  batch (a ~1024-row target, `derive_eval_bs`), independent of `bs`, so a
+  small `bs` does not slow scoring.
+- `trunk_epochs` / `freeze_trunk` — the two-phase schedule (section 11); the
+  mode table is precedence
+  [C2](#15-appendix-precedence--who-wins-when-settings-collide).
+- `silent` — suppress the per-epoch progress lines.
+- `clip` — a per-step gradient-norm ceiling (0 = off); the full gradient is
+  rescaled toward the ceiling, keeping its direction, so one monster-outlier
+  batch cannot kick the weights:
+
+$$g \leftarrow g \cdot \min\!\left(1,\ \frac{\mathrm{clip}}{\lVert g \rVert}\right)$$
+
+- `rewind` — on every plateau lr cut, reload the best weights + optimizer
+  snapshot (keeping the reduced lr), bounding an excursion into a bad basin to
+  at most `patience` epochs.
+
+```yaml
+train_args:
+  nepochs: 1600
+  bs:      256
+  silent:  false
+  # clip:   1.0
+  # rewind: true
+```
+
+---
+
+## 5. `loss`
+
+The training objective. `loss.mode` picks a per-sample transform $L(c)$ of
+each sample's chi2 $c = r^\top C^{-1} r$
+([Mahalanobis](#13-appendix-the-chi2-metric-mahalanobis)); the batch loss is
+the (trimmed, focally weighted) mean of $L(c)$. The transform sets how a
+sample's gradient vote scales with its misfit:
+
+| mode | $L(c)$ | vote vs misfit | use it when |
+|---|---|---|---|
+| `chi2` | $c$ | grows with $c$ (tail-chasing) | the fit is already close everywhere |
+| `sqrt` | $\sqrt{c}$ | equal for every sample | the default; robust to a fat tail |
+| `sqrt_dchi2` | $\sqrt{1+2c}-1$ | equal, softer near 0 | a smoother sqrt |
+| `berhu` | reversed Huber (below) | equal in the bulk, rising in the window | push the bulk under the goal |
+| `berhu_capped` | berhu, then flat | rising, then bounded above the cap | as berhu, monster-robust |
+
+In closed form, `chi2` is $c$, `sqrt` is $\sqrt{c}$, and `sqrt_dchi2` is
+$\sqrt{1+2c}-1$. `berhu` is the reversed Huber,
+
+$$L(c) = \begin{cases} \sqrt{c} & c \le k \\[4pt]
+\dfrac{c+k}{2\sqrt{k}} & c > k \end{cases}$$
+
+and `berhu_capped` adds $\dfrac{2\sqrt{Kc}+k-K}{2\sqrt{k}}$ for $c > K$.
+
+$C^1$ at every knot. $k = $ `berhu.knot` (default 0.2, the frac>0.2 goal),
+$K = $ `berhu.cap` (default 10). This is textbook BerHu in the whitened
+residual norm with $\delta = \sqrt{k}$ — the knots are in chi2 units, applied
+per sample (the Mahalanobis aggregate). Vote intuition: `sqrt` gives every
+sample an equal vote; `chi2`'s vote grows with $c$ (the tail dominates);
+`berhu` keeps equal bulk votes and rises ~×7 across $(k, K)$; `berhu_capped`
+plateaus above $K$ so a chi2=100 monster stays bounded.
+
+The `berhu:` sub-block sets the knots (spell it `berhu:` — the family, so it
+survives a `mode` sweep — or after the active mode as `berhu_capped:`; giving
+both is an error, see precedence
+[D](#15-appendix-precedence--who-wins-when-settings-collide)). An optional
+`anneal:` (presence = on) starts as plain sqrt and blends into the berhu shape
+on the [shared schedule](#7-trim), $s: 0 \to 1$:
+
+$$L_s = (1-s)\,\sqrt{c} + s\,L(c)$$
+
+```yaml
+  loss:
+    mode: berhu_capped
+    berhu:
+      knot: 0.2
+      cap:  10
+      # anneal:
+      #   hold_epochs:   50
+      #   anneal_epochs: 300
+      #   shape:         cosine
+```
+
+---
+
+## 6. optimizer, lr, scheduler
+
+The optimization stack — three small blocks that interact, so they are read
+together.
+
+- `optimizer` — the class is fixed to **AdamW**; `weight_decay` decays only
+  the weight matrices (`ndim >= 2`), never the biases / norms, and runs fused
+  on CUDA.
+- `lr` — the learning rate follows the sqrt-noise rule off a batch anchor,
+  then a linear warmup:
+
+$$\mathrm{lr} = \ell\,\sqrt{B/B_0}$$
+
+  with $\ell$ = `lr_base`, $B$ = `bs`, $B_0$ = `bs_base`.
+  `bs_base` is the run-global anchor (never inside a phase block);
+  `warmup_epochs` linearly ramps the lr from 0 over the first epochs.
+- `scheduler` — the class is fixed to **ReduceLROnPlateau**; `{mode, patience,
+  factor}` are its kwargs, stepped every epoch on the **raw** validation
+  median (the EMA average never feeds it). A per-phase `scheduler:` replaces
+  the kwargs but keeps the class (precedence
+  [B](#15-appendix-precedence--who-wins-when-settings-collide)).
+
+```yaml
+  optimizer:
+    weight_decay: 0.0
+  lr:
+    lr_base:       0.0025
+    bs_base:       64.0
+    warmup_epochs: 10
+  scheduler:
+    mode:     min
+    patience: 25
+    factor:   0.8
+```
+
+---
+
+## 7. `trim`
+
+Drop the worst `trim(e)` fraction of each batch before the mean — a hard
+reject, so a few contaminated vectors cannot dominate the gradient (eval never
+trims). `trim(e)` runs the **shared annealed schedule** (`anneal_value`), the
+same machinery `focus`, `ema.anneal`, and `loss.berhu.anneal` reuse with their
+own `start` / `end`:
+
+```
+value
+start ───────────╮
+                 │╲     shape: cosine | linear | step | const
+                 │ ╲
+end   ───────────┴──╲──────────────
+        hold          anneal          (epochs)
+```
+
+Hold `start` for `hold_epochs`, ramp to `end` over `anneal_epochs`, then stay
+at `end`. `cosine` eases with zero slope at both ends (no abrupt jumps to
+mislead the plateau scheduler); `linear` is a straight ramp; `step` floors the
+linear ramp to a 0.01 grid; `const` holds `start` forever (`end` /
+`hold_epochs` / `anneal_epochs` ignored). Advice: keep `end > 0`, a floor that
+keeps the very worst fraction out for the whole run.
+
+```yaml
+  trim:
+    start:         0.1
+    end:           0.025
+    hold_epochs:   50
+    anneal_epochs: 300
+    shape:         cosine
+```
+
+---
+
+## 8. `focus`
+
+Focal hardness weighting: up-weight the harder samples in the mean by a
+detached weight (a sample cannot lower its own weight instead of fitting):
+
+$$w_i = \left(\frac{c_i}{c_i + \kappa}\right)^{\gamma(e)}$$
+
+`start` / `end` / `hold_epochs` / `anneal_epochs` / `shape` run $\gamma(e)$ on
+the [shared schedule](#7-trim) (0 = a plain mean early, `end` ≈ 2 typical);
+`kappa` is the chi2 scale where a sample's hardness crosses 1/2, fixed over the
+run. A negative `gamma` is the off sentinel ($w_i = 1$ everywhere). Interplay:
+`berhu` already carries the tail-emphasis role, so soften `focus` on a berhu
+head.
+
+```yaml
+  focus:
+    start:         0.0
+    end:           2.0
+    hold_epochs:   50
+    anneal_epochs: 300
+    shape:         linear
+    kappa:         0.15
+```
+
+---
+
+## 9. `ema`
+
+An optional Polyak weight average, updated after every optimizer step:
+
+$$\bar\theta \leftarrow \beta\,\bar\theta + (1-\beta)\,\theta
+\qquad \beta = 1 - \frac{1}{H S}$$
+
+with $H$ = `horizon_epochs` and $S$ = steps per epoch. The horizon is set
+in **epochs**, so $\beta$ (and the effective window) is
+batch-size-invariant. Selection and the reported metrics run on $\bar{\theta}$;
+the scheduler stays on the raw median; the `{theta, optimizer, theta_bar}`
+triple is snapshotted and rewound as one unit. An optional `anneal:` runs the
+[shared schedule](#7-trim) on the horizon, $h(e) = \mathrm{horizon}\cdot
+s(e)$, so the average carries no memory of the terrible early era. Absent =
+off (byte-identical). A per-phase `ema:` fully replaces this one; `ema: null`
+turns it off for that phase.
+
+```yaml
+  ema:
+    horizon_epochs: 3
+    anneal:
+      hold_epochs:   50
+      anneal_epochs: 300
+      shape:         cosine
+```
+
+---
+
+## 10. `model`
+
+Two orthogonal choices — `name` (the architecture) and the optional `ia` (the
+factored intrinsic-alignment design) — pick one of six classes:
+
+| | plain | `ia: nla` | `ia: tatt` |
+|---|---|---|---|
+| `resmlp` | `ResMLP` | `TemplateMLP` | `TemplateMLP` |
+| `rescnn` | `ResCNN` | `TemplateResCNN` | `TemplateResCNN` |
+| `restrf` | `ResTRF` | `TemplateResTRF` | `TemplateResTRF` |
+
+Every architecture is a shared ResMLP trunk; `rescnn` / `restrf` add a gated
+correction head in theta order (zero at init, so they start as the trunk):
+
+```
+params ─▶ ResMLP trunk ─▶ y (full-whitened)
+                          │  basis change to theta order
+                          ▼
+                    head blocks (cnn conv | trf attention)
+                          │
+          y + gate · correction ─▶ whitened data vector
+```
+
+An `ia` design makes the net emit whitened templates that a closed-form
+polynomial combines, so the IA amplitudes never enter the network (the
+emulator is exact in them). For `nla` (3 templates, amplitude $A_1$):
+
+$$\xi = K_0 + A_1 K_1 + A_1^2 K_2$$
+
+(`tatt` = 10 templates, 3 amplitudes.)
+
+### `mlp`
+
+The trunk (required — every architecture is built on it): `width`, `n_blocks`.
+
+### `activation`
+
+The learnable-activation family, `{type, n_gates}` or a bare type string; the
+families and their math are the
+[activation appendix](#14-appendix-activation-functions). This sets the shared
+family (trunk + default). A `rescnn` / `restrf` head may pin its own with
+`model.cnn`/`.trf.activation` (absent = share the trunk's); the pin needs a
+frozen-trunk head phase, `head: activation:` is its alias, and the precedence
++ warning are precedence
+[A](#15-appendix-precedence--who-wins-when-settings-collide).
+
+### `cnn` (name `rescnn`)
+
+| knob | what |
+|---|---|
+| `kernel_size` | conv kernel width (odd), tuned as if one block |
+| `rescale_kernel` | shrink the per-block kernel with depth at a fixed receptive field |
+| `groups` | channel-mixing cuts (`2` = xi+/xi- split; `3` / `6` on the factored head) |
+| `separable` | factor each block into a depthwise + pointwise conv |
+| `film` | re-inject the parameters as an identity-init per-channel affine (cosmology-aware) |
+| `n_blocks` | stacked conv + activation blocks |
+| `gate_init` | initial correction-gate scale (small, not 0) |
+| `activation` | the head's own family (above) |
+
+### `trf` (name `restrf`)
+
+| knob | what |
+|---|---|
+| `n_heads` | attention heads; must divide the token width (26 → 1 \| 2 \| 13) |
+| `n_blocks` | stacked transformer blocks |
+| `n_mlp_blocks` | per-token MLP depth; every layer at the token width, no width knob (depth only) |
+| `shared_mlp` | one MLP for all tokens (the textbook block) vs the per-token default |
+| `film` | cosmology-aware per-token affine (as `cnn.film`) |
+| `gate_init` | initial correction-gate scale |
+| `activation` | the head's own family (above) |
+
+`compile_mode` (optional, flat) sets the CUDA `torch.compile` mode; the
+defaults are precedence
+[F](#15-appendix-precedence--who-wins-when-settings-collide).
+
+```yaml
+  model:
+    name: restrf
+    ia:   nla
+    mlp:
+      width:    128
+      n_blocks: 4
+    trf:
+      n_heads:      2
+      n_blocks:     1
+      n_mlp_blocks: 2
+      gate_init:    0.1
+```
+
+---
+
+## 11. Two-phase schedule + the `trunk:` / `head:` blocks
+
+A factored head (`rescnn` / `restrf`) can train in two phases: the trunk
+alone, then the head:
+
+```
+phase "trunk"  (epochs 1 .. trunk_epochs)   head bypassed, trunk trains alone
+      │  restore the best trunk weights
+      ▼
+set_train_phase("head" if freeze_trunk else "joint")
+      │  freeze the trunk (default), or keep it training (joint fine-tune)
+      ▼
+phase "head" / "joint"  (the remaining nepochs - trunk_epochs)
+      head from its zero-init identity, so the handoff is loss-continuous
+```
+
+The symmetric `trunk:` / `head:` blocks are **diffs** against the top level:
+each configures its own pass over the eight keys `lr` / `scheduler` / `loss` /
+`trim` / `focus` / `clip` / `rewind` / `ema` (each absent = the run default),
+with the per-key override semantics in precedence
+[B](#15-appendix-precedence--who-wins-when-settings-collide) — the head block
+alone also takes the `activation:` pin alias (`trunk: activation:` is an
+error, precedence
+[A](#15-appendix-precedence--who-wins-when-settings-collide)). On a
+single-phase model (any `resmlp`) `train()` demotes these — `trunk:` merges
+into the top level, `head:` / `trunk_epochs` / `freeze_trunk` are dropped —
+so the same YAML drives both families ("what is in the trunk is just the
+global").
+
+```yaml
+  trunk_epochs:  1500
+  freeze_trunk:  false
+  head:
+    lr:
+      lr_base:       0.001
+      warmup_epochs: 5
+    scheduler:
+      mode:     min
+      patience: 10
+      factor:   0.8
+    loss:
+      mode: berhu_capped
+      berhu:
+        knot: 0.2
+        cap:  10
+```
+
+---
+
+## 12. Appendix: the pipeline
 
 The goal is to replace an expensive physics code with a network that maps a
 handful of cosmological parameters to the cosmic-shear data vector, fast enough
 to call inside a cosmological inference and accurate enough that the data
-vector's [**chi2**](#18-appendix-the-chi2-metric-mahalanobis) — its distance from
+vector's [**chi2**](#13-appendix-the-chi2-metric-mahalanobis) — its distance from
 truth measured in the data covariance (a Mahalanobis distance; see the appendix),
 the quantity inference actually cares about — stays small. Two ideas run through the
 whole pipeline. **Whitening**: both the inputs and the outputs are rotated and
@@ -331,696 +830,7 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 
 ---
 
-## 3. What each file does
-
-**Data & geometry**
-
-| File | Role |
-|---|---|
-| `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical density windows (`omega_b h^2` bound, plus the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Memmaps the dv dump (never loads it whole). |
-| `geometries_parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. |
-| `geometries_output.py` | Output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry` (theta order, for a CNN), `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** |
-| `analytics.py` | Closed-form analytic xi (Eisenstein-Hu) to divide out broadband cosmology dependence — the optional rescaling `R`. |
-
-**Model**
-
-| File | Role |
-|---|---|
-| `activations.py` | Learnable activations: the paper's `H` plus Power / Gated / GatedPower variants; `make_activation` maps a name → factory. |
-| `emulator_designs_building_blocks.py` | The small `nn.Module`s models are built from: `Affine`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, plus `rescale_kernel_size`. |
-| `emulator_designs.py` | The full networks: `ResMLP` (baseline), `ResCNN` (ResMLP trunk + a gated 1D-CNN correction in theta order), and `ResTRF` (a bin-token transformer correction head). |
-
-**Loss & training**
-
-| File | Role |
-|---|---|
-| `loss_functions.py` | chi2 losses on the whitened residual: `CosmolikeChi2` (plain; the `sqrt` / pseudo-Huber / `berhu` / `berhu_capped` mode ladder), `RescaledChi2` / `ResidualBaseChi2` (analytic-R), `ElementWeightedChi2`; `anneal_value` (the shared trim / focus / berhu-blend / EMA-horizon schedule); `make_chi2`. |
-| `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. |
-| `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the config validator / derivation layer (`validate_phase_block` / `validate_loss` / `validate_berhu` / `validate_ema`, `derive_eval_bs` / `derive_ema_beta`), the per-epoch loop, and `run_emulator`. |
-
-**Orchestration & output**
-
-| File | Role |
-|---|---|
-| `experiment.py` | `EmulatorExperiment`: config → device → data → geometry → chi2 → spec → train as one reusable object (`from_yaml` / `from_config`). The drivers compose it. |
-| `scheduling.py` | GPU job balancing (`lpt_assign` by cost, `even_assign` round-robin), the spawned worker pool (`run_gpu_pool`: one process per GPU lane, per-GPU job queues), and the `--gpu-pack` VRAM-token machinery (`estimate_train_vram_fraction`, `vram_tokens`). |
-| `results.py` | `save_learning_curves` / `save_sweep_table`: `np.loadtxt`-friendly plain-text tables. `save_emulator`: a trained run as `.emul` (weights, cpu state_dict) + `.h5` (whitening geometries, histories, config). |
-| `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves. |
-| `diagnostics.py` | Post-training analyses: coverage (kNN distance vs error), the local-linear data floor, the hard-direction regression. |
-
-**Drivers** (beside `emulator/`; each reads `--root` / `--fileroot` / `--yaml`)
-
-| File | Role |
-|---|---|
-| `train_single_emulator_cosmic_shear.py` | One training run; `--diagnostic` writes a multipage PDF. |
-| `tune_single_emulator_cosmic_shear.py` | Optuna study over the YAML's `[default, min, max, kind]` ranges; multi-GPU via a shared journal-file study (`--n-gpus`, `--journal`). |
-| `sweep_ntrain_emulator_cosmic_shear.py` | `f(dchi2 > thr)` vs `N_train`; multi-GPU, LPT-balanced; `--gpu-pack` co-locates small points on big cards. |
-| `sweep_hyperparam_emulator_cosmic_shear.py` | Sweep ONE hyperparameter chosen in the YAML `sweep:` block (any dotted `train_args` path, e.g. `bs`, `lr.lr_base`, `model.cnn.film`, `model.activation`); multi-GPU, `--gpu-pack`. |
-| `bakeoff_activation_emulator_cosmic_shear.py` | One learning curve per activation; multi-GPU, split by activation. |
-
----
-
-## 4. Change X → edit Y
-
-| To change… | Edit |
-|---|---|
-| a model architecture | `emulator_designs.py` (+ `emulator_designs_building_blocks.py`) |
-| an activation function | `activations.py` (register it in `make_activation`) |
-| the loss / add a chi2 variant | `loss_functions.py` |
-| how parameters are whitened (input) | `geometries_parameter.py` |
-| dv whitening / cosmolike reading (output) | `geometries_output.py` |
-| data loading / the physical cut / staging | `data_staging.py` |
-| restrict the training pool by a density window | the `data.param_cuts:` sub-block keys (`omegabh2_hi` required, `omegabh2_lo`, `omegam2h2_*`, `omegamh2_*`, `omegamh2ns_*`); a new window is one row in `data_staging.phys_cut_idx`'s table |
-| the GPU-memory regime / batching | `batching.py` |
-| the optimizer/scheduler build or the training loop | `training.py` |
-| the end-to-end setup wiring | `experiment.py` |
-| a CLI driver (add/modify) | `*_emulator_cosmic_shear.py` (beside `emulator/`; compose `EmulatorExperiment`) |
-| which hyperparameters are searched | the driver YAML (`[default, min, max, kind]`) + resolvers in `training.py` |
-| multi-GPU balancing | `scheduling.py` |
-| the output file format | `results.py` |
-| a plot | `plotting.py` |
-| a diagnostic | `diagnostics.py` |
-| analytic preprocessing | `analytics.py` |
-
----
-
-## 5. Variants
-
-Each subfolder mirrors the two-file shape (`emulator_designs.py` +
-`loss_functions.py`) and is an experiment, not the main path.
-
-| Folder | What it is |
-|---|---|
-| `parallel/` | The per-bin CNN head: a grouped conv refines each tomographic bin independently on a shared ResMLP trunk. (The per-bin ResMLP split was tested, lost to a single ResMLP, and was removed.) |
-| `PCE/` | NPCE: a sparse-Legendre polynomial-chaos base plus a neural refiner. |
-| `IA/` | Factored intrinsic alignment: emulate cosmology-only templates and apply the IA-amplitude polynomial in closed form (the amplitudes never enter the network). |
-
----
-
-## 6. Run it
-
-cosmolike runs only on the workstation, so train there.
-
-```bash
-# run from $ROOTDIR (cocoa exports it). --root = project folder under $ROOTDIR;
-# --fileroot = a subfolder of it holding this emulator's YAML + outputs; --yaml =
-# a bare filename under --fileroot. Data (dv/params/covmat) lives in --root/chains.
-D=external_modules/code/emulators/emultrf/dev
-
-# one run
-python $D/train_single_emulator_cosmic_shear.py \
-  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml train_single_emulator_cosmic_shear.yaml --diagnostic diagnostic
-
-# N_train learning curve across all GPUs
-python $D/sweep_ntrain_emulator_cosmic_shear.py \
-  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml train_single_emulator_cosmic_shear.yaml --n-points 8 --out curve
-
-# one-knob sweep (the knob + values live in the YAML's sweep: block)
-python $D/sweep_hyperparam_emulator_cosmic_shear.py \
-  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml train_single_emulator_cosmic_shear.yaml --out lrsweep
-
-# Optuna search across all GPUs (one shared study via a journal file)
-python $D/tune_single_emulator_cosmic_shear.py \
-  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml tune_single_emulator_cosmic_shear.yaml --n-trials 64
-
-# activation bake-off across GPUs
-python $D/bakeoff_activation_emulator_cosmic_shear.py \
-  --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml train_single_emulator_cosmic_shear.yaml --out bakeoff
-```
-
-On a card with far more memory than one training needs (an H200), add
-`--gpu-pack` to either sweep: points estimated at ≤ 20% of the GPU run four
-to a card, ≤ 40% two to a card, bigger ones exclusive (off by default — on a
-12 GB RTX 3060 one training is the card). The details live in
-[Multi-GPU execution and packing](#6a-multi-gpu) below.
-
-The YAML has two top-level blocks — `data` and `train_args`. Sections 7–16
-document every block (its math, options, and a small example); the collision
-rules (which source wins when two set the same thing) are the
-[precedence appendix](#20-appendix-precedence--who-wins-when-settings-collide).
-The same file drives every driver: `train_single` / `tune_single` read a
-scalar or a `[default, min, max, kind]` search range from each leaf, and
-`sweep_ntrain` / `bakeoff_activation` reuse it with a command-line grid.
-Templates live in `example_yamls/` (one per driver style); copy one into your
-`--fileroot` and edit it. The `sweep:` block is documented
-[below](#6a-sweep-block).
-
-### The `sweep:` block (one-knob sweeps) <a name="6a-sweep-block"></a>
-
-`sweep_hyperparam_emulator_cosmic_shear.py` reads one extra top-level YAML
-block (the other drivers ignore it) naming exactly one `train_args` leaf by
-its dotted path, and the values to try — one full training per value at
-fixed `N_train`:
-
-```yaml
-sweep:
-  parameter: lr.lr_base
-  values:
-    - 0.0010
-    - 0.0025
-    - 0.0063
-```
-
-| Rule | Why |
-|---|---|
-| any `train_args` leaf sweeps by dotted path (`bs`, `trim.start`, `model.cnn.kernel_size`, `model.cnn.film`, `head.lr.lr_base`, …) | the sweep deep-copies `train_args` and sets that one leaf per point |
-| `model.activation` (or `.type`) is a special case | the activation family is resolved onto the experiment at build, not read from `train_args`; the driver sets it per value — leave `--activation` unset |
-| `model.name` / `model.ia` are refused | they change the model *class*; run one sweep per architecture and overlay the tables |
-| an unknown first segment is refused | a typo'd path would otherwise silently train the same config N times |
-| a missing intermediate block is created (`head.lr.lr_base` with no `head:` block) | but a phase axis (`head.*` / `trunk_epochs` / `trunk.*`) on a single-phase model is rejected up front by `validate_sweep_paths` (it would be demoted away) |
-
-Outputs under `--fileroot`: `<--out>.txt` (`save_sweep_table`: numeric values
-as a value/frac table; categorical or boolean values as an index/frac table
-with a `# values: 0=…, 1=…` label line — `np.loadtxt` reads either) and
-`<--out>.pdf` (`plot_sweep_curve`). The full template is
-`example_yamls/sweep_hyperparam_emulator_cosmic_shear.yaml`, with the common
-sweeps (bs, activation family, film on/off, conv depth, head lr) ready to
-swap in.
-
-### Multi-GPU execution and packing <a name="6a-multi-gpu"></a>
-
-Every hyperparameter driver runs on all visible CUDA devices by default
-(`--n-gpus` caps it; one GPU or Apple MPS falls back to a serial loop). Jobs
-never split across GPUs — each training fits one card, so the parallelism is
-one whole training per worker process (spawn, so each child owns its CUDA
-context and its own cosmolike state):
-
-| Driver | Jobs | Split across GPUs | Extra flags |
-|---|---|---|---|
-| `sweep_ntrain` | one training per `N_train` | LPT (cost ∝ N: biggest first to the least-loaded GPU) | `--gpu-pack` |
-| `sweep_hyperparam` | one training per value | round-robin (equal cost) | `--gpu-pack` |
-| `bakeoff_activation` | one learning curve per activation | by activation | |
-| `tune_single` | Optuna trials | one worker per GPU, one shared study | `--journal` |
-
-**`--gpu-pack` (both sweep drivers; off by default).** Co-locates several
-trainings on one GPU when they are small. Each GPU is modeled as 4 capacity
-tokens; a point's tokens come from a conservative VRAM estimate
-(`2 · N · dv_width` float32 — the resident targets plus the pre-shuffle
-transient — plus a 2 GiB fixed overhead for the CUDA context, model, `Cinv`,
-and compile workspaces):
-
-```
-    estimated share of the card        tokens    concurrency
-    ≤ 20%                                1       up to 4 per GPU
-    20% – 40%                            2       up to 2 per GPU
-    > 40%                                4       exclusive
-```
-
-A per-GPU lock serializes token grabs (no multi-token deadlock); the flag
-engages even with a single visible GPU (a lone H200 allocation runs up to 4
-small points at once). Why it works: a small training is launch-bound — the
-CPU dispatch, not the GPU, sets the epoch time — so co-located processes
-time-slice into each other's idle gaps. When to use it: large cards (H200)
-with small-to-mid `N_train` points. When not to: small cards (the 2 GiB
-overhead alone is ~17% of a 3060 — though the estimate then marks points
-exclusive anyway, so the flag degrades to plain one-per-GPU), and any run
-whose per-epoch timings you want to quote — co-located points contend and
-are not comparable to exclusive runs. If a point outgrows its estimate, the
-loaders degrade to streaming against the GPU's real free memory rather than
-crash. On NVWULF, enabling CUDA MPS (`nvidia-cuda-mps-control`) tightens the
-time-slicing further; the flag works without it.
-
-**Parallel Optuna (`tune_single --n-gpus N`).** The workers cooperate on ONE
-study through an Optuna journal file (`--journal`, default
-`tune_journal.log` under `--fileroot`): the parent creates the study and
-enqueues the YAML-defaults warm-start once, `--n-trials` is the total split
-across workers, and each worker proposes with its own sampler seed (a shared
-seed would duplicate proposals). The journal persists — rerunning with the
-same `--journal` RESUMES the study (the recorded trials inform the new
-ones); delete the file or pass a new name to start fresh. The serial path
-(1 GPU / MPS) stays in-memory and writes nothing.
-
----
-
-## 7. The YAML file
-
-Two top-level blocks: `data` (where the training vectors come from and how
-many) and `train_args` (the whole run — objective, optimizer, schedules,
-model). Any numeric leaf may be a scalar (the train drivers use it) or a
-`[default, min, max, kind]` search range (`tune_single` searches it, the
-others collapse it to the default). Sections 8–16 document each block; the
-collision rules (which source wins when two set the same thing) live in the
-[precedence appendix](#20-appendix-precedence--who-wins-when-settings-collide),
-templates in `example_yamls/`, and the `sweep:` block in [Run it](#6a-sweep-block).
-
-One compact production run (two-phase `restrf` + `nla`, a berhu head):
-
-```yaml
-data:
-  train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
-  train_params: w0wa_takahashi_params_train_cs_16.1.txt
-  train_covmat: w0wa_takahashi_params_train_cs_16.covmat
-  val_dv:       w0wa_takahashi_dvs_train_cs_8.npy
-  val_params:   w0wa_takahashi_params_train_cs_8.1.txt
-  cosmolike_data_dir: lsst_y1
-  cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
-  n_train: 25000
-  n_val:   5000
-train_args:
-  nepochs: 1600
-  bs:      256
-  loss:
-    mode: sqrt
-  model:
-    name: restrf
-    ia:   nla
-    mlp:
-      width:    128
-      n_blocks: 4
-```
-
----
-
-## 8. `data`
-
-The training and validation vectors, and how many rows to keep. Five bare
-filenames resolve under `--root/chains` (three train: `train_dv` /
-`train_params` / `train_covmat`; two val: `val_dv` / `val_params`); the
-`cosmolike_data_dir` / `cosmolike_dataset` pair instead resolves under
-`$ROOTDIR/external_modules/data`. `n_train` and `n_val` are **absolute row
-counts** (not fractions), enforced *after* the physical cuts — if the cut pool
-holds fewer rows the run raises rather than training on less than you asked.
-`split_seed` seeds the shuffle; `ram_frac` is the fraction of free RAM staging
-may fill before it streams from the disk memmap instead.
-
-```
-dv/params dump ─▶ seeded shuffle ─▶ param_cuts ─▶ first n_train (+ n_val)
-                                                        │
-                          fits ram_frac of free RAM? ───┤
-                             yes: resident in RAM   no: streamed from the memmap
-```
-
-```yaml
-data:
-  train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
-  train_params: w0wa_takahashi_params_train_cs_16.1.txt
-  train_covmat: w0wa_takahashi_params_train_cs_16.covmat
-  val_dv:       w0wa_takahashi_dvs_train_cs_8.npy
-  val_params:   w0wa_takahashi_params_train_cs_8.1.txt
-  cosmolike_data_dir: lsst_y1
-  cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
-  n_train:    25000
-  n_val:      5000
-  split_seed: 0
-  ram_frac:   0.7
-```
-
-### `param_cuts`
-
-Physical density windows that keep the training set inside the region the
-emulator must be accurate on. Each window is a `_lo` / `_hi` pair; omit a key
-for no cut on that side, and `lo >= hi` raises.
-
-| keys | quantity | formula | Planck |
-|---|---|---|---|
-| `omegabh2_lo/_hi` | $\Omega_b h^2$ | $\Omega_b\,(H_0/100)^2$ | 0.0224 |
-| `omegam2h2_lo/_hi` | $\Omega_m^2 h^2$ | $(\Omega_m\,H_0/100)^2$ | 0.045 |
-| `omegamh2_lo/_hi` | $\Omega_m h^2$ | $\Omega_m\,(H_0/100)^2$ | 0.143 |
-| `omegamh2ns_lo/_hi` | $\Omega_m h^2 n_s$ | $\Omega_m h^2 \cdot n_s$ | 0.138 |
-
-The last needs the $n_s$ column in the params file.
-
-```yaml
-  param_cuts:
-    omegabh2_hi:  0.035
-    omegabh2_lo:  0.014
-    omegam2h2_lo: 0.015
-    omegam2h2_hi: 0.08
-```
-
----
-
-## 9. Training globals
-
-The run-level knobs that are not their own block.
-
-- `nepochs` — passes over the training set.
-- `bs` — the training minibatch. The validation pass uses a **derived**
-  batch (a ~1024-row target, `derive_eval_bs`), independent of `bs`, so a
-  small `bs` does not slow scoring.
-- `trunk_epochs` / `freeze_trunk` — the two-phase schedule (section 16); the
-  mode table is precedence
-  [C2](#20-appendix-precedence--who-wins-when-settings-collide).
-- `silent` — suppress the per-epoch progress lines.
-- `clip` — a per-step gradient-norm ceiling (0 = off); the full gradient is
-  rescaled toward the ceiling, keeping its direction, so one monster-outlier
-  batch cannot kick the weights:
-
-$$g \leftarrow g \cdot \min\!\left(1,\ \frac{\mathrm{clip}}{\lVert g \rVert}\right)$$
-
-- `rewind` — on every plateau lr cut, reload the best weights + optimizer
-  snapshot (keeping the reduced lr), bounding an excursion into a bad basin to
-  at most `patience` epochs.
-
-```yaml
-train_args:
-  nepochs: 1600
-  bs:      256
-  silent:  false
-  # clip:   1.0
-  # rewind: true
-```
-
----
-
-## 10. `loss`
-
-The training objective. `loss.mode` picks a per-sample transform $L(c)$ of
-each sample's chi2 $c = r^\top C^{-1} r$
-([Mahalanobis](#18-appendix-the-chi2-metric-mahalanobis)); the batch loss is
-the (trimmed, focally weighted) mean of $L(c)$. The transform sets how a
-sample's gradient vote scales with its misfit:
-
-| mode | $L(c)$ | vote vs misfit | use it when |
-|---|---|---|---|
-| `chi2` | $c$ | grows with $c$ (tail-chasing) | the fit is already close everywhere |
-| `sqrt` | $\sqrt{c}$ | equal for every sample | the default; robust to a fat tail |
-| `sqrt_dchi2` | $\sqrt{1+2c}-1$ | equal, softer near 0 | a smoother sqrt |
-| `berhu` | reversed Huber (below) | equal in the bulk, rising in the window | push the bulk under the goal |
-| `berhu_capped` | berhu, then flat | rising, then bounded above the cap | as berhu, monster-robust |
-
-$$L_{\mathrm{chi2}} = c \qquad L_{\mathrm{sqrt}} = \sqrt{c} \qquad
-L_{\mathrm{sqrt\_dchi2}} = \sqrt{1+2c} - 1$$
-
-$$L_{\mathrm{berhu}}(c) = \begin{cases} \sqrt{c} & c \le k \\[4pt]
-\dfrac{c+k}{2\sqrt{k}} & c > k \end{cases} \qquad
-L_{\mathrm{berhu\_capped}}\ \text{adds}\quad
-\dfrac{2\sqrt{Kc} + k - K}{2\sqrt{k}}\quad (c > K)$$
-
-$C^1$ at every knot. $k = $ `berhu.knot` (default 0.2, the frac>0.2 goal),
-$K = $ `berhu.cap` (default 10). This is textbook BerHu in the whitened
-residual norm with $\delta = \sqrt{k}$ — the knots are in chi2 units, applied
-per sample (the Mahalanobis aggregate). Vote intuition: `sqrt` gives every
-sample an equal vote; `chi2`'s vote grows with $c$ (the tail dominates);
-`berhu` keeps equal bulk votes and rises ~×7 across $(k, K)$; `berhu_capped`
-plateaus above $K$ so a chi2=100 monster stays bounded.
-
-The `berhu:` sub-block sets the knots (spell it `berhu:` — the family, so it
-survives a `mode` sweep — or after the active mode as `berhu_capped:`; giving
-both is an error, see precedence
-[D](#20-appendix-precedence--who-wins-when-settings-collide)). An optional
-`anneal:` (presence = on) starts as plain sqrt and blends into the berhu shape
-on the [shared schedule](#12-trim), $s: 0 \to 1$:
-
-$$L_s = (1-s)\,\sqrt{c} + s\,L_{\mathrm{mode}}(c)$$
-
-```yaml
-  loss:
-    mode: berhu_capped
-    berhu:
-      knot: 0.2
-      cap:  10
-      # anneal:
-      #   hold_epochs:   50
-      #   anneal_epochs: 300
-      #   shape:         cosine
-```
-
----
-
-## 11. optimizer, lr, scheduler
-
-The optimization stack — three small blocks that interact, so they are read
-together.
-
-- `optimizer` — the class is fixed to **AdamW**; `weight_decay` decays only
-  the weight matrices (`ndim >= 2`), never the biases / norms, and runs fused
-  on CUDA.
-- `lr` — the learning rate follows the sqrt-noise rule off a batch anchor,
-  then a linear warmup:
-
-$$\mathrm{lr} = \mathrm{lr\_base}\cdot\sqrt{\mathrm{bs}/\mathrm{bs\_base}}$$
-
-  `bs_base` is the run-global anchor (never inside a phase block);
-  `warmup_epochs` linearly ramps the lr from 0 over the first epochs.
-- `scheduler` — the class is fixed to **ReduceLROnPlateau**; `{mode, patience,
-  factor}` are its kwargs, stepped every epoch on the **raw** validation
-  median (the EMA average never feeds it). A per-phase `scheduler:` replaces
-  the kwargs but keeps the class (precedence
-  [B](#20-appendix-precedence--who-wins-when-settings-collide)).
-
-```yaml
-  optimizer:
-    weight_decay: 0.0
-  lr:
-    lr_base:       0.0025
-    bs_base:       64.0
-    warmup_epochs: 10
-  scheduler:
-    mode:     min
-    patience: 25
-    factor:   0.8
-```
-
----
-
-## 12. `trim`
-
-Drop the worst `trim(e)` fraction of each batch before the mean — a hard
-reject, so a few contaminated vectors cannot dominate the gradient (eval never
-trims). `trim(e)` runs the **shared annealed schedule** (`anneal_value`), the
-same machinery `focus`, `ema.anneal`, and `loss.berhu.anneal` reuse with their
-own `start` / `end`:
-
-```
-value
-start ───────────╮
-                 │╲     shape: cosine | linear | step | const
-                 │ ╲
-end   ───────────┴──╲──────────────
-        hold          anneal          (epochs)
-```
-
-Hold `start` for `hold_epochs`, ramp to `end` over `anneal_epochs`, then stay
-at `end`. `cosine` eases with zero slope at both ends (no abrupt jumps to
-mislead the plateau scheduler); `linear` is a straight ramp; `step` floors the
-linear ramp to a 0.01 grid; `const` holds `start` forever (`end` /
-`hold_epochs` / `anneal_epochs` ignored). Advice: keep `end > 0`, a floor that
-keeps the very worst fraction out for the whole run.
-
-```yaml
-  trim:
-    start:         0.1
-    end:           0.025
-    hold_epochs:   50
-    anneal_epochs: 300
-    shape:         cosine
-```
-
----
-
-## 13. `focus`
-
-Focal hardness weighting: up-weight the harder samples in the mean by a
-detached weight (a sample cannot lower its own weight instead of fitting):
-
-$$w_i = \left(\frac{c_i}{c_i + \kappa}\right)^{\gamma(e)}$$
-
-`start` / `end` / `hold_epochs` / `anneal_epochs` / `shape` run $\gamma(e)$ on
-the [shared schedule](#12-trim) (0 = a plain mean early, `end` ≈ 2 typical);
-`kappa` is the chi2 scale where a sample's hardness crosses 1/2, fixed over the
-run. A negative `gamma` is the off sentinel ($w_i = 1$ everywhere). Interplay:
-`berhu` already carries the tail-emphasis role, so soften `focus` on a berhu
-head.
-
-```yaml
-  focus:
-    start:         0.0
-    end:           2.0
-    hold_epochs:   50
-    anneal_epochs: 300
-    shape:         linear
-    kappa:         0.15
-```
-
----
-
-## 14. `ema`
-
-An optional Polyak weight average, updated after every optimizer step:
-
-$$\bar{\theta} \leftarrow \beta\,\bar{\theta} + (1-\beta)\,\theta
-\qquad \beta = 1 - \frac{1}{\mathrm{horizon\_epochs}\cdot
-\mathrm{steps\_per\_epoch}}$$
-
-The horizon is set in **epochs**, so $\beta$ (and the effective window) is
-batch-size-invariant. Selection and the reported metrics run on $\bar{\theta}$;
-the scheduler stays on the raw median; the `{theta, optimizer, theta_bar}`
-triple is snapshotted and rewound as one unit. An optional `anneal:` runs the
-[shared schedule](#12-trim) on the horizon, $h(e) = \mathrm{horizon}\cdot
-s(e)$, so the average carries no memory of the terrible early era. Absent =
-off (byte-identical). A per-phase `ema:` fully replaces this one; `ema: null`
-turns it off for that phase.
-
-```yaml
-  ema:
-    horizon_epochs: 3
-    anneal:
-      hold_epochs:   50
-      anneal_epochs: 300
-      shape:         cosine
-```
-
----
-
-## 15. `model`
-
-Two orthogonal choices — `name` (the architecture) and the optional `ia` (the
-factored intrinsic-alignment design) — pick one of six classes:
-
-| | plain | `ia: nla` | `ia: tatt` |
-|---|---|---|---|
-| `resmlp` | `ResMLP` | `TemplateMLP` | `TemplateMLP` |
-| `rescnn` | `ResCNN` | `TemplateResCNN` | `TemplateResCNN` |
-| `restrf` | `ResTRF` | `TemplateResTRF` | `TemplateResTRF` |
-
-Every architecture is a shared ResMLP trunk; `rescnn` / `restrf` add a gated
-correction head in theta order (zero at init, so they start as the trunk):
-
-```
-params ─▶ ResMLP trunk ─▶ y (full-whitened)
-                          │  basis change to theta order
-                          ▼
-                    head blocks (cnn conv | trf attention)
-                          │
-          y + gate · correction ─▶ whitened data vector
-```
-
-An `ia` design makes the net emit whitened templates that a closed-form
-polynomial combines, so the IA amplitudes never enter the network (the
-emulator is exact in them). For `nla` (3 templates, amplitude $A_1$):
-
-$$\xi = K_0 + A_1 K_1 + A_1^2 K_2$$
-
-(`tatt` = 10 templates, 3 amplitudes.)
-
-### `mlp`
-
-The trunk (required — every architecture is built on it): `width`, `n_blocks`.
-
-### `activation`
-
-The learnable-activation family, `{type, n_gates}` or a bare type string; the
-families and their math are the
-[activation appendix](#19-appendix-activation-functions). This sets the shared
-family (trunk + default). A `rescnn` / `restrf` head may pin its own with
-`model.cnn`/`.trf.activation` (absent = share the trunk's); the pin needs a
-frozen-trunk head phase, `head: activation:` is its alias, and the precedence
-+ warning are precedence
-[A](#20-appendix-precedence--who-wins-when-settings-collide).
-
-### `cnn` (name `rescnn`)
-
-| knob | what |
-|---|---|
-| `kernel_size` | conv kernel width (odd), tuned as if one block |
-| `rescale_kernel` | shrink the per-block kernel with depth at a fixed receptive field |
-| `groups` | channel-mixing cuts (`2` = xi+/xi- split; `3` / `6` on the factored head) |
-| `separable` | factor each block into a depthwise + pointwise conv |
-| `film` | re-inject the parameters as an identity-init per-channel affine (cosmology-aware) |
-| `n_blocks` | stacked conv + activation blocks |
-| `gate_init` | initial correction-gate scale (small, not 0) |
-| `activation` | the head's own family (above) |
-
-### `trf` (name `restrf`)
-
-| knob | what |
-|---|---|
-| `n_heads` | attention heads; must divide the token width (26 → 1 \| 2 \| 13) |
-| `n_blocks` | stacked transformer blocks |
-| `n_mlp_blocks` | per-token MLP depth; every layer at the token width, no width knob (depth only) |
-| `shared_mlp` | one MLP for all tokens (the textbook block) vs the per-token default |
-| `film` | cosmology-aware per-token affine (as `cnn.film`) |
-| `gate_init` | initial correction-gate scale |
-| `activation` | the head's own family (above) |
-
-`compile_mode` (optional, flat) sets the CUDA `torch.compile` mode; the
-defaults are precedence
-[F](#20-appendix-precedence--who-wins-when-settings-collide).
-
-```yaml
-  model:
-    name: restrf
-    ia:   nla
-    mlp:
-      width:    128
-      n_blocks: 4
-    trf:
-      n_heads:      2
-      n_blocks:     1
-      n_mlp_blocks: 2
-      gate_init:    0.1
-```
-
----
-
-## 16. Two-phase schedule + the `trunk:` / `head:` blocks
-
-A factored head (`rescnn` / `restrf`) can train in two phases: the trunk
-alone, then the head:
-
-```
-phase "trunk"  (epochs 1 .. trunk_epochs)   head bypassed, trunk trains alone
-      │  restore the best trunk weights
-      ▼
-set_train_phase("head" if freeze_trunk else "joint")
-      │  freeze the trunk (default), or keep it training (joint fine-tune)
-      ▼
-phase "head" / "joint"  (the remaining nepochs - trunk_epochs)
-      head from its zero-init identity, so the handoff is loss-continuous
-```
-
-The symmetric `trunk:` / `head:` blocks are **diffs** against the top level:
-each configures its own pass over the eight keys `lr` / `scheduler` / `loss` /
-`trim` / `focus` / `clip` / `rewind` / `ema` (each absent = the run default),
-with the per-key override semantics in precedence
-[B](#20-appendix-precedence--who-wins-when-settings-collide) — the head block
-alone also takes the `activation:` pin alias (`trunk: activation:` is an
-error, precedence
-[A](#20-appendix-precedence--who-wins-when-settings-collide)). On a
-single-phase model (any `resmlp`) `train()` demotes these — `trunk:` merges
-into the top level, `head:` / `trunk_epochs` / `freeze_trunk` are dropped —
-so the same YAML drives both families ("what is in the trunk is just the
-global").
-
-```yaml
-  trunk_epochs:  1500
-  freeze_trunk:  false
-  head:
-    lr:
-      lr_base:       0.001
-      warmup_epochs: 5
-    scheduler:
-      mode:     min
-      patience: 10
-      factor:   0.8
-    loss:
-      mode: berhu_capped
-      berhu:
-        knot: 0.2
-        cap:  10
-```
-
----
-
-## 17. Appendix: AI-Usage
-
-**AI Usage**: This library (under the `dev` folder) was developed with Claude Code assistance. However, Prof. Miranda heavily influenced 
-the code at every level, from macro-designed implementation and changes to minute Python choices.
-The initial version of this library was developed in a [Jupyter Notebook](https://github.com/vivianmiranda/learningpytorch/blob/main/pytorch1.ipynb) in which the AI didn't have writing privileges. Prof. Miranda spent hundreds of hours (it will reach 1000 hours for sure by the time this pipeline reaches v1.0) working on this pipeline and studying the Book Deep Learning with PyTorch to make sure she was not `vibe coding` (which Prof. Miranda strongly opposes).  Claude AI was a fast pair of hands and a super-smart compiler. There were a few exceptions where AI took the driving seat, mostly related to some obscure PyTorch functions and multi-gpu scheduling. Even in these cases, Prof. Miranda studied and edited every corner of the code, and also tested it in numerous ways (and it is continuing to test it). Prof. Miranda is ready to go on the blackboard and discuss every choice, every function, every quirk of the code at any time. 
-
-When I asked Claude code to review the paragraph above, the AI answer was (this repository has a copy of the Claude memory files)
-
-<img width="1000" alt="Screenshot 2026-06-30 at 7 12 00 PM" src="https://github.com/user-attachments/assets/e9a59983-cbbc-4a21-b962-9ee4ece4df7f" />
-
----
-
-## 18. Appendix: the chi2 metric (Mahalanobis)
+## 13. Appendix: the chi2 metric (Mahalanobis)
 
 The loss and the reported metric are both a **chi2**, which is a squared
 **Mahalanobis distance** — the distance between two points measured *in units of
@@ -1066,7 +876,7 @@ units, with correlations removed).
 
 ---
 
-## 19. Appendix: activation functions
+## 14. Appendix: activation functions
 
 The `ResBlock` nonlinearity is a **learnable, per-feature activation**: every
 feature (one entry of the vector) carries its own shape parameters, trained with
@@ -1148,7 +958,7 @@ $K$ (the gate count for the multi-gate families) is `make_activation`'s
 
 ---
 
-## 20. Appendix: precedence — who wins when settings collide
+## 15. Appendix: precedence — who wins when settings collide
 
 Configuration arrives from several places — the YAML, the driver flags, the
 per-phase override blocks, and the built-in defaults. When two of them speak
@@ -1296,212 +1106,9 @@ source to disagree with — the heads-up is that a "missing knob" is intentional
 
 ---
 
-## 21. Appendix: every file's functions
+## 16. AI-Usage
 
-One line per function / class / method. For full detail, read the docstring in
-the file itself; this is the index.
-
-### `emulator/data_staging.py` <a name="apx-data_staging"></a>
-
-Turns on-disk dumps into in-memory "source" dicts.
-
-- `load_source(...)` — orchestrator: memmap the dv, load + cut the params, keep `N_train` rows, stage, return `{C, dv, idx (+ means)}`.
-- `stage_source(C, dv, idx, ram_frac)` — materialize the used rows in RAM if they fit, else keep the memmap (reindex local).
-- `phys_cut_idx(C, idx, names, omegabh2_hi, omegabh2_lo, omegam2h2_lo/hi, omegamh2_lo/hi, omegamh2ns_lo/hi, param_file)` — keep the rows inside every active physical-density window (a small quantity table, one row per window: `omega_b h^2` in `(omegabh2_lo, omegabh2_hi)`, and the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). The YAML supplies these through the nested `data.param_cuts:` block; `omegabh2_hi` was the former flat `omegabh2_cut`. Returns `(kept_idx, report)` with a per-window survivor count for the banner; raises on `lo >= hi` or a window whose column (e.g. `ns`) is missing.
-- `stream_chunks(idx, chunk)` — yield sorted row-index blocks (sequential disk reads).
-- `stream_stats(mm, idx, method, CHUNK)` — per-column mean/std (or min/max) over the used rows, streamed (never loads the dump whole).
-- `param_stats(arr, idx, method)` — the same stats for the in-RAM parameter array.
-- `read_param_names(covmat_path, comment)` — parameter names from the covmat header line.
-
-### `emulator/geometries_parameter.py` <a name="apx-geometries_parameter"></a>
-
-Input side: raw parameters → whitened network input.
-
-- `ParamGeometry` — center, rotate into the parameter-covariance eigenbasis, unit-scale.
-  - `from_covmat` / `from_state` / `state` — build from a covmat file / saved tensors; tensors to save.
-  - `whiten` / `unwhiten`, `encode` / `decode` — the transform and its exact inverse.
-- `LogParamGeometry` — `ParamGeometry` that whitens in log space for the multiplicative params (`from_samples`, `_to_t` / `_from_t`).
-- `AmplitudeFactorGeometry` — whiten every parameter except the IA amplitude(s), append them raw for the loss's closed-form combine (NLA: one amplitude; TATT: three).
-
-### `emulator/geometries_output.py` <a name="apx-geometries_output"></a>
-
-Output side: raw dv ↔ whitened masked target; holds the chi2 covariance. The only file importing cosmolike.
-
-- `DataVectorGeometry` — the base geometry for one probe.
-  - `from_cosmolike` / `from_state` / `state` — build from cosmolike / saved tensors; tensors to save.
-  - `squeeze` / `unsqueeze` — keep the unmasked entries / scatter them back to full length.
-  - `whiten` / `unwhiten`, `encode` / `decode` — covariance-eigenbasis whitening and its inverse.
-- `DiagonalGeometry` — whiten by the marginal sigma only (theta order kept, for a CNN).
-- `BlockDiagonalGeometry` — whiten each tomographic bin by its own sub-block.
-- `build_shear_angle_map(geom, ...)` — attach per-element theta / source-z / xi± branch / per-bin sizes.
-
-### `emulator/analytics.py` <a name="apx-analytics"></a>
-
-Analytic xi rescaling `R` (Eisenstein-Hu zero-baryon preprocessor).
-
-- `_analytic_R(...)` — the formula (numpy or torch); divides out the broadband cosmology dependence.
-- `analytic_shape_ratio(...)` — `R` over the masked data vector (the emulator path).
-- `rescale_xi(...)` — `R` over the (theta, xi+, xi−) matrix layout (plotting / visual checks).
-
-### `emulator/activations.py` <a name="apx-activations"></a>
-
-Learnable activations for the ResBlock `act` slot.
-
-- `activation_fcn` — the paper's `H` (a learnable identity↔Swish interpolation).
-- `GatedActivation` / `PowerGatedActivation` / `GatedPowerActivation` — generalizations (more gates, a bounded power tail, both).
-- `make_activation(name, n_gates)` — map a name to a factory `act(dim) -> module`.
-
-### `emulator/emulator_designs_building_blocks.py` <a name="apx-building_blocks"></a>
-
-The small `nn.Module`s the models are assembled from.
-
-- `Affine` — a learnable scalar scale + shift.
-- `ResBlock` — width-preserving residual block (n dense layers, each with a norm + activation factory, pre-activation skip).
-- `BinLinear` — G per-token *unique* linear layers as one batched einsum; the unique weights also replace the positional encoding.
-- `TRFBlock` — one pre-LN transformer block over tokens at their *natural* width (the padded bin length — no embedding/output adapters): shared-weight attention across tokens + a per-token unique MLP stack (the deviation from the textbook shared FFN). The MLP is `n_mlp_blocks` deep and every layer runs at the token width — the interior is pinned to the bin length by design, no width knob. Exactly the identity at init (zero-initialized branch outputs), so a stack satisfies `blocks(x) == x`.
-- `FiLMGenerator` — per-channel `gamma` / `beta` produced from the non-amplitude parameters, an identity-init FiLM conditioning of a correction head (amplitude-blind, so the factored exactness holds).
-- `rescale_kernel_size` — pick an odd conv kernel width scaled to the bin length.
-
-### `emulator/emulator_designs.py` <a name="apx-emulator_designs"></a>
-
-The full networks.
-
-- `ResMLP` — input projection → residual blocks → output projection → Affine.
-- `ResCNN` — ResMLP trunk + a gated bins-as-channels 1D-CNN correction in theta order (one `Conv1d(n_bins → n_bins, k)` kernel over the padded per-bin layout — theta-local and cross-bin, no channel expansion), via fixed basis-change buffers `W_fd` / `W_df` and the `pad_idx` scatter/gather. Head knobs (YAML `model.cnn`): `kernel_size` (tuned as if one block) + `rescale_kernel` (shrink the per-block kernel with depth at a fixed receptive field), `groups` (physical channel cuts: `2` = xi+ never mixes with xi−; on the factored head `3` = GG/GI/II isolated, `6` = both cuts — validated against the mask, other values error), `separable` (factor each block into a depthwise theta filter + pointwise channel mix — a low-rank factorization of the same conv, ~k/2 fewer weights), `film` (re-inject the non-amplitude parameters into every block as an identity-initialized per-channel affine — the head becomes cosmology-aware instead of one fixed map; see `notes/film-conditioning.md`), `n_blocks`, `gate_init`, `activation` (the head's own `{type, n_gates}` family; absent = share the trunk's `model.activation`; a pin needs a frozen-trunk head phase, and `head: activation:` is its alias):
-
-```
-  params ─▶ ResMLP trunk ─▶ y    (full-whitened, well-conditioned)
-                            │     y @ W_fd   full basis ─▶ theta order
-                            ▼
-                       1D-CNN blocks         fix theta-local structure
-                            │     h @ W_df   theta order ─▶ full basis
-                            ▼
-              y + gate · correction   ─▶   whitened data vector
-```
-
-- `ResTRF` — ResMLP trunk + a gated bin-token transformer correction: the theta-order dv splits into its (xi+/-, source-pair) bins (`pad_idx` scatter/gather to a padded per-bin layout, `bin_sizes` from `build_shear_angle_map`), each bin is one token at its natural width (the per-token `n_mlp_blocks`-deep MLPs run at that token width too — no width knob), `TRFBlock`s attend across bins, and the correction is `blocks(h) − h` — zero at epoch 1 because every block starts as the identity. No embedding or output layers (the sequence structure is physical, unlike the published CMB design's latent sequence). Head knobs (YAML `model.trf`): `n_heads`, `n_blocks`, `n_mlp_blocks`, `shared_mlp`, `film`, `gate_init`, and `activation` (the head's own `{type, n_gates}` family; absent = share the trunk's `model.activation`; a pin needs a frozen-trunk head phase, `head: activation:` its alias).
-
-### `emulator/loss_functions.py` <a name="apx-loss_functions"></a>
-
-chi2 losses; each holds a geometry (composition).
-
-- `anneal_value(epoch, opts)` — the per-epoch schedule shared by four knobs: trim, focus, the berhu sqrt-blend, and the EMA horizon.
-- `CosmolikeChi2` — the plain chi2: `chi2` ([Mahalanobis](#18-appendix-the-chi2-metric-mahalanobis) distance), `loss` (trim / focus, and the `chi2` / `sqrt` / `sqrt_dchi2` / `berhu` / `berhu_capped` transform ladder), and thin delegation to the held geometry.
-- `berhu` / `berhu_capped` — the reversed-Huber loss modes, configured by a YAML `berhu:` `{knot, cap, anneal}` block: `sqrt(chi2)` below the `knot` chi2, chi2-like above it, and (for `berhu_capped`) sqrt-shaped again past the `cap` so a monster sample's gradient vote is bounded; the optional `anneal:` schedule blends `sqrt` → `berhu` over the run. This is textbook BerHu in the whitened residual norm with delta = sqrt(`knot`), applied per sample as the Mahalanobis aggregate — so `knot` / `cap` are in chi2 units, not residual units.
-- `RescaledChi2` — analytic-R "A" form (R divides the net output); `configure_rescaling`, `_R`, `encode` / `decode` / `chi2` / `loss`.
-- `ResidualBaseChi2` — analytic-R "B" form (R moves only the baseline; the chi2 stays plain).
-- `ElementWeightedChi2` — a per-element focal weight in the training loss (`set_elem_weight`).
-- `make_chi2(geom, rescale, ...)` — build the right loss from a geometry and a rescale mode.
-
-### `emulator/batching.py` <a name="apx-batching"></a>
-
-Memory sizing and the regime-aware data loaders. Where the data lives:
-
-```
-  dv dump (.npy on disk, memmapped)             never loaded whole
-        │   load_source  ─▶  the N_train subset
-        ▼
-  build_loaders picks a regime by what fits the VRAM budget:
-        ├─▶ regime 1   resident on the GPU          encode once; a batch is an on-device index
-        ├─▶ regime 2   streamed from host RAM        re-encode each chunk, every epoch
-        └─▶ regime 3   streamed from the disk memmap  same, read from disk
-```
-
-- `compute_batch_size_bytes` / `compute_model_size_bytes` / `batches_per_load` — per-batch and resident memory estimates.
-- `_build_loaders_one(...)` — pick a regime for one source (GPU-resident / RAM-stream / memmap-stream); return `load_C`, `load_dv`, the chunk size, and the bytes it made resident.
-- `build_loaders(...)` — run it once per source (train, then val against the reduced budget); return the data dict the loop consumes.
-
-### `emulator/training.py` <a name="apx-training"></a>
-
-The run layer that ties everything together.
-
-- `pick_device` / `make_logger` — setup helpers.
-- `make_model` / `make_optimizer` / `make_scheduler` — build one component from a `{cls, **kwargs}` spec dict.
-- `build_run_specs(...)` — config → the six `run_emulator` spec dicts.
-- `validate_phase_block` / `validate_loss` / `validate_berhu` / `validate_ema` — the pure config validators: the eight-key phase whitelist, the nested `loss:` `{mode, berhu}` block, the berhu `{knot, cap, anneal}` schedule, and the `ema:` `{horizon_epochs, anneal}` block, each checked and canonicalized before the run.
-- `derive_eval_bs` / `derive_ema_beta` — turn run-global targets into the derived evaluation batch size (a ~1024-row target) and the per-epoch EMA decay from the horizon.
-- `default_train_args` / `suggest_train_args` / `search_defaults` (+ `_as_search_range`, `_range_default`, `_suggest_range`, `_walk_train_args`) — the `[default, min, max, kind]` search resolvers.
-- `eval_val` / `eval_source_chi2` — score the model on the val set / per-cosmology delta-chi2.
-- `training_loop_batched(...)` — the per-epoch loop (trim / focus / berhu-blend / EMA annealing, best-epoch tracking; an optional Polyak weight average coupled to the best snapshot / rewind).
-- `run_emulator(...)` — top-level: build model + optimizer + scheduler + loaders, train, return the histories.
-- `audit_devices(model, lossfn, device)` — name every tensor that should live on `device` but does not (a placement check for the compiled forward + loss).
-
-### `emulator/experiment.py` <a name="apx-experiment"></a>
-
-`EmulatorExperiment`: the whole setup as one reusable object.
-
-- `from_yaml` / `from_config` — build from a YAML file / an already-parsed dict.
-- `validate_param_cuts` / `validate_sizes` — check the `data` block: the physical-window keys and the absolute `n_train` / `n_val` row counts.
-- `resolve_phase_args` / `validate_sweep_paths` — resolve the two-phase keys against the model's real capability (the single-phase demotion) and concretize a sweep's dotted path against that resolved schema.
-- `_head_activation_spec` / `_resolve_head_activation` / `_activation_flag_notice` / `_pinned_head_warning` — the per-head activation config layer: validate a `{type, n_gates}` pin, resolve the canonical-vs-alias spelling + the frozen-trunk-head-phase license, and build the flag-vs-pin (from_config) and sweep-vs-pin (bake-off / sweep) startup warnings.
-- `stage_train` / `stage_val` / `pool_size` — stage the sources; the physical-cut pool size (the sweep's top N).
-- `build_geometry` / `build_specs` — the input/output geometry + chi2; the `run_emulator` spec dicts.
-- `train` / `run` — train on the staged data; the full stage→build→train pipeline in one call.
-- `frac_above(threshold, ...)` — the sweep metric (fraction of points with delta-chi2 over a cutoff).
-- `print_design()` — the shared startup banner: renders the resolved, consumed view (phases resolved to the model's real capability, the model describing itself via `describe_spec`) — device, model class, spec sub-blocks, physical cuts — before anything trains, so a stale YAML is caught at launch.
-
-### `emulator/scheduling.py` <a name="apx-scheduling"></a>
-
-- `lpt_assign(sizes, n_workers)` — split sweep jobs across GPUs by total cost (Longest-Processing-Time).
-- `even_assign(jobs, n_workers)` — round-robin split for equal-cost jobs.
-- `run_gpu_pool(setup_fn, job_fn, buckets, extra, lanes_per_gpu, job_tokens, on_result)` — the spawned worker pool: one process per (GPU, lane), per-GPU job queues, token gate under packing, parent-side result drain.
-- `estimate_train_vram_fraction(n_rows, dv_width, total_bytes)` — conservative per-training VRAM share (`--gpu-pack`).
-- `vram_tokens(fraction)` — the packing rule: ≤20% → 1 token, ≤40% → 2, else 4 (exclusive) of `GPU_TOKENS = 4`.
-
-### `emulator/results.py` <a name="apx-results"></a>
-
-- `save_learning_curves(path, sizes, curves, meta)` — write a `np.loadtxt`-friendly plain-text table.
-- `save_sweep_table(path, param, values, fracs, meta)` — the one-knob sweep table (numeric values as a column; categorical as an index + label map).
-- `save_emulator(path_root, model, param_geometry, geometry, config, histories, train_args, attrs)` — persist a trained run: `.emul` (cpu state_dict, compile prefix stripped) + `.h5` (geometry `state()` groups, per-epoch histories, config YAML, run-identity attrs).
-
-### `emulator/plotting.py` <a name="apx-plotting"></a>
-
-Figures (colorblind-safe palette, no red/green).
-
-- `plot_history` / `plot_learning_curves` / `plot_sweep_curve` / `plot_diagnostics` — the public figures (training history; learning-curve overlay; one-knob hyperparameter-sweep curve; the multipage diagnostics PDF).
-- `plot_xi` / `dv_to_xi` / `source_param_samples` — xi correlation-function curves, the dv→matrix reshape, and the coverage-triangle samples.
-- `_history_panels` / `_coverage_panels` / `_floor_panel` / `_hard_direction_panels` / `_finish` / `_save_pages` — the shared panel and save helpers.
-
-### `emulator/diagnostics.py` <a name="apx-diagnostics"></a>
-
-Post-training analyses (each returns a dict the plotting reads).
-
-- `coverage_diagnostic(...)` — do the failing val points sit in sparse training regions? (kNN distance vs delta-chi2).
-- `local_linear_floor(...)` — the model vs a local-linear interpolation of the data (the data-only floor; plain chi2 only).
-- `hard_direction_regression(...)` — which log-parameter combination predicts the per-point hardness.
-
-### `emulator/parallel/` <a name="apx-parallel"></a>
-
-The per-bin CNN variant: a shared ResMLP trunk with a grouped conv that
-refines each tomographic bin independently (no smoothing across bin-boundary
-jumps). Only the conv gets a per-bin twin — the per-bin ResMLP split was
-tested, underperformed a single ResMLP at matched parameters (it re-learns the
-shared cosmology map once per bin), and was removed.
-
-- `emulator_designs.py` — `ParallelResCNN`.
-- `emulator_designs_building_blocks.py` — `GroupedCNNBlock`.
-
-### `emulator/PCE/` <a name="apx-pce"></a>
-
-NPCE: a sparse-Legendre polynomial-chaos base plus a neural refiner.
-
-- `emulator_designs.py` — `PCEEmulator` (the closed-form base) + `pce_multi_index`, `pce_design`, `select_lars_loo`.
-- `loss_functions.py` — `PCEResidualChi2` (refine the residual), `PCERatioChi2` (refine the ratio) of a frozen PCE base.
-
-### `emulator/IA/` <a name="apx-ia"></a>
-
-Factored intrinsic alignment: emulate cosmology-only templates, apply the IA-amplitude polynomial in closed form.
-
-- `emulator_designs.py` — `TemplateMLP`, `TemplateResCNN`, `TemplateResTRF` (emit the templates, plus optional conv / transformer correction heads).
-- `loss_functions.py` — `nla_coeffs`, `tatt_coeffs` (the amplitude polynomials), `NLAAmpFactoredChi2`, `TemplateFactoredChi2` (apply the polynomial in the loss).
-
-### drivers (beside `emulator/`) <a name="apx-drivers"></a>
-
-Each `main()` reads `--root` / `--fileroot` / `--yaml`; the sweep / bake-off add
-per-GPU workers.
-
-- `train_single_emulator_cosmic_shear.py` — `main`: one training run + the diagnostics PDF.
-- `tune_single_emulator_cosmic_shear.py` — `main` + `_tune_worker` + `journal_storage`: an Optuna study over the YAML's search ranges; serial in-memory, or one worker per GPU sharing a journal-file study.
-- `sweep_ntrain_emulator_cosmic_shear.py` — `main` + `_sweep_setup` / `_sweep_job` + `_run_parallel` (LPT split through `run_gpu_pool`) / the serial path; `f(dchi2>thr)` vs `N_train`; `--gpu-pack`.
-- `sweep_hyperparam_emulator_cosmic_shear.py` — `main` + `set_by_path` / `read_sweep_block` + `_hyper_setup` / `_hyper_job`; one YAML-chosen knob (`sweep:` block), even split through `run_gpu_pool`; `--gpu-pack`.
-- `bakeoff_activation_emulator_cosmic_shear.py` — `main` + `_bakeoff_worker` + `_run_parallel_bakeoff` (activation split) / the serial path; one curve per activation.
+AI Usage: This library (under the `dev` folder) was developed with Claude
+Code assistance. However, Prof. Miranda heavily influenced the code at every
+level, from macro-designed implementation and changes to minute Python
+choices.

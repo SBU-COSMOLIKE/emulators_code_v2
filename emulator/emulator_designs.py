@@ -30,7 +30,7 @@ order, a structured head corrects it there, a 1D conv along the
 angular axis (ResCNN), or a transformer whose tokens are the
 tomographic bins (ResTRF), and a learnable gate adds the correction
 back, so swapping the architecture changes only the model. Per-bin
-conv variants live in parallel/.
+conv variants were tried and removed (see git history).
 
 Each class mixes in DesignSpec: a head_block class attribute (None /
 "cnn" / "trf") plus a shared describe_spec classmethod make the class the
@@ -606,9 +606,10 @@ class ResTRF(DesignSpec, nn.Module):
 
   Attention shares information across bins, then each bin's own MLP
   stack specializes its correction (see TRFBlock for the two
-  deviations from a textbook block). A per-bin conv (parallel/)
-  refines within bins but never across them; attention is the head
-  for cross-bin structure in the trunk's residuals.
+  deviations from a textbook block). A per-bin conv (a removed
+  per-bin-conv variant; see git history) refines within bins but
+  never across them; attention is the head for cross-bin structure
+  in the trunk's residuals.
 
   The bin split comes from geom.bin_sizes (attached by
   build_shear_angle_map; EmulatorExperiment runs it when the
