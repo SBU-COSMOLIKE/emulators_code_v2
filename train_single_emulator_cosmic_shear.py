@@ -112,8 +112,14 @@ is never loaded whole.
 #  tensors, compile-wrapper prefix stripped). <save>_<tag>.h5 = the run
 #  record: the input/output whitening states (keys match the geometries'
 #  state()/from_state, so inference rebuilds them with no covmat and no
-#  cosmolike), the per-epoch histories, the full config as YAML, and the
-#  run identity (activation, rescale, N_train, best epoch, files, device).
+#  cosmolike), the per-epoch histories, and the run identity (activation,
+#  rescale, N_train, best epoch, files, device). As of schema v2 the h5
+#  also stores both the config as the user wrote it and the fully-resolved
+#  consumed config plus the model recipe (every training knob and every
+#  constructor argument, each default materialized at save time), so
+#  rebuild_emulator (in emulator/results.py) reconstructs the
+#  inference-ready model from the h5 alone — a saved emulator loads
+#  bit-exactly even if code defaults later drift.
 #
 #- `--rescale` (optional, default `none`): divides out a fast analytic R so the
 #  net emulates a flatter target (chi2 stays on the original dv). `rescaled` =

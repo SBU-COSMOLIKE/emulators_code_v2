@@ -42,7 +42,8 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 14. [Appendix: the chi2 metric (Mahalanobis)](#14-appendix-the-chi2-metric-mahalanobis)
 15. [Appendix: activation functions](#15-appendix-activation-functions)
 16. [Appendix: precedence — who wins when settings collide](#16-appendix-precedence--who-wins-when-settings-collide)
-17. [AI-Usage](#17-ai-usage)
+17. [Appendix: Generating the training set](#17-appendix-generating-the-training-set)
+18. [AI-Usage](#18-ai-usage)
 
 ---
 
@@ -70,6 +71,13 @@ python $D/train_single_emulator_cosmic_shear.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml train_single_emulator_cosmic_shear.yaml --diagnostic diagnostic
 ```
+
+This writes the trained emulator under `--root/chains` as a `.emul` / `.h5`
+pair: the `.emul` holds the best-epoch weights, and the `.h5` carries both
+whitening geometries, the per-epoch histories, and the fully-resolved config
+(schema v2) — so a saved emulator rebuilds bit-exactly even if code defaults
+later change (`rebuild_emulator` in `emulator/results.py` reads the file
+alone).
 
 The `N_train` learning curve — how does accuracy improve as the training set
 grows? This driver retrains the same model at several training-set sizes and
@@ -257,7 +265,9 @@ filenames resolve under `--root/chains` (three train: `train_dv` /
 counts** (not fractions), enforced *after* the physical cuts — if the cut pool
 holds fewer rows the run raises rather than training on less than you asked.
 `split_seed` seeds the shuffle; `ram_frac` is the fraction of free RAM staging
-may fill before it streams from the disk memmap instead.
+may fill before it streams from the disk memmap instead. Where these dumps
+come from — how the training parameters are sampled, whitened, and named — is
+[appendix 17](#17-appendix-generating-the-training-set).
 
 ```
 dv/params dump ─▶ seeded shuffle ─▶ param_cuts ─▶ first n_train (+ n_val)
@@ -1377,7 +1387,109 @@ source to disagree with — the heads-up is that a "missing knob" is intentional
 
 ---
 
-## 17. AI-Usage
+## 17. Appendix: Generating the training set
+
+The `data` block (section 3) names five dumps — `train_dv`, `train_params`,
+`train_covmat`, `val_dv`, `val_params`. This appendix is where they come from:
+`compute_data_vectors/dataset_generator_lensing.py`, an MPI + emcee + cobaya
+tool that draws cosmologies, computes each one's cosmic-shear data vector
+through cosmolike, and writes exactly the files the trainer reads.
+
+**The goal.** An emulator is only trustworthy inside the cloud of cosmologies
+it was trained on, so the training density must cover *where chains will
+explore* — which is broader than the posterior itself. A sampler that walks to
+the edge of the posterior must still land inside the training support, so the
+generator samples a deliberately widened distribution, not the posterior.
+
+**Two sampling modes (peers, chosen by `--unif`).**
+
+- Gaussian / tempered (`--unif 0`, the default): draws follow the tempered
+  posterior below — a training cloud shaped like a widened posterior, dense
+  where chains spend time.
+- Uniform (`--unif 1`): draws are uniform inside the (temperature-stretched)
+  hard bounds — a flat cloud filling the whole box, with no posterior shaping,
+  and `lnp` is set to 1 (the rows carry no importance weight). Even uniform
+  sampling still needs `--temp`: the temperature sets the hard-boundary stretch
+  for parameters whose priors are Gaussian or unbounded (each such bound is
+  widened by `temp * width / 5`), so without it those parameters have no box to
+  be uniform in. Uniform outputs tag as `_<probe>_unifs` instead of
+  `_<probe>_<T>`, so the trainer's `data:` filenames differ accordingly.
+
+Which to use: tempered for production training sets (density where chains
+explore); uniform for coverage studies or stress tests far from the posterior.
+
+**The tempered posterior (`--unif 0`).** The generator samples
+
+$$\log p_T(\theta) = \frac{1}{T}\left[ -\tfrac{1}{2}(\theta-\theta_0)^\top \tilde\Sigma^{-1} (\theta-\theta_0) + \log \pi(\theta)\right]$$
+
+legend: theta = the sampled parameter vector; theta_0 = the fiducial
+(`train_args.fiducial` in the generator YAML); T = the temperature (`--temp`,
+also the `_cs_<T>` tag in every output filename — the same tag the trainer's
+file names and the drivers' `t<T>` run tag parse); pi = the cobaya prior (hard
+bounds respected, infinite-prior bounds stretched by `temp * width / 5`);
+Sigma-tilde = the Fisher / params covmat (`params_covmat_file`) with its
+correlations clipped to at most `maxcorr` (default 0.15). The whole bracket is
+divided by T, so the effective covariance is `T * Sigma-tilde` — wider than the
+posterior.
+
+**Why each knob.**
+
+- `--temp` (T) flattens the likelihood so the cloud extends past the posterior:
+  T = 1 would hug it, and a chain at the posterior edge would step outside the
+  training support; larger T widens the cloud.
+- `--maxcorr` fills the volume *perpendicular* to the degeneracy directions: a
+  raw Fisher covmat is a thin pancake along the degeneracy, and the emulator
+  needs volume there, not a line — clipping the off-diagonal correlations
+  fattens the pancake.
+- `--boundary` below 1 shrinks val / test *inside* the training support:
+  accuracy degrades at the cloud's edge, so the validation set must not sit on
+  it.
+
+**The machinery.** emcee samples log p_T with differential-evolution moves
+(`DEMove` 90%, `DESnookerMove` 10%); the chain is de-duplicated and reduced to
+`--nparams` points, with the autocorrelation time reported. An MPI master hands
+parameter rows to workers, each of which computes the data vector through the
+cobaya model (CAMB + cosmolike, per the generator YAML). The run is
+checkpointed (`--freqchk` / `--loadchk` / `--append`): a failed evaluation is
+zeroed and flagged in the failfile, and recomputed by rerunning with
+`--loadchk 1`.
+
+**The output contract** (this is where every loop closes; `<T>` is the
+temperature, or `unifs` for a uniform run):
+
+| file | content | consumed by |
+|---|---|---|
+| `<paramfile>_cs_<T>.1.txt` | columns `weights`, `lnp`, `<params>`, `chi2*` | the trainer's staging slice (it drops the leading `weights` / `lnp` and the trailing `chi2*`) |
+| `<paramfile>_cs_<T>.paramnames` | first column = the cobaya parameter names | ParamGeometry names, then the h5, then `get_requirements` (the naming loop) |
+| `<paramfile>_cs_<T>.covmat` | the parameter covmat | the trainer's `data.train_covmat` — the input whitening basis |
+| `<paramfile>_cs_<T>.ranges` | the sampled bounds | getdist plotting of the training cloud |
+| `<datavsfile>_cs_<T>.npy` | the stacked data vectors | the trainer memmaps it as `data.train_dv` |
+| `<failfile>_cs_<T>.txt` | the flagged failed rows | `--loadchk 1` reruns to recompute them |
+
+**Two `train_args`, named loudly.** The generator YAML is a *cobaya* YAML with
+its own `train_args` block (`probe`, `ord`, `fiducial`, `params_covmat_file`).
+This is unrelated to the *emulator trainer's* `train_args` (section 2): two
+stages, two schemas. The generator's `train_args` configures the cobaya model
+that produces the dumps; the trainer's `train_args` configures the network that
+learns them.
+
+**Run it** (`$D` is the driver-folder shorthand from [section 1](#1-run-it);
+the script's own header keeps a `roman_real` example verbatim):
+
+```bash
+mpirun -n 10 --report-bindings \
+  python $D/compute_data_vectors/dataset_generator_lensing.py \
+    --root projects/lsst_y1/ --fileroot emulators/nla_cosmic_shear/ \
+    --nparams 10000 --yaml w0wa_takahashi_cs_cnn.yaml \
+    --datavsfile w0wa_takahashi_dvs_train \
+    --paramfile  w0wa_takahashi_params_train \
+    --failfile   w0wa_takahashi_params_failed_train \
+    --unif 0 --temp 64 --maxcorr 0.15 --freqchk 2000 --boundary 1.0
+```
+
+---
+
+## 18. AI-Usage
 
 AI Usage: This library (under the `dev` folder) was developed with Claude
 Code assistance. However, Prof. Miranda heavily influenced the code at every
