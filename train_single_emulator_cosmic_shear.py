@@ -30,8 +30,8 @@ is never loaded whole.
 #  products (the diagnostics PDF) live under --root/chains; the YAML under
 #  --fileroot. The driver resolves every path, so it runs from $ROOTDIR
 #  regardless of cwd. cosmolike's own dataset still resolves under
-#  $ROOTDIR/external_modules/data. cosmolike runs only on the workstation; train
-#  there.
+#  $ROOTDIR/external_modules/data. Training runs on a machine with a working
+#  Cocoa installation (cosmolike).
 #
 #- This script sits beside the emulator/ package (same .../emultrf/dev/ folder),
 #  so `import emulator` needs no sys.path edit; just run it from $ROOTDIR.

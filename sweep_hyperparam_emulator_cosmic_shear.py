@@ -80,8 +80,8 @@ loaded whole.
 #  label map line) and <out>.pdf (plot_sweep_curve), under --fileroot.
 #- `--quiet`: suppress stdout (txt and pdf still written).
 #
-#- Trains one full model per value, so run it on the workstation, where
-#  cosmolike lives.
+#- Trains one full model per value, so run it on a machine with a working
+#  Cocoa installation (cosmolike).
 #-------------------------------------------------------------------------------
 
 import argparse

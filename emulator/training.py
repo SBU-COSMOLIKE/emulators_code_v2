@@ -45,7 +45,7 @@ from torch.optim import lr_scheduler
 
 from .batching import build_loaders
 from .emulator_designs import ResMLP
-from .emulator_designs_building_blocks import Affine
+from .emulator_designs_building_blocks import Affine, BinLinear
 from .loss_functions import anneal_value
 
 
@@ -151,16 +151,23 @@ def make_optimizer(model, opt_opts, lr, device):
 
   Mirrors make_model / make_scheduler: the optimizer class is a
   value in the dict, its settings the other keys. Parameters split
-  into two groups so weight decay falls only on the weight matrices
-  (ndim>=2), never on the 1D params below, decaying those would
-  pull a unit-init gain toward 0 and attenuate signal.
+  into two groups so weight decay falls only on true weight matrices,
+  chosen by module role, not tensor shape: the .weight of every
+  nn.Linear / nn.Conv1d / BinLinear. Everything else is undecayed —
+  biases, Affine / FeatureAffine gains, and every activation
+  parameter of any shape (e.g. multigate's (K, dim) w / beta / mu) —
+  since decaying a bias or an activation shape parameter has no
+  principled meaning and would drag the activation toward degenerate
+  forms. A module left off the allowlist defaults to undecayed (the
+  safe failure direction).
 
   Arguments:
     model    = network whose parameters are optimized;
-               named_parameters() splits into weight matrices
-               (ndim>=2, decayed) and 1D params (biases, Affine /
-               FeatureAffine gain/bias, activation gamma/beta) not
-               decayed.
+               named_parameters() splits into the decayed weight
+               matrices (the .weight of nn.Linear / nn.Conv1d /
+               BinLinear) and everything else undecayed (all biases,
+               Affine / FeatureAffine gain/bias, every activation
+               parameter, whatever its shape).
     opt_opts = optimizer spec dict. "cls" is the optimizer
                class (e.g. optim.AdamW), stored as a value;
                "weight_decay" (optional, default 0.0) decays
@@ -175,10 +182,24 @@ def make_optimizer(model, opt_opts, lr, device):
     the optimizer, with two param groups: weight matrices decayed
     by opt_opts["weight_decay"], the rest at 0. fused on CUDA.
   """
-  # decay weight matrices (ndim>=2); leave the 1D params undecayed.
+  # Decay only true weight matrices: the .weight of nn.Linear /
+  # nn.Conv1d / BinLinear. Collect those weights by id from a module
+  # walk, then split every parameter on membership — so biases,
+  # Affine / FeatureAffine gains, and every activation parameter (any
+  # shape, e.g. multigate's (K, dim) w / beta / mu, and BinLinear's
+  # (G, out) biases) stay undecayed, decided by module role not tensor
+  # shape. A future module left off the list defaults to undecayed
+  # (the safe direction). named_parameters() yields each shared
+  # parameter once, so the id split needs no extra dedupe.
+  decay_ids = set()
+  for m in model.modules():
+    if isinstance(m, (nn.Linear, nn.Conv1d, BinLinear)):
+      w = getattr(m, "weight", None)
+      if w is not None:
+        decay_ids.add(id(w))
   decay, no_decay = [], []
   for _, p in model.named_parameters():
-    if p.ndim >= 2:
+    if id(p) in decay_ids:
       decay.append(p)
     else:
       no_decay.append(p)

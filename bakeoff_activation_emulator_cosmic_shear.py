@@ -71,7 +71,8 @@ file, read in slices so it is never loaded whole.
 #- `--quiet`: suppress stdout (txt and pdf still written).
 #
 #- One full model per (N_train, activation): len(grid) x len(activations)
-#  trainings long, run it on the workstation.
+#  trainings long, run it on a machine with a working Cocoa installation
+#  (cosmolike).
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 

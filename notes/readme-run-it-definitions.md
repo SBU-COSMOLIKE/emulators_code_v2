@@ -177,3 +177,53 @@ GRI-B (recipes in this note). Report: IMPLEMENTER_HANDOFF + resume
 state appended here, raw gate outputs, deviations declared. Do not
 commit: print the suggested commit command.
 ### END
+
+## Implementer resume state (2026-07-07, Opus, UNIT 1 of the overnight queue, base 8ad25a1)
+
+IMPLEMENTED, uncommitted (rides UNIT 2 into one combined commit). Doc-only
+except four driver-header comment lines (AST-identical).
+
+- Run it (section 1): the intro is generalized (workstation site #1 gone —
+  "a machine with a working Cocoa installation ... in practice a CUDA GPU;
+  the emulator/ package is pure PyTorch") + the five-command block split into
+  a setup block + five per-driver blocks, each preceded by the verbatim
+  definition prose (learning-curve falling-vs-flat reading, the per-GPU
+  parallelism sentence -> [Multi-GPU], the Optuna two-liner, the bake-off
+  head-to-head). Commands byte-identical (GRI-A). Fix #2 folded in (the
+  sweep_ntrain metric names frac>0.2 -> section 2; the chains gloss).
+- Workstation sweep: all six sites cleared (README intro, emulator/README.md,
+  train_single / sweep_ntrain / sweep_hyperparam / bakeoff headers). tune has
+  none. grep -i workstation over the six user-facing files = 0. The four
+  driver edits are comment lines only -> AST identical vs HEAD (verified).
+- Section 2 vocabulary box: six one-liners (dv, chi2, whitened, theta order,
+  trunk/head, dump) with resolving pointers to appendices 12-13 / sections
+  3, 10. Fix #3 (kind = int | float | log) folded into section 2.
+- The ten local fixes: 1 (intro plain sentences), 2 (above), 3 (above), 5
+  (rewind -> scheduler/section-6 pointer; monster-outlier gloss), 6 (trimmed
+  mean -> sections 7-8), 7 (lr sqrt why + fused gloss; section 6, disjoint
+  spans from UNIT 2), 8 (Polyak gloss), 9a (the IA sentence), 9b (gate gloss),
+  10 (f(dchi2>0.2) tied to frac>0.2). #4 (dump/memmap) is satisfied by the box
+  + section 3's existing memmap parenthetical (no new edit).
+
+Gates GRI-A + GRI-B: ALL PASS (commands byte-identical; four terms defined;
+workstation grep = 0; four drivers AST-identical; box present with six entries
++ resolving pointers; each numbered fix present; metric spellings tied; anchors
+resolve; doc-only; py_compile clean).
+
+Deviations declared:
+1. Fix #9c's target phrase "(xi+/-, source-pair) bins" is NOT in section 10 —
+   the earlier README reorg relocated the detailed ResTRF description to the
+   code map (emulator/README.md). Applied the gloss there ("one bin is one
+   source-redshift-bin pair of xi+ or xi-"), honoring the note's intent;
+   declared as a spec-vs-tree location mismatch.
+2. The vocab box header: the note wrote "Five terms" but lists SIX bullets
+   (GRI-B asserts six). Rendered "Six terms" to match the count.
+3. Verbatim prose gained house-style backticks on code tokens (N_train,
+   --diagnostic, sweep:, frac>0.2, [default, min, max, kind]) — text
+   unchanged, matching the README's code-span convention.
+4. Section 6 overlaps UNIT 2 (see the UNIT 2 note): the Architect's "disjoint
+   README regions" is section-level optimistic; fix #7 (lr why + fused gloss)
+   and UNIT 2 (weight_decay clause + treatment) edit NON-overlapping spans of
+   the optimizer bullet, so both landed cleanly — no collision-STOP needed.
+
+Awaiting Architect re-audit.

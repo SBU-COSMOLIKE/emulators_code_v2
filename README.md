@@ -5,6 +5,14 @@
 A neural emulator that maps cosmological parameters to the masked cosmic-shear
 (`xi`) data vector, trained against the full-3x2pt chi2 from cosmolike.
 
+Cosmological inference calls a physics pipeline millions of times; this package
+trains a neural network to stand in for it, fast enough to run inside the
+inference loop. `xi` is the cosmic-shear two-point correlation functions — the
+data the analysis measures; cosmolike (inside Cocoa) supplies the analysis mask
+and covariance. Accuracy is judged as chi2 — the prediction error in the
+covariance units inference actually cares about (the
+[chi2 metric](#13-appendix-the-chi2-metric-mahalanobis)).
+
 One line: raw dumps → stage → whiten params (input) and data vector (output) →
 ResMLP / ResCNN / ResTRF → chi2 loss → train. `EmulatorExperiment` wires it together; each
 driver varies one thing (one run, a tune, an `N_train` sweep, an activation bake-off).
@@ -39,35 +47,70 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 
 ## 1. Run it
 
-cosmolike runs only on the workstation, so train there.
+Training needs a machine with a working Cocoa installation — cosmolike
+supplies the data-vector mask and covariance — and, in practice, a CUDA GPU;
+the `emulator/` package itself is pure PyTorch and can be read or developed
+anywhere. Every driver reads the same three path flags, so set the driver
+folder once:
 
 ```bash
 # run from $ROOTDIR (cocoa exports it). --root = project folder under $ROOTDIR;
 # --fileroot = a subfolder of it holding this emulator's YAML + outputs; --yaml =
-# a bare filename under --fileroot. Data (dv/params/covmat) lives in --root/chains.
+# a bare filename under --fileroot. Data (dv/params/covmat) lives in
+# --root/chains, the project's data folder.
 D=external_modules/code/emulators/emultrf/dev
+```
 
-# one run
+One training run — train the YAML's model once; `--diagnostic` adds a
+multipage PDF of accuracy diagnostics:
+
+```bash
 python $D/train_single_emulator_cosmic_shear.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml train_single_emulator_cosmic_shear.yaml --diagnostic diagnostic
+```
 
-# N_train learning curve across all GPUs
+The `N_train` learning curve — how does accuracy improve as the training set
+grows? This driver retrains the same model at several training-set sizes and
+plots the error metric (`frac>0.2`, defined in [section 2](#2-the-yaml-file))
+against N: a curve still falling at the largest N says more data will help; a
+flat tail says the model, not the data, is the limit. Sweep points are
+independent trainings, so they run in parallel — one whole training per GPU,
+all visible GPUs by default ([Multi-GPU](#multi-gpu) below):
+
+```bash
 python $D/sweep_ntrain_emulator_cosmic_shear.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml train_single_emulator_cosmic_shear.yaml --n-points 8 --out curve
+```
 
-# one-knob sweep (the knob + values live in the YAML's sweep: block)
+A one-knob sweep — one full training per value of a single YAML-chosen knob
+(learning rate, kernel size, batch size, ...), to see that knob's effect in
+isolation; the knob and values live in the [`sweep:` block](#sweep-block):
+
+```bash
 python $D/sweep_hyperparam_emulator_cosmic_shear.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml train_single_emulator_cosmic_shear.yaml --out lrsweep
+```
 
-# Optuna search across all GPUs (one shared study via a journal file)
+A hyperparameter search — Optuna (https://optuna.org) is a search library: it
+proposes trial settings, watches the results, and concentrates new trials
+where the metric improves. The searched ranges are the YAML's
+`[default, min, max, kind]` leaves; `--n-trials` bounds the study:
+
+```bash
 python $D/tune_single_emulator_cosmic_shear.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml tune_single_emulator_cosmic_shear.yaml --n-trials 64
+```
 
-# activation bake-off across GPUs
+The activation bake-off — trains the same model once per activation family
+over a grid of training sizes and overlays their learning curves: a
+head-to-head showing whether a family genuinely learns faster (a lower curve
+everywhere) or just ties:
+
+```bash
 python $D/bakeoff_activation_emulator_cosmic_shear.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml train_single_emulator_cosmic_shear.yaml --out bakeoff
@@ -148,8 +191,9 @@ splits across workers, and reusing the journal resumes it (serial on 1 GPU/MPS).
 Two top-level blocks: `data` (where the training vectors come from and how
 many) and `train_args` (the whole run — objective, optimizer, schedules,
 model). Any numeric leaf may be a scalar (the train drivers use it) or a
-`[default, min, max, kind]` search range (`tune_single` searches it, the
-others collapse it to the default). Sections 3–11 document each block; the
+`[default, min, max, kind]` search range — `kind` is `int` | `float` | `log`
+(`tune_single` searches it, the others collapse it to the default). Sections
+3–11 document each block; the
 collision rules (which source wins when two set the same thing) live in the
 [precedence appendix](#15-appendix-precedence--who-wins-when-settings-collide),
 templates in `example_yamls/`, and the `sweep:` block in [Run it](#sweep-block).
@@ -179,6 +223,26 @@ train_args:
       width:    128
       n_blocks: 4
 ```
+
+Six terms the chapter uses (details: appendices
+[12](#12-appendix-the-pipeline)–[13](#13-appendix-the-chi2-metric-mahalanobis)):
+
+- data vector (dv): the masked cosmic-shear two-point functions xi+/- stacked
+  into one vector — what the network predicts.
+- chi2: prediction error measured in the analysis covariance, `r^T Cinv r`
+  ([appendix 13](#13-appendix-the-chi2-metric-mahalanobis)). The headline
+  metric, written `frac>0.2` in the logs: the fraction of validation
+  cosmologies with delta-chi2 above 0.2 — the goal is to drive it down.
+- whitened: rotated and rescaled so the components are decorrelated with unit
+  variance — the form the network sees, input and output
+  ([appendix 12](#12-appendix-the-pipeline)).
+- theta order: the data vector re-sorted to vary smoothly along the angular
+  axis — the basis the correction heads work in.
+- trunk / head: every architecture is a shared ResMLP trunk; `rescnn` /
+  `restrf` add a gated correction head on top ([section 10](#10-model)).
+- dump: the big on-disk (params, dv) table the physics code wrote; training
+  memmaps it (reads slices from disk, never the whole file) and stages only
+  the rows it needs ([section 3](#3-data)).
 
 ---
 
@@ -255,11 +319,11 @@ The run-level knobs that are not their own block.
 - `silent` — suppress the per-epoch progress lines.
 - `clip` — a per-step gradient-norm ceiling (0 = off); the full gradient is
   rescaled toward the ceiling, keeping its direction, so one monster-outlier
-  batch cannot kick the weights:
+  batch (a batch with one extreme sample) cannot kick the weights:
 
 $$g \leftarrow g \cdot \min\!\left(1,\ \frac{\mathrm{clip}}{\lVert g \rVert}\right)$$
 
-- `rewind` — on every plateau lr cut, reload the best weights + optimizer
+- `rewind` — on every plateau lr cut (the scheduler's, [section 6](#6-optimizer-lr-scheduler)), reload the best weights + optimizer
   snapshot (keeping the reduced lr), bounding an excursion into a bad basin to
   at most `patience` epochs.
 
@@ -279,7 +343,7 @@ train_args:
 The training objective. `loss.mode` picks a per-sample transform $L(c)$ of
 each sample's chi2 $c = r^\top C^{-1} r$
 ([Mahalanobis](#13-appendix-the-chi2-metric-mahalanobis)); the batch loss is
-the (trimmed, focally weighted) mean of $L(c)$. The transform sets how a
+the (trimmed, focally weighted; [sections 7–8](#7-trim)) mean of $L(c)$. The transform sets how a
 sample's gradient vote scales with its misfit:
 
 | mode | $L(c)$ | vote vs misfit | use it when |
@@ -335,10 +399,12 @@ The optimization stack — three small blocks that interact, so they are read
 together.
 
 - `optimizer` — the class is fixed to **AdamW**; `weight_decay` decays only
-  the weight matrices (`ndim >= 2`), never the biases / norms, and runs fused
-  on CUDA.
-- `lr` — the learning rate follows the sqrt-noise rule off a batch anchor,
-  then a linear warmup:
+  the true weight matrices (the `.weight` of `Linear` / `Conv1d` / `BinLinear`),
+  never biases, norms, or activation parameters, and runs fused on CUDA (a
+  faster fused kernel). The weight-decay rule is detailed below.
+- `lr` — the learning rate follows the sqrt-noise rule off a batch anchor
+  (bigger batches average away gradient noise, so the step can grow with
+  sqrt(bs)), then a linear warmup:
 
 $$\mathrm{lr} = \ell\,\sqrt{B/B_0}$$
 
@@ -362,6 +428,44 @@ $$\mathrm{lr} = \ell\,\sqrt{B/B_0}$$
     mode:     min
     patience: 25
     factor:   0.8
+```
+
+**Weight decay — only true weight matrices.** AdamW's decoupled decay adds a
+small pull toward 0 beside the gradient step:
+
+$$w \leftarrow w - \mathrm{lr}\,\lambda\,w$$
+
+with $\lambda$ = `weight_decay` (AdamW's decoupled decay, applied beside the
+gradient step). Membership is decided by module role, not tensor shape:
+
+```
+    optimizer.weight_decay: lambda
+                 │
+     decayed ◀───┴───▶ never decayed
+┌──────────────────────┐   ┌─────────────────────────────────┐
+│ weight matrices only │   │ everything else:                │
+│   Linear.weight      │   │   all biases                    │
+│   Conv1d.weight      │   │   Affine / FeatureAffine g, b   │
+│   BinLinear.weight   │   │   activation parameters         │
+└──────────────────────┘   │   (H's gamma/beta; multigate's  │
+                           │   w/beta/mu — any shape)        │
+                           └─────────────────────────────────┘
+```
+
+Decay limits function complexity by preferring small weight matrices; pulling
+biases or activation shape parameters toward 0 has no such meaning — it drags
+the activation toward degenerate forms (gates dying, centers collapsing) — so
+membership is decided by module role, never by tensor shape, no matter how many
+parameters a family carries.
+
+```yaml
+  optimizer:
+    weight_decay: 1.0e-4   # L2 pull on the weight matrices only
+                           # (Linear / Conv1d / BinLinear weights);
+                           # biases, Affine / FeatureAffine gains,
+                           # and every activation parameter are
+                           # never decayed, whatever their shape.
+                           # 0 = off (the template default).
 ```
 
 ---
@@ -429,7 +533,8 @@ head.
 
 ## 9. `ema`
 
-An optional Polyak weight average, updated after every optimizer step:
+An optional Polyak weight average (a running average of the network weights;
+the averaged copy is what ships), updated after every optimizer step:
 
 $$\bar\theta \leftarrow \beta\,\bar\theta + (1-\beta)\,\theta
 \qquad \beta = 1 - \frac{1}{H S}$$
@@ -467,7 +572,8 @@ factored intrinsic-alignment design) — pick one of six classes:
 | `restrf` | `ResTRF` | `TemplateResTRF` | `TemplateResTRF` |
 
 Every architecture is a shared ResMLP trunk; `rescnn` / `restrf` add a gated
-correction head in theta order (zero at init, so they start as the trunk):
+correction head in theta order (the gate is a learnable scalar scaling the
+correction, near 0 at init, so they start as the trunk):
 
 ```
 params ─▶ ResMLP trunk ─▶ y (full-whitened)
@@ -478,9 +584,12 @@ params ─▶ ResMLP trunk ─▶ y (full-whitened)
           y + gate · correction ─▶ whitened data vector
 ```
 
-An `ia` design makes the net emit whitened templates that a closed-form
-polynomial combines, so the IA amplitudes never enter the network (the
-emulator is exact in them). For `nla` (3 templates, amplitude $A_1$):
+Intrinsic alignments (IA): galaxies have correlated intrinsic shapes
+independent of lensing — the main astrophysical contaminant of cosmic shear;
+the analysis models it with amplitude parameters. An `ia` design makes the net
+emit whitened templates that a closed-form polynomial combines, so the IA
+amplitudes never enter the network (the emulator is exact in them). For `nla`
+(3 templates, amplitude $A_1$):
 
 $$\xi = K_0 + A_1 K_1 + A_1^2 K_2$$
 
@@ -911,7 +1020,8 @@ which regime is in play, so the loop code is identical no matter the data size.
 
 **7. Train** (`training.py`). `run_emulator` builds the model, optimizer, and
 scheduler from spec dicts, runs the per-epoch loop (annealed robustness, a
-validation pass each epoch, keeping the best epoch by `f(dchi2 > 0.2)`), and
+validation pass each epoch, keeping the best epoch by `f(dchi2 > 0.2)` (the
+`frac>0.2` of the logs)), and
 returns the histories. When an `ema:` block is set the selection and reported
 metrics run on a Polyak weight average (the scheduler still steps on the raw
 median), and the shipped model is the best average.

@@ -79,7 +79,8 @@ loaded whole.
 #- `--quiet`: suppress stdout (txt and pdf still written).
 #
 #- Trains one full model per grid point (--n-points trainings, divided across
-#  the GPUs), so run it on the workstation, where cosmolike lives.
+#  the GPUs), so run it on a machine with a working Cocoa installation
+#  (cosmolike).
 #-------------------------------------------------------------------------------
 
 import argparse

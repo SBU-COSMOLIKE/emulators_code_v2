@@ -66,8 +66,9 @@ puts its own folder on `sys.path`, so `import emulator` resolves with no path
 setup. In a cocoa install this folder is
 `external_modules/code/emulators/emultrf/dev/`; run the drivers from `$ROOTDIR`.
 
-The library is pure PyTorch and reviewable anywhere; only `geometries_output.py`
-imports cosmolike, so training runs on the workstation where cosmolike lives.
+Only `geometries_output.py` imports cosmolike, so training runs on a machine
+with a working Cocoa installation; the library everywhere else is pure PyTorch
+and reviewable anywhere.
 
 ---
 
@@ -245,7 +246,7 @@ The full networks.
               y + gate · correction   ─▶   whitened data vector
 ```
 
-- `ResTRF` — ResMLP trunk + a gated bin-token transformer correction: the theta-order dv splits into its (xi+/-, source-pair) bins (`pad_idx` scatter/gather to a padded per-bin layout, `bin_sizes` from `build_shear_angle_map`), each bin is one token at its natural width (the per-token `n_mlp_blocks`-deep MLPs run at that token width too — no width knob), `TRFBlock`s attend across bins, and the correction is `blocks(h) − h` — zero at epoch 1 because every block starts as the identity. No embedding or output layers (the sequence structure is physical, unlike the published CMB design's latent sequence). Head knobs (YAML `model.trf`): `n_heads`, `n_blocks`, `n_mlp_blocks`, `shared_mlp`, `film`, `gate_init`, and `activation` (the head's own `{type, n_gates}` family; absent = share the trunk's `model.activation`; a pin needs a frozen-trunk head phase, `head: activation:` its alias).
+- `ResTRF` — ResMLP trunk + a gated bin-token transformer correction: the theta-order dv splits into its (xi+/-, source-pair) bins — one bin is one source-redshift-bin pair of xi+ or xi- — (`pad_idx` scatter/gather to a padded per-bin layout, `bin_sizes` from `build_shear_angle_map`), each bin is one token at its natural width (the per-token `n_mlp_blocks`-deep MLPs run at that token width too — no width knob), `TRFBlock`s attend across bins, and the correction is `blocks(h) − h` — zero at epoch 1 because every block starts as the identity. No embedding or output layers (the sequence structure is physical, unlike the published CMB design's latent sequence). Head knobs (YAML `model.trf`): `n_heads`, `n_blocks`, `n_mlp_blocks`, `shared_mlp`, `film`, `gate_init`, and `activation` (the head's own `{type, n_gates}` family; absent = share the trunk's `model.activation`; a pin needs a frozen-trunk head phase, `head: activation:` its alias).
 
 ### `emulator/loss_functions.py` <a name="apx-loss_functions"></a>
 
