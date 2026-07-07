@@ -93,6 +93,10 @@ science operations, not gates — they start once the board is green.
 ## harness, [[gates-harness-user-run]]. The block below is kept for
 ## the record only; do not relay it.)
 
+> Superseded by the committed harness `gates/run_board.py` (framework +
+> all 19 gates below encoded from these home notes; the user runs
+> `python gates/run_board.py`). See [[gates-harness-user-run]].
+
 ### ARCHITECT_HANDOFF
 Task: close the workstation board (spec:
 notes/workstation-board-2026-07.md — the ORDER is binding, GM-C's

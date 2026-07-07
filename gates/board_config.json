@@ -1,0 +1,57 @@
+{
+  "_help": {
+    "what": "Deployment paths the workstation gates need. The harness reads only this file for the run's --root/--fileroot, the yaml directory, and the saved-emulator roots; nothing is hardcoded to one machine. Edit the values once on the workstation after `git pull`, then run `python gates/run_board.py --check`.",
+    "rootdir": "Absolute path to the cocoa $ROOTDIR (the clone root that owns projects/ and external_modules/). Used for cobaya-run and for resolving ROOTDIR-relative emulator roots. null = not set (preflight fails loudly).",
+    "driver_root": "The --root value passed to train_single_emulator_cosmic_shear.py (the deploy root that holds the run's dumps + outputs).",
+    "driver_fileroot": "The --fileroot value passed to the training driver (the run's file stem).",
+    "yaml_dir": "Directory holding the driver YAMLs (the shipped example_yamls plus any gate-specific smoke YAMLs under gates/configs/). Absolute, or relative to rootdir.",
+    "saved_emulator_root": "Path root of an already-saved schema-v2 emulator (<root>.h5 + <root>.emul) for the GSV-C / GCT-C round-trips. null = the save gate trains its own tiny emulator first.",
+    "evaluate_yaml": "The cobaya evaluate YAML for GCT-C (defaults to the shipped cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml; edit its <run> placeholder to the real saved root).",
+    "golden_bases": "Per-gate pre-feature commit hash for the byte-identity golden leg, run in a TEMPORARY worktree (never checkout-in-place). GM-C is preset to the pre-EMA commit. A null entry = the gate runs only its functional smoke leg and records the golden leg as skipped (see the harness handoff decision point).",
+    "gate_configs": "Per-gate bespoke smoke YAML (relative to yaml_dir). A null entry = the gate reports its config missing and is skipped, naming the file to author."
+  },
+
+  "rootdir": null,
+  "driver_root": null,
+  "driver_fileroot": null,
+  "yaml_dir": null,
+  "saved_emulator_root": null,
+  "evaluate_yaml": "cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml",
+
+  "golden_bases": {
+    "GM-C": "46ec5e1",
+    "GH-E": null,
+    "GB-C": null,
+    "GL-D": null,
+    "GBA-C": null,
+    "GME-C": null,
+    "GFT-C": null,
+    "GHA-F": null,
+    "GAN-C": null,
+    "GWD-C": null,
+    "GPC-C": null
+  },
+
+  "gate_configs": {
+    "DIAG": "train_single_emulator_cosmic_shear.yaml",
+    "GM-D-emasmoke": null,
+    "GP-D-single": null,
+    "GP-D-control": null,
+    "GH-E-headpatience": null,
+    "GB-C-headberhu": null,
+    "GBA-C-anneal": null,
+    "GME-C-anneal": null,
+    "GFT-C-joint": null,
+    "GFT-C-control": null,
+    "GHA-F-pin": null,
+    "GHA-F-license": null,
+    "GAN-C-tanh-perfeature": null,
+    "GAN-C-tanh-affine": null,
+    "GPC-C-residual": null,
+    "GPC-C-ratio": null,
+    "GPC-C-excl-rescale": null,
+    "GPC-C-excl-ia": null,
+    "GPC-C-sweep": null,
+    "item-27-window": null
+  }
+}

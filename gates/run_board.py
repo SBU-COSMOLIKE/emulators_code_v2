@@ -1,0 +1,886 @@
+#!/usr/bin/env python3
+"""The user-run gates harness: drive the whole workstation board.
+
+There is no Claude Code session on the workstation, so the user runs
+the board personally: ``python gates/run_board.py``. This module is the
+CLI and the runner. It preflights the environment before any GPU time,
+executes the gates in the board's order, writes one raw log per gate
+(the full tee'd stdout and stderr the Architect audits, never a
+summary), resumes by skipping gates already passed, and writes a final
+BOARD.md table plus a board_status.json for the next run.
+
+The design rules it enforces (from the harness spec): preflight aborts
+loudly on a stale git tip, a dirty tree, a missing cocoa import, or a
+missing data path; GM-C's pinned pre-EMA build runs in a temporary git
+worktree the runner always removes; a failed GSV-C skips GCT-C (its
+artifact feeds the parity probe) rather than aborting the board; every
+other gate is independent, so one failure never stops the rest; and
+nothing here mutates notes/ (the logs are the evidence, the per-gate
+verdicts land in the Architect's audit pass).
+
+Typical use on the workstation:
+
+    git pull                              # tip = the harness commit
+    <activate the cocoa env>
+    python gates/run_board.py --check     # preflight only
+    python gates/run_board.py --dry-run   # print the plan
+    python gates/run_board.py             # the whole board, in order
+    git add -f gates/logs && git commit -m "workstation board run: logs"
+
+PS: preflight = the pre-GPU checks that fail fast; tee = stream a
+subprocess to the terminal and the log at once; resume = skip a gate
+already PASS in board_status.json; worktree = a throwaway checkout of
+another commit that never disturbs the user's tree; dependency skip =
+record SKIPPED for a gate whose prerequisite gate did not pass.
+"""
+
+import argparse
+import contextlib
+import datetime
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+import board
+from board import BOARD, Gate, GateFailure
+
+
+# The commit that carries the board + harness spec (the base-notes
+# constant). Preflight requires it an ANCESTOR of HEAD, never an
+# exact-tip equality: committing the harness and later the logs moves
+# the tip forward, and a commit cannot name its own hash.
+_BASE_NOTES_COMMIT = "3b39824159ba7df177fb070658d22b7dd81162a4"
+
+# The full cocoa stack preflight requires (harness rule 4c).
+_REQUIRED_IMPORTS = (
+  ("torch", "import torch"),
+  ("cosmolike", "import cosmolike_lsst_y1_interface"),
+  ("cobaya", "import cobaya"))
+
+_GATES_DIR = Path(__file__).resolve().parent
+_REPO = _GATES_DIR.parent
+_LOGS_DIR = _GATES_DIR / "logs"
+_STATUS_FILE = _LOGS_DIR / "board_status.json"
+_BOARD_MD = _LOGS_DIR / "BOARD.md"
+_CONFIG_FILE = _GATES_DIR / "board_config.json"
+
+# The training driver every run-shaped gate invokes.
+_DRIVER = "train_single_emulator_cosmic_shear.py"
+
+
+# --------------------------------------------------------------------------
+# The run context each gate body receives.
+# --------------------------------------------------------------------------
+
+class RunContext:
+  """The services a gate body uses: shell, logging, config, worktree.
+
+  One context is built per gate (or one shared dry context for
+  --dry-run). It tees every command into the gate's raw log, records
+  each acceptance verdict, resolves config paths, and manages the
+  temporary worktree. Gate bodies never touch subprocess, files, or
+  git directly; they go through these methods so every command lands
+  in the log and every path comes from board_config.json.
+
+  Arguments:
+    cfg     = the parsed board_config.json (deployment paths).
+    dry     = when True, commands are printed, not run, and acceptance
+              is skipped (--dry-run prints the plan).
+    log_fh  = the open gate-log file handle to tee into, or None for a
+              dry context (stdout only).
+    env     = the capability map {"torch": bool, ...} preflight built;
+              require_caps reads it (empty in dry mode).
+  """
+
+  def __init__(self, *, cfg, dry, log_fh, env):
+    self.cfg = cfg
+    self.dry = dry
+    self._log_fh = log_fh
+    self._env = env
+    self.repo = _REPO
+    # D-GH8: the interpreter running the harness runs the gates too, so
+    # a check / driver never depends on a bare "python" being on PATH
+    # (the dev Mac has only python3). cobaya-run stays a PATH lookup (it
+    # is a console script, not an interpreter).
+    self.python = sys.executable
+
+  # ---- logging -----------------------------------------------------------
+
+  def _emit(self, text):
+    """Write a line to the terminal and the gate log at once."""
+    sys.stdout.write(text)
+    sys.stdout.flush()
+    if self._log_fh is not None:
+      self._log_fh.write(text)
+      self._log_fh.flush()
+
+  def log(self, msg):
+    """Record a harness annotation line (a note, not command output).
+
+    Arguments:
+      msg = the annotation text; prefixed so it reads apart from the
+            tee'd command output in the raw log.
+    """
+    self._emit("[harness] " + msg + "\n")
+
+  def expect(self, *, label, ok, detail=""):
+    """Record an acceptance verdict, raising GateFailure on failure.
+
+    Arguments:
+      label  = what is being checked (appears as CHECK <label>).
+      ok      = the boolean verdict the harness computed.
+      detail = the acceptance value(s) behind the verdict, always
+               logged so the raw log carries the evidence, not a bare
+               PASS/FAIL.
+
+    Returns:
+      None. Raises GateFailure when ok is False.
+    """
+    verdict = "PASS" if ok else "FAIL"
+    self._emit("[harness] CHECK " + label + ": " + verdict
+               + ("" if detail == "" else "  (" + detail + ")") + "\n")
+    if not ok:
+      raise GateFailure(label + ("" if detail == "" else ": " + detail))
+
+  # ---- shell -------------------------------------------------------------
+
+  def sh(self, *, cmd, cwd=None, allow_fail=False, env=None):
+    """Run a command, teeing its output into the gate log.
+
+    Arguments:
+      cmd        = the command as an argv list (no shell).
+      cwd        = the working directory (default the repo root).
+      allow_fail = when False a nonzero exit raises GateFailure; when
+                   True the caller inspects the returned code itself.
+      env        = extra environment variables merged over the current
+                   environment for the child (e.g. PYTHONPATH for a
+                   check script); None runs in the inherited env.
+
+    Returns:
+      (returncode, output) where output is the combined stdout+stderr
+      captured while it streamed. In dry mode the command is printed
+      and (0, "") returned.
+    """
+    where = self.repo if cwd is None else Path(cwd)
+    printable = " ".join(cmd)
+    env_note = ""
+    if env is not None:
+      env_note = "  [env: " + ", ".join(sorted(env)) + "]"
+    if self.dry:
+      self._emit("[dry-run] would run (in " + str(where) + "): "
+                 + printable + env_note + "\n")
+      return (0, "")
+
+    child_env = None
+    if env is not None:
+      child_env = dict(os.environ)
+      child_env.update(env)
+    self._emit("[harness] $ " + printable + env_note + "\n")
+    proc = subprocess.Popen(cmd,
+                            cwd=str(where),
+                            env=child_env,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            bufsize=1)
+    captured = []
+    for line in proc.stdout:
+      self._emit(line)
+      captured.append(line)
+    proc.wait()
+    out = "".join(captured)
+    if proc.returncode != 0 and not allow_fail:
+      raise GateFailure("command failed (rc " + str(proc.returncode)
+                        + "): " + printable)
+    return (proc.returncode, out)
+
+  def run_check(self, script, *, extra=(), allow_fail=True):
+    """Run a harness check script with the repo root on PYTHONPATH.
+
+    A check script is invoked as ``python gates/checks/<name>.py`` from
+    the repo root, so Python puts the script's own directory
+    (gates/checks) on sys.path, NOT the repo, and ``import emulator``
+    would raise ModuleNotFoundError. This injects PYTHONPATH=<repo> so
+    the check imports the package it tests. The verbatim scripts stay
+    untouched; the path fix lives entirely in the runner.
+
+    Arguments:
+      script     = the check script path relative to the repo (or
+                   absolute); passed straight to python.
+      extra      = extra script arguments.
+      allow_fail = passed through to sh (a gate reads the rc itself).
+
+    Returns:
+      (returncode, output) from the check script.
+    """
+    cmd = [self.python, str(script)]
+    for flag in extra:
+      cmd.append(flag)
+    existing = os.environ.get("PYTHONPATH", "")
+    if existing == "":
+      pythonpath = str(self.repo)
+    else:
+      pythonpath = str(self.repo) + os.pathsep + existing
+    return self.sh(cmd=cmd,
+                   env={"PYTHONPATH": pythonpath},
+                   allow_fail=allow_fail)
+
+  # ---- environment -------------------------------------------------------
+
+  def require_caps(self, *caps):
+    """Fail the gate loudly if a required capability is absent.
+
+    Preflight already verified the full stack, so on a real workstation
+    run this always passes; it gives a clear per-gate message if a gate
+    is somehow run without its capability.
+
+    Arguments:
+      caps = the capability names the gate needs ("torch", "cosmolike",
+             "cobaya", "gpu").
+    """
+    if self.dry:
+      return
+    missing = []
+    for cap in caps:
+      if not self._env.get(cap, False):
+        missing.append(cap)
+    if len(missing) > 0:
+      raise GateFailure("environment missing: " + ", ".join(missing)
+                        + " (run --check to see the remedy)")
+
+  # ---- config paths ------------------------------------------------------
+
+  def _yaml_dir(self):
+    """The directory holding the driver YAMLs, or None if unset."""
+    value = self.cfg.get("yaml_dir")
+    return None if value is None else Path(value)
+
+  def config_yaml_name(self, yaml_name):
+    """Resolve a literal YAML filename against the configured yaml_dir.
+
+    Arguments:
+      yaml_name = the shipped config filename (e.g.
+                  train_single_emulator_cosmic_shear.yaml).
+
+    Returns:
+      the absolute Path. In dry mode an unset yaml_dir yields a visible
+      placeholder rather than aborting the plan.
+    """
+    base = self._yaml_dir()
+    if base is None:
+      if self.dry:
+        return Path("<UNSET:yaml_dir>/" + yaml_name)
+      raise GateFailure("board_config.json yaml_dir is unset; set it to "
+                        "the driver YAML directory")
+    return base / yaml_name
+
+  def require_config(self, config_key):
+    """Resolve a gate's bespoke smoke YAML from gate_configs.
+
+    Arguments:
+      config_key = the board_config.json gate_configs key.
+
+    Returns:
+      the absolute Path to the YAML. An unset key or a missing file
+      raises GateFailure naming the file to author (in dry mode a
+      placeholder is returned so the plan still prints).
+    """
+    value = self.cfg.get("gate_configs", {}).get(config_key)
+    if value is None:
+      if self.dry:
+        return Path("<UNSET:gate_configs['" + config_key + "']>")
+      raise GateFailure("board_config.json gate_configs['" + config_key
+                        + "'] is unset; author the smoke YAML and set "
+                        "its path")
+    path = self.config_yaml_name(value)
+    if not self.dry and not path.exists():
+      raise GateFailure("gate config not found: " + str(path)
+                        + " (gate_configs['" + config_key + "'])")
+    return path
+
+  def evaluate_yaml(self):
+    """The cobaya evaluate YAML for GCT-C (repo-relative or absolute)."""
+    value = self.cfg.get("evaluate_yaml")
+    if value is None:
+      if self.dry:
+        return Path("<UNSET:evaluate_yaml>")
+      raise GateFailure("board_config.json evaluate_yaml is unset")
+    path = Path(value)
+    return path if path.is_absolute() else self.repo / path
+
+  def rootdir(self):
+    """The cocoa $ROOTDIR (cwd for cobaya-run), or a dry placeholder."""
+    value = self.cfg.get("rootdir")
+    if value is None:
+      if self.dry:
+        return Path("<UNSET:rootdir>")
+      raise GateFailure("board_config.json rootdir is unset")
+    return Path(value)
+
+  def golden_base(self, gate_id):
+    """The pre-feature commit for a gate's golden leg, or None."""
+    return self.cfg.get("golden_bases", {}).get(gate_id)
+
+  # ---- the training driver ----------------------------------------------
+
+  def run_driver(self, *, yaml_path, cwd=None, extra=(), allow_fail=False,
+                 driver=_DRIVER):
+    """Run a driver on a YAML with the configured deploy paths.
+
+    Arguments:
+      yaml_path  = the resolved config path (from require_config or
+                   config_yaml_name).
+      cwd        = the tree to run in (default the repo; a worktree path
+                   for the pinned golden leg, so its own driver and
+                   emulator package are used).
+      extra      = extra driver flags (e.g. ("--diagnostic",)).
+      driver     = the driver filename (D-GH7); defaults to the
+                   single-train driver, overridden e.g. by the GPC-C
+                   sweep leg with sweep_ntrain_emulator_cosmic_shear.py.
+      allow_fail = passed through to sh (a gate that asserts on a
+                   nonzero exit sets it True).
+
+    Returns:
+      (returncode, output) from the driver run.
+    """
+    root = self.cfg.get("driver_root")
+    fileroot = self.cfg.get("driver_fileroot")
+    if not self.dry and (root is None or fileroot is None):
+      raise GateFailure("board_config.json driver_root / driver_fileroot "
+                        "are unset; set the deploy --root and --fileroot")
+    where = self.repo if cwd is None else Path(cwd)
+    cmd = [self.python, str(where / driver),
+           "--root=" + ("<UNSET:driver_root>" if root is None else root),
+           "--fileroot=" + ("<UNSET:driver_fileroot>" if fileroot is None
+                            else fileroot),
+           "--yaml=" + str(yaml_path)]
+    for flag in extra:
+      cmd.append(flag)
+    return self.sh(cmd=cmd, cwd=where, allow_fail=allow_fail)
+
+  # ---- the temporary worktree -------------------------------------------
+
+  @contextlib.contextmanager
+  def worktree(self, *, commit):
+    """Yield a throwaway git worktree pinned at a commit, always removed.
+
+    The golden byte-identity mechanism: a pre-feature build runs in this
+    worktree so the pinned code is exercised without a checkout in the
+    user's tree. The worktree is removed in a finally, so a failed gate
+    still leaves the tree clean.
+
+    Arguments:
+      commit = the commit-ish to pin the worktree at.
+
+    Yields:
+      the Path to the worktree root (a dry placeholder in dry mode).
+    """
+    if self.dry:
+      self._emit("[dry-run] would run (in " + str(self.repo)
+                 + "): git worktree add --detach <tmp> " + commit + "\n")
+      yield Path("<dry-worktree:" + commit + ">")
+      self._emit("[dry-run] would run: git worktree remove --force <tmp>\n")
+      return
+
+    holder = Path(tempfile.mkdtemp(prefix="gates-wt-"))
+    wt = holder / ("build-" + commit.replace("/", "_"))
+    try:
+      self.sh(cmd=["git", "worktree", "add", "--detach", str(wt), commit])
+      yield wt
+    finally:
+      self.sh(cmd=["git", "worktree", "remove", "--force", str(wt)],
+              allow_fail=True)
+      shutil.rmtree(holder, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+# Preflight (harness rule 4).
+# --------------------------------------------------------------------------
+
+def _git(args):
+  """Run a git command from the repo, returning (rc, stdout stripped)."""
+  proc = subprocess.run(["git"] + args,
+                        cwd=str(_REPO),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True)
+  return (proc.returncode, proc.stdout.strip())
+
+
+def _probe_import(statement):
+  """Whether a python import statement succeeds in the active env."""
+  proc = subprocess.run([sys.executable, "-c", statement],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL)
+  return proc.returncode == 0
+
+
+def _dirty_lines(porcelain_out):
+  """The clean-tree offenders, excluding gates/board_config.json.
+
+  Filling board_config.json is the user's FIRST step (the _help block
+  tells them to), so a modified config must not fail the clean-tree
+  check; its effective values are dumped into every gate-log header
+  instead, so reproducibility is still recorded (D-GH1).
+
+  Arguments:
+    porcelain_out = the ``git status --porcelain`` output over the
+                    watched paths.
+
+  Returns:
+    a list of the offending status lines, board_config.json removed.
+  """
+  offenders = []
+  for line in porcelain_out.splitlines():
+    if line.strip() == "":
+      continue
+    path = line[3:].strip()
+    if path == "gates/board_config.json":
+      continue
+    offenders.append(line)
+  return offenders
+
+
+def preflight(cfg):
+  """Run every pre-GPU check, printing remedies; return (ok, env).
+
+  Checks, in order: (a) the base-notes commit is an ancestor of HEAD;
+  (b) the working tree is clean in emulator/, gates/, and the drivers;
+  (c) torch (with CUDA), cosmolike, and cobaya import; (d) the data
+  paths board_config.json names exist. Any failure prints a remedy and
+  the whole function returns ok False, so the caller exits nonzero
+  before spending GPU time.
+
+  Arguments:
+    cfg = the parsed board_config.json.
+
+  Returns:
+    (ok, env) where env maps each capability name to a bool (torch /
+    cosmolike / cobaya / gpu), consumed by RunContext.require_caps.
+  """
+  ok = True
+  env = {"torch": False, "cosmolike": False, "cobaya": False, "gpu": False}
+
+  print("== preflight ==")
+
+  # (a) base-notes commit ancestor of HEAD (never exact-tip equality).
+  rc_anc, _ = _git(["merge-base", "--is-ancestor",
+                    _BASE_NOTES_COMMIT, "HEAD"])
+  if rc_anc == 0:
+    print("  [ok] base-notes commit " + _BASE_NOTES_COMMIT[:9]
+          + " is an ancestor of HEAD")
+  else:
+    ok = False
+    print("  [FAIL] base-notes commit " + _BASE_NOTES_COMMIT[:9]
+          + " is NOT an ancestor of HEAD")
+    print("         remedy: git pull -- the tip must be the harness "
+          "commit (a descendant of the board + spec commit)")
+
+  # (b) clean tree in emulator/, gates/, and the root drivers, but NOT
+  # gates/board_config.json (the user's first step is to fill it; D-GH1).
+  watched = ["emulator", "gates"]
+  for entry in sorted(_REPO.glob("*.py")):
+    watched.append(entry.name)
+  rc_st, out_st = _git(["status", "--porcelain", "--"] + watched)
+  offenders = _dirty_lines(out_st)
+  if len(offenders) == 0:
+    print("  [ok] working tree clean in emulator/ + gates/ + drivers "
+          "(board_config.json excluded)")
+  else:
+    ok = False
+    print("  [FAIL] dirty working tree (a run must be reproducible):")
+    for line in offenders:
+      print("         " + line)
+    print("         remedy: commit or stash your changes, then rerun")
+
+  # (c) the cocoa stack imports.
+  for name, statement in _REQUIRED_IMPORTS:
+    if _probe_import(statement):
+      env[name] = True
+      print("  [ok] import " + name)
+    else:
+      ok = False
+      print("  [FAIL] cannot " + statement)
+      print("         remedy: activate the cocoa env (source start_cocoa)")
+  if env["torch"] and _probe_import("import torch; "
+                                    "assert torch.cuda.is_available()"):
+    env["gpu"] = True
+    print("  [ok] CUDA visible to torch")
+  else:
+    ok = False
+    print("  [FAIL] CUDA not visible to torch")
+    print("         remedy: run on the workstation GPUs, not the dev Mac")
+
+  # (d) the data paths board_config.json names exist; driver_root and
+  # yaml_dir resolve against rootdir when relative (D-GH3).
+  rootdir_value = cfg.get("rootdir")
+  for key in ("rootdir", "driver_root", "yaml_dir"):
+    value = cfg.get(key)
+    if value is None:
+      ok = False
+      print("  [FAIL] board_config.json " + key + " is unset")
+      print("         remedy: edit gates/board_config.json with the "
+            "deploy path for " + key)
+      continue
+    resolved = Path(value)
+    if (key != "rootdir" and not resolved.is_absolute()
+        and rootdir_value is not None):
+      resolved = Path(rootdir_value) / value
+    if not resolved.exists():
+      ok = False
+      print("  [FAIL] board_config.json " + key + " does not exist: "
+            + str(resolved))
+    else:
+      print("  [ok] path " + key + " -> " + str(resolved))
+
+  print("== preflight " + ("PASSED" if ok else "FAILED") + " ==")
+  return (ok, env)
+
+
+# --------------------------------------------------------------------------
+# Selection, status, and the BOARD.md / board_status.json writers.
+# --------------------------------------------------------------------------
+
+def _load_config():
+  """Parse board_config.json (a clear error if it is malformed)."""
+  with open(_CONFIG_FILE, "r") as handle:
+    return json.load(handle)
+
+
+def _load_status():
+  """Load board_status.json, or an empty map on the first run."""
+  if not _STATUS_FILE.exists():
+    return {}
+  with open(_STATUS_FILE, "r") as handle:
+    return json.load(handle)
+
+
+def _save_status(status):
+  """Persist board_status.json (the resume + BOARD.md source)."""
+  _LOGS_DIR.mkdir(exist_ok=True)
+  with open(_STATUS_FILE, "w") as handle:
+    json.dump(status, handle, indent=2, sort_keys=True)
+
+
+def _write_board_md(status):
+  """Write the human-readable BOARD.md pass/fail table."""
+  _LOGS_DIR.mkdir(exist_ok=True)
+  lines = []
+  lines.append("# Workstation board run")
+  lines.append("")
+  lines.append("Base-notes commit: `" + _BASE_NOTES_COMMIT + "`")
+  lines.append("")
+  lines.append("| Gate | Tier | Status | Detail | Log |")
+  lines.append("|------|------|--------|--------|-----|")
+  for gate in BOARD:
+    record = status.get(gate.id, {})
+    state = record.get("status", "not run")
+    detail = record.get("detail", "")
+    log_cell = gate.id + ".log" if state in ("PASS", "FAIL") else ""
+    lines.append("| " + gate.id + " | " + gate.tier + " | " + state
+                 + " | " + detail.replace("|", "/") + " | " + log_cell + " |")
+  lines.append("")
+  with open(_BOARD_MD, "w") as handle:
+    handle.write("\n".join(lines) + "\n")
+
+
+def select_gates(args):
+  """Build the ordered gate selection from the CLI selectors.
+
+  Default is the whole board minus the optional gates. --gate names an
+  explicit set (optional gates allowed). --tier picks one tier. --from
+  starts the board at a gate. The result stays in board order.
+
+  Arguments:
+    args = the parsed argparse namespace.
+
+  Returns:
+    a list of Gate in board order.
+  """
+  if args.gate:
+    wanted = set(args.gate)
+    chosen = []
+    for gate in BOARD:
+      if gate.id in wanted:
+        chosen.append(gate)
+    seen = set()
+    for gate in chosen:
+      seen.add(gate.id)
+    for name in args.gate:
+      if name not in seen:
+        print("warning: unknown gate id '" + name + "' (see --list)")
+    return chosen
+
+  if args.tier:
+    chosen = []
+    for gate in BOARD:
+      if gate.tier == args.tier and not gate.optional:
+        chosen.append(gate)
+    return chosen
+
+  if getattr(args, "from_gate", None):
+    ids = []
+    for gate in BOARD:
+      ids.append(gate.id)
+    if args.from_gate not in ids:
+      print("warning: unknown --from gate '" + args.from_gate + "'")
+      return []
+    start = ids.index(args.from_gate)
+    chosen = []
+    index = 0
+    for gate in BOARD:
+      if index >= start and not gate.optional:
+        chosen.append(gate)
+      index = index + 1
+    return chosen
+
+  chosen = []
+  for gate in BOARD:
+    if not gate.optional:
+      chosen.append(gate)
+  return chosen
+
+
+def _passed(status, gate_id):
+  """Whether a gate is recorded PASS in the status map."""
+  return status.get(gate_id, {}).get("status") == "PASS"
+
+
+# --------------------------------------------------------------------------
+# The runner.
+# --------------------------------------------------------------------------
+
+def _now():
+  """An ISO-ish timestamp for the log header and status records."""
+  return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _log_header(gate, cfg, log_fh):
+  """Write the gate log's header + the effective config (D-GH1).
+
+  Arguments:
+    gate   = the gate being run (id, tier, home, maps, worktree pin).
+    cfg    = the effective board_config.json; dumped into the header so
+             the run stays reproducible even though board_config.json is
+             excluded from the clean-tree check.
+    log_fh = the open gate-log handle to tee the header into.
+  """
+  _, head = _git(["rev-parse", "HEAD"])
+  lines = []
+  lines.append("=" * 72)
+  lines.append("GATE " + gate.id + "  [" + gate.tier + "]")
+  lines.append("home note: notes/" + gate.home + ".md")
+  lines.append("maps (assertion -> home-note line): " + gate.maps)
+  lines.append("needs: " + ", ".join(gate.needs))
+  if gate.worktree_commit is not None:
+    lines.append("worktree pin: " + gate.worktree_commit)
+  lines.append("base-notes commit: " + _BASE_NOTES_COMMIT)
+  lines.append("HEAD at run: " + head)
+  lines.append("started: " + _now())
+  lines.append("=" * 72)
+  text = "\n".join(lines) + "\n"
+  cfg_dump = ("effective board_config.json (excluded from the clean-tree "
+              "check; recorded here for reproducibility):\n"
+              + json.dumps(cfg, indent=2) + "\n"
+              + "=" * 72 + "\n")
+  sys.stdout.write(text)
+  sys.stdout.write(cfg_dump)
+  log_fh.write(text)
+  log_fh.write(cfg_dump)
+
+
+def run_selection(*, selection, cfg, env, status, force_rerun, dry):
+  """Execute the selected gates in order, logging and recording each.
+
+  Arguments:
+    selection   = the ordered gates to run (from select_gates).
+    cfg         = board_config.json.
+    env         = the capability map from preflight (empty in dry mode).
+    status      = the resume map, updated in place and persisted after
+                  each gate.
+    force_rerun = gate ids to run even if already PASS.
+    dry         = when True, print the plan without executing.
+
+  Returns:
+    the count of gates that FAILED (0 means the selection is green).
+  """
+  failures = 0
+  for gate in selection:
+    # dry mode prints every selected gate's plan, BEFORE (and bypassing)
+    # the resume + dependency checks, so --dry-run --gate GCT-C shows the
+    # plan with a deps annotation, not a skip line (D-GH2).
+    if dry:
+      print("\n--- plan: " + gate.id + " ---")
+      if gate.deps:
+        print("[dry-run] (deps: " + ", ".join(gate.deps)
+              + " -- at run time this gate SKIPs unless they PASS)")
+      ctx = RunContext(cfg=cfg, dry=True, log_fh=None, env={})
+      try:
+        gate.run(ctx)
+      except GateFailure as failure:
+        print("[dry-run] (gate would need: " + str(failure) + ")")
+      continue
+
+    # resume: an already-passed gate is skipped unless forced.
+    if _passed(status, gate.id) and gate.id not in force_rerun:
+      print("[skip] " + gate.id + ": already PASS (resume); "
+            "--force-rerun " + gate.id + " to rerun")
+      continue
+
+    # dependency skip: an unmet prerequisite records SKIPPED, no abort.
+    unmet = []
+    for dep in gate.deps:
+      if not _passed(status, dep):
+        unmet.append(dep)
+    if len(unmet) > 0:
+      detail = "dependency not passed: " + ", ".join(unmet)
+      print("[skip] " + gate.id + ": " + detail)
+      status[gate.id] = {"status": "SKIP-DEP",
+                         "detail": detail,
+                         "ts": _now()}
+      _save_status(status)
+      _write_board_md(status)
+      continue
+
+    log_path = _LOGS_DIR / (gate.id + ".log")
+    _LOGS_DIR.mkdir(exist_ok=True)
+    with open(log_path, "w") as log_fh:
+      _log_header(gate, cfg, log_fh)
+      ctx = RunContext(cfg=cfg, dry=False, log_fh=log_fh, env=env)
+      outcome = "PASS"
+      detail = ""
+      try:
+        gate.run(ctx)
+      except GateFailure as failure:
+        outcome = "FAIL"
+        detail = str(failure)
+      except Exception as unexpected:  # a crash is a gate failure, not the board's
+        outcome = "FAIL"
+        detail = "unexpected: " + repr(unexpected)
+      footer = ("[harness] GATE " + gate.id + ": " + outcome
+                + ("" if detail == "" else "  -- " + detail) + "\n")
+      sys.stdout.write(footer)
+      log_fh.write(footer)
+
+    if outcome == "FAIL":
+      failures = failures + 1
+    status[gate.id] = {"status": outcome, "detail": detail, "ts": _now()}
+    _save_status(status)
+    _write_board_md(status)
+
+  return failures
+
+
+# --------------------------------------------------------------------------
+# The CLI.
+# --------------------------------------------------------------------------
+
+def cmd_list(status):
+  """Print the board with each gate's current status (the --list view)."""
+  print("Workstation board (base-notes " + _BASE_NOTES_COMMIT[:9] + "):")
+  current_tier = None
+  for gate in BOARD:
+    if gate.tier != current_tier:
+      current_tier = gate.tier
+      print("\n[" + current_tier + "]")
+    state = status.get(gate.id, {}).get("status", "not run")
+    flags = []
+    if gate.optional:
+      flags.append("optional")
+    if gate.deps:
+      flags.append("deps: " + ",".join(gate.deps))
+    if gate.worktree_commit is not None:
+      flags.append("worktree@" + gate.worktree_commit)
+    tail = "" if len(flags) == 0 else "  (" + "; ".join(flags) + ")"
+    print("  " + gate.id.ljust(8) + state.ljust(10)
+          + "home: " + gate.home + tail)
+
+
+def build_parser():
+  """Assemble the argparse CLI (also the printed --help usage)."""
+  parser = argparse.ArgumentParser(
+    prog="run_board.py",
+    description="Drive the workstation gates board (see the header "
+                "docstring for the full user flow).")
+  parser.add_argument("--check",
+                      action="store_true",
+                      help="run preflight only, then exit")
+  parser.add_argument("--list",
+                      action="store_true",
+                      help="print the board with each gate's status")
+  parser.add_argument("--dry-run",
+                      action="store_true",
+                      help="print every command a selection would run")
+  parser.add_argument("--gate",
+                      nargs="+",
+                      metavar="ID",
+                      help="run only these gate ids (optional gates allowed)")
+  parser.add_argument("--tier",
+                      choices=(board.TIER_STANDING,
+                               board.TIER_WEEK,
+                               board.TIER_SAVE_SAMPLE),
+                      help="run only this tier")
+  parser.add_argument("--from",
+                      dest="from_gate",
+                      metavar="ID",
+                      help="run the board from this gate onward")
+  parser.add_argument("--force-rerun",
+                      nargs="+",
+                      default=[],
+                      metavar="ID",
+                      help="rerun these gates even if already PASS")
+  return parser
+
+
+def main(argv=None):
+  """Parse the CLI and dispatch to the requested action.
+
+  Arguments:
+    argv = the argument list (defaults to sys.argv[1:]); accepted for
+           the harness self-tests.
+
+  Returns:
+    the process exit code (0 on success / green, nonzero otherwise).
+  """
+  args = build_parser().parse_args(argv)
+  cfg = _load_config()
+  status = _load_status()
+
+  if args.list:
+    cmd_list(status)
+    return 0
+
+  if args.check:
+    ok, _ = preflight(cfg)
+    return 0 if ok else 1
+
+  selection = select_gates(args)
+  if len(selection) == 0:
+    print("no gates selected")
+    return 0
+
+  if args.dry_run:
+    print("dry-run plan (" + str(len(selection)) + " gates, in order):")
+    run_selection(selection=selection, cfg=cfg, env={}, status=status,
+                  force_rerun=set(args.force_rerun), dry=True)
+    return 0
+
+  ok, env = preflight(cfg)
+  if not ok:
+    print("preflight failed; not running any gate")
+    return 1
+
+  failures = run_selection(selection=selection, cfg=cfg, env=env,
+                           status=status, force_rerun=set(args.force_rerun),
+                           dry=False)
+  print("\nboard run complete: " + str(failures) + " gate(s) FAILED; "
+        "see gates/logs/BOARD.md")
+  return 1 if failures > 0 else 0
+
+
+if __name__ == "__main__":
+  sys.exit(main())
