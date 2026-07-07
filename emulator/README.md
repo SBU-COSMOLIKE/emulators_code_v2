@@ -253,7 +253,7 @@ The full networks.
 chi2 losses; each holds a geometry (composition).
 
 - `anneal_value(epoch, opts)` — the per-epoch schedule shared by four knobs: trim, focus, the berhu sqrt-blend, and the EMA horizon.
-- `CosmolikeChi2` — the plain chi2: `chi2` ([Mahalanobis](../README.md#13-appendix-the-chi2-metric-mahalanobis) distance), `loss` (trim / focus, and the `chi2` / `sqrt` / `sqrt_dchi2` / `berhu` / `berhu_capped` transform ladder), and thin delegation to the held geometry.
+- `CosmolikeChi2` — the plain chi2: `chi2` ([Mahalanobis](../README.md#14-appendix-the-chi2-metric-mahalanobis) distance), `loss` (trim / focus, and the `chi2` / `sqrt` / `sqrt_dchi2` / `berhu` / `berhu_capped` transform ladder), and thin delegation to the held geometry.
 - `berhu` / `berhu_capped` — the reversed-Huber loss modes, configured by a YAML `berhu:` `{knot, cap, anneal}` block: `sqrt(chi2)` below the `knot` chi2, chi2-like above it, and (for `berhu_capped`) sqrt-shaped again past the `cap` so a monster sample's gradient vote is bounded; the optional `anneal:` schedule blends `sqrt` → `berhu` over the run. This is textbook BerHu in the whitened residual norm with delta = sqrt(`knot`), applied per sample as the Mahalanobis aggregate — so `knot` / `cap` are in chi2 units, not residual units.
 - `RescaledChi2` — analytic-R "A" form (R divides the net output); `configure_rescaling`, `_R`, `encode` / `decode` / `chi2` / `loss`.
 - `ResidualBaseChi2` — analytic-R "B" form (R moves only the baseline; the chi2 stays plain).
@@ -339,9 +339,13 @@ Post-training analyses (each returns a dict the plotting reads).
 
 ### `emulator/PCE/` <a name="apx-pce"></a>
 
-NPCE: a sparse-Legendre polynomial-chaos base plus a neural refiner.
+NPCE: a sparse-Legendre polynomial-chaos base plus a neural refiner, wired to
+the top-level `pce:` YAML block (the base is fit at staging; the refiner is any
+`model.name`). `PCEEmulator` deliberately stays out of `MODELS` and
+`DesignSpec`: it is loss-owned (wrapped by the PCE losses), not an SGD
+architecture.
 
-- `emulator_designs.py` — `PCEEmulator` (the closed-form base) + `pce_multi_index`, `pce_design`, `select_lars_loo`.
+- `emulator_designs.py` — `PCEEmulator` (the closed-form base; `state()` / `from_state` persist its six buffers to the `.h5` pce group, so inference rebuilds the base with no refit and no cosmolike) + `pce_multi_index`, `pce_design`, `select_lars_loo`.
 - `loss_functions.py` — `PCEResidualChi2` (refine the residual), `PCERatioChi2` (refine the ratio) of a frozen PCE base.
 
 ### `emulator/IA/` <a name="apx-ia"></a>

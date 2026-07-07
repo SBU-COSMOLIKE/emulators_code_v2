@@ -309,6 +309,10 @@ def main():
                "val_fracs":    fracs,
                "thresholds":   exp.thresholds},
     train_args=exp.train_args,
+    # NPCE runs: persist the fitted base + its combine form (from_state
+    # rebuilds base + refiner off the h5); None for a plain run.
+    pce=(exp.chi2fn.pce if exp.pce_opts is not None else None),
+    pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
     attrs={"model":       str(cfg["train_args"]["model"]
                               .get("name", "resmlp")).lower(),
            "activation":  exp.activation,

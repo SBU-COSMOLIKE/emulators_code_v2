@@ -134,7 +134,9 @@ def save_emulator(path_root,
                   config,
                   histories,
                   train_args=None,
-                  attrs=None):
+                  attrs=None,
+                  pce=None,
+                  pce_form=None):
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
@@ -154,6 +156,11 @@ def save_emulator(path_root,
                      DataVectorGeometry.state() (total_size,
                      dest_idx, evecs, sqrt_ev, Cinv, center, dtype),
                      so from_state rebuilds it with no cosmolike.
+    pce/             (NPCE runs only) the frozen PCEEmulator base's
+                     buffers (PCEEmulator.state(): lo / hi /
+                     multi_index / C / Vk / Ybar) plus a "form" attr, so
+                     PCEEmulator.from_state rebuilds the base with no
+                     refit and no cosmolike (the refiner .emul unchanged).
     history/         per-epoch training curves: train_losses,
                      val_medians, val_means, val_fracs (one row per
                      epoch, one column per threshold), thresholds.
@@ -234,6 +241,15 @@ def save_emulator(path_root,
     # output geometry. geometry.state() (geometries_output.py): the
     # output-geometry tensors keyed exactly as from_state expects.
     write_state(f.create_group("dv_geometry"), geometry.state())
+
+    # NPCE base (present only when the run used a pce: block): the frozen
+    # PCEEmulator buffers keyed exactly as from_state expects, plus the
+    # combine form, so inference rebuilds base + refiner with no refit and
+    # no cosmolike (the refiner .emul is unchanged).
+    if pce is not None:
+      g = f.create_group("pce")
+      write_state(g, pce.state())
+      g.attrs["form"] = pce_form
 
     # per-epoch histories; fracs stack to (nepochs, n_thresholds).
     hg = f.create_group("history")

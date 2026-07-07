@@ -430,3 +430,22 @@ train_args:
     anneal_epochs: 300
     shape:         linear
     kappa:         0.15
+
+# NPCE (optional, off by default): a TOP-LEVEL block (a sibling of data /
+# train_args, never inside train_args). Present = fit a closed-form
+# sparse-Legendre base on the staged training set, then train model.name above
+# as its refiner ("trunk = PCE, head = any SGD model"). Kept top-level on
+# purpose: sweep_hyperparam builds the base once, so a pce knob under
+# train_args would sweep without refitting it (a silent no-op) -> one base per
+# study. Exclusive with --rescale and model.ia (each replaces the chi2 loss).
+# Uncomment to enable:
+# pce:
+#   form: residual         # residual = base + net | ratio = base * (1 + net)
+#   # fit knobs (defaults = the values shown; all optional):
+#   # p_max:     4         # max total degree (the smoothness knob)
+#   # r_max:     2         # max interaction order (vars per term)
+#   # q:         0.5       # hyperbolic sparsity exponent in (0, 1]
+#   # k_max:     40        # max leading SVD modes to try
+#   # loo_max:   0.05      # keep a mode only if its relative LOO < this
+#   # max_terms: 30        # per-mode active-set cap
+#   # max_fail:  4         # stop after this many consecutive misses

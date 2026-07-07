@@ -11,7 +11,7 @@ inference loop. `xi` is the cosmic-shear two-point correlation functions — the
 data the analysis measures; cosmolike (inside Cocoa) supplies the analysis mask
 and covariance. Accuracy is judged as chi2 — the prediction error in the
 covariance units inference actually cares about (the
-[chi2 metric](#13-appendix-the-chi2-metric-mahalanobis)).
+[chi2 metric](#14-appendix-the-chi2-metric-mahalanobis)).
 
 One line: raw dumps → stage → whiten params (input) and data vector (output) →
 ResMLP / ResCNN / ResTRF → chi2 loss → train. `EmulatorExperiment` wires it together; each
@@ -37,11 +37,12 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 9. [`ema`](#9-ema)
 10. [`model`](#10-model)
 11. [Two-phase schedule + the `trunk:` / `head:` blocks](#11-two-phase-schedule--the-trunk--head-blocks)
-12. [Appendix: the pipeline](#12-appendix-the-pipeline)
-13. [Appendix: the chi2 metric (Mahalanobis)](#13-appendix-the-chi2-metric-mahalanobis)
-14. [Appendix: activation functions](#14-appendix-activation-functions)
-15. [Appendix: precedence — who wins when settings collide](#15-appendix-precedence--who-wins-when-settings-collide)
-16. [AI-Usage](#16-ai-usage)
+12. [`pce`](#12-pce)
+13. [Appendix: the pipeline](#13-appendix-the-pipeline)
+14. [Appendix: the chi2 metric (Mahalanobis)](#14-appendix-the-chi2-metric-mahalanobis)
+15. [Appendix: activation functions](#15-appendix-activation-functions)
+16. [Appendix: precedence — who wins when settings collide](#16-appendix-precedence--who-wins-when-settings-collide)
+17. [AI-Usage](#17-ai-usage)
 
 ---
 
@@ -195,7 +196,7 @@ model). Any numeric leaf may be a scalar (the train drivers use it) or a
 (`tune_single` searches it, the others collapse it to the default). Sections
 3–11 document each block; the
 collision rules (which source wins when two set the same thing) live in the
-[precedence appendix](#15-appendix-precedence--who-wins-when-settings-collide),
+[precedence appendix](#16-appendix-precedence--who-wins-when-settings-collide),
 templates in `example_yamls/`, and the `sweep:` block in [Run it](#sweep-block).
 
 One compact production run (two-phase `restrf` + `nla`, a berhu head):
@@ -225,17 +226,17 @@ train_args:
 ```
 
 Six terms the chapter uses (details: appendices
-[12](#12-appendix-the-pipeline)–[13](#13-appendix-the-chi2-metric-mahalanobis)):
+[13](#13-appendix-the-pipeline)–[14](#14-appendix-the-chi2-metric-mahalanobis)):
 
 - data vector (dv): the masked cosmic-shear two-point functions xi+/- stacked
   into one vector — what the network predicts.
 - chi2: prediction error measured in the analysis covariance, `r^T Cinv r`
-  ([appendix 13](#13-appendix-the-chi2-metric-mahalanobis)). The headline
+  ([appendix 14](#14-appendix-the-chi2-metric-mahalanobis)). The headline
   metric, written `frac>0.2` in the logs: the fraction of validation
   cosmologies with delta-chi2 above 0.2 — the goal is to drive it down.
 - whitened: rotated and rescaled so the components are decorrelated with unit
   variance — the form the network sees, input and output
-  ([appendix 12](#12-appendix-the-pipeline)).
+  ([appendix 13](#13-appendix-the-pipeline)).
 - theta order: the data vector re-sorted to vary smoothly along the angular
   axis — the basis the correction heads work in.
 - trunk / head: every architecture is a shared ResMLP trunk; `rescnn` /
@@ -315,7 +316,7 @@ The run-level knobs that are not their own block.
   small `bs` does not slow scoring.
 - `trunk_epochs` / `freeze_trunk` — the two-phase schedule (section 11); the
   mode table is precedence
-  [C2](#15-appendix-precedence--who-wins-when-settings-collide).
+  [C2](#16-appendix-precedence--who-wins-when-settings-collide).
 - `silent` — suppress the per-epoch progress lines.
 - `clip` — a per-step gradient-norm ceiling (0 = off); the full gradient is
   rescaled toward the ceiling, keeping its direction, so one monster-outlier
@@ -342,7 +343,7 @@ train_args:
 
 The training objective. `loss.mode` picks a per-sample transform $L(c)$ of
 each sample's chi2 $c = r^\top C^{-1} r$
-([Mahalanobis](#13-appendix-the-chi2-metric-mahalanobis)); the batch loss is
+([Mahalanobis](#14-appendix-the-chi2-metric-mahalanobis)); the batch loss is
 the (trimmed, focally weighted; [sections 7–8](#7-trim)) mean of $L(c)$. The transform sets how a
 sample's gradient vote scales with its misfit:
 
@@ -373,7 +374,7 @@ plateaus above $K$ so a chi2=100 monster stays bounded.
 The `berhu:` sub-block sets the knots (spell it `berhu:` — the family, so it
 survives a `mode` sweep — or after the active mode as `berhu_capped:`; giving
 both is an error, see precedence
-[D](#15-appendix-precedence--who-wins-when-settings-collide)). An optional
+[D](#16-appendix-precedence--who-wins-when-settings-collide)). An optional
 `anneal:` (presence = on) starts as plain sqrt and blends into the berhu shape
 on the [shared schedule](#7-trim), $s: 0 \to 1$:
 
@@ -415,7 +416,7 @@ $$\mathrm{lr} = \ell\,\sqrt{B/B_0}$$
   factor}` are its kwargs, stepped every epoch on the **raw** validation
   median (the EMA average never feeds it). A per-phase `scheduler:` replaces
   the kwargs but keeps the class (precedence
-  [B](#15-appendix-precedence--who-wins-when-settings-collide)).
+  [B](#16-appendix-precedence--who-wins-when-settings-collide)).
 
 ```yaml
   optimizer:
@@ -617,12 +618,12 @@ The activation family, `{type, n_gates}` or a bare type string: the four
 learnable families `H` / `power` / `multigate` / `gated_power` plus the
 parameter-free `relu` / `tanh` (pair `tanh` with `norm: per_feature`, the
 saturation guard); their math is the
-[activation appendix](#14-appendix-activation-functions). This sets the shared
+[activation appendix](#15-appendix-activation-functions). This sets the shared
 family (trunk + default). A `rescnn` / `restrf` head may pin its own with
 `model.cnn`/`.trf.activation` (absent = share the trunk's); the pin needs a
 frozen-trunk head phase, `head: activation:` is its alias, and the precedence
 + warning are precedence
-[A](#15-appendix-precedence--who-wins-when-settings-collide).
+[A](#16-appendix-precedence--who-wins-when-settings-collide).
 
 ```yaml
   activation:
@@ -740,7 +741,7 @@ attention patterns per bin pair.
 
 `compile_mode` (optional, flat) sets the CUDA `torch.compile` mode; the
 defaults are precedence
-[F](#15-appendix-precedence--who-wins-when-settings-collide).
+[F](#16-appendix-precedence--who-wins-when-settings-collide).
 
 ```yaml
   model:
@@ -778,10 +779,10 @@ The symmetric `trunk:` / `head:` blocks are **diffs** against the top level:
 each configures its own pass over the eight keys `lr` / `scheduler` / `loss` /
 `trim` / `focus` / `clip` / `rewind` / `ema` (each absent = the run default),
 with the per-key override semantics in precedence
-[B](#15-appendix-precedence--who-wins-when-settings-collide) — the head block
+[B](#16-appendix-precedence--who-wins-when-settings-collide) — the head block
 alone also takes the `activation:` pin alias (`trunk: activation:` is an
 error, precedence
-[A](#15-appendix-precedence--who-wins-when-settings-collide)). On a
+[A](#16-appendix-precedence--who-wins-when-settings-collide)). On a
 single-phase model (any `resmlp`) `train()` demotes these — `trunk:` merges
 into the top level, `head:` / `trunk_epochs` / `freeze_trunk` are dropped —
 so the same YAML drives both families ("what is in the trunk is just the
@@ -807,12 +808,62 @@ global").
 
 ---
 
-## 12. Appendix: the pipeline
+## 12. `pce`
+
+Neural PCE (NPCE): fit a closed-form sparse-Legendre polynomial-chaos base
+$B(\theta)$ to the whitened training set at staging, then train the
+`model.name` architecture as its refiner $f(\theta)$. The base is analytic
+(no network, one least-squares pass) and captures the smooth, low-order
+cosmology dependence; the refiner corrects whatever the base misses — "trunk
+= PCE, head = any SGD model". The `pce:` block is a top-level sibling of
+`data` / `train_args`; present = NPCE on, absent = a plain run.
+
+Two combine forms (`form`, required):
+
+$$\mathrm{pred} = B(\theta) + f(\theta) \qquad
+\mathrm{pred} = B(\theta)\,(1 + f(\theta))$$
+
+with $B$ = the closed-form base, $f$ = the refiner. `residual` (additive, in
+the whitened basis) is the usual choice; `ratio` (multiplicative, physical)
+suits a smooth low-order base (the refiner has little leverage where the base
+is near 0).
+
+```yaml
+pce:
+  form: residual         # residual = B + f | ratio = B * (1 + f)
+  # fit knobs (defaults = the values shown; all optional):
+  # p_max:     4         # max total degree (the smoothness knob)
+  # r_max:     2         # max interaction order (vars per term)
+  # q:         0.5       # hyperbolic sparsity exponent in (0, 1]
+  # k_max:     40        # max leading SVD modes to try
+  # loo_max:   0.05      # keep a mode only if its relative LOO < this
+  # max_terms: 30        # per-mode active-set cap
+  # max_fail:  4         # stop after this many consecutive misses
+```
+
+Two design rules the fit follows (the hard-won NPCE lessons): keep only
+well-predicted modes — a mode enters the base only if its relative
+leave-one-out error is below `loo_max`, the rest go to the refiner; and keep
+the degree low — a high-degree Legendre fit Runge-oscillates and makes the
+refiner's residual harder, so `p_max` is the smoothness knob and the LOO, not
+the term cap, decides each mode's size.
+
+The refiner is any `model.name` (`resmlp` / `rescnn` / `restrf`) with every
+knob — its own two-phase schedule, per-head activation pins, `model.norm`, the
+loss ladder (berhu included), trim / focus / clip / rewind / ema. `pce:` is
+exclusive with `--rescale` and `model.ia` (each replaces the chi2 loss), and it
+is structurally unsweepable — a top-level block, not a `train_args` leaf, so
+one base per study; the collision rules are the
+[precedence appendix](#16-appendix-precedence--who-wins-when-settings-collide).
+
+---
+
+## 13. Appendix: the pipeline
 
 The goal is to replace an expensive physics code with a network that maps a
 handful of cosmological parameters to the cosmic-shear data vector, fast enough
 to call inside a cosmological inference and accurate enough that the data
-vector's [**chi2**](#13-appendix-the-chi2-metric-mahalanobis) — its distance from
+vector's [**chi2**](#14-appendix-the-chi2-metric-mahalanobis) — its distance from
 truth measured in the data covariance (a Mahalanobis distance; see the appendix),
 the quantity inference actually cares about — stays small. Two ideas run through the
 whole pipeline. **Whitening**: both the inputs and the outputs are rotated and
@@ -1043,7 +1094,7 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 
 ---
 
-## 13. Appendix: the chi2 metric (Mahalanobis)
+## 14. Appendix: the chi2 metric (Mahalanobis)
 
 The loss and the reported metric are both a **chi2**, which is a squared
 **Mahalanobis distance** — the distance between two points measured *in units of
@@ -1089,7 +1140,7 @@ units, with correlations removed).
 
 ---
 
-## 14. Appendix: activation functions
+## 15. Appendix: activation functions
 
 The `ResBlock` nonlinearity is a **learnable, per-feature activation**: every
 feature (one entry of the vector) carries its own shape parameters, trained with
@@ -1176,7 +1227,7 @@ guard.
 
 ---
 
-## 15. Appendix: precedence — who wins when settings collide
+## 16. Appendix: precedence — who wins when settings collide
 
 Configuration arrives from several places — the YAML, the driver flags, the
 per-phase override blocks, and the built-in defaults. When two of them speak
@@ -1290,6 +1341,7 @@ sweep, the mode-named spelling reads literally, and giving both is ambiguous.
 | a phase axis (`head.*` / `trunk_epochs` / `freeze_trunk` / `trunk.*`) on a single-phase model | refused at startup (`validate_sweep_paths`) |
 | tune ranges `[default, min, max, kind]` | the suggested value per trial beats the default; the default is what the train drivers use and what warm-starts trial 0 |
 | `sweep_ntrain` | the driver's per-point `n_train` beats `data.n_train` (the `stage_train` argument) |
+| the top-level `pce:` block | not a `train_args` leaf, so structurally unsweepable / unsearchable — one base per study; a pce knob under `train_args` would sweep without refitting the base (a silent no-op) |
 
 Why: a sweep varies exactly one concretized leaf per point over the shared
 baseline; axes that would be silently dropped, or that change the class, are
@@ -1302,6 +1354,7 @@ refused up front.
 | `device` | an explicit arg beats auto-detect (CUDA > MPS > CPU) |
 | `thresholds` | a constructor arg beats `DEFAULT_THRESHOLDS` |
 | `rescale` | a driver flag only (no YAML key) |
+| `pce` (the top-level block) | exclusive with `rescale` and `model.ia` — each replaces the chi2 loss, so `validate_pce` errors on either combination (use one at a time) |
 | `ram_frac` | the parallel `sweep_ntrain` / `sweep_hyperparam` / bake-off workers force `0` (stream from the one shared dump memmap, no private copy); the tune (Optuna) workers instead divide `data.ram_frac` by the worker count (each stages its own subset concurrently); a serial run uses `data.ram_frac` (default 0.7) |
 | `compile_mode` | `model.compile_mode` (YAML) beats the architecture default — `"default"` for the conv / TRF heads (reduce-overhead's CUDA-graph capture trips on the gated skip-add), `"reduce-overhead"` for `resmlp` |
 
@@ -1324,7 +1377,7 @@ source to disagree with — the heads-up is that a "missing knob" is intentional
 
 ---
 
-## 16. AI-Usage
+## 17. AI-Usage
 
 AI Usage: This library (under the `dev` folder) was developed with Claude
 Code assistance. However, Prof. Miranda heavily influenced the code at every

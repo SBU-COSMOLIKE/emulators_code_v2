@@ -527,6 +527,101 @@ def validate_sizes(data):
   return sizes[0], sizes[1]
 
 
+# the pce: block schema (the eight keys). form has no default (required
+# when the block is present); the rest default to PCEEmulator.from_training's.
+PCE_KEYS = {
+  "form", "p_max", "r_max", "q", "k_max", "loo_max", "max_terms", "max_fail",
+}
+_PCE_DEFAULTS = {
+  "p_max": 4, "r_max": 2, "q": 0.5, "k_max": 40, "loo_max": 0.05,
+  "max_terms": 30, "max_fail": 4,
+}
+_PCE_INT_KEYS = ("p_max", "r_max", "k_max", "max_terms", "max_fail")
+
+
+def validate_pce(pce, rescale="none", ia=None):
+  """
+  Validate the top-level pce: block (the NPCE closed-form base).
+
+  A standalone pure function (no torch), so it is unit-testable in
+  isolation. The pce: block is a sibling of data / train_args, never
+  inside train_args: sweep_hyperparam deep-copies train_args per point
+  but builds the geometry (hence the base) once, so a pce knob under
+  train_args would sweep without refitting the base (a silent no-op, the
+  trap validate_sweep_paths exists to kill). Top-level makes it
+  structurally unsweepable, one study per pce config (the model.name rule).
+
+  The base and the two exclusive alternatives each replace the chi2fn, so
+  pce is rejected alongside --rescale or a model.ia design (one at a time).
+
+  Arguments:
+    pce     = the parsed top-level "pce" block, or None (the block absent).
+    rescale = the analytic-R rescale mode (a driver flag), for the
+              exclusivity check; pce is exclusive with rescale != "none".
+    ia      = the resolved model.ia design (None | "nla" | "tatt"), for
+              the exclusivity check; pce is exclusive with an ia design.
+
+  Returns:
+    None when pce is None (NPCE off, byte-identical everywhere), else the
+    validated, defaults-filled mapping (form + the seven fit knobs).
+
+  Raises:
+    TypeError if pce is not a mapping.
+    ValueError on: an unknown key; a missing / non-{residual, ratio} form;
+    a non-positive-int p_max / r_max / k_max / max_terms / max_fail; q
+    outside (0, 1]; loo_max <= 0; or pce set together with rescale != "none"
+    or a model.ia design.
+  """
+  if pce is None:
+    return None
+  if not isinstance(pce, dict):
+    raise TypeError(
+      f"the pce: block must be a mapping of fit knobs, got "
+      f"{type(pce).__name__}")
+  unknown = set(pce) - PCE_KEYS
+  if unknown:
+    raise ValueError(
+      f"unknown pce: key(s): {sorted(unknown)}; allowed: "
+      f"{sorted(PCE_KEYS)}")
+  # form is required and picks the loss shape.
+  form = pce.get("form")
+  if form not in ("residual", "ratio"):
+    raise ValueError(
+      "pce.form is required and must be 'residual' (base + net) or "
+      f"'ratio' (base * (1 + net)), got {form!r}")
+  out = dict(_PCE_DEFAULTS)
+  out.update({k: v for k, v in pce.items() if k != "form"})
+  out["form"] = form
+  # positive-int knobs (bool is an int subclass, but never a count).
+  for k in _PCE_INT_KEYS:
+    v = out[k]
+    if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+      raise ValueError(f"pce.{k} must be a positive int (>= 1), got {v!r}")
+  # q in (0, 1]; loo_max > 0.
+  q = out["q"]
+  if isinstance(q, bool) or not isinstance(q, (int, float)) \
+     or not (0.0 < q <= 1.0):
+    raise ValueError(
+      f"pce.q must be in (0, 1] (the hyperbolic sparsity exponent), got {q!r}")
+  lm = out["loo_max"]
+  if isinstance(lm, bool) or not isinstance(lm, (int, float)) or lm <= 0:
+    raise ValueError(
+      f"pce.loo_max must be > 0 (the relative leave-one-out cutoff), "
+      f"got {lm!r}")
+  # exclusivity: pce and rescale / ia each replace the chi2fn.
+  if rescale != "none":
+    raise ValueError(
+      "the pce: block and --rescale are exclusive: each replaces the chi2 "
+      f"loss (pce fits a closed-form base; rescale={rescale!r} applies "
+      "analytic R). Use one at a time.")
+  if ia is not None:
+    raise ValueError(
+      "the pce: block and model.ia are exclusive: each replaces the chi2 "
+      f"loss (pce fits a closed-form base; ia={ia!r} combines templates in "
+      "closed form). Use one at a time.")
+  return out
+
+
 def resolve_phase_args(train_args, two_phase):
   """
   Resolve the two-phase schedule keys against the model's real capability.
@@ -940,6 +1035,9 @@ class EmulatorExperiment:
     # the ruling-(a) flag-vs-pin warning, set by from_config (which alone
     # knows whether --activation was explicit); None on direct __init__.
     self._activation_notice = None
+    # the validated top-level pce: block (None = NPCE off), set by
+    # from_config; every wiring point guards on it (absent = byte-identical).
+    self.pce_opts = None
 
   # --- alternative constructors ---
   @classmethod
@@ -1010,6 +1108,12 @@ class EmulatorExperiment:
         f"architecture ({' | '.join(sorted(archs))}); the separate ia "
         f"key layers a factored intrinsic-alignment design on it "
         f"({' | '.join(sorted(ias))}; omit it for the plain emulator)")
+    # pce (top-level, optional): validate + the exclusivity checks. ia is
+    # resolved above; rescale is the driver flag (kwargs). Kept a sibling of
+    # data / train_args on purpose (validate_pce): one base per study.
+    pce_opts = validate_pce(cfg.get("pce"),
+                            rescale=kwargs.get("rescale", "none"),
+                            ia=ia)
     # activation precedence, resolved once here: an explicit caller choice
     # (the drivers' --activation flag; they pass None when the flag is
     # absent) wins over the YAML's model.activation block, which wins
@@ -1035,6 +1139,9 @@ class EmulatorExperiment:
     # lookups (IA_DESIGNS); exp.arch gates head-block filtering in
     # build_specs (which reads model_cls.head_block, the class's own
     # head-knowledge; None on direct construction translates every block).
+    # stash the validated pce config (None = NPCE off); build_geometry,
+    # print_design, and the save wiring all guard on exp.pce_opts.
+    exp.pce_opts = pce_opts
     exp.model_name = name if ia is None else f"{name}_{ia}"
     exp.ia   = ia
     exp.arch = name
@@ -1141,6 +1248,14 @@ class EmulatorExperiment:
              f"rescale: {self.rescale}")
     if notice is not None:
       self.log(notice)
+    # NPCE base (consumed view): the fit knobs. The kept-modes / terms
+    # summary is the runtime fit report (it does not exist at banner time).
+    if self.pce_opts is not None:
+      p = self.pce_opts
+      self.log(
+        f"pce: form {p['form']}  p_max {p['p_max']}  r_max {p['r_max']}  "
+        f"q {p['q']}  k_max {p['k_max']}  loo_max {p['loo_max']}  "
+        f"max_terms {p['max_terms']} (base fit at staging; report below)")
     # ruling (a): the flag-vs-pin surprise warning (an explicit --activation
     # meeting a differing per-head pin), built in from_config (the only
     # place that knew the flag was explicit); quiet-gated like the notice.
@@ -1380,6 +1495,37 @@ class EmulatorExperiment:
       build_shear_angle_map(geom=self.geom,
                             data_dir=d["cosmolike_data_dir"],
                             dataset=d["cosmolike_dataset"])
+
+    # NPCE (the top-level pce: block): fit the closed-form sparse-Legendre
+    # base on the staged, whitened train set, then wrap the residual / ratio
+    # refiner loss in place of the plain chi2. Guarded on pce_opts (absent =
+    # skipped, everything below byte-identical). pce is exclusive with
+    # rescale and model.ia (validate_pce), so this path never coincides with
+    # the factored / make_chi2 branches below.
+    if self.pce_opts is not None:
+      from .PCE.emulator_designs import PCEEmulator
+      from .PCE.loss_functions import PCEResidualChi2, PCERatioChi2
+      # materialize the whitened fit inputs once: X_white = pgeom.encode of
+      # the raw params, Y_white = geom.encode of the raw dvs (from_training
+      # converts to float64 numpy internally). Same tensor path the loaders
+      # use, torch.from_numpy(...).float().to(device).
+      idx = train_set["idx"]
+      X_white = self.pgeom.encode(
+        torch.from_numpy(np.asarray(train_set["C"][idx])).float().to(
+          self.device))
+      Y_white = self.geom.encode(
+        torch.from_numpy(np.asarray(train_set["dv"][idx])).float().to(
+          self.device))
+      form     = self.pce_opts["form"]
+      fit_opts = {k: v for k, v in self.pce_opts.items() if k != "form"}
+      # quiet-gated fit report (beside the loading-sources lines).
+      pce = PCEEmulator.from_training(
+        self.device, X_white, Y_white, silent=self.quiet, **fit_opts)
+      if form == "residual":
+        self.chi2fn = PCEResidualChi2(geom=self.geom, pce=pce)
+      else:
+        self.chi2fn = PCERatioChi2(geom=self.geom, pce=pce)
+      return self.pgeom, self.geom, self.chi2fn
 
     # TemplateFactoredChi2 (IA/loss_functions.py): the factored-design
     # loss. It combines the model's templates in closed form (nla:

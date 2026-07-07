@@ -444,6 +444,48 @@ class PCEEmulator(nn.Module):
                Vk=torch.tensor(Vk, dtype=f, device=device),
                Ybar=torch.tensor(Ybar, dtype=f, device=device))
 
+  def state(self):
+    """The frozen buffers, keyed as from_state expects (h5 persistence).
+
+    Mirrors the geometry classes' state(): a flat dict of the six
+    registered buffers, so save_emulator can write a "pce" h5 group and
+    from_state rebuilds the base at inference with no refit and no
+    cosmolike.
+
+    Returns:
+      dict with lo / hi / multi_index / C / Vk / Ybar (the six frozen
+      buffers, as tensors).
+    """
+    return {"lo": self.lo, "hi": self.hi,
+            "multi_index": self.multi_index,
+            "C": self.C, "Vk": self.Vk, "Ybar": self.Ybar}
+
+  @classmethod
+  def from_state(cls, state, device):
+    """Rebuild a frozen PCEEmulator from a saved state() dict.
+
+    The persistence inverse of state(): mirrors the geometry classes'
+    from_state, so a saved run reconstructs base + refiner off the h5
+    with no refit and no cosmolike. dtypes match from_training (lo / hi
+    / C / Vk / Ybar float32, multi_index long).
+
+    Arguments:
+      state  = mapping with lo / hi / multi_index / C / Vk / Ybar
+               (numpy arrays or tensors, as read back from the h5).
+      device = device the rebuilt buffers live on.
+
+    Returns:
+      a PCEEmulator on `device`.
+    """
+    def t(v, dtype):
+      return torch.as_tensor(v, dtype=dtype, device=device)
+    return cls(lo=t(state["lo"], torch.float32),
+               hi=t(state["hi"], torch.float32),
+               multi_index=t(state["multi_index"], torch.long),
+               C=t(state["C"], torch.float32),
+               Vk=t(state["Vk"], torch.float32),
+               Ybar=t(state["Ybar"], torch.float32))
+
   def forward(self, X):
     """Evaluate the closed-form PCE base at the given inputs.
 
