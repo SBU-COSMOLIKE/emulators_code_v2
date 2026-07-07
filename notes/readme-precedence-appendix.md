@@ -151,3 +151,143 @@ house scans on the diff.
 SPEC DELIVERED 2026-07-06, NOT implemented. Lands as COMMIT UNIT 2
 of the head-activation handoff (the flagship table needs the
 feature). The head-activation note's handoff references this note.
+
+## Proceed directive (Architect, 2026-07-06, after unit B acceptance)
+
+Units A (freeze_trunk, ebd9869) and B (per-head activation,
+Architect-ACCEPTED 30/30, re-audit verdict in
+[[head-activation-per-component]]) are done. Unit C is AUTHORIZED on
+B's committed base:
+
+- Precondition: `git log -1` shows the unit-B sentence
+  ("Per-head-component activation: ..."). Uncommitted unit-B changes
+  in the tree = STOP and report.
+- Scope: the appendix exactly per this note — sections A..G
+  (including C2, the schedule-modes table) with the flagship
+  activation table, the alias / license / n_gates footnotes, the
+  freeze_trunk rows, and the deliberately-no-knob table. Verify the
+  two verify-at-build rows (the parallel-worker ram_frac mechanism;
+  the resmlp compile_mode default) against the tree and CORRECT them
+  if the code disagrees, declaring the correction. New numbered
+  README appendix (after the activation appendix, before "every
+  file's functions"); renumber the contents + anchors. House style:
+  one table per subsection, a one-line "why" beneath each.
+- This unit is DOCUMENTATION-ONLY: every .py and .yaml file stays
+  byte-identical. Finding a reason to touch code = STOP and report.
+- Gate GPR-A: every table row cross-checked against the tree;
+  anchors resolve; house scans on the diff (README one-line rows
+  exempt from the 90-col rule per file convention); py_compile moot
+  but run it anyway on the tree.
+- Report: IMPLEMENTER_HANDOFF + resume state appended to THIS note,
+  raw gate evidence, deviations declared. Do not commit: print the
+  suggested commit command.
+
+## Resume state (Implementer appends below)
+
+### 2026-07-06 — Implementer (Opus 4.8): UNIT C executed
+
+Base: unit B committed at a95f8df; started there. Documentation-only —
+git diff touches ONLY README.md (+ this note); every .py and .yaml is
+byte-identical (GPR-A confirmed). Commit unit C, the last of the cycle.
+
+**Done:**
+
+- New README appendix "## 10. Appendix: precedence — who wins when
+  settings collide", inserted after the activation-functions appendix
+  (section 9) and before "every file's functions"; the latter renumbered
+  to "## 11". Contents gained the section-10 line and the section-11
+  renumber. Sections A (activation slots + the 4 footnotes), B (phase-
+  block per-key semantics), C (single-phase demotion), C2 (schedule
+  modes), D (loss spellings), E (sweeps/tune), F (constructor/driver vs
+  YAML), G (deliberately-no-knob) — one table per subsection, a one-line
+  "Why:" beneath each, house style.
+- Anchors: the two new/renumbered auto-anchors resolve
+  (#10-appendix-precedence--who-wins-when-settings-collide — the em-dash
+  yields the double hyphen, the section-4 "change-x--edit-y" precedent;
+  #11-appendix-every-files-functions); every Contents link (header-slug
+  and explicit <a name>) resolves.
+
+**Verify-at-build rows (GPR-A duty):**
+
+- ROW compile_mode (F): VERIFIED CORRECT as specced. make_model
+  (training.py ~127) defaults compile_mode to "reduce-overhead"; build_specs
+  (experiment.py ~1546) setdefaults "default" only for needs_geom (the
+  conv / TRF heads). So resmlp -> "reduce-overhead", conv/TRF -> "default".
+  Kept verbatim.
+- ROW ram_frac (F): CORRECTED. The spec row said only "the parallel sweep
+  workers force 0". The tree disagrees for one driver: sweep_ntrain
+  (:208), sweep_hyperparam (:419), and bakeoff (:202) force
+  worker ram_frac = 0.0 (stream from the one shared dump memmap), but the
+  tune / Optuna workers instead DIVIDE data.ram_frac by the worker count
+  (tune_single :418-419, `ram_frac / n_workers`), each staging its own
+  subset concurrently. The appendix row now states both mechanisms + the
+  serial default 0.7. DECLARED correction.
+
+**Deviations declared:**
+
+- The ram_frac row correction above (the tune workers divide, they do not
+  force 0).
+- A markdown-correctness fix (not a content change): the `model.<head>.`
+  `activation` placeholder is written as a single code span so `<head>`
+  renders literally instead of being parsed as an HTML tag.
+- No behavioral change anywhere (documentation-only; git diff = README +
+  this note).
+
+**Gate evidence (GPR-A, raw, Mac):**
+
+- Documentation-only: `git diff --stat HEAD -- emulator/ *.py
+  example_yamls/` is EMPTY; the full diff is README.md + this note only.
+- Anchors: a slug checker over every Contents [text](#anchor) against the
+  header slugs + explicit <a name> anchors -> ALL 74 resolve, including
+  the two new ones.
+- House scans on the README diff: 0 ` -- `; added all-caps are domain
+  acronyms only (YAML / TRF / CUDA / MPS / MLP / IA / CPU); README one-line
+  rows exempt from 90-col per file convention.
+- Every table row cross-checked against the tree: section A (from_config
+  flag>model.activation>H + the head_act pin + the warning, unit B);
+  B (validate_phase_block + run_emulator per-pass); C / C2 (resolve_phase_args
+  + the freeze_trunk guard, unit A); D (validate_loss both-spellings error);
+  E (validate_sweep_paths incl. freeze_trunk, ACTIVATION_PATHS, model.name/ia
+  refusal, sweep_ntrain n_train); F (pick_device, DEFAULT_THRESHOLDS, rescale
+  flag, ram_frac corrected, compile_mode verified); G (derive_eval_bs,
+  run-global bs_base, fixed AdamW/ReduceLROnPlateau, the two TRF pins).
+- Whole-tree py_compile clean (documentation-only, run regardless).
+
+Open: the Architect re-audit of GPR-A. No workstation leg (docs only).
+This closes the three-unit head-activation cycle.
+
+### 2026-07-07 — Architect re-audit: ACCEPTED, no deltas — CYCLE CLOSED
+
+Own checks on the confirmed base a95f8df:
+
+- Documentation-only PROVEN: `git diff --stat HEAD -- emulator/ *.py
+  example_yamls/` empty; the diff is README.md + this note.
+- Both verify-at-build rows re-verified IN THE TREE: compile_mode
+  correct as specced (make_model default "reduce-overhead",
+  training.py 116/127; build_specs setdefault "default" for
+  needs_geom, experiment.py 1546); the ram_frac CORRECTION is real —
+  tune_single:418-419 divides data.ram_frac by n_workers while
+  sweep_ntrain:208 / sweep_hyperparam:419 / bakeoff:202 force 0.0 —
+  the appendix row (all three regimes + the serial 0.7 default) is
+  now truer than my spec row. Correction ACCEPTED with credit.
+- Anchors: my own slug checker first flagged two links, including the
+  PRE-EXISTING working section-4 anchor — my slugger collapsed the
+  em-dash's two spaces into one hyphen (GitHub keeps both). Fixed my
+  checker: all 35 links resolve, none missing. My harness bug, owned;
+  the Implementer's 74-anchor claim covered both directions
+  (anchors + links), mine checked links only.
+- Sections read against the tree (A..G + C2 spot-checked row by row;
+  F/G quoted in full); scans 0 double-hyphen; py_compile clean.
+- Deviations RULED: the ram_frac correction ACCEPTED (above); the
+  `model.<head>.activation` code-span fix ACCEPTED (rendering
+  correctness, not content).
+
+UNIT C COMMIT-READY. Suggested sentence: "README precedence appendix
+(section 10): who wins when settings collide — activation slots +
+pin/alias/license, phase-block semantics, demotion, schedule modes,
+loss spellings, sweeps, driver-vs-YAML (ram_frac row corrected
+against the tree), deliberately-no-knob; gate GPR-A
+Architect-verified". THE THREE-UNIT CYCLE IS CLOSED on my side:
+A = ebd9869 (freeze_trunk), B = a95f8df (per-head activation),
+C = this commit. Workstation queue gains GFT-C + GHA-F beside the
+standing board.

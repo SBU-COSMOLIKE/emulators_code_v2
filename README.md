@@ -23,7 +23,8 @@ bake-off).
 7. [Appendix: AI-Usage](#7-appendix-ai-usage)
 8. [Appendix: the chi2 metric (Mahalanobis)](#8-appendix-the-chi2-metric-mahalanobis)
 9. [Appendix: activation functions](#9-appendix-activation-functions)
-10. [Appendix: every file's functions](#10-appendix-every-files-functions)
+10. [Appendix: precedence — who wins when settings collide](#10-appendix-precedence--who-wins-when-settings-collide)
+11. [Appendix: every file's functions](#11-appendix-every-files-functions)
     1. [`data_staging.py`](#apx-data_staging)
     2. [`geometries_parameter.py`](#apx-geometries_parameter)
     3. [`geometries_output.py`](#apx-geometries_output)
@@ -716,7 +717,155 @@ $K$ (the gate count for the multi-gate families) is `make_activation`'s
 
 ---
 
-## 10. Appendix: every file's functions
+## 10. Appendix: precedence — who wins when settings collide
+
+Configuration arrives from several places — the YAML, the driver flags, the
+per-phase override blocks, and the built-in defaults. When two of them speak
+to the same setting, these tables say which one the run actually uses. Every
+row is the resolved, consumed behavior (the startup `print_design` banner
+shows it for a given run).
+
+### A. Activation family
+
+Two slots: the shared slot (the trunk and every component that sets no
+activation of its own) and the head slot (a `rescnn` / `restrf` correction
+head). The shared slot resolves `--activation` flag > `model.activation` >
+`H`; the head slot follows the shared slot unless `model.cnn`/`.trf.activation`
+pins it.
+
+| `--activation` | `model.activation` | `model.<head>.activation` | trunk gets | head gets |
+|---|---|---|---|---|
+| absent | `H` | absent | `H` | `H` (shared) |
+| absent | `H` | `gated_power` | `H` | `gated_power` (pin) |
+| `power` | `H` | absent | `power` | `power` (flag wins the shared slot) |
+| `power` | `H` | `gated_power` | `power` | `gated_power` (pin holds; a startup warning prints) |
+
+Why: most-specific wins — an explicit head pin is the most specific
+statement, so it holds even against the flag; the flag and `model.activation`
+only ever set the shared slot.
+
+Four rules ride with this table:
+- The flag sets only the type; `n_gates` is always read from the YAML
+  (`model.activation.n_gates` for the shared slot, the head block's own
+  `n_gates` for a pin).
+- The bake-off and a `model.activation` sweep rewrite the shared slot per
+  curve; a pinned head stays fixed across every curve (the driver prints the
+  warning once at startup).
+- Spellings: on a two-phase model `head: activation:` is a second spelling of
+  the pin (canonical is `model.cnn`/`.trf.activation`, which also reads on
+  single-phase YAMLs); giving both spellings is an error (keep one, even when
+  they agree). `trunk: activation:` is an error (section B).
+- License: a per-head pin (either spelling) needs a frozen-trunk head phase —
+  `trunk_epochs > 0` and `freeze_trunk` true. When the trunk and head train
+  together (`freeze_trunk: false`, or no two-phase schedule) the network keeps
+  one family and the pin errors with a teaching message.
+
+### B. Phase blocks vs the top level (two-phase models)
+
+Per key, a `trunk:` / `head:` value beats the top-level `train_args`, which
+beats the built-in default — but the override semantics differ by key:
+
+| key | override semantics | note |
+|---|---|---|
+| `lr` | overlay `{lr_base, warmup_epochs}` onto the top-level `lr` | `bs_base` is run-global: inside a phase `lr` it is an error |
+| `scheduler` | full kwargs replacement | the scheduler class stays the run's: a `cls` in a phase is an error |
+| `loss` | full block replacement | `{mode, berhu}`; no merge with the top-level block |
+| `trim` / `focus` | full block replacement | restart at the phase's own epoch 1 |
+| `clip` / `rewind` | value replacement | |
+| `ema` | full block replacement | `ema: null` (key present, empty value) is an explicit per-phase off, overriding an inherited top-level `ema` |
+| `activation` | head only: an alias for `model.<head>.activation`, consumed at construction (not a training knob) | legal in `head:` (the head trains only in phase 2); an error in `trunk:` (the trunk is the same modules in both phases, so a phase-local trunk activation cannot exist — the error teaches this) |
+
+Why: phase blocks are diffs against the top level, not containers (the
+`bs_base` rule); construction knobs are run-global, with the one user-ruled
+exception `head: activation:`, coherent only because the head component and the
+head phase coincide.
+
+### C. Single-phase demotion (the same YAML on `resmlp`)
+
+A model without `set_train_phase` (any `resmlp`, including the IA `nla` /
+`tatt`) has no phases, so `resolve_phase_args` demotes the schedule keys before
+training:
+
+| key | on a single-phase model |
+|---|---|
+| `trunk:` | merged into the top level (full-replace per key; `lr` overlays, keeping `bs_base`) — the trunk is just the global objective |
+| `head:` | dropped |
+| `trunk_epochs` | dropped |
+| `freeze_trunk` | dropped |
+
+Why: one shared YAML drives both model families; a quiet one-line notice names
+what was demoted, so the banner still tells the truth about the run.
+
+### C2. Two-phase schedule modes
+
+| `trunk_epochs` | `freeze_trunk` | schedule |
+|---|---|---|
+| `0` / absent | (must be absent) | joint training from epoch 1 |
+| `N > 0` | `true` / absent | trunk-only for `N` epochs, then a frozen trunk + head-only (the default) |
+| `N > 0` | `false` | trunk-only for `N` epochs, then trunk + head together (a joint fine-tune) |
+
+Why: `freeze_trunk` only means something with a two-phase schedule; setting it
+without `trunk_epochs > 0` is an error (it would silently do nothing). The
+`head:` block configures phase 2 in either mode.
+
+### D. Loss-block spellings
+
+| config | result |
+|---|---|
+| `loss` absent, or no `mode` key | `mode: sqrt` |
+| a berhu mode with no `berhu:` sub-block | knots `{knot: 0.2, cap: 10}` |
+| the knot block spelled `berhu:` (the family; sweep-safe) | accepted |
+| the knot block spelled after the active mode (`berhu_capped:` under `mode: berhu_capped`) | accepted |
+| both spellings present | an error — no silent winner, ever |
+
+Why: one setting, one home; the family spelling `berhu:` survives a `mode`
+sweep, the mode-named spelling reads literally, and giving both is ambiguous.
+
+### E. Sweeps and searches
+
+| context | rule |
+|---|---|
+| `sweep_hyperparam` | the sweep leaf beats the `train_args` baseline (a deep copy per point) |
+| sweep parameter `model.activation` | a special case: it sets the experiment's shared slot, so `--activation` must be unset |
+| `model.name` / `model.ia` | refused as sweep axes (they change the model class) |
+| a phase axis (`head.*` / `trunk_epochs` / `freeze_trunk` / `trunk.*`) on a single-phase model | refused at startup (`validate_sweep_paths`) |
+| tune ranges `[default, min, max, kind]` | the suggested value per trial beats the default; the default is what the train drivers use and what warm-starts trial 0 |
+| `sweep_ntrain` | the driver's per-point `n_train` beats `data.n_train` (the `stage_train` argument) |
+
+Why: a sweep varies exactly one concretized leaf per point over the shared
+baseline; axes that would be silently dropped, or that change the class, are
+refused up front.
+
+### F. Constructor / driver args vs the YAML
+
+| setting | precedence |
+|---|---|
+| `device` | an explicit arg beats auto-detect (CUDA > MPS > CPU) |
+| `thresholds` | a constructor arg beats `DEFAULT_THRESHOLDS` |
+| `rescale` | a driver flag only (no YAML key) |
+| `ram_frac` | the parallel `sweep_ntrain` / `sweep_hyperparam` / bake-off workers force `0` (stream from the one shared dump memmap, no private copy); the tune (Optuna) workers instead divide `data.ram_frac` by the worker count (each stages its own subset concurrently); a serial run uses `data.ram_frac` (default 0.7) |
+| `compile_mode` | `model.compile_mode` (YAML) beats the architecture default — `"default"` for the conv / TRF heads (reduce-overhead's CUDA-graph capture trips on the gated skip-add), `"reduce-overhead"` for `resmlp` |
+
+Why: the drivers own the runtime placement and the multi-worker memory budget;
+the YAML owns the per-model knobs, with a sensible default when a key is
+omitted.
+
+### G. Deliberately no knob (nothing to win)
+
+| setting | why there is no override |
+|---|---|
+| evaluation batch size | derived from `n_val` (a ~1024-row target, minimal tail pad), decoupled from the training `bs` by design |
+| `bs_base` | the run-global sqrt-rule anchor; a phase-level value is an error |
+| optimizer / scheduler class | fixed (`AdamW` / `ReduceLROnPlateau`) in the drivers; a phase scheduler overrides only the kwargs |
+| TRF token width | pinned to the padded bin length (physics: no embedding, no adapters) |
+| TRF MLP interior width | pinned to the token width (`n_mlp_blocks` is depth only; the width knob is shelved) |
+
+Why: these are fixed by design or derived from the data, so there is no second
+source to disagree with — the heads-up is that a "missing knob" is intentional.
+
+---
+
+## 11. Appendix: every file's functions
 
 One line per function / class / method. For full detail, read the docstring in
 the file itself; this is the index.
