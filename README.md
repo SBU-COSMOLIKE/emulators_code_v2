@@ -79,6 +79,16 @@ whitening geometries, the per-epoch histories, and the fully-resolved config
 later change (`rebuild_emulator` in `emulator/results.py` reads the file
 alone).
 
+Once saved, the emulator runs inside a Cobaya MCMC through the thin Theory
+adapter `cobaya_theory/emul_cosmic_shear.py`: point its `emulators:` list at
+the saved path root and it rebuilds the module and reads the sampled
+parameters it needs straight from the `.h5` — no architecture, no parameter
+ordering re-typed in the sampling YAML (the legacy `ord` / `extrapar` are
+retired). The prediction physics lives in `emulator/inference.py`
+(`EmulatorPredictor`: encode → forward → the factored-IA or NPCE combine →
+decode), which the adapter is a shell over; a copyable evaluate config ships
+as `cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml`.
+
 The `N_train` learning curve — how does accuracy improve as the training set
 grows? This driver retrains the same model at several training-set sizes and
 plots the error metric (`frac>0.2`, defined in [section 2](#2-the-yaml-file))

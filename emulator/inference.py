@@ -1,0 +1,217 @@
+"""Inference-time prediction on a saved emulator.
+
+EmulatorPredictor is the in-package physics layer for running a trained
+emulator outside training: it wraps rebuild_emulator (schema v2, the h5
+alone) and turns a parameter dict into the physical cosmic-shear data
+vector by exactly the forward path training used -- encode with the saved
+ParamGeometry, the module forward, the factored-IA amplitude combine or the
+NPCE base recombine when the run used one, then decode with the saved
+DataVectorGeometry. The cobaya Theory adapter is a thin shell over this; all
+the prediction physics lives here, testable against the training stack and
+immune to code-default drift (the recipe + geometries come from the file).
+
+PS: whitened = rotated into the covariance eigenbasis and scaled to unit
+variance (the decorrelated space the network sees); encode = the geometry's
+raw-params -> whitened-input transform (a factored emulator also appends the
+raw IA amplitudes as the last columns, which the model drops and the combine
+reads); decode = the output geometry's whitened -> physical (kept-entry)
+data vector; kept entries = the unmasked positions of the full 3x2pt vector
+the network emulates.
+"""
+
+import torch
+
+from .results import rebuild_emulator
+
+
+class EmulatorPredictor:
+  """
+  Physical-data-vector predictor for a saved emulator (schema v2).
+
+  Built from rebuild_emulator(path_root, device): the module, the two saved
+  geometries, and the physics-branch metadata (ia / pce_base / pce_form) all
+  come from the h5, so nothing is re-declared here and a run predicts what
+  its training-side eval would. predict() maps a parameter dict (or an
+  ordered array in .names order) to the physical kept-entry data vector:
+
+      params (in .names order)
+         │  theta = (1, n_param) raw physical parameters
+         │  pgeom.encode          center + whiten; append raw amps (factored)
+         ▼
+      X  (1, encoded_dim)         whitened model input (amps as last columns)
+         │  model(X)              eval, no_grad; the model drops the amp
+         │                        columns itself for a factored trunk
+         ▼
+      pred                        plain:    (1, n_keep) whitened dv
+         │                        factored: (1, n_templates, n_keep) templates
+         │                        NPCE:     (1, n_keep) refiner output
+         │  _decode(pred, X)      plain:    geom.decode; factored: the
+         │                        amplitude combine then geom.decode; NPCE:
+         │                        the base recombine then geom.decode -- the
+         │                        exact training chi2fn.decode, reused not
+         │                        re-derived
+         ▼
+      dv (n_keep,)                physical kept-entry data vector (numpy)
+
+  (legend: n_param = the full parameter count the geometry whitens;
+  encoded_dim = pgeom.encoded_dim, the model's input width; n_keep =
+  geom.dest_idx.numel(), the kept (unmasked) 3x2pt entries; n_templates =
+  the factored design's template count; the amplitudes among .names feed the
+  combine, never the network.)
+
+  Authority chain (the never-trust-defaults rule, read side): .names IS the
+  saved ParamGeometry's stored names, in training order -- for a factored
+  emulator the AmplitudeFactorGeometry's names already carry the IA
+  amplitudes, so they join the required inputs automatically. The predictor
+  asks the geometry; nobody keeps a second list. The kept-entry return shape
+  matches the legacy Theory's use_emulator vector.
+  """
+
+  def __init__(self,
+               path_root,
+               device,
+               compile_model=False):
+    """Rebuild the emulator and assemble the branch-specific decoder.
+
+    Arguments:
+      path_root     = the saved emulator's path without extension (reads
+                      <path_root>.h5 + .emul via rebuild_emulator).
+      device        = torch.device to rebuild + run on.
+      compile_model = torch.compile the module on CUDA (default False: batch-1
+                      MCMC latency rarely pays off the compile cost).
+
+    Raises:
+      ValueError on a non-schema-v2 file (rebuild_emulator refuses it) or an
+      unrecognized NPCE form; the exclusivity guard fires if a file somehow
+      carries both a factored-IA design and an NPCE base.
+    """
+    self.device = device
+    (self.model,
+     self.pgeom,
+     self.geom,
+     info) = rebuild_emulator(path_root, device,
+                              compile_model=compile_model)
+
+    self.names      = list(self.pgeom.names)
+    self.dest_idx   = self.geom.dest_idx
+    self.total_size = self.geom.total_size
+
+    ia       = info["ia"]
+    pce_base = info["pce_base"]
+    pce_form = info["pce_form"]
+    if ia is not None and pce_base is not None:
+      raise ValueError(
+        "the saved emulator carries both a factored-IA design and an NPCE "
+        "base; the two are mutually exclusive (pce excludes ia), so the "
+        "file is inconsistent")
+
+    # the physical-dv decoder: reuse the EXACT training chi2fn.decode so the
+    # amplitude combine / NPCE recombine are single-sourced, never re-derived
+    # here (the drift channel the standing rule kills).
+    self._decode = self._build_decoder(ia=ia,
+                                       pce_base=pce_base,
+                                       pce_form=pce_form)
+
+    # the input dtype the geometry was whitened in (build theta to match, so
+    # encode reproduces training exactly); unwrap the factored geometry's
+    # kept-column ParamGeometry to reach the whitening tensors.
+    base_pg     = getattr(self.pgeom, "pg_keep", self.pgeom)
+    self._dtype = base_pg.center.dtype
+
+  def _build_decoder(self, ia, pce_base, pce_form):
+    """Pick the whitened-output -> physical-dv map for this run's branch.
+
+    Reconstructs the same loss object training used, purely for its decode
+    (geom + the amplitude polynomial, or geom + the frozen base), so the
+    combine / recombine math keeps one definition. The plain branch needs no
+    loss object -- the module output IS the whitened dv, so geom.decode alone.
+
+    Arguments:
+      ia       = the factored design name (nla / tatt) or None.
+      pce_base = the frozen PCEEmulator base or None.
+      pce_form = the NPCE form (residual / ratio) or None.
+
+    Returns:
+      a callable (pred, x_enc) -> (1, n_keep) physical dv; the plain closure
+      ignores x_enc, the factored / NPCE branches read the appended
+      amplitudes / evaluate the base from it.
+    """
+    geom = self.geom
+    if ia is not None:
+      from .IA.loss_functions import TemplateFactoredChi2
+      from .experiment import IA_DESIGNS
+      if ia not in IA_DESIGNS:
+        raise ValueError(
+          f"unknown factored-IA design {ia!r}; the saved recipe must name a "
+          f"design in IA_DESIGNS ({sorted(IA_DESIGNS)})")
+      chi2 = TemplateFactoredChi2(geom=geom,
+                                  coeff_fn=IA_DESIGNS[ia]["coeff_fn"],
+                                  n_amps=self.pgeom.n_amps)
+      return chi2.decode
+
+    if pce_base is not None:
+      from .PCE.loss_functions import PCEResidualChi2, PCERatioChi2
+      if pce_form == "residual":
+        chi2 = PCEResidualChi2(geom=geom, pce=pce_base)
+      elif pce_form == "ratio":
+        chi2 = PCERatioChi2(geom=geom, pce=pce_base)
+      else:
+        raise ValueError(
+          f"unknown NPCE form {pce_form!r}; the pce group must record "
+          "'residual' (base + net) or 'ratio' (base * (1 + net))")
+      return chi2.decode
+
+    def _plain_decode(pred, x_enc):
+      # the module output is the whitened dv itself; no combine / recombine.
+      return geom.decode(pred)
+    return _plain_decode
+
+  def _as_row(self, params):
+    """Order the inputs into a single (1, n_param) tensor.
+
+    Arguments:
+      params = either a mapping name -> value (read in .names order) or an
+               already-ordered sequence / array in .names order.
+
+    Returns:
+      (1, n_param) tensor in the geometry's whitening dtype on self.device.
+
+    Raises:
+      KeyError naming the first required parameter a mapping is missing;
+      ValueError when an ordered sequence has the wrong length.
+    """
+    if isinstance(params, dict):
+      row = []
+      for n in self.names:
+        if n not in params:
+          raise KeyError(
+            f"predict() is missing required parameter {n!r}; the saved "
+            f"emulator needs {self.names}")
+        row.append(params[n])
+    else:
+      row = list(params)
+      if len(row) != len(self.names):
+        raise ValueError(
+          f"predict() got {len(row)} values but the emulator needs "
+          f"{len(self.names)} ({self.names})")
+    return torch.as_tensor(row, dtype=self._dtype,
+                           device=self.device).reshape(1, -1)
+
+  def predict(self, params):
+    """Predict the physical cosmic-shear data vector.
+
+    Arguments:
+      params = a mapping name -> value, or an ordered sequence in .names
+               order (the amplitudes among .names are consumed by the
+               factored combine, never entered into the network).
+
+    Returns:
+      (n_keep,) numpy array: the physical (kept-entry) data vector, the
+      same kept-entry ordering the legacy Theory returned.
+    """
+    x     = self._as_row(params)
+    x_enc = self.pgeom.encode(x)
+    with torch.no_grad():
+      pred = self.model(x_enc)
+    dv = self._decode(pred, x_enc)
+    return dv[0].detach().cpu().numpy()

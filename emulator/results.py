@@ -154,12 +154,15 @@ def save_emulator(path_root,
   The .h5 holds everything else, grouped:
     param_geometry/  the input-whitening state, keys exactly
                      ParamGeometry.state() (names, center, evecs,
-                     sqrt_ev), so ParamGeometry.from_state rebuilds
-                     it with no covmat reread.
+                     sqrt_ev; a factored run nests pg_keep + amp_idx),
+                     plus a "cls" attr = the geometry's class, so
+                     rebuild dispatches to the right from_state with
+                     no covmat reread.
     dv_geometry/     the output-geometry state, keys exactly
                      DataVectorGeometry.state() (total_size,
                      dest_idx, evecs, sqrt_ev, Cinv, center, dtype),
-                     so from_state rebuilds it with no cosmolike.
+                     plus a "cls" attr, so from_state rebuilds the
+                     exact geometry class with no cosmolike.
     pce/             (NPCE runs only) the frozen PCEEmulator base's
                      buffers (PCEEmulator.state(): lo / hi /
                      multi_index / C / Vk / Ybar) plus a "form" attr, so
@@ -247,13 +250,26 @@ def save_emulator(path_root,
 
   with h5py.File(h5_path, "w") as f:
     # input whitening. param_geometry.state() (geometries_parameter.py):
-    # the input-whitening tensors keyed exactly as from_state expects.
-    write_state(f.create_group("param_geometry"),
-                param_geometry.state())
+    # the input-whitening tensors keyed exactly as from_state expects. The
+    # group also records its own CLASS (materialized from the object's type
+    # at write time) so rebuild dispatches to the right from_state -- a
+    # factored run's AmplitudeFactorGeometry, a log run's LogParamGeometry,
+    # a plain run's ParamGeometry -- rather than hardcoding the base class
+    # (the never-trust-defaults rule applied to class identity).
+    pg_group = f.create_group("param_geometry")
+    write_state(pg_group, param_geometry.state())
+    pg_group.attrs["cls"] = (type(param_geometry).__module__ + "."
+                             + type(param_geometry).__qualname__)
 
     # output geometry. geometry.state() (geometries_output.py): the
-    # output-geometry tensors keyed exactly as from_state expects.
-    write_state(f.create_group("dv_geometry"), geometry.state())
+    # output-geometry tensors keyed exactly as from_state expects; the same
+    # class marker (a Diagonal / BlockDiagonal geometry shares the base
+    # state keys but a different whitening, so the marker prevents a silent
+    # wrong-transform decode).
+    dv_group = f.create_group("dv_geometry")
+    write_state(dv_group, geometry.state())
+    dv_group.attrs["cls"] = (type(geometry).__module__ + "."
+                             + type(geometry).__qualname__)
 
     # NPCE base (present only when the run used a pce: block): the frozen
     # PCEEmulator buffers keyed exactly as from_state expects, plus the
@@ -336,7 +352,7 @@ def save_emulator(path_root,
   return emul_path, h5_path
 
 
-def rebuild_emulator(path_root, device):
+def rebuild_emulator(path_root, device, compile_model=True):
   """
   Reconstruct a saved emulator from <path_root>.h5 + .emul, using ONLY the
   file (save schema v2). The in-package inference entry point and the proof
@@ -346,24 +362,32 @@ def rebuild_emulator(path_root, device):
   v1 file (no schema_version) is refused (it predates the guarantee).
 
   Arguments:
-    path_root = the output path without extension (as passed to
-                save_emulator); reads <path_root>.h5 and <path_root>.emul.
-    device    = device to rebuild the module and geometries on.
+    path_root     = the output path without extension (as passed to
+                    save_emulator); reads <path_root>.h5 and <path_root>.emul.
+    device        = device to rebuild the module and geometries on.
+    compile_model = torch.compile the rebuilt module on CUDA when the recipe
+                    stored a compile_mode (default True; the predictor passes
+                    False for batch-1 inference, where the compile latency
+                    rarely pays off).
 
   Returns:
-    (model, param_geometry, geometry): the inference-ready triple; the model
-    in eval() with the best-epoch weights loaded (strict). When the run used
-    an NPCE base, its PCEEmulator is rebuilt from the h5 pce group too (the
-    reconstruction guarantee covers it).
+    (model, param_geometry, geometry, info): the inference-ready quad; the
+    model in eval() with the best-epoch weights loaded (strict). info is a
+    plain dict of the physics-branch metadata the predictor needs to build
+    the decoder, read straight from the file so nothing is re-declared
+    downstream:
+      "ia"       = the factored-IA design name (nla / tatt) or None;
+      "pce_base" = the reconstructed frozen PCEEmulator when the run used an
+                   NPCE base (h5 pce group), else None;
+      "pce_form" = the NPCE recombination form (residual / ratio) stored on
+                   the pce group, else None.
 
   Raises:
     ValueError if the .h5 is not schema v2; KeyError naming any missing
-    recipe / geometry key (never a code-default fallback).
+    recipe / geometry / pce key (never a code-default fallback).
   """
   import importlib
 
-  from .geometries_parameter import ParamGeometry
-  from .geometries_output import DataVectorGeometry
   from .activations import make_activation
   from .emulator_designs_building_blocks import make_norm
 
@@ -396,6 +420,23 @@ def rebuild_emulator(path_root, device):
         "only the file and never falls back to a code default")
     return d[k]
 
+  def _rebuild_geometry(group, where):
+    # dispatch on the persisted class marker: read the group, resolve its
+    # own "cls" (importlib, the model-recipe pattern), and call THAT class's
+    # from_state, so a factored AmplitudeFactorGeometry / a LogParamGeometry
+    # rebuilds as itself. A missing marker is loud and names a re-save --
+    # never a silent fallback to the base geometry (the read-side rule).
+    st = _read_group(group)
+    if "cls" not in st:
+      raise KeyError(
+        f"{path_root}.h5 {where} is missing the 'cls' class marker; it was "
+        "saved before the geometry-class fix. Re-save the emulator (retrain, "
+        "or re-run save_emulator on the run) to add it -- rebuild_emulator "
+        "never falls back to a base geometry class.")
+    cls_path = st.pop("cls")
+    mod, _, qual = cls_path.rpartition(".")
+    return getattr(importlib.import_module(mod), qual).from_state(device, st)
+
   with h5py.File(path_root + ".h5", "r") as f:
     sv = f.attrs.get("schema_version")
     if sv != 2:
@@ -407,12 +448,15 @@ def rebuild_emulator(path_root, device):
     if "model_recipe" not in f:
       raise KeyError(f"{path_root}.h5 is missing the model_recipe")
     recipe = yaml.safe_load(f["model_recipe"][()])
-    pgeom = ParamGeometry.from_state(device, _read_group(f["param_geometry"]))
-    geom  = DataVectorGeometry.from_state(device, _read_group(f["dv_geometry"]))
+    pgeom = _rebuild_geometry(f["param_geometry"], "param_geometry group")
+    geom  = _rebuild_geometry(f["dv_geometry"], "dv_geometry group")
     pce_base = None
+    pce_form = None
     if "pce" in f:
       from .PCE.emulator_designs import PCEEmulator
-      pce_base = PCEEmulator.from_state(_read_group(f["pce"]), device)
+      pce_grp  = _read_group(f["pce"])
+      pce_form = _need(pce_grp, "form", "pce group")
+      pce_base = PCEEmulator.from_state(pce_grp, device)
 
   # rebuild the module from the recipe (h5-only; a missing key is loud).
   cls_path = _need(recipe, "cls", "model_recipe")
@@ -445,6 +489,10 @@ def rebuild_emulator(path_root, device):
   model.load_state_dict(sd, strict=True)
   model.eval()
   cm = recipe.get("compile_mode")
-  if device.type == "cuda" and cm is not None:
+  if compile_model and device.type == "cuda" and cm is not None:
     model = torch.compile(model, mode=cm)
-  return model, pgeom, geom
+  return model, pgeom, geom, {
+    "ia":       _need(recipe, "ia", "model_recipe"),
+    "pce_base": pce_base,
+    "pce_form": pce_form,
+  }

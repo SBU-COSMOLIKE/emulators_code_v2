@@ -1,6 +1,6 @@
 ---
 name: cobaya-theory-adapter
-description: "SPEC 2026-07-07 (Architect): the Cobaya Theory block for MCMC inference — cobaya_theory/emul_cosmic_shear.py (folder + class name fixed by user; the likelihood contract get_cosmic_shear/state['cosmic_shear'] preserved). Three-layer design: (1) EmulatorPredictor in the PACKAGE (new emulator/inference.py) — wraps rebuild_emulator and owns ALL prediction physics: encode via the saved ParamGeometry, model forward, the factored-IA closed-form combine (nla/tatt coeffs at inference), the NPCE base recombine (residual/ratio), decode via the saved DataVectorGeometry; (2) the Theory file = a THIN cobaya adapter (requirements from the h5's stored parameter names, calculate -> predictor, device pick) — defines NO nn.Module, duplicates NOTHING; (3) the MCMC YAML shrinks to {device, emulators: ['<path root>']} — the legacy ord/extrapar/duplicated-emulator.py all DIE (each was a drift channel; the h5 schema-v2 recipe + stored names replace them, the never-trust-defaults rule applied to the sampling YAML). v1 files refused. Sequenced AFTER save-schema-v2 (needs rebuild_emulator + model_recipe + stored names). Gates GCT-A..C incl. the training-vs-inference parity probe. Decision points flagged (kept-vs-full dv shape vs the C likelihood; TPU dropped; compile-at-inference off by default). NOT implemented."
+description: "SPEC 2026-07-07 (Architect): the Cobaya Theory block for MCMC inference — cobaya_theory/emul_cosmic_shear.py (folder + class name fixed by user; the likelihood contract get_cosmic_shear/state['cosmic_shear'] preserved). Three-layer design: (1) EmulatorPredictor in the PACKAGE (new emulator/inference.py) — wraps rebuild_emulator and owns ALL prediction physics: encode via the saved ParamGeometry, model forward, the factored-IA closed-form combine (nla/tatt coeffs at inference), the NPCE base recombine (residual/ratio), decode via the saved DataVectorGeometry; (2) the Theory file = a THIN cobaya adapter (requirements from the h5's stored parameter names, calculate -> predictor, device pick) — defines NO nn.Module, duplicates NOTHING; (3) the MCMC YAML shrinks to {device, emulators: ['<path root>']} — the legacy ord/extrapar/duplicated-emulator.py all DIE (each was a drift channel; the h5 schema-v2 recipe + stored names replace them, the never-trust-defaults rule applied to the sampling YAML). v1 files refused. Sequenced AFTER save-schema-v2 (needs rebuild_emulator + model_recipe + stored names). Gates GCT-A..C incl. the training-vs-inference parity probe. Decision points flagged (kept-vs-full dv shape vs the C likelihood; TPU dropped; compile-at-inference off by default). IMPLEMENTED 2026-07-07 (Opus, base a5dd04f), uncommitted; GCT-A/B PASS; dv-shape DECLARED = kept entries (matches legacy res[0]); rebuild_emulator extended to a 4-tuple (+ info{ia,pce_base,pce_form} + compile_model flag); GCT-C parity probe rides the cocoa-env queue."
 metadata:
   node_type: memory
   type: project
@@ -122,15 +122,18 @@ decision point, easy to re-add).
   the training-side prediction; an MCMC evaluate + a short chain
   smoke.
 
-## Handoff (HOLD until save-schema-v2 lands)
+## Handoff (hold RELEASED 2026-07-07: save-v2 = b2afca6 landed,
+## generator unit = a5dd04f landed; ready to relay)
 
 ### ARCHITECT_HANDOFF
 Task: the Cobaya Theory adapter (spec:
 notes/cobaya-theory-adapter.md in full; the thin-adapter discipline
 and the never-trust-defaults rule are binding — no physics in the
 adapter, nothing re-declared in the MCMC YAML that the h5 records).
-Base: the save-schema-v2 commit; `git log -1` must show it — else
-STOP. Scope: emulator/inference.py (EmulatorPredictor with the
+Base: commit a5dd04f ("Training-set generator imported verbatim
+..."); `git log -1` must show it — else STOP. Both prerequisites
+are inside it: save-schema-v2 (rebuild_emulator + model_recipe +
+stored names, b2afca6) and the generator appendix. Scope: emulator/inference.py (EmulatorPredictor with the
 factored + NPCE branches), cobaya_theory/emul_cosmic_shear.py (the
 thin adapter, class name kept), the example evaluate YAML, docs.
 The dv-shape contract is VERIFIED against the likelihood source and
@@ -143,15 +146,244 @@ command.
 
 ## Status
 
-SPEC DELIVERED 2026-07-07, NOT implemented, HOLD behind
-[[save-schema-resolved-config]] (needs rebuild_emulator +
-model_recipe + stored names). Queue: NPCE (in flight) ->
-save-schema-v2 -> THIS. Suggested commit sentence: "Cobaya Theory
+IMPLEMENTED 2026-07-07 (Opus, base a5dd04f), uncommitted.
+Architect audit: ACCEPTED WITH ONE BLOCKING DELTA (D-CT1 below) +
+two micro deltas; the delta pass LANDED 2026-07-07 (Opus) and
+CLOSED under independent Architect probes (see Delta closure) —
+COMMIT-READY, ONE combined commit. The LAST unit of the arc:
+generate -> train -> save -> SAMPLE. GCT-C parity probe (now incl.
+the factored save->rebuild->predict round-trip) rides the cocoa
+queue.
+Suggested commit sentence: "Cobaya Theory
 adapter: emulator/inference.py EmulatorPredictor (encode -> forward
 -> factored/NPCE combine -> decode, from the h5 alone) +
 cobaya_theory/emul_cosmic_shear.py thin adapter — ord / extrapar /
-duplicated architectures all retired by the schema-v2 artifact
+duplicated architectures all retired by the schema-v2 artifact;
+geometry class persisted in the h5 so factored saves rebuild
 (gates GCT-A/B Architect-verified)".
+
+## Architect audit verdict (2026-07-07, Fable, independent probes)
+
+ACCEPTED WITH ONE BLOCKING DELTA + two micro deltas. What I
+re-verified from raw evidence:
+
+- The decode-reuse claim is REAL: TemplateFactoredChi2.decode(pred,
+  params_whitened) (IA/loss_functions.py:290),
+  PCEResidualChi2.decode -> geom.decode(y + base) (:109),
+  PCERatioChi2.decode -> b*(1+pred) (:261) — every signature matches
+  the predictor's uniform (pred, x_enc) call; constructors match
+  (geom/coeff_fn/n_amps; geom/pce). TemplateMLP.forward slices
+  x[:, :n_in] itself (IA/emulator_designs.py:117), so passing the
+  full encoded vector uniformly is correct. geom.decode returns
+  (B, n_keep) kept entries — the kept-entry contract holds on every
+  branch. AmplitudeFactorGeometry: encode = [whitened non-amps ;
+  raw amps]; .names (full raw order, amps included), .n_amps,
+  .pg_keep all exist as the predictor assumes.
+- The recipe stores "ia" unconditionally (experiment.py:1743), so
+  rebuild's _need(recipe,"ia") is safe. Caller sweep: the ONLY code
+  consumer of rebuild_emulator is the predictor — no stale 3-tuple.
+- GCT-B re-run: no nn.Module (docstring mention only), the only
+  emulator import is EmulatorPredictor; whitelist rejects
+  ord/extrapar/extra/file loudly; requirements = names union +
+  fast_params passthrough; get_cosmic_shear kept. YAML parses
+  (ruby -ryaml; the Mac python lacks pyyaml). Five-rule math
+  scanner + anchors: ALL CLEAN on both READMEs; the Run-it MCMC
+  paragraph + the code-map inference.py/cobaya_theory/ entries are
+  in. py_compile: all three files OK.
+
+### D-CT1 (BLOCKING): rebuild_emulator cannot rebuild a factored
+### run's input geometry — persist the geometry CLASS in the h5
+
+The write side is general (save_emulator's write_state recurses;
+its own comment names AmplitudeFactorGeometry.pg_keep) and the
+save site passes exp.pgeom — a factored (ia: nla/tatt) run SAVES
+its AmplitudeFactorGeometry state fine (pg_keep/amp_idx/n_param/
+names, nested). But rebuild_emulator hardcodes
+ParamGeometry.from_state (results.py:420), which splats
+cls(device, **state) — on the factored keys that is a TypeError,
+not even a loud named error. The predictor's ENTIRE factored
+branch (a headline feature of this spec) is unreachable
+end-to-end. GCT-A passed because the stub harness fed a plain
+geometry: it verified the branch logic, never the factored
+rebuild round-trip.
+
+The output side has the same latent shape, and WORSE failure
+class: DiagonalGeometry / BlockDiagonalGeometry share the base
+state keys and override only whiten/unwhiten math — a
+mis-dispatched rebuild would not crash, it would SILENTLY decode
+with the wrong transform. (Neither is config-reachable today —
+DataVectorGeometry.from_cosmolike at experiment.py:1487 is the
+only constructor — so output-side is future-proofing, input-side
+is the live bug.)
+
+FIX (the doctrine applied to class identity — the file must record
+WHAT it is, not just its numbers):
+- save_emulator: each geometry group (param_geometry, dv_geometry)
+  gains a "cls" attr = the geometry's qualified class name,
+  materialized at write time from type(obj).__module__ +
+  "." + type(obj).__qualname__ — the writing code's own identity,
+  never a re-declaration.
+- rebuild_emulator: _need the "cls" attr from EACH group,
+  importlib-resolve it (the exact pattern the model recipe's cls
+  already uses), call THAT class's from_state. A missing marker is
+  a loud KeyError naming a re-save — NEVER a silent fallback to
+  the base class (the read-side rule). Consequence stated plainly:
+  any v2 file saved between b2afca6 and this fix is refused with
+  the loud error; schema stays v2 (additive attr), acceptable
+  while v2 is days old and no production save exists.
+- GCT-A gains: a factored-geometry state round-trip check at
+  whatever level the Mac permits (stub write_state/_read_group
+  dict-level dispatch if h5py/torch are absent), and the REAL
+  factored save->rebuild->predict round-trip is added to GCT-C
+  alongside the parity probe.
+
+### D-CT2 (micro, style): the example YAML's active
+### `emulators: ['...']` is a flow-style list
+
+House YAML rule: block style. The active key becomes a block
+sequence (the commented fast_params example should match for
+copyability):
+
+    emulators:
+      - projects/lsst_y1/emulators/<run>/emul_v2
+
+### D-CT3 (micro, pre-existing doc bug, fold in since we touch the
+### area): PCEResidualChi2.decode's docstring return shape
+
+emulator/PCE/loss_functions.py:117 says "(B, total_size) physical
+dv" — the code returns geom.decode(y + base) = (B, n_keep) kept
+entries (geometries_output.py:403). One-line docstring fix; born
+in the NPCE unit, load-bearing now that the predictor documents
+the kept-entry contract.
+
+### GCT-C rider (flag, not a delta): MPS float64
+
+The geometry whitening tensors are float64-heritage (covmat
+np.loadtxt); MPS has no float64 — rebuild's .to(device) and the
+predictor's _dtype row on device='mps' may fail or need an
+explicit downcast. Verify on the dev Mac when GCT-C-dev runs, or
+document the adapter's device pick as cuda/cpu for inference.
+
+### Delta closure (2026-07-07, Architect, independent probes)
+
+ALL THREE DELTAS VERIFIED — the unit is COMMIT-READY.
+- D-CT1: both geometry groups now persist attrs["cls"] materialized
+  from type() at write time (save side read in the diff); the two
+  hardcoded from_state calls are GONE (grep = zero) and their
+  imports removed. My OWN exec-extraction of the nested
+  _rebuild_geometry (verbatim source, stub-driven): the marker
+  dispatches to the named class's from_state with "cls" popped and
+  (device, cleaned_state) passed; a missing marker raises KeyError
+  naming the marker + the re-save remedy. The bonus is real:
+  LogParamGeometry (geometries_parameter.py:195) is a ParamGeometry
+  subclass the old hardcode would have silently rebuilt as the base
+  class. The REAL factored save->rebuild->predict round-trip rides
+  GCT-C as specified.
+- D-CT2: emulators is a block sequence; the commented fast_params
+  matches; ruby -ryaml re-parse OK.
+- D-CT3: the residual decode docstring now says (B, n_keep) kept
+  entries.
+- py_compile: results / inference / PCE.loss_functions / adapter
+  all OK; five-rule scanner + anchors ALL CLEAN on both READMEs.
+
+ONE combined commit per ## Status. After it lands the
+generate -> train -> save -> sample arc is COMPLETE on the Mac
+side; the workstation board carries GCT-C (parity probe + the
+factored round-trip + the MPS-float64 check) and GSV-C.
+
+### Delta handoff (relayed 2026-07-07, executed — kept for the record)
+
+### ARCHITECT_HANDOFF
+Task: D-CT1 + D-CT2 + D-CT3 (spec: the audit verdict in
+notes/cobaya-theory-adapter.md — the fix designs are binding,
+including the loud-missing-marker rule and covering BOTH geometry
+groups). Base: the uncommitted cobaya-adapter tree on a5dd04f (your
+own diffs; verify git status shows them — else STOP). Scope: the
+three deltas exactly; no other files. Gates: GCT-A extended per
+D-CT1 (dispatch legs: plain rebuilds plain, factored state
+dict -> AmplitudeFactorGeometry.from_state, missing "cls" attr =
+loud KeyError naming a re-save; the ruby/py YAML re-parse; the
+five-rule scanner if any doc line moves). Report:
+IMPLEMENTER_HANDOFF + resume state appended here, raw gate
+outputs. Do not commit: after this lands the unit gets ONE
+combined commit (sentence in ## Status).
+### END
+
+## Implementer resume state (2026-07-07, Opus, base a5dd04f) — DONE
+
+Footprint: NEW emulator/inference.py (EmulatorPredictor), NEW
+cobaya_theory/emul_cosmic_shear.py (thin adapter) +
+cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml; emulator/results.py
+(rebuild_emulator extended); README.md + emulator/README.md (docs).
+
+- LAYER 1 (emulator/inference.py): EmulatorPredictor. predict() =
+  pgeom.encode(theta) -> model(x_enc) [eval, no_grad] ->
+  _decode(pred, x_enc) -> dv[0].cpu().numpy(). The forward path was
+  read from the training stack, not guessed: the factored model
+  slices its own amplitude columns (TemplateMLP.forward:
+  x[:, :n_in], n_in = input_dim - n_amps), so predict passes the
+  FULL encoded vector uniformly for plain / factored. The decoder is
+  the EXACT training chi2fn.decode, reused not re-derived:
+  factored -> TemplateFactoredChi2(geom, IA_DESIGNS[ia]["coeff_fn"],
+  pgeom.n_amps).decode; NPCE residual -> PCEResidualChi2(geom,
+  base).decode = geom.decode(y + base); NPCE ratio ->
+  PCERatioChi2(geom, base).decode = base_phys * (1 + pred); plain ->
+  geom.decode. .names = pgeom.names (authority chain: the geometry
+  is the one source; a factored geometry's names already carry the
+  IA amplitudes). Exclusivity guard (ia + pce) + unknown-ia/form
+  raises.
+- LAYER 2 (cobaya_theory/emul_cosmic_shear.py): the thin adapter,
+  no nn.Module, no physics. extra_args whitelist {device, emulators,
+  fast_params, compile}; an unknown key errors loudly naming the
+  retired ord/extrapar/extra/file. requirements = union of
+  predictor.names (+ fast_params passthrough). calculate ->
+  state["cosmic_shear"]; get_cosmic_shear kept. sys.path prepends the
+  repo root (parent of cobaya_theory/) so `import emulator` resolves.
+  Device pick cpu/cuda/mps (TPU dropped). Path roots ROOTDIR-relative
+  unless absolute.
+- LAYER 3 (EXAMPLE_EMUL_EVALUATE.yaml): modernized from the real
+  lsst_y1 EXAMPLE_EMUL_EVALUATE1.yaml — the likelihood
+  (lsst_y1.cosmic_shear, use_emulator: 1) + the lambda bridge
+  (omegabh2/omegach2/logA the user's own) KEPT; the theory block
+  shrinks to path + device + emulators: ['<root>']; a commented
+  fast_params + compile ship; ord/extrapar/file/extra gone.
+- INTERFACE CHANGE (declared, sanctioned by the save-schema forward
+  note): rebuild_emulator(path_root, device, compile_model=True) now
+  returns a 4-TUPLE (model, pgeom, geom, info) where info =
+  {ia, pce_base, pce_form}; the pce form is read from the pce group
+  (loud if missing). Verified the only caller is the predictor (no
+  stale 3-tuple unpack anywhere).
+
+DECISIONS / DEVIATIONS declared:
+- dv-shape contract = KEPT ENTRIES (predict returns geom.decode(...)
+  [0], the kept-entry vector, matching the legacy res[0]); NOT
+  full-scattered. Verified against the legacy adapter's
+  predict_data_vector; GCT-C confirms end-to-end vs the C likelihood
+  (use_emulator) on the workstation.
+- rescale (RescaledChi2 / ResidualBaseChi2) is OUT of the predictor
+  scope, as spec'd (only factored + NPCE branches). A rescale run's
+  analytic R is not in the h5 (needs cosmolike at inference), so it
+  is inherently outside h5-only reconstruction — a documented
+  limitation, not a gap.
+- fast_params v1 = requirements passthrough only (per the addendum);
+  the in-theory shear-M application (Roman-style) stays a flagged
+  GCT-C decision point (verified against the likelihood's
+  use_emulator path there).
+- multi-emulator: imax=1 today; the adapter accepts the list and
+  concatenates dvs in emulators order (reduces to the single vector).
+- compile OFF by default in the predictor (batch-1 MCMC); rebuild's
+  compile_model flag lets a caller re-enable it.
+
+GATES: GCT-A (numpy-stubbed torch: nla/tatt coeffs == hand, the
+combine einsum, the residual/ratio recombine arithmetic, _as_row
+ordering + missing/length raises; static: the decoder branch
+selection + guards, the 4-tuple + v1 refusal + pce-form read) PASS;
+GCT-B (static: no nn.Module, no architecture imports, the extra_args
+whitelist, _check_extra_args rejects ord/extrapar/extra/file, the
+docs + example YAML, the five-rule math scanner) PASS; py_compile
+clean. GCT-C (the parity probe: predictor vs training-side eval,
+rtol 1e-6; the legacy-style evaluate end-to-end vs the lsst_y1
+likelihood; an MCMC smoke) rides the cocoa-env queue.
 
 ## Addendum (2026-07-07): ord's replacement made explicit +
 ## fast_params added (user catch)
@@ -187,3 +419,53 @@ analytic post-step (never the network), spec'd then. GCT-A gains
 the fast_params cases (joined requirements; excluded from the input
 vector; absent = byte-identical). GCT-B: the example YAML carries
 both the lambda block and a commented fast_params.
+
+## Implementer D-CT delta pass (2026-07-07, Opus, base a5dd04f) — DONE
+
+All three deltas landed; the combined cobaya-adapter unit is
+COMMIT-READY. Files touched: emulator/results.py (D-CT1),
+cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml (D-CT2),
+emulator/PCE/loss_functions.py (D-CT3).
+
+- D-CT1 (the blocking bug): the geometry CLASS is now persisted and
+  dispatched, both groups. save_emulator writes each group's "cls"
+  attr materialized from type(obj).__module__ + "." +
+  type(obj).__qualname__ (param_geometry from type(param_geometry),
+  dv_geometry from type(geometry)). rebuild_emulator gained a nested
+  _rebuild_geometry(group, where): _read_group -> require "cls"
+  (loud KeyError NAMING a re-save if absent, never a base-class
+  fallback) -> pop it -> importlib-resolve (the model-recipe
+  pattern) -> THAT class's from_state(device, cleaned_state). The
+  two hardcoded ParamGeometry/DataVectorGeometry.from_state calls +
+  their now-unused imports are gone. This also fixes a latent
+  LogParamGeometry mis-rebuild (the old hardcode would have decoded a
+  log run with linear whitening) and future-proofs the Diagonal /
+  BlockDiagonal output geometries (shared base keys, different
+  transform -> a silent wrong decode without the marker). Schema
+  stays v2 (additive attr); any v2 file saved between b2afca6 and
+  this fix is refused with the loud re-save error (acceptable: v2 is
+  days old, no production save exists). The h5-layout docstring notes
+  the "cls" attr on both groups.
+- D-CT2: the example YAML's active `emulators` key is now a block
+  sequence (- projects/...); the commented fast_params example
+  matches block style for copyability.
+- D-CT3: PCEResidualChi2.decode's docstring return shape fixed to
+  (B, n_keep) kept entries (was the stale "(B, total_size)"; the
+  code returns geom.decode(y + base) = kept entries).
+
+GATES: GCT-A extended and re-run — the dispatch legs verified by
+exec-extracting the nested _rebuild_geometry and driving it with
+stubs (marker class resolved, "cls" popped before from_state, a
+missing marker raises a loud KeyError naming a re-save), plus the
+static save/rebuild/import checks; D-CT2 verified block-style +
+re-parsed with ruby -ryaml; D-CT3 docstring checked. ALL GCT-A/B +
+D-CT1/2/3 PASS; five-rule math scanner CLEAN (no README line moved);
+py_compile clean (results, PCE/loss_functions, inference, adapter).
+The REAL factored save->rebuild->predict round-trip is added to
+GCT-C (workstation) alongside the parity probe.
+
+FLAG carried (not a delta, Architect's GCT-C rider): MPS has no
+float64; the geometry whitening tensors are float64-heritage, so on
+device='mps' rebuild's .to(device) / the predictor's _dtype row may
+need an explicit downcast or the adapter documents cuda/cpu for
+inference — verified when GCT-C-dev runs.

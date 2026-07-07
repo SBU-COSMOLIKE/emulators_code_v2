@@ -48,7 +48,8 @@ emulator/                              the library (pure torch, except geometrie
   training.py                          build model/opt/sched, training loop, run_emulator
   experiment.py                        EmulatorExperiment: the whole setup as one object
   scheduling.py                        GPU job balancing + worker pool + VRAM packing
-  results.py                           save_learning_curves; save_emulator (.emul + .h5)
+  results.py                           save_learning_curves; save_emulator + rebuild_emulator
+  inference.py                         EmulatorPredictor: rebuild + predict (MCMC inference)
   plotting.py                          history / learning-curve / coverage / xi plots
   diagnostics.py                       coverage, local-linear floor, hard-direction fits
   PCE/  IA/                            experimental variants (section 4)
@@ -59,12 +60,17 @@ sweep_ntrain_*.py                      CLI: f(dchi2 > thr) vs N_train   (multi-G
 sweep_hyperparam_*.py                  CLI: sweep ONE YAML-chosen knob  (multi-GPU)
 bakeoff_activation_*.py                CLI: one curve per activation    (multi-GPU)
 example_yamls/                         template YAMLs; copy one into a project's --fileroot
+cobaya_theory/                         Cobaya Theory adapter (MCMC) + example evaluate YAML
 ```
 
 The driver scripts sit beside `emulator/` (no `driver/` subfolder): launching one
 puts its own folder on `sys.path`, so `import emulator` resolves with no path
 setup. In a cocoa install this folder is
 `external_modules/code/emulators/emultrfv2/`; run the drivers from `$ROOTDIR`.
+The `cobaya_theory/` folder sits beside `emulator/` too; its thin Theory
+adapter drives `emulator/inference.py` (`EmulatorPredictor`) to run a saved
+emulator inside a Cobaya MCMC (it prepends the repo root to `sys.path` so
+`import emulator` resolves from a folder deeper).
 
 Only `geometries_output.py` imports cosmolike, so training runs on a machine
 with a working Cocoa installation; the library everywhere else is pure PyTorch
@@ -105,7 +111,8 @@ and reviewable anywhere.
 |---|---|
 | `experiment.py` | `EmulatorExperiment`: config → device → data → geometry → chi2 → spec → train as one reusable object (`from_yaml` / `from_config`). The drivers compose it. |
 | `scheduling.py` | GPU job balancing (`lpt_assign` by cost, `even_assign` round-robin), the spawned worker pool (`run_gpu_pool`: one process per GPU lane, per-GPU job queues), and the `--gpu-pack` VRAM-token machinery (`estimate_train_vram_fraction`, `vram_tokens`). |
-| `results.py` | `save_learning_curves` / `save_sweep_table`: `np.loadtxt`-friendly plain-text tables. `save_emulator`: a trained run as `.emul` (weights, cpu state_dict) + `.h5` (whitening geometries, histories, config). |
+| `results.py` | `save_learning_curves` / `save_sweep_table`: `np.loadtxt`-friendly plain-text tables. `save_emulator`: a trained run as `.emul` (weights, cpu state_dict) + `.h5` (whitening geometries, histories, config, and the schema-v2 resolved recipe). `rebuild_emulator`: reconstruct the inference-ready module + geometries (+ NPCE base) from the `.h5` alone. |
+| `inference.py` | `EmulatorPredictor`: rebuild a saved emulator (schema v2, the h5 alone) and predict the physical data vector — encode with the saved `ParamGeometry`, module forward, the factored-IA amplitude combine or the NPCE base recombine (reusing the exact training `chi2fn.decode`), then decode. The in-package inference physics the Cobaya adapter wraps. |
 | `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves. |
 | `diagnostics.py` | Post-training analyses: coverage (kNN distance vs error), the local-linear data floor, the hard-direction regression. |
 

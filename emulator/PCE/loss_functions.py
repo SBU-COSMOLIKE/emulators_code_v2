@@ -114,7 +114,7 @@ class PCEResidualChi2(CosmolikeChi2):
       params_whitened = (B, n_param) whitened inputs (for the base).
 
     Returns:
-      (B, total_size) physical dv: geom.decode(y + base).
+      (B, n_keep) physical (kept-entry) dv: geom.decode(y + base).
     """
     return self.geom.decode(y + self._base(params_whitened))
 
