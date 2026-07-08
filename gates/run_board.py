@@ -12,14 +12,16 @@ needs its saved file); any other failure never stops the rest.
 BOARD.md is the final pass/fail table. Terms: the glossary at the top
 of board.py.
 
-Typical use on the workstation:
+Typical use on the workstation, from the Cocoa root ($ROOTDIR, cocoa
+env active; the harness finds its own files, so any directory works):
 
-    git pull                              # tip = the harness commit
-    <activate the cocoa env>
-    python gates/run_board.py --check     # preflight only
-    python gates/run_board.py --dry-run   # print the plan
-    python gates/run_board.py             # the whole board, in order
-    git add -f gates/logs && git commit -m "workstation board run: logs"
+    G=external_modules/code/emulators_code_v2/gates
+    git -C $G/.. pull                  # tip = the harness commit
+    python $G/run_board.py --check     # preflight only
+    python $G/run_board.py --dry-run   # print the plan
+    python $G/run_board.py             # the whole board, in order
+    git -C $G/.. add -f gates/logs
+    git -C $G/.. commit -m "workstation board run: logs"
 """
 
 import argparse

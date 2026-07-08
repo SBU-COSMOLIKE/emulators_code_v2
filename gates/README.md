@@ -63,15 +63,22 @@ default; the others run this leg only when you set their base in
 ## How to run it
 
 ```
-cd <the cocoa clone>
-git pull                                 # tip must be the harness commit
-<activate the cocoa env>                  # torch + cosmolike + cobaya
-edit gates/board_config.json              # fill root / driver paths once
-python gates/run_board.py --check         # preflight only (no GPU time)
-python gates/run_board.py --dry-run       # print the plan, run nothing
-python gates/run_board.py                 # the whole board, in order
-git add -f gates/logs && git commit -m "workstation board run: logs"
+cd $ROOTDIR                # the Cocoa root; the cocoa env already active
+                           # (torch + cosmolike + cobaya importable)
+G=external_modules/code/emulators_code_v2/gates
+
+git -C $G/.. pull                    # tip must be the harness commit
+edit $G/board_config.json            # fill root / driver paths once
+python $G/run_board.py --check       # preflight only (no GPU time)
+python $G/run_board.py --dry-run     # print the plan, run nothing
+python $G/run_board.py               # the whole board, in order
+git -C $G/.. add -f gates/logs
+git -C $G/.. commit -m "workstation board run: logs"
+git -C $G/.. push
 ```
+
+The harness finds its own files from its location, so it can be run
+from any directory; `$ROOTDIR` is just the natural cocoa working spot.
 
 Preflight aborts before any GPU time on a stale git tip, a dirty tree, a
 missing cocoa import, or a missing data path, and prints the remedy.
