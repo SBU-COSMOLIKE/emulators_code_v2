@@ -1,4 +1,6 @@
-# GFT-C control: the freeze_trunk TRUE twin (trunk frozen in phase 2); its phase-2 epoch time sits below the joint run's (the trunk backward is absent). restrf + nla, the same small trunk_epochs.
+# joint-training control: the freeze_trunk TRUE twin (trunk frozen in phase 2);
+# its phase-2 epoch time sits below the joint run's (no trunk backward).
+# restrf + nla, the same small trunk_epochs.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

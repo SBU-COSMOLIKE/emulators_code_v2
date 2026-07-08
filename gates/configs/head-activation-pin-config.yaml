@@ -1,4 +1,6 @@
-# GHA-F: a pinned-head gated_power activation (head-activation-per-component.md:405-430). restrf + trf.activation gated_power; the 'model spec:' banner shows the pin.
+# head-activation-pin (spec code GHA-F; head-activation-per-component.md:405-430): a pinned
+# gated_power head. restrf + trf.activation gated_power; the 'model spec:' banner
+# shows the pin.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

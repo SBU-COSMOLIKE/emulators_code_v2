@@ -1,4 +1,7 @@
-# GPC-C 2-point sweep_ntrain (npce-yaml-wiring.md:117-122): a pce residual config the sweep-over-n_train driver runs once per grid point. The 2-point grid comes from the driver flags --n-min 1000 --n-max 2000 --n-points 2 (the gate passes them); the base refits per point.
+# npce-training, sweep leg (spec code GPC-C; npce-yaml-wiring.md:117-122). A pce residual
+# config the sweep-over-n_train driver runs once per grid point; the 2-point grid
+# comes from the driver flags (--n-min 1000 --n-max 2000 --n-points 2, passed by
+# the test); the base refits per point.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

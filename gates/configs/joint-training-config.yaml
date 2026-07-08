@@ -1,4 +1,6 @@
-# GFT-C: freeze_trunk false joint phase 2 (freeze-trunk-joint-phase2.md:115-120). restrf + nla, SMALL trunk_epochs (the note orders small), freeze_trunk false; the banner regex 'two-phase: \d+ trunk' and phase 'joint' (D-GR1: the count is not pinned).
+# joint-training (spec code GFT-C; freeze-trunk-joint-phase2.md:115-120). restrf + nla,
+# SMALL trunk_epochs (the note orders small), freeze_trunk false; the banner
+# regex 'two-phase: \d+ trunk' and phase 'joint' (the trunk count is not pinned).
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

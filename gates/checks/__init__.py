@@ -1,24 +1,28 @@
-"""Acceptance checks for the workstation gates harness.
+"""The numeric checks the board's tests run.
 
-This package holds one module per non-trivial acceptance rule the
-board's gates assert. Two kinds live here. The pure text helpers in
-``logscan`` scan a run's captured stdout for the banner lines and
-patterns a gate's home note names, and compare the selected lines of
-two runs for byte identity. The numeric check scripts (``gwd_census``,
-``ge_c_eval_bs``, ``gsv_bitwise_drift``, ``gct_parity``) are executable
-programs the gates launch as subprocesses inside the cocoa env: they
-import the emulator package, compute the gate's numeric acceptance
-(the parameter-group census, the partition invariance, the bitwise
-save/rebuild equality, the training-vs-inference parity), print every
-value they check into the tee'd log, and exit nonzero on failure.
+Two kinds of file live here. ``logscan`` holds pure text helpers:
+find a banner line in a run's output, or compare the selected lines
+of two runs character by character (the golden-run proof). The other
+six files are stand-alone programs a test launches as a subprocess;
+each one computes a number the test needs and exits nonzero on
+failure, printing every value it compared into the test's log:
 
-The split is deliberate: nothing in this package imports torch,
-cosmolike, or cobaya at module load time, so ``board`` can import the
-pure helpers on the dev Mac (no heavy stack) while the numeric scripts
-pull torch in only when actually run on the workstation.
+  ge_c_eval_bs.py       eval-batch-invariance: validation chi2 agrees
+                        across eval batch sizes (rtol 1e-6).
+  gb_c_berhu_reduce.py  berhu-loss: the loss transform matches the
+                        hand references and is smooth at both joins.
+  gwd_census.py         weight-decay-census: only weight matrices
+                        land in the decayed optimizer group.
+  gt_b_triangle.py      triangle-shading: the corner plot greys
+                        exactly the cut panels.
+  gsv_bitwise_drift.py  save-rebuild-drift: a saved emulator rebuilds
+                        bit-for-bit, even against drifted defaults.
+  gct_parity.py         cobaya-adapter: the MCMC-time predictor
+                        matches the training side (rtol 1e-6).
 
-PS: tee = write a subprocess's output to the terminal and the log file
-at once; banner = a driver's human-readable startup / per-epoch status
-line the gate asserts on; byte identity = two runs whose selected log
-lines match to the character (a determinism / no-op-change proof).
+The filenames keep the internal spec codes (gb_c, gsv, ...) that key
+each test's history in notes/; the board runs them by test name. No
+file here imports torch, cosmolike, or cobaya at package-import time,
+so board.py can use the text helpers on a machine without the heavy
+stack; the six programs pull torch in only when actually run.
 """

@@ -1,4 +1,5 @@
-# GM-D: on-mode EMA smoke (weight-ema-snapshot-coupled.md:240-251). Short bs=64 run, ema horizon 3; banner names the horizon, a rewind fires.
+# ema-smoke (spec code GM-D; weight-ema-snapshot-coupled.md:240-251). Short bs=64 run,
+# ema horizon 3; the banner names the horizon and a rewind fires.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

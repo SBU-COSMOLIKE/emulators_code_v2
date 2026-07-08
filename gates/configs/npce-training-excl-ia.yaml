@@ -1,4 +1,6 @@
-# GPC-C exclusivity (DELIBERATELY INVALID, npce-yaml-wiring.md:117-122): pce beside model.ia. NPCE and the factored IA loss both replace the chi2 loss, so build must error loudly. The gate asserts nonzero exit + the exclusivity message.
+# npce-training, exclusivity leg (spec code GPC-C; npce-yaml-wiring.md:117-122).
+# DELIBERATELY INVALID: pce beside model.ia. Both replace the chi2 loss, so the
+# build must error loudly; the test expects a nonzero exit + the exclusivity message.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

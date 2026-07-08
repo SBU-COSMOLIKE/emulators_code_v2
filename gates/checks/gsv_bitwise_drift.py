@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""GSV-C: save schema v2 acceptance (bitwise + drift + v1 refusal).
+"""save-rebuild-drift (spec code GSV-C): a saved emulator reloads exactly.
 
-Trains three tiny emulators in-process (one plain, one factored ia:nla,
+WHAT: the save/rebuild contract (an emulator reconstructed from its h5
+file alone). WHY: a reload must ship the very model that was trained,
+even if the code's default values drift after the save; anything less
+silently changes published results. HOW: trains three tiny
+emulators in-process (one plain, one factored ia:nla,
 one NPCE pce), saves each, rebuilds from the file alone, and requires
 the rebuilt model's output BITWISE-EQUAL to the live model's on a probe
 batch (home note save-schema-resolved-config.md:86-93; one factored +
@@ -65,7 +69,7 @@ def load_deploy():
   rootdir = cfg.get("rootdir")
   driver_root = cfg.get("driver_root")
   if rootdir is None or driver_root is None:
-    print("GSV-C: board_config.json rootdir / driver_root are unset; "
+    print("save-rebuild-drift: board_config.json rootdir / driver_root are unset; "
           "the save gate needs the real training dumps.")
     sys.exit(2)
   root = Path(driver_root)
@@ -197,7 +201,7 @@ def run_variant(name, cfg, device, tmp):
 
 def main():
   """Run the three variants + the drift proof + the v1 refusal."""
-  print("== GSV-C: save -> rebuild bitwise + drift + v1 refusal ==")
+  print("== save-rebuild-drift (spec code GSV-C) ==")
   device, data_dir = load_deploy()
   print("device " + str(device) + ", dumps " + str(data_dir))
 
@@ -243,9 +247,9 @@ def main():
 
   print("")
   if len(FAILURES) == 0:
-    print("GSV-C: ALL PASS")
+    print("save-rebuild-drift: ALL PASS")
     return 0
-  print("GSV-C: " + str(len(FAILURES)) + " FAILURE(S)")
+  print("save-rebuild-drift: " + str(len(FAILURES)) + " FAILURE(S)")
   return 1
 
 

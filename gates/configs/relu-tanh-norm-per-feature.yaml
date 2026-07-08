@@ -1,4 +1,5 @@
-# GAN-C leg 1: tanh + per_feature norm (activation-families-norm-knob.md:99-101). The banner names the norm; the loss descends.
+# relu-tanh-norm, leg 1 (spec code GAN-C; activation-families-norm-knob.md:99-101):
+# tanh + per_feature norm. The banner names the norm; the loss descends.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

@@ -1,4 +1,5 @@
-# GAN-C leg 2: tanh + affine norm (the classic baseline, activation-families-norm-knob.md:99-101). The banner names the norm.
+# relu-tanh-norm, leg 2 (spec code GAN-C; activation-families-norm-knob.md:99-101):
+# tanh + affine norm, the classic baseline. The banner names the norm.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

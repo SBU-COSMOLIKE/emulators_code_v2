@@ -1,4 +1,6 @@
-# GPC-C: NPCE residual form (npce-yaml-wiring.md:117-122). A top-level pce block (form residual) refits the sparse-Legendre base; resmlp is the refiner; the fit report prints kept modes.
+# npce-training, residual form (spec code GPC-C; npce-yaml-wiring.md:117-122). A top-level
+# pce block (form residual) fits the sparse-Legendre base; resmlp is the refiner;
+# the fit report prints the kept modes.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

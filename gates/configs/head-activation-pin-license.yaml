@@ -1,4 +1,7 @@
-# GHA-F leg 4 (DELIBERATELY INVALID, head-activation-per-component.md:429-430): a head activation pin WITH freeze_trunk false -> build_specs errors with the frozen-trunk-head message. The gate asserts a nonzero exit + the message.
+# head-activation-pin, license leg (spec code GHA-F; head-activation-per-component.md:429-430).
+# DELIBERATELY INVALID: a head activation pin WITH freeze_trunk false ->
+# build_specs errors with the frozen-trunk-head message. The test expects a
+# nonzero exit + that message.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

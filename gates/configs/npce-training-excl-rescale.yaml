@@ -1,4 +1,7 @@
-# GPC-C exclusivity (npce-yaml-wiring.md:117-122): a pce residual config that, run WITH --rescale=residual (the gate passes the flag), must error -- pce and --rescale each replace the chi2 loss. The gate asserts a nonzero exit + the 'exclusive' message.
+# npce-training, rescale-exclusivity leg (spec code GPC-C; npce-yaml-wiring.md:117-122).
+# A pce residual config that, run WITH --rescale=residual (the test passes the
+# flag), must error: pce and --rescale each replace the chi2 loss. The test
+# expects a nonzero exit + the 'exclusive' message.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

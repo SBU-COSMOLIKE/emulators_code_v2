@@ -1,4 +1,5 @@
-# GPC-C: NPCE ratio form (npce-yaml-wiring.md:117-122). pce form ratio (base * (1 + net)); resmlp refiner.
+# npce-training, ratio form (spec code GPC-C; npce-yaml-wiring.md:117-122).
+# pce form ratio (base * (1 + net)); resmlp refiner.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

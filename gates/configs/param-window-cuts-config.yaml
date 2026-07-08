@@ -1,4 +1,6 @@
-# item-27: a deliberately tight omegamh2 window (omegamh2-ns-product-cuts.md:125-126). The run ends and the pool shrinkage matches the 'used N of P cut rows' banner.
+# param-window-cuts (spec code item-27; omegamh2-ns-product-cuts.md:125-126). A deliberately
+# tight omegamh2 window; the run ends and the pool shrinkage matches the
+# 'used N of P cut rows' banner.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""GCT-C: the cobaya adapter parity probe + the factored round-trip.
+"""cobaya-adapter parity (spec code GCT-C): inference equals training.
 
-Trains a tiny plain emulator and a tiny factored (ia:nla) one, saves
+WHAT: EmulatorPredictor, the object the cobaya theory block calls for
+every MCMC step. WHY: an MCMC must sample the model that was trained;
+a predictor that deviates even slightly biases every posterior drawn
+from it. HOW: trains a tiny plain emulator and a tiny factored (ia:nla) one, saves
 each, builds an EmulatorPredictor from the saved file, and requires the
 predictor's data vector to match the TRAINING-side prediction on the
 same probe points to rtol 1e-6 (home note cobaya-theory-adapter.md
@@ -103,7 +106,7 @@ def run_parity(name, cfg, device, tmp, factored):
 
 def main():
   """Run the plain parity probe + the factored round-trip."""
-  print("== GCT-C: predictor-vs-training parity + factored round-trip ==")
+  print("== cobaya-adapter parity (spec code GCT-C) ==")
   device, data_dir = load_deploy()
   print("device " + str(device) + ", dumps " + str(data_dir))
 
@@ -120,13 +123,13 @@ def main():
              factored=True)
 
   print("")
-  print("GCT-C note: the example evaluate run (cobaya-run vs the lsst_y1 "
+  print("note: the example evaluate run (cobaya-run vs the lsst_y1 "
         "likelihood) and the MCMC smoke are driven by the board gate "
         "(gate_gct_c), not this parity check.")
   if len(FAILURES) == 0:
-    print("GCT-C parity: ALL PASS")
+    print("cobaya-adapter parity: ALL PASS")
     return 0
-  print("GCT-C parity: " + str(len(FAILURES)) + " FAILURE(S)")
+  print("cobaya-adapter parity: " + str(len(FAILURES)) + " FAILURE(S)")
   return 1
 
 

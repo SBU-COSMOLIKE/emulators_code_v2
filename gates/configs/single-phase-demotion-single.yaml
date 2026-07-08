@@ -1,4 +1,6 @@
-# GP-D leg 1: single-phase resmlp WITH phase keys (resolve-phase-args-single-phase.md:110-113). The demotion notice fires and the run trains (was a traceback).
+# single-phase-demotion (spec code GP-D; resolve-phase-args-single-phase.md:110-113):
+# a single-phase resmlp WITH phase keys. The demotion notice fires and the run
+# trains (this exact config used to be a traceback).
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

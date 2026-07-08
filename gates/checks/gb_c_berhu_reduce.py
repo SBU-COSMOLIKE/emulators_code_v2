@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
-"""GB-C leg 1: the berhu / _reduce numerics + autograd continuity.
+"""berhu-loss, numeric leg (spec code GB-C): the loss math is right.
 
-Drives the REAL CosmolikeChi2._reduce on fabricated per-sample chi2
-tensors (home note loss-mode-berhu.md:148-153). With trim and focus
-off, _reduce reduces a single-element input to its per-sample transform
-v(c), so probing it at chosen c values reads v(c) straight from the
-shipped code. The gate checks: berhu == sqrt below the knot;
-berhu_capped == berhu below the cap; both match the manual reference
-formula; the transform is C1 (value + first derivative continuous)
-across BOTH knots; and it all holds for non-default knots. Prints every
-value it compares and exits nonzero on any mismatch.
+WHAT: the berHu loss transform v(c) as shipped in
+CosmolikeChi2._reduce. WHY: the training loss is the one piece a run
+cannot cross-check itself — if v(c) or its derivative is wrong at the
+joins, every berHu run silently optimizes the wrong thing. HOW: with
+trim and focus off, _reduce of a single-element tensor returns v(c),
+so this script probes the shipped code at chosen c values and checks:
+berhu == sqrt below the knot; berhu_capped == berhu below the cap;
+both match the hand-written reference formulas; value and first
+derivative continuous across BOTH joins (via torch.autograd); the
+anneal blend s=0 is plain sqrt and s=1 the full shape; all repeated at
+non-default knots. Prints every value compared, exits nonzero on any
+mismatch (spec: loss-mode-berhu.md:148-153).
 
-_reduce is an instance method but reads no instance state (only the
-tensor c and the passed knots), so it is called unbound with self=None.
+_reduce is a method but reads no instance state (only the tensor c and
+the passed knots), so it is called unbound with self=None.
 
-PS: knot t1 = the lower C1 join (sqrt below, chi2-like above); cap t2 =
-the upper C1 join of berhu_capped (sqrt-shaped tail above); C1 = the
-value and its first derivative are continuous at a join; autograd
-continuity = the derivative from torch.autograd matches on both sides.
+PS: knot t1 = the lower join (sqrt below, linear-in-c above); cap t2 =
+the upper join of berhu_capped (sqrt-shaped tail above); C1 = value
+and first derivative both continuous at a join.
 """
 
 import sys
@@ -215,7 +217,7 @@ def check_knots(t1, t2, tol, dtol):
 
 def main():
   """Run the census over the default and a non-default (knot, cap)."""
-  print("== GB-C leg 1: berhu / _reduce numerics + autograd continuity ==")
+  print("== berhu-loss numerics (spec code GB-C) ==")
   # default knots (train_args.loss.berhu defaults: knot 0.2, cap 10.0).
   check_knots(t1=0.2, t2=10.0, tol=1.0e-9, dtol=1.0e-4)
   # non-default knots (the same shape must hold).
@@ -223,9 +225,9 @@ def main():
 
   print("")
   if len(FAILURES) == 0:
-    print("GB-C leg 1: ALL PASS")
+    print("berhu-loss numerics: ALL PASS")
     return 0
-  print("GB-C leg 1: " + str(len(FAILURES)) + " FAILURE(S)")
+  print("berhu-loss numerics: " + str(len(FAILURES)) + " FAILURE(S)")
   return 1
 
 

@@ -1,4 +1,5 @@
-# GP-D leg 2 (control): the same phase keys on a two-phase rescnn+nla reproduce today's behavior (resolution is a no-op for capable models).
+# single-phase-demotion control: the same phase keys on a two-phase rescnn + nla
+# reproduce today's behavior (the resolution is a no-op for capable models).
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

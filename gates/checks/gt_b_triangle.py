@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""GT-B (optional): the synthetic four-window triangle shading.
+"""triangle-shading (spec code GT-B, optional): the corner plot is honest.
 
-Renders a synthetic-sample triangle headlessly (matplotlib Agg) through
-the REAL plotting._lcdm_triangle_fig with all four cut windows active,
-then asserts on the axes' artist lists (home note
-triangle-cut-shading-all-windows.md:72-75): grey fills appear on the
-2-D panels, every fill uses the one shared rgba (plotting._CUT_GREY),
-and the omh2 1-D marginal carries an axvspan band. Prints the per-panel
-shading census and exits nonzero on any failure. Needs only getdist +
-matplotlib (no torch / cosmolike).
+WHAT: the grey cut-window shading on the diagnostics corner plot. WHY:
+the shading tells a reader which parameter regions the density cuts
+removed; a wrongly placed or wrongly coloured fill misleads exactly
+where the plot is supposed to warn. HOW: render a synthetic-sample
+triangle headlessly (matplotlib Agg) through the real
+plotting._lcdm_triangle_fig with all four cut windows active, then
+check the drawn artists on each panel: grey fills appear on the 2-D
+panels, every fill uses the one shared colour (plotting._CUT_GREY),
+and the omh2 1-D marginal carries a vertical band. Prints the
+per-panel counts, exits nonzero on any failure. Needs only getdist +
+matplotlib (spec: triangle-cut-shading-all-windows.md:72-75).
 
-PS: sharp window = a cut window whose boundary crosses a panel's range,
-so the excluded region shows as grey; the omh2 marginal = the 1-D
-diagonal panel of the derived omega_m h^2, shaded with vertical spans.
+PS: the omh2 marginal = the 1-D diagonal panel of the derived
+omega_m h^2, shaded with vertical spans (axvspan).
 """
 
 import sys
@@ -89,7 +91,7 @@ def close_to_grey(rgba):
 
 def main():
   """Render the four-window triangle and assert its shading artists."""
-  print("== GT-B: synthetic four-window triangle shading ==")
+  print("== triangle-shading (spec code GT-B) ==")
   source, names, dchi2 = synthetic_source(n_rows=4000)
 
   # all four windows active, bounds that straddle the synthetic scatter.
@@ -110,7 +112,7 @@ def main():
          fig is not None,
          "fig is None means < 2 LCDM columns recognized")
   if fig is None:
-    print("\nGT-B: 1 FAILURE(S)")
+    print("\ntriangle-shading: 1 FAILURE(S)")
     return 1
 
   # walk the axes: count grey fills, off-grey artists, and axvspan bands.
@@ -148,9 +150,9 @@ def main():
 
   print("")
   if len(FAILURES) == 0:
-    print("GT-B triangle: ALL PASS")
+    print("triangle-shading: ALL PASS")
     return 0
-  print("GT-B triangle: " + str(len(FAILURES)) + " FAILURE(S)")
+  print("triangle-shading: " + str(len(FAILURES)) + " FAILURE(S)")
   return 1
 
 

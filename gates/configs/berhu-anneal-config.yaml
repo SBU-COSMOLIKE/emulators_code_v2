@@ -1,4 +1,6 @@
-# GBA-C: berhu anneal smoke (berhu-anneal-schedule.md:199-221). Banner '(knot 0.2, cap 10; anneal: hold 5 + 10 cosine)'; loss continuous at the hold boundary, s=1 by epoch 15.
+# berhu-anneal smoke (spec code GBA-C; berhu-anneal-schedule.md:199-221). Banner
+# '(knot 0.2, cap 10; anneal: hold 5 + 10 cosine)'; loss continuous at the hold
+# boundary, s=1 by epoch 15.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

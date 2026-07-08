@@ -1,4 +1,6 @@
-# GH-E: a head scheduler override (phase-blocks-nested-lr-scheduler.md:262-267). The banner shows [head overrides: scheduler]; the head phase cuts on patience 10 vs the run's 25.
+# head-scheduler-override (spec code GH-E; phase-blocks-nested-lr-scheduler.md:262-267).
+# The banner shows [head overrides: scheduler]; the head phase cuts on
+# patience 10 vs the run's 25.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

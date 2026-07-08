@@ -1,4 +1,6 @@
-# GME-C: EMA anneal smoke (ema-anneal-schedule.md:180-197). Banner 'ema: horizon 3 epochs (... anneal: hold 5 + 10 cosine ...)'; the average appears at the live point (epoch 6+).
+# ema-anneal smoke (spec code GME-C; ema-anneal-schedule.md:180-197). Banner
+# 'ema: horizon 3 epochs (... anneal: hold 5 + 10 cosine ...)'; the average
+# appears at the live point (epoch 6+).
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

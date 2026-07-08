@@ -1,4 +1,6 @@
-# GB-C leg 2: head-berhu under the nested loss schema (loss-mode-berhu.md:290-314). Trunk banner 'loss_mode sqrt', head banner 'loss_mode berhu_capped (knot 0.2, cap 10)'.
+# berhu-loss, training leg (spec code GB-C; loss-mode-berhu.md:290-314): head-berhu under the
+# nested loss schema. Trunk banner 'loss_mode sqrt'; head banner
+# 'loss_mode berhu_capped (knot 0.2, cap 10)'.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

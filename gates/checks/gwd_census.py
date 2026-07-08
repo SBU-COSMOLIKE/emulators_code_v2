@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""GWD-C: the weight-decay parameter-group census on a live optimizer.
+"""weight-decay-census (spec code GWD-C): decay hits only weight matrices.
 
-Builds a toy module tree carrying one of every family (nn.Linear,
+WHAT: the rule inside make_optimizer that decides which parameters get
+L2 weight decay. WHY: decaying an activation's shape parameters or a
+bias drags them toward zero and quietly deforms the model; the rule
+must pick parameters by module role, never by tensor shape. HOW: builds
+a toy module tree carrying one of every family (nn.Linear,
 nn.Conv1d, BinLinear, Affine, FeatureAffine, a gated_power activation
 with (K, dim) shape parameters, LayerNorm), runs the REAL make_optimizer
 with weight_decay 1e-4, and asserts the census the home note requires
@@ -63,7 +67,7 @@ class ToyTree(nn.Module):
 
 def main():
   """Build the toy tree, run make_optimizer, and assert the census."""
-  print("== GWD-C: weight-decay param-group census ==")
+  print("== weight-decay-census (spec code GWD-C) ==")
   torch.manual_seed(0)
   device = torch.device("cpu")
   model = ToyTree()
@@ -152,9 +156,9 @@ def main():
 
   print("")
   if len(FAILURES) == 0:
-    print("GWD-C census: ALL PASS")
+    print("weight-decay-census: ALL PASS")
     return 0
-  print("GWD-C census: " + str(len(FAILURES)) + " FAILURE(S)")
+  print("weight-decay-census: " + str(len(FAILURES)) + " FAILURE(S)")
   return 1
 
 
