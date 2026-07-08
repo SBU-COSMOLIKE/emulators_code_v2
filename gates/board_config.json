@@ -34,6 +34,7 @@
 
   "gate_configs": {
     "production-diagnostic-config": "train_single_emulator_cosmic_shear.yaml",
+    "ema-off-identity-golden": "../gates/configs/ema-off-identity-golden.yaml",
     "ema-smoke-config": "../gates/configs/ema-smoke-config.yaml",
     "single-phase-demotion-single": "../gates/configs/single-phase-demotion-single.yaml",
     "single-phase-demotion-control": "../gates/configs/single-phase-demotion-control.yaml",

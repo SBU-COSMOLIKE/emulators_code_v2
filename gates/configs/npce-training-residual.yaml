@@ -25,6 +25,30 @@ train_args:
   bs:      256
   loss:
     mode: sqrt
+  # baseline train_args blocks build_run_specs requires (template defaults):
+  optimizer:
+    weight_decay: 0.0
+  lr:
+    lr_base:       0.0025
+    bs_base:       64.0
+    warmup_epochs: 5
+  scheduler:
+    mode:     min
+    patience: 25
+    factor:   0.8
+  trim:
+    start:         0.1
+    end:           0.025
+    hold_epochs:   50
+    anneal_epochs: 300
+    shape:         cosine
+  focus:
+    start:         0.0
+    end:           2.0
+    hold_epochs:   50
+    anneal_epochs: 300
+    shape:         linear
+    kappa:         0.15
   model:
     name: resmlp
     mlp:

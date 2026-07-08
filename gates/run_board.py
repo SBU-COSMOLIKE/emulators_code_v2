@@ -245,9 +245,22 @@ class RunContext:
   # ---- config paths ------------------------------------------------------
 
   def _yaml_dir(self):
-    """The directory holding the driver YAMLs, or None if unset."""
+    """The absolute directory holding the driver YAMLs, or None if unset.
+
+    A rootdir-relative yaml_dir is resolved against rootdir (the same
+    rule preflight (d) uses), so the --yaml handed to every driver is an
+    absolute path (an already-absolute yaml_dir is used unchanged). The
+    driver then reads that path from any launch directory, and the pinned
+    golden leg (run in a temporary worktree) reads the same file.
+    """
     value = self.cfg.get("yaml_dir")
-    return None if value is None else Path(value)
+    if value is None:
+      return None
+    base = Path(value)
+    rootdir_value = self.cfg.get("rootdir")
+    if not base.is_absolute() and rootdir_value is not None:
+      base = Path(rootdir_value) / value
+    return base
 
   def config_yaml_name(self, yaml_name):
     """Resolve a literal YAML filename against the configured yaml_dir.

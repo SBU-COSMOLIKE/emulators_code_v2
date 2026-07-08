@@ -117,6 +117,13 @@ def tiny_config(data_dir, *, ia=None, pce=False):
            "compile_mode": None}
   if ia is not None:
     model["ia"] = ia
+  # trim + focus are hard-required by build_run_specs (training.py:
+  # dict(train_args["trim"]) / dict(train_args["focus"]), no default), so
+  # a config without them raises KeyError before training. Benign off
+  # values: start == end == 0 makes anneal_value return 0 every epoch, so
+  # no trimming or focal weighting complicates the bitwise save contract.
+  # Every key anneal_value reads (start / end / hold_epochs /
+  # anneal_epochs / shape) plus focus's kappa is present.
   train_args = {"nepochs": 3,
                 "bs": 32,
                 "loss": {"mode": "sqrt"},
@@ -124,7 +131,18 @@ def tiny_config(data_dir, *, ia=None, pce=False):
                 "model": model,
                 "optimizer": {"weight_decay": 0.0},
                 "lr": {"lr_base": 0.001, "bs_base": 64.0, "warmup_epochs": 1},
-                "scheduler": {"mode": "min", "patience": 10, "factor": 0.8}}
+                "scheduler": {"mode": "min", "patience": 10, "factor": 0.8},
+                "trim": {"start": 0.0,
+                         "end": 0.0,
+                         "hold_epochs": 0,
+                         "anneal_epochs": 1,
+                         "shape": "cosine"},
+                "focus": {"start": 0.0,
+                          "end": 0.0,
+                          "hold_epochs": 0,
+                          "anneal_epochs": 1,
+                          "shape": "linear",
+                          "kappa": 0.15}}
   cfg = {"data": data, "train_args": train_args}
   if pce:
     cfg["pce"] = {"form": "residual"}

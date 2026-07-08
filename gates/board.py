@@ -101,7 +101,8 @@ class Gate:
 # them with the gate's own config keys and acceptance substrings.
 # --------------------------------------------------------------------------
 
-def _golden_leg(ctx, gate_id, yaml_name, grep_pattern):
+def _golden_leg(ctx, gate_id, grep_pattern, *, yaml_name=None,
+                config_key=None):
   """Run a gate's golden run, or skip it with a logged note.
 
   Trains the same config on the current tree and on the gate's pinned
@@ -111,9 +112,15 @@ def _golden_leg(ctx, gate_id, yaml_name, grep_pattern):
   Arguments:
     ctx          = the per-test helper.
     gate_id      = the gate whose golden_bases entry names the base.
-    yaml_name    = the config both builds train on.
     grep_pattern = the regex selecting the lines to compare
                    (e.g. "^(phase|epoch|best)").
+    yaml_name    = a shipped config, resolved by bare name against
+                   yaml_dir; the default for most golden legs.
+    config_key   = a gate_configs key, resolved through require_config,
+                   used when a golden leg needs its own bespoke config
+                   (ema-off-identity's short golden run). Both legs use
+                   the same resolved path; pass exactly one of
+                   yaml_name / config_key.
   """
   base = ctx.golden_base(gate_id)
   if base is None:
@@ -124,7 +131,10 @@ def _golden_leg(ctx, gate_id, yaml_name, grep_pattern):
             "acceptance (harness handoff decision point).")
     return
 
-  yaml_path = ctx.config_yaml_name(yaml_name)
+  if config_key is not None:
+    yaml_path = ctx.require_config(config_key)
+  else:
+    yaml_path = ctx.config_yaml_name(yaml_name)
   ctx.log("golden byte-identity: current tree vs pinned " + base)
   _, cur = ctx.run_driver(yaml_path=yaml_path)
   with ctx.worktree(commit=base) as wt:
@@ -178,15 +188,19 @@ def _smoke_driver(ctx, config_key, required_banners, *, extra=()):
 def gate_gm_c(ctx):
   """ema-off-identity: EMA switched off must change nothing.
 
-  WHAT: training with no ema block. WHY: a feature that is off must not
-  perturb any existing run. HOW: the same config trained on the current
-  tree and on the pre-EMA commit must give character-identical epoch and
-  best-epoch lines (spec: weight-ema-snapshot-coupled.md:98-101, 229-238).
+  WHAT: a short (~40 epoch) plain resmlp run with no ema block. WHY: a
+  feature that is off must not perturb any existing run. HOW: the same
+  config trained on the current tree and on the pre-EMA commit must give
+  character-identical epoch and best-epoch lines (spec:
+  weight-ema-snapshot-coupled.md:98-101, 229-238). The golden config is
+  its own short bespoke YAML (ema-off-identity-golden), resolved through
+  gate_configs for both legs; identity is proven per epoch line, so two
+  production-length runs are not required.
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="ema-off-identity",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              config_key="ema-off-identity-golden",
               grep_pattern="^(epoch|best epoch)")
 
 
@@ -224,9 +238,13 @@ def gate_diag(ctx):
   ctx.require_caps("cosmolike")
   ctx.log("G1: dead-class census (NLATemplateMLP / NLAInputGeometry) "
           "+ clean package import.")
+  # exclude gates/ (this harness's own gate_diag holds the literal
+  # search pattern) and .git/ (packed objects) so the census counts only
+  # real emulator-package hits, never a self-match on the pattern string.
   rc_grep, out_grep = ctx.sh(
     cmd=["grep", "-rn", "NLATemplateMLP\\|NLAInputGeometry",
-         "--include=*.py", ".", "README.md"],
+         "--include=*.py", "--exclude-dir=gates", "--exclude-dir=.git",
+         ".", "README.md"],
     allow_fail=True)
   # emulator.parallel was deleted (commit 29b23dd) after the note's
   # import line was written, so it is not imported here.
@@ -237,8 +255,10 @@ def gate_diag(ctx):
   diag_yaml = ctx.require_config("production-diagnostic-config")
   ctx.log("production-diagnostic production run: tight omegamh2 window + nested "
           "param_cuts + absolute n_train/n_val, with the diagnostics PDF.")
+  # --diagnostic takes the PDF name root (the run identity is appended);
+  # gates_diag names this board's diagnostics PDF under --root/chains.
   rc_run, out_run = ctx.run_driver(yaml_path=diag_yaml,
-                                   extra=("--diagnostic",),
+                                   extra=("--diagnostic=gates_diag",),
                                    allow_fail=True)
 
   if ctx.dry:

@@ -1,6 +1,16 @@
-# berhu-anneal smoke (spec code GBA-C; berhu-anneal-schedule.md:199-221). Banner
-# '(knot 0.2, cap 10; anneal: hold 5 + 10 cosine)'; loss continuous at the hold
-# boundary, s=1 by epoch 15.
+# ema-off-identity, golden config (spec code GM-C;
+# weight-ema-snapshot-coupled.md:98-101, 229-238). A SHORT (~40 epoch)
+# plain resmlp run with NO ema block. The golden byte-identity leg trains
+# this on the current tree and on the pre-EMA commit (46ec5e1, in a
+# temporary worktree) and requires character-identical epoch / best-epoch
+# lines: EMA switched off must reproduce the pre-EMA run bit for bit.
+#
+# Declared deviation from the home note's literal production YAML: identity
+# is proven per epoch line, so two production-length runs are not required
+# (both golden legs resolve THIS config through the ema-off-identity-golden
+# gate_configs key). Every train_args sub-block build_run_specs reads is
+# present (model, optimizer, lr, scheduler, trim, focus); ema is
+# deliberately absent, the point of the test.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
@@ -21,24 +31,22 @@ data:
   ram_frac:      0.7
 
 train_args:
-  nepochs: 20
+  nepochs: 40
   bs:      256
   loss:
-    mode: berhu_capped
-    berhu:
-      knot: 0.2
-      cap:  10
-      anneal:
-        hold_epochs:   5
-        anneal_epochs: 10
-        shape:         cosine
-  # baseline train_args blocks build_run_specs requires (template defaults):
+    mode: sqrt
+  # no ema block: EMA off must be byte-identical to the pre-EMA run.
+  model:
+    name: resmlp
+    mlp:
+      width:    128
+      n_blocks: 4
   optimizer:
     weight_decay: 0.0
   lr:
     lr_base:       0.0025
     bs_base:       64.0
-    warmup_epochs: 3
+    warmup_epochs: 10
   scheduler:
     mode:     min
     patience: 25
@@ -56,8 +64,3 @@ train_args:
     anneal_epochs: 300
     shape:         linear
     kappa:         0.15
-  model:
-    name: resmlp
-    mlp:
-      width:    128
-      n_blocks: 4

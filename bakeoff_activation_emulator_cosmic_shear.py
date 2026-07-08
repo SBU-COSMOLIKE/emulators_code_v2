@@ -54,9 +54,9 @@ file, read in slices so it is never loaded whole.
 #- `--root` (required): project folder under $ROOTDIR (data resolves under it);
 #  `--fileroot` (required): subfolder holding the YAML and curve outputs (e.g.
 #  emulators/training_scripts). Cocoa layout, as in the training driver.
-#- `--yaml` (default test.yaml): config under --fileroot (data + train_args),
-#  training-driver schema. The `data` block lists bare filenames, resolved under
-#  --root/chains.
+#- `--yaml` (default test.yaml): config under --fileroot, or an absolute path
+#  used as-is (data + train_args), training-driver schema. The `data` block
+#  lists bare filenames, resolved under --root/chains.
 #- `--activations` (default H,power,multigate,gated_power): comma-separated
 #  subset to bake off.
 #- `--rescale`: analytic-R mode, fixed across the bake-off (as in training).

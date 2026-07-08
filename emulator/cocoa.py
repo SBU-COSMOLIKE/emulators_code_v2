@@ -9,7 +9,8 @@ emulator's YAML and outputs (e.g. emulators/training_scripts), and the training
 dataset_generator_lensing.py writes them). add_cocoa_path_args registers
 the three shared flags (--root, --fileroot, --yaml); resolve_cocoa_config reads
 $ROOTDIR, builds the two roots, ensures the project chains/ folder exists, loads
-the YAML from the fileroot, and rewrites the config's data paths to absolute so
+the YAML from the fileroot (or an absolute --yaml as-is), and rewrites the
+config's data paths to absolute so
 the experiment reads them regardless of the launch directory. It returns the
 config plus the fileroot (configs) and chains (data + run products) folders;
 cocoa_output places a run output under one of them.
@@ -63,8 +64,9 @@ def add_cocoa_path_args(parser):
                       required=True)
   parser.add_argument("--yaml",
                       dest="yaml",
-                      help="config YAML under --fileroot (data + "
-                           "train_args blocks); default test.yaml",
+                      help="config YAML under --fileroot, or an "
+                           "absolute path used as-is (data + train_args "
+                           "blocks); default test.yaml",
                       type=str,
                       default=None)
 
@@ -75,7 +77,8 @@ def resolve_cocoa_config(args):
 
   Reads $ROOTDIR, joins --root and --fileroot under it, ensures the
   project chains/ folder exists, loads the YAML from the fileroot
-  (test.yaml when --yaml is unset), and rewrites every data-block file
+  (test.yaml when --yaml is unset; an absolute --yaml is read as-is),
+  and rewrites every data-block file
   path (train / val dv, params, covmat, bare filenames in the YAML) to
   an absolute path under the project's chains/ folder. Resolving here,
   not in the YAML, lets the driver run from $ROOTDIR (the cocoa launch
@@ -104,9 +107,17 @@ def resolve_cocoa_config(args):
   chains = f"{root}/chains"
   Path(chains).mkdir(parents=True, exist_ok=True)
 
-  # the YAML lives under the emulator's fileroot; default test.yaml.
-  yaml_path = (f"{fileroot}/test.yaml" if args.yaml is None
-               else f"{fileroot}/{args.yaml}")
+  # the YAML lives under the emulator's fileroot; default test.yaml. An
+  # absolute --yaml is read as-is (os.path.isabs), mirroring the data-path
+  # rewrite below, where os.path.join lets an absolute path through
+  # unchanged; this lets a caller (e.g. the gates harness) pass a
+  # fully-resolved path from outside the fileroot.
+  if args.yaml is None:
+    yaml_path = f"{fileroot}/test.yaml"
+  elif os.path.isabs(args.yaml):
+    yaml_path = args.yaml
+  else:
+    yaml_path = f"{fileroot}/{args.yaml}"
   if not os.path.isfile(yaml_path):
     raise FileNotFoundError(f"YAML file not found: {yaml_path}")
   with open(yaml_path) as f:

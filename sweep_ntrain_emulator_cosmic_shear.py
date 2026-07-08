@@ -59,8 +59,9 @@ loaded whole.
 #- `--root` (required): project folder under $ROOTDIR (data resolves under it);
 #  `--fileroot` (required): subfolder holding the YAML and curve outputs (e.g.
 #  emulators/training_scripts). Cocoa layout, as in the training driver.
-#- `--yaml` (default test.yaml): config under --fileroot (data + train_args),
-#  training-driver schema; train_args.model.name picks the architecture
+#- `--yaml` (default test.yaml): config under --fileroot, or an absolute path
+#  used as-is (data + train_args), training-driver schema;
+#  train_args.model.name picks the architecture
 #  (resmlp | rescnn | restrf) and model.ia the factored IA design layered
 #  on it (omit | nla | tatt), with the nested mlp / activation / cnn /
 #  trf sub-blocks, the optional two-phase trunk_epochs + trunk / head

@@ -972,3 +972,138 @@ docstring-stripped AST byte-identical for both files (the wraps use
 adjacent string literals, which the parser folds), py_compile, the
 stub legs, 18 dry-run plans, columns, README 105 lines. Rides the
 same single commit.
+
+## Implementer board run-1 fixes (2026-07-08, Opus, base de0b32d)
+
+The Architect's run-1 triage (five root causes; commit 7b7882a's logs)
+landed as six items. Base was de0b32d (HEAD == main; a user prose commit
+on top of 7b7882a, which is an ancestor; run-1 logs were never committed
+to git, so I worked from the triage's explicit failure descriptions).
+
+1. emulator/cocoa.py resolve_cocoa_config: an absolute --yaml is read
+   as-is (os.path.isabs branch; None still defaults to test.yaml,
+   relative still joins under fileroot). The --yaml flag help + the
+   module / function docstrings + the four driver headers' --yaml prose
+   (train_single, bakeoff, sweep_ntrain, tune_single; sweep_hyperparam
+   defers to the training driver) note the absolute option.
+2. gates/run_board.py _yaml_dir: a rootdir-relative yaml_dir resolves
+   against rootdir (the preflight (d) rule), so config_yaml_name /
+   require_config hand every driver an ABSOLUTE --yaml. The pinned
+   golden leg (temporary worktree) then reads the same fixed file.
+3. gates/board.py gate_diag: the production run passes
+   --diagnostic=gates_diag (the driver's --diagnostic takes the PDF
+   name root; the old bare --diagnostic would even argparse-error); the
+   G1 grep gains --exclude-dir=gates --exclude-dir=.git (without it the
+   grep self-matches gate_diag's own pattern string -> rc 0 -> false
+   FAIL; with it rc 1 -> 0 hits, proven locally).
+4. gates/checks/gb_c_berhu_reduce.py: the two flawed two-point C1 legs
+   (value / derivative "continuous" comparing points 2*eps apart at a
+   tolerance no smooth function meets: the run-1 gaps were exactly
+   2*eps*slope and eps*curvature) are replaced by analytic-derivative
+   checks. New ref_berhu_deriv / ref_berhu_capped_deriv (0.5/sqrt(c);
+   1/(2 sqrt t1); tail sqrt(t2)/(2 sqrt t1 sqrt c)); at c = t1*(1 +-
+   1e-3) and t2*(1 +- 1e-3), both knot sets, |transform - ref| < 1e-9
+   and |slope - ref_deriv| < 1e-6.
+5. gates/checks/gsv_bitwise_drift.py tiny_config: explicit trim + focus
+   blocks (start/end/hold_epochs/anneal_epochs/shape, focus + kappa;
+   benign off values start==end==0). build_run_specs (training.py:445-
+   446) hard-accesses train_args["trim"]/["focus"] with no default, so
+   the block-less config KeyError'd in run-1 (the in-process gsv was the
+   one config that got PAST the --yaml path failure).
+6. NEW gates/configs/ema-off-identity-golden.yaml (a complete, short
+   ~40-epoch plain-resmlp config, NO ema block, every train_args
+   sub-block present) + a gate_configs key ema-off-identity-golden;
+   _golden_leg gained a config_key= parameter (resolve through
+   require_config) and gate_gm_c passes it, so BOTH golden legs (current
+   tree + pinned 46ec5e1 worktree) train this one short bespoke config.
+   Declared deviation from the note's literal production YAML: identity
+   is proven per epoch line, so two production-length runs are not run.
+
+Mac gates (all green): py_compile (9 touched .py); ruby-parse of the new
+YAML (no ema, no missing required block, nepochs 40); the berhu analytic
+derivatives verified in pure python vs finite differences AND C0/C1 at
+both joins, both knot sets, ALL PASS (no torch); the gsv trim/focus
+verified by running the real build_run_specs + anneal_value (AST-
+extracted, no torch) over all three variants + several epochs, ALL PASS
+(no KeyError path remains); the G1 grep proven 0-hit with the excludes
+and self-matching without; the full --dry-run shows every --yaml
+ABSOLUTE, --diagnostic=gates_diag, both ema-off-identity legs naming the
+golden key, ZERO UNSET, exit 0; no line > 90 cols, no prose double-dash;
+all 10 null-base golden callers still log their skip cleanly (the
+_golden_leg signature change is board-wide compatible).
+
+DEVIATIONS / interpretation calls:
+- Item 1 "the driver header --yaml prose": read as all four drivers that
+  document --yaml standalone, plus cocoa.py's flag help + docstrings, so
+  no doc is left calling --yaml fileroot-only.
+- Item 6 golden trim/focus: the config carries the production template's
+  trim/focus shape; with nepochs 40 < hold_epochs 50 both hold their
+  start value all run (no anneal), deterministic and identical on both
+  commits. ASSUMPTION: 46ec5e1 reads the same trim/focus keys (they
+  predate EMA); if 46ec5e1's schema differed the golden leg's first raw
+  log shows it.
+
+### BLOCKING FINDING beyond the six items (Architect decision needed)
+
+Tracing item 5 surfaced a board-wide latent failure the run-1 triage
+could not see. build_run_specs (training.py:441-446) hard-accesses
+train_args["optimizer"], ["lr"], ["scheduler"], ["trim"], ["focus"]
+with NO default; from_config does no base-template merge (experiment.py
+:1095 default_train_args only collapses ranges; __init__:985-986 just
+assigns). ALL 19 smoke YAMLs under gates/configs are missing at least
+`optimizer` (most also lack lr/scheduler/trim/focus) -> build_run_specs
+raises KeyError('optimizer') for every driver-run smoke gate. In run-1
+these gates failed EARLIER at --yaml path resolution (items 1+2), so the
+missing-blocks failure was masked; once items 1+2 land, run-2 will
+KeyError ~15 smoke gates at build_run_specs (proven on the Mac: ema-
+smoke, berhu-loss, npce-residual, head-activation-pin-license all raise
+KeyError 'optimizer'; my complete golden YAML passes). The error-path
+gates (npce excl-*, head-activation-pin-license) would also fail their
+message assertions, since the KeyError fires before the intended
+validation error. This is a SIXTH root cause, outside the enumerated six
+items and a genuine design fork, so I did NOT act on it:
+  (a) complete every smoke YAML with the required blocks (aligns with
+      the never-trust-defaults philosophy: explicit config, no code
+      default) -- ~19 YAMLs, mechanical, benign off values; OR
+  (b) make build_run_specs tolerate absent optional blocks via
+      run_emulator's defaults (smaller, but leans on code defaults, and
+      run_emulator lacks defaults for every one of the five blocks, so
+      this is not a one-liner and touches production emulator code).
+RECOMMEND (a). I can execute either in the immediate follow-up on the
+Architect's ruling. Until then run-2 is still a diagnostic pass for the
+smoke tier.
+
+## Implementer smoke-YAML completion (2026-07-08, Opus, base d5694a5)
+
+Architect ruled fork option (a) (option (b) rejected: build_run_specs's
+hard requirement is the never-trust-defaults rule, production gains no
+fallbacks). Base d5694a5 (a user commit removing a duplicate commands/
+dir; the six-fix tree still uncommitted on top, verified intact). Every
+gates/configs/*.yaml now carries the full required train_args set
+(optimizer / lr / scheduler / trim / focus), explicit and template-
+shaped (ema-off-identity-golden.yaml is the 5/5 example), inserted before
+each model: block with a one-line "baseline blocks build_run_specs
+requires" comment. Warmup sized by nepochs: 20 -> 3, 40 -> 5, 60 -> 8.
+Only the MISSING blocks were added per file: the two ema smokes kept
+their lr + ema (added optimizer/scheduler/trim/focus); head-scheduler-
+override kept its run-default scheduler patience 25 + the head: patience
+10 override (added optimizer/lr/trim/focus); everything else got all
+five. Every gate-specific knob and banner input is preserved: the ema
+horizons/anneals, the berhu_capped head, freeze_trunk true/false on the
+joint pair, and the three DELIBERATELY INVALID configs stay invalid for
+their one declared reason (head-activation-pin-license: freeze_trunk
+false + a trf pin; npce-training-excl-ia: pce + model.ia; npce-training-
+excl-rescale: pce run with the gate's --rescale=residual) -- those errors
+fire in from_config / build_specs, before build_run_specs, so completing
+the blocks does not mask them.
+
+Mac gates (all green): ruby-parse all 20 configs; the AST-extracted REAL
+build_run_specs + anneal_value run cleanly on EVERY config's train_args
+(20/20, six spec dicts, trim/focus/kappa read, no KeyError anywhere, not
+just the three variants); full --dry-run unchanged (exit 0, 24 absolute
+--yaml, zero UNSET, --diagnostic=gates_diag); zero inline flow style; no
+NEW line > 90 cols (the four >90 lines are the pre-existing spec-code
+header banners on line 1 of four files, untouched). This resolves the
+blocking finding above: run-2's smoke tier no longer KeyErrors at
+build_run_specs. ONE commit now carries the six run-1 fixes + this
+completion.

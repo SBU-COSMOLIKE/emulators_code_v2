@@ -40,8 +40,9 @@ is never loaded whole.
 #  the data files resolve under --root/chains.
 #- `--fileroot` (required): subfolder of --root holding this emulator's YAML
 #  configs (e.g. emulators/training_scripts).
-#- `--yaml` (default test.yaml): config file under --fileroot, holding every
-#  hyperparameter (no magic numbers in code). Two blocks:
+#- `--yaml` (default test.yaml): config file under --fileroot, or an absolute
+#  path used as-is, holding every hyperparameter (no magic numbers in code).
+#  Two blocks:
 #  - `data`: input file names (train_dv, train_params, train_covmat, val_dv,
 #    val_params, bare filenames resolved under --root/chains), the physical
 #    window cuts in a nested param_cuts sub-block (omegabh2_hi required, the

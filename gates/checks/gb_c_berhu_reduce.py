@@ -8,9 +8,10 @@ joins, every berHu run silently optimizes the wrong thing. HOW: with
 trim and focus off, _reduce of a single-element tensor returns v(c),
 so this script probes the shipped code at chosen c values and checks:
 berhu == sqrt below the knot; berhu_capped == berhu below the cap;
-both match the hand-written reference formulas; value and first
-derivative continuous across BOTH joins (via torch.autograd); the
-anneal blend s=0 is plain sqrt and s=1 the full shape; all repeated at
+both match the hand-written reference formulas; at each join (t1 +- 1e-3,
+t2 +- 1e-3) the shipped value matches the reference (1e-9) and the
+autograd slope matches the closed-form derivative (1e-6); the anneal
+blend s=0 is plain sqrt and s=1 the full shape; all repeated at
 non-default knots. Prints every value compared, exits nonzero on any
 mismatch (spec: loss-mode-berhu.md:148-153).
 
@@ -18,8 +19,9 @@ _reduce is a method but reads no instance state (only the tensor c and
 the passed knots), so it is called unbound with self=None.
 
 PS: knot t1 = the lower join (sqrt below, linear-in-c above); cap t2 =
-the upper join of berhu_capped (sqrt-shaped tail above); C1 = value
-and first derivative both continuous at a join.
+the upper join of berhu_capped (sqrt-shaped tail above); the join checks
+compare the shipped value and its autograd slope to the closed-form
+reference at each join, not two nearby points to each other.
 """
 
 import sys
@@ -124,14 +126,37 @@ def ref_berhu_capped(c, t1, t2):
   return (2.0 * (t2 * c) ** 0.5 + t1 - t2) / (2.0 * t1 ** 0.5)
 
 
+def ref_berhu_deriv(c, t1):
+  """The manual berhu derivative: 0.5/sqrt(c) below t1, 1/(2 sqrt t1) above."""
+  if c <= t1:
+    return 0.5 / c ** 0.5
+  return 1.0 / (2.0 * t1 ** 0.5)
+
+
+def ref_berhu_capped_deriv(c, t1, t2):
+  """The manual berhu_capped derivative (sqrt / linear / sqrt-tail slopes).
+
+  d/dc of ref_berhu_capped, region by region: 0.5/sqrt(c) below t1,
+  the constant 1/(2 sqrt t1) between t1 and t2, and sqrt(t2)/(2 sqrt t1
+  sqrt c) above t2 (the tail term 2 sqrt(t2 c) differentiates to
+  sqrt(t2)/sqrt(c)). The three regions meet with equal slope, so the
+  transform is C1 at both joins.
+  """
+  if c <= t1:
+    return 0.5 / c ** 0.5
+  if c <= t2:
+    return 1.0 / (2.0 * t1 ** 0.5)
+  return t2 ** 0.5 / (2.0 * t1 ** 0.5 * c ** 0.5)
+
+
 def check_knots(t1, t2, tol, dtol):
   """Run every berhu / berhu_capped check for one (knot, cap) pair.
 
   Arguments:
     t1   = the knot.
     t2   = the cap.
-    tol  = the value tolerance.
-    dtol = the derivative-gap tolerance for the C1 check.
+    tol  = the value tolerance (shipped value vs the reference).
+    dtol = the slope tolerance (autograd slope vs the analytic derivative).
   """
   print("knots t1 = " + repr(t1) + ", t2 = " + repr(t2) + ":")
 
@@ -175,31 +200,39 @@ def check_knots(t1, t2, tol, dtol):
            abs(got - want) < tol,
            "got " + repr(got) + " want " + repr(want))
 
-  # C1 at the knot: value + derivative continuous across t1 (berhu).
-  eps = t1 * 1.0e-3
-  v_lo = transform(t1 - eps, "berhu", t1, t2)
-  v_hi = transform(t1 + eps, "berhu", t1, t2)
-  d_lo = slope(t1 - eps, "berhu", t1, t2)
-  d_hi = slope(t1 + eps, "berhu", t1, t2)
-  report("berhu C1 at the knot: value continuous",
-         abs(v_lo - v_hi) < tol,
-         "v- " + repr(v_lo) + " v+ " + repr(v_hi))
-  report("berhu C1 at the knot: derivative continuous",
-         abs(d_lo - d_hi) < dtol,
-         "d- " + repr(d_lo) + " d+ " + repr(d_hi))
+  # analytic-derivative check at the knot (berhu): at t1 +- 1e-3 the
+  # shipped value matches the manual reference (tol) and the shipped
+  # slope matches the closed-form derivative (dtol). Each single point is
+  # probed against the closed form, replacing the old two-point C1
+  # comparison (which compared points 2*eps apart across a curved join at
+  # tolerances no smooth function meets: the gap was 2*eps*slope in value
+  # and eps*curvature in slope, not a real discontinuity).
+  for c in (t1 * (1.0 - 1.0e-3), t1 * (1.0 + 1.0e-3)):
+    vg = transform(c, "berhu", t1, t2)
+    vr = ref_berhu(c, t1)
+    report("berhu value == reference at c = " + repr(c),
+           abs(vg - vr) < tol,
+           "got " + repr(vg) + " want " + repr(vr))
+    dg = slope(c, "berhu", t1, t2)
+    dr = ref_berhu_deriv(c, t1)
+    report("berhu slope == analytic derivative at c = " + repr(c),
+           abs(dg - dr) < dtol,
+           "slope " + repr(dg) + " ref " + repr(dr))
 
-  # C1 at the cap: value + derivative continuous across t2 (berhu_capped).
-  eps2 = t2 * 1.0e-3
-  vc_lo = transform(t2 - eps2, "berhu_capped", t1, t2)
-  vc_hi = transform(t2 + eps2, "berhu_capped", t1, t2)
-  dc_lo = slope(t2 - eps2, "berhu_capped", t1, t2)
-  dc_hi = slope(t2 + eps2, "berhu_capped", t1, t2)
-  report("berhu_capped C1 at the cap: value continuous",
-         abs(vc_lo - vc_hi) < tol,
-         "v- " + repr(vc_lo) + " v+ " + repr(vc_hi))
-  report("berhu_capped C1 at the cap: derivative continuous",
-         abs(dc_lo - dc_hi) < dtol,
-         "d- " + repr(dc_lo) + " d+ " + repr(dc_hi))
+  # analytic-derivative check at the cap (berhu_capped): the same probe at
+  # t2 +- 1e-3, against the capped reference and its piecewise derivative
+  # (the linear slope just below, the sqrt-tail slope just above).
+  for c in (t2 * (1.0 - 1.0e-3), t2 * (1.0 + 1.0e-3)):
+    vg = transform(c, "berhu_capped", t1, t2)
+    vr = ref_berhu_capped(c, t1, t2)
+    report("berhu_capped value == reference at c = " + repr(c),
+           abs(vg - vr) < tol,
+           "got " + repr(vg) + " want " + repr(vr))
+    dg = slope(c, "berhu_capped", t1, t2)
+    dr = ref_berhu_capped_deriv(c, t1, t2)
+    report("berhu_capped slope == analytic derivative at c = " + repr(c),
+           abs(dg - dr) < dtol,
+           "slope " + repr(dg) + " ref " + repr(dr))
 
   # anneal endpoints: s = 0 is plain sqrt, s = 1 is the full berhu shape.
   above = t1 * 2.0
@@ -219,9 +252,9 @@ def main():
   """Run the census over the default and a non-default (knot, cap)."""
   print("== berhu-loss numerics (spec code GB-C) ==")
   # default knots (train_args.loss.berhu defaults: knot 0.2, cap 10.0).
-  check_knots(t1=0.2, t2=10.0, tol=1.0e-9, dtol=1.0e-4)
+  check_knots(t1=0.2, t2=10.0, tol=1.0e-9, dtol=1.0e-6)
   # non-default knots (the same shape must hold).
-  check_knots(t1=0.5, t2=5.0, tol=1.0e-9, dtol=1.0e-4)
+  check_knots(t1=0.5, t2=5.0, tol=1.0e-9, dtol=1.0e-6)
 
   print("")
   if len(FAILURES) == 0:

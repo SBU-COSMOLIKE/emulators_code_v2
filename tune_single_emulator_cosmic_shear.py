@@ -51,9 +51,10 @@ so an array larger than RAM is never loaded whole.
 #- `--root` (required): project folder under $ROOTDIR (data resolves under it);
 #  `--fileroot` (required): subfolder holding the YAML (e.g.
 #  emulators/training_scripts). Cocoa layout, as in the training driver.
-#- `--yaml` (default test.yaml): config under --fileroot, `data` + `train_args`
-#  blocks (training driver schema; train_args may now carry ranges). The `data`
-#  block lists bare filenames, resolved under --root/chains.
+#- `--yaml` (default test.yaml): config under --fileroot, or an absolute path
+#  used as-is, `data` + `train_args` blocks (training driver schema; train_args
+#  may now carry ranges). The `data` block lists bare filenames, resolved under
+#  --root/chains.
 #- `--n-trials` (default 50) and `--timeout` (seconds, optional) bound the study
 #  (the timeout applies per worker in the parallel path).
 #- `--n-gpus` (default: all visible CUDA devices): GPUs to spread trials
