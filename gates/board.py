@@ -148,9 +148,13 @@ def _golden_leg(ctx, gate_id, grep_pattern, *, yaml_name=None,
   if ctx.dry:
     return
 
+  # strip the trailing wall-clock column (e.g. "  2.3s"): the one machine-
+  # noise field on an otherwise deterministic epoch line. Applies to every
+  # golden leg, not just ema-off-identity.
   equal, detail = logscan.byte_identity(text_a=pre,
                                         text_b=cur,
-                                        pattern=grep_pattern)
+                                        pattern=grep_pattern,
+                                        strip=r"[ \t]+\d+(?:\.\d+)?s$")
   ctx.expect(label=gate_id + " golden byte-identity (" + base + " vs tip)",
              ok=equal,
              detail=detail)
@@ -196,8 +200,9 @@ def gate_gm_c(ctx):
   WHAT: a short (~40 epoch) plain resmlp run with no ema block. WHY: a
   feature that is off must not perturb any existing run. HOW: the same
   config trained on the current tree and on the pre-EMA commit must give
-  character-identical epoch and best-epoch lines (spec:
-  weight-ema-snapshot-coupled.md:98-101, 229-238). The golden config is
+  character-identical epoch and best-epoch lines (wall-clock column
+  stripped) (spec: weight-ema-snapshot-coupled.md:98-101, 229-238). The
+  golden config is
   its own short bespoke YAML (ema-off-identity-golden), resolved through
   gate_configs for both legs; identity is proven per epoch line, so two
   production-length runs are not required.
@@ -699,20 +704,20 @@ def gate_gpc_c(ctx):
     ok=(rc_rs != 0 and logscan.search(text=out_rs, pattern=r"(?i)exclusive")),
     detail="pce + --rescale=residual must exit nonzero with the exclusive "
            "message (rc " + str(rc_rs) + ")")
-  # the two sweep points RAN if the parent prints two "N_train N f(>0.2)"
-  # lines; the per-point PCE fit reports print in the GPU workers' stdout,
-  # so the parent stream carries only >=1 "PCE fit:" line. Declared
-  # deviation: worker stdout owns the per-point reports; the per-point
-  # refit is structural to the top-level pce design (one base per point).
+  # run 3 proved the sweep parent's stream carries ZERO "PCE fit:" reports
+  # (the GPU workers own the per-point fit output); the parent's own
+  # evidence is its staging banner ("pce: form ...") plus one
+  # "N_train N f(>0.2)" result line per sweep point. The per-point refit
+  # is structural to the top-level pce design (one base per point).
   parent = logscan.matching_lines(text=out_s,
                                   pattern=r"N_train\s+\d+\s+f\(>0\.2\)")
-  pce_fits = logscan.matching_lines(text=out_s, pattern=r"PCE fit:")
+  staged = logscan.search(text=out_s, pattern=r"^pce: form")
   ctx.expect(
     label="npce-training 2-point sweep_ntrain ran both points",
-    ok=(rc_s == 0 and len(parent) >= 2 and len(pce_fits) >= 1),
+    ok=(rc_s == 0 and len(parent) >= 2 and staged),
     detail="rc " + str(rc_s) + "; parent N_train f(>0.2) lines "
-           + str(len(parent)) + " (need >=2); PCE fit lines "
-           + str(len(pce_fits)) + " (need >=1)")
+           + str(len(parent)) + " (need >=2); pce staging banner "
+           + ("present" if staged else "ABSENT") + " (need present)")
   ctx.log("npce-training rebuild-vs-base probe: save -> the h5 pce group"
           " -> from_state rebuild == base(theta) on a probe batch belongs"
           " in the check-script set (save-rebuild-drift's NPCE save"
@@ -766,9 +771,21 @@ def gate_gct_c(ctx):
                       + " (gates/checks/gct_parity.py)")
 
   evaluate_yaml = ctx.evaluate_yaml()
-  ctx.log("cobaya-adapter evaluate: cobaya-run the example evaluate YAML against the "
-          "lsst_y1 likelihood (use_emulator 1); the printed datavector is "
-          "compared to the training-side prediction.")
+  # the evaluate leg loads the tiny emulator save-rebuild-drift persists at
+  # <rootdir>/<driver_root>/chains/gates_emul_evaluate; require it before
+  # spending a cobaya-run on a missing file. A failure here skips the run.
+  if not ctx.dry:
+    evaluate_h5 = (ctx.rootdir() / str(ctx.cfg.get("driver_root", ""))
+                   / "chains" / "gates_emul_evaluate.h5")
+    ctx.expect(
+      label="evaluate emulator present (saved by save-rebuild-drift)",
+      ok=evaluate_h5.exists(),
+      detail="expected " + str(evaluate_h5) + "; a lone `--gate "
+             "cobaya-adapter` run must run save-rebuild-drift once first "
+             "(it persists this file)")
+  ctx.log("cobaya-adapter evaluate: cobaya-run the board's evaluate YAML "
+          "against the lsst_y1 likelihood (use_emulator 1); this leg proves "
+          "the run completes; the physics parity is gct_parity's job.")
   rc_ev, out_ev = ctx.sh(
     cmd=["cobaya-run", str(evaluate_yaml)],
     cwd=ctx.rootdir(),

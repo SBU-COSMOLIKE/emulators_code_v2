@@ -26,6 +26,8 @@ train_args:
     mode: sqrt
   ema:
     horizon_epochs: 3
+  rewind: true             # opt-in (default false); the gate asserts its
+                           # 'lr cut -> rewound to best epoch' line fires
   lr:
     lr_base:       0.0025
     bs_base:       64.0

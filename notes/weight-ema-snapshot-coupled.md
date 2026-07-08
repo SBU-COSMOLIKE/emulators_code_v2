@@ -226,7 +226,9 @@ real --root/--fileroot (the emultrf/dev deploy path). Note the ema block
 is commented out in the shipped YAML, so GM-C uses it as is.
 
 GM-C, off-mode byte-identity (the seed is fixed, the run launch-bound and
-deterministic, so the epoch lines must match to the character):
+deterministic, so the epoch lines must match to the character AFTER
+stripping the trailing wall-clock column — the one field on an epoch line
+that is machine noise; board run 3 proved every other character matches):
 
     R=--root=<root> ; F=--fileroot=<fileroot> ; Y=--yaml=train_single_emulator_cosmic_shear.yaml
     git log --oneline -1                       # note the post-change tip
@@ -234,11 +236,12 @@ deterministic, so the epoch lines must match to the character):
     git stash                                  # or: git checkout <pre-ema commit>
     python train_single_emulator_cosmic_shear.py $R $F $Y > /tmp/ema_pre.log 2>&1
     git stash pop                              # or: git checkout amazing-keller
-    diff <(grep -E '^(epoch|best epoch)' /tmp/ema_pre.log) \
-         <(grep -E '^(epoch|best epoch)' /tmp/ema_post.log)   # must be EMPTY
+    diff <(grep -E '^(epoch|best epoch)' /tmp/ema_pre.log  | sed -E 's/[ \t]+[0-9]+(\.[0-9]+)?s$//') \
+         <(grep -E '^(epoch|best epoch)' /tmp/ema_post.log | sed -E 's/[ \t]+[0-9]+(\.[0-9]+)?s$//')   # must be EMPTY
 
-GM-D, on-mode smoke: copy the YAML, uncomment `ema: {horizon_epochs: 3}`,
-set a short nepochs (say 60, warmup ~5) and bs: 64, then:
+GM-D, on-mode smoke: copy the YAML, uncomment `ema: {horizon_epochs: 3}`
+and `rewind: true` (the rewind line the smoke asserts is opt-in, default
+false), set a short nepochs (say 60, warmup ~5) and bs: 64, then:
 
     python train_single_emulator_cosmic_shear.py $R $F --yaml=train_single_ema_smoke.yaml
 

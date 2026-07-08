@@ -74,5 +74,7 @@ delegation choice:
   (`notes/plots-no-red-green.md`).
 - Machines: Mac M2/MPS for dev, NVIDIA for training
   (`notes/dev-machine-mac-m2-32gb.md`, `notes/test-workstation-gpus.md`).
+- Terminal output: essential-only; full streams go to per-run log files, a
+  debug switch restores them (`notes/terminal-output-essential-only.md`).
 - `notes/` ritual: every milestone gets a note plus a `MEMORY.md` index line,
   unprompted.

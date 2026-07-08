@@ -84,13 +84,18 @@ class RunContext:
               dry run (stdout only).
     env     = the capability map {"torch": bool, ...} preflight built;
               require_caps reads it (empty in dry mode).
+    debug   = when True, mirror the full command output + the config dump
+              to the terminal too; when False (the quiet default) the
+              terminal shows only the gate header, CHECK / GATE verdicts,
+              and the log-only streams go to the gate log alone.
   """
 
-  def __init__(self, *, cfg, dry, log_fh, env):
+  def __init__(self, *, cfg, dry, log_fh, env, debug=False):
     self.cfg = cfg
     self.dry = dry
     self._log_fh = log_fh
     self._env = env
+    self.debug = debug
     self.repo = _REPO
     # The interpreter running the harness runs the gates too, so
     # a check / driver never depends on a bare "python" being on PATH
@@ -100,13 +105,25 @@ class RunContext:
 
   # ---- logging -----------------------------------------------------------
 
-  def _emit(self, text):
-    """Write a line to the terminal and the gate log at once."""
-    sys.stdout.write(text)
-    sys.stdout.flush()
+  def _emit(self, text, *, log_only=False):
+    """Write a line to the gate log, and to the terminal unless quieted.
+
+    Every line always lands in the gate log (the full raw record). The
+    terminal also gets it unless log_only is set, so the terminal carries
+    the gate header, the CHECK / GATE verdicts, and the harness notes,
+    while the tee'd command output and the config dump go to the log
+    alone. debug True overrides log_only, mirroring everything.
+
+    Arguments:
+      text     = the text to write.
+      log_only = when True, keep this off the terminal (unless debug).
+    """
     if self._log_fh is not None:
       self._log_fh.write(text)
       self._log_fh.flush()
+    if self.debug or not log_only:
+      sys.stdout.write(text)
+      sys.stdout.flush()
 
   def log(self, msg):
     """Write a harness annotation line (a note, not command output).
@@ -169,7 +186,10 @@ class RunContext:
     if env is not None:
       child_env = dict(os.environ)
       child_env.update(env)
-    self._emit("[harness] $ " + printable + env_note + "\n")
+    # the command echo and its streamed output are log-only: the full
+    # driver / check stream belongs in the gate log, not on the terminal
+    # (debug mirrors it). The gate's CHECK / GATE verdicts stay visible.
+    self._emit("[harness] $ " + printable + env_note + "\n", log_only=True)
     proc = subprocess.Popen(cmd,
                             cwd=str(where),
                             env=child_env,
@@ -179,7 +199,7 @@ class RunContext:
                             bufsize=1)
     captured = []
     for line in proc.stdout:
-      self._emit(line)
+      self._emit(line, log_only=True)
       captured.append(line)
     proc.wait()
     out = "".join(captured)
@@ -585,6 +605,20 @@ def preflight(cfg):
     else:
       print("  [ok] path " + key + " -> " + str(resolved))
 
+  # (e) the quiet-mode switch is a required key (a bool); a config that
+  # predates the terminal-output rule is missing it, which must fail as
+  # loudly as a missing path.
+  if "debug" not in cfg:
+    ok = False
+    print("  [FAIL] board_config.json is missing the required 'debug' key")
+    print("         remedy: add \"debug\": false (or true for full output)")
+  elif not isinstance(cfg["debug"], bool):
+    ok = False
+    print("  [FAIL] board_config.json 'debug' must be true or false, got "
+          + repr(cfg["debug"]))
+  else:
+    print("  [ok] debug = " + str(cfg["debug"]))
+
   print("== preflight " + ("PASSED" if ok else "FAILED") + " ==")
   return (ok, env)
 
@@ -707,15 +741,18 @@ def _now():
   return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _log_header(gate, cfg, log_fh):
-  """Write the gate log's header + the effective config.
+def _log_header(ctx, gate):
+  """Write the gate log's header + the effective config (log-only).
+
+  The full multi-line header block and the config dump are log-only: they
+  land in the gate log for reproducibility and reach the terminal only in
+  debug mode. The runner prints the one-line terminal gate header
+  separately. Byte-compatible with the pre-quiet-mode log format (the same
+  text lands in the log, just no longer echoed to the terminal by default).
 
   Arguments:
-    gate   = the gate being run (id, tier, home, maps, worktree pin).
-    cfg    = the effective board_config.json; dumped into the header so
-             the run stays reproducible even though board_config.json is
-             excluded from the clean-tree check.
-    log_fh = the open gate-log handle to tee the header into.
+    ctx  = the gate's RunContext (routes to its log; quiet-aware).
+    gate = the gate being run (id, tier, home, maps, worktree pin).
   """
   _, head = _git(["rev-parse", "HEAD"])
   lines = []
@@ -734,15 +771,14 @@ def _log_header(gate, cfg, log_fh):
   text = "\n".join(lines) + "\n"
   cfg_dump = ("effective board_config.json (excluded from the clean-tree "
               "check; recorded here for reproducibility):\n"
-              + json.dumps(cfg, indent=2) + "\n"
+              + json.dumps(ctx.cfg, indent=2) + "\n"
               + "=" * 72 + "\n")
-  sys.stdout.write(text)
-  sys.stdout.write(cfg_dump)
-  log_fh.write(text)
-  log_fh.write(cfg_dump)
+  ctx._emit(text, log_only=True)
+  ctx._emit(cfg_dump, log_only=True)
 
 
-def run_selection(*, selection, cfg, env, status, force_rerun, dry):
+def run_selection(*, selection, cfg, env, status, force_rerun, dry,
+                  debug=False):
   """Execute the selected gates in order, logging and marking each.
 
   Arguments:
@@ -753,6 +789,8 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry):
                   each gate.
     force_rerun = gate ids to run even if already PASS.
     dry         = when True, print the plan without executing.
+    debug       = when True, each gate's RunContext mirrors the full
+                  command output + config dump to the terminal too.
 
   Returns:
     the count of gates that FAILED (0 means the selection is green).
@@ -767,7 +805,7 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry):
       if gate.deps:
         print("[dry-run] (deps: " + ", ".join(gate.deps)
               + " -- at run time this gate SKIPs unless they PASS)")
-      ctx = RunContext(cfg=cfg, dry=True, log_fh=None, env={})
+      ctx = RunContext(cfg=cfg, dry=True, log_fh=None, env={}, debug=debug)
       try:
         gate.run(ctx)
       except GateFailure as failure:
@@ -797,9 +835,13 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry):
 
     log_path = _LOGS_DIR / (gate.id + ".log")
     _LOGS_DIR.mkdir(exist_ok=True)
+    # one-line terminal header; the full header block + config dump are
+    # log-only content (debug mirrors them to the terminal).
+    print("GATE " + gate.id + " [" + gate.tier + "] started "
+          + datetime.datetime.now().strftime("%H:%M:%S"))
     with open(log_path, "w") as log_fh:
-      _log_header(gate, cfg, log_fh)
-      ctx = RunContext(cfg=cfg, dry=False, log_fh=log_fh, env=env)
+      ctx = RunContext(cfg=cfg, dry=False, log_fh=log_fh, env=env, debug=debug)
+      _log_header(ctx, gate)
       outcome = "PASS"
       detail = ""
       try:
@@ -810,10 +852,10 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry):
       except Exception as unexpected:  # a crash is a gate failure, not the board's
         outcome = "FAIL"
         detail = "unexpected: " + repr(unexpected)
+      # the final verdict stays on the terminal (log_only default False).
       footer = ("[harness] GATE " + gate.id + ": " + outcome
                 + ("" if detail == "" else "  -- " + detail) + "\n")
-      sys.stdout.write(footer)
-      log_fh.write(footer)
+      ctx._emit(footer)
 
     if outcome == "FAIL":
       failures = failures + 1
@@ -882,6 +924,11 @@ def build_parser():
                       default=[],
                       metavar="ID",
                       help="rerun these gates even if already PASS")
+  parser.add_argument("--debug",
+                      action="store_true",
+                      help="mirror the full command output + config dump to "
+                           "the terminal (forces board_config.json debug "
+                           "true; the logs always get everything)")
   return parser
 
 
@@ -898,6 +945,10 @@ def main(argv=None):
   args = build_parser().parse_args(argv)
   cfg = _load_config()
   status = _load_status()
+  # effective quiet/debug: the committed board_config.json debug key, or
+  # the --debug flag forcing it true. (preflight enforces the key's
+  # presence for real runs; dry-run / --list do not need it.)
+  debug = bool(cfg.get("debug", False)) or args.debug
 
   if args.list:
     cmd_list(status)
@@ -915,7 +966,7 @@ def main(argv=None):
   if args.dry_run:
     print("dry-run plan (" + str(len(selection)) + " gates, in order):")
     run_selection(selection=selection, cfg=cfg, env={}, status=status,
-                  force_rerun=set(args.force_rerun), dry=True)
+                  force_rerun=set(args.force_rerun), dry=True, debug=debug)
     return 0
 
   ok, env = preflight(cfg)
@@ -925,7 +976,7 @@ def main(argv=None):
 
   failures = run_selection(selection=selection, cfg=cfg, env=env,
                            status=status, force_rerun=set(args.force_rerun),
-                           dry=False)
+                           dry=False, debug=debug)
   print("\nboard run complete: " + str(failures) + " gate(s) FAILED; "
         "see gates/logs/BOARD.md")
   return 1 if failures > 0 else 0

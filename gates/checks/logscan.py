@@ -94,7 +94,7 @@ def matching_lines(text, pattern):
   return kept
 
 
-def byte_identity(text_a, text_b, pattern):
+def byte_identity(text_a, text_b, pattern, strip=None):
   """Compare two runs' selected lines for character-exact equality.
 
   The golden byte-identity proof: extract the pattern-matching lines
@@ -109,15 +109,32 @@ def byte_identity(text_a, text_b, pattern):
               pre-feature build in the temporary worktree).
     text_b  = the second run's captured output (the current tree).
     pattern = the grep-style regex selecting the lines to compare.
+    strip   = an optional regex removed from every selected line on both
+              sides before comparison (re.sub(strip, "", line)), used to
+              drop a machine-noise field (the trailing wall-clock column)
+              from an otherwise deterministic line; the divergence detail
+              then shows the stripped lines actually compared. None
+              compares the selected lines verbatim.
 
   Returns:
     (equal, detail). equal is True only when the selected line lists
     match exactly. detail is "" on equality; otherwise it names the
-    line-count mismatch or the first differing line (both sides), so
-    the raw log records WHERE the determinism broke.
+    line-count mismatch or the first differing line (both sides, as
+    compared, i.e. after any strip), so the raw log records WHERE the
+    determinism broke.
   """
   lines_a = matching_lines(text=text_a, pattern=pattern)
   lines_b = matching_lines(text=text_b, pattern=pattern)
+
+  if strip is not None:
+    stripped_a = []
+    for line in lines_a:
+      stripped_a.append(re.sub(strip, "", line))
+    stripped_b = []
+    for line in lines_b:
+      stripped_b.append(re.sub(strip, "", line))
+    lines_a = stripped_a
+    lines_b = stripped_b
 
   if len(lines_a) != len(lines_b):
     detail = ("selected-line counts differ: "

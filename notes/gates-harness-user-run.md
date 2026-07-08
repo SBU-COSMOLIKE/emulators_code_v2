@@ -1160,3 +1160,96 @@ staged_golden unit-tested in isolation (stages into the fileroot, removed
 after the block AND on an exception); grep confirms rebuild_emulator now
 imports h5py; no >90-col line and no prose double-dash in the touched
 files. ONE commit carries all six run-2 fixes.
+
+### 2026-07-08 — Architect: board run-3 audit (HEAD 38f4d68)
+15 PASS / 4 FAIL / triangle-shading not run (optional eyeball). Newly
+proven: save-rebuild-drift end-to-end on GPU (plain + factored + npce
+bitwise 0.0, drift proof, v1 refusal); cobaya-adapter parity rtol 1e-6
+(plain 3.2e-7, factored 7.9e-7); berhu-anneal two-phase banner; ema-anneal
+banner; param-window-cuts 0.14-0.15 window (kept 7563/100000, used 5000 of
+6774); npce residual + ratio + both exclusivity errors.
+The four failures, root-caused (no physics defect among them):
+1. ema-off-identity — all 40 epoch lines character-identical between
+   46ec5e1 and tip EXCEPT the trailing wall-clock column (1.9s vs 2.3s);
+   identity is proven by this run's own data; the comparator must strip
+   the timing field (fix item 2).
+2. ema-smoke — the lr cut fired twice (epochs 36, 51) but rewind is an
+   opt-in train_args key (default false) the smoke config never set; the
+   feature under test was off (item 3).
+3. npce-training — the sweep parent carries the pce banner and both
+   N_train result lines but zero "PCE fit:" reports (workers own them);
+   the assertion read the wrong stream (item 4).
+4. cobaya-adapter — parity PASS; the evaluate leg died inside cobaya-run
+   on the shipped example YAML's stale theory.path (retired emultrfv2
+   deploy) and literal <run> placeholder. The board now owns a bespoke
+   evaluate YAML reading the tiny emulator save-rebuild-drift persists
+   (item 5). The classy NOTICE in the log is euclidemu2 import-time
+   noise, not the failure.
+Science margin note (recurring): the EMA average's val minimum lands
+early again (ema-anneal best epoch 7 of 20) with val rising after — the
+bs+EMA thread's first data point stands.
+New standing rule: terminal output essential-only
+([[terminal-output-essential-only]]); run_board.py quiet by default with
+a debug key (item 1).
+
+## Implementer board run-3 fixes (2026-07-08, Opus, base 38f4d68)
+
+Six items from the Architect's run-3 triage (15/19 PASS; four failures,
+no physics defect) plus the new terminal-output-essential-only rule. Base
+38f4d68 (run-2 fixes, user-committed; tree clean; worktree at that tip).
+
+1. run_board.py quiet mode + the new rule. RunContext._emit gains a
+   log_only route (self.debug or not log_only -> terminal; the log always
+   gets everything); sh's command echo + streamed output and the
+   _log_header block + config dump are log_only; the runner prints a
+   one-line terminal header "GATE <id> [<tier>] started <hh:mm:ss>" and
+   the footer verdict via ctx._emit (terminal). debug threads from a new
+   required board_config.json "debug": false key (preflight (e) fails
+   loudly if it is missing or non-bool) or a --debug flag forcing true.
+   Log bytes are unchanged (the same header/dump/stream still reach the
+   log fh). board_config.json gained "debug": false and its _help entry.
+2. logscan.byte_identity gains strip=None: after line selection,
+   re.sub(strip, "", line) on both sides before comparison; the
+   divergence detail shows the stripped lines. _golden_leg passes
+   strip=r"[ \t]+\d+(?:\.\d+)?s$" for EVERY golden leg (the trailing
+   wall-clock column is the one machine-noise field). gate_gm_c docstring
+   notes the wall-clock strip. matching_lines unchanged.
+3. ema-smoke-config.yaml: rewind: true joins ema (opt-in, default false);
+   with scheduler patience 6 (run 2) the lr cut fires and the rewind line
+   the gate asserts appears.
+4. gate_gpc_c sweep assertion: rc_s == 0 AND >=2 "N_train N f(>0.2)"
+   parent lines AND the parent staging banner logscan.search(r"^pce:
+   form"); the "PCE fit:" requirement is dropped (run 3 proved the parent
+   stream carries zero such lines; the GPU workers own the per-point
+   reports). Declared deviation kept.
+5. cobaya-adapter evaluate leg board-owned. (a) gsv_bitwise_drift.py: the
+   plain case gets a SECOND persistent save_emulator to
+   <driver_root>/chains/gates_emul_evaluate (same bytes as the tmp
+   round-trip, which is untouched; via a save_kwargs dict + a
+   persist_root param on train_save/run_variant) and prints the path.
+   (b) NEW gates/configs/cobaya-adapter-evaluate.yaml: a copy of
+   EXAMPLE_EMUL_EVALUATE.yaml with a gate header, theory.path ->
+   emulators_code_v2, extra_args.emulators -> gates_emul_evaluate, output
+   -> gates_cobaya_adapter_evaluate; board_config.json evaluate_yaml now
+   defaults to it. (c) gate_gct_c expects
+   <rootdir>/<driver_root>/chains/gates_emul_evaluate.h5 before cobaya-run
+   (label "evaluate emulator present (saved by save-rebuild-drift)"; a
+   failed expect raises and skips the run), and the log message is
+   corrected (the evaluate leg proves the run completes; parity is
+   gct_parity's job). The cobaya-adapter Gate already carried
+   deps=("save-rebuild-drift",). (d) EXAMPLE_EMUL_EVALUATE.yaml: both
+   emulators/emultrfv2 occurrences -> emulators_code_v2 (the <run>
+   placeholder kept).
+6. NEW notes/terminal-output-essential-only.md + its MEMORY.md index line
+   + a CLAUDE.md Conventions pointer; this audit block appended above.
+
+Mac gates (all green): py_compile run_board.py / board.py / logscan.py /
+gsv_bitwise_drift.py; yaml.safe_load (ruby) the changed + new configs and
+json.load board_config.json; a byte_identity unit probe (two lines
+differing only in a trailing wall-clock -> equal with the strip, differing
+in a val digit -> unequal, detail shows the stripped lines); a quiet-mode
+probe (a stubbed sh command lands in the log fh, NOT stdout, when debug
+false; --debug/debug true mirrors it; log_only header suppressed on the
+terminal); staged_golden persistent-save path checked; --dry-run plans 18
+gates and --dry-run --gate ema-off-identity shows the staging lines +
+bare gates-golden --yaml. Do not commit; the command is printed.

@@ -1,17 +1,9 @@
-# Example cobaya "evaluate" config for a schema-v2 cosmic-shear emulator.
+# cobaya-adapter, evaluate leg (spec code GCT-C; cobaya-theory-adapter.md).
+# A board-owned copy of cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml that reads the
+# tiny emulator save-rebuild-drift persists on every board run. It proves the
+# cobaya plumbing (the schema-v2 emulator loads and one evaluate step runs);
+# the physics parity is gct_parity's job.
 #
-# The new calling convention: the theory block names one saved-emulator path
-# ROOT per emulator and nothing else about the network. The legacy ord (input
-# ordering), extrapar (architecture dims), file/extra (the two file paths as a
-# split pair) are all GONE -- the <root>.h5 stores the resolved model recipe
-# and the parameter names in training order, so rebuild_emulator reconstructs
-# the module and the theory reads the required inputs from the file. The
-# emulator file IS the emulator (the never-trust-defaults rule, applied to the
-# sampling YAML).
-#
-# Run (from $ROOTDIR, cobaya installed):
-#   cobaya-run ./external_modules/code/emulators_code_v2/cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml
-
 timing: True
 debug: False
 stop_at_error: True
@@ -102,18 +94,11 @@ theory:
     stop_at_error: True
     extra_args:
       device: 'cuda'
-      # one path root per emulator -> <root>.h5 + <root>.emul; list-shaped for
-      # future probes (one cosmic-shear emulator today). ROOTDIR-relative.
+      # the tiny emulator save-rebuild-drift persists on every board run;
+      # under-trained on purpose -- this leg proves the cobaya plumbing,
+      # the physics parity is gct_parity's job.
       emulators:
-        - projects/lsst_y1/emulators/<run>/emul_v2
-      # compile: false          # torch.compile on CUDA; off by default (batch-1)
-      # fast_params (one inner list per emulator): sampled parameters passed
-      # through to the requirements but NOT fed to the network -- for a setup
-      # where a nuisance (e.g. Roman shear calibration) is applied in the
-      # theory rather than the likelihood. Absent = the geometry's names are
-      # the whole input list.
-      # fast_params:
-      #   - [roman_M1, roman_M2, roman_M3, roman_M4]
+        - projects/lsst_y1/chains/gates_emul_evaluate
 
 sampler:
   evaluate:
@@ -132,4 +117,4 @@ sampler:
       LSST_A1_1: 0.606102
       LSST_A1_2: -1.51541
 
-output: ./projects/lsst_y1/chains/EXAMPLE_EMUL_EVALUATE
+output: ./projects/lsst_y1/chains/gates_cobaya_adapter_evaluate

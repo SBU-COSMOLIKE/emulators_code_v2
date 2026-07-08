@@ -149,13 +149,18 @@ def tiny_config(data_dir, *, ia=None, pce=False):
   return cfg
 
 
-def train_save(cfg, device, save_root):
+def train_save(cfg, device, save_root, persist_root=None):
   """Train one tiny emulator, save it, return (exp, probe, live_out).
 
   Arguments:
-    cfg       = the variant config dict.
-    device    = the torch device.
-    save_root = the path root to save under.
+    cfg          = the variant config dict.
+    device       = the torch device.
+    save_root    = the path root to save under (the tmp round-trip root).
+    persist_root = an optional SECOND, persistent root to save the same
+                   bytes under (survives the tmp cleanup); the plain case
+                   passes it so the board-owned cobaya-adapter evaluate
+                   leg has an emulator to load. None saves only to
+                   save_root.
 
   Returns:
     (exp, probe, live_out): the experiment, the probe input rows, and
@@ -174,23 +179,30 @@ def train_save(cfg, device, save_root):
   with torch.no_grad():
     live_out = model(exp.pgeom.encode(probe)).detach().clone()
 
-  save_emulator(path_root=str(save_root),
-                model=model,
-                param_geometry=exp.pgeom,
-                geometry=exp.geom,
-                config=cfg,
-                histories={"train_losses": train_losses,
-                           "val_medians": medians,
-                           "val_means": means,
-                           "val_fracs": fracs,
-                           "thresholds": exp.thresholds},
-                train_args=exp.train_args,
-                pce=(exp.chi2fn.pce if exp.pce_opts is not None else None),
-                pce_form=(exp.pce_opts["form"]
-                          if exp.pce_opts is not None else None),
-                resolved_train=exp.resolved_train,
-                resolved_model=exp.resolved_model,
-                attrs={"n_train": cfg["data"]["n_train"]})
+  save_kwargs = dict(
+    model=model,
+    param_geometry=exp.pgeom,
+    geometry=exp.geom,
+    config=cfg,
+    histories={"train_losses": train_losses,
+               "val_medians": medians,
+               "val_means": means,
+               "val_fracs": fracs,
+               "thresholds": exp.thresholds},
+    train_args=exp.train_args,
+    pce=(exp.chi2fn.pce if exp.pce_opts is not None else None),
+    pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
+    resolved_train=exp.resolved_train,
+    resolved_model=exp.resolved_model,
+    attrs={"n_train": cfg["data"]["n_train"]})
+  save_emulator(path_root=str(save_root), **save_kwargs)
+  # a second, PERSISTENT save (same bytes, a stable root) so the board's
+  # cobaya-adapter evaluate leg has an emulator to load after the tmp dir
+  # is gone. The tmp save above (the bitwise round-trip) is untouched.
+  if persist_root is not None:
+    save_emulator(path_root=str(persist_root), **save_kwargs)
+    print("persisted evaluate emulator -> " + str(persist_root)
+          + ".h5 / .emul")
   return exp, probe, live_out
 
 
@@ -205,10 +217,16 @@ def rebuilt_out(save_root, device, probe, *, compile_model=False):
     return model_r(pgeom_r.encode(probe)).detach().clone()
 
 
-def run_variant(name, cfg, device, tmp):
-  """Save-rebuild-bitwise one variant; return its (save_root, probe)."""
+def run_variant(name, cfg, device, tmp, persist_root=None):
+  """Save-rebuild-bitwise one variant; return its (save_root, probe).
+
+  persist_root (plain case only) is forwarded to train_save for the
+  second, persistent save the cobaya-adapter evaluate leg loads.
+  """
   save_root = Path(tmp) / ("emul_" + name)
-  exp, probe, live_out = train_save(cfg=cfg, device=device, save_root=save_root)
+  exp, probe, live_out = train_save(cfg=cfg, device=device,
+                                    save_root=save_root,
+                                    persist_root=persist_root)
   reb_out = rebuilt_out(save_root=save_root, device=device, probe=probe)
   report(name + ": rebuilt output bitwise-equal to the live model",
          torch.equal(live_out, reb_out),
@@ -224,8 +242,11 @@ def main():
   print("device " + str(device) + ", dumps " + str(data_dir))
 
   tmp = tempfile.mkdtemp(prefix="gsv-")
+  # the plain case also persists to <driver_root>/chains/gates_emul_evaluate
+  # (.h5 + .emul) so the board's cobaya-adapter evaluate leg can load it.
+  evaluate_root = data_dir / "gates_emul_evaluate"
   plain_root, plain_probe = run_variant(
-    "plain", tiny_config(data_dir), device, tmp)
+    "plain", tiny_config(data_dir), device, tmp, persist_root=evaluate_root)
   run_variant("factored", tiny_config(data_dir, ia="nla"), device, tmp)
   run_variant("npce", tiny_config(data_dir, pce=True), device, tmp)
 
