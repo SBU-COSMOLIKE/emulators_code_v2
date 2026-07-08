@@ -1274,3 +1274,14 @@ Python touched; a relay round-trip for a fully-determined two-line edit
 was not worth the cost). Board stands 18 PASS / 1 FAIL (cobaya-adapter,
 evaluate leg only — its parity probe passes at rtol 1e-6) /
 triangle-shading optional.
+
+### 2026-07-08 — Architect: board run-6 audit (HEAD 485a7c6)
+The python_path fix advanced the evaluate leg past class lookup into
+cobaya's output bookkeeping, which found the info files run 5's failed
+attempt left under chains/gates_cobaya_adapter_evaluate and refused to
+resume onto a changed theory block ("Old and new run information not
+compatible"). A smoke leg reruns with a fixed output prefix by design,
+so the board's evaluate YAML now sets force: True (cobaya overwrites its
+own products). Architect applied the one-key edit directly (same
+declared deviation as run 5's fix). Board unchanged otherwise: 18 PASS /
+cobaya-adapter evaluate pending / triangle-shading optional.

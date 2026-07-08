@@ -7,6 +7,11 @@
 timing: True
 debug: False
 stop_at_error: True
+# a smoke leg reruns with the same output prefix; force lets cobaya
+# overwrite its own products instead of refusing to "resume" when the
+# theory block changed (board run 6: "Old and new run information not
+# compatible").
+force: True
 
 likelihood:
   lsst_y1.cosmic_shear:
