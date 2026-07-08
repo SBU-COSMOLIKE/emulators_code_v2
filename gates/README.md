@@ -14,6 +14,21 @@ on the banner lines or numeric values that feature must produce. Tests
 are grouped into three **tiers** (`backlog`, `new-features`,
 `save-and-sample`) and run in a fixed order.
 
+## Vocabulary
+
+| Term | Meaning |
+|------|---------|
+| board | the ordered list of tests |
+| gate | one test: its commands and its pass/fail rule ("test" in prose) |
+| tier | the grouping `--tier` selects |
+| golden run | the same config trained on the current code and on a pinned older commit; selected log lines must match exactly |
+| smoke | a short training run judged on its banner lines |
+| banner | a driver status line a test checks for |
+| worktree | a throwaway git checkout of another commit; never touches your tree |
+| preflight | the pre-GPU checks (git tip, clean tree, cocoa imports, data paths) |
+| resume | a rerun skips tests already marked PASS |
+| home note | the file under `notes/` that defines what a test must prove |
+
 ## How it is implemented
 
 ```
