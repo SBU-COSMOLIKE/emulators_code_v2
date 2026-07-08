@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """The user-run gates harness: drive the whole workstation board.
 
-There is no Claude Code session on the workstation, so the user runs
-the board personally: ``python gates/run_board.py``. This module is the
-CLI and the runner. It preflights the environment before any GPU time,
-runs the tests in the board's order, writes one raw log per test (the
-full streamed stdout and stderr a reviewer reads, never a summary),
-resumes by skipping tests already passed, and writes a final BOARD.md
-table plus a board_status.json for the next run.
+This file is the program you run: ``python gates/run_board.py``. It
+holds the command-line parsing and the loop that runs each test in
+board.py's order, plus a small class, RunContext, giving each test the
+few things it needs (run a command, write to its log, check a value).
+It preflights the environment before any GPU time, writes one raw log
+per test (the full streamed stdout and stderr a reviewer reads, never a
+summary), skips tests already passed on a rerun, and writes a final
+BOARD.md table plus a board_status.json for the next run.
 
 The rules it enforces: preflight aborts loudly on a stale git tip, a
 dirty tree, a missing cocoa import, or a missing data path; the EMA
@@ -31,7 +32,7 @@ PS: preflight = the pre-GPU checks that fail fast; tee = stream a
 subprocess to the terminal and the log at once; resume = skip a gate
 already PASS in board_status.json; worktree = a throwaway checkout of
 another commit that never disturbs the user's tree; dependency skip =
-record SKIPPED for a gate whose prerequisite gate did not pass.
+mark SKIPPED a gate whose prerequisite gate did not pass.
 """
 
 import argparse
@@ -73,14 +74,14 @@ _DRIVER = "train_single_emulator_cosmic_shear.py"
 
 
 # --------------------------------------------------------------------------
-# The run context each gate body receives.
+# The per-test helper each test function receives.
 # --------------------------------------------------------------------------
 
 class RunContext:
   """The services a gate body uses: shell, logging, config, worktree.
 
-  One context is built per gate (or one shared dry context for
-  --dry-run). It tees every command into the gate's raw log, records
+  One helper is built per test (or one shared dry helper for
+  --dry-run). It tees every command into the gate's raw log, writes
   each acceptance verdict, resolves config paths, and manages the
   temporary worktree. Gate bodies never touch subprocess, files, or
   git directly; they go through these methods so every command lands
@@ -91,7 +92,7 @@ class RunContext:
     dry     = when True, commands are printed, not run, and acceptance
               is skipped (--dry-run prints the plan).
     log_fh  = the open gate-log file handle to tee into, or None for a
-              dry context (stdout only).
+              dry run (stdout only).
     env     = the capability map {"torch": bool, ...} preflight built;
               require_caps reads it (empty in dry mode).
   """
@@ -119,7 +120,7 @@ class RunContext:
       self._log_fh.flush()
 
   def log(self, msg):
-    """Record a harness annotation line (a note, not command output).
+    """Write a harness annotation line (a note, not command output).
 
     Arguments:
       msg = the annotation text; prefixed so it reads apart from the
@@ -128,7 +129,7 @@ class RunContext:
     self._emit("[harness] " + msg + "\n")
 
   def expect(self, *, label, ok, detail=""):
-    """Record an acceptance verdict, raising GateFailure on failure.
+    """Write an acceptance verdict, raising GateFailure on failure.
 
     Arguments:
       label  = what is being checked (appears as CHECK <label>).
@@ -368,7 +369,7 @@ class RunContext:
   def worktree(self, *, commit):
     """Yield a throwaway git worktree pinned at a commit, always removed.
 
-    The golden byte-identity mechanism: a pre-feature build runs in this
+    The golden run: a pre-feature build runs in this
     worktree so the pinned code is exercised without a checkout in the
     user's tree. The worktree is removed in a finally, so a failed gate
     still leaves the tree clean.
@@ -425,7 +426,7 @@ def _dirty_lines(porcelain_out):
   Filling board_config.json is the user's FIRST step (the _help block
   tells them to), so a modified config must not fail the clean-tree
   check; its effective values are dumped into every gate-log header
-  instead, so reproducibility is still recorded.
+  instead, so reproducibility is still kept.
 
   Arguments:
     porcelain_out = the ``git status --porcelain`` output over the
@@ -646,7 +647,7 @@ def select_gates(args):
 
 
 def _passed(status, gate_id):
-  """Whether a gate is recorded PASS in the status map."""
+  """Whether a gate is marked PASS in the status map."""
   return status.get(gate_id, {}).get("status") == "PASS"
 
 
@@ -655,7 +656,7 @@ def _passed(status, gate_id):
 # --------------------------------------------------------------------------
 
 def _now():
-  """An ISO-ish timestamp for the log header and status records."""
+  """An ISO-ish timestamp for the log header and status entries."""
   return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -695,7 +696,7 @@ def _log_header(gate, cfg, log_fh):
 
 
 def run_selection(*, selection, cfg, env, status, force_rerun, dry):
-  """Execute the selected gates in order, logging and recording each.
+  """Execute the selected gates in order, logging and marking each.
 
   Arguments:
     selection   = the ordered gates to run (from select_gates).
@@ -732,7 +733,7 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry):
             "--force-rerun " + gate.id + " to rerun")
       continue
 
-    # dependency skip: an unmet prerequisite records SKIPPED, no abort.
+    # dependency skip: an unmet prerequisite marks SKIPPED, no abort.
     unmet = []
     for dep in gate.deps:
       if not _passed(status, dep):
@@ -838,7 +839,7 @@ def build_parser():
 
 
 def main(argv=None):
-  """Parse the CLI and dispatch to the requested action.
+  """Parse the CLI and run the requested action.
 
   Arguments:
     argv = the argument list (defaults to sys.argv[1:]); accepted for

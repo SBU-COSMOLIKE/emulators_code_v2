@@ -1,14 +1,14 @@
-"""The workstation board: the ordered list of tests the harness runs.
+"""The workstation board: the list of tests and what each one is.
 
-This module is the test registry. It defines the Gate record, the
-three tier names, and BOARD, the single ordered list every test lives
-in (the order the home notes fix: the EMA off-mode identity test first,
-then the rest of the backlog, then this cycle's new-feature tests, then
-the save-and-sample acceptance chain). Each test carries its home note
-and a ``maps`` string naming the home-note line(s) its checks implement,
-so a reviewer can confirm the test encodes the note and not a memory of
-it. run_board.py imports Gate, GateFailure, and BOARD; it builds the
-RunContext each test's run function receives.
+This file holds BOARD, a plain Python list of the 19 tests in the order
+they run, and a small class, Gate, that says what one test is: its name,
+its tier, its home note, and the function that runs it. Each Gate also
+carries a ``maps`` string pointing at the home-note lines its checks
+come from, so a reviewer can see the test follows the note and not a
+memory of it. The tiers group the list (the EMA off-mode identity test
+first, then the rest of the backlog, then this cycle's new-feature
+tests, then the save-and-sample chain). run_board.py imports this list
+and runs the tests; nothing in this file runs on its own.
 
 Every test's run function has one shape. It issues its shell commands
 through ``ctx.sh`` / ``ctx.run_driver`` (which stream output to the
@@ -18,9 +18,9 @@ plan and stops before any check runs), then judges pass/fail with
 acceptances (the weight-decay census, the eval-batch invariance, the
 bitwise save/rebuild equality, the training-to-inference parity) live
 in the executable ``checks/`` scripts a test launches, so the harness
-itself computes them and the raw log records every value.
+itself computes them and the raw log holds every value.
 
-Golden runs use the temporary-worktree mechanism, never a checkout in
+Golden runs build the same config in a throwaway worktree, not a checkout in
 place: the pinned pre-feature build runs in a throwaway ``git worktree``
 the runner removes even on failure. Only the EMA identity test has a
 preset base (the pre-EMA commit); the other golden runs read their base
@@ -31,7 +31,7 @@ merged feature's off path is already exercised by the standard runs).
 Glossary:
   board     = the ordered list of tests the harness drives.
   gate      = one test: a home note, the commands it runs, and how its
-              pass/fail is decided (the Gate record; "test" in prose).
+              pass/fail is decided (the Gate class; "test" in prose).
   tier      = the board's coarse grouping and the --tier selector value
               (backlog / new-features / save-and-sample).
   golden run= a byte-identity run: the same config built on the current
@@ -45,7 +45,7 @@ Glossary:
               disturbs the user's working tree.
   preflight = run_board.py's pre-GPU checks (git tip, clean tree, cocoa
               imports, data paths) that must pass before any test runs.
-  resume    = re-running the board skips tests already recorded PASS, so
+  resume    = re-running the board skips tests already marked PASS, so
               a crash mid-board loses only the in-flight test.
 """
 
@@ -58,7 +58,7 @@ from checks import logscan
 class GateFailure(Exception):
   """Raised inside a gate when an acceptance check fails.
 
-  The runner catches it, records the gate FAIL with the message in the
+  The runner catches it, writes the gate FAIL with the message in the
   raw log and board_status.json, and moves on to the next gate (a
   single gate's failure never stops the board). Gate functions raise
   it directly for an unrecoverable precondition (a missing config), and
@@ -86,7 +86,7 @@ class Gate:
     id      = the test name (e.g. "save-rebuild-drift"); the log filename
               stem, the selector --gate accepts, and the resume key.
     tier    = one of TIER_BACKLOG / TIER_NEW_FEATURES / TIER_SAVE_AND_SAMPLE.
-    home    = the home note filename stem (the spec of record); printed
+    home    = the home note filename stem (the note that defines it); printed
               in the log header so a log traces back to its spec.
     maps    = the home-note line(s) each check implements (assertion ->
               note line), printed in the header so a review confirms the
@@ -94,7 +94,7 @@ class Gate:
     run     = the test body, run(ctx) -> None; issues commands and judges
               pass/fail, raising GateFailure on any failure.
     deps    = the tests whose PASS this test needs; an unmet dependency
-              records SKIPPED(dependency) rather than running.
+              marks SKIPPED(dependency) rather than running.
     optional= when True the test is skipped unless --gate names it
               (triangle-shading, registered but off the default sweep).
     needs   = the environment capabilities the test requires ("torch",
@@ -136,7 +136,7 @@ def _golden_leg(ctx, gate_id, yaml_name, grep_pattern):
   explanation rather than run hollow.
 
   Arguments:
-    ctx          = the run context (sh / worktree / expect / dry).
+    ctx          = the per-test helper (its sh / worktree / expect / dry).
     gate_id      = the gate whose golden_bases entry names the base.
     yaml_name    = the shared config both builds train on.
     grep_pattern = the grep-style regex selecting the lines to compare
@@ -179,7 +179,7 @@ def _smoke_driver(ctx, config_key, required_banners, *, extra=()):
   substring present in the output.
 
   Arguments:
-    ctx              = the run context.
+    ctx              = the per-test helper.
     config_key       = the board_config.json gate_configs key naming the
                        smoke YAML; a missing/unset config raises
                        GateFailure (the gate cannot run without it).
@@ -271,7 +271,7 @@ def gate_diag(ctx):
   run finishes, the sizes line reports "used N of P cut rows" with N the
   configured n_train, and the regenerated PDF shades every hard sample
   edge (a visual confirmation from the committed PDF). Home notes: the
-  five spec-of-record files listed in this test's maps.
+  five home notes listed in this test's maps.
   """
   ctx.require_caps("cosmolike")
   # G1 home: audit-package-style-2026-07-05.md:232-234.

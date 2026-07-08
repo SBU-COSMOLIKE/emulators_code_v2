@@ -19,8 +19,8 @@ are grouped into three **tiers** (`backlog`, `new-features`,
 ```
 gates/
   run_board.py     the CLI + runner: preflight, order, per-test logs,
-                   resume, the temporary-worktree golden mechanism
-  board.py         the registry: the Gate record + all 19 tests, each
+                   resume, and golden runs in a throwaway worktree
+  board.py         the list of tests: a small Gate class + the 19 tests, each
                    with its home note, a maps line, and a run function
   board_config.json  deployment paths (root, dumps, yaml dir) + per-test
                    golden bases + the smoke-config paths
@@ -32,9 +32,9 @@ gates/
                    board_status.json
 ```
 
-The runner builds a small context per test that streams every command
-into that test's log and records each check. A test never touches
-subprocess, files, or git directly; it goes through the context, so the
+The runner builds a small helper per test that streams every command
+into that test's log and notes each check. A test never touches
+subprocess, files, or git directly; it goes through that helper, so the
 log is complete and every path comes from `board_config.json`.
 
 Some tests carry a **golden run**: they build the same config both on
@@ -61,7 +61,7 @@ git add -f gates/logs && git commit -m "workstation board run: logs"
 Preflight aborts before any GPU time on a stale git tip, a dirty tree, a
 missing cocoa import, or a missing data path, and prints the remedy.
 Selectors: `--gate <name> [...]`, `--tier backlog|new-features|save-and-sample`,
-`--from <name>`, `--dry-run`. A rerun skips tests already recorded PASS
+`--from <name>`, `--dry-run`. A rerun skips tests already marked PASS
 (`--force-rerun <name>` overrides); a crash loses only the in-flight test.
 
 ## The 19 tests
@@ -102,4 +102,4 @@ live. Each check writes a line
 and the file ends with `[harness] GATE <test>: PASS` or `FAIL <reason>`.
 `logs/BOARD.md` is the one-line-per-test summary; a review reads the raw
 logs, not the summary. Each test's home note (named in the header) is the
-spec of record for what that test must prove.
+definitive spec for what that test must prove.
