@@ -489,3 +489,63 @@ builtin can never silently shadow it again. Both YAMLs (the board's
 gates/configs/cobaya-adapter-evaluate.yaml and the shipped
 EXAMPLE_EMUL_EVALUATE.yaml) now use python_path with a comment naming
 the trap.
+
+## Addendum (2026-07-08): dv-shape decision point RESOLVED — section-sized products, a shape flag, sections persisted at save
+
+Board run 8 executed the adapter inside cobaya for the first time and
+falsified the implementation-time declaration "dv shape = kept entries
+(matches legacy res[0])". The likelihood contract
+(_cosmolike_prototype_base.internal_get_datavector_emulator, probe xi)
+is len(get_cosmic_shear()) == sizes[0] = the FULL cosmic-shear section
+as cosmolike sizes it (780 for lsst_y1) — the legacy v1 adapter emitted
+exactly that (OUTPUT_DIM 780). Kept entries equal sizes[0] only when
+the mask keeps the whole section; with lsst_y1_M1_GGL0.05 it does not.
+
+**USER DESIGN DECISION (overrides the Architect's first proposal of a
+full-length product + a likelihood check relaxation):** the likelihood
+stays UNTOUCHED — it is the component that glues per-probe products
+(cosmic_shear / ggl / wtheta, each section-sized) into the full 3x2pt
+vector, and separate per-probe emulators are the intended future. So:
+
+1. predict() gains a SHAPE FLAG: `dv_return: 'section' | '3x2pt'`,
+   DEFAULT 'section'. Section mode returns the emulator's own probe
+   section(s) sliced from the scattered full vector — for a cosmic-shear
+   emulator that is exactly the xi± block, full[0:sizes[0]], the length
+   the likelihood demands. '3x2pt' returns the full-length scattered
+   vector (masked positions zero). The flag chooses SHAPE only; WHICH
+   section comes from the artifact (never re-declared in the YAML).
+   The training-side data vector (dumps, mask, center, Cinv) always
+   stays full-3x2pt-length — completely separate story, unchanged.
+
+2. The artifact must therefore record the section boundaries:
+   DataVectorGeometry.from_cosmolike ALREADY resolves
+   ci.compute_data_vector_3x2pt_real_sizes() and the probe string at
+   staging (geometries_output.py:230-247) but state() drops them.
+   state()/from_state gain `section_sizes` (the 3-list) and `probe`
+   (the possible_probes string) — training-time RESOLVED values, the
+   persist-resolved-values rule applied. An older v2 h5 without the
+   keys loads with them as None; section mode then fails LOUDLY naming
+   the fix (re-save with current code, or set dv_return: '3x2pt').
+   The board's persisted tiny emulator regenerates every run, so the
+   gate picks the new keys up automatically.
+
+3. Mechanics of section mode: decode to kept entries exactly as today
+   -> scatter via the geometry's own unsqueeze (geometries_output.py:325,
+   dest_idx placement into a total_size zero vector) -> slice the stored
+   probe's block(s) (block k starts at sum(section_sizes[:k]), length
+   section_sizes[k]; multi-block probes concatenate their blocks). For
+   probe xi that is full[0:section_sizes[0]] — offset 0, so kept
+   positions are unchanged and masked positions are zero, matching the
+   legacy 780-vector semantics bit for bit where it matters (compute_logp
+   masks them anyway).
+
+4. The adapter's extra_args whitelist gains optional `dv_return`
+   (default 'section'), passed through to every EmulatorPredictor. The
+   board evaluate YAML stays unchanged (it exercises the default path);
+   the shipped example documents the flag commented-out.
+
+The Architect's rejected alternative (full-length product + relaxing
+the likelihood's len check) is recorded for the archive: it would have
+made the likelihood accept two shapes per product and put the gluing
+convention on both sides of the interface; the user's design keeps one
+shape per product and one gluer.

@@ -1318,3 +1318,40 @@ cobaya-adapter evaluate pending / triangle-shading optional. Layers
 peeled so far on this leg: stale example paths (run 3/4) -> artifact
 existence (run 4) -> class shadowing (run 5) -> stale output info
 (run 6) -> legacy params bridge (run 7).
+
+### 2026-07-08 — Architect: board run-8 audit (HEAD 0372d7d)
+The params fix landed: dependency resolution cleared, the evaluate
+sampler assembled its reference point (our 12 stored names + the
+likelihood's LSST_M1..M5 defaults), and OUR ADAPTER EXECUTED FOR THE
+FIRST TIME — "[emul_cosmic_shear] Average evaluation time: 0.109418 s
+(1 evaluations)": EmulatorPredictor loaded the persisted tiny emulator,
+encoded, forwarded, decoded, and delivered a data vector inside cobaya.
+The failure moved into the likelihood's consumption of that vector:
+"ValueError: Incompatible Sizes (Emulator Cosmic Shear)"
+(_cosmolike_prototype_base.internal_get_datavector_emulator:479). Root
+cause is the dv-shape decision point declared at design time
+([[cobaya-theory-adapter]]): predict() returns the KEPT entries
+(n_keep, the unmasked positions), while the likelihood demands
+len(get_cosmic_shear()) == sizes[0] — the FULL cosmic-shear section as
+cosmolike sizes it (the legacy v1 adapter emitted exactly that;
+OUTPUT_DIM 780 in the legacy lsst_y1 example). The declaration "kept
+entries == legacy res[0]" is now falsified by a real run: with the
+M1_GGL0.05 mask, n_keep != sizes[0]. Resolution (USER's design,
+overriding the Architect's first proposal; dated addendum in
+[[cobaya-theory-adapter]]): the likelihood stays UNTOUCHED — it is the
+gluer of per-probe section-sized products, and separate cs/ggl/wtheta
+emulators are the intended future. predict() gains a shape flag
+dv_return: 'section' | '3x2pt', DEFAULT 'section' (a cosmic-shear
+emulator returns exactly the xi± block, full[0:sizes[0]], via decode ->
+geometry.unsqueeze scatter -> block slice); the section boundaries
+become part of the artifact (state()/from_state gain section_sizes +
+probe, both ALREADY resolved from cosmolike inside from_cosmolike at
+staging and today dropped by state() — persist-resolved-values applied;
+old v2 files load them as None and section mode errors loudly naming
+the re-save). The training-side data vector stays full-3x2pt-length,
+unchanged. Emulator-side unit handed to the Implementer (geometry state
++ inference flag + adapter whitelist + parity shape assertions); no
+cocoa-side change. Board: 18 PASS / cobaya-adapter evaluate pending /
+triangle-shading optional. Layer 6 peeled: params bridge (run 7) ->
+dv-shape contract (run 8) — the first failure inside our own
+parity-proven code, and it is a contract mismatch, not physics.
