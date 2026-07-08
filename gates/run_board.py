@@ -399,6 +399,51 @@ class RunContext:
               allow_fail=True)
       shutil.rmtree(holder, ignore_errors=True)
 
+  # ---- golden config staging --------------------------------------------
+
+  @contextlib.contextmanager
+  def staged_golden(self, *, gate_id, source):
+    """Copy a golden config into the driver fileroot; yield its bare name.
+
+    The pinned golden leg runs a worktree checkout of a pre-fix commit,
+    whose driver re-prefixes an absolute --yaml under its own fileroot
+    (the absolute-path passthrough postdates that commit). Copying the
+    golden config into <rootdir>/<driver_root>/<driver_fileroot>/ under a
+    gates-golden-<gate>.yaml name and passing the BARE filename to both
+    legs makes the fileroot convention work on every commit, old or new.
+    The staged copy is removed in a finally (this assumes the deploy's
+    rootdir equals $ROOTDIR, so the path the driver builds from its
+    --root / --fileroot flags is the one staged into).
+
+    Arguments:
+      gate_id = the gate id (names the staged file gates-golden-<id>.yaml).
+      source  = the resolved absolute path of the golden config to copy.
+
+    Yields:
+      the bare filename to pass as --yaml to both legs.
+    """
+    name = "gates-golden-" + gate_id + ".yaml"
+    root = self.cfg.get("rootdir")
+    driver_root = self.cfg.get("driver_root")
+    driver_fileroot = self.cfg.get("driver_fileroot")
+    fileroot = Path(str(root)) / str(driver_root) / str(driver_fileroot)
+    dest = fileroot / name
+    if self.dry:
+      self._emit("[dry-run] would stage " + str(source) + " -> "
+                 + str(dest) + "\n")
+      yield name
+      self._emit("[dry-run] would remove " + str(dest) + "\n")
+      return
+
+    try:
+      fileroot.mkdir(parents=True, exist_ok=True)
+      shutil.copyfile(str(source), str(dest))
+      self._emit("[harness] staged golden config -> " + str(dest) + "\n")
+      yield name
+    finally:
+      if dest.exists():
+        dest.unlink()
+
 
 # --------------------------------------------------------------------------
 # Preflight (harness rule 4).

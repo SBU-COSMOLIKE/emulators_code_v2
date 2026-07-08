@@ -17,8 +17,8 @@ data:
     omegam2h2_hi:  0.08
     omegamh2_lo:   0.140
     omegamh2_hi:   0.150
-  n_train:       25000
-  n_val:         5000
+  n_train:       5000
+  n_val:         1000
   split_seed:    0
   ram_frac:      0.7
 

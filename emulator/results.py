@@ -387,6 +387,9 @@ def rebuild_emulator(path_root, device, compile_model=True):
     recipe / geometry / pce key (never a code-default fallback).
   """
   import importlib
+  # h5py lives only here: the training machines (cocoa) ship it, the
+  # plotting/train paths never need it.
+  import h5py
 
   from .activations import make_activation
   from .emulator_designs_building_blocks import make_norm

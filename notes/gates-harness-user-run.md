@@ -1107,3 +1107,56 @@ header banners on line 1 of four files, untouched). This resolves the
 blocking finding above: run-2's smoke tier no longer KeyErrors at
 build_run_specs. ONE commit now carries the six run-1 fixes + this
 completion.
+
+## Implementer board run-2 fixes (2026-07-08, Opus, base 17f08ce)
+
+Six items from the Architect's run-2 log triage. Base 17f08ce (the run-1
+fixes + smoke completion, user-committed; tree clean).
+
+1. emulator/results.py: rebuild_emulator gained its own lazy `import
+   h5py` (beside `import importlib`, same rationale comment as
+   save_emulator's :213-215). Run-2 NameError at results.py:440 (h5py
+   used at :401/:403/:440, never imported). Grep confirms save_emulator
+   (:215) is the only other h5py user and it already imports; no other
+   function reaches h5py without a local import.
+2. gates/board.py _golden_leg + a new RunContext.staged_golden
+   (run_board.py): the pinned worktree (46ec5e1) predates the absolute-
+   path passthrough, so an absolute --yaml is re-prefixed there and dies.
+   staged_golden copies the resolved golden config into
+   <rootdir>/<driver_root>/<driver_fileroot>/gates-golden-<gate>.yaml
+   (mkdir -p, removed in a finally) and _golden_leg passes the BARE name
+   to BOTH legs, so the fileroot convention resolves it on every commit,
+   old or new. ASSUMES the deploy rootdir == $ROOTDIR (declared).
+3. gates/configs/ema-smoke-config.yaml: scheduler patience 25 -> 6 (the
+   lr never cut in 60 epochs, so no rewind fired; a short patience
+   provokes a plateau cut so 'rewound to best epoch' can appear).
+4. gates/configs/berhu-anneal-config.yaml: single-phase -> TWO-PHASE
+   (trunk loss sqrt; trunk_epochs 5; head loss berhu_capped knot 0.2
+   cap 10 WITH the hold-5 ramp-10 cosine anneal; model resmlp ->
+   rescnn/nla, the head-capable twin of berhu-loss-config). The anneal
+   banner 'anneal: hold 5 + 10 cosine' is a HEAD-PHASE line (a single-
+   phase run prints only the loss dict); the gate's banner assertion is
+   unchanged. Head phase = 15 epochs (nepochs 20 - trunk 5), so the
+   anneal completes (s=1 by head epoch 15).
+5. gates/configs/param-window-cuts-config.yaml: n_train 25000 -> 5000,
+   n_val 5000 -> 1000 (the 0.14-0.15 omegamh2 window keeps ~6.7k of
+   100k, and the pool-too-small guard correctly refused n_train 25k).
+6. gates/board.py npce sweep assertion: new acceptance = rc == 0 AND
+   >=2 lines matching N_train\s+\d+\s+f\(>0\.2\) AND >=1 "PCE fit:"
+   line. DECLARED DEVIATION: the per-point fit reports print in the GPU
+   workers' stdout, so the parent stream carries only >=1 PCE-fit line;
+   the two parent N_train f(>0.2) lines prove both points ran, and the
+   per-point refit is structural to the top-level pce design (one base
+   per point). rc failing on ntrain_sweep.txt writing into the
+   placeholder fileroot is resolved by the user's real driver_fileroot.
+
+Mac gates (all green): py_compile (results.py, board.py, run_board.py);
+ruby-parse the 3 changed YAMLs; the AST-extracted real build_run_specs +
+anneal_value still pass on ALL 20 configs (the restructured two-phase
+berhu-anneal included); full --dry-run exit 0 with the golden STAGING
+plan (stage -> current-tree run -> worktree run -> remove) and the BARE
+gates-golden-ema-off-identity.yaml on BOTH golden legs, zero UNSET;
+staged_golden unit-tested in isolation (stages into the fileroot, removed
+after the block AND on an exception); grep confirms rebuild_emulator now
+imports h5py; no >90-col line and no prose double-dash in the touched
+files. ONE commit carries all six run-2 fixes.

@@ -1,6 +1,8 @@
-# berhu-anneal smoke (spec code GBA-C; berhu-anneal-schedule.md:199-221). Banner
-# '(knot 0.2, cap 10; anneal: hold 5 + 10 cosine)'; loss continuous at the hold
-# boundary, s=1 by epoch 15.
+# berhu-anneal smoke (spec code GBA-C; berhu-anneal-schedule.md:199-221).
+# TWO-PHASE (trunk sqrt, head berhu_capped): the anneal banner
+# '(knot 0.2, cap 10; anneal: hold 5 + 10 cosine)' is a HEAD-PHASE line (a
+# single-phase run prints only the loss dict). Loss continuous at the hold
+# boundary, s=1 by head epoch 15.
 #
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
@@ -24,14 +26,19 @@ train_args:
   nepochs: 20
   bs:      256
   loss:
-    mode: berhu_capped
-    berhu:
-      knot: 0.2
-      cap:  10
-      anneal:
-        hold_epochs:   5
-        anneal_epochs: 10
-        shape:         cosine
+    mode: sqrt             # trunk phase: plain sqrt
+  trunk_epochs: 5          # small trunk; the head phase (15 epochs) carries
+                           # the berHu anneal (hold 5 + ramp 10)
+  head:
+    loss:
+      mode: berhu_capped
+      berhu:
+        knot: 0.2
+        cap:  10
+        anneal:
+          hold_epochs:   5
+          anneal_epochs: 10
+          shape:         cosine
   # baseline train_args blocks build_run_specs requires (template defaults):
   optimizer:
     weight_decay: 0.0
@@ -57,7 +64,8 @@ train_args:
     shape:         linear
     kappa:         0.15
   model:
-    name: resmlp
+    name: rescnn
+    ia:   nla
     mlp:
       width:    128
       n_blocks: 4

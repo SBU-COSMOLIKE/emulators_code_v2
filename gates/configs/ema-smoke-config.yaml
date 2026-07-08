@@ -36,8 +36,8 @@ train_args:
     weight_decay: 0.0
   scheduler:
     mode:     min
-    patience: 25
-    factor:   0.8
+    patience: 6            # short, so the lr plateau-cuts within 60 epochs
+    factor:   0.8          # and a rewind ('rewound to best epoch') can fire
   trim:
     start:         0.1
     end:           0.025
