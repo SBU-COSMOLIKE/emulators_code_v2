@@ -98,7 +98,9 @@ params:
 
 theory:
   emul_cosmic_shear:
-    path: ./external_modules/code/emulators_code_v2/cobaya_theory/
+    # python_path (NOT path) is cobaya's external-class key; without it the
+    # legacy v1 adapter bundled in cocoa's cobaya fork shadows this class.
+    python_path: ./external_modules/code/emulators_code_v2/cobaya_theory/
     stop_at_error: True
     extra_args:
       device: 'cuda'

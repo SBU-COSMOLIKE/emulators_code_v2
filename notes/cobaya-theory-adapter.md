@@ -469,3 +469,23 @@ float64; the geometry whitening tensors are float64-heritage, so on
 device='mps' rebuild's .to(device) / the predictor's _dtype row may
 need an explicit downcast or the adapter documents cuda/cpu for
 inference — verified when GCT-C-dev runs.
+
+### 2026-07-08 — Architect: cobaya loads the class via python_path, not path
+
+Board run 5 was the first time cobaya-run actually resolved the theory
+block, and it exposed a wiring error in both evaluate YAMLs: the key that
+points cobaya at an external class is `python_path` (cobaya/input.py:318
+reads exactly that key into component_path); `path` is a different
+component attribute (the install path of driven code, camb-style) and is
+ignored for class lookup. Without python_path, cobaya's internal lookup
+found the LEGACY v1 adapter that cocoa's cobaya fork bundles under the
+same name (cobaya/theories/emul_cosmic_shear/ — it died at initialize
+with "Missing emulator file (extra) option", the retired file/extra
+split-pair convention). Keeping the class name emul_cosmic_shear is
+still right (the likelihood contract expects it); python_path makes the
+external class win or fail loudly (cobaya/component.py:650: "If
+component_path is specified, load the class from there or fail") — the
+builtin can never silently shadow it again. Both YAMLs (the board's
+gates/configs/cobaya-adapter-evaluate.yaml and the shipped
+EXAMPLE_EMUL_EVALUATE.yaml) now use python_path with a comment naming
+the trap.
