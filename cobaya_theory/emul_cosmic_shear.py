@@ -41,7 +41,8 @@ from emulator.inference import EmulatorPredictor  # noqa: E402
 # The only extra_args the schema-v2 convention accepts. The legacy ord /
 # extrapar / extra / file keys are retired (see the module docstring); an
 # unknown key errors loudly rather than being silently ignored.
-_ALLOWED_EXTRA_ARGS = ("device", "emulators", "fast_params", "compile")
+_ALLOWED_EXTRA_ARGS = ("device", "emulators", "fast_params", "compile",
+                       "dv_return")
 
 
 class emul_cosmic_shear(Theory):
@@ -58,6 +59,10 @@ class emul_cosmic_shear(Theory):
                     requirements-passthrough only.
       compile     = optional bool, torch.compile each module on CUDA (default
                     False; batch-1 MCMC latency rarely pays off the compile).
+      dv_return   = optional 'section' (default) | '3x2pt', the shape each
+                    predictor returns: 'section' = the emulator's own probe
+                    block (the per-probe vector the likelihood glues), '3x2pt'
+                    = the full scattered vector. Passed to every predictor.
     """
 
     renames = {}
@@ -76,6 +81,10 @@ class emul_cosmic_shear(Theory):
                 "list of saved-emulator path roots (each root -> <root>.h5 + "
                 "<root>.emul).")
         compile_model = bool(self.extra_args.get("compile", False))
+        # the returned shape, passed to every predictor (default 'section':
+        # the per-probe block the likelihood glues; '3x2pt' for the full
+        # scattered vector). The predictor validates the value.
+        dv_return = str(self.extra_args.get("dv_return", "section"))
         rootdir = os.environ.get("ROOTDIR", "")
 
         # one predictor per root; the requirements are the union of the
@@ -85,7 +94,8 @@ class emul_cosmic_shear(Theory):
         for root in roots:
             path = root if os.path.isabs(root) else os.path.join(rootdir, root)
             predictor = EmulatorPredictor(path, self.device,
-                                          compile_model=compile_model)
+                                          compile_model=compile_model,
+                                          dv_return=dv_return)
             self.predictors.append(predictor)
             for name in predictor.names:
                 req[name] = None

@@ -100,7 +100,9 @@ class DataVectorGeometry:
                sqrt_ev,
                Cinv,
                center,
-               dtype = torch.float32):
+               dtype = torch.float32,
+               section_sizes = None,
+               probe = None):
     """Place the geometry tensors on the device.
 
     Plain constructor: stores fields only; the two
@@ -126,6 +128,19 @@ class DataVectorGeometry:
                    targets' zero-point), already squeezed.
       dtype      = precision of evecs / sqrt_ev / Cinv
                    (float32 by default).
+      section_sizes = the full 3x2pt block sizes cosmolike
+                   reports (xi / gammat / wtheta lengths),
+                   recorded so inference can slice this
+                   geometry's own probe section out of the
+                   scattered full vector. None on an older v2
+                   file that predates the key (loud, no
+                   fabricated default); normalized to a python
+                   int list (from_cosmolike passes a list,
+                   from_state a numeric tensor read back).
+      probe      = the possible_probes string this geometry
+                   was built for (xi / gammat / wtheta /
+                   3x2pt); names which blocks the section is.
+                   None on an older v2 file.
     """
     self.dtype = dtype
     self.total_size = int(total_size)
@@ -152,18 +167,38 @@ class DataVectorGeometry:
     # from_state rebuilds it too, leaving state() unchanged.
     self.Cinv_sq = self.Cinv[self.dest_idx][:,self.dest_idx]
 
+    # section accounting (persist-resolved-values): the probe
+    # string and the full 3x2pt block sizes, so inference can
+    # slice this geometry's own section out of the scattered
+    # vector. Normalized to python str / int-list; None stays
+    # None (an older file: inference fails loudly, never a
+    # fabricated default).
+    self.probe = None if probe is None else str(probe)
+    if section_sizes is None:
+      self.section_sizes = None
+    else:
+      sizes_int = []
+      for s in section_sizes:
+        sizes_int.append(int(s))
+      self.section_sizes = sizes_int
+
   @classmethod
   def from_state(cls, device, state):
     """Rebuild from a saved state dict (inference path).
 
     state's keys match __init__, so cls(device, **state)
     reconstructs the geometry with no cosmolike read. cls
-    (not the class name) keeps a subclass's type correct.
+    (not the class name) keeps a subclass's type correct. A
+    newer file also carries section_sizes / probe; an older
+    one omits them, so __init__ leaves both None (loud at
+    inference, never a fabricated default).
 
     Arguments:
       device = device to place the rebuilt tensors on.
       state  = dict from state() (total_size, dest_idx, evecs,
-               sqrt_ev, Cinv, center, ...), splatted into __init__.
+               sqrt_ev, Cinv, center, dtype, and section_sizes
+               / probe when the file records them), splatted
+               into __init__.
 
     Returns:
       a DataVectorGeometry (or subclass, via cls).
@@ -281,16 +316,23 @@ class DataVectorGeometry:
                sqrt_ev=sqrt_lam,
                Cinv=Cinv,
                center=center,
-               dtype=dtype)
+               dtype=dtype,
+               section_sizes=sizes,
+               probe=probe)
 
   def state(self):
     """Tensors inference needs, keyed to match __init__.
 
     Move everything to cpu for saving; include dtype so
     from_state rebuilds the basis and Cinv at the run's
-    precision.
+    precision. section_sizes / probe join only when set (a
+    from_cosmolike geometry): section_sizes as a small long
+    tensor, a clean numeric round-trip through the h5 writer
+    that __init__ normalizes back to an int list; probe as a
+    string. A geometry that predates the keys has neither, so
+    state() omits them and from_state leaves both None.
     """
-    return {
+    st = {
       "total_size": self.total_size,
       "dest_idx":   self.dest_idx.cpu(),
       "evecs":      self.evecs.cpu(),
@@ -299,6 +341,12 @@ class DataVectorGeometry:
       "center":     self.center.cpu(),
       "dtype":      self.dtype,
     }
+    if self.section_sizes is not None:
+      st["section_sizes"] = torch.tensor(self.section_sizes,
+                                         dtype=torch.long)
+    if self.probe is not None:
+      st["probe"] = self.probe
+    return st
 
   # --- low-level transforms ---
   def squeeze(self, dv):

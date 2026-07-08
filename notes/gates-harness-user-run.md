@@ -1355,3 +1355,94 @@ cocoa-side change. Board: 18 PASS / cobaya-adapter evaluate pending /
 triangle-shading optional. Layer 6 peeled: params bridge (run 7) ->
 dv-shape contract (run 8) — the first failure inside our own
 parity-proven code, and it is a contract mismatch, not physics.
+
+## Implementer GCT-D fixes (2026-07-08, Opus, base c81778a = origin/main)
+
+The dv_return shape flag, per the [[cobaya-theory-adapter]] 2026-07-08
+addendum. Base was origin/main c81778a (the run-8 audit + dv-shape spec +
+the run 5-8 evaluate-YAML fixes: python_path, force:True, dropped lcdm
+bridge); my worktree was a clean ancestor (9ca0cda), so I fast-forwarded
+to the base (a no-commit ff sync, a git pull equivalent) — the run 5-8
+YAML fixes were on it and my stale copies would otherwise have collided.
+
+1. emulator/geometries_output.py: DataVectorGeometry.__init__ gains
+   section_sizes=None + probe=None (normalized to a python int list / str;
+   None stays None, no fabricated default); from_cosmolike passes the
+   `sizes` list + `probe` it already resolves; state() adds both ONLY when
+   set (section_sizes as a small long TENSOR for a clean numeric h5
+   round-trip that __init__ re-normalizes to an int list; probe as a str
+   attr); from_state is unchanged (cls(device, **state) splats the additive
+   keys; an old file lacks them -> None). The two subclasses
+   (Diagonal/BlockDiagonal) override only whiten/unwhiten, so they inherit
+   the new constructor + state and round-trip the keys automatically. No
+   schema bump (additive). The generic write_state (results.py, iterates
+   the state dict) needed no fix; storing section_sizes as a tensor
+   sidesteps its list-as-strings branch.
+2. emulator/inference.py: EmulatorPredictor gains dv_return
+   ('section' default | '3x2pt'; validated in __init__). predict() decodes
+   to kept entries exactly as before -> geom.unsqueeze scatter -> '3x2pt'
+   returns full[0] (total_size,), 'section' returns _section(full). New
+   _section slices the stored probe's block(s) via
+   self.geom.PROBE_BLOCKS[self.probe] (block k = full[sum(sizes[:k]):
+   +sizes[k]], concatenated; xi = full[0:section_sizes[0]]); section mode
+   with section_sizes/probe None raises loudly naming the two ways out.
+   Module shape-flow diagram + predict docstring extended (dv_kept ->
+   dv_full -> dv_out, every symbol in the legend).
+3. cobaya_theory/emul_cosmic_shear.py: _ALLOWED_EXTRA_ARGS gains
+   "dv_return"; initialize() reads it (default 'section') and passes it to
+   every EmulatorPredictor; docstring updated. No other logic.
+4. cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml: dv_return documented
+   commented-out (both values + the default) in extra_args. The board's
+   gates/configs/cobaya-adapter-evaluate.yaml is UNCHANGED (it exercises
+   the default 'section' path). gsv_bitwise_drift.py untouched (its tiny
+   emulator re-persists every board run and picks up the new state keys).
+5. gates/checks/gct_parity.py: the rtol 1e-6 kept-entry comparison stays,
+   now indexing the SECTION output at dest_idx (xi offset 0); ADDED: two
+   predictors (default section + dv_return '3x2pt'), section length ==
+   section_sizes[0], 3x2pt length == total_size, masked positions exactly
+   0.0. Module docstring updated.
+
+Mac gates (all green; no torch on the Mac, so the torch/GPU legs are the
+workstation acceptance): GCT-D3 static — py_compile the four files +
+compileall the whole emulator package; the adapter whitelist carries
+dv_return; predict has the dv_return branch + _section; ord/extrapar
+appear only in the retired-keys prose; the diagram legend defines
+section_size / total_size / dv_return; no >90-col line, no NEW prose
+double-dash. GCT-D1/D2 logic — an AST-extracted run of the SHIPPED
+_section against a numpy-scattered full vector (a torch.cat stub for the
+multi-block concat): section length == section_sizes[0]; section[dest_idx]
+== full[dest_idx] == the kept vector (bitwise); masked positions exactly
+0.0; 3x2pt length == total_size; multi-block concat == total_size; and the
+None geometry raises the two-way message. The real in-process emulator
+(GCT-D1) + old-file from_state (GCT-D2) + the cobaya evaluate leg run on
+the workstation. Not committed; the command is printed.
+
+### 2026-07-08 — Architect: GCT-D audit VERDICT (worktree amazing-keller, base c81778a)
+VERIFIED, commit-ready. Audited against the raw diff, not the handoff
+summary. Evidence: (a) footprint exactly the six declared files; the
+board evaluate YAML and gsv_bitwise_drift untouched. (b) geometry —
+None-defaulted additive keys, int-list/str normalization, state() adds
+only when set, from_state splat unchanged, subclasses inherit; the h5
+writer traced by inspection: the long tensor takes write_state's tensor
+branch (a plain list would have been silently written as a STRING
+dataset — the tensor choice dodges a real trap) and probe takes the str
+attr branch the dtype attr already exercises. (c) predict — decode
+unchanged, geom.unsqueeze's documented (B, n_keep) -> (B, total_size)
+contract matches the (1, n_keep) call, flag validated loudly at build.
+(d) _section EXECUTED via exact-source exec-extraction (the Mac
+no-torch methodology): xi slice, 3x2pt concat == whole vector, gammat
+OFFSET block (the case the xi gate never exercises), and both None
+raises naming the two ways out — 5/5 PASS (Architect's own probe,
+independent of the Implementer's). (e) parity probe keeps the rtol
+1e-6 kept-entry comparison (xi offset 0 makes global dest_idx valid
+section indices — comment states it) + the three new shape assertions.
+(f) py_compile clean; no hand-typed section lengths anywhere in the
+added lines (grep 780/650/130/1560 over the diff: zero). One delta,
+Architect-applied directly (declared deviation, purely lexical): five
+caps-for-emphasis words (SHAPE x3, WHICH, SECTION) lowercased in the
+new docstrings/comments — the pattern the 2026-07-05 style audit drove
+to zero, and the register the user's fresh docs feedback targets.
+Recompiled clean after. Workstation acceptance remains: the board's
+cobaya-adapter evaluate leg rc 0 with the untouched likelihood (the
+from_state -> section-mode chain runs there against the real
+len == sizes[0] check).

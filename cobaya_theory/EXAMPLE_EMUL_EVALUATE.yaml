@@ -100,6 +100,11 @@ theory:
       emulators:
         - projects/lsst_y1/emulators/<run>/emul_v2
       # compile: false          # torch.compile on CUDA; off by default (batch-1)
+      # dv_return: section       # the returned shape: 'section' (the default)
+      #                          # = this emulator's own probe block (xi for
+      #                          # cosmic shear, the length the likelihood
+      #                          # glues per probe); '3x2pt' = the full
+      #                          # scattered vector (masked positions zero).
       # fast_params (one inner list per emulator): sampled parameters passed
       # through to the requirements but NOT fed to the network -- for a setup
       # where a nuisance (e.g. Roman shear calibration) is applied in the

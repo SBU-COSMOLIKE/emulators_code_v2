@@ -51,13 +51,23 @@ class EmulatorPredictor:
          │                        exact training chi2fn.decode, reused not
          │                        re-derived
          ▼
-      dv (n_keep,)                physical kept-entry data vector (numpy)
+      dv_kept (1, n_keep)         physical kept-entry data vector
+         │  geom.unsqueeze        scatter to dest_idx in a total_size zero
+         ▼
+      dv_full (1, total_size)     the full 3x2pt vector, 0 off the kept entries
+         │  dv_return 'section'   slice the stored probe's block(s)
+         │           '3x2pt'      keep the whole scattered vector
+         ▼
+      dv_out                      'section': (section_size,); '3x2pt':
+                                  (total_size,); the returned vector (numpy)
 
   (legend: n_param = the full parameter count the geometry whitens;
   encoded_dim = pgeom.encoded_dim, the model's input width; n_keep =
   geom.dest_idx.numel(), the kept (unmasked) 3x2pt entries; n_templates =
-  the factored design's template count; the amplitudes among .names feed the
-  combine, never the network.)
+  the factored design's template count; total_size = the full 3x2pt length
+  unsqueeze restores to; section_size = the stored probe's block lengths
+  summed (for xi, section_sizes[0]); dv_return = the returned-shape flag;
+  the amplitudes among .names feed the combine, never the network.)
 
   Authority chain (the never-trust-defaults rule, read side): .names IS the
   saved ParamGeometry's stored names, in training order -- for a factored
@@ -70,7 +80,8 @@ class EmulatorPredictor:
   def __init__(self,
                path_root,
                device,
-               compile_model=False):
+               compile_model=False,
+               dv_return="section"):
     """Rebuild the emulator and assemble the branch-specific decoder.
 
     Arguments:
@@ -79,12 +90,25 @@ class EmulatorPredictor:
       device        = torch.device to rebuild + run on.
       compile_model = torch.compile the module on CUDA (default False: batch-1
                       MCMC latency rarely pays off the compile cost).
+      dv_return     = the returned shape (default 'section'): 'section'
+                      returns this emulator's own probe block(s) sliced from
+                      the scattered full vector (for a cosmic-shear emulator
+                      the xi block, the length the likelihood demands);
+                      '3x2pt' returns the full-length scattered vector (masked
+                      positions zero). Which section comes from the artifact
+                      (the geometry's stored probe), never re-declared here.
 
     Raises:
-      ValueError on a non-schema-v2 file (rebuild_emulator refuses it) or an
-      unrecognized NPCE form; the exclusivity guard fires if a file somehow
-      carries both a factored-IA design and an NPCE base.
+      ValueError on a non-schema-v2 file (rebuild_emulator refuses it), an
+      unrecognized NPCE form, or a dv_return outside {'section', '3x2pt'};
+      the exclusivity guard fires if a file somehow carries both a
+      factored-IA design and an NPCE base.
     """
+    if dv_return not in ("section", "3x2pt"):
+      raise ValueError(
+        "dv_return must be 'section' (this emulator's own probe block) or "
+        "'3x2pt' (the full scattered vector), got " + repr(dv_return))
+    self.dv_return = dv_return
     self.device = device
     (self.model,
      self.pgeom,
@@ -95,6 +119,10 @@ class EmulatorPredictor:
     self.names      = list(self.pgeom.names)
     self.dest_idx   = self.geom.dest_idx
     self.total_size = self.geom.total_size
+    # section accounting the geometry persisted (None on a file that predates
+    # the keys); section mode slices these, '3x2pt' ignores them.
+    self.section_sizes = self.geom.section_sizes
+    self.probe         = self.geom.probe
 
     ia       = info["ia"]
     pce_base = info["pce_base"]
@@ -198,7 +226,7 @@ class EmulatorPredictor:
                            device=self.device).reshape(1, -1)
 
   def predict(self, params):
-    """Predict the physical cosmic-shear data vector.
+    """Predict the physical data vector at the configured dv_return shape.
 
     Arguments:
       params = a mapping name -> value, or an ordered sequence in .names
@@ -206,12 +234,54 @@ class EmulatorPredictor:
                factored combine, never entered into the network).
 
     Returns:
-      (n_keep,) numpy array: the physical (kept-entry) data vector, the
-      same kept-entry ordering the legacy Theory returned.
+      a 1-D numpy array. dv_return 'section' (the default): this emulator's
+      own probe block(s), shape (section_size,); for a cosmic-shear emulator
+      the xi block, the length the likelihood glues per probe. dv_return
+      '3x2pt': the full scattered vector (total_size,), the kept entries at
+      their dest_idx positions and 0 everywhere else.
     """
     x     = self._as_row(params)
     x_enc = self.pgeom.encode(x)
     with torch.no_grad():
       pred = self.model(x_enc)
-    dv = self._decode(pred, x_enc)
-    return dv[0].detach().cpu().numpy()
+    dv_kept = self._decode(pred, x_enc)      # (1, n_keep) kept-entry
+    dv_full = self.geom.unsqueeze(dv_kept)   # (1, total_size), 0 off dest_idx
+    if self.dv_return == "3x2pt":
+      out = dv_full[0]
+    else:
+      out = self._section(dv_full)
+    return out.detach().cpu().numpy()
+
+  def _section(self, dv_full):
+    """Slice this emulator's own probe block(s) from the full vector.
+
+    Concatenates, in probe order, each block the stored probe spans (block k
+    starts at sum(section_sizes[:k]) and runs section_sizes[k]); for a
+    cosmic-shear emulator that is the single xi block, full[0:section_sizes
+    [0]]. The training data vector is a separate story and stays full length.
+
+    Arguments:
+      dv_full = (1, total_size) the scattered full 3x2pt vector.
+
+    Returns:
+      (section_size,) the probe's block(s), concatenated in probe order.
+
+    Raises:
+      ValueError when the geometry predates section_sizes / probe (an older
+      schema-v2 file), naming the two ways out.
+    """
+    if self.section_sizes is None or self.probe is None:
+      raise ValueError(
+        "dv_return='section' needs the geometry's section_sizes + probe, "
+        "which this saved emulator predates (an older schema-v2 file). Two "
+        "ways out: re-save with the current code (from_cosmolike records "
+        "them), or build the predictor with dv_return='3x2pt' for the full "
+        "scattered vector.")
+    blocks = []
+    for block_id in self.geom.PROBE_BLOCKS[self.probe]:
+      start  = sum(self.section_sizes[:block_id])
+      length = self.section_sizes[block_id]
+      blocks.append(dv_full[0, start:start + length])
+    if len(blocks) == 1:
+      return blocks[0]
+    return torch.cat(blocks)
