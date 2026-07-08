@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
-"""The user-run gates harness: drive the whole workstation board.
+"""The program you run: ``python gates/run_board.py``.
 
-This file is the program you run: ``python gates/run_board.py``. It
-holds the command-line parsing and the loop that runs each test in
-board.py's order, plus a small class, RunContext, giving each test the
-few things it needs (run a command, write to its log, check a value).
-It preflights the environment before any GPU time, writes one raw log
-per test (the full streamed stdout and stderr a reviewer reads, never a
-summary), skips tests already passed on a rerun, and writes a final
-BOARD.md table plus a board_status.json for the next run.
-
-The rules it enforces: preflight aborts loudly on a stale git tip, a
-dirty tree, a missing cocoa import, or a missing data path; the EMA
-identity test's pinned pre-EMA build runs in a temporary git worktree
-the runner always removes; a failed save-rebuild-drift test skips
-cobaya-adapter (whose parity probe needs that saved artifact) rather
-than aborting the board; every other test is independent, so one
-failure never stops the rest; and nothing here mutates notes/ (the raw
-logs are the evidence a later review reads).
+It parses the command line and runs each test in board.py's order.
+A small class, RunContext, hands every test the few things it needs:
+run a command, write to its log, check a value. Preflight blocks the
+run before any GPU time if the git tip is stale, the tree is dirty, a
+cocoa import fails, or a data path is missing. Each test gets one raw
+log (the full streamed output, never a summary); a rerun skips tests
+already PASS; a failed save-rebuild-drift skips cobaya-adapter (which
+needs its saved file); any other failure never stops the rest.
+BOARD.md is the final pass/fail table. Terms: the glossary at the top
+of board.py.
 
 Typical use on the workstation:
 
@@ -27,12 +20,6 @@ Typical use on the workstation:
     python gates/run_board.py --dry-run   # print the plan
     python gates/run_board.py             # the whole board, in order
     git add -f gates/logs && git commit -m "workstation board run: logs"
-
-PS: preflight = the pre-GPU checks that fail fast; tee = stream a
-subprocess to the terminal and the log at once; resume = skip a gate
-already PASS in board_status.json; worktree = a throwaway checkout of
-another commit that never disturbs the user's tree; dependency skip =
-mark SKIPPED a gate whose prerequisite gate did not pass.
 """
 
 import argparse

@@ -962,3 +962,13 @@ gates/configs/*.yaml renames, gates/checks/gsv_bitwise_drift.py +
 gct_parity.py (piece-3 de-jargon), notes/gates-harness-user-run.md,
 notes/gates-id-translation.md, and the notes/MEMORY.md index line.
 notes/session-status-2026-07-07b.md stays out.
+
+Final piece (2026-07-07, Architect-implemented at the user's
+direction): a compression pass on gates/ prose — every gate docstring
+tightened to one sentence per what/why/how part with a short spec
+cite, the board.py/run_board.py openers shortened, redundant citation
+comments removed, four overlong lines wrapped. Verified:
+docstring-stripped AST byte-identical for both files (the wraps use
+adjacent string literals, which the parser folds), py_compile, the
+stub legs, 18 dry-run plans, columns, README 105 lines. Rides the
+same single commit.
