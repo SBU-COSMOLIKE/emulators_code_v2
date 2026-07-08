@@ -32,7 +32,6 @@ params:
       scale: 0.65
     proposal: 0.4
     latex: 10^9 A_\mathrm{s}
-    drop: true
     renames: A
   ns:
     prior:
@@ -64,7 +63,6 @@ params:
       scale: 0.004
     proposal: 0.004
     latex: \Omega_\mathrm{b}
-    drop: true
   omegam:
     prior:
       min: 0.1
@@ -75,23 +73,15 @@ params:
       scale: 0.02
     proposal: 0.02
     latex: \Omega_\mathrm{m}
-    drop: true
-  mnu:
-    value: 0.06
-  # The lambda bridge (the mapping story ord used to hide): the sampler walks
-  # As_1e9 / omegab / omegam / H0, but the emulator was trained on the cobaya
-  # names logA / omegabh2 / omegach2. cobaya derives them here, so they reach
-  # the theory's get_requirements without any hand-typed ordering. A name that
-  # already matches training needs no entry; only reparametrizations do.
-  omegabh2:
-    value: 'lambda omegab, H0: omegab*(H0/100)**2'
-    latex: \Omega_\mathrm{b} h^2
-  omegach2:
-    value: 'lambda omegam, omegab, mnu, H0: (omegam-omegab)*(H0/100)**2-(mnu*(3.046/3)**0.75)/94.0708'
-    latex: \Omega_\mathrm{c} h^2
-  logA:
-    value: 'lambda As_1e9: np.log(10*As_1e9)'
-    latex: \log(10^{10} A_\mathrm{s})
+  # No reparametrization bridge and no drop: true. The v2 dumps' covmat header
+  # names ARE the sampler-side names (As_1e9 ns H0 omegab omegam
+  # LSST_DZ_S1..S5 LSST_A1_1 LSST_A1_2); the adapter reads them from the h5
+  # and requires them directly, the DZ/A1 names arrive from the likelihood's
+  # params_source.yaml defaults, and with use_emulator: 1 the likelihood
+  # requires only the cosmic_shear product. The legacy lcdm emulator's
+  # logA/omegabh2/omegach2 lambdas (plus drop: true on the sampled names)
+  # starved the theory of its stored names (board run 7: "Requirement As_1e9
+  # of emul_cosmic_shear is not provided by any component").
 
 theory:
   emul_cosmic_shear:

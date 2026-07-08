@@ -1285,3 +1285,36 @@ so the board's evaluate YAML now sets force: True (cobaya overwrites its
 own products). Architect applied the one-key edit directly (same
 declared deviation as run 5's fix). Board unchanged otherwise: 18 PASS /
 cobaya-adapter evaluate pending / triangle-shading optional.
+
+### 2026-07-08 — Architect: board run-7 audit (HEAD 487632b)
+force: True worked (cobaya deleted run 5/6's stale products) and
+python_path held: our schema-v2 adapter class loaded, initialized, and
+declared its requirements for the first time. The evaluate leg then
+died one layer deeper, in Model dependency resolution: "Requirement
+As_1e9 of emul_cosmic_shear is not provided by any component, nor
+sampled directly". Root cause: the params block both evaluate YAMLs
+inherited from the LEGACY lcdm example marks As_1e9 / omegab / omegam
+`drop: true` and bridges them to logA / omegabh2 / omegach2 via lambdas
+— but the v2 dumps' covmat header (verified on the Mac dev copy,
+~/data/pytorch/dvs/w0wa_takahashi_params_train_cs_16.covmat) stores the
+sampler-side names directly: As_1e9 ns H0 omegab omegam LSST_DZ_S1..S5
+LSST_A1_1 LSST_A1_2. A dropped param never reaches a theory, so the
+adapter (whose requirements are the h5's stored names, by design) was
+starved of exactly the names the YAML was walking. The likelihood needs
+none of the bridged names with use_emulator: 1 (probe xi requires only
+the cosmic_shear product; _cosmolike_prototype_base.get_requirements),
+and the DZ/A1 names come from the likelihood's params_source.yaml
+defaults, as they did for the legacy v1 adapter. Fix (Architect-applied,
+same declared deviation): remove the three drop: true keys and the dead
+bridge (mnu + the three lambdas) from both
+gates/configs/cobaya-adapter-evaluate.yaml and
+cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml; the example's comment now
+states the general rule (bridge lambdas ONLY when the h5's stored names
+are a reparametrization of what the sampler walks). Cobaya requirement
+names untested past As_1e9 (resolution fails on the first missing name,
+and As_1e9 is column 1) — but the full list is now pinned by the covmat
+header, not inferred. Board unchanged otherwise: 18 PASS /
+cobaya-adapter evaluate pending / triangle-shading optional. Layers
+peeled so far on this leg: stale example paths (run 3/4) -> artifact
+existence (run 4) -> class shadowing (run 5) -> stale output info
+(run 6) -> legacy params bridge (run 7).
