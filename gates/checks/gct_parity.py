@@ -6,7 +6,7 @@ each, builds an EmulatorPredictor from the saved file, and requires the
 predictor's data vector to match the TRAINING-side prediction on the
 same probe points to rtol 1e-6 (home note cobaya-theory-adapter.md
 :117-123). The factored case is the real save -> rebuild -> predict
-round-trip D-CT1 added (:234-238): the geometry-class marker in the h5
+round-trip added (:234-238): the geometry-class marker in the h5
 must rebuild the AmplitudeFactorGeometry so the factored combine
 reproduces. Prints the worst relative error per variant and exits
 nonzero on any mismatch.
@@ -85,7 +85,7 @@ def run_parity(name, cfg, device, tmp, factored):
   n = probe.shape[0]
   i = 0
   while i < n:
-    # D-GF2: val_set["C"] is the already-sliced (n_val,) params; index it
+    # val_set["C"] is the already-sliced (n_val,) params; index it
     # positionally (row i), never with val_set["idx"] (original dump-row
     # numbers). probe was built the same way, so row i lines up with ts[i].
     row = exp.val_set["C"][i]

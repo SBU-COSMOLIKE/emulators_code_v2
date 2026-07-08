@@ -1,0 +1,105 @@
+# The gates board
+
+A self-driving test suite for the cosmic-shear emulator. One command,
+`python gates/run_board.py`, runs every deferred verification on the
+workstation (the NVIDIA + cocoa machine), writes one raw log per test,
+and leaves a pass/fail table. You run it; it does not need a Claude
+session on the box.
+
+## What it is
+
+Each **test** ("gate" in the code) pins down one feature or contract:
+it runs a short training or a small check script, then judges pass/fail
+on the banner lines or numeric values that feature must produce. Tests
+are grouped into three **tiers** (`backlog`, `new-features`,
+`save-and-sample`) and run in a fixed order.
+
+## How it is implemented
+
+```
+gates/
+  run_board.py     the CLI + runner: preflight, order, per-test logs,
+                   resume, the temporary-worktree golden mechanism
+  board.py         the registry: the Gate record + all 19 tests, each
+                   with its home note, a maps line, and a run function
+  board_config.json  deployment paths (root, dumps, yaml dir) + per-test
+                   golden bases + the smoke-config paths
+  configs/         one small YAML per test-leg (the smoke run's knobs)
+  checks/          the numeric check scripts a test launches (the census,
+                   the eval-batch invariance, the save/rebuild bitwise,
+                   the parity probe) + pure log-scan helpers
+  logs/            (ships empty) one <test>.log per run + BOARD.md +
+                   board_status.json
+```
+
+The runner builds a small context per test that streams every command
+into that test's log and records each check. A test never touches
+subprocess, files, or git directly; it goes through the context, so the
+log is complete and every path comes from `board_config.json`.
+
+Some tests carry a **golden run**: they build the same config both on
+the current tree and on a pinned pre-feature commit, and require the
+selected log lines identical to the character. That pinned build runs
+in a throwaway `git worktree` the runner always removes, so it never
+disturbs your working tree. Only the EMA identity test pins a base by
+default; the others run this leg only when you set their base in
+`board_config.json`, and otherwise fall back to a plain smoke run.
+
+## How to run it
+
+```
+cd <the cocoa clone>
+git pull                                 # tip must be the harness commit
+<activate the cocoa env>                  # torch + cosmolike + cobaya
+edit gates/board_config.json              # fill root / driver paths once
+python gates/run_board.py --check         # preflight only (no GPU time)
+python gates/run_board.py --dry-run       # print the plan, run nothing
+python gates/run_board.py                 # the whole board, in order
+git add -f gates/logs && git commit -m "workstation board run: logs"
+```
+
+Preflight aborts before any GPU time on a stale git tip, a dirty tree, a
+missing cocoa import, or a missing data path, and prints the remedy.
+Selectors: `--gate <name> [...]`, `--tier backlog|new-features|save-and-sample`,
+`--from <name>`, `--dry-run`. A rerun skips tests already recorded PASS
+(`--force-rerun <name>` overrides); a crash loses only the in-flight test.
+
+## The 19 tests
+
+| Test | What it confirms |
+|------|------------------|
+| ema-off-identity | EMA off leaves runs byte-identical to the pre-EMA build |
+| ema-smoke | EMA on: the horizon banner prints and a plateau rewind fires |
+| production-diagnostic | one --diagnostic run closes the dead-class census, the cut count, the sizes line, the shaded triangle |
+| single-phase-demotion | a resmlp config with phase keys trains (previously a traceback); the two-phase model is unaffected |
+| head-scheduler-override | a head scheduler with patience 10 cuts the lr on its own cadence |
+| eval-batch-invariance | validation chi2 agrees across eval batch sizes to rtol 1e-6 |
+| berhu-loss | a head-berhu run shows a plain-sqrt trunk banner and a berhu_capped head banner |
+| loss-schema-equivalence | the same config in the nested loss schema reproduces the old epoch lines |
+| berhu-anneal | the berhu shape is continuous at the hold boundary and full by epoch 15 |
+| ema-anneal | the EMA average appears only after the hold, at the live point |
+| param-window-cuts | a tight density window trains end to end and the pool shrinkage matches the banner |
+| triangle-shading | (optional) the synthetic four-window triangle shades exactly the coverage panels |
+| joint-training | freeze_trunk false trains trunk and head together; phase-2 time sits above the frozen control |
+| head-activation-pin | a pinned gated_power head shows in the model-spec banner; the illegal pin errors |
+| relu-tanh-norm | tanh with the per_feature / affine norm knob; the banner names the norm and the loss descends |
+| weight-decay-census | weight decay touches exactly the Linear / Conv1d / BinLinear weight matrices |
+| npce-training | NPCE residual and ratio train, the exclusivity errors fire, a 2-point n_train sweep refits per point |
+| save-rebuild-drift | a saved emulator rebuilds bitwise-equal, survives a drifted code default, and refuses a v1 file |
+| cobaya-adapter | the inference predictor matches the training side to rtol 1e-6, including the factored round-trip |
+
+## How to read a log
+
+Each `logs/<test>.log` opens with a header naming the test, its home
+note, the `spec code` (the internal code that keys the home note's audit
+history), and the git HEAD. Then it streams every command's full output
+live. Each check writes a line
+
+```
+[harness] CHECK <what was checked>: PASS  (the value behind it)
+```
+
+and the file ends with `[harness] GATE <test>: PASS` or `FAIL <reason>`.
+`logs/BOARD.md` is the one-line-per-test summary; a review reads the raw
+logs, not the summary. Each test's home note (named in the header) is the
+spec of record for what that test must prove.

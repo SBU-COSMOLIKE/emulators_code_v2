@@ -1,43 +1,52 @@
-"""The workstation board: the ordered gate table the harness drives.
+"""The workstation board: the ordered list of tests the harness runs.
 
-This module is the gate registry. It defines the Gate record, the
-three tier names, and BOARD, the single ordered list every gate lives
-in (the order the home notes and the board note fix: GM-C's pinned
-golden leg first, then the standing gates, then this week's legs, then
-the save to sample acceptance chain). Each gate carries its home note
-and a ``maps`` string naming the home-note line(s) its assertions
-implement, so the Architect can audit that the harness encodes the
-note and not a memory of it. run_board.py imports Gate, GateFailure,
-and BOARD; it constructs the RunContext each gate's run function
-receives.
+This module is the test registry. It defines the Gate record, the
+three tier names, and BOARD, the single ordered list every test lives
+in (the order the home notes fix: the EMA off-mode identity test first,
+then the rest of the backlog, then this cycle's new-feature tests, then
+the save-and-sample acceptance chain). Each test carries its home note
+and a ``maps`` string naming the home-note line(s) its checks implement,
+so a reviewer can confirm the test encodes the note and not a memory of
+it. run_board.py imports Gate, GateFailure, and BOARD; it builds the
+RunContext each test's run function receives.
 
-Every gate's run function follows one shape. It issues its shell
-commands through ``ctx.sh`` / ``ctx.run_driver`` (which tee output to
-the gate's raw log), then returns early on ``ctx.dry`` (so --dry-run
-prints the plan and stops before touching any acceptance), then
-asserts its acceptance with ``ctx.expect`` and the pure helpers in
-``checks.logscan``. Numeric acceptances (the parameter-group census,
-the partition invariance, the bitwise save/rebuild equality, the
-training-to-inference parity) live in the executable ``checks/``
-scripts a gate launches, so the harness itself computes and asserts
-them and the raw log records every value.
+Every test's run function has one shape. It issues its shell commands
+through ``ctx.sh`` / ``ctx.run_driver`` (which stream output to the
+test's raw log), returns early on ``ctx.dry`` (so --dry-run prints the
+plan and stops before any check runs), then judges pass/fail with
+``ctx.expect`` and the pure helpers in ``checks.logscan``. Numeric
+acceptances (the weight-decay census, the eval-batch invariance, the
+bitwise save/rebuild equality, the training-to-inference parity) live
+in the executable ``checks/`` scripts a test launches, so the harness
+itself computes them and the raw log records every value.
 
-Golden byte-identity legs use the temporary-worktree mechanism, never
-a checkout or stash in place: the pinned pre-feature build runs in a
-throwaway ``git worktree`` the runner removes even on failure. GM-C's
-base is preset (the pre-EMA commit); the other golden legs read their
-base from board_config.json and, when it is unset, log that the leg
-was a dev-time pre-commit diff and run only the functional smoke leg
-(a committed feature's off path is already exercised by the standard
-runs). This is the one declared deviation from the home notes' literal
-``git stash`` recipes, which are hollow on the merged tip.
+Golden runs use the temporary-worktree mechanism, never a checkout in
+place: the pinned pre-feature build runs in a throwaway ``git worktree``
+the runner removes even on failure. Only the EMA identity test has a
+preset base (the pre-EMA commit); the other golden runs read their base
+from board_config.json and, when it is unset, skip that leg with a
+logged note and keep the functional smoke leg as the acceptance (a
+merged feature's off path is already exercised by the standard runs).
 
-PS: gate = one verification with a home note, commands, and an
-acceptance; tier = the board's coarse grouping (standing / week /
-save-sample); golden byte-identity = two builds' selected log lines
-equal to the character; smoke = a short run asserted on its banners
-rather than on a numeric tolerance; worktree = a throwaway checkout of
-another commit that never disturbs the user's tree.
+Glossary:
+  board     = the ordered list of tests the harness drives.
+  gate      = one test: a home note, the commands it runs, and how its
+              pass/fail is decided (the Gate record; "test" in prose).
+  tier      = the board's coarse grouping and the --tier selector value
+              (backlog / new-features / save-and-sample).
+  golden run= a byte-identity run: the same config built on the current
+              tree and on a pinned pre-feature commit, whose selected
+              log lines must match to the character.
+  smoke     = a short training run judged on the banner lines it prints
+              rather than on a numeric tolerance.
+  banner    = a driver's human-readable startup or per-epoch status line
+              that a test asserts on.
+  worktree  = a throwaway git checkout of another commit that never
+              disturbs the user's working tree.
+  preflight = run_board.py's pre-GPU checks (git tip, clean tree, cocoa
+              imports, data paths) that must pass before any test runs.
+  resume    = re-running the board skips tests already recorded PASS, so
+              a crash mid-board loses only the in-flight test.
 """
 
 from dataclasses import dataclass, field
@@ -59,11 +68,11 @@ class GateFailure(Exception):
 
 # The three tiers, in board order. The strings are the tier selector
 # values --tier accepts and the labels the BOARD.md table prints.
-TIER_STANDING = "standing"
-TIER_WEEK = "week"
-TIER_SAVE_SAMPLE = "save-sample"
+TIER_BACKLOG = "backlog"
+TIER_NEW_FEATURES = "new-features"
+TIER_SAVE_AND_SAMPLE = "save-and-sample"
 
-# The sweep-over-n_train driver GPC-C's 2-point smoke runs (D-GH7); the
+# The sweep-over-n_train driver npce-training's 2-point smoke runs; the
 # default single-train driver would execute the wrong program on a sweep
 # YAML. It sits beside the emulator package at the repo root.
 SWEEP_NTRAIN_DRIVER = "sweep_ntrain_emulator_cosmic_shear.py"
@@ -71,29 +80,32 @@ SWEEP_NTRAIN_DRIVER = "sweep_ntrain_emulator_cosmic_shear.py"
 
 @dataclass(frozen=True)
 class Gate:
-  """One row of the board: what to run and how it is judged.
+  """One row of the board: one test, what it runs, and how it is judged.
 
   Arguments:
-    id      = the gate identifier (e.g. "GSV-C"); the log filename
+    id      = the test name (e.g. "save-rebuild-drift"); the log filename
               stem, the selector --gate accepts, and the resume key.
-    tier    = one of TIER_STANDING / TIER_WEEK / TIER_SAVE_SAMPLE.
+    tier    = one of TIER_BACKLOG / TIER_NEW_FEATURES / TIER_SAVE_AND_SAMPLE.
     home    = the home note filename stem (the spec of record); printed
-              in the log header for the Architect's audit trail.
-    maps    = the home-note line reference(s) each assertion implements
-              (the GGH-B mapping: assertion -> note line), printed in
-              the header so the audit checks encoding, not memory.
-    run     = the gate body, run(ctx) -> None; issues commands and
-              asserts acceptance, raising GateFailure on any failure.
-    deps    = gate ids whose PASS this gate needs; an unmet dependency
+              in the log header so a log traces back to its spec.
+    maps    = the home-note line(s) each check implements (assertion ->
+              note line), printed in the header so a review confirms the
+              test encodes the note and not a memory of it.
+    run     = the test body, run(ctx) -> None; issues commands and judges
+              pass/fail, raising GateFailure on any failure.
+    deps    = the tests whose PASS this test needs; an unmet dependency
               records SKIPPED(dependency) rather than running.
-    optional= when True the gate is skipped unless --gate names it
-              explicitly (GT-B, registered but off the default sweep).
-    needs   = the environment capabilities the gate requires
-              ("torch", "cosmolike", "cobaya", "gpu"); documentation
-              for the header and a clearer skip message.
-    worktree_commit = a commit the gate pins a temporary worktree at
-              (GM-C's pre-EMA build); None for gates that never leave
-              the current tree.
+    optional= when True the test is skipped unless --gate names it
+              (triangle-shading, registered but off the default sweep).
+    needs   = the environment capabilities the test requires ("torch",
+              "cosmolike", "cobaya", "gpu"); documentation for the header
+              and a clearer skip message.
+    worktree_commit = a commit the test pins a temporary worktree at (the
+              EMA identity test's pre-EMA build); None for tests that
+              never leave the current tree.
+    spec_code = the internal short code that keys this test's audit
+              history in its home note; printed once in the log header.
+    title   = a one-line human name for the test (for the README table).
   """
   id: str
   tier: str
@@ -104,6 +116,8 @@ class Gate:
   optional: bool = False
   needs: Tuple[str, ...] = ()
   worktree_commit: str = None
+  spec_code: str = ""
+  title: str = ""
 
 
 # --------------------------------------------------------------------------
@@ -197,53 +211,67 @@ def _smoke_driver(ctx, config_key, required_banners, *, extra=()):
 # --------------------------------------------------------------------------
 
 def gate_gm_c(ctx):
-  """GM-C: the golden pre-EMA off-mode byte-identity run.
+  """ema-off-identity: the EMA feature must leave existing runs untouched.
 
-  The EMA feature's acceptance: with the ema block absent the loop is
-  byte-identical to the pre-EMA build. The pre-EMA build runs in a
-  temporary worktree at the pinned commit (never a checkout in place),
-  and the epoch / best-epoch lines must match to the character.
+  WHAT: weight EMA (the train_args.ema block), run here with that block
+  ABSENT so the feature is off. WHY: a feature that is off must not
+  perturb a single existing run, else every earlier result is in doubt;
+  byte identity is the strongest form of that guarantee. HOW: build the
+  same config on the current tree and on the pinned pre-EMA commit (in a
+  throwaway worktree, never a checkout in place) and require the epoch
+  and best-epoch lines identical to the character (home note
+  weight-ema-snapshot-coupled.md:98-101, the byte-identity gate; 229-238,
+  the epoch-line diff recipe).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: weight-ema-snapshot-coupled.md:98-101 (byte-identity gate),
   # :229-238 (the diff <(grep '^(epoch|best epoch)') recipe).
   _golden_leg(ctx=ctx,
-              gate_id="GM-C",
+              gate_id="ema-off-identity",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(epoch|best epoch)")
 
 
 def gate_gm_d(ctx):
-  """GM-D: the on-mode EMA smoke (banner + tracked metrics).
+  """ema-smoke: the EMA feature, switched on, behaves as designed.
 
-  A short bs=64 run with ema.horizon_epochs=3: the banner names the
-  horizon, and the per-epoch metrics are the average's from the
-  warmup-end epoch onward.
+  WHAT: a short bs=64 run with ema.horizon_epochs=3. WHY: byte identity
+  (the ema-off-identity test) proves EMA off is harmless, not that EMA
+  on works; this run exercises the live averaging path. HOW: the startup
+  banner must name the horizon ("ema: horizon 3 epochs") and a plateau
+  lr cut must print a "rewound to best epoch" line, since the average
+  follows the rewind (home note weight-ema-snapshot-coupled.md:240-251,
+  the on-mode recipe; 246-249, the rewind line).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
-  # home: weight-ema-snapshot-coupled.md:104-107, :240-251 (GM-D recipe:
+  # home: weight-ema-snapshot-coupled.md:104-107, :240-251 (ema-smoke recipe:
   # the "ema: horizon 3 epochs" banner; metrics track then smooth).
   out = _smoke_driver(ctx=ctx,
-                      config_key="GM-D-emasmoke",
+                      config_key="ema-smoke-config",
                       required_banners=["ema: horizon 3 epochs"])
   if ctx.dry:
     return
-  # D-GH5d: the note's rewind line is mechanically assertable
+  # the note's rewind line is mechanically assertable
   # (weight-ema-snapshot-coupled.md:246-249: a plateau lr cut rewinds
   # to the best epoch and the ema metrics jump WITH the raw ones).
-  ctx.expect(label="GM-D rewind line ('lr cut -> rewound to best epoch')",
+  ctx.expect(label="ema-smoke rewind line ('lr cut -> rewound to best epoch')",
              ok=logscan.search(text=out, pattern=r"rewound to best epoch"),
              detail="weight-ema-snapshot-coupled.md:246-249: a rewind fires")
 
 
 def gate_diag(ctx):
-  """DIAG: the one production --diagnostic run closing five gates.
+  """production-diagnostic: one --diagnostic run that closes five checks.
 
-  Closes G1 (dead-class census + clean package import), G-F (a tight
-  omegamh2 window: pool shrinkage matches the banner count), GN-F (a
-  nested param_cuts block shows the normal banner), GS-D (the sizes
-  line reports "used N of P cut rows" with N the YAML n_train), and
-  GT-C (the regenerated diagnostics PDF shades every hard sample edge).
+  WHAT: a single production training run with the diagnostics PDF, which
+  exercises the dead-class census, a tight density-window cut, a nested
+  param_cuts block, the absolute row counts, and the shaded diagnostics
+  triangle all at once. WHY: these five otherwise-separate checks all
+  ride one ordinary run, so one run proves the whole diagnostic path
+  instead of five. HOW: the package imports with no dead classes, the
+  run finishes, the sizes line reports "used N of P cut rows" with N the
+  configured n_train, and the regenerated PDF shades every hard sample
+  edge (a visual confirmation from the committed PDF). Home notes: the
+  five spec-of-record files listed in this test's maps.
   """
   ctx.require_caps("cosmolike")
   # G1 home: audit-package-style-2026-07-05.md:232-234.
@@ -256,13 +284,13 @@ def gate_diag(ctx):
   # DEVIATION from the note's line 233 import: emulator.parallel was
   # deleted after the audit (commit 29b23dd), so it is dropped here; the
   # live subpackages are emulator / emulator.IA / emulator.PCE.
-  # D-GH8: the harness's own interpreter, never a bare "python" on PATH.
+  # the harness's own interpreter, never a bare "python" on PATH.
   rc_imp, out_imp = ctx.sh(
     cmd=[ctx.python, "-c", "import emulator, emulator.IA, emulator.PCE"],
     allow_fail=True)
 
-  diag_yaml = ctx.require_config("DIAG")
-  ctx.log("DIAG production run: tight omegamh2 window + nested "
+  diag_yaml = ctx.require_config("production-diagnostic-config")
+  ctx.log("production-diagnostic production run: tight omegamh2 window + nested "
           "param_cuts + absolute n_train/n_val, with the diagnostics PDF.")
   rc_run, out_run = ctx.run_driver(yaml_path=diag_yaml,
                                    extra=("--diagnostic",),
@@ -280,7 +308,7 @@ def gate_diag(ctx):
              ok=(rc_imp == 0),
              detail="import rc " + str(rc_imp))
   # G-F / GN-F / GS-D banners (home lines named in `maps`).
-  ctx.expect(label="DIAG production run completes",
+  ctx.expect(label="production-diagnostic production run completes",
              ok=(rc_run == 0),
              detail="driver exit code " + str(rc_run))
   ctx.expect(label="GS-D sizes line ('used N of P cut rows')",
@@ -294,67 +322,81 @@ def gate_diag(ctx):
 
 
 def gate_gp_d(ctx):
-  """GP-D: single-phase demotion trains; the two-phase control is a no-op.
+  """single-phase-demotion: a single-phase model accepts two-phase keys.
 
-  The exact resmlp YAML that used to traceback now trains and the
-  banner shows the demotion notice; the same YAML on rescnn+nla
-  reproduces today's behavior (resolution is a no-op for capable
-  models).
+  WHAT: the phase-argument resolver that lets a single-phase model
+  (resmlp) accept a config written with two-phase (trunk/head) keys.
+  WHY: that exact config used to crash the run; the resolver must demote
+  it cleanly, yet stay a no-op for a model that genuinely has two phases
+  (or it would corrupt those). HOW: the resmlp config now trains with no
+  traceback and the banner prints the demotion notice, while the same
+  config on a two-phase model (rescnn + nla) reproduces today's behavior
+  unchanged (home note resolve-phase-args-single-phase.md:110-113, the
+  demotion + no-op control).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: resolve-phase-args-single-phase.md:110-113.
-  single_yaml = ctx.require_config("GP-D-single")
-  control_yaml = ctx.require_config("GP-D-control")
+  single_yaml = ctx.require_config("single-phase-demotion-single")
+  control_yaml = ctx.require_config("single-phase-demotion-control")
   rc_s, out_s = ctx.run_driver(yaml_path=single_yaml, allow_fail=True)
   rc_c, out_c = ctx.run_driver(yaml_path=control_yaml, allow_fail=True)
 
   if ctx.dry:
     return
 
-  ctx.expect(label="GP-D single-phase resmlp trains (was a traceback)",
+  ctx.expect(label="single-phase-demotion single-phase resmlp trains (was a traceback)",
              ok=(rc_s == 0),
              detail="resmlp run exit code " + str(rc_s))
-  ctx.expect(label="GP-D demotion notice in the banner",
+  ctx.expect(label="single-phase-demotion demotion notice in the banner",
              ok=logscan.search(text=out_s,
                                pattern=r"(single-phase|demot|resolve)"),
              detail="EXACT notice string to confirm against "
                     "resolve-phase-args-single-phase.md:111")
-  ctx.expect(label="GP-D control rescnn+nla reproduces today (no-op)",
+  ctx.expect(label="single-phase-demotion control rescnn+nla reproduces today (no-op)",
              ok=(rc_c == 0),
              detail="control run exit code " + str(rc_c))
 
 
 def gate_gh_e(ctx):
-  """GH-E: a head scheduler override cuts on its own cadence.
+  """head-scheduler-override: the head phase cuts the lr on its own patience.
 
-  A two-phase run with a head scheduler patience 10: the banner shows
-  [head overrides: scheduler] and the head phase's first lr cut arrives
-  on the patience-10 cadence (vs the run's 25). Plus the golden
-  no-phase-blocks byte-identity leg.
+  WHAT: a per-phase scheduler override, so phase 2 (the frozen-trunk
+  head) can cut its learning rate on a patience of its own. WHY: a head
+  phase often needs a shorter patience than the run default, and the
+  override must take effect for that phase only. HOW: the banner shows
+  "[head overrides: scheduler]" and the head phase's first lr cut lands
+  on the patience-10 cadence (vs the run's 25); plus a golden
+  no-phase-blocks run for byte identity (home note
+  phase-blocks-nested-lr-scheduler.md:262-267, the override + cadence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: phase-blocks-nested-lr-scheduler.md:262-267 (override), :269-279
   # (golden diff <(grep '^(phase|epoch|best)')).
   _golden_leg(ctx=ctx,
-              gate_id="GH-E",
+              gate_id="head-scheduler-override",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best)")
   out = _smoke_driver(ctx=ctx,
-                      config_key="GH-E-headpatience",
+                      config_key="head-scheduler-override-config",
                       required_banners=["[head overrides: scheduler]"])
   if ctx.dry:
     return
-  ctx.log("GH-E cadence: the head phase's first lr cut should land on the "
+  ctx.log("head-scheduler-override cadence: the head phase's first lr cut should land on the "
           "patience-10 cadence (vs 25); confirm from the lr-cut epoch "
           "spacing in the log (phase-blocks-nested-lr-scheduler.md:265).")
 
 
 def gate_ge_c(ctx):
-  """GE-C: eval_val partition invariance + the eval-batch timing.
+  """eval-batch-invariance: the validation metrics do not depend on chunking.
 
-  Runs the torch-only check script: per-row chi2 from eval_val agrees
-  across eval batch sizes to rtol 1e-6 (Part 1: PASS) and the derived
-  eval batch cuts the eval time on CUDA (Part 2).
+  WHAT: the decoupled validation batch, which lets the eval pass use a
+  large batch no matter the training batch. WHY: the reported validation
+  numbers must not shift with how the eval set is chunked, or a
+  batch-size change would silently move every metric. HOW: a torch-only
+  check script confirms the per-row chi2 from eval_val agrees across eval
+  batch sizes to rtol 1e-6 (it prints "Part 1: PASS") and that the
+  derived eval batch cuts the eval time on CUDA (home note
+  eval-bs-decoupling.md:102-108, the invariance + timing).
   """
   ctx.require_caps("torch", "gpu")
   # home: eval-bs-decoupling.md:102-108 (acceptance), :202-300 (the
@@ -362,23 +404,29 @@ def gate_ge_c(ctx):
   rc, out = ctx.run_check("gates/checks/ge_c_eval_bs.py")
   if ctx.dry:
     return
-  ctx.expect(label="GE-C Part 1 partition invariance (rtol 1e-6)",
+  ctx.expect(label="eval-batch-invariance Part 1 partition invariance (rtol 1e-6)",
              ok=logscan.contains(text=out, needle="Part 1: PASS"),
              detail="the script must print 'Part 1: PASS'")
-  ctx.expect(label="GE-C check script exit 0",
+  ctx.expect(label="eval-batch-invariance check script exit 0",
              ok=(rc == 0),
              detail="check exit code " + str(rc))
 
 
 def gate_gb_c(ctx):
-  """GB-C: a head-berhu run under the nested loss schema.
+  """berhu-loss: the berHu head loss trains beside a plain-sqrt trunk.
 
-  The trunk banner reads plain "loss_mode sqrt" and the head banner
-  "loss_mode berhu_capped (knot 0.2, cap 10)"; loss decreases. Plus the
-  golden non-berhu byte-identity leg.
+  WHAT: the berHu loss family (a robust sqrt below a knot, capped above
+  a cap) as a per-phase head loss under the nested loss schema. WHY: the
+  head often wants a monster-robust loss while the trunk stays plain
+  sqrt, so the two loss blocks must resolve independently per phase. HOW:
+  the trunk banner reads "loss_mode sqrt" and the head banner
+  "loss_mode berhu_capped (knot 0.2, cap 10)", the loss decreases, and a
+  torch-only check confirms the berHu reduction numerics; plus a golden
+  non-berhu run (home note loss-mode-berhu.md:148-153 numerics, 290-314
+  the run).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
-  # leg 1 (D-GH5a): the torch-only unbound _reduce numerics
+  # leg 1: the torch-only unbound _reduce numerics
   # (loss-mode-berhu.md:148-153): berhu == sqrt below the knot,
   # berhu_capped == berhu below the cap, manual references, autograd
   # continuity across BOTH knots, non-default knots. The check script
@@ -386,129 +434,149 @@ def gate_gb_c(ctx):
   rc, out = ctx.run_check("gates/checks/gb_c_berhu_reduce.py")
   if not ctx.dry:
     ctx.expect(
-      label="GB-C leg 1 berhu/_reduce numerics + autograd continuity",
+      label="berhu-loss leg 1 berhu/_reduce numerics + autograd continuity",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
              + " (gates/checks/gb_c_berhu_reduce.py)")
   # leg 2: the golden non-berhu byte-identity + the head-berhu run
   # (loss-mode-berhu.md:290-314).
   _golden_leg(ctx=ctx,
-              gate_id="GB-C",
+              gate_id="berhu-loss",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best)")
   _smoke_driver(ctx=ctx,
-                config_key="GB-C-headberhu",
+                config_key="berhu-loss-config",
                 required_banners=["loss_mode sqrt",
                                   "loss_mode berhu_capped (knot 0.2, cap 10)"])
 
 
 def gate_gl_d(ctx):
-  """GL-D: the nested loss schema reproduces the pre-change epoch lines.
+  """loss-schema-equivalence: the new loss schema changes config, not physics.
 
-  Golden equivalence: the same physical config expressed in the new
-  loss schema reproduces the pre-change run's epoch lines (a
-  config-layer change, numerics untouched). Reuses the head-berhu
-  config as the production shape.
+  WHAT: the nested loss: block that replaced the old flat loss keys.
+  WHY: it is a config-layer rename only, so the same physics expressed
+  in the new schema must reproduce the old run exactly, or the migration
+  silently changed a number. HOW: a golden equivalence run: the same
+  physical config in the new schema reproduces the pre-change run's epoch
+  lines to the character (numerics untouched), reusing the head-berhu
+  config as the production shape (home note loss-block-nesting.md:237-244,
+  the schema equivalence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: loss-block-nesting.md:237-244.
   _golden_leg(ctx=ctx,
-              gate_id="GL-D",
+              gate_id="loss-schema-equivalence",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best)")
   _smoke_driver(ctx=ctx,
-                config_key="GB-C-headberhu",
+                config_key="berhu-loss-config",
                 required_banners=["loss_mode berhu_capped (knot 0.2, cap 10)"])
 
 
 def gate_gba_c(ctx):
-  """GBA-C: the berhu anneal smoke (continuous at the hold boundary).
+  """berhu-anneal: the berHu shape ramps in smoothly and late.
 
-  With berhu.anneal on, the banner reads
-  "...(knot 0.2, cap 10; anneal: hold 5 + 10 cosine)"; the printed
-  train loss is continuous at the hold boundary and s reaches 1 (full
-  berhu) by epoch 15. Plus the golden no-anneal byte-identity leg.
+  WHAT: the berHu anneal, which starts as plain sqrt and blends into the
+  berHu shape over a hold-then-ramp schedule. WHY: the escalated tail
+  votes should arrive late, after the trim schedule has absorbed the
+  worst outliers, and the ramp must not jolt the loss at its start. HOW:
+  with anneal on, the banner reads "(knot 0.2, cap 10; anneal: hold 5 +
+  10 cosine)", the printed train loss is continuous at the hold boundary,
+  and the shape is full berHu by epoch 15; plus the golden no-anneal run
+  (home note berhu-anneal-schedule.md:199-221).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: berhu-anneal-schedule.md:199-221.
   _golden_leg(ctx=ctx,
-              gate_id="GBA-C",
+              gate_id="berhu-anneal",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best)")
   out = _smoke_driver(ctx=ctx,
-                      config_key="GBA-C-anneal",
+                      config_key="berhu-anneal-config",
                       required_banners=["anneal: hold 5 + 10 cosine"])
   if ctx.dry:
     return
-  ctx.log("GBA-C schedule: confirm the train loss is continuous at the "
+  ctx.log("berhu-anneal schedule: confirm the train loss is continuous at the "
           "hold boundary (epoch 5->6) and s=1 (full berhu) by epoch 15; "
           "the first ~5 epochs match a plain sqrt run "
           "(berhu-anneal-schedule.md:213-221).")
 
 
 def gate_gme_c(ctx):
-  """GME-C: the EMA anneal smoke (average appears at the live point).
+  """ema-anneal: the EMA average wakes up only after the bad early era.
 
-  With ema.anneal on, the banner reads
-  "ema: horizon 3 epochs (beta -> 0.99...; anneal: hold 5 + 10 cosine;
-  ...)"; the average's metrics first appear at the live point
-  (epoch 6+, after the hold + warmup). Plus the golden no-anneal leg.
+  WHAT: the EMA anneal, which grows the averaging window from zero over
+  a hold-then-ramp schedule. WHY: averaging through the high-loss early
+  epochs would poison the shipped weights, so the average must stay
+  dormant until the model has settled. HOW: with anneal on, the banner
+  names the horizon and the "anneal: hold 5 + 10 cosine" schedule, and
+  the average's metrics first appear at the live point (epoch 6+, after
+  the hold plus warmup); plus the golden no-anneal run (home note
+  ema-anneal-schedule.md:180-197).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: ema-anneal-schedule.md:180-197.
   _golden_leg(ctx=ctx,
-              gate_id="GME-C",
+              gate_id="ema-anneal",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best|ema)")
   _smoke_driver(ctx=ctx,
-                config_key="GME-C-anneal",
+                config_key="ema-anneal-config",
                 required_banners=["ema: horizon 3 epochs",
                                   "anneal: hold 5 + 10 cosine"])
 
 
 def gate_item27(ctx):
-  """item-27: a tight omegamh2 window run + the ci.init_probes A/B.
+  """param-window-cuts: a tight density window drops exactly the rows it says.
 
-  One short training with a deliberately tight omegamh2 window runs end
-  to end and the pool shrinkage matches the banner count (a nested
-  param_cuts block shows the normal banner). The unexplained duplicate
-  ci.init_probes call is the paired A/B inspection, resolved with
-  workstation evidence.
+  WHAT: the physical density-window cut (here a tight omegamh2 window),
+  plus the paired inspection of a duplicate cosmolike init_probes call.
+  WHY: rarefied density corners fail training, so the cut must remove
+  precisely the rows the banner reports, and the duplicate init_probes
+  call needs workstation evidence to keep or drop. HOW: a short training
+  with the tight window runs end to end and the pool shrinkage matches
+  the "used N of P cut rows" banner (a nested param_cuts block shows the
+  normal banner); the init_probes call is the paired A/B check (home
+  notes omegamh2-ns-product-cuts.md:125-126, param-cuts-nested-block.md:94-95).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: omegamh2-ns-product-cuts.md:125-126, param-cuts-nested-block.md:94-95.
-  window_yaml = ctx.require_config("item-27-window")
+  window_yaml = ctx.require_config("param-window-cuts-config")
   rc, out = ctx.run_driver(yaml_path=window_yaml, allow_fail=True)
   if ctx.dry:
     return
-  ctx.expect(label="item-27 tight-window run completes",
+  ctx.expect(label="param-window-cuts tight-window run completes",
              ok=(rc == 0),
              detail="run exit code " + str(rc))
-  ctx.expect(label="item-27 pool shrinkage banner ('used N of P cut rows')",
+  ctx.expect(label="param-window-cuts pool shrinkage banner ('used N of P cut rows')",
              ok=logscan.search(text=out,
                                pattern=r"used\s+\d+\s+of\s+\d+\s+cut rows"),
              detail="the banner cut count must match the pool shrinkage")
-  ctx.log("item-27 ci.init_probes A/B: the duplicate init_probes call in "
+  ctx.log("param-window-cuts ci.init_probes A/B: the duplicate init_probes call in "
           "geometries_output.py is inspected with this run's evidence "
           "(omegamh2-ns-product-cuts.md:248); a manual A/B, not an "
           "automatable assertion.")
 
 
 def gate_gt_b(ctx):
-  """GT-B (optional): the synthetic four-window triangle shading.
+  """triangle-shading: the diagnostics triangle greys the right panels.
 
-  A synthetic-sample triangle with all four windows active fills
-  exactly the coverage-table panels (asserted on the axes' artist
-  lists), same rgba everywhere, plus the omh2-marginal band. Off the
-  default sweep; runs only when --gate names it. Matplotlib + getdist,
-  no cosmolike.
+  WHAT: the cut-window shading on the diagnostics corner plot with all
+  four density windows active. WHY: each window must grey exactly the
+  panels the coverage table names, in one shared colour, or the plot
+  misleads a reader about which region was cut. HOW: a synthetic-sample
+  triangle fills exactly the coverage-table panels (asserted on each
+  axis's artist list) in a single rgba, plus the omh2 marginal band; off
+  the default sweep (runs only when --gate names it), matplotlib +
+  getdist, no cosmolike (home note
+  triangle-cut-shading-all-windows.md:72-75).
   """
   ctx.require_caps("torch")
   # home: triangle-cut-shading-all-windows.md:72-75.
   rc, out = ctx.run_check("gates/checks/gt_b_triangle.py")
   if ctx.dry:
     return
-  ctx.expect(label="GT-B four-window triangle shading check exit 0",
+  ctx.expect(label="triangle-shading four-window triangle shading check exit 0",
              ok=(rc == 0),
              detail="check exit code " + str(rc)
                     + " (gates/checks/gt_b_triangle.py)")
@@ -519,41 +587,45 @@ def gate_gt_b(ctx):
 # --------------------------------------------------------------------------
 
 def gate_gft_c(ctx):
-  """GFT-C: freeze_trunk false joint phase 2 trains both stacks.
+  """joint-training: freeze_trunk false really trains the trunk in phase 2.
 
-  A restrf + nla run with small trunk_epochs and freeze_trunk false:
-  the startup says "(two-phase: N trunk + M joint)", phase 2 says
-  "phase 'joint': ...", loss is continuous at the handoff, and the
-  phase-2 epoch time sits visibly above a freeze_trunk true control
-  (the trunk backward returned). Plus the golden absent-key leg.
+  WHAT: the freeze_trunk-false option, which fine-tunes trunk and head
+  together in phase 2 instead of freezing the trunk. WHY: a joint
+  fine-tune warm-started by phase 1 is a distinct training mode, and it
+  must actually run the trunk backward, not silently stay frozen. HOW: a
+  restrf + nla run with a small trunk_epochs and freeze_trunk false
+  announces "two-phase: N trunk + M joint" and "phase 'joint'", the loss
+  is continuous at the handoff, and its phase-2 epoch time sits visibly
+  above a freeze_trunk-true control (the trunk backward returned); plus
+  the golden absent-key run (home note freeze-trunk-joint-phase2.md:115-120).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: freeze-trunk-joint-phase2.md:115-120, :211-228.
   _golden_leg(ctx=ctx,
-              gate_id="GFT-C",
+              gate_id="joint-training",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best|run:)")
-  # the joint run (D-GR1: the trunk-count banner is matched by regex, so
+  # the joint run (the trunk-count banner is matched by regex, so
   # the YAML uses a small trunk_epochs per the note, not a pinned 800).
-  joint_yaml = ctx.require_config("GFT-C-joint")
+  joint_yaml = ctx.require_config("joint-training-config")
   rc_j, out = ctx.run_driver(yaml_path=joint_yaml, allow_fail=True)
-  # D-GH5e: RUN the freeze_trunk:true control (not just name it) and log
+  # RUN the freeze_trunk:true control (not just name it) and log
   # both phase-2 epoch times side by side; the visual comparison stays,
   # but the log must carry both numbers.
-  control_yaml = ctx.require_config("GFT-C-control")
+  control_yaml = ctx.require_config("joint-training-control")
   rc_c, out_c = ctx.run_driver(yaml_path=control_yaml, allow_fail=True)
   if ctx.dry:
     return
-  ctx.expect(label="GFT-C joint run completes",
+  ctx.expect(label="joint-training joint run completes",
              ok=(rc_j == 0),
              detail="joint exit code " + str(rc_j))
-  ctx.expect(label="GFT-C two-phase banner (regex 'two-phase: \\d+ trunk')",
+  ctx.expect(label="joint-training two-phase banner (regex 'two-phase: \\d+ trunk')",
              ok=logscan.search(text=out, pattern=r"two-phase: \d+ trunk"),
-             detail="D-GR1: the trunk count is matched by regex, not pinned")
-  ctx.expect(label="GFT-C phase 'joint' banner",
+             detail="the trunk count is matched by regex, not pinned")
+  ctx.expect(label="joint-training phase 'joint' banner",
              ok=logscan.contains(text=out, needle="phase 'joint'"),
              detail="phase 2 must announce the joint pass")
-  ctx.expect(label="GFT-C freeze_trunk:true control run completes",
+  ctx.expect(label="joint-training freeze_trunk:true control run completes",
              ok=(rc_c == 0),
              detail="control exit code " + str(rc_c))
   joint_epochs = logscan.matching_lines(text=out, pattern=r"^epoch")
@@ -561,7 +633,7 @@ def gate_gft_c(ctx):
   joint_last = joint_epochs[-1] if len(joint_epochs) > 0 else "(no epoch line)"
   control_last = (control_epochs[-1] if len(control_epochs) > 0
                   else "(no epoch line)")
-  ctx.log("GFT-C phase-2 epoch time, side by side (the sanity signal is the "
+  ctx.log("joint-training phase-2 epoch time, side by side (the sanity signal is the "
           "joint time ABOVE the control, the trunk backward returned):")
   ctx.log("  joint (freeze_trunk:false):  " + joint_last)
   ctx.log("  control (freeze_trunk:true): " + control_last)
@@ -570,128 +642,145 @@ def gate_gft_c(ctx):
 
 
 def gate_gha_f(ctx):
-  """GHA-F: a pinned-head gated_power activation run.
+  """head-activation-pin: the phase-2 head can pin its own activation.
 
-  restrf + trf.activation gated_power: the "model spec:" banner shows
-  the trf activation dict, the head param count rises vs the shared H,
-  the handoff stays loss-continuous; the flag-vs-pin warning prints
-  when --activation power is passed, and freeze_trunk false with the
-  pin errors in build_specs. Plus the golden no-pin leg.
+  WHAT: a per-head activation pin, so the frozen-trunk head can use its
+  own activation family (gated_power) regardless of the trunk's. WHY:
+  the head trains in phase 2, so its family should be set there; and the
+  pin is only legal on a frozen-trunk head phase, so an illegal pin must
+  error rather than silently misbuild. HOW: the "model spec:" banner
+  shows the trf activation dict and the head param count rises vs the
+  shared default; passing --activation power prints the flag-vs-pin
+  warning; freeze_trunk false with the pin errors in build_specs; plus
+  the golden no-pin run (home note
+  head-activation-per-component.md:239-242, 429-430).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: head-activation-per-component.md:239-242, :405-430.
   _golden_leg(ctx=ctx,
-              gate_id="GHA-F",
+              gate_id="head-activation-pin",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best|model spec)")
   out = _smoke_driver(ctx=ctx,
-                      config_key="GHA-F-pin",
+                      config_key="head-activation-pin-config",
                       required_banners=["gated_power"])
   # the flag-vs-pin warning leg: pass --activation power on the pinned YAML.
-  pin_yaml = ctx.require_config("GHA-F-pin")
+  pin_yaml = ctx.require_config("head-activation-pin-config")
   rc_w, out_w = ctx.run_driver(yaml_path=pin_yaml,
                                extra=("--activation=power",),
                                allow_fail=True)
-  # D-GH5b: the license-error leg (freeze_trunk false, or trunk_epochs 0)
+  # the license-error leg (freeze_trunk false, or trunk_epochs 0)
   # WITH the head pin makes build_specs error with the frozen-trunk-head
-  # message (head-activation-per-component.md:429-430). GHA-F-license is a
+  # message (head-activation-per-component.md:429-430). head-activation-pin-license is a
   # deliberately-invalid YAML.
-  license_yaml = ctx.require_config("GHA-F-license")
+  license_yaml = ctx.require_config("head-activation-pin-license")
   rc_l, out_l = ctx.run_driver(yaml_path=license_yaml, allow_fail=True)
   if ctx.dry:
     return
   ctx.expect(
-    label="GHA-F flag-vs-pin warning",
+    label="head-activation-pin flag-vs-pin warning",
     ok=logscan.contains(
       text=out_w,
       needle="the head keeps its model.trf.activation pin (gated_power)"),
     detail="the startup warning must state the pin wins over --activation")
   ctx.expect(
-    label="GHA-F license error (freeze_trunk false + pin -> build_specs errors)",
+    label="head-activation-pin license error (freeze_trunk false + pin -> build_specs errors)",
     ok=(rc_l != 0 and logscan.search(text=out_l, pattern=r"(?i)frozen")),
     detail="build_specs must exit nonzero with the frozen-trunk-head message "
            "(rc " + str(rc_l) + ")")
 
 
 def gate_gan_c(ctx):
-  """GAN-C: relu/tanh with the norm knob (per_feature / affine).
+  """relu-tanh-norm: the plain activations work, with the norm knob.
 
-  A tanh + per_feature run (banner shows norm; loss descends) and a
-  tanh + affine run (the classic baseline). Plus the golden absent-key
-  byte-identity leg.
+  WHAT: the parameter-free relu and tanh activation families plus the
+  ResBlock normalization knob (per_feature / affine). WHY: tanh needs a
+  saturation guard (per_feature norm) to be usable, the classic affine
+  baseline must still work, and the banner must report which norm is
+  live. HOW: a tanh + per_feature run and a tanh + affine run each name
+  their norm in the banner and descend in loss; plus the golden
+  absent-key run (home note activation-families-norm-knob.md:99-101).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: activation-families-norm-knob.md:99-101.
   _golden_leg(ctx=ctx,
-              gate_id="GAN-C",
+              gate_id="relu-tanh-norm",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best)")
   _smoke_driver(ctx=ctx,
-                config_key="GAN-C-tanh-perfeature",
+                config_key="relu-tanh-norm-per-feature",
                 required_banners=["per_feature"])
   _smoke_driver(ctx=ctx,
-                config_key="GAN-C-tanh-affine",
+                config_key="relu-tanh-norm-affine",
                 required_banners=["affine"])
 
 
 def gate_gwd_c(ctx):
-  """GWD-C: the weight-decay census on a live optimizer.
+  """weight-decay-census: weight decay touches only true weight matrices.
 
-  A gated_power model built with weight_decay 1e-4: the parameter-group
+  WHAT: the module-aware weight-decay rule, which decays a parameter by
+  its module's role rather than by its tensor shape. WHY: decaying an
+  activation's shape parameters or a bias drags the model toward
+  degenerate forms, so only real weight matrices should be decayed. HOW:
+  with weight_decay 1e-4 on a gated_power model, the parameter-group
   census puts exactly the Linear / Conv1d / BinLinear weights in the
-  decayed group and everything else (multigate w/beta/mu, BinLinear
-  biases, all norms and biases) undecayed. Plus the golden wd-0
-  byte-identity leg.
+  decayed group and everything else (the multigate w/beta/mu, the
+  BinLinear biases, all norms and biases) undecayed; plus the golden
+  wd-0 run (home note weight-decay-only-weight-matrices.md:143-147).
   """
   ctx.require_caps("torch", "gpu")
-  # home: weight-decay-only-weight-matrices.md:143-147 (GWD-C census +
+  # home: weight-decay-only-weight-matrices.md:143-147 (weight-decay-census census +
   # golden wd-0 byte-identity).
   rc, out = ctx.run_check("gates/checks/gwd_census.py")
   if not ctx.dry:
-    ctx.expect(label="GWD-C param-group census (allowlist exact)",
+    ctx.expect(label="weight-decay-census param-group census (allowlist exact)",
                ok=(rc == 0),
                detail="census check exit code " + str(rc))
   _golden_leg(ctx=ctx,
-              gate_id="GWD-C",
+              gate_id="weight-decay-census",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best)")
 
 
 def gate_gpc_c(ctx):
-  """GPC-C: NPCE residual + ratio + refit smoke.
+  """npce-training: the closed-form base plus its refiner train and save.
 
-  A small residual-form run and a ratio-form run: the fit report prints
-  the kept modes, the refiner descends, and save -> the h5 pce group ->
-  from_state rebuild matches base(theta) on a probe batch. The
-  exclusivity errors fire from real YAMLs; a 2-point sweep_ntrain smoke
-  refits the base per point. Plus the golden absent-pce leg.
+  WHAT: NPCE, a closed-form sparse-Legendre base under an SGD refiner,
+  in both residual and ratio forms. WHY: the base must fit and the
+  refiner correct it, both forms must work, NPCE must be exclusive with
+  the features it replaces, and the base must refit for each training-set
+  size. HOW: a residual run and a ratio run print the kept modes and
+  descend, and save then rebuild of the h5 pce group matches base(theta)
+  on a probe; the pce+ia and pce+rescale configs error; a 2-point
+  n_train sweep refits per point; plus the golden absent-pce run (home
+  note npce-yaml-wiring.md:117-122).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   # home: npce-yaml-wiring.md:117-122, :201-204.
   _golden_leg(ctx=ctx,
-              gate_id="GPC-C",
+              gate_id="npce-training",
               yaml_name="train_single_emulator_cosmic_shear.yaml",
               grep_pattern="^(phase|epoch|best)")
   _smoke_driver(ctx=ctx,
-                config_key="GPC-C-residual",
+                config_key="npce-training-residual",
                 required_banners=["pce"])
   _smoke_driver(ctx=ctx,
-                config_key="GPC-C-ratio",
+                config_key="npce-training-ratio",
                 required_banners=["pce"])
-  # D-GH5c: the exclusivity errors, each must error loudly
+  # the exclusivity errors, each must error loudly
   # (npce-yaml-wiring.md:117-122). pce + ia is invalid via the YAML
   # alone; pce + rescale is a CLI exclusivity, so the excl-rescale leg
   # passes --rescale=residual (--rescale is a flag, never a YAML key).
-  ia_yaml = ctx.require_config("GPC-C-excl-ia")
+  ia_yaml = ctx.require_config("npce-training-excl-ia")
   rc_ia, out_ia = ctx.run_driver(yaml_path=ia_yaml, allow_fail=True)
-  rs_yaml = ctx.require_config("GPC-C-excl-rescale")
+  rs_yaml = ctx.require_config("npce-training-excl-rescale")
   rc_rs, out_rs = ctx.run_driver(yaml_path=rs_yaml,
                                  extra=("--rescale=residual",),
                                  allow_fail=True)
-  # the 2-point sweep_ntrain smoke: the base refits per point. D-GH7:
+  # the 2-point sweep_ntrain smoke: the base refits per point:
   # the sweep-over-n_train driver, with a 2-point geometric grid
   # (--n-min / --n-max / --n-points), not the single-train driver.
-  sweep_yaml = ctx.require_config("GPC-C-sweep")
+  sweep_yaml = ctx.require_config("npce-training-sweep")
   rc_s, out_s = ctx.run_driver(
     yaml_path=sweep_yaml,
     driver=SWEEP_NTRAIN_DRIVER,
@@ -700,75 +789,83 @@ def gate_gpc_c(ctx):
   if ctx.dry:
     return
   ctx.expect(
-    label="GPC-C exclusivity error (pce + ia)",
+    label="npce-training exclusivity error (pce + ia)",
     ok=(rc_ia != 0 and logscan.search(text=out_ia, pattern=r"(?i)exclusive")),
     detail="pce + model.ia must exit nonzero with the exclusive message "
            "(rc " + str(rc_ia) + ")")
   ctx.expect(
-    label="GPC-C exclusivity error (pce + --rescale)",
+    label="npce-training exclusivity error (pce + --rescale)",
     ok=(rc_rs != 0 and logscan.search(text=out_rs, pattern=r"(?i)exclusive")),
     detail="pce + --rescale=residual must exit nonzero with the exclusive "
            "message (rc " + str(rc_rs) + ")")
   refits = logscan.matching_lines(text=out_s, pattern=r"(?i)pce|refit|kept")
   ctx.expect(
-    label="GPC-C 2-point sweep_ntrain refits the base per point",
+    label="npce-training 2-point sweep_ntrain refits the base per point",
     ok=(rc_s == 0 and len(refits) >= 2),
     detail="the fit report should print once per sweep point (>=2 fit-report "
            "lines); saw " + str(len(refits)))
-  ctx.log("GPC-C rebuild-vs-base probe: save -> the h5 pce group -> from_state "
+  ctx.log("npce-training rebuild-vs-base probe: save -> the h5 pce group -> from_state "
           "rebuild == base(theta) on a probe batch belongs in the check-script "
-          "set (GSV-C's NPCE save round-trips the pce group; a standalone GPC-C "
+          "set (save-rebuild-drift's NPCE save round-trips the pce group; a standalone npce-training "
           "probe if wanted). Named in the remainder (npce-yaml-wiring.md:117).")
 
 
 # --------------------------------------------------------------------------
-# The save-to-sample acceptance chain (GSV-C's artifact feeds GCT-C).
+# The save-to-sample acceptance chain (save-rebuild-drift's artifact feeds cobaya-adapter).
 # --------------------------------------------------------------------------
 
 def gate_gsv_c(ctx):
-  """GSV-C: the save-schema-v2 acceptance (bitwise + drift proof).
+  """save-rebuild-drift: a saved emulator reloads exactly, forever.
 
-  Train small -> save -> rebuild_emulator -> outputs bitwise-equal to
-  the live model on a probe batch; then the drift proof (monkeypatch a
-  handful of code defaults, rebuild again, still bitwise-equal); one
-  factored and one NPCE save so the geometry-class marker and the pce
-  group both round-trip; a v1 file refused with the clear message.
+  WHAT: the schema-v2 save/rebuild contract, which reconstructs an
+  emulator from the h5 file alone. WHY: a saved emulator must reproduce
+  exactly even if the code's default values drift later, or a reload
+  silently ships a different model than was trained. HOW: train small,
+  save, rebuild, and require the output bitwise-equal to the live model
+  on a probe; the drift proof monkeypatches a code default and rebuilds
+  unchanged; one factored and one NPCE save round-trip the geometry-class
+  marker and the pce group; a v1 file is refused with a clear message
+  (home note save-schema-resolved-config.md:86-93).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
-  # home: save-schema-resolved-config.md:86-93 (GSV-C: bitwise + the
+  # home: save-schema-resolved-config.md:86-93 (save-rebuild-drift: bitwise + the
   # drift test + v1 refusal); the one-factored + one-NPCE-save
-  # requirement is workstation-board-2026-07.md:66-71 (gate 18) (D-GH4).
+  # requirement is workstation-board-2026-07.md:66-71 (gate 18).
   rc, out = ctx.run_check("gates/checks/gsv_bitwise_drift.py")
   if ctx.dry:
     return
-  ctx.expect(label="GSV-C save->rebuild bitwise + drift + v1-refusal",
+  ctx.expect(label="save-rebuild-drift save->rebuild bitwise + drift + v1-refusal",
              ok=(rc == 0),
              detail="check exit code " + str(rc)
                     + " (gates/checks/gsv_bitwise_drift.py)")
 
 
 def gate_gct_c(ctx):
-  """GCT-C: the cobaya adapter acceptance (parity + evaluate + MCMC).
+  """cobaya-adapter: inference reproduces training, so an MCMC is faithful.
 
-  The parity probe (EmulatorPredictor vs the training-side eval on the
-  same probe points, rtol 1e-6); the factored save -> rebuild ->
-  predict round-trip; the example evaluate run against the lsst_y1
-  likelihood (use_emulator 1) with the printed datavector compared to
-  the training-side prediction; an MCMC evaluate + short-chain smoke.
-  Depends on GSV-C (its saved artifact feeds the parity probe).
+  WHAT: the in-package inference predictor the cobaya theory block uses
+  at MCMC time. WHY: the predictor must reproduce the training stack's
+  physics exactly, or an MCMC would sample a different model than was
+  trained. HOW: the predictor matches the training-side prediction on the
+  same probe points to rtol 1e-6, including the factored save ->
+  rebuild -> predict round-trip; the example evaluate run against the
+  lsst_y1 likelihood matches the training-side datavector, and a short
+  MCMC smoke confirms the theory drives a chain; this test depends on
+  save-rebuild-drift, whose saved artifact feeds the probe (home note
+  cobaya-theory-adapter.md:117-123).
   """
   ctx.require_caps("torch", "cosmolike", "cobaya", "gpu")
-  # home: cobaya-theory-adapter.md:117-123 (GCT-C), :234-238 (the real
-  # factored round-trip added by D-CT1).
+  # home: cobaya-theory-adapter.md:117-123 (cobaya-adapter), :234-238 (the real
+  # factored round-trip added for the cobaya adapter).
   rc, out = ctx.run_check("gates/checks/gct_parity.py")
   if not ctx.dry:
-    ctx.expect(label="GCT-C parity probe (rtol 1e-6) + factored round-trip",
+    ctx.expect(label="cobaya-adapter parity probe (rtol 1e-6) + factored round-trip",
                ok=(rc == 0),
                detail="check exit code " + str(rc)
                       + " (gates/checks/gct_parity.py)")
 
   evaluate_yaml = ctx.evaluate_yaml()
-  ctx.log("GCT-C evaluate: cobaya-run the example evaluate YAML against the "
+  ctx.log("cobaya-adapter evaluate: cobaya-run the example evaluate YAML against the "
           "lsst_y1 likelihood (use_emulator 1); the printed datavector is "
           "compared to the training-side prediction.")
   rc_ev, out_ev = ctx.sh(
@@ -777,10 +874,10 @@ def gate_gct_c(ctx):
     allow_fail=True)
   if ctx.dry:
     return
-  ctx.expect(label="GCT-C example evaluate run completes",
+  ctx.expect(label="cobaya-adapter example evaluate run completes",
              ok=(rc_ev == 0),
              detail="cobaya-run exit code " + str(rc_ev))
-  ctx.log("GCT-C MCMC smoke: a short-chain sampler run confirms the theory "
+  ctx.log("cobaya-adapter MCMC smoke: a short-chain sampler run confirms the theory "
           "block drives an MCMC (cobaya-theory-adapter.md:123); run it with "
           "an mcmc sampler override once the evaluate leg is green.")
 
@@ -790,22 +887,28 @@ def gate_gct_c(ctx):
 # --------------------------------------------------------------------------
 
 BOARD = [
-  Gate(id="GM-C",
-       tier=TIER_STANDING,
+  Gate(id="ema-off-identity",
+       spec_code="GM-C",
+       title="EMA off-mode byte-identity",
+       tier=TIER_BACKLOG,
        home="weight-ema-snapshot-coupled",
        maps="98-101 (byte-identity gate); 229-238 (the epoch-line diff recipe)",
        run=gate_gm_c,
        needs=("torch", "cosmolike", "gpu"),
        worktree_commit="46ec5e1"),
-  Gate(id="GM-D",
-       tier=TIER_STANDING,
+  Gate(id="ema-smoke",
+       spec_code="GM-D",
+       title="EMA on-mode smoke",
+       tier=TIER_BACKLOG,
        home="weight-ema-snapshot-coupled",
        maps="104-107, 240-251 (on-mode smoke: horizon banner + metrics); "
             "246-249 (the lr-cut rewind line)",
        run=gate_gm_d,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="DIAG",
-       tier=TIER_STANDING,
+  Gate(id="production-diagnostic",
+       spec_code="DIAG (G1, G-F, GN-F, GS-D, GT-C)",
+       title="Production diagnostic run",
+       tier=TIER_BACKLOG,
        home="driver-audit-phase-sweep-guards",
        maps="G1 audit-package-style-2026-07-05.md:232-234; G-F "
             "omegamh2-ns-product-cuts.md:125-126; GN-F "
@@ -814,109 +917,141 @@ BOARD = [
             "triangle-cut-shading-all-windows.md:76-79",
        run=gate_diag,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GP-D",
-       tier=TIER_STANDING,
+  Gate(id="single-phase-demotion",
+       spec_code="GP-D",
+       title="Single-phase phase-arg demotion",
+       tier=TIER_BACKLOG,
        home="resolve-phase-args-single-phase",
        maps="110-113 (single-phase demotion trains; two-phase control no-op)",
        run=gate_gp_d,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GH-E",
-       tier=TIER_STANDING,
+  Gate(id="head-scheduler-override",
+       spec_code="GH-E",
+       title="Head scheduler override",
+       tier=TIER_BACKLOG,
        home="phase-blocks-nested-lr-scheduler",
        maps="262-267 (head override banner + cadence); 269-279 (golden diff)",
        run=gate_gh_e,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GE-C",
-       tier=TIER_STANDING,
+  Gate(id="eval-batch-invariance",
+       spec_code="GE-C",
+       title="Eval-batch partition invariance",
+       tier=TIER_BACKLOG,
        home="eval-bs-decoupling",
        maps="102-108 (partition invariance rtol 1e-6 + timing); 202-300 script",
        run=gate_ge_c,
        needs=("torch", "gpu")),
-  Gate(id="GB-C",
-       tier=TIER_STANDING,
+  Gate(id="berhu-loss",
+       spec_code="GB-C",
+       title="berHu head loss",
+       tier=TIER_BACKLOG,
        home="loss-mode-berhu",
        maps="148-153 (leg 1: berhu/_reduce numerics + autograd continuity); "
             "290-314 (leg 2: golden + head-berhu banners)",
        run=gate_gb_c,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GL-D",
-       tier=TIER_STANDING,
+  Gate(id="loss-schema-equivalence",
+       spec_code="GL-D",
+       title="Nested loss-schema equivalence",
+       tier=TIER_BACKLOG,
        home="loss-block-nesting",
        maps="237-244 (new-schema reproduces pre-change epoch lines)",
        run=gate_gl_d,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GBA-C",
-       tier=TIER_STANDING,
+  Gate(id="berhu-anneal",
+       spec_code="GBA-C",
+       title="berHu anneal schedule",
+       tier=TIER_BACKLOG,
        home="berhu-anneal-schedule",
        maps="199-221 (golden no-anneal + anneal banner + continuity + s=1)",
        run=gate_gba_c,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GME-C",
-       tier=TIER_STANDING,
+  Gate(id="ema-anneal",
+       spec_code="GME-C",
+       title="EMA anneal schedule",
+       tier=TIER_BACKLOG,
        home="ema-anneal-schedule",
        maps="180-197 (golden no-anneal + anneal banner + live-point metrics)",
        run=gate_gme_c,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="item-27",
-       tier=TIER_STANDING,
+  Gate(id="param-window-cuts",
+       spec_code="item-27",
+       title="Parameter-window cuts",
+       tier=TIER_BACKLOG,
        home="omegamh2-ns-product-cuts",
        maps="125-126 (tight window: pool shrinkage matches count); "
             "param-cuts-nested-block.md:94-95 (nested block normal banner); "
             "248 (ci.init_probes A/B inspection)",
        run=gate_item27,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GT-B",
-       tier=TIER_STANDING,
+  Gate(id="triangle-shading",
+       spec_code="GT-B",
+       title="Triangle cut shading",
+       tier=TIER_BACKLOG,
        home="triangle-cut-shading-all-windows",
        maps="72-75 (synthetic four-window triangle: artist-list fills + band)",
        run=gate_gt_b,
        optional=True,
        needs=("torch",)),
 
-  Gate(id="GFT-C",
-       tier=TIER_WEEK,
+  Gate(id="joint-training",
+       spec_code="GFT-C",
+       title="freeze_trunk-false joint training",
+       tier=TIER_NEW_FEATURES,
        home="freeze-trunk-joint-phase2",
        maps="115-120, 211-228 (joint banners + continuity + epoch-time signal)",
        run=gate_gft_c,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GHA-F",
-       tier=TIER_WEEK,
+  Gate(id="head-activation-pin",
+       spec_code="GHA-F",
+       title="Pinned head activation",
+       tier=TIER_NEW_FEATURES,
        home="head-activation-per-component",
        maps="239-242, 405-430 (model-spec banner + param count + warning); "
             "429-430 (leg 4: freeze_trunk false + pin -> build_specs errors)",
        run=gate_gha_f,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GAN-C",
-       tier=TIER_WEEK,
+  Gate(id="relu-tanh-norm",
+       spec_code="GAN-C",
+       title="relu/tanh with the norm knob",
+       tier=TIER_NEW_FEATURES,
        home="activation-families-norm-knob",
        maps="99-101 (tanh+per_feature + tanh+affine + golden absent-key)",
        run=gate_gan_c,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GWD-C",
-       tier=TIER_WEEK,
+  Gate(id="weight-decay-census",
+       spec_code="GWD-C",
+       title="Weight-decay param-group census",
+       tier=TIER_NEW_FEATURES,
        home="weight-decay-only-weight-matrices",
        maps="143-147 (gated_power wd 1e-4 census + golden wd-0 byte-identity)",
        run=gate_gwd_c,
        needs=("torch", "gpu")),
-  Gate(id="GPC-C",
-       tier=TIER_WEEK,
+  Gate(id="npce-training",
+       spec_code="GPC-C",
+       title="NPCE training",
+       tier=TIER_NEW_FEATURES,
        home="npce-yaml-wiring",
        maps="117-122, 201-204 (residual + ratio + rebuild + exclusivity + sweep)",
        run=gate_gpc_c,
        needs=("torch", "cosmolike", "gpu")),
 
-  Gate(id="GSV-C",
-       tier=TIER_SAVE_SAMPLE,
+  Gate(id="save-rebuild-drift",
+       spec_code="GSV-C",
+       title="Save/rebuild bitwise + drift",
+       tier=TIER_SAVE_AND_SAMPLE,
        home="save-schema-resolved-config",
        maps="86-93 (bitwise + drift + v1 refusal); "
             "workstation-board-2026-07.md:66-71 (one factored + one NPCE save)",
        run=gate_gsv_c,
        needs=("torch", "cosmolike", "gpu")),
-  Gate(id="GCT-C",
-       tier=TIER_SAVE_SAMPLE,
+  Gate(id="cobaya-adapter",
+       spec_code="GCT-C",
+       title="Cobaya adapter parity",
+       tier=TIER_SAVE_AND_SAMPLE,
        home="cobaya-theory-adapter",
        maps="117-123 (parity rtol 1e-6 + evaluate + MCMC); 234-238 (round-trip)",
        run=gate_gct_c,
-       deps=("GSV-C",),
+       deps=("save-rebuild-drift",),
        needs=("torch", "cosmolike", "cobaya", "gpu")),
 ]

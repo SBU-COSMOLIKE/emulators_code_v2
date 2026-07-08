@@ -104,9 +104,9 @@ def tiny_config(data_dir, *, ia=None, pce=False):
           "n_val": 100,
           "split_seed": 0}
   # gated_power (n_gates 3) so the drift proof's make_activation n_gates
-  # patch bites (D-GF1); compile_mode None so the live model is never
+  # patch bites; compile_mode None so the live model is never
   # torch.compiled, keeping the bitwise leg on the save contract, not
-  # compile float reordering (D-GF2 rider b).
+  # compile float reordering.
   model = {"name": "resmlp",
            "mlp": {"width": 64, "n_blocks": 2},
            "activation": {"type": "gated_power", "n_gates": 3},
@@ -142,7 +142,7 @@ def train_save(cfg, device, save_root):
   exp = EmulatorExperiment.from_config(cfg, quiet=True, device=device)
   model, train_losses, medians, means, fracs = exp.run()
 
-  # D-GF2: val_set["C"] is the already-sliced (n_val,) params; index it
+  # val_set["C"] is the already-sliced (n_val,) params; index it
   # POSITIONALLY (the first 8 rows), never with val_set["idx"] (original
   # dump-row numbers from the 16k pool -> IndexError / wrong rows).
   probe = torch.as_tensor(exp.val_set["C"][:8],
@@ -207,7 +207,7 @@ def main():
   run_variant("factored", tiny_config(data_dir, ia="nla"), device, tmp)
   run_variant("npce", tiny_config(data_dir, pce=True), device, tmp)
 
-  # drift proof (D-GF1): monkeypatch the SHARP default, make_activation's
+  # drift proof: monkeypatch the SHARP default, make_activation's
   # n_gates (activations.py). If rebuild trusted the code default the
   # rebuilt gated_power activation would carry K=7 parameters and the
   # strict weight load / output would break; with the file-recorded

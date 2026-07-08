@@ -853,3 +853,112 @@ scripts, 19 smoke YAMLs. ONE commit carries the remainder; then the
 user runs the board on the workstation (fill board_config.json ->
 --check -> --dry-run -> run -> commit gates/logs) and the Architect
 audits the raw logs — the first run is DIAGNOSTIC by design.
+
+## Piece 1 of 4 closure: the mechanical gate-id rename (2026-07-07, Opus, base f2b66b0)
+
+Human-friendly gate ids across gates/ code + CLI + logs, per the binding
+table in [[gates-id-translation]]. Structural only; run semantics
+unchanged.
+
+- board.py: every Gate.id is the human name; tier constants renamed
+  (TIER_BACKLOG / TIER_NEW_FEATURES / TIER_SAVE_AND_SAMPLE, values
+  backlog / new-features / save-and-sample); the Gate record gained
+  spec_code (the legacy two-letter code, kept for the audit trail) and
+  title (a short human name); every _golden_leg gate_id / require_config
+  / deps literal is the human name; the golden_bases lookups use the
+  human id. production-diagnostic's spec_code keeps its folded sub-gates
+  "DIAG (G1, G-F, GN-F, GS-D, GT-C)".
+- run_board.py: the log header prints a "spec code: <spec_code>" line so
+  a workstation log traces back to its home note; the --tier choices +
+  cmd_list width follow the new names.
+- board_config.json: gate_configs keys -> <human>-<leg> (ema-smoke-config,
+  head-activation-pin-license, npce-training-excl-ia, ...), the config
+  path values point to the renamed YAMLs, golden_bases keys are the human
+  ids; the four deploy-path VALUES (rootdir / driver_root / driver_fileroot
+  / yaml_dir) are PRESERVED VERBATIM.
+- gates/configs/: all 19 smoke YAMLs git-mv'd to their new key names.
+
+Mac gates: py_compile (board.py + run_board.py); GGH-A stub legs 35/35;
+full --dry-run = 18 plans, zero UNSET, deploy path values intact; grep =
+the 19 legacy codes appear in code ONLY as spec_code values (the DIAG
+sub-codes G1/G-F/GN-F/GS-D/GT-C remain in production-diagnostic's labels
++ spec_code, glossed in piece 2). Valid tree; pieces 2-4 (prose +
+README) pending; ONE commit carries all four.
+
+## Piece 2 of 4 (PARTIAL, RESUME HERE): board.py prose (2026-07-07, Opus)
+
+Valid tree; the piece-2 GATES pass. STOP at the 20-min box.
+
+DONE:
+- Module docstring rewritten with the required glossary (board, gate,
+  tier, golden run, smoke, banner, worktree, preflight, resume) and the
+  new tier names; the old standing/week/save-sample prose gone.
+- All D-* protocol codes removed: 11 from comments (rephrased in place)
+  and 1 from a runtime detail= string (gate_gft_c: "D-GR1: the trunk
+  count..." -> "the trunk count..."). grep D-* = 0.
+- gate docstrings converted to the WHAT feature / WHY it matters / HOW
+  pass-fail-is-decided template, with the home-note citation kept + a
+  one-phrase gloss: gate_gm_c (ema-off-identity) and gate_gm_d
+  (ema-smoke) done as the template exemplars.
+
+GATES (Mac): py_compile OK; grep D-* = 0; the docstring-stripped AST is
+identical to piece-1's board.py EXCEPT the single de-jargoned detail
+string above (the one code-string edit needed to reach grep 0 -- the
+same class piece 3's gate declares; no logic or structure changed).
+
+REMAINING (the resume point, same template, ~15 min): the 17 other gate
+docstrings (gate_diag, gate_gp_d, gate_gh_e, gate_ge_c, gate_gb_c,
+gate_gl_d, gate_gba_c, gate_gme_c, gate_item27, gate_gt_b, gate_gft_c,
+gate_gha_f, gate_gan_c, gate_gwd_c, gate_gpc_c, gate_gsv_c, gate_gct_c)
+plus the two helper docstrings (_golden_leg, _smoke_driver) and the Gate
+record docstring, each to WHAT/WHY/HOW with the citation gloss. No code
+touches; the stripped-AST must stay as above.
+
+## Pieces 3 + 4 closure (2026-07-07, Opus)
+
+Piece 3 (run_board.py + checks/*.py prose): all D-* protocol codes
+removed from run_board.py (7 comments/docstrings) and from the harness's
+own check scripts gsv_bitwise_drift.py + gct_parity.py (ge_c_eval_bs.py
+left verbatim-exempt, the note's transcribed script); the run_board.py
+module docstring re-worded for a first-time workstation reader (no
+"Architect"/"harness spec" protocol terms). GATES: py_compile OK;
+run_board.py docstring-stripped AST IDENTICAL to piece-1 (only
+comments/docstrings changed, no declared string-literal edit needed);
+--dry-run unchanged (18 plans, zero UNSET). grep D-* in run_board +
+checks (excluding verbatim ge_c) = 0.
+
+Piece 4 (NEW gates/README.md, ~105 lines): what the board is + how it
+is implemented (runner / registry / checks / configs / logs tree), how
+to run it (git pull -> edit board_config.json -> --check -> --dry-run ->
+run -> commit logs), the 19-test table (human name + one-liner, no
+legacy codes), the golden-run/worktree note, and how to read a log
+(header spec-code line, [harness] CHECK lines, GATE PASS/FAIL footer).
+GATES: no legacy codes anywhere; the five-rule math scanner trivially
+clean (no math); length in bounds.
+
+STILL OPEN before the ONE four-piece commit: piece 2's 17 remaining gate
+docstrings (the WHAT/WHY/HOW rewrite; gate_gm_c + gate_gm_d done as the
+template). Everything else across pieces 1-4 is done and green.
+
+## Piece 2 COMPLETE (2026-07-07, Opus, continuation)
+
+The remainder is done. All 19 gate docstrings now follow the WHAT
+feature / WHY it matters / HOW pass-fail-is-decided template, each with
+its home-note citation and a one-phrase gloss; the Gate record docstring
+de-jargoned (no "Architect" / GGH-* / assertion-mapping code). The two
+shared helpers (_golden_leg, _smoke_driver) kept their clean Arguments
+blocks: they are not tests, so the test template does not apply, and they
+carry no jargon. README micro-fix applied: single-phase-demotion row now
+reads "(previously a traceback)".
+
+GATES (Mac): py_compile OK; board.py docstring-stripped AST BYTE-IDENTICAL
+to the pre-continuation reference (no code touched, docstrings only);
+grep D-* in board.py = 0; --dry-run unchanged (18 plans, zero UNSET);
+a check confirms all 19 gate_* docstrings contain WHAT/WHY/HOW.
+
+ALL FOUR PIECES DONE. The one combined commit carries: gates/board.py,
+gates/run_board.py, gates/board_config.json, gates/README.md, the 19
+gates/configs/*.yaml renames, gates/checks/gsv_bitwise_drift.py +
+gct_parity.py (piece-3 de-jargon), notes/gates-harness-user-run.md,
+notes/gates-id-translation.md, and the notes/MEMORY.md index line.
+notes/session-status-2026-07-07b.md stays out.

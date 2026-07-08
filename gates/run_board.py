@@ -4,19 +4,19 @@
 There is no Claude Code session on the workstation, so the user runs
 the board personally: ``python gates/run_board.py``. This module is the
 CLI and the runner. It preflights the environment before any GPU time,
-executes the gates in the board's order, writes one raw log per gate
-(the full tee'd stdout and stderr the Architect audits, never a
-summary), resumes by skipping gates already passed, and writes a final
-BOARD.md table plus a board_status.json for the next run.
+runs the tests in the board's order, writes one raw log per test (the
+full streamed stdout and stderr a reviewer reads, never a summary),
+resumes by skipping tests already passed, and writes a final BOARD.md
+table plus a board_status.json for the next run.
 
-The design rules it enforces (from the harness spec): preflight aborts
-loudly on a stale git tip, a dirty tree, a missing cocoa import, or a
-missing data path; GM-C's pinned pre-EMA build runs in a temporary git
-worktree the runner always removes; a failed GSV-C skips GCT-C (its
-artifact feeds the parity probe) rather than aborting the board; every
-other gate is independent, so one failure never stops the rest; and
-nothing here mutates notes/ (the logs are the evidence, the per-gate
-verdicts land in the Architect's audit pass).
+The rules it enforces: preflight aborts loudly on a stale git tip, a
+dirty tree, a missing cocoa import, or a missing data path; the EMA
+identity test's pinned pre-EMA build runs in a temporary git worktree
+the runner always removes; a failed save-rebuild-drift test skips
+cobaya-adapter (whose parity probe needs that saved artifact) rather
+than aborting the board; every other test is independent, so one
+failure never stops the rest; and nothing here mutates notes/ (the raw
+logs are the evidence a later review reads).
 
 Typical use on the workstation:
 
@@ -102,7 +102,7 @@ class RunContext:
     self._log_fh = log_fh
     self._env = env
     self.repo = _REPO
-    # D-GH8: the interpreter running the harness runs the gates too, so
+    # The interpreter running the harness runs the gates too, so
     # a check / driver never depends on a bare "python" being on PATH
     # (the dev Mac has only python3). cobaya-run stays a PATH lookup (it
     # is a console script, not an interpreter).
@@ -303,7 +303,7 @@ class RunContext:
     return path
 
   def evaluate_yaml(self):
-    """The cobaya evaluate YAML for GCT-C (repo-relative or absolute)."""
+    """The cobaya evaluate YAML for cobaya-adapter (repo-relative or absolute)."""
     value = self.cfg.get("evaluate_yaml")
     if value is None:
       if self.dry:
@@ -338,8 +338,8 @@ class RunContext:
                    for the pinned golden leg, so its own driver and
                    emulator package are used).
       extra      = extra driver flags (e.g. ("--diagnostic",)).
-      driver     = the driver filename (D-GH7); defaults to the
-                   single-train driver, overridden e.g. by the GPC-C
+      driver     = the driver filename; defaults to the
+                   single-train driver, overridden e.g. by the npce-training
                    sweep leg with sweep_ntrain_emulator_cosmic_shear.py.
       allow_fail = passed through to sh (a gate that asserts on a
                    nonzero exit sets it True).
@@ -425,7 +425,7 @@ def _dirty_lines(porcelain_out):
   Filling board_config.json is the user's FIRST step (the _help block
   tells them to), so a modified config must not fail the clean-tree
   check; its effective values are dumped into every gate-log header
-  instead, so reproducibility is still recorded (D-GH1).
+  instead, so reproducibility is still recorded.
 
   Arguments:
     porcelain_out = the ``git status --porcelain`` output over the
@@ -481,7 +481,7 @@ def preflight(cfg):
           "commit (a descendant of the board + spec commit)")
 
   # (b) clean tree in emulator/, gates/, and the root drivers, but NOT
-  # gates/board_config.json (the user's first step is to fill it; D-GH1).
+  # gates/board_config.json (the user's first step is to fill it).
   watched = ["emulator", "gates"]
   for entry in sorted(_REPO.glob("*.py")):
     watched.append(entry.name)
@@ -516,7 +516,7 @@ def preflight(cfg):
     print("         remedy: run on the workstation GPUs, not the dev Mac")
 
   # (d) the data paths board_config.json names exist; driver_root and
-  # yaml_dir resolve against rootdir when relative (D-GH3).
+  # yaml_dir resolve against rootdir when relative.
   rootdir_value = cfg.get("rootdir")
   for key in ("rootdir", "driver_root", "yaml_dir"):
     value = cfg.get(key)
@@ -660,7 +660,7 @@ def _now():
 
 
 def _log_header(gate, cfg, log_fh):
-  """Write the gate log's header + the effective config (D-GH1).
+  """Write the gate log's header + the effective config.
 
   Arguments:
     gate   = the gate being run (id, tier, home, maps, worktree pin).
@@ -673,6 +673,7 @@ def _log_header(gate, cfg, log_fh):
   lines = []
   lines.append("=" * 72)
   lines.append("GATE " + gate.id + "  [" + gate.tier + "]")
+  lines.append("spec code: " + gate.spec_code)
   lines.append("home note: notes/" + gate.home + ".md")
   lines.append("maps (assertion -> home-note line): " + gate.maps)
   lines.append("needs: " + ", ".join(gate.needs))
@@ -711,8 +712,8 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry):
   failures = 0
   for gate in selection:
     # dry mode prints every selected gate's plan, BEFORE (and bypassing)
-    # the resume + dependency checks, so --dry-run --gate GCT-C shows the
-    # plan with a deps annotation, not a skip line (D-GH2).
+    # the resume + dependency checks, so --dry-run --gate cobaya-adapter shows the
+    # plan with a deps annotation, not a skip line.
     if dry:
       print("\n--- plan: " + gate.id + " ---")
       if gate.deps:
@@ -796,7 +797,7 @@ def cmd_list(status):
     if gate.worktree_commit is not None:
       flags.append("worktree@" + gate.worktree_commit)
     tail = "" if len(flags) == 0 else "  (" + "; ".join(flags) + ")"
-    print("  " + gate.id.ljust(8) + state.ljust(10)
+    print("  " + gate.id.ljust(26) + state.ljust(10)
           + "home: " + gate.home + tail)
 
 
@@ -820,9 +821,9 @@ def build_parser():
                       metavar="ID",
                       help="run only these gate ids (optional gates allowed)")
   parser.add_argument("--tier",
-                      choices=(board.TIER_STANDING,
-                               board.TIER_WEEK,
-                               board.TIER_SAVE_SAMPLE),
+                      choices=(board.TIER_BACKLOG,
+                               board.TIER_NEW_FEATURES,
+                               board.TIER_SAVE_AND_SAMPLE),
                       help="run only this tier")
   parser.add_argument("--from",
                       dest="from_gate",
