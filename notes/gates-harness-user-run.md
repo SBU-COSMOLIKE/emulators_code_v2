@@ -1446,3 +1446,34 @@ Recompiled clean after. Workstation acceptance remains: the board's
 cobaya-adapter evaluate leg rc 0 with the untouched likelihood (the
 from_state -> section-mode chain runs there against the real
 len == sizes[0] check).
+
+### 2026-07-08 — Architect: BOARD GREEN (run 10, HEAD eaeb383)
+"board run complete: 0 gate(s) FAILED." All 18 required gates PASS;
+triangle-shading stays optional/not-run (the gates_diag PDF eyeball is
+the Architect's open visual item). The final cobaya-adapter run closed
+GCT-D's workstation acceptance in full: gct_parity green INCLUDING the
+three new shape assertions with real numbers — section length 780 ==
+stored section_sizes[0], 3x2pt length 1560 == total_size, masked
+positions exactly 0.0 (the covmat-header prediction, now measured on
+hardware for both the plain and factored variants) — and the evaluate
+leg loaded the persisted tiny emulator from DISK through from_state in
+the default dv_return='section' mode, satisfied the UNTOUCHED
+likelihood's len == sizes[0] check, and evaluated: log-posterior
+-2490.88, chi2_lsst_y1.cosmic_shear = 2990.18 (large by design — the
+tiny emulator is 3-epoch/200-row; fidelity is the parity probe's rtol
+1e-6, which is green), 0.111 s per adapter call, rc 0. Ten runs, eight
+peeled layers, zero physics bugs: every failure was wiring (paths,
+class shadowing, output bookkeeping, a legacy params bridge, a shape
+contract) — the byte-identity/parity discipline kept the numerics
+untouchable throughout. Remaining from the gate's own spec (home note
+:117-123 names parity + evaluate + MCMC): the MCMC smoke — the harness
+prints it as the flagged follow-up now that evaluate is green; the
+board-owned gates/configs/cobaya-adapter-mcmc.yaml (this commit) is the
+short-chain config, run manually via cobaya-run and audited from the
+log; wiring it into the harness as an assertion is an optional future
+Implementer unit. Also unblocked by green: the deferred gates/checks
+plain-language docs sweep ([[gates-checks-docs-plain-language]]) and
+the per-gate verdict lines into the home notes (Architect, next pass).
+Still open on the workstation: the board_config.json driver_fileroot
+placeholder (this run's config dump still shows the literal
+"<your usual --fileroot value>").
