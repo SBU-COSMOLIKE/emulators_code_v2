@@ -5,7 +5,9 @@ It parses the command line and runs each test in board.py's order.
 A small class, RunContext, hands every test the few things it needs:
 run a command, write to its log, check a value. Preflight blocks the
 run before any GPU time if the git tip is stale, the tree is dirty, a
-cocoa import fails, or a data path is missing. Each test gets one raw
+cocoa import fails, a data path is missing, $ROOTDIR is unset (so rootdir
+cannot resolve), or the driver fileroot is still the shipped placeholder.
+Each test gets one raw
 log (the full streamed output, never a summary); a rerun skips tests
 already PASS; a failed save-rebuild-drift skips cobaya-adapter (which
 needs its saved file); any other failure never stops the rest.
@@ -336,12 +338,18 @@ class RunContext:
     return path if path.is_absolute() else self.repo / path
 
   def rootdir(self):
-    """The cocoa $ROOTDIR (cwd for cobaya-run), or a dry placeholder."""
+    """The cocoa $ROOTDIR (cwd for cobaya-run), or a dry placeholder.
+
+    Reads the effective rootdir resolved at config load (the file's explicit
+    override, else the $ROOTDIR environment variable). Preflight already
+    failed loudly if it was unresolved, so on a real run this is set.
+    """
     value = self.cfg.get("rootdir")
     if value is None:
       if self.dry:
         return Path("<UNSET:rootdir>")
-      raise GateFailure("board_config.json rootdir is unset")
+      raise GateFailure("rootdir is unresolved: board_config.json rootdir "
+                        "is null and $ROOTDIR is not set")
     return Path(value)
 
   def golden_base(self, gate_id):
@@ -490,10 +498,11 @@ def _probe_import(statement):
 def _dirty_lines(porcelain_out):
   """The clean-tree offenders, excluding gates/board_config.json.
 
-  Filling board_config.json is the user's FIRST step (the _help block
-  tells them to), so a modified config must not fail the clean-tree
-  check; its effective values are dumped into every gate-log header
-  instead, so reproducibility is still kept.
+  board_config.json is machine-portable and normally runs unedited, but a
+  user may override a value for a non-standard deploy, so a modified config
+  must not fail the clean-tree check; it is excluded here and its effective
+  values are dumped into every gate-log header instead, so reproducibility
+  is still kept.
 
   Arguments:
     porcelain_out = the ``git status --porcelain`` output over the
@@ -518,10 +527,12 @@ def preflight(cfg):
 
   Checks, in order: (a) the base-notes commit is an ancestor of HEAD;
   (b) the working tree is clean in emulator/, gates/, and the drivers;
-  (c) torch (with CUDA), cosmolike, and cobaya import; (d) the data
-  paths board_config.json names exist. Any failure prints a remedy and
-  the whole function returns ok False, so the caller exits nonzero
-  before spending GPU time.
+  (c) torch (with CUDA), cosmolike, and cobaya import; (d) the effective
+  rootdir resolves (from $ROOTDIR or an explicit override, its source
+  printed) and the data paths board_config.json names exist; (e) the
+  debug key is a bool; (f) driver_fileroot is a real value, not the
+  shipped placeholder. Any failure prints a remedy and the whole function
+  returns ok False, so the caller exits nonzero before spending GPU time.
 
   Arguments:
     cfg = the parsed board_config.json.
@@ -549,7 +560,8 @@ def preflight(cfg):
           "commit (a descendant of the board + spec commit)")
 
   # (b) clean tree in emulator/, gates/, and the root drivers, but NOT
-  # gates/board_config.json (the user's first step is to fill it).
+  # gates/board_config.json (portable; excluded so a local deploy override
+  # does not fail the clean-tree check).
   watched = ["emulator", "gates"]
   for entry in sorted(_REPO.glob("*.py")):
     watched.append(entry.name)
@@ -583,10 +595,26 @@ def preflight(cfg):
     print("  [FAIL] CUDA not visible to torch")
     print("         remedy: run on the workstation GPUs, not the dev Mac")
 
-  # (d) the data paths board_config.json names exist; driver_root and
-  # yaml_dir resolve against rootdir when relative.
+  # (d) the effective rootdir (resolved at load) exists, with its source
+  # named; then driver_root and yaml_dir exist, resolving against that
+  # rootdir when relative.
   rootdir_value = cfg.get("rootdir")
-  for key in ("rootdir", "driver_root", "yaml_dir"):
+  rootdir_source = cfg.get("rootdir_source", "unset")
+  if rootdir_value is None:
+    ok = False
+    print("  [FAIL] rootdir is unresolved: board_config.json rootdir is "
+          "null and $ROOTDIR is not set")
+    print("         remedy: export ROOTDIR to the cocoa clone root (source "
+          "start_cocoa), or set an absolute rootdir in board_config.json")
+  elif not Path(rootdir_value).exists():
+    ok = False
+    print("  [FAIL] rootdir does not exist: " + rootdir_value
+          + "  (source: " + rootdir_source + ")")
+  else:
+    print("  [ok] rootdir = " + rootdir_value
+          + "  (source: " + rootdir_source + ")")
+
+  for key in ("driver_root", "yaml_dir"):
     value = cfg.get(key)
     if value is None:
       ok = False
@@ -595,8 +623,7 @@ def preflight(cfg):
             "deploy path for " + key)
       continue
     resolved = Path(value)
-    if (key != "rootdir" and not resolved.is_absolute()
-        and rootdir_value is not None):
+    if not resolved.is_absolute() and rootdir_value is not None:
       resolved = Path(rootdir_value) / value
     if not resolved.exists():
       ok = False
@@ -619,6 +646,27 @@ def preflight(cfg):
   else:
     print("  [ok] debug = " + str(cfg["debug"]))
 
+  # (f) driver_fileroot is a real value, not the shipped placeholder. The
+  # committed config carries "gates_board"; a fileroot that is missing,
+  # empty, or still wrapped in < > (the placeholder signature) fails here so
+  # a run never trains under a literal "<...>" stem.
+  fileroot = cfg.get("driver_fileroot")
+  if fileroot is None or str(fileroot).strip() == "":
+    ok = False
+    print("  [FAIL] board_config.json driver_fileroot is unset or empty")
+    print("         remedy: set driver_fileroot to the run's file stem "
+          "(see the _help 'driver_fileroot' entry); the shipped default "
+          "is \"gates_board\"")
+  elif "<" in str(fileroot) or ">" in str(fileroot):
+    ok = False
+    print("  [FAIL] board_config.json driver_fileroot is still the "
+          "placeholder: " + repr(fileroot))
+    print("         remedy: replace it with the run's file stem (see the "
+          "_help 'driver_fileroot' entry); the shipped default is "
+          "\"gates_board\"")
+  else:
+    print("  [ok] driver_fileroot = " + repr(fileroot))
+
   print("== preflight " + ("PASSED" if ok else "FAILED") + " ==")
   return (ok, env)
 
@@ -627,10 +675,48 @@ def preflight(cfg):
 # Selection, status, and the BOARD.md / board_status.json writers.
 # --------------------------------------------------------------------------
 
+def _resolve_rootdir(cfg):
+  """Resolve the effective rootdir and where it came from, at load time.
+
+  Precedence: a non-null rootdir in board_config.json wins (an operator
+  override, for a machine whose $ROOTDIR does not point at the clone under
+  test); otherwise the ROOTDIR environment variable (the normal case, so the
+  committed config carries no machine path); otherwise it stays unresolved
+  and the preflight rootdir check fails loudly naming the variable. The file
+  is never rewritten; the value lives only in the in-memory config.
+
+  Arguments:
+    cfg = the parsed board_config.json.
+
+  Returns:
+    (value, source): value is the rootdir string, or None when unresolved;
+    source is "board_config.json", "$ROOTDIR", or "unset".
+  """
+  explicit = cfg.get("rootdir")
+  if explicit is not None:
+    return str(explicit), "board_config.json"
+  env_value = os.environ.get("ROOTDIR")
+  if env_value:
+    return env_value, "$ROOTDIR"
+  return None, "unset"
+
+
 def _load_config():
-  """Parse board_config.json (a clear error if it is malformed)."""
+  """Parse board_config.json and resolve this run's rootdir in memory.
+
+  Reads the file (a clear error if it is malformed), then resolves rootdir
+  from the file's own explicit value or the $ROOTDIR environment variable
+  (see _resolve_rootdir), so a machine-portable config needs no edit. The
+  resolved value replaces cfg["rootdir"] and its origin is stashed under
+  cfg["rootdir_source"] for the preflight line and the per-gate config dump;
+  the file on disk is left untouched.
+  """
   with open(_CONFIG_FILE, "r") as handle:
-    return json.load(handle)
+    cfg = json.load(handle)
+  value, source = _resolve_rootdir(cfg)
+  cfg["rootdir"] = value
+  cfg["rootdir_source"] = source
+  return cfg
 
 
 def _load_status():

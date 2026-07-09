@@ -1,17 +1,29 @@
 #!/usr/bin/env python3
-"""GE-C: eval_val partition invariance + eval-batch timing (torch-only).
+"""eval-batch-size check: the validation score is independent of batching.
 
-Transcribed faithfully from the home note eval-bs-decoupling.md:202-300
-(the ready-to-paste GE-C script, the spec of record). The harness runs
-it on the workstation as ``python gates/checks/ge_c_eval_bs.py``: Part 1
-must print "Part 1: PASS" (per-row chi2 from eval_val agrees across eval
-batch sizes to rtol 1e-6), and Part 2 reports the eval-batch launch
-saving on CUDA. Exits nonzero if Part 1 fails.
+Two parts, run as a top-level script (there is no main function):
 
-This is a verbatim transcription of a note's tested script, so the house
-90-column / naming style is NOT retrofitted onto it (the same rule the
-verbatim compute_data_vectors import follows). Only the exit status at
-the end is added so the runner reads a pass/fail code.
+Part 1, partition invariance. eval_val scores the validation set in
+batches, padding the last short batch. This part proves the answer does
+not depend on the batch size used to walk the set: the per-row chi2, the
+medians, the means, and the threshold fractions all agree, whether the set
+is scored in one big batch or in batches of 32, 517, 1000, or 2048 rows
+(to a relative tolerance of 1e-6). "Partition invariance" is exactly that
+promise, that the score is a property of the data, not of how it was
+chopped into batches. Part 1 must print "Part 1: PASS"; the script exits
+non-zero if it fails.
+
+Part 2, timing (CUDA only, informational). It times eval_val at the small
+training batch size against the larger batch size derive_eval_bs picks, to
+show the saving in per-batch launch overhead. On CPU it is skipped.
+
+The check math (the toy model, the padded batch loop, the eval_val call)
+is transcribed verbatim from the home note's tested script, so the house
+90-column and naming style is not retrofitted onto the code; only the
+docstrings were rewritten for readability and the exit status added so the
+runner reads a pass/fail code.
+
+Spec code GE-C. Home note: eval-bs-decoupling.md:202-300.
 """
 import time
 import numpy as np
@@ -29,6 +41,12 @@ model = torch.nn.Linear(N_IN, N_OUT).to(DEV).eval()
 
 
 class ToyChi2:
+    """A stand-in loss whose chi2 is the plain per-row sum of squared errors.
+
+    Lets partition invariance be checked without cosmolike: needs_params is
+    False, and chi2 returns one value per row, so eval_val reduces it exactly
+    as it would a real loss.
+    """
     needs_params = False
 
     def chi2(self, pred, target):
@@ -43,13 +61,24 @@ thresholds = torch.tensor([0.2, 0.5, 1.0])
 
 
 def toy_data():
+    """The tiny in-memory data dict eval_val expects.
+
+    Row-indexed loaders for the inputs C and the data vectors DV, plus the
+    row-index array, all pointing at the module-level toy tensors.
+    """
     return {"load_C": lambda rows: C[rows],
             "load_dv": lambda rows: DV[rows],
             "idx": np.arange(N_VAL)}
 
 
 def per_row_chi2(bs):
-    """eval_val's batch+pad loop, but returning the full (N_VAL,) c."""
+    """eval_val's batched, last-batch-padded forward pass, kept per row.
+
+    Reproduces the same batch loop eval_val runs (pad the final short batch,
+    then drop the pad), but returns the full (N_VAL,) per-row chi2 instead of
+    the reduced medians/means, so the batch-size sweep can compare row for
+    row against the whole-set reference.
+    """
     out = []
     with torch.no_grad():
         for s in range(0, N_VAL, bs):
@@ -87,6 +116,11 @@ if DEV.type == "cuda":
     derived = derive_eval_bs(n_val=N_VAL, target=_EVAL_BS_TARGET, load=N_VAL)
 
     def timed(bs, reps=50):
+        """Average wall-clock time of one eval_val call at batch size bs.
+
+        Warms up three times, synchronizes CUDA, then averages reps timed
+        calls (CUDA only; the caller guards on DEV.type).
+        """
         for _ in range(3):
             eval_val(model=model, lossfn=loss, data=toy_data(),
                      load=N_VAL, bs=bs, thresholds=thresholds)

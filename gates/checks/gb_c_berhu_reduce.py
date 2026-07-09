@@ -1,27 +1,38 @@
 #!/usr/bin/env python3
-"""berhu-loss, numeric leg (spec code GB-C): the loss math is right.
+"""berhu-loss numerics: prove the robust loss math is right.
 
-WHAT: the berHu loss transform v(c) as shipped in
-CosmolikeChi2._reduce. WHY: the training loss is the one piece a run
-cannot cross-check itself — if v(c) or its derivative is wrong at the
-joins, every berHu run silently optimizes the wrong thing. HOW: with
-trim and focus off, _reduce of a single-element tensor returns v(c),
-so this script probes the shipped code at chosen c values and checks:
-berhu == sqrt below the knot; berhu_capped == berhu below the cap;
-both match the hand-written reference formulas; at each join (t1 +- 1e-3,
-t2 +- 1e-3) the shipped value matches the reference (1e-9) and the
-autograd slope matches the closed-form derivative (1e-6); the anneal
-blend s=0 is plain sqrt and s=1 the full shape; all repeated at
-non-default knots. Prints every value compared, exits nonzero on any
-mismatch (spec: loss-mode-berhu.md:148-153).
+The berhu loss is the one training transform a run cannot cross-check
+against itself: if its shape or its slope is wrong where the pieces meet,
+every berhu run silently optimizes the wrong thing. This check reads the
+shipped transform straight out of CosmolikeChi2._reduce and compares it to
+hand-written reference formulas at many chi2 values.
 
-_reduce is a method but reads no instance state (only the tensor c and
-the passed knots), so it is called unbound with self=None.
+Vocabulary (every value below is in chi2 units):
+  berhu       the loss shape that is sqrt(chi2) for small chi2 and a
+              straight line for large chi2 (a reversed Huber loss).
+  knot (t1)   the chi2 value where berhu switches from the sqrt piece to
+              the straight-line piece.
+  cap (t2)    for berhu_capped, a second switch above which the line bends
+              back into a sqrt-shaped tail, so one huge sample cannot
+              dominate the gradient.
+  join        a switch point (t1 or t2); the checks confirm the value and
+              the slope are continuous across it.
+  slope       the derivative dv/dc, read from the shipped code by autograd
+              (torch's automatic differentiation) and compared to the
+              closed-form derivative.
 
-PS: knot t1 = the lower join (sqrt below, linear-in-c above); cap t2 =
-the upper join of berhu_capped (sqrt-shaped tail above); the join checks
-compare the shipped value and its autograd slope to the closed-form
-reference at each join, not two nearby points to each other.
+What it checks, for each (knot, cap) pair: berhu equals sqrt below the knot;
+berhu_capped equals berhu below the cap; both match the reference formulas
+in every region; at each join the shipped value matches the reference (to
+1e-9) and the autograd slope matches the closed-form derivative (to 1e-6);
+and the anneal blend is plain sqrt at s = 0 and the full berhu shape at
+s = 1. It repeats everything at a non-default knot and cap. Every value is
+printed; any mismatch exits non-zero.
+
+_reduce is a method but reads no instance state (only the tensor and the
+knots passed in), so it is called unbound with self = None.
+
+Spec code GB-C. Home note: loss-mode-berhu.md:148-153.
 """
 
 import sys
@@ -140,7 +151,7 @@ def ref_berhu_capped_deriv(c, t1, t2):
   the constant 1/(2 sqrt t1) between t1 and t2, and sqrt(t2)/(2 sqrt t1
   sqrt c) above t2 (the tail term 2 sqrt(t2 c) differentiates to
   sqrt(t2)/sqrt(c)). The three regions meet with equal slope, so the
-  transform is C1 at both joins.
+  transform's first derivative is continuous (it is C1) at both joins.
   """
   if c <= t1:
     return 0.5 / c ** 0.5
@@ -249,7 +260,13 @@ def check_knots(t1, t2, tol, dtol):
 
 
 def main():
-  """Run the census over the default and a non-default (knot, cap)."""
+  """Run every berhu check at the default knot/cap, then a non-default pair.
+
+  Calls check_knots twice: once at the shipped defaults (knot 0.2, cap 10.0)
+  and once at (0.5, 5.0), each with a 1e-9 value tolerance and a 1e-6 slope
+  tolerance. check_knots prints a PASS/FAIL line per probe; main returns 1 if
+  any check failed, else 0.
+  """
   print("== berhu-loss numerics (spec code GB-C) ==")
   # default knots (train_args.loss.berhu defaults: knot 0.2, cap 10.0).
   check_knots(t1=0.2, t2=10.0, tol=1.0e-9, dtol=1.0e-6)

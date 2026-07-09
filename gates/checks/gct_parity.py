@@ -1,33 +1,36 @@
 #!/usr/bin/env python3
-"""cobaya-adapter parity (spec code GCT-C): inference equals training.
+"""cobaya-adapter parity: the predictor reproduces the trained model.
 
-WHAT: EmulatorPredictor, the object the cobaya theory block calls for
-every MCMC step. WHY: an MCMC must sample the model that was trained;
-a predictor that deviates even slightly biases every posterior drawn
-from it. HOW: trains a tiny plain emulator and a tiny factored (ia:nla) one, saves
-each, builds an EmulatorPredictor from the saved file, and requires the
-predictor's data vector to match the TRAINING-side prediction on the
-same probe points to rtol 1e-6 (home note cobaya-theory-adapter.md
-:117-123). The factored case is the real save -> rebuild -> predict
-round-trip added (:234-238): the geometry-class marker in the h5
-must rebuild the AmplitudeFactorGeometry so the factored combine
-reproduces. predict() returns the emulator's own probe section by
-default, so the kept-entry comparison indexes that section at dest_idx
-(the xi section's offset is 0); the check also asserts the shapes
-(section length == stored section_sizes[0]; dv_return '3x2pt' length ==
-total_size; masked positions exactly 0.0). Prints the worst relative
-error per variant and exits nonzero on any mismatch.
+EmulatorPredictor is the object the cobaya theory block calls at every MCMC
+step to turn cosmological parameters into a data vector. An MCMC must sample
+the very model that was trained, so if the predictor drifts even slightly
+from the training-time forward pass it biases every posterior drawn from it.
+This check proves the two agree ("parity" is that agreement).
 
-The training-side prediction is the live path the predictor
-reconstructs: pgeom.encode(theta) -> model -> decode, where decode is
-geom.decode for the plain run and chi2fn.decode(pred, x_enc) for the
-factored run (TemplateFactoredChi2). The tiny train + save helpers are
-shared with gsv_bitwise_drift; deploy paths come from board_config.json.
+How it works: train two tiny emulators (a plain one and a factored
+intrinsic-alignment one, ia:nla), save each, build an EmulatorPredictor from
+the saved file, and require the predictor's data vector to match the
+training-side prediction on the same input rows to a relative tolerance of
+1e-6. The training-side prediction is the live forward pass the predictor
+rebuilds: encode the parameters, run the model, then decode (geom.decode for
+the plain run, or the loss's chi2fn.decode for the factored run). The
+factored case is a full round-trip (save, then rebuild from the file, then
+predict): the saved geometry-type marker must rebuild the amplitude-factoring
+geometry so the factored combine reproduces.
 
-PS: parity = the in-package predictor and the training stack agree on
-the same probe; round-trip = save then rebuild then predict, reading
-only the file; rtol = relative tolerance for the matmul-order-sensitive
-float comparison.
+predict() returns the emulator's own probe section by default (for cosmic
+shear the xi block), so the row-for-row comparison indexes that section at
+the kept-entry positions (the xi section starts at offset 0). The check also
+confirms the shapes: the section length equals the stored section size, the
+full 3x2pt vector equals the total length, and the masked positions are
+exactly 0.0. The worst relative error per variant is printed; any mismatch
+exits non-zero.
+
+The tiny train-and-save helpers are shared with gsv_bitwise_drift; the dumps
+and save locations come from board_config.json.
+
+Spec code GCT-C. Home note: cobaya-theory-adapter.md:117-123 (the plain
+parity probe) and :234-238 (the factored round-trip).
 """
 
 import sys
@@ -43,7 +46,11 @@ FAILURES = []
 
 
 def report(label, ok, detail):
-  """Print one acceptance line and record a failure."""
+  """Print one PASS/FAIL line and remember any failure.
+
+  A failing check appends its label to the module-level FAILURES list so
+  main can count them and exit non-zero.
+  """
   mark = "PASS" if ok else "FAIL"
   print("  [" + mark + "] " + label + "  (" + detail + ")")
   if not ok:
@@ -141,7 +148,16 @@ def run_parity(name, cfg, device, tmp, factored):
 
 
 def main():
-  """Run the plain parity probe + the factored round-trip."""
+  """Run the plain parity probe, then the factored round-trip.
+
+  Reads the deploy paths, then for the plain and factored variants trains a
+  tiny emulator, saves it, builds two predictors from the file (the default
+  'section' shape and the full '3x2pt' shape), and checks the predictor
+  matches the training-side data vector to rtol 1e-6, plus the section /
+  full-length / masked-zero shape assertions. Prints a note that the evaluate
+  run and the MCMC smoke are driven by the board gate, not here; returns 1 if
+  any check failed, else 0.
+  """
   print("== cobaya-adapter parity (spec code GCT-C) ==")
   device, data_dir = load_deploy()
   print("device " + str(device) + ", dumps " + str(data_dir))

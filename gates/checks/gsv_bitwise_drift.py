@@ -1,31 +1,36 @@
 #!/usr/bin/env python3
-"""save-rebuild-drift (spec code GSV-C): a saved emulator reloads exactly.
+"""save-rebuild-drift: prove a saved emulator reloads exactly.
 
-WHAT: the save/rebuild contract (an emulator reconstructed from its h5
-file alone). WHY: a reload must ship the very model that was trained,
-even if the code's default values drift after the save; anything less
-silently changes published results. HOW: trains three tiny
-emulators in-process (one plain, one factored ia:nla,
-one NPCE pce), saves each, rebuilds from the file alone, and requires
-the rebuilt model's output BITWISE-EQUAL to the live model's on a probe
-batch (home note save-schema-resolved-config.md:86-93; one factored +
-one NPCE save per workstation-board-2026-07.md:66-71 so the
-geometry-class marker and the pce group both round-trip). Then the
-drift proof: monkeypatch a code default, rebuild again, still identical
-(the file, not the code, defines the emulator). Finally a v1 file is
-refused. Prints every value it compares and exits nonzero on failure.
+This check defends one promise: an emulator rebuilt from its saved file
+behaves exactly like the one that was just trained, even if the code's
+default values change afterward. If that promise breaks, a reloaded model
+quietly returns different numbers than the run that was published.
 
-The training assembly is the driver's own path read from experiment.py:
-EmulatorExperiment.from_config -> run -> save_emulator -> rebuild.
-Deploy paths (the cocoa root and the dump directory) come from
-gates/board_config.json; the data-directory convention (<root>/chains,
-per the driver) is the one workstation-diagnostic assumption, corrected
-from the first raw log if the deploy differs.
+How it works, in order:
+  1. Train three tiny emulators in this process: a plain one, a factored
+     intrinsic-alignment one (its amplitudes are applied in the loss, not
+     the network), and a neural-PCE one (a polynomial base plus a small
+     correcting network).
+  2. Save each, rebuild each from its saved file alone, and compare the
+     rebuilt model's output to the still-in-memory model's on the same
+     input rows. "Exactly" means torch.equal here: every output number
+     matches to the last bit.
+  3. The drift test: change a code default, rebuild once more, and confirm
+     the output is still identical. That can only hold if the rebuild reads
+     the saved file and ignores the changed default.
+  4. Confirm an old-format file (schema version 1) is refused, not silently
+     mis-loaded.
+Every compared value is printed; any mismatch prints a FAIL line and the
+run exits non-zero.
 
-PS: bitwise = torch.equal, the model outputs match to the last bit;
-drift proof = a rebuild that ignores a monkeypatched code default,
-proving reconstruction reads only the h5; v1 refusal = rebuild raising
-on a schema_version != 2 file.
+The training path is the driver's own, all from emulator/:
+EmulatorExperiment.from_config -> run -> save_emulator -> rebuild_emulator.
+The dumps and the save locations come from gates/board_config.json; the
+dump directory follows the driver's <root>/chains convention.
+
+Spec code GSV-C. Home notes: save-schema-resolved-config.md:86-93 and
+workstation-board-2026-07.md:66-71 (the factored and neural-PCE saves are
+there so the saved geometry type and the PCE data both survive a reload).
 """
 
 import json
@@ -44,7 +49,11 @@ FAILURES = []
 
 
 def report(label, ok, detail):
-  """Print one acceptance line and record a failure."""
+  """Print one PASS/FAIL line and remember any failure.
+
+  A failing check appends its label to the module-level FAILURES list so
+  main can count them and exit non-zero.
+  """
   mark = "PASS" if ok else "FAIL"
   print("  [" + mark + "] " + label + "  (" + detail + ")")
   if not ok:
@@ -156,7 +165,7 @@ def train_save(cfg, device, save_root, persist_root=None):
     cfg          = the variant config dict.
     device       = the torch device.
     save_root    = the path root to save under (the tmp round-trip root).
-    persist_root = an optional SECOND, persistent root to save the same
+    persist_root = an optional second, persistent root to save the same
                    bytes under (survives the tmp cleanup); the plain case
                    passes it so the board-owned cobaya-adapter evaluate
                    leg has an emulator to load. None saves only to
@@ -170,7 +179,7 @@ def train_save(cfg, device, save_root, persist_root=None):
   model, train_losses, medians, means, fracs = exp.run()
 
   # val_set["C"] is the already-sliced (n_val,) params; index it
-  # POSITIONALLY (the first 8 rows), never with val_set["idx"] (original
+  # positionally (the first 8 rows), never with val_set["idx"] (original
   # dump-row numbers from the 16k pool -> IndexError / wrong rows).
   probe = torch.as_tensor(exp.val_set["C"][:8],
                           dtype=torch.float32,
@@ -207,7 +216,11 @@ def train_save(cfg, device, save_root, persist_root=None):
 
 
 def rebuilt_out(save_root, device, probe, *, compile_model=False):
-  """Rebuild from the file alone and return the rebuilt output on probe."""
+  """Rebuild the emulator from its saved file alone and run it on the probe.
+
+  Returns the rebuilt model's output on the probe rows, the value the caller
+  compares (bit for bit) against the still-in-memory model's output.
+  """
   model_r, pgeom_r, geom_r, info = rebuild_emulator(
     path_root=str(save_root),
     device=device,
@@ -236,7 +249,18 @@ def run_variant(name, cfg, device, tmp, persist_root=None):
 
 
 def main():
-  """Run the three variants + the drift proof + the v1 refusal."""
+  """Run the three save-rebuild checks, the drift test, and the v1 refusal.
+
+  In order: read the deploy paths; then, for the plain, factored, and
+  neural-PCE variants, train a tiny emulator, save it, rebuild it from the
+  file, and require the rebuilt output to match the live output to the last
+  bit (the plain one is also saved to a stable location for the board's
+  cobaya-adapter evaluate leg). Then the drift test on the plain save: patch
+  make_activation's n_gates default and the compile-mode default, rebuild,
+  and require an identical output. Last, set the saved file's schema version
+  to 1 and require the rebuild to raise. Any failed step prints a FAIL line;
+  main returns 1 if any failed, else 0.
+  """
   print("== save-rebuild-drift (spec code GSV-C) ==")
   device, data_dir = load_deploy()
   print("device " + str(device) + ", dumps " + str(data_dir))
@@ -250,7 +274,7 @@ def main():
   run_variant("factored", tiny_config(data_dir, ia="nla"), device, tmp)
   run_variant("npce", tiny_config(data_dir, pce=True), device, tmp)
 
-  # drift proof: monkeypatch the SHARP default, make_activation's
+  # drift test: monkeypatch the telling default, make_activation's
   # n_gates (activations.py). If rebuild trusted the code default the
   # rebuilt gated_power activation would carry K=7 parameters and the
   # strict weight load / output would break; with the file-recorded
