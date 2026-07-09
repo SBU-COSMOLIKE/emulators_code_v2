@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
-"""weight-decay-census (spec code GWD-C): decay hits only weight matrices.
+"""weight-decay census: weight decay reaches only true weight matrices.
 
-WHAT: the rule inside make_optimizer that decides which parameters get
-L2 weight decay. WHY: decaying an activation's shape parameters or a
-bias drags them toward zero and quietly deforms the model; the rule
-must pick parameters by module role, never by tensor shape. HOW: builds
-a toy module tree carrying one of every family (nn.Linear,
-nn.Conv1d, BinLinear, Affine, FeatureAffine, a gated_power activation
-with (K, dim) shape parameters, LayerNorm), runs the REAL make_optimizer
-with weight_decay 1e-4, and asserts the census the home note requires
-(weight-decay-only-weight-matrices.md:143-147): the decayed group is
-EXACTLY the .weight of nn.Linear / nn.Conv1d / BinLinear, and everything
-else is undecayed, including the two families the old ndim >= 2 rule
-misclassified (the multigate / gated_power (K, dim) w / beta / mu and
-the BinLinear (G, out) bias). Then the wd 0 case: both groups inert, so
-the regrouping can change no shipping run. Prints the full census and
-exits nonzero on any misclassification.
+Weight decay is the optimizer's steady pull of parameters toward zero.
+Applied to the wrong parameters it quietly deforms the model: shrinking an
+activation's shape parameters or a bias changes what the network can
+represent. So the rule inside make_optimizer must choose parameters by
+their module's role, never by tensor shape. This check proves it does.
 
-PS: decayed = the group AdamW applies L2 weight decay to; undecayed =
-weight_decay 0; the allowlist decides membership by MODULE ROLE, never
-by tensor shape, so a many-parameter activation is never decayed.
+How it works: build a toy module tree holding one of every family the rule
+must sort (nn.Linear, nn.Conv1d, BinLinear, Affine, FeatureAffine, a
+gated_power activation whose shape parameters are (K, dim) matrices, and
+LayerNorm); run the real make_optimizer with weight decay 1e-4; then check
+that the decayed group is exactly the .weight of nn.Linear, nn.Conv1d, and
+BinLinear, and that everything else is left alone. That everything-else
+includes the two cases a shape-based rule gets wrong: the (K, dim) shape
+parameters of the gated_power activation, and the (G, out) bias of
+BinLinear, both of which look like weight matrices by shape but are not.
+Finally, with weight decay 0, both groups are inert, so the regrouping
+cannot change any shipping run. The full census is printed; any
+misclassification exits non-zero.
+
+Terms: decayed = the parameter group the optimizer applies weight decay to;
+undecayed = the group left at weight decay 0. Membership is decided by
+module role (the allowlist), not by tensor shape, so a many-parameter
+activation is never decayed.
+
+Spec code GWD-C. Home note: weight-decay-only-weight-matrices.md:143-147.
 """
 
 import sys
@@ -38,7 +44,11 @@ FAILURES = []
 
 
 def report(label, ok, detail):
-  """Print one acceptance line and record a failure."""
+  """Print one PASS/FAIL line and remember any failure.
+
+  A failing check appends its label to the module-level FAILURES list so
+  main can count them and exit non-zero.
+  """
   mark = "PASS" if ok else "FAIL"
   print("  [" + mark + "] " + label + "  (" + detail + ")")
   if not ok:
@@ -66,7 +76,16 @@ class ToyTree(nn.Module):
 
 
 def main():
-  """Build the toy tree, run make_optimizer, and assert the census."""
+  """Build the toy tree, run make_optimizer, and check the decay census.
+
+  In order: build ToyTree; run make_optimizer at weight decay 1e-4 and read
+  back which parameters landed in the decayed group; check that group is
+  exactly the three weight matrices, that the gated_power (K, dim)
+  parameters and the BinLinear bias stayed undecayed, that nothing else
+  leaked in, and that every parameter is in exactly one group; then rerun at
+  weight decay 0 and check every group is inert. Each check prints a
+  PASS/FAIL line; main returns 1 if any failed, else 0.
+  """
   print("== weight-decay-census (spec code GWD-C) ==")
   torch.manual_seed(0)
   device = torch.device("cpu")

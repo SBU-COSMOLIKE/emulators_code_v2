@@ -1477,3 +1477,94 @@ the per-gate verdict lines into the home notes (Architect, next pass).
 Still open on the workstation: the board_config.json driver_fileroot
 placeholder (this run's config dump still shows the literal
 "<your usual --fileroot value>").
+
+## Implementer GBC execution (2026-07-09, Opus, base fb71a25 = origin/main)
+
+Portable board config + fileroot preflight guard + the gates/checks
+plain-language sweep. IMPLEMENTED, uncommitted, all Mac gates green.
+Footprint (git diff HEAD --stat = 7 files, +346/-150): gates/run_board.py
++ gates/board_config.json (Parts 1-2), and the five gates/checks scripts
+(Part 3, docstrings/comments only).
+
+Part 1 (portable rootdir). board_config.json now ships rootdir: null and
+driver_fileroot: "gates_board" (driver_root/yaml_dir were already
+relative); the _help "what"/"rootdir"/"driver_fileroot" entries rewritten
+(machine-portable, "edit once after git pull" retired, the null =
+$ROOTDIR / non-null = explicit-override precedence spelled out). New
+_resolve_rootdir(cfg) + an expanded _load_config resolve rootdir in
+memory at load: a non-null file value wins, else os.environ["ROOTDIR"],
+else it stays None; the resolved value replaces cfg["rootdir"] and its
+origin is stashed under cfg["rootdir_source"] (so the per-gate
+effective-config dump, which json.dumps(ctx.cfg), records the RESOLVED
+rootdir + source). The file on disk is never rewritten. Preflight (d)
+prints "rootdir = <value> (source: $ROOTDIR|board_config.json)" and, when
+unresolved, fails loudly naming $ROOTDIR; driver_root/yaml_dir now
+resolve against the resolved rootdir. rootdir() property + the
+clean-tree-exclusion rationale + the module docstring updated to match.
+
+Part 2 (fileroot guard). New preflight check (f): driver_fileroot missing,
+empty, or containing '<' or '>' (the shipped-placeholder signature) fails
+loudly, naming the key and pointing at its _help entry and the
+"gates_board" default.
+
+Part 3 (plain-language sweep, per gates-checks-docs-plain-language.md).
+All five check scripts reworded: gsv_bitwise_drift, gct_parity,
+gb_c_berhu_reduce, ge_c_eval_bs, gwd_census. Every module header rewritten
+as plain first-read English (the "contract" the user bounced off is gone;
+WHAT/WHY/HOW scaffolding and caps-for-emphasis removed; terms like berhu /
+knot / cap / join / partition invariance / parity / round-trip / decayed
+defined where they first appear or in a short vocabulary block; each
+file's spec code + note line-range confined to one trailing line). main()
+and the thin helpers (report, rebuilt_out, per_row_chi2, toy_data,
+ToyChi2, timed) gained substantive docstrings (what runs, in what order,
+what a failure looks like). ge_c_eval_bs is a declared verbatim
+transcription: only its docstrings were touched and its self-description
+corrected; the check math is byte-for-byte the note's script. The caps in
+gwd's report() label strings (e.g. "... are UNDECAYED") were left ALONE
+because they are code arguments, not docstrings, and changing them would
+break the no-logic-change proof.
+
+Mac gates GREEN: (1) Parts 1-2 exec-probe 12/12 (env-set+null ->
+$ROOTDIR; env-unset+null -> unresolved + loud $ROOTDIR message; explicit
+override wins + source printed; placeholder and empty fileroot rejected;
+"gates_board" accepted; _load_config end-to-end on the shipped config);
+(2) Part 3 AST no-logic-change 5/5 (docstring-stripped ast.dump ==
+git HEAD, so code is identical and only docstrings/comments moved);
+(3) py_compile all 6 changed .py + board_config.json valid JSON;
+(4) added-line scan: zero " -- ", and every all-caps token in the diff is
+a legitimate acronym/identifier (ROOTDIR, PASS/FAIL, PCE, CUDA, spec-code
+prefixes), no emphasis-caps. Did NOT rename config keys, touch gate
+assertions or configs, or mix Part 3 edits into the Parts 1-2 files.
+
+Workstation acceptance (user-run): git pull, then
+`git checkout -- gates/board_config.json` (drop the local machine edit so
+the tracked portable config runs as-is), then
+`python gates/run_board.py --check` shows the resolved-rootdir preflight
+line (source $ROOTDIR) and a resumed board run stays green. Not committed;
+commit + merge + push printed in the handoff (user-only git).
+
+### 2026-07-08 — Architect: GBC audit VERDICT (worktree amazing-keller, base fb71a25)
+VERIFIED, commit-ready, no deltas. Evidence, all Architect-run against
+the raw diff: (1) config faithful (rootdir null + gates_board + _help
+rewritten with the precedence and never-rewritten rule stated plainly);
+(2) the shipped _resolve_rootdir exec-probed on four scenarios — file
+override beats env, null resolves from $ROOTDIR, EMPTY $ROOTDIR counts
+as unset, no env -> unresolved — 4/4, and the source string rides into
+both the preflight line and the per-gate config dump via
+cfg["rootdir_source"]; (3) the fileroot guard read-verified (missing /
+empty / < > all fail with remedies naming the key, the _help entry, and
+the gates_board default); (4) Part-3 no-logic-change proof, Architect's
+own (docstring-BLANKED ast.dump vs HEAD, stricter than the
+Implementer's node-stripping variant): 4/5 identical, and ge_c's three
+differences are all Expr(Constant(str)) inserted as the FIRST statement
+of previously-undocumented def/class bodies — i.e. added docstrings,
+the unit's exact assignment, sanctioned; (5) style scan zero in code
+(three hits confined to this note); py_compile + JSON parse clean;
+(6) quality read of the rewritten gsv header against the user's
+verbatim complaint — "contract" gone, every term defined in place,
+spec codes on one closing line, substantive main(). Workstation
+acceptance remains: git pull; git checkout -- gates/board_config.json;
+run_board --check shows "rootdir = ... (source: $ROOTDIR)"; a resumed
+board stays green; then the one-time
+rm -rf "$ROOTDIR/projects/lsst_y1/<your usual --fileroot value>"
+stays deleted because nothing can recreate it.

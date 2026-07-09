@@ -1,9 +1,9 @@
 {
   "_help": {
-    "what": "Deployment paths the workstation gates need. The harness reads only this file for the run's --root/--fileroot, the yaml directory, and the saved-emulator roots; nothing is hardcoded to one machine. Edit the values once on the workstation after `git pull`, then run `python gates/run_board.py --check`.",
-    "rootdir": "Absolute path to the cocoa $ROOTDIR (the clone root that owns projects/ and external_modules/). Used for cobaya-run and for resolving ROOTDIR-relative emulator roots. null = not set (preflight fails loudly).",
+    "what": "Deployment paths the workstation gates need. The harness reads only this file for the run's --root/--fileroot, the yaml directory, and the saved-emulator roots; nothing is hardcoded to one machine. This file is machine-portable: it ships with rootdir null (resolved from $ROOTDIR at load) and driver_fileroot 'gates_board', so a fresh clone runs `python gates/run_board.py --check` with no edit. Change a value only for a non-standard deploy.",
+    "rootdir": "The cocoa $ROOTDIR (the clone root that owns projects/ and external_modules/), used for cobaya-run and for resolving rootdir-relative paths. null = resolve from the $ROOTDIR environment variable at load (the normal case; the file then carries no machine path). A non-null absolute value overrides $ROOTDIR, for a machine whose $ROOTDIR does not point at the clone under test. If null and $ROOTDIR is unset, preflight fails loudly naming the variable. Resolution happens in code at load; the file is never rewritten.",
     "driver_root": "The --root value passed to train_single_emulator_cosmic_shear.py (the deploy root that holds the run's dumps + outputs).",
-    "driver_fileroot": "The --fileroot value passed to the training driver (the run's file stem).",
+    "driver_fileroot": "The --fileroot value passed to the training driver (the run's file stem). Ships as 'gates_board'. Preflight fails loudly if it is missing, empty, or still wrapped in < > (the shipped-placeholder signature).",
     "yaml_dir": "Directory holding train_single_emulator_cosmic_shear.yaml (the golden legs resolve it by bare name), i.e. the repo's example_yamls. Absolute, or relative to rootdir. The gate_configs smoke YAMLs live under gates/configs and are reached from here as ../gates/configs/<name>.yaml (single-yaml_dir limitation, flagged in the harness handoff).",
     "saved_emulator_root": "Path root of an already-saved schema-v2 emulator (<root>.h5 + <root>.emul) for the save-rebuild-drift / cobaya-adapter round-trips. null = the save gate trains its own tiny emulator first.",
     "debug": "true = mirror full command output (driver stdout, config dump) to the terminal as well as the gate log; false = the terminal shows only gate headers, CHECK/GATE verdicts, preflight, and the summary. Log files always get everything. The --debug flag forces true.",
@@ -12,9 +12,9 @@
     "gate_configs": "Per-gate bespoke smoke YAML (relative to yaml_dir). A null entry = the gate reports its config missing and is skipped, naming the file to author."
   },
 
- "rootdir": "/home/vivianmiranda/extra_data/VivianMiranda/june2026/cocoa/Cocoa",
+ "rootdir": null,
   "driver_root": "projects/lsst_y1",
-  "driver_fileroot": "<your usual --fileroot value>",
+  "driver_fileroot": "gates_board",
   "yaml_dir": "external_modules/code/emulators_code_v2/example_yamls",
   "saved_emulator_root": null,
   "debug": false,
