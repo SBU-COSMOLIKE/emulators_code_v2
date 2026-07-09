@@ -247,3 +247,12 @@ window; banner kept-count should match the pool shrinkage. Runs naturally
 alongside the still-pending item-27 ci.init_probes A/B from
 [[audit-package-style-2026-07-05]]. After G-F: the user picks window values
 and commits (user-only commits).
+
+### 2026-07-08 — board verdict (Architect): item-27 param-window-cuts PASS
+The tight omegamh2 window (0.14, 0.15) shrinks the pools exactly as the
+banner reports: train kept 7563/100000 -> "used 5000 of 6774 cut rows",
+val kept 8167/100000 -> "used 1000 of 7706" (the 6774/7706 are the
+post-ALL-cuts intersections, consistent with the per-cut counts).
+Nested param_cuts block banner normal. The ci.init_probes duplicate-call
+A/B (:248) remains the flagged manual inspection, evidence on file.
+Green runs 3-11.

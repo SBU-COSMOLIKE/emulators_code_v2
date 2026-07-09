@@ -549,3 +549,18 @@ the likelihood's len check) is recorded for the archive: it would have
 made the likelihood accept two shapes per product and put the gluing
 convention on both sides of the interface; the user's design keeps one
 shape per product and one gluer.
+
+### 2026-07-08 — board verdict (Architect): GCT-C cobaya-adapter PASS — the full spec (:117-123) closed
+All three named legs are green. (1) Parity: predictor vs training side
+rtol 1e-6 (plain worst 3.2e-7, factored 7.9e-7) plus the dv_return
+shape assertions measured on hardware (section 780 == section_sizes[0],
+3x2pt 1560 == total_size, masked positions exactly 0.0). (2) Evaluate:
+rc 0 through the UNTOUCHED likelihood (log-posterior -2490.88; the
+chi2 2990.18 is meaningless by design — 3-epoch tiny emulator).
+(3) MCMC: 500 accepted steps rc 0; cobaya measured speeds
+(emul_cosmic_shear 776 evals/s warm, 1.2 ms/call vs the 0.11 s
+compile-inclusive first call) and the fast/slow blocking demonstrably
+worked — 1577 likelihood evaluations against 845 theory calls, the
+sampler oversampling the LSST_M* fast block on the cached emulator
+product. Ten wiring layers peeled across runs 3-10, zero physics bugs;
+re-proven post-refactor in run 11.

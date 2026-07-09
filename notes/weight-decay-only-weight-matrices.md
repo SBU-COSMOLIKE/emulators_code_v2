@@ -274,3 +274,11 @@ Linear/Conv1d/BinLinear weights — activation parameters and
 BinLinear biases never decayed; README section-6 treatment; gates
 GRI-A/B + GWD-A/B Architect-verified)". GWD-C joins the workstation
 board.
+
+### 2026-07-08 — board verdict (Architect): GWD-C weight-decay-census PASS
+The census is exact and exhaustive: decayed group == precisely the
+three weight matrices (bin/conv/lin .weight); every gated_power
+parameter (a0, beta, mu, rho, w), every bias, LayerNorm, and affine
+gain sits undecayed (14); nothing leaked, the partition covers all 17
+parameters, and wd 0 leaves the regrouping inert (both groups 0.0).
+Green runs 3-11.

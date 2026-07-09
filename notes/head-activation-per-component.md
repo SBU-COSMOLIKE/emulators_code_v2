@@ -511,3 +511,14 @@ unit-A committed base:
   change as a paste-ready block, deviations declared. Do not
   commit: leave each diff uncommitted and print its suggested
   commit command.
+
+### 2026-07-08 — board verdict (Architect): GHA-F head-activation-pin PASS
+Model-spec banner carries the pin ({'trf': {'activation':
+{'type': 'gated_power', 'n_gates': 3}}}); the param split shows it
+land in the head (head 129,847 vs the unpinned 129,379). The
+flag-vs-pin warning is exact — "--activation power sets the
+trunk/default only; the head keeps its model.trf.activation pin
+(gated_power)" — and the numbers prove it: trunk params move 134,160 ->
+135,184 under --activation power while the head stays 129,847. The
+license error fires verbatim on freeze_trunk false + pin (rc 1).
+Green runs 3-11.

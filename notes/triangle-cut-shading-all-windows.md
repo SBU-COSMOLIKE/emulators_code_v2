@@ -181,3 +181,9 @@ item-27 ci.init_probes A/B, G-F window smoke, GN-F nested-block load, GT-B,
 GT-C — one train_single run with the nested YAML + a tight omegamh2 window +
 --diagnostic covers G-F + GN-F + GT-C + the import leg in a single shot; the
 item-27 A/B and the GT-B artist assertions are two extra small scripts.
+
+### 2026-07-08 — board status (Architect): triangle-shading NOT RUN (optional)
+The board's one optional gate; every required gate is green (runs 10
+and 11). The acceptance here is the Architect eyeballing the
+gates_diag_*.pdf shading from the production-diagnostic run — relay
+pending. No code question is open against this note.

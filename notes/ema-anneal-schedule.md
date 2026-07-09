@@ -291,3 +291,13 @@ Commit (user):
 
     git add -A
     git commit -m "Anneal the EMA horizon + per-phase ema blocks (ema.anneal via the shared schedule validator; eager-float beta(e); ema joins the phase whitelist with null opt-out; gates GME-A/A2/B + GMP-A/B Architect-verified)"
+
+### 2026-07-08 — board verdict (Architect): GME-C ema-anneal PASS
+Banner exact: "horizon 3 epochs (beta -> 0.999145; anneal: hold 5 + 10
+cosine; selection + metrics on the average, scheduler on the raw
+median)" — the "->" marking the annealed target. The live point is
+visible in the metrics: through the hold the average tracks raw, then
+the averaged val/median decouple as beta ramps. Margin note (feeds the
+bs+EMA thread): best epoch lands at 7/20 with the averaged val rising
+after — the recurring early-best pattern at smoke scale. Green runs
+3-11.

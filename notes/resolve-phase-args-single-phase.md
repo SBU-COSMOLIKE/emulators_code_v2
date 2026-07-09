@@ -420,3 +420,10 @@ The unit (D-L1v3 + D-P2v2) is complete. Commit (user):
 
     git add -A
     git commit -m "Accept the mode-named berhu block (D-L1v3) + consumed-view banner via class-owned describe_spec, ARCH_HEAD retired (D-P2v2); Architect-verified"
+
+### 2026-07-08 — board verdict (Architect): GP-D single-phase-demotion PASS
+The single-phase resmlp config that used to traceback now trains to
+completion (rc 0), printing the EXACT demotion notice "single-phase
+model: head: and trunk_epochs ignored" (twice: config echo and build).
+The two-phase rescnn+nla control reproduces today's behavior untouched.
+Green in runs 3-11 including the post-refactor rerun.

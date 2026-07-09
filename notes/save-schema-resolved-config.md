@@ -449,3 +449,13 @@ explicit-path commit staging (excluding the compute_data_vectors
 unit's artifacts) is the right call; MEMORY.md carrying that
 unit's description-only index edit is accepted as flagged. GSV-C
 (the bitwise + drift proof) rides the workstation board.
+
+### 2026-07-08 — board verdict (Architect): GSV-C save-rebuild-drift PASS
+All three variants (plain, factored ia:nla, NPCE) rebuild from the h5
+alone BITWISE (max abs diff 0.0); the drift proof rebuilds identically
+under a monkeypatched make_activation default (n_gates 3 -> 7) — the
+file, not the code, defines the emulator; a v1 file is refused loudly.
+Persists the tiny evaluate emulator every run for the cobaya gate.
+Re-proven unchanged on the family-folders tree (run 11) — the
+state_dict-only .emul and geometry-only cls markers made the refactor
+invisible to artifacts, as designed.

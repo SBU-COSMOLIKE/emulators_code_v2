@@ -468,3 +468,10 @@ banner). Combined commit once D-P2 closes:
 
     git add -A
     git commit -m "Accept the mode-named berhu block (D-L1v3 canonicalization, supersedes the v2 error) + capability-aware banner (D-P2); Architect-verified"
+
+### 2026-07-08 — board verdict (Architect): GL-D loss-schema-equivalence PASS
+The nested-schema config reproduces the pre-change behavior exactly:
+its run's epoch lines (both phases, all 60 epochs) are numerically
+identical to the berhu-loss gate's run of the same physics in every
+board log — same seeds, same schema-resolved values, indistinguishable
+trajectories. Green runs 3-11.

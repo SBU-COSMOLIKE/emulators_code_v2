@@ -269,3 +269,11 @@ Own harnesses, base 2d2f68d confirmed:
 
 UNIT A COMMIT-READY (sentence above). Units B/C proceed on the
 committed base; GFT-C rides the workstation queue.
+
+### 2026-07-08 — board verdict (Architect): GFT-C joint-training PASS
+Banners exact ("two-phase: 30 trunk + 10 joint", phase 'joint'); the
+freeze_trunk:true control runs the same physics as today's head phase.
+The epoch-time sanity signal holds with the expected small margin on
+this GPU: joint steady 0.5 s/epoch ABOVE the control's 0.4 (the trunk
+backward returned). Loss continuous at the handoff (joint epoch 1 val
+5.92 from the 12.73 baseline, no restart spike). Green runs 3-11.

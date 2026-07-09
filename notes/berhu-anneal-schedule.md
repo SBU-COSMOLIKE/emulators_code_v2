@@ -286,3 +286,12 @@ The user's production YAML writes the anneal: sub-block by presence
 (no bool), matching the built pattern — taken as confirmation; the
 explicit-bool alternative is closed. The combined commit now waits
 only on D-L1.
+
+### 2026-07-08 — board verdict (Architect): GBA-C berhu-anneal PASS
+Banner exact: "berhu_capped (knot 0.2, cap 10; anneal: hold 5 + 10
+cosine)". The schedule's signature is visible in the head-phase train
+column: epochs 1-5 (hold, s=0) behave as plain sqrt and are continuous
+into epoch 6 (3.95 -> 4.24, no jump at the hold boundary), then the
+train loss climbs monotonically (4.2 -> 16.5 by epoch 15) as the cosine
+ramp turns on the berhu weighting while val holds/improves — s reaches
+1 by the ramp end. Green runs 3-11.

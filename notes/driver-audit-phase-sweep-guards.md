@@ -259,3 +259,12 @@ the file with validate_sweep_paths, so both land as ONE commit:
 Nothing remains open on this feature (GD-D was never owed). The
 workstation queue is unchanged: G-F, GN-F, GT-B/GT-C, GS-D, GP-D,
 item-27, G1 import leg.
+
+### 2026-07-08 — board verdict (Architect): production-diagnostic PASS (PDF eyeball pending)
+G1 dead-class census: zero hits + clean package import (re-proven on
+the family-folders tree, run 11). The production run (tight omegamh2
+window + nested param_cuts + absolute n_train/n_val) completes rc 0
+with the GS-D "used N of P cut rows" sizes line. The one open sliver is
+GT-C: the diagnostics PDF shading (omh2 marginal at 0.20, (ns, omh2)
+corner at 0.17 adjoining grey) is a visual check awaiting the relayed
+gates_diag PDF — the harness confirms the run produced it.

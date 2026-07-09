@@ -275,3 +275,9 @@ COMMIT-READY (sentence in Status). GAN-C joins the workstation board
 beside GFT-C / GHA-F. Next units: the README didactic pass
 ([[readme-run-it-definitions]]), then the weight-decay fix
 ([[weight-decay-only-weight-matrices]]).
+
+### 2026-07-08 — board verdict (Architect): GAN-C relu-tanh-norm PASS
+tanh + norm 'per_feature' (226,755 params) and tanh + norm 'affine'
+(224,723) both train rc 0 with their model-spec banners; the norm knob
+is visible in the 2,032-param difference (per-feature gains the
+feature-wise gain/bias). Green runs 3-11.

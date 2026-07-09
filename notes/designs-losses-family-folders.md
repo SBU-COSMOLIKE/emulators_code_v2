@@ -229,3 +229,13 @@ chain anyway, and an import break vs a sampler break are trivially
 distinguishable from the traceback; running the smoke on the
 post-merge tree is if anything more representative. The only hard
 requirement is that the FRESH full board runs after the merge.
+
+### 2026-07-08 — GRF-B CLOSED (fresh board run 11, post-merge tree)
+"board run complete: 0 gate(s) FAILED" — 18/18 on the family-folders
+tree, board_status.json moved aside so nothing was skipped. The
+decisive leg: ema-off-identity's golden byte-identity (pinned 46ec5e1
+worktree vs the refactored tip) PASSED — the move changed no output
+byte. save-rebuild-drift (bitwise + drift + v1 refusal) and
+cobaya-adapter (parity + shape assertions + the evaluate leg through
+the untouched likelihood, rc 0) re-proved the artifact path on the new
+module layout. GRF is fully landed and validated; this note closes.

@@ -314,3 +314,18 @@ py_compile clean; diff scope unchanged). Feature fully ACCEPTED on the
 Mac side; GM-C / GM-D remain on the workstation queue, with GM-C's
 golden off-mode run to be taken BEFORE any further training.py feature
 lands (the phase-blocks work is next in that file).
+
+### 2026-07-08 — board verdicts (Architect): GM-C ema-off-identity PASS, GM-D ema-smoke PASS
+GM-C closed by the strongest evidence type on the board: golden
+byte-identity, current tree vs the pinned pre-EMA worktree (46ec5e1) —
+every epoch line identical once the trailing wall-clock column is
+stripped as machine noise (run 3 proved every other character already
+matched; runs 4, 10, 11 green, run 11 on the family-folders tree). EMA
+off IS the old trainer, byte for byte. GM-D: the horizon-3 banner (beta
+0.999145; selection + metrics on the average, scheduler on the raw
+median) plus the opt-in rewind firing at BOTH plateau cuts ("lr cut ->
+rewound to best epoch 36 ... lr 2.00e-03", again at 51 -> 1.60e-03),
+run rc 0. Science margin carried to the bs+EMA thread: in these smokes
+the averaged model's val minimum lands EARLY (ema-anneal best epoch
+7/20) with val rising after — the average is not automatically the
+better selection target at smoke scale.

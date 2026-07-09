@@ -218,3 +218,14 @@ Untracked notes present that the Implementer did NOT author:
 save-schema-resolved-config.md (left untouched).
 
 Awaiting Architect re-audit.
+
+### 2026-07-08 — board verdict (Architect): GPC-C npce-training PASS
+Residual and ratio forms both stage the base at load ("PCE fit:
+N 25000 n_dim 12 candidates 115 ... kept 1 (loo<0.05)") and train
+rc 0. Both exclusivity guards fire verbatim (pce+ia, pce+--rescale,
+rc 1). The 2-point multi-GPU sweep runs both points in parallel
+(N 1000 f 1.0000 / N 2000 f 0.9990) with the parent staging banner —
+the run-3 lesson encoded: the parent stream owns the banner, the GPU
+workers own the per-fit lines. The rebuild-vs-base probe stays named
+in the remainder (:117); save-rebuild-drift's NPCE leg covers the
+round-trip. Green runs 3-11.

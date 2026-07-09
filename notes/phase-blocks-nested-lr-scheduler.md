@@ -346,3 +346,14 @@ golden run). Commit (user):
 
     git add -A
     git commit -m "Nest the phase-block lr and add per-phase scheduler overrides (seven-key whitelist, loud lr_base migration; gates GH-A-D Architect-verified)"
+
+### 2026-07-08 — board verdict (Architect): GH-E head-scheduler-override PASS (cadence unexercised)
+The override wiring is proven: the head phase banner reads "lr restarts
+at 2.00e-03 ... [head overrides: scheduler]" against the trunk's
+5.00e-03 — both the nested lr and scheduler blocks resolved. Honest
+margin: the patience-10 CADENCE itself never fired in the smoke (the
+head's val kept creeping down, no plateau long enough within 30
+epochs), so the lr-cut spacing stayed unobserved; the assertion that
+passed is the banner + restart value. A longer-plateau smoke would be
+needed to watch a cut land on the 10-epoch cadence — not queued, the
+wiring evidence suffices for the board.

@@ -1477,3 +1477,76 @@ the per-gate verdict lines into the home notes (Architect, next pass).
 Still open on the workstation: the board_config.json driver_fileroot
 placeholder (this run's config dump still shows the literal
 "<your usual --fileroot value>").
+
+### 2026-07-08 — user bug report mid GRF board: the placeholder fileroot materializes
+During the fresh post-GRF board the user flagged the staged-config path
+projects/lsst_y1/<your usual --fileroot value>/ — the workstation
+board_config.json still carries the shipped driver_fileroot placeholder
+and the harness passes it through as a literal --fileroot, creating a
+directory named like the placeholder. Two-part diagnosis: (a) the
+workstation config was never edited (the _help asks for a one-time
+edit after git pull; reminded repeatedly, now fixed by the user with
+"gates_board" + rm -rf of the literal directory); (b) the REAL bug is
+the harness's — preflight validates rootdir / driver_root / yaml_dir /
+debug but never driver_fileroot, so a self-evident placeholder sails
+through and silently becomes a directory: the never-trust-defaults rule
+violated by the board's own config surface. Harness fix (queued for the
+next Implementer unit, alongside the gates/checks plain-language
+sweep): preflight item (k) — fail loudly when driver_fileroot is
+missing, empty, or contains '<' or '>' (the placeholder signature),
+message naming the key and its _help entry. Board evidence is
+unaffected: the fileroot names only the scratch directory (staged
+golden configs, sweep curves); it appears in no assertion, and all ten
+green runs used the same placeholder.
+
+### 2026-07-08 — user design decision: board_config.json goes machine-portable
+Follow-up to the placeholder-fileroot bug: the user asked for the
+harness to read $ROOTDIR itself so no per-machine config edit exists at
+all. Design (Architect, load-time resolution — NOT a file-rewriting
+script, which would mutate a tracked file every run): "rootdir": null
+becomes the shipped default and run_board.py resolves it from the
+$ROOTDIR environment variable at config load (the cocoa environment
+guarantees it; the cobaya adapter already resolves emulator roots the
+same way). Precedence: an explicit absolute rootdir in the file wins;
+null + no $ROOTDIR = loud preflight failure naming the variable. The
+preflight line prints the resolved value AND its source; the per-gate
+effective-config dump records the RESOLVED rootdir (resolved values in
+the record, per the never-trust-defaults doctrine — the resolution
+lives in code, the evidence stays complete). With driver_fileroot
+shipped as "gates_board" and every other key already ROOTDIR-relative,
+the tracked config works identically on every machine and the _help
+"edit once after git pull" instruction retires. Folded into the next
+Implementer unit together with the preflight driver_fileroot
+placeholder check (previous entry) and the gates/checks plain-language
+docs sweep ([[gates-checks-docs-plain-language]]).
+
+### 2026-07-08 — Architect: board run-11 verdict (fresh, post-GRF)
+GREEN again: 18/18 with resume disabled (status file moved aside), on
+the family-folders tree. Golden byte-identity PASS = the GRF refactor
+is output-transparent; the artifact chain (gsv + gct incl. the dv-shape
+assertions) green on the new layout. The staged-config line still shows
+the literal placeholder directory — this run started before the config
+fix; the GBC unit (portable $ROOTDIR config + fileroot preflight guard
++ docs sweep) retires the whole issue, after which the one-time
+`rm -rf "$ROOTDIR/projects/lsst_y1/<your usual --fileroot value>"`
+stays deleted. Still pending from the GCT-C spec: the MCMC smoke
+(gates/configs/cobaya-adapter-mcmc.yaml, run manually, audited from
+the log).
+
+### 2026-07-08 — Architect: GCT-C MCMC smoke PASS — every named check on the board is closed
+cobaya-run gates/configs/cobaya-adapter-mcmc.yaml, from $ROOTDIR (a
+first attempt from the repo directory failed on the config path — the
+YAML's ./ paths anchor to the cwd, the cocoa-wide convention). Result:
+500 accepted steps, clean stop at the cap, chain written under
+chains/gates_cobaya_adapter_mcmc. The sampler-integration evidence the
+smoke exists for: measured speeds {lsst_y1.cosmic_shear: 2270/s,
+emul_cosmic_shear: 776/s} (1.2 ms/call warm vs 0.111 s
+compile-inclusive in the evaluate leg), and 1577 likelihood evaluations
+vs 845 theory calls — cobaya's fast/slow blocking oversampled the
+LSST_M* nuisance block against the cached emulator product. With this,
+GCT-C's home-note spec (parity + evaluate + MCMC) is fully closed, and
+the per-gate verdict sweep landed a dated verdict block in every gate's
+home note (16 notes; triangle-shading carries a status line instead —
+optional, PDF eyeball pending). Remaining anywhere: the GBC unit
+(portable config + fileroot guard + docs sweep, handoff issued), the
+triangle PDF relay, and then the science thread.

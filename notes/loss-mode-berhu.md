@@ -504,3 +504,12 @@ goal metric that counts samples. Name kept (the literature anchor is
 worth more than a bespoke name); an optional one-sentence docstring
 addition stating both caveats was offered and left to the user
 (berhu_capped has no literature counterpart — no porting risk there).
+
+### 2026-07-08 — board verdict (Architect): GB-C berhu-loss PASS
+Leg 1: 36/36 numerics at two knot pairs (t1 0.2/t2 10 and 0.5/5) —
+values vs closed-form references to ~1e-11, and the autograd slope
+equal to the ANALYTIC derivative straddling both the knot and the cap
+(c = knot*(1±1e-3), cap*(1±1e-3)): the piecewise loss is C1 where it
+must be. Anneal endpoints exact (s=0 == sqrt, s=1 == full berhu).
+Leg 2: the head-phase berhu_capped smoke (knot 0.2, cap 10) trains
+rc 0 with its banner. Green runs 3-11.

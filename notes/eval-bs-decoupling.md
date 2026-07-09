@@ -348,3 +348,10 @@ that a launch-bound loop feels 1:1, where a compute-bound run would
 barely notice. No governor change needed. Mitigations if it ever
 matters: nice/ionice the checkpointing job, checkpoint to a different
 disk, or pin the training process to dedicated cores.
+
+### 2026-07-08 — board verdict (Architect): GE-C eval-batch-invariance PASS
+Partition invariance at rtol 1e-6 for bs 32 / 517 / 1000 / 2048 —
+per-row allclose AND metrics — with the derived eval batch 1000 from
+target 1024. The timing table shows why the feature exists: 12.81 ms
+(157 launches) at the training bs vs 0.95 ms (5 launches) derived,
+13.5x fewer kernel launches. Green runs 3-11.
