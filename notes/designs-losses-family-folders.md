@@ -140,3 +140,92 @@ pin: a refactor that changes any epoch line has a bug.
 SPEC 2026-07-08, handoff issued the same day. (Sequenced after BOARD
 GREEN run 10; independent of the gates/checks plain-language docs
 sweep, which touches gates/checks docstrings only.)
+
+### Implementer GRF execution (2026-07-08, Opus, base 4734139)
+
+IMPLEMENTED, uncommitted, GRF-A green. ff-synced the worktree from
+eaeb383 to origin/main 4734139 (the spec commit) before starting.
+
+Footprint (git diff HEAD --stat = 20 files, +151/-123, plus 2
+untracked family __init__): seven `git mv` renames (git recorded all as
+renames, history preserved) — building_blocks -> designs/blocks.py,
+emulator_designs.py -> designs/plain.py, IA/emulator_designs.py ->
+designs/ia.py, PCE/emulator_designs.py -> designs/pce.py,
+loss_functions.py -> losses/core.py, IA/loss_functions.py ->
+losses/ia.py, PCE/loss_functions.py -> losses/pce.py; two new maps
+(designs/__init__.py, losses/__init__.py, untracked -> git add);
+deleted IA/__init__.py + PCE/__init__.py (their rationale folded into
+designs/ia.py and designs/pce.py headers). parallel/ needed NO deletion
+(already gone since 29b23dd; not tracked, not on disk).
+
+Moved-file edits = headers + imports ONLY (bodies byte-identical, proven
+below). Intra-folder imports rewritten `.blocks` / `.plain` / `.core`;
+cross-folder `..activations` / `..analytics` / `..geometries_output`
+(all one level up from the family folder). External sites swept:
+experiment.py (5 top imports + 2 func-local + 4 comment path-refs),
+training.py (3 imports + 1 docstring), results.py (2 func-local),
+inference.py (2 func-local), data_staging.py + geometries_output.py (1
+docstring path-ref each), board.py:262 preflight -> `import emulator,
+emulator.designs, emulator.losses` (+ its stale parallel comment
+rewritten), gwd_census.py + gb_c_berhu_reduce.py (1 import each). Both
+READMEs restructured: root diagram + build-steps (5 sites); code map =
+new designs/ + losses/ family entries in the layout, the What-each-file
+and Change-X tables, §4 Variants reframed to design+loss pairs, and the
+appendix grouped into `apx-designs` (blocks/plain/ia/pce) + `apx-losses`
+(core/ia/pce), old `apx-pce`/`apx-ia` sections folded in and removed.
+The four "former emulator IA/PCE subpackage" provenance lines drop the
+trailing slash so the `IA/`/`PCE/` grep stays clean; the §4 `parallel/`
+history mention reworded (the folder token retired everywhere but
+notes/). activations.py, the geometry modules, the schema, and every
+gate config were left untouched; no class/function renamed.
+
+GRF-A (Mac) GREEN: (1) full-tree token grep across *.py + *.md + *.yaml
++ *.json = ZERO surviving `emulator_designs` / `loss_functions` /
+`emulator.IA` / `emulator.PCE` / `IA/` / `PCE/` / `parallel/` /
+`building_blocks` (notes/ excluded as history); (2) py_compile of all 39
+tracked .py OK + compileall emulator/ + gates/ clean; (3) AST
+verbatim-move check ALL 7 pairs code_identical=True AND
+top_names_identical=True (docstring- and import-stripped ast.dump vs the
+pristine `git show HEAD:<oldpath>`); (4) bonus static import resolver —
+all 118 emulator-internal imported symbols resolve to a real top-level
+definition (a stand-in for the real import, no torch on the Mac).
+
+GRF-B is the WORKSTATION acceptance (user-run): a FRESH full board with
+gates/logs/board_status.json moved aside so resume skips nothing;
+18/18 PASS, with ema-off-identity's golden leg proving output
+byte-identity and save-rebuild-drift + cobaya-adapter proving the
+artifact path end to end.
+
+### 2026-07-08 — Architect: GRF audit VERDICT (worktree amazing-keller, base 4734139)
+VERIFIED, commit-ready. Audited against the raw diff with an
+independent verbatim-move probe (every top-level class/def/constant of
+the seven renamed files byte-compared against `git show HEAD:<old>`,
+docstrings INCLUDED — stricter than the Implementer's docstring-
+stripped check). 5/7 files byte-identical outright; the two deltas are
+both inside the spec's permitted-edits list and were re-proven
+harmless: TemplateMLP (designs/ia.py) = one docstring path reference
+the token-grep gate required (executable AST with docstrings blanked:
+identical), and make_chi2 (losses/core.py) = a FUNCTION-LOCAL relative
+import gaining one dot (`from .geometries_output` ->
+`from ..geometries_output`) because core.py sits a level deeper — the
+exact `from .`/`from ..` sweep the handoff mandated; same symbol, same
+module, behavior identical. Token grep (Architect's own, corrected
+exclusions): zero retired-path references outside notes/. compileall
+clean. Every non-moved diff line is an import path or a provenance
+comment; paren alignment preserved on the re-wrapped imports. Family
+__init__ maps read plainly and teach the import style; the PCE
+deprioritized-for-xi verdict + note pointer and the factored-IA
+rationale both survive as the new module headers. README anchors:
+apx-pce/apx-ia gone, apx-designs/apx-losses wired in TOC and sections.
+No caps regressions in code/README added lines. activations.py, the
+geometry modules, the schema, and every gate config untouched, as
+mandated. GRF-B (workstation, user-run) remains the acceptance: fresh
+full board (board_status.json moved aside), 18/18, the golden leg
+pinning output byte-identity. Sequencing (corrected after the user
+challenged it): the GCT-C MCMC smoke may run before OR after this
+merge — the pre-merge ordering was one-variable-at-a-time caution, but
+the refactor is byte-proven, the fresh board re-validates the adapter
+chain anyway, and an import break vs a sampler break are trivially
+distinguishable from the traceback; running the smoke on the
+post-merge tree is if anything more representative. The only hard
+requirement is that the FRESH full board runs after the merge.

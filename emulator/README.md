@@ -16,19 +16,16 @@ it is laid out, what each file does, and where to edit for a given change.
     3. [`geometries_output.py`](#apx-geometries_output)
     4. [`analytics.py`](#apx-analytics)
     5. [`activations.py`](#apx-activations)
-    6. [`emulator_designs_building_blocks.py`](#apx-building_blocks)
-    7. [`emulator_designs.py`](#apx-emulator_designs)
-    8. [`loss_functions.py`](#apx-loss_functions)
-    9. [`batching.py`](#apx-batching)
-    10. [`training.py`](#apx-training)
-    11. [`experiment.py`](#apx-experiment)
-    12. [`scheduling.py`](#apx-scheduling)
-    13. [`results.py`](#apx-results)
-    14. [`plotting.py`](#apx-plotting)
-    15. [`diagnostics.py`](#apx-diagnostics)
-    16. [`PCE/`](#apx-pce)
-    17. [`IA/`](#apx-ia)
-    18. [drivers](#apx-drivers)
+    6. [`designs/` (the model family)](#apx-designs)
+    7. [`losses/` (the chi2 family)](#apx-losses)
+    8. [`batching.py`](#apx-batching)
+    9. [`training.py`](#apx-training)
+    10. [`experiment.py`](#apx-experiment)
+    11. [`scheduling.py`](#apx-scheduling)
+    12. [`results.py`](#apx-results)
+    13. [`plotting.py`](#apx-plotting)
+    14. [`diagnostics.py`](#apx-diagnostics)
+    15. [drivers](#apx-drivers)
 
 ---
 
@@ -41,9 +38,15 @@ emulator/                              the library (pure torch, except geometrie
   geometries_output.py                 OUTPUT geometry + chi2 covariance (imports cosmolike)
   analytics.py                         analytic xi rescaling R (optional preprocessing)
   activations.py                       learnable activations (H + variants)
-  emulator_designs_building_blocks.py  Affine, ResBlock, BinLinear, TRFBlock, FiLMGenerator
-  emulator_designs.py                  ResMLP, ResCNN, ResTRF
-  loss_functions.py                    chi2 losses + make_chi2
+  designs/                             the model family (section 4):
+    blocks.py                          Affine, ResBlock, BinLinear, TRFBlock, FiLMGenerator
+    plain.py                           ResMLP, ResCNN, ResTRF
+    ia.py                              factored-IA templates (TemplateMLP, ...)
+    pce.py                             PCEEmulator: the closed-form NPCE base
+  losses/                              the chi2 family (section 4):
+    core.py                            chi2 losses + make_chi2 + anneal_value
+    ia.py                              factored-IA loss + amplitude coefficients
+    pce.py                             NPCE losses (residual / ratio)
   batching.py                          memory sizing + regime-aware data loaders
   training.py                          build model/opt/sched, training loop, run_emulator
   experiment.py                        EmulatorExperiment: the whole setup as one object
@@ -52,7 +55,6 @@ emulator/                              the library (pure torch, except geometrie
   inference.py                         EmulatorPredictor: rebuild + predict (MCMC inference)
   plotting.py                          history / learning-curve / coverage / xi plots
   diagnostics.py                       coverage, local-linear floor, hard-direction fits
-  PCE/  IA/                            experimental variants (section 4)
 
 train_single_*.py                      CLI: one training run (+ optional diagnostics PDF)
 tune_single_*.py                       CLI: Optuna hyperparameter search (multi-GPU)
@@ -94,14 +96,14 @@ and reviewable anywhere.
 | File | Role |
 |---|---|
 | `activations.py` | Learnable activations: the paper's `H` plus Power / Gated / GatedPower variants; `make_activation` maps a name → factory. |
-| `emulator_designs_building_blocks.py` | The small `nn.Module`s models are built from: `Affine`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, plus `rescale_kernel_size`. |
-| `emulator_designs.py` | The full networks: `ResMLP` (baseline), `ResCNN` (ResMLP trunk + a gated 1D-CNN correction in theta order), and `ResTRF` (a bin-token transformer correction head). |
+| `designs/blocks.py` | The small `nn.Module`s models are built from: `Affine`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, plus `rescale_kernel_size`. |
+| `designs/plain.py` | The full networks: `ResMLP` (baseline), `ResCNN` (ResMLP trunk + a gated 1D-CNN correction in theta order), and `ResTRF` (a bin-token transformer correction head). The factored-IA and NPCE variants are `designs/ia.py` / `designs/pce.py` (section 4). |
 
 **Loss & training**
 
 | File | Role |
 |---|---|
-| `loss_functions.py` | chi2 losses on the whitened residual: `CosmolikeChi2` (plain; the `sqrt` / pseudo-Huber / `berhu` / `berhu_capped` mode ladder), `RescaledChi2` / `ResidualBaseChi2` (analytic-R), `ElementWeightedChi2`; `anneal_value` (the shared trim / focus / berhu-blend / EMA-horizon schedule); `make_chi2`. |
+| `losses/core.py` | chi2 losses on the whitened residual: `CosmolikeChi2` (plain; the `sqrt` / pseudo-Huber / `berhu` / `berhu_capped` mode ladder), `RescaledChi2` / `ResidualBaseChi2` (analytic-R), `ElementWeightedChi2`; `anneal_value` (the shared trim / focus / berhu-blend / EMA-horizon schedule); `make_chi2`. The IA and NPCE loss variants are `losses/ia.py` / `losses/pce.py` (section 4). |
 | `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. |
 | `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the config validator / derivation layer (`validate_phase_block` / `validate_loss` / `validate_berhu` / `validate_ema`, `derive_eval_bs` / `derive_ema_beta`), the per-epoch loop, and `run_emulator`. |
 
@@ -132,9 +134,9 @@ and reviewable anywhere.
 
 | To change… | Edit |
 |---|---|
-| a model architecture | `emulator_designs.py` (+ `emulator_designs_building_blocks.py`) |
+| a model architecture | `designs/plain.py` (+ `designs/blocks.py`); the IA / NPCE variants in `designs/ia.py` / `designs/pce.py` |
 | an activation function | `activations.py` (register it in `make_activation`) |
-| the loss / add a chi2 variant | `loss_functions.py` |
+| the loss / add a chi2 variant | `losses/core.py` (IA / NPCE variants in `losses/ia.py` / `losses/pce.py`) |
 | how parameters are whitened (input) | `geometries_parameter.py` |
 | dv whitening / cosmolike reading (output) | `geometries_output.py` |
 | data loading / the physical cut / staging | `data_staging.py` |
@@ -154,17 +156,18 @@ and reviewable anywhere.
 
 ## 4. Variants
 
-Each subfolder mirrors the two-file shape (`emulator_designs.py` +
-`loss_functions.py`) and is an experiment, not the main path.
+The two family folders each carry the main path plus its variants, one file
+per variant. The IA and NPCE files are experiments, not the main path: each
+pairs a design with its own loss.
 
-| Folder | What it is |
-|---|---|
-| `PCE/` | NPCE: a sparse-Legendre polynomial-chaos base plus a neural refiner. |
-| `IA/` | Factored intrinsic alignment: emulate cosmology-only templates and apply the IA-amplitude polynomial in closed form (the amplitudes never enter the network). |
+| Variant | Design + loss | What it is |
+|---|---|---|
+| NPCE | `designs/pce.py` + `losses/pce.py` | a sparse-Legendre polynomial-chaos base plus a neural refiner. |
+| Factored IA | `designs/ia.py` + `losses/ia.py` | emulate cosmology-only templates and apply the IA-amplitude polynomial in closed form (the amplitudes never enter the network). |
 
-Removed: the per-bin CNN (`parallel/`) — tested; the grouped conv was
-absorbed into `rescnn`'s `groups` / `separable` knobs, the per-bin split
-lost to a single ResMLP; removed — see git history.
+Removed: the per-bin CNN (its own folder, deleted) — tested; the grouped conv
+was absorbed into `rescnn`'s `groups` / `separable` knobs, the per-bin split
+lost to a single ResMLP; see git history.
 
 ---
 
@@ -223,7 +226,12 @@ Learnable activations for the ResBlock `act` slot.
 - `GatedActivation` / `PowerGatedActivation` / `GatedPowerActivation` — generalizations (more gates, a bounded power tail, both).
 - `make_activation(name, n_gates)` — map a name (`H` / `power` / `multigate` / `gated_power` learnable, plus the parameter-free `relu` / `tanh`) to a factory `act(dim) -> module`.
 
-### `emulator/emulator_designs_building_blocks.py` <a name="apx-building_blocks"></a>
+### `emulator/designs/` (the model family) <a name="apx-designs"></a>
+
+The network variants, one file each: shared `blocks.py`, the plain models in
+`plain.py`, and the factored-IA / NPCE variants in `ia.py` / `pce.py`.
+
+#### `designs/blocks.py`
 
 The small `nn.Module`s the models are assembled from.
 
@@ -236,7 +244,7 @@ The small `nn.Module`s the models are assembled from.
 - `FiLMGenerator` — per-channel `gamma` / `beta` produced from the non-amplitude parameters, an identity-init FiLM conditioning of a correction head (amplitude-blind, so the factored exactness holds).
 - `rescale_kernel_size` — pick an odd conv kernel width scaled to the bin length.
 
-### `emulator/emulator_designs.py` <a name="apx-emulator_designs"></a>
+#### `designs/plain.py`
 
 The full networks.
 
@@ -255,7 +263,30 @@ The full networks.
 
 - `ResTRF` — ResMLP trunk + a gated bin-token transformer correction: the theta-order dv splits into its (xi+/-, source-pair) bins — one bin is one source-redshift-bin pair of xi+ or xi- — (`pad_idx` scatter/gather to a padded per-bin layout, `bin_sizes` from `build_shear_angle_map`), each bin is one token at its natural width (the per-token `n_mlp_blocks`-deep MLPs run at that token width too — no width knob), `TRFBlock`s attend across bins, and the correction is `blocks(h) − h` — zero at epoch 1 because every block starts as the identity. No embedding or output layers (the sequence structure is physical, unlike the published CMB design's latent sequence). Head knobs (YAML `model.trf`): `n_heads`, `n_blocks`, `n_mlp_blocks`, `shared_mlp`, `film`, `gate_init`, and `activation` (the head's own `{type, n_gates}` family; absent = share the trunk's `model.activation`; a pin needs a frozen-trunk head phase, `head: activation:` its alias).
 
-### `emulator/loss_functions.py` <a name="apx-loss_functions"></a>
+#### `designs/ia.py`
+
+Factored intrinsic alignment: emulate cosmology-only templates, applied with the
+amplitude polynomial in `losses/ia.py` (the amplitudes never enter the network).
+
+- `TemplateMLP`, `TemplateResCNN`, `TemplateResTRF` — emit the whitened templates, plus optional conv / transformer correction heads.
+
+#### `designs/pce.py`
+
+NPCE: a closed-form sparse-Legendre polynomial-chaos base, wired to the
+top-level `pce:` YAML block (the base is fit at staging; the refiner is any
+`model.name`). `PCEEmulator` deliberately stays out of `MODELS` and `DesignSpec`:
+it is loss-owned (wrapped by the PCE losses in `losses/pce.py`), not an SGD
+architecture.
+
+- `PCEEmulator` — the closed-form base; `state()` / `from_state` persist its six buffers to the `.h5` pce group, so inference rebuilds the base with no refit and no cosmolike.
+- `pce_multi_index`, `pce_design`, `select_lars_loo` — the sparse-basis / design-matrix / greedy-LOO fit helpers.
+
+### `emulator/losses/` (the chi2 family) <a name="apx-losses"></a>
+
+The chi2 variants, one file each; the IA and NPCE files subclass `core.py`'s
+`CosmolikeChi2`.
+
+#### `losses/core.py`
 
 chi2 losses; each holds a geometry (composition).
 
@@ -266,6 +297,15 @@ chi2 losses; each holds a geometry (composition).
 - `ResidualBaseChi2` — analytic-R "B" form (R moves only the baseline; the chi2 stays plain).
 - `ElementWeightedChi2` — a per-element focal weight in the training loss (`set_elem_weight`).
 - `make_chi2(geom, rescale, ...)` — build the right loss from a geometry and a rescale mode.
+
+#### `losses/ia.py`
+
+- `nla_coeffs`, `tatt_coeffs` — the amplitude polynomials (NLA / TATT).
+- `NLAAmpFactoredChi2`, `TemplateFactoredChi2` — combine the model's templates with the amplitudes in closed form, then score the full chi2.
+
+#### `losses/pce.py`
+
+- `PCEResidualChi2` (refine the residual), `PCERatioChi2` (refine the ratio) of a frozen PCE base.
 
 ### `emulator/batching.py` <a name="apx-batching"></a>
 
@@ -344,24 +384,6 @@ Post-training analyses (each returns a dict the plotting reads).
 - `coverage_diagnostic(...)` — do the failing val points sit in sparse training regions? (kNN distance vs delta-chi2).
 - `local_linear_floor(...)` — the model vs a local-linear interpolation of the data (the data-only floor; plain chi2 only).
 - `hard_direction_regression(...)` — which log-parameter combination predicts the per-point hardness.
-
-### `emulator/PCE/` <a name="apx-pce"></a>
-
-NPCE: a sparse-Legendre polynomial-chaos base plus a neural refiner, wired to
-the top-level `pce:` YAML block (the base is fit at staging; the refiner is any
-`model.name`). `PCEEmulator` deliberately stays out of `MODELS` and
-`DesignSpec`: it is loss-owned (wrapped by the PCE losses), not an SGD
-architecture.
-
-- `emulator_designs.py` — `PCEEmulator` (the closed-form base; `state()` / `from_state` persist its six buffers to the `.h5` pce group, so inference rebuilds the base with no refit and no cosmolike) + `pce_multi_index`, `pce_design`, `select_lars_loo`.
-- `loss_functions.py` — `PCEResidualChi2` (refine the residual), `PCERatioChi2` (refine the ratio) of a frozen PCE base.
-
-### `emulator/IA/` <a name="apx-ia"></a>
-
-Factored intrinsic alignment: emulate cosmology-only templates, apply the IA-amplitude polynomial in closed form.
-
-- `emulator_designs.py` — `TemplateMLP`, `TemplateResCNN`, `TemplateResTRF` (emit the templates, plus optional conv / transformer correction heads).
-- `loss_functions.py` — `nla_coeffs`, `tatt_coeffs` (the amplitude polynomials), `NLAAmpFactoredChi2`, `TemplateFactoredChi2` (apply the polynomial in the loss).
 
 ### drivers (beside `emulator/`) <a name="apx-drivers"></a>
 

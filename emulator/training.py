@@ -18,7 +18,7 @@ berhu} block, the berhu {knot, cap, anneal} schedule, the ema {horizon_epochs,
 anneal} block) before anything runs; derive_eval_bs and derive_ema_beta turn
 run-global targets into the evaluation batch size and the per-epoch EMA decay.
 The loss modes the loop can apply are chi2 / sqrt / sqrt_dchi2 / berhu /
-berhu_capped (loss_functions.py).
+berhu_capped (losses/core.py).
 
 PS: a loader is a closure load(rows) -> tensor mapping global row indices to a
 ready-to-train batch already on the compute device, hiding where the data lives
@@ -44,9 +44,9 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 
 from .batching import build_loaders
-from .emulator_designs import ResMLP
-from .emulator_designs_building_blocks import Affine, BinLinear
-from .loss_functions import anneal_value
+from .designs.plain import ResMLP
+from .designs.blocks import Affine, BinLinear
+from .losses.core import anneal_value
 
 
 def pick_device(name=None):

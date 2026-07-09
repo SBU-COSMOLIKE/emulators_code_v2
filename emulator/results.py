@@ -392,7 +392,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
   import h5py
 
   from .activations import make_activation
-  from .emulator_designs_building_blocks import make_norm
+  from .designs.blocks import make_norm
 
   def _read_group(g):
     # inverse of save's write_state: numeric datasets -> tensors, string
@@ -456,7 +456,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
     pce_base = None
     pce_form = None
     if "pce" in f:
-      from .PCE.emulator_designs import PCEEmulator
+      from .designs.pce import PCEEmulator
       pce_grp  = _read_group(f["pce"])
       pce_form = _need(pce_grp, "form", "pce group")
       pce_base = PCEEmulator.from_state(pce_grp, device)

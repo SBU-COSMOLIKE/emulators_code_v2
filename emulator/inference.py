@@ -166,7 +166,7 @@ class EmulatorPredictor:
     """
     geom = self.geom
     if ia is not None:
-      from .IA.loss_functions import TemplateFactoredChi2
+      from .losses.ia import TemplateFactoredChi2
       from .experiment import IA_DESIGNS
       if ia not in IA_DESIGNS:
         raise ValueError(
@@ -178,7 +178,7 @@ class EmulatorPredictor:
       return chi2.decode
 
     if pce_base is not None:
-      from .PCE.loss_functions import PCEResidualChi2, PCERatioChi2
+      from .losses.pce import PCEResidualChi2, PCERatioChi2
       if pce_form == "residual":
         chi2 = PCEResidualChi2(geom=geom, pce=pce_base)
       elif pce_form == "ratio":

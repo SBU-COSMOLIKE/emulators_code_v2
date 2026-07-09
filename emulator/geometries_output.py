@@ -33,7 +33,7 @@ owns), summed over the kept entries.
 including masked entries; n_keep = the kept/unmasked length, the
 width the network emits; dest_idx = the kept entries' positions in
 the full vector. unwhiten / unsqueeze / decode invert the arrows
-bottom-up; the chi2 (loss_functions.py) un-whitens the residual and
+bottom-up; the chi2 (losses/core.py) un-whitens the residual and
 contracts it with the inverse covariance.)
 """
 

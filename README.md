@@ -897,13 +897,13 @@ cosmological parameters
    │   geometries_parameter.py   center, rotate, unit-scale          (whiten in)
    ▼
 whitened inputs
-   │   emulator_designs.py       ResMLP, ResCNN, or ResTRF
+   │   designs/plain.py          ResMLP, ResCNN, or ResTRF
    ▼
 whitened data vector
    │   geometries_output.py      un-whiten + scatter to full length  (whiten out)
    ▼
 physical residual vs truth
-   │   loss_functions.py         contract with the inverse covariance
+   │   losses/core.py            contract with the inverse covariance
    ▼
 chi2  =  r^T Cinv r
 ```
@@ -1006,14 +1006,14 @@ covariance the chi2 contracts against — geometry and metric live together.
                                                  (the whitening basis is the χ² basis)
 ```
 
-**4. Build the loss** (`loss_functions.py`). `make_chi2` wraps the output
+**4. Build the loss** (`losses/core.py`). `make_chi2` wraps the output
 geometry in a chi2. Because the targets are whitened, plain squared error in the
 whitened space *is* the chi2, so the optimization is well-conditioned; the loss
 un-whitens the residual and contracts it with `Cinv` to report the true chi2, and
 adds optional robustness (trim the worst points, up-weight the still-hard ones).
 
 ```
-4.  Build the loss                            make_chi2 · loss_functions.py
+4.  Build the loss                            make_chi2 · losses/core.py
 
       cosmolike cov / mask / inv-cov
                 │  DataVectorGeometry.from_cosmolike   (one cosmolike read + one eigh)
@@ -1045,7 +1045,7 @@ wrapped by whichever loss — never re-read, never inherited) and the
 **`needs_params` capability flag** (a future param-aware loss just sets the flag;
 nothing branches on `isinstance`).
 
-**5. Choose the model** (`emulator_designs.py`, `IA/emulator_designs.py`).
+**5. Choose the model** (`designs/plain.py`, `designs/ia.py`).
 `ResMLP` is the baseline: an input projection, a stack of residual blocks, an
 output projection. `ResCNN` adds a 1D-CNN correction on top of the ResMLP trunk,
 acting in *theta order* so a convolution can exploit smoothness along the angular

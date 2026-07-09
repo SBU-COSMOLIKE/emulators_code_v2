@@ -1,6 +1,8 @@
 """Chi2 losses and the robustness annealing schedule.
 
-The loss layer: each class holds a DataVectorGeometry (composition, not
+The core member of the emulator/losses/ family: the plain losses and
+the shared schedule that the ia.py and pce.py loss variants subclass.
+Each class holds a DataVectorGeometry (composition, not
 inheritance) and adds the chi2 (the masked Mahalanobis distance
 r^T Cinv r per sample) and the training loss on it. CosmolikeChi2 is the
 plain loss (trimming, a focal hardness weight, and the sqrt / pseudo-Huber
@@ -21,7 +23,7 @@ batching.py), the source of the batches these losses score.
 import numpy as np
 import torch
 
-from .analytics import _analytic_R
+from ..analytics import _analytic_R
 
 
 def anneal_value(epoch, opts):
@@ -837,7 +839,7 @@ def make_chi2(geom, rescale="none", param_geometry=None,
     return CosmolikeChi2(geom=geom)
   # lazy import: build_shear_angle_map lives in the cosmolike-
   # importing geometry module, only needed for the rescaled path.
-  from .geometries_output import build_shear_angle_map
+  from ..geometries_output import build_shear_angle_map
   build_shear_angle_map(geom=geom, data_dir=data_dir,
                         dataset=dataset)
   cls = RescaledChi2 if rescale == "rescaled" else ResidualBaseChi2

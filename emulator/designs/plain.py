@@ -1,19 +1,20 @@
 """Standard emulator models (ResMLP, ResCNN, ResTRF).
 
-Full networks mapping whitened cosmological parameters to the whitened
-data vector. Where this file sits in the training pipeline:
+The plain member of the emulator/designs/ family: full networks
+mapping whitened cosmological parameters to the whitened data vector.
+Where this file sits in the training pipeline:
 
   cosmological parameters
      │   geometries_parameter.py  center, rotate, unit-scale (whiten in)
      ▼
   whitened inputs
-     │   emulator_designs.py      ResMLP, ResCNN, or ResTRF (this file)
+     │   designs/plain.py         ResMLP, ResCNN, or ResTRF (this file)
      ▼
   whitened data vector
      │   geometries_output.py     un-whiten + scatter to full length
      ▼
   physical residual vs truth
-     │   loss_functions.py        contract with the inverse covariance
+     │   losses/core.py           contract with the inverse covariance
      ▼
   chi2 = r^T Cinv r
 
@@ -47,8 +48,8 @@ geometries_output).
 import torch
 import torch.nn as nn
 
-from .activations import activation_fcn
-from .emulator_designs_building_blocks import (
+from ..activations import activation_fcn
+from .blocks import (
   Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size)
 
 

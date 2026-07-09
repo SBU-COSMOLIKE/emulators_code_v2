@@ -1,6 +1,9 @@
 """Factored intrinsic-alignment losses and amplitude coefficients.
 
-This module holds the losses for the factored IA emulators and the
+The intrinsic-alignment member of the emulator/losses/ family (the
+former emulator IA subpackage), paired with the templates in
+designs/ia.py. This module holds the losses for the factored IA
+emulators and the
 amplitude-polynomial coefficient functions they use. nla_coeffs and
 tatt_coeffs turn the raw IA amplitudes into the closed-form
 coefficients that combine the model's whitened templates into a data
@@ -18,7 +21,7 @@ emulates.
 
 import torch
 
-from ..loss_functions import CosmolikeChi2
+from .core import CosmolikeChi2
 
 
 def nla_coeffs(amps):

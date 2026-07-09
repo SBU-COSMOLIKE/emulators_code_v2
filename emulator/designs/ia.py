@@ -8,6 +8,11 @@ amplitudes in closed form, so the amplitudes never enter the network
 them). TemplateMLP is the trunk; TemplateResCNN and TemplateResTRF add
 a conv or transformer correction head on top of it.
 
+This is the intrinsic-alignment member of the emulator/designs/ family
+(the former emulator IA subpackage): it emulates the cosmology-only IA
+templates and lets the loss apply the NLA / TATT amplitude polynomial
+analytically. The paired loss is losses/ia.py.
+
 PS: whitened = rotated into the covariance eigenbasis and scaled to
 unit variance, so correlated dv entries become decorrelated and
 equally hard to fit; encoded = a dv or parameter vector put through
@@ -20,8 +25,8 @@ import torch
 import torch.nn as nn
 
 from ..activations import activation_fcn
-from ..emulator_designs import DesignSpec
-from ..emulator_designs_building_blocks import (
+from .plain import DesignSpec
+from .blocks import (
   Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size)
 
 
@@ -57,7 +62,7 @@ class TemplateMLP(DesignSpec, nn.Module):
   n_amps appended amplitude columns; T = n_templates (3 nla / 10
   tatt); n_keep = kept dv length = output_dim, one template's width;
   coeff_t(A) = the closed-form amplitude polynomial of the raw
-  amplitudes A, nla_coeffs / tatt_coeffs in IA/loss_functions.py.)
+  amplitudes A, nla_coeffs / tatt_coeffs in losses/ia.py.)
 
   factored = True is a capability flag (like the losses'
   needs_params): EmulatorExperiment reads it to pick the

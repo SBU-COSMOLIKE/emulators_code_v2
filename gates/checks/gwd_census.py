@@ -29,9 +29,9 @@ import torch.nn as nn
 import torch.optim as optim
 
 from emulator.activations import make_activation
-from emulator.emulator_designs_building_blocks import (Affine,
-                                                       BinLinear,
-                                                       FeatureAffine)
+from emulator.designs.blocks import (Affine,
+                                     BinLinear,
+                                     FeatureAffine)
 from emulator.training import make_optimizer
 
 FAILURES = []

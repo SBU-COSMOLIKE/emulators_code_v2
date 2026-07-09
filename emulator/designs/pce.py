@@ -1,13 +1,14 @@
 """Sparse-Legendre PCE machinery and the PCEEmulator (the NPCE base).
 
-This subpackage holds the polynomial-chaos side of the NPCE (Neural
-PCE) experiment: PCEEmulator, a closed-form sparse-Legendre expansion
-mapping the cosmological parameters to the whitened data vector with
-no network, plus its three fit helpers, pce_multi_index (the sparse
-candidate basis), pce_design (the normalized-Legendre design matrix),
-and select_lars_loo (greedy term selection with a leave-one-out
-stop). The companion loss_functions.py wraps a frozen PCEEmulator as
-the base under a neural refiner.
+This is the polynomial-chaos member of the emulator/designs/ family
+(the former emulator PCE subpackage): the polynomial-chaos side of
+the NPCE (Neural PCE) experiment: PCEEmulator, a closed-form
+sparse-Legendre expansion mapping the cosmological parameters to the
+whitened data vector with no network, plus its three fit helpers,
+pce_multi_index (the sparse candidate basis), pce_design (the
+normalized-Legendre design matrix), and select_lars_loo (greedy term
+selection with a leave-one-out stop). The companion losses/pce.py wraps
+a frozen PCEEmulator as the base under a neural refiner.
 
 Verdict for cosmic-shear xi (2026-06-26, recorded in
 notes/npce-and-ia-template-factoring.md): a PCE base only adds

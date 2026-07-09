@@ -256,10 +256,11 @@ def gate_diag(ctx):
          "--include=*.py", "--exclude-dir=gates", "--exclude-dir=.git",
          ".", "README.md"],
     allow_fail=True)
-  # emulator.parallel was deleted (commit 29b23dd) after the note's
-  # import line was written, so it is not imported here.
+  # a smoke import of the flat emulator package plus the two family
+  # folders (designs/, losses/): every gate imports the package, so this
+  # catches a broken move or a syntax error before any GPU time.
   rc_imp, out_imp = ctx.sh(
-    cmd=[ctx.python, "-c", "import emulator, emulator.IA, emulator.PCE"],
+    cmd=[ctx.python, "-c", "import emulator, emulator.designs, emulator.losses"],
     allow_fail=True)
 
   diag_yaml = ctx.require_config("production-diagnostic-config")

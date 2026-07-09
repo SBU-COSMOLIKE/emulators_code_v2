@@ -1,5 +1,7 @@
 """NPCE losses: a frozen PCE base plus a neural refiner.
 
+The polynomial-chaos member of the emulator/losses/ family (the former
+emulator PCE subpackage), paired with the base in designs/pce.py.
 Both classes wrap a fitted, frozen PCEEmulator as the base prediction
 under a trainable refiner network, differing in how base and refiner
 combine: PCEResidualChi2 is additive in the whitened basis (the
@@ -28,7 +30,7 @@ device.
 
 import torch
 
-from ..loss_functions import CosmolikeChi2
+from .core import CosmolikeChi2
 
 
 class PCEResidualChi2(CosmolikeChi2):

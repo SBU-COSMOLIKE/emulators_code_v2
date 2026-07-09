@@ -28,7 +28,7 @@ import sys
 
 import torch
 
-from emulator.loss_functions import CosmolikeChi2
+from emulator.losses.core import CosmolikeChi2
 
 # _reduce reads no self state, so bind it once and call with self=None.
 _reduce = CosmolikeChi2._reduce

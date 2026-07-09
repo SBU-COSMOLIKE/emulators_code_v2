@@ -1,8 +1,9 @@
 """Shared nn building blocks (Affine, ResBlock, rescale_kernel_size,
 FiLMGenerator, BinLinear, TRFBlock).
 
-This module holds the small nn.Modules that the emulator models
-(emulator_designs.py) are assembled from. Each piece sits as follows:
+This is the shared-blocks member of the emulator/designs/ family. It
+holds the small nn.Modules that the emulator models (plain.py and
+ia.py) are assembled from. Each piece sits as follows:
 
   ResMLP = Linear -> n_blocks x ResBlock -> Linear -> Affine
   ResCNN = ResMLP trunk + conv correction head (bare nn.Conv1d
@@ -33,7 +34,7 @@ import torch.nn as nn
 
 # activation_fcn (activations.py): the learned gated activation H(x) =
 # gate(x)*x, the default act factory for ResBlock and the conv/TRF heads.
-from .activations import activation_fcn
+from ..activations import activation_fcn
 
 
 class Affine(nn.Module):

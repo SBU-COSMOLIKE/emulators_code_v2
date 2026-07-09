@@ -478,7 +478,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                   else this raises (the post-cut enforcement point). A
                   row count here (dump rows staged), not the kept
                   data-vector length also called n_keep in
-                  geometries_output / emulator_designs.
+                  geometries_output / designs/plain.
     gen         = torch.Generator seeding the cut+shuffle (required).
     ram_frac    = fraction of available RAM stage_source may fill
                   (default 0.7).

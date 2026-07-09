@@ -67,14 +67,14 @@ from torch.optim import lr_scheduler
 
 from .data_staging import read_param_names, load_source, phys_cut_idx
 from .geometries_parameter import ParamGeometry, AmplitudeFactorGeometry
-from .loss_functions import make_chi2
-from .emulator_designs import ResMLP, ResCNN, ResTRF
-from .IA.emulator_designs import (TemplateMLP, TemplateResCNN,
-                                  TemplateResTRF)
-from .IA.loss_functions import (TemplateFactoredChi2, nla_coeffs,
-                                tatt_coeffs)
+from .losses.core import make_chi2
+from .designs.plain import ResMLP, ResCNN, ResTRF
+from .designs.ia import (TemplateMLP, TemplateResCNN,
+                         TemplateResTRF)
+from .losses.ia import (TemplateFactoredChi2, nla_coeffs,
+                        tatt_coeffs)
 from .activations import make_activation
-from .emulator_designs_building_blocks import make_norm
+from .designs.blocks import make_norm
 from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
   default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
@@ -1508,8 +1508,8 @@ class EmulatorExperiment:
     # rescale and model.ia (validate_pce), so this path never coincides with
     # the factored / make_chi2 branches below.
     if self.pce_opts is not None:
-      from .PCE.emulator_designs import PCEEmulator
-      from .PCE.loss_functions import PCEResidualChi2, PCERatioChi2
+      from .designs.pce import PCEEmulator
+      from .losses.pce import PCEResidualChi2, PCERatioChi2
       # materialize the whitened fit inputs once: X_white = pgeom.encode of
       # the raw params, Y_white = geom.encode of the raw dvs (from_training
       # converts to float64 numpy internally). Same tensor path the loaders
@@ -1532,7 +1532,7 @@ class EmulatorExperiment:
         self.chi2fn = PCERatioChi2(geom=self.geom, pce=pce)
       return self.pgeom, self.geom, self.chi2fn
 
-    # TemplateFactoredChi2 (IA/loss_functions.py): the factored-design
+    # TemplateFactoredChi2 (losses/ia.py): the factored-design
     # loss. It combines the model's templates in closed form (nla:
     # xi = K0 + A1*K1 + A1^2*K2 via nla_coeffs), reading each sample's
     # own amplitudes off the encoded input's last columns, then scores
@@ -1545,7 +1545,7 @@ class EmulatorExperiment:
         n_amps=len(des["amp_names"]))
       return self.pgeom, self.geom, self.chi2fn
 
-    # make_chi2 (loss_functions.py): wrap geom in the loss, plain
+    # make_chi2 (losses/core.py): wrap geom in the loss, plain
     # CosmolikeChi2, or the analytic-R RescaledChi2 / ResidualBaseChi2 when
     # rescale != "none". cosmo_mid = training-cloud mean (R = 1 there for a
     # rescaled chi2; the plain chi2 ignores it).
@@ -1695,7 +1695,7 @@ class EmulatorExperiment:
       "block_opts", {})["act"] = make_activation(self.activation,
                                                  n_gates=n_gates)
 
-    # make_norm (emulator_designs_building_blocks.py): map model.norm to
+    # make_norm (designs/blocks.py): map model.norm to
     # the ResBlock norm factory norm(size) -> module (affine = the
     # paper's per-layer g x + b, the default and byte-identical;
     # per_feature = a dim-sized gain/bias; none = Identity), injected
@@ -1715,7 +1715,7 @@ class EmulatorExperiment:
       specs["model_opts"]["geom"] = self.geom
       specs["model_opts"].setdefault("compile_mode", "default")
 
-    # The factored models (IA/emulator_designs.py) need the
+    # The factored models (designs/ia.py) need the
     # factored-design shape from IA_DESIGNS[self.ia]: how many
     # amplitude columns AmplitudeFactorGeometry appended (dropped from
     # the trunk input) and how many templates to emit (3 for nla:
