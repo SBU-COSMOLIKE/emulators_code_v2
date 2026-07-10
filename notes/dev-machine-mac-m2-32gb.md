@@ -43,3 +43,24 @@ logic that needs Mac-side gating in a **standalone pure function** (no torch
 inside), so it is exec-extractable. Runtime-import and any
 cosmolike/matplotlib/getdist checks are workstation-deferred
 ([[test-workstation-gpus]], [[session-resume-2026-07-06]]).
+
+## Two refinements to the no-import gate (2026-07-10, from FTW/TPE)
+
+Two additions earned their place across the fine-tune and transfer units:
+
+- **"Each load-bearing def appears exactly once" AST check.** After a mid-edit
+  interruption (an `Edit` that half-lands, a hunk re-applied by hand), a file
+  can end up with a duplicated or missing function/assignment that still
+  `py_compile`s. Before trusting the other scans, parse the file and assert
+  each target `FunctionDef` / `Assign` name occurs exactly once. It catches the
+  partial re-apply that `py_compile` and the keyword-vs-signature scan both let
+  through.
+- **The exec-probe is evidence, not just a compile.** Reimplementing the
+  load-bearing math in numpy float32 and asserting its invariants produces
+  real algorithm-level numbers a static read cannot. It is how the FTW
+  block-extension was shown bit-identical (`max|dv| = 0.00e+00`) and how the
+  TPE factored-physical `combine`/`unwhiten` reassociation (~4e-6) was found
+  and turned into the space-matched `base_decode` design (the finding is
+  written up in [[transfer-parallel-emulator]]). The one thing the probe cannot
+  stand in for is the torch object itself, so the workstation board stays the
+  confirmation.
