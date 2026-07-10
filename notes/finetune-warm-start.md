@@ -590,3 +590,11 @@ step size, not how far the walk may drift from the proven source).
 - Executes WITH TPE unit 2 (the shared anchor facility lands once,
   both YAML surfaces gain their key in the same unit); FTW stays closed
   until then, and absent-key behavior never changes.
+
+**Delta D-TPE2-1 (2026-07-10, Architect):** the TPE-2 anchor facility
+widened build_warm_start's return to (init_state, verdict, padded_keys);
+experiment.py was updated but finetune_identity.py's unpack was not
+(an unpack-arity miss no AST signature sweep catches — the gate caught it
+on first execution, as designed). One-line fix in the check; the six
+assertions before the crash all passed, so nothing numeric changed.
+Rerun: --force-rerun finetune-identity.

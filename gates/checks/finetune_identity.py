@@ -300,7 +300,10 @@ def check_parity(source, pgeom_new, extra_names, device):
   train_set = {"C": C, "idx": np.arange(300)}
   model_opts = warmstart.recipe_to_model_opts(
     recipe=source.recipe, geom=None, compile_mode=None)
-  init_state, verdict = warmstart.build_warm_start(
+  # build_warm_start returns (init_state, verdict, padded_keys) since
+  # TPE-2 (the anchor mask rides on padded_keys); this check needs the
+  # first two.
+  init_state, verdict, _padded = warmstart.build_warm_start(
     source=source,
     new_pgeom=pgeom_new,
     pinned_geom=source.geom,
