@@ -546,3 +546,25 @@ absolute gates_emul_evaluate root, form/space = 'gain'/'physical',
 extra_names = '' (names-equal), transfer_base group present — all exactly
 as specified. **TPE-1b CLOSED.** Unit 2 (refine + shared anchor) is the
 final infrastructure handoff.
+
+## Architect ruling + delta re-handoff (TPE-2 checkpoint, 2026-07-10)
+
+**RULING: the second-group refined-artifact layout is APPROVED and
+supersedes D-TP10's literal "drifted base in the main state dict".**
+transfer_base/ keeps the pretrained W0 (provenance + anchor reference,
+V1-byte-identical); transfer_base/drifted_state/ + a transfer_refined
+attr hold the drifted base; the correction stays the main model/.emul.
+Rationale: preserves the main-.emul-is-the-recipe's-model invariant, a
+stage-1-only artifact stays byte-identical to a V1 save (free regression
+guard), and the drift is recomputable from the file alone (the
+persist-resolved-values philosophy applied to a training trajectory).
+
+**Conditions:** (1) two-way consistency, loud — transfer_refined true
+iff drifted_state present, rebuild refuses either half alone; (2) the
+lifecycle gate asserts BOTH the refined round-trip bitwise AND the
+unrefined path byte-identical to a V1 save; (3) drift attrs (total +
+per-layer relative norms) stamped from the stashed pretrained clone,
+recomputable from the artifact; (4) the composed predictor picks
+drifted-when-present silently — no flag, no fallback ambiguity.
+Per-group-LR finding (warmup/scheduler preserve the group ratio):
+endorsed. Full training-path audit rides the finished handback.
