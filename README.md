@@ -13,9 +13,31 @@ and covariance. Accuracy is judged as chi2 — the prediction error in the
 covariance units inference actually cares about (the
 [chi2 metric](#15-appendix-the-chi2-metric-mahalanobis)).
 
-One line: raw dumps → stage → whiten params (input) and data vector (output) →
-ResMLP / ResCNN / ResTRF → chi2 loss → train. `EmulatorExperiment` wires it together; each
-driver varies one thing (one run, a tune, an `N_train` sweep, an activation bake-off).
+The pipeline at a glance — every stage is one section of this README:
+
+```
+raw dumps            the data-generation run's files: parameters (.txt,
+     │               one row per cosmology) + data vectors (.npy)
+     ▼  stage
+training subset      apply the physical cuts, keep n_train rows
+     │               (section 3)
+     ▼  whiten
+inputs + targets     parameters and data vectors each rescaled so every
+     │               direction weighs equally in the fit (section 2)
+     ▼  model
+whitened prediction  ResMLP, ResCNN, or ResTRF — the network predicts
+     │               the whitened data vector (section 10)
+     ▼  chi2 loss
+per-sample error     each prediction scored by the survey's own error
+     │               metric (sections 5 and 15)
+     ▼  train
+.emul + .h5          the best-epoch weights and everything needed to
+                     reload them (section 1)
+```
+
+`EmulatorExperiment` wires these stages together. Each driver then varies
+exactly one thing: one training run, a hyperparameter search, a
+training-set-size sweep, or an activation bake-off ([Run it](#1-run-it)).
 
 The code map — how the package is laid out, what each file does, and where to
 edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
@@ -102,10 +124,29 @@ theory:
         - projects/lsst_y1/chains/emulator_resmlp_t256_ntrain250000
 ```
 
-The prediction physics lives in `emulator/inference.py`
-(`EmulatorPredictor`: encode → forward → the factored-IA or NPCE combine →
-decode), which the adapter is a shell over; a copyable full evaluate config
-(likelihood + params + sampler blocks around this theory block) ships as
+The adapter itself holds no physics. It reads the sampled parameter names
+from the `.h5`, asks cobaya for them at every step, and hands them to the
+predictor:
+
+```
+sampling YAML         the theory block above: device + the emulators list
+     │
+     ▼  cobaya_theory/emul_cosmic_shear.py
+thin adapter          no physics here — it only moves parameters in and
+     │                the data vector out
+     ▼  emulator/inference.py  (EmulatorPredictor)
+encode                whiten the sampled parameters
+forward               the rebuilt network predicts the whitened data vector
+combine               the factored-IA or NPCE recombination, when the
+                      artifact was trained with one
+decode                back to the physical data vector
+     │
+     ▼
+likelihood            scores it as usual
+```
+
+A copyable full evaluate config — the likelihood, params, and sampler
+blocks wrapped around this theory block — ships as
 `cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml`.
 
 The `N_train` learning curve — how does accuracy improve as the training set
