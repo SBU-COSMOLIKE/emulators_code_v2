@@ -408,6 +408,68 @@ def check_errors(source, tmp, device):
          "the inherited-loss-form rule")
 
 
+def check_anchor(source, pgeom_new, device):
+  """(finetune.anchor, TPE-2) the mask excludes the padded extra columns, and
+  the decoupled anchor pins the source columns while leaving the extras free."""
+  import torch.optim as optim
+  from emulator.training import build_anchor
+
+  n_x        = len(EXTRAS)
+  model_opts = warmstart.recipe_to_model_opts(
+    recipe=source.recipe, geom=None, compile_mode=None)
+  template = make_model(model_opts=model_opts,
+                        input_dim=len(pgeom_new.names),
+                        output_dim=OUT_DIM, device=device)
+  init_state, padded = warmstart.transfer_state_dict(
+    source_state=source.model.state_dict(),
+    template_state=template.state_dict(), n_extra=n_x)
+  masks = warmstart.anchor_masks(init_state=init_state, padded_keys=padded,
+                                 n_extra=n_x, device=device)
+  # the mask zeroes exactly the last n_x columns of each padded key.
+  mask_ok = len(masks) == len(padded) and len(padded) > 0
+  for k in padded:
+    m = masks[k]
+    if not torch.equal(m[:, -n_x:], torch.zeros_like(m[:, -n_x:])):
+      mask_ok = False
+    if not torch.equal(m[:, :-n_x], torch.ones_like(m[:, :-n_x])):
+      mask_ok = False
+  report("anchor: mask zeroes exactly the padded extra columns", mask_ok,
+         str(len(padded)) + " padded key(s)")
+
+  # load the init, drift every parameter, then anchor hard (lambda large via
+  # many steps) and check the source columns return to init while the extras
+  # stay where the drift put them.
+  template.load_state_dict(init_state, strict=True)
+  drifted = {}
+  with torch.no_grad():
+    for name, p in template.named_parameters():
+      p.add_(torch.ones_like(p))            # a fixed, reproducible drift
+      drifted[name] = p.detach().clone()
+  opt    = optim.SGD(template.parameters(), lr=0.1)
+  anchor = build_anchor(model=template, optimizer=opt,
+                        reference_state=init_state, lam=1.0, masks=masks)
+  for _ in range(400):
+    anchor.apply(opt)
+  key      = padded[0]
+  w        = dict(template.named_parameters())[key]
+  src_ok   = torch.allclose(w[:, :-n_x], init_state[key][:, :-n_x], atol=1e-3)
+  extra_ok = torch.equal(w[:, -n_x:], drifted[key][:, -n_x:])
+  report("anchor: source columns pinned to the init_state", src_ok,
+         "max|d| = " + format(float((w[:, :-n_x]
+                                     - init_state[key][:, :-n_x]).abs().max()),
+                              ".2e"))
+  report("anchor: padded extra columns left free (untouched)", extra_ok,
+         "the new-physics carriers are not pulled to zero")
+  # lambda 0 is a no-op (free training), byte-identical.
+  before = w.detach().clone()
+  free   = build_anchor(model=template, optimizer=opt,
+                        reference_state=init_state, lam=0.0, masks=masks)
+  free.apply(opt)
+  report("anchor: lambda 0 is a no-op (free fine-tuning)",
+         torch.equal(dict(template.named_parameters())[key], before),
+         "no pull at lambda 0")
+
+
 def main():
   """Build a synthetic source, then run the six identity checks.
 
@@ -437,6 +499,7 @@ def main():
   check_pin(source)
   check_degenerate(source, tmp, device)
   check_errors(source, tmp, device)
+  check_anchor(source, pgeom_new, device)
 
   print("")
   if len(FAILURES) == 0:

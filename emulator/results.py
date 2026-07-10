@@ -321,6 +321,17 @@ def save_emulator(path_root,
                              + type(base_dv).__qualname__)
       tb.attrs["form"]  = transfer_base["form"]
       tb.attrs["space"] = transfer_base["space"]
+      # a refined run (transfer.refine): the DRIFTED base weights, kept
+      # separate from the pretrained state above (which stays the anchor
+      # reference + provenance, D-TP10 second-group layout). The predictor
+      # loads these; the transfer_refined root attr marks their presence,
+      # two-way consistent with the group (rebuild refuses either half alone).
+      drifted = transfer_base.get("drifted_state")
+      if drifted is not None:
+        drift_grp = tb.create_group("drifted_state")
+        for k, v in drifted.items():
+          drift_grp.create_dataset(k, data=v.detach().cpu().numpy())
+        f.attrs["transfer_refined"] = True
 
     # per-epoch histories; fracs stack to (nepochs, n_thresholds).
     hg = f.create_group("history")
@@ -523,6 +534,20 @@ def rebuild_emulator(path_root, device, compile_model=True):
                                     "transfer_base dv_geometry group")
       tb_form   = tb.attrs.get("form")
       tb_space  = tb.attrs.get("space")
+      # refined artifact (transfer.refine): the drifted base weights + the
+      # transfer_refined root attr are two-way consistent (either half alone is
+      # a corrupt file). When present the predictor composes with the DRIFTED
+      # base (silently, no flag); the pretrained tb_state stays the provenance.
+      refined  = bool(f.attrs.get("transfer_refined", False))
+      have_dr  = "drifted_state" in tb
+      if refined != have_dr:
+        raise KeyError(
+          path_root + ".h5 transfer_base is inconsistent: transfer_refined="
+          + repr(refined) + " but drifted_state "
+          + ("present" if have_dr else "absent")
+          + "; a refined artifact must carry both, a frozen-only run neither")
+      if have_dr:
+        tb_state = _read_group(tb["drifted_state"])
 
   def _rebuild_model(rc, geom_for_needs, state, want_compile):
     # Reconstruct one module from its recipe + state dict (h5-only, a missing

@@ -345,6 +345,34 @@ def main():
                      "dv_geometry":    tb.geom,
                      "form":           exp._transfer_form,
                      "space":          exp._transfer_space}
+    # refined run (transfer.refine, D-TP10): the base drifted in stage 2.
+    # transfer_base/state stays the pretrained base (the clone stashed before
+    # the drift), and the DRIFTED weights ride a drifted_state group; the
+    # predictor composes with the drifted base. Provenance root attrs: the
+    # relative delta-weight norm (total + per-layer), recomputable from the
+    # two states in the file.
+    if exp._transfer_pretrained_base is not None:
+      pretrained = exp._transfer_pretrained_base
+      drifted    = tb.model.state_dict()          # the drifted base (stage 2)
+      transfer_base["state"]         = pretrained
+      transfer_base["drifted_state"] = drifted
+      attrs["transfer_refined"] = True
+      # relative drift ||W_drift - W_0|| / ||W_0|| per parameter and overall.
+      import math
+      sq_num = 0.0
+      sq_den = 0.0
+      for name, w0 in pretrained.items():
+        wd = drifted[name]
+        dn = float((wd - w0).pow(2).sum().item())
+        d0 = float(w0.pow(2).sum().item())
+        sq_num += dn
+        sq_den += d0
+        rel = math.sqrt(dn / d0) if d0 > 0.0 else 0.0
+        attrs["base_drift_" + name] = rel
+      attrs["base_drift_total"] = (math.sqrt(sq_num / sq_den)
+                                   if sq_den > 0.0 else 0.0)
+      log(f"transfer refine: base relative drift "
+          f"{attrs['base_drift_total']:.3e} (total)")
   emul_path, h5_path = save_emulator(
     path_root=save_root,
     model=model,
