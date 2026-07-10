@@ -1711,3 +1711,27 @@ chains/emulator_resmlp_t16_ntrain200). All 21 gates green; the delta trail
 D-FTW-1 / D-GBC-1 / D-FTW-2 is proven by this pass. Closure details + the
 one remaining attr-confirmation command in finetune-warm-start.md.
 Standing optional item: the triangle-shading PDF eyeball.
+
+## Triangle PDF eyeball (2026-07-10): PASS on active windows; one gate run closes the rest
+
+gates_diag_resmlp_t16_ntrain25000.pdf relayed and eyeballed (verdict in
+triangle-cut-shading-all-windows.md): grey adjoins every hard edge the
+run's config activates (omegabh2 + omegam2h2); the named 0.20 cliff /
+0.17 corner do not exist because the shipped example YAML comments out
+omegamh2/omegamh2ns — consistent, not a failure. The all-four-windows
+coverage is machine-asserted by the registered-but-not-run
+triangle-shading gate: `python gates/run_board.py --gate triangle-shading`
+(synthetic, no cosmolike, no retrain) is the one remaining command on the
+whole board.
+
+## triangle-shading first run (2026-07-10): 2/3 PASS, the red is the check's own classifier — delta D-GTB-1
+
+Grey fills on 7 panels + omh2 axvspan bands both PASS (the plotting fix
+is correct, agreeing with the same-day PDF eyeball). The FAIL counted the
+viridis SCATTER point clouds + colorbar as "off-grey fills" — the check
+assumed points draw as lines; first execution ever exposed it (the gate
+was off the default sweep and the Mac has no matplotlib). Fixed by
+selecting the shading layer by its design contract (zorder 0, where
+_shade_cuts deliberately draws every cut fill); stub-probed on the Mac,
+ships blind of matplotlib. Details in triangle-cut-shading-all-windows.md.
+Rerun: `python gates/run_board.py --gate triangle-shading`.

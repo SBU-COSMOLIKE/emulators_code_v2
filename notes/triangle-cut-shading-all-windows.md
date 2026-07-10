@@ -187,3 +187,70 @@ The board's one optional gate; every required gate is green (runs 10
 and 11). The acceptance here is the Architect eyeballing the
 gates_diag_*.pdf shading from the production-diagnostic run — relay
 pending. No code question is open against this note.
+
+## GT-C visual verdict (Architect eyeball, 2026-07-10)
+
+Relayed PDF: gates_diag_resmlp_t16_ntrain25000.pdf (the run-10-era
+production-diagnostic gate output; config = the shipped example YAML).
+Rendered per page and zoomed on the acceptance panels.
+
+**PASS for every window the run activated; the two NAMED features do not
+exist in this config, and correctly so.** The shipped example YAML carries
+omegamh2_*/omegamh2ns_* COMMENTED OUT — only omegabh2 (0.014, 0.035) and
+omegam2h2 (0.015, 0.08) were active. Observed:
+
+- (H0, Omega_b): grey above and below the allowed band, adjoining the
+  cloud — the omegabh2 window, 2-D-sharp exactly where the coverage table
+  says. PASS.
+- (H0, Omega_m), (H0, omh2), (Omega_m, omh2): grey wedges adjoining the
+  cloud edges — the omegam2h2 window. PASS.
+- Panels where no active window is 2-D-sharp (all As / ns columns):
+  correctly unshaded. PASS.
+- omh2 1-D marginal: NO band, and the KDE runs smoothly past 0.20 to
+  ~0.25 — CONSISTENT: omegamh2 was not active (and omegam2h2 = (Omega_m
+  h)^2 is not a pure function of Omega_m h^2, so no 1-D band is expected).
+  The absent 0.20 cliff / (ns, omh2) 0.17 shear are therefore not
+  failures; those features require the two commented windows.
+
+**Closing the named 0.20/0.17 items without a retrain:** the registered
+`triangle-shading` gate (gates/checks/gt_b_triangle.py, off the default
+sweep, "not run" on the board) is the machine version — synthetic samples,
+ALL FOUR windows active including omegamh2ns (0.10, 0.17), asserting grey
+fills on exactly the coverage-table panels plus the omh2-marginal axvspan
+bands. One run of `python gates/run_board.py --gate triangle-shading`
+closes GT-B and, with this eyeball, GT-C. (The alternative — uncommenting
+the two windows and regenerating the 25k-row diagnostic PDF — would
+re-prove the same coverage visually at training cost; not required.)
+
+## GT-B first execution (2026-07-10) + delta D-GTB-1 (Architect, applied directly)
+
+First run ever of the triangle-shading gate (it was registered but off
+the default sweep, and the Mac has no matplotlib/getdist, so the check
+script shipped without ever executing). Result: 2/3 assertions PASS —
+grey fills on 7 panels, the omh2 axvspan bands present — and one FAIL
+that is the CHECK'S OWN classifier bug, not a plotting bug: the check
+assumed "points draw as lines, not filled patches" and counted 11
+off-grey filled artists, but _lcdm_triangle_fig deliberately draws every
+off-diagonal panel as a viridis-coloured SCATTER (a filled
+PathCollection) plus a shared colorbar. The 11 off-grey artists are the
+data itself, which is supposed to be coloured. The plotting fix under
+test is correct (also confirmed by the same-day Architect eyeball of the
+real diagnostics PDF, above).
+
+**Delta D-GTB-1 (compile-checked + stub-probed):** the classifier now
+selects the shading layer by the design contract instead of guessing
+artist types — plotting._shade_cuts draws every cut fill (contourf
+regions and axvspan bands) at zorder 0, deliberately under the data, so
+facecolors() filters artists to zorder == 0 and the span count does the
+same. The stub probe confirms: scatter/colorbar/legend artists ignored;
+zorder-0 grey counted; a genuinely mis-coloured zorder-0 fill still
+fails the gate (the assertion keeps its teeth).
+
+**Honest margins, recorded:** (1) the fix ships Mac-blind (no
+matplotlib here) — the stub probe covers the classifier logic, the
+workstation rerun is the proof; (2) the shipped GT-B asserts shading
+PRESENCE (>0 panels + bands), not the spec's "exactly the
+coverage-table panels" — the exact panel set was verified visually by
+the Architect eyeball for the windows the real config activates; a
+future tightening could assert the exact set. Rerun:
+`python gates/run_board.py --gate triangle-shading`.

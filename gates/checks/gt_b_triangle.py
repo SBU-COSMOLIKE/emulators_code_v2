@@ -60,24 +60,34 @@ def synthetic_source(n_rows):
 
 
 def facecolors(ax):
-  """Every rgba face colour of the shading artists on one axis.
+  """Every rgba face colour of the CUT-SHADING artists on one axis.
 
-  Gathers the face colours of the axis's collections (contourf fills)
-  and patches (axvspan bands), so the caller can compare them against
-  the one shared cut grey.
+  The cut shading is exactly the zorder-0 layer: plotting._shade_cuts
+  draws every window fill (the 2-D contourf regions and the omh2
+  marginal's axvspan bands) at zorder 0, deliberately under the data.
+  The data artists — the viridis-coloured scatter of every off-diagonal
+  panel, the shared colorbar, the density lines — all live at higher
+  zorder, and a scatter IS a filled collection (the original version of
+  this check assumed points draw as lines and mis-counted every point
+  cloud as an off-grey fill). Filtering by zorder == 0 selects the
+  shading layer with no assumption about how the data is drawn.
 
   Arguments:
     ax = a matplotlib Axes.
 
   Returns:
-    a list of rgba tuples (length-4), one per shading artist found.
+    a list of rgba tuples (length-4), one per zorder-0 shading artist.
   """
   colours = []
   for coll in ax.collections:
+    if coll.get_zorder() != 0:
+      continue
     fc = np.asarray(coll.get_facecolor())
     for row in range(fc.shape[0]):
       colours.append(tuple(fc[row]))
   for patch in ax.patches:
+    if patch.get_zorder() != 0:
+      continue
     fc = np.asarray(patch.get_facecolor())
     colours.append(tuple(fc))
   return colours
@@ -126,13 +136,17 @@ def main():
       if close_to_grey(rgba):
         grey_here = grey_here + 1
       elif rgba[3] > 0.0:
-        # a coloured, non-transparent artist that is not the cut grey;
-        # the density contours / points are lines, not filled patches,
-        # so a filled off-grey artist would be a shading-colour bug.
+        # a coloured, non-transparent artist ON THE ZORDER-0 SHADING
+        # LAYER that is not the cut grey: a real shading-colour bug
+        # (facecolors already excluded the data artists by zorder).
         off_grey = off_grey + 1
     if grey_here > 0:
       shaded_panels = shaded_panels + 1
-    span_bands = span_bands + len(ax.patches)
+    # count only the zorder-0 patches (the axvspan cut bands); a patch
+    # at higher zorder belongs to the data/decoration, not the shading.
+    for patch in ax.patches:
+      if patch.get_zorder() == 0:
+        span_bands = span_bands + 1
 
   print("shaded panels: " + str(shaded_panels)
         + " ; axvspan patches (omh2 band): " + str(span_bands)
