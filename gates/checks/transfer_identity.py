@@ -354,16 +354,19 @@ def check_errors(device, plain_root):
   except ValueError:
     raised = True
   report("error: transfer + model.ia raises", raised, "family inherited")
-  # refine not-yet-implemented.
+  # refine knobs are explicit (no silent defaults): a refine block missing
+  # base_lr_scale / anchor is a loud error, the same required-explicit rule
+  # the anchor itself follows. (This leg replaced the V1 not-yet-implemented
+  # rejection when TPE-2 landed refine.)
   raised = False
   try:
     validate_transfer(cfg={"transfer": {"from": "x", "form": "gain",
                                         "refine": {"epochs": 1}}},
                       train_args={"model": {}}, rescale="none")
-  except NotImplementedError:
+  except ValueError:
     raised = True
-  report("error: transfer.refine is not-yet-implemented (unit 2)", raised,
-         "refine rejected")
+  report("error: an incomplete refine block raises (explicit knobs)", raised,
+         "base_lr_scale / anchor must be stated, no silent defaults")
   # non-superset names (extend raises).
   base = warmstart.load_source(root=str(plain_root), device=device,
                                allow_factored=True)

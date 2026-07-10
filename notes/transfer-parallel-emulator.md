@@ -701,3 +701,12 @@ INFRASTRUCTURE PROGRAM: scratch / anchored warm-start / frozen-base
 transfer / anchored joint refinement — every path gated, every artifact
 self-describing. The thread after this is science (D-TP9's deciding
 experiment first).
+
+**Delta D-TPE2-2 (2026-07-10, Architect):** transfer_identity still
+carried the V1 "refine not-yet-implemented" error leg; TPE-2 implemented
+refine, so validate_transfer now raises ValueError for the incomplete
+block (base_lr_scale absent) — correct behavior, stale expectation. The
+leg now asserts the TPE-2 rule: refine knobs are required-explicit (the
+anchor precedent), an incomplete block is a loud ValueError. All 36
+substantive assertions had already passed; finetune-identity closed
+19/19 with the four anchor legs green in the same pass.
