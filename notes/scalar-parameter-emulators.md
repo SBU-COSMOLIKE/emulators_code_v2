@@ -147,7 +147,98 @@ outputs are vectors with their own geometries); chained scalar emulators
 
 ## Resume state (Implementer appends below)
 
-(none yet)
+### SPE increment 1 (2026-07-10, Opus): core geometry + loss landed + Mac-gated
+
+**Landed (uncommitted on claude/amazing-keller-e798b6, base a3c93fb):**
+- `emulator/geometries_scalar.py` = `ScalarGeometry` (D-SP1): names / center /
+  scale per-output standardization; `encode` = (y-center)/scale, `decode` =
+  t*scale+center; `from_targets` (mean + population-std, a zero-variance column
+  is a loud error), `from_state`, `state()`. dest_idx = arange(n_out) and
+  total_size = n_out are DERIVED from names in __init__ (an identity, not a
+  persisted knob), so the loop sizes the model by chi2fn.dest_idx.numel() ==
+  n_out with no scalar branch. No cosmolike / mask / Cinv / probe.
+- `emulator/losses/scalar.py` = `ScalarChi2(CosmolikeChi2)` (D-SP2): overrides
+  ONLY chi2 (= (pred-target)^2 summed over outputs, a diagonal unit-variance
+  Mahalanobis); inherits encode/decode (forward to geom), loss/_reduce (the
+  shared trim/mode/focal/berhu reduction), dest_idx/total_size properties, and
+  needs_params-absent (so False, param-unaware). `make_scalar_chi2(geom)`
+  factory mirrors make_chi2.
+
+**Loop-composition proof (why the core needs zero training.py change).** The
+loop touches chi2fn only via `dest_idx` (sizing, training.py:2430), `encode`,
+`chi2(pred=, target=)`, and `loss(...)` (1429-1439, 1730-1749); it NEVER calls
+geom.squeeze / unsqueeze or chi2(full=True). ScalarGeometry supplies
+encode/decode/dest_idx/total_size; ScalarChi2 supplies chi2 and inherits the
+rest. Persistence is already generic: save writes `dv_geometry` cls =
+type(geom).__qualname__ and rebuild dispatches
+importlib.import_module(...).from_state (results.py:492-494), so ScalarGeometry
+saves/rebuilds with ZERO results.py change for the geometry itself.
+
+**Mac gate (increment 1).** py_compile OK; numpy probe ALL PASS,
+decode(encode(y)) round-trip max|dy| = 0.00e+00, standardized mean/std near
+0/1, chi2 == sum sq resid shape (B,), dest_idx sizing, zero-variance raises,
+state round-trip byte-identical; AST, unique defs + ScalarChi2 overrides only
+chi2 + make_scalar_chi2 returns ScalarChi2(geom=geom). torch legs deferred to
+the board (the FTW evidence pattern, [[dev-machine-mac-m2-32gb]]).
+
+### D-SP4 proposal (input overlap): the SIMPLER ruling = FORBID overlap (V1)
+
+The handoff pre-authorizes "Implementer proposes, the simpler ruling wins."
+PROPOSAL: V1 forbids input/provide overlap with a loud error at initialize.
+`get_requirements()` = the plain union of every loaded artifact's stored input
+names; `get_can_provide_params()` = the union of the output names. If any name
+is BOTH required by one artifact and provided by another (a would-be chain,
+e.g. a thetaH0 emulator provides H0 and another artifact requires H0), raise at
+initialize naming the offending name and the two artifacts. Rationale: chaining
+needs a topological calculate() order + cycle detection + a
+provided-minus-required subtraction that only pays off for a use case no
+current artifact needs (emultheta / emulrdrag read cosmological params, not
+each other's outputs); the loud error is safe (a chain cannot be built by
+accident) and D-SP8 already lists chained scalar emulators as out of scope
+unless the ruling admits them trivially. A duplicate output name across two
+artifacts stays a separate loud error (D-SP4). Recommend ACCEPT; union + forbid
+is about ten lines against a scheduler.
+
+### SPE increment 2 (the wiring): plan for audit, not yet built
+
+Files + integration points (read-confirmed except where flagged NEEDS READ):
+1. `emulator/results.py` = add `info["scalar"] = isinstance(geom,
+   ScalarGeometry)` to the rebuild return dict (603-610), with a local import;
+   geom already rebuilds AS ScalarGeometry via the generic dispatch (D-SP3).
+2. `emulator/data_staging.py` = a scalar staging path: OUTPUTS are named columns
+   of the SAME params .txt (D-SP2), picked by `data.outputs`, staged as the
+   "dv" the ScalarGeometry standardizes; INPUTS = the covmat-header params
+   (unchanged). NEEDS READ: load_source + the source-dict shape, to add an
+   output-column selector with no cosmolike.
+3. `emulator/experiment.py` = from_config + build_geometry + DATA_KEYS + train
+   scalar branch: pgeom = ParamGeometry.from_covmat(inputs), geom =
+   ScalarGeometry.from_targets(output cols), chi2fn = make_scalar_chi2(geom);
+   output_dim = geom.dest_idx.numel(); recipe carries ia=None. `data.outputs`
+   REQUIRED, cosmolike keys FORBIDDEN on a scalar run (exclusive, loud). NEEDS
+   READ: build_geometry body + from_config validation + DATA_KEYS + build_specs
+   recipe assembly + a forward-walk of EVERY cfg access on the scalar path (the
+   FTW model-block lesson, [[finetune-warm-start]]).
+4. `train_scalar_emulator.py` = thin driver, train_single minus the
+   dv/cosmolike legs (no probe-derived model name, no build_shear_angle_map, no
+   rescale). NEEDS READ: train_single_emulator_cosmic_shear.py skeleton.
+5. `emulator/inference.py` = EmulatorPredictor scalar branch (D-SP5): dispatch
+   on info["scalar"], predict(dict) -> {name: value} via the scalar decode, no
+   unsqueeze / section slice. NEEDS READ: EmulatorPredictor.
+6. `cobaya_theory/emul_scalars.py` = generic theory class (D-SP4): provides /
+   requirements read from the artifacts; get_can_provide_params union, get_param
+   from a per-point cache, calculate() one batch-1 predict per artifact, an
+   optional YAML provides: as a subset-check-only, duplicate-output + overlap
+   loud errors. NEEDS READ: cobaya_theory/emul_cosmic_shear.py + a legacy
+   emultheta / emulrdrag (Downloads/emulators_code-main) for the cobaya API
+   surface (initialize / get_requirements / get_can_provide_params / get_param /
+   calculate / must_provide).
+7. Gates `scalar-identity` (SPE-A) + `scalar-smoke` (SPE-B) + board configs +
+   `example_yamls/scalar_emulator_*.yaml` + README (define-or-drop). Gate homes
+   mirror gates/checks/finetune_identity.py / transfer_identity.py.
+
+Increment-2 discipline: forward-walk the WHOLE scalar driver path before
+writing; standard schema v2 throughout; no cosmolike import on the scalar path;
+CME (unit 2) starts only after SPE closes.
 
 **Handoff of record:** the unified SPE + CME ARCHITECT_HANDOFF lives in
 [[cmb-spectra-emulators]] (one implementation pass, SPE first).
