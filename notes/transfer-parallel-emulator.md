@@ -404,3 +404,35 @@ Until 1-3 land, a transfer run TRAINS + parity-checks correctly but does not
 save a reloadable artifact (transfer-smoke's save leg + the artifact round-trip
 need them). The transfer-identity Mac gate does NOT depend on 1-4 (it builds
 TransferChi2 directly).
+
+## Architect audit verdict (TPE V1, 2026-07-10, Fable)
+
+**VERDICT: VERIFIED for the delivered scope — sign-off given, with one
+Architect delta applied (D-TPE-1) and two rulings.**
+
+- **Ruling 1 (the factored-physical finding):** the bitwise epoch-0
+  identity is against the SPACE-MATCHED base representation
+  (base_decode()) — that is the invariant that proves the plumbing. The
+  ~4e-6 vs the standard whitened-combine decode is float REASSOCIATION
+  (combine and unwhiten do not commute bitwise), expected mathematics:
+  keep it as a documented tolerance leg (<= 1e-5), never bitwise.
+- **Ruling 2 (partial unit): APPROVED** — the core + acceptance gate land
+  now; TPE-1b (results.py transfer_base embed, inference.py composed
+  predictor, driver provenance, example YAML — fully specified in the
+  resume above) is the NEXT handoff and must land before any science use.
+- **Delta D-TPE-1 (Architect, applied directly, compile-checked):** the
+  driver save was unconditional, so a completed transfer run would have
+  persisted the CORRECTION NET ALONE wearing the normal artifact schema —
+  reloadable and silently wrong. The driver now refuses the save on a
+  transfer run with one loud line and a clean exit; transfer-smoke gains
+  the assertion that the refusal printed (replaced in TPE-1b by the real
+  save + provenance legs).
+- **Evidence:** load-bearing spans read line-by-line (_base_input slice,
+  _compose, _unwhiten_templates center convention, validate_transfer
+  error paths incl. refine/anchor unit-2 guards); the Implementer's
+  8-combo numpy probe; the transfer-identity torch gate is the
+  workstation confirmation (the FTW evidence pattern — no torch on
+  either Mac).
+
+**Next:** user lands the branch; board runs transfer-identity +
+transfer-smoke; then the TPE-1b handoff.

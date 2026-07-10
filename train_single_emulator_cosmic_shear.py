@@ -298,6 +298,17 @@ def main():
       f"frac>0.2 {fracs[best][0].item():.4f}  "
       f"median {medians[best]:.4f}")
 
+  # Transfer runs (TPE V1): the artifact lifecycle (the embedded
+  # transfer_base group, the composed rebuild, the provenance attrs) is
+  # not implemented yet — TPE-1b. Saving here would persist the CORRECTION
+  # NET ALONE wearing a normal emulator's schema: reloadable, silently
+  # wrong (it predicts nothing without its base). Refuse to save, loudly,
+  # and end the run cleanly (training + the parity gate above are valid).
+  if exp._transfer_base is not None:
+    log("transfer run: artifact NOT saved (the transfer_base embed lands "
+        "in TPE-1b; a save now would persist the correction net alone)")
+    return
+
   # Persist the trained emulator first, before any diagnostics can fail.
   # cocoa_output (cocoa.py) joins the chains/ folder to the name root; the
   # run products land there (with the dvs). save_emulator (results.py) then

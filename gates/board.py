@@ -910,10 +910,18 @@ def gate_tpe_b(ctx):
     label="transfer-smoke banner names the base and form",
     ok=logscan.search(text=out, pattern=r"transfer: from "),
     detail="print_design must announce the base + form/space")
-  ctx.log("transfer-smoke save/rebuild + transfer_from: the saved h5 carries "
-          "the transfer_from root attr and the embedded transfer_base group, "
-          "and a rebuild_emulator round-trip predicts identically; the "
-          "Architect confirms these from the saved artifact.")
+  # TPE V1 ships WITHOUT the artifact lifecycle (TPE-1b): the driver must
+  # REFUSE the save loudly (persisting the correction net alone would be a
+  # silently wrong artifact wearing the normal schema). This assertion is
+  # REPLACED in TPE-1b by the real save + provenance-attr legs.
+  ctx.expect(
+    label="transfer-smoke refuses to save (TPE-1b guard)",
+    ok=logscan.search(text=out, pattern=r"transfer run: artifact NOT saved"),
+    detail="no correction-only artifact may exist before the "
+           "transfer_base embed lands")
+  ctx.log("TPE-1b will land the save/rebuild lifecycle; then this gate "
+          "gains the transfer_from attr + embedded transfer_base group + "
+          "rebuild round-trip legs the Architect confirms from the artifact.")
 
 
 # --------------------------------------------------------------------------
