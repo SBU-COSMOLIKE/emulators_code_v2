@@ -85,10 +85,28 @@ adapter `cobaya_theory/emul_cosmic_shear.py`: point its `emulators:` list at
 the saved path root and it rebuilds the module and reads the sampled
 parameters it needs straight from the `.h5` — no architecture, no parameter
 ordering re-typed in the sampling YAML (the legacy `ord` / `extrapar` are
-retired). The prediction physics lives in `emulator/inference.py`
+retired). The whole theory block is:
+
+```yaml
+theory:
+  emul_cosmic_shear:
+    # python_path (NOT path) is cobaya's external-class key; without it a
+    # legacy adapter bundled in cocoa's cobaya fork shadows this class.
+    python_path: ./external_modules/code/emulators_code_v2/cobaya_theory/
+    stop_at_error: True
+    extra_args:
+      device: 'cuda'
+      # one path root per emulator -> <root>.h5 + <root>.emul,
+      # ROOTDIR-relative; everything else is read from the .h5.
+      emulators:
+        - projects/lsst_y1/chains/emulator_resmlp_t256_ntrain250000
+```
+
+The prediction physics lives in `emulator/inference.py`
 (`EmulatorPredictor`: encode → forward → the factored-IA or NPCE combine →
-decode), which the adapter is a shell over; a copyable evaluate config ships
-as `cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml`.
+decode), which the adapter is a shell over; a copyable full evaluate config
+(likelihood + params + sampler blocks around this theory block) ships as
+`cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml`.
 
 The `N_train` learning curve — how does accuracy improve as the training set
 grows? This driver retrains the same model at several training-set sizes and
