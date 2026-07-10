@@ -844,18 +844,29 @@ phase "head" / "joint"  (the remaining nepochs - trunk_epochs)
       head from its zero-init identity, so the handoff is loss-continuous
 ```
 
-The symmetric `trunk:` / `head:` blocks are **diffs** against the top level:
-each configures its own pass over the eight keys `lr` / `scheduler` / `loss` /
-`trim` / `focus` / `clip` / `rewind` / `ema` (each absent = the run default),
-with the per-key override semantics in precedence
-[B](#17-appendix-precedence--who-wins-when-settings-collide) — the head block
-alone also takes the `activation:` pin alias (`trunk: activation:` is an
-error, precedence
-[A](#17-appendix-precedence--who-wins-when-settings-collide)). On a
-single-phase model (any `resmlp`) `train()` demotes these — `trunk:` merges
-into the top level, `head:` / `trunk_epochs` / `freeze_trunk` are dropped —
-so the same YAML drives both families ("what is in the trunk is just the
-global").
+The symmetric `trunk:` and `head:` blocks are **diffs** against the top
+level: each one configures its own training pass, and any key left out of
+the block keeps the run's top-level value. Eight keys may appear in either
+block, and they override in two different ways:
+
+| Keys in a phase block | How the override works |
+|---|---|
+| `lr` | An overlay: set `lr_base` or `warmup_epochs` for that pass and the other keeps its top-level value. `bs_base` is run-global and never appears here. |
+| `scheduler` | A full replacement of the scheduler settings for that pass. The scheduler class itself never changes. |
+| `loss`, `trim`, `focus`, `clip`, `rewind`, `ema` | A full replacement: state the whole block you want for that pass, including sub-keys. Nothing merges. |
+
+The fine print is precedence
+[B](#17-appendix-precedence--who-wins-when-settings-collide). One
+asymmetry: the `head:` block may also carry `activation:`, an alias that
+pins the head's own activation family. The same key inside `trunk:` is an
+error; that rule is precedence
+[A](#17-appendix-precedence--who-wins-when-settings-collide).
+
+Single-phase models never break on a two-phase YAML. On any `resmlp`,
+`train()` demotes the phase keys: `trunk:` merges into the top level, and
+`head:`, `trunk_epochs`, and `freeze_trunk` are dropped. The same YAML
+therefore drives both model families — what is in the trunk block is just
+the global.
 
 ```yaml
   trunk_epochs:  1500
@@ -1152,10 +1163,19 @@ covariance the chi2 contracts against — geometry and metric live together.
 ```
 
 **4. Build the loss** (`losses/core.py`). `make_chi2` wraps the output
-geometry in a chi2. Because the targets are whitened, plain squared error in the
-whitened space *is* the chi2, so the optimization is well-conditioned; the loss
-un-whitens the residual and contracts it with `Cinv` to report the true chi2, and
-adds optional robustness (trim the worst points, up-weight the still-hard ones).
+geometry in a chi2 — the error metric of [appendix 15](#15-appendix-the-chi2-metric-mahalanobis),
+which weighs each residual by how well the survey can measure it.
+
+The network never sees raw data vectors. It is trained on *whitened*
+targets: each data vector rescaled so that every component matters equally
+to the chi2. That choice does two jobs at once. Ordinary squared error on
+the whitened targets already equals the chi2, so the training objective is
+the physics metric with no extra weighting. And because no component
+dominates, the optimization stays numerically well behaved.
+
+The loss also carries the optional robustness schedules: `trim` drops the
+worst-fit points early in training, and `focus` up-weights the points that
+stay hard. Both have their own sections ([7](#7-trim) and [8](#8-focus)).
 
 ```
 4.  Build the loss                            make_chi2 · losses/core.py
@@ -1191,18 +1211,28 @@ wrapped by whichever loss — never re-read, never inherited) and the
 nothing branches on `isinstance`).
 
 **5. Choose the model** (`designs/plain.py`, `designs/ia.py`).
-`ResMLP` is the baseline: an input projection, a stack of residual blocks, an
-output projection. `ResCNN` adds a 1D-CNN correction on top of the ResMLP trunk,
-acting in *theta order* so a convolution can exploit smoothness along the angular
-axis. Two orthogonal YAML keys pick the class: `train_args.model.name` is the
-architecture (`resmlp` | `rescnn` | `restrf`), and the separate `train_args.model.ia` key
-layers a factored intrinsic-alignment design on it (omit for the plain
-emulator; `ia: nla` (1 amplitude, 3 templates) or `ia: tatt` (3 amplitudes,
-10 templates) makes the model emit templates the loss combines in closed
-form, so the IA amplitudes never enter the network — `TemplateMLP` for
-`resmlp`, `TemplateResCNN` for `rescnn` (whose gated conv corrects each
-template before the combine), and `TemplateResTRF` for `restrf` (the
-bin-token transformer correction head)).
+
+`ResMLP` is the baseline: an input projection, a stack of residual blocks,
+an output projection. `ResCNN` adds a 1D convolution on top of the ResMLP
+trunk, working along the angular axis where neighbouring data-vector
+entries vary smoothly. `ResTRF` does the same job with a small transformer
+whose tokens are the tomographic bins.
+
+Two independent YAML keys pick the class. `train_args.model.name` chooses
+the architecture. The separate `train_args.model.ia` key layers a factored
+intrinsic-alignment design on top of it — the model then emits a few
+templates and the loss combines them in closed form, so the IA amplitudes
+never enter the network at all. Omit `ia` for the plain emulator.
+
+| `model.name` | plain (`ia` omitted) | `ia: nla` (1 amplitude, 3 templates) | `ia: tatt` (3 amplitudes, 10 templates) |
+|---|---|---|---|
+| `resmlp` | `ResMLP` | `TemplateMLP` | `TemplateMLP` |
+| `rescnn` | `ResCNN` | `TemplateResCNN` | `TemplateResCNN` |
+| `restrf` | `ResTRF` | `TemplateResTRF` | `TemplateResTRF` |
+
+In the factored variants the correction head works per template: the gated
+convolution of `TemplateResCNN`, or the bin-token transformer of
+`TemplateResTRF`, corrects each template before the closed-form combine.
 
 **6. Feed the GPU** (`batching.py`). The staged data may or may not fit in GPU
 memory, so the loaders pick a regime — hold the whole encoded set resident on the
