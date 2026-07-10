@@ -583,3 +583,185 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
           f"dv {tuple(dv_src.shape)} used {keep} of {len(phys)} cut rows "
           f"| in RAM: {in_ram}")
   return src
+
+
+def _scalar_columns(sidecar_path, in_names, out_names):
+  """
+  Map input + output parameter names to their .txt column indices.
+
+  Reads the getdist .paramnames sidecar (required on the scalar path):
+  line i names the parameter in .txt column 2 + i, past the leading
+  weight / minuslogpost columns. Returns the input and output
+  column-index lists in the given name order, for load_scalar_source to
+  slice the .txt by name (the outputs are usually derived columns, so
+  a fixed slice like load_source's slice(2, -1) cannot locate them).
+
+  Arguments:
+    sidecar_path = path to the <params>.paramnames file.
+    in_names     = input parameter names (covmat / whitening order).
+    out_names    = output parameter names (the YAML data.outputs list).
+
+  Returns:
+    (in_cols, out_cols): two lists of int .txt column indices, aligned
+    with in_names and out_names.
+
+  Raises:
+    ValueError if a sidecar name is duplicated (the by-name lookup would
+    be ambiguous, D-SPE2-1) or if any requested name is absent.
+  """
+  # the full column-name list in .txt order; getdist marks derived
+  # params with a trailing '*' (a scalar output is usually derived), so
+  # strip only that marker and keep the name.
+  full = []
+  with open(sidecar_path) as fh:
+    for line in fh:
+      line = line.strip()
+      if not line:
+        continue
+      first = line.split()[0]
+      full.append(first[:-1] if first.endswith("*") else first)
+
+  # D-SPE2-1: a duplicated sidecar name makes .index() below silently
+  # take the first occurrence, pairing a name with the wrong column.
+  # Refuse it, naming the duplicates.
+  counts = {}
+  for nm in full:
+    counts[nm] = counts.get(nm, 0) + 1
+  dups = []
+  for nm, c in counts.items():
+    if c > 1:
+      dups.append(nm)
+  if dups:
+    raise ValueError(
+      f"the .paramnames sidecar {sidecar_path!r} has duplicate column "
+      f"names {sorted(dups)!r}; the by-name column lookup would be "
+      "ambiguous (which column is which output?)")
+
+  def _cols(want, role):
+    cols = []
+    for nm in want:
+      if nm not in full:
+        raise ValueError(
+          f"scalar {role} {nm!r} is not a column of the .paramnames "
+          f"sidecar {sidecar_path!r} (columns: {full})")
+      # +2: the .txt leads with weight and minuslogpost, so sidecar line
+      # i is .txt column 2 + i.
+      cols.append(2 + full.index(nm))
+    return cols
+
+  return _cols(in_names, "input"), _cols(out_names, "output")
+
+
+def load_scalar_source(params_path, in_names, out_names, n_keep,
+                       gen=None, ram_frac=0.7, with_means=False,
+                       verbose=True, omegabh2_hi=None,
+                       omegabh2_lo=None,
+                       omegam2h2_lo=None, omegam2h2_hi=None,
+                       omegamh2_lo=None, omegamh2_hi=None,
+                       omegamh2ns_lo=None, omegamh2ns_hi=None):
+  """
+  Load, optionally cut, and stage one scalar (derived-parameter) source.
+
+  The scalar sibling of load_source: inputs and outputs are both named
+  columns of the ONE parameter .txt (no dv .npy, no cosmolike). The
+  getdist .paramnames sidecar is required here (the only way to locate
+  the output columns by name); its non-derived names must equal in_names
+  in order (check_paramnames), pinning the sampled block to the covmat /
+  whitening order before the by-name lookups. Physical-window cuts are
+  optional on this path (a scalar chain is already the target
+  distribution, and the omega-windows reference params a scalar input set
+  may not carry), so they run only when omegabh2_hi is given.
+
+  Arguments:
+    params_path = parameter text file (weight, minuslogpost, params...).
+    in_names    = input parameter names (covmat order); C's columns, and
+                  the names phys_cut_idx finds its window columns by.
+    out_names   = output parameter names (data.outputs); the standardized
+                  targets Y, staged in the "dv" slot.
+    n_keep      = absolute rows to stage (an int >= 1), the first n_keep
+                  of the seeded shuffle (after the optional cut).
+    gen         = torch.Generator seeding the shuffle (required).
+    ram_frac    = fraction of available RAM stage_source may fill.
+    with_means  = if True, also compute C_mean (the ParamGeometry center)
+                  and dv_mean (the output-column mean, kept for
+                  source-dict parity; ScalarGeometry.from_targets
+                  recomputes center / scale from the staged targets).
+    verbose     = if True, print the per-window (when cut) and summary
+                  lines.
+    omegabh2_hi = optional upper bound on omega_b h^2. None (default) =
+                  no physical-window cuts at all on the scalar path; a
+                  value turns the same windows on as load_source (they
+                  then require their columns to be in in_names, loud
+                  otherwise).
+    omegabh2_lo .. omegamh2ns_hi = the optional window bounds, applied
+                  only when omegabh2_hi is given.
+
+  Returns:
+    a source dict {"C", "dv", "idx"} (plus "C_mean" / "dv_mean" when
+    with_means), ready for build_loaders / run_emulator.
+  """
+  if gen is None:
+    raise ValueError("load_scalar_source needs a torch.Generator (gen=)")
+  # the sidecar is required on the scalar path: it locates the output
+  # columns by name and pins the input block to the whitening order.
+  sidecar = os.path.splitext(params_path)[0] + ".paramnames"
+  if not os.path.exists(sidecar):
+    raise ValueError(
+      f"scalar training needs a getdist .paramnames sidecar beside "
+      f"{params_path!r} (expected {sidecar!r}): it names the .txt "
+      "columns so the output parameters can be found by name")
+  # D-SPE2-1(b): the non-derived sidecar names must equal in_names (order
+  # included), pinning the sampled block to the covmat / whitening order
+  # before the by-name lookups. check_paramnames raises on a mismatch.
+  check_paramnames(sidecar, in_names)
+  in_cols, out_cols = _scalar_columns(sidecar, in_names, out_names)
+
+  raw = np.loadtxt(params_path, dtype="float32")
+  C = raw[:, in_cols]       # input parameters, in in_names order
+  Y = raw[:, out_cols]      # output targets, in out_names order
+
+  n     = C.shape[0]
+  order = torch.randperm(n, generator=gen).numpy()
+  # physical-window cuts are opt-in on the scalar path (see docstring).
+  if omegabh2_hi is None:
+    phys, cut_report = order, []
+  else:
+    phys, cut_report = phys_cut_idx(C=C, idx=order, names=in_names,
+                                    omegabh2_hi=omegabh2_hi,
+                                    omegabh2_lo=omegabh2_lo,
+                                    omegam2h2_lo=omegam2h2_lo,
+                                    omegam2h2_hi=omegam2h2_hi,
+                                    omegamh2_lo=omegamh2_lo,
+                                    omegamh2_hi=omegamh2_hi,
+                                    omegamh2ns_lo=omegamh2ns_lo,
+                                    omegamh2ns_hi=omegamh2ns_hi,
+                                    param_file=params_path)
+  if verbose:
+    for name, tag, lo, hi, kept, total in cut_report:
+      print(f"  cut {name} = {tag} in ({lo}, {hi}): kept {kept}/{total}")
+  keep = int(n_keep)
+  if keep < 1:
+    raise ValueError(
+      f"n_keep must be >= 1 (absolute rows to stage), got {keep}")
+  if len(phys) < keep:
+    raise ValueError(
+      f"scalar pool too small: {len(phys)} rows available "
+      f"(of {n}{' after cuts' if omegabh2_hi is not None else ''}), "
+      f"requested n_keep = {keep} ({os.path.basename(params_path)})")
+  idx = phys[:keep]
+
+  # stage the used rows in RAM (the .txt is already in memory, so this
+  # just compacts to the subset). dv = the output targets Y.
+  C_src, Y_src, idx_src = stage_source(
+    C=C, dv=Y, idx=idx, ram_frac=ram_frac)
+  src = {"C": C_src, "dv": Y_src, "idx": idx_src}
+  if with_means:
+    c_mean, _ = param_stats(arr=C_src, idx=idx_src, method=1)
+    y_mean, _ = param_stats(arr=Y_src, idx=idx_src, method=1)
+    src["C_mean"]  = c_mean
+    src["dv_mean"] = y_mean
+
+  if verbose:
+    print(f"  {os.path.basename(params_path)}: C {tuple(C_src.shape)} "
+          f"targets {tuple(Y_src.shape)} used {keep} of {len(phys)} rows")
+  return src

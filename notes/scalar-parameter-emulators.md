@@ -470,6 +470,38 @@ compaction on the interconnected experiment.py wiring. Next turn writes
 load_scalar_source + the experiment.py branch (all points above), Mac-
 gates, then the driver / inference / cobaya / gates / YAML / README.
 
+### Update 2 (2026-07-10, Opus): data_staging landed + gated (D-SPE2-1)
+
+`data_staging.py` gains `_scalar_columns` (pure) + `load_scalar_source`.
+- `_scalar_columns(sidecar, in_names, out_names)`: reads the .paramnames
+  sidecar, strips the derived `*` marker, D-SPE2-1(a) asserts the name
+  list is UNIQUE before any `.index()` (loud, names duplicates), maps
+  each name to `.txt` column `2 + line_index`, loud on a missing name.
+- `load_scalar_source`: sidecar REQUIRED (loud if absent), runs
+  `check_paramnames` (D-SPE2-1b, pins the sampled block to the covmat
+  order), slices C = in-cols, Y = out-cols from one `np.loadtxt`, seeded
+  shuffle, optional cuts, `stage_source`, returns `{C, dv:Y, idx}` (+
+  C_mean / dv_mean with with_means).
+- **FORWARD-WALK FINDING (refinement to the plan):** physical param_cuts
+  are OPTIONAL on the scalar path (`omegabh2_hi=None` skips phys_cut_idx
+  entirely). The omega-windows reference omegab / H0 / omegam / ns, which
+  a scalar INPUT set like (omegabh2, omegach2, thetastar) may not carry;
+  forcing them would wrongly require those columns. So a scalar chain
+  (already the target distribution) runs cut-free by default; cuts are
+  opt-in and then loudly require their columns. experiment.py from_config
+  must therefore make data.param_cuts OPTIONAL on a scalar run.
+- Gate (Mac): py_compile OK; staging probe ALL PASS (exec-extracted
+  `_scalar_columns`: mapping [2,3,4]/[5,6], out-order honored, duplicate
+  raises, missing input/output raise; source cross-checks incl.
+  check_paramnames + cuts-optional). torch legs (randperm shuffle,
+  stage_source, param_stats) ride the board.
+
+**Next:** the experiment.py scalar branch (from_config incl. param_cuts
+optional, DATA_KEYS, __init__ fields, stage_train/val -> load_scalar_
+source, build_geometry scalar branch, build_specs ia=None, print_design),
+with the whole-path forward-walk record; then driver / inference /
+emul_scalars / gates / YAML / README.
+
 ## Architect audit: increment-2 checkpoint (2026-07-10, Fable)
 
 **Verdict: both landed deltas VERIFIED (D-SPE1-1 closed, D-SP3 landed);
@@ -570,3 +602,66 @@ sidecar-required error path cheaply.
   the whole-path forward-walk record), gates scalar-identity /
   scalar-smoke authored with board configs + example YAML + README
   draft, and the self-contained workstation force-rerun list.
+
+## Architect audit: staging checkpoint (2026-07-10, Fable)
+
+**Verdict: load_scalar_source + _scalar_columns VERIFIED; D-SPE2-1(a)
+and (b) both CLOSED; the param_cuts-optional deviation ENDORSED
+(binding consequence for experiment.py recorded below). Proceed to the
+experiment.py branch.** Evidence is the Architect's own run.
+
+### Evidence
+
+- My exec-probe of the shipped _scalar_columns span (pure, no shim
+  needed), including legs beyond the Implementer's: normal getdist
+  layout maps in=[2,3,4] / out=[5,6]; output order honored (reversed
+  outputs -> [6,5]); an INTERLEAVED starred line (sampled, chi2*,
+  sampled, rdrag*) still maps correctly — the by-name design survives
+  what any fixed slice cannot; a sampled H0 + derived H0* collision
+  raises the D-SPE2-1(a) duplicate error naming H0; a missing output
+  raises naming role + name + the available columns.
+- load_scalar_source source checks: the sidecar-required error is loud
+  and explains itself; check_paramnames (D-SPE2-1b) runs BEFORE the
+  by-name lookups; cuts gate on `omegabh2_hi is None`; the
+  pool-too-small and gen-required errors are loud; the source dict is
+  key-identical to load_source's ({C, dv, idx} + C_mean / dv_mean at
+  568 vs 757), so build_loaders sees no difference. Torch legs
+  (randperm / stage_source / param_stats) ride the board as declared.
+
+### RULING — the param_cuts deviation: ENDORSED
+
+Verified against phys_cut_idx itself (243): the windows locate omegab /
+omegam / H0 / ns by name, `omegabh2_hi` is the always-applied bound on
+the dv path, and an active window with a missing column is already a
+loud error naming the column and the file. A scalar input set like
+(omegabh2, omegach2, thetastar) carries none of those columns, so
+forcing the dv-path cut would demand columns that legitimately do not
+exist; and a scalar chain is already the target distribution. Opt-in
+via omegabh2_hi=None is therefore the correct strict relaxation, with
+the existing loud error when a user opts in without the columns.
+Binding consequence: experiment.py's from_config makes data.param_cuts
+OPTIONAL on a scalar run (required semantics unchanged on dv runs).
+One recorded boundary: the omega windows compute their quantities from
+physical columns, so a scalar chain sampling omegabh2 directly cannot
+express "the same cut" through them even though the quantity is its
+own column — if a scalar-side cut is ever wanted, the right shape is a
+generic named-column window (a future item, not V1); do not retrofit
+the omega windows onto scalar chains.
+
+### ARCHITECT_HANDOFF: STAGING VERIFIED — BUILD THE EXPERIMENT BRANCH
+
+- **Audit outcome:** _scalar_columns + load_scalar_source VERIFIED
+  (independent probe incl. interleaved-sidecar and name-collision
+  legs); D-SPE2-1(a)+(b) CLOSED; source-dict parity with load_source
+  confirmed.
+- **RULING:** the param_cuts-optional deviation is ENDORSED as a
+  strict relaxation; from_config makes data.param_cuts optional on
+  scalar runs; opting in loudly requires the window columns (existing
+  phys_cut_idx behavior); no dv-path change; the omega windows are
+  never retrofitted onto scalar chains (generic named-column window =
+  recorded future item).
+- **Next milestone (unchanged):** the experiment.py scalar branch with
+  the whole-path forward-walk record, Mac-gated; then driver /
+  inference / emul_scalars (after the binding emul_cosmic_shear +
+  legacy reads) / gates / YAML / README draft -> the full SPE
+  IMPLEMENTER_HANDOFF with the workstation force-rerun list.
