@@ -1478,7 +1478,7 @@ beats the built-in default — but the override semantics differ by key:
 | `trim` / `focus` | full block replacement | restart at the phase's own epoch 1 |
 | `clip` / `rewind` | value replacement | |
 | `ema` | full block replacement | `ema: null` (key present, empty value) is an explicit per-phase off, overriding an inherited top-level `ema` |
-| `activation` | head only: an alias for `model.<head>.activation`, consumed at construction (not a training knob) | legal in `head:` (the head trains only in phase 2); an error in `trunk:` (the trunk is the same modules in both phases, so a phase-local trunk activation cannot exist — the error teaches this) |
+| `activation` | head only: an alias for `model.<head>.activation`, consumed when the model is built rather than during training | Legal in `head:` because the head trains only in phase 2, so the pin has one owner. An error in `trunk:` — the trunk is the same modules in both phases, so a phase-local trunk activation cannot exist, and the error says so. |
 
 Why: phase blocks are diffs against the top level, not containers (the
 `bs_base` rule); construction knobs are run-global, with the one user-ruled
@@ -1619,16 +1619,11 @@ posterior.
 
 **Why each knob.**
 
-- `--temp` (T) flattens the likelihood so the cloud extends past the posterior:
-  T = 1 would hug it, and a chain at the posterior edge would step outside the
-  training support; larger T widens the cloud.
-- `--maxcorr` fills the volume *perpendicular* to the degeneracy directions: a
-  raw Fisher covmat is a thin pancake along the degeneracy, and the emulator
-  needs volume there, not a line — clipping the off-diagonal correlations
-  fattens the pancake.
-- `--boundary` below 1 shrinks val / test *inside* the training support:
-  accuracy degrades at the cloud's edge, so the validation set must not sit on
-  it.
+| Knob | Why it exists |
+|---|---|
+| `--temp` | Flattens the likelihood by the temperature T, so the training cloud extends past the posterior. At T = 1 the cloud would hug the posterior, and a chain that reaches the posterior's edge would step outside the training support. Larger T widens the cloud. |
+| `--maxcorr` | Fills the volume *perpendicular* to the degeneracy directions. A raw Fisher covmat is a thin pancake along the degeneracy, and the emulator needs volume there, not a line. Clipping the off-diagonal correlations fattens the pancake. |
+| `--boundary` | Below 1, shrinks the validation and test sets *inside* the training support. Accuracy degrades at the cloud's edge, so the validation set must not sit on it. |
 
 **The machinery.** emcee samples log p_T with differential-evolution moves
 (`DEMove` 90%, `DESnookerMove` 10%); the chain is de-duplicated and reduced to
