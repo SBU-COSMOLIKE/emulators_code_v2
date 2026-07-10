@@ -72,6 +72,8 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 
 ## 1. Run it
 
+### Setup: where it runs, and the three path flags
+
 Training needs a machine with a working Cocoa installation — cosmolike
 supplies the data-vector mask and covariance — and, in practice, a CUDA GPU;
 the `emulator/` package itself is pure PyTorch and can be read or developed
@@ -86,7 +88,9 @@ folder once:
 D=external_modules/code/emulators/emultrfv2
 ```
 
-One training run — train the YAML's model once; `--diagnostic` adds a
+### One training run
+
+Train the YAML's model once; `--diagnostic` adds a
 multipage PDF of accuracy diagnostics:
 
 ```bash
@@ -101,6 +105,8 @@ whitening geometries, the per-epoch histories, and the fully-resolved config
 (schema v2) — so a saved emulator rebuilds bit-exactly even if code defaults
 later change (`rebuild_emulator` in `emulator/results.py` reads the file
 alone).
+
+### Run the saved emulator in a Cobaya MCMC
 
 Once saved, the emulator runs inside a Cobaya MCMC through the thin Theory
 adapter `cobaya_theory/emul_cosmic_shear.py`: point its `emulators:` list at
@@ -135,11 +141,13 @@ sampling YAML         the theory block above: device + the emulators list
 thin adapter          no physics here — it only moves parameters in and
      │                the data vector out
      ▼  emulator/inference.py  (EmulatorPredictor)
-encode                whiten the sampled parameters
-forward               the rebuilt network predicts the whitened data vector
+encode                rescale the sampled parameters into the units the
+                      network was trained on
+forward               the rebuilt network predicts the data vector in its
+                      trained-on, rescaled units
 combine               the factored-IA or NPCE recombination, when the
                       artifact was trained with one
-decode                back to the physical data vector
+decode                undo the rescaling: back to the physical data vector
      │
      ▼
 likelihood            scores it as usual
@@ -149,8 +157,9 @@ A copyable full evaluate config — the likelihood, params, and sampler
 blocks wrapped around this theory block — ships as
 `cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml`.
 
-The `N_train` learning curve — how does accuracy improve as the training set
-grows? This driver retrains the same model at several training-set sizes and
+### The `N_train` learning curve
+
+How does accuracy improve as the training set grows? This driver retrains the same model at several training-set sizes and
 plots the error metric (`frac>0.2`, defined in [section 2](#2-the-yaml-file))
 against N: a curve still falling at the largest N says more data will help; a
 flat tail says the model, not the data, is the limit. Sweep points are
@@ -163,9 +172,24 @@ python $D/sweep_ntrain_emulator_cosmic_shear.py \
   --yaml train_single_emulator_cosmic_shear.yaml --n-points 8 --out curve
 ```
 
-A one-knob sweep — one full training per value of a single YAML-chosen knob
-(learning rate, kernel size, batch size, ...), to see that knob's effect in
-isolation; the knob and values live in the [`sweep:` block](#sweep-block):
+### A one-knob sweep
+
+Pick one knob — a learning rate, a kernel size, a batch size — and train
+the full model once per value, so that knob's effect shows up in isolation.
+The knob and its values live in a top-level `sweep:` block, named by the
+knob's dotted path:
+
+```yaml
+sweep:
+  parameter: lr.lr_base
+  values:
+    - 0.0010
+    - 0.0025
+    - 0.0063
+```
+
+The block's full rules are in [The `sweep:` block](#sweep-block). Run it
+with:
 
 ```bash
 python $D/sweep_hyperparam_emulator_cosmic_shear.py \
@@ -173,7 +197,9 @@ python $D/sweep_hyperparam_emulator_cosmic_shear.py \
   --yaml train_single_emulator_cosmic_shear.yaml --out lrsweep
 ```
 
-A hyperparameter search — Optuna (https://optuna.org) is a search library: it
+### A hyperparameter search
+
+Optuna (https://optuna.org) is a search library: it
 proposes trial settings, watches the results, and concentrates new trials
 where the metric improves. The searched ranges are the YAML's
 `[default, min, max, kind]` leaves — any numeric leaf may swap its scalar
@@ -200,7 +226,9 @@ python $D/tune_single_emulator_cosmic_shear.py \
   --yaml tune_single_emulator_cosmic_shear.yaml --n-trials 64
 ```
 
-The activation bake-off — trains the same model once per activation family
+### The activation bake-off
+
+Trains the same model once per activation family
 over a grid of training sizes and overlays their learning curves: a
 head-to-head showing whether a family genuinely learns faster (a lower curve
 everywhere) or just ties:
@@ -211,11 +239,15 @@ python $D/bakeoff_activation_emulator_cosmic_shear.py \
   --yaml train_single_emulator_cosmic_shear.yaml --out bakeoff
 ```
 
-On a card with far more memory than one training needs (an H200), add
+### Packing runs on one big card
+
+On a card with far more memory than one training needs, such as an H200, add
 `--gpu-pack` to either sweep: points estimated at ≤ 20% of the GPU run four
 to a card, ≤ 40% two to a card, bigger ones exclusive (off by default — on a
 12 GB RTX 3060 one training is the card). The details live in
 [Multi-GPU execution and packing](#multi-gpu) below.
+
+### Where next
 
 The YAML has two top-level blocks — `data` and `train_args`. The next
 chapter ([The YAML file](#2-the-yaml-file), sections 2–11) documents every
