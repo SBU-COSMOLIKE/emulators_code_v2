@@ -504,3 +504,26 @@ absent on this Mac, so the round-trip runs on the board):**
 the save completed). The Architect confirms the saved artifact's `transfer_from`
 attr + embedded `transfer_base` group + rebuild round-trip on the workstation
 (the FTW deviation-(b) pattern).
+
+## Architect audit verdict (TPE-1b, 2026-07-10, Fable)
+
+**VERDICT: VERIFIED, sign-off conditional on the two workstation
+force-reruns going green** (the Mac has no torch/h5py, the established
+evidence pattern). Read line-by-line: the driver assembles the
+self-contained transfer_base bundle (recipe + state dict + both
+geometries + form/space) and stamps all four provenance attrs;
+results.py writes/reads the group symmetrically via the factored
+_rebuild_model; the lifecycle leg asserts the strongest form of the
+D-TP6 contract — save -> rebuild -> composed predict BITWISE vs the
+in-memory composition, predictor bitwise, and chaining refused on the
+REAL saved artifact (not a synthetic tweak). The cobaya adapter needing
+no code (the predictor composes transparently) is consistent with the
+pce_base precedent and accepted. No deviations. D-TPE-1's refusal guard
+correctly replaced by the real save + assertions.
+
+Workstation: `python gates/run_board.py --force-rerun transfer-identity`
+then `--force-rerun transfer-smoke` (or one pass with both flags if
+supported); after green, confirm the smoke's saved h5 attrs
+(transfer_from / form / space / extra_names) from the `saved run record`
+path — then TPE-1b closes and unit 2 (refine + shared anchor) is the
+next handoff.
