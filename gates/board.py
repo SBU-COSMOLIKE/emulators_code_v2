@@ -801,6 +801,63 @@ def gate_gct_c(ctx):
           "an mcmc sampler override once the evaluate leg is green.")
 
 
+def gate_ftw_a(ctx):
+  """finetune-identity: a warm-started emulator starts as the source, exactly.
+
+  This gate proves the promise fine-tuning rests on: at epoch 0 a warm-started
+  emulator computes the source emulator's own function, bit for bit, whatever
+  the new parameters are. The check script builds a tiny synthetic source (a
+  small ResMLP with hand-built geometries, no cosmolike), saves it, then runs
+  the warm-start path with two extra parameters and asserts the shared-
+  parameter encoding, the weight transfer, the pre-train parity, the no-extras
+  degenerate case, and the loud errors (spec: finetune-warm-start.md, the
+  finetune-identity validation gate). torch only, no cosmolike.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/finetune_identity.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="finetune-identity encode + transfer + parity + degenerate + errors",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/finetune_identity.py)")
+
+
+def gate_ftw_b(ctx):
+  """finetune-smoke: a real fine-tune run continues the board's own emulator.
+
+  A names-equal fine-tune (no extra parameters) that warm-starts from the tiny
+  emulator save-rebuild-drift persists under the board fileroot, at a lower
+  learning rate for two epochs. It confirms the pre-train parity verdict
+  prints, the startup banner names the source, and the run completes. The
+  saved-artifact provenance (the finetuned_from root attr) and the save ->
+  rebuild -> predict round-trip are the save-and-sample follow-up the Architect
+  confirms from the workstation artifact (spec: finetune-warm-start.md, the
+  finetune-smoke validation gate). Depends on save-rebuild-drift, which
+  persists the source emulator this run continues.
+  """
+  ctx.require_caps("torch", "cosmolike", "gpu")
+  smoke_yaml = ctx.require_config("finetune-smoke-config")
+  rc, out = ctx.run_driver(yaml_path=smoke_yaml, allow_fail=True)
+  if ctx.dry:
+    return
+  ctx.expect(label="finetune-smoke run completes",
+             ok=(rc == 0),
+             detail="finetune driver exit code " + str(rc))
+  ctx.expect(
+    label="finetune-smoke pre-train parity verdict printed",
+    ok=logscan.search(text=out, pattern=r"finetune parity: max\|dv\|"),
+    detail="the [ok] parity line proves epoch 0 reproduces the source")
+  ctx.expect(
+    label="finetune-smoke banner names the warm-start source",
+    ok=logscan.search(text=out, pattern=r"finetune: from "),
+    detail="print_design must announce the source artifact")
+  ctx.log("finetune-smoke save/rebuild + finetuned_from: the saved h5 carries "
+          "the finetuned_from root attr, and a rebuild_emulator round-trip "
+          "predicts identically to the in-memory model (the save-rebuild-drift "
+          "pattern); the Architect confirms these from the saved artifact.")
+
+
 # --------------------------------------------------------------------------
 # The board, in execution order (workstation-board-2026-07.md).
 # --------------------------------------------------------------------------
@@ -954,6 +1011,14 @@ BOARD = [
        maps="117-122, 201-204 (residual + ratio + rebuild + exclusivity + sweep)",
        run=gate_gpc_c,
        needs=("torch", "cosmolike", "gpu")),
+  Gate(id="finetune-identity",
+       spec_code="FTW-A",
+       title="Fine-tune warm-start identity",
+       tier=TIER_NEW_FEATURES,
+       home="finetune-warm-start",
+       maps="256-273 (encode + transfer + parity + degenerate + error paths)",
+       run=gate_ftw_a,
+       needs=("torch",)),
 
   Gate(id="save-rebuild-drift",
        spec_code="GSV-C",
@@ -973,4 +1038,14 @@ BOARD = [
        run=gate_gct_c,
        deps=("save-rebuild-drift",),
        needs=("torch", "cosmolike", "cobaya", "gpu")),
+  Gate(id="finetune-smoke",
+       spec_code="FTW-B",
+       title="Fine-tune warm-start smoke",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="finetune-warm-start",
+       maps="277-284 (names-equal fine-tune: parity line + banner + completes; "
+            "finetuned_from + save-rebuild round-trip are the workstation leg)",
+       run=gate_ftw_b,
+       deps=("save-rebuild-drift",),
+       needs=("torch", "cosmolike", "gpu")),
 ]

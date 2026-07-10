@@ -98,7 +98,8 @@ def make_logger(quiet=False):
 DEFAULT_COMPILE_MODE = "reduce-overhead"
 
 
-def make_model(model_opts, input_dim, output_dim, device):
+def make_model(model_opts, input_dim, output_dim, device,
+               init_state=None):
   """
   Build the network from a spec dict.
 
@@ -118,6 +119,13 @@ def make_model(model_opts, input_dim, output_dim, device):
     output_dim = number of outputs (unmasked dv length); injected.
     device     = device to build on. On CUDA the model is
                  torch.compile'd per compile_mode; eager on MPS/CPU.
+    init_state = optional warm-start state dict (fine-tune path,
+                 emulator/warmstart.py). When given, it is loaded
+                 strict into the eager module before any
+                 torch.compile, so its keys match the plain
+                 architecture and no OptimizedModule "_orig_mod."
+                 prefix enters. None (default) = the ordinary
+                 random-init build, byte-identical.
 
   compile_mode (CUDA only; default "reduce-overhead"):
     "reduce-overhead" = inductor + CUDA graphs; fastest but fragile
@@ -139,6 +147,11 @@ def make_model(model_opts, input_dim, output_dim, device):
       extra[k] = v
   model = cls(input_dim=input_dim,
               output_dim=output_dim, **extra).to(device)
+  # fine-tune warm start: load the transferred weights into the eager
+  # module before torch.compile, so the state dict carries the plain
+  # architecture's keys (a compiled OptimizedModule prefixes them).
+  if init_state is not None:
+    model.load_state_dict(init_state, strict=True)
   if device.type == "cuda" and compile_mode is not None:
     model = torch.compile(model, mode=compile_mode)
     # record the mode as a plain attribute (reads reach through
@@ -1938,7 +1951,8 @@ def run_emulator(train_set,
                  freeze_trunk=None,
                  trunk_opts=None,
                  head_opts=None,
-                 ema=None):
+                 ema=None,
+                 init_state=None):
   """
   One training run; model, optimizer, schedule auto-built.
 
@@ -2122,6 +2136,16 @@ def run_emulator(train_set,
                    past the terrible early era). Off = a byte-identical
                    run. Resolved + re-initialized per phase (a phase ema:
                    full-replaces it, or ema: null disables it there).
+    init_state   = optional warm-start state dict (the fine-tune path;
+                   emulator/warmstart.py builds it by transferring a
+                   source emulator's weights). Forwarded to make_model,
+                   which loads it strict into the eager module before any
+                   torch.compile. Everything else stays fresh (optimizer,
+                   scheduler, warmup, ema, trim / focus schedules): a warm
+                   start is not a resume, and the loop's incoming-weights
+                   snapshot makes the loaded weights the epoch-0 best
+                   baseline for selection and rewind. None (default) = the
+                   ordinary random-init run, byte-identical.
 
   Returns:
     model        = trained network, restored to the best frac>0.2
@@ -2229,7 +2253,8 @@ def run_emulator(train_set,
   model = make_model(model_opts=model_opts,
                      input_dim=in_dim,
                      output_dim=out_dim,
-                     device=device)
+                     device=device,
+                     init_state=init_state)
 
   # trainable-parameter counts, for comparing model capacity across runs.
   # .parameters() reaches through a torch.compile wrapper (it delegates to

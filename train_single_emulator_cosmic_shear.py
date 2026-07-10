@@ -304,6 +304,28 @@ def main():
   # <save>_<tag>.h5   = both whitening geometries (from_state-ready),
   # the per-epoch histories, the full config, and the run identity.
   save_root = cocoa_output(chains, f"{args.save}_{run_tag(cfg, exp)}")
+  # run-identity root attributes. The architecture name comes from exp.arch
+  # (the resolved architecture, identical to the YAML model.name on a plain
+  # run, and read from the inherited source recipe on a finetune run, which
+  # carries no model: block). A finetune run adds its provenance below.
+  attrs = {"model":       str(exp.arch or "resmlp").lower(),
+           "activation":  exp.activation,
+           "rescale":     exp.rescale,
+           "n_train":     int(exp.train_set["idx"].shape[0]),
+           "n_val":       int(exp.val_set["idx"].shape[0]),
+           "best_epoch":  best + 1,
+           "best_frac02": fracs[best][0].item(),
+           "best_median": float(medians[best]),
+           "device":      str(exp.device),
+           "train_dv":    os.path.basename(cfg["data"]["train_dv"]),
+           "val_dv":      os.path.basename(cfg["data"]["val_dv"])}
+  # fine-tune warm start (D-FT8): stamp the resolved source path root and the
+  # extra parameter names (space-joined, "" when the new space adds none) as
+  # root attrs, so the saved artifact records what it was fine-tuned from. A
+  # plain run adds neither (its artifact stays byte-identical).
+  if exp._finetune is not None:
+    attrs["finetuned_from"] = exp._finetune.root
+    attrs["finetune_extra_names"] = " ".join(exp._finetune_extra_names)
   emul_path, h5_path = save_emulator(
     path_root=save_root,
     model=model,
@@ -324,18 +346,7 @@ def main():
     # rebuilds bit-exactly even if code defaults later drift.
     resolved_train=exp.resolved_train,
     resolved_model=exp.resolved_model,
-    attrs={"model":       str(cfg["train_args"]["model"]
-                              .get("name", "resmlp")).lower(),
-           "activation":  exp.activation,
-           "rescale":     exp.rescale,
-           "n_train":     int(exp.train_set["idx"].shape[0]),
-           "n_val":       int(exp.val_set["idx"].shape[0]),
-           "best_epoch":  best + 1,
-           "best_frac02": fracs[best][0].item(),
-           "best_median": float(medians[best]),
-           "device":      str(exp.device),
-           "train_dv":    os.path.basename(cfg["data"]["train_dv"]),
-           "val_dv":      os.path.basename(cfg["data"]["val_dv"])})
+    attrs=attrs)
   log(f"saved emulator -> {emul_path}")
   log(f"saved run record -> {h5_path}")
 

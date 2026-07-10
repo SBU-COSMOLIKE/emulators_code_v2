@@ -292,3 +292,76 @@ Both gates register in the board (gates/board.py + run_board.py, home note
 [[gates-checks-docs-plain-language]], [[designs-losses-family-folders]]
 (the module layout warmstart.py sits beside), [[gates-id-translation]]
 (FTW-A/B are the notes-side keys; the code uses the human gate ids).
+
+## Implementer resume (FTW execution, 2026-07-09, Opus)
+
+**Status: coded + Mac-verified to the limit torch allows; diffs uncommitted
+on branch claude/amazing-keller-e798b6 (base 7bf9549). The user runs
+git.** All ten design rules D-FT1..D-FT10 implemented.
+
+**What landed (4 new files, 6 edited):**
+- `emulator/warmstart.py` (new, 735 lines): the finetune subsystem.
+  `validate_finetune_config` (D-FT1/D-FT2 loud errors), `resolve_source_root`
+  (D-FT1 $ROOTDIR path resolution), `load_source` (wraps
+  `rebuild_emulator(compile_model=False)` + reads recipe / rescale attr /
+  data block from the h5; enforces plain-ParamGeometry / ia-None / no-pce /
+  rescale-none), `recipe_to_model_opts` (architecture inherited; mirrors
+  rebuild's factory reconstruction), `extend_input_geometry` (D-FT3 block
+  extension, a plain ParamGeometry), `pin_output_geometry` (D-FT4 reuse +
+  checks), `transfer_state_dict` (D-FT5 verbatim + zero-padded columns,
+  shape-driven, returns padded-key set), `build_warm_start` (D-FT5+D-FT7
+  orchestration: builds the eager template via make_model(compile None),
+  transfers, runs the parity gate, returns init_state + one verdict line).
+- `emulator/training.py`: `make_model` + `run_emulator` gain `init_state=None`
+  (D-FT6); loaded strict into the eager module before torch.compile; nothing
+  else in the loop changed.
+- `emulator/experiment.py`: finetune branches in `from_config` (validate +
+  load source once + build on the source class), `build_geometry` (extend
+  input + pin output + make_chi2 rescale none, no cosmolike), `build_specs`
+  (model_opts from the recipe; resolved_model = source recipe with the new
+  input width), `train` (parity gate + init_state pass-through + the resolved
+  finetune block folded into resolved_train), and one `print_design` banner
+  line. `self._finetune` guards every branch (absent = byte-identical).
+- `train_single_...py`: the `attrs["model"]` source moved to `exp.arch` (works
+  with no model: block; identical for a plain run) + `finetuned_from` /
+  `finetune_extra_names` root attrs on a finetune run only (D-FT8).
+- `example_yamls/finetune_emulator_cosmic_shear.yaml` (new) + a pointer block
+  in the train_single YAML.
+- `gates/checks/finetune_identity.py` (new, 450 lines): the FTW-A check, fully
+  synthetic (torch only, no cosmolike), all five acceptance items + the pin
+  checks. `gates/board.py`: `gate_ftw_a` + `gate_ftw_b` + two BOARD rows.
+  `gates/configs/finetune-smoke-config.yaml` (new) +
+  `gates/board_config.json` gate_configs entry.
+
+**Mac gates run (torch is absent on this Mac: no conda / pyenv / venv,
+homebrew python has numpy only, so the torch-executed finetune-identity gate
+could NOT be run here):**
+- `py_compile` / `compileall` on the whole tree: PASS.
+- Numpy math exec-probe (mirrors extend_input_geometry + transfer_state_dict
+  line-for-line, float32): ALL PASS. The shared-coordinate encoding is
+  bit-identical (max|dv| = 0.00e+00) for appended extras (de-risks the gate's
+  torch.equal item 1); E orthogonal; n_x=0 byte-identical; transfer padded
+  set / verbatim / zero-pad correct; wrong-shape raises.
+- AST cross-checks: every `warmstart.*` call site matches the real
+  signatures; every cross-module import in warmstart + the gate resolves to a
+  real definition; BOARD loads (21 gates, no dup ids, deps satisfiable).
+- `CosmolikeChi2.dest_idx` forwards to `geom.dest_idx`, so the template model
+  (warmstart) and the training model (run_emulator) get the same output_dim,
+  the init_state strict load matches.
+
+**Open items for the Architect / workstation (flagged, not silently
+absorbed):**
+1. The torch-executed `finetune-identity` gate must run green on a
+   torch machine (Mac dev box has no torch). Static + numpy evidence is
+   strong; the real torch.equal / parity run is the confirmation.
+2. Tier deviation: the spec put `finetune-smoke` in the new-features tier,
+   but its source artifact is the emulator `save-rebuild-drift` persists
+   (`<driver_root>/chains/gates_emul_evaluate`), which only exists in the
+   save-and-sample tier. I registered `finetune-smoke` there with
+   `deps=("save-rebuild-drift",)` so its source is guaranteed present, and
+   its config `from:` points at that path. If the Architect wants it in
+   new-features, a dedicated source-training step is needed first.
+3. `finetune-smoke` acceptance: the gate asserts run-completes + the parity
+   verdict line + the banner from the log; the `finetuned_from` root attr and
+   the save->rebuild->predict round-trip are logged as the workstation leg
+   (the gate cannot read the dynamic saved-artifact path from stdout).

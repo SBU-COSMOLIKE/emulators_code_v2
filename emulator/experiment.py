@@ -75,6 +75,7 @@ from .losses.ia import (TemplateFactoredChi2, nla_coeffs,
                         tatt_coeffs)
 from .activations import make_activation
 from .designs.blocks import make_norm
+from . import warmstart
 from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
   default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
@@ -1043,6 +1044,13 @@ class EmulatorExperiment:
     # and stored by train(). None until those run.
     self.resolved_model = None
     self.resolved_train = None
+    # fine-tune warm start (emulator/warmstart.py): the loaded source bundle,
+    # its resolved absolute path root, and the extra parameter names, all set
+    # by from_config / build_geometry. None on an ordinary run, which every
+    # finetune branch below guards on (absent = byte-identical).
+    self._finetune = None
+    self._finetune_root = None
+    self._finetune_extra_names = None
 
   # --- alternative constructors ---
   @classmethod
@@ -1093,6 +1101,49 @@ class EmulatorExperiment:
     # [default, min, max, kind] search range to its default (first) value,
     # so a tuning YAML builds a concrete run.
     ta = default_train_args(cfg["train_args"])
+
+    # fine-tune warm start (train_args.finetune present): the architecture,
+    # activation, and loss form are all inherited from a saved source
+    # emulator, so this path bypasses the model-name resolution below. It
+    # validates the finetune YAML surface, loads + validates the source once
+    # (on the run's device), and builds the experiment on the source's class.
+    # See emulator/warmstart.py and notes/finetune-warm-start.md.
+    if ta.get("finetune") is not None:
+      warmstart.validate_finetune_config(
+        cfg=cfg,
+        train_args=ta,
+        rescale=kwargs.get("rescale", "none"),
+        activation_flag=kwargs.get("activation"))
+      # resolve the device now (load_source rebuilds the source on it); pass
+      # it through so __init__ does not pick a different one.
+      device = kwargs.get("device")
+      if device is None:
+        device = pick_device()
+      kwargs["device"] = device
+      source_root = warmstart.resolve_source_root(ta["finetune"])
+      source = warmstart.load_source(root=source_root, device=device)
+      # the trunk activation the source fixed, for the banner + save attrs
+      # (the network already pins it; a finetune run never restates it).
+      block_opts = source.recipe.get("kwargs", {}).get("block_opts", {})
+      act_spec   = block_opts.get("act", {}) if isinstance(block_opts, dict) \
+          else {}
+      kwargs["activation"] = act_spec.get("type", "H")
+      exp = cls(data=cfg["data"],
+                train_args=ta,
+                model_cls=source.model_cls,
+                raw_train_args=cfg["train_args"],
+                **kwargs)
+      # a plain source (validated): no factored IA, no NPCE base.
+      exp.pce_opts   = None
+      exp.ia         = None
+      exp.arch       = source.recipe.get("name")
+      exp.model_name = (source.recipe.get("name")
+                        or source.model_cls.__name__.lower())
+      exp._activation_notice = None
+      exp._finetune      = source
+      exp._finetune_root = source_root
+      return exp
+
     # read (not pop) name / ia, build_specs strips both from the
     # spread, so they never reach the model constructor. A YAML `ia:
     # none` parses as the string "none" (YAML's nulls are null/~), so
@@ -1251,6 +1302,18 @@ class EmulatorExperiment:
              f"model: {self.model_cls.__name__}  |  "
              f"activation: {self.activation}  |  "
              f"rescale: {self.rescale}")
+    # fine-tune warm start: name the source artifact and the extra parameters
+    # being fine-tuned in (the extras = the new covmat names absent from the
+    # source; computed here from the headers, before the geometry is built).
+    if self._finetune is not None:
+      src_names = set(self._finetune.pgeom.names)
+      extras = []
+      for nm in self.names:
+        if nm not in src_names:
+          extras.append(nm)
+      extra_str = " ".join(extras) if extras else "(none)"
+      self.log(f"finetune: from {self._finetune.root}  |  "
+               f"extras: {extra_str}")
     if notice is not None:
       self.log(notice)
     # NPCE base (consumed view): the fit knobs. The kept-modes / terms
@@ -1446,6 +1509,40 @@ class EmulatorExperiment:
     """
     train_set = self.train_set if train_set is None else train_set
     d = self.data
+
+    # fine-tune warm start (emulator/warmstart.py): the input geometry is the
+    # source geometry block-extended for the new parameters (D-FT3), and the
+    # output geometry is the source's, pinned after the dataset / probe / width
+    # checks (D-FT4). No from_covmat, no from_cosmolike, no cosmolike import.
+    # rescale is "none" (validated), so make_chi2 wraps the pinned geometry in
+    # a plain CosmolikeChi2 with no cosmolike calls.
+    if self._finetune is not None:
+      source = self._finetune
+      self.pgeom, extra_names = warmstart.extend_input_geometry(
+        source=source,
+        covmat_path=d["train_covmat"],
+        train_mean=train_set["C_mean"],
+        device=self.device)
+      self._finetune_extra_names = extra_names
+      # the new dv dump's full width (dv_mean is the training-mean dv), checked
+      # equal to the pinned geometry's total_size inside pin_output_geometry.
+      new_dv_width = int(np.asarray(train_set["dv_mean"]).reshape(-1).shape[0])
+      self.geom = warmstart.pin_output_geometry(
+        source=source,
+        run_data=d,
+        run_probe=self.probe,
+        new_dv_width=new_dv_width)
+      # bin-token heads (restrf; needs_bins) still attach their per-bin split
+      # to the pinned geometry, reading only the dataset ini + n(z) file (no
+      # cosmolike); a plain ResMLP source (V1) skips this.
+      if getattr(self.model_cls, "needs_bins", False):
+        from .geometries_output import build_shear_angle_map
+        build_shear_angle_map(geom=self.geom,
+                              data_dir=d["cosmolike_data_dir"],
+                              dataset=d["cosmolike_dataset"])
+      self.chi2fn = make_chi2(geom=self.geom, rescale="none")
+      return self.pgeom, self.geom, self.chi2fn
+
     # config validation first, before the cosmolike import below: a bad
     # combination should fail fast, and stays testable off-workstation.
     if getattr(self.model_cls, "factored", False) and self.rescale != "none":
@@ -1578,6 +1675,46 @@ class EmulatorExperiment:
       the keyed spec dict run_emulator consumes as **specs.
     """
     train_args = self.train_args if train_args is None else train_args
+
+    # fine-tune warm start: the model spec is inherited from the source recipe
+    # (D-FT2, the architecture is never restated in YAML), not translated from
+    # a model: block. The other five specs (optimizer / lr / scheduler / trim /
+    # focus) still come from train_args as usual; the lower learning rate is
+    # just a smaller lr_base in the lr: block. resolved_model records the
+    # source recipe with the new input width (n_n) and the pinned output width,
+    # every other value inherited (persist-resolved-values).
+    if self._finetune is not None:
+      source = self._finetune
+      ft = train_args.get("finetune", {})
+      # compile mode: the finetune block may override the source's for this
+      # machine (D-FT1); absent -> the mode the source recipe stored.
+      if "compile_mode" in ft:
+        compile_mode = ft["compile_mode"]
+      else:
+        compile_mode = source.compile_mode
+      # recipe_to_model_opts injects the geometry only when the recipe records
+      # needs_geom (the conv / TRF heads); pass it unconditionally and let the
+      # recipe decide, so the class flag and the recipe cannot disagree.
+      model_opts = warmstart.recipe_to_model_opts(
+        recipe=source.recipe,
+        geom=self.geom,
+        compile_mode=compile_mode)
+      # build_run_specs needs a model: block; feed it an empty one for the five
+      # non-model specs, then overwrite model_opts with the inherited spec.
+      ta_specs = dict(train_args)
+      ta_specs["model"] = {}
+      specs = build_run_specs(train_args=ta_specs,
+                              model_cls=source.model_cls,
+                              opt_cls=self.opt_cls,
+                              sched_cls=self.sched_cls)
+      specs["model_opts"] = model_opts
+      recipe = dict(source.recipe)
+      recipe["input_dim"]    = int(len(self.pgeom.names))
+      recipe["output_dim"]   = int(self.geom.dest_idx.numel())
+      recipe["compile_mode"] = compile_mode
+      self.resolved_model = recipe
+      return specs
+
     # Translate the nested YAML model block into the constructors'
     # flat kwargs (MODEL_BLOCK_KEYS). name / ia picked the class
     # (from_config resolved them); the activation type was resolved by
@@ -1821,6 +1958,24 @@ class EmulatorExperiment:
     silent_run = (train_args.get("silent", False) or self.quiet
                   if silent is None else silent)
 
+    # fine-tune warm start (emulator/warmstart.py): transfer the source
+    # weights into the new (block-extended) shape and run the pre-train parity
+    # gate, then hand run_emulator the transferred state as init_state. The
+    # one verdict line is essential-only (printed even under a quiet run: it is
+    # the checked-exactness fact, not per-epoch chatter). None on a plain run,
+    # so run_emulator's init_state stays absent and the run is byte-identical.
+    init_state = None
+    if self._finetune is not None:
+      init_state, verdict = warmstart.build_warm_start(
+        source=self._finetune,
+        new_pgeom=self.pgeom,
+        pinned_geom=self.geom,
+        model_opts=specs["model_opts"],
+        train_set=self.train_set,
+        extra_names=self._finetune_extra_names,
+        device=self.device)
+      self.log(verdict)
+
     # run_emulator (training.py): build the model / optimizer / scheduler
     # from the specs and the regime-aware loaders, train nepochs with a
     # per-epoch val pass, return the model (restored to its best frac>0.2
@@ -1866,6 +2021,10 @@ class EmulatorExperiment:
       # off = a byte-identical run. run_emulator validates the block and
       # couples the average to its snapshot/rewind (see training.py).
       ema=train_args.get("ema"),
+      # fine-tune warm start: the transferred source weights (None on a plain
+      # run). make_model loads them strict into the eager module before compile
+      # (D-FT6); everything else in the loop stays fresh.
+      init_state=init_state,
       thresholds=self.thresholds,
       use_amp=self.use_amp,
       silent=silent_run,
@@ -1877,6 +2036,22 @@ class EmulatorExperiment:
     # drivers' interface is unchanged (the added return is contained here).
     (self.model, self.train_losses, self.medians,
      self.means, self.fracs, self.resolved_train) = out
+
+    # fine-tune warm start: record the resolved finetune block in the consumed
+    # config (persist-resolved-values), so the saved run states its source with
+    # the path and compile_mode materialized. run_emulator does not see the
+    # finetune block, so it is added here, the one place that resolved both.
+    if self._finetune is not None:
+      ft = train_args.get("finetune", {})
+      if "compile_mode" in ft:
+        compile_mode = ft["compile_mode"]
+      else:
+        compile_mode = self._finetune.compile_mode
+      self.resolved_train["finetune"] = {
+        "from":         self._finetune.root,
+        "compile_mode": compile_mode,
+        "extra_names":  " ".join(self._finetune_extra_names),
+      }
     return (self.model, self.train_losses, self.medians,
             self.means, self.fracs)
 

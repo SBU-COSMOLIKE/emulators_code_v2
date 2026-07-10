@@ -55,6 +55,7 @@
     "npce-training-excl-rescale": "../gates/configs/npce-training-excl-rescale.yaml",
     "npce-training-excl-ia": "../gates/configs/npce-training-excl-ia.yaml",
     "npce-training-sweep": "../gates/configs/npce-training-sweep.yaml",
-    "param-window-cuts-config": "../gates/configs/param-window-cuts-config.yaml"
+    "param-window-cuts-config": "../gates/configs/param-window-cuts-config.yaml",
+    "finetune-smoke-config": "../gates/configs/finetune-smoke-config.yaml"
   }
 }

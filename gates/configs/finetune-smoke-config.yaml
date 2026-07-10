@@ -1,0 +1,69 @@
+# finetune-smoke (FTW-B): a names-equal fine-tune from the board's own
+# trained artifact (the tiny emulator save-rebuild-drift persists at
+# <driver_root>/chains/gates_emul_evaluate). No extra parameters, so this is
+# the degenerate n_x = 0 warm start: epoch 0 must be the source, bit for bit,
+# and a two-epoch run must complete. See notes/finetune-warm-start.md.
+
+data:
+  # the same dumps the board's training / save gates use.
+  train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
+  train_params: w0wa_takahashi_params_train_cs_16.1.txt
+  train_covmat: w0wa_takahashi_params_train_cs_16.covmat
+  val_dv:       w0wa_takahashi_dvs_train_cs_8.npy
+  val_params:   w0wa_takahashi_params_train_cs_8.1.txt
+
+  # must equal the source's dataset (the output geometry is pinned).
+  cosmolike_data_dir: lsst_y1
+  cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
+
+  param_cuts:
+    omegabh2_hi: 0.035
+  n_train:    200
+  n_val:      100
+  split_seed: 0
+
+train_args:
+  nepochs: 2
+  bs:      32
+
+  # the source: the emulator save-rebuild-drift persists under the board
+  # fileroot. Resolves under $ROOTDIR (relative); it exists once the
+  # save-rebuild-drift gate has run (this gate depends on it).
+  finetune:
+    from: projects/lsst_y1/chains/gates_emul_evaluate
+
+  # the lower learning rate is just a smaller lr_base (one decade down); no
+  # model: block (the architecture is inherited from the source recipe).
+  lr:
+    lr_base:       0.0001
+    bs_base:       64.0
+    warmup_epochs: 1
+
+  loss:
+    mode: sqrt
+  silent: false          # print the per-epoch lines + the parity verdict
+
+  optimizer:
+    weight_decay: 0.0
+
+  scheduler:
+    mode:     min
+    patience: 10
+    factor:   0.8
+
+  # benign off values (start == end == 0 makes anneal_value return 0 every
+  # epoch), so trim / focus do not complicate the two-epoch smoke.
+  trim:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         cosine
+
+  focus:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         linear
+    kappa:         0.15

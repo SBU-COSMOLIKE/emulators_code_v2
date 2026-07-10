@@ -56,6 +56,13 @@ data:
 #     - 0.0025
 #     - 0.0063
 
+# Fine-tune warm start (an alternative to training from random weights):
+# continue a saved emulator on a new training set with a lower initial
+# learning rate, by adding a train_args.finetune block (and dropping the
+# model: block, whose architecture is then inherited from the source). See
+# example_yamls/finetune_emulator_cosmic_shear.yaml and
+# notes/finetune-warm-start.md.
+
 train_args:
   nepochs:   1600
   bs:        256         # training batch; validation runs at a derived
