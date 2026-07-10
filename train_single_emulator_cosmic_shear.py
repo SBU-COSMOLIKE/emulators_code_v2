@@ -298,17 +298,6 @@ def main():
       f"frac>0.2 {fracs[best][0].item():.4f}  "
       f"median {medians[best]:.4f}")
 
-  # Transfer runs (TPE V1): the artifact lifecycle (the embedded
-  # transfer_base group, the composed rebuild, the provenance attrs) is
-  # not implemented yet — TPE-1b. Saving here would persist the CORRECTION
-  # NET ALONE wearing a normal emulator's schema: reloadable, silently
-  # wrong (it predicts nothing without its base). Refuse to save, loudly,
-  # and end the run cleanly (training + the parity gate above are valid).
-  if exp._transfer_base is not None:
-    log("transfer run: artifact NOT saved (the transfer_base embed lands "
-        "in TPE-1b; a save now would persist the correction net alone)")
-    return
-
   # Persist the trained emulator first, before any diagnostics can fail.
   # cocoa_output (cocoa.py) joins the chains/ folder to the name root; the
   # run products land there (with the dvs). save_emulator (results.py) then
@@ -339,6 +328,23 @@ def main():
   if exp._finetune is not None:
     attrs["finetuned_from"] = exp._finetune.root
     attrs["finetune_extra_names"] = " ".join(exp._finetune_extra_names)
+  # transfer learning (D-TP6): the saved main model is the correction net, so
+  # the frozen base is embedded whole (recipe + weights + both geometries +
+  # form / space) as a transfer_base group, and the provenance root attrs
+  # record where it came from + how it composes. A plain run adds neither.
+  transfer_base = None
+  if exp._transfer_base is not None:
+    tb = exp._transfer_base
+    attrs["transfer_from"]        = tb.root
+    attrs["transfer_form"]        = exp._transfer_form
+    attrs["transfer_space"]       = exp._transfer_space
+    attrs["transfer_extra_names"] = " ".join(exp._transfer_extra_names)
+    transfer_base = {"recipe":         tb.recipe,
+                     "state":          tb.model.state_dict(),
+                     "param_geometry": tb.pgeom,
+                     "dv_geometry":    tb.geom,
+                     "form":           exp._transfer_form,
+                     "space":          exp._transfer_space}
   emul_path, h5_path = save_emulator(
     path_root=save_root,
     model=model,
@@ -359,6 +365,8 @@ def main():
     # rebuilds bit-exactly even if code defaults later drift.
     resolved_train=exp.resolved_train,
     resolved_model=exp.resolved_model,
+    # transfer runs: the frozen base embedded whole (None for every other run).
+    transfer_base=transfer_base,
     attrs=attrs)
   log(f"saved emulator -> {emul_path}")
   log(f"saved run record -> {h5_path}")

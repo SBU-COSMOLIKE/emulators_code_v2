@@ -451,3 +451,56 @@ and the D-TPE-1 refusal line printed + asserted: no correction-only
 artifact exists. Whole board green (24 rows incl. triangle-shading).
 **Next: the TPE-1b handoff** (the artifact lifecycle specified in the
 resume above); then unit 2 (refine + the shared anchor facility).
+
+## TPE-1b execution (2026-07-10, Opus) — the artifact lifecycle, coded
+
+Base: main 33a3e64 (TPE V1 closed, board 24/24). Diffs uncommitted on branch
+claude/amazing-keller-e798b6. The user runs git. This landed REMAINING 1-4
+from the TPE V1 resume plus the driver-refusal replacement and the smoke
+round-trip leg.
+
+**Done + Mac-verified (compileall + AST; the artifact code needs torch + h5py,
+absent on this Mac, so the round-trip runs on the board):**
+- `emulator/results.py`: `save_emulator` gains a `transfer_base=None` param
+  writing a `transfer_base` group (base model_recipe yaml + a `state/`
+  subgroup of the base weights + `param_geometry/` + `dv_geometry/` with cls
+  markers + form/space attrs). The recipe->model reconstruction in
+  `rebuild_emulator` is factored into a nested `_rebuild_model(rc, geom, state,
+  want_compile)` reused for the main model (the correction) and the base;
+  rebuild reads the group back (base rebuilt eager, never compiled) and returns
+  `info["transfer_base"]` (model/pgeom/geom) + `["transfer_form"]` +
+  `["transfer_space"]`. The main model is the CORRECTION, the main geometries
+  the run's; the artifact is self-contained (no base path reference, D-TP6).
+- `emulator/inference.py`: `_build_decoder` gains a transfer branch (FIRST, so
+  it wins over the ia branch a factored correction would otherwise take): it
+  builds a `TransferChi2` from the embedded base + form/space (family read off
+  the base geometry, coeff_fn/T from the correction's inherited `ia`) and
+  returns `chi2.decode` — the exact training composition, single-sourced. The
+  cobaya adapter needs NO change (thin shell over `predict`, composes
+  transparently); a sampling YAML must sample the extras (the existing
+  dependency-resolution error covers it, the FTW precedent).
+- `train_single_...py`: the D-TPE-1 refusal guard is REPLACED by the real save
+  — assemble the `transfer_base` dict from `exp._transfer_base` (recipe, state,
+  both geometries, form/space) + provenance root attrs `transfer_from` /
+  `transfer_form` / `transfer_space` / `transfer_extra_names` (transfer run
+  only). FTW cfg-key sweep done: the only driver-path `cfg[...]` reads are
+  `cfg["data"]["train_dv"/"val_dv"]` + `cfg["data"].get("param_cuts")` (a
+  transfer YAML has a data block) and `run_tag` uses `exp.arch` (set in the
+  transfer from_config branch), so no missing-key bug.
+- `gates/checks/transfer_identity.py`: new `check_lifecycle` leg — save a
+  transfer artifact (correction + embedded base), rebuild, and assert the
+  composed prediction reproduces the in-memory composition BITWISE both via
+  `rebuild_emulator` + the transfer decoder and via the full `EmulatorPredictor`
+  path (the save-rebuild-drift pattern), plus chaining refused (load_source on
+  the saved transfer raises). `gates/board.py` transfer-smoke: the refusal
+  assertion is replaced by the save-completed legs (the two `saved ...` lines)
+  + a logged provenance/round-trip follow-up.
+- `example_yamls/transfer_emulator_cosmic_shear.yaml` (new) + a pointer in the
+  train_single YAML.
+
+**Gate reruns the user must force (both recorded PASS under the old asserts):**
+`--force-rerun transfer-identity` (now has the lifecycle leg) AND
+`--force-rerun transfer-smoke` (the refusal assertion is gone; it now asserts
+the save completed). The Architect confirms the saved artifact's `transfer_from`
+attr + embedded `transfer_base` group + rebuild round-trip on the workstation
+(the FTW deviation-(b) pattern).

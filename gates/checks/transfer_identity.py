@@ -51,7 +51,9 @@ from emulator.geometries_output import DataVectorGeometry
 from emulator.geometries_parameter import ParamGeometry, AmplitudeFactorGeometry
 from emulator.losses.ia import nla_coeffs
 from emulator.losses.transfer import TransferChi2, FORMS, SPACES
-from emulator.results import save_emulator
+from emulator.results import save_emulator, rebuild_emulator
+from emulator.inference import EmulatorPredictor
+from emulator.training import make_model
 
 FAILURES = []
 
@@ -378,6 +380,105 @@ def check_errors(device, plain_root):
          "missing p2 named")
 
 
+def check_lifecycle(device, tmp):
+  """(the artifact lifecycle, TPE-1b) save a transfer, rebuild, compose again.
+
+  Saves a transfer artifact (the correction net as the main model plus the
+  frozen base embedded whole), rebuilds it, and checks the composed prediction
+  reproduces the in-memory composition bit for bit (the save-rebuild-drift
+  pattern applied to the composed model), both through rebuild_emulator + the
+  transfer decoder and through the full EmulatorPredictor path. Then confirms
+  chaining is refused: the saved transfer cannot itself be loaded as a base.
+  A plain base, gain/physical, names-equal (n_x = 0), with the correction's
+  ordinary nonzero weights so the composition is nontrivial.
+  """
+  base_root = Path(tmp) / "life_base"
+  save_plain_base(base_root, device)
+  base = warmstart.load_source(root=str(base_root), device=device,
+                               allow_factored=True)
+
+  # a names-equal run geometry (no extras), its own fresh covmat.
+  names    = list(base.pgeom.names)
+  cov_path = Path(tmp) / "life.covmat"
+  write_covmat(cov_path, names, seed=71)
+  train_mean = np.random.default_rng(72).standard_normal(len(names))
+  new_pgeom, _extra = warmstart.extend_input_geometry(
+    source=base, covmat_path=str(cov_path), train_mean=train_mean,
+    device=device)
+  geom   = base.geom
+  chi2fn = make_transfer(base, geom, "gain", "physical")
+
+  # a correction net at its ordinary (nonzero) init, so the composition is not
+  # the trivial identity; the round-trip must reproduce it bitwise.
+  in_dim = getattr(new_pgeom, "encoded_dim", len(new_pgeom.names))
+  corr   = make_model(model_opts=dict(_correction_opts(base, geom),
+                                      compile_mode=None),
+                      input_dim=in_dim, output_dim=OUT_DIM, device=device)
+  corr.eval()
+  theta = torch.from_numpy(
+    np.random.default_rng(73).standard_normal((8, len(names)))).float().to(device)
+  with torch.no_grad():
+    enc      = new_pgeom.encode(theta)
+    composed = chi2fn.decode(corr(enc), enc)          # in-memory (8, n_keep)
+
+  # save the transfer artifact exactly as the driver assembles it.
+  corr_recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
+                 "ia": None, "input_dim": int(in_dim), "output_dim": OUT_DIM,
+                 "compile_mode": None, "needs_geom": False,
+                 "kwargs": {"int_dim_res": 16, "n_blocks": 1,
+                            "block_opts": {"act": {"type": "H", "n_gates": 3},
+                                           "norm": "affine"}}}
+  transfer_base = {"recipe": base.recipe, "state": base.model.state_dict(),
+                   "param_geometry": base.pgeom, "dv_geometry": base.geom,
+                   "form": "gain", "space": "physical"}
+  saved = Path(tmp) / "life_transfer"
+  save_emulator(path_root=str(saved), model=corr, param_geometry=new_pgeom,
+                geometry=geom, config=base_config(), histories=histories(),
+                train_args=base_config()["train_args"],
+                resolved_train={"nepochs": 1}, resolved_model=corr_recipe,
+                transfer_base=transfer_base, attrs={"rescale": "none"})
+
+  # rebuild + compose again through the transfer decoder.
+  model_r, pgeom_r, geom_r, info = rebuild_emulator(
+    str(saved), device, compile_model=False)
+  report("lifecycle: rebuild returns the embedded base + form/space",
+         info["transfer_base"] is not None and info["transfer_form"] == "gain"
+         and info["transfer_space"] == "physical",
+         "form " + str(info["transfer_form"]) + "/"
+         + str(info["transfer_space"]))
+  base_r = info["transfer_base"]
+  chi2_r = TransferChi2(geom=geom_r, base_net=base_r["model"],
+                        base_in_dim=len(base_r["pgeom"].names), form="gain",
+                        space="physical", n_templates=1, n_amps=0,
+                        coeff_fn=None)
+  with torch.no_grad():
+    composed_r = chi2_r.decode(model_r(pgeom_r.encode(theta)),
+                               pgeom_r.encode(theta))
+  report("lifecycle: save -> rebuild -> composed predict bitwise == in-memory",
+         torch.equal(composed, composed_r),
+         "max|d| = " + format(float((composed - composed_r).abs().max()), ".2e"))
+
+  # the full inference path composes too (dv_return 3x2pt to skip sectioning).
+  predictor = EmulatorPredictor(str(saved), device, dv_return="3x2pt")
+  row = {}
+  for i, nm in enumerate(names):
+    row[nm] = float(theta[0, i])
+  got  = predictor.predict(row)
+  want = geom.unsqueeze(composed[:1]).detach().cpu().numpy()[0]
+  report("lifecycle: EmulatorPredictor.predict bitwise == in-memory unsqueeze",
+         np.array_equal(got, want),
+         "max|d| = " + format(float(np.abs(got - want).max()), ".2e"))
+
+  # chaining refused: the saved transfer cannot be loaded as a new base (D-TP2).
+  raised = False
+  try:
+    warmstart.load_source(root=str(saved), device=device, allow_factored=True)
+  except ValueError:
+    raised = True
+  report("lifecycle: chaining refused (a transfer cannot be a base)", raised,
+         "load_source rejects the embedded transfer_base group")
+
+
 def main():
   """Build synthetic plain + factored bases and run the transfer-identity checks.
 
@@ -402,6 +503,7 @@ def main():
   check_base("factored", factored_root, device, tmp, factored=True)
   check_zero_init(device)
   check_errors(device, plain_root)
+  check_lifecycle(device, tmp)
 
   print("")
   if len(FAILURES) == 0:

@@ -127,18 +127,34 @@ class EmulatorPredictor:
     ia       = info["ia"]
     pce_base = info["pce_base"]
     pce_form = info["pce_form"]
+    # a transfer artifact embeds its frozen base (info["transfer_base"] holds
+    # the rebuilt base model + both geometries; form / space say how to
+    # compose). On such a run info["ia"] is the CORRECTION net's inherited
+    # design, consumed by the transfer decoder, not a standalone factored run.
+    transfer_base  = info.get("transfer_base")
+    transfer_form  = info.get("transfer_form")
+    transfer_space = info.get("transfer_space")
     if ia is not None and pce_base is not None:
       raise ValueError(
         "the saved emulator carries both a factored-IA design and an NPCE "
         "base; the two are mutually exclusive (pce excludes ia), so the "
         "file is inconsistent")
+    if transfer_base is not None and pce_base is not None:
+      raise ValueError(
+        "the saved emulator carries both a transfer base and an NPCE base; "
+        "the two are mutually exclusive (transfer excludes pce), so the file "
+        "is inconsistent")
 
     # the physical-dv decoder: reuse the EXACT training chi2fn.decode so the
-    # amplitude combine / NPCE recombine are single-sourced, never re-derived
-    # here (the drift channel the standing rule kills).
+    # amplitude combine / NPCE recombine / transfer composition are
+    # single-sourced, never re-derived here (the drift channel the standing
+    # rule kills).
     self._decode = self._build_decoder(ia=ia,
                                        pce_base=pce_base,
-                                       pce_form=pce_form)
+                                       pce_form=pce_form,
+                                       transfer_base=transfer_base,
+                                       transfer_form=transfer_form,
+                                       transfer_space=transfer_space)
 
     # the input dtype the geometry was whitened in (build theta to match, so
     # encode reproduces training exactly); unwrap the factored geometry's
@@ -146,25 +162,65 @@ class EmulatorPredictor:
     base_pg     = getattr(self.pgeom, "pg_keep", self.pgeom)
     self._dtype = base_pg.center.dtype
 
-  def _build_decoder(self, ia, pce_base, pce_form):
+  def _build_decoder(self, ia, pce_base, pce_form,
+                     transfer_base=None, transfer_form=None,
+                     transfer_space=None):
     """Pick the whitened-output -> physical-dv map for this run's branch.
 
     Reconstructs the same loss object training used, purely for its decode
-    (geom + the amplitude polynomial, or geom + the frozen base), so the
-    combine / recombine math keeps one definition. The plain branch needs no
-    loss object -- the module output IS the whitened dv, so geom.decode alone.
+    (geom + the amplitude polynomial, geom + the frozen NPCE base, or the
+    frozen transfer base composed by form/space), so the combine / recombine /
+    compose math keeps one definition. The plain branch needs no loss object,
+    the module output IS the whitened dv, so geom.decode alone.
 
     Arguments:
-      ia       = the factored design name (nla / tatt) or None.
-      pce_base = the frozen PCEEmulator base or None.
-      pce_form = the NPCE form (residual / ratio) or None.
+      ia             = the factored design name (nla / tatt) or None.
+      pce_base       = the frozen PCEEmulator base or None.
+      pce_form       = the NPCE form (residual / ratio) or None.
+      transfer_base  = the rebuilt frozen transfer base bundle ({model, pgeom,
+                       geom}) or None. When set it wins: the module output is
+                       the CORRECTION, composed with the base by the transfer
+                       decoder (its own family read from the base geometry +
+                       ia). ia here is the correction's inherited design.
+      transfer_form  = the transfer combination form (gain / sum) or None.
+      transfer_space = the transfer composition space (physical / whitened).
 
     Returns:
       a callable (pred, x_enc) -> (1, n_keep) physical dv; the plain closure
-      ignores x_enc, the factored / NPCE branches read the appended
+      ignores x_enc, the factored / NPCE / transfer branches read the appended
       amplitudes / evaluate the base from it.
     """
     geom = self.geom
+    if transfer_base is not None:
+      # the transfer decoder composes the frozen base with the correction on
+      # the D-TP3 slice contract, exactly as training did (TransferChi2.decode
+      # single-sourced). The base family (plain vs factored) is read off the
+      # embedded base geometry; a factored base's coeff_fn / template count
+      # come from the correction's inherited design (ia).
+      from .losses.transfer import TransferChi2
+      base_pg = transfer_base["pgeom"]
+      if type(base_pg).__name__ == "AmplitudeFactorGeometry":
+        from .experiment import IA_DESIGNS
+        des         = IA_DESIGNS[ia]
+        base_in_dim = len(base_pg.pg_keep.names)
+        n_amps      = base_pg.n_amps
+        n_templates = des["n_templates"]
+        coeff_fn    = des["coeff_fn"]
+      else:
+        base_in_dim = len(base_pg.names)
+        n_amps      = 0
+        n_templates = 1
+        coeff_fn    = None
+      chi2 = TransferChi2(geom=geom,
+                          base_net=transfer_base["model"],
+                          base_in_dim=base_in_dim,
+                          form=transfer_form,
+                          space=transfer_space,
+                          n_templates=n_templates,
+                          n_amps=n_amps,
+                          coeff_fn=coeff_fn)
+      return chi2.decode
+
     if ia is not None:
       from .losses.ia import TemplateFactoredChi2
       from .experiment import IA_DESIGNS

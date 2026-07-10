@@ -62,6 +62,13 @@ data:
 # model: block, whose architecture is then inherited from the source). See
 # example_yamls/finetune_emulator_cosmic_shear.yaml and
 # notes/finetune-warm-start.md.
+#
+# Transfer learning (a frozen base + a small parallel correction net, for a
+# larger model extension like Early Dark Energy + w(z)-PCA): add a top-level
+# transfer: block (from / form / space) and keep a model: block describing the
+# correction net's capacity. See
+# example_yamls/transfer_emulator_cosmic_shear.yaml and
+# notes/transfer-parallel-emulator.md.
 
 train_args:
   nepochs:   1600

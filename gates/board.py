@@ -910,18 +910,21 @@ def gate_tpe_b(ctx):
     label="transfer-smoke banner names the base and form",
     ok=logscan.search(text=out, pattern=r"transfer: from "),
     detail="print_design must announce the base + form/space")
-  # TPE V1 ships WITHOUT the artifact lifecycle (TPE-1b): the driver must
-  # REFUSE the save loudly (persisting the correction net alone would be a
-  # silently wrong artifact wearing the normal schema). This assertion is
-  # REPLACED in TPE-1b by the real save + provenance-attr legs.
+  # TPE-1b: the artifact lifecycle now lands, so the run SAVES a self-contained
+  # transfer artifact (the correction net + the embedded frozen base). Assert
+  # the save completed and its two output paths printed.
   ctx.expect(
-    label="transfer-smoke refuses to save (TPE-1b guard)",
-    ok=logscan.search(text=out, pattern=r"transfer run: artifact NOT saved"),
-    detail="no correction-only artifact may exist before the "
-           "transfer_base embed lands")
-  ctx.log("TPE-1b will land the save/rebuild lifecycle; then this gate "
-          "gains the transfer_from attr + embedded transfer_base group + "
-          "rebuild round-trip legs the Architect confirms from the artifact.")
+    label="transfer-smoke saved the transfer artifact",
+    ok=logscan.search(text=out, pattern=r"saved emulator ->")
+       and logscan.search(text=out, pattern=r"saved run record ->"),
+    detail="the composed run persists a reloadable artifact "
+           "(the transfer_base embed landed in TPE-1b)")
+  ctx.log("transfer-smoke artifact provenance + round-trip: the saved .h5 "
+          "carries the transfer_from root attr + the embedded transfer_base "
+          "group, and rebuild_emulator -> composed predict reproduces the "
+          "in-memory composition bitwise (the transfer-identity lifecycle leg "
+          "proves the mechanism; the Architect confirms it on this artifact "
+          "from the workstation).")
 
 
 # --------------------------------------------------------------------------

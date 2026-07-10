@@ -140,7 +140,8 @@ def save_emulator(path_root,
                   pce=None,
                   pce_form=None,
                   resolved_train=None,
-                  resolved_model=None):
+                  resolved_model=None,
+                  transfer_base=None):
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
@@ -168,6 +169,13 @@ def save_emulator(path_root,
                      multi_index / C / Vk / Ybar) plus a "form" attr, so
                      PCEEmulator.from_state rebuilds the base with no
                      refit and no cosmolike (the refiner .emul unchanged).
+    transfer_base/   (transfer runs only) the frozen base emulator embedded
+                     whole: its own model_recipe (yaml), a state/ subgroup of
+                     the base weights (name -> tensor), param_geometry/ and
+                     dv_geometry/ states with cls markers, and form / space
+                     attrs. The main model above is then the correction net and
+                     the main geometries are the run's; rebuild composes the
+                     two (D-TP6). Self-contained: no reference to the base file.
     history/         per-epoch training curves: train_losses,
                      val_medians, val_means, val_fracs (one row per
                      epoch, one column per threshold), thresholds.
@@ -279,6 +287,40 @@ def save_emulator(path_root,
       g = f.create_group("pce")
       write_state(g, pce.state())
       g.attrs["form"] = pce_form
+
+    # transfer_base (present only when the run used a transfer: block): the
+    # frozen base emulator embedded whole, so the transfer artifact is
+    # self-contained and survives the base file moving (D-TP6, never a path
+    # reference). Its own model_recipe + state_dict + both geometry states
+    # (with cls markers) let rebuild reconstruct the base exactly, and the
+    # form / space attrs tell the predictor how to compose. The main model /
+    # geometries / recipe above are the correction net and the run geometries.
+    if transfer_base is not None:
+      tb = f.create_group("transfer_base")
+      tb.create_dataset("model_recipe",
+                        data=yaml.safe_dump(transfer_base["recipe"],
+                                            sort_keys=False),
+                        dtype=str_dt)
+      # the base weights as a name -> tensor subgroup (state dict keys carry
+      # dots, not h5 "/" separators, so each is one dataset).
+      state_grp = tb.create_group("state")
+      for k, v in transfer_base["state"].items():
+        state_grp.create_dataset(k, data=v.detach().cpu().numpy())
+      # both base geometry states + their class markers (the same
+      # write_state + cls pattern the main geometries use, so a factored
+      # AmplitudeFactorGeometry base rebuilds as itself).
+      base_pg = transfer_base["param_geometry"]
+      pg_grp  = tb.create_group("param_geometry")
+      write_state(pg_grp, base_pg.state())
+      pg_grp.attrs["cls"] = (type(base_pg).__module__ + "."
+                             + type(base_pg).__qualname__)
+      base_dv = transfer_base["dv_geometry"]
+      dv_grp  = tb.create_group("dv_geometry")
+      write_state(dv_grp, base_dv.state())
+      dv_grp.attrs["cls"] = (type(base_dv).__module__ + "."
+                             + type(base_dv).__qualname__)
+      tb.attrs["form"]  = transfer_base["form"]
+      tb.attrs["space"] = transfer_base["space"]
 
     # per-epoch histories; fracs stack to (nepochs, n_thresholds).
     hg = f.create_group("history")
@@ -461,41 +503,83 @@ def rebuild_emulator(path_root, device, compile_model=True):
       pce_form = _need(pce_grp, "form", "pce group")
       pce_base = PCEEmulator.from_state(pce_grp, device)
 
-  # rebuild the module from the recipe (h5-only; a missing key is loud).
-  cls_path = _need(recipe, "cls", "model_recipe")
-  mod_name, _, qual = cls_path.rpartition(".")
-  cls = getattr(importlib.import_module(mod_name), qual)
-  kwargs = dict(_need(recipe, "kwargs", "model_recipe"))
-  # re-make the factory objects from their serialized names.
-  if "block_opts" in kwargs:
-    bo  = kwargs["block_opts"]
-    act = _need(bo, "act", "model_recipe.kwargs.block_opts")
-    kwargs["block_opts"] = {
-      "act": make_activation(_need(act, "type", "block_opts.act"),
-                             n_gates=_need(act, "n_gates", "block_opts.act")),
-      "norm": make_norm(_need(bo, "norm", "model_recipe.kwargs.block_opts")),
-    }
-  if kwargs.get("head_act") is not None:
-    ha = kwargs["head_act"]
-    kwargs["head_act"] = make_activation(
-      _need(ha, "type", "head_act"),
-      n_gates=_need(ha, "n_gates", "head_act"))
-  if _need(recipe, "needs_geom", "model_recipe"):
-    kwargs["geom"] = geom
-  model = cls(input_dim=_need(recipe, "input_dim", "model_recipe"),
-              output_dim=_need(recipe, "output_dim", "model_recipe"),
-              **kwargs).to(device)
-  # the .emul holds the plain (compile-prefix-stripped) state_dict; load it
-  # strict into the eager module, then re-compile per the recipe on CUDA (the
-  # NPCE base, when present, rides on pce_base above).
-  sd = torch.load(path_root + ".emul", map_location=device)
-  model.load_state_dict(sd, strict=True)
-  model.eval()
-  cm = recipe.get("compile_mode")
-  if compile_model and device.type == "cuda" and cm is not None:
-    model = torch.compile(model, mode=cm)
+    # transfer_base (a transfer artifact only): read the embedded frozen base's
+    # recipe, weights, and both geometries; the model is reconstructed below,
+    # after the main model, through the shared helper. form / space tell the
+    # predictor how to compose base + correction (D-TP6).
+    tb_recipe = None
+    tb_state  = None
+    tb_pgeom  = None
+    tb_geom   = None
+    tb_form   = None
+    tb_space  = None
+    if "transfer_base" in f:
+      tb        = f["transfer_base"]
+      tb_recipe = yaml.safe_load(tb["model_recipe"][()])
+      tb_state  = _read_group(tb["state"])
+      tb_pgeom  = _rebuild_geometry(tb["param_geometry"],
+                                    "transfer_base param_geometry group")
+      tb_geom   = _rebuild_geometry(tb["dv_geometry"],
+                                    "transfer_base dv_geometry group")
+      tb_form   = tb.attrs.get("form")
+      tb_space  = tb.attrs.get("space")
+
+  def _rebuild_model(rc, geom_for_needs, state, want_compile):
+    # Reconstruct one module from its recipe + state dict (h5-only, a missing
+    # key loud). Shared by the main model (the correction net on a transfer
+    # run, or the plain emulator otherwise) and the embedded transfer base, so
+    # the recipe -> constructor logic lives once. state is already the plain
+    # (compile-prefix-stripped) name -> tensor mapping to load strict.
+    cls_path = _need(rc, "cls", "model_recipe")
+    mn, _, qn = cls_path.rpartition(".")
+    cls = getattr(importlib.import_module(mn), qn)
+    kwargs = dict(_need(rc, "kwargs", "model_recipe"))
+    # re-make the factory objects from their serialized names.
+    if "block_opts" in kwargs:
+      bo  = kwargs["block_opts"]
+      act = _need(bo, "act", "model_recipe.kwargs.block_opts")
+      kwargs["block_opts"] = {
+        "act": make_activation(_need(act, "type", "block_opts.act"),
+                               n_gates=_need(act, "n_gates", "block_opts.act")),
+        "norm": make_norm(_need(bo, "norm", "model_recipe.kwargs.block_opts")),
+      }
+    if kwargs.get("head_act") is not None:
+      ha = kwargs["head_act"]
+      kwargs["head_act"] = make_activation(
+        _need(ha, "type", "head_act"),
+        n_gates=_need(ha, "n_gates", "head_act"))
+    if _need(rc, "needs_geom", "model_recipe"):
+      kwargs["geom"] = geom_for_needs
+    m = cls(input_dim=_need(rc, "input_dim", "model_recipe"),
+            output_dim=_need(rc, "output_dim", "model_recipe"),
+            **kwargs).to(device)
+    m.load_state_dict(state, strict=True)
+    m.eval()
+    cm = rc.get("compile_mode")
+    if want_compile and device.type == "cuda" and cm is not None:
+      m = torch.compile(m, mode=cm)
+    return m
+
+  # the main model: the correction net (transfer run) or the plain emulator.
+  # the .emul holds its plain state dict; re-compile per the recipe on CUDA.
+  sd    = torch.load(path_root + ".emul", map_location=device)
+  model = _rebuild_model(rc=recipe, geom_for_needs=geom, state=sd,
+                         want_compile=compile_model)
+
+  # the frozen transfer base, rebuilt from the embedded recipe + weights +
+  # geometries (never compiled: a batch-1 no_grad component of the predictor).
+  transfer_base = None
+  if tb_recipe is not None:
+    base_model = _rebuild_model(rc=tb_recipe, geom_for_needs=tb_geom,
+                                state=tb_state, want_compile=False)
+    transfer_base = {"model": base_model,
+                     "pgeom": tb_pgeom,
+                     "geom":  tb_geom}
   return model, pgeom, geom, {
-    "ia":       _need(recipe, "ia", "model_recipe"),
-    "pce_base": pce_base,
-    "pce_form": pce_form,
+    "ia":             _need(recipe, "ia", "model_recipe"),
+    "pce_base":       pce_base,
+    "pce_form":       pce_form,
+    "transfer_base":  transfer_base,
+    "transfer_form":  tb_form,
+    "transfer_space": tb_space,
   }
