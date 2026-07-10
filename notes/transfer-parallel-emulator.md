@@ -710,3 +710,14 @@ leg now asserts the TPE-2 rule: refine knobs are required-explicit (the
 anchor precedent), an incomplete block is a loud ValueError. All 36
 substantive assertions had already passed; finetune-identity closed
 19/19 with the four anchor legs green in the same pass.
+
+**Delta D-TPE2-3 (2026-07-10, Architect):** the predictor lifecycle leg
+demanded bitwise across DIFFERENT compute paths (batch-1 dict-input
+inference vs a row sliced from the batch-64 reference) and failed at
+exactly one float32 ulp (1.19e-07) after TPE-2's drifted-when-present
+branch shifted the kernel path. Third instance of the kernel-reassociation
+caveat (pre-authorized in the FTW audit): bitwise stays demanded ONLY on
+same-computation legs (save->rebuild->composed-predict, 0.00e+00 this
+run; the refined-base leg, 0.00e+00); the predictor leg relaxes to 1e-6.
+41/42 substantive assertions were already green, including both refined
+conditions (drifted-base bitwise + two-way consistency).

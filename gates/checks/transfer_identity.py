@@ -468,8 +468,14 @@ def check_lifecycle(device, tmp):
     row[nm] = float(theta[0, i])
   got  = predictor.predict(row)
   want = geom.unsqueeze(composed[:1]).detach().cpu().numpy()[0]
-  report("lifecycle: EmulatorPredictor.predict bitwise == in-memory unsqueeze",
-         np.array_equal(got, want),
+  # NOT bitwise: the predictor runs batch-1 on the dict-input inference path
+  # while the reference row is sliced from the batch-64 in-memory run --
+  # different matmul shapes regroup the float reductions (~1 ulp; the same
+  # kernel-reassociation caveat pre-authorized in the FTW audit). Bitwise is
+  # only demanded where the path is literally the same computation (the
+  # save -> rebuild -> composed-predict leg above).
+  report("lifecycle: EmulatorPredictor.predict == in-memory unsqueeze (1e-6)",
+         bool(np.abs(got - want).max() <= 1.0e-6),
          "max|d| = " + format(float(np.abs(got - want).max()), ".2e"))
 
   # chaining refused: the saved transfer cannot be loaded as a new base (D-TP2).
