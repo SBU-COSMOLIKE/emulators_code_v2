@@ -625,10 +625,12 @@ def validate_pce(pce, rescale="none", ia=None):
   return out
 
 
-# the top-level transfer: block keys. "refine" is recognized only to reject it
-# with a not-yet-implemented message (the joint-refinement stage is D-TP10 /
-# unit 2, not TPE V1).
-TRANSFER_KEYS = ("from", "form", "space")
+# the top-level transfer: block keys. "refine" is the optional joint-refinement
+# stage (D-TP10): unfreeze the base for a second training stage.
+TRANSFER_KEYS = ("from", "form", "space", "refine")
+# the refine: sub-block keys. anchor is REQUIRED when refine: is present (an
+# explicit 0.0 states free fine-tuning deliberately, never a silent default).
+_REFINE_KEYS = ("epochs", "base_lr_scale", "anchor")
 
 
 def validate_transfer(cfg, train_args, rescale="none"):
@@ -665,13 +667,6 @@ def validate_transfer(cfg, train_args, rescale="none"):
     raise TypeError(
       "the transfer: block must be a mapping (from / form / space), got "
       + type(transfer).__name__)
-  # the joint-refinement stage is a separate unit (D-TP10); reject it loudly
-  # rather than let it fall through as an unknown key.
-  if "refine" in transfer:
-    raise NotImplementedError(
-      "transfer.refine (the joint base + correction refinement stage) is not "
-      "implemented in TPE V1; it lands as unit 2 (D-TP10). Remove the refine: "
-      "block for a frozen-base run")
   unknown = set(transfer) - set(TRANSFER_KEYS)
   if unknown:
     raise KeyError(
@@ -739,6 +734,47 @@ def validate_transfer(cfg, train_args, rescale="none"):
                 "additive output spans the decades whitening exists to tame); "
                 "sum/whitened is advised")
   resolved = {"from": transfer["from"], "form": form, "space": space}
+
+  # the optional refine: stage (D-TP10): a second, joint training stage with
+  # the base unfrozen. Validated + materialized here (persist-resolved-values).
+  refine = transfer.get("refine")
+  if refine is not None:
+    if not isinstance(refine, dict):
+      raise TypeError(
+        "transfer.refine must be a mapping (epochs / base_lr_scale / anchor), "
+        "got " + type(refine).__name__)
+    unknown_r = set(refine) - set(_REFINE_KEYS)
+    if unknown_r:
+      raise KeyError(
+        "unknown transfer.refine key(s): " + str(sorted(unknown_r))
+        + "; allowed: " + str(list(_REFINE_KEYS)))
+    epochs = refine.get("epochs")
+    if not isinstance(epochs, int) or isinstance(epochs, bool) or epochs < 1:
+      raise ValueError(
+        "transfer.refine.epochs must be a positive integer (the stage-2 "
+        "epoch count), got " + repr(epochs))
+    scale = refine.get("base_lr_scale")
+    if (isinstance(scale, bool) or not isinstance(scale, (int, float))
+        or scale <= 0.0):
+      raise ValueError(
+        "transfer.refine.base_lr_scale must be a positive number (the base "
+        "group's lr as a multiple of the run lr), got " + repr(scale))
+    # anchor is REQUIRED (0.0 = free fine-tuning, stated deliberately); no
+    # silent default for a physics-consequential knob.
+    if "anchor" not in refine:
+      raise KeyError(
+        "transfer.refine.anchor is required when refine: is present: the "
+        "L2-SP strength lambda pulling the base back toward its pretrained "
+        "weights. An explicit 0.0 states free fine-tuning deliberately")
+    anchor = refine["anchor"]
+    if isinstance(anchor, bool) or not isinstance(anchor, (int, float)) \
+        or anchor < 0.0:
+      raise ValueError(
+        "transfer.refine.anchor must be a number >= 0 (the L2-SP strength; "
+        "0.0 = free fine-tuning), got " + repr(anchor))
+    resolved["refine"] = {"epochs": int(epochs),
+                          "base_lr_scale": float(scale),
+                          "anchor": float(anchor)}
   return resolved, notice
 
 
@@ -1175,6 +1211,8 @@ class EmulatorExperiment:
     # parameter names, set by from_config / build_geometry. None on an ordinary
     # run, which every transfer branch below guards on (absent = byte-identical).
     self._transfer_base = None
+    self._transfer_refine = None
+    self._transfer_pretrained_base = None
     self._transfer_root = None
     self._transfer_form = None
     self._transfer_space = None
@@ -1325,6 +1363,7 @@ class EmulatorExperiment:
         flag_type=explicit_flag, head_block=head_block, head_pin=head_pin)
       exp._transfer_base         = base
       exp._transfer_root         = base_root
+      exp._transfer_refine       = resolved_tr.get("refine")
       exp._transfer_form         = resolved_tr["form"]
       exp._transfer_space        = resolved_tr["space"]
       exp._transfer_space_notice = space_notice
@@ -1513,6 +1552,12 @@ class EmulatorExperiment:
       self.log(f"transfer: from {self._transfer_base.root}  |  "
                f"form {self._transfer_form}/{self._transfer_space}  |  "
                f"extras: {extra_str}")
+      # refine stage (D-TP10): the stage-2 joint pass, when present.
+      rf = self._transfer_refine
+      if rf is not None:
+        self.log(f"transfer refine: {rf['epochs']} epochs, base unfrozen "
+                 f"(lr x{rf['base_lr_scale']:g}, anchor lambda "
+                 f"{rf['anchor']:g})")
       notice_tr = getattr(self, "_transfer_space_notice", None)
       if notice_tr is not None:
         self.log(notice_tr)
@@ -2220,8 +2265,9 @@ class EmulatorExperiment:
     # the checked-exactness fact, not per-epoch chatter). None on a plain run,
     # so run_emulator's init_state stays absent and the run is byte-identical.
     init_state = None
+    anchor_spec = None
     if self._finetune is not None:
-      init_state, verdict = warmstart.build_warm_start(
+      init_state, verdict, padded_keys = warmstart.build_warm_start(
         source=self._finetune,
         new_pgeom=self.pgeom,
         pinned_geom=self.geom,
@@ -2230,6 +2276,27 @@ class EmulatorExperiment:
         extra_names=self._finetune_extra_names,
         device=self.device)
       self.log(verdict)
+      # finetune.anchor (optional L2-SP): pull the trained weights back toward
+      # the transferred init_state, with the padded extra columns excluded from
+      # the pull. Absent = no anchor, byte-identical. weight_decay decays toward
+      # 0 (away from the source), so recommend 0.0 beside a nonzero anchor.
+      ft_block = train_args.get("finetune", {})
+      if ft_block.get("anchor") is not None:
+        lam = float(ft_block["anchor"])
+        anchor_spec = {
+          "reference": init_state,
+          "masks": warmstart.anchor_masks(
+            init_state=init_state,
+            padded_keys=padded_keys,
+            n_extra=len(self._finetune_extra_names),
+            device=self.device),
+          "lam": lam,
+        }
+        if (lam > 0.0
+            and specs["opt_opts"].get("weight_decay", 0.0) > 0.0):
+          self.log("note: finetune.anchor is set with weight_decay > 0; the "
+                   "decay pulls toward 0 (away from the source), so consider "
+                   "optimizer.weight_decay 0.0 beside the anchor")
     elif self._transfer_base is not None:
       # transfer: zero-init the correction's final layer and run the bitwise
       # parity gate (epoch 0 == the frozen base), then hand run_emulator the
@@ -2242,6 +2309,16 @@ class EmulatorExperiment:
         extra_names=self._transfer_extra_names,
         device=self.device)
       self.log(verdict)
+      # transfer refine (D-TP10): keep a clone of the PRETRAINED base weights
+      # before stage 2 unfreezes and drifts them. The saved artifact's
+      # transfer_base group stays the pretrained base (provenance + the anchor
+      # reference); the driver reads this clone for it. None on a frozen-only
+      # transfer run.
+      if self._transfer_refine is not None:
+        pre = {}
+        for k, v in self._transfer_base.model.state_dict().items():
+          pre[k] = v.detach().clone()
+        self._transfer_pretrained_base = pre
 
     # run_emulator (training.py): build the model / optimizer / scheduler
     # from the specs and the regime-aware loaders, train nepochs with a
@@ -2292,6 +2369,15 @@ class EmulatorExperiment:
       # run). make_model loads them strict into the eager module before compile
       # (D-FT6); everything else in the loop stays fresh.
       init_state=init_state,
+      # finetune.anchor: the decoupled L2-SP pull toward the transferred
+      # weights (None on a plain / un-anchored run; the shared anchor facility,
+      # training.build_anchor). The transfer refine stage's base anchor is a
+      # separate spec (D-TP10).
+      anchor=anchor_spec,
+      # transfer refine (D-TP10): the resolved {epochs, base_lr_scale, anchor}
+      # for the optional stage-2 joint pass (None = a frozen-only run). Its own
+      # base-group anchor is built inside run_emulator.
+      refine=self._transfer_refine,
       thresholds=self.thresholds,
       use_amp=self.use_amp,
       silent=silent_run,
@@ -2328,6 +2414,9 @@ class EmulatorExperiment:
         "space":       self._transfer_space,
         "extra_names": " ".join(self._transfer_extra_names),
       }
+      # the resolved refine block (materialized), present only on a refined run.
+      if self._transfer_refine is not None:
+        self.resolved_train["transfer"]["refine"] = dict(self._transfer_refine)
     return (self.model, self.train_losses, self.medians,
             self.means, self.fracs)
 

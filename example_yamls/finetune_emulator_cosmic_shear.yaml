@@ -57,6 +57,13 @@ train_args:
     #                          # torch.compile mode for this machine
     #                          # (reduce-overhead / default / null = eager).
     #                          # Absent = the mode the source was saved with.
+    # anchor:        1.0e-3    # optional L2-SP strength (TPE-2): a decoupled
+    #                          # pull back toward the transferred weights (the
+    #                          # continuous dial between frozen and free; the
+    #                          # padded extra columns are excluded). Absent =
+    #                          # no anchor. 0.0 = free fine-tuning, stated
+    #                          # deliberately. Recommend optimizer.weight_decay
+    #                          # 0.0 beside a nonzero anchor.
 
   # The lower learning rate is NOT a new knob: it is just a smaller lr_base
   # here (one decade below the source run is the starting recommendation).

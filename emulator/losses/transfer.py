@@ -142,6 +142,12 @@ class TransferChi2(CosmolikeChi2):
     self.n_amps      = int(n_amps)
     self.coeff_fn    = coeff_fn
     self.factored    = coeff_fn is not None
+    # live-base mode (the transfer refine stage, D-TP10): when True the base is
+    # re-evaluated WITH grad each step (it is unfrozen and training) instead of
+    # unpacked from the staged target; the truth half of the packed target is
+    # still used, so no re-staging is needed. False (default) = the frozen
+    # stage-1 behavior, byte-identical.
+    self.live        = False
 
   @property
   def target_dim(self):
@@ -177,16 +183,31 @@ class TransferChi2(CosmolikeChi2):
       return torch.cat([shared, amps], dim=1)
     return enc[:, :self.base_in_dim]            # (B, n_s) whitened block
 
+  def set_live(self, flag):
+    """Switch the base between frozen (packed) and live (re-evaluated) mode.
+
+    Arguments:
+      flag = True for the refine stage (the base trains, evaluated with grad);
+             False for the frozen stage-1 default.
+    """
+    self.live = bool(flag)
+
   def _base(self, enc):
-    """Run the frozen base once, under no_grad.
+    """Run the base on the D-TP3 slice.
+
+    Frozen (the default): under no_grad, so no gradient flows into the base and
+    it is the packed reference. Live (the refine stage): with grad, so the
+    unfrozen base trains.
 
     Arguments:
       enc = (B, encoded_dim) the run's whitened parameters.
 
     Returns:
       (B, n_keep) whitened dv (plain), or (B, T, n_keep) whitened templates
-      (factored); no gradient flows into the base.
+      (factored).
     """
+    if self.live:
+      return self.base_net(self._base_input(enc))
     with torch.no_grad():
       return self.base_net(self._base_input(enc))
 
@@ -360,7 +381,15 @@ class TransferChi2(CosmolikeChi2):
     """
     if params_whitened is None:
       params_whitened = self._params
-    base_repr, truth = self._unpack(target)
+    if self.live:
+      # refine stage: re-evaluate the (unfrozen, drifting) base with grad; the
+      # truth half of the packed target is still valid (only the base changes),
+      # so no re-staging. The base representation matches the frozen path, so
+      # the stage-1 -> stage-2 handoff is loss-continuous.
+      base_repr = self._base_in_space(self._base(params_whitened))
+      truth     = self._truth_half(target)
+    else:
+      base_repr, truth = self._unpack(target)
     if self.space == "physical":
       pred_phys = self._composed_physical(
         base_repr=base_repr, correction=pred, enc=params_whitened)
@@ -401,6 +430,40 @@ class TransferChi2(CosmolikeChi2):
     if self.factored:
       return self._unwhiten_templates(base_w)
     return self.geom.decode(base_w)
+
+  def _base_in_space(self, base_w):
+    """The base representation in the chosen space (the base half of encode).
+
+    Used by the live (refine) chi2 to convert the freshly-evaluated base to the
+    same representation the frozen path packs, so the composition is identical
+    given the same base weights.
+
+    Arguments:
+      base_w = the base's whitened output (plain (B, n_keep) / factored
+               (B, T, n_keep)).
+
+    Returns:
+      the base in `space`: physical -> geom.decode (plain) / per-template
+      un-whitened (factored); whitened -> base_w unchanged.
+    """
+    if self.space == "physical":
+      return self._space_base_physical(base_w)
+    return base_w
+
+  def _truth_half(self, target):
+    """The truth half of a packed target (the base half is ignored when live).
+
+    Arguments:
+      target = (B, target_dim) the packed [base ; truth] staged at load.
+
+    Returns:
+      (B, n_keep) the truth in `space` (unchanged across stages, so the refine
+      stage reuses it without re-staging).
+    """
+    nk = self.geom.dest_idx.numel()
+    if self.factored:
+      return target[:, self.n_templates * nk:]
+    return target[:, nk:]
 
   def base_decode(self, params_whitened):
     """The frozen base's own physical decode, in this loss's space.

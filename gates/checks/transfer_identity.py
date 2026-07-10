@@ -479,6 +479,89 @@ def check_lifecycle(device, tmp):
          "load_source rejects the embedded transfer_base group")
 
 
+def check_refined_lifecycle(device, tmp):
+  """(refine artifact, TPE-2) a refined transfer saves the drifted base to a
+  drifted_state group; rebuild composes with the DRIFTED base bitwise, and the
+  transfer_refined attr is two-way consistent with the group (either half alone
+  is a corrupt file)."""
+  base_root = Path(tmp) / "ref_base"
+  save_plain_base(base_root, device)
+  base = warmstart.load_source(root=str(base_root), device=device,
+                               allow_factored=True)
+  names    = list(base.pgeom.names)
+  cov_path = Path(tmp) / "ref.covmat"
+  write_covmat(cov_path, names, seed=81)
+  new_pgeom, _ = warmstart.extend_input_geometry(
+    source=base, covmat_path=str(cov_path),
+    train_mean=np.zeros(len(names)), device=device)
+  geom = base.geom
+
+  # the pretrained clone (kept for transfer_base/state), then drift the base in
+  # place to stand in for stage 2, so the loss composes with the drifted base.
+  pretrained = {}
+  for k, v in base.model.state_dict().items():
+    pretrained[k] = v.detach().clone()
+  with torch.no_grad():
+    for p in base.model.parameters():
+      p.add_(0.05 * torch.randn_like(p))
+  drifted = base.model.state_dict()
+
+  chi2fn = make_transfer(base, geom, "gain", "physical")
+  in_dim = getattr(new_pgeom, "encoded_dim", len(new_pgeom.names))
+  corr   = make_model(model_opts=dict(_correction_opts(base, geom),
+                                      compile_mode=None),
+                      input_dim=in_dim, output_dim=OUT_DIM, device=device)
+  corr.eval()
+  theta = torch.from_numpy(
+    np.random.default_rng(82).standard_normal((8, len(names)))).float().to(device)
+  with torch.no_grad():
+    enc      = new_pgeom.encode(theta)
+    composed = chi2fn.decode(corr(enc), enc)          # in-memory, drifted base
+
+  corr_recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
+                 "ia": None, "input_dim": int(in_dim), "output_dim": OUT_DIM,
+                 "compile_mode": None, "needs_geom": False,
+                 "kwargs": {"int_dim_res": 16, "n_blocks": 1,
+                            "block_opts": {"act": {"type": "H", "n_gates": 3},
+                                           "norm": "affine"}}}
+  transfer_base = {"recipe": base.recipe, "state": pretrained,
+                   "drifted_state": drifted, "param_geometry": base.pgeom,
+                   "dv_geometry": base.geom, "form": "gain", "space": "physical"}
+  saved = Path(tmp) / "ref_transfer"
+  save_emulator(path_root=str(saved), model=corr, param_geometry=new_pgeom,
+                geometry=geom, config=base_config(), histories=histories(),
+                train_args=base_config()["train_args"],
+                resolved_train={"nepochs": 1}, resolved_model=corr_recipe,
+                transfer_base=transfer_base, attrs={"rescale": "none"})
+
+  model_r, pgeom_r, geom_r, info = rebuild_emulator(
+    str(saved), device, compile_model=False)
+  base_r = info["transfer_base"]
+  chi2_r = TransferChi2(geom=geom_r, base_net=base_r["model"],
+                        base_in_dim=len(base_r["pgeom"].names), form="gain",
+                        space="physical", n_templates=1, n_amps=0,
+                        coeff_fn=None)
+  with torch.no_grad():
+    composed_r = chi2_r.decode(model_r(pgeom_r.encode(theta)),
+                               pgeom_r.encode(theta))
+  report("refined: composed predict uses the drifted base, bitwise",
+         torch.equal(composed, composed_r),
+         "max|d| = " + format(float((composed - composed_r).abs().max()), ".2e"))
+
+  # two-way consistency: strip the transfer_refined attr but keep drifted_state;
+  # rebuild must refuse (either half alone is corrupt).
+  import h5py
+  with h5py.File(str(saved) + ".h5", "r+") as f:
+    del f.attrs["transfer_refined"]
+  raised = False
+  try:
+    rebuild_emulator(str(saved), device, compile_model=False)
+  except KeyError:
+    raised = True
+  report("refined: two-way consistency (drifted_state without the attr raises)",
+         raised, "a refined artifact must carry both halves")
+
+
 def main():
   """Build synthetic plain + factored bases and run the transfer-identity checks.
 
@@ -504,6 +587,7 @@ def main():
   check_zero_init(device)
   check_errors(device, plain_root)
   check_lifecycle(device, tmp)
+  check_refined_lifecycle(device, tmp)
 
   print("")
   if len(FAILURES) == 0:

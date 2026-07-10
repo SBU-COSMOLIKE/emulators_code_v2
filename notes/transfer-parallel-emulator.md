@@ -568,3 +568,136 @@ recomputable from the artifact; (4) the composed predictor picks
 drifted-when-present silently — no flag, no fallback ambiguity.
 Per-group-LR finding (warmup/scheduler preserve the group ratio):
 endorsed. Full training-path audit rides the finished handback.
+## TPE-2 execution (2026-07-10, Opus) — refine + the shared anchor facility
+
+Base: main 7d34fc8 (TPE-1b closed). Diffs uncommitted on branch
+claude/amazing-keller-e798b6. The user runs git. Read D-TP9/D-TP10 + the
+finetune-warm-start.md anchor-extension section in full before starting.
+
+### PROPOSAL for audit: the refined-artifact layout (the design-sensitive area)
+
+D-TP10 says "transfer_base keeps the PRETRAINED base; the drifted base
+weights in the main state dict." I propose the SECOND-GROUP variant of that
+(the handoff offered it explicitly), because it keeps the whole V1
+rebuild/predict path and .emul schema byte-identical:
+
+- `transfer_base/` group: UNCHANGED from V1 = the PRETRAINED base (recipe +
+  `state/` + both geometry states + form/space). It is the provenance object
+  AND the anchor reference W_0. Self-contained (D-TP6) exactly as today.
+- `transfer_base/drifted_state/` subgroup: NEW, present only on a refined
+  run = the DRIFTED base weights (name -> tensor), plus a root attr
+  `transfer_refined = True`. Absent on a frozen-only (V1) run, so a V1
+  artifact is byte-identical.
+- Main model + `.emul`: still the CORRECTION net alone (V1 schema unchanged).
+- rebuild: build the base from `transfer_base`'s recipe; load `drifted_state`
+  when present (the predictor composes correction + DRIFTED base), else the
+  pretrained `state` (V1). The pretrained stays available for provenance +
+  drift diagnostics.
+
+Why not the drifted base literally in the main `.emul` under a `base.`
+prefix: that forces rebuild to split correction./base. keys and build a
+composite at inference, branching the V1 predictor path; the second-group
+variant keeps `_rebuild_model(correction)` untouched and only adds "load the
+base's drifted weights if present." The training-time composite (below) is
+split on save, so the artifact layout stays decoupled from the training
+model. The bitwise round-trip gate holds either way (float32-exact weight
+round-trip); the refined-identity leg asserts it. **If the Architect prefers
+the literal main-state-dict form, only the save-split + the rebuild-load
+change; the training path and the anchor facility are identical.**
+
+### The shared anchor facility (built once, both consumers)
+
+Decoupled post-step update, never a loss term (the AdamW-decoupling argument):
+after `optimizer.step()`, under no_grad, `W <- W - lr * lambda * mask *
+(W - W_0)`, `lr` read per optimizer group. Mirrors the EMA post-step in-place
+update already in training_loop_batched (same _foreach pattern, ~tens of us).
+An `Anchor` object holds, per anchored param, (param, reference W_0, mask,
+group index); `apply(optimizer)` does the one in-place step. weight_decay
+decays toward 0 (away from W_0), so an anchored run should set weight_decay
+0.0 (a quiet-gated notice, never an error).
+
+- finetune.anchor: W_0 = the transferred init_state; mask excludes the padded
+  extra columns (transfer_state_dict's padded_keys; those are exact-zero
+  carriers of the new physics, anchoring them to 0 fights the warm start).
+- refine.anchor: W_0 = the PRETRAINED base weights; mask = all-ones (the base
+  has no padded columns); applied only to the base param group in stage 2.
+
+### Status (Mac-limit: compileall + AST; torch + the numpy probes deferred)
+
+**DONE + compile/AST-verified:**
+- Shared anchor facility (training.py): `Anchor` (decoupled post-step
+  `W <- W - lr*lambda*mask*(W-W_0)`, per-group lr, mirrors the EMA in-place
+  update) + `build_anchor` + threaded through `training_loop_batched` and
+  `run_emulator`. The loop's warmup + plateau scheduler were confirmed
+  PER-GROUP safe, so discriminative LRs survive as preserved ratios.
+- finetune.anchor: whitelist + validation (warmstart), `anchor_masks` (padded
+  columns excluded via padded_keys), `build_warm_start` returns padded_keys,
+  experiment builds the anchor spec + weight_decay-0 notice + passes anchor.
+- Refine training path: transfer.py live-base mode (`set_live`, `_base` grad
+  branch, `_base_in_space` / `_truth_half`, chi2 live branch; live=False
+  byte-identical); `TransferComposite` + `make_refine_optimizer` (base @
+  lr*base_lr_scale, correction @ lr, decay split within each); run_emulator
+  `refine=` + the appended stage-2 pass (unfreeze base, capture pretrained
+  W_0, composite, live loss, base-group anchor, train); validate_transfer
+  refine {epochs, base_lr_scale, anchor REQUIRED} + materialization;
+  experiment stashes `_transfer_pretrained_base` before drift + passes refine
+  + the refine banner + resolved_train records the block.
+
+**FINISHED after the Architect ruling (second-group layout APPROVED):**
+1. Refined ARTIFACT (results.py): save writes the drifted base to a
+   `transfer_base/drifted_state/` subgroup + a `transfer_refined` root attr;
+   rebuild enforces the two-way consistency (attr present <=> group present,
+   either half alone is a loud KeyError) and loads the DRIFTED base when
+   present (else pretrained), so the predictor composes with the drifted base
+   silently (no flag, condition 4). Driver: `state` = the pretrained clone,
+   `drifted_state` = the drifted base, `transfer_refined` = True, plus the
+   drift attrs `base_drift_total` + per-layer `base_drift_<name>` (relative
+   norms, recomputable from the file's two states) + a banner line.
+2. Gates: finetune_identity gains `check_anchor` (mask zeroes exactly the
+   padded columns; the decoupled anchor pins the source columns, leaves the
+   extras free, lambda 0 is a no-op). transfer_identity gains
+   `check_refined_lifecycle` (a refined artifact save -> rebuild -> composed
+   predict bitwise with the DRIFTED base + the two-way-consistency refusal).
+   The unrefined byte-identical direction is the existing `check_lifecycle`
+   (a stage-1 save writes no drifted_state / transfer_refined). A refine smoke
+   leg on the board (2+2 epochs, tiny lambda, drift attrs) is the workstation
+   follow-up (needs a real base + dump; the Mac gate owns the mechanism).
+3. Example YAMLs: transfer.refine block + finetune.anchor key added
+   (commented, with the weight_decay-0 recommendation). numpy probes:
+   `tpe2_anchor_probe.py` (decoupled update pins/free + the padded mask) and
+   the existing `tpe_loss_probe.py` (live-mode is additive) both all-green.
+
+**Gate reruns the user must force:** `--force-rerun transfer-identity` (adds
+`check_refined_lifecycle`) and `--force-rerun finetune-identity` (adds
+`check_anchor`). Both are recorded PASS under the old assertions.
+
+**Mac verification:** compileall (whole tree) + AST (run_emulator/loop accept
+anchor+refine, all callers pass them, Anchor/TransferComposite/
+make_refine_optimizer defined) + both numpy probes all-green + board loads 23.
+The torch gate legs (check_anchor, check_refined_lifecycle, the refine
+training) run on the workstation (Mac has no torch/h5py, the established
+pattern).
+
+## Architect audit verdict (TPE-2 final, 2026-07-10, Fable)
+
+**VERDICT: VERIFIED, sign-off conditional on the workstation reruns**
+(the established torch-blind-Mac pattern). Spot-audited at the three
+load-bearing sites: the Anchor's decoupled step runs in place AFTER
+optimizer.step() reading each group's current warmed/scheduled lr (the
+AdamW-decoupling contract, per-group correct); results.py enforces the
+two-way transfer_refined <-> drifted_state consistency with a loud
+refusal on either half alone (ruling condition 1); anchor_masks builds
+the finetune exclusion from padded_keys (the padded-columns rule). The
+second-group layout is implemented per the checkpoint ruling; the two
+Mac probes (decoupled pin/free + mask; live-mode additive) passed. The
+refine-smoke board leg deferred to a real base+dump is accepted — the
+Mac gates own the mechanism, the deciding D-TP9 experiment owns the
+science.
+
+**Workstation:** `--force-rerun transfer-identity` +
+`--force-rerun finetune-identity` (both gained legs); the refine smoke
+rides the first real science base. Green reruns close TPE-2 and the
+INFRASTRUCTURE PROGRAM: scratch / anchored warm-start / frozen-base
+transfer / anchored joint refinement — every path gated, every artifact
+self-describing. The thread after this is science (D-TP9's deciding
+experiment first).

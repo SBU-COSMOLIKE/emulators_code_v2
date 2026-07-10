@@ -51,9 +51,11 @@ from .designs.blocks import make_norm
 
 # the only keys the train_args.finetune block accepts. "from" is the source
 # artifact path root (required); "compile_mode" is the one machine knob allowed
-# beside it (torch.compile mode override for this machine). The lower learning
-# rate is not here: it rides the existing lr: block (a smaller lr_base).
-_FINETUNE_KEYS = ("from", "compile_mode")
+# beside it (torch.compile mode override for this machine); "anchor" is the
+# optional L2-SP strength (a decoupled pull back toward the transferred
+# weights, the shared anchor facility, absent = byte-identical). The lower
+# learning rate is not here: it rides the existing lr: block (a smaller lr_base).
+_FINETUNE_KEYS = ("from", "compile_mode", "anchor")
 
 # the torch.compile modes a finetune.compile_mode override may name (None =
 # plain eager, no compile). Mirrors make_model's compile_mode parameter.
@@ -173,6 +175,15 @@ def validate_finetune_config(cfg, train_args, rescale, activation_flag):
       "train_args.finetune.compile_mode must be one of "
       + str(list(_COMPILE_MODES)) + " (None = plain eager), got "
       + repr(ft["compile_mode"]))
+  # anchor: the optional L2-SP strength lambda (>= 0; 0.0 states free
+  # fine-tuning deliberately). A bool is not a number here (True/False would
+  # be a config typo).
+  if "anchor" in ft:
+    a = ft["anchor"]
+    if isinstance(a, bool) or not isinstance(a, (int, float)) or a < 0.0:
+      raise ValueError(
+        "train_args.finetune.anchor must be a number >= 0 (the L2-SP anchor "
+        "strength; 0.0 = free fine-tuning), got " + repr(a))
 
   # the architecture is inherited from the source artifact, so a model: block
   # would silently contradict it.
@@ -783,8 +794,10 @@ def build_warm_start(source,
     device      = device the models, geometry, and rows live on.
 
   Returns:
-    (init_state, verdict): the transferred state dict to hand run_emulator as
-    init_state, and the one-line parity verdict string.
+    (init_state, verdict, padded_keys): the transferred state dict to hand
+    run_emulator as init_state, the one-line parity verdict string, and the
+    list of padded input-consumer keys (the finetune.anchor mask excludes
+    their extra columns).
 
   Raises:
     ValueError if the parity tolerance is exceeded, or if the extra
@@ -804,7 +817,7 @@ def build_warm_start(source,
                      output_dim=out_dim,
                      device=device)
 
-  init_state, _padded = transfer_state_dict(
+  init_state, padded_keys = transfer_state_dict(
     source_state=source.model.state_dict(),
     template_state=model.state_dict(),
     n_extra=n_extra)
@@ -848,7 +861,40 @@ def build_warm_start(source,
       + " rows (epoch 0 does not reproduce the source function)")
   verdict = ("[ok] finetune parity: max|dv| = " + format(max_dv, ".3e")
              + " on " + str(take) + " rows")
-  return init_state, verdict
+  return init_state, verdict, padded_keys
+
+
+def anchor_masks(init_state, padded_keys, n_extra, device):
+  """Per-parameter anchor masks for the finetune warm start (D-FT anchor).
+
+  Every anchored parameter is pulled toward the transferred init_state, EXCEPT
+  the padded extra input columns: they are exact zeros by design and the
+  designated carriers of the new-physics dependence, so anchoring them to zero
+  would fight the warm start. This returns one mask per padded key (ones on the
+  source columns, zeros on the last n_extra columns); a non-padded parameter
+  gets no entry (build_anchor then pulls all of it).
+
+  Arguments:
+    init_state  = the transferred state dict (name -> tensor).
+    padded_keys = the input-consumer keys that gained n_extra zero columns.
+    n_extra     = the number of appended extra columns (n_x).
+    device      = device for the mask tensors.
+
+  Returns:
+    a dict name -> mask (same shape as the parameter, 1 on the kept columns,
+    0 on the extra columns); empty when n_extra == 0.
+  """
+  masks = {}
+  if n_extra <= 0:
+    return masks
+  for key in padded_keys:
+    t = init_state[key]
+    mask = torch.ones_like(t, device=device)
+    # the extras are the last n_extra columns along dim 1 (transfer_state_dict
+    # appends them there); zero the pull on exactly those.
+    mask[:, t.shape[1] - n_extra:] = 0.0
+    masks[key] = mask
+  return masks
 
 
 def _zero_final_linear(model):

@@ -29,6 +29,16 @@ transfer:
   # The off-recommendation pairing is allowed (you decide per study) and
   # prints one notice naming the conditioning trade-off.
   space: physical
+  # Optional stage-2 joint refinement (D-TP10): after the correction trains
+  # with the base frozen, unfreeze the base once and train jointly. Absent =
+  # frozen-only (the default). anchor is required when refine: is present (an
+  # explicit 0.0 states free fine-tuning deliberately; no silent default).
+  # Recommend optimizer.weight_decay 0.0 beside a nonzero anchor (decay pulls
+  # toward 0, away from the pretrained base).
+  # refine:
+  #   epochs:        200      # stage-2 epochs, appended after the correction
+  #   base_lr_scale: 0.01     # the base group's lr as a multiple of the run lr
+  #   anchor:        1.0e-2   # L2-SP lambda toward the pretrained base (0 = free)
 
 data:
   # the new training set (the extended-model dvs): its own dv / params /

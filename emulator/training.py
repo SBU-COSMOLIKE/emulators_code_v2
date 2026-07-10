@@ -239,6 +239,187 @@ def make_optimizer(model, opt_opts, lr, device):
   return cls(groups, lr=lr, **extra)
 
 
+class Anchor:
+  """A decoupled L2-SP anchor: a post-step pull toward a reference W_0.
+
+  The shared anchor facility for both the finetune warm start (anchor to the
+  transferred weights) and the transfer refine stage (anchor the unfrozen base
+  to its pretrained weights). After each optimizer.step, under no_grad, it
+  applies in place
+
+      W <- W - lr * lambda * mask * (W - W_0)
+
+  where lr is read from the parameter's own optimizer group (so a
+  discriminative per-group learning rate carries through). This is the
+  AdamW-decoupling argument applied to the anchor: kept OUT of the loss, it is
+  not rescaled by Adam's adaptive second moments (a loss-term
+  lambda*||W - W_0||^2 would be), so lambda means the same thing across
+  parameters. It mirrors the EMA post-step in-place update already in
+  training_loop_batched (the same cheap _foreach-style pass).
+
+  mask (per parameter, optional) zeroes the pull on columns that must stay
+  free: the finetune warm start excludes the padded extra input columns (exact
+  zeros by design, the carriers of the new-physics dependence, so anchoring
+  them to zero would fight the warm start). None = pull every element.
+
+  Note on weight_decay: the optimizer's weight decay pulls toward 0, i.e. AWAY
+  from W_0, so an anchored run should normally set weight_decay 0.0 (a
+  recommendation surfaced as a quiet notice by the caller, never an error).
+
+  PS: W_0 = the reference (anchor) weights the run is pulled back toward;
+  decoupled = applied after the optimizer step, not inside the loss, so it
+  bypasses the optimizer's adaptive moment rescaling.
+  """
+
+  def __init__(self, entries, lam):
+    """Store the anchored parameters and the strength.
+
+    Arguments:
+      entries = list of (param, reference, mask, group_index): the live
+                parameter, its frozen reference W_0 (same shape / device), an
+                optional element mask (None = all ones), and the index of the
+                optimizer param group the parameter belongs to (its lr).
+      lam     = the anchor strength lambda (0.0 = a no-op, free training).
+    """
+    self.entries = entries
+    self.lam     = float(lam)
+
+  def apply(self, optimizer):
+    """Do one decoupled anchor step in place, after optimizer.step().
+
+    Arguments:
+      optimizer = the optimizer just stepped; its param_groups[gi]["lr"] gives
+                  each anchored parameter's current (warmed / scheduled) lr.
+    """
+    if self.lam == 0.0:
+      return
+    with torch.no_grad():
+      for p, ref, mask, gi in self.entries:
+        coef  = optimizer.param_groups[gi]["lr"] * self.lam
+        delta = p - ref
+        if mask is not None:
+          delta = delta * mask
+        # W <- W - coef * mask * (W - W_0), decoupled from the loss.
+        p.add_(delta, alpha=-coef)
+
+
+def build_anchor(model, optimizer, reference_state, lam, masks=None):
+  """Assemble an Anchor over a model's parameters against a reference state.
+
+  Only parameters present in reference_state AND owned by an optimizer group
+  (a frozen parameter has none) are anchored, so a stage that freezes part of
+  the model anchors only what it trains.
+
+  Arguments:
+    model           = the network whose parameters are anchored.
+    optimizer       = the built optimizer (its groups give each param its lr).
+    reference_state = name -> W_0 tensor (e.g. the transferred init_state, or
+                      the pretrained base weights).
+    lam             = the anchor strength lambda.
+    masks           = optional name -> element mask (same shape as the param;
+                      None entry or absent = pull every element).
+
+  Returns:
+    an Anchor (its apply() is called after each optimizer.step).
+  """
+  # param id -> its optimizer group index (for the per-group lr).
+  id_to_group = {}
+  for gi, group in enumerate(optimizer.param_groups):
+    for p in group["params"]:
+      id_to_group[id(p)] = gi
+  entries = []
+  for name, p in model.named_parameters():
+    if name not in reference_state:
+      continue
+    gi = id_to_group.get(id(p))
+    if gi is None:
+      continue                         # a frozen parameter: nothing to anchor
+    ref  = reference_state[name].to(device=p.device, dtype=p.dtype)
+    mask = None if masks is None else masks.get(name)
+    entries.append((p, ref, mask, gi))
+  return Anchor(entries=entries, lam=lam)
+
+
+class TransferComposite(nn.Module):
+  """Wraps the correction net and the unfrozen base for the transfer refine
+  stage (D-TP10). The forward returns the correction's output (the base is
+  evaluated by the loss, TransferChi2 in live mode); holding both as submodules
+  lets one optimizer, one gradient clip, and one train/eval toggle cover both,
+  and lets make_refine_optimizer split them into discriminative-lr groups. The
+  base object is shared with the loss (chi2fn.base_net), so training it here is
+  what the live composition sees."""
+
+  def __init__(self, correction, base):
+    """Store the two submodules.
+
+    Arguments:
+      correction = the stage-1 correction network (its output is the forward).
+      base       = the now-trainable base network (evaluated by the live loss).
+    """
+    super().__init__()
+    self.correction = correction
+    self.base        = base
+
+  def forward(self, x):
+    return self.correction(x)
+
+
+def _decay_weight_ids(module):
+    """ids of the .weight of every nn.Linear / nn.Conv1d / BinLinear in a module
+    (the only tensors weight decay touches; see make_optimizer)."""
+    ids = set()
+    for m in module.modules():
+      if isinstance(m, (nn.Linear, nn.Conv1d, BinLinear)):
+        w = getattr(m, "weight", None)
+        if w is not None:
+          ids.add(id(w))
+    return ids
+
+
+def make_refine_optimizer(correction, base, opt_opts, lr, base_lr_scale,
+                          device):
+  """Optimizer with discriminative per-module learning rates (the refine stage).
+
+  Four parameter groups: the base's decayed / undecayed weights at
+  lr*base_lr_scale, the correction's at the full lr. The decay split is
+  make_optimizer's (only true weight matrices decay, by module role); the
+  per-group lr is preserved through the loop's warmup and plateau scheduler
+  (both scale every group from its own captured base lr, so the ratio holds).
+
+  Arguments:
+    correction    = the correction network (the full-lr group).
+    base          = the base network (the scaled-lr group; unfrozen for refine).
+    opt_opts      = the optimizer spec dict ("cls" + "weight_decay" + extras).
+    lr            = the run's resolved (sqrt-batch) learning rate.
+    base_lr_scale = the base group's lr as a multiple of lr (D-TP10).
+    device        = the device (fused Adam on CUDA).
+
+  Returns:
+    the optimizer with the four groups.
+  """
+  wd  = opt_opts.get("weight_decay", 0.0)
+  cls = opt_opts["cls"]
+  extra = {}
+  for k, v in opt_opts.items():
+    if k not in ("cls", "weight_decay"):
+      extra[k] = v
+  if device.type == "cuda":
+    extra["fused"] = True
+  base_lr = lr * float(base_lr_scale)
+  groups  = []
+  for module, mlr in ((base, base_lr), (correction, lr)):
+    dids = _decay_weight_ids(module)
+    dec, nod = [], []
+    for _, p in module.named_parameters():
+      if id(p) in dids:
+        dec.append(p)
+      else:
+        nod.append(p)
+    groups.append({"params": dec, "weight_decay": wd,  "lr": mlr})
+    groups.append({"params": nod, "weight_decay": 0.0, "lr": mlr})
+  return cls(groups, lr=lr, **extra)
+
+
 def make_scheduler(optimizer, sched_opts):
   """
   Build the LR scheduler from a spec dict.
@@ -1279,7 +1460,8 @@ def training_loop_batched(nepochs,
                           clip=0.0,
                           rewind=False,
                           ema=None,
-                          berhu=None):
+                          berhu=None,
+                          anchor=None):
   """
   Train the emulator, with a validation pass per epoch.
 
@@ -1751,6 +1933,13 @@ def training_loop_batched(nepochs,
         if theta_bar is not None:
           with torch.no_grad():
             torch._foreach_lerp_(theta_bar, ema_params, 1.0 - beta)
+        # decoupled L2-SP anchor (finetune.anchor / transfer.refine): a
+        # post-step pull toward the reference weights, W <- W - lr*lambda*
+        # mask*(W - W_0), read the per-group lr; None = no anchor, byte-
+        # identical. After the ema update so the average sees the anchored
+        # weights (the shipped model).
+        if anchor is not None:
+          anchor.apply(optimizer)
         run_sum += loss.detach() * bs
         run_n   += bs
     train_loss = (run_sum / run_n).item()
@@ -1952,7 +2141,9 @@ def run_emulator(train_set,
                  trunk_opts=None,
                  head_opts=None,
                  ema=None,
-                 init_state=None):
+                 init_state=None,
+                 anchor=None,
+                 refine=None):
   """
   One training run; model, optimizer, schedule auto-built.
 
@@ -2502,6 +2693,20 @@ def run_emulator(train_set,
                            device=device)
     sched = make_scheduler(optimizer=opt, sched_opts=sched_pass)
 
+    # decoupled L2-SP anchor (finetune.anchor): pull the trained weights back
+    # toward the reference (the transferred init_state), with the padded extra
+    # input columns masked out. Built here so it reads this pass's optimizer
+    # groups (their lr); None on an ordinary run (byte-identical). The
+    # transfer refine stage's base-group anchor is a separate pass with its own
+    # spec (D-TP10).
+    anchor_obj = None
+    if anchor is not None:
+      anchor_obj = build_anchor(model=model,
+                                optimizer=opt,
+                                reference_state=anchor["reference"],
+                                lam=anchor["lam"],
+                                masks=anchor.get("masks"))
+
     (tl, md, mn,
      fr) = training_loop_batched(nepochs=n_pass,
                                  optimizer=opt,
@@ -2520,11 +2725,78 @@ def run_emulator(train_set,
                                  clip=clip_pass,
                                  rewind=rewind_pass,
                                  ema=ema_pass,
-                                 berhu=berhu_pass)
+                                 berhu=berhu_pass,
+                                 anchor=anchor_obj)
     # histories concatenate across phases: one continuous per-epoch
     # record, as a single-pass run produces. ema re-initializes inside
     # each pass (theta_bar at the pass's own warmup end), so the average
     # never spans the trunk -> head regime change.
+    train_losses += tl
+    medians      += md
+    means        += mn
+    fracs        += fr
+
+  # transfer refine stage (D-TP10): after the correction is trained (base
+  # frozen, above), optionally unfreeze the base ONCE and train jointly for
+  # refine["epochs"] more, with the base at a scaled lr and pulled back toward
+  # its pretrained weights by the decoupled anchor. The loss switches to live
+  # mode (the base re-enters the graph; the truth half of the staged target is
+  # reused, no re-staging). None (every non-refine run) = skipped, byte-
+  # identical. The resolved per-pass knobs (mode / trim / focus / berhu /
+  # scheduler / warmup) carry over from the correction pass above.
+  if refine is not None:
+    base_net = chi2fn.base_net
+    # capture the PRETRAINED base weights before any drift (the anchor
+    # reference W_0); the caller keeps a separate clone for the artifact.
+    pretrained = {}
+    for name, p in base_net.named_parameters():
+      pretrained[name] = p.detach().clone()
+    for p in base_net.parameters():
+      p.requires_grad_(True)
+    base_net.train()
+    chi2fn.set_live(True)
+    composite = TransferComposite(correction=model, base=base_net)
+    if not silent:
+      n_base = 0
+      for p in base_net.parameters():
+        n_base += p.numel()
+      print(f"transfer refine: {refine['epochs']} epochs, base unfrozen "
+            f"(lr x{refine['base_lr_scale']:g}, anchor lambda "
+            f"{refine['anchor']:g}); {n_base:,} base params join the "
+            f"correction (weight_decay {opt_opts.get('weight_decay', 0.0):g})")
+    opt_r   = make_refine_optimizer(correction=model,
+                                    base=base_net,
+                                    opt_opts=opt_opts,
+                                    lr=learning_rate,
+                                    base_lr_scale=refine["base_lr_scale"],
+                                    device=device)
+    sched_r = make_scheduler(optimizer=opt_r, sched_opts=sched_pass)
+    # the anchor pulls only the base group back toward its pretrained weights
+    # (build_anchor keys by the base's parameter names, all in opt_r's groups).
+    anchor_r = build_anchor(model=base_net,
+                            optimizer=opt_r,
+                            reference_state=pretrained,
+                            lam=refine["anchor"])
+    (tl, md, mn,
+     fr) = training_loop_batched(nepochs=refine["epochs"],
+                                 optimizer=opt_r,
+                                 scheduler=sched_r,
+                                 model=composite,
+                                 bs=bs,
+                                 lossfn=chi2fn,
+                                 mode=mode_pass,
+                                 data=data,
+                                 thresholds=thresholds,
+                                 warmup_epochs=wmupe_pass,
+                                 trim_opts=trim_pass,
+                                 focus_opts=focus_pass,
+                                 use_amp=use_amp,
+                                 silent=silent,
+                                 clip=clip_pass,
+                                 rewind=rewind_pass,
+                                 ema=ema_pass,
+                                 berhu=berhu_pass,
+                                 anchor=anchor_r)
     train_losses += tl
     medians      += md
     means        += mn
