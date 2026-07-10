@@ -751,12 +751,36 @@ a_1 a_2 K_7 + a_1^2 b_{TA} K_8 + a_1 a_2 b_{TA} K_9$$
 The trunk. Every architecture is built on it, so this block is required.
 
 An MLP — multilayer perceptron — is the simplest neural network: a stack
-of dense layers. A dense layer multiplies its input vector by a learned
-matrix and adds a learned offset; between layers sits a nonlinear
-activation, which is what lets the stack fit curved functions instead of
-only straight lines. Here the layers are grouped into residual blocks:
-each block adds its output to its own input, so a block only has to learn
-a correction, which keeps deep stacks easy to train.
+of dense layers with a nonlinear activation between them.
+
+```
+parameters (rescaled, section 2)
+     │
+     ▼  dense layer          y = W x + b : a learned matrix W times the
+     │                       input, plus a learned offset b — this is
+     │                       the only thing a dense layer does
+     │
+   ┌─┴──────────────────────────────────────────┐
+   │  residual block          repeated n_blocks │
+   │     │                                      │
+   │     ├────────────────┐                     │
+   │     ▼                │                     │
+   │  dense → activation  │  the activation is  │
+   │     │                │  a nonlinear bend — │
+   │     ▼                │  without it the     │
+   │     +  ◀─────────────┘  stack could only   │
+   │     │                   fit straight lines │
+   │     ▼                                      │
+   │  block output = input + correction        │
+   └─┬──────────────────────────────────────────┘
+     │
+     ▼  dense layer
+data vector (rescaled)
+```
+
+Each residual block adds its own input back to its output, so a block
+only has to learn a correction. That is what keeps deep stacks easy to
+train.
 
 Two knobs. `width` is how many numbers each internal layer carries.
 `n_blocks` is how many residual blocks are stacked.
