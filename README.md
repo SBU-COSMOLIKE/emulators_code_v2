@@ -135,7 +135,23 @@ python $D/sweep_hyperparam_emulator_cosmic_shear.py \
 A hyperparameter search — Optuna (https://optuna.org) is a search library: it
 proposes trial settings, watches the results, and concentrates new trials
 where the metric improves. The searched ranges are the YAML's
-`[default, min, max, kind]` leaves; `--n-trials` bounds the study:
+`[default, min, max, kind]` leaves — any numeric leaf may swap its scalar
+for a 4-list, and only those leaves are searched (every other driver
+collapses them back to the default):
+
+```yaml
+train_args:
+  bs: 256                                # fixed scalar: never searched
+  lr:
+    lr_base:       [2.5e-3, 1.0e-4, 1.0e-2, log]   # [default, min, max, kind]
+    warmup_epochs: [10, 0, 30, int]
+  model:
+    mlp:
+      width:    [128, 64, 256, int]      # kind = int | float | log
+      n_blocks: [4, 2, 6, int]
+```
+
+`--n-trials` bounds the study:
 
 ```bash
 python $D/tune_single_emulator_cosmic_shear.py \
@@ -190,10 +206,33 @@ sweep:
 | an unknown first segment is refused | a typo'd path would otherwise silently train the same config N times |
 | a missing intermediate block is created (`head.lr.lr_base` with no `head:` block) | but a phase axis (`head.*` / `trunk_epochs` / `trunk.*`) on a single-phase model is rejected up front by `validate_sweep_paths` (it would be demoted away) |
 
-Outputs under `--fileroot`: `<--out>.txt` (`save_sweep_table`: numeric values
-as a value/frac table; categorical or boolean values as an index/frac table
-with a `# values: 0=…, 1=…` label line — `np.loadtxt` reads either) and
-`<--out>.pdf` (`plot_sweep_curve`). The full template is
+The sweep writes two files under `--fileroot`: a results table
+(`<--out>.txt`) and the same results drawn as a curve (`<--out>.pdf`).
+Each table row is one swept value and the error metric it reached. When the
+swept knob is a number (a batch size, a learning rate), the first column is
+the value itself:
+
+```text
+# sweep: f(delta-chi2 > threshold) vs lr.lr_base
+# model=rescnn  threshold=0.2  n_train=250000
+# columns: lr.lr_base, frac
+0.001  0.401234
+...
+```
+
+When the knob is a word or a switch (an activation name, film on/off), the
+first column is an integer index instead, and a comment line at the top says
+which index means which setting:
+
+```text
+# values: 0=H, 1=power, 2=multigate
+# columns: index, frac
+0  0.401234
+...
+```
+
+Both layouts load with a plain `np.loadtxt` (the labels live in comment
+lines). The full template is
 `example_yamls/sweep_hyperparam_emulator_cosmic_shear.yaml`, with the common
 sweeps (bs, activation family, film on/off, conv depth, head lr) ready to
 swap in.
@@ -211,12 +250,18 @@ across GPUs — one whole training per spawned worker:
 | `bakeoff_activation` | one learning curve per activation | by activation | |
 | `tune_single` | Optuna trials | one worker per GPU, one shared study | `--journal` |
 
-**`--gpu-pack` (both sweep drivers; off by default)** co-locates small
-trainings on one card: a point's estimated VRAM share sets its token cost
-(≤ 20% → 4 per GPU, ≤ 40% → 2, larger runs exclusive), so launch-bound runs
-share a card. Use it on big cards with small-to-mid `N_train`, not on small
-cards or when per-epoch timings must stay comparable; the token math lives in
-`scheduling.py` (`estimate_train_vram_fraction`, `vram_tokens`).
+**`--gpu-pack` (both sweep drivers; off by default)** runs several small
+trainings on the same card at once. A small model often leaves the card
+mostly idle — the wall time goes into Python dispatching work, not into the
+card computing — so sharing the card finishes the sweep faster. How many
+runs share: each run's GPU-memory need is estimated up front, and a run
+expected to fit in 20% of the card shares it with up to three others, one
+fitting in 40% shares with one other, and anything bigger gets the card to
+itself. Turn it on for big cards with small-to-mid `N_train`; leave it off
+on small cards, or whenever per-epoch timings must stay comparable across
+runs (sharing makes each run slower and noisier). The memory estimate and
+the sharing arithmetic live in `scheduling.py`
+(`estimate_train_vram_fraction`, `vram_tokens`).
 
 **Parallel Optuna (`tune_single --n-gpus N`)** shares a single study through a
 journal file (`--journal`): the parent enqueues the warm-start, `--n-trials`
@@ -226,15 +271,16 @@ splits across workers, and reusing the journal resumes it (serial on 1 GPU/MPS).
 
 ## 2. The YAML file
 
-Two top-level blocks: `data` (where the training vectors come from and how
-many) and `train_args` (the whole run — objective, optimizer, schedules,
-model). Any numeric leaf may be a scalar (the train drivers use it) or a
-`[default, min, max, kind]` search range — `kind` is `int` | `float` | `log`
-(`tune_single` searches it, the others collapse it to the default). Sections
-3–11 document each block; the
-collision rules (which source wins when two set the same thing) live in the
-[precedence appendix](#17-appendix-precedence--who-wins-when-settings-collide),
-templates in `example_yamls/`, and the `sweep:` block in [Run it](#sweep-block).
+The YAML has two top-level blocks. `data` says where the training vectors
+come from and how many rows to use. `train_args` describes the whole run:
+objective, optimizer, schedules, model. Any numeric leaf may be a plain
+scalar or a `[default, min, max, kind]` search range, where `kind` is `int`,
+`float`, or `log`; only `tune_single` searches the ranges, and every other
+driver collapses a range to its default value. Sections 3–11 document each
+block. When two settings collide, the winner is defined in the
+[precedence appendix](#17-appendix-precedence--who-wins-when-settings-collide).
+Templates live in `example_yamls/`, and the `sweep:` block is described in
+[Run it](#sweep-block).
 
 One compact production run (two-phase `restrf` + `nla`, a berhu head):
 
@@ -347,25 +393,18 @@ The last needs the $n_s$ column in the params file.
 
 ## 4. Training globals
 
-The run-level knobs that are not their own block.
+The run-level knobs that are not their own block:
 
-- `nepochs` — passes over the training set.
-- `bs` — the training minibatch. The validation pass uses a **derived**
-  batch (a ~1024-row target, `derive_eval_bs`), independent of `bs`, so a
-  small `bs` does not slow scoring.
-- `trunk_epochs` / `freeze_trunk` — the two-phase schedule (section 11); the
-  mode table is precedence
-  [C2](#17-appendix-precedence--who-wins-when-settings-collide).
-- `silent` — suppress the per-epoch progress lines.
-- `clip` — a per-step gradient-norm ceiling (0 = off); the full gradient is
-  rescaled toward the ceiling, keeping its direction, so one monster-outlier
-  batch (a batch with one extreme sample) cannot kick the weights:
+| Knob | What it does |
+|---|---|
+| `nepochs` | Passes over the training set. |
+| `bs` | The training minibatch size. Validation uses its own batch size, derived to target ~1024 rows by `derive_eval_bs`, so a small `bs` does not slow scoring. |
+| `trunk_epochs` / `freeze_trunk` | The two-phase schedule of [section 11](#11-two-phase-schedule--the-trunk--head-blocks). The mode table is precedence [C2](#17-appendix-precedence--who-wins-when-settings-collide). |
+| `silent` | Suppress the per-epoch progress lines. |
+| `clip` | A per-step ceiling on the gradient norm; `0` turns it off. The whole gradient is rescaled toward the ceiling and keeps its direction, so one batch holding an extreme sample cannot kick the weights. The rule is below. |
+| `rewind` | On every learning-rate cut by the plateau scheduler of [section 6](#6-optimizer-lr-scheduler), reload the best weights and optimizer snapshot while keeping the reduced rate. An excursion into a bad basin then costs at most `patience` epochs. |
 
 $$g \leftarrow g \cdot \min\left(1,\ \frac{\mathrm{clip}}{\lVert g \rVert}\right)$$
-
-- `rewind` — on every plateau lr cut (the scheduler's, [section 6](#6-optimizer-lr-scheduler)), reload the best weights + optimizer
-  snapshot (keeping the reduced lr), bounding an excursion into a bad basin to
-  at most `patience` epochs.
 
 ```yaml
 train_args:
@@ -438,24 +477,15 @@ $$L_s = (1-s) \sqrt{c} + s L(c)$$
 The optimization stack — three small blocks that interact, so they are read
 together.
 
-- `optimizer` — the class is fixed to **AdamW**; `weight_decay` decays only
-  the true weight matrices (the `.weight` of `Linear` / `Conv1d` / `BinLinear`),
-  never biases, norms, or activation parameters, and runs fused on CUDA (a
-  faster fused kernel). The weight-decay rule is detailed below.
-- `lr` — the learning rate follows the sqrt-noise rule off a batch anchor
-  (bigger batches average away gradient noise, so the step can grow with
-  sqrt(bs)), then a linear warmup:
+| Block | What it does |
+|---|---|
+| `optimizer` | The class is fixed to **AdamW**. `weight_decay` decays only the true weight matrices — the `.weight` of `Linear`, `Conv1d`, and `BinLinear` — never biases, norms, or activation parameters. On CUDA the faster fused kernel is used. The full decay rule is detailed below. |
+| `lr` | The learning rate scales with the square root of the batch size: bigger batches average away gradient noise, so the step can grow. The formula is below. `bs_base` is the run-global anchor and never sits inside a phase block. `warmup_epochs` ramps the rate linearly from 0 over the first epochs. |
+| `scheduler` | The class is fixed to **ReduceLROnPlateau**, with `mode`, `patience`, and `factor` as its settings, stepped every epoch on the **raw** validation median — the EMA average never feeds it. A per-phase `scheduler:` replaces the settings but keeps the class; see precedence [B](#17-appendix-precedence--who-wins-when-settings-collide). |
 
 $$\mathrm{lr} = \ell \sqrt{B/B_0}$$
 
-  with $\ell$ = `lr_base`, $B$ = `bs`, $B_0$ = `bs_base`.
-  `bs_base` is the run-global anchor (never inside a phase block);
-  `warmup_epochs` linearly ramps the lr from 0 over the first epochs.
-- `scheduler` — the class is fixed to **ReduceLROnPlateau**; `{mode, patience,
-  factor}` are its kwargs, stepped every epoch on the **raw** validation
-  median (the EMA average never feeds it). A per-phase `scheduler:` replaces
-  the kwargs but keeps the class (precedence
-  [B](#17-appendix-precedence--who-wins-when-settings-collide)).
+with $\ell$ = `lr_base`, $B$ = `bs`, and $B_0$ = `bs_base`.
 
 ```yaml
   optimizer:
