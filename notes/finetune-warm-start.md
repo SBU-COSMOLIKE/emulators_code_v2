@@ -555,3 +555,12 @@ artifact class by save-rebuild-drift in the same board pass.
 After that: FTW is done for V1. The n_x > 0 leg on real data (LCDM ->
 w0waCDM proper) opens with the science thread, when a real w0waCDM
 training dump exists — the honest margin stands.
+
+**Attr confirmation (2026-07-10, user-run on the workstation):**
+finetuned_from = '/home/vivianmiranda/.../projects/lsst_y1/chains/
+gates_emul_evaluate' (the absolute source root), finetune_extra_names = ''
+(names-equal run), rescale = 'none'. All three exactly as specified —
+**FTW V1 CLOSED.** Both gates green on the board, provenance persisted and
+verified from the artifact itself. The unit's one open thread is the
+n_x > 0 real-data leg, which belongs to the science thread (needs a real
+w0waCDM training dump).
