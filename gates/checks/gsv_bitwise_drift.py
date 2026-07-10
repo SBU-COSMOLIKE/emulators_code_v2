@@ -34,6 +34,7 @@ there so the saved geometry type and the PCE data both survive a reload).
 """
 
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -68,6 +69,14 @@ def repo_root():
 def load_deploy():
   """Read the cocoa root + dump directory from board_config.json.
 
+  The rootdir key follows the portable-config rule the harness uses
+  (gates/run_board.py): a non-null file value wins, a null file value
+  resolves from the $ROOTDIR environment variable at load, and the file
+  is never rewritten. This script runs as its own process and reads the
+  raw file, so it applies the same resolution itself; without this, the
+  shipped "rootdir": null would read as unset even on a machine where
+  the harness preflight passes.
+
   Returns:
     (device, data_dir): the torch device and the Path holding the dump
     .npy / .txt / .covmat files (<root>/chains, the driver's
@@ -76,10 +85,14 @@ def load_deploy():
   """
   cfg = json.loads((repo_root() / "gates" / "board_config.json").read_text())
   rootdir = cfg.get("rootdir")
+  if rootdir is None:
+    # empty string = unset, matching the harness's resolution.
+    rootdir = os.environ.get("ROOTDIR") or None
   driver_root = cfg.get("driver_root")
   if rootdir is None or driver_root is None:
-    print("save-rebuild-drift: board_config.json rootdir / driver_root are unset; "
-          "the save gate needs the real training dumps.")
+    print("save-rebuild-drift: no rootdir (board_config.json rootdir is null "
+          "and $ROOTDIR is unset) or driver_root is unset; the save gate "
+          "needs the real training dumps.")
     sys.exit(2)
   root = Path(driver_root)
   if not root.is_absolute():

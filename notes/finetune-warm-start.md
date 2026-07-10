@@ -480,3 +480,9 @@ match the pin checks, and parity is bit-trivial. Rerun:
 save-rebuild-drift forced -> re-persists the artifact with the attr;
 finetune-smoke reruns by default since it is recorded FAIL; everything else
 skips green).
+
+**Run-12b amendment:** the D-FTW-1 rerun tripped a SECOND latent gap, this
+one GBC-side (the GSV check script self-reads the raw board_config.json and
+saw the shipped rootdir null) — fixed as delta D-GBC-1, recorded in
+gates-harness-user-run.md. The FTW forward-walk above is unaffected; the
+smoke path itself has not executed yet.

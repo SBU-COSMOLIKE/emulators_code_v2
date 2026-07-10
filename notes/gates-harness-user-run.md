@@ -1664,3 +1664,30 @@ machine edit to board_config.json.
 
 Still open from earlier runs: the triangle-shading PDF eyeball
 (production-diagnostic's gates_diag_*.pdf relay).
+
+## Run 12b (2026-07-10): the forced GSV rerun exposed a latent GBC gap — delta D-GBC-1
+
+The D-FTW-1 rerun (`--force-rerun save-rebuild-drift`) failed BEFORE
+training: exit 2, "board_config.json rootdir / driver_root are unset".
+Root cause is a GBC integration gap, not an FTW one: the GSV check script
+(gates/checks/gsv_bitwise_drift.py) runs as its own process and reads the
+RAW board_config.json, and the portable file ships `"rootdir": null` — the
+$ROOTDIR resolution GBC added lives only in run_board.py's loader. The
+07-08 green board ran on the old machine-edited file (literal rootdir), so
+the gap stayed latent until the portable config was checked out; the first
+forced rerun of the one self-reading check tripped it. **Honest audit
+note: the GBC verdict's 4-scenario resolution probe covered the harness
+loader only; check-script self-reads were not swept.** gsv_bitwise_drift
+is the ONLY self-reader (verified by grep; gct_parity mentions the file in
+a docstring only).
+
+**Delta D-GBC-1 (Architect, applied directly, compile-checked):**
+`load_deploy` in gsv_bitwise_drift.py now applies the same resolution as
+the harness — a non-null file value wins, a null file value resolves from
+$ROOTDIR (empty = unset), and the loud exit names both sources. Verified
+by a 4-scenario exec-probe on the shipped span (file-wins / env-resolves /
+empty-env exits / unset-env exits: 4/4).
+
+Rerun is unchanged: `python gates/run_board.py --force-rerun
+save-rebuild-drift` (GSV re-persists the artifact with the D-FTW-1 rescale
+attr; finetune-smoke reruns from its recorded FAIL/SKIP-DEP).
