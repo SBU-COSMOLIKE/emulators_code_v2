@@ -136,3 +136,33 @@ change to a YAML file — values, comments, and formatting/alignment included,
 not just schema keys. A comment or alignment fix is reported by showing the
 final corrected block verbatim, never by describing the edit ("add one
 leading space" is not a report).
+
+## Big-unit execution discipline (2026-07-10, from FTW/TPE V1/1b/2)
+
+Consolidated from the fine-tune and transfer units, which were large,
+design-sensitive, and un-runnable on the torch-less Mac. These are how the
+Architect actually rules; the per-unit detail lives in the cited notes.
+
+- **Propose, don't guess (design-sensitive layouts).** When a handoff flags a
+  piece as design-sensitive, write the layout **proposal** (rationale plus the
+  alternative) into the unit's note as a checkpoint request and let the
+  Architect rule on it before finalizing. Deviating from a literal spec line is
+  fine only as a flagged proposal with reasons, never a silent choice. The
+  TPE-2 refined-artifact second-group layout superseded the spec's literal
+  wording exactly this way (checkpoint ruling in
+  [[transfer-parallel-emulator]]).
+- **Partial units are an approved shape.** A unit too big to finish with rigor
+  in one session is delivered as a coherent, fully-gated sub-increment, plus a
+  clearly-specified remainder in the note, plus an honest handoff. TPE V1
+  landed core + acceptance gate with the artifact lifecycle deferred to TPE-1b
+  ([[transfer-parallel-emulator]], "Ruling 2: partial unit APPROVED"). Do not
+  rush the most delicate part (a compiled loop, a save/rebuild artifact) that
+  cannot be run on the Mac; a checkpoint plus proposal beats under-verified
+  code.
+- **Forward-walk the whole driver path (the FTW lesson).** When adding a config
+  branch, enumerate every `cfg[...]` / attribute access on the entire driver
+  path (`from_config` -> build -> train -> save -> `run_tag` -> diagnostics),
+  not just the diff hunks. FTW shipped a bug because a fine-tune YAML lacks a
+  `model:` block that `run_tag` / `print_design` read ([[finetune-warm-start]]);
+  the SPE/CME specs now cite this forward. Gate greens only count on the config
+  that actually ships.
