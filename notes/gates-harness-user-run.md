@@ -1735,3 +1735,14 @@ selecting the shading layer by its design contract (zorder 0, where
 _shade_cuts deliberately draws every cut fill); stub-probed on the Mac,
 ships blind of matplotlib. Details in triangle-cut-shading-all-windows.md.
 Rerun: `python gates/run_board.py --gate triangle-shading`.
+
+## BOARD FULLY CLOSED (2026-07-10): 22/22, nothing open
+
+triangle-shading PASS on the D-GTB-1 rerun — the last open gate on the
+whole board. Every gate has now run green on the portable config:
+19 original + finetune-identity + finetune-smoke + triangle-shading.
+GT-B (machine) + GT-C (eyeball) both closed. The board thread that
+started 2026-07-07 is DONE; what remains is science: berhu_capped-vs-sqrt
+attribution, bs+EMA (carry the early-best-epoch observation), the
+activation bake-off, NPCE at scale, and the first real LCDM -> w0waCDM
+fine-tune once a w0waCDM training dump exists.

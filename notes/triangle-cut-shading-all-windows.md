@@ -254,3 +254,13 @@ coverage-table panels" — the exact panel set was verified visually by
 the Architect eyeball for the windows the real config activates; a
 future tightening could assert the exact set. Rerun:
 `python gates/run_board.py --gate triangle-shading`.
+
+**GT-B closure (2026-07-10):** rerun with D-GTB-1 green on the
+workstation — the four-window synthetic triangle passes all three
+assertions (grey fills present, every zorder-0 fill the one shared
+_CUT_GREY, omh2 axvspan bands present). With the GT-C eyeball above,
+this note's unit is fully CLOSED: per-window masks, union rendering,
+the ns cut role, and the derived-omh2 coverage are all machine- or
+eyeball-verified. The one recorded margin stays: GT-B asserts shading
+presence + colour discipline, not the exact coverage-table panel set
+(verified visually for the active windows).
