@@ -65,7 +65,8 @@ import torch
 import torch.optim as optim
 from torch.optim import lr_scheduler
 
-from .data_staging import read_param_names, load_source, phys_cut_idx
+from .data_staging import (
+  read_param_names, load_source, load_scalar_source, phys_cut_idx)
 from .geometries_parameter import ParamGeometry, AmplitudeFactorGeometry
 from .losses.core import make_chi2
 from .designs.plain import ResMLP, ResCNN, ResTRF
@@ -356,6 +357,10 @@ DATA_KEYS = {
   "param_cuts",
   "n_train", "n_val",
   "split_seed", "ram_frac",
+  # scalar (derived-parameter) run: the emulated output names. Its presence
+  # switches from_config to the scalar path (validate_scalar), where the
+  # dv / cosmolike keys are forbidden and param_cuts is optional.
+  "outputs",
 }
 
 # the keys the nested data.param_cuts sub-block accepts (the physical
@@ -457,6 +462,91 @@ def validate_param_cuts(data):
       "data.param_cuts is missing the required 'omegabh2_hi' (the upper "
       "omega_b h^2 bound, the former omegabh2_cut)")
   return pc
+
+
+def validate_scalar(cfg, train_args, rescale="none"):
+  """
+  Validate a scalar (derived-parameter) run and return its output names.
+
+  A scalar run is signalled by a data.outputs list: inputs and outputs are
+  both named columns of one parameter .txt, with no data vector and no
+  cosmolike (D-SP2). This enforces that exclusivity and forbids the
+  data-vector-only features, then returns the validated output names. A
+  standalone pure function (no torch), unit-testable in isolation.
+
+  Arguments:
+    cfg        = the parsed config mapping (reads cfg["data"], cfg["pce"],
+                 cfg["transfer"]).
+    train_args = the resolved train_args (reads finetune / model.ia).
+    rescale    = the driver's --rescale value (a scalar run forbids any
+                 rescaling; default "none").
+
+  Returns:
+    the data.outputs list (non-empty, unique names).
+
+  Raises:
+    ValueError if outputs is empty / has duplicate names; if any
+    data-vector or cosmolike key is present (train_dv / val_dv /
+    cosmolike_data_dir / cosmolike_dataset); if a required param file /
+    covmat is missing; if a data-vector-only feature is requested
+    (rescale, model.ia, pce, transfer, finetune).
+  """
+  data = cfg["data"]
+  outputs = data["outputs"]
+  if not isinstance(outputs, list) or len(outputs) == 0:
+    raise ValueError(
+      "data.outputs must be a non-empty list of derived-parameter names "
+      f"to emulate (e.g. [H0, omegam]); got {outputs!r}")
+  if len(set(outputs)) != len(outputs):
+    seen = {}
+    dups = []
+    for nm in outputs:
+      seen[nm] = seen.get(nm, 0) + 1
+    for nm, c in seen.items():
+      if c > 1:
+        dups.append(nm)
+    raise ValueError(
+      f"data.outputs has duplicate names {sorted(dups)!r}; each emulated "
+      "output must be listed once")
+  # exclusivity: a scalar run carries no data vector and no cosmolike.
+  forbidden = []
+  for k in ("train_dv", "val_dv", "cosmolike_data_dir", "cosmolike_dataset"):
+    if k in data:
+      forbidden.append(k)
+  if forbidden:
+    raise ValueError(
+      f"a scalar run (data.outputs present) must not carry data-vector or "
+      f"cosmolike keys, but has {sorted(forbidden)!r}; the scalar path reads "
+      "only the parameter .txt (inputs) and its named output columns")
+  # scalar needs the parameter files + the input covmat.
+  for k in ("train_params", "val_params", "train_covmat"):
+    if k not in data:
+      raise ValueError(
+        f"a scalar run needs data.{k} (the parameter .txt / input covmat); "
+        "it is missing")
+  # the data-vector-only features do not compose with a scalar run (V1).
+  if rescale != "none":
+    raise ValueError(
+      f"--rescale {rescale!r} is a data-vector concept; a scalar run has no "
+      "analytic rescaling (drop --rescale / leave it none)")
+  ia = train_args.get("model", {}).get("ia")
+  if ia not in (None, "none"):
+    raise ValueError(
+      f"train_args.model.ia {ia!r} is an intrinsic-alignment (data-vector) "
+      "design; a scalar run has no ia (remove it)")
+  if cfg.get("pce") is not None:
+    raise ValueError(
+      "a top-level pce: block is a data-vector concept; a scalar run has no "
+      "PCE base (remove it)")
+  if cfg.get("transfer") is not None:
+    raise ValueError(
+      "transfer learning is out of scope for scalar emulators (D-SP8); "
+      "remove the transfer: block")
+  if train_args.get("finetune") is not None:
+    raise ValueError(
+      "fine-tuning a scalar emulator is not supported in V1 (the source "
+      "artifact carries a data-vector geometry); train from scratch")
+  return outputs
 
 
 # the train_divisor / val_divisor -> n_train / n_val migration message,
@@ -1199,6 +1289,11 @@ class EmulatorExperiment:
     # and stored by train(). None until those run.
     self.resolved_model = None
     self.resolved_train = None
+    # scalar (derived-parameter) emulator (D-SP2): the emulated output names
+    # and the run-mode flag, set by from_config. None / False on a data-vector
+    # run, which every scalar branch below guards on (absent = byte-identical).
+    self._scalar = False
+    self.outputs = None
     # fine-tune warm start (emulator/warmstart.py): the loaded source bundle,
     # its resolved absolute path root, and the extra parameter names, all set
     # by from_config / build_geometry. None on an ordinary run, which every
@@ -1247,11 +1342,17 @@ class EmulatorExperiment:
       if block not in cfg:
         raise KeyError(
           f"config is missing the required block: {block!r}")
+    # a scalar (derived-parameter) run is signalled by data.outputs; on it
+    # param_cuts is optional (a scalar chain is already the target
+    # distribution, and the omega-windows reference params a scalar input set
+    # may not carry, D-SPE2), while on a data-vector run it stays required.
+    is_scalar = "outputs" in cfg["data"]
     # validate_param_cuts (below): the physical window cuts now live in
     # data.param_cuts; run this before the generic whitelist so a flat
     # cut key (the old layout) gets the migration message, not a bare
-    # "unknown key".
-    validate_param_cuts(cfg["data"])
+    # "unknown key". On a scalar run with no param_cuts block it is skipped.
+    if not is_scalar or "param_cuts" in cfg["data"]:
+      validate_param_cuts(cfg["data"])
     # validate_sizes (below): n_train / n_val are absolute row counts
     # enforced after param_cuts; run this before the generic whitelist too,
     # so a legacy train_divisor / val_divisor gets the migration message,
@@ -1267,6 +1368,46 @@ class EmulatorExperiment:
     # [default, min, max, kind] search range to its default (first) value,
     # so a tuning YAML builds a concrete run.
     ta = default_train_args(cfg["train_args"])
+
+    # scalar (derived-parameter) run (data.outputs present): inputs and
+    # outputs are named columns of one parameter .txt, no cosmolike (D-SP2).
+    # validate_scalar enforces the exclusivity + forbidden features and
+    # returns the output names; the model is a plain design (ia None).
+    if is_scalar:
+      outputs = validate_scalar(cfg, train_args=ta,
+                                rescale=kwargs.get("rescale", "none"))
+      name = str(ta["model"].get("name", "resmlp")).lower()
+      if (name, None) not in models:
+        raise ValueError(
+          "no scalar model for architecture " + repr(name) + " (a scalar "
+          "run is a plain design, ia=None; pick a name that has it)")
+      # activation precedence, the same rule as the normal path below: an
+      # explicit --activation flag wins over model.activation, then "H".
+      explicit_flag = kwargs.get("activation")
+      if kwargs.get("activation") is None:
+        act_blk = ta["model"].get("activation")
+        if isinstance(act_blk, dict):
+          kwargs["activation"] = str(act_blk.get("type", "H"))
+        elif act_blk is not None:
+          kwargs["activation"] = str(act_blk)
+        else:
+          kwargs["activation"] = "H"
+      exp = cls(data=cfg["data"], train_args=ta,
+                model_cls=models[(name, None)],
+                raw_train_args=cfg["train_args"], **kwargs)
+      exp.pce_opts   = None
+      exp.ia         = None
+      exp.arch       = name
+      exp.model_name = name
+      exp._scalar    = True
+      exp.outputs    = list(outputs)
+      # a plain design has no head block, so no per-head activation pin; the
+      # notice helper returns None, matching the normal path's shape.
+      exp._activation_notice = _activation_flag_notice(
+        flag_type=explicit_flag,
+        head_block=exp.model_cls.head_block,
+        head_pin=None)
+      return exp
 
     # fine-tune warm start (train_args.finetune present): the architecture,
     # activation, and loss form are all inherited from a saved source
@@ -1527,6 +1668,11 @@ class EmulatorExperiment:
              f"model: {self.model_cls.__name__}  |  "
              f"activation: {self.activation}  |  "
              f"rescale: {self.rescale}")
+    # scalar run: name the emulated outputs and the input parameters (the
+    # banner has no data-vector probe / cosmolike / cuts to show).
+    if self._scalar:
+      self.log(f"scalar emulator: outputs {self.outputs}  |  "
+               f"inputs {self.names}  |  no cosmolike")
     # fine-tune warm start: name the source artifact and the extra parameters
     # being fine-tuned in (the extras = the new covmat names absent from the
     # source; computed here from the headers, before the geometry is built).
@@ -1611,14 +1757,18 @@ class EmulatorExperiment:
       if block in ta:
         self.log(f"{block}: {ta[block]}")
     pc = d.get("param_cuts", {})
-    self.log(f"cuts: omegabh2 in "
-             f"({pc.get('omegabh2_lo')}, {pc.get('omegabh2_hi')})  "
-             f"omegam2h2 in "
-             f"({pc.get('omegam2h2_lo')}, {pc.get('omegam2h2_hi')})  "
-             f"omegamh2 in "
-             f"({pc.get('omegamh2_lo')}, {pc.get('omegamh2_hi')})  "
-             f"omegamh2ns in "
-             f"({pc.get('omegamh2ns_lo')}, {pc.get('omegamh2ns_hi')})")
+    # skip the physical-window line when there are no cuts (a scalar run
+    # with no param_cuts block); a data-vector run always has omegabh2_hi,
+    # so pc is non-empty and this prints exactly as before.
+    if pc:
+      self.log(f"cuts: omegabh2 in "
+               f"({pc.get('omegabh2_lo')}, {pc.get('omegabh2_hi')})  "
+               f"omegam2h2 in "
+               f"({pc.get('omegam2h2_lo')}, {pc.get('omegam2h2_hi')})  "
+               f"omegamh2 in "
+               f"({pc.get('omegamh2_lo')}, {pc.get('omegamh2_hi')})  "
+               f"omegamh2ns in "
+               f"({pc.get('omegamh2ns_lo')}, {pc.get('omegamh2ns_hi')})")
     # the absolute run sizes, next to the cuts they are enforced against
     # (load_source raises if the post-cut pool cannot supply them).
     self.log(f"sizes: n_train {d.get('n_train')}  "
@@ -1641,6 +1791,29 @@ class EmulatorExperiment:
       the training source dict.
     """
     d   = self.data
+    # scalar run: inputs + outputs are named columns of one params .txt; no
+    # dv .npy, no cosmolike, param_cuts optional (load_scalar_source, D-SP2).
+    if self._scalar:
+      pc  = d.get("param_cuts", {})
+      gen = torch.Generator().manual_seed(int(d["split_seed"]))
+      self.train_set = load_scalar_source(
+        params_path=d["train_params"],
+        in_names=self.names,
+        out_names=self.outputs,
+        n_keep=(n_train if n_train is not None else d["n_train"]),
+        gen=gen,
+        ram_frac=d.get("ram_frac", 0.7),
+        with_means=True,
+        verbose=not self.quiet,
+        omegabh2_hi=pc.get("omegabh2_hi"),
+        omegabh2_lo=pc.get("omegabh2_lo"),
+        omegam2h2_lo=pc.get("omegam2h2_lo"),
+        omegam2h2_hi=pc.get("omegam2h2_hi"),
+        omegamh2_lo=pc.get("omegamh2_lo"),
+        omegamh2_hi=pc.get("omegamh2_hi"),
+        omegamh2ns_lo=pc.get("omegamh2ns_lo"),
+        omegamh2ns_hi=pc.get("omegamh2ns_hi"))
+      return self.train_set
     pc  = d["param_cuts"]     # the validated physical-window bounds
     gen = torch.Generator().manual_seed(int(d["split_seed"]))
     # load_source (data_staging.py): memmap the dv .npy, apply the physical
@@ -1683,6 +1856,29 @@ class EmulatorExperiment:
       the validation source dict.
     """
     d   = self.data
+    # scalar run: the val targets are named columns of the val params .txt
+    # (load_scalar_source, with_means=False, param_cuts optional).
+    if self._scalar:
+      pc  = d.get("param_cuts", {})
+      gen = torch.Generator().manual_seed(int(d["split_seed"]))
+      self.val_set = load_scalar_source(
+        params_path=d["val_params"],
+        in_names=self.names,
+        out_names=self.outputs,
+        n_keep=(n_val if n_val is not None else d["n_val"]),
+        gen=gen,
+        ram_frac=d.get("ram_frac", 0.7),
+        with_means=False,
+        verbose=not self.quiet,
+        omegabh2_hi=pc.get("omegabh2_hi"),
+        omegabh2_lo=pc.get("omegabh2_lo"),
+        omegam2h2_lo=pc.get("omegam2h2_lo"),
+        omegam2h2_hi=pc.get("omegam2h2_hi"),
+        omegamh2_lo=pc.get("omegamh2_lo"),
+        omegamh2_hi=pc.get("omegamh2_hi"),
+        omegamh2ns_lo=pc.get("omegamh2ns_lo"),
+        omegamh2ns_hi=pc.get("omegamh2ns_hi"))
+      return self.val_set
     pc  = d["param_cuts"]     # the validated physical-window bounds
     gen = torch.Generator().manual_seed(int(d["split_seed"]))
     # load_source (data_staging.py): same staging as stage_train, on the
@@ -1841,6 +2037,27 @@ class EmulatorExperiment:
         n_templates=n_templates,
         n_amps=n_amps,
         coeff_fn=coeff_fn)
+      return self.pgeom, self.geom, self.chi2fn
+
+    # scalar (derived-parameter) run (D-SP2): the input geometry is the plain
+    # ParamGeometry over the covmat; the output geometry is a ScalarGeometry
+    # standardizing the staged output columns; the loss is a ScalarChi2. No
+    # cosmolike, no mask; returns before the cosmolike import below.
+    if self._scalar:
+      from .geometries_scalar import ScalarGeometry
+      from .losses.scalar import make_scalar_chi2
+      self.pgeom = ParamGeometry.from_covmat(
+        device=self.device,
+        center=train_set["C_mean"],
+        covmat_path=d["train_covmat"])
+      # the staged output columns (the dv slot) for the kept rows;
+      # ScalarGeometry computes its center / scale from them
+      # (persist-resolved-values, the standardization travels with the run).
+      idx     = train_set["idx"]
+      targets = np.asarray(train_set["dv"])[idx]
+      self.geom = ScalarGeometry.from_targets(
+        device=self.device, targets=targets, names=self.outputs)
+      self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
     # config validation first, before the cosmolike import below: a bad

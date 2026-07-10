@@ -502,6 +502,48 @@ source, build_geometry scalar branch, build_specs ia=None, print_design),
 with the whole-path forward-walk record; then driver / inference /
 emul_scalars / gates / YAML / README.
 
+### Update 3 (2026-07-10, Opus): experiment.py scalar branch landed + gated
+
+All eight edit points in experiment.py, additive + scalar-guarded:
+import load_scalar_source; DATA_KEYS += "outputs"; new module fn
+`validate_scalar` (exclusivity: no dv/cosmolike keys; required param files;
+forbids rescale/ia/pce/transfer/finetune; outputs non-empty + unique);
+from_config (is_scalar detection, param_cuts made conditional, a scalar
+branch building MODELS[(name, None)] with _scalar/outputs set); __init__
+(_scalar=False, outputs=None); stage_train + stage_val (scalar branch ->
+load_scalar_source before the param_cuts access); build_geometry (scalar
+branch after the transfer branch, before the cosmolike import:
+ParamGeometry.from_covmat + ScalarGeometry.from_targets(staged targets) +
+make_scalar_chi2, early return); print_design (a scalar summary line + the
+cuts line gated by `if pc:`, byte-identical for dv since param_cuts is
+always non-empty there). build_specs UNCHANGED (recipe["ia"]=self.ia=None,
+output_dim=geom.dest_idx.numel()=n_out both already correct).
+
+**Whole-path forward-walk (from_config -> stage -> build_geometry ->
+build_specs -> run -> save -> run_tag/diagnostics):** the training path
+(run() = stage_train/val -> build_geometry -> train) threads cleanly; save
+persists the ScalarGeometry via the generic cls dispatch (no results.py
+change beyond the D-SP3 info flag). FINDING: the train_single driver's
+`run_tag` reads `cfg["data"]["train_dv"]` (its _cs_<T> tag) and its `attrs`
+read `train_dv` / `val_dv` (basenames) -- BOTH absent on a scalar run, so
+train_single cannot be reused as-is; the scalar driver MUST supply its own
+run_tag (`<model>_ntrain<N>`) and attrs (no train_dv/val_dv). This is
+exactly why train_scalar_emulator.py is a separate thin driver, confirmed
+by the forward-walk.
+
+**Gate (Mac):** py_compile OK (experiment/data_staging/results/
+geometries_scalar/losses.scalar); experiment probe ALL PASS
+(validate_scalar valid/empty/dup/exclusivity/required-files/forbidden-
+features + 8 source cross-checks); diff 228+/11- (the 11 deletions are the
+import reflow + the param_cuts conditional + the cuts-line re-indent under
+`if pc:`, all additive/guarded; dv-path load_source x4 / from_cosmolike x1
+/ make_chi2 x2 intact). torch training legs ride the board.
+
+**Next:** train_scalar_emulator.py (own run_tag + attrs), EmulatorPredictor
+scalar branch, then the binding emul_cosmic_shear + legacy emultheta reads
+-> emul_scalars, gates scalar-identity / scalar-smoke + configs + example
+YAML + README draft.
+
 ## Architect audit: increment-2 checkpoint (2026-07-10, Fable)
 
 **Verdict: both landed deltas VERIFIED (D-SPE1-1 closed, D-SP3 landed);
@@ -664,4 +706,87 @@ the omega windows onto scalar chains.
   the whole-path forward-walk record, Mac-gated; then driver /
   inference / emul_scalars (after the binding emul_cosmic_shear +
   legacy reads) / gates / YAML / README draft -> the full SPE
+  IMPLEMENTER_HANDOFF with the workstation force-rerun list.
+
+## Architect audit: experiment.py checkpoint (2026-07-10, Fable)
+
+**Verdict: the scalar branch is VERIFIED and the dv path is proven
+untouched, with ONE new required delta (D-SPE2-3, the head-architecture
+guard). The forward-walk finding is endorsed. Proceed to the driver +
+predictor.** Evidence is the Architect's own run.
+
+### Evidence
+
+- The 11 deletions reviewed hunk by hunk (the regression risk of this
+  checkpoint): (1) the data_staging import is a pure extension; (2) the
+  validate_param_cuts call became `if not is_scalar or "param_cuts" in
+  cfg["data"]:` — on a dv run `not is_scalar` short-circuits True, so
+  the dv call is unconditional as before; (3) the cuts banner gained
+  `if pc:` — validate_param_cuts REQUIRES the param_cuts block and
+  omegabh2_hi wherever it runs, so on a dv run pc is always non-empty
+  and the banner is byte-identical. No other deletions exist.
+- My independent exec-probe of validate_scalar: 14 legs ALL PASS —
+  valid config returns outputs; empty and duplicate outputs raise
+  (named); all four exclusivity keys raise; missing train_covmat
+  raises; rescale / model.ia / pce / transfer / finetune all raise;
+  and ia: "none" is admitted (the None-or-"none" reading).
+- build_geometry: the scalar branch (2046-2061) returns BEFORE the
+  lazy cosmolike import (2072) — the no-cosmolike claim holds on the
+  real control flow, not just intent.
+- Activation faithfulness: the scalar branch reduces model.activation
+  to the type string exactly as the normal path does; n_gates is read
+  separately by build_specs from the raw YAML block (2346-2350), so
+  multi-gate families lose nothing on the scalar path.
+- The forward-walk finding CONFIRMED against the driver source:
+  run_tag reads cfg["data"]["train_dv"] (train_single 182-203) and the
+  attrs read train_dv/val_dv (322) — train_scalar_emulator.py must own
+  its run_tag (<model>_ntrain<N>) and attrs, as planned.
+- The V1 finetune forbid (validate_scalar) narrows D-SP3's "FTW
+  composes automatically once the source constraints admit the scalar
+  geometry" to a loud not-in-V1 error. Consistent with the APPROVED
+  increment-2 plan; D-SP3's sentence stands as the recorded future
+  admission, not a V1 behavior. No delta.
+
+### D-SPE2-3 (delta, REQUIRED): head architectures must be loudly
+rejected on a scalar run
+
+The scalar branch's guard `(name, None) not in models` never fires for
+rescnn / restrf — the PLAIN ResCNN / ResTRF exist in MODELS. Both
+declare needs_bins, so a scalar YAML with `name: rescnn` sails through
+from_config and crashes at the needs_bins consumer (experiment.py:1988,
+build_shear_angle_map on a ScalarGeometry) with a deep AttributeError —
+exactly the unclear-failure mode the loud-error rule exists to prevent.
+Fix, keyed on the declared capability rather than the name (so a future
+trunk-only design composes automatically): after resolving the class in
+the scalar branch,
+
+```python
+      model_cls = models[(name, None)]
+      if model_cls.head_block is not None:
+        raise ValueError(
+          f"model.name {name!r} has a correction head "
+          f"({model_cls.head_block}): the heads correct along the "
+          "angular axis, and a scalar output has no angular axis. A "
+          "scalar run is trunk-only; use name: resmlp")
+```
+
+(head_block is DesignSpec's single source of head knowledge, enforced
+at class definition.) Add the leg — a scalar cfg with name: rescnn
+raises this error — to the Mac probe and the scalar-identity gate.
+
+### ARCHITECT_HANDOFF: EXPERIMENT BRANCH VERIFIED — BUILD DRIVER + PREDICTOR
+
+- **Audit outcome:** the experiment.py scalar branch VERIFIED; all 11
+  deletions proven dv-safe hunk by hunk; validate_scalar 14/14 on my
+  independent probe; the early return lands before the cosmolike
+  import on real control flow; n_gates travels intact; the
+  run_tag/attrs forward-walk finding confirmed at the driver source.
+- **Delta D-SPE2-3 (required):** the trunk-only guard above (keyed on
+  head_block, not the name), plus its probe and scalar-identity legs.
+- **Recorded, no action:** the V1 finetune forbid narrows D-SP3's FTW
+  admission to a future item; the spec sentence stands as such.
+- **Next milestone:** train_scalar_emulator.py (own run_tag + attrs) +
+  the EmulatorPredictor scalar branch, then the BINDING
+  emul_cosmic_shear.py + legacy emultheta reads -> emul_scalars.py,
+  gates + configs + example YAML + README draft -> the full SPE
   IMPLEMENTER_HANDOFF with the workstation force-rerun list.
