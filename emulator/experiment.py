@@ -1331,7 +1331,14 @@ class EmulatorExperiment:
       self.log(self._activation_notice)
     # the model class describes itself: only the sub-blocks this
     # architecture consumes (its own head, never the inactive cnn: / trf:).
-    self.log(f"model spec: {self.model_cls.describe_spec(ta['model'])}")
+    # A finetune run has no model: block (forbidden -- the architecture is
+    # inherited), so it prints the source recipe's constructor kwargs
+    # instead: the consumed view of the inherited spec.
+    if self._finetune is not None:
+      self.log("model spec: inherited from the source recipe  "
+               f"{self._finetune.recipe.get('kwargs', {})}")
+    else:
+      self.log(f"model spec: {self.model_cls.describe_spec(ta['model'])}")
     # trunk_epochs > 0 = the two-phase schedule (trunk then frozen-trunk
     # head); print it only when active, so ordinary runs stay unchanged.
     tk = ta.get("trunk_epochs", 0)

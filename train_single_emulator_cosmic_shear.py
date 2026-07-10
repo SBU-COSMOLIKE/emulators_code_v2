@@ -183,20 +183,22 @@ def run_tag(cfg, exp):
   """
   The run's identity tag for output filenames.
 
-  <model>_t<T>_ntrain<N>: the model name (YAML train_args.model.name),
-  the training temperature (the _cs_<T> tag in the train-dv file name,
-  skipped when absent), and the N_train actually staged. Appended to
-  the --diagnostic and --save name roots so runs do not overwrite each
-  other and a file says what produced it.
+  <model>_t<T>_ntrain<N>: the model name (exp.arch: the resolved YAML
+  train_args.model.name, or the inherited source recipe's name on a
+  finetune run, which carries no model: block), the training temperature
+  (the _cs_<T> tag in the train-dv file name, skipped when absent), and
+  the N_train actually staged. Appended to the --diagnostic and --save
+  name roots so runs do not overwrite each other and a file says what
+  produced it.
 
   Arguments:
     cfg = the resolved config mapping (data + train_args blocks).
-    exp = the staged EmulatorExperiment (reads exp.train_set).
+    exp = the staged EmulatorExperiment (reads exp.arch + exp.train_set).
 
   Returns:
     the tag string, e.g. "resmlp_t256_ntrain250000".
   """
-  tags = [str(cfg["train_args"]["model"].get("name", "resmlp")).lower()]
+  tags = [str(exp.arch or "resmlp").lower()]
   tmatch = re.search(r"_cs_(\d+)",
                      os.path.basename(cfg["data"]["train_dv"]))
   if tmatch is not None:

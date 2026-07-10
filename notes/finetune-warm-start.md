@@ -486,3 +486,35 @@ one GBC-side (the GSV check script self-reads the raw board_config.json and
 saw the shipped rootdir null) — fixed as delta D-GBC-1, recorded in
 gates-harness-user-run.md. The FTW forward-walk above is unaffected; the
 smoke path itself has not executed yet.
+
+## Run 12c (2026-07-10) + delta D-FTW-2 (Architect, applied directly)
+
+The D-GBC-1 rerun got two steps further — save-rebuild-drift PASS (the
+artifact now persists WITH the rescale attr; all bitwise legs green), the
+smoke's load_source accepted it and the banner printed — then died in
+print_design at `ta['model']`: the finetune branch added the banner line
+but the function's model-spec line still assumes the model: block a
+finetune YAML is FORBIDDEN to carry. **Both the Implementer's static sweep
+and the Architect audit missed it** (the audit read the print_design diff
+hunk, not the whole function body). This time the ENTIRE driver path was
+enumerated (every `model`-block read in experiment.py + the driver):
+exactly two live crash sites existed — print_design:1334 (fired) and the
+driver's run_tag:199 (lying in wait at save time, unavoidable since --save
+defaults to "emulator").
+
+**Delta D-FTW-2 (compile-checked + exec-probed):**
+1. `experiment.py` print_design — on a finetune run the model-spec line
+   prints the inherited source recipe's constructor kwargs (the consumed
+   view of D-FT2) instead of describe_spec on the absent block.
+2. `train_single_...py` run_tag — the architecture tag reads `exp.arch`
+   (the resolved value; the same move the Implementer already made for the
+   save attrs). Probe on the shipped span: the plain-run tag is
+   byte-identical to the old output; the finetune-run tag works
+   (resmlp_t16_ntrain200).
+
+All other model-block reads are on paths the finetune branch returns
+before, or safe `.get(..., {})` — enumerated, not assumed. Deterministic
+consequence for the workstation leg: the smoke artifact lands at
+`<rootdir>/projects/lsst_y1/chains/emulator_resmlp_t16_ntrain200.h5`.
+Rerun: plain `python gates/run_board.py` (no --force-rerun needed:
+save-rebuild-drift is recorded PASS, finetune-smoke reruns from FAIL).

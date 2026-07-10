@@ -1691,3 +1691,14 @@ empty-env exits / unset-env exits: 4/4).
 Rerun is unchanged: `python gates/run_board.py --force-rerun
 save-rebuild-drift` (GSV re-persists the artifact with the D-FTW-1 rescale
 attr; finetune-smoke reruns from its recorded FAIL/SKIP-DEP).
+
+## Run 12c (2026-07-10): GSV green with the attr; smoke died in print_design — delta D-FTW-2
+
+save-rebuild-drift PASS on the fixed resolution + rescale stamp (all
+bitwise legs green, artifact re-persisted). finetune-smoke got past
+load_source (banner printed) and hit `KeyError: 'model'` in print_design —
+the model-spec line assumes the model: block a finetune YAML must not
+carry; the driver's run_tag had the same read waiting at save time. Both
+fixed as delta D-FTW-2 (details, the full model-block-read enumeration,
+and the run_tag equivalence probe in finetune-warm-start.md). Next rerun
+is a plain `python gates/run_board.py`.
