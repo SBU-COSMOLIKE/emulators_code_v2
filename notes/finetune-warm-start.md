@@ -564,3 +564,29 @@ gates_emul_evaluate' (the absolute source root), finetune_extra_names = ''
 verified from the artifact itself. The unit's one open thread is the
 n_x > 0 real-data leg, which belongs to the science thread (needs a real
 w0waCDM training dump).
+
+## Designed extension (2026-07-10): finetune.anchor — L2-SP for warm starts
+
+User-requested after the TPE D-TP10 discussion: the same anchor penalty
+lambda * ||W - W_source||^2 applies to plain fine-tuning, where it is the
+missing continuous dial between frozen and free (the lowered LR sets the
+step size, not how far the walk may drift from the proven source).
+
+- YAML: `finetune.anchor` (optional; the whitelist grows by one key).
+  ABSENT = the shipped, gated behavior, byte-identical. Present =
+  explicit lambda (0.0 states free fine-tuning deliberately).
+- The reference is the transferred init_state, with the PADDED EXTRA
+  COLUMNS EXCLUDED from the penalty: they are exact zeros by design and
+  the designated carriers of the new-physics dependence — anchoring them
+  to zero fights the warm start's purpose. transfer_state_dict's
+  padded_keys already identifies them; the mask is a column slice.
+- Mechanism, SHARED with TPE D-TP10 (one facility, built once): a
+  DECOUPLED post-step update W <- W - lr * lambda * (W - W_0), the
+  AdamW-decoupling argument applied to the anchor (a loss-term L2 gets
+  rescaled by Adam's adaptive moments). Interaction documented: the
+  existing weight_decay decays toward ZERO, i.e. away from the source —
+  an anchored fine-tune should normally set weight_decay 0.0 (a
+  recommendation with a notice, never an error; the user decides).
+- Executes WITH TPE unit 2 (the shared anchor facility lands once,
+  both YAML surfaces gain their key in the same unit); FTW stays closed
+  until then, and absent-key behavior never changes.
