@@ -11,7 +11,7 @@ inference loop. `xi` is the cosmic-shear two-point correlation functions — the
 data the analysis measures; cosmolike (inside Cocoa) supplies the analysis mask
 and covariance. Accuracy is judged as chi2 — the prediction error in the
 covariance units inference actually cares about (the
-[chi2 metric](#14-appendix-the-chi2-metric-mahalanobis)).
+[chi2 metric](#15-appendix-the-chi2-metric-mahalanobis)).
 
 One line: raw dumps → stage → whiten params (input) and data vector (output) →
 ResMLP / ResCNN / ResTRF → chi2 loss → train. `EmulatorExperiment` wires it together; each
@@ -38,12 +38,13 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 10. [`model`](#10-model)
 11. [Two-phase schedule + the `trunk:` / `head:` blocks](#11-two-phase-schedule--the-trunk--head-blocks)
 12. [`pce`](#12-pce)
-13. [Appendix: the pipeline](#13-appendix-the-pipeline)
-14. [Appendix: the chi2 metric (Mahalanobis)](#14-appendix-the-chi2-metric-mahalanobis)
-15. [Appendix: activation functions](#15-appendix-activation-functions)
-16. [Appendix: precedence — who wins when settings collide](#16-appendix-precedence--who-wins-when-settings-collide)
-17. [Appendix: Generating the training set](#17-appendix-generating-the-training-set)
-18. [AI-Usage](#18-ai-usage)
+13. [Starting from a saved emulator: fine-tuning + transfer](#13-starting-from-a-saved-emulator-fine-tuning--transfer)
+14. [Appendix: the pipeline](#14-appendix-the-pipeline)
+15. [Appendix: the chi2 metric (Mahalanobis)](#15-appendix-the-chi2-metric-mahalanobis)
+16. [Appendix: activation functions](#16-appendix-activation-functions)
+17. [Appendix: precedence — who wins when settings collide](#17-appendix-precedence--who-wins-when-settings-collide)
+18. [Appendix: Generating the training set](#18-appendix-generating-the-training-set)
+19. [AI-Usage](#19-ai-usage)
 
 ---
 
@@ -214,7 +215,7 @@ model). Any numeric leaf may be a scalar (the train drivers use it) or a
 (`tune_single` searches it, the others collapse it to the default). Sections
 3–11 document each block; the
 collision rules (which source wins when two set the same thing) live in the
-[precedence appendix](#16-appendix-precedence--who-wins-when-settings-collide),
+[precedence appendix](#17-appendix-precedence--who-wins-when-settings-collide),
 templates in `example_yamls/`, and the `sweep:` block in [Run it](#sweep-block).
 
 One compact production run (two-phase `restrf` + `nla`, a berhu head):
@@ -244,17 +245,17 @@ train_args:
 ```
 
 Six terms the chapter uses (details: appendices
-[13](#13-appendix-the-pipeline)–[14](#14-appendix-the-chi2-metric-mahalanobis)):
+[14](#14-appendix-the-pipeline)–[15](#15-appendix-the-chi2-metric-mahalanobis)):
 
 - data vector (dv): the masked cosmic-shear two-point functions xi+/- stacked
   into one vector — what the network predicts.
 - chi2: prediction error measured in the analysis covariance, `r^T Cinv r`
-  ([appendix 14](#14-appendix-the-chi2-metric-mahalanobis)). The headline
+  ([appendix 15](#15-appendix-the-chi2-metric-mahalanobis)). The headline
   metric, written `frac>0.2` in the logs: the fraction of validation
   cosmologies with delta-chi2 above 0.2 — the goal is to drive it down.
 - whitened: rotated and rescaled so the components are decorrelated with unit
   variance — the form the network sees, input and output
-  ([appendix 13](#13-appendix-the-pipeline)).
+  ([appendix 14](#14-appendix-the-pipeline)).
 - theta order: the data vector re-sorted to vary smoothly along the angular
   axis — the basis the correction heads work in.
 - trunk / head: every architecture is a shared ResMLP trunk; `rescnn` /
@@ -277,7 +278,7 @@ holds fewer rows the run raises rather than training on less than you asked.
 `split_seed` seeds the shuffle; `ram_frac` is the fraction of free RAM staging
 may fill before it streams from the disk memmap instead. Where these dumps
 come from — how the training parameters are sampled, whitened, and named — is
-[appendix 17](#17-appendix-generating-the-training-set).
+[appendix 18](#18-appendix-generating-the-training-set).
 
 ```
 dv/params dump ─▶ seeded shuffle ─▶ param_cuts ─▶ first n_train (+ n_val)
@@ -336,7 +337,7 @@ The run-level knobs that are not their own block.
   small `bs` does not slow scoring.
 - `trunk_epochs` / `freeze_trunk` — the two-phase schedule (section 11); the
   mode table is precedence
-  [C2](#16-appendix-precedence--who-wins-when-settings-collide).
+  [C2](#17-appendix-precedence--who-wins-when-settings-collide).
 - `silent` — suppress the per-epoch progress lines.
 - `clip` — a per-step gradient-norm ceiling (0 = off); the full gradient is
   rescaled toward the ceiling, keeping its direction, so one monster-outlier
@@ -363,7 +364,7 @@ train_args:
 
 The training objective. `loss.mode` picks a per-sample transform $L(c)$ of
 each sample's chi2 $c = r^\top C^{-1} r$
-([Mahalanobis](#14-appendix-the-chi2-metric-mahalanobis)); the batch loss is
+([Mahalanobis](#15-appendix-the-chi2-metric-mahalanobis)); the batch loss is
 the (trimmed, focally weighted; [sections 7–8](#7-trim)) mean of $L(c)$. The transform sets how a
 sample's gradient vote scales with its misfit:
 
@@ -394,7 +395,7 @@ plateaus above $K$ so a chi2=100 monster stays bounded.
 The `berhu:` sub-block sets the knots (spell it `berhu:` — the family, so it
 survives a `mode` sweep — or after the active mode as `berhu_capped:`; giving
 both is an error, see precedence
-[D](#16-appendix-precedence--who-wins-when-settings-collide)). An optional
+[D](#17-appendix-precedence--who-wins-when-settings-collide)). An optional
 `anneal:` (presence = on) starts as plain sqrt and blends into the berhu shape
 on the [shared schedule](#7-trim), $s: 0 \to 1$:
 
@@ -436,7 +437,7 @@ $$\mathrm{lr} = \ell \sqrt{B/B_0}$$
   factor}` are its kwargs, stepped every epoch on the **raw** validation
   median (the EMA average never feeds it). A per-phase `scheduler:` replaces
   the kwargs but keeps the class (precedence
-  [B](#16-appendix-precedence--who-wins-when-settings-collide)).
+  [B](#17-appendix-precedence--who-wins-when-settings-collide)).
 
 ```yaml
   optimizer:
@@ -638,12 +639,12 @@ The activation family, `{type, n_gates}` or a bare type string: the four
 learnable families `H` / `power` / `multigate` / `gated_power` plus the
 parameter-free `relu` / `tanh` (pair `tanh` with `norm: per_feature`, the
 saturation guard); their math is the
-[activation appendix](#15-appendix-activation-functions). This sets the shared
+[activation appendix](#16-appendix-activation-functions). This sets the shared
 family (trunk + default). A `rescnn` / `restrf` head may pin its own with
 `model.cnn`/`.trf.activation` (absent = share the trunk's); the pin needs a
 frozen-trunk head phase, `head: activation:` is its alias, and the precedence
 + warning are precedence
-[A](#16-appendix-precedence--who-wins-when-settings-collide).
+[A](#17-appendix-precedence--who-wins-when-settings-collide).
 
 ```yaml
   activation:
@@ -761,7 +762,7 @@ attention patterns per bin pair.
 
 `compile_mode` (optional, flat) sets the CUDA `torch.compile` mode; the
 defaults are precedence
-[F](#16-appendix-precedence--who-wins-when-settings-collide).
+[F](#17-appendix-precedence--who-wins-when-settings-collide).
 
 ```yaml
   model:
@@ -799,10 +800,10 @@ The symmetric `trunk:` / `head:` blocks are **diffs** against the top level:
 each configures its own pass over the eight keys `lr` / `scheduler` / `loss` /
 `trim` / `focus` / `clip` / `rewind` / `ema` (each absent = the run default),
 with the per-key override semantics in precedence
-[B](#16-appendix-precedence--who-wins-when-settings-collide) — the head block
+[B](#17-appendix-precedence--who-wins-when-settings-collide) — the head block
 alone also takes the `activation:` pin alias (`trunk: activation:` is an
 error, precedence
-[A](#16-appendix-precedence--who-wins-when-settings-collide)). On a
+[A](#17-appendix-precedence--who-wins-when-settings-collide)). On a
 single-phase model (any `resmlp`) `train()` demotes these — `trunk:` merges
 into the top level, `head:` / `trunk_epochs` / `freeze_trunk` are dropped —
 so the same YAML drives both families ("what is in the trunk is just the
@@ -874,16 +875,112 @@ loss ladder (berhu included), trim / focus / clip / rewind / ema. `pce:` is
 exclusive with `--rescale` and `model.ia` (each replaces the chi2 loss), and it
 is structurally unsweepable — a top-level block, not a `train_args` leaf, so
 one base per study; the collision rules are the
-[precedence appendix](#16-appendix-precedence--who-wins-when-settings-collide).
+[precedence appendix](#17-appendix-precedence--who-wins-when-settings-collide).
 
 ---
 
-## 13. Appendix: the pipeline
+## 13. Starting from a saved emulator: fine-tuning + transfer
+
+Training normally starts from random weights. Two features reuse a trained,
+saved emulator instead — and in both, epoch 0 is EXACTLY the saved emulator's
+own prediction (a pre-train check refuses to train otherwise), so the run
+improves on a proven starting point rather than a hopeful one.
+
+**Which one to use:** fine-tuning adapts every weight of the old network, so
+it fits small moves — the same physics on more data, or a couple of extra
+parameters (LCDM -> w0waCDM). Transfer learning keeps the old network
+completely frozen and trains a small parallel correction net, so it fits big
+moves where the old capacity cannot stretch (many new parameters carrying new
+physics, e.g. Early Dark Energy + w(z)-PCA amplitudes) — and it needs fewer
+new training cosmologies, because everything the old emulator knows is kept
+intact.
+
+### Fine-tuning (`train_args.finetune`)
+
+Point `from` at a saved emulator's path root (the `.h5` + `.emul` pair) and
+drop the `model:` block — the architecture is read from the file, never
+restated. New parameters in the training set (extra covmat columns, e.g.
+`w0`, `wa`) are handled automatically: the old weights are kept exactly, and
+the new inputs start with zero influence. Lower the learning rate through the
+ordinary `lr:` block (about 10x below the original run), and keep a few
+warmup epochs.
+
+```yaml
+train_args:
+  finetune:
+    from: projects/lsst_y1/chains/my_lcdm_run   # <root>.h5 + <root>.emul
+    anchor: 1.0e-2      # optional: pull weights back toward the saved
+                        # emulator (0.0 or absent = no pull). Columns for
+                        # NEW parameters are never pulled. With an anchor,
+                        # set optimizer weight_decay to 0.0.
+  lr:
+    lr_base:       5.0e-4
+    bs_base:       64.0
+    warmup_epochs: 5
+```
+
+Full example: `example_yamls/finetune_emulator_cosmic_shear.yaml`. Design
+record: `notes/finetune-warm-start.md`.
+
+### Transfer learning (`transfer:`)
+
+The saved emulator (the "base") stays frozen; the `model:` block now
+describes a NEW small correction net that sees the full new parameter space.
+The two are combined element-wise, per data-vector template for the factored
+NLA/TATT designs, before the amplitude combine. `form` picks the rule —
+`gain` = base * (1 + correction), `sum` = base + correction — and `space`
+picks where it acts (`physical` data-vector bins or the `whitened` training
+coordinates; each form has a recommended space filled in automatically, and
+choosing the other prints a note explaining the trade-off). The frozen base
+is evaluated once per training row and cached, so training costs only the
+small net; the saved result embeds the base, so the artifact reloads and
+samples with no other file.
+
+```yaml
+transfer:
+  from: projects/lsst_y1/chains/my_lcdm_run
+  form: gain            # gain = base*(1+r) | sum = base + r
+  space: physical       # optional; defaults to the form's recommendation
+
+train_args:
+  model:                # the SMALL correction net (the base is untouched)
+    name: resmlp
+    mlp:
+      width:    32
+      n_blocks: 1
+```
+
+Full example: `example_yamls/transfer_emulator_cosmic_shear.yaml`. Design
+record: `notes/transfer-parallel-emulator.md`.
+
+### Joint refinement (`transfer.refine`, optional stage 2)
+
+After the correction converges, an optional second stage unfreezes the base
+and trains both together: the base moves at a fraction of the run's learning
+rate (`base_lr_scale`) and is pulled back toward its saved weights by the
+`anchor` (both keys are required — an explicit `anchor: 0.0` states free
+fine-tuning deliberately). The saved artifact keeps the ORIGINAL base, the
+drifted base, and the drift itself, so you can always see how far the trusted
+emulator moved to buy the extra accuracy.
+
+```yaml
+transfer:
+  from: projects/lsst_y1/chains/my_lcdm_run
+  form: gain
+  refine:
+    epochs:        200
+    base_lr_scale: 0.01
+    anchor:        1.0e-2
+```
+
+---
+
+## 14. Appendix: the pipeline
 
 The goal is to replace an expensive physics code with a network that maps a
 handful of cosmological parameters to the cosmic-shear data vector, fast enough
 to call inside a cosmological inference and accurate enough that the data
-vector's [**chi2**](#14-appendix-the-chi2-metric-mahalanobis) — its distance from
+vector's [**chi2**](#15-appendix-the-chi2-metric-mahalanobis) — its distance from
 truth measured in the data covariance (a Mahalanobis distance; see the appendix),
 the quantity inference actually cares about — stays small. Two ideas run through the
 whole pipeline. **Whitening**: both the inputs and the outputs are rotated and
@@ -1114,7 +1211,7 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 
 ---
 
-## 14. Appendix: the chi2 metric (Mahalanobis)
+## 15. Appendix: the chi2 metric (Mahalanobis)
 
 The loss and the reported metric are both a **chi2**, which is a squared
 **Mahalanobis distance** — the distance between two points measured *in units of
@@ -1160,7 +1257,7 @@ units, with correlations removed).
 
 ---
 
-## 15. Appendix: activation functions
+## 16. Appendix: activation functions
 
 The `ResBlock` nonlinearity is a **learnable, per-feature activation**: every
 feature (one entry of the vector) carries its own shape parameters, trained with
@@ -1247,7 +1344,7 @@ guard.
 
 ---
 
-## 16. Appendix: precedence — who wins when settings collide
+## 17. Appendix: precedence — who wins when settings collide
 
 Configuration arrives from several places — the YAML, the driver flags, the
 per-phase override blocks, and the built-in defaults. When two of them speak
@@ -1397,7 +1494,7 @@ source to disagree with — the heads-up is that a "missing knob" is intentional
 
 ---
 
-## 17. Appendix: Generating the training set
+## 18. Appendix: Generating the training set
 
 The `data` block (section 3) names five dumps — `train_dv`, `train_params`,
 `train_covmat`, `val_dv`, `val_params`. This appendix is where they come from:
@@ -1499,7 +1596,7 @@ mpirun -n 10 --report-bindings \
 
 ---
 
-## 18. AI-Usage
+## 19. AI-Usage
 
 AI Usage: This library (under the `dev` folder) was developed with Claude
 Code assistance. However, Prof. Miranda heavily influenced the code at every
