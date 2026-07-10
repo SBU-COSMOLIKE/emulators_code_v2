@@ -527,3 +527,22 @@ supported); after green, confirm the smoke's saved h5 attrs
 (transfer_from / form / space / extra_names) from the `saved run record`
 path — then TPE-1b closes and unit 2 (refine + shared anchor) is the
 next handoff.
+
+## TPE-1b closure (2026-07-10): board 24/24 again, lifecycle green
+
+transfer-identity (with the new lifecycle leg: save -> rebuild ->
+composed-predict bitwise, predictor bitwise, chaining refused on the real
+artifact) and transfer-smoke (now SAVING: parity bitwise, banner,
+`saved run record -> chains/emulator_resmlp_t16_ntrain200.h5`) both PASS
+on the force-rerun. The composed run persists a fully self-contained
+artifact. One item closes the unit: the Architect's one-command attrs
+confirmation from the workstation artifact (transfer_from / form /
+space / extra_names), below. After that: UNIT 2 (transfer.refine + the
+shared L2-SP anchor facility + finetune.anchor) is the final
+infrastructure handoff before the EDE + w(z)-PCA program is pure science.
+
+**Attrs confirmation (2026-07-10, user-run):** transfer_from = the
+absolute gates_emul_evaluate root, form/space = 'gain'/'physical',
+extra_names = '' (names-equal), transfer_base group present — all exactly
+as specified. **TPE-1b CLOSED.** Unit 2 (refine + shared anchor) is the
+final infrastructure handoff.
