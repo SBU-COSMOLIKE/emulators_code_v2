@@ -43,3 +43,10 @@ Two failures:
 **Status:** DEFERRED — queued behind the board going green (cobaya-adapter
 is the last pending gate as of run 7). Do not start this sweep while gate
 fixes are still landing; it would churn the same files.
+
+**Closure (2026-07-09):** EXECUTED as GBC Part 3, landed on main in 8e7bf56
+(merge 70f2f06). All five gates/checks headers plus main()/helper docstrings
+rewritten under the define-or-drop rule with zero logic change —
+Architect-verified by a docstring-blanked AST proof and a quality read
+against the original feedback. The rule itself stays live for every future
+check script (finetune_identity.py is the first one written under it).
