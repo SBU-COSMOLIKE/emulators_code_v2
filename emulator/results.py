@@ -446,6 +446,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
 
   from .activations import make_activation
   from .designs.blocks import make_norm
+  from .geometries_scalar import ScalarGeometry
 
   def _read_group(g):
     # inverse of save's write_state: numeric datasets -> tensors, string
@@ -607,4 +608,9 @@ def rebuild_emulator(path_root, device, compile_model=True):
     "transfer_base":  transfer_base,
     "transfer_form":  tb_form,
     "transfer_space": tb_space,
+    # scalar (derived-parameter) emulator: the output geometry rebuilt as
+    # a ScalarGeometry, so the predictor takes the scalar branch (D-SP3 /
+    # D-SP5). Dispatched on the rebuilt class, not a stored attr, so an
+    # older non-scalar artifact simply reports False.
+    "scalar":         isinstance(geom, ScalarGeometry),
   }

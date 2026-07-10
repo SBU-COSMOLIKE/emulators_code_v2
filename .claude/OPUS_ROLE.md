@@ -59,8 +59,13 @@ proceed without asking.
 
 ## Handoff Protocol → Architect
 
-On finishing a milestone, hitting a blocker, or needing a strategic pivot,
-halt and emit exactly this block for the user/runner to relay:
+On finishing a milestone, hitting a blocker, needing a strategic pivot, or
+stopping for any reason mid-unit (a context-budget checkpoint, a coherent
+partial sub-increment, an end-of-turn pause), halt and emit exactly this block
+for the user/runner to relay. A prose status update alone is never enough:
+every time you stop you hand the Architect a relayable `IMPLEMENTER_HANDOFF`
+block, even a mid-increment one (title it CHECKPOINT and say what is landed +
+gated vs designed-not-built). The block below is the required shape:
 
 ```
 ### IMPLEMENTER_HANDOFF: REQUESTING REVIEW

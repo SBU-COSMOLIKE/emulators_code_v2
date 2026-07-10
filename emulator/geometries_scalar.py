@@ -120,9 +120,11 @@ class ScalarGeometry:
     """Build the standardization from the training targets.
 
     center is each output's training mean, scale its training standard
-    deviation (population, ddof 0, deterministic). A zero-variance
-    output (a constant column) would make scale 0 and decode divide by
-    zero downstream, so it is a loud error naming the column(s).
+    deviation (population, ddof 0, deterministic). An un-standardizable
+    output is a loud error naming the column(s): a constant column
+    (whose std is only mean-rounding noise) or one whose spread is below
+    float32 resolution at its magnitude (scale <= 8 * float32-eps *
+    |center|), either of which would make decode divide by near-zero.
 
     Arguments:
       device  = device for the built tensors.
@@ -136,15 +138,23 @@ class ScalarGeometry:
     Y = np.asarray(targets, dtype="float64")
     center = Y.mean(0)
     scale  = Y.std(0)                         # population std (ddof 0)
-    zero = np.nonzero(scale <= 0.0)[0]
+    # a constant column's std is pure mean-rounding noise
+    # (~eps64 * |mean|), and a spread below float32 resolution at the
+    # column's magnitude cannot survive the float32 cast; both are
+    # un-standardizable, so both are the loud error.
+    tiny = 8.0 * np.finfo("float32").eps * np.abs(center)
+    zero = np.nonzero(scale <= tiny)[0]
     if zero.size > 0:
       bad = []
       for j in zero.tolist():
         bad.append(names[j])
       raise ValueError(
-        "ScalarGeometry.from_targets: zero-variance output column(s) "
-        + repr(bad) + "; a constant derived parameter cannot be "
-        "standardized (its scale would be 0). Drop it from outputs.")
+        "ScalarGeometry.from_targets: un-standardizable output "
+        "column(s) " + repr(bad) + "; each is either a constant column "
+        "(its std is only mean-rounding noise) or has a spread below "
+        "float32 resolution at its magnitude (scale <= 8 * float32-eps "
+        "* |center|), so it cannot be standardized. Drop it from "
+        "outputs.")
     return cls(device=device, names=names, center=center, scale=scale)
 
   def state(self):
