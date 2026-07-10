@@ -145,3 +145,66 @@ scalar-smoke, cmb-identity, cmb-smoke).
 ## Resume state (Implementer appends below)
 
 (none yet)
+
+## Unified ARCHITECT_HANDOFF (SPE + CME, 2026-07-10)
+
+The block below is the handoff of record for BOTH units (relayed to the
+Implementer session by the user); the SPE note carries a pointer here.
+
+### ARCHITECT_HANDOFF: READY FOR EXECUTION (SPE + CME, one pass)
+
+- **Units & sequencing:** SPE (scalar parameter emulators) FIRST, then
+  CME (CMB spectra emulators) — SPE establishes the artifact-derived
+  provides pattern and the EmulatorPredictor dispatch that CME reuses.
+  One commit per unit on the branch. Implementer = Opus 4.8; base = main
+  at the two-spec commit.
+- **Target files, SPE:** emulator/geometries_scalar.py (ScalarGeometry:
+  names/center/scale, state/from_state, cls marker);
+  emulator/losses/scalar.py (standardized MSE exposing the loop
+  interface); train_scalar_emulator.py (thin driver, no cosmolike);
+  results.py save/rebuild generalization; the EmulatorPredictor scalar
+  branch; cobaya_theory/emul_scalars.py; gates scalar-identity /
+  scalar-smoke + configs + example YAML.
+- **Target files, CME:** the from-fiducial diagonal output geometry
+  (constructor beside DiagonalGeometry); the imposed-amplitude-law
+  registry ({as_exp2tau, none}, persisted by name);
+  compute_data_vectors/compute_cmb_dvs.py (CAMB via cobaya, ONE
+  Boltzmann pass -> all four spectra, existing dump format);
+  the data.cmb block in the drivers (exclusive with cosmolike keys);
+  cobaya_theory/emul_cmb.py; gates cmb-identity / cmb-smoke + configs +
+  example YAML.
+- **Contracts & interfaces:** D-SP1..D-SP8 (scalar-parameter-emulators.md)
+  and D-CM1..D-CM7 (this note), in full. Legacy references live in the
+  user's Downloads/emulators_code-main/ (emultheta, emulrdrag, emulcmb,
+  emultraining) — read them for the cobaya API surfaces
+  (initialize / get_requirements / get_can_provide_params / get_param /
+  get_Cl / must_provide) and the CME physics conventions; PORT NO CODE.
+- **Verbatim numerics (CME, from the legacy trainer):**
+  covinv = diag(2/(2l+1) / Cl_fid^2), l = 2..ellmax; the amplitude law
+  target' = Cl * exp(2*tau) / As, multiplied back at decode.
+  SPE has none (new machinery over existing conventions).
+- **Constraints & edge cases:** provides / spectra / ellmax /
+  requirements are ARTIFACT FACTS — a YAML provides: is a subset CHECK
+  only, never a source; duplicate output names (SPE) and duplicate
+  spectra (CME) are loud initialize errors; a likelihood requesting an
+  unprovided spectrum is loud at must_provide naming the loaded set;
+  data.cmb exclusive with cosmolike_data_dir/dataset (both-present
+  loud); NO cosmolike import on either new path; the D-SP4 input-overlap
+  question — propose the simpler ruling in the resume; standard schema
+  v2 throughout (FTW composes; TPE out of scope for both, recorded);
+  docs under define-or-drop; enumerate every config-key access on both
+  new driver paths (the FTW forward-walk lesson).
+- **Validation gate:** four new board gates — scalar-identity (SPE-A),
+  scalar-smoke (SPE-B: deterministic derived target from existing dump
+  columns + a cobaya evaluate leg), cmb-identity (CME-A: geometry +
+  amplitude-law exact round-trips, get_Cl assembly, error paths),
+  cmb-smoke (CME-B: END-TO-END — tiny generated dump through real CAMB,
+  2-epoch train, cobaya evaluate through emul_cmb). Mac-limit discipline
+  as established (compileall + AST + numpy probes; torch/h5py legs are
+  workstation-confirmed). The user is away: each handback must be
+  self-contained with the full force-rerun list.
+- **Notes entries:** per-unit resume state appended to each spec note;
+  mid-unit design questions go there as checkpoint requests (the TPE-2
+  precedent) — the Architect rules from the notes when handbacks arrive.
+- **Next milestone:** one IMPLEMENTER_HANDOFF per unit, SPE first, diffs
+  on the branch, no git run by the Implementer.

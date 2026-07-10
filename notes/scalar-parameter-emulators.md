@@ -148,3 +148,6 @@ outputs are vectors with their own geometries); chained scalar emulators
 ## Resume state (Implementer appends below)
 
 (none yet)
+
+**Handoff of record:** the unified SPE + CME ARCHITECT_HANDOFF lives in
+[[cmb-spectra-emulators]] (one implementation pass, SPE first).
