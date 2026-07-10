@@ -1746,3 +1746,13 @@ started 2026-07-07 is DONE; what remains is science: berhu_capped-vs-sqrt
 attribution, bs+EMA (carry the early-best-epoch observation), the
 activation bake-off, NPCE at scale, and the first real LCDM -> w0waCDM
 fine-tune once a w0waCDM training dump exists.
+
+## Run 13 (2026-07-10): TPE V1 gates green first try — board 24/24
+
+transfer-identity PASS (36/36 on CUDA: all 8 form x space x family
+identity combos bitwise, base-cached call-counting, surgery, 7 error
+paths) and transfer-smoke PASS (bitwise parity, banner, D-TPE-1 save
+refusal asserted) on their first workstation execution — the first new
+gates since the FTW deltas to go green with zero reds. The whole 24-row
+board is green. Closure in transfer-parallel-emulator.md; next is the
+TPE-1b artifact-lifecycle handoff.

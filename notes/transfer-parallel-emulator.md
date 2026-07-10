@@ -436,3 +436,18 @@ Architect delta applied (D-TPE-1) and two rulings.**
 
 **Next:** user lands the branch; board runs transfer-identity +
 transfer-smoke; then the TPE-1b handoff.
+
+## TPE V1 closure (2026-07-10): board 24/24, both gates PASS first try
+
+**transfer-identity (TPE-A): PASS on CUDA, 36/36** — all eight
+form x space x family identity combos bitwise, the slice contract bitwise
+for plain and factored, base-cached proven by call-counting (encode 1,
+chi2 +0), zero-init surgery exact, all seven error paths including the
+unit-2 refine guard. **transfer-smoke (TPE-B): PASS** — parity bitwise on
+200 rows, banner names base + form gain/physical, the 25,927-param
+correction trains over the frozen 66k base (val 23208 -> 22632 in 2
+epochs at full lr — the correction moves freely, the base bit-frozen),
+and the D-TPE-1 refusal line printed + asserted: no correction-only
+artifact exists. Whole board green (24 rows incl. triangle-shading).
+**Next: the TPE-1b handoff** (the artifact lifecycle specified in the
+resume above); then unit 2 (refine + the shared anchor facility).
