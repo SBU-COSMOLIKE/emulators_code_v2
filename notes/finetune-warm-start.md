@@ -518,3 +518,40 @@ consequence for the workstation leg: the smoke artifact lands at
 `<rootdir>/projects/lsst_y1/chains/emulator_resmlp_t16_ntrain200.h5`.
 Rerun: plain `python gates/run_board.py` (no --force-rerun needed:
 save-rebuild-drift is recorded PASS, finetune-smoke reruns from FAIL).
+
+## FTW closure (2026-07-10): board green, both gates PASS
+
+**finetune-smoke (FTW-B): PASS** (run 12d, HEAD ebfb16c). The raw log is
+the design executing end to end:
+
+- `[ok] finetune parity: max|dv| = 0.000e+00 on 200 rows` — epoch 0 IS the
+  source function, bitwise, on the names-equal path; the "200 rows" (not
+  256) shows the min(available-rows) guard doing its job on the tiny set.
+- banner + inherited-recipe spec line printed (the D-FTW-2 branch:
+  `model spec: inherited from the source recipe {int_dim_res 64, ...}`).
+- lr 7.07e-05 = 1e-4 * sqrt(32/64): the lowered lr_base through the
+  existing sqrt-batch rule, no new knob (D-FT1 as designed).
+- val decreased gently from the warm-start baseline (23210.9 -> 23203.5 ->
+  23196.1 over 2 epochs) — fine-tuning moves OFF the source point with no
+  cold-optimizer kick (warmup 1 epoch, fresh Adam moments).
+- artifact saved at the predicted path:
+  `<rootdir>/projects/lsst_y1/chains/emulator_resmlp_t16_ntrain200.{emul,h5}`.
+
+The full delta trail this green retroactively proves: D-FTW-1 (rescale
+attr stamped + read), D-GBC-1 (check-script rootdir resolution), D-FTW-2
+(print_design + run_tag off the forbidden model block). **Board: 21/21
+green** (triangle-shading remains the standing optional eyeball).
+
+**One item left before FTW-B is formally closed** — the deviation-(b)
+workstation leg, one command on the workstation:
+
+    python -c "import h5py; f = h5py.File('$ROOTDIR/projects/lsst_y1/chains/emulator_resmlp_t16_ntrain200.h5'); print(repr(f.attrs['finetuned_from'])); print(repr(f.attrs['finetune_extra_names'])); print(repr(f.attrs['rescale']))"
+
+Expected: finetuned_from = the absolute gates_emul_evaluate root,
+finetune_extra_names = '' (names-equal run), rescale = 'none'. The
+save->rebuild round-trip machinery is already proven bitwise on this
+artifact class by save-rebuild-drift in the same board pass.
+
+After that: FTW is done for V1. The n_x > 0 leg on real data (LCDM ->
+w0waCDM proper) opens with the science thread, when a real w0waCDM
+training dump exists — the honest margin stands.

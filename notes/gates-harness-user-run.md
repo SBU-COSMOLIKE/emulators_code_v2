@@ -1702,3 +1702,12 @@ carry; the driver's run_tag had the same read waiting at save time. Both
 fixed as delta D-FTW-2 (details, the full model-block-read enumeration,
 and the run_tag equivalence probe in finetune-warm-start.md). Next rerun
 is a plain `python gates/run_board.py`.
+
+## Run 12d (2026-07-10): BOARD GREEN, 21/21 — FTW gates closed
+
+Plain resume run at ebfb16c: finetune-smoke PASS (parity 0.000e+00 on 200
+rows, inherited-recipe banner, gentle post-warm-start descent, artifact at
+chains/emulator_resmlp_t16_ntrain200). All 21 gates green; the delta trail
+D-FTW-1 / D-GBC-1 / D-FTW-2 is proven by this pass. Closure details + the
+one remaining attr-confirmation command in finetune-warm-start.md.
+Standing optional item: the triangle-shading PDF eyeball.
