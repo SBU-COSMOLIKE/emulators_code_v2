@@ -249,7 +249,16 @@ to a card, ≤ 40% two to a card, bigger ones exclusive (off by default — on a
 
 ### Where next
 
-The YAML has two top-level blocks — `data` and `train_args`. The next
+The YAML has two top-level blocks:
+
+```yaml
+data:          # where the training vectors come from, how many rows to use
+  ...
+train_args:    # the whole run: objective, optimizer, schedules, model
+  ...
+```
+
+The next
 chapter ([The YAML file](#2-the-yaml-file), sections 2–11) documents every
 block with its math, options, and a small example; templates live in
 `example_yamls/` (one per driver style — copy one into your `--fileroot` and
