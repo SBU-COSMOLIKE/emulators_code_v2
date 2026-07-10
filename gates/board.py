@@ -858,6 +858,64 @@ def gate_ftw_b(ctx):
           "pattern); the Architect confirms these from the saved artifact.")
 
 
+def gate_tpe_a(ctx):
+  """transfer-identity: a frozen base plus a zero correction is the base, exactly.
+
+  This gate proves the transfer identity: at epoch 0 the composed prediction
+  (a frozen base under a parallel correction whose output is zeroed) is bitwise
+  the frozen base's own decode, in every form (gain / sum) x space (physical /
+  whitened) combination, for a plain base and a factored (three-template) base.
+  The check builds two tiny synthetic bases (no cosmolike), saves and reloads
+  them, and asserts the base-encoding slice, the epoch-0 identity, the base
+  caching, the zero-init surgery, and the config error paths (spec:
+  transfer-parallel-emulator.md, the transfer-identity validation gate). torch
+  only, no cosmolike.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/transfer_identity.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="transfer-identity slice + identity + packing + surgery + errors",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/transfer_identity.py)")
+
+
+def gate_tpe_b(ctx):
+  """transfer-smoke: a real transfer run composes the board's own base.
+
+  A names-equal gain-form transfer (no extra parameters) that warm-starts a
+  parallel correction over the plain base save-rebuild-drift persists under the
+  board fileroot, for two epochs. It confirms the epoch-0 parity verdict prints,
+  the banner names the base and form, and the run completes. The saved-artifact
+  provenance (the transfer_from root attr, the embedded transfer_base group) and
+  the save -> rebuild -> predict round-trip are the save-and-sample follow-up the
+  Architect confirms from the workstation artifact (spec:
+  transfer-parallel-emulator.md, the transfer-smoke validation gate). Depends on
+  save-rebuild-drift, which persists the base this run composes.
+  """
+  ctx.require_caps("torch", "cosmolike", "gpu")
+  smoke_yaml = ctx.require_config("transfer-smoke-config")
+  rc, out = ctx.run_driver(yaml_path=smoke_yaml, allow_fail=True)
+  if ctx.dry:
+    return
+  ctx.expect(label="transfer-smoke run completes",
+             ok=(rc == 0),
+             detail="transfer driver exit code " + str(rc))
+  ctx.expect(
+    label="transfer-smoke epoch-0 parity verdict printed",
+    ok=logscan.search(text=out, pattern=r"transfer parity: epoch 0 == frozen base"),
+    detail="the [ok] parity line proves epoch 0 is the frozen base")
+  ctx.expect(
+    label="transfer-smoke banner names the base and form",
+    ok=logscan.search(text=out, pattern=r"transfer: from "),
+    detail="print_design must announce the base + form/space")
+  ctx.log("transfer-smoke save/rebuild + transfer_from: the saved h5 carries "
+          "the transfer_from root attr and the embedded transfer_base group, "
+          "and a rebuild_emulator round-trip predicts identically; the "
+          "Architect confirms these from the saved artifact.")
+
+
 # --------------------------------------------------------------------------
 # The board, in execution order (workstation-board-2026-07.md).
 # --------------------------------------------------------------------------
@@ -1019,6 +1077,14 @@ BOARD = [
        maps="256-273 (encode + transfer + parity + degenerate + error paths)",
        run=gate_ftw_a,
        needs=("torch",)),
+  Gate(id="transfer-identity",
+       spec_code="TPE-A",
+       title="Transfer frozen-base identity",
+       tier=TIER_NEW_FEATURES,
+       home="transfer-parallel-emulator",
+       maps="204-219 (slice + 4x form/space identity + packing + surgery + errors)",
+       run=gate_tpe_a,
+       needs=("torch",)),
 
   Gate(id="save-rebuild-drift",
        spec_code="GSV-C",
@@ -1046,6 +1112,16 @@ BOARD = [
        maps="277-284 (names-equal fine-tune: parity line + banner + completes; "
             "finetuned_from + save-rebuild round-trip are the workstation leg)",
        run=gate_ftw_b,
+       deps=("save-rebuild-drift",),
+       needs=("torch", "cosmolike", "gpu")),
+  Gate(id="transfer-smoke",
+       spec_code="TPE-B",
+       title="Transfer frozen-base smoke",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="transfer-parallel-emulator",
+       maps="221-228 (names-equal gain transfer: parity + banner + completes; "
+            "transfer_from + embedded base + round-trip are the workstation leg)",
+       run=gate_tpe_b,
        deps=("save-rebuild-drift",),
        needs=("torch", "cosmolike", "gpu")),
 ]

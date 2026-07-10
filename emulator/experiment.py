@@ -76,6 +76,8 @@ from .losses.ia import (TemplateFactoredChi2, nla_coeffs,
 from .activations import make_activation
 from .designs.blocks import make_norm
 from . import warmstart
+from .losses.transfer import (
+  TransferChi2, FORMS, SPACES, RECOMMENDED_SPACE)
 from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
   default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
@@ -623,6 +625,123 @@ def validate_pce(pce, rescale="none", ia=None):
   return out
 
 
+# the top-level transfer: block keys. "refine" is recognized only to reject it
+# with a not-yet-implemented message (the joint-refinement stage is D-TP10 /
+# unit 2, not TPE V1).
+TRANSFER_KEYS = ("from", "form", "space")
+
+
+def validate_transfer(cfg, train_args, rescale="none"):
+  """
+  Validate the top-level transfer: block (the frozen-base parallel correction).
+
+  A standalone pure function (no torch), so it is unit-testable in isolation.
+  Like pce:, transfer: is a sibling of data / train_args (one base per study).
+  Resolves the space to the form's recommended default when omitted, and
+  materializes it (persist-resolved-values), returning (resolved, notice):
+  the resolved block plus a one-line off-recommendation notice or None.
+
+  Arguments:
+    cfg        = the full parsed config mapping (its top-level pce: block and
+                 the transfer: block are read here).
+    train_args = the resolved train_args mapping (checked for the exclusive
+                 finetune / two-phase keys and the inherited model.ia).
+    rescale    = the analytic-R rescale mode (a driver flag); transfer is
+                 exclusive with rescale != "none".
+
+  Returns:
+    (None, None) when transfer is absent; else (resolved, notice) where
+    resolved is {from, form, space} with space materialized, and notice is the
+    off-recommendation trade-off line (or None on the recommended pairing).
+
+  Raises:
+    TypeError / ValueError / KeyError naming any violated rule; a refine: key
+    raises a not-yet-implemented error (D-TP10 / unit 2).
+  """
+  transfer = cfg.get("transfer")
+  if transfer is None:
+    return None, None
+  if not isinstance(transfer, dict):
+    raise TypeError(
+      "the transfer: block must be a mapping (from / form / space), got "
+      + type(transfer).__name__)
+  # the joint-refinement stage is a separate unit (D-TP10); reject it loudly
+  # rather than let it fall through as an unknown key.
+  if "refine" in transfer:
+    raise NotImplementedError(
+      "transfer.refine (the joint base + correction refinement stage) is not "
+      "implemented in TPE V1; it lands as unit 2 (D-TP10). Remove the refine: "
+      "block for a frozen-base run")
+  unknown = set(transfer) - set(TRANSFER_KEYS)
+  if unknown:
+    raise KeyError(
+      "unknown transfer: key(s): " + str(sorted(unknown)) + "; allowed: "
+      + str(list(TRANSFER_KEYS)))
+  if not transfer.get("from"):
+    raise KeyError(
+      "transfer.from is required: the frozen base artifact path root "
+      "(<root>.h5 + <root>.emul, as written by save_emulator)")
+  form = transfer.get("form")
+  if form not in FORMS:
+    raise ValueError(
+      "transfer.form is required and must be one of " + str(list(FORMS))
+      + " (gain = base * (1 + r); sum = base + r), got " + repr(form))
+  space = transfer.get("space")
+  if space is not None and space not in SPACES:
+    raise ValueError(
+      "transfer.space must be one of " + str(list(SPACES)) + " (physical = "
+      "squeezed bins; whitened = the eigenbasis), got " + repr(space))
+
+  # exclusivities (all loud): each of these replaces the loss form or the
+  # architecture the transfer inherits.
+  if cfg.get("pce") is not None:
+    raise ValueError(
+      "transfer: is exclusive with a pce: block (each owns the loss); "
+      "use one at a time")
+  if rescale != "none":
+    raise ValueError(
+      "a transfer run requires --rescale none (the base's loss form is "
+      "inherited); got --rescale " + repr(rescale))
+  if train_args.get("finetune") is not None:
+    raise ValueError(
+      "transfer: is exclusive with train_args.finetune (a warm start and a "
+      "frozen-base correction are different tools); use one at a time")
+  model_blk = train_args.get("model", {})
+  if isinstance(model_blk, dict) and model_blk.get("ia") is not None:
+    raise ValueError(
+      "a transfer run inherits its intrinsic-alignment family from the base "
+      "artifact; remove model.ia (the base's family forces the correction's)")
+  for key in ("trunk", "head"):
+    if key in train_args:
+      raise KeyError(
+        "a transfer run is single-phase (V1): remove the train_args." + key
+        + " block")
+  if int(train_args.get("trunk_epochs", 0) or 0) > 0:
+    raise ValueError(
+      "a transfer run is single-phase (V1): set trunk_epochs 0 or remove it")
+  if "freeze_trunk" in train_args:
+    raise KeyError(
+      "a transfer run is single-phase (V1): remove train_args.freeze_trunk")
+
+  # resolve the space (materialized): absent -> the form's recommended pairing;
+  # an off-recommendation pairing is allowed (the user decides) and carries one
+  # quiet-gated trade-off notice.
+  notice = None
+  if space is None:
+    space = RECOMMENDED_SPACE[form]
+  elif space != RECOMMENDED_SPACE[form]:
+    if form == "gain":
+      notice = ("notice: transfer gain/whitened is off-recommendation "
+                "(whitened coordinates cross zero everywhere, so the "
+                "near-zero degeneracy is generic); gain/physical is advised")
+    else:
+      notice = ("notice: transfer sum/physical is off-recommendation (the "
+                "additive output spans the decades whitening exists to tame); "
+                "sum/whitened is advised")
+  resolved = {"from": transfer["from"], "form": form, "space": space}
+  return resolved, notice
+
+
 def resolve_phase_args(train_args, two_phase):
   """
   Resolve the two-phase schedule keys against the model's real capability.
@@ -1051,6 +1170,15 @@ class EmulatorExperiment:
     self._finetune = None
     self._finetune_root = None
     self._finetune_extra_names = None
+    # transfer learning (emulator/losses/transfer.py): the loaded frozen base,
+    # its resolved path root, the resolved form / space, and the extra
+    # parameter names, set by from_config / build_geometry. None on an ordinary
+    # run, which every transfer branch below guards on (absent = byte-identical).
+    self._transfer_base = None
+    self._transfer_root = None
+    self._transfer_form = None
+    self._transfer_space = None
+    self._transfer_extra_names = None
 
   # --- alternative constructors ---
   @classmethod
@@ -1142,6 +1270,64 @@ class EmulatorExperiment:
       exp._activation_notice = None
       exp._finetune      = source
       exp._finetune_root = source_root
+      return exp
+
+    # transfer learning (a top-level transfer: block): a frozen base under a
+    # parallel correction net (emulator/losses/transfer.py). The correction
+    # keeps its own model: block (capacity is the user's knob here), but its
+    # intrinsic-alignment family is inherited from the base (D-TP2); a YAML
+    # model.ia was already rejected by validate_transfer.
+    if cfg.get("transfer") is not None:
+      resolved_tr, space_notice = validate_transfer(
+        cfg=cfg, train_args=ta, rescale=kwargs.get("rescale", "none"))
+      device = kwargs.get("device")
+      if device is None:
+        device = pick_device()
+      kwargs["device"] = device
+      base_root = warmstart.resolve_source_root(cfg["transfer"])
+      base = warmstart.load_source(
+        root=base_root, device=device, allow_factored=True)
+      # the correction architecture is the YAML model.name; the ia family is
+      # forced from the base.
+      name      = str(ta["model"].get("name", "resmlp")).lower()
+      ia_forced = base.ia
+      if (name, ia_forced) not in models:
+        raise ValueError(
+          "no correction model for architecture " + repr(name) + " with the "
+          "base's inherited family " + repr(ia_forced) + " (the base fixes the "
+          "family; pick a name that has it)")
+      # activation precedence (same as the normal path; the correction has its
+      # own activation): an explicit --activation wins over model.activation,
+      # which wins over the "H" default.
+      explicit_flag = kwargs.get("activation")
+      if kwargs.get("activation") is None:
+        act_blk = ta["model"].get("activation")
+        if isinstance(act_blk, dict):
+          kwargs["activation"] = str(act_blk.get("type", "H"))
+        elif act_blk is not None:
+          kwargs["activation"] = str(act_blk)
+        else:
+          kwargs["activation"] = "H"
+      exp = cls(data=cfg["data"], train_args=ta,
+                model_cls=models[(name, ia_forced)],
+                raw_train_args=cfg["train_args"], **kwargs)
+      exp.pce_opts   = None
+      exp.ia         = ia_forced
+      exp.arch       = name
+      exp.model_name = name if ia_forced is None else f"{name}_{ia_forced}"
+      head_block = exp.model_cls.head_block
+      head_pin   = None
+      if head_block is not None:
+        head_pin = ta["model"].get(head_block, {}).get("activation")
+        if head_pin is None and isinstance(ta.get("head"), dict):
+          head_pin = ta["head"].get("activation")
+      exp._activation_notice = _activation_flag_notice(
+        flag_type=explicit_flag, head_block=head_block, head_pin=head_pin)
+      exp._transfer_base         = base
+      exp._transfer_root         = base_root
+      exp._transfer_form         = resolved_tr["form"]
+      exp._transfer_space        = resolved_tr["space"]
+      exp._transfer_space_notice = space_notice
       return exp
 
     # read (not pop) name / ia, build_specs strips both from the
@@ -1314,6 +1500,22 @@ class EmulatorExperiment:
       extra_str = " ".join(extras) if extras else "(none)"
       self.log(f"finetune: from {self._finetune.root}  |  "
                f"extras: {extra_str}")
+    # transfer: name the frozen base, the form / space, and the extras. The
+    # extras are the new (non-amplitude) names absent from the base, computed
+    # from the covmat header before the geometry is built.
+    if self._transfer_base is not None:
+      base_names = set(self._transfer_base.pgeom.names)
+      extras = []
+      for nm in self.names:
+        if nm not in base_names:
+          extras.append(nm)
+      extra_str = " ".join(extras) if extras else "(none)"
+      self.log(f"transfer: from {self._transfer_base.root}  |  "
+               f"form {self._transfer_form}/{self._transfer_space}  |  "
+               f"extras: {extra_str}")
+      notice_tr = getattr(self, "_transfer_space_notice", None)
+      if notice_tr is not None:
+        self.log(notice_tr)
     if notice is not None:
       self.log(notice)
     # NPCE base (consumed view): the fit knobs. The kept-modes / terms
@@ -1548,6 +1750,52 @@ class EmulatorExperiment:
                               data_dir=d["cosmolike_data_dir"],
                               dataset=d["cosmolike_dataset"])
       self.chi2fn = make_chi2(geom=self.geom, rescale="none")
+      return self.pgeom, self.geom, self.chi2fn
+
+    # transfer learning (a frozen base under a parallel correction): the input
+    # geometry is the base geometry block-extended for the new parameters
+    # (D-TP3; extend_input_geometry handles both a plain and a factored base),
+    # and the output geometry is the base's, pinned (D-TP4). The chi2 is a
+    # TransferChi2 wrapping the frozen base network; no cosmolike.
+    if self._transfer_base is not None:
+      base = self._transfer_base
+      self.pgeom, extra_names = warmstart.extend_input_geometry(
+        source=base,
+        covmat_path=d["train_covmat"],
+        train_mean=train_set["C_mean"],
+        device=self.device)
+      self._transfer_extra_names = extra_names
+      new_dv_width = int(np.asarray(train_set["dv_mean"]).reshape(-1).shape[0])
+      self.geom = warmstart.pin_output_geometry(
+        source=base,
+        run_data=d,
+        run_probe=self.probe,
+        new_dv_width=new_dv_width)
+      if getattr(base.model_cls, "needs_bins", False):
+        from .geometries_output import build_shear_angle_map
+        build_shear_angle_map(geom=self.geom,
+                              data_dir=d["cosmolike_data_dir"],
+                              dataset=d["cosmolike_dataset"])
+      # the base's whitened-input width and (factored) its template family, so
+      # the loss slices the base input and combines its templates.
+      if base.ia is None:
+        base_in_dim = len(base.pgeom.names)
+        n_templates, n_amps, coeff_fn = 1, 0, None
+      else:
+        base_in_dim = len(base.pgeom.pg_keep.names)
+        des         = IA_DESIGNS[base.ia]
+        n_templates = des["n_templates"]
+        n_amps      = len(des["amp_names"])
+        coeff_fn    = des["coeff_fn"]
+      self.chi2fn = TransferChi2(
+        geom=self.geom,
+        base_net=base.model,
+        base_in_dim=base_in_dim,
+        form=self._transfer_form,
+        space=self._transfer_space,
+        n_templates=n_templates,
+        n_amps=n_amps,
+        coeff_fn=coeff_fn)
       return self.pgeom, self.geom, self.chi2fn
 
     # config validation first, before the cosmolike import below: a bad
@@ -1982,6 +2230,18 @@ class EmulatorExperiment:
         extra_names=self._finetune_extra_names,
         device=self.device)
       self.log(verdict)
+    elif self._transfer_base is not None:
+      # transfer: zero-init the correction's final layer and run the bitwise
+      # parity gate (epoch 0 == the frozen base), then hand run_emulator the
+      # zero-init state as init_state (D-TP5 / D-TP7).
+      init_state, verdict = warmstart.build_transfer_start(
+        chi2fn=self.chi2fn,
+        model_opts=specs["model_opts"],
+        new_pgeom=self.pgeom,
+        train_set=self.train_set,
+        extra_names=self._transfer_extra_names,
+        device=self.device)
+      self.log(verdict)
 
     # run_emulator (training.py): build the model / optimizer / scheduler
     # from the specs and the regime-aware loaders, train nepochs with a
@@ -2058,6 +2318,15 @@ class EmulatorExperiment:
         "from":         self._finetune.root,
         "compile_mode": compile_mode,
         "extra_names":  " ".join(self._finetune_extra_names),
+      }
+    # transfer: record the resolved transfer block (form + the materialized
+    # space), so the saved run states what it composed (persist-resolved-values).
+    if self._transfer_base is not None:
+      self.resolved_train["transfer"] = {
+        "from":        self._transfer_base.root,
+        "form":        self._transfer_form,
+        "space":       self._transfer_space,
+        "extra_names": " ".join(self._transfer_extra_names),
       }
     return (self.model, self.train_losses, self.medians,
             self.means, self.fracs)

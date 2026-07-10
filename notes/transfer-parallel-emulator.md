@@ -328,4 +328,79 @@ losses/transfer.py sits), [[py-module-style-conventions]],
 
 ## Resume state (Implementer appends below)
 
-(none yet)
+### TPE V1 execution (2026-07-10, Opus) — CORE + ACCEPTANCE GATE DONE; artifact lifecycle REMAINS
+
+Base: main 18f7207 (FTW closed, board 22/22). Diffs uncommitted on branch
+claude/amazing-keller-e798b6. The user runs git. Scope guard honored: D-TP1..
+D-TP9 only; refine:/anchor are loud not-yet-implemented (unit 2).
+
+**Done + Mac-verified (compileall + AST + numpy probes; torch gate deferred to a
+torch machine, Mac has no torch):**
+- `emulator/losses/transfer.py` (new, 451): `TransferChi2`, one parameterized
+  family over form(gain/sum) x space(physical/whitened) x {plain, factored}.
+  Packed-target skeleton (`target_dim` 2*n_keep plain / (T+1)*n_keep factored;
+  base run once at `encode`, unpacked in the hot chi2). `_base_input` is the
+  D-TP3 column slice; `_compose` (gain/sum); `_combine` (coeff_fn); physical /
+  whitened metric both reduce to `r_phys^T Cinv_sq r_phys`. `base_decode`
+  returns the frozen base in the loss's own space (the parity reference).
+  FORMS / SPACES / RECOMMENDED_SPACE exported.
+- `emulator/warmstart.py`: `extend_input_geometry` generalized — a plain base
+  extends directly (`_extend_param_geometry` extracted), a factored base
+  (AmplitudeFactorGeometry) extends its inner pg_keep with the amps kept last
+  (D-TP3). `load_source(allow_factored=True)` lifts the FTW factored exclusion
+  (Log stays out), rejects a `transfer_base` group (no chaining, D-TP2), and
+  returns `.ia`. `build_transfer_start` (zero-init the correction's final
+  Linear via `_zero_final_linear` + the bitwise parity gate: epoch 0 ==
+  frozen base + extras-independence, D-TP5/D-TP7). `validate_finetune_config`
+  rejects `anchor` (unit 2).
+- `emulator/experiment.py`: `validate_transfer` (D-TP1/D-TP2 exclusivities +
+  form/space resolution with the off-recommendation notice + refine
+  not-implemented); from_config / build_geometry / train / print_design
+  transfer branches (correction family forced from the base; build_specs needs
+  NO branch — the correction has a real model block and the normal path forces
+  n_templates/n_amps from self.ia). resolved_train records the transfer block.
+- `gates/checks/transfer_identity.py` (new, 415): TPE-A, synthetic plain +
+  factored bases through save_emulator round-trips, all 4 form x space:
+  slice==base encoding (bitwise), epoch-0 identity via build_transfer_start,
+  base-cached (forward-hook call count), target_dim, zero-init surgery, and
+  the config error paths. `gates/board.py` gate_tpe_a + gate_tpe_b + 2 BOARD
+  rows (identity new-features torch; smoke save-and-sample deps
+  save-rebuild-drift). `gates/board_config.json` + `gates/configs/
+  transfer-smoke-config.yaml`.
+
+**KEY design finding (flagged for the Architect):** the factored-PHYSICAL base
+representation is per-template un-whitened, `combine(unwhiten(K))`; the standard
+factored decode is `unwhiten(combine(K))`. These are equal physics but differ
+by float REASSOCIATION (~4e-6 in the numpy probe, `combine`/`unwhiten` do not
+commute bitwise). So the epoch-0 identity is bitwise against the base evaluated
+in the composition's OWN space (`base_decode()`), which is what the gate
+compares — NOT against the standard whitened-combine decode (~4e-6 off for
+factored-physical only; the other 6 combos are bitwise against both). This
+satisfies "epoch 0 IS the frozen base, the base path is literally the same
+computation" (D-TP4). If the Architect wants torch.equal against the standard
+decode for factored-physical too, the space semantics need a rethink.
+
+**REMAINING (the save / reload / predict lifecycle; specified, not yet coded):**
+1. `emulator/results.py`: save_emulator gains a `transfer_base` group (the pce
+   group precedent) holding the base recipe (yaml), base state_dict, both base
+   geometry states + cls markers, and form/space attrs; rebuild_emulator reads
+   it back (reconstruct base model from the embedded recipe + load state +
+   rebuild both geometries) and returns info["transfer_base"] /
+   info["transfer_form"] / info["transfer_space"]. Factor the existing main
+   recipe->model reconstruction into a nested helper and reuse it for the base.
+2. `emulator/inference.py`: the composed predictor (pce_base pattern) —
+   rebuild returns the base bundle + form/space; predict composes base +
+   correction on the same slice contract (TransferChi2.decode logic at
+   inference). The cobaya adapter follows the pce_base branch.
+3. `train_single_...py`: assemble the transfer_base dict from exp._transfer_base
+   and pass it to save_emulator; add root attrs transfer_from / transfer_form /
+   transfer_extra_names (only on a transfer run). Enumerate every cfg-key
+   access on the driver path first (FTW lesson 1): a transfer YAML HAS a model
+   block, so the FTW missing-model bug does not recur, but check run_tag and
+   any model.ia read.
+4. `example_yamls/transfer_emulator_cosmic_shear.yaml` (new) + a pointer in the
+   train_single YAML.
+Until 1-3 land, a transfer run TRAINS + parity-checks correctly but does not
+save a reloadable artifact (transfer-smoke's save leg + the artifact round-trip
+need them). The transfer-identity Mac gate does NOT depend on 1-4 (it builds
+TransferChi2 directly).

@@ -42,7 +42,7 @@ import os
 import numpy as np
 import torch
 
-from .geometries_parameter import ParamGeometry
+from .geometries_parameter import ParamGeometry, AmplitudeFactorGeometry
 from .results import rebuild_emulator
 from .training import make_model
 from .activations import make_activation
@@ -109,7 +109,8 @@ class FinetuneSource:
                recipe,
                compile_mode,
                data_dir,
-               dataset):
+               dataset,
+               ia=None):
     self.root         = root
     self.model        = model
     self.model_cls    = model_cls
@@ -119,6 +120,11 @@ class FinetuneSource:
     self.compile_mode = compile_mode
     self.data_dir     = data_dir
     self.dataset      = dataset
+    # the source's factored intrinsic-alignment design (nla / tatt) or None
+    # for a plain source. None on the fine-tune path (which allows only a
+    # plain source); set on the transfer path, where a factored base is the
+    # headline use.
+    self.ia           = ia
 
 
 def validate_finetune_config(cfg, train_args, rescale, activation_flag):
@@ -145,6 +151,13 @@ def validate_finetune_config(cfg, train_args, rescale, activation_flag):
     raise ValueError(
       "train_args.finetune must be a block with a 'from' key, got "
       + type(ft).__name__)
+  # the L2-SP anchor facility is a separate unit (the shared anchor extension,
+  # lands with TPE D-TP10); reject it loudly rather than as an unknown key.
+  if "anchor" in ft:
+    raise NotImplementedError(
+      "train_args.finetune.anchor (the L2-SP penalty toward the transferred "
+      "init state) is not implemented in V1; it lands as unit 2. Remove the "
+      "anchor key for a plain warm start")
   # the finetune block's own whitelist.
   unknown = set(ft) - set(_FINETUNE_KEYS)
   if unknown:
@@ -232,24 +245,32 @@ def resolve_source_root(finetune_cfg):
   return path
 
 
-def load_source(root, device):
+def load_source(root, device, allow_factored=False):
   """Load and validate the source emulator once (wraps rebuild_emulator).
 
   Reconstructs the source network eager (never torch.compile'd, so its
   state-dict keys are unprefixed) plus both source geometries, then reads the
   recipe, the source rescale root attr, and the source's cosmolike data
-  block from the .h5. Enforces the D-FT2 source-artifact constraints: a plain
-  ParamGeometry input geometry (not the log or factored variants), no
-  intrinsic-alignment factoring, no PCE base, and a rescale of "none". Schema
-  v2 is enforced by rebuild_emulator itself.
+  block from the .h5. Enforces the source-artifact constraints: a plain
+  ParamGeometry input geometry, no PCE base, no chaining (no embedded
+  transfer_base), and a rescale of "none". Schema v2 is enforced by
+  rebuild_emulator itself.
 
   Arguments:
-    root   = resolved absolute source path root (from resolve_source_root).
-    device = device to rebuild the source network and geometries on.
+    root           = resolved absolute source path root (from
+                     resolve_source_root).
+    device         = device to rebuild the source network and geometries on.
+    allow_factored = the transfer path (D-TP2) sets this to accept a factored
+                     NLA / TATT base (an AmplitudeFactorGeometry input, an
+                     ia = nla / tatt): the factored base is its headline use.
+                     The fine-tune path leaves it False, allowing only a plain
+                     source (D-FT2 / D-FT10). LogParamGeometry stays out either
+                     way (V1).
 
   Returns:
     a FinetuneSource carrying the parity-reference model, both geometries,
-    the recipe, and the values later steps validate against.
+    the recipe, and the values later steps validate against (its .ia is the
+    factored design or None).
 
   Raises:
     ValueError / KeyError naming any constraint the source artifact breaks.
@@ -266,30 +287,38 @@ def load_source(root, device):
   model, pgeom, geom, info = rebuild_emulator(
     path_root=root, device=device, compile_model=False)
 
-  # the input geometry must be a plain ParamGeometry: block extension is
-  # defined on its center / rotation / scale, not on the log or factored
-  # variants (those are V2 candidates, D-FT10).
-  if type(pgeom).__name__ != "ParamGeometry":
+  # the input geometry: a plain ParamGeometry always works; the transfer path
+  # also accepts an AmplitudeFactorGeometry (factored base). LogParamGeometry
+  # stays out of V1 either way (its whitening is not block-extended yet).
+  geom_name = type(pgeom).__name__
+  allowed   = ("ParamGeometry", "AmplitudeFactorGeometry") if allow_factored \
+      else ("ParamGeometry",)
+  if geom_name not in allowed:
     raise ValueError(
-      "finetune source input geometry is " + type(pgeom).__name__
-      + "; V1 warm start supports only a plain ParamGeometry source (not "
-      "LogParamGeometry / AmplitudeFactorGeometry)")
-  # no factored intrinsic-alignment source, no NPCE base.
-  if info.get("ia") is not None:
+      "source input geometry is " + geom_name + "; this path supports only "
+      + " / ".join(allowed) + " (V1)")
+  # no factored intrinsic-alignment source unless the caller allows it.
+  if info.get("ia") is not None and not allow_factored:
     raise ValueError(
-      "finetune source is a factored intrinsic-alignment emulator (ia="
-      + repr(info["ia"]) + "); V1 warm start supports only a plain source")
+      "source is a factored intrinsic-alignment emulator (ia="
+      + repr(info["ia"]) + "); this path supports only a plain source")
   if info.get("pce_base") is not None:
     raise ValueError(
-      "finetune source carries an NPCE base; V1 warm start does not compose "
-      "with PCE (D-FT10)")
+      "source carries an NPCE base; V1 warm start / transfer does not compose "
+      "with PCE (D-FT10 / D-TP2)")
 
   # read the recipe, the source rescale, and the source data block from the
-  # .h5 (rebuild consumes the recipe but does not return it).
+  # .h5 (rebuild consumes the recipe but does not return it). A transfer_base
+  # group marks the artifact as itself a transfer output: no chaining (D-TP2).
   with h5py.File(root + ".h5", "r") as f:
     recipe   = yaml.safe_load(f["model_recipe"][()])
     src_resc = f.attrs.get("rescale")
     resolved = yaml.safe_load(f["config_resolved_yaml"][()])
+    if "transfer_base" in f:
+      raise ValueError(
+        "source " + root + ".h5 is itself a transfer artifact (it embeds a "
+        "transfer_base group); chaining a transfer over a transfer is out of "
+        "scope (D-TP2, no chaining)")
   if src_resc is None:
     # a missing attr is not the same failure as a wrong value: the training
     # drivers stamp rescale in the run-identity attrs, but an artifact saved
@@ -325,7 +354,8 @@ def load_source(root, device):
     recipe=recipe,
     compile_mode=recipe.get("compile_mode"),
     data_dir=data_block.get("cosmolike_data_dir"),
-    dataset=data_block.get("cosmolike_dataset"))
+    dataset=data_block.get("cosmolike_dataset"),
+    ia=info.get("ia"))
 
 
 def recipe_to_model_opts(recipe, geom=None, compile_mode="__inherit__"):
@@ -383,17 +413,16 @@ def recipe_to_model_opts(recipe, geom=None, compile_mode="__inherit__"):
   return model_opts
 
 
-def extend_input_geometry(source, covmat_path, train_mean, device):
-  """Build the new run's input geometry by block extension (D-FT3).
+def _extend_param_geometry(src_pgeom, names_n, cov, train_mean, device):
+  """The D-FT3 block extension of one plain ParamGeometry (in memory).
 
-  The shared parameters keep the source's exact center, rotation, and scale;
-  the extra parameters are whitened on their own marginal block of the new
-  covariance and appended as the last encoded coordinates. The result is a
-  plain ParamGeometry (no new class, no new save/load code) whose encoding of
-  the shared parameters is bit-identical to the source's, and whose extra
-  coordinates depend only on the extra parameters.
+  Given a source ParamGeometry and the new (superset) parameter names, the
+  new covariance matrix, and the staged-train mean, build a plain
+  ParamGeometry whose shared-parameter encoding is bit-identical to the
+  source's, with the extras whitened on their marginal block and appended as
+  the last encoded coordinates. Reused for a factored base's inner pg_keep.
 
-    source geometry (n_s params)          new covmat header (n_n params)
+    source geometry (n_s params)          new names (n_n params)
        │  center_s / evecs_s=V / sqrt_ev_s=s     │  names_n, cov (n_n x n_n)
        ▼                                         ▼
        │  place each source name's row at its position r(i) in names_n,
@@ -401,41 +430,35 @@ def extend_input_geometry(source, covmat_path, train_mean, device):
        │  whiten the extras on Sigma_xx = cov's extras-only block:
        │      lam_x, W = eigh(Sigma_xx), placed in columns n_s..n_n-1
        ▼
-    extended geometry (n_n params): encode = [source coords (n_s) ; extras (n_x)]
+    extended geometry: encode = [source coords (n_s) ; extras (n_x)]
        (legend: n_s / n_n / n_x = source / new / extra parameter counts;
-        r(i) = the row of source name i in the new covmat header order;
-        V, s = the source eigenvectors and sqrt-eigenvalues; Sigma_xx,
-        lam_x, W = the extras' marginal covariance and its eigen-pairs;
-        the extras' encoded coordinates are the only ones that see the extra
-        parameters, and the state-dict transfer meets them with zero weights.)
+        r(i) = the row of source name i in names_n; V, s = the source
+        eigenvectors and sqrt-eigenvalues; Sigma_xx, lam_x, W = the extras'
+        marginal covariance and its eigen-pairs.)
 
   Arguments:
-    source      = the loaded FinetuneSource (reads source.pgeom).
-    covmat_path = the new run's parameter covmat file; its first line is a
-                  "#"-prefixed list of column names (names_n).
-    train_mean  = (n_n,) staged-train mean of the new run's parameters
-                  (train_set["C_mean"]); centers the extra columns.
-    device      = device for the built tensors.
+    src_pgeom  = the source ParamGeometry (names / center / evecs / sqrt_ev).
+    names_n    = the new parameter names (a superset of the source's), the
+                 order the encoded shared/extra blocks follow.
+    cov        = (n_n, n_n) new covariance matrix, names_n order.
+    train_mean = (n_n,) staged-train mean, names_n order (centers the extras).
+    device     = device for the built tensors.
 
   Returns:
-    (pgeom, extra_names): the extended ParamGeometry, and the extra parameter
-    names in names_n order ([] when n_x = 0).
+    (pgeom, extra_names): the extended ParamGeometry and the extra names in
+    names_n order ([] when there are none).
 
   Raises:
-    ValueError if names_n is not a superset of the source names (both lists
-    printed).
+    ValueError if names_n is not a superset of the source names.
   """
   # source tensors, pulled to numpy (float32 values, kept exact through the
   # float64 build and the ParamGeometry float32 recast below).
-  names_s  = list(source.pgeom.names)
-  V        = source.pgeom.evecs.detach().cpu().numpy()     # (n_s, n_s)
-  s        = source.pgeom.sqrt_ev.detach().cpu().numpy()   # (n_s,)
-  center_s = source.pgeom.center.detach().cpu().numpy()    # (n_s,)
-
-  # the new run's covmat: header names and the full matrix.
-  with open(covmat_path) as f:
-    names_n = f.readline().lstrip("#").split()
-  cov = np.loadtxt(covmat_path)                            # (n_n, n_n)
+  names_s  = list(src_pgeom.names)
+  V        = src_pgeom.evecs.detach().cpu().numpy()       # (n_s, n_s)
+  s        = src_pgeom.sqrt_ev.detach().cpu().numpy()     # (n_s,)
+  center_s = src_pgeom.center.detach().cpu().numpy()      # (n_s,)
+  names_n  = list(names_n)
+  cov      = np.asarray(cov, dtype="float64")
   n_s = len(names_s)
   n_n = len(names_n)
 
@@ -448,8 +471,8 @@ def extend_input_geometry(source, covmat_path, train_mean, device):
       missing.append(nm)
   if missing:
     raise ValueError(
-      "finetune requires the new covmat names to be a superset of the "
-      "source's. Missing source parameter(s): " + str(missing)
+      "the new covmat names must be a superset of the source's. Missing "
+      "source parameter(s): " + str(missing)
       + "\n  source names: " + str(names_s)
       + "\n  new names:    " + str(names_n))
   source_set = set(names_s)
@@ -490,7 +513,7 @@ def extend_input_geometry(source, covmat_path, train_mean, device):
   else:
     # no extras: E is the source rotation with rows keyed by name, and the
     # scales are the source's. Same-order names make this byte-identical to
-    # the source geometry (one code path covers both fine-tune flavors).
+    # the source geometry (one code path covers both flavors).
     sqrt_ev_e = s
 
   pgeom = ParamGeometry(device=device,
@@ -499,6 +522,87 @@ def extend_input_geometry(source, covmat_path, train_mean, device):
                         evecs=E,
                         sqrt_ev=sqrt_ev_e)
   return pgeom, extra_names
+
+
+def extend_input_geometry(source, covmat_path, train_mean, device):
+  """Build the new run's input geometry by block extension (D-FT3 / D-TP3).
+
+  Dispatches on the source geometry: a plain ParamGeometry is block-extended
+  directly (the fine-tune case); an AmplitudeFactorGeometry (a factored NLA /
+  TATT base, the transfer case) has its inner pg_keep block extended by the
+  same math, while the raw amplitude columns stay last, so the encoded layout
+  is [shared-whitened (n_s') ; extras-whitened (n_x) ; raw amps (n_amp)] and
+  the base's own encoding is the column slice cat(enc[:, :n_s'], enc[:, -n_amp:]).
+
+  Arguments:
+    source      = the loaded source (reads source.pgeom).
+    covmat_path = the new run's parameter covmat file; its first line is a
+                  "#"-prefixed list of column names (names_n).
+    train_mean  = (n_n,) staged-train mean of the new run's parameters
+                  (train_set["C_mean"]); centers the extra columns.
+    device      = device for the built tensors.
+
+  Returns:
+    (pgeom, extra_names): the extended geometry (same class as the source's
+    input geometry), and the extra (non-amplitude) parameter names in names_n
+    order ([] when there are none).
+
+  Raises:
+    ValueError if names_n is not a superset of the source names, or (factored)
+    an amplitude column is missing from the new covmat.
+  """
+  with open(covmat_path) as f:
+    names_n = f.readline().lstrip("#").split()
+  cov   = np.loadtxt(covmat_path)                          # (n_n, n_n)
+  cmean = np.asarray(train_mean, dtype="float64")
+
+  pgeom_src = source.pgeom
+  if isinstance(pgeom_src, AmplitudeFactorGeometry):
+    # the base's amplitude names, in coeff_fn order (raw, appended last).
+    amp_ids   = pgeom_src.amp_idx.detach().cpu().tolist()
+    amp_names = []
+    for i in amp_ids:
+      amp_names.append(pgeom_src.names[int(i)])
+    new_set = set(names_n)
+    for a in amp_names:
+      if a not in new_set:
+        raise ValueError(
+          "the new covmat is missing the base's amplitude column " + repr(a)
+          + "; the factored amplitudes must survive in the new space")
+    # the kept (non-amplitude) new names, in names_n order; extend pg_keep on
+    # their sub-covmat / sub-mean.
+    amp_set      = set(amp_names)
+    kept_names_n = []
+    for nm in names_n:
+      if nm not in amp_set:
+        kept_names_n.append(nm)
+    kept_rows = []
+    for nm in kept_names_n:
+      kept_rows.append(names_n.index(nm))
+    kept_cov  = cov[np.ix_(kept_rows, kept_rows)]
+    kept_mean = cmean[kept_rows]
+    ext_pg_keep, extra_names = _extend_param_geometry(
+      src_pgeom=pgeom_src.pg_keep,
+      names_n=kept_names_n,
+      cov=kept_cov,
+      train_mean=kept_mean,
+      device=device)
+    new_amp_idx = []
+    for a in amp_names:
+      new_amp_idx.append(names_n.index(a))
+    pgeom = AmplitudeFactorGeometry(device=device,
+                                    pg_keep=ext_pg_keep,
+                                    amp_idx=new_amp_idx,
+                                    n_param=len(names_n),
+                                    names=names_n)
+    return pgeom, extra_names
+
+  # plain base / fine-tune: extend the whole geometry directly.
+  return _extend_param_geometry(src_pgeom=pgeom_src,
+                                names_n=names_n,
+                                cov=cov,
+                                train_mean=cmean,
+                                device=device)
 
 
 def pin_output_geometry(source, run_data, run_probe, new_dv_width):
@@ -744,4 +848,120 @@ def build_warm_start(source,
       + " rows (epoch 0 does not reproduce the source function)")
   verdict = ("[ok] finetune parity: max|dv| = " + format(max_dv, ".3e")
              + " on " + str(take) + " rows")
+  return init_state, verdict
+
+
+def _zero_final_linear(model):
+  """Zero the last nn.Linear of a correction net (weight and bias).
+
+  The transfer correction nets (ResMLP, TemplateMLP) end in an output Linear
+  followed by an identity-initialized Affine (gain 1, bias 0). Zeroing the
+  Linear makes the whole net output exactly zero at init, while the Affine
+  passes gradients straight through, so the net still trains away from the
+  zero start (its gain sees a nonzero input after the first step). Epoch 0 is
+  then exactly the frozen base (D-TP5). Every other tensor is untouched.
+
+  Arguments:
+    model = the correction network (eager module).
+
+  Returns:
+    the zeroed nn.Linear (for the gate to inspect).
+
+  Raises:
+    ValueError if the model has no nn.Linear.
+  """
+  last = None
+  for m in model.modules():
+    if isinstance(m, torch.nn.Linear):
+      last = m
+  if last is None:
+    raise ValueError(
+      "the transfer correction model has no nn.Linear to zero-init")
+  with torch.no_grad():
+    last.weight.zero_()
+    if last.bias is not None:
+      last.bias.zero_()
+  return last
+
+
+def build_transfer_start(chi2fn,
+                         model_opts,
+                         new_pgeom,
+                         train_set,
+                         extra_names,
+                         device):
+  """Build the zero-init correction net and run the bitwise parity gate (D-TP7).
+
+  Builds a fresh eager correction network at the run's input width, applies the
+  zero-init surgery (the final output Linear is zeroed, D-TP5), and checks, on
+  staged rows, that epoch 0 reproduces the frozen base EXACTLY: the composed
+  prediction (base plus a zero correction) is torch.equal the frozen base's own
+  decode, and perturbing only the extra parameters leaves it bit-identical
+  (their coordinates never reach the base slice). One verdict line, essential
+  only. The returned state dict is loaded strict by the training model, so the
+  checked function is the trained one's epoch-0 state.
+
+  Arguments:
+    chi2fn      = the built TransferChi2 (its decode composes base + correction,
+                  its base_decode gives the frozen base in the loss's space).
+    model_opts  = the correction model spec (make_model consumes it).
+    new_pgeom   = the (block-extended) input geometry; encodes the staged rows.
+    train_set   = the staged training source (reads "C" and "idx").
+    extra_names = the new (non-amplitude) parameter names (its length is n_x).
+    device      = device the models, geometry, and rows live on.
+
+  Returns:
+    (init_state, verdict): the zero-init correction state dict to hand
+    run_emulator as init_state, and the one-line parity verdict.
+
+  Raises:
+    ValueError if epoch 0 is not the frozen base bitwise, or the extras move it.
+  """
+  in_dim  = getattr(new_pgeom, "encoded_dim", len(new_pgeom.names))
+  out_dim = int(chi2fn.dest_idx.numel())
+  # a fresh correction net, forced eager (compile_mode None), then zero-init.
+  template_opts = dict(model_opts)
+  template_opts["compile_mode"] = None
+  corr = make_model(model_opts=template_opts,
+                    input_dim=in_dim,
+                    output_dim=out_dim,
+                    device=device)
+  _zero_final_linear(corr)
+  init_state = corr.state_dict()
+  corr.eval()
+
+  idx  = train_set["idx"]
+  take = min(_PARITY_ROWS, int(len(idx)))
+  rows = idx[:take]
+  theta = torch.from_numpy(
+    np.asarray(train_set["C"][rows])).float().to(device)
+
+  names_n = list(new_pgeom.names)
+  extra_cols = []
+  for nm in extra_names:
+    extra_cols.append(names_n.index(nm))
+
+  with torch.no_grad():
+    enc      = new_pgeom.encode(theta)
+    composed = chi2fn.decode(corr(enc), enc)       # base + zero correction
+    base     = chi2fn.base_decode(enc)             # the frozen base, same space
+    if not torch.equal(composed, base):
+      max_dv = (composed - base).abs().max().item()
+      raise ValueError(
+        "transfer parity failed: epoch 0 is not the frozen base bitwise "
+        "(max|dv| = " + format(max_dv, ".3e") + " on " + str(take) + " rows); "
+        "the zero-init surgery or the composition space handling is wrong")
+    if len(extra_cols) > 0:
+      idx_cols = torch.tensor(extra_cols, dtype=torch.long, device=device)
+      theta_pert = theta.clone()
+      theta_pert[:, idx_cols] = theta_pert[:, idx_cols] + 1.0
+      enc_p       = new_pgeom.encode(theta_pert)
+      composed_p  = chi2fn.decode(corr(enc_p), enc_p)
+      if not torch.equal(composed, composed_p):
+        raise ValueError(
+          "transfer parity: the extra parameters moved the epoch-0 prediction "
+          "(they must never reach the frozen base's input slice)")
+
+  verdict = ("[ok] transfer parity: epoch 0 == frozen base (bitwise) on "
+             + str(take) + " rows")
   return init_state, verdict
