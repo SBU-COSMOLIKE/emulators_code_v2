@@ -716,24 +716,26 @@ factored intrinsic-alignment design) — pick one of six classes:
 | `rescnn` | `ResCNN` | `TemplateResCNN` | `TemplateResCNN` |
 | `restrf` | `ResTRF` | `TemplateResTRF` | `TemplateResTRF` |
 
-Every architecture is a shared ResMLP trunk; `rescnn` / `restrf` add a gated
-correction head in theta order (the gate is a learnable scalar scaling the
-correction, near 0 at init, so they start as the trunk):
+Every architecture is a shared ResMLP trunk; `rescnn` and `restrf` add a
+gated correction head in theta order. The gate is one learned number
+scaling the correction — small at the start, so every architecture begins
+as its trunk:
 
 ```
-params ─▶ ResMLP trunk ─▶ y (full-whitened)
-                          │  basis change to theta order
+params ─▶ ResMLP trunk ─▶ y, in the rescaled units of section 2
+                          │  fixed basis change to theta order
                           ▼
-                    head blocks (cnn conv | trf attention)
+                    head blocks: cnn conv | trf attention
                           │
-          y + gate · correction ─▶ whitened data vector
+          y + gate · correction ─▶ data vector (rescaled)
 ```
 
 Intrinsic alignments (IA): galaxies have correlated intrinsic shapes
 independent of lensing — the main astrophysical contaminant of cosmic shear;
-the analysis models it with amplitude parameters. An `ia` design makes the net
-emit whitened templates that a closed-form polynomial combines, so the IA
-amplitudes never enter the network (the emulator is exact in them). For `nla`
+the analysis models it with amplitude parameters. An `ia` design makes the
+network emit a set of templates — data-vector-shaped outputs in the same
+rescaled units — that a closed-form polynomial combines, so the IA
+amplitudes never enter the network and the emulator is exact in them. For `nla`
 (3 templates, amplitude $A_1$):
 
 $$\xi = K_0 + A_1 K_1 + A_1^2 K_2$$
@@ -746,43 +748,102 @@ $$\xi = K_0 + a_1 K_1 + a_2 K_2 + a_1 b_{TA} K_3 +
 a_1^2 K_4 + a_2^2 K_5 + (a_1 b_{TA})^2 K_6 +
 a_1 a_2 K_7 + a_1^2 b_{TA} K_8 + a_1 a_2 b_{TA} K_9$$
 
+### The dense layer
+
+Every learned layer in this library is one primitive repeated: the
+**linear layer** — multiply the incoming numbers by a matrix of
+learned weights, then add a learned offset.
+
+```
+x = (x_1, ..., x_n)              the input: n numbers
+        │
+        ▼      y_i = W_i1·x_1 + W_i2·x_2 + ... + W_in·x_n + b_i
+   ┌──────────┐
+   │ W  n × n │   output number i is a weighted sum of all n inputs —
+   │ b  n     │   the weights are row i of W — plus an offset b_i.
+   └──────────┘   W and b hold the learned numbers, and this weighted
+        │         sum is everything a linear layer does.
+        ▼
+y = (y_1, ..., y_n)              the output: n numbers again
+```
+
+A **dense layer** is a linear layer inside a block, and in this
+library a dense layer never changes dimension: W is always square,
+`width` numbers in, `width` numbers out. Every dense layer everywhere
+obeys this — the trunk's residual blocks, the transformer head's
+attention matrices, each bin's private stacks. The fixed width is a
+design rule, and it pays three times:
+
+| where | what the fixed width buys |
+|---|---|
+| residual blocks | the skip `+` adds a block's input to its output directly — same length by construction, so no extra layer is spent making the shapes match |
+| correction heads | channels and tokens stay at their physical size, so the heads need no adapter layers in or out — the [`cnn`](#cnn-name-rescnn) and [`trf`](#trf-name-restrf) subsections show what that removes |
+| reading a config | one number, `model.mlp.width`, describes every dense layer in the trunk |
+
+The dimension still has to change somewhere: a dozen parameters enter,
+a data vector of hundreds of numbers leaves. That happens in exactly
+two places, the **projections** at the trunk's entry and exit — the
+only rectangular weight matrices in the network:
+
+```
+parameters (n_params numbers)
+     │
+     ▼  entry projection     W is n_params × width: the one place
+     │                       the vector grows to the working width
+     │
+     the trunk's residual blocks — every dense layer width → width
+     │
+     ▼  exit projection      W is width × n_dv: the one place the
+     │                       vector becomes data-vector sized
+data vector (n_dv numbers)
+```
+
+On the path the data travels, those two projections are the only
+dimension changes anywhere in the model — the correction heads
+rearrange and change basis, but never resize.
+
 ### `mlp`
 
 The trunk. Every architecture is built on it, so this block is required.
 
-An MLP — multilayer perceptron — is the simplest neural network: a stack
-of dense layers with a nonlinear activation between them.
+An MLP — multilayer perceptron — is the simplest neural network: a
+stack of dense layers with a nonlinear activation between them,
+wrapped by the two projections defined above.
 
 ```
 parameters (rescaled, section 2)
      │
-     ▼  dense layer          y = W x + b : a learned matrix W times the
-     │                       input, plus a learned offset b — this is
-     │                       the only thing a dense layer does
+     ▼  entry projection        n_params → width
      │
-   ┌─┴──────────────────────────────────────────┐
-   │  residual block          repeated n_blocks │
-   │     │                                      │
-   │     ├────────────────┐                     │
-   │     ▼                │                     │
-   │  dense → activation  │  the activation is  │
-   │     │                │  a nonlinear bend — │
-   │     ▼                │  without it the     │
-   │     +  ◀─────────────┘  stack could only   │
-   │     │                   fit straight lines │
-   │     ▼                                      │
-   │  block output = input + correction        │
-   └─┬──────────────────────────────────────────┘
+   ┌─┴───────────────────────────────────────────────┐
+   │  residual block             repeated n_blocks   │
+   │     │                                           │
+   │     ├──────────────────────────┐                │
+   │     ▼                          │                │
+   │  dense → norm → activation     │  the identity  │
+   │     │                          │  skip: the     │
+   │     ▼                          │  block's input,│
+   │  dense ────▶ + ◀───────────────┘  unchanged     │
+   │     │                                           │
+   │     ▼                                           │
+   │  norm → activation                              │
+   │     │                                           │
+   │     ▼                                           │
+   │  block output = input + correction              │
+   └─┬───────────────────────────────────────────────┘
      │
-     ▼  dense layer
+     ▼  exit projection         width → data-vector length,
+     │                          then one final learned scale
+     │                          and shift
 data vector (rescaled)
 ```
 
 Each residual block adds its own input back to its output, so a block
 only has to learn a correction. That is what keeps deep stacks easy to
-train.
+train. The `norm` and `activation` slots between the dense layers are
+exactly the next two subsections.
 
-Two knobs. `width` is how many numbers each internal layer carries.
+Two knobs. `width` is how many numbers each dense layer carries.
 `n_blocks` is how many residual blocks are stacked.
 
 ```yaml
@@ -793,16 +854,51 @@ Two knobs. `width` is how many numbers each internal layer carries.
 
 ### `activation`
 
-The activation family, `{type, n_gates}` or a bare type string: the four
-learnable families `H` / `power` / `multigate` / `gated_power` plus the
-parameter-free `relu` / `tanh` (pair `tanh` with `norm: per_feature`, the
-saturation guard); their math is the
-[activation appendix](#16-appendix-activation-functions). This sets the shared
-family (trunk + default). A `rescnn` / `restrf` head may pin its own with
-`model.cnn`/`.trf.activation` (absent = share the trunk's); the pin needs a
-frozen-trunk head phase, `head: activation:` is its alias, and the precedence
-+ warning are precedence
-[A](#17-appendix-precedence--who-wins-when-settings-collide).
+A dense layer can only take weighted sums, and a stack of weighted
+sums is still a weighted sum — a straight-line map, however deep. The
+activation is the step between dense layers that bends each number
+individually; the bends are what let the network fit curved physics
+at all.
+
+The default family, `H`, is a bent line:
+
+```
+ H(x)
+   │                            /
+   │                          /      right of the bend: slope 1 —
+   │                        /        large positive values pass
+   │                      /          through unchanged
+   │                    /
+   │                  /
+   │               _/
+ ──┼─────___..--˙˙────────────────  x
+ __│_..-˙
+   │       left of the bend: slope gamma, a learned number;
+   │       beta, also learned, sets how sharp the bend
+   │       between the two tails is
+```
+
+**Learnable** means exactly that: gamma and beta are trained by the
+same gradient descent that trains the weights, and every feature gets
+its own independent pair. A **feature** is one of the `width` numbers
+flowing through the layer — the `norm` subsection below draws it. The
+network therefore does not just learn what to compute; it also learns
+the shape of its own nonlinearity, feature by feature. All four
+learnable families start from the same gentle line, `0.5·x`, and bend
+away from it as training demands.
+
+| `type` | learned numbers per feature | the shape |
+|---|---|---|
+| `H` | 2 | one bend — slope gamma to its left, slope 1 to its right |
+| `power` | 3 | `H` plus a learned tail exponent: the tails may grow like $x^p$, with $p$ kept inside $[0.5, 1.5]$ |
+| `multigate` | 3·`n_gates` + 1 | `n_gates` bends at learned positions — a slope schedule along x |
+| `gated_power` | 3·`n_gates` + 2 | the multiple bends and the tail exponent together |
+| `relu` | 0 | negatives cut to zero, positives pass — the textbook baseline |
+| `tanh` | 0 | an S-curve, flat at both ends; those flat ends are the saturation trap the `norm` subsection explains, so pair it with `norm: per_feature` |
+
+The block is `{type, n_gates}` or a bare type string; `n_gates` is
+read only by the two multi-gate families. The exact formulas are in
+the [activation appendix](#16-appendix-activation-functions).
 
 ```yaml
   activation:
@@ -810,38 +906,62 @@ frozen-trunk head phase, `head: activation:` is its alias, and the precedence
     n_gates: 3
 ```
 
+This sets one shared family for the whole model, trunk and head alike.
+A `rescnn` / `restrf` head may pin its own family with
+`model.cnn.activation` / `model.trf.activation`; leaving that key
+absent means the head shares the trunk's. A pinned head needs a
+frozen-trunk head phase, `head: activation:` is an alias for the same
+pin, and the precedence and its warning are precedence
+[A](#17-appendix-precedence--who-wins-when-settings-collide).
+
 ### `norm`
 
-The normalization slot inside each trunk block, applied just before the
-activation. What normalization does: as training moves the weights, the
-numbers flowing between layers can drift very large or very small; a
-normalization step rescales them back toward a standard range. That
-matters because an activation only responds in a limited window — feed it
-values far outside that window and its output stops changing, the
-gradient dies, and the layer stops learning (this is called saturation;
-the normalization is the paper's guard against it). One of three:
+The normalization slot inside each trunk block. It sits between every
+dense layer and its activation:
 
-- `affine` (default; absent = this) — the paper's per-layer $g x + b$,
-  one scalar gain/bias pair per layer (`Affine`); byte-identical to the
-  model today.
-- `per_feature` — a width-long gain/bias, one pair per feature
-  (`FeatureAffine`); the escalation when one scalar pair cannot hold
-  every unit's operating point. Pair it with `tanh`.
-- `none` — `nn.Identity`, no normalization (an ablation).
+```
+inside a residual block, every dense layer is followed by
+
+  dense ──▶ norm ──▶ activation
+             │
+             g·x + b     g and b learned — a rescaling the
+                         network can adjust as it trains
+```
+
+Why it is there: as training moves the weights, the numbers leaving a
+dense layer can drift very large or very small, and an activation only
+responds in a limited window. A value pushed far outside that window
+lands where the activation's curve is flat — its output stops
+changing, its gradient dies, and that part of the layer stops
+learning. The failure is called **saturation**, and the norm is the
+paper's guard against it:
+
+```
+                      the window where the
+                      activation still bends
+                           ┌─────────┐
+values leaving       ●     │  ● ● ●  │      ●      the two outer
+a dense layer              └─────────┘             values sit on the
+                                                   flat tails: frozen
+                                                   output, no gradient
+                           ┌─────────┐
+after g·x + b            ● │ ● ● ● ● │ ●           rescaled back to
+                           └─────────┘             where the curve
+                                                   bends — every value
+                                                   can learn again
+```
+
+Three settings:
+
+| `norm:` | learned numbers | what it can fix |
+|---|---|---|
+| `affine` — the default, absent = this | one pair $(g, b)$ shared by the whole layer: 2 | a global scale drift — the paper's choice |
+| `per_feature` | one pair per feature: 2·width, 256 at width 128 | each feature's individual operating point — the escalation when one shared pair cannot hold every feature inside its window; pair it with `tanh` |
+| `none` | 0 | nothing — an ablation |
 
 ```yaml
   norm: affine    # affine (default) | per_feature | none
 ```
-
-Only the trunk ResBlocks read it — the transformer head's internal
-LayerNorm and the conv head have no norm slot.
-
-**Why no batchnorm.** Batch normalization is deliberately not offered:
-its batch coupling would confound the batch-size and EMA experiments,
-and its train/eval running-stats split — with buffers outside the EMA
-weight average — risks baking a fixed mode under the compiled eval twin.
-The paper prescribes the affine as batchnorm's replacement, and
-`per_feature` is the escalation.
 
 A "feature" is one coordinate of the hidden vector flowing through the
 trunk — the ResBlock width (`model.mlp.width`). Inside every ResBlock the
@@ -860,26 +980,152 @@ columns are the features:
 ```
 
 Not a data-vector element, not a cosmological parameter, not a sample —
-the same sense in which H's gamma / beta are per-feature.
+the same sense in which the activations' gamma and beta are
+per-feature.
 
-| | `affine` (per layer — the paper's) | `per_feature` |
-|---|---|---|
-| parameters | one pair $(g, b)$ for the whole layer — 2 | vectors $g_i, b_i$ — 2·width (256 at width 128) |
-| action | $g \cdot x + b$ broadcast over all features | $g_i x_i + b_i$, each feature its own |
-| what it can fix | a global scale drift | each unit's individual operating point |
+Only the trunk ResBlocks read this key — the transformer head
+normalizes with its own internal LayerNorm, and the conv head has no
+norm slot.
+
+**Why no batchnorm.** Batch normalization is deliberately not offered:
+its batch coupling would confound the batch-size and EMA experiments,
+and its train/eval running-stats split — with buffers outside the EMA
+weight average — risks baking a fixed mode under the compiled eval twin.
+The paper prescribes the affine as batchnorm's replacement, and
+`per_feature` is the escalation.
 
 ### `cnn` (name `rescnn`)
 
+The conv head's premise: whatever the trunk gets systematically wrong
+varies smoothly along the angular axis, so the fix should be built
+from angular neighborhoods. The layer built for exactly that is the
+**convolution** — a small set of learned weights slid along the data
+vector and applied identically at every angular position:
+
+```
+one tomographic bin's stretch of the data vector, in theta order
+
+   v1   v2   v3   v4   v5   v6   v7  ...
+        └────────┬────────┘
+          k1   k2   k3           the kernel: kernel_size learned
+                 │               numbers — 3 drawn here, 11 in the
+                 ▼               snippet below
+       out4 = k1·v3 + k2·v4 + k3·v5
+
+then the same three numbers slide one step right and produce out5,
+then out6, and so on — one small weight set reused at every
+position. A dense layer doing this job would hold a separate weight
+for every pair of positions and would connect the largest angular
+scales directly to the smallest.
+```
+
+Two properties follow. The correction is angular-local by
+construction: each output reads only a `kernel_size`-wide window. And
+the head stays tiny: the kernel is reused along the whole axis instead
+of growing with the data-vector length.
+
+#### Bins as channels
+
+The data vector is not one long curve — it is many tomographic bins
+laid end to end. The head rearranges it into a grid, one row per bin,
+and the convolution runs on all rows at once:
+
+```
+theta-order data vector: the bins laid end to end
+
+  [ bin 1 ●●●●●●●● │ bin 2 ●●●●●● │ bin 3 ●●●●●●● │ ... ]
+        │
+        │   a free rearrangement — numbers move, nothing multiplies
+        ▼
+              theta ─▶
+   bin 1   ● ● ● ● ● ● ● ●
+   bin 2   ● ● ● ● ● ● ○ ○      ○ = padding: shorter bins are
+   bin 3   ● ● ● ● ● ● ● ○      zero-filled to the longest bin's
+    ...                         length, and the pad slots are
+                                dropped again on the way out
+```
+
+The rows are the conv's **channels** — the standard term for the
+parallel signals one convolution mixes. At each angular position,
+every output bin reads a `kernel_size`-wide window of every input
+bin: local in angle, coupled across bins. That coupling is physical —
+the bins share one angular grid, so covariance leaks between bins at
+like angular scales.
+
+#### Where the learned weights are — and where they are not
+
+A textbook conv head bolted onto a vector output needs learned
+adapters: a linear layer in to build the channels, an expansion to
+some internal filter count, and a linear layer out to restore the
+output size. Those adapters usually dominate the head's parameter
+count. Here every adapter job is done by something free or frozen —
+the graph is worth reading arrow by arrow:
+
+```
+trunk output y                    in the trunk's rescaled units
+   │
+   │  fixed basis change         a matrix precomputed once from the
+   ▼                             data covariance — frozen, never
+theta-order data vector          trained — into angular order
+   │
+   │  rearrange into the grid    free: numbers move, nothing
+   ▼                             multiplies
+(bins × theta) grid
+   │
+   │  n_blocks × [conv → activation]     the head's only learned
+   ▼                                     weights; the last conv
+corrected grid                           starts at exactly zero
+   │
+   │  rearrange back;            the same frozen matrix,
+   ▼  undo the basis change      inverted
+correction
+   │
+   ▼
+out = y + gate · correction      gate: one learned number, starting
+                                 small — the head fades in instead
+                                 of disturbing the trained trunk
+```
+
+Nothing on that path resizes. The channels are the physical bins and
+never expand; the convolution pads its ends so the angular length
+never changes; the basis changes are fixed matrices computed once
+from the covariance. The head's learned weights are the conv kernels,
+their activations, and the gate — there are no adapter layers to eat
+parameters. And because the last conv starts at zero, the correction
+is zero at epoch 1: the model begins exactly equal to its trunk.
+
+#### The knobs
+
 | knob | what |
 |---|---|
-| `kernel_size` | conv kernel width (odd), tuned as if one block |
-| `rescale_kernel` | shrink the per-block kernel with depth at a fixed receptive field |
-| `groups` | channel-mixing cuts (`2` = xi+/xi- split; `3` / `6` on the factored head) |
-| `separable` | factor each block into a depthwise + pointwise conv |
-| `film` | re-inject the parameters as an identity-init per-channel affine (cosmology-aware) |
+| `kernel_size` | the sliding window's width, odd; tuned as if the head had one block |
+| `rescale_kernel` | shrink the per-block kernel as depth grows, keeping the whole stack's total view fixed at `kernel_size` |
+| `groups` | cut the cross-bin mixing: `2` = xi+ and xi− never mix, the graph below; `3` / `6` on the factored head |
+| `separable` | factor each conv into a per-bin angular filter plus a channel mix — the same sum, roughly `kernel_size`/2 times fewer weights |
+| `film` | re-inject the cosmology as a per-bin scale and shift computed from the parameters — the paragraph below |
 | `n_blocks` | stacked conv + activation blocks |
-| `gate_init` | initial correction-gate scale (small, not 0) |
-| `activation` | the head's own family (above) |
+| `gate_init` | the gate's starting value — small, never 0: a zero gate passes no gradient and the head would never learn |
+| `activation` | the head's own family; absent = share the trunk's |
+
+`groups` uses the one physical cut the channel order offers — the
+channels are the bins in data-vector order, all xi+ pairs first, then
+all xi− pairs:
+
+```
+channels:   xi+ pair 1 .. P │ xi- pair 1 .. P
+
+groups: 1   no cut — every output bin reads every bin
+groups: 2   cut at the │ — xi+ and xi- never mix, and the
+            head's conv weights halve
+```
+
+`film` addresses a blind spot: the head only ever sees the trunk's
+output, so without it the head is one fixed correction map, identical
+at every point of parameter space. With `film: true` each block also
+receives the cosmological parameters, turned into one scale and one
+shift per bin — the cosmology chooses which bins' corrections to
+amplify and by how much. FiLM starts as an exact identity, so the
+epoch-1 guarantee above is untouched.
 
 ```yaml
   cnn:
@@ -896,15 +1142,97 @@ the same sense in which H's gamma / beta are per-feature.
 
 ### `trf` (name `restrf`)
 
+The conv head corrects within a window of neighboring angular scales.
+The structure it cannot see is cross-bin at arbitrary separation: the
+trunk's residuals correlate between different source-pair bins, and
+no angular window covers that. The layer built for "everything may
+look at everything, with learned, data-dependent weights" is
+**attention**, the transformer's core.
+
+The head first rearranges the data vector into the same bins × theta
+grid the conv head uses. Each row — one tomographic bin's 26 angular
+values, in this run — becomes one **token**, the unit attention works
+with.
+
+#### What attention computes
+
+At the center is a bins × bins table of weights, rebuilt for every
+sample from the tokens themselves:
+
+```
+        reads from:   bin 1   bin 2   bin 3   ...
+   bin 1              0.81    0.14    0.02        each row says how
+   bin 2              0.09    0.77    0.06        much that bin pulls
+   bin 3              0.03    0.05    0.90        from every other
+   ...                                            bin; rows sum to 1
+```
+
+Where the table comes from: three learned square matrices — `wq`,
+`wk`, `wv` — turn each token into a **query**, what this bin is
+looking for; a **key**, what this bin offers; and a **value**, what
+it hands over if selected. Bin g's row of the table is large where
+its query matches another bin's key, and what bin g receives is the
+weighted mix of the values. None of the table is fixed: different
+cosmologies produce different tokens and therefore different tables.
+
+After attention has shared information across bins, each bin digests
+what it received through its own private stack of dense layers —
+`n_mlp_blocks` deep, every layer at the token width. Private weights
+per bin is a deliberate deviation from the textbook transformer,
+which shares one stack across all tokens. The bins are physically
+distinct, and their unique weights are also what lets the model tell
+them apart — the job a positional encoding does elsewhere, so this
+head needs none. `shared_mlp: true` restores the textbook sharing as
+an ablation.
+
+#### One block, drawn
+
+```
+tokens (bins × 26)
+   │
+   ├──▶ LayerNorm ──▶ attention across bins ──▶ wo, zero-init ──┐
+   │                                                            │
+   +  ◀─────────────────────────────────────────────────────────┘
+   │
+   ├──▶ LayerNorm ──▶ each bin's private dense stack ───────────┐
+   │                     (its last layer zero-init)             │
+   +  ◀─────────────────────────────────────────────────────────┘
+   │
+   ▼
+tokens out       = tokens in, exactly, at initialization
+```
+
+LayerNorm is the transformer's own normalization — a per-token
+rescaling that keeps the attention table from saturating; it fills
+the role `model.norm` fills in the trunk and is not configurable
+here. Both branches end in a zero-initialized layer, so every block
+is exactly the identity at initialization: the head's correction is
+whatever the blocks add, the model equals its trunk at epoch 1, and
+the same small learned `gate` fades the correction in — the conv
+head's start, reproduced.
+
+#### No adapters here either
+
+A textbook transformer first embeds its input into learned token
+vectors and projects back to the output shape at the end. In the
+published CMB-emulator design those two adapters were the
+parameter-heaviest layers of the whole network. This head has
+neither: the tokens are the physical bin segments at their natural
+width of 26 angular points, and the blocks' output is already in
+data-vector layout — the same free-or-frozen principle as the conv
+head's graph, applied to a transformer.
+
+#### The knobs
+
 | knob | what |
 |---|---|
-| `n_heads` | attention heads; must divide the token width (26 → 1 \| 2 \| 13) |
+| `n_heads` | attention runs `n_heads` times in parallel on slices of the token — the graph below; must divide the token width, so 26 allows 1, 2, or 13 |
 | `n_blocks` | stacked transformer blocks |
-| `n_mlp_blocks` | per-token MLP depth; every layer at the token width, no width knob (depth only) |
-| `shared_mlp` | one MLP for all tokens (the textbook block) vs the per-token default |
-| `film` | cosmology-aware per-token affine (as `cnn.film`) |
-| `gate_init` | initial correction-gate scale |
-| `activation` | the head's own family (above) |
+| `n_mlp_blocks` | depth of each bin's private dense stack; every layer at the token width, so there is no width knob — depth only |
+| `shared_mlp` | one shared stack for all bins — the textbook block, kept as an ablation |
+| `film` | cosmology-aware per-bin scale and shift, exactly as `cnn.film` |
+| `gate_init` | the correction gate's starting value — small, never 0 |
+| `activation` | the head's own family; absent = share the trunk's |
 
 ```
 one token = one bin, width 26            n_heads: 2 -> d_head = 13
@@ -914,15 +1242,16 @@ one token = one bin, width 26            n_heads: 2 -> d_head = 13
     └──────┬───────┴───────┬───────┘     into n_heads equal parts:
            │               │             26 = n_heads x d_head, so
     G x G attention  G x G attention     n_heads must divide 26
-    over all bins,   over all bins,      (1 | 2 | 13)
-    using slice 1    using slice 2
+    over all bins,   over all bins,      (1 | 2 | 13); G = the
+    using slice 1    using slice 2       number of bins
            │               │
-           └─── concat ────┴──▶ width 26 again (wo mixes the heads)
+           └─── concat ────┴──▶ width 26 again; wo remixes
+                                the heads into one token
 ```
 
-The four projections (`wq` / `wk` / `wv` / `wo`) are 26 x 26 at any
-`n_heads` — same parameters, same FLOPs; more heads = more, narrower
-attention patterns per bin pair.
+The four attention matrices — `wq` / `wk` / `wv` and the output mix
+`wo` — are 26 × 26 at any `n_heads`: same parameters, same cost. More
+heads just means more, narrower attention tables per bin pair.
 
 `compile_mode` (optional, flat) sets the CUDA `torch.compile` mode; the
 defaults are precedence
@@ -1006,23 +1335,147 @@ the global.
 
 ## 12. `pce`
 
-Neural PCE (NPCE): fit a closed-form sparse-Legendre polynomial-chaos base
-$B(\theta)$ to the whitened training set at staging, then train the
-`model.name` architecture as its refiner $f(\theta)$. The base is analytic
-(no network, one least-squares pass) and captures the smooth, low-order
-cosmology dependence; the refiner corrects whatever the base misses — "trunk
-= PCE, head = any SGD model". The `pce:` block is a top-level sibling of
-`data` / `train_args`; present = NPCE on, absent = a plain run.
+Neural PCE (NPCE): before any network trains, fit a closed-form
+polynomial approximation of the training set — the **base**
+$B(\theta)$ — then train the `model.name` architecture as a
+**refiner** $f(\theta)$ that corrects what the base misses. The base
+is analytic: no network, no gradient descent, one least-squares pass
+at staging. It captures the smooth, low-order dependence on the
+cosmology; the refiner handles the rest — "trunk = PCE, head = any
+SGD model". The fit runs on the training set in its rescaled form
+from section 2, the same units the chi2 loss uses. The `pce:` block
+is a top-level sibling of `data` / `train_args`; present = NPCE on,
+absent = a plain run.
+
+### What the base is made of
+
+PCE stands for **polynomial chaos expansion**: a sum of fixed, known
+polynomials of the input parameters. The family used here is the
+**Legendre polynomials** — one curve per degree, nothing about them
+learned or fitted. The fit only chooses which curves enter, and with
+what coefficients:
+
+```
+degree 0        degree 1        degree 2        degree 3
+the constant    the tilt        one bow         two bends
+
+─────────           ╱           ╲     ╱          ╱╲
+                  ╱              ╲   ╱          ╱  ╲    ╱
+                ╱                 ╲_╱               ╲__╱
+
+                       ... each degree adds one more wiggle
+```
+
+Before any polynomial is evaluated, each parameter is rescaled onto
+the interval $[-1, 1]$ over its training range — the Legendre
+polynomials' home interval, where they are **orthogonal**: each curve
+carries information the others do not, which keeps the least-squares
+fit stable as terms are added. At evaluation time, a point just
+outside the training box is clamped to the interval's edge.
+
+### One term = a product of one-parameter curves
+
+With 12 parameters, one basis term multiplies together one Legendre
+curve per parameter — most of them the trivial degree-0 constant:
+
+```
+term:  P2(Omega_m) · P1(sigma_8)        a bow in Omega_m times
+                                        a tilt in sigma_8
+written as one degree per parameter:
+
+  alpha = ( 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 )
+            │  │  └────────────┬────────────┘
+            │  │               └── the other ten parameters absent
+            │  └───── degree 1 in sigma_8
+            └──────── degree 2 in Omega_m
+
+total degree       2 + 1 = 3         capped by p_max
+interaction order  2 parameters      capped by r_max
+```
+
+### Which terms are allowed
+
+Three rules prune the candidate list before anything is fit. `p_max`
+caps the total degree; `r_max` caps how many parameters may appear
+together in one term. The third, the hyperbolic exponent `q`, decides
+how degree may be spread across parameters — with `q` below 1,
+spreading the same total degree over several parameters scores as
+more expensive than concentrating it in one:
+
+| term, total degree 4 | score at `q: 1` | score at `q: 0.5` |
+|---|---|---|
+| $x_1^4$ | 4 — kept | 4 — kept |
+| $x_1^2 x_2^2$ | 4 — kept | 8 — dropped |
+| $x_1 x_2 x_3 x_4$ | 4 — kept | 16 — dropped |
+
+That preference is the sparsity-of-effects prior: smooth physics is
+usually dominated by single-parameter trends plus mild low-order
+interactions, so the many-parameter cross terms are the right ones to
+drop first. Smaller `q` = sparser basis.
+
+### What gets fit, mode by mode
+
+The base does not fit the data vector entry by entry. The training
+cloud is first split into its main directions of variation — an SVD,
+the same idea as principal components: mode 0 is close to an overall
+amplitude, and the modes after it are shape changes of decreasing
+size. Each mode's amplitude is one number per training sample, and
+those amplitudes are what the polynomials fit:
+
+```
+training set: parameters + data vectors, rescaled units
+     │
+     │  split the data-vector cloud       mode 0 ≈ the overall
+     ▼  into its modes                    amplitude; mode 1, 2, ...
+per-mode amplitudes z_0, z_1, ...         ever-smaller shape changes
+     │
+     │  per mode: least squares over the allowed terms — terms
+     │  added greedily, each addition judged by its
+     ▼  leave-one-out error
+keep a mode in the base only if that error < loo_max
+     │                                    │
+     ▼                                    ▼
+B(theta) = mean + the kept modes,    the rejected modes are left
+rebuilt from their polynomial fits   for the refiner to learn
+```
+
+The **leave-one-out error** is the fit's error at each training
+point, computed as if that point had been excluded from the fit — a
+generalization test that needs no refit and no held-out data. It is
+the gate everywhere above, because a mode kept with a poor fit
+injects more error than it removes; every rejected mode is simply
+left to the refiner, which corrects the full data vector and
+backstops everything the gate drops.
+
+The other hard-won rule is to keep the degree low. A high-degree
+polynomial can pass near every training point and still oscillate
+between them — Runge oscillation:
+
+```
+low degree:    ───●────●────●────●───     follows the smooth trend
+
+                  ╱╲   ╱╲   ╱╲
+high degree:   ──●──╲─●──╲─●──╲──●───     hits every point, wiggles
+                     ╲╱   ╲╱   ╲╱         in between — wiggles the
+                                          refiner must then spend
+                                          capacity learning back out
+```
+
+`p_max` is therefore the smoothness knob, and the leave-one-out gate
+— not the term cap — decides each mode's size.
+
+### The combine form and the block
 
 Two combine forms (`form`, required):
 
 $$\mathrm{pred} = B(\theta) + f(\theta) \qquad
 \mathrm{pred} = B(\theta) (1 + f(\theta))$$
 
-with $B$ = the closed-form base, $f$ = the refiner. `residual` (additive, in
-the whitened basis) is the usual choice; `ratio` (multiplicative, physical)
-suits a smooth low-order base (the refiner has little leverage where the base
-is near 0).
+with $B$ = the closed-form base and $f$ = the refiner. `residual`
+adds the correction in the same rescaled basis the fit runs in and is
+the usual choice. `ratio` multiplies in physical units and suits a
+smooth low-order base — a multiplicative refiner has little leverage
+where the base is near zero.
 
 ```yaml
 pce:
@@ -1036,13 +1489,6 @@ pce:
   # max_terms: 30        # per-mode active-set cap
   # max_fail:  4         # stop after this many consecutive misses
 ```
-
-Two design rules the fit follows (the hard-won NPCE lessons): keep only
-well-predicted modes — a mode enters the base only if its relative
-leave-one-out error is below `loo_max`, the rest go to the refiner; and keep
-the degree low — a high-degree Legendre fit Runge-oscillates and makes the
-refiner's residual harder, so `p_max` is the smoothness knob and the LOO, not
-the term cap, decides each mode's size.
 
 The refiner is any `model.name` (`resmlp` / `rescnn` / `restrf`) with every
 knob — its own two-phase schedule, per-head activation pins, `model.norm`, the
