@@ -721,3 +721,30 @@ same-computation legs (save->rebuild->composed-predict, 0.00e+00 this
 run; the refined-base leg, 0.00e+00); the predictor leg relaxes to 1e-6.
 41/42 substantive assertions were already green, including both refined
 conditions (drifted-base bitwise + two-way consistency).
+
+## TPE-2 closure = the infrastructure program closure (2026-07-10)
+
+**transfer-identity: ALL PASS, 42/42** — the eight identity combos
+bitwise, the anchor surgery, the full error registry with the
+explicit-knobs refine leg, the lifecycle round-trip bitwise, the
+predictor at 1 ulp under the documented cross-path tolerance, and both
+refined-artifact conditions (drifted-base composed predict bitwise;
+two-way consistency refusal). finetune-identity closed 19/19 with the
+four anchor legs in the same session. Board 24/24. Three closing deltas
+(D-TPE2-1/2/3) were all check-side staleness against the widened TPE-2
+surfaces — zero code defects in the unit.
+
+**The infrastructure program (2026-07-08 -> 2026-07-10) is COMPLETE:**
+four training modes — from-scratch, anchored warm-start (FTW +
+finetune.anchor), frozen-base transfer (TPE, form x space matrix), and
+anchored joint refinement (transfer.refine) — with one continuous dial
+(the decoupled L2-SP lambda) between frozen and free, 24 machine-checked
+gates, and every artifact self-describing down to its own training
+trajectory (W0 + drifted + recomputable drift). Remaining smoke that
+rides real science: the refine board leg on the first real base+dump.
+
+**The thread is now SCIENCE.** First experiment: D-TP9's deciding run —
+fixed expensive-dump N_train, frozen-only vs refine at a few lambdas —
+alongside the standing queue (berhu attribution, bs+EMA, activation
+bake-off, NPCE at scale) and, when the dumps exist, the EDE + w(z)-PCA
+program this was all built for.
