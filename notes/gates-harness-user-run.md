@@ -1640,3 +1640,27 @@ run_board --check shows "rootdir = ... (source: $ROOTDIR)"; a resumed
 board stays green; then the one-time
 rm -rf "$ROOTDIR/projects/lsst_y1/<your usual --fileroot value>"
 stays deleted because nothing can recreate it.
+
+## Run 12 (2026-07-10): first post-FTW board — 1 new-gate red, delta applied
+
+Resumed board, 21 gates: the 19 previously-green gates skipped (resume),
+the two new FTW gates ran. Preflight on the portable config was the GBC
+acceptance in passing: `rootdir = ... (source: $ROOTDIR)` and
+`driver_fileroot = 'gates_board'` printed exactly as designed, with no
+machine edit to board_config.json.
+
+- **finetune-identity: PASS on CUDA, 15/15** — FTW-A closed; the bitwise
+  shared-coordinate assertion held (max|dv| = 0.00e+00), the pre-authorized
+  relaxation was not needed.
+- **finetune-smoke: FAIL** — the board's source artifact
+  (gates_emul_evaluate, saved by the save-rebuild-drift check script)
+  records no `rescale` root attr; load_source rejects it (D-FT2). An
+  Architect spec-level integration gap, not an Implementer error. Delta
+  D-FTW-1 applied directly (details + forward-walk in
+  finetune-warm-start.md): the check script now stamps the resolved
+  rescale, load_source splits the missing-attr error. Rerun =
+  `python gates/run_board.py --force-rerun save-rebuild-drift` (one pass
+  re-persists the artifact and reruns the smoke).
+
+Still open from earlier runs: the triangle-shading PDF eyeball
+(production-diagnostic's gates_diag_*.pdf relay).

@@ -203,7 +203,11 @@ def train_save(cfg, device, save_root, persist_root=None):
     pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
     resolved_train=exp.resolved_train,
     resolved_model=exp.resolved_model,
-    attrs={"n_train": cfg["data"]["n_train"]})
+    # rescale is the resolved run value (never a literal): a fine-tune run
+    # warm-starting from this artifact reads the attr and refuses a source
+    # that does not record it (emulator/warmstart.py load_source, D-FT2).
+    attrs={"n_train": cfg["data"]["n_train"],
+           "rescale": exp.rescale})
   save_emulator(path_root=str(save_root), **save_kwargs)
   # a second, PERSISTENT save (same bytes, a stable root) so the board's
   # cobaya-adapter evaluate leg has an emulator to load after the tmp dir

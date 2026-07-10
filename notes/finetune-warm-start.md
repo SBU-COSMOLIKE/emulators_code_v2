@@ -439,3 +439,44 @@ workstation — the 19 green gates skip, the two new FTW gates run; relay the
 raw logs; (2) the one-time finetuned_from/attr confirmation above; (3) the
 n_x > 0 leg on real data waits for a real w0waCDM dump (the honest margin
 already recorded in the gates section).
+
+## Board run 12 (2026-07-10) + delta D-FTW-1 (Architect, applied directly)
+
+**finetune-identity (FTW-A): PASS on CUDA, 15/15 — CLOSED.** The raw log
+shows every assertion green, including the two the audit flagged as
+backend-dependent: the shared-coordinate encoding held BITWISE on CUDA
+(max|dv| = 0.00e+00) and the parity was exactly zero on 256 rows. The
+pre-authorized 1e-6 relaxation was never needed; it stays on file for other
+backends.
+
+**finetune-smoke (FTW-B): FAIL at load_source, one step before the design
+ran** — `rescale=None`: the board's source artifact
+(`<driver_root>/chains/gates_emul_evaluate`, persisted by the
+save-rebuild-drift CHECK SCRIPT, not the training driver) carries no
+`rescale` root attr, and the D-FT2 gate rejects it. The synthetic FTW-A
+source stamps `attrs={"rescale": "none"}` explicitly, which is why the
+identity gate never exposed this. **The gap is the Architect's (spec-level
+integration): D-FT2 demanded the attr without verifying the board artifact
+carries it.** The Implementer implemented the spec faithfully.
+
+**Delta D-FTW-1, applied directly by the Architect (declared deviation, two
+fully-determined edits, compile-checked):**
+1. `gates/checks/gsv_bitwise_drift.py` — the persistent save now stamps
+   `"rescale": exp.rescale` (the RESOLVED run value, never a literal) in
+   its attrs, beside n_train.
+2. `emulator/warmstart.py` load_source — the missing-attr case is now its
+   own loud error (distinct from a wrong value): names the h5, explains the
+   check-script provenance, and points at `--force-rerun save-rebuild-drift`.
+   Still NO fallback to "none" — an artifact that does not record its
+   rescale is ambiguous (never-trust-defaults).
+
+**Forward-walk of the remaining smoke path (audited before the fix, so the
+rerun is expected green in one pass):** the GSV artifact's config carries
+the matching cosmolike keys and the SAME dumps/covmat as the smoke config
+(names equal -> the n_x = 0 degenerate warm start), the recipe rebuilds
+gated_power/n_gates 3 with compile_mode None inherited, widths 12 / 1560
+match the pin checks, and parity is bit-trivial. Rerun:
+`python gates/run_board.py --force-rerun save-rebuild-drift` (one pass:
+save-rebuild-drift forced -> re-persists the artifact with the attr;
+finetune-smoke reruns by default since it is recorded FAIL; everything else
+skips green).

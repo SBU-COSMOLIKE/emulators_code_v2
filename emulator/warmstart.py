@@ -290,6 +290,18 @@ def load_source(root, device):
     recipe   = yaml.safe_load(f["model_recipe"][()])
     src_resc = f.attrs.get("rescale")
     resolved = yaml.safe_load(f["config_resolved_yaml"][()])
+  if src_resc is None:
+    # a missing attr is not the same failure as a wrong value: the training
+    # drivers stamp rescale in the run-identity attrs, but an artifact saved
+    # by another path (e.g. a check script) may predate the stamp. No
+    # fallback to "none" here -- an artifact that does not record its rescale
+    # is ambiguous (the never-trust-defaults rule).
+    raise ValueError(
+      "finetune source records no 'rescale' root attr in " + root + ".h5; "
+      "the artifact was saved by a path that skipped the run-identity "
+      "attrs. Re-save the source with attrs including rescale='none' (the "
+      "training drivers stamp it; for the board's gates_emul_evaluate "
+      "artifact, --force-rerun save-rebuild-drift re-persists it)")
   if src_resc != "none":
     raise ValueError(
       "finetune source was trained with rescale=" + repr(src_resc)
