@@ -365,3 +365,77 @@ absorbed):**
    verdict line + the banner from the log; the `finetuned_from` root attr and
    the save->rebuild->predict round-trip are logged as the workstation leg
    (the gate cannot read the dynamic saved-artifact path from stdout).
+
+## Architect audit verdict (FTW, 2026-07-09, Fable)
+
+**VERDICT: VERIFIED — sign-off given.** Audited at main e4cf27a (the user
+fast-forwarded the branch before the audit; findings below are rulings and
+pre-authorizations, none blocking). Evidence, all mine against the shipped
+source, never the Implementer's summaries:
+
+- **Independent exec-probe of the shipped spans** (ast-extracted
+  `extend_input_geometry` / `transfer_state_dict` from main e4cf27a, run
+  under numpy shims on the Mac): 15/15 PASS, including two layouts the
+  check script does not cover — INTERLEAVED extras
+  (`names_n = [w0, a, b, wa, c]`: name-keyed row placement, E orthogonal to
+  3.9e-08, shared coords bitwise-equal to the source encoding on this BLAS,
+  cross-independence bitwise both ways) and the PERMUTED-order degenerate
+  case (encoding equals the source to 2.4e-07 — correct, and instructive:
+  NOT bitwise, see the pre-authorization below). Transfer: padded set exact
+  on 2-D and 3-D input consumers, verbatim tensors bitwise, n_extra=0
+  verbatim, all three raise paths fire.
+- **Wiring read line-by-line in the diff:** init_state loads strict into
+  the eager module BEFORE torch.compile (make_model); optimizer / scheduler
+  / EMA / trim / focus untouched (fresh); the finetune branches guard on
+  `self._finetune` (absent = byte-identical plain run); the parity gate runs
+  on the same state dict the training model loads. The six train_args
+  sub-blocks the finetune build_specs branch spreads are a PRE-EXISTING
+  schema requirement (the normal path calls build_run_specs identically) —
+  no new demand on YAMLs.
+- **The smoke config's source path is the board-proven convention:**
+  `projects/lsst_y1/chains/gates_emul_evaluate` is byte-identical to the
+  emulators entry in cobaya-adapter-evaluate.yaml, which read the same
+  artifact on the green run-10/11 board; gsv_bitwise_drift.py persists it
+  with no run-tag suffix. All ctx helpers the new gates call (run_check /
+  run_driver / require_config / logscan.search) exist with those signatures
+  and are used identically by existing gates.
+
+**Rulings on the declared deviations:**
+1. **Tier move APPROVED.** `finetune-smoke` lives in the save-and-sample
+   tier with `deps=("save-rebuild-drift",)` — dependency-correct, since its
+   source artifact only exists after that gate persists it. This supersedes
+   the spec's "new-features tier" phrase above; no dedicated source-training
+   step is wanted.
+2. **Log-visible acceptance APPROVED.** The `finetuned_from` attr and the
+   save->rebuild round-trip stay a one-time Architect confirmation from the
+   workstation artifact, not a check script: save-rebuild-drift already
+   proves the round-trip machinery in general, so a dedicated script would
+   re-prove it for low value. The leg: after the board runs, take the
+   "saved run record -> <path>.h5" line from the finetune-smoke log and run
+   `python -c "import h5py,sys; f=h5py.File(sys.argv[1]);
+   print(f.attrs['finetuned_from'], repr(f.attrs['finetune_extra_names']))"
+   <path>.h5`.
+
+**Pre-authorization (recorded so a board red is triaged in one step):** the
+check item `encode: shared coords bit-identical to the source encoding`
+(finetune_identity.py, torch.equal across DIFFERENT matmul widths, n_s vs
+n_n) is a backend-dependent assertion: a kernel that regroups the reduction
+across k can break bit-equality while the math is exact (my permuted-order
+probe showed exactly this at 2.4e-07). If finetune-identity ever fails on
+that label ALONE with max|delta| <= 1e-6, relax that single assertion to a
+1e-6 tolerance and note it here — no re-audit needed. Every OTHER bitwise
+assertion (extras-independence, verbatim transfer, zero columns, same-order
+degenerate) compares same-shape outputs of the same kernel and must hold
+bit-for-bit on any backend.
+
+**Non-blocking nit, recorded:** the train() comment beside the parity
+verdict says it prints "even under a quiet run", but `self.log` is
+quiet-gated — the behavior (prints whenever the experiment is not quiet,
+which the board runs satisfy) is fine; the comment overstates. Fix whenever
+that file is next touched; not worth a commit alone.
+
+**Remaining before FTW closes:** (1) the user runs the board on the
+workstation — the 19 green gates skip, the two new FTW gates run; relay the
+raw logs; (2) the one-time finetuned_from/attr confirmation above; (3) the
+n_x > 0 leg on real data waits for a real w0waCDM dump (the honest margin
+already recorded in the gates section).
