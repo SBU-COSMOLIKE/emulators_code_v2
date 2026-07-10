@@ -381,25 +381,18 @@ train_args:
       n_blocks: 4
 ```
 
-Six terms the chapter uses (details: appendices
-[14](#14-appendix-the-pipeline)–[15](#15-appendix-the-chi2-metric-mahalanobis)):
+Six terms the chapter uses. The details live in appendices
+[14](#14-appendix-the-pipeline) and
+[15](#15-appendix-the-chi2-metric-mahalanobis).
 
-- data vector (dv): the masked cosmic-shear two-point functions xi+/- stacked
-  into one vector — what the network predicts.
-- chi2: prediction error measured in the analysis covariance, `r^T Cinv r`
-  ([appendix 15](#15-appendix-the-chi2-metric-mahalanobis)). The headline
-  metric, written `frac>0.2` in the logs: the fraction of validation
-  cosmologies with delta-chi2 above 0.2 — the goal is to drive it down.
-- whitened: rotated and rescaled so the components are decorrelated with unit
-  variance — the form the network sees, input and output
-  ([appendix 14](#14-appendix-the-pipeline)).
-- theta order: the data vector re-sorted to vary smoothly along the angular
-  axis — the basis the correction heads work in.
-- trunk / head: every architecture is a shared ResMLP trunk; `rescnn` /
-  `restrf` add a gated correction head on top ([section 10](#10-model)).
-- dump: the big on-disk (params, dv) table the physics code wrote; training
-  memmaps it (reads slices from disk, never the whole file) and stages only
-  the rows it needs ([section 3](#3-data)).
+| Term | Meaning |
+|---|---|
+| data vector, dv | The masked cosmic-shear two-point functions xi+/- stacked into one vector. This is what the network predicts. |
+| chi2 | Prediction error measured in the analysis covariance, `r^T Cinv r` — [appendix 15](#15-appendix-the-chi2-metric-mahalanobis). The headline metric is written `frac>0.2` in the logs: the fraction of validation cosmologies with delta-chi2 above 0.2. The goal is to drive it down. |
+| whitened | Rotated and rescaled so the components are decorrelated with unit variance. This is the form the network sees, input and output — [appendix 14](#14-appendix-the-pipeline). |
+| theta order | The data vector re-sorted to vary smoothly along the angular axis. The correction heads work in this basis. |
+| trunk / head | Every architecture is a shared ResMLP trunk; `rescnn` and `restrf` add a gated correction head on top — [section 10](#10-model). |
+| dump | The big on-disk table of parameters and data vectors the physics code wrote. Training memmaps it — reads slices from disk, never the whole file — and stages only the rows it needs, [section 3](#3-data). |
 
 ---
 
@@ -746,7 +739,18 @@ a_1 a_2 K_7 + a_1^2 b_{TA} K_8 + a_1 a_2 b_{TA} K_9$$
 
 ### `mlp`
 
-The trunk (required — every architecture is built on it): `width`, `n_blocks`.
+The trunk. Every architecture is built on it, so this block is required.
+
+An MLP — multilayer perceptron — is the simplest neural network: a stack
+of dense layers. A dense layer multiplies its input vector by a learned
+matrix and adds a learned offset; between layers sits a nonlinear
+activation, which is what lets the stack fit curved functions instead of
+only straight lines. Here the layers are grouped into residual blocks:
+each block adds its output to its own input, so a block only has to learn
+a correction, which keeps deep stacks easy to train.
+
+Two knobs. `width` is how many numbers each internal layer carries.
+`n_blocks` is how many residual blocks are stacked.
 
 ```yaml
   mlp:
@@ -775,8 +779,14 @@ frozen-trunk head phase, `head: activation:` is its alias, and the precedence
 
 ### `norm`
 
-The ResBlock normalization slot, applied inside the trunk before each
-activation — the paper's saturation guard. One of three:
+The normalization slot inside each trunk block, applied just before the
+activation. What normalization does: as training moves the weights, the
+numbers flowing between layers can drift very large or very small; a
+normalization step rescales them back toward a standard range. That
+matters because an activation only responds in a limited window — feed it
+values far outside that window and its output stops changing, the
+gradient dies, and the layer stops learning (this is called saturation;
+the normalization is the paper's guard against it). One of three:
 
 - `affine` (default; absent = this) — the paper's per-layer $g x + b$,
   one scalar gain/bias pair per layer (`Affine`); byte-identical to the
