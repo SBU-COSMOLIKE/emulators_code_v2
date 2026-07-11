@@ -16,7 +16,9 @@ workstation).
      through the real Pk_interpolator requirement (incl. the verbatim
      wants-Cl quirk).
   2  two data.grid2d trainings (pklin + boost, law none), each with the
-     dead-network-RELATIVE collapse bar (the D-SPE2-5 rule).
+     dead-network-RELATIVE collapse bar (the D-SPE2-5 rule); the boost
+     training also runs the MPS-DIAG leg (the two grid2d pages build
+     and the plot_diagnostics PDF lands through the grid2d dispatch).
   3  the real cobaya lifecycle through emul_mps: get_model +
      add_requirements(Pk_grid) + logposterior; the served P_lin and
      P_nl (grid + interpolator) within 5% of CAMB's OWN P(k, z) at an
@@ -193,6 +195,10 @@ def check_train(paths, tmp, device, quantity):
            best_median < 0.5 * mean_median,
            "best %.3g vs mean-predictor %.3g" % (best_median,
                                                  mean_median))
+    if quantity == "boost":
+        # the MPS-DIAG leg rides ONE of the two trainings (the pages
+        # are quantity-agnostic; once is the evidence, twice is time).
+        check_diagnostics(exp, model, tmp)
     root = os.path.join(tmp, "emul_mps_" + quantity)
     save_emulator(path_root=root, model=model, param_geometry=exp.pgeom,
                   geometry=exp.geom, config=cfg,
@@ -205,6 +211,52 @@ def check_train(paths, tmp, device, quantity):
                   resolved_model=exp.resolved_model, transfer_base=None,
                   attrs={"rescale": "none", "quantity": quantity})
     return root
+
+
+def check_diagnostics(exp, model, tmp):
+    """The MPS-DIAG leg: 2 grid2d pages build + the PDF lands.
+
+    Mirrors scalar_smoke's D-CM9 leg: run the family diagnostic on the
+    freshly trained model, build the pages, and write a full
+    plot_diagnostics PDF with the grid2d dispatch — so the exact path
+    the train driver's --diagnostic takes is the path proven here.
+    """
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    try:
+        from emulator.diagnostics import grid2d_residual_diagnostic
+        from emulator.plotting import _grid2d_pages, plot_diagnostics
+        import matplotlib.pyplot as plt
+        g2 = grid2d_residual_diagnostic(model=model,
+                                        param_geometry=exp.pgeom,
+                                        chi2fn=exp.chi2fn,
+                                        val_set=exp.val_set,
+                                        device=exp.device)
+        nz = len(g2["z"])
+        nk = len(g2["k"])
+        shape_ok = (g2["med_abs"].shape == (nz, nk)
+                    and g2["worst"]["res"].shape == (nz, nk)
+                    and 1 <= len(g2["slices"]) <= 3
+                    and g2["res_kind"] == "fractional")  # law none here
+        figs = _grid2d_pages(g2)
+        n_pages = len(figs)
+        for f in figs:
+            plt.close(f)
+        pdf = os.path.join(tmp, "grid2d_diag.pdf")
+        plot_diagnostics(train_losses=[0.1], medians=[0.1], means=[0.1],
+                         fracs=[torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                         thresholds=exp.thresholds,
+                         coverage={"knn_dist": np.ones(4),
+                                   "dchi2": np.ones(4), "k_nn": 2},
+                         grid2d=g2, savepath=pdf)
+        ok = (shape_ok and n_pages == 2 and os.path.isfile(pdf)
+              and os.path.getsize(pdf) > 10000)
+        report("MPS-DIAG: 2 grid2d pages + the PDF lands", ok,
+               "%d pages, shapes %s, %d bytes"
+               % (n_pages, "ok" if shape_ok else "WRONG",
+                  os.path.getsize(pdf) if os.path.isfile(pdf) else 0))
+    except Exception as e:
+        report("MPS-DIAG: 2 grid2d pages + the PDF lands", False,
+               type(e).__name__ + ": " + str(e)[:200])
 
 
 def camb_truth(point, z_probe, k_probe):

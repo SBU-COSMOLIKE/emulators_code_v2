@@ -1,4 +1,4 @@
-# cobaya-adapter, MCMC smoke (spec code GCT-C; cobaya-theory-adapter.md:123).
+# cobaya-adapter, MCMC smoke (spec code GCT-C; artifacts-inference-warmstart.md:123).
 # The evaluate leg's twin with a short mcmc chain: proves the theory block
 # DRIVES A SAMPLER (blocking, speed hierarchy, repeated calls), not just one
 # posterior evaluation. Reads the same tiny emulator save-rebuild-drift

@@ -28,8 +28,8 @@ EmulatorExperiment.from_config -> run -> save_emulator -> rebuild_emulator.
 The dumps and the save locations come from gates/board_config.json; the
 dump directory follows the driver's <root>/chains convention.
 
-Spec code GSV-C. Home notes: save-schema-resolved-config.md:86-93 and
-workstation-board-2026-07.md:66-71 (the factored and neural-PCE saves are
+Spec code GSV-C. Home notes: artifacts-inference-warmstart.md:86-93 and
+gates-and-board.md:66-71 (the factored and neural-PCE saves are
 there so the saved geometry type and the PCE data both survive a reload).
 """
 

@@ -619,3 +619,109 @@ def grid_residual_diagnostic(model,
           "worst": {"dchi2": float(dchi2[worst]),
                     "pred": pred[worst], "truth": truth[worst]},
           "derived": derived}
+
+
+def grid2d_residual_diagnostic(model,
+                               param_geometry,
+                               chi2fn,
+                               val_set,
+                               device,
+                               bs=256):
+  """
+  Per-(z, k) residual statistics for a grid2d (matter-power) run
+  (MPS-DIAG).
+
+  Decodes every validation prediction back to LAW space — what the
+  network learns; the geometry's decode un-standardizes but never
+  multiplies a syren base back — and summarizes the residual over the
+  validation set on the stored (z, k) grid. Under a syren law the
+  law-space residual IS the log-ratio of the physical spectra,
+
+      pred - truth = ln(P_pred / P_base) - ln(P_truth / P_base)
+                   = ln(P_pred / P_truth)
+
+  (the base cancels), so the numbers read directly as the fractional
+  error of the SERVED spectrum for small residuals. Under law "none"
+  the surfaces are physical and the residual is the usual
+  (pred - truth) / truth. The returned res_kind names which one the
+  arrays hold.
+
+  Arguments:
+    model          = the trained network.
+    param_geometry = ParamGeometry; .encode whitens the raw params.
+    chi2fn         = the ScalarChi2 over the Grid2DGeometry (its geom
+                     carries z / k / quantity / units / law).
+    val_set        = validation source dict ("C" / "dv" / "idx"); its
+                     dv rows are the STAGED law-space surfaces.
+    device         = device the model is on.
+    bs             = forward batch size.
+
+  Returns:
+    a dict with:
+      z, k                = the stored axes (k thinned by k_stride).
+      quantity/units/law  = the geometry's labels.
+      res_kind            = "ln-ratio" (syren laws) or "fractional".
+      med_abs   (nz, nk)  = median |residual| over the val set.
+      slices              = per-redshift cuts at the first / middle /
+                            last z (deduplicated when nz is small):
+                            {"iz", "z", "lo95", "lo68", "med", "hi68",
+                             "hi95"}, each band (nk,).
+      worst               = {"dchi2", "res" (nz, nk)} at the
+                            highest-chi2 validation cosmology.
+  """
+  geom  = chi2fn.geom
+  rows  = np.sort(val_set["idx"])
+  C     = np.asarray(val_set["C"][rows], dtype="float64")
+  truth = np.asarray(val_set["dv"][rows], dtype="float64")
+
+  preds = []
+  chi2s = []
+  model.eval()
+  with torch.no_grad():
+    start = 0
+    while start < len(rows):
+      stop  = min(len(rows), start + bs)
+      x     = torch.from_numpy(C[start:stop]).float().to(device)
+      x_enc = param_geometry.encode(x)
+      p     = model(x_enc)
+      t     = torch.from_numpy(truth[start:stop]).float().to(device)
+      tw    = chi2fn.encode(t)
+      preds.append(chi2fn.decode(p).double().cpu().numpy())
+      chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
+      start = stop
+  pred  = np.concatenate(preds)
+  dchi2 = np.concatenate(chi2s)
+
+  nz = int(geom.z.numel())
+  nk = int(geom.k.numel())
+  if geom.law == "none":
+    res = (pred - truth) / truth
+    res_kind = "fractional"
+  else:
+    # law space: the difference is ln(P_pred / P_truth), base-free.
+    res = pred - truth
+    res_kind = "ln-ratio"
+  res = res.reshape(-1, nz, nk)
+
+  med_abs = np.median(np.abs(res), axis=0)
+
+  z_grid = geom.z.detach().cpu().numpy()
+  iz_cuts = sorted(set((0, nz // 2, nz - 1)))
+  slices = []
+  for iz in iz_cuts:
+    band = np.percentile(res[:, iz, :],
+                         [2.5, 16.0, 50.0, 84.0, 97.5], axis=0)
+    slices.append({"iz": iz, "z": float(z_grid[iz]),
+                   "lo95": band[0], "lo68": band[1], "med": band[2],
+                   "hi68": band[3], "hi95": band[4]})
+
+  worst = int(np.argmax(dchi2))
+  return {"z": z_grid,
+          "k": geom.k.detach().cpu().numpy(),
+          "quantity": geom.quantity,
+          "units": geom.units,
+          "law": geom.law,
+          "res_kind": res_kind,
+          "med_abs": med_abs,
+          "slices": slices,
+          "worst": {"dchi2": float(dchi2[worst]), "res": res[worst]}}

@@ -1,0 +1,149 @@
+# The acceptance board: gates, harness, run history, lessons
+
+Consolidated 2026-07-11 from gates-harness-user-run.md,
+workstation-board-2026-07.md, gates-id-translation.md,
+gates-checks-docs-plain-language.md, probe-generalization-bugs.md
+(retired; full texts in git history).
+
+## What the board is
+
+Every feature lands with executable acceptance gates the USER runs on
+the GPU workstation — no Claude session there. One command, zero
+babysitting:
+
+    git pull
+    git checkout -- gates/board_config.json    # drop local edits
+    python gates/run_board.py --check          # preflight only
+    python gates/run_board.py                  # the whole board
+    git add gates/logs && git commit && git push
+
+The Architect then audits the RAW logs (full tee'd stdout+stderr per
+gate + the computed acceptance values + an effective-config JSON dump)
+— never summaries; a summary-only log fails the audit by construction.
+Verdicts are written into the topic notes by the Architect, never by
+the harness.
+
+## Layout and operation
+
+- `gates/run_board.py` — CLI + runner. Selectors: `--check`, `--list`,
+  `--dry-run`, `--gate <id>`, `--tier`, `--from <id>`,
+  `--force-rerun <id>` (flag BEFORE the id), `--debug`.
+- `gates/board.py` — the registry: one Gate per entry (id, tier,
+  spec_code, title, home note, run fn, needs). COUNT GATES BY
+  ENUMERATING THIS REGISTRY, never by note arithmetic (a +1
+  double-count survived several sessions once).
+- `gates/checks/` — numeric check scripts (print acceptance VALUES,
+  exit nonzero on any failed leg); `gates/configs/` — smoke YAMLs;
+  `gates/logs/` — `<GATE_ID>.log` + `BOARD.md` + `board_status.json`.
+- RESUME by default: PASS gates skip on rerun (skip lines + a green
+  summary IS a pass); `--force-rerun` overrides; a crash loses only
+  the in-flight gate.
+- Preflight guards: base commit is an ancestor of HEAD; clean tree in
+  the code dirs (board_config.json excluded); the cocoa env imports;
+  data paths resolve; `driver_fileroot` is loud on placeholders.
+- Portable config: board_config.json ships `"rootdir": null`, resolved
+  from `$ROOTDIR` at load IN MEMORY (the file is never rewritten); an
+  explicit file value wins; the resolved value + source is printed and
+  recorded in every log. The golden config is
+  `cosmic_shear_train_emulator.yaml` (renamed 2026-07-11).
+- Golden byte-identity legs run the pinned base in a TEMPORARY
+  `git worktree` (never checkout-in-place); the comparator strips
+  exactly one machine-noise field (the trailing wall-clock column). A
+  golden claim against a distant base is a CHAIN claim — bisect with
+  intermediate bases before blaming the named feature.
+- Harness hygiene rules born from reds: `sys.executable` never bare
+  "python"; check scripts get `PYTHONPATH=<repo root>`; encode each
+  gate FROM its home note (the spec of record), bending the encoding
+  to the note; quiet terminal by default (one header + one verdict
+  line per gate; `--debug` restores).
+- cobaya-run must run FROM `$ROOTDIR` (the YAMLs' ./ paths anchor to
+  the cwd — a cocoa-wide convention).
+
+## The gate philosophy
+
+- Two species per feature: an IDENTITY gate (feature off / golden base
+  → byte-identical or bitwise-equal output — the strongest claim, and
+  it doubles as a refactor-transparency proof) and a SMOKE gate
+  (feature ON → the named behavior actually fires). A default-off knob
+  left unset tests nothing (the ema-rewind lesson).
+- A learning smoke must FAIL on a dead network: test OFF the training
+  mean (a mean-predictor is then visibly wrong) and set the collapse
+  bar BELOW the mean-predictor's value (the D-SPE2-5 rule) — the one
+  gate defect a green board cannot surface.
+- Evidence tiers: the Mac proves structure (py_compile, AST proofs,
+  import smokes, numeric probes — see conventions-and-workflow.md);
+  the workstation is the real acceptance. The first workstation run of
+  anything new is DIAGNOSTIC by design: reds come back as raw logs and
+  are fixed in the repo, never hand-patched on the box.
+- Reds triage by layer — harness bug / check bug / config bug /
+  library bug / contract bug — and fixing layer N unmasks layer N+1.
+  The entire board history: ONE production-library bug (a lazy h5py
+  import), ZERO physics bugs. The byte-identity discipline is why.
+- Never-trust-defaults binds the harness too: every smoke YAML carries
+  the FULL required train_args block set; drift proofs monkeypatch the
+  sharpest code default (`make_activation.__defaults__`) to prove
+  artifacts carry resolved values; the one self-reading check script
+  resolves `$ROOTDIR` itself (D-GBC-1 — an audit that probes the
+  loader only misses check-script self-reads).
+- The generalization review axis: hunt code that works only because xi
+  is block 0 of the 3x2pt vector (global `dest_idx` vs block-local
+  indices; never hardcode 780/1560; derive from `total_size`) — xi
+  survives block-0 coincidences, ggl/wtheta will not.
+
+## The 32 gates (2026-07-11)
+
+Human ids everywhere (CLI/logs/README); the legacy two-letter codes
+survive only as each Gate's `spec_code`, printed once per log header.
+The original translation table (ema-off-identity=GM-C, ...,
+scalar-smoke=SPE-B) is in git history; today's registry:
+
+- Training-stack gates (homes → training-stack.md): ema-off-identity,
+  ema-smoke, production-diagnostic, single-phase-demotion,
+  head-scheduler-override, eval-batch-invariance, berhu-loss,
+  loss-schema-equivalence, berhu-anneal, ema-anneal, joint-training,
+  weight-decay-census.
+- Model gates (→ models-and-designs.md): head-activation-pin,
+  relu-tanh-norm, npce-training.
+- Data-cut gates (→ data-generation-and-cuts.md): param-window-cuts,
+  triangle-shading.
+- Artifact/adapter/warm-start gates (→
+  artifacts-inference-warmstart.md): save-rebuild-drift,
+  cobaya-adapter, finetune-identity, finetune-smoke,
+  transfer-identity, transfer-smoke, geo-paths.
+- Family gates (→ families-scalar-cmb.md /
+  families-background-mps.md): scalar-identity, scalar-smoke,
+  cmb-identity, cmb-smoke, bsn-identity, bsn-smoke, mps-identity,
+  mps-smoke.
+
+Notable current facts: geo-paths asserts the OLD flat geometry module
+paths are dead (D-GEO5) — a pre-GEO test artifact fails rebuild loudly
+by design; mps-smoke includes the MPS-DIAG pages leg; cmb-smoke is the
+slow one (~400 serial CAMB calls); scalar-identity/scalar-smoke need a
+`--force-rerun` on the next run (they gained legs after their last
+green).
+
+## Run history (compressed; the full ledger is in git history)
+
+| Run / date | What was new | Outcome → lesson |
+|---|---|---|
+| build, 07-07 | harness + 19 gates, Mac-gated | D-GH1..8: dry-run bypasses dep-skip; PYTHONPATH; sys.executable; encode from home notes |
+| 1, 07-08 | first workstation board | wiring reds: --yaml resolution, a grep matching its own pattern, a check testing an impossible C1 tolerance (verify checks on a known-good case first), missing train_args masked by earlier failures |
+| 2, 07-08 | run-1 fixes | the ONE library bug: results.py used h5py without importing it |
+| 3, 07-08 | run-2 fixes | strip wall-clock in golden compares; the smoke's feature was OFF (rewind opt-in); assert on the right stream |
+| 4–8, 07-08 | the evaluate leg | eight peeled layers: dep-edge ≠ artifact existence; `python_path` not `path:` (a legacy adapter in cocoa's cobaya fork shadows the class); cobaya `force: True`; pin param names from the covmat header; the dv-shape contract → `dv_return` + persisted `section_sizes` (GCT-D) |
+| 10–11, 07-08 | GCT-D; post-GRF rerun | GREEN 18/18 twice; a fresh green after a refactor IS the refactor's transparency proof |
+| MCMC smoke, 07-08 | manual cobaya-run | PASS, 500 steps; emulator 776 evals/s (1.2 ms/call warm) vs cosmolike 2270/s in that config |
+| 12–12d, 07-10 | FTW gates (21) | D-FTW-1 (stamp the resolved rescale attr), D-GBC-1 (self-reading check), D-FTW-2 (finetune YAMLs carry no model: block) → GREEN 21/21 |
+| triangle, 07-10 | first triangle-shading execution | D-GTB-1: classify plot layers by design contract (zorder 0), not rendering heuristics — first-execution risk of a gate authored blind |
+| 13, 07-10 | TPE gates | 24/24 green FIRST TRY |
+| SPE runs 1–5, 07-10 | scalar gates (25) | one REAL library bug caught (the getdist chain-root sidecar pairing); evaluate readback redesigned from stdout; 25/25 green |
+| NEXT | the 32-gate board | pending — the list above; full green = GEO's acceptance + the baseline for D-CM12/D-CM13 |
+
+## Check-script documentation rule (live)
+
+Check scripts are what a person opens WHEN A GATE FAILS; they must
+read as plain English under stress: every term of art defined at first
+use or dropped; spec codes + note line-ranges confined to one header
+line; main() and every helper carry substantive docstrings. The
+2026-07-08 sweep (zero logic change, AST-proven) set the standard;
+every new check is written under it from birth.

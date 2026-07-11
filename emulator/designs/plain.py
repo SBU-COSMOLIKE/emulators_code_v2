@@ -345,7 +345,7 @@ class ResCNN(DesignSpec, nn.Module):
                    per block (Linear(input_dim, 2*n_bins),
                    ~2*n_bins*input_dim parameters each, see the
                    generator's docstring and
-                   notes/film-conditioning.md). The gate stays as
+                   notes/models-and-designs.md). The gate stays as
                    the outer valve; FiLM modulates inside the
                    blocks, letting the cosmology choose which
                    bins to amplify and by how much.
@@ -679,7 +679,7 @@ class ResTRF(DesignSpec, nn.Module):
                    t0), so the cosmology chooses which bins'
                    corrections to amplify; identity init keeps
                    corr = 0 at epoch 1. See FiLMGenerator and
-                   notes/film-conditioning.md.
+                   notes/models-and-designs.md.
     head_act     = the TRF head's own activation factory (None ->
                    share block_opts["act"], the trunk's family;
                    byte-identical to before). build_specs builds it

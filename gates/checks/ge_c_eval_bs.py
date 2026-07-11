@@ -23,7 +23,7 @@ is transcribed verbatim from the home note's tested script, so the house
 docstrings were rewritten for readability and the exit status added so the
 runner reads a pass/fail code.
 
-Spec code GE-C. Home note: eval-bs-decoupling.md:202-300.
+Spec code GE-C. Home note: training-stack.md:202-300.
 """
 import time
 import numpy as np
@@ -140,7 +140,7 @@ if DEV.type == "cuda":
 else:
     print("  (CPU: timing meaningless; run Part 2 on the 3060.)")
 
-print("\nReal check: one `train_single ... bs: 32` run vs the pre-change "
+print("\nReal check: one `cosmic_shear_train ... bs: 32` run vs the pre-change "
       "build: epoch time drops ~0.3 s, metrics match to rtol 1e-6.")
 
 # Added for the harness: the runner reads this exit code (Part 1 is the

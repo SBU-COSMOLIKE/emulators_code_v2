@@ -41,7 +41,7 @@ results object (provider.get_CAMBdata() ->
 get_lensed_cls_with_spectrum), so the Boltzmann solve runs ONCE.
 
 The OUTPUT is the interface the training stack consumes (the D-CM11
-ruling in notes/cmb-spectra-emulators.md): one .npz holding
+ruling in notes/families-scalar-cmb.md): one .npz holding
 
   ell                    (n_ell,)  l = 2..lmax
   sigma_tt/te/ee/pp      (n_ell,)  sqrt of the Gaussian diagonal —

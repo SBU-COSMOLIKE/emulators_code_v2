@@ -11,7 +11,7 @@ check the drawn artists on each panel: grey fills appear on the 2-D
 panels, every fill uses the one shared colour (plotting._CUT_GREY),
 and the omh2 1-D marginal carries a vertical band. Prints the
 per-panel counts, exits nonzero on any failure. Needs only getdist +
-matplotlib (spec: triangle-cut-shading-all-windows.md:72-75).
+matplotlib (spec: data-generation-and-cuts.md:72-75).
 
 PS: the omh2 marginal = the 1-D diagonal panel of the derived
 omega_m h^2, shaded with vertical spans (axvspan).

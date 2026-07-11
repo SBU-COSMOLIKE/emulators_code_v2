@@ -1,4 +1,4 @@
-# ema-smoke (spec code GM-D; weight-ema-snapshot-coupled.md:240-251). Short bs=64 run,
+# ema-smoke (spec code GM-D; training-stack.md:240-251). Short bs=64 run,
 # ema horizon 3; the banner names the horizon and a rewind fires.
 #
 data:

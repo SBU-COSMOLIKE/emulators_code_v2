@@ -30,7 +30,7 @@ How it works, in order:
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
-Spec code TPE-A. Home note: transfer-parallel-emulator.md (design rules
+Spec code TPE-A. Home note: artifacts-inference-warmstart.md (design rules
 D-TP1..D-TP8; this check is the transfer-identity validation gate).
 """
 

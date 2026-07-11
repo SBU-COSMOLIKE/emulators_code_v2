@@ -65,13 +65,13 @@ from generator_core import (GeneratorCore, capture_native_output,
 #  per-spectrum files (one emulator per spectrum, data.cmb.spectrum names it).
 #
 # Deviations from the legacy emultraining/dataset_generator_cmb.py, ruled in
-# D-CM3-A (notes/cmb-spectra-emulators.md):
+# D-CM3-A (notes/families-scalar-cmb.md):
 #   1. Four per-spectrum 2D .npy files replace the legacy 3D (N, ell, 5)
 #      array — the training stack stages 2D dv files.
 #   2. phi-phi is FILLED from get_Cl (the legacy file zeroed that column and
 #      never produced phiphi training data).
 #   3. The legacy "EXTRA" derived-parameter column dies — derived scalars are
-#      the scalar-emulator unit's job (train_scalar_emulator on the same
+#      the scalar-emulator unit's job (scalar_train_emulator on the same
 #      params dump).
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------

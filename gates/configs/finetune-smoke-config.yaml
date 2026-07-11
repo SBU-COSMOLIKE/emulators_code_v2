@@ -2,7 +2,7 @@
 # trained artifact (the tiny emulator save-rebuild-drift persists at
 # <driver_root>/chains/gates_emul_evaluate). No extra parameters, so this is
 # the degenerate n_x = 0 warm start: epoch 0 must be the source, bit for bit,
-# and a two-epoch run must complete. See notes/finetune-warm-start.md.
+# and a two-epoch run must complete. See notes/artifacts-inference-warmstart.md.
 
 data:
   # the same dumps the board's training / save gates use.

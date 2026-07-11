@@ -3,7 +3,7 @@
 # <driver_root>/chains/gates_emul_evaluate). No extra parameters, so the
 # frozen base is evaluated on the full run encoding; epoch 0 must be the base,
 # bit for bit, and a two-epoch run must complete. See
-# notes/transfer-parallel-emulator.md.
+# notes/artifacts-inference-warmstart.md.
 
 data:
   train_dv:     w0wa_takahashi_dvs_train_cs_16.npy

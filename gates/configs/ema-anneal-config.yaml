@@ -1,4 +1,4 @@
-# ema-anneal smoke (spec code GME-C; ema-anneal-schedule.md:180-197). Banner
+# ema-anneal smoke (spec code GME-C; training-stack.md:180-197). Banner
 # 'ema: horizon 3 epochs (... anneal: hold 5 + 10 cosine ...)'; the average
 # appears at the live point (epoch 6+).
 #
