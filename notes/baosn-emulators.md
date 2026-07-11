@@ -92,12 +92,16 @@ single-source rule that kept SPE's predictor honest):
 
 `cobaya_theory/emul_baosn.py`: the whitelist / _pick_device /
 ROOTDIR-relative roots / artifact-derived requirements pattern;
-ONE H(z) artifact root (V1: exactly one; a list is future-proofing the
-YAML shape only). calculate caches the H interpolator + the distance
-pipeline's outputs on the state; the getter surface ports from the
-legacy: get_Hubble (both unit conventions), get_angular_diameter_
-distance, get_comoving_radial_distance, get_luminosity_distance,
-get_angular_diameter_distance_2. Wrong-kind guards BOTH ways (the
+TWO artifact roots in V1 (D-BSN3-A): the SN-range H(z) emulator and
+the recombination-window D_M emulator, each self-describing (grid +
+quantity + units + law from its h5; the adapter checks the quantity
+tags and window coverage at initialize, loud on a mismatch).
+calculate caches the H interpolator + the distance pipeline's outputs
+on the state; the getter surface ports from the legacy: get_Hubble
+(both unit conventions), get_angular_diameter_distance,
+get_comoving_radial_distance, get_luminosity_distance,
+get_angular_diameter_distance_2 — each served PIECEWISE per
+D-BSN3-A(4). Wrong-kind guards BOTH ways (the
 D-SPE2-4 lesson): emul_baosn rejects a non-GridGeometry artifact
 loudly, and the ScalarGeometry/dv adapters already reject a
 GridGeometry one by dispatch. No rdrag requirement (see the quirk
@@ -130,6 +134,64 @@ example when the unit lands).
   the evaluate YAML in the proven priors+override shape; readback from
   stdout/chain header; the diag from day one (the full SPE lesson
   bank).
+
+### D-BSN3-A — the two-regime domain: the SN range, then recombination
+(2026-07-10 amendment, user directive)
+
+**The directive:** "the distance emulator will always need to emulate
+around the distance to recombination — it is a discontinuity — you
+emulate the SN range and then the distance around recombination."
+The emulation DOMAIN is two disjoint windows: the SN/BAO range
+(z <~ 3, where the data lives) and the window around recombination
+(z* ~ 1090, the CMB-distance anchor). No likelihood queries the
+desert between them, so one function across [0, 1200] wastes capacity
+and forces the legacy workaround.
+
+**RULING — two trained pieces, one adapter:**
+1. The H(z) grid emulator covers the SN range [0, z_max ~ 3]
+   (D-BSN1 unchanged); distances INSIDE that window come from the
+   Simpson integration of c/H (D-BSN3 unchanged), valid strictly
+   within the grid.
+2. A SECOND grid emulator covers the comoving distance D_M(z) (or
+   chi(z) — one convention, persisted) directly on a small grid
+   around recombination, z in ~[1000, 1200], trained from the same
+   background CAMB dumps — the network learns the full integral as a
+   smooth function of the parameters, so NO bridging integration
+   through the desert exists anywhere. The adapter interpolates this
+   window to serve D_M(z*(params)) and friends.
+3. **The legacy z->1200 analytic extension DIES** (H_ext =
+   H0*sqrt(om(1+z)^3 + omegar(1+z)^4), self-labeled "this is an
+   approximation" in the legacy source): it existed only because the
+   legacy had no recombination emulator. It is not ported.
+4. The adapter serves getters PIECEWISE by query redshift: the SN
+   window -> integrate-from-H; the recombination window -> the D_M
+   emulator; a query in the desert -> a LOUD error naming both
+   covered windows (never a silent bridge).
+5. The generator writes BOTH dv files from the one background pass
+   per sample (H on the SN grid, D_M on the recombination grid) —
+   the CME one-pass rule applied here.
+6. Gates: bsn-identity gains the desert-query loud-error leg;
+   bsn-smoke checks BOTH windows against CAMB's own background
+   (H and D_A in the SN range; D_M in the recombination window) at
+   the off-center point.
+
+### D-BSN8 — diagnostics pages (2026-07-10, with D-CM9's factoring)
+
+BSN lands its pages on the family dispatch D-CM9 builds: the shared
+chi2 pages (history, coverage, floor, hard directions, shaded
+triangle) come free; the BSN-specific pages are
+- fractional H(z) residual vs z — median + 68/95 bands over the
+  validation set, the SN-range panel;
+- fractional D_M residual vs z in the recombination window, same
+  band style — the two panels TOGETHER on one page with the desert
+  marked, so the two-regime coverage is visible at a glance;
+- derived-distance validation: D_A and D_L fractional error vs z in
+  the SN range, computed through the REAL pipeline
+  (emulator/background.py) against CAMB truth from the validation
+  dump — this page tests the integration path, not just the network;
+- worst-cosmology overlay (highest-chi2 val point, both windows).
+Colorblind-safe, never red+green. The smoke gains the cheap
+PDF-builds + page-count leg (the D-CM9 pattern).
 
 ### D-BSN7 — out of scope (recorded)
 

@@ -435,3 +435,48 @@ admissible. The gate rules, not the prose.
 default lam is 0-when-absent (never a silent nonzero); calibrating a
 USEFUL lam is a science-thread experiment, not a gate claim — the
 gates prove the band and the identities, not the benefit.
+
+## D-CM9 — diagnostics PDF for the new families
+(2026-07-10, user directive + ruling)
+
+**The directive:** the cosmic-shear diagnostic PDF does not transfer
+as-is; each emulator family needs working diagnostics (scalar, CMB,
+and later BSN).
+
+**The split, grounded in diagnostics.py's inventory:** the chi2-BASED
+pages are family-generic BY CONSTRUCTION — every family's loss exposes
+a per-sample chi2 (the SPE inheritance design), and history panels,
+coverage-vs-kNN-distance, the local-linear floor, hard-direction
+regression, and the shaded parameter triangle consume only
+(params, per-sample chi2). They apply to ALL families unchanged. What
+is cosmic-shear-specific is any theta-structure / dv-overlay page;
+what is MISSING per family is the physical-units residual pages.
+
+**RULING — land inside this unit (the driver/gates increments), and
+the factoring must prove itself on TWO families at once:**
+- diagnostics.py grows a family dispatch (the rebuilt geometry class /
+  info flag, the predictor's own pattern): shared chi2 pages for
+  everyone; per-family physical pages behind the dispatch; the
+  cosmic-shear pages untouched on the cs path (byte-identical PDF —
+  the off-identity rule; triangle-shading and production-diagnostic
+  stay green unchanged).
+- **CMB pages (this unit):** per-spectrum fractional residual vs ell —
+  median and 68/95 percentile BANDS over the validation set, one panel
+  per spectrum; a worst-cosmology overlay (pred vs truth Cl at the
+  highest-chi2 val point); and the D-CM8 companion page — the
+  high-pass residual content vs ell (the wiggle spectrum the roughness
+  term targets), shown with the acoustic band marked so over-smoothing
+  or ringing is visible at a glance.
+- **Scalar pages (this unit — the factoring's second family, and the
+  SPE follow-up the user asked for):** per-output truth-vs-predicted
+  scatter with the identity line; per-output residual histograms in
+  PHYSICAL units and in standardized units side by side; residual vs
+  each input parameter (the bias hunt). train_scalar_emulator.py gains
+  the --diagnostic flag it shipped without.
+- Colorblind-safe throughout, never red+green ([[plots-no-red-green]]).
+- Gates: each family smoke gains a cheap diagnostics leg — the PDF
+  builds without exception and carries the expected page count; no new
+  image-analysis gates (triangle-shading remains the only pixel-level
+  check).
+- BSN pages are specced in [[baosn-emulators]] (D-BSN8) and land with
+  that unit on this factoring.
