@@ -295,3 +295,59 @@ path; whole-driver-path forward-walk with the config-access census.
   torch/CAMB legs ride the board.
 - **Every stop emits a relayable CHECKPOINT handoff.** The Architect
   audits each against raw source, as in SPE.
+
+## D-CM3-A — generator amendment (2026-07-10, user directive + ruling)
+
+**The user's directive:** the repo has no CMB dump generator; build it
+by SHARING code with the lensing generator — separate driver files,
+duplication minimized. **Grounding (both files read):** the legacy
+emultraining/dataset_generator_cmb.py and the repo's
+compute_data_vectors/dataset_generator_lensing.py are the SAME ~1100-
+line class — identical CLI, __setup_flags, checkpoint load/save,
+sampling (emcee Gaussian-with-temperature / uniform + bounds), chain /
+.paramnames / .ranges / .covmat outputs, and the MPI master-worker
+farm — differing ONLY in _compute_dvs_from_sample, the dv container
+shape (2D vs 3D), the probe whitelist (cs/ggl/gc vs
+cmblensed/cmbunlensed), and the required train_args keys. ~85% shared.
+
+**RULING — the three-file layout (supersedes D-CM3's single new file):**
+- `compute_data_vectors/generator_core.py` (new): the shared machinery
+  MOVED VERBATIM from dataset_generator_lensing.py —
+  capture_native_output, the base class with setup/flags, the reorder
+  helpers, checkpoint load/save/append, the sampling + output writers,
+  the RAM-aware dv allocation, and the MPI farm. The subclass surface
+  is small and explicit: (1) the valid probe names; (2) the required
+  train_args keys; (3) the dv STORE (allocate / write-row / flush —
+  abstracted so lensing keeps its single 2D array and CMB holds four);
+  (4) _compute_dvs_from_sample.
+- `compute_data_vectors/dataset_generator_lensing.py` (re-thinned): the
+  CLI + the cosmolike compute + its probe whitelist, subclassing the
+  core. NO behavior change: same CLI, same output names and formats.
+  Evidence plan (a golden byte-rerun is impractical — emcee is
+  unseeded): the shared spans move VERBATIM (the porting discipline),
+  and a Mac AST census asserts the CLI arg set + output-filename
+  formats unchanged; the board gates that consume its dumps remain the
+  functional proof.
+- `compute_data_vectors/dataset_generator_cmb.py` (new; named to mirror
+  its sibling — supersedes the compute_cmb_dvs.py name): the CMB driver
+  on the core, porting the legacy compute conventions verbatim where
+  physics-bearing (the check_cache_and_compute walk over the component
+  order, capture_native_output + the CAMB error keywords, the
+  lensed/unlensed probe switch, the lrange slice), with THREE
+  deliberate changes, each a recorded deviation from the legacy file:
+  1. Four per-spectrum 2D dv files (tt / te / ee / pp) from ONE CAMB
+     pass, replacing the legacy 3D (N, ell, 5) array — the training
+     stack stages 2D dv files (D-CM3 unchanged on this point).
+  2. phiphi is FILLED from get_Cl (the legacy file zeroed out[:,3] and
+     never produced phiphi training data on this path); the model
+     requirements must request lensed Cl INCLUDING pp.
+  3. The legacy "EXTRA" derived-param column dies — derived scalars
+     are SPE's job (train_scalar_emulator on the same params dump).
+- Shared-by-construction: the .1.txt / .paramnames (with chi2*) /
+  .ranges / .covmat outputs come from the CORE, so the sidecar
+  conventions (the D-SPE2-6 lesson) hold for CMB dumps automatically.
+
+**Sequencing update:** increment (3) becomes (3a) extract
+generator_core + re-thin the lensing driver (verbatim moves + the CLI
+census probe), then (3b) the CMB driver on the core. Everything else
+in the kickoff block stands.
