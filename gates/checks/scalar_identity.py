@@ -199,7 +199,8 @@ def check_state(root, device, geom):
 
 
 def check_from_targets_errors(device):
-    """D-SPE1-1: from_targets raises on an un-standardizable output column."""
+    """D-SPE1-1: from_targets raises on an un-standardizable output column,
+    and does NOT raise on a legitimate tiny-magnitude one."""
     try:
         ScalarGeometry.from_targets(
             device=device,
@@ -208,6 +209,21 @@ def check_from_targets_errors(device):
         report("D-SPE1-1 constant column raises", False, "did not raise")
     except ValueError:
         report("D-SPE1-1 constant column raises (0.31)", True, "ValueError")
+    # must-NOT-raise: a real tiny-magnitude output (center 1e-9, 10% spread ->
+    # std ~ 1e-10, threshold 8*eps32*|center| ~ 1e-15) builds and standardizes
+    # to unit variance; the relative guard passes it with orders to spare.
+    tiny = np.random.default_rng(7).normal(
+        1e-9, 1e-10, size=(4000, 1)).astype("float32")
+    try:
+        g = ScalarGeometry.from_targets(device=device, targets=tiny,
+                                        names=["ok"])
+        std = float(g.encode(torch.as_tensor(tiny, device=device)).std())
+        report("D-SPE1-1 tiny-magnitude column builds (std ~ 1)",
+               abs(std - 1.0) < 0.05,
+               "did not raise; standardized std = %.4f" % std)
+    except ValueError as e:
+        report("D-SPE1-1 tiny-magnitude column builds", False,
+               "unexpectedly raised: " + str(e))
 
 
 def check_sidecar_errors(tmp):

@@ -1070,6 +1070,35 @@ draft (against origin/main's README) -> the full SPE IMPLEMENTER_HANDOFF
 with the workstation force-rerun list + expected green counts + the
 integration order.
 
+### Update 8 (2026-07-10, Opus): both gates written + Mac-gated
+
+- scalar_identity.py gained the required D-SPE1-1 must-NOT-raise leg (center
+  1e-9 / 10% spread builds; standardized std ~ 1, tol 0.05). Recompiled OK.
+- gates/checks/scalar_smoke.py written: write_fixture (a getdist .txt +
+  .paramnames with H0 / omegam sampled + omegamh2* derived, the target
+  omegamh2 = omegam*(H0/100)^2 computed per row); build_cfg (a scalar YAML
+  cfg); check_train_and_predict (from_config -> run 2 epochs -> save ->
+  rebuild -> predict, asserts val median < 1 and predict within 5% of the
+  analytic omegamh2); check_cobaya_evaluate (writes an evaluate YAML with
+  theory emul_scalars + an external-lambda likelihood consuming omegamh2 +
+  omegamh2 declared derived, runs `cobaya run -f`, reads the derived value
+  from the run's .1.txt / .paramnames, asserts within 5%).
+- Gate (Mac): both py_compile OK; scalar_smoke fixture probe ALL PASS
+  against the REAL _scalar_columns / check_paramnames (in_cols [2,3], out_col
+  [4]; non-derived == covmat header; omegamh2 exactly derivable every row;
+  the evaluate YAML uses emul_scalars + the lambda likelihood). The torch
+  train + the cobaya-run evaluate legs run on the board; the exact cobaya
+  evaluate YAML (external-lambda + derived + evaluate sampler) is the one
+  board-verified piece, a first-run delta is possible there.
+
+**Next (SPE close):** board registration in gates/board.py (a gate_spe_a
+running scalar_identity.py under require_caps("torch"), and a gate_spe_b
+running scalar_smoke.py under the cobaya-capable tier) + the gate-id
+translation entry + example_yamls/scalar_emulator.yaml + the README
+scalar-section draft (against origin/main's rewritten README) -> the full
+SPE IMPLEMENTER_HANDOFF with the workstation force-rerun list, expected
+green counts, and the integration order.
+
 ## Architect audit: D-SPE2-4 closure (2026-07-10, Fable)
 
 **Verdict: D-SPE2-4 CLOSED (guard verbatim, the `--`->`;` de-dash
@@ -1172,3 +1201,62 @@ assert it cheaply alongside the sidecar-required error leg.
   + example YAML + the README scalar-section draft -> the full SPE
   IMPLEMENTER_HANDOFF (force-rerun list, expected green counts, the
   integration order).
+
+## Architect audit: scalar_smoke.py + the required leg (2026-07-10, Fable)
+
+**Verdict: the D-SPE1-1 must-NOT-raise leg is CLOSED (matches my spec:
+center 1e-9, 10% spread, std tol 0.05). scalar_smoke.py is VERIFIED on
+its plumbing — fixture, loader mapping, config completeness, save /
+rebuild / predict signatures, the cobaya YAML's house conventions —
+with ONE required delta, D-SPE2-5: the smoke's assertions pass on a
+DEAD network.** Evidence is the Architect's own read + a numeric check.
+
+### D-SPE2-5 (delta, REQUIRED): the test point sits at the fixture mean
+
+Both value assertions use (H0, omegam) = (70.0, 0.3) — exactly the
+fixture's sampling center. Numerically verified: a network that
+collapses to predicting the TARGET MEAN passes the 5% predict check at
+that point (relative error 0.14%, because the mean of omegamh2 IS the
+analytic value there) and also passes the val bar (the mean-predictor's
+median standardized chi2 is 0.453 < 1.0 — the median of chi-square-1).
+The smoke would therefore green on an emulator that learned nothing.
+Fix, four lines:
+- move the test point off-center in BOTH legs (predict and the cobaya
+  evaluate), e.g. (73.0, 0.32) — one sigma out in each input, still
+  in-distribution; the mean predictor is then 13.7% off, failing the
+  5% bar, while a genuinely trained network passes it (5% = 0.53 target
+  sigmas of headroom);
+- tighten the val bar to best_median < 0.3, below the mean-predictor's
+  0.455, so "val collapses" is a real claim.
+
+### Verified sound (the rest of the smoke)
+
+- The fixture's unnamed trailing column is harmless: the loader touches
+  only named columns; non-starred sidecar == covmat header; the
+  Implementer's fixture probe ran the REAL _scalar_columns /
+  check_paramnames, in_cols [2,3] / out [4].
+- n_train 4000 == the pool exactly: passes load_scalar_source's >=
+  check. Absolute fixture paths make resolve_cocoa_config unnecessary
+  and correct. from_config(cfg, device=, quiet=) valid.
+- The save / rebuild / predict surfaces are the ones already
+  signature-audited in the identity gate; attrs carry outputs.
+- The cobaya YAML follows the house adapter pattern (python_path +
+  extra_args; the absolute artifact root passes the isabs branch, so
+  no ROOTDIR dependence on this leg); stop_at_error true; the readback
+  maps columns by the run's own .paramnames, robust to fixed params
+  not appearing in the chain. The external-likelihood `requires`
+  semantics remain the honestly-flagged first-run-delta risk — the
+  Mac has no cobaya; that boundary is accepted and recorded.
+
+### ARCHITECT_HANDOFF: SMOKE VERIFIED MINUS ONE DELTA — WIRE THE BOARD
+
+- **Audit outcome:** the required identity leg CLOSED; scalar_smoke.py
+  plumbing VERIFIED; D-SPE2-5 (off-center test point + val bar 0.3)
+  REQUIRED before the board run — a smoke that greens on a dead
+  network is the one gate defect the board cannot catch for us.
+- **Next milestone (the full SPE handoff):** D-SPE2-5 applied; board
+  registration (gate_spe_a torch tier / gate_spe_b cobaya tier +
+  gate-id translation); example_yamls/scalar_emulator.yaml; the README
+  scalar-section draft against origin/main -> the full SPE
+  IMPLEMENTER_HANDOFF with the force-rerun list, expected green
+  counts, and the integration order.
