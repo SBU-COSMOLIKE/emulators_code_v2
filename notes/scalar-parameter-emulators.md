@@ -1624,3 +1624,40 @@ Commit -> merge to main -> push -> workstation pull ->
 25/25 -> SPE CLOSED, CME begins. Lesson bank for CME's evaluate leg:
 evaluate runs write no .paramnames; read derived values from the
 stdout block or the chain header; ship the diag from day one.
+
+## SPE CLOSED (2026-07-10, Fable) — BOARD 25/25 GREEN
+
+**Board run 5 (HEAD d12b1ec): scalar-smoke PASS on all three legs —
+val median 0.156 (bar 0.3, mean-predictor 0.455), off-center predict
+rel 4.65% (bar 5%), cobaya evaluate got 0.162592 through the stdout
+readback. Board summary: 0 gate(s) FAILED. The conditional close is
+now UNCONDITIONAL: the SPE unit is CLOSED.**
+
+The unit, end to end: ScalarGeometry + ScalarChi2 (zero loop change),
+by-name scalar staging over one parameter file, the experiment scalar
+branch (cosmolike-free by control flow), the thin driver, the
+predictor scalar branch, and emul_scalars — the automatic-provides
+cobaya theory the unit was commissioned for, now proven live: cobaya
+asked the artifact what it provides, evaluated the emulator at an
+off-center point, and returned the derived value.
+
+The delta ledger, all closed: D-SPE1-1 (relative zero-variance guard,
+both regression directions), D-SPE2-1 (sidecar uniqueness + strict
+order), D-SPE2-3 (trunk-only guard), D-SPE2-4 (wrong-kind artifact
+guard), D-SPE2-5 (dead-network smoke bars), D-SPE2-6 (getdist
+chain-root sidecar resolution — a REAL library bug the smoke caught),
+D-SPE2-7 (configs carry all six required train_args blocks), D-SPE2-8
+(evaluate YAML = the proven priors+override shape; self-diagnosing
+red), D-SPE2-9 (derived readback from stdout / chain header). Five
+board runs total; every red was decoded from its log in one pass, and
+the D-SPE2-8 diag turned the last unknown into evidence.
+
+Standing margins, recorded: the predict bar passes at 4.65% of 5% —
+thin; if a future environment shifts it past the bar, recalibrate with
+that run's evidence, floor at the mean-predictor's 13.7%.
+
+**CME (unit 2 of the pass) begins**: the spec is D-CM1..D-CM7 in
+[[cmb-spectra-emulators]] under the unified handoff, plus this unit's
+lesson bank (required-subscript census before the board; evaluate
+readback via stdout/header; fixture sidecars in the real chain shape;
+smoke bars below the mean-predictor line; ship the diag from day one).
