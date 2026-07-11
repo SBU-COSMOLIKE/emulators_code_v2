@@ -1,7 +1,8 @@
 """Chi2 losses and the robustness annealing schedule.
 
 The core member of the emulator/losses/ family: the plain losses and
-the shared schedule that the ia.py and pce.py loss variants subclass.
+the shared schedule that the ia.py, pce.py, scalar.py, and cmb.py loss
+variants subclass.
 Each class holds a DataVectorGeometry (composition, not
 inheritance) and adds the chi2 (the masked Mahalanobis distance
 r^T Cinv r per sample) and the training loss on it. CosmolikeChi2 is the
