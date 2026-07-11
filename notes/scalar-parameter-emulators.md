@@ -1661,3 +1661,49 @@ that run's evidence, floor at the mean-predictor's 13.7%.
 lesson bank (required-subscript census before the board; evaluate
 readback via stdout/header; fixture sidecars in the real chain shape;
 smoke bars below the mean-predictor line; ship the diag from day one).
+
+## Scope ruling: transfer vs fine-tuning (2026-07-10, user directive)
+
+**Transfer learning (`transfer:`) and joint refinement
+(`transfer.refine`) are EXCLUSIVE to the two data-vector families —
+cosmolike and CMB.** The scalar and BSN forbids are therefore
+PERMANENT, not V1 deferrals: validate_scalar's transfer rejection is
+the final state, and D-SP8's "unless the overlap ruling admits them"
+hedge is void for transfer. **Fine-tuning (`train_args.finetune`),
+by contrast, must be supported by EVERY family** — which commissions
+SPE-FT below (SPE shipped with a V1 finetune forbid).
+
+## SPE-FT — scalar fine-tuning (spec; QUEUED, small, after CME)
+
+Lift validate_scalar's finetune forbid and route scalar runs through
+the FTW warm start. The machinery is D-SP3's anticipated composition;
+the work is admission + pinning + the combined driver path:
+
+- **D-SF1 — source admissibility + the output pin.** finetune.from on
+  a scalar run must rebuild a SCALAR artifact (loud wrong-kind
+  otherwise, the D-SPE2-4 message pattern); the source's outputs list
+  must equal the run's data.outputs EXACTLY (names and order; loud
+  diff naming both lists). The source ScalarGeometry (names / center /
+  scale) is PINNED into the run through build_warm_start's pinned_geom
+  slot — the dv-geometry pin's exact analogue — so epoch 0 equals the
+  source bitwise on shared inputs (the FTW parity contract).
+- **D-SF2 — input extension.** D-FT3 applies unchanged: the target
+  covmat must be a superset of the source's input names; shared
+  coordinates whiten bit-identically; new columns enter zero-padded;
+  the padded keys are excluded from the finetune.anchor mask (the
+  existing facility — nothing new).
+- **D-SF3 — the combined driver path.** validate_scalar's finetune
+  rejection is REPLACED by combined validation (ia / pce / transfer /
+  rescale stay forbidden; finetune admitted); from_config routes
+  scalar+finetune through the warm-start branch with the D-SF1 pin;
+  the WHOLE combined path forward-walked with the config-access
+  census (the FTW model-block lesson — finetune YAMLs must not need a
+  model: block on the scalar path either).
+- **D-SF4 — gates.** scalar-identity gains the finetune legs: epoch-0
+  parity bitwise vs the source on shared inputs; the outputs-mismatch
+  and wrong-kind-source loud errors; anchor-with-padded-keys
+  composition (assert the mask). No new board gate — the legs ride
+  the existing scalar-identity.
+
+Sequencing: after CME closes, before BSN (small); BSN then inherits
+the same pattern for GridGeometry (D-BSN9 in [[baosn-emulators]]).

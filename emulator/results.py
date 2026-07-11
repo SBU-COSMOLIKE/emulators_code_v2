@@ -447,6 +447,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
   from .activations import make_activation
   from .designs.blocks import make_norm
   from .geometries_scalar import ScalarGeometry
+  from .geometries_cmb import CmbDiagonalGeometry
 
   def _read_group(g):
     # inverse of save's write_state: numeric datasets -> tensors, string
@@ -613,4 +614,13 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # D-SP5). Dispatched on the rebuilt class, not a stored attr, so an
     # older non-scalar artifact simply reports False.
     "scalar":         isinstance(geom, ScalarGeometry),
+    # CMB-spectrum emulator (D-CM4): dispatched on the rebuilt class the
+    # same way; the amplitude law + its column names are ARTIFACT FACTS
+    # persisted in the geometry state (D-CM1), surfaced here so the
+    # predictor / cobaya adapter rebuild the law-aware decode (D-CM5)
+    # without rereading the config. None / absent on non-CMB artifacts.
+    "cmb":            isinstance(geom, CmbDiagonalGeometry),
+    "amplitude_law":  getattr(geom, "law", None),
+    "as_name":        getattr(geom, "as_name", None),
+    "tau_name":       getattr(geom, "tau_name", None),
   }

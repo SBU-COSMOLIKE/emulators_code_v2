@@ -360,6 +360,11 @@ DATA_KEYS = {
   # scalar (derived-parameter) run: the emulated output names. Its presence
   # switches from_config to the scalar path (validate_scalar), where the
   # dv / cosmolike keys are forbidden and param_cuts is optional.
+  # CMB-spectrum run (D-CM4): the data.cmb sub-block {spectrum, covariance,
+  # amplitude_law, as_name, tau_name}. Its presence switches from_config to
+  # the CMB path (validate_cmb): dv files required, cosmolike keys
+  # forbidden, param_cuts optional, the covariance from the D-CM11 script.
+  "cmb",
   "outputs",
 }
 
@@ -547,6 +552,132 @@ def validate_scalar(cfg, train_args, rescale="none"):
       "fine-tuning a scalar emulator is not supported in V1 (the source "
       "artifact carries a data-vector geometry); train from scratch")
   return outputs
+
+
+def validate_cmb(cfg, train_args, rescale="none"):
+  """
+  Validate a CMB-spectrum run and return its data.cmb block.
+
+  A CMB run is signalled by the data.cmb sub-block: one spectrum's C_ell
+  rows are the data vector (train_dv / val_dv .npy dumps), the loss
+  covariance comes from the D-CM11 covariance script's .npz, and the
+  primary amplitude may be imposed by a law instead of learned (D-CM2).
+  This enforces the exclusivity and the forbidden features, then returns
+  the validated block. A standalone pure function (no torch),
+  unit-testable in isolation.
+
+  Arguments:
+    cfg        = the parsed config mapping (reads cfg["data"],
+                 cfg["pce"], cfg["transfer"]).
+    train_args = the resolved train_args (reads finetune / model.ia).
+    rescale    = the driver's --rescale value (a CMB run forbids any
+                 analytic rescaling; default "none").
+
+  Returns:
+    the data.cmb mapping (spectrum / covariance / amplitude_law
+    validated; as_name / tau_name present exactly when the law needs
+    them).
+
+  Raises:
+    ValueError on: a missing or unknown sub-key; a spectrum outside
+    tt/te/ee/pp; an amplitude law outside the registry; law-column
+    names missing (as_exp2tau) or present (none); a cosmolike or
+    scalar key beside data.cmb; a missing dv/params/covmat file key;
+    a data-vector-only feature (rescale, model.ia, pce, transfer) or
+    the not-yet-integrated finetune (D-CM10 interim).
+  """
+  # the amplitude-law registry lives with the CMB loss; imported here
+  # (not at module top) so this validator stays importable in the same
+  # torch-light contexts as the rest of the config logic.
+  from .losses.cmb import AMPLITUDE_LAWS
+
+  data = cfg["data"]
+  cmb = data["cmb"]
+  if not isinstance(cmb, dict):
+    raise ValueError(
+      "data.cmb must be a mapping {spectrum, covariance, amplitude_law"
+      "[, as_name, tau_name]}; got " + repr(type(cmb).__name__))
+  allowed = {"spectrum", "covariance", "amplitude_law", "as_name",
+             "tau_name"}
+  unknown = sorted(set(cmb) - allowed)
+  if unknown:
+    raise ValueError(
+      "unknown data.cmb key(s) " + repr(unknown) + "; allowed: "
+      + repr(sorted(allowed)))
+  for key in ("spectrum", "covariance", "amplitude_law"):
+    if key not in cmb:
+      raise ValueError(
+        "data.cmb needs the " + repr(key) + " key (spectrum = which C_ell "
+        "to emulate; covariance = the D-CM11 script's .npz; amplitude_law "
+        "= the imposed-amplitude registry name); it is missing")
+  spectrum = str(cmb["spectrum"]).lower()
+  if spectrum not in ("tt", "te", "ee", "pp"):
+    raise ValueError(
+      "data.cmb.spectrum must be one of tt / te / ee / pp; got "
+      + repr(cmb["spectrum"]))
+  law = str(cmb["amplitude_law"])
+  if law not in AMPLITUDE_LAWS:
+    raise ValueError(
+      "data.cmb.amplitude_law " + repr(law) + " is not in the registry "
+      + repr(sorted(AMPLITUDE_LAWS)) + " (persisted by name, never a "
+      "default)")
+  need = AMPLITUDE_LAWS[law]
+  for key in need:
+    if key not in cmb:
+      raise ValueError(
+        "amplitude law " + repr(law) + " reads named parameter columns "
+        "and needs data.cmb." + key + "; it is missing")
+  if not need:
+    extra = []
+    for key in ("as_name", "tau_name"):
+      if key in cmb:
+        extra.append(key)
+    if extra:
+      raise ValueError(
+        "amplitude law 'none' reads no parameter columns; drop "
+        + repr(extra) + " from data.cmb")
+  # exclusivity: a CMB run has no cosmolike and is not a scalar run.
+  forbidden = []
+  for key in ("cosmolike_data_dir", "cosmolike_dataset", "outputs"):
+    if key in data:
+      forbidden.append(key)
+  if forbidden:
+    raise ValueError(
+      "a CMB run (data.cmb present) must not carry " + repr(sorted(
+      forbidden)) + "; the CMB path reads dv dumps + the covariance "
+      ".npz, no cosmolike and no scalar outputs")
+  # the CMB run DOES use dv dumps (unlike scalar): all five files.
+  for key in ("train_dv", "val_dv", "train_params", "val_params",
+              "train_covmat"):
+    if key not in data:
+      raise ValueError(
+        "a CMB run needs data." + key + " (the C_ell dumps ride the "
+        "same dv/params staging as the cosmolike path); it is missing")
+  # the data-vector-only features do not compose with a CMB run (V1).
+  if rescale != "none":
+    raise ValueError(
+      "--rescale " + repr(rescale) + " is a cosmolike data-vector "
+      "concept; a CMB run imposes its amplitude through "
+      "data.cmb.amplitude_law instead (drop --rescale / leave it none)")
+  ia = train_args.get("model", {}).get("ia")
+  if ia not in (None, "none"):
+    raise ValueError(
+      "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
+      "(cosmic-shear) design; a CMB run has no ia (remove it)")
+  if cfg.get("pce") is not None:
+    raise ValueError(
+      "a top-level pce: block is a cosmic-shear concept; a CMB run has "
+      "no PCE base (remove it)")
+  if cfg.get("transfer") is not None:
+    raise ValueError(
+      "transfer learning over CMB emulators is deferred (D-CM7: eligible "
+      "later, not V1); remove the transfer: block")
+  if train_args.get("finetune") is not None:
+    raise ValueError(
+      "fine-tuning a CMB emulator is ruled IN scope (D-CM10) but its "
+      "warm-start integration lands with the CME gates increment; until "
+      "then this is a loud interim error, not a silent breakage")
+  return dict(cmb)
 
 
 # the train_divisor / val_divisor -> n_train / n_val migration message,
@@ -1294,6 +1425,10 @@ class EmulatorExperiment:
     # run, which every scalar branch below guards on (absent = byte-identical).
     self._scalar = False
     self.outputs = None
+    # the CMB-run flag + its validated data.cmb block, set by from_config.
+    # None / False on every other run, which the cmb branches guard on.
+    self._cmb = False
+    self.cmb  = None
     # fine-tune warm start (emulator/warmstart.py): the loaded source bundle,
     # its resolved absolute path root, and the extra parameter names, all set
     # by from_config / build_geometry. None on an ordinary run, which every
@@ -1347,11 +1482,16 @@ class EmulatorExperiment:
     # distribution, and the omega-windows reference params a scalar input set
     # may not carry, D-SPE2), while on a data-vector run it stays required.
     is_scalar = "outputs" in cfg["data"]
+    is_cmb    = "cmb" in cfg["data"]
+    if is_scalar and is_cmb:
+      raise ValueError(
+        "data.outputs (a scalar run) and data.cmb (a CMB-spectrum run) "
+        "are mutually exclusive; a config carries at most one of them.")
     # validate_param_cuts (below): the physical window cuts now live in
     # data.param_cuts; run this before the generic whitelist so a flat
     # cut key (the old layout) gets the migration message, not a bare
     # "unknown key". On a scalar run with no param_cuts block it is skipped.
-    if not is_scalar or "param_cuts" in cfg["data"]:
+    if not (is_scalar or is_cmb) or "param_cuts" in cfg["data"]:
       validate_param_cuts(cfg["data"])
     # validate_sizes (below): n_train / n_val are absolute row counts
     # enforced after param_cuts; run this before the generic whitelist too,
@@ -1415,6 +1555,53 @@ class EmulatorExperiment:
       exp.outputs    = list(outputs)
       # a plain design has no head block, so no per-head activation pin; the
       # notice helper returns None, matching the normal path's shape.
+      exp._activation_notice = _activation_flag_notice(
+        flag_type=explicit_flag,
+        head_block=exp.model_cls.head_block,
+        head_pin=None)
+      return exp
+
+    # CMB-spectrum run (D-CM4): one spectrum's C_ell rows as the data
+    # vector, the covariance from the D-CM11 .npz, the amplitude law
+    # imposed by the chi2 wrapper (losses/cmb.py). validate_cmb enforced
+    # the exclusivity + forbidden features above the model choice.
+    if is_cmb:
+      cmb = validate_cmb(cfg, train_args=ta,
+                         rescale=kwargs.get("rescale", "none"))
+      name = str(ta["model"].get("name", "resmlp")).lower()
+      if (name, None) not in models:
+        raise ValueError(
+          "no plain model for architecture " + repr(name) + " (a CMB run "
+          "uses the plain designs, ia=None; pick a name that has one)")
+      model_cls = models[(name, None)]
+      if model_cls.head_block is not None:
+        raise ValueError(
+          "model.name " + repr(name) + " has a correction head ("
+          + str(model_cls.head_block) + "): the heads' basis-change "
+          "buffers assume an eigenbasis data-vector geometry, which the "
+          "diagonal CMB geometry does not carry — head support on the "
+          "CMB path is the recorded D-CM13 follow-up. Use name: resmlp")
+      # activation precedence, the same rule as the scalar/normal paths:
+      # an explicit --activation flag wins over model.activation, then H.
+      explicit_flag = kwargs.get("activation")
+      if kwargs.get("activation") is None:
+        act_blk = ta["model"].get("activation")
+        if isinstance(act_blk, dict):
+          kwargs["activation"] = str(act_blk.get("type", "H"))
+        elif act_blk is not None:
+          kwargs["activation"] = str(act_blk)
+        else:
+          kwargs["activation"] = "H"
+      exp = cls(data=cfg["data"], train_args=ta,
+                model_cls=model_cls,
+                raw_train_args=cfg["train_args"], **kwargs)
+      exp.pce_opts   = None
+      exp.ia         = None
+      exp.arch       = name
+      exp.model_name = name
+      exp._cmb       = True
+      exp.cmb        = dict(cmb)
+      # a plain design has no head block, so no per-head activation pin.
       exp._activation_notice = _activation_flag_notice(
         flag_type=explicit_flag,
         head_block=exp.model_cls.head_block,
@@ -1685,6 +1872,13 @@ class EmulatorExperiment:
     if self._scalar:
       self.log(f"scalar emulator: outputs {self.outputs}  |  "
                f"inputs {self.names}  |  no cosmolike")
+    # cmb run: name the spectrum, the imposed law, and the covariance file
+    # (the experiment facts live IN that file's provenance).
+    if self._cmb:
+      cov_name = str(self.cmb["covariance"]).rsplit("/", 1)[-1]
+      self.log(f"cmb emulator: spectrum {self.cmb['spectrum']}  |  "
+               f"amplitude_law {self.cmb['amplitude_law']}  |  "
+               f"covariance {cov_name}  |  no cosmolike")
     # fine-tune warm start: name the source artifact and the extra parameters
     # being fine-tuned in (the extras = the new covmat names absent from the
     # source; computed here from the headers, before the geometry is built).
@@ -1826,7 +2020,13 @@ class EmulatorExperiment:
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
         omegamh2ns_hi=pc.get("omegamh2ns_hi"))
       return self.train_set
-    pc  = d["param_cuts"]     # the validated physical-window bounds
+    # cmb run: the physical windows are opt-in (D-CM4, the D-SPE2
+    # pattern) — an absent block means no cuts; the cosmolike path
+    # requires the block (validate_param_cuts), so .get never changes it.
+    if self._cmb:
+      pc = d.get("param_cuts", {})
+    else:
+      pc = d["param_cuts"]    # the validated physical-window bounds
     gen = torch.Generator().manual_seed(int(d["split_seed"]))
     # load_source (data_staging.py): memmap the dv .npy, apply the physical
     # cuts (omega_b h^2 < omegabh2_hi; optional omegam^2 h^2 / omegamh2 /
@@ -1837,7 +2037,7 @@ class EmulatorExperiment:
       dv_path=d["train_dv"],
       params_path=d["train_params"],
       names=self.names,
-      omegabh2_hi=pc["omegabh2_hi"],
+      omegabh2_hi=pc.get("omegabh2_hi"),
       n_keep=(n_train if n_train is not None else d["n_train"]),
       omegabh2_lo=pc.get("omegabh2_lo"),
       omegam2h2_lo=pc.get("omegam2h2_lo"),
@@ -1891,7 +2091,13 @@ class EmulatorExperiment:
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
         omegamh2ns_hi=pc.get("omegamh2ns_hi"))
       return self.val_set
-    pc  = d["param_cuts"]     # the validated physical-window bounds
+    # cmb run: the physical windows are opt-in (D-CM4, the D-SPE2
+    # pattern) — an absent block means no cuts; the cosmolike path
+    # requires the block (validate_param_cuts), so .get never changes it.
+    if self._cmb:
+      pc = d.get("param_cuts", {})
+    else:
+      pc = d["param_cuts"]    # the validated physical-window bounds
     gen = torch.Generator().manual_seed(int(d["split_seed"]))
     # load_source (data_staging.py): same staging as stage_train, on the
     # val files; with_means=False (val borrows the training centers).
@@ -1899,7 +2105,7 @@ class EmulatorExperiment:
       dv_path=d["val_dv"],
       params_path=d["val_params"],
       names=self.names,
-      omegabh2_hi=pc["omegabh2_hi"],
+      omegabh2_hi=pc.get("omegabh2_hi"),
       n_keep=(n_val if n_val is not None else d["n_val"]),
       omegabh2_lo=pc.get("omegabh2_lo"),
       omegam2h2_lo=pc.get("omegam2h2_lo"),
@@ -2070,6 +2276,87 @@ class EmulatorExperiment:
       self.geom = ScalarGeometry.from_targets(
         device=self.device, targets=targets, names=self.outputs)
       self.chi2fn = make_scalar_chi2(self.geom)
+      return self.pgeom, self.geom, self.chi2fn
+
+    # CMB-spectrum run (D-CM4): the input geometry is the plain
+    # ParamGeometry over the covmat; the output geometry is the diagonal
+    # CmbDiagonalGeometry whose whitening sigma comes from the D-CM11
+    # covariance .npz (WITH the experiment's noise — eq 4); the loss is
+    # the law-dispatched CMB chi2. No cosmolike; returns before the
+    # cosmolike import below.
+    if self._cmb:
+      from .geometries_cmb import CmbDiagonalGeometry
+      from .losses.cmb import make_cmb_chi2
+      self.pgeom = ParamGeometry.from_covmat(
+        device=self.device,
+        center=train_set["C_mean"],
+        covmat_path=d["train_covmat"])
+      spectrum = str(self.cmb["spectrum"]).lower()
+      law      = str(self.cmb["amplitude_law"])
+      as_name  = str(self.cmb.get("as_name", ""))
+      tau_name = str(self.cmb.get("tau_name", ""))
+      cov = np.load(self.cmb["covariance"], allow_pickle=False)
+      for key in ("ell", "sigma_" + spectrum, "cl_" + spectrum):
+        if key not in cov.files:
+          raise ValueError(
+            "covariance file " + repr(self.cmb["covariance"]) + " lacks "
+            + repr(key) + "; it must come from compute_cmb_covariance.py "
+            "(the D-CM11 interface: ell + sigma_<s> + cl_<s> at least)")
+      ell   = np.asarray(cov["ell"], dtype="int64")
+      sigma = np.asarray(cov["sigma_" + spectrum], dtype="float64")
+      fid   = np.asarray(cov["cl_" + spectrum], dtype="float64")
+      dv    = train_set["dv"]
+      idx   = train_set["idx"]
+      if int(dv.shape[1]) != int(ell.size):
+        raise ValueError(
+          "the C_ell dump has " + str(int(dv.shape[1])) + " columns but "
+          "the covariance file covers " + str(int(ell.size)) + " "
+          "multipoles (l = " + str(int(ell[0])) + ".." + str(int(ell[-1]))
+          + "); the dump and the covariance must share one ell grid")
+      # the per-row amplitude factor f (1 for the "none" law); the law
+      # reads RAW parameter columns, located by the covmat-header names.
+      if law == "as_exp2tau":
+        names = list(self.names)
+        for nm, role in ((as_name, "as_name"), (tau_name, "tau_name")):
+          if nm not in names:
+            raise ValueError(
+              "data.cmb." + role + " " + repr(nm) + " is not among the "
+              "input parameter columns " + repr(names))
+        C = np.asarray(train_set["C"])
+        f = (np.exp(2.0 * C[idx, names.index(tau_name)].astype("float64"))
+             / C[idx, names.index(as_name)].astype("float64"))
+      else:
+        f = np.ones(len(idx), dtype="float64")
+      # the training-mean of the amplitude-rescaled target, streamed in
+      # chunks so a big memmapped dump never loads whole (C-readable
+      # explicit loop; this is a cold path, run once per staging).
+      total = np.zeros(int(ell.size), dtype="float64")
+      chunk = 4096
+      start = 0
+      while start < len(idx):
+        stop = min(len(idx), start + chunk)
+        rows = np.asarray(dv[idx[start:stop]], dtype="float64")
+        total += (rows * f[start:stop, None]).sum(axis=0)
+        start = stop
+      center = total / float(len(idx))
+      units = "dimensionless" if spectrum == "pp" else "muK2"
+      self.geom = CmbDiagonalGeometry(device=self.device,
+                                      spectrum=spectrum,
+                                      ell=ell,
+                                      center=center,
+                                      sigma=sigma,
+                                      fiducial_cl=fid,
+                                      units=units,
+                                      law=law,
+                                      as_name=as_name,
+                                      tau_name=tau_name)
+      if law == "none":
+        self.chi2fn = make_cmb_chi2(geom=self.geom, law=law)
+      else:
+        self.chi2fn = make_cmb_chi2(geom=self.geom, law=law,
+                                    param_geometry=self.pgeom,
+                                    as_name=as_name,
+                                    tau_name=tau_name)
       return self.pgeom, self.geom, self.chi2fn
 
     # config validation first, before the cosmolike import below: a bad

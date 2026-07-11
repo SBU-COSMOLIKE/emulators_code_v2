@@ -748,3 +748,14 @@ fixed expensive-dump N_train, frozen-only vs refine at a few lambdas —
 alongside the standing queue (berhu attribution, bs+EMA, activation
 bake-off, NPCE at scale) and, when the dumps exist, the EDE + w(z)-PCA
 program this was all built for.
+
+## Scope ruling (2026-07-10, user directive): transfer = dv families only
+
+Transfer learning (`transfer:`) and joint refinement (`transfer.refine`)
+apply to the two DATA-VECTOR families only — cosmolike (shipped, this
+note) and CMB (eligible later, deferred per D-CM7 in
+[[cmb-spectra-emulators]]). Scalar ([[scalar-parameter-emulators]]) and
+BSN ([[baosn-emulators]]) will NEVER carry transfer — their forbids are
+permanent, not V1 deferrals. Fine-tuning (train_args.finetune) is the
+universal mechanism instead: every family supports it (SPE-FT /
+D-CM10 / D-BSN9 in the respective notes).

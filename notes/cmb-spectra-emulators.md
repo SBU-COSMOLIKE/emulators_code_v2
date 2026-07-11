@@ -145,7 +145,105 @@ scalar-smoke, cmb-identity, cmb-smoke).
 
 ## Resume state (Implementer appends below)
 
-(none yet)
+### CME increment 1 (2026-07-10, Opus): geometry + amplitude-law registry landed + Mac-gated
+
+**Base:** claude/amazing-keller-e798b6 @ e33c058 (CME kickoff; SPE closed at
+7dd5062). Both new files uncommitted.
+
+**Landed (D-CM1 + D-CM2):**
+- `emulator/geometries_cmb.py` = `CmbDiagonalGeometry`: a diagonal
+  cosmic-variance output geometry for one spectrum. `from_fiducial(device,
+  spectrum, ell, fiducial_cl, center, units)` builds `cinv_l = 2/((2l+1)
+  Cl_fid^2)` and the whitening scale `sigma_l = 1/sqrt(cinv_l) = Cl_fid *
+  sqrt((2l+1)/2)`; encode = whiten(squeeze(dv) - center), decode = unwhiten +
+  center; state/from_state carry the resolved set {spectrum, ell, center,
+  sigma, fiducial_cl, units} (cls-marker persistence, zero results.py change,
+  as SPE proved). dest_idx = arange(n_ell), total_size = n_ell (loop sizing,
+  no CMB branch). A non-positive fiducial Cl is a loud error naming the
+  multipole.
+- `emulator/losses/cmb.py` = `AMPLITUDE_LAWS = {none:(), as_exp2tau:(as_name,
+  tau_name)}` (registry, persisted by name), `CmbDiagonalChi2(CosmolikeChi2)`
+  (the `none` law: chi2 = (r*r).sum(1), like ScalarChi2), `CmbFactoredChi2(
+  CmbDiagonalChi2)` (the `as_exp2tau` law: needs_params=True; _factor decodes
+  the whitened inputs through the param geometry and returns f = exp(2 tau)/As
+  as a (B,1) column; encode = whiten(squeeze(dv)*f - center); decode =
+  (unwhiten(pred)+center)/f; chi2 inherited plain; loss stashes+forwards),
+  `make_cmb_chi2(geom, law, param_geometry, as_name, tau_name)`.
+
+**Design decisions (Architect: audit / rule):**
+1. **covinv FORMULA FLAG (highest priority, ruling requested).** The spec's
+   verbatim `cinv = 2/((2l+1) Cl_fid^2)` (divide), the binding legacy source
+   `emultraincmb.py:204` `covinv = 2/(2l+1)*cl_fid**2` (MULTIPLY), and the
+   textbook cosmic-variance inverse `(2l+1)/(2 Cl^2)` are THREE different
+   forms; none agree. I implemented the Architect's stated verbatim (divide)
+   because "verbatim numerics are binding," on ONE clearly-commented line in
+   from_fiducial, and flagged all three readings there. The legacy also
+   loads `cl_fid` from `covmat/cv_fid_cls.npy` scaled by `2/exp(2*0.06)` (its
+   contents decide whether cl_fid is the fiducial Cl or its variance) — the
+   Architect has the physics + that file; please confirm which form is
+   intended. NOTE: the increment-1 gates are independent of the constant
+   (whitening = 1/sqrt(cinv), so the constant only rescales the per-l target
+   units; round-trips, persistence, and amplitude-law exactness hold for any
+   positive cinv), so this flag does not block the checkpoint — one line
+   flips on the ruling.
+2. **Diagonal storage (deviation from D-CM1's "reuses DataVectorGeometry
+   state").** CmbDiagonalGeometry is STANDALONE (per-l vectors), not a
+   DiagonalGeometry subclass, because a dense evecs + Cinv for ellmax~5000 is
+   ~100MB/spectrum and the base chi2 einsum is O(n_ell^2) for a diagonal
+   covariance. This mirrors ScalarGeometry (also standalone). The cls-marker
+   persistence + the loop interface (encode/decode/squeeze/unsqueeze/
+   dest_idx/total_size) are preserved, so the SPIRIT of "geometry is data,
+   save/rebuild/loop reuse it" holds; only the matrix machinery is skipped.
+   Recommend ENDORSE.
+3. **Whitening = cosmic-variance sigma (not empirical std).** With sigma =
+   1/sqrt(cinv), the plain sum-of-squares chi2 IS the cosmic-variance chi2
+   (reconciles D-CM1's "whitening = per-ell diagonal scale" with "Cinv =
+   cosmic-variance diagonal"). This DIFFERS from the legacy (whitens by
+   empirical Y_std, weights the loss separately by covinv); our design folds
+   both into one consistent whitening, so the network sees deviations in
+   cosmic-variance units. Recommend ENDORSE.
+4. **Amplitude law = Option B (chi2 wrapper), the smaller diff (D-CM2).**
+   CmbFactoredChi2 mirrors RescaledChi2 (per-row scalar f in place of the
+   per-element analytic R) and inherits the plain chi2 (like ResidualBaseChi2),
+   reusing the whole needs_params threading (encode/decode/chi2/loss signatures
+   verified against training.py:1428-1437 / 1730-1748 and inference.py's
+   `chi2.decode(pred, x_enc)`). The AmplitudeFactorGeometry (input-side)
+   pattern was NOT used: tau/logA must stay IN the whitened input (they shape
+   Cl), whereas AmplitudeFactorGeometry removes the amplitude columns.
+   Recommend ACCEPT.
+5. **As-interpretation ruling (PROPOSED, the simpler one, like D-SP4).**
+   `as_exp2tau` reads a RAW linear amplitude column (as_name) + tau (tau_name),
+   f = exp(2 tau)/As. A run that samples logA materializes a raw As column in
+   the generator (D-CM3), so the law's closed form stays dead simple and the
+   logA<->As conversion lives in the generator/staging (by-name columns, the
+   SPE .paramnames machinery). Recommend ACCEPT.
+6. **ell endpoint DEFERRED to the generator (D-CM3).** from_fiducial takes
+   explicit ell + fiducial_cl arrays, so 2..ellmax inclusive/exclusive is the
+   generator's call; legacy used np.arange(2, ellmax) (EXCLUSIVE of ellmax,
+   n = ellmax-2). Recorded for increment 3.
+7. **Inference note (for increment 4).** EmulatorPredictor has NO rescaled
+   branch; the CME amplitude-law decode needs a new _build_decoder branch that
+   reuses CmbFactoredChi2.decode (exactly as ia/pce/transfer reuse their
+   chi2.decode), and the predictor __init__ needs a CME early-return before
+   the cosmolike section accounting (like the scalar branch). Recorded.
+
+**Mac gate (increment 1).** py_compile OK (both files); numpy probe ALL PASS
+(40+ checks): from_fiducial sigma == Cl*sqrt((2l+1)/2) (max rel 2.2e-16) and
+strictly positive; none-law decode(encode(dv)) round-trip max|dv| = 0.00e+00;
+as_exp2tau decode(encode(dv,p),p) == dv (max abs 1.4e-14 at dvmax 2.3e2);
+factor f = exp(2 tau)/As per-row (B,1); chi2 = sum sq resid shape (B,), 0 at
+pred==target; non-positive fiducial raises; state round-trip bitwise; plus
+AST/source cross-checks (class bases, needs_params True on factored/absent on
+diagonal, the verbatim cinv line, the FLAG comment, registry keys, no
+cosmolike/getdist import, encode/decode/factor expressions verbatim). torch
+training legs + the real save/rebuild/predict ride the cmb-identity board gate.
+
+**Next:** the data.cmb driver branch + staging (D-CM4) — experiment.py
+build_geometry scalar-style branch (center from the amplitude-rescaled
+training targets, CmbDiagonalGeometry.from_fiducial + make_cmb_chi2), a cmb
+source in data_staging, results.py surfacing info["amplitude_law"], the thin
+driver; then the generator (D-CM3), emul_cmb (D-CM5, after the binding reads),
+gates + configs + README (D-CM6).
 
 ## Unified ARCHITECT_HANDOFF (SPE + CME, 2026-07-10)
 
@@ -480,3 +578,247 @@ the factoring must prove itself on TWO families at once:**
   check).
 - BSN pages are specced in [[baosn-emulators]] (D-BSN8) and land with
   that unit on this factoring.
+
+## D-CM10 — transfer/fine-tune scope (2026-07-10, user directive)
+
+- **Fine-tuning (train_args.finetune) is IN SCOPE for this unit:**
+  every family must support it. The CmbDiagonalGeometry is a standard
+  dv geometry, so FTW should compose through the existing pin — the
+  unit ASSERTS it rather than assumes it: cmb-identity gains a
+  finetune leg (a warm start from a CMB artifact reproduces the
+  source bitwise at epoch 0 on shared inputs; wrong-kind and
+  geometry-mismatch sources loud). No new machinery expected; the leg
+  is the proof.
+- **Transfer (`transfer:` / `transfer.refine`) scope, ruled:** the two
+  data-vector families ONLY — cosmolike and CMB. For CMB it stays
+  deferred exactly as D-CM7 records (not V1; the geometry is standard
+  so it composes when the science asks); for scalar and BSN the
+  forbids are PERMANENT (the ruling of record is in
+  [[scalar-parameter-emulators]]).
+
+## Architect audit + rulings: CME increment-1 checkpoint
+(2026-07-10, Fable; the covariance directive folded in)
+
+### THE covinv RULING (supersedes every earlier form)
+
+The authority is now Motloch & Hu 1709.03599 (user-supplied, eqs 1-7
+read from the PDF). Eq 3 settles it:
+
+    G^{XY,WZ}_{ll'} = delta_{ll'}/(2l+1) *
+                      [C^XW_exp C^YZ_exp + C^XZ_exp C^YW_exp]
+    with  C^XY_exp = C^XY + N^XY                          (eq 4)
+    and   N^XY_l = Delta_XY^2 * exp(l(l+1)theta_FWHM^2/(8 ln2))  (eq 1)
+
+So the per-spectrum Gaussian VARIANCE is 2/(2l+1)*(C_exp)^2 for
+TT/EE/BB, and [C^TT_exp C^EE_exp + (C^TE)^2]/(2l+1) for TE — and the
+chi2 metric is its INVERSE: covinv_l = (2l+1)/(2 (Cl_fid+Nl)^2) etc.
+For the record, all three disputed forms are dispatched: the spec's
+"verbatim" 2/((2l+1) Cl^2) was MY mis-transcription of the legacy
+line (owned); the legacy emultraincmb.py line 2/(2l+1)*cl_fid^2 is
+the VARIANCE misnamed covinv (whatever cv_fid_cls.npy baked in, it
+no longer matters); the textbook inverse — WITH the eq-4 noise — is
+the ruling. The Implementer's flagged one-line flip in from_fiducial
+goes to the true inverse; the geometry's sigma_l = 1/sqrt(covinv_l).
+Increment-1 gates are constant-independent as noted, so nothing
+re-opens.
+
+### The seven increment-1 decisions: ENDORSED
+
+(2) standalone per-l vectors, not a DiagonalGeometry subclass —
+ENDORSED (the memory argument is right; NOTE: the NG covariance,
+below, lives in the LOSS as a dense contraction, never in the
+geometry, so this stays true); (3) whitening = the Gaussian sigma_l,
+plain sum-of-squares = the Gaussian chi2 — ENDORSED with the covinv
+ruling's constants; (4) the RescaledChi2-shaped amplitude wrapper —
+ENDORSED (the right split: tau/logA stay whitened inputs);
+(5) as_exp2tau reads a raw linear As column, the generator
+materializes it — ENDORSED (the simpler ruling wins, as
+pre-authorized); (6) l endpoint deferred to the generator — ENDORSED;
+(7) the CME _build_decoder branch in increment 4 — ENDORSED.
+
+### D-CM11 — the CMB covariance script (user directive; ARCHITECT
+implements this personally)
+
+**The directive:** unlike lensing (covariance from cosmolike), the
+CMB covariance must be COMPUTED, following Motloch & Hu eqs 1-7, by a
+SEPARATE script. Gaussian terms first; the lensing-induced
+non-Gaussian terms behind a flag, OFF by default. "Because this is a
+more difficult task — you can implement it yourself": assigned to the
+Architect, accepted; the Implementer proceeds with increments 2-5
+against the FILE INTERFACE below, unblocked.
+
+- **Script:** `compute_data_vectors/compute_cmb_covariance.py`.
+- **Gaussian part (always):** eq 3 with eq-4 noise; user inputs =
+  instrumental noise Delta_XY (muK-arcmin) and beam theta_FWHM
+  (arcmin), eq-1 convention; fsky an explicit knob, default 1
+  (recorded, never silent). All spectrum-pair blocks computed
+  (TT,TE,EE incl. the TT-TE / TE-EE / TT-EE l-diagonal cross blocks);
+  phiphi V1 = cosmic variance 2/(2L+1)(C^phiphi)^2 with a
+  user-supplied N0 file hook recorded as the future knob
+  (reconstruction noise is experiment-specific).
+- **Non-Gaussian part (flag, default OFF):** eq 5 = N^(phi) (eq 6,
+  lens-induced: sum over L of dC^XY_l/dC^phiphi_L * Cov^phiphi_LL *
+  dC^WZ_l'/dC^phiphi_L) + N^(E) (eq 7, unlensed-EE sample variance
+  into BB — V1 records it and may defer BB entirely since no BB
+  emulator is planned). Derivatives by the 5-POINT STENCIL (the user
+  upgrades the paper's 2-point central difference), with an explicit
+  CONVERGENCE HARNESS: each derivative computed at >= 3 step sizes,
+  the pairwise agreement reported, non-convergence LOUD — "getting
+  the convergence of the 5-stencil rule with respect to step size is
+  always tricky" (user), so the step study is a first-class output,
+  not a hidden default.
+- **CAMB via cobaya on HIGH settings — the user's verbatim theory
+  block, the covariance's fixed configuration:**
+
+```yaml
+theory:
+  camb:
+    path: ./external_modules/code/CAMB
+    extra_args:
+      halofit_version: takahashi
+      lmax: 7000
+      kmax: 10
+      k_per_logint: 130
+      AccuracyBoost: 1.5
+      lAccuracyBoost: 1.2
+      lens_margin: 2050
+      lens_k_eta_reference: 36000.0
+      nonlinear: NonLinear_both
+      recombination_model: CosmoRec
+      Accuracy.AccurateBB: True
+      min_l_logl_sampling: 6000
+      DoLateRadTruncation: False
+```
+
+- **LCDM only:** the covariance is ALWAYS computed on a fiducial
+  LCDM cosmology; the script validates its input cosmology block is
+  plain LCDM (loud otherwise), and the TRAINING YAML (D-CM4 below)
+  demands the fiducial-LCDM covariance file.
+- **Output file (THE INTERFACE the Implementer builds against):** one
+  .npz per experiment configuration: `ell` (l = 2..lmax); per
+  spectrum s in {tt, te, ee, pp}: `sigma_<s>` (sqrt of the Gaussian
+  diagonal, ALWAYS present — what CmbDiagonalGeometry consumes) and
+  `cov_<s>` (the dense l x l block, present ONLY when the NG flag was
+  on); `provenance` (a json string: fiducial parameters, Delta_XY,
+  theta_FWHM, fsky, the NG flag, the stencil step study, the exact
+  camb extra_args) — resolved values persisted, nothing re-derivable
+  demanded of the consumer.
+- **D-CM4 adjustment:** data.cmb gains `covariance: <file>` (the
+  script's .npz; REQUIRED — it replaces the inline fiducial_cl ->
+  cinv derivation on the training path; from_fiducial stays for the
+  synthetic gate fixtures). The geometry takes sigma_<spectrum> from
+  the file; the file's provenance rides into the artifact.
+- **D-CM12 (recorded, after Gaussian tests pass):** training WITH the
+  NG covariance = a dense-Cinv chi2 variant (the contraction lives in
+  the loss over the unchanged diagonal whitening — decision (2)
+  survives); "we first test with Gaussian terms" (user), so this is
+  sequenced behind the Gaussian-trained CME close.
+- **Gates:** the script gets its own check ride: a Gaussian-part leg
+  verifiable against the closed-form eq 3 on a synthetic Cl (Mac,
+  numpy); the NG path's convergence harness output asserted
+  well-formed; cmb-smoke consumes a real script-produced .npz once
+  the script lands (until then the smoke may use from_fiducial with
+  the ruled constants — recorded as the interim).
+
+### ARCHITECT_HANDOFF: INCREMENT-1 RULINGS DELIVERED — PROCEED TO INCREMENT 2
+
+- **covinv RULED** (eq 3 + noise; the true inverse; flip the flagged
+  line); the seven decisions ENDORSED as annotated.
+- **Increment 2 (D-CM4) adjusted:** data.cmb consumes the covariance
+  .npz per the interface above; sigma from the file; provenance into
+  the artifact; the noise/beam/fsky/NG facts live in the FILE, the
+  YAML only points at it.
+- **Division of labor:** the Architect implements
+  compute_cmb_covariance.py (D-CM11) in parallel; the Implementer is
+  unblocked on increments 2-5 against the interface; the NG-trained
+  variant (D-CM12) waits for Gaussian results.
+
+## OVERNIGHT EXECUTION (2026-07-10/11, Architect implementing directly)
+
+**Authorization:** the user, going to sleep ~8h: "all pending task you
+can implement yourself in the background... implement them all". The
+Architect implements; every diff stays uncommitted on the branch; this
+section is the resume state for whoever continues (me or the
+Implementer).
+
+### Landed + Mac-gated this window
+
+1. **The covinv flip (increment 1's flagged line):** from_fiducial now
+   computes cinv_l = (2l+1)/(2 C_fid^2), sigma_l = C_fid*sqrt(2/(2l+1))
+   — the ruled true inverse; docstrings updated; probe confirms sigma
+   at l=2, Cl=250 equals 158.11 (= 250*sqrt(2/5)) and DECREASES with l
+   (the physical error bar; the placeholder grew with l).
+2. **D-CM11: compute_data_vectors/compute_cmb_covariance.py (new,
+   Architect-written).** Gaussian part always (eq 3 all seven blocks
+   incl. TT-TE/TT-EE/TE-EE crosses + pp cosmic variance; eq-1 noise
+   from delta/beam in muK-arcmin/arcmin; fsky explicit). NG part
+   behind cov_args.nongaussian.enabled (default false): eq 6 via
+   band-perturbed re-lensing through provider.get_CAMBdata() +
+   get_lensed_cls_with_spectrum (one Boltzmann solve ever), the
+   5-point stencil at >= 2 step sizes, per-band convergence vs
+   converge_rtol LOUD, the step study persisted. N^(E) (eq 7)
+   recorded + skipped (no BB emulator). Output = the ruled .npz
+   interface (ell, sigma_<s>, gauss cross blocks, cl_<s> fiducials,
+   cov_<s> dense when NG, provenance json). LCDM-only validation
+   (fixed values, name whitelist, omk/w/wa pinned). Mac probe 10/10:
+   eq 1 + eq 3 closed forms exact, stencil exact on quartics +
+   O(h^4) on sin (ratio 16.0), band cover, all three LCDM-guard legs.
+   KNOWN FIRST-RUN RISKS (workstation): the
+   get_lensed_cls_with_spectrum call signature (clpp array convention
+   [L(L+1)]^2 C/2pi, CMB_unit/raw_cl kwargs) and the "CAMBdata"
+   requirement name — the SPE evaluate-YAML precedent; first real run
+   rules.
+3. **example_yamls/cmb_covariance_lcdm.yaml (new):** the three-block
+   config with the user's verbatim high-accuracy camb settings.
+4. **CME increment 2 (D-CM4), COMPLETE:**
+   - geometries_cmb.py: the geometry now PERSISTS the amplitude law
+     (law / as_name / tau_name in __init__ + from_fiducial + state) —
+     D-CM1's "the artifact stores the law" gets its home; probe:
+     9-key state round-trip bitwise incl. the law strings.
+   - data_staging.py: load_source cuts are opt-in (omegabh2_hi=None
+     skips phys_cut_idx — the D-SPE2 pattern; cosmolike callers always
+     pass a value, unchanged).
+   - experiment.py (10 edits): DATA_KEYS + "cmb"; is_cmb detection +
+     scalar/cmb mutual exclusion; validate_cmb (pure fn, probed 13/13:
+     required keys, spectrum/law whitelists, law-column rules both
+     ways, exclusivity, five required files, rescale/ia/pce loud,
+     transfer deferred-loud naming D-CM7, finetune interim-loud naming
+     D-CM10); the from_config cmb branch (plain designs; heads =
+     LOUD D-CM13 interim: their basis-change buffers assume an
+     eigenbasis geometry — "as-is" in D-CM4 was optimistic, corrected);
+     __init__ _cmb/cmb defaults; both stage fns cuts-optional on cmb;
+     the build_geometry cmb branch (covariance .npz consumed per the
+     interface, key/width checks loud, per-row f = exp(2 tau)/As from
+     RAW C columns by name, the training-mean of the amplitude-rescaled
+     target streamed in float64 chunks — probed exact to 2e-17 vs a
+     float64 reference; CmbDiagonalGeometry built via __init__ = the
+     npz path; make_cmb_chi2 dispatched by law); the print_design cmb
+     banner.
+   - results.py: info gains "cmb" (isinstance dispatch) +
+     "amplitude_law"/"as_name"/"tau_name" (getattr off the geometry;
+     None on non-CMB artifacts).
+
+### NOT built (the honest boundary; designed, next in line)
+
+- Increment 3 (D-CM3-A): generator_core extraction + the re-thinned
+  lensing driver + dataset_generator_cmb.py. Untouched — the 1100-line
+  verbatim-move surgery deserves fresh context, not the tail of this
+  window.
+- Increment 4 (D-CM5): emul_cmb.py + the predictor's CME decoder
+  branch (endorsed decision 7). The decode needs the law: rebuild now
+  surfaces amplitude_law/as_name/tau_name, and CmbFactoredChi2.decode
+  is the single-source (build a law chi2 from the rebuilt geom +
+  pgeom, reuse its decode — the transfer-decoder precedent).
+- Increment 5 (D-CM6/8/9/10): gates cmb-identity/cmb-smoke + configs +
+  example training YAML + the README section draft + the D-CM8
+  roughness term + the D-CM9 diagnostics + the D-CM10 finetune leg
+  (and the finetune-dispatch integration the interim error guards).
+- SPE-FT / BSN / GEO / POL: specced, queued, untouched (stacking
+  further un-boarded units overnight = unreviewed bulk).
+
+### For the board (when the user wakes)
+
+Nothing new is board-runnable yet (the CME gates are increment 5); the
+landed work is Mac-gated only. The landing sequence in the chat handoff
+commits the overnight diffs; cmb-identity/cmb-smoke arrive with
+increment 5.

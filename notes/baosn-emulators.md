@@ -214,6 +214,22 @@ work. Board grows 27 -> 29 when BSN lands.
 [[scalar-parameter-emulators]] (the adapter template + lesson bank),
 [[gates-harness-user-run]], [[py-module-style-conventions]].
 
+## D-BSN9 — fine-tune support; transfer permanently out
+(2026-07-10, user directive)
+
+Fine-tuning must work for BOTH BSN artifacts (the SN-range H(z)
+emulator and the recombination-window D_M emulator), each
+independently: the SPE-FT pattern ([[scalar-parameter-emulators]])
+applied to GridGeometry — source must be a grid artifact of the SAME
+quantity, grid, units, and law (loud diff otherwise); the source
+geometry pinned through build_warm_start's pinned_geom slot; D-FT3
+input extension + the padded-keys anchor mask unchanged; bsn-identity
+carries the epoch-0 parity and loud-error legs. Transfer
+(`transfer:` / `transfer.refine`) is PERMANENTLY out for this family —
+the user's scope ruling: transfer is exclusive to the cosmolike and
+CMB data-vector families. (This upgrades D-BSN7's transfer line from
+deferral to permanent.)
+
 ## Resume state (Implementer appends below)
 
 (not started — queued behind CME)

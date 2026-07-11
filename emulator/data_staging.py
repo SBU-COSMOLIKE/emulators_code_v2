@@ -528,16 +528,25 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
 
   n     = C.shape[0]
   order = torch.randperm(n, generator=gen).numpy()
-  phys, cut_report = phys_cut_idx(C=C, idx=order, names=names,
-                                  omegabh2_hi=omegabh2_hi,
-                                  omegabh2_lo=omegabh2_lo,
-                                  omegam2h2_lo=omegam2h2_lo,
-                                  omegam2h2_hi=omegam2h2_hi,
-                                  omegamh2_lo=omegamh2_lo,
-                                  omegamh2_hi=omegamh2_hi,
-                                  omegamh2ns_lo=omegamh2ns_lo,
-                                  omegamh2ns_hi=omegamh2ns_hi,
-                                  param_file=params_path)
+  # physical-window cuts are opt-in on the CMB path exactly as on the
+  # scalar path (D-SPE2 / D-CM4): a CMB chain need not carry the
+  # omegab / H0 / omegam / ns columns the windows read, so
+  # omegabh2_hi = None skips the cuts entirely. The cosmolike path
+  # always passes a value (validate_param_cuts requires it there), so
+  # its behavior is unchanged.
+  if omegabh2_hi is None:
+    phys, cut_report = order, []
+  else:
+    phys, cut_report = phys_cut_idx(C=C, idx=order, names=names,
+                                    omegabh2_hi=omegabh2_hi,
+                                    omegabh2_lo=omegabh2_lo,
+                                    omegam2h2_lo=omegam2h2_lo,
+                                    omegam2h2_hi=omegam2h2_hi,
+                                    omegamh2_lo=omegamh2_lo,
+                                    omegamh2_hi=omegamh2_hi,
+                                    omegamh2ns_lo=omegamh2ns_lo,
+                                    omegamh2ns_hi=omegamh2ns_hi,
+                                    param_file=params_path)
   if verbose:
     # per-window survivor counts: a value typed against the wrong
     # quantity (the omegamh2-vs-omegam2h2 one-character trap) shows up
