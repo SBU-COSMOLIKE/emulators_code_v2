@@ -1403,3 +1403,47 @@ transfer-identity, transfer-smoke.
   before id), the corrected expected green counts (25/25), and the
   integration order (merge origin/main -> apply README draft -> merge
   to main -> push -> workstation pull + board).
+
+## Architect close: SPE unit (2026-07-10, Fable) — APPROVED PENDING BOARD
+
+**Verdict: the SPE unit is APPROVED. Every file was Architect-audited
+through the checkpoint chain (eight audits, each against the raw
+worktree source with independent probes); all six deltas are closed
+and re-proven by gate legs (D-SPE1-1 both directions, D-SPE2-1,
+D-SPE2-3, D-SPE2-4, D-SPE2-5); the board wiring, example YAML, and
+gate-id rows (incl. the FTW/TPE backfill, verified == board.py
+spec_code) are verified. The close is CONDITIONAL on the workstation
+board: scalar-identity + scalar-smoke green, 25/25 total.**
+
+**README draft: verified with four Architect-applied fixes (declared
+deviation, doc-only, in notes/readme-scalar-section-draft.md):** the
+bare "whitened" replaced with the section-2-anchored phrasing; the
+scales clause de-parenthesized into sentences; the three loud errors
+became a table; the opt-in cuts clause de-parenthesized; and the
+pipeline mini-diagram added per the architectures-are-drawn rule. The
+insertion point + appendix renumbering instructions (14 -> new
+section, appendices 15-20, Contents rows) are correct against
+origin/main's README structure.
+
+**Known first-run risks, recorded (not blockers):** the cobaya
+evaluate YAML's external-lambda `requires` semantics (no cobaya on the
+Mac — if it reds, the fix is a YAML-shape delta in the gate, not
+library code); the two smoke bars (val median 0.3, off-center 5%) are
+calibration numbers — if the 2-epoch run misses one, loosen with the
+run's evidence, never below the mean-predictor line (0.455 / 13.7%).
+
+**The integration + board sequence (user-run, in order):**
+1. worktree: commit the draft fixes + this verdict.
+2. worktree: `git fetch origin` + `git merge origin/main`
+   (README-only divergence, verified).
+3. the Architect applies the README section per the draft's
+   How-to-apply (insert after 13, renumber appendices, bump
+   cross-refs, Contents rows); user commits.
+4. main checkout: `git merge claude/amazing-keller-e798b6` +
+   `git push` (the one push — main only).
+5. workstation: `git pull`, then
+   `python gates/run_board.py --force-rerun scalar-identity` and
+   `python gates/run_board.py --force-rerun scalar-smoke`
+   (flag before id). Expected: 23 resume-skip greens + 2 new = 25/25.
+6. relay the board output; the Architect closes SPE on green (or
+   rules on any delta), and CME (the second unit of the pass) begins.

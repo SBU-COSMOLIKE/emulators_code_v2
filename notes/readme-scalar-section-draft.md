@@ -32,13 +32,25 @@ the acoustic scale thetastar and emulate (omegabh2, omegach2, thetastar) ->
 `train_scalar_emulator.py`, trains one; there is no data vector, no mask, and
 no cosmolike anywhere on this path.
 
-**Inputs and outputs are both columns of one parameter file.** The inputs are
-the covmat-header names (whitened exactly as before); the outputs are the
-columns you name in `data.outputs`, standardized to zero mean and unit
-variance (the outputs live on wildly different scales — H0 ~ 70, omegam ~ 0.3
-— so each is put on the same footing before the network sees it). The `.txt`
-needs its getdist `.paramnames` sidecar beside it, since the outputs are
-usually derived columns located by name.
+```
+sampled parameters (rescaled, section 2)
+     │
+     ▼  resmlp trunk            the same architecture as section 10,
+     │                          just narrower — a scalar map is easy
+standardized outputs
+     │
+     ▼  undo the standardization
+H0, omegam, ...                 one physical number each, served by name
+```
+
+**Inputs and outputs are both columns of one parameter file.** The inputs
+are the covmat-header names, rescaled into the network's training units
+exactly as on a data-vector run (section 2). The outputs are the columns you
+name in `data.outputs`, each standardized — shifted to zero mean and scaled
+to unit variance. The outputs live on wildly different scales, H0 near 70
+and omegam near 0.3, and standardizing puts each on the same footing before
+the network sees it. The `.txt` needs its getdist `.paramnames` sidecar
+beside it, since the outputs are usually derived columns located by name.
 
 ```yaml
 data:
@@ -56,18 +68,23 @@ data:
 The model is a plain trunk (`name: resmlp`); the conv and transformer heads
 correct along an angular axis a scalar output does not have, so `rescnn` /
 `restrf` are a loud error here. Everything else — the loss ladder, trimming,
-focus, EMA, the L2-SP anchor — works unchanged, since they act on a per-sample
-error. A scalar map is cheap, so small widths and a few hundred epochs are
-plenty. The physical-window `param_cuts` are optional on this path (a
-parameter chain is already the target distribution).
+focus, EMA, the L2-SP anchor — works unchanged, since they act on a
+per-sample error. A scalar map is cheap, so small widths and a few hundred
+epochs are plenty. The physical-window `param_cuts` are optional on this
+path, because a parameter chain is already the target distribution.
 
 **In an MCMC, the theory block reads what it provides from the file.** One
-generic class, `emul_scalars`, serves any scalar emulator: it lists each saved
-emulator's path root and nothing else — the required inputs and the provided
-outputs both come from the `.h5`, never a hand-typed list. Point it at several
-roots and it provides their union (a duplicate output name, one emulator's
-output feeding another's input, or a data-vector emulator in the list are each
-a loud error).
+generic class, `emul_scalars`, serves any scalar emulator: it lists each
+saved emulator's path root and nothing else — the required inputs and the
+provided outputs both come from the `.h5`, never a hand-typed list. Point it
+at several roots and it provides their union. Three misconfigurations are
+loud errors at startup:
+
+| the error | why |
+|---|---|
+| two emulators provide the same output name | each derived parameter must come from exactly one emulator |
+| one emulator's output is another emulator's input | chaining scalar emulators is out of scope |
+| a data-vector emulator in the list | `emul_scalars` serves scalar artifacts only — a data-vector emulator belongs in `emul_cosmic_shear`'s list |
 
 ```yaml
 theory:
