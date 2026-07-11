@@ -91,12 +91,19 @@ class emul_scalars(Theory):
             # so reject it loudly here rather than dying on the attribute
             # access below (the D-SPE2-3 failure class, one layer up).
             if not predictor._scalar:
+                if predictor._cmb:
+                    kind, where = "CMB spectrum", "emul_cmb"
+                elif predictor._grid:
+                    kind, where = "background grid", "emul_baosn"
+                elif predictor._grid2d:
+                    kind, where = "matter-power-spectrum grid", "emul_mps"
+                else:
+                    kind, where = "data-vector", "emul_cosmic_shear"
                 raise ValueError(
                     "emul_scalars: " + repr(root) + " is not a scalar "
-                    "emulator (its h5 rebuilds a data-vector geometry); "
-                    "this theory serves scalar artifacts only; a "
-                    "data-vector emulator belongs in emul_cosmic_shear's "
-                    "emulators list")
+                    "emulator (its h5 rebuilds a " + kind + " geometry); "
+                    "this theory serves scalar artifacts only; that "
+                    "emulator belongs in " + where + "'s emulators list")
             self.predictors.append(predictor)
             # duplicate output across two artifacts = loud (D-SP4): a derived
             # parameter must be produced by exactly one emulator.

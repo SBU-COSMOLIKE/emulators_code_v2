@@ -96,6 +96,30 @@ class emul_cosmic_shear(Theory):
             predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model,
                                           dv_return=dv_return)
+            # wrong-kind guard: this theory serves data-vector emulators
+            # only; a scalar or CMB artifact has its own adapter, and
+            # letting it through would return the wrong object shape
+            # silently (the D-SPE2-4 failure class).
+            if predictor._scalar:
+                raise ValueError(
+                    "emul_cosmic_shear: " + repr(root) + " is a scalar "
+                    "(derived-parameter) emulator; it belongs in "
+                    "emul_scalars' emulators list, not here")
+            if predictor._cmb:
+                raise ValueError(
+                    "emul_cosmic_shear: " + repr(root) + " is a CMB "
+                    "spectrum emulator; it belongs in emul_cmb's "
+                    "emulators list, not here")
+            if predictor._grid:
+                raise ValueError(
+                    "emul_cosmic_shear: " + repr(root) + " is a "
+                    "background (grid) emulator; it belongs in "
+                    "emul_baosn's emulators list, not here")
+            if predictor._grid2d:
+                raise ValueError(
+                    "emul_cosmic_shear: " + repr(root) + " is a matter-"
+                    "power-spectrum (grid2d) emulator; it belongs in "
+                    "emul_mps's emulators list, not here")
             self.predictors.append(predictor)
             for name in predictor.names:
                 req[name] = None

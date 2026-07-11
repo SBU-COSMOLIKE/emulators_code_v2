@@ -494,7 +494,7 @@ def gate_item27(ctx):
                                pattern=r"used\s+\d+\s+of\s+\d+\s+cut rows"),
              detail="the banner cut count must match the pool shrinkage")
   ctx.log("param-window-cuts ci.init_probes A/B: the duplicate init_probes call in "
-          "geometries_output.py is inspected with this run's evidence "
+          "geometries.output.py is inspected with this run's evidence "
           "(omegamh2-ns-product-cuts.md:248); a manual A/B, not an "
           "automatable assertion.")
 
@@ -975,6 +975,200 @@ def gate_spe_b(ctx):
              + " (gates/checks/scalar_smoke.py)")
 
 
+def gate_cme_a(ctx):
+  """cmb-identity: the CMB emulator identity + law + roughness + finetune.
+
+  WHAT: tiny synthetic CMB emulators (a ParamGeometry over a written covmat
+  + a CmbDiagonalGeometry over a synthetic fiducial C_ell + a small ResMLP)
+  prove: the RULED cosmic-variance constants (sigma_l = C_fid*sqrt(2/(2l+1)),
+  the covinv ruling); the geometry state round-trip byte-identical (nine
+  keys incl. the law strings); the as_exp2tau law exact both ways (_factor
+  bitwise, encode(decode) to float32 round-off) + its loud errors; save ->
+  rebuild -> predict bitwise on BOTH laws (the predictor's CMB branch); the
+  emul_cmb adapter's Cl assembly + every loud error (duplicate spectrum,
+  wrong-kind, unknown-spectrum / beyond-lmax must_provide, both get_Cl
+  convention guards; cobaya.theory stubbed, torch-only); the D-CM8
+  roughness legs (band ratio > 100, zero -> exactly 0, OFF identity
+  bitwise, one-reduction composition, the lensing guard < 3%); and the
+  D-CM10 finetune legs (epoch-0 parity from a CMB source, the cosmolike
+  pin's wrong-kind refusal, validate_cmb accepting finetune). torch only,
+  no CAMB (spec: cmb-spectra-emulators.md, D-CM6/8/10).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/cmb_identity.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="cmb-identity constants + law + round-trip + roughness + "
+            "finetune + adapter legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/cmb_identity.py)")
+
+
+def gate_cme_b(ctx):
+  """cmb-smoke: the CMB emulator end to end on real CAMB.
+
+  WHAT: dataset_generator_cmb.py writes two tiny dumps (200 rows each,
+  l = 2..350, cmblensed, As sampled linearly) — four per-spectrum dv files
+  + sidecars, phiphi actually filled (D-CM3-A); compute_cmb_covariance.py
+  writes the Gaussian .npz on the fixture LCDM (D-CM11, first real run);
+  a data.cmb / as_exp2tau training run collapses the val median below
+  0.5x the staged mean predictor (the dead-network-relative bar,
+  D-SPE2-5); the saved artifact serves Cl through the real cobaya
+  lifecycle (get_model + add_requirements + provider.get_Cl equals the
+  predictor's own output); and the D-CM9 diagnostics pages build. torch +
+  cobaya + a compiled CAMB under $ROOTDIR; budget several minutes (~400
+  serial low-accuracy CAMB calls) (spec: cmb-spectra-emulators.md,
+  D-CM6/9/11).
+  """
+  ctx.require_caps("torch", "cobaya")
+  rc, out = ctx.run_check("gates/checks/cmb_smoke.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="cmb-smoke generator + covariance + train + cobaya + diagnostics",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/cmb_smoke.py)")
+
+
+def gate_bsn_a(ctx):
+  """bsn-identity: the grid emulator + the imposed-physics pipeline.
+
+  WHAT: the verbatim legacy Simpson (even doubled-grid points exact on
+  cubics, the odd half-chunk step bounded — a recorded legacy
+  approximation) and the H(z)->distances pipeline against a closed-form
+  flat LCDM at 1e-6; the GridGeometry log_offset law both ways + the
+  state round-trip byte-identical + the un-standardizable /
+  log-positivity / unknown-law guards; save -> rebuild -> predict
+  bitwise on BOTH laws (the predictor's grid branch); the emul_baosn
+  adapter legs (pair validation, window layout, the DESERT loud at
+  must_provide AND the getters, the piecewise chi vs the pipeline / the
+  D_M artifact, get_Hubble units + window guards, D_A_2); and the
+  D-BSN9 finetune legs (epoch-0 parity from a grid source; the
+  metadata-mismatch and cross-quantity from_config errors). torch +
+  scipy, no CAMB (spec: baosn-emulators.md, D-BSN1/3/3-A/4/6/9).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/bsn_identity.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="bsn-identity pipeline + law + round-trip + adapter + "
+            "finetune legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/bsn_identity.py)")
+
+
+def gate_bsn_b(ctx):
+  """bsn-smoke: the BAOSN emulators end to end, checked against CAMB.
+
+  WHAT: dataset_generator_background.py writes two tiny dumps (200
+  rows, one background-only CAMB evaluation per sample — fast) carrying
+  BOTH quantities + their _z.npy grid sidecars (D-BSN2/3-A(5)); two
+  data.grid training runs (Hubble/log_offset + D_M/none) each collapse
+  below 0.5x the staged mean predictor (the dead-network-relative bar);
+  the real cobaya lifecycle through emul_baosn serves H / D_A (SN
+  window) and D_M (recombination window) within 2% of CAMB's OWN
+  background at an off-center point — truth is available here, the
+  strongest smoke of the program; the desert stays loud through the
+  real lifecycle; the D-BSN8 diagnostics pages build. torch + cobaya +
+  a compiled CAMB under $ROOTDIR (spec: baosn-emulators.md, D-BSN6/8).
+  """
+  ctx.require_caps("torch", "cobaya")
+  rc, out = ctx.run_check("gates/checks/bsn_smoke.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="bsn-smoke generator + two trainings + cobaya-vs-CAMB "
+            "+ diagnostics",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/bsn_smoke.py)")
+
+
+def gate_mps_a(ctx):
+  """mps-identity: the grid2d emulator + the syren-law assembly math.
+
+  WHAT: the Grid2DGeometry standardize/state round-trips + its width /
+  un-standardizable ((z, k)-naming) / unknown-law guards; the STAGING
+  law transform through the REAL load_source (law rows = log(raw/base)
+  with the base dump aligned by dump_rows through a real shuffled
+  staging; k_stride keeps the top edge; positivity loud); save ->
+  rebuild -> predict bitwise on both laws (the predictor's grid2d
+  branch returns the reshaped (nz, nk) surface); the emul_mps assembly
+  EXACT against synthetic base stubs (P_lin = exp(net)*base, the low-k
+  blend pins boost -> 1 below k_t, P_nl = B*P_lin, the boost base fed
+  the EMULATED P_lin — the legacy flow), its pair/grid/wrong-kind
+  guards, the legacy state keys + interpolator node round-trip, and
+  the reject-on-bad-spectrum semantics; validate_grid2d's pairing /
+  base-file / k_stride / transfer-PERMANENT legs; the D-MP7 finetune
+  parity + metadata-mismatch legs. torch + scipy, no CAMB, no
+  symbolic_pofk (the real syren formulas ride the EMUL2 acceptance)
+  (spec: mps-emulators.md, D-MP1/2/2-A/6/7).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/mps_identity.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="mps-identity geometry + staging law + assembly + finetune "
+            "legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/mps_identity.py)")
+
+
+def gate_mps_b(ctx):
+  """mps-smoke: the MPS emulators end to end on real CAMB (law none).
+
+  WHAT: dataset_generator_mps.py writes two tiny dumps (200 rows,
+  16 z x 40 k) through the real Pk_interpolator requirement (incl. the
+  verbatim wants-Cl quirk): pklin + boost + the grid sidecars; two
+  data.grid2d trainings (law none) each collapse below 0.5x the staged
+  mean predictor; the real cobaya lifecycle through emul_mps serves
+  P_lin and P_nl (grid + interpolator) within 5% of CAMB's OWN
+  P(k, z) at an off-center point; the interpolator range guard. The
+  syren-law path is exactly gated by mps-identity's stubbed legs, and
+  the full syren + EMUL2 hybrid run is the unit's recorded acceptance
+  experiment (EXAMPLE_EMUL2_EVALUATE1.yaml, user-run on the
+  workstation). torch + cobaya + a compiled CAMB under $ROOTDIR
+  (spec: mps-emulators.md, D-MP3/4/6).
+  """
+  ctx.require_caps("torch", "cobaya")
+  rc, out = ctx.run_check("gates/checks/mps_smoke.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="mps-smoke generator + two trainings + cobaya-vs-CAMB",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/mps_smoke.py)")
+
+
+def gate_geo_a(ctx):
+  """geo-paths: the geometry folder move is artifact-immune.
+
+  WHAT: a fresh artifact's geometry cls markers rewritten to the OLD
+  flat module paths (emulator.geometries_<name>.<Class> — what every
+  pre-GEO artifact persists) must rebuild and predict BITWISE against
+  the untouched artifact (the legacy shims route the stored import to
+  the one class object); a fresh save writes the NEW folder paths
+  automatically (type().__module__, the resolved-values rule); each
+  shim's classes ARE the folder classes (alias, isinstance sound); and
+  the tree-wide census proves no code outside the shims references the
+  old flat names. Acceptance beyond this gate = the full board green
+  (every gate touches geometries) with ema-off-identity pinning
+  byte-identity, the GRF precedent (spec: geometry-family-folder.md,
+  D-GEO1..4).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/geo_paths.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="geo-paths old-path rebuild + new-save markers + shim "
+            "identity/census",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/geo_paths.py)")
+
+
 BOARD = [
   Gate(id="ema-off-identity",
        spec_code="GM-C",
@@ -1149,6 +1343,43 @@ BOARD = [
             "D-SPE1-1/2-1/2-3/2-4 error legs)",
        run=gate_spe_a,
        needs=("torch",)),
+  Gate(id="cmb-identity",
+       spec_code="CME-A",
+       title="CMB emulator identity",
+       tier=TIER_NEW_FEATURES,
+       home="cmb-spectra-emulators",
+       maps="110-117 (D-CM6 identity legs); 517-530 (D-CM8 gate legs); "
+            "582-591 (D-CM10 finetune legs)",
+       run=gate_cme_a,
+       needs=("torch",)),
+  Gate(id="bsn-identity",
+       spec_code="BSN-A",
+       title="BAOSN grid emulator identity",
+       tier=TIER_NEW_FEATURES,
+       home="baosn-emulators",
+       maps="118-127 (D-BSN6 identity legs); 138-176 (the D-BSN3-A "
+            "two-regime + desert legs); 217-231 (D-BSN9 finetune legs)",
+       run=gate_bsn_a,
+       needs=("torch",)),
+  Gate(id="mps-identity",
+       spec_code="MPS-A",
+       title="MPS grid2d emulator identity",
+       tier=TIER_NEW_FEATURES,
+       home="mps-emulators",
+       maps="D-MP1/2 (geometry + laws); D-MP2-A (the base placement + "
+            "staging transform); D-MP6 (identity legs); D-MP7 (finetune)",
+       run=gate_mps_a,
+       needs=("torch",)),
+  Gate(id="geo-paths",
+       spec_code="GEO-A",
+       title="Geometry folder artifact immunity",
+       tier=TIER_NEW_FEATURES,
+       home="geometry-family-folder",
+       maps="D-GEO2 (shims); D-GEO3 (import rewrite census); D-GEO4 "
+            "(old-path rebuild + new-save markers + full-board "
+            "acceptance)",
+       run=gate_geo_a,
+       needs=("torch",)),
 
   Gate(id="save-rebuild-drift",
        spec_code="GSV-C",
@@ -1196,5 +1427,32 @@ BOARD = [
        maps="128-134 (fixture train + collapse + off-center predict + "
             "cobaya evaluate through emul_scalars)",
        run=gate_spe_b,
+       needs=("torch", "cobaya")),
+  Gate(id="cmb-smoke",
+       spec_code="CME-B",
+       title="CMB emulator smoke",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="cmb-spectra-emulators",
+       maps="118-124 (D-CM6 end-to-end: generator + covariance + train + "
+            "cobaya lifecycle); 575-578 (the D-CM9 diagnostics leg)",
+       run=gate_cme_b,
+       needs=("torch", "cobaya")),
+  Gate(id="bsn-smoke",
+       spec_code="BSN-B",
+       title="BAOSN emulator smoke",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="baosn-emulators",
+       maps="128-136 (D-BSN6 end-to-end vs CAMB's own background); "
+            "178-194 (the D-BSN8 diagnostics leg)",
+       run=gate_bsn_b,
+       needs=("torch", "cobaya")),
+  Gate(id="mps-smoke",
+       spec_code="MPS-B",
+       title="MPS emulator smoke",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="mps-emulators",
+       maps="D-MP3 (the generator incl. the wants-Cl quirk); D-MP4/6 "
+            "(the emul_mps lifecycle vs CAMB's own P(k, z))",
+       run=gate_mps_b,
        needs=("torch", "cobaya")),
 ]

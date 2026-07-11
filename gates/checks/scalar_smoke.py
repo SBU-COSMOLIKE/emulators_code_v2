@@ -159,7 +159,42 @@ def check_train_and_predict(tmp, device):
     rel = abs(got - want) / want
     report("predict reproduces the analytic omegamh2 at a test point",
            rel < 0.05, "got %.5f want %.5f (rel %.3g)" % (got, want, rel))
+    check_diagnostics(exp, model, tmp)
     return root
+
+
+def check_diagnostics(exp, model, tmp):
+    """The D-CM9 scalar diagnostics leg: 3 pages build + the PDF lands."""
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    try:
+        from emulator.diagnostics import scalar_output_diagnostic
+        from emulator.plotting import _scalar_pages, plot_diagnostics
+        import matplotlib.pyplot as plt
+        sc = scalar_output_diagnostic(model=model,
+                                      param_geometry=exp.pgeom,
+                                      chi2fn=exp.chi2fn,
+                                      val_set=exp.val_set,
+                                      device=exp.device)
+        figs = _scalar_pages(sc)
+        n_pages = len(figs)
+        for f in figs:
+            plt.close(f)
+        pdf = os.path.join(tmp, "scalar_diag.pdf")
+        plot_diagnostics(train_losses=[0.1], medians=[0.1], means=[0.1],
+                         fracs=[torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                         thresholds=exp.thresholds,
+                         coverage={"knn_dist": np.ones(4),
+                                   "dchi2": np.ones(4), "k_nn": 2},
+                         scalar=sc, savepath=pdf)
+        ok = (n_pages == 3 and os.path.isfile(pdf)
+              and os.path.getsize(pdf) > 10000)
+        report("D-CM9 diagnostics: 3 scalar pages + the PDF lands", ok,
+               "%d pages, %d bytes" % (n_pages,
+                                       os.path.getsize(pdf)
+                                       if os.path.isfile(pdf) else 0))
+    except Exception as e:
+        report("D-CM9 diagnostics: 3 scalar pages + the PDF lands", False,
+               type(e).__name__ + ": " + str(e)[:200])
 
 
 def check_cobaya_evaluate(tmp, root):

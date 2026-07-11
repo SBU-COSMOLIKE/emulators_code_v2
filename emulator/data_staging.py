@@ -478,7 +478,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                   else this raises (the post-cut enforcement point). A
                   row count here (dump rows staged), not the kept
                   data-vector length also called n_keep in
-                  geometries_output / designs/plain.
+                  geometries.output / designs/plain.
     gen         = torch.Generator seeding the cut+shuffle (required).
     ram_frac    = fraction of available RAM stage_source may fill
                   (default 0.7).
@@ -528,16 +528,25 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
 
   n     = C.shape[0]
   order = torch.randperm(n, generator=gen).numpy()
-  phys, cut_report = phys_cut_idx(C=C, idx=order, names=names,
-                                  omegabh2_hi=omegabh2_hi,
-                                  omegabh2_lo=omegabh2_lo,
-                                  omegam2h2_lo=omegam2h2_lo,
-                                  omegam2h2_hi=omegam2h2_hi,
-                                  omegamh2_lo=omegamh2_lo,
-                                  omegamh2_hi=omegamh2_hi,
-                                  omegamh2ns_lo=omegamh2ns_lo,
-                                  omegamh2ns_hi=omegamh2ns_hi,
-                                  param_file=params_path)
+  # physical-window cuts are opt-in on the CMB path exactly as on the
+  # scalar path (D-SPE2 / D-CM4): a CMB chain need not carry the
+  # omegab / H0 / omegam / ns columns the windows read, so
+  # omegabh2_hi = None skips the cuts entirely. The cosmolike path
+  # always passes a value (validate_param_cuts requires it there), so
+  # its behavior is unchanged.
+  if omegabh2_hi is None:
+    phys, cut_report = order, []
+  else:
+    phys, cut_report = phys_cut_idx(C=C, idx=order, names=names,
+                                    omegabh2_hi=omegabh2_hi,
+                                    omegabh2_lo=omegabh2_lo,
+                                    omegam2h2_lo=omegam2h2_lo,
+                                    omegam2h2_hi=omegam2h2_hi,
+                                    omegamh2_lo=omegamh2_lo,
+                                    omegamh2_hi=omegamh2_hi,
+                                    omegamh2ns_lo=omegamh2ns_lo,
+                                    omegamh2ns_hi=omegamh2ns_hi,
+                                    param_file=params_path)
   if verbose:
     # per-window survivor counts: a value typed against the wrong
     # quantity (the omegamh2-vs-omegam2h2 one-character trap) shows up
@@ -565,7 +574,15 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   # stage the cut rows in RAM if they fit, else keep the memmap.
   C_src, dv_src, idx_src = stage_source(
     C=C, dv=dv, idx=idx, ram_frac=ram_frac)
-  src = {"C": C_src, "dv": dv_src, "idx": idx_src}
+  # dump_rows = the ON-DISK dump row indices of the staged rows, in
+  # SORTED-unique order — exactly the order dv_src[np.sort(np.unique(
+  # idx_src))] walks on either staging path (stage_source's RAM copy is
+  # built over np.sort(np.unique(idx)); the memmap path keeps global
+  # indices). Consumers that must align a SIBLING dump file row-for-row
+  # (the grid2d base files, D-MP2-A) read this; everything else ignores
+  # the extra key.
+  src = {"C": C_src, "dv": dv_src, "idx": idx_src,
+         "dump_rows": np.sort(np.unique(np.asarray(idx)))}
   if with_means:
     # the per-column std (2nd return) is unused: whitening comes
     # from the covmat, only the means center the targets.

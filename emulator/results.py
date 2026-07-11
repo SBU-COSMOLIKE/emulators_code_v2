@@ -257,7 +257,7 @@ def save_emulator(path_root,
         group.attrs[k] = str(v)   # torch.dtype and friends
 
   with h5py.File(h5_path, "w") as f:
-    # input whitening. param_geometry.state() (geometries_parameter.py):
+    # input whitening. param_geometry.state() (geometries.parameter.py):
     # the input-whitening tensors keyed exactly as from_state expects. The
     # group also records its own CLASS (materialized from the object's type
     # at write time) so rebuild dispatches to the right from_state -- a
@@ -269,7 +269,7 @@ def save_emulator(path_root,
     pg_group.attrs["cls"] = (type(param_geometry).__module__ + "."
                              + type(param_geometry).__qualname__)
 
-    # output geometry. geometry.state() (geometries_output.py): the
+    # output geometry. geometry.state() (geometries.output.py): the
     # output-geometry tensors keyed exactly as from_state expects; the same
     # class marker (a Diagonal / BlockDiagonal geometry shares the base
     # state keys but a different whitening, so the marker prevents a silent
@@ -446,7 +446,10 @@ def rebuild_emulator(path_root, device, compile_model=True):
 
   from .activations import make_activation
   from .designs.blocks import make_norm
-  from .geometries_scalar import ScalarGeometry
+  from .geometries.scalar import ScalarGeometry
+  from .geometries.cmb import CmbDiagonalGeometry
+  from .geometries.grid import GridGeometry
+  from .geometries.grid2d import Grid2DGeometry
 
   def _read_group(g):
     # inverse of save's write_state: numeric datasets -> tensors, string
@@ -613,4 +616,42 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # D-SP5). Dispatched on the rebuilt class, not a stored attr, so an
     # older non-scalar artifact simply reports False.
     "scalar":         isinstance(geom, ScalarGeometry),
+    # CMB-spectrum emulator (D-CM4): dispatched on the rebuilt class the
+    # same way; the amplitude law + its column names are ARTIFACT FACTS
+    # persisted in the geometry state (D-CM1), surfaced here so the
+    # predictor / cobaya adapter rebuild the law-aware decode (D-CM5)
+    # without rereading the config. None / absent on non-CMB artifacts.
+    # the law keys are guarded by the class check (a GridGeometry also
+    # carries a .law attr — its TARGET law, a different registry), so a
+    # bare getattr would smear one family's fact onto another.
+    "cmb":            isinstance(geom, CmbDiagonalGeometry),
+    "amplitude_law":  (geom.law
+                       if isinstance(geom, CmbDiagonalGeometry) else None),
+    "as_name":        (geom.as_name
+                       if isinstance(geom, CmbDiagonalGeometry) else None),
+    "tau_name":       (geom.tau_name
+                       if isinstance(geom, CmbDiagonalGeometry) else None),
+    # grid (background-function) emulator (D-BSN1): dispatched on the
+    # rebuilt class; the quantity / units / law / offset are ARTIFACT
+    # FACTS persisted in the geometry state, surfaced for the predictor
+    # and the emul_baosn adapter. None / absent on non-grid artifacts.
+    "grid":           isinstance(geom, GridGeometry),
+    "grid_quantity":  (geom.quantity
+                       if isinstance(geom, GridGeometry) else None),
+    "grid_units":     (geom.units
+                       if isinstance(geom, GridGeometry) else None),
+    "grid_law":       (geom.law
+                       if isinstance(geom, GridGeometry) else None),
+    "grid_offset":    (geom.offset
+                       if isinstance(geom, GridGeometry) else None),
+    # grid2d (matter-power-spectrum) emulator (D-MP1): the same
+    # class-guarded dispatch; the law names the syren base the artifact
+    # corrects (the consumer multiplies it back, D-MP2-A).
+    "grid2d":           isinstance(geom, Grid2DGeometry),
+    "grid2d_quantity":  (geom.quantity
+                         if isinstance(geom, Grid2DGeometry) else None),
+    "grid2d_units":     (geom.units
+                         if isinstance(geom, Grid2DGeometry) else None),
+    "grid2d_law":       (geom.law
+                         if isinstance(geom, Grid2DGeometry) else None),
   }

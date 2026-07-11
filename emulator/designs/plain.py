@@ -1,17 +1,17 @@
 """Standard emulator models (ResMLP, ResCNN, ResTRF).
 
 The plain member of the emulator/designs/ family: full networks
-mapping whitened cosmological parameters to the whitened data vector.
-Where this file sits in the training pipeline:
+mapping whitened cosmological parameters to the whitened training
+targets. Where this file sits in the training pipeline:
 
   cosmological parameters
-     │   geometries_parameter.py  center, rotate, unit-scale (whiten in)
+     │   geometries/parameter.py  center, rotate, unit-scale (whiten in)
      ▼
   whitened inputs
      │   designs/plain.py         ResMLP, ResCNN, or ResTRF (this file)
      ▼
   whitened data vector
-     │   geometries_output.py     un-whiten + scatter to full length
+     │   geometries/output.py     un-whiten + scatter to full length
      ▼
   physical residual vs truth
      │   losses/core.py           contract with the inverse covariance
@@ -22,6 +22,11 @@ Where this file sits in the training pipeline:
 arrow does the transform; r = the physical residual, prediction
 minus truth, scattered to full 3x2pt length; Cinv = the masked
 inverse covariance; chi2 = r^T Cinv r, the Mahalanobis distance.)
+
+The diagram is drawn for cosmic shear; a CMB spectrum, a scalar set,
+or a background / power-spectrum grid rides the same trunk with its
+own geometry and loss — the networks here never know which family
+they serve.
 
 ResMLP is the baseline: input projection, a stack of identical
 ResBlocks, output projection, final Affine. ResCNN and ResTRF add a
@@ -41,8 +46,8 @@ head_block fails at class-definition time.
 
 Whitened = rotated into the covariance eigenbasis and scaled to unit
 variance, leaving the components decorrelated and equally hard to fit;
-done by the geometry classes (geometries_parameter /
-geometries_output).
+done by the geometry classes (geometries.parameter /
+geometries.output).
 """
 
 import torch

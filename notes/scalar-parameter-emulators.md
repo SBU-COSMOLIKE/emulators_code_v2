@@ -1661,3 +1661,90 @@ that run's evidence, floor at the mean-predictor's 13.7%.
 lesson bank (required-subscript census before the board; evaluate
 readback via stdout/header; fixture sidecars in the real chain shape;
 smoke bars below the mean-predictor line; ship the diag from day one).
+
+## Scope ruling: transfer vs fine-tuning (2026-07-10, user directive)
+
+**Transfer learning (`transfer:`) and joint refinement
+(`transfer.refine`) are EXCLUSIVE to the two data-vector families —
+cosmolike and CMB.** The scalar and BSN forbids are therefore
+PERMANENT, not V1 deferrals: validate_scalar's transfer rejection is
+the final state, and D-SP8's "unless the overlap ruling admits them"
+hedge is void for transfer. **Fine-tuning (`train_args.finetune`),
+by contrast, must be supported by EVERY family** — which commissions
+SPE-FT below (SPE shipped with a V1 finetune forbid).
+
+## SPE-FT — scalar fine-tuning (spec; QUEUED, small, after CME)
+
+Lift validate_scalar's finetune forbid and route scalar runs through
+the FTW warm start. The machinery is D-SP3's anticipated composition;
+the work is admission + pinning + the combined driver path:
+
+- **D-SF1 — source admissibility + the output pin.** finetune.from on
+  a scalar run must rebuild a SCALAR artifact (loud wrong-kind
+  otherwise, the D-SPE2-4 message pattern); the source's outputs list
+  must equal the run's data.outputs EXACTLY (names and order; loud
+  diff naming both lists). The source ScalarGeometry (names / center /
+  scale) is PINNED into the run through build_warm_start's pinned_geom
+  slot — the dv-geometry pin's exact analogue — so epoch 0 equals the
+  source bitwise on shared inputs (the FTW parity contract).
+- **D-SF2 — input extension.** D-FT3 applies unchanged: the target
+  covmat must be a superset of the source's input names; shared
+  coordinates whiten bit-identically; new columns enter zero-padded;
+  the padded keys are excluded from the finetune.anchor mask (the
+  existing facility — nothing new).
+- **D-SF3 — the combined driver path.** validate_scalar's finetune
+  rejection is REPLACED by combined validation (ia / pce / transfer /
+  rescale stay forbidden; finetune admitted); from_config routes
+  scalar+finetune through the warm-start branch with the D-SF1 pin;
+  the WHOLE combined path forward-walked with the config-access
+  census (the FTW model-block lesson — finetune YAMLs must not need a
+  model: block on the scalar path either).
+- **D-SF4 — gates.** scalar-identity gains the finetune legs: epoch-0
+  parity bitwise vs the source on shared inputs; the outputs-mismatch
+  and wrong-kind-source loud errors; anchor-with-padded-keys
+  composition (assert the mask). No new board gate — the legs ride
+  the existing scalar-identity.
+
+Sequencing: after CME closes, before BSN (small); BSN then inherits
+the same pattern for GridGeometry (D-BSN9 in [[baosn-emulators]]).
+
+## SPE-FT LANDED + Mac-gated (2026-07-11, Architect, overnight mode)
+
+- **D-SF3:** validate_scalar's finetune forbid REPLACED by admission
+  (ia/pce/transfer/rescale stay forbidden); the from_config scalar
+  branch gains the finetune sub-path (validate_finetune_config runs
+  BEFORE any ta["model"] read — the FTW model-block lesson holds by
+  ordering, probe-verified) with the D-SF1 checks: wrong-kind (a
+  non-scalar source names its own family's path) and outputs-equal
+  (names AND order, loud diff naming both lists).
+- **D-SF1/2:** build_geometry's cosmolike finetune branch is now
+  guarded `not self._scalar` too (the same latent ordering hazard
+  D-CM10 fixed for cmb); the scalar branch pins the SOURCE
+  ScalarGeometry wholesale (center/scale = the source standardization,
+  epoch-0 parity) with the input side on extend_input_geometry (D-FT3
+  unchanged; ScalarGeometry carries dest_idx/total_size so
+  build_warm_start's pinned_geom slot works as-is).
+- **D-SF4:** scalar_identity.py gains check_finetune: load_source
+  accepts a scalar artifact (save_synthetic_scalar now stamps
+  rescale="none" — a source without it is ambiguous and refused);
+  epoch-0 parity via build_warm_start (same covmat, no extras);
+  the extended-covmat leg asserts anchor_masks zeros EXACTLY the
+  padded extra column; the outputs-mismatch and wrong-kind from_config
+  legs fire before any staging (dummy data names suffice) and the
+  finetune cfg carries no model: block. No new board gate — the legs
+  ride scalar-identity (rerun it on the workstation).
+- **D-MP5 driver pairs (scalar + cmb, commissioned by the user):**
+  emulator/family_drivers.py holds the SERIAL sweep/tune loops
+  single-sourced (the cosmic-shear drivers' serial paths; the
+  multi-GPU pool / gpu-pack / journal machinery stays the cosmic-shear
+  tool); sweep_ntrain_scalar_emulator.py / tune_scalar_emulator.py /
+  sweep_ntrain_cmb_emulator.py / tune_cmb_emulator.py are thin
+  namespace-ruled drivers (prog names = the D-MP5 convention; no
+  --rescale — a data-vector concept each family validator rejects).
+  BSN/MPS pairs land in-unit with their families.
+- **Mac probe 5/5** (scratchpad probe_speft.py): compile x7; the order
+  census (forbid gone, sub-path before model read, both guards, pin
+  before from_targets); validate_scalar exec-probe (finetune accepted,
+  transfer still loud); driver surface census (no module-level
+  argparse, prog names, the experiment surface the loops call); the
+  gate-leg census.

@@ -7,88 +7,123 @@ it is laid out, what each file does, and where to edit for a given change.
 ## Contents
 
 1. [Layout](#1-layout)
-2. [What each file does](#2-what-each-file-does)
-3. [Change X → edit Y](#3-change-x--edit-y)
-4. [Variants](#4-variants)
-5. [Every file's functions](#5-every-files-functions)
-    1. [`data_staging.py`](#apx-data_staging)
-    2. [`geometries_parameter.py`](#apx-geometries_parameter)
-    3. [`geometries_output.py`](#apx-geometries_output)
-    4. [`analytics.py`](#apx-analytics)
-    5. [`activations.py`](#apx-activations)
-    6. [`designs/` (the model family)](#apx-designs)
-    7. [`losses/` (the chi2 family)](#apx-losses)
-    8. [`batching.py`](#apx-batching)
-    9. [`training.py`](#apx-training)
-    10. [`experiment.py`](#apx-experiment)
-    11. [`scheduling.py`](#apx-scheduling)
-    12. [`results.py`](#apx-results)
-    13. [`plotting.py`](#apx-plotting)
-    14. [`diagnostics.py`](#apx-diagnostics)
-    15. [drivers](#apx-drivers)
+2. [The five emulator families](#2-the-five-emulator-families)
+3. [What each file does](#3-what-each-file-does)
+4. [Change X → edit Y](#4-change-x--edit-y)
+5. [Variants](#5-variants)
+6. [Every file's functions](#6-every-files-functions)
 
 ---
 
 ## 1. Layout
 
 ```
-emulator/                              the library (pure torch, except geometries_output)
+emulator/                              the library (torch; cosmolike only in geometries/output)
   data_staging.py                      load dumps -> "source" dicts; the physical cut
-  geometries_parameter.py              INPUT whitening (params -> network input)
-  geometries_output.py                 OUTPUT geometry + chi2 covariance (imports cosmolike)
+  geometries/                          the geometry family folder:
+    parameter.py                       INPUT whitening (params -> network input)
+    output.py                          the 3x2pt data-vector geometry (imports cosmolike)
+    scalar.py                          derived-parameter standardization
+    cmb.py                             the per-multipole diagonal C_ell geometry
+    grid.py                            background functions of z + the log_offset law
+    grid2d.py                          the (z, k) matter-power surfaces + the syren laws
+  geometries_*.py                      LEGACY SHIMS only: saved artifacts persist the OLD
+                                       flat module paths, so these re-exports live forever;
+                                       new code never imports them (a gate censuses it)
+  background.py                        H(z) -> distances: the imposed background physics
+  syren_base.py                        the syren analytic P(k) base the MPS emulators correct
   analytics.py                         analytic xi rescaling R (optional preprocessing)
   activations.py                       learnable activations (H + variants)
-  designs/                             the model family (section 4):
+  designs/                             the model family (section 5):
     blocks.py                          Affine, ResBlock, BinLinear, TRFBlock, FiLMGenerator
     plain.py                           ResMLP, ResCNN, ResTRF
     ia.py                              factored-IA templates (TemplateMLP, ...)
     pce.py                             PCEEmulator: the closed-form NPCE base
-  losses/                              the chi2 family (section 4):
+  losses/                              the chi2 family (sections 2 + 5):
     core.py                            chi2 losses + make_chi2 + anneal_value
     ia.py                              factored-IA loss + amplitude coefficients
     pce.py                             NPCE losses (residual / ratio)
+    scalar.py                          ScalarChi2 (also serves the grid + grid2d families)
+    cmb.py                             the CMB chi2 pair + the amplitude-law registry
+                                       + the residual-roughness term
+    transfer.py                        the frozen-base transfer chi2
   batching.py                          memory sizing + regime-aware data loaders
   training.py                          build model/opt/sched, training loop, run_emulator
   experiment.py                        EmulatorExperiment: the whole setup as one object
+  warmstart.py                         fine-tune / transfer sources: load, extend, transfer
   scheduling.py                        GPU job balancing + worker pool + VRAM packing
   results.py                           save_learning_curves; save_emulator + rebuild_emulator
-  inference.py                         EmulatorPredictor: rebuild + predict (MCMC inference)
-  plotting.py                          history / learning-curve / coverage / xi plots
-  diagnostics.py                       coverage, local-linear floor, hard-direction fits
+  inference.py                         EmulatorPredictor: rebuild + predict (every family)
+  plotting.py                          history / curves / coverage / the diagnostics PDF
+  diagnostics.py                       coverage, floor, hard directions + per-family pages
+  family_drivers.py                    the serial per-family sweep/tune loops
+  cocoa.py                             the cocoa project layout (paths, YAML resolution)
 
-train_single_*.py                      CLI: one training run (+ optional diagnostics PDF)
-tune_single_*.py                       CLI: Optuna hyperparameter search (multi-GPU)
-sweep_ntrain_*.py                      CLI: f(dchi2 > thr) vs N_train   (multi-GPU)
+train_single_*.py / train_scalar_*.py  CLI: one training run (+ optional diagnostics PDF)
+tune_*.py                              CLI: Optuna search (cosmic shear multi-GPU; the
+                                       per-family tune_{scalar,cmb,baosn,mps}_ serial)
+sweep_ntrain_*.py                      CLI: f(dchi2 > thr) vs N_train (same split)
 sweep_hyperparam_*.py                  CLI: sweep ONE YAML-chosen knob  (multi-GPU)
 bakeoff_activation_*.py                CLI: one curve per activation    (multi-GPU)
 example_yamls/                         template YAMLs; copy one into a project's --fileroot
-cobaya_theory/                         Cobaya Theory adapter (MCMC) + example evaluate YAML
+cobaya_theory/                         one thin cobaya Theory adapter per artifact kind
+compute_data_vectors/                  the training-set generators + the CMB covariance
+gates/                                 the acceptance board (32 gates; see gates/README.md)
 ```
 
 The driver scripts sit beside `emulator/` (no `driver/` subfolder): launching one
 puts its own folder on `sys.path`, so `import emulator` resolves with no path
 setup. In a cocoa install this folder is
 `external_modules/code/emulators/emultrfv2/`; run the drivers from `$ROOTDIR`.
-The `cobaya_theory/` folder sits beside `emulator/` too; its thin Theory
-adapter drives `emulator/inference.py` (`EmulatorPredictor`) to run a saved
-emulator inside a Cobaya MCMC (it prepends the repo root to `sys.path` so
-`import emulator` resolves from a folder deeper).
+The `cobaya_theory/` adapters drive `emulator/inference.py`
+(`EmulatorPredictor`) to run saved emulators inside a Cobaya MCMC (each
+prepends the repo root to `sys.path` so `import emulator` resolves from a
+folder deeper).
 
-Only `geometries_output.py` imports cosmolike, so training runs on a machine
-with a working Cocoa installation; the library everywhere else is pure PyTorch
-and reviewable anywhere.
+Only `geometries/output.py` imports cosmolike, so cosmic-shear training runs
+on a machine with a working Cocoa installation; every other family (and the
+library everywhere else) is pure PyTorch and reviewable anywhere.
 
 ---
 
-## 2. What each file does
+## 2. The five emulator families
+
+One training stack serves five output kinds. The family is picked by the
+config's data block; every family's loss exposes the same per-sample chi2, so
+trimming / the focal weight / the berhu ladder / EMA / fine-tuning compose
+unchanged for all of them:
+
+| family | data block key | output geometry | loss | cobaya adapter |
+|---|---|---|---|---|
+| cosmic shear (3x2pt) | the cosmolike keys | `geometries/output.py` | `losses/core.py` (+ ia / pce / transfer) | `emul_cosmic_shear` |
+| scalar (derived params) | `outputs` | `geometries/scalar.py` | `losses/scalar.py` | `emul_scalars` |
+| CMB spectra | `cmb` | `geometries/cmb.py` | `losses/cmb.py` | `emul_cmb` |
+| background (BAO/SN) | `grid` | `geometries/grid.py` | `losses/scalar.py` (reused) | `emul_baosn` |
+| matter power (EMUL2) | `grid2d` | `geometries/grid2d.py` | `losses/scalar.py` (reused) | `emul_mps` |
+
+Two physics modules sit beside the geometries, each with exactly one
+definition shared by its generator, its adapter, and its gates:
+`background.py` (the distances are KNOWN physics integrated from the emulated
+H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
+
+---
+
+## 3. What each file does
 
 **Data & geometry**
 
 | File | Role |
 |---|---|
-| `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical density windows (`omega_b h^2` bound, plus the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Memmaps the dv dump (never loads it whole). |
-| `geometries_parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. |
-| `geometries_output.py` | Output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry` (theta order, for a CNN), `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** |
+| `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical density windows (`omega_b h^2` bound, plus the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Memmaps the dv dump (never loads it whole). Returns `dump_rows` so a sibling dump file (the MPS base dumps) can be row-aligned. |
+| `geometries/parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. |
+| `geometries/output.py` | The 3x2pt output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry`, `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** |
+| `geometries/scalar.py` | `ScalarGeometry`: per-output standardization over named derived parameters, with the un-standardizable-column guard. |
+| `geometries/cmb.py` | `CmbDiagonalGeometry`: per-multipole whitening by the cosmic-variance error bar (sigma from the covariance script's .npz), the spectrum / units / amplitude-law facts persisted. |
+| `geometries/grid.py` | `GridGeometry` + `TARGET_LAWS`: a function on a stored z grid, the law (`log_offset` / `none`) inside encode/decode. |
+| `geometries/grid2d.py` | `Grid2DGeometry` + `TARGET_LAWS_2D`: a flattened (z, k) surface standardized in LAW space (the syren division happens at staging; see `syren_base.py`). |
+| `geometries_*.py` (flat) | The legacy shims — one re-export line each. Saved artifacts persist geometry classes as full module paths, and `rebuild_emulator` imports exactly the stored string, so the old paths must import forever. |
+| `background.py` | The BAOSN imposed physics: the legacy cumulative Simpson (verbatim), c/H on the doubled grid, the flat distance conversions, `distance_interpolators`. |
+| `syren_base.py` | The syren (symbolic_pofk) base formulas the MPS emulators correct (`base_pklin`, `base_boost`) + `syren_params_from` (the ONE rule mapping resolved parameters to the base's arguments — generator and adapter cannot disagree). |
 | `analytics.py` | Closed-form analytic xi (Eisenstein-Hu) to divide out broadband cosmology dependence — the optional rescaling `R`. |
 
 **Model**
@@ -97,56 +132,98 @@ and reviewable anywhere.
 |---|---|
 | `activations.py` | Learnable activations: the paper's `H` plus Power / Gated / GatedPower variants; `make_activation` maps a name → factory. |
 | `designs/blocks.py` | The small `nn.Module`s models are built from: `Affine`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, plus `rescale_kernel_size`. |
-| `designs/plain.py` | The full networks: `ResMLP` (baseline), `ResCNN` (ResMLP trunk + a gated 1D-CNN correction in theta order), and `ResTRF` (a bin-token transformer correction head). The factored-IA and NPCE variants are `designs/ia.py` / `designs/pce.py` (section 4). |
+| `designs/plain.py` | The full networks: `ResMLP` (baseline; the only design the scalar / cmb / grid / grid2d families accept — the conv/TRF heads assume the 3x2pt eigenbasis geometry), `ResCNN`, `ResTRF`. The factored-IA and NPCE variants are `designs/ia.py` / `designs/pce.py`. |
 
 **Loss & training**
 
 | File | Role |
 |---|---|
-| `losses/core.py` | chi2 losses on the whitened residual: `CosmolikeChi2` (plain; the `sqrt` / pseudo-Huber / `berhu` / `berhu_capped` mode ladder), `RescaledChi2` / `ResidualBaseChi2` (analytic-R), `ElementWeightedChi2`; `anneal_value` (the shared trim / focus / berhu-blend / EMA-horizon schedule); `make_chi2`. The IA and NPCE loss variants are `losses/ia.py` / `losses/pce.py` (section 4). |
+| `losses/core.py` | chi2 losses on the whitened residual: `CosmolikeChi2` (plain; the `sqrt` / pseudo-Huber / `berhu` / `berhu_capped` mode ladder), `RescaledChi2` / `ResidualBaseChi2` (analytic-R), `ElementWeightedChi2`; `anneal_value`; `make_chi2`. The `_reduce` here is THE shared reduction every family's loss routes through. |
+| `losses/scalar.py` | `ScalarChi2` + `make_scalar_chi2`: the standardized-residual chi2 (also wraps the grid and grid2d geometries — their laws live in the geometry, so the loss needs nothing new). |
+| `losses/cmb.py` | `AMPLITUDE_LAWS` (`none` / `as_exp2tau`), `CmbDiagonalChi2` / `CmbFactoredChi2` (the imposed-amplitude target), `ResidualRoughness` (the optional band-explicit penalty on short-period residual wiggles), `make_cmb_chi2`. |
+| `losses/transfer.py` | `TransferChi2`: a frozen base network under a parallel correction (gain / sum, physical / whitened space). |
 | `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. |
-| `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the config validator / derivation layer (`validate_phase_block` / `validate_loss` / `validate_berhu` / `validate_ema`, `derive_eval_bs` / `derive_ema_beta`), the per-epoch loop, and `run_emulator`. |
+| `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the config validators (`validate_phase_block` / `validate_loss` — now with the `roughness:` sub-block — / `validate_berhu` / `validate_ema`), the per-epoch loop, and `run_emulator`. |
 
 **Orchestration & output**
 
 | File | Role |
 |---|---|
-| `experiment.py` | `EmulatorExperiment`: config → device → data → geometry → chi2 → spec → train as one reusable object (`from_yaml` / `from_config`). The drivers compose it. |
-| `scheduling.py` | GPU job balancing (`lpt_assign` by cost, `even_assign` round-robin), the spawned worker pool (`run_gpu_pool`: one process per GPU lane, per-GPU job queues), and the `--gpu-pack` VRAM-token machinery (`estimate_train_vram_fraction`, `vram_tokens`). |
-| `results.py` | `save_learning_curves` / `save_sweep_table`: `np.loadtxt`-friendly plain-text tables. `save_emulator`: a trained run as `.emul` (weights, cpu state_dict) + `.h5` (whitening geometries, histories, config, and the schema-v2 resolved recipe). `rebuild_emulator`: reconstruct the inference-ready module + geometries (+ NPCE base) from the `.h5` alone. |
-| `inference.py` | `EmulatorPredictor`: rebuild a saved emulator (schema v2, the h5 alone) and predict the physical data vector — encode with the saved `ParamGeometry`, module forward, the factored-IA amplitude combine or the NPCE base recombine (reusing the exact training `chi2fn.decode`), then decode. The in-package inference physics the Cobaya adapter wraps. |
-| `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves. |
-| `diagnostics.py` | Post-training analyses: coverage (kNN distance vs error), the local-linear data floor, the hard-direction regression. |
+| `experiment.py` | `EmulatorExperiment`: config → device → data → geometry → chi2 → spec → train as one reusable object (`from_yaml` / `from_config`). Holds every family's validator (`validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_param_cuts` / `validate_sizes`), the family branches of `from_config` / `build_geometry` (including the fine-tune geometry pins), and the grid2d staging law transform. The drivers compose it. |
+| `warmstart.py` | Fine-tune / transfer sources: `load_source` (validate a saved artifact), `extend_input_geometry` (block-extend for new parameters), `pin_output_geometry` (the cosmolike pin; the scalar/cmb/grid/grid2d pins live in their `build_geometry` branches), `build_warm_start` (transfer the weights + prove epoch-0 parity), `anchor_masks`. |
+| `scheduling.py` | GPU job balancing (`lpt_assign`, `even_assign`), the spawned worker pool (`run_gpu_pool`), and the `--gpu-pack` VRAM-token machinery. |
+| `results.py` | `save_learning_curves` / `save_sweep_table`; `save_emulator` (`.emul` weights + `.h5` record — geometries persisted by `state()` + full cls path); `rebuild_emulator` (the h5-only guarantee; its `info` dict carries the family flags `scalar` / `cmb` / `grid` / `grid2d` + each family's artifact facts, class-guarded). |
+| `inference.py` | `EmulatorPredictor`: rebuild a saved emulator and predict — one `predict(params)` for every artifact kind: the dv section, the scalar `{name: value}` dict, the physical C_ell row, the background `{"z", quantity}` function, or the (z, k) law-space surface. Reuses the exact training decode per family. |
+| `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves, and the multipage diagnostics PDF with the per-family pages (`cmb=` / `scalar=` / `grid=`). |
+| `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`). |
+| `family_drivers.py` | `run_ntrain_sweep` / `run_tune`: the SERIAL per-family loops the thin `sweep_ntrain_<family>_` / `tune_<family>_` drivers call (the multi-GPU pool stays the cosmic-shear drivers' tool). |
+| `cocoa.py` | The cocoa project layout: `--root` / `--fileroot` / `--yaml` resolution, output paths. |
 
 **Drivers** (beside `emulator/`; each reads `--root` / `--fileroot` / `--yaml`)
 
 | File | Role |
 |---|---|
-| `train_single_emulator_cosmic_shear.py` | One training run; `--diagnostic` writes a multipage PDF. |
-| `tune_single_emulator_cosmic_shear.py` | Optuna study over the YAML's `[default, min, max, kind]` ranges; multi-GPU via a shared journal-file study (`--n-gpus`, `--journal`). |
-| `sweep_ntrain_emulator_cosmic_shear.py` | `f(dchi2 > thr)` vs `N_train`; multi-GPU, LPT-balanced; `--gpu-pack` co-locates small points on big cards. |
-| `sweep_hyperparam_emulator_cosmic_shear.py` | Sweep ONE hyperparameter chosen in the YAML `sweep:` block (any dotted `train_args` path, e.g. `bs`, `lr.lr_base`, `model.cnn.film`, `model.activation`); multi-GPU, `--gpu-pack`. |
-| `bakeoff_activation_emulator_cosmic_shear.py` | One learning curve per activation; multi-GPU, split by activation. |
+| `train_single_emulator_cosmic_shear.py` | One training run — cosmic shear, cmb, grid, or grid2d (the data block picks the family); `--diagnostic` writes the multipage PDF with that family's pages. |
+| `train_scalar_emulator.py` | One scalar training run; `--diagnostic` adds the scalar pages. |
+| `tune_single_emulator_cosmic_shear.py` | Optuna study; multi-GPU via a shared journal-file study. |
+| `tune_{scalar,cmb,baosn,mps}_emulator.py` | The per-family Optuna studies (serial, in-memory; `family_drivers.run_tune`). |
+| `sweep_ntrain_emulator_cosmic_shear.py` | `f(dchi2 > thr)` vs `N_train`; multi-GPU, LPT-balanced; `--gpu-pack`. |
+| `sweep_ntrain_{scalar,cmb,baosn,mps}_emulator.py` | The per-family learning curves (serial; `family_drivers.run_ntrain_sweep`). |
+| `sweep_hyperparam_emulator_cosmic_shear.py` | Sweep ONE hyperparameter chosen in the YAML `sweep:` block; multi-GPU. |
+| `bakeoff_activation_emulator_cosmic_shear.py` | One learning curve per activation; multi-GPU. |
+
+The naming rule for every new driver is `<verb>_<family>_emulator.py`;
+renaming the pre-rule cosmic-shear drivers into it is a recorded POL-1
+follow-up (the board configs move with the rename).
+
+**cobaya_theory/** (one thin adapter per artifact kind; each rejects the
+other kinds' artifacts loudly, naming the right adapter)
+
+| File | Serves |
+|---|---|
+| `emul_cosmic_shear.py` | data-vector artifacts → the likelihood's dv (`state["cosmic_shear"]`). |
+| `emul_scalars.py` | scalar artifacts → named derived parameters (provides read FROM the artifacts). |
+| `emul_cmb.py` | CMB artifacts → the cobaya Cl dict (spectra / lmax / units are artifact facts; `must_provide` refuses beyond-training requests). |
+| `emul_baosn.py` | the H(z) + recombination-D_M pair → Hubble + distances, served PIECEWISE by redshift window (the desert between the windows is a loud error, never a bridge); flat-only V1. |
+| `emul_mps.py` | the pklin + boost pair → `get_Pk_grid` / `get_Pk_interpolator` (linear + nonlinear) for cosmolike's hybrid mode (`use_emulator: 2`); multiplies the syren base back per the artifacts' stored laws. |
+
+**compute_data_vectors/** (the training-set generators)
+
+| File | Role |
+|---|---|
+| `generator_core.py` | The shared machinery: the CLI (identical flags for every driver), emcee/uniform sampling, the chain + `.paramnames` + `.ranges` + `.covmat` writers, checkpoint save/load/append, the RAM-aware dv store, the MPI master/worker farm. Drivers subclass `GeneratorCore` and override only the probe whitelist, their train_args keys, the dv store hooks, and `_compute_dvs_from_sample`. |
+| `dataset_generator_lensing.py` | cosmolike data vectors (cs / ggl / gc); the core's default single-2D store. |
+| `dataset_generator_cmb.py` | CMB spectra: four per-spectrum 2D files (tt / te / ee / pp) from one CAMB pass, phi-phi filled. |
+| `dataset_generator_background.py` | H(z) on the SN grid + D_M on the recombination window, one background-only CAMB evaluation per sample, grid sidecars beside the dumps. |
+| `dataset_generator_mps.py` | linear P + boost on the (z, k) grids (+ the syren base files when `write_syren_base`), through the Pk_interpolator requirement (the wants-Cl quirk kept verbatim). |
+| `compute_cmb_covariance.py` | The Motloch & Hu CMB covariance (eqs 1-7): the Gaussian part always, the lens-induced non-Gaussian terms behind a default-off flag with a 5-point-stencil convergence study; writes the `.npz` the CMB training consumes. |
 
 ---
 
-## 3. Change X → edit Y
+## 4. Change X → edit Y
 
 | To change… | Edit |
 |---|---|
-| a model architecture | `designs/plain.py` (+ `designs/blocks.py`); the IA / NPCE variants in `designs/ia.py` / `designs/pce.py` |
+| a model architecture | `designs/plain.py` (+ `designs/blocks.py`); the IA / NPCE variants in `designs/ia.py` / `designs/pce.py`; register in `experiment.py`'s `models` |
 | an activation function | `activations.py` (register it in `make_activation`) |
-| the loss / add a chi2 variant | `losses/core.py` (IA / NPCE variants in `losses/ia.py` / `losses/pce.py`) |
-| how parameters are whitened (input) | `geometries_parameter.py` |
-| dv whitening / cosmolike reading (output) | `geometries_output.py` |
+| the loss / add a chi2 variant | `losses/core.py` (variants in their family files); the shared reduction is `_reduce` there |
+| a new imposed target law | the family geometry's registry + its executor (`losses/cmb.py` for amplitude laws; the geometry itself for grid laws; `syren_base.py` for a cosmology-dependent base) |
+| how parameters are whitened (input) | `geometries/parameter.py` |
+| dv whitening / cosmolike reading (output) | `geometries/output.py` |
+| a NEW output family | a geometry module (+ `state`/`from_state`), a loss (or reuse `ScalarChi2`), a `validate_<family>` + `from_config` branch + `build_geometry` branch in `experiment.py`, a predictor branch in `inference.py`, an adapter in `cobaya_theory/`, two gates — scalar / cmb / grid / grid2d are four worked examples |
 | data loading / the physical cut / staging | `data_staging.py` |
-| restrict the training pool by a density window | the `data.param_cuts:` sub-block keys (`omegabh2_hi` required, `omegabh2_lo`, `omegam2h2_*`, `omegamh2_*`, `omegamh2ns_*`); a new window is one row in `data_staging.phys_cut_idx`'s table |
+| restrict the training pool by a density window | the `data.param_cuts:` sub-block; a new window is one row in `data_staging.phys_cut_idx`'s table |
 | the GPU-memory regime / batching | `batching.py` |
 | the optimizer/scheduler build or the training loop | `training.py` |
 | the end-to-end setup wiring | `experiment.py` |
-| a CLI driver (add/modify) | `*_emulator_cosmic_shear.py` (beside `emulator/`; compose `EmulatorExperiment`) |
+| fine-tuning / transfer mechanics | `warmstart.py` (+ the family pin in `experiment.build_geometry`) |
+| what an artifact stores | `results.py` save + rebuild TOGETHER (+ the geometry's `state()`) |
+| how a saved emulator is served | the predictor branch in `inference.py`, then the thin adapter in `cobaya_theory/` |
+| a CLI driver (add/modify) | the `<verb>_<family>_emulator.py` beside `emulator/` (compose `EmulatorExperiment`; the serial family loops live in `family_drivers.py`) |
 | which hyperparameters are searched | the driver YAML (`[default, min, max, kind]`) + resolvers in `training.py` |
 | multi-GPU balancing | `scheduling.py` |
+| the training-set sampling / checkpoints / MPI farm | `compute_data_vectors/generator_core.py` (all four generators inherit) |
+| one generator's physics | that generator's `_compute_dvs_from_sample` only |
 | the output file format | `results.py` |
 | a plot | `plotting.py` |
 | a diagnostic | `diagnostics.py` |
@@ -154,16 +231,18 @@ and reviewable anywhere.
 
 ---
 
-## 4. Variants
+## 5. Variants
 
-The two family folders each carry the main path plus its variants, one file
-per variant. The IA and NPCE files are experiments, not the main path: each
-pairs a design with its own loss.
+The design/loss family folders each carry the main path plus its variants,
+one file per variant. Each pairs a design (or a frozen base) with its own
+loss.
 
 | Variant | Design + loss | What it is |
 |---|---|---|
 | NPCE | `designs/pce.py` + `losses/pce.py` | a sparse-Legendre polynomial-chaos base plus a neural refiner. |
 | Factored IA | `designs/ia.py` + `losses/ia.py` | emulate cosmology-only templates and apply the IA-amplitude polynomial in closed form (the amplitudes never enter the network). |
+| Transfer | `warmstart.py` + `losses/transfer.py` | a frozen trained base under a parallel correction net (cosmolike + CMB data-vector families ONLY — the scope ruling; scalar / grid / grid2d have a permanent forbid). |
+| Fine-tuning | `warmstart.py` (`train_args.finetune`) | warm-start from a saved source of the SAME family and geometry; epoch 0 reproduces the source exactly. Supported by EVERY family. |
 
 Removed: the per-bin CNN (its own folder, deleted) — tested; the grouped conv
 was absorbed into `rescnn`'s `groups` / `separable` knobs, the per-bin split
@@ -171,7 +250,7 @@ lost to a single ResMLP; see git history.
 
 ---
 
-## 5. Every file's functions
+## 6. Every file's functions
 
 One line per function / class / method. For full detail, read the docstring in
 the file itself; this is the index.
@@ -180,150 +259,111 @@ the file itself; this is the index.
 
 Turns on-disk dumps into in-memory "source" dicts.
 
-- `load_source(...)` — orchestrator: memmap the dv, load + cut the params, keep `N_train` rows, stage, return `{C, dv, idx (+ means)}`.
+- `load_source(...)` — orchestrator: memmap the dv, load + cut the params, keep `N_train` rows, stage, return `{C, dv, idx, dump_rows (+ means)}` (`dump_rows` = the staged rows' on-disk indices, for sibling-file alignment).
+- `load_scalar_source(...)` — the scalar sibling: inputs AND outputs are named columns of one parameter `.txt` (the getdist `.paramnames` sidecar locates them).
 - `stage_source(C, dv, idx, ram_frac)` — materialize the used rows in RAM if they fit, else keep the memmap (reindex local).
-- `phys_cut_idx(C, idx, names, omegabh2_hi, omegabh2_lo, omegam2h2_lo/hi, omegamh2_lo/hi, omegamh2ns_lo/hi, param_file)` — keep the rows inside every active physical-density window (a small quantity table, one row per window: `omega_b h^2` in `(omegabh2_lo, omegabh2_hi)`, and the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). The YAML supplies these through the nested `data.param_cuts:` block; `omegabh2_hi` was the former flat `omegabh2_cut`. Returns `(kept_idx, report)` with a per-window survivor count for the banner; raises on `lo >= hi` or a window whose column (e.g. `ns`) is missing.
-- `stream_chunks(idx, chunk)` — yield sorted row-index blocks (sequential disk reads).
-- `stream_stats(mm, idx, method, CHUNK)` — per-column mean/std (or min/max) over the used rows, streamed (never loads the dump whole).
-- `param_stats(arr, idx, method)` — the same stats for the in-RAM parameter array.
+- `phys_cut_idx(...)` — keep the rows inside every active physical-density window; returns `(kept_idx, report)`.
+- `stream_chunks` / `stream_stats` / `param_stats` — streamed per-column stats (the dump never loads whole).
 - `read_param_names(covmat_path, comment)` — parameter names from the covmat header line.
+- `check_paramnames` / `_scalar_columns` — the sidecar-vs-covmat naming integrity checks.
 
-### `emulator/geometries_parameter.py` <a name="apx-geometries_parameter"></a>
+### `emulator/geometries/parameter.py` <a name="apx-geometries_parameter"></a>
 
 Input side: raw parameters → whitened network input.
 
-- `ParamGeometry` — center, rotate into the parameter-covariance eigenbasis, unit-scale.
-  - `from_covmat` / `from_state` / `state` — build from a covmat file / saved tensors; tensors to save.
-  - `whiten` / `unwhiten`, `encode` / `decode` — the transform and its exact inverse.
-- `LogParamGeometry` — `ParamGeometry` that whitens in log space for the multiplicative params (`from_samples`, `_to_t` / `_from_t`).
-- `AmplitudeFactorGeometry` — whiten every parameter except the IA amplitude(s), append them raw for the loss's closed-form combine (NLA: one amplitude; TATT: three).
+- `ParamGeometry` — center, rotate into the parameter-covariance eigenbasis, unit-scale (`from_covmat` / `from_state` / `state`; `whiten`/`unwhiten`, `encode`/`decode`).
+- `LogParamGeometry` — whitens in log space for multiplicative params.
+- `AmplitudeFactorGeometry` — whiten every parameter except the IA amplitude(s), append them raw for the loss's closed-form combine.
 
-### `emulator/geometries_output.py` <a name="apx-geometries_output"></a>
+### `emulator/geometries/output.py` <a name="apx-geometries_output"></a>
 
-Output side: raw dv ↔ whitened masked target; holds the chi2 covariance. The only file importing cosmolike.
+The 3x2pt output side: raw dv ↔ whitened masked target; holds the chi2
+covariance. The only file importing cosmolike.
 
-- `DataVectorGeometry` — the base geometry for one probe.
-  - `from_cosmolike` / `from_state` / `state` — build from cosmolike / saved tensors; tensors to save.
-  - `squeeze` / `unsqueeze` — keep the unmasked entries / scatter them back to full length.
-  - `whiten` / `unwhiten`, `encode` / `decode` — covariance-eigenbasis whitening and its inverse.
+- `DataVectorGeometry` — the base geometry for one probe (`from_cosmolike` / `from_state` / `state`; `squeeze`/`unsqueeze`; `whiten`/`unwhiten`, `encode`/`decode`).
 - `DiagonalGeometry` — whiten by the marginal sigma only (theta order kept, for a CNN).
 - `BlockDiagonalGeometry` — whiten each tomographic bin by its own sub-block.
 - `build_shear_angle_map(geom, ...)` — attach per-element theta / source-z / xi± branch / per-bin sizes.
+
+### `emulator/geometries/scalar.py` <a name="apx-geometries_scalar"></a>
+
+- `ScalarGeometry` — per-output standardization over named derived parameters (`from_targets` with the un-standardizable guard; `from_state` / `state`; `encode`/`decode`; `dest_idx`/`total_size` the trivial identity).
+
+### `emulator/geometries/cmb.py` <a name="apx-geometries_cmb"></a>
+
+- `CmbDiagonalGeometry` — per-multipole whitening by the cosmic-variance error bar; persists spectrum / ell / units / the amplitude-law facts (`from_fiducial` for synthetic fixtures — the ruled `sigma_l = C_fid sqrt(2/(2l+1))`; the training path feeds sigma from the covariance `.npz` through `__init__`).
+
+### `emulator/geometries/grid.py` <a name="apx-geometries_grid"></a>
+
+- `TARGET_LAWS` — `{none, log_offset}`; the law lives INSIDE encode/decode here.
+- `GridGeometry` — a function on a stored z grid (`from_targets` applies the law first; persists quantity / units / law / offset / z).
+
+### `emulator/geometries/grid2d.py` <a name="apx-geometries_grid2d"></a>
+
+- `TARGET_LAWS_2D` — `{none, syren_linear, syren_halofit}` (names only: the cosmology-dependent base is the consumer's multiply, through `syren_base.py`).
+- `Grid2DGeometry` — a flattened (z-outer) surface standardized in LAW space; persists quantity / units / law / z / k (the stored k IS the thinned grid).
+
+### `emulator/background.py` <a name="apx-background"></a>
+
+The BAOSN imposed physics (one definition for the adapter AND direct scripts).
+
+- `cumulative_simpson(z, y)` — the legacy rule verbatim (even doubled-grid points exact; the odd half-chunk step is a recorded legacy approximation).
+- `comoving_distance_grid(z_grid, h_grid)` — c/H cubic onto the doubled grid, Simpson.
+- `distance_interpolators(z_grid, h_grid)` — the H / chi / D_A / D_L cubics + the window edge.
+
+### `emulator/syren_base.py` <a name="apx-syren_base"></a>
+
+The syren analytic P(k) base (one definition for the generator, `emul_mps`,
+and the gates).
+
+- `syren_params_from(params)` — the ONE mapping rule from resolved parameters to the base arguments (`As`/`As_1e9`; an absent equation of state means LCDM on both sides).
+- `base_pklin(...)` / `base_boost(...)` — the legacy `_compute_mps_approximation` / `_compute_boost_approximation` math verbatim (unit conventions included).
 
 ### `emulator/analytics.py` <a name="apx-analytics"></a>
 
 Analytic xi rescaling `R` (Eisenstein-Hu zero-baryon preprocessor).
 
-- `_analytic_R(...)` — the formula (numpy or torch); divides out the broadband cosmology dependence.
-- `analytic_shape_ratio(...)` — `R` over the masked data vector (the emulator path).
-- `rescale_xi(...)` — `R` over the (theta, xi+, xi−) matrix layout (plotting / visual checks).
+- `_analytic_R(...)` / `analytic_shape_ratio(...)` / `rescale_xi(...)`.
 
 ### `emulator/activations.py` <a name="apx-activations"></a>
 
 Learnable activations for the ResBlock `act` slot.
 
 - `activation_fcn` — the paper's `H` (a learnable identity↔Swish interpolation).
-- `GatedActivation` / `PowerGatedActivation` / `GatedPowerActivation` — generalizations (more gates, a bounded power tail, both).
-- `make_activation(name, n_gates)` — map a name (`H` / `power` / `multigate` / `gated_power` learnable, plus the parameter-free `relu` / `tanh`) to a factory `act(dim) -> module`.
+- `GatedActivation` / `PowerGatedActivation` / `GatedPowerActivation` — generalizations.
+- `make_activation(name, n_gates)` — map a name to a factory `act(dim) -> module`.
 
 ### `emulator/designs/` (the model family) <a name="apx-designs"></a>
 
-The network variants, one file each: shared `blocks.py`, the plain models in
-`plain.py`, and the factored-IA / NPCE variants in `ia.py` / `pce.py`.
+Shared `blocks.py`, the plain models in `plain.py`, the factored-IA / NPCE
+variants in `ia.py` / `pce.py`. The class flags the config layer reads:
+`head_block` (which correction head, None = trunk-only), `factored` (IA
+amplitudes appended raw), `needs_bins` (wants the shear-angle map).
 
-#### `designs/blocks.py`
-
-The small `nn.Module`s the models are assembled from.
-
-- `Affine` — a learnable scalar scale + shift (the default ResBlock norm).
-- `FeatureAffine` — the per-feature sibling of `Affine`: a length-width gain / bias (one pair per feature; `model.norm per_feature`).
-- `make_norm(name)` — map `model.norm` (`affine` / `per_feature` / `none`) to a ResBlock norm factory `norm(size) -> module`; batchnorm deliberately not offered.
-- `ResBlock` — width-preserving residual block (n dense layers, each with a norm + activation factory, pre-activation skip).
-- `BinLinear` — G per-token *unique* linear layers as one batched einsum; the unique weights also replace the positional encoding.
-- `TRFBlock` — one pre-LN transformer block over tokens at their *natural* width (the padded bin length — no embedding/output adapters): shared-weight attention across tokens + a per-token unique MLP stack (the deviation from the textbook shared FFN). The MLP is `n_mlp_blocks` deep and every layer runs at the token width — the interior is pinned to the bin length by design, no width knob. Exactly the identity at init (zero-initialized branch outputs), so a stack satisfies `blocks(x) == x`.
-- `FiLMGenerator` — per-channel `gamma` / `beta` produced from the non-amplitude parameters, an identity-init FiLM conditioning of a correction head (amplitude-blind, so the factored exactness holds).
-- `rescale_kernel_size` — pick an odd conv kernel width scaled to the bin length.
-
-#### `designs/plain.py`
-
-The full networks.
-
-- `ResMLP` — input projection → residual blocks → output projection → Affine.
-- `ResCNN` — ResMLP trunk + a gated bins-as-channels 1D-CNN correction in theta order (one `Conv1d(n_bins → n_bins, k)` kernel over the padded per-bin layout — theta-local and cross-bin, no channel expansion), via fixed basis-change buffers `W_fd` / `W_df` and the `pad_idx` scatter/gather. Head knobs (YAML `model.cnn`): `kernel_size` (tuned as if one block) + `rescale_kernel` (shrink the per-block kernel with depth at a fixed receptive field), `groups` (physical channel cuts: `2` = xi+ never mixes with xi−; on the factored head `3` = GG/GI/II isolated, `6` = both cuts — validated against the mask, other values error), `separable` (factor each block into a depthwise theta filter + pointwise channel mix — a low-rank factorization of the same conv, ~k/2 fewer weights), `film` (re-inject the non-amplitude parameters into every block as an identity-initialized per-channel affine — the head becomes cosmology-aware instead of one fixed map; see `notes/film-conditioning.md`), `n_blocks`, `gate_init`, `activation` (the head's own `{type, n_gates}` family; absent = share the trunk's `model.activation`; a pin needs a frozen-trunk head phase, and `head: activation:` is its alias):
-
-```
-  params ─▶ ResMLP trunk ─▶ y    (full-whitened, well-conditioned)
-                            │     y @ W_fd   full basis ─▶ theta order
-                            ▼
-                       1D-CNN blocks         fix theta-local structure
-                            │     h @ W_df   theta order ─▶ full basis
-                            ▼
-              y + gate · correction   ─▶   whitened data vector
-```
-
-- `ResTRF` — ResMLP trunk + a gated bin-token transformer correction: the theta-order dv splits into its (xi+/-, source-pair) bins — one bin is one source-redshift-bin pair of xi+ or xi- — (`pad_idx` scatter/gather to a padded per-bin layout, `bin_sizes` from `build_shear_angle_map`), each bin is one token at its natural width (the per-token `n_mlp_blocks`-deep MLPs run at that token width too — no width knob), `TRFBlock`s attend across bins, and the correction is `blocks(h) − h` — zero at epoch 1 because every block starts as the identity. No embedding or output layers (the sequence structure is physical, unlike the published CMB design's latent sequence). Head knobs (YAML `model.trf`): `n_heads`, `n_blocks`, `n_mlp_blocks`, `shared_mlp`, `film`, `gate_init`, and `activation` (the head's own `{type, n_gates}` family; absent = share the trunk's `model.activation`; a pin needs a frozen-trunk head phase, `head: activation:` its alias).
-
-#### `designs/ia.py`
-
-Factored intrinsic alignment: emulate cosmology-only templates, applied with the
-amplitude polynomial in `losses/ia.py` (the amplitudes never enter the network).
-
-- `TemplateMLP`, `TemplateResCNN`, `TemplateResTRF` — emit the whitened templates, plus optional conv / transformer correction heads.
-
-#### `designs/pce.py`
-
-NPCE: a closed-form sparse-Legendre polynomial-chaos base, wired to the
-top-level `pce:` YAML block (the base is fit at staging; the refiner is any
-`model.name`). `PCEEmulator` deliberately stays out of `MODELS` and `DesignSpec`:
-it is loss-owned (wrapped by the PCE losses in `losses/pce.py`), not an SGD
-architecture.
-
-- `PCEEmulator` — the closed-form base; `state()` / `from_state` persist its six buffers to the `.h5` pce group, so inference rebuilds the base with no refit and no cosmolike.
-- `pce_multi_index`, `pce_design`, `select_lars_loo` — the sparse-basis / design-matrix / greedy-LOO fit helpers.
+- `designs/blocks.py` — `Affine`, `FeatureAffine`, `make_norm`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, `rescale_kernel_size`.
+- `designs/plain.py` — `ResMLP` (input projection → residual blocks → output projection → Affine), `ResCNN` (gated bins-as-channels 1D-CNN correction in theta order), `ResTRF` (bin-token transformer correction). The head knobs live under YAML `model.cnn` / `model.trf`; see each class docstring for the full knob table and the shape-flow diagrams.
+- `designs/ia.py` — `TemplateMLP`, `TemplateResCNN`, `TemplateResTRF` (cosmology-only templates; the amplitudes never enter the network).
+- `designs/pce.py` — `PCEEmulator` (the closed-form sparse-Legendre base; loss-owned, not an SGD architecture) + `pce_multi_index`, `pce_design`, `select_lars_loo`.
 
 ### `emulator/losses/` (the chi2 family) <a name="apx-losses"></a>
 
-The chi2 variants, one file each; the IA and NPCE files subclass `core.py`'s
-`CosmolikeChi2`.
+Each loss holds a geometry (composition) and routes through `core.py`'s
+shared `_reduce`.
 
-#### `losses/core.py`
-
-chi2 losses; each holds a geometry (composition).
-
-- `anneal_value(epoch, opts)` — the per-epoch schedule shared by four knobs: trim, focus, the berhu sqrt-blend, and the EMA horizon.
-- `CosmolikeChi2` — the plain chi2: `chi2` ([Mahalanobis](../README.md#14-appendix-the-chi2-metric-mahalanobis) distance), `loss` (trim / focus, and the `chi2` / `sqrt` / `sqrt_dchi2` / `berhu` / `berhu_capped` transform ladder), and thin delegation to the held geometry.
-- `berhu` / `berhu_capped` — the reversed-Huber loss modes, configured by a YAML `berhu:` `{knot, cap, anneal}` block: `sqrt(chi2)` below the `knot` chi2, chi2-like above it, and (for `berhu_capped`) sqrt-shaped again past the `cap` so a monster sample's gradient vote is bounded; the optional `anneal:` schedule blends `sqrt` → `berhu` over the run. This is textbook BerHu in the whitened residual norm with delta = sqrt(`knot`), applied per sample as the Mahalanobis aggregate — so `knot` / `cap` are in chi2 units, not residual units.
-- `RescaledChi2` — analytic-R "A" form (R divides the net output); `configure_rescaling`, `_R`, `encode` / `decode` / `chi2` / `loss`.
-- `ResidualBaseChi2` — analytic-R "B" form (R moves only the baseline; the chi2 stays plain).
-- `ElementWeightedChi2` — a per-element focal weight in the training loss (`set_elem_weight`).
-- `make_chi2(geom, rescale, ...)` — build the right loss from a geometry and a rescale mode.
-
-#### `losses/ia.py`
-
-- `nla_coeffs`, `tatt_coeffs` — the amplitude polynomials (NLA / TATT).
-- `NLAAmpFactoredChi2`, `TemplateFactoredChi2` — combine the model's templates with the amplitudes in closed form, then score the full chi2.
-
-#### `losses/pce.py`
-
-- `PCEResidualChi2` (refine the residual), `PCERatioChi2` (refine the ratio) of a frozen PCE base.
+- `losses/core.py` — `anneal_value`; `CosmolikeChi2` (the plain chi2 + the `chi2`/`sqrt`/`sqrt_dchi2`/`berhu`/`berhu_capped` transform ladder); `RescaledChi2` / `ResidualBaseChi2` (analytic-R); `ElementWeightedChi2`; `make_chi2`.
+- `losses/ia.py` — `nla_coeffs`, `tatt_coeffs`; `NLAAmpFactoredChi2`, `TemplateFactoredChi2`.
+- `losses/pce.py` — `PCEResidualChi2`, `PCERatioChi2`.
+- `losses/scalar.py` — `ScalarChi2` + `make_scalar_chi2` (the standardized-residual chi2; also wraps `GridGeometry` and `Grid2DGeometry` — their laws live in the geometry).
+- `losses/cmb.py` — `AMPLITUDE_LAWS`; `CmbDiagonalChi2` (plain per-multipole chi2) / `CmbFactoredChi2` (the imposed `C_ell e^{2tau}/A_s` target, reading named columns); `ResidualRoughness` + `configure_roughness` (the optional short-period residual penalty, byte-identical when absent); `make_cmb_chi2`.
+- `losses/transfer.py` — `TransferChi2` (a frozen base + a parallel correction; gain/sum, physical/whitened).
 
 ### `emulator/batching.py` <a name="apx-batching"></a>
 
-Memory sizing and the regime-aware data loaders. Where the data lives:
+Memory sizing and the regime-aware data loaders (GPU-resident / RAM-stream /
+memmap-stream).
 
-```
-  dv dump (.npy on disk, memmapped)             never loaded whole
-        │   load_source  ─▶  the N_train subset
-        ▼
-  build_loaders picks a regime by what fits the VRAM budget:
-        ├─▶ regime 1   resident on the GPU          encode once; a batch is an on-device index
-        ├─▶ regime 2   streamed from host RAM        re-encode each chunk, every epoch
-        └─▶ regime 3   streamed from the disk memmap  same, read from disk
-```
-
-- `compute_batch_size_bytes` / `compute_model_size_bytes` / `batches_per_load` — per-batch and resident memory estimates.
-- `_build_loaders_one(...)` — pick a regime for one source (GPU-resident / RAM-stream / memmap-stream); return `load_C`, `load_dv`, the chunk size, and the bytes it made resident.
-- `build_loaders(...)` — run it once per source (train, then val against the reduced budget); return the data dict the loop consumes.
+- `compute_batch_size_bytes` / `compute_model_size_bytes` / `batches_per_load` — memory estimates.
+- `_build_loaders_one(...)` / `build_loaders(...)` — pick a regime per source; return the loaders the loop consumes.
 
 ### `emulator/training.py` <a name="apx-training"></a>
 
@@ -331,71 +371,84 @@ The run layer that ties everything together.
 
 - `pick_device` / `make_logger` — setup helpers.
 - `make_model` / `make_optimizer` / `make_scheduler` — build one component from a `{cls, **kwargs}` spec dict.
-- `build_run_specs(...)` — config → the six `run_emulator` spec dicts.
-- `validate_phase_block` / `validate_loss` / `validate_berhu` / `validate_ema` — the pure config validators: the eight-key phase whitelist, the nested `loss:` `{mode, berhu}` block, the berhu `{knot, cap, anneal}` schedule, and the `ema:` `{horizon_epochs, anneal}` block, each checked and canonicalized before the run.
-- `derive_eval_bs` / `derive_ema_beta` — turn run-global targets into the derived evaluation batch size (a ~1024-row target) and the per-epoch EMA decay from the horizon.
-- `default_train_args` / `suggest_train_args` / `search_defaults` (+ `_as_search_range`, `_range_default`, `_suggest_range`, `_walk_train_args`) — the `[default, min, max, kind]` search resolvers.
+- `build_run_specs(...)` — config → the `run_emulator` spec dicts (model / optimizer / lr / scheduler / trim / focus are REQUIRED blocks: plain subscripts, no code defaults).
+- `validate_phase_block` / `validate_loss` / `validate_berhu` / `validate_ema` — the pure config validators; `validate_loss` resolves `{mode, berhu, roughness}` (the roughness sub-block is the CMB residual-roughness term, top-level loss only).
+- `derive_eval_bs` / `derive_ema_beta` — derived run values.
+- `default_train_args` / `suggest_train_args` / `search_defaults` — the `[default, min, max, kind]` search resolvers.
 - `eval_val` / `eval_source_chi2` — score the model on the val set / per-cosmology delta-chi2.
-- `training_loop_batched(...)` — the per-epoch loop (trim / focus / berhu-blend / EMA annealing, best-epoch tracking; an optional Polyak weight average coupled to the best snapshot / rewind).
-- `run_emulator(...)` — top-level: build model + optimizer + scheduler + loaders, train, return the histories.
-- `audit_devices(model, lossfn, device)` — name every tensor that should live on `device` but does not (a placement check for the compiled forward + loss).
+- `training_loop_batched(...)` — the per-epoch loop (trim / focus / berhu-blend / EMA annealing, best-epoch tracking, the optional Polyak average).
+- `run_emulator(...)` — top-level: build model + optimizer + scheduler + loaders, apply the roughness term to a CMB chi2fn, train, return the histories.
+- `audit_devices(model, lossfn, device)` — tensor-placement check.
 
 ### `emulator/experiment.py` <a name="apx-experiment"></a>
 
 `EmulatorExperiment`: the whole setup as one reusable object.
 
-- `from_yaml` / `from_config` — build from a YAML file / an already-parsed dict.
-- `validate_param_cuts` / `validate_sizes` — check the `data` block: the physical-window keys and the absolute `n_train` / `n_val` row counts.
-- `resolve_phase_args` / `validate_sweep_paths` — resolve the two-phase keys against the model's real capability (the single-phase demotion) and concretize a sweep's dotted path against that resolved schema.
-- `_head_activation_spec` / `_resolve_head_activation` / `_activation_flag_notice` / `_pinned_head_warning` — the per-head activation config layer: validate a `{type, n_gates}` pin, resolve the canonical-vs-alias spelling + the frozen-trunk-head-phase license, and build the flag-vs-pin (from_config) and sweep-vs-pin (bake-off / sweep) startup warnings.
-- `stage_train` / `stage_val` / `pool_size` — stage the sources; the physical-cut pool size (the sweep's top N).
-- `build_geometry` / `build_specs` — the input/output geometry + chi2; the `run_emulator` spec dicts.
-- `train` / `run` — train on the staged data; the full stage→build→train pipeline in one call.
-- `frac_above(threshold, ...)` — the sweep metric (fraction of points with delta-chi2 over a cutoff).
-- `print_design()` — the shared startup banner: renders the resolved, consumed view (phases resolved to the model's real capability, the model describing itself via `describe_spec`) — device, model class, spec sub-blocks, physical cuts — before anything trains, so a stale YAML is caught at launch.
+- `from_yaml` / `from_config` — build from a YAML file / a parsed dict; `from_config` dispatches the FAMILY (scalar / cmb / grid / grid2d branches, each with its fine-tune sub-path) before the cosmic-shear path.
+- `validate_param_cuts` / `validate_sizes` / `validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_transfer` — the pure data-block validators, one per concern.
+- `resolve_phase_args` / `validate_sweep_paths` — the two-phase schedule resolution.
+- `_head_activation_spec` / `_resolve_head_activation` / `_activation_flag_notice` / `_pinned_head_warning` — the per-head activation config layer.
+- `stage_train` / `stage_val` / `pool_size` — stage the sources (the grid2d branch materializes the law-space rows here, `_grid2d_law_rows`); the physical-cut pool size.
+- `build_geometry` / `build_specs` — the input/output geometry + chi2 per family (the fine-tune pins live here); the `run_emulator` spec dicts.
+- `train` / `run` / `frac_above` — train on the staged data; the full pipeline; the sweep metric.
+- `print_design()` — the shared startup banner (family line included), so a stale YAML is caught at launch.
+
+### `emulator/warmstart.py` <a name="apx-warmstart"></a>
+
+Fine-tune / transfer sources (the FTW machinery every family's finetune
+routes through).
+
+- `validate_finetune_config(...)` — the config-time whitelist (architecture / activation / loss form inherited; no model: block).
+- `resolve_source_root` / `load_source` — resolve + validate a saved source artifact (plain input geometry, rescale none, no chaining).
+- `recipe_to_model_opts` / `extend_input_geometry` / `pin_output_geometry` — the recipe → live specs, the block-extension for new parameters, the cosmolike output pin (the other families pin in their `build_geometry` branches).
+- `build_warm_start(...)` — transfer the weights (zero-padded extra columns) + prove epoch-0 parity; `transfer_state_dict`, `anchor_masks`, `build_transfer_start`, `_zero_final_linear`.
 
 ### `emulator/scheduling.py` <a name="apx-scheduling"></a>
 
-- `lpt_assign(sizes, n_workers)` — split sweep jobs across GPUs by total cost (Longest-Processing-Time).
-- `even_assign(jobs, n_workers)` — round-robin split for equal-cost jobs.
-- `run_gpu_pool(setup_fn, job_fn, buckets, extra, lanes_per_gpu, job_tokens, on_result)` — the spawned worker pool: one process per (GPU, lane), per-GPU job queues, token gate under packing, parent-side result drain.
-- `estimate_train_vram_fraction(n_rows, dv_width, total_bytes)` — conservative per-training VRAM share (`--gpu-pack`).
-- `vram_tokens(fraction)` — the packing rule: ≤20% → 1 token, ≤40% → 2, else 4 (exclusive) of `GPU_TOKENS = 4`.
+- `lpt_assign` / `even_assign` — GPU job splits.
+- `run_gpu_pool(...)` — the spawned worker pool (one process per GPU lane).
+- `estimate_train_vram_fraction` / `vram_tokens` — the `--gpu-pack` machinery.
 
 ### `emulator/results.py` <a name="apx-results"></a>
 
-- `save_learning_curves(path, sizes, curves, meta)` — write a `np.loadtxt`-friendly plain-text table.
-- `save_sweep_table(path, param, values, fracs, meta)` — the one-knob sweep table (numeric values as a column; categorical as an index + label map).
-- `save_emulator(path_root, model, param_geometry, geometry, config, histories, train_args, attrs, pce, pce_form, resolved_train, resolved_model)` — persist a trained run: `.emul` (cpu state_dict, compile prefix stripped) + `.h5` (geometry `state()` groups, per-epoch histories, raw config YAML, run-identity attrs; schema v2 adds `config_resolved_yaml` + `model_recipe` + `schema_version`/git, and a `pce` group for NPCE).
-- `rebuild_emulator(path_root, device)` — reconstruct `(model, param_geometry, geometry)` from the `.h5` + `.emul` alone (schema v2), remaking factories from the recipe names; the h5-only guarantee (a missing key is loud, never a code default), so a saved run rebuilds bit-exactly even if code defaults later drift. Refuses a v1 file.
+- `save_learning_curves` / `save_sweep_table` — plain-text tables.
+- `save_emulator(...)` — `.emul` (cpu state_dict) + `.h5` (geometry `state()` groups with their FULL cls paths, histories, raw + resolved config, the model recipe, run-identity attrs; a `pce` / `transfer_base` group when present).
+- `rebuild_emulator(path_root, device)` — reconstruct `(model, param_geometry, geometry, info)` from the files alone; `info` carries the family flags (`scalar` / `cmb` / `grid` / `grid2d`) and each family's artifact facts (amplitude law, grid quantity/units/law), class-guarded so one family's facts never smear onto another.
+
+### `emulator/inference.py` <a name="apx-inference"></a>
+
+- `EmulatorPredictor` — rebuild + predict for every artifact kind. `__init__` branches on the rebuilt family (scalar → output names; cmb → spectrum/ell/units + the law-dispatched decoder; grid → quantity/z; grid2d → quantity/z/k; else the dv path with the ia/pce/transfer decoder). `predict(params)` returns the family's natural object (see the class docstring's table); `_build_decoder` / `_build_cmb_decoder` reuse the exact training `chi2fn.decode`.
 
 ### `emulator/plotting.py` <a name="apx-plotting"></a>
 
 Figures (colorblind-safe palette, no red/green).
 
-- `plot_history` / `plot_learning_curves` / `plot_sweep_curve` / `plot_diagnostics` — the public figures (training history; learning-curve overlay; one-knob hyperparameter-sweep curve; the multipage diagnostics PDF).
-- `plot_xi` / `dv_to_xi` / `source_param_samples` — xi correlation-function curves, the dv→matrix reshape, and the coverage-triangle samples.
-- `_history_panels` / `_coverage_panels` / `_floor_panel` / `_hard_direction_panels` / `_finish` / `_save_pages` — the shared panel and save helpers.
+- `plot_history` / `plot_learning_curves` / `plot_sweep_curve` / `plot_diagnostics` — the public figures; `plot_diagnostics` appends the per-family pages when given `cmb=` / `scalar=` / `grid=` (absent = the cosmic-shear PDF, byte-identical).
+- `plot_xi` / `dv_to_xi` / `source_param_samples` — xi curves and the coverage triangle.
+- `_history_panels` / `_coverage_panels` / `_floor_panel` / `_hard_direction_panels` / `_lcdm_triangle_fig` / `_lnparam_pca_fig` / `_cmb_pages` / `_scalar_pages` / `_grid_pages` / `_finish` / `_save_pages` — the panel and page builders.
 
 ### `emulator/diagnostics.py` <a name="apx-diagnostics"></a>
 
 Post-training analyses (each returns a dict the plotting reads).
 
-- `coverage_diagnostic(...)` — do the failing val points sit in sparse training regions? (kNN distance vs delta-chi2).
-- `local_linear_floor(...)` — the model vs a local-linear interpolation of the data (the data-only floor; plain chi2 only).
-- `hard_direction_regression(...)` — which log-parameter combination predicts the per-point hardness.
+- `coverage_diagnostic(...)` / `local_linear_floor(...)` / `hard_direction_regression(...)` — the family-generic chi2 trio (they consume only params + per-sample chi2).
+- `cmb_residual_diagnostic(...)` — per-multipole residual bands (fractional AND in error-bar units), the worst-cosmology overlay, the high-pass wiggle content the roughness term targets.
+- `scalar_output_diagnostic(...)` — per-output truth/prediction/residual tables (physical + standardized) + the bias-hunt inputs.
+- `grid_residual_diagnostic(...)` — per-redshift residual bands + (for a Hubble artifact) the derived D_A / D_L bands through the REAL `background.py` pipeline.
+
+### `emulator/family_drivers.py` <a name="apx-family_drivers"></a>
+
+- `add_sweep_args` / `add_tune_args` — the shared per-family CLI flags.
+- `run_ntrain_sweep(args, family, out_default)` — the serial N_train learning curve (stage → train per grid point → `save_learning_curves` + the PDF).
+- `run_tune(args, family)` — the serial in-memory Optuna study (TPE seeded, trial 0 warm-started from the YAML defaults).
 
 ### drivers (beside `emulator/`) <a name="apx-drivers"></a>
 
-Each `main()` reads `--root` / `--fileroot` / `--yaml`; the sweep / bake-off add
-per-GPU workers.
+Each `main()` reads `--root` / `--fileroot` / `--yaml`.
 
-- `train_single_emulator_cosmic_shear.py` — `main`: one training run + the diagnostics PDF.
-- `tune_single_emulator_cosmic_shear.py` — `main` + `_tune_worker` + `journal_storage`: an Optuna study over the YAML's search ranges; serial in-memory, or one worker per GPU sharing a journal-file study.
-- `sweep_ntrain_emulator_cosmic_shear.py` — `main` + `_sweep_setup` / `_sweep_job` + `_run_parallel` (LPT split through `run_gpu_pool`) / the serial path; `f(dchi2>thr)` vs `N_train`; `--gpu-pack`.
-- `sweep_hyperparam_emulator_cosmic_shear.py` — `main` + `set_by_path` / `read_sweep_block` + `_hyper_setup` / `_hyper_job`; one YAML-chosen knob (`sweep:` block), even split through `run_gpu_pool`; `--gpu-pack`.
-- `bakeoff_activation_emulator_cosmic_shear.py` — `main` + `_bakeoff_worker` + `_run_parallel_bakeoff` (activation split) / the serial path; one curve per activation.
-
----
-
-[← back to the main README](../README.md)
+- `train_single_emulator_cosmic_shear.py` — one training run (any dv-shaped family) + the diagnostics PDF.
+- `train_scalar_emulator.py` — one scalar run + the diagnostics PDF.
+- `tune_single_emulator_cosmic_shear.py` — the multi-GPU journal study; `tune_{scalar,cmb,baosn,mps}_emulator.py` — the serial per-family studies.
+- `sweep_ntrain_emulator_cosmic_shear.py` — the multi-GPU learning curve; `sweep_ntrain_{scalar,cmb,baosn,mps}_emulator.py` — the serial per-family curves.
+- `sweep_hyperparam_emulator_cosmic_shear.py` — one YAML-chosen knob.
+- `bakeoff_activation_emulator_cosmic_shear.py` — one curve per activation.

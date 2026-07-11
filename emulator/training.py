@@ -14,8 +14,8 @@ the model plus the per-epoch histories.
 In front of the loop sits a pure configuration layer: validate_phase_block,
 validate_loss, validate_berhu, and validate_ema check and canonicalize the
 train_args blocks (the eight-key per-phase whitelist, the nested loss {mode,
-berhu} block, the berhu {knot, cap, anneal} schedule, the ema {horizon_epochs,
-anneal} block) before anything runs; derive_eval_bs and derive_ema_beta turn
+berhu, roughness} block, the berhu {knot, cap, anneal} schedule, the ema
+{horizon_epochs, anneal} block) before anything runs; derive_eval_bs and derive_ema_beta turn
 run-global targets into the evaluation batch size and the per-epoch EMA decay.
 The loss modes the loop can apply are chi2 / sqrt / sqrt_dchi2 / berhu /
 berhu_capped (losses/core.py).
@@ -991,9 +991,10 @@ def validate_berhu(berhu, loss_mode, which):
 # ladder.
 _LOSS_MODES = ("chi2", "sqrt", "sqrt_dchi2", "berhu", "berhu_capped")
 
-# the keys a train_args.loss block accepts: the mode string and the berhu
-# knot sub-block (valid only beside a berhu mode; see validate_loss).
-_LOSS_KEYS = ("mode", "berhu")
+# the keys a train_args.loss block accepts: the mode string, the berhu
+# knot sub-block (valid only beside a berhu mode; see validate_loss), and
+# the CMB residual-roughness sub-block (D-CM8; top-level loss only).
+_LOSS_KEYS = ("mode", "berhu", "roughness")
 
 
 def validate_loss(loss, which):
@@ -1033,7 +1034,7 @@ def validate_loss(loss, which):
   qual = ("train_args.loss" if which == "train_args"
           else f"train_args.{which}.loss")
   if loss is None:
-    return {"mode": "sqrt", "berhu": None}
+    return {"mode": "sqrt", "berhu": None, "roughness": None}
   if not isinstance(loss, dict):
     raise TypeError(
       f"{qual} must be a mapping {{mode, berhu}}, got "
@@ -1079,7 +1080,51 @@ def validate_loss(loss, which):
   # a non-berhu mode carries no knots (None -> the training loop's unused
   # defaults); a berhu mode keeps the resolved pair for its knot tensors.
   berhu = resolved if mode in ("berhu", "berhu_capped") else None
-  return {"mode": mode, "berhu": berhu}
+  # the CMB residual-roughness sub-block (D-CM8): a per-sample penalty on
+  # short-period residual oscillations, added to the per-sample chi2
+  # before the shared reduction. Absent = the term does not exist (the
+  # off-identity rule; lam 0 is rejected — delete the block instead).
+  # Both keys are required when present (never a silent default), and the
+  # block rides the TOP-LEVEL loss only (the trunk/head phases are a
+  # cosmic-shear head feature; run_emulator applies the term once, to the
+  # run's chi2fn).
+  rough = loss.get("roughness")
+  if rough is not None:
+    if which != "train_args":
+      raise ValueError(
+        f"{qual}.roughness: the roughness term rides the top-level "
+        "train_args.loss block only (it configures the run's loss object "
+        "once); remove it from the phase block")
+    if not isinstance(rough, dict):
+      raise TypeError(
+        f"{qual}.roughness must be a mapping {{lam, period_cut}}, got "
+        f"{type(rough).__name__}")
+    unknown_r = set(rough) - {"lam", "period_cut"}
+    if unknown_r:
+      raise ValueError(
+        f"unknown {qual}.roughness key(s): {sorted(unknown_r)}; allowed: "
+        "['lam', 'period_cut']")
+    for key in ("lam", "period_cut"):
+      if key not in rough:
+        raise ValueError(
+          f"{qual}.roughness needs the {key!r} key (lam = the penalty "
+          "weight; period_cut = the penalized-band edge in multipoles); "
+          "it is missing (both are stated explicitly, never defaulted)")
+      val = rough[key]
+      if isinstance(val, bool) or not isinstance(val, (int, float)):
+        raise ValueError(
+          f"{qual}.roughness.{key} must be a number, got {val!r}")
+    if float(rough["lam"]) <= 0.0:
+      raise ValueError(
+        f"{qual}.roughness.lam must be > 0; an absent roughness block "
+        "states OFF (never lam 0, which would be a silent no-op block)")
+    if float(rough["period_cut"]) < 5.0:
+      raise ValueError(
+        f"{qual}.roughness.period_cut must be >= 5 multipoles, got "
+        f"{rough['period_cut']!r}")
+    rough = {"lam": float(rough["lam"]),
+             "period_cut": float(rough["period_cut"])}
+  return {"mode": mode, "berhu": berhu, "roughness": rough}
 
 
 def _loss_migration_message(loss_mode, berhu, which):
@@ -2385,7 +2430,24 @@ def run_emulator(train_set,
   # {mode: sqrt}, byte-identical to the old default): the mode whitelist and
   # the berhu sub-block's local mode check, before any setup work. Each pass
   # re-resolves it below (a phase loss: full-replaces the top-level one).
-  validate_loss(loss, "train_args")
+  loss_top = validate_loss(loss, "train_args")
+
+  # the CMB residual-roughness term (D-CM8): configured once on the run's
+  # loss object (the term is per-sample state on the chi2fn, not a per-pass
+  # knob; validate_loss already restricted the block to the top level). A
+  # loss object without configure_roughness is not a CMB loss — loud, so a
+  # cosmolike / scalar YAML carrying the block never trains silently
+  # without it.
+  if loss_top["roughness"] is not None:
+    if not hasattr(chi2fn, "configure_roughness"):
+      raise ValueError(
+        "train_args.loss.roughness is the CMB residual-roughness term "
+        "(D-CM8); this run's loss (" + type(chi2fn).__name__ + ") does "
+        "not support it — remove the block (it applies to data.cmb runs "
+        "only)")
+    chi2fn.configure_roughness(lam=loss_top["roughness"]["lam"],
+                               period_cut=loss_top["roughness"]
+                                                  ["period_cut"])
 
   if model_opts is None:
     model_opts = {"cls": ResMLP,
@@ -2633,6 +2695,18 @@ def run_emulator(train_set,
     if phase_opts is not None and "loss" in phase_opts:
       loss_raw = phase_opts["loss"]
     which_l = phase if phase is not None else "train_args"
+    # the roughness sub-block is run-level state (configured on the chi2fn
+    # once, before the passes); when a phase INHERITS the top-level block,
+    # drop the key from the inherited copy so re-resolving it under the
+    # phase name does not trip the phase rejection (a phase's OWN
+    # roughness block still rejects loudly inside validate_loss).
+    if (phase is not None and loss_raw is loss
+        and isinstance(loss_raw, dict) and "roughness" in loss_raw):
+      pruned = {}
+      for loss_key, loss_val in loss_raw.items():
+        if loss_key != "roughness":
+          pruned[loss_key] = loss_val
+      loss_raw = pruned
     loss_pass  = validate_loss(loss_raw, which_l)
     mode_pass  = loss_pass["mode"]
     berhu_pass = loss_pass["berhu"]
@@ -2811,6 +2885,16 @@ def run_emulator(train_set,
   # resolved_model + the geometry states, not from this.
   def _qual(c):
     return c.__module__ + "." + c.__qualname__
+  # the optimizer/scheduler *_opts minus their bookkeeping keys: what is
+  # left is exactly the constructor extras the run passed through.
+  opt_extras = {}
+  for opt_key, opt_val in opt_opts.items():
+    if opt_key not in ("cls", "weight_decay"):
+      opt_extras[opt_key] = opt_val
+  sched_kwargs = {}
+  for sched_key, sched_val in sched_opts.items():
+    if sched_key != "cls":
+      sched_kwargs[sched_key] = sched_val
   resolved_train = {
     "bs": bs, "nepochs": nepochs, "seed": seed,
     "thresholds": [float(t) for t in thresholds],
@@ -2823,11 +2907,9 @@ def run_emulator(train_set,
            "lr": learning_rate},
     "optimizer": {"cls": _qual(opt_opts["cls"]),
                   "weight_decay": opt_opts.get("weight_decay", 0.0),
-                  "extras": {k: v for k, v in opt_opts.items()
-                             if k not in ("cls", "weight_decay")}},
+                  "extras": opt_extras},
     "scheduler": {"cls": _qual(sched_opts["cls"]),
-                  "kwargs": {k: v for k, v in sched_opts.items()
-                             if k != "cls"}},
+                  "kwargs": sched_kwargs},
     "trim": trim_opts, "focus": focus_opts,
     "trunk": trunk_opts, "head": head_opts,
     "eval_bs": (data.get("eval_bs") if isinstance(data, dict) else None),

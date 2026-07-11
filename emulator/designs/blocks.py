@@ -25,8 +25,8 @@ whose tokens are the tomographic bins. Grouped / per-bin conv twins
 were tried and removed (see git history).
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
-variance (defined in the geometry modules, geometries_parameter /
-geometries_output); these blocks operate on already-whitened tensors.
+variance (defined in the geometry modules, geometries.parameter /
+geometries.output); these blocks operate on already-whitened tensors.
 """
 
 import torch
@@ -121,6 +121,21 @@ class FeatureAffine(nn.Module):
         return x * self.gain + self.bias
 
 
+def affine_norm(size):
+  """Norm factory for "affine": one Affine() per dense layer.
+
+  The factory contract is norm(size) -> module; Affine's scalar gain /
+  bias pair ignores the size argument. make_norm("affine") and
+  ResBlock's default norm slot both point here.
+  """
+  return Affine()
+
+
+def identity_norm(size):
+  """Norm factory for "none": nn.Identity(), the no-norm ablation."""
+  return nn.Identity()
+
+
 def make_norm(name):
   """
   ResBlock norm-factory by name, for the model.norm knob.
@@ -133,15 +148,14 @@ def make_norm(name):
 
   Arguments:
     name = one of:
-             "affine"      -> lambda s: Affine(), the paper's per-layer
+             "affine"      -> affine_norm, the paper's per-layer
                               g x + b (one scalar pair per layer); the
-                              default, byte-identical to the ResBlock
-                              default norm.
+                              default — the same function object as the
+                              ResBlock default norm.
              "per_feature" -> FeatureAffine, a length-size gain / bias
                               (one pair per feature; the tanh
                               saturation guard).
-             "none"        -> lambda s: nn.Identity(), no norm (an
-                              ablation).
+             "none"        -> identity_norm, no norm (an ablation).
 
   batchnorm is deliberately not offered (see the README model.norm
   knob): its batch coupling would confound the batch-size / EMA
@@ -154,11 +168,11 @@ def make_norm(name):
     a factory norm(size) -> nn.Module.
   """
   if name == "affine":
-    return lambda s: Affine()
+    return affine_norm
   if name == "per_feature":
     return FeatureAffine
   if name == "none":
-    return lambda s: nn.Identity()
+    return identity_norm
   raise ValueError(
     f"unknown model.norm {name!r}; one of: affine (the paper's "
     f"per-layer g x + b) / per_feature / none")
@@ -203,7 +217,7 @@ class ResBlock(nn.Module):
   def __init__(self,
                size,
                n_layers = 2,
-               norm = lambda s: Affine(),
+               norm = affine_norm,
                act = activation_fcn):
     super().__init__()
     self.skip = nn.Identity()

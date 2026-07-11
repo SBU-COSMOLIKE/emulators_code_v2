@@ -1,0 +1,116 @@
+# CMB spectrum emulator config for train_single_emulator_cosmic_shear.py
+# (see notes/cmb-spectra-emulators.md and emulator/geometries_cmb.py).
+#
+# A CMB emulator maps cosmological parameters to ONE spectrum's C_ell rows
+# (tt / te / ee / pp), on the multipole grid the dumps were generated with.
+# The dumps come from compute_data_vectors/dataset_generator_cmb.py (four
+# per-spectrum 2D .npy files per run; point train_dv / val_dv at the ONE
+# this emulator learns), and the loss covariance comes from
+# compute_data_vectors/compute_cmb_covariance.py (the Motloch & Hu Gaussian
+# covariance, WITH the experiment's noise and beam). There is no cosmolike
+# anywhere on this path.
+
+data:
+  # the CMB sub-block: its presence switches the run to the CMB path (the
+  # scalar / cosmolike keys are forbidden beside it).
+  cmb:
+    # which spectrum this emulator learns (tt / te / ee / pp) — the dv
+    # files below must be that spectrum's dump.
+    spectrum: tt
+
+    # the D-CM11 covariance .npz (compute_cmb_covariance.py). The
+    # whitening sigma_ell, the fiducial C_ell, and the provenance all come
+    # from this file; the dump and the file must share one ell grid.
+    covariance: cmbcov_lcdm.npz
+
+    # the imposed amplitude law. "as_exp2tau" imposes
+    # target = C_ell * exp(2 tau) / A_s in closed form, so the network
+    # learns only the SHAPE and the primary amplitude generalizes for
+    # free; it reads the two named RAW parameter columns below (As must
+    # be the linear amplitude — the generator samples it linearly).
+    # "none" learns the raw C_ell directly and forbids the two names.
+    amplitude_law: as_exp2tau
+    as_name:       As
+    tau_name:      tau
+
+  # the dumps (dataset_generator_cmb.py): the chosen spectrum's dv files
+  # plus the chain sidecars; the covmat header names the input parameters
+  # in whitening order.
+  train_dv:     dvs_train_cmblensed_unifs_tt.npy
+  val_dv:       dvs_val_cmblensed_unifs_tt.npy
+  train_params: params_train_cmblensed_unifs.1.txt
+  val_params:   params_val_cmblensed_unifs.1.txt
+  train_covmat: params_train_cmblensed_unifs.covmat
+
+  # absolute row counts (kept after any optional cuts).
+  n_train:    50000
+  n_val:      10000
+  split_seed: 0
+  ram_frac:   0.7
+
+  # data.param_cuts is OPTIONAL on the CMB path (the omega windows
+  # reference cosmic-shear parameter names a CMB dump may not carry).
+
+train_args:
+  nepochs: 400
+  bs:      256
+
+  # the model: a plain trunk design (resmlp). The conv / trf correction
+  # heads assume an eigenbasis data-vector geometry the diagonal CMB
+  # geometry does not carry (D-CM13), so they are a loud error here.
+  model:
+    name: resmlp
+    mlp:
+      width:    256
+      n_blocks: 4
+    activation:
+      type:    H
+      n_gates: 3
+
+  # the per-multipole cosmic-variance chi2 (losses/cmb.py); sqrt is the
+  # usual default. The OPTIONAL roughness sub-block (D-CM8) penalizes
+  # short-period residual oscillations (periods below period_cut in ell)
+  # without touching the acoustic band (~200-300, incl. lensing peak
+  # smoothing); absent block = the term does not exist.
+  loss:
+    mode: sqrt
+    roughness:
+      lam:        0.1
+      period_cut: 50
+
+  optimizer:           # cls is fixed to AdamW in the driver
+    weight_decay: 0.0
+
+  lr:
+    lr_base:       0.001
+    bs_base:       256.0
+    warmup_epochs: 5
+
+  scheduler:           # cls is fixed to ReduceLROnPlateau
+    mode:     min
+    patience: 25
+    factor:   0.8
+
+  # trim and focus are REQUIRED blocks (build_run_specs reads them with no
+  # code default — the resolved-values rule). Both ship off here.
+  trim:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         cosine
+
+  focus:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         linear
+    kappa:         0.15
+
+  # OPTIONAL fine-tuning (D-CM10): warm-start from a saved CMB emulator of
+  # the SAME spectrum, law, and covariance file (the source geometry is
+  # pinned, so epoch 0 reproduces the source exactly). Delete the model:
+  # block when using it — the architecture is inherited from the source.
+  # finetune:
+  #   from: chains/emulator_tt_resmlp_ntrain50000
