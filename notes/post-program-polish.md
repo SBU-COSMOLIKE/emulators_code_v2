@@ -100,6 +100,44 @@ one file-by-file walk but ship as separate commits per the risk split.
 [[designs-losses-family-folders]] (the GRF precedent for
 byte-discipline), [[geometry-family-folder]].
 
-## Resume state (Implementer appends below)
+## Resume state (Architect, 2026-07-11, overnight-mode continuation)
 
-(not started — queued behind CME, SPE-FT, BSN, GEO)
+**POL-1 — partially executed; the remainder has hard sequencing gates:**
+
+- DONE: `emulator/README.md` (the code map) fully rewritten against the
+  final tree — the five-family table, the geometry folder + shims, all
+  post-GRF members (background/syren_base/warmstart/inference/
+  family_drivers, losses scalar/cmb/transfer, the 14-driver table, the
+  cobaya_theory and compute_data_vectors maps, the gates section), the
+  refreshed change-X table (incl. the "a NEW output family" recipe row),
+  the Variants table grown by Transfer + Fine-tuning rows. Acceptance
+  ran: the anchor census (6/6 links) and the path-existence census
+  (79/79 backticked paths resolve) both green.
+- BLOCKED-ON-MERGE (recorded, deliberate): the MAIN README
+  consolidation. The main checkout's README diverges from this branch
+  by design (the board-green-queue memory), and THREE section drafts
+  wait in notes/ (readme-cmb-section-draft, readme-baosn-section-draft,
+  readme-mps-section-draft + its Drivers table). Order of operations:
+  the user merges origin/main, the drafts land in the MAIN checkout,
+  THEN the POL-1 coherence pass (cross-references, Contents, glossary,
+  appendix 20's new family examples) runs over the merged document.
+- DEFERRED-UNTIL-BOARD-GREEN (recorded ruling): the cosmic-shear driver
+  renames into the `<verb>_<family>_emulator.py` namespace. Renames
+  touch the board configs; landing them under a never-run 32-gate board
+  would make a red board undebuggable. They land AFTER the first full
+  32-gate green, as their own commit.
+
+**POL-2 / POL-3 — queued (the next session's work), inventory:**
+the tree at execution = emulator/ (20 modules + 3 family folders),
+5 cobaya_theory adapters, 6 compute_data_vectors files, 14 drivers,
+gates/ (board + 18 checks). POL-2 walks it file-by-file (accuracy +
+the README didactic standard; doc-only, proven by the AST body-hash
+census). POL-3 hunts the alien-construct table (hot paths never
+slowed; every edit an output-equivalence probe + the board). The two
+passes may share one walk but ship as separate commits (the risk
+split). NOTE: most files touched by the five 2026-07 units were
+WRITTEN under the standard already; the deep pass's real targets are
+the pre-SPE tree (training.py, batching.py, scheduling.py,
+analytics.py, activations.py, designs/, losses/core+ia+pce,
+plotting.py, the four cosmic-shear drivers, gates/board.py's older
+gates).

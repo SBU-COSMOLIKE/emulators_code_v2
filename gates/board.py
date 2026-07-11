@@ -494,7 +494,7 @@ def gate_item27(ctx):
                                pattern=r"used\s+\d+\s+of\s+\d+\s+cut rows"),
              detail="the banner cut count must match the pool shrinkage")
   ctx.log("param-window-cuts ci.init_probes A/B: the duplicate init_probes call in "
-          "geometries_output.py is inspected with this run's evidence "
+          "geometries.output.py is inspected with this run's evidence "
           "(omegamh2-ns-product-cuts.md:248); a manual A/B, not an "
           "automatable assertion.")
 
@@ -1085,6 +1085,90 @@ def gate_bsn_b(ctx):
              + " (gates/checks/bsn_smoke.py)")
 
 
+def gate_mps_a(ctx):
+  """mps-identity: the grid2d emulator + the syren-law assembly math.
+
+  WHAT: the Grid2DGeometry standardize/state round-trips + its width /
+  un-standardizable ((z, k)-naming) / unknown-law guards; the STAGING
+  law transform through the REAL load_source (law rows = log(raw/base)
+  with the base dump aligned by dump_rows through a real shuffled
+  staging; k_stride keeps the top edge; positivity loud); save ->
+  rebuild -> predict bitwise on both laws (the predictor's grid2d
+  branch returns the reshaped (nz, nk) surface); the emul_mps assembly
+  EXACT against synthetic base stubs (P_lin = exp(net)*base, the low-k
+  blend pins boost -> 1 below k_t, P_nl = B*P_lin, the boost base fed
+  the EMULATED P_lin — the legacy flow), its pair/grid/wrong-kind
+  guards, the legacy state keys + interpolator node round-trip, and
+  the reject-on-bad-spectrum semantics; validate_grid2d's pairing /
+  base-file / k_stride / transfer-PERMANENT legs; the D-MP7 finetune
+  parity + metadata-mismatch legs. torch + scipy, no CAMB, no
+  symbolic_pofk (the real syren formulas ride the EMUL2 acceptance)
+  (spec: mps-emulators.md, D-MP1/2/2-A/6/7).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/mps_identity.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="mps-identity geometry + staging law + assembly + finetune "
+            "legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/mps_identity.py)")
+
+
+def gate_mps_b(ctx):
+  """mps-smoke: the MPS emulators end to end on real CAMB (law none).
+
+  WHAT: dataset_generator_mps.py writes two tiny dumps (200 rows,
+  16 z x 40 k) through the real Pk_interpolator requirement (incl. the
+  verbatim wants-Cl quirk): pklin + boost + the grid sidecars; two
+  data.grid2d trainings (law none) each collapse below 0.5x the staged
+  mean predictor; the real cobaya lifecycle through emul_mps serves
+  P_lin and P_nl (grid + interpolator) within 5% of CAMB's OWN
+  P(k, z) at an off-center point; the interpolator range guard. The
+  syren-law path is exactly gated by mps-identity's stubbed legs, and
+  the full syren + EMUL2 hybrid run is the unit's recorded acceptance
+  experiment (EXAMPLE_EMUL2_EVALUATE1.yaml, user-run on the
+  workstation). torch + cobaya + a compiled CAMB under $ROOTDIR
+  (spec: mps-emulators.md, D-MP3/4/6).
+  """
+  ctx.require_caps("torch", "cobaya")
+  rc, out = ctx.run_check("gates/checks/mps_smoke.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="mps-smoke generator + two trainings + cobaya-vs-CAMB",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/mps_smoke.py)")
+
+
+def gate_geo_a(ctx):
+  """geo-paths: the geometry folder move is artifact-immune.
+
+  WHAT: a fresh artifact's geometry cls markers rewritten to the OLD
+  flat module paths (emulator.geometries_<name>.<Class> — what every
+  pre-GEO artifact persists) must rebuild and predict BITWISE against
+  the untouched artifact (the legacy shims route the stored import to
+  the one class object); a fresh save writes the NEW folder paths
+  automatically (type().__module__, the resolved-values rule); each
+  shim's classes ARE the folder classes (alias, isinstance sound); and
+  the tree-wide census proves no code outside the shims references the
+  old flat names. Acceptance beyond this gate = the full board green
+  (every gate touches geometries) with ema-off-identity pinning
+  byte-identity, the GRF precedent (spec: geometry-family-folder.md,
+  D-GEO1..4).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/geo_paths.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="geo-paths old-path rebuild + new-save markers + shim "
+            "identity/census",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/geo_paths.py)")
+
+
 BOARD = [
   Gate(id="ema-off-identity",
        spec_code="GM-C",
@@ -1277,6 +1361,25 @@ BOARD = [
             "two-regime + desert legs); 217-231 (D-BSN9 finetune legs)",
        run=gate_bsn_a,
        needs=("torch",)),
+  Gate(id="mps-identity",
+       spec_code="MPS-A",
+       title="MPS grid2d emulator identity",
+       tier=TIER_NEW_FEATURES,
+       home="mps-emulators",
+       maps="D-MP1/2 (geometry + laws); D-MP2-A (the base placement + "
+            "staging transform); D-MP6 (identity legs); D-MP7 (finetune)",
+       run=gate_mps_a,
+       needs=("torch",)),
+  Gate(id="geo-paths",
+       spec_code="GEO-A",
+       title="Geometry folder artifact immunity",
+       tier=TIER_NEW_FEATURES,
+       home="geometry-family-folder",
+       maps="D-GEO2 (shims); D-GEO3 (import rewrite census); D-GEO4 "
+            "(old-path rebuild + new-save markers + full-board "
+            "acceptance)",
+       run=gate_geo_a,
+       needs=("torch",)),
 
   Gate(id="save-rebuild-drift",
        spec_code="GSV-C",
@@ -1342,5 +1445,14 @@ BOARD = [
        maps="128-136 (D-BSN6 end-to-end vs CAMB's own background); "
             "178-194 (the D-BSN8 diagnostics leg)",
        run=gate_bsn_b,
+       needs=("torch", "cobaya")),
+  Gate(id="mps-smoke",
+       spec_code="MPS-B",
+       title="MPS emulator smoke",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="mps-emulators",
+       maps="D-MP3 (the generator incl. the wants-Cl quirk); D-MP4/6 "
+            "(the emul_mps lifecycle vs CAMB's own P(k, z))",
+       run=gate_mps_b,
        needs=("torch", "cobaya")),
 ]

@@ -39,8 +39,8 @@ import torch
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
-from emulator.geometries_grid import GridGeometry, TARGET_LAWS
-from emulator.geometries_parameter import ParamGeometry
+from emulator.geometries.grid import GridGeometry, TARGET_LAWS
+from emulator.geometries.parameter import ParamGeometry
 from emulator.background import (cumulative_simpson,
                                  distance_interpolators, C_KMS)
 from emulator.experiment import EmulatorExperiment

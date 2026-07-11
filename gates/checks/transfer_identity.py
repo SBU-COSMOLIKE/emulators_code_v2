@@ -47,8 +47,8 @@ from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
 from emulator.designs.ia import TemplateMLP
 from emulator.experiment import validate_transfer
-from emulator.geometries_output import DataVectorGeometry
-from emulator.geometries_parameter import ParamGeometry, AmplitudeFactorGeometry
+from emulator.geometries.output import DataVectorGeometry
+from emulator.geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
 from emulator.losses.ia import nla_coeffs
 from emulator.losses.transfer import TransferChi2, FORMS, SPACES
 from emulator.results import save_emulator, rebuild_emulator

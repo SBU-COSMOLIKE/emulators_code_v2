@@ -67,7 +67,7 @@ from torch.optim import lr_scheduler
 
 from .data_staging import (
   read_param_names, load_source, load_scalar_source, phys_cut_idx)
-from .geometries_parameter import ParamGeometry, AmplitudeFactorGeometry
+from .geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
 from .losses.core import make_chi2
 from .designs.plain import ResMLP, ResCNN, ResTRF
 from .designs.ia import (TemplateMLP, TemplateResCNN,
@@ -370,6 +370,12 @@ DATA_KEYS = {
   # from_config to the grid path (validate_grid): dv files required (rows
   # over the stored z grid), cosmolike keys forbidden, param_cuts optional.
   "grid",
+  # grid2d (matter-power-spectrum) run (D-MP1): the data.grid2d sub-block
+  # {quantity, units, law, z_file, k_file, k_stride, train_base,
+  # val_base}. Its presence switches from_config to the grid2d path
+  # (validate_grid2d): dv files required (flattened (z, k) rows), the
+  # syren-law base files beside them, cosmolike keys forbidden.
+  "grid2d",
   "outputs",
 }
 
@@ -717,7 +723,7 @@ def validate_grid(cfg, train_args, rescale="none"):
   # the target-law registry lives with the grid geometry; imported here
   # (not at module top) so this validator stays importable in the same
   # torch-light contexts as the rest of the config logic.
-  from .geometries_grid import TARGET_LAWS
+  from .geometries.grid import TARGET_LAWS
 
   data = cfg["data"]
   grid = data["grid"]
@@ -799,6 +805,151 @@ def validate_grid(cfg, train_args, rescale="none"):
   # fine-tuning IS in scope (D-BSN9): validated on the from_config grid
   # branch; the source geometry is pinned in build_geometry.
   return dict(grid)
+
+
+def validate_grid2d(cfg, train_args, rescale="none"):
+  """
+  Validate a grid2d (matter-power-spectrum) run; return its data.grid2d.
+
+  A grid2d run is signalled by the data.grid2d sub-block: the data
+  vector is one MPS quantity's flattened (z, k) surface — the linear
+  P(k, z) ("pklin") or the nonlinear boost ("boost") — standardized in
+  LAW SPACE. Under a syren law the target is log(quantity / base) where
+  the base is the analytic syren formula the emulator corrects
+  (D-MP2); the base rows come from the generator's *_base dump files
+  (train_base / val_base), never recomputed at training (D-MP2-A). A
+  standalone pure function (no torch).
+
+  Arguments:
+    cfg        = the parsed config mapping (reads cfg["data"],
+                 cfg["pce"], cfg["transfer"]).
+    train_args = the resolved train_args (reads model.ia).
+    rescale    = the driver's --rescale value (forbidden off "none").
+
+  Returns:
+    the data.grid2d mapping, validated.
+
+  Raises:
+    ValueError on: a missing or unknown sub-key; a quantity outside
+    pklin / boost; a units string not matching the quantity (pklin =
+    "Mpc3", boost = "dimensionless"); a law outside TARGET_LAWS_2D or
+    paired with the wrong quantity (syren_linear corrects pklin,
+    syren_halofit corrects boost); base files missing under a syren
+    law or present under "none"; a bad k_stride; another family's key
+    beside data.grid2d; a missing dv/params/covmat file key; rescale /
+    model.ia / pce; or transfer (a PERMANENT forbid for this family —
+    the scope ruling).
+  """
+  from .geometries.grid2d import TARGET_LAWS_2D
+
+  data = cfg["data"]
+  g2 = data["grid2d"]
+  if not isinstance(g2, dict):
+    raise ValueError(
+      "data.grid2d must be a mapping {quantity, units, law, z_file, "
+      "k_file[, k_stride, train_base, val_base]}; got "
+      + repr(type(g2).__name__))
+  allowed = {"quantity", "units", "law", "z_file", "k_file",
+             "k_stride", "train_base", "val_base"}
+  unknown = sorted(set(g2) - allowed)
+  if unknown:
+    raise ValueError(
+      "unknown data.grid2d key(s) " + repr(unknown) + "; allowed: "
+      + repr(sorted(allowed)))
+  for key in ("quantity", "units", "law", "z_file", "k_file"):
+    if key not in g2:
+      raise ValueError(
+        "data.grid2d needs the " + repr(key) + " key (quantity = which "
+        "MPS surface the rows hold; units = its units string; law = "
+        "the TARGET_LAWS_2D name; z_file / k_file = the generator's "
+        "grid sidecars); it is missing")
+  quantity = str(g2["quantity"])
+  if quantity not in ("pklin", "boost"):
+    raise ValueError(
+      "data.grid2d.quantity must be 'pklin' (the linear P(k, z)) or "
+      "'boost' (P_nl/P_lin); got " + repr(g2["quantity"]))
+  want_units = "Mpc3" if quantity == "pklin" else "dimensionless"
+  if str(g2["units"]) != want_units:
+    raise ValueError(
+      "data.grid2d.units must be " + repr(want_units) + " for quantity "
+      + repr(quantity) + " (the generator's convention); got "
+      + repr(g2["units"]))
+  law = str(g2["law"])
+  if law not in TARGET_LAWS_2D:
+    raise ValueError(
+      "data.grid2d.law " + repr(law) + " is not in the registry "
+      + repr(sorted(TARGET_LAWS_2D)) + " (persisted by name, never a "
+      "default)")
+  law_of = {"pklin": "syren_linear", "boost": "syren_halofit"}
+  if law != "none" and law != law_of[quantity]:
+    raise ValueError(
+      "data.grid2d.law " + repr(law) + " does not correct quantity "
+      + repr(quantity) + "; the syren pairing is pklin <- syren_linear "
+      "and boost <- syren_halofit (or 'none' for either)")
+  if law != "none":
+    for key in ("train_base", "val_base"):
+      if key not in g2:
+        raise ValueError(
+          "a syren law needs data.grid2d." + key + " (the generator's "
+          "*_base dump beside the raw one — the analytic base the "
+          "emulator corrects, read from disk per D-MP2-A); it is "
+          "missing")
+  else:
+    extra = []
+    for key in ("train_base", "val_base"):
+      if key in g2:
+        extra.append(key)
+    if extra:
+      raise ValueError(
+        "law 'none' reads no base files; drop " + repr(extra)
+        + " from data.grid2d")
+  if "k_stride" in g2:
+    ks = g2["k_stride"]
+    if isinstance(ks, bool) or not isinstance(ks, int) or ks < 1:
+      raise ValueError(
+        "data.grid2d.k_stride must be an integer >= 1 (keep every "
+        "k_stride-th wavenumber, the top edge always kept), got "
+        + repr(ks))
+  # exclusivity: a grid2d run has no cosmolike and is no other family.
+  forbidden = []
+  for key in ("cosmolike_data_dir", "cosmolike_dataset", "outputs",
+              "cmb", "grid"):
+    if key in data:
+      forbidden.append(key)
+  if forbidden:
+    raise ValueError(
+      "a grid2d run (data.grid2d present) must not carry " + repr(sorted(
+      forbidden)) + "; the grid2d path reads dv dumps + the grid "
+      "sidecars, no cosmolike and no other family block")
+  for key in ("train_dv", "val_dv", "train_params", "val_params",
+              "train_covmat"):
+    if key not in data:
+      raise ValueError(
+        "a grid2d run needs data." + key + " (the MPS dumps ride the "
+        "same dv/params staging as the cosmolike path); it is missing")
+  if rescale != "none":
+    raise ValueError(
+      "--rescale " + repr(rescale) + " is a cosmolike data-vector "
+      "concept; a grid2d run imposes its target transform through "
+      "data.grid2d.law instead (drop --rescale / leave it none)")
+  ia = train_args.get("model", {}).get("ia")
+  if ia not in (None, "none"):
+    raise ValueError(
+      "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
+      "(cosmic-shear) design; a grid2d run has no ia (remove it)")
+  if cfg.get("pce") is not None:
+    raise ValueError(
+      "a top-level pce: block is a cosmic-shear concept; a grid2d run "
+      "has no PCE base (remove it)")
+  if cfg.get("transfer") is not None:
+    raise ValueError(
+      "transfer learning is PERMANENTLY out of scope for the MPS "
+      "family — the scope ruling: transfer is exclusive to the "
+      "cosmolike and CMB data-vector families (D-MP7); remove the "
+      "transfer: block")
+  # fine-tuning IS in scope (D-MP7): validated on the from_config
+  # grid2d branch; the source geometry is pinned in build_geometry.
+  return dict(g2)
 
 
 # the train_divisor / val_divisor -> n_train / n_val migration message,
@@ -1552,6 +1703,12 @@ class EmulatorExperiment:
     self.cmb  = None
     self._grid = False
     self.grid  = None
+    self._grid2d = False
+    self.grid2d  = None
+    # the post-staging (z, k) axes a grid2d run trains on (set by the
+    # staging law-transform hook; build_geometry reads them).
+    self._grid2d_z = None
+    self._grid2d_k = None
     # fine-tune warm start (emulator/warmstart.py): the loaded source bundle,
     # its resolved absolute path root, and the extra parameter names, all set
     # by from_config / build_geometry. None on an ordinary run, which every
@@ -1607,16 +1764,18 @@ class EmulatorExperiment:
     is_scalar = "outputs" in cfg["data"]
     is_cmb    = "cmb" in cfg["data"]
     is_grid   = "grid" in cfg["data"]
-    if (int(is_scalar) + int(is_cmb) + int(is_grid)) > 1:
+    is_grid2d = "grid2d" in cfg["data"]
+    if (int(is_scalar) + int(is_cmb) + int(is_grid) + int(is_grid2d)) > 1:
       raise ValueError(
-        "data.outputs (a scalar run), data.cmb (a CMB-spectrum run), and "
-        "data.grid (a background-function run) are mutually exclusive; a "
-        "config carries at most one of them.")
+        "data.outputs (scalar), data.cmb (CMB spectrum), data.grid "
+        "(background function), and data.grid2d (matter power spectrum) "
+        "are mutually exclusive; a config carries at most one of them.")
     # validate_param_cuts (below): the physical window cuts now live in
     # data.param_cuts; run this before the generic whitelist so a flat
     # cut key (the old layout) gets the migration message, not a bare
     # "unknown key". On a scalar run with no param_cuts block it is skipped.
-    if not (is_scalar or is_cmb or is_grid) or "param_cuts" in cfg["data"]:
+    if (not (is_scalar or is_cmb or is_grid or is_grid2d)
+        or "param_cuts" in cfg["data"]):
       validate_param_cuts(cfg["data"])
     # validate_sizes (below): n_train / n_val are absolute row counts
     # enforced after param_cuts; run this before the generic whitelist too,
@@ -1658,7 +1817,7 @@ class EmulatorExperiment:
         kwargs["device"] = device
         source_root = warmstart.resolve_source_root(ta["finetune"])
         source = warmstart.load_source(root=source_root, device=device)
-        from .geometries_scalar import ScalarGeometry
+        from .geometries.scalar import ScalarGeometry
         if not isinstance(source.geom, ScalarGeometry):
           raise ValueError(
             "a scalar run (data.outputs present) can only fine-tune from "
@@ -1762,7 +1921,7 @@ class EmulatorExperiment:
         kwargs["device"] = device
         source_root = warmstart.resolve_source_root(ta["finetune"])
         source = warmstart.load_source(root=source_root, device=device)
-        from .geometries_cmb import CmbDiagonalGeometry
+        from .geometries.cmb import CmbDiagonalGeometry
         if not isinstance(source.geom, CmbDiagonalGeometry):
           raise ValueError(
             "a CMB run (data.cmb present) can only fine-tune from a CMB "
@@ -1851,7 +2010,7 @@ class EmulatorExperiment:
         kwargs["device"] = device
         source_root = warmstart.resolve_source_root(ta["finetune"])
         source = warmstart.load_source(root=source_root, device=device)
-        from .geometries_grid import GridGeometry
+        from .geometries.grid import GridGeometry
         if not isinstance(source.geom, GridGeometry):
           raise ValueError(
             "a grid run (data.grid present) can only fine-tune from a "
@@ -1921,6 +2080,106 @@ class EmulatorExperiment:
       exp.model_name = name
       exp._grid      = True
       exp.grid       = dict(grid)
+      # a plain design has no head block, so no per-head activation pin.
+      exp._activation_notice = _activation_flag_notice(
+        flag_type=explicit_flag,
+        head_block=exp.model_cls.head_block,
+        head_pin=None)
+      return exp
+
+    # grid2d (matter-power-spectrum) run (D-MP1): one MPS quantity's
+    # flattened (z, k) surface as the data vector, law-transformed at
+    # staging (D-MP2-A) and standardized through a Grid2DGeometry.
+    # validate_grid2d enforced the exclusivity + forbidden features.
+    if is_grid2d:
+      grid2d = validate_grid2d(cfg, train_args=ta,
+                               rescale=kwargs.get("rescale", "none"))
+      # fine-tune warm start on the grid2d path (D-MP7): architecture,
+      # activation, and loss form inherited from a saved grid2d source
+      # of the SAME quantity/units/law; the (z, k) axes check and the
+      # geometry pin live in build_geometry (the axes exist only after
+      # the staging transform ran).
+      if ta.get("finetune") is not None:
+        warmstart.validate_finetune_config(
+          cfg=cfg,
+          train_args=ta,
+          rescale=kwargs.get("rescale", "none"),
+          activation_flag=kwargs.get("activation"))
+        device = kwargs.get("device")
+        if device is None:
+          device = pick_device()
+        kwargs["device"] = device
+        source_root = warmstart.resolve_source_root(ta["finetune"])
+        source = warmstart.load_source(root=source_root, device=device)
+        from .geometries.grid2d import Grid2DGeometry
+        if not isinstance(source.geom, Grid2DGeometry):
+          raise ValueError(
+            "a grid2d run (data.grid2d present) can only fine-tune from "
+            "a grid2d source emulator; " + repr(source_root)
+            + " rebuilds a " + type(source.geom).__name__ + " output "
+            "geometry (another family's artifact fine-tunes on its own "
+            "path)")
+        sgeom = source.geom
+        want = (str(grid2d["quantity"]), str(grid2d["units"]),
+                str(grid2d["law"]))
+        have = (sgeom.quantity, sgeom.units, sgeom.law)
+        if want != have:
+          raise ValueError(
+            "finetune grid2d-metadata mismatch: the source persisted "
+            "(quantity, units, law) = " + repr(have) + " but "
+            "data.grid2d states " + repr(want) + "; a grid2d warm "
+            "start needs the same quantity, units, and law (D-MP7)")
+        block_opts = source.recipe.get("kwargs", {}).get("block_opts", {})
+        act_spec   = block_opts.get("act", {}) if isinstance(block_opts,
+                                                             dict) else {}
+        kwargs["activation"] = act_spec.get("type", "H")
+        exp = cls(data=cfg["data"], train_args=ta,
+                  model_cls=source.model_cls,
+                  raw_train_args=cfg["train_args"], **kwargs)
+        exp.pce_opts   = None
+        exp.ia         = None
+        exp.arch       = source.recipe.get("name")
+        exp.model_name = (source.recipe.get("name")
+                          or source.model_cls.__name__.lower())
+        exp._activation_notice = None
+        exp._grid2d        = True
+        exp.grid2d         = dict(grid2d)
+        exp._finetune      = source
+        exp._finetune_root = source_root
+        return exp
+      name = str(ta["model"].get("name", "resmlp")).lower()
+      if (name, None) not in models:
+        raise ValueError(
+          "no plain model for architecture " + repr(name) + " (a grid2d "
+          "run uses the plain designs, ia=None; pick a name that has "
+          "one)")
+      model_cls = models[(name, None)]
+      if model_cls.head_block is not None:
+        raise ValueError(
+          "model.name " + repr(name) + " has a correction head ("
+          + str(model_cls.head_block) + "): the heads' basis-change "
+          "buffers assume an eigenbasis data-vector geometry, which the "
+          "grid2d geometry does not carry — a grid2d run is trunk-only "
+          "(V1). Use name: resmlp")
+      # activation precedence, the same rule as every family path.
+      explicit_flag = kwargs.get("activation")
+      if kwargs.get("activation") is None:
+        act_blk = ta["model"].get("activation")
+        if isinstance(act_blk, dict):
+          kwargs["activation"] = str(act_blk.get("type", "H"))
+        elif act_blk is not None:
+          kwargs["activation"] = str(act_blk)
+        else:
+          kwargs["activation"] = "H"
+      exp = cls(data=cfg["data"], train_args=ta,
+                model_cls=model_cls,
+                raw_train_args=cfg["train_args"], **kwargs)
+      exp.pce_opts   = None
+      exp.ia         = None
+      exp.arch       = name
+      exp.model_name = name
+      exp._grid2d    = True
+      exp.grid2d     = dict(grid2d)
       # a plain design has no head block, so no per-head activation pin.
       exp._activation_notice = _activation_flag_notice(
         flag_type=explicit_flag,
@@ -2209,6 +2468,13 @@ class EmulatorExperiment:
       self.log(f"grid emulator: quantity {self.grid['quantity']} "
                f"[{self.grid['units']}]  |  law {law_str}  |  "
                f"z_file {z_name}  |  no cosmolike")
+    # grid2d run: name the quantity, the law (the syren base it
+    # corrects), and the k thinning; the axes are file facts.
+    if self._grid2d:
+      stride = int(self.grid2d.get("k_stride", 1))
+      self.log(f"grid2d emulator: quantity {self.grid2d['quantity']} "
+               f"[{self.grid2d['units']}]  |  law {self.grid2d['law']}"
+               f"  |  k_stride {stride}  |  no cosmolike")
     # fine-tune warm start: name the source artifact and the extra parameters
     # being fine-tuned in (the extras = the new covmat names absent from the
     # source; computed here from the headers, before the geometry is built).
@@ -2311,6 +2577,79 @@ class EmulatorExperiment:
              f"n_val {d.get('n_val')} (enforced after param_cuts)")
 
   # --- staging + geometry (the expensive, cached pieces) ---
+  def _grid2d_law_rows(self, src, base_path):
+    """Materialize a grid2d source's law-space rows in place (D-MP2-A(2)).
+
+    Reads the (z, k) sidecars named in data.grid2d, forms the law-space
+    target — log(quantity / base) under a syren law, with the base rows
+    read from the generator's *_base dump aligned by src["dump_rows"];
+    the raw rows under "none" — then applies the optional k_stride
+    column thinning (every k_stride-th wavenumber, the top edge always
+    kept). REPLACES src["C"] / src["dv"] / src["idx"] with row-aligned
+    in-RAM arrays (the loop and every diagnostic then see law-space
+    rows and nothing else), recomputes dv_mean when present, and
+    stashes the post-thinning axes on the experiment
+    (self._grid2d_z / _k) for build_geometry.
+
+    Arguments:
+      src       = the load_source dict to transform in place.
+      base_path = the *_base dump path (None under law "none").
+
+    Raises:
+      ValueError on a dump/sidecar width mismatch, a base dump whose
+      shape disagrees with the raw dump, or non-positive values where
+      the law takes a log.
+    """
+    g2 = self.grid2d
+    z = np.asarray(np.load(g2["z_file"], allow_pickle=False),
+                   dtype="float64").reshape(-1)
+    k = np.asarray(np.load(g2["k_file"], allow_pickle=False),
+                   dtype="float64").reshape(-1)
+    nz, nk = int(z.size), int(k.size)
+    rows_sorted = np.sort(np.unique(src["idx"]))
+    if int(src["dv"].shape[1]) != nz * nk:
+      raise ValueError(
+        "the MPS dump has " + str(int(src["dv"].shape[1])) + " columns "
+        "but the z_file/k_file sidecars name a " + str(nz) + " x "
+        + str(nk) + " = " + str(nz * nk) + " grid; the dump and its "
+        "sidecars must come from the same generator run")
+    dv_rows = np.asarray(src["dv"][rows_sorted], dtype="float64")
+    law = str(g2["law"])
+    if law == "none":
+      law_rows = dv_rows
+    else:
+      base = np.load(base_path, mmap_mode="r", allow_pickle=False)
+      if base.shape[1] != nz * nk:
+        raise ValueError(
+          "the base dump " + repr(base_path) + " has "
+          + str(int(base.shape[1])) + " columns, the raw dump "
+          + str(nz * nk) + "; they must come from the same generator "
+          "run (the *_base sibling)")
+      base_rows = np.asarray(base[src["dump_rows"]], dtype="float64")
+      bad = int((~(dv_rows > 0)).sum() + (~(base_rows > 0)).sum())
+      if bad > 0:
+        raise ValueError(
+          "the " + law + " law takes log(quantity / base) and needs "
+          "both strictly positive; found " + str(bad) + " non-positive "
+          "entries across the staged rows (a failed generator sample "
+          "left zero rows — drop it from the dump, the failfile names "
+          "it)")
+      law_rows = np.log(dv_rows / base_rows)
+    stride = int(g2.get("k_stride", 1))
+    if stride > 1:
+      kept_k = np.unique(np.concatenate(
+        [np.arange(0, nk, stride), np.array([nk - 1])]))
+      cols = (np.arange(nz)[:, None] * nk + kept_k[None, :]).reshape(-1)
+      law_rows = law_rows[:, cols]
+      k = k[kept_k]
+    src["C"]   = np.asarray(src["C"][rows_sorted])
+    src["dv"]  = law_rows.astype("float32")
+    src["idx"] = np.arange(law_rows.shape[0])
+    if "dv_mean" in src:
+      src["dv_mean"] = law_rows.mean(axis=0).astype("float32")
+    self._grid2d_z = z
+    self._grid2d_k = k
+
   def stage_train(self, n_train=None):
     """
     Stage the training source (cached as self.train_set).
@@ -2354,7 +2693,7 @@ class EmulatorExperiment:
     # the D-SPE2 pattern) — an absent block means no cuts; the cosmolike
     # path requires the block (validate_param_cuts), so .get never
     # changes it.
-    if self._cmb or self._grid:
+    if self._cmb or self._grid or self._grid2d:
       pc = d.get("param_cuts", {})
     else:
       pc = d["param_cuts"]    # the validated physical-window bounds
@@ -2381,6 +2720,13 @@ class EmulatorExperiment:
       ram_frac=d.get("ram_frac", 0.7),
       with_means=True,
       verbose=not self.quiet)
+    # grid2d run: materialize the law-space rows now (D-MP2-A(2)) — the
+    # training loop consumes train_set["dv"] directly, so the syren-law
+    # transform (and the optional k-stride thinning) must happen at
+    # staging, once, on the CPU cold path.
+    if self._grid2d:
+      self._grid2d_law_rows(src=self.train_set,
+                            base_path=self.grid2d.get("train_base"))
     return self.train_set
 
   def stage_val(self, n_val=None):
@@ -2426,7 +2772,7 @@ class EmulatorExperiment:
     # the D-SPE2 pattern) — an absent block means no cuts; the cosmolike
     # path requires the block (validate_param_cuts), so .get never
     # changes it.
-    if self._cmb or self._grid:
+    if self._cmb or self._grid or self._grid2d:
       pc = d.get("param_cuts", {})
     else:
       pc = d["param_cuts"]    # the validated physical-window bounds
@@ -2450,6 +2796,11 @@ class EmulatorExperiment:
       ram_frac=d.get("ram_frac", 0.7),
       with_means=False,
       verbose=not self.quiet)
+    # grid2d run: the same law transform on the val rows (the val file's
+    # own base sidecar).
+    if self._grid2d:
+      self._grid2d_law_rows(src=self.val_set,
+                            base_path=self.grid2d.get("val_base"))
     return self.val_set
 
   def pool_size(self):
@@ -2473,7 +2824,7 @@ class EmulatorExperiment:
     # the scalar / cmb / grid families keep param_cuts optional (their
     # validators never require it), so the pool count must not demand it
     # either — the family sweep drivers call this on cuts-free YAMLs.
-    if self._scalar or self._cmb or self._grid:
+    if self._scalar or self._cmb or self._grid or self._grid2d:
       pc = d.get("param_cuts", {})
     else:
       pc = d["param_cuts"]   # the validated physical-window bounds
@@ -2526,7 +2877,8 @@ class EmulatorExperiment:
     # family branch below (the checks are family-specific), while the
     # input-geometry extension is shared.
     if (self._finetune is not None and not self._cmb
-        and not self._scalar and not self._grid):
+        and not self._scalar and not self._grid
+        and not self._grid2d):
       source = self._finetune
       self.pgeom, extra_names = warmstart.extend_input_geometry(
         source=source,
@@ -2546,7 +2898,7 @@ class EmulatorExperiment:
       # to the pinned geometry, reading only the dataset ini + n(z) file (no
       # cosmolike); a plain ResMLP source (V1) skips this.
       if getattr(self.model_cls, "needs_bins", False):
-        from .geometries_output import build_shear_angle_map
+        from .geometries.output import build_shear_angle_map
         build_shear_angle_map(geom=self.geom,
                               data_dir=d["cosmolike_data_dir"],
                               dataset=d["cosmolike_dataset"])
@@ -2573,7 +2925,7 @@ class EmulatorExperiment:
         run_probe=self.probe,
         new_dv_width=new_dv_width)
       if getattr(base.model_cls, "needs_bins", False):
-        from .geometries_output import build_shear_angle_map
+        from .geometries.output import build_shear_angle_map
         build_shear_angle_map(geom=self.geom,
                               data_dir=d["cosmolike_data_dir"],
                               dataset=d["cosmolike_dataset"])
@@ -2604,7 +2956,7 @@ class EmulatorExperiment:
     # standardizing the staged output columns; the loss is a ScalarChi2. No
     # cosmolike, no mask; returns before the cosmolike import below.
     if self._scalar:
-      from .geometries_scalar import ScalarGeometry
+      from .geometries.scalar import ScalarGeometry
       from .losses.scalar import make_scalar_chi2
       # fine-tune warm start (SPE-FT, the D-FT4 analogue): the input
       # geometry is the source's block-extended (D-SF2 = D-FT3
@@ -2643,7 +2995,7 @@ class EmulatorExperiment:
     # the law-dispatched CMB chi2. No cosmolike; returns before the
     # cosmolike import below.
     if self._cmb:
-      from .geometries_cmb import CmbDiagonalGeometry
+      from .geometries.cmb import CmbDiagonalGeometry
       from .losses.cmb import make_cmb_chi2
       # input geometry: fresh ParamGeometry on a plain run; on a finetune
       # run (D-CM10) the source input geometry block-extended for any new
@@ -2785,7 +3137,7 @@ class EmulatorExperiment:
     # reused unchanged (the law lives inside the geometry's
     # encode/decode). No cosmolike; returns before the import below.
     if self._grid:
-      from .geometries_grid import GridGeometry
+      from .geometries.grid import GridGeometry
       from .losses.scalar import make_scalar_chi2
       quantity = str(self.grid["quantity"])
       units    = str(self.grid["units"])
@@ -2837,6 +3189,70 @@ class EmulatorExperiment:
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
+    # grid2d (matter-power-spectrum) run (D-MP1): the input geometry is
+    # the plain ParamGeometry over the covmat; the output geometry is a
+    # Grid2DGeometry over the post-staging (z, k) axes (the staging
+    # hook already formed the LAW-SPACE rows and applied any k_stride,
+    # so train_set["dv"] is what the network learns); the loss is
+    # ScalarChi2 reused unchanged. No cosmolike; returns before the
+    # import below.
+    if self._grid2d:
+      from .geometries.grid2d import Grid2DGeometry
+      from .losses.scalar import make_scalar_chi2
+      if self._grid2d_z is None or self._grid2d_k is None:
+        raise RuntimeError(
+          "grid2d geometry requested before staging ran (the law "
+          "transform sets the (z, k) axes); call stage_train first")
+      z2, k2 = self._grid2d_z, self._grid2d_k
+      quantity = str(self.grid2d["quantity"])
+      units    = str(self.grid2d["units"])
+      law      = str(self.grid2d["law"])
+      dv  = train_set["dv"]
+      idx = train_set["idx"]
+      if int(dv.shape[1]) != int(z2.size) * int(k2.size):
+        raise ValueError(
+          "the staged law-space rows have " + str(int(dv.shape[1]))
+          + " columns but the post-thinning grid is "
+          + str(int(z2.size)) + " x " + str(int(k2.size))
+          + "; staging and geometry disagree (internal ordering bug)")
+      # fine-tune warm start (D-MP7, the D-FT4 analogue): pin the
+      # SOURCE Grid2DGeometry wholesale after the axes check (the
+      # metadata was checked at from_config; the AXES exist only now).
+      if self._finetune is not None:
+        sgeom = self._finetune.geom
+        src_z = sgeom.z.detach().cpu().numpy()
+        src_k = sgeom.k.detach().cpu().numpy()
+        if not (np.array_equal(z2, src_z) and np.array_equal(k2, src_k)):
+          raise ValueError(
+            "finetune (z, k)-grid mismatch: the staged axes are z "
+            + repr([float(z2[0]), float(z2[-1]), int(z2.size)])
+            + " / k " + repr([float(k2[0]), float(k2[-1]),
+                              int(k2.size)])
+            + " but the source geometry was standardized on z "
+            + repr([float(src_z[0]), float(src_z[-1]), int(src_z.size)])
+            + " / k " + repr([float(src_k[0]), float(src_k[-1]),
+                              int(src_k.size)])
+            + "; use the source's generator grids and k_stride")
+        self.pgeom, extra_names = warmstart.extend_input_geometry(
+          source=self._finetune,
+          covmat_path=d["train_covmat"],
+          train_mean=train_set["C_mean"],
+          device=self.device)
+        self._finetune_extra_names = extra_names
+        self.geom = sgeom
+        self.chi2fn = make_scalar_chi2(self.geom)
+        return self.pgeom, self.geom, self.chi2fn
+      self.pgeom = ParamGeometry.from_covmat(
+        device=self.device,
+        center=train_set["C_mean"],
+        covmat_path=d["train_covmat"])
+      targets = np.asarray(dv[idx])
+      self.geom = Grid2DGeometry.from_targets(
+        device=self.device, targets=targets, z=z2, k=k2,
+        quantity=quantity, units=units, law=law)
+      self.chi2fn = make_scalar_chi2(self.geom)
+      return self.pgeom, self.geom, self.chi2fn
+
     # config validation first, before the cosmolike import below: a bad
     # combination should fail fast, and stays testable off-workstation.
     if getattr(self.model_cls, "factored", False) and self.rescale != "none":
@@ -2846,7 +3262,7 @@ class EmulatorExperiment:
     # lazy import: DataVectorGeometry.from_cosmolike pulls in cosmolike,
     # which lives only on the workstation, importing here keeps the module
     # importable for the config logic without cosmolike.
-    from .geometries_output import DataVectorGeometry
+    from .geometries.output import DataVectorGeometry
 
     # The input whitening. The plain designs whiten every parameter
     # (ParamGeometry); the factored designs (the models' factored flag,
@@ -2864,7 +3280,7 @@ class EmulatorExperiment:
         covmat_path=d["train_covmat"],
         amp_names=des["amp_names"])
     else:
-      # ParamGeometry.from_covmat (geometries_parameter.py): eigendecompose
+      # ParamGeometry.from_covmat (geometries.parameter.py): eigendecompose
       # the parameter covmat so encode() centers, rotates, unit-scales the
       # params the model sees.
       self.pgeom = ParamGeometry.from_covmat(
@@ -2872,7 +3288,7 @@ class EmulatorExperiment:
         center=train_set["C_mean"],
         covmat_path=d["train_covmat"])
 
-    # DataVectorGeometry.from_cosmolike (geometries_output.py): the output
+    # DataVectorGeometry.from_cosmolike (geometries.output.py): the output
     # geometry, read cosmolike's cov / mask / inverse-cov, eigendecompose
     # the kept (unmasked) block, so encode()/chi2 whiten + score the dv.
     self.geom = DataVectorGeometry.from_cosmolike(
@@ -2883,11 +3299,11 @@ class EmulatorExperiment:
       probe=self.probe)
 
     # bin-token heads (restrf; the needs_bins flag) split the dv per
-    # tomographic bin: build_shear_angle_map (geometries_output.py)
+    # tomographic bin: build_shear_angle_map (geometries.output.py)
     # attaches bin_sizes to the geometry, reading only the dataset ini
     # and the n(z) file, no cosmolike.
     if getattr(self.model_cls, "needs_bins", False):
-      from .geometries_output import build_shear_angle_map
+      from .geometries.output import build_shear_angle_map
       build_shear_angle_map(geom=self.geom,
                             data_dir=d["cosmolike_data_dir"],
                             dataset=d["cosmolike_dataset"])

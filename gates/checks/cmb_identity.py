@@ -53,8 +53,8 @@ import torch
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
-from emulator.geometries_cmb import CmbDiagonalGeometry
-from emulator.geometries_parameter import ParamGeometry
+from emulator.geometries.cmb import CmbDiagonalGeometry
+from emulator.geometries.parameter import ParamGeometry
 from emulator.losses.cmb import (AMPLITUDE_LAWS, ResidualRoughness,
                                  CmbDiagonalChi2, make_cmb_chi2)
 from emulator.losses.core import CosmolikeChi2

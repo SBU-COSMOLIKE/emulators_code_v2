@@ -49,6 +49,60 @@ def _require_symbolic_pofk():
       "install symbolic_pofk) or add its checkout to sys.path.")
 
 
+def syren_params_from(params):
+  """Read the six syren-base arguments from a resolved parameter dict.
+
+  The base formulas need (As_1e9, ns, H0, Ob, Om, w0, wa). One mapping
+  rule, shared by the dump generator and the emul_mps adapter (so the
+  two can never disagree about which columns feed the base):
+
+    As_1e9 = params["As_1e9"] if present, else params["As"] * 1e9
+             (the linear amplitude either way; a missing amplitude is
+             loud).
+    ns / H0 / omegab / omegam = read by exactly those names, loud when
+             absent (the base cannot be formed without them).
+    w0     = params["w"] if present, else params["w0"], else -1.0 —
+             an ABSENT equation-of-state parameter means the sampled
+             model IS LCDM (a model fact, not a config default).
+    wa     = params["wa"] if present, else 0.0 (same reasoning).
+
+  Arguments:
+    params = a mapping of resolved parameter values (the generator's
+             to_input dict / the adapter's sampled point).
+
+  Returns:
+    (As_1e9, ns, H0, Ob, Om, w0, wa) as floats.
+
+  Raises:
+    KeyError naming the missing required name(s).
+  """
+  missing = []
+  if "As_1e9" in params:
+    as_1e9 = float(params["As_1e9"])
+  elif "As" in params:
+    as_1e9 = float(params["As"]) * 1e9
+  else:
+    missing.append("As_1e9 (or As)")
+  for name in ("ns", "H0", "omegab", "omegam"):
+    if name not in params:
+      missing.append(name)
+  if missing:
+    raise KeyError(
+      "syren_params_from: the syren base needs parameter(s) "
+      + repr(missing) + " among the resolved inputs; the run's params "
+      "block must provide them by these names (materialize omegab / "
+      "omegam as inputs if the YAML samples densities another way)")
+  if "w" in params:
+    w0 = float(params["w"])
+  elif "w0" in params:
+    w0 = float(params["w0"])
+  else:
+    w0 = -1.0
+  wa = float(params["wa"]) if "wa" in params else 0.0
+  return (as_1e9, float(params["ns"]), float(params["H0"]),
+          float(params["omegab"]), float(params["omegam"]), w0, wa)
+
+
 def base_pklin(k_mpc, z, As_1e9, ns, H0, Ob, Om, w0=-1.0, wa=0.0,
                mnu=0.06):
   """The syren linear P(k, z) base, in Mpc^3 (legacy math verbatim).

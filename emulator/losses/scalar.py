@@ -11,7 +11,7 @@ plain sum of squared standardized residuals (a diagonal, unit-variance
 Mahalanobis distance), not a covariance contraction.
 
 PS: a standardized residual is (pred - target) after each output has been
-put in units of its training standard deviation (see geometries_scalar's
+put in units of its training standard deviation (see geometries.scalar's
 PS); its square summed over the outputs is the per-sample chi2 this loss
 reduces. "The loop interface" is the small set of methods the training
 loop calls on the loss object: encode (raw target -> network space),

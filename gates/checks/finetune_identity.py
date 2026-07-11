@@ -48,8 +48,8 @@ from emulator import warmstart
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
-from emulator.geometries_output import DataVectorGeometry
-from emulator.geometries_parameter import ParamGeometry
+from emulator.geometries.output import DataVectorGeometry
+from emulator.geometries.parameter import ParamGeometry
 from emulator.results import save_emulator
 from emulator.training import make_model
 

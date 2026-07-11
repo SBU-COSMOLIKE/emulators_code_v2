@@ -25,8 +25,8 @@ whose tokens are the tomographic bins. Grouped / per-bin conv twins
 were tried and removed (see git history).
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
-variance (defined in the geometry modules, geometries_parameter /
-geometries_output); these blocks operate on already-whitened tensors.
+variance (defined in the geometry modules, geometries.parameter /
+geometries.output); these blocks operate on already-whitened tensors.
 """
 
 import torch

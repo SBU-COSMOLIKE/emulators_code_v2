@@ -82,6 +82,38 @@ the folder is cut once.
 pattern), [[scalar-parameter-emulators]], [[cmb-spectra-emulators]],
 [[baosn-emulators]].
 
-## Resume state (Implementer appends below)
+## GEO status: CODE COMPLETE — awaiting the workstation board
+(2026-07-11, Architect, overnight-mode continuation; probe_geo 5/5)
 
-(not started — queued behind CME and BSN)
+- **The cut (D-GEO1, final layout):** emulator/geometries/{__init__,
+  parameter, output, scalar, cmb, grid, grid2d}.py — six members (the
+  program grew grid2d by execution time). Verbatim moves (the modules
+  carried NO intra-package relative imports, censused before the cut;
+  geometries/output.py's cosmolike/getdist imports are absolute and
+  depth-immune). The package __init__ is docstring-only (deliberate:
+  re-exports would blur the import census).
+- **The shims (D-GEO2):** six flat legacy modules, each a docstring +
+  ONE re-export line naming every public class/registry
+  (AST-census-shaped), so every pre-GEO artifact's stored cls path
+  imports forever and isinstance stays sound (alias, not copy —
+  probed).
+- **The rewrite (D-GEO3):** 17 importer files moved to the folder
+  paths (the census re-ran at execution as the spec ordered: CME/BSN/
+  MPS had grown the original 13 to 17); 51 import sites total; the
+  tree-wide census proves no non-shim code references the old names.
+- **The gate (D-GEO4):** gates/checks/geo_paths.py + board id
+  `geo-paths` (32 gates now): a fresh artifact's h5 markers REWRITTEN
+  to the old flat paths must rebuild + predict bitwise (the
+  artifact-compat proof); a fresh save writes the NEW paths (probed on
+  the h5 attrs); shim identity + the tree census re-run inside the
+  gate. Acceptance beyond the gate = the FULL 32-gate board green
+  (every gate touches geometries), ema-off-identity pinning
+  byte-identity — the GRF precedent.
+- **Mac probe 5/5** (scratchpad probe_geo.py): compile x31, shim
+  identity under stubs, tree census clean, shim AST shape, board
+  census.
+
+## Resume state
+
+GEO executed 2026-07-11 (above). Board acceptance pending on the
+workstation.

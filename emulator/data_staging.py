@@ -478,7 +478,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                   else this raises (the post-cut enforcement point). A
                   row count here (dump rows staged), not the kept
                   data-vector length also called n_keep in
-                  geometries_output / designs/plain.
+                  geometries.output / designs/plain.
     gen         = torch.Generator seeding the cut+shuffle (required).
     ram_frac    = fraction of available RAM stage_source may fill
                   (default 0.7).
@@ -574,7 +574,15 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   # stage the cut rows in RAM if they fit, else keep the memmap.
   C_src, dv_src, idx_src = stage_source(
     C=C, dv=dv, idx=idx, ram_frac=ram_frac)
-  src = {"C": C_src, "dv": dv_src, "idx": idx_src}
+  # dump_rows = the ON-DISK dump row indices of the staged rows, in
+  # SORTED-unique order — exactly the order dv_src[np.sort(np.unique(
+  # idx_src))] walks on either staging path (stage_source's RAM copy is
+  # built over np.sort(np.unique(idx)); the memmap path keeps global
+  # indices). Consumers that must align a SIBLING dump file row-for-row
+  # (the grid2d base files, D-MP2-A) read this; everything else ignores
+  # the extra key.
+  src = {"C": C_src, "dv": dv_src, "idx": idx_src,
+         "dump_rows": np.sort(np.unique(np.asarray(idx)))}
   if with_means:
     # the per-column std (2nd return) is unused: whitening comes
     # from the covmat, only the means center the targets.

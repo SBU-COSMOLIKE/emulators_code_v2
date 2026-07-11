@@ -203,7 +203,81 @@ rides the next window with the staging work):**
    nonlinear assembly) and the legacy network-input padding block
    (w0/wa defaults — DIES in v2, the artifact's stored names are the
    contract).
-**Next steps (fresh context resumes here):**
+## MPS status: CODE COMPLETE — awaiting the workstation board
+(2026-07-11, Architect, overnight-mode continuation; probe_mps 7/7)
+
+Steps 3-7 landed on the increment-1 foundations:
+
+- **Generator (D-MP3):** dataset_generator_mps.py, the fourth thin
+  driver — z_segments/k_log10/extrap_kmax/write_syren_base train_args
+  (validated: ascending concat, nk >= 8, extrap edge >= k top;
+  write_syren_base True fails AT SETUP when symbolic_pofk is absent,
+  never at sample 1 of a farm); the requirements verbatim incl. the
+  wants-Cl quirk comment; payload {pklin, boost[, pklin_base,
+  boost_base]}; the store = 2 or 4 per-quantity 2D files + _z/_k grid
+  sidecars written at alloc.
+- **Staging (D-MP2-A(2)):** load_source now returns "dump_rows" (the
+  sorted-unique on-disk rows of the staged set — additive key, both
+  staging paths aligned); _grid2d_law_rows materializes
+  log(raw / base) in RAM with the base dump row-aligned by it, applies
+  k_stride (top edge always kept), REPLACES C/dv/idx row-aligned, and
+  recomputes dv_mean; positivity + width guards loud. Probed through
+  the REAL load_source with a working torch-stub Generator/randperm.
+- **Config path:** validate_grid2d (quantity/units pairing enforced,
+  the law-quantity pairing pklin<-syren_linear / boost<-syren_halofit,
+  base files required-iff-syren, k_stride, transfer PERMANENT);
+  from_config grid2d branch + the D-MP7 finetune sub-path (wrong-kind
+  + quantity/units/law metadata at from_config, the (z, k)+stride
+  equality at the build_geometry pin); build_geometry branch over the
+  post-staging axes; pool_size/param_cuts/print_design/exclusivity all
+  four-family aware; results.py grid2d keys (class-guarded);
+  EmulatorPredictor grid2d branch (predict -> {"z", "k", quantity} as
+  the reshaped LAW-SPACE surface — the consumer multiplies the base,
+  D-MP2-A(4)); all four sibling adapters reject grid2d artifacts
+  naming emul_mps.
+- **emul_mps (D-MP4):** exactly two roots (pklin + boost), each
+  self-declaring; grids must match exactly; the syren-base names ride
+  the requirements when a law is in force (w/wa ride the artifact
+  inputs — an absent EoS = LCDM on BOTH sides through the one
+  syren_params_from rule, so generator and adapter cannot disagree);
+  calculate assembles P_lin = exp(net)*base, boost = exp(net)*base
+  with the base fed the EMULATED P_lin (the legacy flow) + the
+  verbatim low-k blend (k_t 0.005, n 2), P_nl = B*P_lin, the legacy
+  reject-on-bad-spectrum (return False) semantics; the legacy state
+  keys; PowerSpectrumInterpolator ported VERBATIM (probe leg 6:
+  line-for-line equal to the legacy class, Lewis attribution kept);
+  get_Pk_grid / get_Pk_interpolator / sigma8 derived / 
+  get_can_support_params on the captured legacy surface. The legacy
+  w0/wa param-padding block is DEAD (the artifact's stored names are
+  the contract).
+- **Drivers (D-MP5):** sweep_ntrain_mps_emulator.py /
+  tune_mps_emulator.py on family_drivers.
+- **Gates (D-MP6):** mps-identity (geometry round-trips; the REAL
+  staging law leg; save/rebuild/predict bitwise both laws; the
+  emul_mps assembly EXACT against synthetic base stubs incl. the
+  blend pinning boost->1 below k_t and the As->As_1e9 conversion
+  reaching the base; pair/grid/wrong-kind guards; interpolator node
+  round-trip; validate legs; D-MP7 finetune parity +
+  metadata-mismatch) and mps-smoke (real CAMB: generator 200 rows
+  16 z x 40 k -> pklin/boost dumps; two law-NONE trainings with the
+  relative dead-network bars; the real cobaya lifecycle vs CAMB's own
+  P(k, z) at 5%; the interpolator range guard). Board = 31
+  (census-counted). Example YAML mps_boost_emulator.yaml.
+- **Recorded decisions/interims:** (a) mps-smoke runs the law-none
+  path end to end and NEVER needs symbolic_pofk — the syren assembly
+  is exactly gated by the identity stubs, and the full syren + EMUL2
+  hybrid run (EXAMPLE_EMUL2_EVALUATE1.yaml: cosmolike use_emulator: 2
+  + emul_mps + emul_baosn + the rdrag scalar emulator) is the unit's
+  ACCEPTANCE experiment, user-run on the workstation where
+  symbolic_pofk lives. (b) MPS-DIAG follow-up: per-family physical
+  diagnostics pages for grid2d (the D-CM9 dispatch has no _grid2d
+  pages yet; the shared chi2 pages apply as-is) — small, rides POL or
+  its own delta. (c) First-run risks: the Pk_grid add_requirements
+  resolution onto a non-CAMB theory (the smoke's cobaya leg is
+  self-diagnosing); the generator's Pk_interpolator requirement
+  against the workstation cobaya version.
+
+**The executed plan (for the record):**
 3. dataset_generator_mps.py (fourth thin driver): probes ("mps",),
    EXTRA_TRAIN_KEYS z/k specs; requirements per the captured
    conventions incl. the wants-Cl quirk; payload {pklin, boost,

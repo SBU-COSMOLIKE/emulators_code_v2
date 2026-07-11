@@ -95,6 +95,8 @@ class emul_scalars(Theory):
                     kind, where = "CMB spectrum", "emul_cmb"
                 elif predictor._grid:
                     kind, where = "background grid", "emul_baosn"
+                elif predictor._grid2d:
+                    kind, where = "matter-power-spectrum grid", "emul_mps"
                 else:
                     kind, where = "data-vector", "emul_cosmic_shear"
                 raise ValueError(

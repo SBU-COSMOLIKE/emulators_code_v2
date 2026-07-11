@@ -33,9 +33,9 @@ import torch
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
-from emulator.geometries_output import DataVectorGeometry
-from emulator.geometries_parameter import ParamGeometry
-from emulator.geometries_scalar import ScalarGeometry
+from emulator.geometries.output import DataVectorGeometry
+from emulator.geometries.parameter import ParamGeometry
+from emulator.geometries.scalar import ScalarGeometry
 from emulator.data_staging import _scalar_columns
 from emulator.experiment import EmulatorExperiment
 from emulator.results import save_emulator, rebuild_emulator

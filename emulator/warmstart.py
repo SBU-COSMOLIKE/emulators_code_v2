@@ -8,7 +8,7 @@ few extra parameters (w0, wa).
 
 Loading the weights is one line; the real work is the whitening bases. The
 input encoding is a full rotation into the parameter covariance eigenbasis
-(ParamGeometry, geometries_parameter.py), and a new cosmology's covariance
+(ParamGeometry, geometries.parameter.py), and a new cosmology's covariance
 remixes every parameter, so a naively rebuilt geometry would point the loaded
 input weights at scrambled coordinates and the run would spend its first
 epochs relearning the basis. This module builds the new input geometry by
@@ -42,7 +42,7 @@ import os
 import numpy as np
 import torch
 
-from .geometries_parameter import ParamGeometry, AmplitudeFactorGeometry
+from .geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
 from .results import rebuild_emulator
 from .training import make_model
 from .activations import make_activation

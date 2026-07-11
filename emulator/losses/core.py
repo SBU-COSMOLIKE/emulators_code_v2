@@ -839,7 +839,7 @@ def make_chi2(geom, rescale="none", param_geometry=None,
     return CosmolikeChi2(geom=geom)
   # lazy import: build_shear_angle_map lives in the cosmolike-
   # importing geometry module, only needed for the rescaled path.
-  from ..geometries_output import build_shear_angle_map
+  from ..geometries.output import build_shear_angle_map
   build_shear_angle_map(geom=geom, data_dir=data_dir,
                         dataset=dataset)
   cls = RescaledChi2 if rescale == "rescaled" else ResidualBaseChi2

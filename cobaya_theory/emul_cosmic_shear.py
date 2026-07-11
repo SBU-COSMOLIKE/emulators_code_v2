@@ -115,6 +115,11 @@ class emul_cosmic_shear(Theory):
                     "emul_cosmic_shear: " + repr(root) + " is a "
                     "background (grid) emulator; it belongs in "
                     "emul_baosn's emulators list, not here")
+            if predictor._grid2d:
+                raise ValueError(
+                    "emul_cosmic_shear: " + repr(root) + " is a matter-"
+                    "power-spectrum (grid2d) emulator; it belongs in "
+                    "emul_mps's emulators list, not here")
             self.predictors.append(predictor)
             for name in predictor.names:
                 req[name] = None

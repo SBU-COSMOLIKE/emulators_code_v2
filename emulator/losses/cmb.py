@@ -23,7 +23,7 @@ free. AMPLITUDE_LAWS is the small registry (persisted by name in the
 artifact, never a code default); make_cmb_chi2 builds the right loss.
 
 PS: a whitened residual is (pred - target) after each multipole has been
-put in units of its cosmic-variance error bar (see geometries_cmb's PS);
+put in units of its cosmic-variance error bar (see geometries.cmb's PS);
 its square summed over the multipoles is the per-sample chi2 this loss
 reduces. "The loop interface" is the small set of methods the training
 loop calls on the loss object: encode (raw target -> network space),

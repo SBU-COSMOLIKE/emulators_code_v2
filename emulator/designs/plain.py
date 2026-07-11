@@ -5,13 +5,13 @@ mapping whitened cosmological parameters to the whitened data vector.
 Where this file sits in the training pipeline:
 
   cosmological parameters
-     │   geometries_parameter.py  center, rotate, unit-scale (whiten in)
+     │   geometries.parameter.py  center, rotate, unit-scale (whiten in)
      ▼
   whitened inputs
      │   designs/plain.py         ResMLP, ResCNN, or ResTRF (this file)
      ▼
   whitened data vector
-     │   geometries_output.py     un-whiten + scatter to full length
+     │   geometries.output.py     un-whiten + scatter to full length
      ▼
   physical residual vs truth
      │   losses/core.py           contract with the inverse covariance
@@ -41,8 +41,8 @@ head_block fails at class-definition time.
 
 Whitened = rotated into the covariance eigenbasis and scaled to unit
 variance, leaving the components decorrelated and equally hard to fit;
-done by the geometry classes (geometries_parameter /
-geometries_output).
+done by the geometry classes (geometries.parameter /
+geometries.output).
 """
 
 import torch

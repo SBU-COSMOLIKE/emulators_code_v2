@@ -125,6 +125,7 @@ class EmulatorPredictor:
     self._scalar = info["scalar"]
     self._cmb    = info["cmb"]
     self._grid   = info["grid"]
+    self._grid2d = info["grid2d"]
     if self._scalar:
       self.output_names = list(self.geom.names)
       self._dtype = self.pgeom.center.dtype
@@ -139,6 +140,19 @@ class EmulatorPredictor:
       self.units    = self.geom.units
       self.law      = self.geom.law
       self.z        = self.geom.z
+      self._dtype   = self.pgeom.center.dtype
+      return
+    # grid2d (matter-power-spectrum) emulator (D-MP1): predict returns
+    # the LAW-SPACE surface on the stored (z, k) axes — log(P/P_base)
+    # under a syren law, the raw surface under "none" — keyed by the
+    # quantity tag; the consumer multiplies the base back through
+    # emulator/syren_base.py (D-MP2-A(4)), exactly as emul_mps does.
+    if self._grid2d:
+      self.quantity = self.geom.quantity
+      self.units    = self.geom.units
+      self.law      = self.geom.law
+      self.z        = self.geom.z
+      self.k        = self.geom.k
       self._dtype   = self.pgeom.center.dtype
       return
     # CMB spectrum emulator (D-CM5): predict returns the physical C_ell
@@ -399,6 +413,16 @@ class EmulatorPredictor:
       row = self.geom.decode(pred)[0].detach().cpu().numpy()
       return {"z": self.z.detach().cpu().numpy(),
               self.quantity: row}
+    # grid2d emulator (D-MP1): decode destandardizes to LAW SPACE (the
+    # base multiply-back is the consumer's one step, D-MP2-A(4)); the
+    # flattened row is reshaped back to the (nz, nk) surface.
+    if self._grid2d:
+      nz = int(self.z.numel())
+      nk = int(self.k.numel())
+      surface = self.geom.decode(pred)[0].detach().cpu().numpy()
+      return {"z": self.z.detach().cpu().numpy(),
+              "k": self.k.detach().cpu().numpy(),
+              self.quantity: surface.reshape(nz, nk)}
     # CMB spectrum emulator (D-CM5): decode multiplies the amplitude law
     # back (law-dispatched at build time), returning the physical C_ell on
     # the stored multipole grid .ell; no mask to unsqueeze through and no
