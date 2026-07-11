@@ -4,8 +4,10 @@
 Cosmic shear (xi) is the default; a data.cmb / data.grid / data.grid2d
 block in the YAML trains a CMB-spectrum / background / matter-power
 emulator instead — same trunk, same train_args, the data block picks
-the family (scalar emulators have their own driver,
-train_scalar_emulator.py).
+the family. The thin wrappers train_cmb_emulator.py /
+train_baosn_emulator.py / train_mps_emulator.py run this same main()
+with the family pinned (a wrong-family YAML names the right driver);
+scalar emulators have their own driver, train_scalar_emulator.py.
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
 variance (the decorrelated form the network sees); dump = the full on-disk

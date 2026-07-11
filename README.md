@@ -2040,7 +2040,9 @@ theory:
 ```
 
 The acceptance experiment for the unit is the full EMUL2 evaluate run
-(the EXAMPLE_EMUL2_EVALUATE1.yaml pattern) with all three theories.
+with all three theories; the ready-to-fill config ships as
+`cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml` (the legacy
+EXAMPLE_EMUL2_EVALUATE1.yaml pattern with the v2 adapters).
 Fine-tuning works per artifact (same quantity, law, and grids).
 Transfer learning is exclusive to the cosmolike and CMB data-vector
 families and is permanently out here. Gates: mps-identity / mps-smoke.
