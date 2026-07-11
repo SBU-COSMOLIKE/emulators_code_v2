@@ -1589,3 +1589,38 @@ Commit -> merge to main -> push -> workstation pull ->
 `python gates/run_board.py --force-rerun scalar-smoke`. If the
 evaluate leg reds again, the log now carries the dir listing + columns
 + stdout tail — the next delta is written from that evidence.
+
+## Board run 4 + D-SPE2-9 (2026-07-10, Fable)
+
+**Relay (HEAD 52ed560): the diag paid for itself in one run. The
+PIPELINE IS PROVEN END TO END — cobaya's own stdout reads
+`Derived params: omegamh2 = 0.162592`, served through emul_scalars at
+the override point, matching the predict leg's 0.16259. The only
+failure is the readback's file assumption: the output dir holds the
+.1.txt + input/updated yamls and NO .paramnames — an evaluate run
+never writes one.**
+
+### D-SPE2-9 (gate, CLOSED by the Architect as a declared deviation):
+read the value from what the run provably produces
+
+- Primary: parse the evaluate sampler's "Derived params:" stdout block
+  (the format is in evidence, verbatim, from run 4's log) — a regex on
+  OUT_NAME after the block marker.
+- Secondary: the chain's own header row (cobaya's .1.txt starts with
+  "# weight minuslogpost ..."), columns indexed by name directly — no
+  +2 offset, weight/minuslogpost are named there too.
+- The .paramnames-based readback is deleted; the D-SPE2-8 diag stays.
+Probe (Mac): the shipped readback block exec'd against run 4's
+VERBATIM stdout (got 0.162592, okval True — the real value passes the
+5% bar at rel 4.65%) and against a synthetic header-row chain
+(fallback got the same value). Runs 3 and 4 reproduced the training
+numbers identically, so the path is deterministic on the workstation:
+the same value returns, and the leg goes green.
+
+### Remaining to close SPE (final)
+
+Commit -> merge to main -> push -> workstation pull ->
+`python gates/run_board.py --force-rerun scalar-smoke` -> expected
+25/25 -> SPE CLOSED, CME begins. Lesson bank for CME's evaluate leg:
+evaluate runs write no .paramnames; read derived values from the
+stdout block or the chain header; ship the diag from day one.

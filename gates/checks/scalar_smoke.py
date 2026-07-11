@@ -15,6 +15,7 @@ so it is a board gate. The fixture generation is pure numpy (Mac-checkable).
 """
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -238,17 +239,28 @@ def check_cobaya_evaluate(tmp, root):
                "cobaya-run rc=%d: %s" % (proc.returncode,
                                          proc.stderr.strip()[-300:]))
         return
-    # the evaluate writes a one-row <out_root>.1.txt; the derived omegamh2 is
-    # among its columns (named by <out_root>.paramnames).
-    txt = out_root + ".1.txt"
-    names_file = out_root + ".paramnames"
+    # D-SPE2-9: an evaluate run writes NO .paramnames sidecar (board run 4's
+    # diag: only the .1.txt + input/updated yamls land), so read the value
+    # from what the run provably produces. Primary: the evaluate sampler's
+    # own "Derived params:" stdout block (format in evidence from run 4).
+    # Secondary: the chain's header row names its columns directly (no
+    # +2 offset — weight / minuslogpost are named there too).
     got, cols = None, []
-    if os.path.exists(txt) and os.path.exists(names_file):
-        cols = [ln.split()[0].rstrip("*") for ln in open(names_file)
-                if ln.strip()]
-        row = np.loadtxt(txt).reshape(-1)
-        if OUT_NAME in cols:
-            got = float(row[2 + cols.index(OUT_NAME)])
+    tail_at = proc.stdout.find("Derived params:")
+    if tail_at >= 0:
+        m = re.search(r"\b" + re.escape(OUT_NAME) + r"\s*=\s*([0-9eE+.-]+)",
+                      proc.stdout[tail_at:])
+        if m:
+            got = float(m.group(1))
+    txt = out_root + ".1.txt"
+    if got is None and os.path.exists(txt):
+        with open(txt) as fh:
+            head = fh.readline()
+        if head.startswith("#"):
+            cols = head[1:].split()
+            row = np.loadtxt(txt).reshape(-1)
+            if OUT_NAME in cols:
+                got = float(row[cols.index(OUT_NAME)])
     okval = got is not None and abs(got - want) / want < 0.05
     report("cobaya evaluate through emul_scalars returns omegamh2",
            okval, "got %s want %.5f" % (got, want))
