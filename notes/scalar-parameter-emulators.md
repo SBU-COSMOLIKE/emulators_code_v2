@@ -1544,3 +1544,48 @@ Commit -> merge to main -> push -> workstation pull ->
 build_specs (the 2-epoch train, the bars, the cobaya evaluate minus the
 dropped requires key) run for the first time; the bar-calibration and
 evaluate-YAML contingencies recorded above still stand.
+
+## Board run 3 + D-SPE2-8 (2026-07-10, Fable)
+
+**Relay (HEAD c3743d3): the LEARNING legs are GREEN — val median 0.156
+(bar 0.3; mean-predictor 0.455) and the off-center predict at rel
+4.65% (bar 5%) — the network genuinely learned the map, D-SPE2-5's
+bars did their job. The one remaining red is the evaluate READBACK:
+cobaya-run exited 0 but the gate found no omegamh2 (got None = files
+or column missing, not a wrong value).** Honest-margin note: 4.65% of
+a 5% bar is thin; recorded, not actioned — the bar stays unless a
+rerun crosses it, and the floor remains the mean-predictor's 13.7%.
+
+### D-SPE2-8 (gate, CLOSED by the Architect as a declared deviation):
+the evaluate YAML now mirrors the PROVEN adapter shape + the red
+self-diagnoses
+
+Root cause (from the proven gates/configs/cobaya-adapter-evaluate.yaml,
+the only board-green evaluate in the repo): the proven leg samples its
+params with PRIORS and pins the point through the evaluate sampler's
+`override:` — the smoke instead fixed H0/omegam with `value:`, leaving
+cobaya ZERO sampled dimensions, after which no readable one-row chain
+landed where the gate looks. Two changes:
+- the YAML rewritten to the proven shape: H0 / omegam get priors
+  (55-91, 0.1-0.9) + ref + proposal; `sampler: evaluate: N: 1` with
+  `override: {H0: 73.0, omegam: 0.32}` pins the off-center point;
+  `force: True` and the theory-level `stop_at_error` join the file,
+  exactly as the adapter leg carries them.
+- the got-None branch now prints its own diagnosis to the gate log
+  (the output-dir listing, the chain's column names, cobaya's stdout
+  tail), so any further red names its cause without another
+  workstation round trip.
+Probe (Mac): the yaml_text expression eval'd from the shipped AST —
+proven-shape checks 8/8 (priors not value:, override point, force,
+both stop_at_error lines, derived kept, no requires, block style).
+One caveat recorded honestly: the derived-column READBACK itself has
+no board-proven precedent (the adapter leg asserts exit code only), so
+this leg remains first-of-its-kind; the diagnosis printing is the
+insurance.
+
+### Remaining to close SPE (updated)
+
+Commit -> merge to main -> push -> workstation pull ->
+`python gates/run_board.py --force-rerun scalar-smoke`. If the
+evaluate leg reds again, the log now carries the dir listing + columns
++ stdout tail — the next delta is written from that evidence.

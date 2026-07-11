@@ -183,11 +183,17 @@ def check_cobaya_evaluate(tmp, root):
     # evaluate leg also fails a mean-only network.
     h0_t, om_t = 73.0, 0.32
     want = omegamh2(h0_t, om_t)
+    # D-SPE2-8: mirror the PROVEN cobaya-adapter-evaluate.yaml shape —
+    # sampled params with priors, the point pinned by the evaluate
+    # sampler's override (never value:-fixed params: with zero sampled
+    # dimensions the run left no readable chain, board run 3's got-None).
     yaml_text = (
         "stop_at_error: True\n"
+        "force: True\n"
         "theory:\n"
         "  emul_scalars:\n"
         "    python_path: " + cobaya_dir + "\n"
+        "    stop_at_error: True\n"
         "    extra_args:\n"
         "      device: cpu\n"
         "      emulators:\n"
@@ -200,11 +206,27 @@ def check_cobaya_evaluate(tmp, root):
         "  test_like:\n"
         "    external: 'lambda omegamh2: 0.0'\n"
         "params:\n"
-        "  H0:\n    value: " + repr(h0_t) + "\n"
-        "  omegam:\n    value: " + repr(om_t) + "\n"
-        "  omegamh2:\n    derived: True\n"
-        "output: " + out_root + "\n"
-        "sampler:\n  evaluate:\n")
+        "  H0:\n"
+        "    prior:\n"
+        "      min: 55.0\n"
+        "      max: 91.0\n"
+        "    ref: 70.0\n"
+        "    proposal: 1.0\n"
+        "  omegam:\n"
+        "    prior:\n"
+        "      min: 0.1\n"
+        "      max: 0.9\n"
+        "    ref: 0.3\n"
+        "    proposal: 0.01\n"
+        "  omegamh2:\n"
+        "    derived: True\n"
+        "sampler:\n"
+        "  evaluate:\n"
+        "    N: 1\n"
+        "    override:\n"
+        "      H0: " + repr(h0_t) + "\n"
+        "      omegam: " + repr(om_t) + "\n"
+        "output: " + out_root + "\n")
     yaml_path = os.path.join(tmp, "scalar_evaluate.yaml")
     with open(yaml_path, "w") as f:
         f.write(yaml_text)
@@ -220,9 +242,8 @@ def check_cobaya_evaluate(tmp, root):
     # among its columns (named by <out_root>.paramnames).
     txt = out_root + ".1.txt"
     names_file = out_root + ".paramnames"
-    ok = os.path.exists(txt) and os.path.exists(names_file)
-    got = None
-    if ok:
+    got, cols = None, []
+    if os.path.exists(txt) and os.path.exists(names_file):
         cols = [ln.split()[0].rstrip("*") for ln in open(names_file)
                 if ln.strip()]
         row = np.loadtxt(txt).reshape(-1)
@@ -231,6 +252,17 @@ def check_cobaya_evaluate(tmp, root):
     okval = got is not None and abs(got - want) / want < 0.05
     report("cobaya evaluate through emul_scalars returns omegamh2",
            okval, "got %s want %.5f" % (got, want))
+    if got is None:
+        # self-diagnosis (D-SPE2-8): a got-None red must name its own cause
+        # in the log — which files cobaya wrote, which columns the chain
+        # carries, and the run's stdout tail — so the next delta needs no
+        # extra board round trip.
+        out_dir = os.path.dirname(out_root)
+        print("  [diag] output dir listing:", sorted(os.listdir(out_dir))
+              if os.path.isdir(out_dir) else "MISSING")
+        print("  [diag] chain columns:", cols or "no .paramnames")
+        print("  [diag] cobaya stdout tail:",
+              proc.stdout.strip()[-400:] or "(empty)")
 
 
 def main():
