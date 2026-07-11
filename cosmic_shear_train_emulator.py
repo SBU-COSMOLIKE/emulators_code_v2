@@ -536,6 +536,21 @@ def main(prog="cosmic_shear_train_emulator", family=None):
                                            device=exp.device)
       log(f"grid pages: quantity {grid_diag['quantity']}  |  worst val "
           f"chi2 {grid_diag['worst']['dchi2']:.1f}")
+    # (6) the grid2d (matter-power) family pages (MPS-DIAG): the (z, k)
+    # |residual| surfaces (median + worst cosmology) and per-k bands at
+    # three redshifts; under a syren law the residual reads directly as
+    # ln(P_pred / P_truth) — the base cancels in law space.
+    grid2d_diag = None
+    if getattr(exp, "_grid2d", False):
+      from emulator.diagnostics import grid2d_residual_diagnostic
+      grid2d_diag = grid2d_residual_diagnostic(model=model,
+                                               param_geometry=exp.pgeom,
+                                               chi2fn=exp.chi2fn,
+                                               val_set=exp.val_set,
+                                               device=exp.device)
+      log(f"grid2d pages: quantity {grid2d_diag['quantity']} "
+          f"({grid2d_diag['res_kind']})  |  worst val "
+          f"chi2 {grid2d_diag['worst']['dchi2']:.1f}")
     # val_set + names add page 4: the getdist LCDM triangle of the val
     # cosmologies colored by log10 delta-chi2 (cov["dchi2"], same rows).
     # cuts shades the physically-removed regions gray on that page.
@@ -555,6 +570,7 @@ def main(prog="cosmic_shear_train_emulator", family=None):
                      cuts=cfg["data"].get("param_cuts", {}),
                      cmb=cmb_diag,
                      grid=grid_diag,
+                     grid2d=grid2d_diag,
                      savepath=diag_path)
     log(f"saved diagnostics -> {diag_path}")
 

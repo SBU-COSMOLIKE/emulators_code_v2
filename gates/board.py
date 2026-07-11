@@ -1123,7 +1123,9 @@ def gate_mps_b(ctx):
   16 z x 40 k) through the real Pk_interpolator requirement (incl. the
   verbatim wants-Cl quirk): pklin + boost + the grid sidecars; two
   data.grid2d trainings (law none) each collapse below 0.5x the staged
-  mean predictor; the real cobaya lifecycle through emul_mps serves
+  mean predictor (the boost training also proves the MPS-DIAG grid2d
+  pages: the two (z, k) figures build and the plot_diagnostics PDF
+  lands); the real cobaya lifecycle through emul_mps serves
   P_lin and P_nl (grid + interpolator) within 5% of CAMB's OWN
   P(k, z) at an off-center point; the interpolator range guard. The
   syren-law path is exactly gated by mps-identity's stubbed legs (the

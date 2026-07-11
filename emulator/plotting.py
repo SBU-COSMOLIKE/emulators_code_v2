@@ -1265,6 +1265,77 @@ def _grid_pages(gd):
   return figs
 
 
+def _grid2d_pages(g2):
+  """Build the grid2d-family pages (MPS-DIAG) from
+  grid2d_residual_diagnostic.
+
+  Page A (1x2): the median |residual| over the validation set as a
+  (z, k) surface, beside the worst validation cosmology's |residual|
+  surface (same color scale, so "how bad is the worst" reads at a
+  glance). Under a syren law the residual is ln(P_pred / P_truth) —
+  the base cancels — so the color is the fractional error of the
+  served spectrum; under law "none" it is the plain fractional
+  residual.
+  Page B (stacked): per-k residual bands (68/95 + median) at the
+  first / middle / last stored redshift, with the worst cosmology's
+  cut overlaid.
+
+  Arguments:
+    g2 = the dict grid2d_residual_diagnostic returned.
+
+  Returns:
+    a list of matplotlib figures.
+  """
+  z = np.asarray(g2["z"], dtype="float64")
+  k = np.asarray(g2["k"], dtype="float64")
+  q = str(g2["quantity"])
+  res_label = ("ln(pred / truth)" if g2["res_kind"] == "ln-ratio"
+               else "fractional residual")
+  figs = []
+
+  med_abs = np.asarray(g2["med_abs"], dtype="float64")
+  worst_abs = np.abs(np.asarray(g2["worst"]["res"], dtype="float64"))
+  vmax = max(float(med_abs.max()), float(worst_abs.max()), 1e-12)
+  fa, ax = plt.subplots(1, 2, figsize=(13, 5))
+  for a, surf, title in ((ax[0], med_abs,
+                          f"{q}: median |{res_label}| over the val set"),
+                         (ax[1], worst_abs,
+                          "worst val cosmology (chi2 = "
+                          f"{g2['worst']['dchi2']:.1f})")):
+    pc = a.pcolormesh(k, z, surf, shading="auto", cmap="viridis",
+                      vmin=0.0, vmax=vmax)
+    a.set_xscale("log")
+    a.set_xlabel("k (1/Mpc)")
+    a.set_ylabel("z")
+    a.set_title(title, fontsize=10)
+    fa.colorbar(pc, ax=a, label=f"|{res_label}|")
+  fa.tight_layout()
+  figs.append(fa)
+
+  cuts = g2["slices"]
+  fb, ax = plt.subplots(len(cuts), 1, figsize=(9, 3.2 * len(cuts)),
+                        sharex=True)
+  if len(cuts) == 1:
+    ax = [ax]
+  for a, s in zip(ax, cuts):
+    a.fill_between(k, s["lo95"], s["hi95"], color=_CB[4], alpha=0.35,
+                   label="95%")
+    a.fill_between(k, s["lo68"], s["hi68"], color=_CB[0], alpha=0.45,
+                   label="68%")
+    a.plot(k, s["med"], color=_CB[3], lw=1.0, label="median")
+    a.plot(k, np.asarray(g2["worst"]["res"])[s["iz"]], color=_CB[1],
+           lw=0.8, ls="--", label="worst cosmology")
+    a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+    a.set_xscale("log")
+    a.set_ylabel(res_label)
+    a.set_title(f"z = {s['z']:.3g}", fontsize=9)
+    a.legend(fontsize=7)
+  ax[-1].set_xlabel("k (1/Mpc)")
+  fb.tight_layout()
+  figs.append(fb)
+  return figs
+
+
 def plot_diagnostics(train_losses,
                      medians,
                      means,
@@ -1279,6 +1350,7 @@ def plot_diagnostics(train_losses,
                      cmb=None,
                      scalar=None,
                      grid=None,
+                     grid2d=None,
                      savepath=None):
   """
   All available diagnostics as a single multipage figure / PDF.
@@ -1307,6 +1379,11 @@ def plot_diagnostics(train_losses,
     scalar -> three scalar pages (truth-vs-predicted; residual
               histograms physical + standardized; residual vs each
               input parameter).
+    grid   -> the background pages (per-redshift residual bands +
+              worst overlay; for a Hubble artifact the derived
+              D_A / D_L page through the real pipeline).
+    grid2d -> two matter-power pages (the (z, k) |residual| surfaces,
+              median + worst; per-k bands at three redshifts).
   A run passes only its own family's dict, so a cosmic-shear run's
   PDF is byte-identical to before the dispatch existed (both default
   None).
@@ -1408,6 +1485,8 @@ def plot_diagnostics(train_losses,
     figs.extend(_scalar_pages(scalar))
   if grid is not None:
     figs.extend(_grid_pages(grid))
+  if grid2d is not None:
+    figs.extend(_grid2d_pages(grid2d))
 
   _save_pages(figs, savepath)
 

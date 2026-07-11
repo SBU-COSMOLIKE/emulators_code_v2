@@ -412,7 +412,7 @@ per-family drivers differ only in their prog names and defaults.
 | scalar_train_emulator.py | scalar | train one derived-parameter emulator; `--diagnostic` |
 | cmb_train_emulator.py | cmb | train one CMB-spectrum emulator (requires a data.cmb block, wrong-family YAMLs name the right driver); `--diagnostic` adds the CMB pages |
 | baosn_train_emulator.py | baosn | train one background emulator (requires data.grid); `--diagnostic` adds the redshift + derived-distance pages |
-| mps_train_emulator.py | mps | train one matter-power emulator (requires data.grid2d) |
+| mps_train_emulator.py | mps | train one matter-power emulator (requires data.grid2d); `--diagnostic` adds the (z, k) residual-surface pages |
 | cosmic_shear_sweep_ntrain_emulator.py | cosmic shear | f(delta-chi2 > thr) vs `N_train`, multi-GPU pool + gpu-pack |
 | scalar_sweep_ntrain_emulator.py | scalar | the same learning curve, serial |
 | cmb_sweep_ntrain_emulator.py | cmb | the same, serial |

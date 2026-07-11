@@ -34,9 +34,10 @@ interpolator fills back in.
 #  k_stride); the full commented example is
 #  example_yamls/mps_boost_emulator.yaml, and the README's
 #  matter-power section walks every key. All flags are the shared
-#  train-driver flags; --diagnostic writes the shared chi2 pages (the
-#  grid2d-specific pages are a recorded follow-up, MPS-DIAG in
-#  notes/mps-emulators.md).
+#  train-driver flags; --diagnostic appends the two matter-power pages
+#  (the (z, k) |residual| surfaces, median + worst cosmology, and per-k
+#  bands at three redshifts — under a syren law the residual reads as
+#  ln(P_pred / P_truth), the base cancels in law space).
 
 from cosmic_shear_train_emulator import main
 

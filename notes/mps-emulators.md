@@ -296,6 +296,40 @@ Steps 3-7 landed on the increment-1 foundations:
    EXAMPLE_EMUL2_EVALUATE1.yaml end to end on the workstation
    (recorded as the unit's acceptance experiment, user-run).
 
+**MPS-DIAG CLOSED (2026-07-11 overnight window, Architect; branch
+commits authorized by the user):** the grid2d family diagnostics pages
+exist — interim (b) below is done. `grid2d_residual_diagnostic`
+(diagnostics.py) summarizes validation residuals in LAW space, where
+the key fact makes the pages physical: under a syren law
+pred - truth = ln(P_pred/P_base) - ln(P_truth/P_base) =
+ln(P_pred/P_truth) — THE BASE CANCELS — so the numbers read directly
+as fractional error of the served spectrum (law "none" uses the plain
+fractional residual; res_kind names which). Returns the (nz, nk)
+median-|res| surface, per-k bands at the first/middle/last z
+(deduplicated for small nz), and the worst-chi2 cosmology's surface.
+`_grid2d_pages` (plotting.py, 2 pages): the median + worst |res|
+heatmaps on a SHARED color scale (viridis; how-bad-is-the-worst reads
+at a glance) and the stacked per-k band panels with the worst overlay.
+Wired: plot_diagnostics grid2d= kwarg (its family-pages docstring also
+gained the missing grid line), the train driver's --diagnostic
+dispatch (log line prints quantity + res_kind + worst chi2),
+mps_train_emulator.py docstring updated. GATE: mps-smoke's boost
+training now runs the MPS-DIAG leg (mirrors scalar_smoke's D-CM9 leg:
+diagnostic + 2 pages + a full plot_diagnostics PDF through the grid2d
+dispatch, shape checks included); board docstring updated, still 32
+gates. Mac probe 4/4 (scratchpad probe_mpsdiag.py): the REAL function
+body exec'd through a tensor-like fake harness on known answers —
+planted delta recovered exactly as the ln-ratio residual, med_abs ==
+numpy median |delta|, the planted outlier row is the worst, law-none
+gives the fractional form, nz=2 dedupes the slices; plotting AST
+carries the pages + dispatch. Torch/matplotlib execution rides the
+mps-smoke leg on the workstation. ALSO in this pass: the rename
+sweep's last stragglers — the code map's brace/glob driver patterns
+(train_single_*, train_{cmb,...}, tune_{scalar,...},
+sweep_ntrain_{scalar,...}) — moved to family-first form; the stale-name
+census is now clean outside notes/ with NO truncation (the earlier
+"clean" verdict had a head -5 hiding these).
+
 **D-MP8 — syren VENDORED in-repo (user directive, 2026-07-11):** the
 two symbolic_pofk modules the base uses (linear.py + syrenhalofit.py,
 778 lines, MIT) are copied into `syren/` from the LEGACY emulmps
