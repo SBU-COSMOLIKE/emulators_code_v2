@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """mps-identity gate (MPS-A): the grid2d-emulator save/rebuild/predict
 identity, the staging law transform, the emul_mps assembly math (base
-stubbed — no symbolic_pofk needed), the config loud errors, and the
+stubbed: closed-form stub bases pin the assembly EXACTLY, independent
+of the vendored syren/ formulas), the config loud errors, and the
 D-MP7 finetune parity — torch + scipy, no CAMB.
 
 Legs:

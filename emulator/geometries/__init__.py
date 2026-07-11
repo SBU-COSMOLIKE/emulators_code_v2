@@ -7,8 +7,12 @@ matter-power (z, k) surfaces). Import the submodule you need
 (from emulator.geometries.scalar import ScalarGeometry); this __init__
 deliberately re-exports nothing, so the import census stays exact.
 
-The old flat modules (emulator/geometries_<name>.py) remain as shim
-re-exports FOREVER: every schema-v2 artifact saved before this folder
-existed persists its geometry classes under the old module paths, and
-rebuild_emulator dispatches by importing exactly that stored string.
+The old flat modules (emulator/geometries_<name>.py) are GONE. They
+briefly lived as shim re-exports because schema-v2 artifacts persist
+geometry classes as full module paths and rebuild_emulator imports
+exactly the stored string; the user ruled (2026-07-11, D-GEO5) that no
+science artifact predates the folder, so the shims were retired. An
+artifact carrying an old flat path fails its rebuild with
+ModuleNotFoundError naming the path — the geo-paths gate pins that
+loud death.
 """

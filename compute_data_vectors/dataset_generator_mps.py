@@ -43,9 +43,9 @@ from generator_core import (GeneratorCore, capture_native_output,
 #        - [10.0, 50.0, 12, true]
 #      k_log10: [-4.0, 2.0, 2000]     # k = logspace(min, max, n), 1/Mpc
 #      extrap_kmax: 200.0             # the interpolator's power-law tail
-#      write_syren_base: true         # write the *_base files (needs the
-#                                     # symbolic_pofk package); false for a
-#                                     # law-none run
+#      write_syren_base: true         # write the *_base files (the syren
+#                                     # formulas are vendored in syren/);
+#                                     # false for a law-none run
 #  plus the shared keys (ord; fiducial/params_covmat_file when --unif 0).
 #  The theory block's halofit choice (e.g. halofit_version: mead2020) is the
 #  YAML's, persisted with the run. The likelihood may be the dummy `one` —
@@ -94,8 +94,8 @@ class dataset(GeneratorCore):
     them); k_log10 = [log10 kmin, log10 kmax, nk]; extrap_kmax = the
     interpolator's power-law tail edge (must exceed the k grid's top);
     write_syren_base = whether the syren base files are computed and
-    written (requires symbolic_pofk; stated explicitly, never a silent
-    availability fallback).
+    written (the formulas are vendored in-repo under syren/; stated
+    explicitly, never a silent availability fallback).
     """
     segs = train_args["z_segments"]
     if not isinstance(segs, (list, tuple)) or len(segs) < 1:
@@ -138,10 +138,10 @@ class dataset(GeneratorCore):
         f"evaluated beyond its extrapolation edge")
     self.write_base = bool(train_args["write_syren_base"])
     if self.write_base:
-      # fail at setup, not at sample 1 of an MPI farm: the base needs
-      # the symbolic_pofk package on every rank.
-      from emulator.syren_base import _require_symbolic_pofk
-      _require_symbolic_pofk()
+      # fail at setup, not at sample 1 of an MPI farm: prove the base
+      # formulas import on this rank (the syren package is vendored
+      # in-repo and numpy-only, so this only fails on a broken tree).
+      from emulator.syren_base import base_pklin, base_boost  # noqa: F401
 
     # explicit requirements on the model itself (the YAML likelihood
     # may be the dummy `one`). k_max 200 on the requirement and the

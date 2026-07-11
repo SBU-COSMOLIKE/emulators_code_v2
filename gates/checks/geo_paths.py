@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""geo-paths gate (GEO-A): the geometry folder move is artifact-immune.
+"""geo-paths gate (GEO-A): the geometry folder is the ONLY geometry home.
 
-Every schema-v2 artifact persists its geometry classes as FULL module
-paths and rebuild_emulator dispatches by importing exactly the stored
-string. The GEO unit moved the geometry modules into
-emulator/geometries/ behind flat legacy shims; this gate proves the
-three contracts:
+The GEO unit moved the geometry modules into emulator/geometries/. The
+move originally shipped with flat legacy shims (emulator/geometries_
+<name>.py) so that artifacts saved before the move — which persist
+their geometry classes as FULL module paths and rebuild by importing
+exactly the stored string — would keep loading. On 2026-07-11 the user
+ruled that no real (science) artifact predates the move, so the shims
+were retired (D-GEO5) and the contract inverted. This gate now proves:
 
-  1  OLD-PATH REBUILD: a fresh artifact's h5 has its geometry cls
-     markers rewritten to the OLD flat paths
-     (emulator.geometries_<name>.<Class>) — exactly what every artifact
-     saved before the move carries — and must rebuild AND predict
-     bitwise-identically to the untouched artifact (the shims route the
-     import to the one class object, so isinstance stays sound).
-  2  NEW-SAVE MARKERS: a fresh save writes the NEW folder paths
-     (emulator.geometries.<name>.<Class>) automatically — the
-     resolved-values rule doing the work through type().__module__.
-  3  SHIM IDENTITY + CENSUS: each legacy shim's classes ARE the folder
-     modules' class objects (import alias, not a copy), and no repo
-     code outside the shims references the old flat module names.
+  1  NEW-SAVE MARKERS: a fresh save writes the folder paths
+     (emulator.geometries.<name>.<Class>) — the resolved-values rule
+     doing the work through type().__module__ — and the artifact
+     rebuilds and predicts through those stored paths.
+  2  OLD PATHS ARE DEAD, LOUDLY: importing any of the six flat legacy
+     modules raises ModuleNotFoundError (no silent half-alive shim),
+     and none of the flat files exist on disk.
+  3  CENSUS: no repo .py outside this gate references the old flat
+     module names.
+
+A pre-retirement artifact (if one ever surfaces) fails at rebuild with
+the module path in the error — the loud death this gate pins down.
 """
 
+import importlib
 import os
 import sys
 import tempfile
@@ -42,6 +45,8 @@ FAILURES = []
 REPO = Path(__file__).resolve().parents[2]
 IN_NAMES = ["omegabh2", "omegach2"]
 OUT_NAMES = ["H0", "omegam"]
+LEGACY_MODULES = ["parameter", "output", "scalar", "cmb", "grid",
+                  "grid2d"]
 
 
 def report(label, ok, detail):
@@ -122,92 +127,49 @@ def geometry_cls_attrs(h5_path):
 
 
 def main():
-    print("geo-paths (GEO-A): old-path rebuild + new-save markers + "
-          "shim identity/census")
+    print("geo-paths (GEO-A): new-save markers + dead legacy paths + "
+          "census")
     device = torch.device("cpu")
+
+    # leg 1: the fresh save writes folder paths, and the artifact
+    # rebuilds + predicts through exactly those stored strings.
     with tempfile.TemporaryDirectory() as tmp:
         root = os.path.join(tmp, "emul_geo")
         save_fixture(root, device, tmp)
-
-        # leg 2 first: the fresh save writes NEW folder paths.
         attrs = geometry_cls_attrs(root + ".h5")
         new_style = [v for _, _, v in attrs
                      if v.startswith("emulator.geometries.")]
         old_style = [v for _, _, v in attrs
                      if v.startswith("emulator.geometries_")]
-        report("fresh save writes the NEW folder cls paths",
-               len(new_style) >= 2 and not old_style,
-               "%d new-path marker(s): %s" % (len(new_style),
-                                              sorted(set(new_style))))
+        pred = EmulatorPredictor(root, device, compile_model=False)
+        out = pred.predict({"omegabh2": 0.0223, "omegach2": 0.119})
+        finite = all(np.isfinite(out[k]) for k in OUT_NAMES)
+        report("fresh save writes folder cls paths + rebuilds",
+               len(new_style) >= 2 and not old_style and finite,
+               "%d folder-path marker(s): %s; predict finite: %s" % (
+                 len(new_style), sorted(set(new_style)), finite))
 
-        # the reference prediction from the untouched artifact.
-        point = {"omegabh2": 0.0223, "omegach2": 0.119}
-        ref = EmulatorPredictor(root, device, compile_model=False)
-        want = ref.predict(point)
-
-        # leg 1: rewrite the markers to the OLD flat paths (what every
-        # pre-GEO artifact carries) and rebuild + predict bitwise.
-        old_root = os.path.join(tmp, "emul_geo_oldpaths")
-        for ext in (".h5", ".emul"):
-            with open(root + ext, "rb") as fsrc, \
-                 open(old_root + ext, "wb") as fdst:
-                fdst.write(fsrc.read())
-        n_rewritten = 0
-        with h5py.File(old_root + ".h5", "r+") as f:
-            def rewrite(name, obj):
-                nonlocal n_rewritten
-                for key, val in list(obj.attrs.items()):
-                    sval = val.decode() if isinstance(val, bytes) else val
-                    if (isinstance(sval, str)
-                            and sval.startswith("emulator.geometries.")):
-                        obj.attrs[key] = sval.replace(
-                            "emulator.geometries.",
-                            "emulator.geometries_", 1)
-                        n_rewritten += 1
-            f.visititems(rewrite)
-        pred_old = EmulatorPredictor(old_root, device,
-                                     compile_model=False)
-        got = pred_old.predict(point)
-        ok = (set(got) == set(want)
-              and all(got[k] == want[k] for k in want))
-        report("OLD-path artifact rebuilds + predicts bitwise",
-               ok and n_rewritten >= 2,
-               "%d marker(s) rewritten; max|d| = %.1e" % (
-                 n_rewritten,
-                 max((abs(got[k] - want[k]) for k in want), default=0.0)))
-
-    # leg 3a: shim identity (import alias, not a copy).
-    import importlib
+    # leg 2: the six flat legacy modules are gone — from disk AND from
+    # the import system (a stored old path now dies with the module
+    # name in the error, never a silent partial load).
     ok = True
-    for mod, cls_names in (("parameter", ["ParamGeometry"]),
-                           ("output", ["DataVectorGeometry"]),
-                           ("scalar", ["ScalarGeometry"]),
-                           ("cmb", ["CmbDiagonalGeometry"]),
-                           ("grid", ["GridGeometry"]),
-                           ("grid2d", ["Grid2DGeometry"])):
+    details = []
+    for mod in LEGACY_MODULES:
+        flat = REPO / "emulator" / ("geometries_%s.py" % mod)
+        if flat.exists():
+            ok = False
+            details.append("%s exists on disk" % flat.name)
         try:
-            shim = importlib.import_module("emulator.geometries_" + mod)
-            new = importlib.import_module("emulator.geometries." + mod)
-        except Exception as e:
-            # geometries_output imports cosmolike; off-workstation the
-            # shim must still be import-consistent when the new module
-            # is (both fail together = consistent).
-            try:
-                importlib.import_module("emulator.geometries." + mod)
-                ok = False
-                print("  shim import failed but the new module works:",
-                      mod, e)
-            except Exception:
-                pass
-            continue
-        for cn in cls_names:
-            if getattr(shim, cn) is not getattr(new, cn):
-                ok = False
-                print("  shim class is a COPY, not an alias:", mod, cn)
-    report("shims alias the folder classes (isinstance sound)", ok, "")
+            importlib.import_module("emulator.geometries_" + mod)
+            ok = False
+            details.append("emulator.geometries_%s imported" % mod)
+        except ModuleNotFoundError:
+            pass
+    report("legacy flat paths are dead (disk + import)", ok,
+           "; ".join(details) if details else
+           "all %d raise ModuleNotFoundError" % len(LEGACY_MODULES))
 
-    # leg 3b: the shim-import census — no repo code outside the shims
-    # references the old flat module names.
+    # leg 3: the census — no repo code references the old flat names.
     offenders = []
     for base, dirs, files in os.walk(REPO):
         if "__pycache__" in base or "/notes" in base \
@@ -218,15 +180,13 @@ def main():
                 continue
             path = os.path.join(base, fname)
             rel = os.path.relpath(path, REPO)
-            if rel.startswith("emulator/geometries_") \
-                    or rel == "gates/checks/geo_paths.py":
+            if rel == "gates/checks/geo_paths.py":
                 continue
             src = open(path, errors="replace").read()
-            for m in ("parameter", "output", "scalar", "cmb", "grid",
-                      "grid2d"):
+            for m in LEGACY_MODULES:
                 if "geometries_" + m in src:
                     offenders.append((rel, m))
-    report("shim census: new code never imports the old flat paths",
+    report("census: nothing references the old flat names",
            not offenders, repr(offenders[:5]))
 
     if FAILURES:

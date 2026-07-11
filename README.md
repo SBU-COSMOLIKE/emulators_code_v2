@@ -408,8 +408,11 @@ per-family drivers differ only in their prog names and defaults.
 
 | Driver | Family | What it does |
 |---|---|---|
-| train_single_emulator_cosmic_shear.py | cosmic shear + cmb + baosn + mps | train one emulator from a YAML — the family comes from the data block; `--diagnostic` writes the multipage PDF |
+| train_single_emulator_cosmic_shear.py | cosmic shear (any data-block family) | train one emulator from a YAML — the family comes from the data block; also the shared engine the three family train drivers wrap; `--diagnostic` writes the multipage PDF |
 | train_scalar_emulator.py | scalar | train one derived-parameter emulator; `--diagnostic` |
+| train_cmb_emulator.py | cmb | train one CMB-spectrum emulator (requires a data.cmb block, wrong-family YAMLs name the right driver); `--diagnostic` adds the CMB pages |
+| train_baosn_emulator.py | baosn | train one background emulator (requires data.grid); `--diagnostic` adds the redshift + derived-distance pages |
+| train_mps_emulator.py | mps | train one matter-power emulator (requires data.grid2d) |
 | sweep_ntrain_emulator_cosmic_shear.py | cosmic shear | f(delta-chi2 > thr) vs `N_train`, multi-GPU pool + gpu-pack |
 | sweep_ntrain_scalar_emulator.py | scalar | the same learning curve, serial |
 | sweep_ntrain_cmb_emulator.py | cmb | the same, serial |
@@ -1783,10 +1786,10 @@ The pipeline, end to end:
           |  params_*.1.txt + sidecars        |  (sigma_ell per spectrum,
           v                                   v   fiducial C_ell, provenance)
     +---------------------------------------------------+
-    |  train_single_emulator_cosmic_shear.py             |
-    |  with a data.cmb block: whiten each multipole by   |
-    |  its error bar sigma_ell, impose the amplitude     |
-    |  law, train the ResMLP trunk                       |
+    |  train_cmb_emulator.py                              |
+    |  (a data.cmb block): whiten each multipole by       |
+    |  its error bar sigma_ell, impose the amplitude      |
+    |  law, train the ResMLP trunk                        |
     +---------------------------------------------------+
           |
           |  emulator_tt_*.h5 + .emul   (the artifact)
@@ -1935,6 +1938,10 @@ data:
     z_file:   dvs_train_background_unifs_h_z.npy
 ```
 
+Training runs through `train_baosn_emulator.py`, a thin wrapper over
+the shared train driver that pins the family; the full commented
+config is `example_yamls/baosn_hubble_emulator.yaml`.
+
 Serving in an MCMC pairs the two artifacts in one theory block (rdrag
 comes separately, from the
 [scalar-emulator family](#14-scalar-derived-parameter-emulators)):
@@ -1967,8 +1974,10 @@ strongest end-to-end test in the board.
 ## 17. Emulating the matter power spectrum (hybrid inference, EMUL2)
 
 The MPS emulators CORRECT an approximate formula. The syren
-(symbolic_pofk) expressions give an analytic P(k, z); the network
-learns only the residual:
+(symbolic_pofk) expressions — vendored in-repo under `syren/`, so
+nothing needs installing and the formula can never drift under a
+package upgrade — give an analytic P(k, z); the network learns only
+the residual:
 
     target = log( P(k, z) / P_syren(k, z; params) )
 
@@ -1984,8 +1993,9 @@ everything:
 
 Dumps come from `compute_data_vectors/dataset_generator_mps.py`: one
 CAMB call per sampled cosmology writes the raw surfaces AND the syren
-base beside them (the training divides the base out once, at staging —
-it is never recomputed under a possibly-updated package). The (z, k)
+base beside them (the training divides the base out once, at staging,
+and never recomputes it — together with the vendored `syren/` the
+base is pinned twice). The (z, k)
 grids ride as `_z.npy` / `_k.npy` sidecars and persist into the
 artifact; V1 trains on a thinned k grid (`k_stride`, top edge always
 kept) and the served interpolator fills between kept points.
@@ -2002,6 +2012,10 @@ data:
     k_file:     dvs_train_mps_unifs_k.npy
     k_stride:   10
 ```
+
+Training runs through `train_mps_emulator.py`, a thin wrapper over
+the shared train driver that pins the family; the full commented
+config is `example_yamls/mps_boost_emulator.yaml`.
 
 **Hybrid inference (EMUL2):** cosmolike's `use_emulator: 2` mode
 consumes EMULATED CAMB PRODUCTS instead of a full data-vector emulator:

@@ -216,9 +216,49 @@ def run_tag(cfg, exp):
   return "_".join(tags)
 
 
-def main():
-  parser = argparse.ArgumentParser(
-    prog="train_single_emulator_cosmic_shear")
+# which thin driver trains which data-block family; require_family_block
+# reads it to point a wrong-family YAML at its home.
+FAMILY_DRIVERS = {
+  "cmb":     "train_cmb_emulator.py",
+  "grid":    "train_baosn_emulator.py",
+  "grid2d":  "train_mps_emulator.py",
+  "outputs": "train_scalar_emulator.py",
+}
+
+
+def require_family_block(data, family, prog):
+  """Loud driver-family check for the thin per-family train drivers.
+
+  The per-family drivers (train_cmb / train_baosn / train_mps) are
+  wrappers over this driver's main(); each requires its own family
+  block in the YAML's data section, so a YAML launched with the wrong
+  driver fails HERE with the right driver's name — not deep inside
+  config validation with a missing-key message.
+
+  Arguments:
+    data   = the YAML's data mapping.
+    family = the data-block key this driver trains ("cmb" / "grid" /
+             "grid2d").
+    prog   = this driver's prog name, for the message.
+
+  Raises:
+    SystemExit naming the driver the YAML belongs to.
+  """
+  if family in data:
+    return
+  for key, driver in FAMILY_DRIVERS.items():
+    if key in data:
+      raise SystemExit(
+        f"{prog}: this YAML carries a data.{key} block — train it "
+        f"with {driver}, not {prog}.py")
+  raise SystemExit(
+    f"{prog}: this YAML has no data.{family} block; a cosmolike "
+    f"data-vector YAML trains through "
+    f"train_single_emulator_cosmic_shear.py")
+
+
+def main(prog="train_single_emulator_cosmic_shear", family=None):
+  parser = argparse.ArgumentParser(prog=prog)
   # --root / --fileroot / --yaml: the cocoa project layout (data + run
   # products under --root/chains, YAML configs under --fileroot).
   add_cocoa_path_args(parser)
@@ -278,6 +318,11 @@ def main():
   # then load the YAML and rewrite its data paths to absolute, so the run does
   # not depend on the launch directory.
   cfg, _, chains = resolve_cocoa_config(args)
+
+  # a thin per-family driver passes its family; the dispatching driver
+  # passes None and trains whatever the data block declares.
+  if family is not None:
+    require_family_block(data=cfg["data"], family=family, prog=prog)
 
   # All setup (config parse, model resolution, device, data staging,
   # geometry, chi2, spec assembly) lives in EmulatorExperiment, so a sweep

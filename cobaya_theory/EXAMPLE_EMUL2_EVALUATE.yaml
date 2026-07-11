@@ -18,8 +18,8 @@
 #
 # Before running: point the three emulators lists at trained artifacts —
 #   emul_mps     needs a pklin artifact (law syren_linear) and a boost
-#                artifact (law syren_halofit); symbolic_pofk must be
-#                installed (the syren base is multiplied back at inference)
+#                artifact (law syren_halofit); the syren base formulas
+#                are vendored in-repo (syren/), nothing to install
 #   emul_baosn   needs the Hubble artifact (SN window) and the D_M artifact
 #                (recombination window)
 #   emul_scalars needs the rdrag scalar artifact

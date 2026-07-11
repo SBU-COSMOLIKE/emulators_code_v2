@@ -1,12 +1,12 @@
 """One home for the syren analytic P(k) base (D-MP2-A(3)).
 
 The MPS emulators CORRECT an approximate formula: the network target is
-log(P / P_base), where P_base comes from the symbolic_pofk ("syren")
-formulas. This module is the base's ONLY definition — the dump
-generator (which writes the base beside the raw dump), the emul_mps
-adapter (which multiplies it back at inference), and the gates all call
-these two functions, so the formula the emulator corrects can never
-fork between them.
+log(P / P_base), where P_base comes from the syren (symbolic_pofk)
+formulas, VENDORED in-repo under syren/. This module is the base's ONLY
+definition — the dump generator (which writes the base beside the raw
+dump), the emul_mps adapter (which multiplies it back at inference),
+and the gates all call these two functions, so the formula the emulator
+corrects can never fork between them.
 
 The math is the legacy emulmps_w0wa.py verbatim (the porting
 discipline; the calls' unit conventions are load-bearing):
@@ -27,26 +27,13 @@ P_nonlinear / P_linear, the ratio the second MPS artifact emulates.
 
 import numpy as np
 
-# symbolic_pofk ships with the legacy emulmps bundle and on PyPI; keep
-# the import failure quiet at module load (the config paths must stay
-# importable without it) and LOUD at first use.
-_IMPORT_ERROR = None
-try:
-  from symbolic_pofk.linear import (plin_emulated, get_approximate_D,
-                                    growth_correction_R, As_to_sigma8)
-  from symbolic_pofk.syrenhalofit import run_halofit_vec
-except ImportError as _e:          # pragma: no cover - environment fact
-  _IMPORT_ERROR = _e
-
-
-def _require_symbolic_pofk():
-  """Raise a loud, fix-naming error when symbolic_pofk is absent."""
-  if _IMPORT_ERROR is not None:
-    raise ImportError(
-      "emulator.syren_base needs the symbolic_pofk package (the syren "
-      "analytic P(k) formulas the MPS emulators correct); import "
-      "failed with: " + repr(_IMPORT_ERROR) + ". Install it (pip "
-      "install symbolic_pofk) or add its checkout to sys.path.")
+# the formulas are VENDORED in-repo (syren/, numpy-only — provenance
+# and the import-only deviations in syren/README.md), so the imports
+# are unconditional: no pip install, no version drift against the
+# base the artifacts were trained on.
+from syren.linear import (plin_emulated, get_approximate_D,
+                          growth_correction_R, As_to_sigma8)
+from syren.syrenhalofit import run_halofit_vec
 
 
 def syren_params_from(params):
@@ -122,7 +109,6 @@ def base_pklin(k_mpc, z, As_1e9, ns, H0, Ob, Om, w0=-1.0, wa=0.0,
   Returns:
     (nz, nk) the syren linear P(k, z) in Mpc^3.
   """
-  _require_symbolic_pofk()
   k_mpc = np.asarray(k_mpc, dtype="float64")
   z     = np.asarray(z, dtype="float64")
   h   = float(H0) / 100.0
@@ -160,7 +146,6 @@ def base_boost(k_mpc, z, pk_lin_mpc, As_1e9, ns, H0, Ob, Om,
   Returns:
     (nz, nk) the syren-halofit boost (dimensionless).
   """
-  _require_symbolic_pofk()
   k_mpc = np.asarray(k_mpc, dtype="float64")
   z     = np.asarray(z, dtype="float64")
   h   = float(H0) / 100.0

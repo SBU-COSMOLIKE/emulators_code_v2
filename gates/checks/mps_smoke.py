@@ -5,10 +5,11 @@ Truth is available (CAMB's own P(k, z) at the test point), so the served
 spectra are checked against it directly. This smoke runs the LAW-NONE
 path end to end (generator -> two trainings -> emul_mps -> the
 interpolator products); the syren-law assembly is exactly gated by
-mps-identity's stubbed closed-form legs, and the full syren+EMUL2
-integration is the unit's recorded acceptance run (the user's
-EXAMPLE_EMUL2_EVALUATE1.yaml on the workstation, where symbolic_pofk
-lives) — so this gate never depends on the symbolic_pofk package.
+mps-identity's stubbed closed-form legs (against stub bases, so a
+formula update in the vendored syren/ can never mask an assembly
+bug), and the full syren+EMUL2 integration is the unit's recorded
+acceptance run (EXAMPLE_EMUL2_EVALUATE.yaml, user-run on the
+workstation).
 
   1  dataset_generator_mps.py writes two tiny dumps (200 rows, 16 z x
      40 k, write_syren_base false): pklin + boost + the z/k sidecars,

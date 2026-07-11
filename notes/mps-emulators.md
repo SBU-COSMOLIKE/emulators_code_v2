@@ -296,6 +296,38 @@ Steps 3-7 landed on the increment-1 foundations:
    EXAMPLE_EMUL2_EVALUATE1.yaml end to end on the workstation
    (recorded as the unit's acceptance experiment, user-run).
 
+**D-MP8 — syren VENDORED in-repo (user directive, 2026-07-11):** the
+two symbolic_pofk modules the base uses (linear.py + syrenhalofit.py,
+778 lines, MIT) are copied into `syren/` from the LEGACY emulmps
+bundle (`emulators_code/emulmps/emulmps_emul/symbolic_pofk` — the
+exact copy the legacy pipeline ran, "Vic edits" included), NOT from
+PyPI. Function bodies byte-verbatim (AST-proven, 17/17); the only
+deviations are import lines (two DEAD imports dropped — `warnings`
+and `scipy.integrate`, neither used anywhere — and the internal
+import retargeted), recorded in syren/README.md + provenance headers.
+The package is now numpy-only, so: syren_base.py imports
+UNCONDITIONALLY (the quiet-at-load/loud-at-use guard deleted), the
+generator's write_syren_base setup check became an import sanity, and
+the base ran FOR REAL on the Mac for the first time — probe: vendored
+vs original bundle byte-identical over 3 cosmologies (LCDM + two
+w0wa) x 5 z x 300 k (5,433 values), and base_pklin/base_boost
+end-to-end through emulator.syren_base match the original-bundle
+computation exactly. Gate wording updated (mps-identity/mps-smoke/
+board docstrings); the stub-based assembly legs stay BY DESIGN (a
+formula update must never mask an assembly bug). Re-vendoring is a
+deliberate act + retrain (the change-X table row).
+
+**Train drivers landed (2026-07-11, D-MP5 extension):**
+train_cmb_emulator.py / train_baosn_emulator.py /
+train_mps_emulator.py — thin wrappers over the cosmic-shear driver's
+main(), which gained `main(prog, family)` + the module-level
+`require_family_block(data, family, prog)` guard + the FAMILY_DRIVERS
+map: each wrapper pins its data-block family, and a wrong-family YAML
+fails at startup NAMING the right driver (guard probed on 8 paths:
+3 pass + 5 wrong-family messages). The dispatching driver
+(family=None) behaves exactly as before. README Drivers table + both
+code maps updated.
+
 **Acceptance YAML shipped (2026-07-11, POL window):** the v2 evaluate
 config is `cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml` — the legacy
 lsst_y1 EXAMPLE_EMUL2_EVALUATE1.yaml with its three legacy theory
