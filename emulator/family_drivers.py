@@ -1,31 +1,127 @@
-"""Shared serial machinery for the per-family sweep / tune drivers (D-MP5).
+"""Shared serial machinery for the per-family sweep / tune drivers.
 
-The program-wide driver namespace is `<verb>_<family>_emulator.py`
-(sweep_ntrain_ / tune_ x scalar / cmb / baosn / mps). Every family
-trains through the same EmulatorExperiment.from_config dispatch — the
-family is picked by the config (data.outputs -> scalar, data.cmb ->
-CMB, ...) — so the per-family drivers are thin: they own their CLI
-prog name, defaults, and header docs, and call the two functions here.
-The loops are the cosmic-shear drivers' SERIAL paths, single-sourced
-(the multi-GPU pool / gpu-pack machinery stays the cosmic-shear
-drivers' tool: those trainings are the expensive ones).
+The program-wide driver namespace is `<family>_<verb>_emulator.py`
+(scalar / cmb / baosn / mps x sweep_ntrain_ / sweep_hyperparam_ /
+tune_). Every family trains through the same
+EmulatorExperiment.from_config dispatch — the family is picked by the
+config (data.outputs -> scalar, data.cmb -> CMB, ...) — so the
+per-family drivers are thin: they own their CLI prog name, defaults,
+and header docs, and call the run functions here. The loops are the
+cosmic-shear drivers' SERIAL paths, single-sourced (the multi-GPU
+pool / gpu-pack machinery stays the cosmic-shear drivers' tool: those
+trainings are the expensive ones). The sweep-block helpers
+(read_sweep_block, set_by_path) live here too and the cosmic-shear
+hyperparameter driver imports them — one definition for every family.
 
 PS: N_train sweep = train one fresh model per training-set size and
 record the validation f(delta-chi2 > threshold) at each, the learning
 curve saying whether the error floor is data-limited (still falling)
-or capacity-limited (flat); a tune study = an Optuna search over the
-train_args leaves marked with [default, min, max, kind] ranges in the
-YAML, minimizing the same fraction.
+or capacity-limited (flat); a hyperparameter sweep = one training per
+value of ONE YAML-chosen train_args leaf at fixed N_train; a tune
+study = an Optuna search over the train_args leaves marked with
+[default, min, max, kind] ranges in the YAML, minimizing the same
+fraction.
 """
 
+import copy
 import time
 
 import numpy as np
 
 from .cocoa import resolve_cocoa_config, cocoa_output
 from .experiment import EmulatorExperiment, validate_sweep_paths
-from .results import save_learning_curves
+from .results import save_learning_curves, save_sweep_table
 from .training import suggest_train_args, search_defaults
+
+# The train_args keys a hyperparameter sweep may enter through (first
+# dotted segment). Guards against a typo'd path silently no-opping:
+# exp.train reads train_args by .get, so an unknown top-level key
+# would be ignored, and the sweep would train the same config N
+# times. model.* keys are further validated by build_specs
+# (MODEL_BLOCK_KEYS) at train time, loudly.
+SWEEPABLE_TOP_KEYS = ("nepochs", "bs", "loss", "trunk_epochs",
+                      "freeze_trunk", "clip", "rewind", "trunk", "head",
+                      "model", "optimizer", "lr", "scheduler", "trim",
+                      "focus", "ema")
+
+# dotted paths that sweep the activation family: these are resolved
+# by from_config into exp.activation (build_specs deliberately does
+# not re-read the YAML block, so a train_args copy would be
+# ignored); the run sets exp.activation per value instead.
+ACTIVATION_PATHS = ("model.activation", "model.activation.type")
+
+
+def set_by_path(train_args, path, value):
+  """
+  A deep copy of train_args with one dotted-path leaf replaced.
+
+  Walks the nested mapping along `path` ("lr.lr_base" -> ["lr",
+  "lr_base"]), creating intermediate mappings that do not exist yet
+  (so `head.lr.lr_base` sweeps even when the YAML has no head: block;
+  a head. / trunk_epochs / trunk. sweep on a single-phase model is
+  rejected up front by validate_sweep_paths, since resolve_phase_args
+  would demote it away), and sets the final key. The input is never
+  mutated; each sweep point gets its own copy.
+
+  Arguments:
+    train_args = the resolved train_args mapping to copy.
+    path       = dotted path of the leaf to set.
+    value      = the value this sweep point tries.
+
+  Returns:
+    the modified deep copy.
+  """
+  out  = copy.deepcopy(train_args)
+  node = out
+  keys = path.split(".")
+  for k in keys[:-1]:
+    nxt = node.get(k)
+    if not isinstance(nxt, dict):
+      nxt = {}
+      node[k] = nxt
+    node = nxt
+  node[keys[-1]] = value
+  return out
+
+
+def read_sweep_block(cfg):
+  """
+  Validate and unpack the YAML `sweep` block.
+
+  Arguments:
+    cfg = the resolved config mapping (data + train_args + sweep).
+
+  Returns:
+    (param, values, act_mode): the dotted path, the value list, and
+    whether this is the activation-family special case.
+  """
+  if "sweep" not in cfg:
+    raise KeyError(
+      "the YAML needs a `sweep` block:\n"
+      "  sweep:\n"
+      "    parameter: lr.lr_base\n"
+      "    values:\n"
+      "      - 0.001\n"
+      "      - 0.0025")
+  blk    = cfg["sweep"]
+  param  = str(blk.get("parameter", "")).strip()
+  values = blk.get("values")
+  if not param or not isinstance(values, list) or len(values) == 0:
+    raise ValueError(
+      "sweep block needs `parameter` (a dotted train_args path) "
+      "and a non-empty `values` list")
+  if param in ("model.name", "model.ia"):
+    raise ValueError(
+      f"cannot sweep {param}: it changes the model class: run "
+      "one sweep per architecture (or the activation bake-off "
+      "driver) and overlay the saved tables")
+  act_mode = param in ACTIVATION_PATHS
+  if not act_mode and param.split(".")[0] not in SWEEPABLE_TOP_KEYS:
+    raise ValueError(
+      f"sweep parameter {param!r} does not enter train_args "
+      f"(first segment must be one of: "
+      f"{' / '.join(SWEEPABLE_TOP_KEYS)})")
+  return param, values, act_mode
 
 
 def add_sweep_args(parser):
@@ -257,3 +353,130 @@ def run_tune(args, family):
   log(f"best trial {best.number}: frac>0.2 {best.value:.4f}  "
       f"median {best.user_attrs.get('median', float('nan')):.4f}")
   log(f"best params: {best.params}")
+
+
+def add_hyperparam_args(parser):
+  """Attach the shared one-knob-sweep flags to a driver's parser.
+
+  Arguments:
+    parser = the driver's argparse parser (the cocoa path args are the
+             driver's own add_cocoa_path_args call).
+  """
+  parser.add_argument("--activation",
+                      dest="activation",
+                      help="ResBlock activation, fixed across the "
+                           "sweep: 'H', 'power', 'multigate', or "
+                           "'gated_power'. Overrides the YAML "
+                           "train_args.model.activation; forbidden "
+                           "when the sweep parameter IS the "
+                           "activation",
+                      type=str,
+                      choices=["H", "power", "multigate", "gated_power"],
+                      default=None)
+  parser.add_argument("--threshold",
+                      dest="threshold",
+                      help="delta-chi2 cutoff the fraction counts "
+                           "(default 0.2)",
+                      type=float,
+                      default=0.2)
+  parser.add_argument("--quiet",
+                      dest="quiet",
+                      help="suppress stdout (txt and pdf still written)",
+                      action="store_true")
+
+
+def run_hyperparam_sweep(args, family, out_default):
+  """The serial one-knob sweep, shared by the per-family drivers.
+
+  The YAML's `sweep` block names ONE dotted train_args leaf and a
+  value list; every point trains a fresh model on the SAME staged
+  data + geometry with only that leaf changed (the activation special
+  case sets exp.activation instead — build_specs reads the family off
+  the experiment, not the YAML). Scores f(delta-chi2 > --threshold)
+  on the fixed validation set; writes <out>.txt (the value/frac
+  table) and <out>.pdf under the fileroot. The cosmic-shear sibling
+  (cosmic_shear_sweep_hyperparam_emulator.py) adds the multi-GPU
+  pool; this loop is its serial path, single-sourced for the
+  families.
+
+  Arguments:
+    args        = the parsed CLI namespace (cocoa paths + the
+                  add_hyperparam_args flags + an optional args.out).
+    family      = the family label written into the table metadata
+                  ("scalar" / "cmb" / "baosn" / "mps").
+    out_default = the output name root when --out is absent.
+  """
+  cfg, fileroot, _ = resolve_cocoa_config(args)
+  out_name = getattr(args, "out", None) or out_default
+
+  param, values, act_mode = read_sweep_block(cfg)
+  if act_mode and args.activation is not None:
+    raise ValueError(
+      "the sweep parameter is the activation family; drop the "
+      "--activation flag (it would pin what the sweep varies)")
+
+  # no rescale flag on the family drivers: an analytic-R rescaling is a
+  # cosmic-shear data-vector concept, and each family's validator
+  # rejects it anyway; from_config's default is "none".
+  exp = EmulatorExperiment.from_config(cfg,
+                                       activation=args.activation,
+                                       quiet=args.quiet)
+  # validate_sweep_paths (experiment.py): fail before any training when
+  # the axis would be silently demoted away on a single-phase model
+  # (every family model is single-phase resmlp today, so head./trunk
+  # axes are caught here). act_mode sweeps the experiment, not a path.
+  if not act_mode:
+    validate_sweep_paths(
+      paths=[param],
+      two_phase=hasattr(exp.model_cls, "set_train_phase"))
+  log = exp.log
+  exp.print_design()
+  log(f"sweep: {param}  ->  {values}"
+      + ("  (activation family)" if act_mode else "") + "  |  serial")
+
+  log("loading sources:")
+  exp.stage_train()
+  exp.stage_val()
+  exp.build_geometry()
+
+  fracs = []
+  for value in values:
+    t0 = time.time()
+    if act_mode:
+      # the activation family lives on the experiment (see
+      # ACTIVATION_PATHS above); train_args stay untouched.
+      exp.activation = str(value)
+      ta = None
+    else:
+      ta = set_by_path(exp.train_args, param, value)
+    exp.train(train_args=ta, silent=True)
+    f = float(exp.frac_above(threshold=args.threshold))
+    fracs.append(f)
+    log(f"  {param} = {value!r:>12}  "
+        f"f(>{args.threshold:g}) {f:.4f}  ({time.time() - t0:.0f}s)")
+
+  model_name = exp.model_cls.__name__
+  out_txt = cocoa_output(fileroot, out_name + ".txt")
+  out_pdf = cocoa_output(fileroot, out_name + ".pdf")
+  # save_sweep_table (results.py): the value/frac table, np.loadtxt-
+  # loadable with a "#" metadata header (overlay several <out>.txt
+  # yourself to compare configs).
+  save_sweep_table(
+    path=out_txt,
+    param=param,
+    values=values,
+    fracs=fracs,
+    meta={"model": model_name,
+          "family": family,
+          "activation": ("swept" if act_mode else args.activation),
+          "threshold": args.threshold,
+          "n_train": cfg["data"]["n_train"]})
+  log(f"saved sweep table -> {out_txt}")
+  # plot_sweep_curve (plotting.py): render the value/frac figure.
+  from .plotting import plot_sweep_curve
+  plot_sweep_curve(param=param,
+                   values=values,
+                   fracs=fracs,
+                   threshold=args.threshold,
+                   savepath=out_pdf)
+  log(f"saved figure -> {out_pdf}")

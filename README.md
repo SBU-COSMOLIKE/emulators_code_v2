@@ -315,7 +315,9 @@ edit it). The `sweep:` block is documented [below](#sweep-block).
 
 ### The `sweep:` block (one-knob sweeps) <a name="sweep-block"></a>
 
-`cosmic_shear_sweep_hyperparam_emulator.py` reads one extra top-level YAML
+`cosmic_shear_sweep_hyperparam_emulator.py` (and the per-family
+`<family>_sweep_hyperparam_emulator.py` siblings, which run the same
+sweep serially) reads one extra top-level YAML
 block (the other drivers ignore it) naming exactly one `train_args` leaf by
 its dotted path, and the values to try — one full training per value at
 fixed `N_train`:
@@ -424,7 +426,8 @@ per-family drivers differ only in their prog names and defaults.
 | baosn_tune_emulator.py | baosn | the same |
 | mps_tune_emulator.py | mps | the same |
 | cosmic_shear_bakeoff_activation_emulator.py | cosmic shear | activation bake-off learning curves |
-| cosmic_shear_sweep_hyperparam_emulator.py | cosmic shear | one-axis hyperparameter sweeps |
+| cosmic_shear_sweep_hyperparam_emulator.py | cosmic shear | one-axis hyperparameter sweeps, multi-GPU |
+| {scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py | each family | the same one-knob sweep, serial |
 
 The four cosmic-shear drivers still carry their original names; renaming
 them into the namespace is a recorded polish item that lands after the

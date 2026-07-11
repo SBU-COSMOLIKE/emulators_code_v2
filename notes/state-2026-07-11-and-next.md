@@ -70,7 +70,14 @@ In order, with the commit that carries each:
    interface. Both await the user's audit and are sequenced AFTER the
    board baseline + EMUL2. Open ruling inside D-CM12: what the
    roughness term means under a rotated (non-diagonal) whitening.
-9. **The notes consolidation** (this commit): ~85 notes rewritten into
+9. **Per-family one-knob sweep drivers** (evening):
+   {scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py — the serial
+   siblings of the cosmic-shear driver, on
+   family_drivers.run_hyperparam_sweep; the sweep-block helpers
+   (read_sweep_block, set_by_path, SWEEPABLE_TOP_KEYS) moved into
+   family_drivers.py verbatim (AST-proven) and the cosmic-shear
+   driver now imports them — one definition for every family.
+10. **The notes consolidation**: ~85 notes rewritten into
    ~11; the old files are retired but survive in git history — for any
    forensic question, `git log --follow` the old path.
 

@@ -85,7 +85,6 @@ loaded whole.
 #-------------------------------------------------------------------------------
 
 import argparse
-import copy
 import os
 import time
 
@@ -102,99 +101,14 @@ from emulator.cocoa import (
 from emulator.experiment import (
   EmulatorExperiment, validate_sweep_paths, _pinned_head_warning)
 from emulator.results import save_sweep_table
+# single-sourced sweep helpers (family_drivers.py): the same
+# constants and block parser the per-family sweep drivers use.
+from emulator.family_drivers import (
+  SWEEPABLE_TOP_KEYS, ACTIVATION_PATHS, set_by_path,
+  read_sweep_block)
 from emulator.scheduling import (
   even_assign, run_gpu_pool, GPU_TOKENS,
   estimate_train_vram_fraction, vram_tokens)
-
-# train_args keys a sweep may enter through (the dotted path's first
-# segment). Guards against a typo'd path silently no-opping:
-# exp.train reads train_args by .get, so an unknown top-level key
-# would be ignored, and the sweep would train the same config N
-# times. model.* keys are further validated by build_specs
-# (MODEL_BLOCK_KEYS) at train time, loudly.
-SWEEPABLE_TOP_KEYS = ("nepochs", "bs", "loss", "trunk_epochs",
-                      "freeze_trunk", "clip", "rewind", "trunk", "head",
-                      "model", "optimizer", "lr", "scheduler", "trim",
-                      "focus", "ema")
-
-# dotted paths that sweep the activation family: these are resolved
-# by from_config into exp.activation (build_specs deliberately does
-# not re-read the YAML block, so a train_args copy would be
-# ignored); the job sets exp.activation per value instead.
-ACTIVATION_PATHS = ("model.activation", "model.activation.type")
-
-
-def set_by_path(train_args, path, value):
-  """
-  A deep copy of train_args with one dotted-path leaf replaced.
-
-  Walks the nested mapping along `path` ("lr.lr_base" -> ["lr",
-  "lr_base"]), creating intermediate mappings that do not exist yet
-  (so `head.lr.lr_base` sweeps even when the YAML has no head: block;
-  a head. / trunk_epochs / trunk. sweep on a single-phase model is
-  rejected up front by validate_sweep_paths, since resolve_phase_args
-  would demote it away), and sets the final key. The input is never
-  mutated; each sweep point gets its own copy.
-
-  Arguments:
-    train_args = the resolved train_args mapping to copy.
-    path       = dotted path of the leaf to set.
-    value      = the value this sweep point tries.
-
-  Returns:
-    the modified deep copy.
-  """
-  out  = copy.deepcopy(train_args)
-  node = out
-  keys = path.split(".")
-  for k in keys[:-1]:
-    nxt = node.get(k)
-    if not isinstance(nxt, dict):
-      nxt = {}
-      node[k] = nxt
-    node = nxt
-  node[keys[-1]] = value
-  return out
-
-
-def read_sweep_block(cfg):
-  """
-  Validate and unpack the YAML `sweep` block.
-
-  Arguments:
-    cfg = the resolved config mapping (data + train_args + sweep).
-
-  Returns:
-    (param, values, act_mode): the dotted path, the value list, and
-    whether this is the activation-family special case.
-  """
-  if "sweep" not in cfg:
-    raise KeyError(
-      "the YAML needs a `sweep` block:\n"
-      "  sweep:\n"
-      "    parameter: lr.lr_base\n"
-      "    values:\n"
-      "      - 0.001\n"
-      "      - 0.0025")
-  blk    = cfg["sweep"]
-  param  = str(blk.get("parameter", "")).strip()
-  values = blk.get("values")
-  if not param or not isinstance(values, list) or len(values) == 0:
-    raise ValueError(
-      "sweep block needs `parameter` (a dotted train_args path) "
-      "and a non-empty `values` list")
-  if param in ("model.name", "model.ia"):
-    raise ValueError(
-      f"cannot sweep {param}: it changes the model class: run "
-      "one sweep per architecture (or the activation bake-off "
-      "driver) and overlay the saved tables")
-  act_mode = param in ACTIVATION_PATHS
-  if not act_mode and param.split(".")[0] not in SWEEPABLE_TOP_KEYS:
-    raise ValueError(
-      f"sweep parameter {param!r} does not enter train_args "
-      f"(first segment must be one of: "
-      f"{' / '.join(SWEEPABLE_TOP_KEYS)})")
-  return param, values, act_mode
 
 
 def _hyper_setup(gpu_id, extra):

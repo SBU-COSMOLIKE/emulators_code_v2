@@ -53,7 +53,8 @@ emulator/                              the library (torch; cosmolike only in geo
   inference.py                         EmulatorPredictor: rebuild + predict (every family)
   plotting.py                          history / curves / coverage / the diagnostics PDF
   diagnostics.py                       coverage, floor, hard directions + per-family pages
-  family_drivers.py                    the serial per-family sweep/tune loops
+  family_drivers.py                    the serial per-family sweep / hyperparam /
+                                       tune loops + the sweep-block helpers
   cocoa.py                             the cocoa project layout (paths, YAML resolution)
 
 *_train_emulator.py                    CLI: one training run (+ optional diagnostics
@@ -62,7 +63,8 @@ emulator/                              the library (torch; cosmolike only in geo
 *_tune_emulator.py                     CLI: Optuna search (cosmic_shear_ multi-GPU;
                                        the per-family ones serial)
 *_sweep_ntrain_emulator.py             CLI: f(dchi2 > thr) vs N_train (same split)
-cosmic_shear_sweep_hyperparam_*.py     CLI: sweep ONE YAML-chosen knob  (multi-GPU)
+*_sweep_hyperparam_emulator.py         CLI: sweep ONE YAML-chosen knob
+                                       (cosmic_shear_ multi-GPU; per-family serial)
 cosmic_shear_bakeoff_activation_*.py   CLI: one curve per activation    (multi-GPU)
 example_yamls/                         template YAMLs; copy one into a project's --fileroot
 cobaya_theory/                         one thin cobaya Theory adapter per artifact kind
@@ -157,7 +159,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `inference.py` | `EmulatorPredictor`: rebuild a saved emulator and predict — one `predict(params)` for every artifact kind: the dv section, the scalar `{name: value}` dict, the physical C_ell row, the background `{"z", quantity}` function, or the (z, k) law-space surface. Reuses the exact training decode per family. |
 | `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves, and the multipage diagnostics PDF with the per-family pages (`cmb=` / `scalar=` / `grid=` / `grid2d=`). |
 | `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`, `grid2d_residual_diagnostic`). |
-| `family_drivers.py` | `run_ntrain_sweep` / `run_tune`: the SERIAL per-family loops the thin `sweep_ntrain_<family>_` / `tune_<family>_` drivers call (the multi-GPU pool stays the cosmic-shear drivers' tool). |
+| `family_drivers.py` | `run_ntrain_sweep` / `run_hyperparam_sweep` / `run_tune`: the SERIAL per-family loops the thin `<family>_sweep_ntrain_` / `<family>_sweep_hyperparam_` / `<family>_tune_` drivers call (the multi-GPU pool stays the cosmic-shear drivers' tool), plus the sweep-block helpers (`read_sweep_block`, `set_by_path`) the cosmic-shear hyperparameter driver imports. |
 | `cocoa.py` | The cocoa project layout: `--root` / `--fileroot` / `--yaml` resolution, output paths. |
 
 **Drivers** (beside `emulator/`; each reads `--root` / `--fileroot` / `--yaml`)
@@ -172,6 +174,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `cosmic_shear_sweep_ntrain_emulator.py` | `f(dchi2 > thr)` vs `N_train`; multi-GPU, LPT-balanced; `--gpu-pack`. |
 | `{scalar,cmb,baosn,mps}_sweep_ntrain_emulator.py` | The per-family learning curves (serial; `family_drivers.run_ntrain_sweep`). |
 | `cosmic_shear_sweep_hyperparam_emulator.py` | Sweep ONE hyperparameter chosen in the YAML `sweep:` block; multi-GPU. |
+| `{scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py` | The per-family one-knob sweeps (serial; `family_drivers.run_hyperparam_sweep`, same `sweep:` block). |
 | `cosmic_shear_bakeoff_activation_emulator.py` | One learning curve per activation; multi-GPU. |
 
 The naming rule for every new driver is `<verb>_<family>_emulator.py`;
@@ -222,7 +225,7 @@ other kinds' artifacts loudly, naming the right adapter)
 | fine-tuning / transfer mechanics | `warmstart.py` (+ the family pin in `experiment.build_geometry`) |
 | what an artifact stores | `results.py` save + rebuild TOGETHER (+ the geometry's `state()`) |
 | how a saved emulator is served | the predictor branch in `inference.py`, then the thin adapter in `cobaya_theory/` |
-| a CLI driver (add/modify) | the `<verb>_<family>_emulator.py` beside `emulator/` (compose `EmulatorExperiment`; the serial family loops live in `family_drivers.py`) |
+| a CLI driver (add/modify) | the `<family>_<verb>_emulator.py` beside `emulator/` (compose `EmulatorExperiment`; the serial family loops live in `family_drivers.py`) |
 | which hyperparameters are searched | the driver YAML (`[default, min, max, kind]`) + resolvers in `training.py` |
 | multi-GPU balancing | `scheduling.py` |
 | the training-set sampling / checkpoints / MPI farm | `compute_data_vectors/generator_core.py` (all four generators inherit) |
@@ -456,5 +459,5 @@ Each `main()` reads `--root` / `--fileroot` / `--yaml`.
 - `cmb_train_emulator.py` / `baosn_train_emulator.py` / `mps_train_emulator.py` — the thin family wrappers (`main(prog, family)` + `require_family_block`).
 - `cosmic_shear_tune_emulator.py` — the multi-GPU journal study; `{scalar,cmb,baosn,mps}_tune_emulator.py` — the serial per-family studies.
 - `cosmic_shear_sweep_ntrain_emulator.py` — the multi-GPU learning curve; `{scalar,cmb,baosn,mps}_sweep_ntrain_emulator.py` — the serial per-family curves.
-- `cosmic_shear_sweep_hyperparam_emulator.py` — one YAML-chosen knob.
+- `cosmic_shear_sweep_hyperparam_emulator.py` — one YAML-chosen knob (multi-GPU); `{scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py` — the serial per-family versions.
 - `cosmic_shear_bakeoff_activation_emulator.py` — one curve per activation.
