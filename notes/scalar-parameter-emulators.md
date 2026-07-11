@@ -1707,3 +1707,44 @@ the work is admission + pinning + the combined driver path:
 
 Sequencing: after CME closes, before BSN (small); BSN then inherits
 the same pattern for GridGeometry (D-BSN9 in [[baosn-emulators]]).
+
+## SPE-FT LANDED + Mac-gated (2026-07-11, Architect, overnight mode)
+
+- **D-SF3:** validate_scalar's finetune forbid REPLACED by admission
+  (ia/pce/transfer/rescale stay forbidden); the from_config scalar
+  branch gains the finetune sub-path (validate_finetune_config runs
+  BEFORE any ta["model"] read — the FTW model-block lesson holds by
+  ordering, probe-verified) with the D-SF1 checks: wrong-kind (a
+  non-scalar source names its own family's path) and outputs-equal
+  (names AND order, loud diff naming both lists).
+- **D-SF1/2:** build_geometry's cosmolike finetune branch is now
+  guarded `not self._scalar` too (the same latent ordering hazard
+  D-CM10 fixed for cmb); the scalar branch pins the SOURCE
+  ScalarGeometry wholesale (center/scale = the source standardization,
+  epoch-0 parity) with the input side on extend_input_geometry (D-FT3
+  unchanged; ScalarGeometry carries dest_idx/total_size so
+  build_warm_start's pinned_geom slot works as-is).
+- **D-SF4:** scalar_identity.py gains check_finetune: load_source
+  accepts a scalar artifact (save_synthetic_scalar now stamps
+  rescale="none" — a source without it is ambiguous and refused);
+  epoch-0 parity via build_warm_start (same covmat, no extras);
+  the extended-covmat leg asserts anchor_masks zeros EXACTLY the
+  padded extra column; the outputs-mismatch and wrong-kind from_config
+  legs fire before any staging (dummy data names suffice) and the
+  finetune cfg carries no model: block. No new board gate — the legs
+  ride scalar-identity (rerun it on the workstation).
+- **D-MP5 driver pairs (scalar + cmb, commissioned by the user):**
+  emulator/family_drivers.py holds the SERIAL sweep/tune loops
+  single-sourced (the cosmic-shear drivers' serial paths; the
+  multi-GPU pool / gpu-pack / journal machinery stays the cosmic-shear
+  tool); sweep_ntrain_scalar_emulator.py / tune_scalar_emulator.py /
+  sweep_ntrain_cmb_emulator.py / tune_cmb_emulator.py are thin
+  namespace-ruled drivers (prog names = the D-MP5 convention; no
+  --rescale — a data-vector concept each family validator rejects).
+  BSN/MPS pairs land in-unit with their families.
+- **Mac probe 5/5** (scratchpad probe_speft.py): compile x7; the order
+  census (forbid gone, sub-path before model read, both guards, pin
+  before from_targets); validate_scalar exec-probe (finetune accepted,
+  transfer still loud); driver surface census (no module-level
+  argparse, prog names, the experiment surface the loops call); the
+  gate-leg census.

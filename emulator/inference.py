@@ -123,8 +123,38 @@ class EmulatorPredictor:
     # ScalarGeometry does not have. The emulated output names come off the
     # geometry; the input dtype still comes from the parameter whitening.
     self._scalar = info["scalar"]
+    self._cmb    = info["cmb"]
+    self._grid   = info["grid"]
     if self._scalar:
       self.output_names = list(self.geom.names)
+      self._dtype = self.pgeom.center.dtype
+      return
+    # grid (background-function) emulator (D-BSN5): predict returns
+    # {"z": grid, quantity: row} — the raw physical function on the
+    # stored grid (the target law already decoded by the geometry);
+    # the distance pipeline (emulator/background.py) is applied by the
+    # consumer (emul_baosn / a profile script), never re-derived here.
+    if self._grid:
+      self.quantity = self.geom.quantity
+      self.units    = self.geom.units
+      self.law      = self.geom.law
+      self.z        = self.geom.z
+      self._dtype   = self.pgeom.center.dtype
+      return
+    # CMB spectrum emulator (D-CM5): predict returns the physical C_ell
+    # row on the stored multipole grid (a 1-D numpy array over .ell), so
+    # skip the 3x2pt mask/section accounting a CmbDiagonalGeometry does
+    # not have. The decoder is law-dispatched: the training chi2's decode
+    # (losses/cmb.py) multiplies the imposed amplitude law back, reused
+    # here not re-derived (the same single-sourcing as the dv branches).
+    if self._cmb:
+      self.spectrum       = self.geom.spectrum
+      self.ell            = self.geom.ell
+      self.units          = self.geom.units
+      self.amplitude_law  = info["amplitude_law"]
+      self._decode = self._build_cmb_decoder(law=info["amplitude_law"],
+                                             as_name=info["as_name"],
+                                             tau_name=info["tau_name"])
       self._dtype = self.pgeom.center.dtype
       return
     self.dest_idx   = self.geom.dest_idx
@@ -171,6 +201,43 @@ class EmulatorPredictor:
     # kept-column ParamGeometry to reach the whitening tensors.
     base_pg     = getattr(self.pgeom, "pg_keep", self.pgeom)
     self._dtype = base_pg.center.dtype
+
+  def _build_cmb_decoder(self, law, as_name, tau_name):
+    """Pick the whitened-output -> physical-C_ell map for a CMB emulator.
+
+    Reconstructs the same loss object training used, purely for its
+    decode (the amplitude law multiplied back for "as_exp2tau", the
+    plain un-whiten for "none"), so the law math keeps one definition
+    (losses/cmb.py). Mirrors _build_decoder for the data-vector kinds.
+
+    Arguments:
+      law      = the imposed amplitude-law name the artifact persisted
+                 ("none" / "as_exp2tau"); make_cmb_chi2 rejects an
+                 unknown name loudly.
+      as_name  = the raw linear amplitude column name ("" for "none").
+      tau_name = the optical-depth column name ("" for "none").
+
+    Returns:
+      a callable (pred, x_enc) -> (1, n_ell) physical C_ell; the "none"
+      closure ignores x_enc, the "as_exp2tau" decode reads A_s / tau
+      from it through the saved param geometry.
+    """
+    from .losses.cmb import make_cmb_chi2
+    if law == "none":
+      chi2 = make_cmb_chi2(geom=self.geom, law=law)
+
+      def _cmb_plain_decode(pred, x_enc):
+        # the module output is the whitened spectrum itself; no law.
+        return chi2.decode(pred)
+      return _cmb_plain_decode
+    chi2 = make_cmb_chi2(geom=self.geom,
+                         law=law,
+                         param_geometry=self.pgeom,
+                         as_name=as_name,
+                         tau_name=tau_name)
+    # CmbFactoredChi2.decode(pred, params_whitened) already matches the
+    # predictor's (pred, x_enc) decoder convention.
+    return chi2.decode
 
   def _build_decoder(self, ia, pce_base, pce_form,
                      transfer_base=None, transfer_form=None,
@@ -302,7 +369,10 @@ class EmulatorPredictor:
     Returns:
       For a scalar (derived-parameter) emulator: a {name: value} dict, one
       entry per emulated output (D-SP5); the dv_return / section machinery
-      does not apply. For a data-vector emulator: a 1-D numpy array.
+      does not apply. For a CMB spectrum emulator: a 1-D numpy array of
+      physical C_ell on the stored multipole grid .ell (D-CM5; the
+      imposed amplitude law already multiplied back); dv_return does not
+      apply. For a data-vector emulator: a 1-D numpy array.
       dv_return 'section' (the default): this emulator's own probe block(s),
       shape (section_size,); for a cosmic-shear emulator the xi block, the
       length the likelihood glues per probe. dv_return '3x2pt': the full
@@ -322,6 +392,20 @@ class EmulatorPredictor:
       for i, nm in enumerate(self.output_names):
         result[nm] = float(out[i])
       return result
+    # grid (background-function) emulator (D-BSN5): decode inverts the
+    # target law (e.g. exp(y) - offset) and returns the physical
+    # function keyed by its quantity tag, with the stored grid beside it.
+    if self._grid:
+      row = self.geom.decode(pred)[0].detach().cpu().numpy()
+      return {"z": self.z.detach().cpu().numpy(),
+              self.quantity: row}
+    # CMB spectrum emulator (D-CM5): decode multiplies the amplitude law
+    # back (law-dispatched at build time), returning the physical C_ell on
+    # the stored multipole grid .ell; no mask to unsqueeze through and no
+    # section to slice.
+    if self._cmb:
+      cl = self._decode(pred, x_enc)         # (1, n_ell) physical C_ell
+      return cl[0].detach().cpu().numpy()
     dv_kept = self._decode(pred, x_enc)      # (1, n_keep) kept-entry
     dv_full = self.geom.unsqueeze(dv_kept)   # (1, total_size), 0 off dest_idx
     if self.dv_return == "3x2pt":

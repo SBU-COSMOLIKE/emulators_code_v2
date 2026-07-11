@@ -991,9 +991,10 @@ def validate_berhu(berhu, loss_mode, which):
 # ladder.
 _LOSS_MODES = ("chi2", "sqrt", "sqrt_dchi2", "berhu", "berhu_capped")
 
-# the keys a train_args.loss block accepts: the mode string and the berhu
-# knot sub-block (valid only beside a berhu mode; see validate_loss).
-_LOSS_KEYS = ("mode", "berhu")
+# the keys a train_args.loss block accepts: the mode string, the berhu
+# knot sub-block (valid only beside a berhu mode; see validate_loss), and
+# the CMB residual-roughness sub-block (D-CM8; top-level loss only).
+_LOSS_KEYS = ("mode", "berhu", "roughness")
 
 
 def validate_loss(loss, which):
@@ -1033,7 +1034,7 @@ def validate_loss(loss, which):
   qual = ("train_args.loss" if which == "train_args"
           else f"train_args.{which}.loss")
   if loss is None:
-    return {"mode": "sqrt", "berhu": None}
+    return {"mode": "sqrt", "berhu": None, "roughness": None}
   if not isinstance(loss, dict):
     raise TypeError(
       f"{qual} must be a mapping {{mode, berhu}}, got "
@@ -1079,7 +1080,51 @@ def validate_loss(loss, which):
   # a non-berhu mode carries no knots (None -> the training loop's unused
   # defaults); a berhu mode keeps the resolved pair for its knot tensors.
   berhu = resolved if mode in ("berhu", "berhu_capped") else None
-  return {"mode": mode, "berhu": berhu}
+  # the CMB residual-roughness sub-block (D-CM8): a per-sample penalty on
+  # short-period residual oscillations, added to the per-sample chi2
+  # before the shared reduction. Absent = the term does not exist (the
+  # off-identity rule; lam 0 is rejected — delete the block instead).
+  # Both keys are required when present (never a silent default), and the
+  # block rides the TOP-LEVEL loss only (the trunk/head phases are a
+  # cosmic-shear head feature; run_emulator applies the term once, to the
+  # run's chi2fn).
+  rough = loss.get("roughness")
+  if rough is not None:
+    if which != "train_args":
+      raise ValueError(
+        f"{qual}.roughness: the roughness term rides the top-level "
+        "train_args.loss block only (it configures the run's loss object "
+        "once); remove it from the phase block")
+    if not isinstance(rough, dict):
+      raise TypeError(
+        f"{qual}.roughness must be a mapping {{lam, period_cut}}, got "
+        f"{type(rough).__name__}")
+    unknown_r = set(rough) - {"lam", "period_cut"}
+    if unknown_r:
+      raise ValueError(
+        f"unknown {qual}.roughness key(s): {sorted(unknown_r)}; allowed: "
+        "['lam', 'period_cut']")
+    for key in ("lam", "period_cut"):
+      if key not in rough:
+        raise ValueError(
+          f"{qual}.roughness needs the {key!r} key (lam = the penalty "
+          "weight; period_cut = the penalized-band edge in multipoles); "
+          "it is missing (both are stated explicitly, never defaulted)")
+      val = rough[key]
+      if isinstance(val, bool) or not isinstance(val, (int, float)):
+        raise ValueError(
+          f"{qual}.roughness.{key} must be a number, got {val!r}")
+    if float(rough["lam"]) <= 0.0:
+      raise ValueError(
+        f"{qual}.roughness.lam must be > 0; an absent roughness block "
+        "states OFF (never lam 0, which would be a silent no-op block)")
+    if float(rough["period_cut"]) < 5.0:
+      raise ValueError(
+        f"{qual}.roughness.period_cut must be >= 5 multipoles, got "
+        f"{rough['period_cut']!r}")
+    rough = {"lam": float(rough["lam"]),
+             "period_cut": float(rough["period_cut"])}
+  return {"mode": mode, "berhu": berhu, "roughness": rough}
 
 
 def _loss_migration_message(loss_mode, berhu, which):
@@ -2385,7 +2430,24 @@ def run_emulator(train_set,
   # {mode: sqrt}, byte-identical to the old default): the mode whitelist and
   # the berhu sub-block's local mode check, before any setup work. Each pass
   # re-resolves it below (a phase loss: full-replaces the top-level one).
-  validate_loss(loss, "train_args")
+  loss_top = validate_loss(loss, "train_args")
+
+  # the CMB residual-roughness term (D-CM8): configured once on the run's
+  # loss object (the term is per-sample state on the chi2fn, not a per-pass
+  # knob; validate_loss already restricted the block to the top level). A
+  # loss object without configure_roughness is not a CMB loss — loud, so a
+  # cosmolike / scalar YAML carrying the block never trains silently
+  # without it.
+  if loss_top["roughness"] is not None:
+    if not hasattr(chi2fn, "configure_roughness"):
+      raise ValueError(
+        "train_args.loss.roughness is the CMB residual-roughness term "
+        "(D-CM8); this run's loss (" + type(chi2fn).__name__ + ") does "
+        "not support it — remove the block (it applies to data.cmb runs "
+        "only)")
+    chi2fn.configure_roughness(lam=loss_top["roughness"]["lam"],
+                               period_cut=loss_top["roughness"]
+                                                  ["period_cut"])
 
   if model_opts is None:
     model_opts = {"cls": ResMLP,
@@ -2633,6 +2695,14 @@ def run_emulator(train_set,
     if phase_opts is not None and "loss" in phase_opts:
       loss_raw = phase_opts["loss"]
     which_l = phase if phase is not None else "train_args"
+    # the roughness sub-block is run-level state (configured on the chi2fn
+    # once, before the passes); when a phase INHERITS the top-level block,
+    # drop the key from the inherited copy so re-resolving it under the
+    # phase name does not trip the phase rejection (a phase's OWN
+    # roughness block still rejects loudly inside validate_loss).
+    if (phase is not None and loss_raw is loss
+        and isinstance(loss_raw, dict) and "roughness" in loss_raw):
+      loss_raw = {k: v for k, v in loss_raw.items() if k != "roughness"}
     loss_pass  = validate_loss(loss_raw, which_l)
     mode_pass  = loss_pass["mode"]
     berhu_pass = loss_pass["berhu"]

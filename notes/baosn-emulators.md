@@ -230,6 +230,162 @@ the user's scope ruling: transfer is exclusive to the cosmolike and
 CMB data-vector families. (This upgrades D-BSN7's transfer line from
 deferral to permanent.)
 
-## Resume state (Implementer appends below)
+## Resume state (Architect implementing directly, overnight mode)
 
-(not started — queued behind CME)
+**2026-07-11, increment 1 IN PROGRESS.** CME closed code-complete
+(27-gate board) and SPE-FT landed first; BSN is executing on their
+foundations. Written so far:
+
+- `emulator/background.py` (D-BSN3): cumulative_simpson VERBATIM from
+  legacy emulbaosn2.py (odd-point guard included);
+  comoving_distance_grid (c/H cubic onto the doubled
+  linspace(0, z_max, 2NZ+1), Simpson); distance_interpolators (H / chi
+  / da / dl cubics + z_max; flat conversions verbatim dl = chi(1+z),
+  da = dl/(1+z)^2). The z->1200 extension NOT ported (D-BSN3-A kills
+  it); curvature guards live in the adapter; C_KMS = 2.99792458e5
+  verbatim.
+- `emulator/geometries_grid.py` (D-BSN1): TARGET_LAWS
+  {none, log_offset(offset)}; GridGeometry(device, quantity, units,
+  law, offset, z, center, scale) with law-INSIDE-encode/decode
+  (encode = standardize(log(y+offset)), decode = exp(destd)-offset —
+  ScalarChi2 reuses unchanged); from_targets applies the law FIRST
+  then the ScalarGeometry standardization math (population std, the
+  8*eps32*|center| guard, per-grid-point, errors name redshifts;
+  log-domain positivity loud); state()/from_state with h5-round-trip
+  normalization for the string/scalar fields; dest_idx/total_size
+  derived.
+
+**Increments 2 + 3 WRITTEN, compile-clean (2026-07-11), Mac probe
+pending (rides the increment-4 probe):**
+dataset_generator_background.py per the plan (two-quantity store with
+grid sidecars written at _dv_alloc; z_sn/z_rec validation incl. the
+no-overlap desert rule; requirements Hubble{z, km/s/Mpc} +
+comoving_radial_distance{z} added to the model itself; payload
+dict{h, dm}); experiment.py grid path (DATA_KEYS "grid"; three-way
+exclusivity; validate_grid — quantity whitelist Hubble/D_M, TARGET_LAWS,
+offset both-ways rule, five files, transfer = PERMANENT forbid citing
+the scope ruling, finetune admitted; the from_config grid branch with
+the D-BSN9 finetune sub-path — wrong-kind + metadata (quantity/units/
+law/offset) checks at from_config, the Z-GRID check + pin in
+build_geometry where z_file loads; trunk-only head guard; the
+build_geometry grid branch with the dump-vs-sidecar width check;
+param_cuts optional on grid at BOTH stage fns AND pool_size —
+pool_size hard-read was a LATENT CRASH for the family sweep drivers on
+cuts-free YAMLs, fixed for scalar/cmb/grid together); results.py info
+gains grid/grid_quantity/grid_units/grid_law/grid_offset AND the cmb
+law keys are now class-guarded (a bare getattr(geom, "law") would have
+smeared the grid TARGET law into amplitude_law — the two-registry
+collision, caught here); print_design grid banner.
+
+## BSN status: CODE COMPLETE — awaiting the workstation board
+(2026-07-11, Architect, overnight mode)
+
+All increments landed and Mac-gated (probe_bsn1 5/5 + probe_bsn2 5/5):
+
+- **Increment 4:** the EmulatorPredictor grid branch (predict ->
+  {"z": grid, quantity: row}; exposes quantity/units/law/z; _grid flag
+  beside _scalar/_cmb); the THREE sibling adapters gained _grid
+  wrong-kind guards naming emul_baosn; cobaya_theory/emul_baosn.py —
+  exactly TWO roots (one Hubble km/s/Mpc + one D_M Mpc, each
+  self-declaring; missing/duplicate/wrong-kind/wrong-units loud), the
+  window layout persisted (SN max / rec min / rec max, disjoint
+  enforced), flat-only (omk among inputs loud, D-BSN3), must_provide
+  desert-loud at startup, calculate caches the background.py
+  interpolators + the rec-window D_M cubic, PIECEWISE getters
+  (get_Hubble both unit conventions + SN-window-only;
+  chi/D_A/D_L flat conversions; get_angular_diameter_distance_2 =
+  (chi2-chi1)/(1+z2); every desert/beyond query loud naming both
+  windows).
+- **Increment 5:** grid_residual_diagnostic (fractional bands vs z +
+  worst overlay + for Hubble the DERIVED D_A/D_L bands through the
+  REAL background.py pipeline — pipeline(pred H) vs pipeline(true H),
+  n_derived=64 cold-path Simpson runs) + _grid_pages (2 pages for
+  Hubble, 1 for D_M) + plot_diagnostics grid= kwarg + the cs-driver
+  wiring; sweep_ntrain_baosn_emulator.py / tune_baosn_emulator.py on
+  family_drivers (D-MP5 in-unit).
+- **Increment 6:** gates/checks/bsn_identity.py (Simpson even-exact/
+  odd-bounded + guard; pipeline vs closed form at 1e-6 with the real
+  cubic; law both ways; state round-trip; save/rebuild/predict bitwise
+  both laws + info flags incl. amplitude_law staying None on grid
+  artifacts; the full adapter leg set incl. piecewise-vs-pipeline
+  equality and both desert legs; D-BSN9 parity + metadata-mismatch +
+  cross-quantity legs) and gates/checks/bsn_smoke.py (background
+  generator 200 rows -> both quantities + grid sidecars; TWO trainings
+  with the dead-network-relative bars; the real cobaya lifecycle vs
+  CAMB'S OWN background at an off-center point — H/D_A SN + D_M rec
+  within 2%; the desert loud through the lifecycle; the 2-page
+  diagnostics leg). Board = 29 (census-counted); example YAML
+  baosn_hubble_emulator.yaml (validated through the real
+  validate_grid). Probe-caught in flight: pool_size's unconditional
+  param_cuts read (fixed for scalar/cmb/grid); the results.py
+  two-registry law collision (cmb keys now class-guarded).
+- **First-run risks for the board:** the generator's requirement names
+  ("Hubble" with units / "comoving_radial_distance") against the
+  workstation's cobaya version; the bsn-smoke omch2-lambda param block
+  (mirrors EXAMPLE_EMUL2's convention); scipy presence in the gate env
+  (bsn-identity needs it for the cubic path).
+
+**The original increment plan (executed as above):**
+2. dataset_generator_background.py — third thin driver on
+   generator_core: VALID_PROBES ("background",), EXTRA_TRAIN_KEYS
+   z_sn/z_rec ([zmin, zmax, nz] each, rec default [1000, 1200, ...]);
+   _read_train_args adds requirements {"Hubble": {"z": z_sn},
+   "comoving_radial_distance": {"z": z_rec}} to the model itself;
+   payload = dict{h: (nz,), dm: (nz2,)}; store = two 2D files
+   {dvsf}_h.npy / {dvsf}_dm.npy + the grids written ONCE as
+   {dvsf}_h_z.npy / {dvsf}_dm_z.npy (the training consumes the grid
+   from a FILE, resolved values); one background CAMB pass per sample
+   (D-BSN3-A(5)).
+3. experiment.py grid branch: is_grid = "grid" in cfg["data"];
+   validate_grid (exclusivity with outputs/cmb/cosmolike; required
+   sub-keys quantity/units/law(+offset)/z_file; the five dv/params
+   files; rescale/ia/pce loud; transfer PERMANENT forbid citing the
+   scope ruling; finetune admitted per D-BSN9); build_geometry grid
+   branch (np.load z_file, width check loud,
+   GridGeometry.from_targets, make_scalar_chi2 reused); the finetune
+   pin sub-branch (same quantity/grid/units/law+offset checks, pin
+   source geometry; guard the cosmolike finetune branch `not
+   self._grid` — the SPE-FT/D-CM10 ordering hazard, THIRD time);
+   results.py rebuild info gains "grid" + quantity/units/law/offset
+   getattrs; print_design banner.
+4. EmulatorPredictor grid branch (D-BSN5): predict ->
+   {"z": grid, quantity: row}; expose quantity/units/law/z.
+   emul_baosn (D-BSN4): two roots, quantity tags checked (one
+   "Hubble" + one "D_M"), window coverage check, piecewise getters
+   (SN window -> background.distance_interpolators per point;
+   rec window -> D_M interpolation; desert/beyond LOUD naming both
+   windows); flat-only (an omk requirement/input -> loud); getters
+   get_Hubble (km/s/Mpc | 1/Mpc), get_angular_diameter_distance,
+   get_comoving_radial_distance, get_luminosity_distance,
+   get_angular_diameter_distance_2; wrong-kind guards both ways
+   (emul_scalars/emul_cmb/emul_cosmic_shear already reject by
+   dispatch flags — predictor grows _grid).
+5. D-BSN8 diagnostics: grid_residual_diagnostic (H bands vs z +
+   D_M bands in the rec window on ONE page with the desert marked;
+   derived-distance page D_A/D_L through the REAL background.py
+   pipeline vs the validation dump truth; worst overlay) +
+   _grid_pages dispatch + driver wiring; sweep_ntrain_baosn/tune_
+   baosn drivers (family_drivers, in-unit per D-MP5).
+6. Gates bsn-identity/bsn-smoke + board 29 + example YAML +
+   README draft note. bsn-identity: Simpson vs analytic
+   antiderivative; pipeline vs closed-form LCDM; law round-trip;
+   save/rebuild/predict bitwise; desert/wrong-kind/omk error legs;
+   D-BSN9 finetune legs. bsn-smoke: generator through real CAMB
+   background; 2-epoch train BOTH artifacts; cobaya evaluate through
+   emul_baosn vs CAMB's own background (truth available); the
+   D-SPE2-5 relative bars; diagnostics leg.
+
+**Increment 1 GREEN (probe_bsn1.py 5/5; scipy absent on the Mac, so
+the interp1d rode a dense-grid linear stub — the real cubic path is a
+bsn-identity leg):** the shipped Simpson exec'd directly (pure numpy):
+EVEN points exact on cubics (4e-14), the pipeline composition vs a
+closed-form flat-LCDM reference at 1e-4 across z = 0.1..2.9 (chi, D_A,
+D_L), the geometry math mirror + all guards, the AST census, compile.
+**FINDING (recorded, kept verbatim):** the legacy cumulative-Simpson
+rule is composite Simpson at the EVEN doubled-grid points (exact for
+cubics) but a HALF-CHUNK approximation at the odd points (O(dz^3)
+local error, 6.5e-4 at dz = 0.005 on the probe cubic). The even points
+ARE the original z grid, so every served grid point is Simpson-exact;
+the odd-point error only shades the interpolation between them. Ported
+bug-for-bug (the porting discipline); tightening it is a science-thread
+choice, not a port decision.

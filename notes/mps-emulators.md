@@ -113,6 +113,111 @@ YAML end to end) closes the MPS unit. Board: +2 gates per family.
 (adapter template + lesson bank), [[post-program-polish]] (driver
 renames), [[geometry-family-folder]].
 
-## Resume state (appended below by whoever implements)
+## D-MP2-A — where the syren base lives (2026-07-11, Architect ruling)
 
-(not started — queued after BSN)
+The syren base is UNLIKE every earlier law: log_offset is a constant,
+as_exp2tau a per-row scalar — but P_base(k, z, theta) is a per-row
+FUNCTION of the cosmology, computed by numpy formulas (symbolic_pofk).
+Putting it inside the geometry's encode/decode would drag numpy into
+the compiled training loop (a GPU sync per batch) or force a torch
+port of the syren formulas (a drift channel against the very formula
+the emulator corrects). RULING:
+
+1. **The generator writes the base beside the raw dump.** Per sample,
+   dataset_generator_mps.py computes P_lin / boost from CAMB AND the
+   syren base from symbolic_pofk (both numpy-land), writing
+   {dvsf}_pklin.npy + {dvsf}_pklin_base.npy (and _boost /
+   _boost_base), plus the _z.npy/_k.npy grid sidecars. Resolved
+   values: the base a training consumed is ON DISK, never recomputed
+   under a possibly-drifted package version.
+2. **Staging forms the law-space target once (cold):**
+   target = log(P / P_base) row by row at staging; the 2D
+   GridGeometry standardizes law-space rows (torch-pure encode/
+   decode = standardize/destandardize only). The law NAME + the
+   downsample spec persist in the artifact.
+3. **One base module:** emulator/syren_base.py wraps the
+   symbolic_pofk calls (the legacy emulmps.py lines 27-66 import
+   fallbacks + As_to_sigma8 -> plin_emulated -> run_halofit
+   conventions, moved verbatim) — used by the generator, by emul_mps
+   (decode: P = exp(destd) * base(theta), the legacy get_pks
+   use_syren=True flow), and by the gates. The base has exactly one
+   definition; the artifact's law name selects it.
+4. **The predictor's mps branch returns the LAW-SPACE grid**
+   ({"z", "k", "log_ratio"}); emul_mps (and any profile script)
+   multiplies the base back through syren_base — the one documented
+   consumer-side step, mirrored on the README's two-door pattern.
+
+## Resume state (Architect implementing directly, overnight mode)
+
+**2026-07-11: BSN closed (board 29); MPS increment 1 IN PROGRESS.**
+Binding legacy facts captured this window (all read in full):
+
+- PowerSpectrumInterpolator = legacy emulmps.py lines 68-196 (adapted
+  from CAMB / Antony Lewis, attribution kept): RectBivariateSpline
+  over (z, log k), logP mode with logsign, extrap_kmin/kmax power-law
+  pads (two extra columns each side), check_ranges loud, P()/logP(),
+  __call__ warn. Port VERBATIM into cobaya_theory/emul_mps.py (its
+  LoggedError/get_logger imports ride cobaya, fine there).
+- The legacy adapter surface to keep: get_Pk_grid (delta_tot only,
+  loud otherwise; state keys ("Pk_grid", nonlinear, "delta_tot",
+  "delta_tot")), get_Pk_interpolator (log_p detection with the
+  zero-crossing fallback + the state cache key incl. extrap bounds),
+  _compute_sigma8 (R=8 tophat over log k via trapz; serves sigma8 as
+  a derived), get_can_support_params ['Pk_grid', 'Pk_interpolator',
+  'sigma8']. The w0/wa param padding block (calculate lines 355-365)
+  dies in v2 — the artifact's stored input names ARE the contract.
+- The legacy generator conventions: z grid = concat(linspace(0,2,100,
+  endpoint=False), linspace(2,10,10,endpoint=False),
+  linspace(10,50,12)) = 122; k = logspace(-4, 2, 2000) (kmax 100,
+  requirement k_max 200, extrap_kmax=100 on the interpolator);
+  requirements = {omegabh2, omegach2, H0, ns, As, tau, Pk_interpolator
+  {z, k_max 200, nonlinear (True, False), vars_pairs delta_tot}} PLUS
+  the quirk kept verbatim: "Cl": {"tt": 0} with the comment "DONT
+  REMOVE THIS - SOME WEIRD BEHAVIOR IN CAMB WITHOUT WANTS_CL".
+- symbolic_pofk imports (legacy lines 33-50): sys.path insert of the
+  package dir, then from symbolic_pofk.linear import As_to_sigma8,
+  plin_emulated; from symbolic_pofk.syrenhalofit import run_halofit,
+  run_halofit_vec; wrapped in availability guards.
+
+**Increment 1 WRITTEN, compile-clean (this window; the numpy probe
+rides the next window with the staging work):**
+1. DONE — emulator/geometries_grid2d.py: Grid2DGeometry (z + k axes,
+   rows flattened z-outer; TARGET_LAWS_2D {none, syren_linear,
+   syren_halofit} persisted by name, NO per-law state keys — the base
+   is recomputed by the consumer per D-MP2-A; encode/decode =
+   standardize only, torch-pure; from_targets over LAW-SPACE rows
+   with the un-standardizable guard naming (z, k) points; the
+   downsample persists as the STORED k grid itself, never a stride
+   knob). The geometry math is the GridGeometry math at width nz*nk
+   (probe_bsn1 leg 3 mirrored it green at 1D).
+2. DONE — emulator/syren_base.py per D-MP2-A(3): base_pklin (k/h
+   conversion, plin_emulated at z=0, the approximate-growth rescaling
+   (Dz/D0)^2 (Rz/R0) at kref=1e-4 with mnu=0.06, /h^3 -> Mpc^3) and
+   base_boost (As_to_sigma8 -> run_halofit_vec(return_boost=True,
+   Plin_in=P*h^3)) — the legacy _compute_mps_approximation /
+   _compute_boost_approximation VERBATIM (read in full this window);
+   As is As_1e9 (the syren convention); import guard quiet at load,
+   loud at first use. ALSO captured for the adapter port: the legacy
+   low-k boost blend (k_t = 0.005 1/Mpc, n = 2:
+   boost = 1 + (boost-1)*(1 - exp(-(k/k_t)^n)) — belongs in emul_mps'
+   nonlinear assembly) and the legacy network-input padding block
+   (w0/wa defaults — DIES in v2, the artifact's stored names are the
+   contract).
+**Next steps (fresh context resumes here):**
+3. dataset_generator_mps.py (fourth thin driver): probes ("mps",),
+   EXTRA_TRAIN_KEYS z/k specs; requirements per the captured
+   conventions incl. the wants-Cl quirk; payload {pklin, boost,
+   pklin_base, boost_base}; store = four 2D files + grid sidecars
+   (the background-driver store pattern at four files).
+4. experiment.py grid2d branch (validate + staging law transform +
+   build_geometry + finetune per the SPE-FT pattern; the staging
+   ratio transform reads the _base files).
+5. cobaya_theory/emul_mps.py (the captured legacy surface over TWO
+   artifacts pklin + boost; P_nl = P_lin * B; the verbatim
+   interpolator class; syren_base multiplied back per D-MP2-A(4)).
+6. sweep_ntrain_mps_emulator.py / tune_mps_emulator.py
+   (family_drivers).
+7. Gates mps-identity / mps-smoke (+ board 29 -> 31) + example YAML +
+   readme-mps-section-draft.md; EMUL2 acceptance =
+   EXAMPLE_EMUL2_EVALUATE1.yaml end to end on the workstation
+   (recorded as the unit's acceptance experiment, user-run).

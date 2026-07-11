@@ -453,6 +453,32 @@ def main():
     else:
       log("floor: skipped (local-linear floor needs a plain chi2fn; "
           "this loss is param-aware: rescaled or factored-IA)")
+    # (4) the CMB family pages (D-CM9): per-multipole residual bands, the
+    # worst-cosmology overlay, and the D-CM8 high-pass wiggle content;
+    # None on every other family, so the cosmic-shear PDF is unchanged.
+    cmb_diag = None
+    if getattr(exp, "_cmb", False):
+      from emulator.diagnostics import cmb_residual_diagnostic
+      cmb_diag = cmb_residual_diagnostic(model=model,
+                                         param_geometry=exp.pgeom,
+                                         chi2fn=exp.chi2fn,
+                                         val_set=exp.val_set,
+                                         device=exp.device)
+      log(f"cmb pages: spectrum {cmb_diag['spectrum']}  |  worst val "
+          f"chi2 {cmb_diag['worst']['dchi2']:.1f}")
+    # (5) the grid (background) family pages (D-BSN8): per-redshift
+    # residual bands, the worst overlay, and (Hubble) the derived
+    # distances through the real integration pipeline.
+    grid_diag = None
+    if getattr(exp, "_grid", False):
+      from emulator.diagnostics import grid_residual_diagnostic
+      grid_diag = grid_residual_diagnostic(model=model,
+                                           param_geometry=exp.pgeom,
+                                           chi2fn=exp.chi2fn,
+                                           val_set=exp.val_set,
+                                           device=exp.device)
+      log(f"grid pages: quantity {grid_diag['quantity']}  |  worst val "
+          f"chi2 {grid_diag['worst']['dchi2']:.1f}")
     # val_set + names add page 4: the getdist LCDM triangle of the val
     # cosmologies colored by log10 delta-chi2 (cov["dchi2"], same rows).
     # cuts shades the physically-removed regions gray on that page.
@@ -470,6 +496,8 @@ def main():
                      # _lo, omegam2h2_lo / _hi are what _shade_cuts reads;
                      # any other window key is ignored).
                      cuts=cfg["data"].get("param_cuts", {}),
+                     cmb=cmb_diag,
+                     grid=grid_diag,
                      savepath=diag_path)
     log(f"saved diagnostics -> {diag_path}")
 

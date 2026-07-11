@@ -62,6 +62,15 @@ runs do not overwrite each other.
 #  multigate / gated_power); overrides the YAML train_args.model.activation,
 #  default H.
 #
+#- `--diagnostic` (optional): the name root of a multipage diagnostics PDF,
+#  written under --root/chains with the run tag appended (like --save), e.g.
+#  `--diagnostic diagnostic` -> diagnostic_resmlp_ntrain100000.pdf. Pages:
+#  the shared chi2 diagnostics (training history, coverage vs training
+#  sparsity, the local-linear data floor, the hard-direction regression,
+#  the parameter triangle + PCA planes) plus the scalar family pages
+#  (truth-vs-predicted scatter; residual histograms in physical AND
+#  standardized units; residual vs each input parameter — the bias hunt).
+#
 #- `--quiet` (optional): suppress all stdout (driver prints, the per-source
 #  line, the per-epoch log).
 #
@@ -114,8 +123,10 @@ def main():
   full pipeline (stage the train + val sources, build the input
   ParamGeometry + output ScalarGeometry, train once), reports the best
   epoch, and saves the two artifact files (<save>_<tag>.emul weights +
-  .h5 record). No diagnostics PDF (the cosmic-shear coverage / floor /
-  triangle pages are data-vector concepts).
+  .h5 record). With --diagnostic, also writes the multipage PDF: the
+  shared chi2 pages (they consume only params + per-sample chi2, so
+  they apply to every family) plus the scalar truth/residual pages
+  (D-CM9).
   """
   parser = argparse.ArgumentParser(prog="train_scalar_emulator")
   # --root / --fileroot / --yaml: the cocoa project layout.
@@ -135,6 +146,15 @@ def main():
                            "YAML train_args.model.activation",
                       type=str,
                       choices=["H", "power", "multigate", "gated_power"],
+                      default=None)
+  parser.add_argument("--diagnostic",
+                      dest="diagnostic",
+                      help="if set, save a multipage diagnostics PDF "
+                           "under --root/chains, named with the run tag "
+                           "(diagnostic -> diagnostic_resmlp_"
+                           "ntrain100000.pdf): the shared chi2 pages "
+                           "plus the scalar truth/residual pages",
+                      type=str,
                       default=None)
   parser.add_argument("--quiet",
                       dest="quiet",
@@ -213,6 +233,66 @@ def main():
     attrs=attrs)
   log(f"saved emulator -> {emul_path}")
   log(f"saved run record -> {h5_path}")
+
+  if args.diagnostic is not None:
+    # --diagnostic is a name root: the run tag is appended so runs do not
+    # overwrite each other (the cosmic-shear driver's convention).
+    stem, ext = os.path.splitext(args.diagnostic)
+    diag_name = f"{stem}_{run_tag(cfg, exp)}{ext or '.pdf'}"
+    diag_path = cocoa_output(chains, diag_name)
+    # headless output: pick a non-interactive matplotlib backend before
+    # pyplot is imported (emulator.plotting imports it at load).
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    from emulator.diagnostics import (
+      coverage_diagnostic, local_linear_floor,
+      hard_direction_regression, scalar_output_diagnostic)
+    from emulator.plotting import plot_diagnostics
+    # the shared chi2 pages are family-generic (they consume params +
+    # per-sample chi2 only); the scalar loss is a plain chi2, so the
+    # local-linear floor applies too.
+    cov = coverage_diagnostic(model=model,
+                              param_geometry=exp.pgeom,
+                              chi2fn=exp.chi2fn,
+                              train_set=exp.train_set,
+                              val_set=exp.val_set,
+                              device=exp.device)
+    log(f"coverage: spearman(knn_dist, log dchi2) "
+        f"{cov['spearman']:+.3f}")
+    hd = hard_direction_regression(model=model,
+                                   param_geometry=exp.pgeom,
+                                   chi2fn=exp.chi2fn,
+                                   val_set=exp.val_set,
+                                   device=exp.device)
+    log(f"hardness: joint log-linear R2 {hd['r2']:.3f}")
+    floor = local_linear_floor(model=model,
+                               param_geometry=exp.pgeom,
+                               chi2fn=exp.chi2fn,
+                               train_set=exp.train_set,
+                               val_set=exp.val_set,
+                               device=exp.device)
+    log(f"floor: f_model {floor['f_model']:.3f}  "
+        f"f_floor {floor['f_floor']:.3f}")
+    # the scalar family pages (D-CM9): truth-vs-predicted, residual
+    # histograms in physical + standardized units, residual vs input.
+    sc = scalar_output_diagnostic(model=model,
+                                  param_geometry=exp.pgeom,
+                                  chi2fn=exp.chi2fn,
+                                  val_set=exp.val_set,
+                                  device=exp.device)
+    plot_diagnostics(train_losses=train_losses,
+                     medians=medians,
+                     means=means,
+                     fracs=fracs,
+                     thresholds=exp.thresholds,
+                     coverage=cov,
+                     floor=floor,
+                     hard_dir=hd,
+                     val_set=exp.val_set,
+                     names=exp.names,
+                     cuts=cfg["data"].get("param_cuts", {}),
+                     scalar=sc,
+                     savepath=diag_path)
+    log(f"saved diagnostics -> {diag_path}")
 
 
 if __name__ == "__main__":

@@ -1022,6 +1022,245 @@ def _lnparam_pca_fig(source, names, color, clabel, title,
   return fig
 
 
+def _cmb_pages(cmb):
+  """Build the two CMB-family pages (D-CM9) from cmb_residual_diagnostic.
+
+  Page A (2x2): the per-multipole residual bands, fractionally (top
+  left; readable for tt/ee/pp, spiky where te crosses zero) and in
+  cosmic-variance error-bar units (top right; always well-defined — for
+  te read this one), plus the worst-cosmology overlay: predicted vs
+  true C_ell (bottom left) and its per-multipole residual/sigma (bottom
+  right).
+
+  Page B: the D-CM8 companion — the median absolute short-period
+  remainder of the whitened residual vs multipole (the wiggle spectrum
+  the roughness term penalizes), with the acoustic band (~200-300 in
+  period) noted so over-smoothing or ringing reads at a glance.
+
+  Arguments:
+    cmb = the dict cmb_residual_diagnostic returned.
+
+  Returns:
+    a list of matplotlib figures.
+  """
+  ell  = np.asarray(cmb["ell"], dtype="float64")
+  spec = str(cmb["spectrum"]).upper()
+  figs = []
+
+  fa, ax = plt.subplots(2, 2, figsize=(13, 9))
+  # top left: fractional residual bands.
+  a = ax[0, 0]
+  a.fill_between(ell, cmb["frac_lo95"], cmb["frac_hi95"],
+                 color=_CB[4], alpha=0.35, label="95%")
+  a.fill_between(ell, cmb["frac_lo68"], cmb["frac_hi68"],
+                 color=_CB[0], alpha=0.45, label="68%")
+  a.plot(ell, cmb["frac_med"], color=_CB[3], lw=1.0, label="median")
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel(r"$(\hat C_\ell - C_\ell)\,/\,C_\ell$")
+  a.set_title(f"{spec}: fractional residual over the val set")
+  a.legend(fontsize=8)
+  # top right: residual in error-bar units.
+  a = ax[0, 1]
+  a.fill_between(ell, cmb["sig_lo95"], cmb["sig_hi95"],
+                 color=_CB[4], alpha=0.35, label="95%")
+  a.fill_between(ell, cmb["sig_lo68"], cmb["sig_hi68"],
+                 color=_CB[0], alpha=0.45, label="68%")
+  a.plot(ell, cmb["sig_med"], color=_CB[3], lw=1.0, label="median")
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel(r"$(\hat C_\ell - C_\ell)\,/\,\sigma_\ell$")
+  a.set_title(f"{spec}: residual in cosmic-variance units")
+  a.legend(fontsize=8)
+  # bottom left: the worst-cosmology overlay. te crosses zero, so the
+  # log scale applies only to the strictly positive spectra.
+  a = ax[1, 0]
+  w = cmb["worst"]
+  a.plot(ell, w["truth"], color=_CB[3], lw=1.2, label="truth")
+  a.plot(ell, w["pred"], color=_CB[1], lw=1.0, ls="--",
+         label="emulator")
+  if np.all(np.asarray(w["truth"]) > 0):
+    a.set_yscale("log")
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel(rf"$C_\ell$ ({cmb['units']})")
+  a.set_title(f"worst val cosmology (chi2 = {w['dchi2']:.1f})")
+  a.legend(fontsize=8)
+  # bottom right: that cosmology's per-multipole residual/sigma.
+  a = ax[1, 1]
+  sigma_resid = np.asarray(w["pred"] - w["truth"], dtype="float64")
+  # reconstruct sigma from the band statistics is lossy; the residual
+  # in physical units with the median band overlaid keeps it honest.
+  a.plot(ell, sigma_resid, color=_CB[0], lw=0.8)
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel(rf"$\hat C_\ell - C_\ell$ ({cmb['units']})")
+  a.set_title("worst val cosmology: residual")
+  fa.tight_layout()
+  figs.append(fa)
+
+  fb, a = plt.subplots(figsize=(9, 5))
+  hp = cmb["highpass"]
+  a.plot(ell, hp["median_abs_rem"], color=_CB[0], lw=1.0)
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel("median |high-pass remainder|  (error-bar units)")
+  a.set_title(
+    f"{spec}: short-period residual content (the D-CM8 band; "
+    f"periods < ~{hp['period_cut']} in ell). The acoustic structure "
+    "(period ~200-300, incl. lensing peak smoothing) is filtered "
+    "out — content here is network wiggle, not physics.")
+  fb.tight_layout()
+  figs.append(fb)
+  return figs
+
+
+def _scalar_pages(sc):
+  """Build the scalar-family pages (D-CM9) from scalar_output_diagnostic.
+
+  Page A: per-output truth-vs-predicted scatter with the identity line.
+  Page B: per-output residual histograms, physical units (left) and
+  standardized units (right) side by side.
+  Page C: residual (standardized) vs each input parameter — the bias
+  hunt: any trend says the emulator is systematically wrong along that
+  direction, not just noisy.
+
+  Arguments:
+    sc = the dict scalar_output_diagnostic returned.
+
+  Returns:
+    a list of matplotlib figures.
+  """
+  names  = list(sc["names"])
+  truth  = np.asarray(sc["truth"], dtype="float64")
+  pred   = np.asarray(sc["pred"], dtype="float64")
+  rstd   = np.asarray(sc["resid_std"], dtype="float64")
+  params = np.asarray(sc["params"], dtype="float64")
+  pnames = list(sc["param_names"])
+  n_out  = len(names)
+  figs = []
+
+  # page A: truth vs predicted, identity line.
+  fa, axs = plt.subplots(1, n_out, figsize=(4.5 * n_out, 4.5),
+                         squeeze=False)
+  for j, nm in enumerate(names):
+    a = axs[0, j]
+    a.scatter(truth[:, j], pred[:, j], s=4, alpha=0.4, color=_CB[0])
+    lo = min(truth[:, j].min(), pred[:, j].min())
+    hi = max(truth[:, j].max(), pred[:, j].max())
+    a.plot([lo, hi], [lo, hi], color=_CB[3], lw=0.8, ls="--")
+    a.set_xlabel(f"true {nm}")
+    a.set_ylabel(f"predicted {nm}")
+    a.set_title(nm)
+  fa.tight_layout()
+  figs.append(fa)
+
+  # page B: residual histograms, physical | standardized.
+  fb, axs = plt.subplots(n_out, 2, figsize=(11, 3.6 * n_out),
+                         squeeze=False)
+  for j, nm in enumerate(names):
+    r_phys = pred[:, j] - truth[:, j]
+    a = axs[j, 0]
+    a.hist(r_phys, bins=60, color=_CB[0], alpha=0.85)
+    a.set_xlabel(f"{nm}: predicted - true (physical units)")
+    a.set_ylabel("val points")
+    a = axs[j, 1]
+    a.hist(rstd[:, j], bins=60, color=_CB[1], alpha=0.85)
+    a.set_xlabel(f"{nm}: residual / training scale (standardized)")
+    a.set_ylabel("val points")
+  fb.tight_layout()
+  figs.append(fb)
+
+  # page C: standardized residual vs each input parameter (the bias
+  # hunt): rows = outputs, columns = inputs.
+  n_par = len(pnames)
+  fc, axs = plt.subplots(n_out, n_par,
+                         figsize=(3.2 * n_par, 3.0 * n_out),
+                         squeeze=False)
+  for j, nm in enumerate(names):
+    for k, pn in enumerate(pnames):
+      a = axs[j, k]
+      a.scatter(params[:, k], rstd[:, j], s=3, alpha=0.3,
+                color=_CB[0])
+      a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+      if j == n_out - 1:
+        a.set_xlabel(pn)
+      if k == 0:
+        a.set_ylabel(f"{nm} resid (std)")
+  fc.tight_layout()
+  figs.append(fc)
+  return figs
+
+
+def _grid_pages(gd):
+  """Build the grid-family pages (D-BSN8) from grid_residual_diagnostic.
+
+  Page A (1x2 or 2x2): the per-redshift fractional-residual bands for
+  the emulated background function, plus the worst-cosmology overlay
+  (pred vs truth and its fractional residual).
+  Page B (only for a "Hubble" artifact): the DERIVED-distance page —
+  fractional D_A and D_L error bands at interior redshifts, computed
+  through the real integration pipeline (emulator/background.py), so
+  the page tests the path a likelihood actually consumes.
+
+  Arguments:
+    gd = the dict grid_residual_diagnostic returned.
+
+  Returns:
+    a list of matplotlib figures.
+  """
+  z = np.asarray(gd["z"], dtype="float64")
+  q = str(gd["quantity"])
+  figs = []
+
+  fa, ax = plt.subplots(2, 2, figsize=(13, 9))
+  a = ax[0, 0]
+  a.fill_between(z, gd["frac_lo95"], gd["frac_hi95"],
+                 color=_CB[4], alpha=0.35, label="95%")
+  a.fill_between(z, gd["frac_lo68"], gd["frac_hi68"],
+                 color=_CB[0], alpha=0.45, label="68%")
+  a.plot(z, gd["frac_med"], color=_CB[3], lw=1.0, label="median")
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel("z")
+  a.set_ylabel(f"fractional {q} residual")
+  a.set_title(f"{q}: fractional residual over the val set")
+  a.legend(fontsize=8)
+  ax[0, 1].axis("off")
+  w = gd["worst"]
+  a = ax[1, 0]
+  a.plot(z, w["truth"], color=_CB[3], lw=1.2, label="truth")
+  a.plot(z, w["pred"], color=_CB[1], lw=1.0, ls="--", label="emulator")
+  a.set_xlabel("z")
+  a.set_ylabel(f"{q} ({gd['units']})")
+  a.set_title(f"worst val cosmology (chi2 = {w['dchi2']:.1f})")
+  a.legend(fontsize=8)
+  a = ax[1, 1]
+  a.plot(z, (np.asarray(w["pred"]) - np.asarray(w["truth"]))
+            / np.asarray(w["truth"]), color=_CB[0], lw=0.8)
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel("z")
+  a.set_ylabel(f"fractional {q} residual")
+  a.set_title("worst val cosmology: residual")
+  fa.tight_layout()
+  figs.append(fa)
+
+  d = gd.get("derived")
+  if d is not None:
+    fb, ax = plt.subplots(1, 2, figsize=(12, 5))
+    for k, (tag, label) in enumerate((("da", "D_A"), ("dl", "D_L"))):
+      a = ax[k]
+      a.fill_between(d["z_eval"], d[tag + "_lo68"], d[tag + "_hi68"],
+                     color=_CB[0], alpha=0.45, label="68%")
+      a.plot(d["z_eval"], d[tag + "_med"], color=_CB[3], lw=1.0,
+             label="median")
+      a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+      a.set_xlabel("z")
+      a.set_ylabel(f"fractional {label} error")
+      a.set_title(f"derived {label} through the real pipeline")
+      a.legend(fontsize=8)
+    fb.tight_layout()
+    figs.append(fb)
+  return figs
+
+
 def plot_diagnostics(train_losses,
                      medians,
                      means,
@@ -1033,6 +1272,9 @@ def plot_diagnostics(train_losses,
                      val_set=None,
                      names=None,
                      cuts=None,
+                     cmb=None,
+                     scalar=None,
+                     grid=None,
                      savepath=None):
   """
   All available diagnostics as a single multipage figure / PDF.
@@ -1053,6 +1295,17 @@ def plot_diagnostics(train_losses,
     (coverage's knn_dist), with the fitted sparsity direction
     annotated, names the combinations where training is thin,
     independent of the chi2; same condition.
+
+  Family pages (the D-CM9 dispatch), appended after the shared pages
+  when their dict is given:
+    cmb    -> two CMB pages (per-multipole residual bands + the worst
+              overlay; the D-CM8 high-pass wiggle content).
+    scalar -> three scalar pages (truth-vs-predicted; residual
+              histograms physical + standardized; residual vs each
+              input parameter).
+  A run passes only its own family's dict, so a cosmic-shear run's
+  PDF is byte-identical to before the dispatch existed (both default
+  None).
 
   floor / hard_dir / val_set are optional so a run can drop a page
   it cannot produce (e.g. the local-linear floor is defined only for
@@ -1141,6 +1394,16 @@ def plot_diagnostics(train_losses,
                           vmax=hi)
     if f6 is not None:
       figs.append(f6)
+
+  # family pages (the D-CM9 dispatch): appended after the shared pages;
+  # None (the default) adds nothing, keeping the cosmic-shear PDF
+  # byte-identical.
+  if cmb is not None:
+    figs.extend(_cmb_pages(cmb))
+  if scalar is not None:
+    figs.extend(_scalar_pages(scalar))
+  if grid is not None:
+    figs.extend(_grid_pages(grid))
 
   _save_pages(figs, savepath)
 

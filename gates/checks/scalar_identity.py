@@ -150,7 +150,11 @@ def save_synthetic_scalar(root, device, covmat_path, seed=0,
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=recipe,
-                  attrs={"outputs": " ".join(out_names)})
+                  # rescale rides the run-identity attrs so the artifact is
+                  # a valid finetune source (load_source refuses an
+                  # ambiguous one — the never-trust-defaults rule).
+                  attrs={"outputs": " ".join(out_names),
+                         "rescale": "none"})
     return pgeom, geom, model
 
 
@@ -401,6 +405,92 @@ def _save_tiny_dv(root, device):
                   resolved_model=recipe, attrs={"rescale": "none"})
 
 
+def check_finetune(tmp, device):
+    """SPE-FT (D-SF1/2/4): epoch-0 parity, outputs/wrong-kind legs, the
+    anchor mask over padded extra columns."""
+    from emulator import warmstart
+
+    # a scalar source over two inputs; the run's covmat adds a third.
+    root = os.path.join(tmp, "ft_src")
+    src_cov = os.path.join(tmp, "ft_src.covmat")
+    pgeom, geom, model = save_synthetic_scalar(
+        root, device, src_cov, seed=200,
+        in_names=["omegabh2", "omegach2"], out_names=["H0", "omegam"])
+    source = warmstart.load_source(root=root, device=device)
+    report("load_source accepts a scalar artifact",
+           type(source.geom).__name__ == "ScalarGeometry",
+           "geom %s" % type(source.geom).__name__)
+
+    # parity on the SAME covmat (no extras): build_warm_start raises on a
+    # parity violation, so returning is the pass; assert bitwise anyway.
+    g = np.random.default_rng(210)
+    C2 = g.standard_normal((64, 2)).astype("float32")
+    train_set = {"C": C2, "idx": np.arange(64), "C_mean": C2.mean(axis=0)}
+    new_pgeom, extra = warmstart.extend_input_geometry(
+        source=source, covmat_path=src_cov,
+        train_mean=train_set["C_mean"], device=device)
+    model_opts = warmstart.recipe_to_model_opts(source.recipe)
+    try:
+        init_state, verdict, padded = warmstart.build_warm_start(
+            source=source, new_pgeom=new_pgeom, pinned_geom=source.geom,
+            model_opts=model_opts, train_set=train_set,
+            extra_names=extra, device=device)
+        report("scalar warm start reproduces the source at epoch 0",
+               init_state is not None, verdict.strip()[:60])
+    except ValueError as e:
+        report("scalar warm start reproduces the source at epoch 0",
+               False, "parity raised: " + str(e)[:80])
+
+    # extended covmat (a third input): the padded keys' anchor mask zeros
+    # exactly the appended column (D-SF2 = D-FT3 unchanged).
+    ext_cov = os.path.join(tmp, "ft_ext.covmat")
+    write_covmat(ext_cov, ["omegabh2", "omegach2", "thetastar"], seed=220)
+    C3 = g.standard_normal((64, 3)).astype("float32")
+    train_set3 = {"C": C3, "idx": np.arange(64), "C_mean": C3.mean(axis=0)}
+    new_pgeom3, extra3 = warmstart.extend_input_geometry(
+        source=source, covmat_path=ext_cov,
+        train_mean=train_set3["C_mean"], device=device)
+    init3, _, padded3 = warmstart.build_warm_start(
+        source=source, new_pgeom=new_pgeom3, pinned_geom=source.geom,
+        model_opts=model_opts, train_set=train_set3,
+        extra_names=extra3, device=device)
+    masks = warmstart.anchor_masks(init_state=init3, padded_keys=padded3,
+                                   n_extra=len(extra3), device=device)
+    ok = (extra3 == ["thetastar"] and len(masks) > 0)
+    for key, m in masks.items():
+        ok = ok and bool((m[:, -1] == 0).all()) \
+                and bool((m[:, :-1] == 1).all())
+    report("anchor mask zeros exactly the padded extra column",
+           ok, "extras %s, %d masked key(s)" % (extra3, len(masks)))
+
+    # the combined from_config path: outputs-mismatch and wrong-kind are
+    # loud BEFORE any staging (dummy data file names suffice), and the
+    # finetune YAML carries no model: block (the FTW model-block lesson).
+    def ft_cfg(outputs, from_root):
+        return {"data": {"train_params": "t.1.txt", "val_params": "v.1.txt",
+                         "train_covmat": ext_cov, "outputs": list(outputs),
+                         "n_train": 10, "n_val": 5, "split_seed": 0},
+                "train_args": {"nepochs": 1, "bs": 8,
+                               "finetune": {"from": from_root}}}
+    try:
+        EmulatorExperiment.from_config(ft_cfg(["H0"], root),
+                                       device=torch.device("cpu"))
+        report("D-SF1 outputs mismatch raises", False, "did not raise")
+    except ValueError as e:
+        report("D-SF1 outputs mismatch raises",
+               "H0" in str(e) and "omegam" in str(e),
+               "ValueError names both lists")
+    dv_root = os.path.join(tmp, "ft_dv")
+    _save_tiny_dv(dv_root, device)
+    try:
+        EmulatorExperiment.from_config(ft_cfg(["H0", "omegam"], dv_root),
+                                       device=torch.device("cpu"))
+        report("D-SF1 wrong-kind source raises", False, "did not raise")
+    except ValueError as e:
+        report("D-SF1 wrong-kind source raises",
+               "scalar source" in str(e), "ValueError names the family")
+
+
 def main():
     """Run the scalar-identity checks in a tempdir and exit non-zero on any
     failure."""
@@ -416,6 +506,7 @@ def main():
         check_sidecar_errors(tmp)
         check_head_architecture()
         check_adapter(tmp, device)
+        check_finetune(tmp, device)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): " + ", ".join(FAILURES))
         sys.exit(1)

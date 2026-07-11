@@ -365,6 +365,11 @@ DATA_KEYS = {
   # the CMB path (validate_cmb): dv files required, cosmolike keys
   # forbidden, param_cuts optional, the covariance from the D-CM11 script.
   "cmb",
+  # grid (background-function) run (D-BSN1): the data.grid sub-block
+  # {quantity, units, law, offset, z_file}. Its presence switches
+  # from_config to the grid path (validate_grid): dv files required (rows
+  # over the stored z grid), cosmolike keys forbidden, param_cuts optional.
+  "grid",
   "outputs",
 }
 
@@ -547,10 +552,10 @@ def validate_scalar(cfg, train_args, rescale="none"):
     raise ValueError(
       "transfer learning is out of scope for scalar emulators (D-SP8); "
       "remove the transfer: block")
-  if train_args.get("finetune") is not None:
-    raise ValueError(
-      "fine-tuning a scalar emulator is not supported in V1 (the source "
-      "artifact carries a data-vector geometry); train from scratch")
+  # fine-tuning IS supported (SPE-FT, D-SF3): the finetune block is
+  # validated by warmstart.validate_finetune_config on the from_config
+  # scalar branch, and the source ScalarGeometry is pinned in
+  # build_geometry after the D-SF1 outputs-equal check.
   return outputs
 
 
@@ -672,12 +677,128 @@ def validate_cmb(cfg, train_args, rescale="none"):
     raise ValueError(
       "transfer learning over CMB emulators is deferred (D-CM7: eligible "
       "later, not V1); remove the transfer: block")
-  if train_args.get("finetune") is not None:
-    raise ValueError(
-      "fine-tuning a CMB emulator is ruled IN scope (D-CM10) but its "
-      "warm-start integration lands with the CME gates increment; until "
-      "then this is a loud interim error, not a silent breakage")
+  # fine-tuning IS in scope (D-CM10): the finetune block is validated by
+  # warmstart.validate_finetune_config on the from_config cmb branch and
+  # the source geometry is pinned in build_geometry (the D-FT4 analogue).
   return dict(cmb)
+
+
+def validate_grid(cfg, train_args, rescale="none"):
+  """
+  Validate a grid (background-function) run and return its data.grid block.
+
+  A grid run is signalled by the data.grid sub-block: the data vector is
+  a function of redshift on a stored grid — H(z) on the SN range or the
+  comoving distance D_M(z) on the recombination window (the BSN
+  two-regime design, D-BSN3-A) — standardized through a GridGeometry
+  whose target law (e.g. log(H + offset)) is persisted in the artifact.
+  This enforces the exclusivity and the forbidden features, then returns
+  the validated block. A standalone pure function (no torch).
+
+  Arguments:
+    cfg        = the parsed config mapping (reads cfg["data"],
+                 cfg["pce"], cfg["transfer"]).
+    train_args = the resolved train_args (reads model.ia).
+    rescale    = the driver's --rescale value (a grid run forbids any
+                 analytic rescaling; default "none").
+
+  Returns:
+    the data.grid mapping (quantity / units / law validated; offset
+    present exactly when the law needs it).
+
+  Raises:
+    ValueError on: a missing or unknown sub-key; a quantity outside
+    Hubble / D_M; a law outside the TARGET_LAWS registry; an offset
+    missing (log_offset) or present (none); a cosmolike / scalar / cmb
+    key beside data.grid; a missing dv/params/covmat file key; a
+    data-vector-only feature (rescale, model.ia, pce) or transfer (a
+    PERMANENT forbid for this family — the scope ruling).
+  """
+  # the target-law registry lives with the grid geometry; imported here
+  # (not at module top) so this validator stays importable in the same
+  # torch-light contexts as the rest of the config logic.
+  from .geometries_grid import TARGET_LAWS
+
+  data = cfg["data"]
+  grid = data["grid"]
+  if not isinstance(grid, dict):
+    raise ValueError(
+      "data.grid must be a mapping {quantity, units, law[, offset], "
+      "z_file}; got " + repr(type(grid).__name__))
+  allowed = {"quantity", "units", "law", "offset", "z_file"}
+  unknown = sorted(set(grid) - allowed)
+  if unknown:
+    raise ValueError(
+      "unknown data.grid key(s) " + repr(unknown) + "; allowed: "
+      + repr(sorted(allowed)))
+  for key in ("quantity", "units", "law", "z_file"):
+    if key not in grid:
+      raise ValueError(
+        "data.grid needs the " + repr(key) + " key (quantity = which "
+        "background function the rows hold; units = its units string; "
+        "law = the TARGET_LAWS name; z_file = the generator's _z.npy "
+        "grid sidecar); it is missing")
+  quantity = str(grid["quantity"])
+  if quantity not in ("Hubble", "D_M"):
+    raise ValueError(
+      "data.grid.quantity must be 'Hubble' (the SN-range H(z) emulator) "
+      "or 'D_M' (the recombination-window comoving distance); got "
+      + repr(grid["quantity"]))
+  law = str(grid["law"])
+  if law not in TARGET_LAWS:
+    raise ValueError(
+      "data.grid.law " + repr(law) + " is not in the registry "
+      + repr(sorted(TARGET_LAWS)) + " (persisted by name, never a "
+      "default)")
+  if law == "log_offset" and "offset" not in grid:
+    raise ValueError(
+      "the log_offset law needs data.grid.offset (the additive constant "
+      "in log(target + offset), the legacy emulbaosn convention — state "
+      "it explicitly, never a default); it is missing")
+  if law == "none" and "offset" in grid:
+    raise ValueError(
+      "law 'none' has no offset; drop data.grid.offset")
+  # exclusivity: a grid run has no cosmolike, is not scalar, not CMB.
+  forbidden = []
+  for key in ("cosmolike_data_dir", "cosmolike_dataset", "outputs", "cmb"):
+    if key in data:
+      forbidden.append(key)
+  if forbidden:
+    raise ValueError(
+      "a grid run (data.grid present) must not carry " + repr(sorted(
+      forbidden)) + "; the grid path reads dv dumps + the grid sidecar, "
+      "no cosmolike, no scalar outputs, no cmb block")
+  # the grid run DOES use dv dumps: all five files.
+  for key in ("train_dv", "val_dv", "train_params", "val_params",
+              "train_covmat"):
+    if key not in data:
+      raise ValueError(
+        "a grid run needs data." + key + " (the background dumps ride "
+        "the same dv/params staging as the cosmolike path); it is "
+        "missing")
+  if rescale != "none":
+    raise ValueError(
+      "--rescale " + repr(rescale) + " is a cosmolike data-vector "
+      "concept; a grid run imposes its target transform through "
+      "data.grid.law instead (drop --rescale / leave it none)")
+  ia = train_args.get("model", {}).get("ia")
+  if ia not in (None, "none"):
+    raise ValueError(
+      "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
+      "(cosmic-shear) design; a grid run has no ia (remove it)")
+  if cfg.get("pce") is not None:
+    raise ValueError(
+      "a top-level pce: block is a cosmic-shear concept; a grid run has "
+      "no PCE base (remove it)")
+  if cfg.get("transfer") is not None:
+    raise ValueError(
+      "transfer learning is PERMANENTLY out of scope for the background "
+      "(BAOSN) family — the scope ruling: transfer is exclusive to the "
+      "cosmolike and CMB data-vector families (D-BSN9); remove the "
+      "transfer: block")
+  # fine-tuning IS in scope (D-BSN9): validated on the from_config grid
+  # branch; the source geometry is pinned in build_geometry.
+  return dict(grid)
 
 
 # the train_divisor / val_divisor -> n_train / n_val migration message,
@@ -1429,6 +1550,8 @@ class EmulatorExperiment:
     # None / False on every other run, which the cmb branches guard on.
     self._cmb = False
     self.cmb  = None
+    self._grid = False
+    self.grid  = None
     # fine-tune warm start (emulator/warmstart.py): the loaded source bundle,
     # its resolved absolute path root, and the extra parameter names, all set
     # by from_config / build_geometry. None on an ordinary run, which every
@@ -1483,15 +1606,17 @@ class EmulatorExperiment:
     # may not carry, D-SPE2), while on a data-vector run it stays required.
     is_scalar = "outputs" in cfg["data"]
     is_cmb    = "cmb" in cfg["data"]
-    if is_scalar and is_cmb:
+    is_grid   = "grid" in cfg["data"]
+    if (int(is_scalar) + int(is_cmb) + int(is_grid)) > 1:
       raise ValueError(
-        "data.outputs (a scalar run) and data.cmb (a CMB-spectrum run) "
-        "are mutually exclusive; a config carries at most one of them.")
+        "data.outputs (a scalar run), data.cmb (a CMB-spectrum run), and "
+        "data.grid (a background-function run) are mutually exclusive; a "
+        "config carries at most one of them.")
     # validate_param_cuts (below): the physical window cuts now live in
     # data.param_cuts; run this before the generic whitelist so a flat
     # cut key (the old layout) gets the migration message, not a bare
     # "unknown key". On a scalar run with no param_cuts block it is skipped.
-    if not (is_scalar or is_cmb) or "param_cuts" in cfg["data"]:
+    if not (is_scalar or is_cmb or is_grid) or "param_cuts" in cfg["data"]:
       validate_param_cuts(cfg["data"])
     # validate_sizes (below): n_train / n_val are absolute row counts
     # enforced after param_cuts; run this before the generic whitelist too,
@@ -1516,6 +1641,58 @@ class EmulatorExperiment:
     if is_scalar:
       outputs = validate_scalar(cfg, train_args=ta,
                                 rescale=kwargs.get("rescale", "none"))
+      # fine-tune warm start on the scalar path (SPE-FT): architecture,
+      # activation, and loss form inherited from a saved SCALAR source;
+      # the D-SF1 admissibility runs here (wrong-kind + outputs-equal,
+      # both loud before any staging), the geometry pin in
+      # build_geometry.
+      if ta.get("finetune") is not None:
+        warmstart.validate_finetune_config(
+          cfg=cfg,
+          train_args=ta,
+          rescale=kwargs.get("rescale", "none"),
+          activation_flag=kwargs.get("activation"))
+        device = kwargs.get("device")
+        if device is None:
+          device = pick_device()
+        kwargs["device"] = device
+        source_root = warmstart.resolve_source_root(ta["finetune"])
+        source = warmstart.load_source(root=source_root, device=device)
+        from .geometries_scalar import ScalarGeometry
+        if not isinstance(source.geom, ScalarGeometry):
+          raise ValueError(
+            "a scalar run (data.outputs present) can only fine-tune from "
+            "a scalar source emulator; " + repr(source_root) + " rebuilds "
+            "a " + type(source.geom).__name__ + " output geometry (a "
+            "cosmolike / CMB artifact fine-tunes on its own family's "
+            "path)")
+        # D-SF1: the emulated outputs must match EXACTLY (names and
+        # order) — the pinned standardization is per output column, so a
+        # different list is a different map, not a warm-startable one.
+        if list(source.geom.names) != list(outputs):
+          raise ValueError(
+            "finetune outputs mismatch: the source emulates "
+            + repr(list(source.geom.names)) + " but data.outputs is "
+            + repr(list(outputs)) + "; a scalar warm start needs the "
+            "same outputs in the same order")
+        block_opts = source.recipe.get("kwargs", {}).get("block_opts", {})
+        act_spec   = block_opts.get("act", {}) if isinstance(block_opts,
+                                                             dict) else {}
+        kwargs["activation"] = act_spec.get("type", "H")
+        exp = cls(data=cfg["data"], train_args=ta,
+                  model_cls=source.model_cls,
+                  raw_train_args=cfg["train_args"], **kwargs)
+        exp.pce_opts   = None
+        exp.ia         = None
+        exp.arch       = source.recipe.get("name")
+        exp.model_name = (source.recipe.get("name")
+                          or source.model_cls.__name__.lower())
+        exp._activation_notice = None
+        exp._scalar        = True
+        exp.outputs        = list(outputs)
+        exp._finetune      = source
+        exp._finetune_root = source_root
+        return exp
       name = str(ta["model"].get("name", "resmlp")).lower()
       if (name, None) not in models:
         raise ValueError(
@@ -1568,6 +1745,49 @@ class EmulatorExperiment:
     if is_cmb:
       cmb = validate_cmb(cfg, train_args=ta,
                          rescale=kwargs.get("rescale", "none"))
+      # fine-tune warm start on the CMB path (D-CM10): the architecture,
+      # activation, and loss form are inherited from a saved CMB source
+      # emulator, exactly the cosmolike finetune flow; the CMB-specific
+      # geometry pin happens in build_geometry. The source must itself be
+      # a CMB artifact (wrong-kind loud here, before any staging).
+      if ta.get("finetune") is not None:
+        warmstart.validate_finetune_config(
+          cfg=cfg,
+          train_args=ta,
+          rescale=kwargs.get("rescale", "none"),
+          activation_flag=kwargs.get("activation"))
+        device = kwargs.get("device")
+        if device is None:
+          device = pick_device()
+        kwargs["device"] = device
+        source_root = warmstart.resolve_source_root(ta["finetune"])
+        source = warmstart.load_source(root=source_root, device=device)
+        from .geometries_cmb import CmbDiagonalGeometry
+        if not isinstance(source.geom, CmbDiagonalGeometry):
+          raise ValueError(
+            "a CMB run (data.cmb present) can only fine-tune from a CMB "
+            "source emulator; " + repr(source_root) + " rebuilds a "
+            + type(source.geom).__name__ + " output geometry (a "
+            "cosmolike / scalar artifact fine-tunes on its own family's "
+            "path)")
+        block_opts = source.recipe.get("kwargs", {}).get("block_opts", {})
+        act_spec   = block_opts.get("act", {}) if isinstance(block_opts,
+                                                             dict) else {}
+        kwargs["activation"] = act_spec.get("type", "H")
+        exp = cls(data=cfg["data"], train_args=ta,
+                  model_cls=source.model_cls,
+                  raw_train_args=cfg["train_args"], **kwargs)
+        exp.pce_opts   = None
+        exp.ia         = None
+        exp.arch       = source.recipe.get("name")
+        exp.model_name = (source.recipe.get("name")
+                          or source.model_cls.__name__.lower())
+        exp._activation_notice = None
+        exp._cmb           = True
+        exp.cmb            = dict(cmb)
+        exp._finetune      = source
+        exp._finetune_root = source_root
+        return exp
       name = str(ta["model"].get("name", "resmlp")).lower()
       if (name, None) not in models:
         raise ValueError(
@@ -1601,6 +1821,106 @@ class EmulatorExperiment:
       exp.model_name = name
       exp._cmb       = True
       exp.cmb        = dict(cmb)
+      # a plain design has no head block, so no per-head activation pin.
+      exp._activation_notice = _activation_flag_notice(
+        flag_type=explicit_flag,
+        head_block=exp.model_cls.head_block,
+        head_pin=None)
+      return exp
+
+    # grid (background-function) run (D-BSN1): one background quantity's
+    # rows over a stored z grid as the data vector, standardized through
+    # a GridGeometry whose target law is persisted in the artifact.
+    # validate_grid enforced the exclusivity + forbidden features.
+    if is_grid:
+      grid = validate_grid(cfg, train_args=ta,
+                           rescale=kwargs.get("rescale", "none"))
+      # fine-tune warm start on the grid path (D-BSN9): architecture,
+      # activation, and loss form inherited from a saved GRID source of
+      # the SAME quantity/units/law/offset; the z-grid check (needs the
+      # z_file) and the geometry pin live in build_geometry.
+      if ta.get("finetune") is not None:
+        warmstart.validate_finetune_config(
+          cfg=cfg,
+          train_args=ta,
+          rescale=kwargs.get("rescale", "none"),
+          activation_flag=kwargs.get("activation"))
+        device = kwargs.get("device")
+        if device is None:
+          device = pick_device()
+        kwargs["device"] = device
+        source_root = warmstart.resolve_source_root(ta["finetune"])
+        source = warmstart.load_source(root=source_root, device=device)
+        from .geometries_grid import GridGeometry
+        if not isinstance(source.geom, GridGeometry):
+          raise ValueError(
+            "a grid run (data.grid present) can only fine-tune from a "
+            "grid source emulator; " + repr(source_root) + " rebuilds a "
+            + type(source.geom).__name__ + " output geometry (a "
+            "cosmolike / scalar / CMB artifact fine-tunes on its own "
+            "family's path)")
+        sgeom = source.geom
+        want = (str(grid["quantity"]), str(grid["units"]),
+                str(grid["law"]),
+                float(grid.get("offset", 0.0)))
+        have = (sgeom.quantity, sgeom.units, sgeom.law, sgeom.offset)
+        if want != have:
+          raise ValueError(
+            "finetune grid-metadata mismatch: the source persisted "
+            "(quantity, units, law, offset) = " + repr(have) + " but "
+            "data.grid states " + repr(want) + "; a grid warm start "
+            "needs the same quantity, units, law, and offset (D-BSN9)")
+        block_opts = source.recipe.get("kwargs", {}).get("block_opts", {})
+        act_spec   = block_opts.get("act", {}) if isinstance(block_opts,
+                                                             dict) else {}
+        kwargs["activation"] = act_spec.get("type", "H")
+        exp = cls(data=cfg["data"], train_args=ta,
+                  model_cls=source.model_cls,
+                  raw_train_args=cfg["train_args"], **kwargs)
+        exp.pce_opts   = None
+        exp.ia         = None
+        exp.arch       = source.recipe.get("name")
+        exp.model_name = (source.recipe.get("name")
+                          or source.model_cls.__name__.lower())
+        exp._activation_notice = None
+        exp._grid          = True
+        exp.grid           = dict(grid)
+        exp._finetune      = source
+        exp._finetune_root = source_root
+        return exp
+      name = str(ta["model"].get("name", "resmlp")).lower()
+      if (name, None) not in models:
+        raise ValueError(
+          "no plain model for architecture " + repr(name) + " (a grid "
+          "run uses the plain designs, ia=None; pick a name that has "
+          "one)")
+      model_cls = models[(name, None)]
+      if model_cls.head_block is not None:
+        raise ValueError(
+          "model.name " + repr(name) + " has a correction head ("
+          + str(model_cls.head_block) + "): the heads' basis-change "
+          "buffers assume an eigenbasis data-vector geometry, which the "
+          "grid geometry does not carry — a grid run is trunk-only "
+          "(V1). Use name: resmlp")
+      # activation precedence, the same rule as the scalar/cmb paths.
+      explicit_flag = kwargs.get("activation")
+      if kwargs.get("activation") is None:
+        act_blk = ta["model"].get("activation")
+        if isinstance(act_blk, dict):
+          kwargs["activation"] = str(act_blk.get("type", "H"))
+        elif act_blk is not None:
+          kwargs["activation"] = str(act_blk)
+        else:
+          kwargs["activation"] = "H"
+      exp = cls(data=cfg["data"], train_args=ta,
+                model_cls=model_cls,
+                raw_train_args=cfg["train_args"], **kwargs)
+      exp.pce_opts   = None
+      exp.ia         = None
+      exp.arch       = name
+      exp.model_name = name
+      exp._grid      = True
+      exp.grid       = dict(grid)
       # a plain design has no head block, so no per-head activation pin.
       exp._activation_notice = _activation_flag_notice(
         flag_type=explicit_flag,
@@ -1879,6 +2199,16 @@ class EmulatorExperiment:
       self.log(f"cmb emulator: spectrum {self.cmb['spectrum']}  |  "
                f"amplitude_law {self.cmb['amplitude_law']}  |  "
                f"covariance {cov_name}  |  no cosmolike")
+    # grid run: name the quantity, its units, the target law, and the grid
+    # sidecar (the z grid itself is a file fact, loaded at build time).
+    if self._grid:
+      z_name = str(self.grid["z_file"]).rsplit("/", 1)[-1]
+      law_str = str(self.grid["law"])
+      if law_str == "log_offset":
+        law_str += f" (offset {self.grid['offset']})"
+      self.log(f"grid emulator: quantity {self.grid['quantity']} "
+               f"[{self.grid['units']}]  |  law {law_str}  |  "
+               f"z_file {z_name}  |  no cosmolike")
     # fine-tune warm start: name the source artifact and the extra parameters
     # being fine-tuned in (the extras = the new covmat names absent from the
     # source; computed here from the headers, before the geometry is built).
@@ -2020,10 +2350,11 @@ class EmulatorExperiment:
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
         omegamh2ns_hi=pc.get("omegamh2ns_hi"))
       return self.train_set
-    # cmb run: the physical windows are opt-in (D-CM4, the D-SPE2
-    # pattern) — an absent block means no cuts; the cosmolike path
-    # requires the block (validate_param_cuts), so .get never changes it.
-    if self._cmb:
+    # cmb / grid run: the physical windows are opt-in (D-CM4 / D-BSN1,
+    # the D-SPE2 pattern) — an absent block means no cuts; the cosmolike
+    # path requires the block (validate_param_cuts), so .get never
+    # changes it.
+    if self._cmb or self._grid:
       pc = d.get("param_cuts", {})
     else:
       pc = d["param_cuts"]    # the validated physical-window bounds
@@ -2091,10 +2422,11 @@ class EmulatorExperiment:
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
         omegamh2ns_hi=pc.get("omegamh2ns_hi"))
       return self.val_set
-    # cmb run: the physical windows are opt-in (D-CM4, the D-SPE2
-    # pattern) — an absent block means no cuts; the cosmolike path
-    # requires the block (validate_param_cuts), so .get never changes it.
-    if self._cmb:
+    # cmb / grid run: the physical windows are opt-in (D-CM4 / D-BSN1,
+    # the D-SPE2 pattern) — an absent block means no cuts; the cosmolike
+    # path requires the block (validate_param_cuts), so .get never
+    # changes it.
+    if self._cmb or self._grid:
       pc = d.get("param_cuts", {})
     else:
       pc = d["param_cuts"]    # the validated physical-window bounds
@@ -2138,7 +2470,13 @@ class EmulatorExperiment:
       the number of training rows passing the physical cuts (an int).
     """
     d  = self.data
-    pc = d["param_cuts"]     # the validated physical-window bounds
+    # the scalar / cmb / grid families keep param_cuts optional (their
+    # validators never require it), so the pool count must not demand it
+    # either — the family sweep drivers call this on cuts-free YAMLs.
+    if self._scalar or self._cmb or self._grid:
+      pc = d.get("param_cuts", {})
+    else:
+      pc = d["param_cuts"]   # the validated physical-window bounds
     # modeled parameter columns (drop leading weight / lnp and trailing
     # chi2), as load_source does by default.
     C   = np.loadtxt(d["train_params"], dtype="float32")[:, slice(2, -1)]
@@ -2183,8 +2521,12 @@ class EmulatorExperiment:
     # output geometry is the source's, pinned after the dataset / probe / width
     # checks (D-FT4). No from_covmat, no from_cosmolike, no cosmolike import.
     # rescale is "none" (validated), so make_chi2 wraps the pinned geometry in
-    # a plain CosmolikeChi2 with no cosmolike calls.
-    if self._finetune is not None:
+    # a plain CosmolikeChi2 with no cosmolike calls. A CMB (D-CM10) or scalar
+    # (SPE-FT) finetune run skips this branch: its pin lives inside its own
+    # family branch below (the checks are family-specific), while the
+    # input-geometry extension is shared.
+    if (self._finetune is not None and not self._cmb
+        and not self._scalar and not self._grid):
       source = self._finetune
       self.pgeom, extra_names = warmstart.extend_input_geometry(
         source=source,
@@ -2264,6 +2606,22 @@ class EmulatorExperiment:
     if self._scalar:
       from .geometries_scalar import ScalarGeometry
       from .losses.scalar import make_scalar_chi2
+      # fine-tune warm start (SPE-FT, the D-FT4 analogue): the input
+      # geometry is the source's block-extended (D-SF2 = D-FT3
+      # unchanged), and the output geometry is the SOURCE ScalarGeometry
+      # pinned wholesale — its center/scale are the source's training
+      # standardization, so epoch 0 reproduces the source bitwise
+      # (from_config already enforced the D-SF1 outputs-equal check).
+      if self._finetune is not None:
+        self.pgeom, extra_names = warmstart.extend_input_geometry(
+          source=self._finetune,
+          covmat_path=d["train_covmat"],
+          train_mean=train_set["C_mean"],
+          device=self.device)
+        self._finetune_extra_names = extra_names
+        self.geom = self._finetune.geom
+        self.chi2fn = make_scalar_chi2(self.geom)
+        return self.pgeom, self.geom, self.chi2fn
       self.pgeom = ParamGeometry.from_covmat(
         device=self.device,
         center=train_set["C_mean"],
@@ -2287,10 +2645,21 @@ class EmulatorExperiment:
     if self._cmb:
       from .geometries_cmb import CmbDiagonalGeometry
       from .losses.cmb import make_cmb_chi2
-      self.pgeom = ParamGeometry.from_covmat(
-        device=self.device,
-        center=train_set["C_mean"],
-        covmat_path=d["train_covmat"])
+      # input geometry: fresh ParamGeometry on a plain run; on a finetune
+      # run (D-CM10) the source input geometry block-extended for any new
+      # parameters (D-FT3, the shared warm-start machinery).
+      if self._finetune is not None:
+        self.pgeom, extra_names = warmstart.extend_input_geometry(
+          source=self._finetune,
+          covmat_path=d["train_covmat"],
+          train_mean=train_set["C_mean"],
+          device=self.device)
+        self._finetune_extra_names = extra_names
+      else:
+        self.pgeom = ParamGeometry.from_covmat(
+          device=self.device,
+          center=train_set["C_mean"],
+          covmat_path=d["train_covmat"])
       spectrum = str(self.cmb["spectrum"]).lower()
       law      = str(self.cmb["amplitude_law"])
       as_name  = str(self.cmb.get("as_name", ""))
@@ -2313,6 +2682,56 @@ class EmulatorExperiment:
           "the covariance file covers " + str(int(ell.size)) + " "
           "multipoles (l = " + str(int(ell[0])) + ".." + str(int(ell[-1]))
           + "); the dump and the covariance must share one ell grid")
+      # fine-tune warm start (D-CM10, the D-FT4 analogue): pin the SOURCE
+      # output geometry wholesale — its center is the source's training
+      # mean, so the warm-started network reproduces the source bitwise at
+      # epoch 0. Pinning is only honest when the new run really shares the
+      # source's whitening: same spectrum, same amplitude law + named
+      # columns, and the same covariance (ell grid + sigma). Each check is
+      # loud with the fix named.
+      if self._finetune is not None:
+        sgeom = self._finetune.geom
+        if sgeom.spectrum != spectrum:
+          raise ValueError(
+            "finetune spectrum mismatch: the source emulates "
+            + repr(sgeom.spectrum) + " but data.cmb.spectrum is "
+            + repr(spectrum) + "; a warm start never crosses spectra")
+        if (sgeom.law, sgeom.as_name, sgeom.tau_name) != (law, as_name,
+                                                          tau_name):
+          raise ValueError(
+            "finetune amplitude-law mismatch: the source persisted (law="
+            + repr(sgeom.law) + ", as_name=" + repr(sgeom.as_name)
+            + ", tau_name=" + repr(sgeom.tau_name) + ") but data.cmb has "
+            "(law=" + repr(law) + ", as_name=" + repr(as_name)
+            + ", tau_name=" + repr(tau_name) + "); the law is inherited, "
+            "restate the source's values")
+        src_ell = sgeom.ell.detach().cpu().numpy()
+        if not np.array_equal(ell, src_ell):
+          raise ValueError(
+            "finetune ell-grid mismatch: the covariance file covers l = "
+            + str(int(ell[0])) + ".." + str(int(ell[-1])) + " ("
+            + str(int(ell.size)) + " multipoles) but the source geometry "
+            "was whitened on l = " + str(int(src_ell[0])) + ".."
+            + str(int(src_ell[-1])) + " (" + str(int(src_ell.size))
+            + "); point data.cmb.covariance at the file the source "
+            "trained with")
+        src_sigma = sgeom.sigma.detach().cpu().numpy()
+        if not np.array_equal(sigma.astype(np.float32), src_sigma):
+          raise ValueError(
+            "finetune covariance mismatch: sigma_" + spectrum + " in "
+            + repr(self.cmb["covariance"]) + " differs from the sigma the "
+            "source geometry whitens with; a warm start requires the "
+            "SAME experiment covariance file the source trained with "
+            "(epoch-0 parity is impossible under a different whitening)")
+        self.geom = sgeom
+        if law == "none":
+          self.chi2fn = make_cmb_chi2(geom=self.geom, law=law)
+        else:
+          self.chi2fn = make_cmb_chi2(geom=self.geom, law=law,
+                                      param_geometry=self.pgeom,
+                                      as_name=as_name,
+                                      tau_name=tau_name)
+        return self.pgeom, self.geom, self.chi2fn
       # the per-row amplitude factor f (1 for the "none" law); the law
       # reads RAW parameter columns, located by the covmat-header names.
       if law == "as_exp2tau":
@@ -2357,6 +2776,65 @@ class EmulatorExperiment:
                                     param_geometry=self.pgeom,
                                     as_name=as_name,
                                     tau_name=tau_name)
+      return self.pgeom, self.geom, self.chi2fn
+
+    # grid (background-function) run (D-BSN1): the input geometry is the
+    # plain ParamGeometry over the covmat; the output geometry is a
+    # GridGeometry over the generator's persisted z grid (read from the
+    # _z.npy sidecar file — resolved values); the loss is ScalarChi2
+    # reused unchanged (the law lives inside the geometry's
+    # encode/decode). No cosmolike; returns before the import below.
+    if self._grid:
+      from .geometries_grid import GridGeometry
+      from .losses.scalar import make_scalar_chi2
+      quantity = str(self.grid["quantity"])
+      units    = str(self.grid["units"])
+      law      = str(self.grid["law"])
+      offset   = float(self.grid.get("offset", 0.0))
+      z = np.load(self.grid["z_file"], allow_pickle=False)
+      z = np.asarray(z, dtype="float64").reshape(-1)
+      dv  = train_set["dv"]
+      idx = train_set["idx"]
+      if int(dv.shape[1]) != int(z.size):
+        raise ValueError(
+          "the background dump has " + str(int(dv.shape[1])) + " columns "
+          "but data.grid.z_file covers " + str(int(z.size)) + " grid "
+          "points; the dump and its _z.npy sidecar must come from the "
+          "same generator run")
+      # fine-tune warm start (D-BSN9, the D-FT4 analogue): pin the
+      # SOURCE GridGeometry wholesale (its center/scale are the source
+      # standardization -> epoch-0 parity). The metadata was checked at
+      # from_config; the GRID itself is checked here, where the z_file
+      # is loaded.
+      if self._finetune is not None:
+        sgeom = self._finetune.geom
+        src_z = sgeom.z.detach().cpu().numpy()
+        if not np.array_equal(z, src_z):
+          raise ValueError(
+            "finetune z-grid mismatch: data.grid.z_file covers z = "
+            + repr([float(z[0]), float(z[-1])]) + " (" + str(int(z.size))
+            + " points) but the source geometry was standardized on z = "
+            + repr([float(src_z[0]), float(src_z[-1])]) + " ("
+            + str(int(src_z.size)) + "); point z_file at the grid the "
+            "source trained with")
+        self.pgeom, extra_names = warmstart.extend_input_geometry(
+          source=self._finetune,
+          covmat_path=d["train_covmat"],
+          train_mean=train_set["C_mean"],
+          device=self.device)
+        self._finetune_extra_names = extra_names
+        self.geom = sgeom
+        self.chi2fn = make_scalar_chi2(self.geom)
+        return self.pgeom, self.geom, self.chi2fn
+      self.pgeom = ParamGeometry.from_covmat(
+        device=self.device,
+        center=train_set["C_mean"],
+        covmat_path=d["train_covmat"])
+      targets = np.asarray(dv[idx])
+      self.geom = GridGeometry.from_targets(
+        device=self.device, targets=targets, z=z,
+        quantity=quantity, units=units, law=law, offset=offset)
+      self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
     # config validation first, before the cosmolike import below: a bad

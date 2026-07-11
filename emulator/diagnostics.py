@@ -1,18 +1,30 @@
 """This module runs model diagnostics over a validation set.
 
-It provides three post-training analyses that say why the metric sits
+It provides the post-training analyses that say why the metric sits
 where it does (each returns a dict the plotting reads).
-coverage_diagnostic asks whether the failing val points sit in sparse
-regions of the training set (a kNN-distance vs delta-chi2 correlation,
-i.e. data coverage). local_linear_floor compares the model to a
-local-linear interpolation of the training targets (the data-only floor;
-plain chi2 only). hard_direction_regression fits log10 delta-chi2 against
-the (log) parameters to find which combination predicts the per-point
-hardness.
+
+The chi2-based analyses are family-generic BY CONSTRUCTION (every
+family's loss exposes a per-sample chi2, and these consume only params +
+per-sample chi2): coverage_diagnostic asks whether the failing val
+points sit in sparse regions of the training set (a kNN-distance vs
+delta-chi2 correlation, i.e. data coverage); local_linear_floor compares
+the model to a local-linear interpolation of the training targets (the
+data-only floor; plain chi2 only); hard_direction_regression fits log10
+delta-chi2 against the (log) parameters to find which combination
+predicts the per-point hardness.
+
+The PHYSICAL-units analyses are per family (the D-CM9 dispatch):
+cmb_residual_diagnostic (per-multipole residual statistics + the
+high-pass wiggle content the D-CM8 roughness term targets) and
+scalar_output_diagnostic (per-output truth/prediction/residual tables).
+The plotting side (plot_diagnostics) turns each family dict into its
+pages; a run passes only the dict its family produces, so the
+cosmic-shear PDF is byte-identical when neither is given.
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
 variance, so correlated quantities become decorrelated and equally hard
-to fit.
+to fit. For the diagonal CMB geometry "whitened" is per-multipole: the
+residual divided by its cosmic-variance error bar sigma_ell.
 """
 
 import numpy as np
@@ -289,14 +301,321 @@ def hard_direction_regression(model,
   coef, *_ = np.linalg.lstsq(Z, y, rcond=None)
   r2 = 1.0 - np.var(y - Z @ coef) / np.var(y)
 
-  # does it collapse to a single direction, ln(omega_b h^2)?
-  ob = params[:, names.index("omegab")].astype("float64")
-  h  = params[:, names.index("H0")].astype("float64") / 100.0
-  g  = np.log(ob * h ** 2 / np.median(ob * h ** 2))
-  g  = (g - g.mean()) / g.std()
-  Zo = np.column_stack([np.ones_like(y), g])
-  co, *_ = np.linalg.lstsq(Zo, y, rcond=None)
-  r2o = 1.0 - np.var(y - Zo @ co) / np.var(y)
+  # does it collapse to a single direction, ln(omega_b h^2)? Only
+  # answerable when the run samples omegab + H0 (the cosmic-shear
+  # convention); a family whose dump parameterizes the baryon density
+  # differently (e.g. omegabh2 directly) reports NaN and the joint R^2
+  # above still stands.
+  if "omegab" in names and "H0" in names:
+    ob = params[:, names.index("omegab")].astype("float64")
+    h  = params[:, names.index("H0")].astype("float64") / 100.0
+    g  = np.log(ob * h ** 2 / np.median(ob * h ** 2))
+    g  = (g - g.mean()) / g.std()
+    Zo = np.column_stack([np.ones_like(y), g])
+    co, *_ = np.linalg.lstsq(Zo, y, rcond=None)
+    r2o = 1.0 - np.var(y - Zo @ co) / np.var(y)
+  else:
+    r2o = float("nan")
 
   return {"labels": lab, "univariate": uni, "joint_coef": coef[1:],
           "r2": float(r2), "r2_omega": float(r2o)}
+
+
+def cmb_residual_diagnostic(model,
+                            param_geometry,
+                            chi2fn,
+                            val_set,
+                            device,
+                            bs=256,
+                            period_cut=None):
+  """
+  Per-multipole residual statistics for a CMB spectrum run (D-CM9).
+
+  Decodes every validation prediction back to PHYSICAL C_ell (the
+  training chi2fn.decode, so the imposed amplitude law is multiplied
+  back) and summarizes the residual against the true spectra two ways
+  per multipole: fractionally ((pred - truth) / truth; readable for
+  tt / ee / pp, spiky where te crosses zero) and in error-bar units
+  ((pred - truth) / sigma_ell; always well-defined — for te read this
+  one). Also finds the worst validation cosmology (highest per-sample
+  chi2) for a pred-vs-truth overlay, and measures the residual's
+  HIGH-PASS content — the short-period wiggle spectrum the D-CM8
+  roughness term penalizes, computed with the same double-boxcar
+  remainder — so over-smoothing or ringing is visible at a glance.
+
+  Arguments:
+    model          = the trained network.
+    param_geometry = ParamGeometry; .encode whitens the raw params.
+    chi2fn         = the CMB loss wrapper (CmbDiagonalChi2 /
+                     CmbFactoredChi2); its geom carries ell / sigma /
+                     spectrum / units, its decode the law.
+    val_set        = validation source dict ("C" / "dv" / "idx").
+    device         = device the model is on.
+    bs             = forward batch size.
+    period_cut     = the high-pass band edge in multipoles; None reads
+                     the run's configured roughness term (chi2fn._rough)
+                     and falls back to 50 (the D-CM8 default band) when
+                     the run trained without one.
+
+  Returns:
+    a dict with:
+      ell / spectrum / units       = the geometry's grid + labels.
+      frac_med, frac_lo68, frac_hi68, frac_lo95, frac_hi95
+                                   = per-ell fractional-residual bands.
+      sig_med, sig_lo68, sig_hi68, sig_lo95, sig_hi95
+                                   = per-ell residual/sigma bands.
+      worst = {"dchi2", "pred", "truth", "params"} at the highest-chi2
+              val point (physical C_ell rows; params a {name: value}).
+      highpass = {"median_abs_rem", "period_cut"}: the median absolute
+              short-period remainder of the WHITENED residual vs ell.
+  """
+  geom = chi2fn.geom
+  rows  = np.sort(val_set["idx"])
+  C     = np.asarray(val_set["C"][rows], dtype="float64")
+  truth = np.asarray(val_set["dv"][rows], dtype="float64")
+  needs_p = getattr(chi2fn, "needs_params", False)
+
+  # batched forward + decode to physical C_ell (the training decode,
+  # never re-derived), and the per-sample chi2 for the worst point.
+  preds = []
+  chi2s = []
+  model.eval()
+  with torch.no_grad():
+    start = 0
+    while start < len(rows):
+      stop  = min(len(rows), start + bs)
+      x     = torch.from_numpy(C[start:stop]).float().to(device)
+      x_enc = param_geometry.encode(x)
+      p     = model(x_enc)
+      t     = torch.from_numpy(truth[start:stop]).float().to(device)
+      if needs_p:
+        cl = chi2fn.decode(p, x_enc)
+        tw = chi2fn.encode(t, x_enc)
+      else:
+        cl = chi2fn.decode(p)
+        tw = chi2fn.encode(t)
+      preds.append(cl.double().cpu().numpy())
+      chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
+      start = stop
+  pred  = np.concatenate(preds)
+  dchi2 = np.concatenate(chi2s)
+
+  sigma = geom.sigma.detach().cpu().numpy().astype("float64")
+  frac = (pred - truth) / truth
+  sig  = (pred - truth) / sigma[None, :]
+
+  def bands(r):
+    q = np.percentile(r, [2.5, 16.0, 50.0, 84.0, 97.5], axis=0)
+    return {"lo95": q[0], "lo68": q[1], "med": q[2],
+            "hi68": q[3], "hi95": q[4]}
+
+  fb = bands(frac)
+  sb = bands(sig)
+
+  worst = int(np.argmax(dchi2))
+  names = list(param_geometry.names)
+  worst_params = {}
+  for j, nm in enumerate(names):
+    worst_params[nm] = float(C[worst, j])
+
+  # the D-CM8 companion: the whitened residual's short-period remainder
+  # (the same double-boxcar high-pass the roughness term uses), so the
+  # page shows exactly what the penalty would see.
+  if period_cut is None:
+    rough = getattr(chi2fn, "_rough", None)
+    period_cut = rough.width if rough is not None else 50
+  w = int(round(float(period_cut)))
+  if w % 2 == 0:
+    w += 1
+  pad = w // 2
+  kern = np.ones(w) / float(w)
+  sm = sig
+  for _ in range(2):
+    padded = np.pad(sm, [(0, 0), (pad, pad)], mode="reflect")
+    smoothed = np.empty_like(sm)
+    for i in range(sm.shape[0]):
+      smoothed[i] = np.convolve(padded[i], kern, mode="valid")
+    sm = smoothed
+  rem = sig - sm
+  median_abs_rem = np.median(np.abs(rem), axis=0)
+
+  return {"ell": geom.ell.detach().cpu().numpy(),
+          "spectrum": geom.spectrum,
+          "units": geom.units,
+          "frac_med": fb["med"], "frac_lo68": fb["lo68"],
+          "frac_hi68": fb["hi68"], "frac_lo95": fb["lo95"],
+          "frac_hi95": fb["hi95"],
+          "sig_med": sb["med"], "sig_lo68": sb["lo68"],
+          "sig_hi68": sb["hi68"], "sig_lo95": sb["lo95"],
+          "sig_hi95": sb["hi95"],
+          "worst": {"dchi2": float(dchi2[worst]),
+                    "pred": pred[worst], "truth": truth[worst],
+                    "params": worst_params},
+          "highpass": {"median_abs_rem": median_abs_rem,
+                       "period_cut": int(w)}}
+
+
+def scalar_output_diagnostic(model,
+                             param_geometry,
+                             chi2fn,
+                             val_set,
+                             device,
+                             bs=256):
+  """
+  Per-output truth / prediction / residual tables for a scalar run
+  (D-CM9's second family — the factoring must prove itself on two).
+
+  Decodes every validation prediction back to PHYSICAL units
+  (chi2fn.decode = the geometry's destandardization) and returns, per
+  emulated output, the truth and prediction columns plus the residual
+  in physical AND standardized units, alongside the raw input
+  parameters — everything the scalar pages plot (truth-vs-predicted
+  scatter, residual histograms both ways, residual vs each input: the
+  bias hunt).
+
+  Arguments:
+    model          = the trained network.
+    param_geometry = ParamGeometry; .encode whitens the raw params.
+    chi2fn         = the ScalarChi2 wrapper (its geom holds names /
+                     center / scale).
+    val_set        = validation source dict ("C" / "dv" / "idx").
+    device         = device the model is on.
+    bs             = forward batch size.
+
+  Returns:
+    a dict with:
+      names       = the emulated output names (geometry order).
+      truth, pred = (Nval, n_out) physical values.
+      resid_std   = (Nval, n_out) residual / the geometry's scale.
+      params      = (Nval, n_param) raw input parameters.
+      param_names = the input parameter names.
+  """
+  geom  = chi2fn.geom
+  rows  = np.sort(val_set["idx"])
+  C     = np.asarray(val_set["C"][rows], dtype="float64")
+  truth = np.asarray(val_set["dv"][rows], dtype="float64")
+
+  preds = []
+  model.eval()
+  with torch.no_grad():
+    start = 0
+    while start < len(rows):
+      stop  = min(len(rows), start + bs)
+      x     = torch.from_numpy(C[start:stop]).float().to(device)
+      x_enc = param_geometry.encode(x)
+      out   = chi2fn.decode(model(x_enc))
+      preds.append(out.double().cpu().numpy())
+      start = stop
+  pred  = np.concatenate(preds)
+  scale = geom.scale.detach().cpu().numpy().astype("float64")
+
+  return {"names": list(geom.names),
+          "truth": truth,
+          "pred": pred,
+          "resid_std": (pred - truth) / scale[None, :],
+          "params": C,
+          "param_names": list(param_geometry.names)}
+
+
+def grid_residual_diagnostic(model,
+                             param_geometry,
+                             chi2fn,
+                             val_set,
+                             device,
+                             bs=256,
+                             n_derived=64):
+  """
+  Per-redshift residual statistics for a grid (background) run (D-BSN8).
+
+  Decodes every validation prediction back to the PHYSICAL function
+  (the geometry's decode inverts the target law) and summarizes the
+  fractional residual per grid redshift (median + 68/95 bands), finds
+  the worst validation cosmology (highest per-sample chi2) for a
+  pred-vs-truth overlay, and — for a "Hubble" artifact — propagates a
+  subsample through the REAL distance pipeline
+  (emulator/background.py) to band the derived D_A / D_L fractional
+  errors: pipeline(predicted H) against pipeline(true H), so the page
+  tests what the network error does to the integration path, not just
+  the raw function.
+
+  Arguments:
+    model          = the trained network.
+    param_geometry = ParamGeometry; .encode whitens the raw params.
+    chi2fn         = the ScalarChi2 over the GridGeometry (its geom
+                     carries z / quantity / units / law).
+    val_set        = validation source dict ("C" / "dv" / "idx").
+    device         = device the model is on.
+    bs             = forward batch size.
+    n_derived      = validation rows propagated through the distance
+                     pipeline for the derived page (a cold path — one
+                     Simpson integration per row).
+
+  Returns:
+    a dict with:
+      z / quantity / units       = the geometry's grid + labels.
+      frac_med, frac_lo68, frac_hi68, frac_lo95, frac_hi95
+                                 = per-z fractional-residual bands.
+      worst = {"dchi2", "pred", "truth"} at the highest-chi2 point.
+      derived = None, or (for "Hubble") {"z_eval", "da_med", "da_lo68",
+                "da_hi68", "dl_med", "dl_lo68", "dl_hi68"}: fractional
+                derived-distance error bands at interior redshifts.
+  """
+  geom  = chi2fn.geom
+  rows  = np.sort(val_set["idx"])
+  C     = np.asarray(val_set["C"][rows], dtype="float64")
+  truth = np.asarray(val_set["dv"][rows], dtype="float64")
+
+  preds = []
+  chi2s = []
+  model.eval()
+  with torch.no_grad():
+    start = 0
+    while start < len(rows):
+      stop  = min(len(rows), start + bs)
+      x     = torch.from_numpy(C[start:stop]).float().to(device)
+      x_enc = param_geometry.encode(x)
+      p     = model(x_enc)
+      t     = torch.from_numpy(truth[start:stop]).float().to(device)
+      tw    = chi2fn.encode(t)
+      preds.append(chi2fn.decode(p).double().cpu().numpy())
+      chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
+      start = stop
+  pred  = np.concatenate(preds)
+  dchi2 = np.concatenate(chi2s)
+
+  frac = (pred - truth) / truth
+  q = np.percentile(frac, [2.5, 16.0, 50.0, 84.0, 97.5], axis=0)
+  worst = int(np.argmax(dchi2))
+
+  derived = None
+  if geom.quantity == "Hubble":
+    from .background import distance_interpolators
+    z_grid = geom.z.detach().cpu().numpy()
+    # interior evaluation points (the pipeline is an interpolation; stay
+    # off the exact edges).
+    z_eval = np.linspace(z_grid[0] + 0.05 * (z_grid[-1] - z_grid[0]),
+                         z_grid[-1] * 0.95, 25)
+    take = min(int(n_derived), pred.shape[0])
+    da_fr = np.empty((take, z_eval.size))
+    dl_fr = np.empty((take, z_eval.size))
+    for i in range(take):
+      itp_p = distance_interpolators(z_grid=z_grid, h_grid=pred[i])
+      itp_t = distance_interpolators(z_grid=z_grid, h_grid=truth[i])
+      da_p, da_t = itp_p["da"](z_eval), itp_t["da"](z_eval)
+      dl_p, dl_t = itp_p["dl"](z_eval), itp_t["dl"](z_eval)
+      da_fr[i] = (da_p - da_t) / da_t
+      dl_fr[i] = (dl_p - dl_t) / dl_t
+    qa = np.percentile(da_fr, [16.0, 50.0, 84.0], axis=0)
+    ql = np.percentile(dl_fr, [16.0, 50.0, 84.0], axis=0)
+    derived = {"z_eval": z_eval,
+               "da_lo68": qa[0], "da_med": qa[1], "da_hi68": qa[2],
+               "dl_lo68": ql[0], "dl_med": ql[1], "dl_hi68": ql[2]}
+
+  return {"z": geom.z.detach().cpu().numpy(),
+          "quantity": geom.quantity,
+          "units": geom.units,
+          "frac_med": q[2], "frac_lo68": q[1], "frac_hi68": q[3],
+          "frac_lo95": q[0], "frac_hi95": q[4],
+          "worst": {"dchi2": float(dchi2[worst]),
+                    "pred": pred[worst], "truth": truth[worst]},
+          "derived": derived}

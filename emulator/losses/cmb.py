@@ -38,6 +38,89 @@ import torch
 from .core import CosmolikeChi2
 
 
+class ResidualRoughness:
+  """
+  Band-explicit high-pass penalty on the whitened residual (D-CM8).
+
+  CMB spectra are smooth multipole by multipole, so an emulator residual
+  that OSCILLATES on short periods (much shorter than the acoustic peak
+  spacing, ell_A ~ 200-300) is a network artifact, never physics. This
+  term measures exactly that content: it smooths the residual with a
+  triangular kernel (a boxcar of width `period_cut` applied twice) and
+  penalizes the sum of squares of what the smoothing removed:
+
+      r  (B, n_ell)  whitened residual, r = pred - target
+         │  smooth = boxcar(w) ∘ boxcar(w)   (reflect-padded, w odd)
+         ▼
+      rem = r - smooth(r)                     the short-period remainder
+         │  square, sum over multipoles
+         ▼
+      c_rough  (B,)  per-sample roughness penalty
+
+  (legend: B = batch rows; n_ell = multipole count; w = the kernel width
+  in multipoles, period_cut rounded to the nearest odd integer; rem =
+  the high-frequency remainder the term penalizes.)
+
+  Band behavior (why this satisfies both D-CM8 cautions): the double
+  boxcar's smoothing response is ~ sinc^2(w / P) for an oscillation of
+  period P, so the REMAINDER carries full weight at P << w and nearly
+  none at P >= ~4 w. With the default period_cut 50 that separates the
+  penalized band (P <~ 50) from the acoustic band (P ~ 200-300, where a
+  shifted peak or a lensing-smoothing misfit lives) by the ruled factor
+  >= 4 — those misfits belong to the plain chi2, and this term barely
+  sees them. Acting on the RESIDUAL (never the prediction) makes lensing
+  neutrality structural: the penalty is identically zero when the
+  prediction equals the lensed truth, however smooth its peaks.
+
+  Arguments (constructor):
+    period_cut = the multipole period below which residual oscillations
+                 are penalized with full weight (the YAML knob; rounded
+                 to the nearest odd kernel width, >= 5).
+    device     = device the kernel lives on (the geometry's).
+  """
+
+  def __init__(self, period_cut, device):
+    w = int(round(float(period_cut)))
+    if w < 5:
+      raise ValueError(
+        "loss.roughness.period_cut must be >= 5 multipoles (got "
+        + repr(period_cut) + "); shorter periods cannot be separated "
+        "from noise on an integer ell grid")
+    if w % 2 == 0:
+      w += 1   # odd width keeps the kernel centered (no phase shift)
+    self.width  = w
+    self.kernel = torch.ones(1, 1, w, device=device) / float(w)
+
+  def per_sample(self, r):
+    """Per-sample roughness c_rough from the whitened residual.
+
+    Arguments:
+      r = (B, n_ell) whitened residual (pred - target).
+
+    Returns:
+      (B,) sum of squares of the residual's short-period remainder.
+
+    Raises:
+      ValueError when the spectrum is too short for the kernel (the
+      reflect padding needs n_ell > width // 2).
+    """
+    pad = self.width // 2
+    if r.shape[1] <= pad:
+      raise ValueError(
+        "roughness penalty needs n_ell > period_cut/2 (n_ell = "
+        + str(int(r.shape[1])) + ", kernel width " + str(self.width)
+        + "); a spectrum this short has no band to separate")
+    x = r.unsqueeze(1)                       # (B, 1, n_ell)
+    # boxcar applied twice = a triangular smoothing kernel by
+    # composition (C0-smooth response, no boxcar ringing), each pass
+    # reflect-padded so the edges see no artificial jump.
+    for _ in range(2):
+      x = torch.nn.functional.pad(x, (pad, pad), mode="reflect")
+      x = torch.nn.functional.conv1d(x, self.kernel)
+    rem = r - x.squeeze(1)
+    return (rem * rem).sum(dim=1)
+
+
 # The imposed-amplitude-law registry: law name -> the extra config keys
 # it needs (persisted by name in the artifact, resolved values, never a
 # code default). "none" learns the raw C_ell shape and needs nothing;
@@ -70,6 +153,32 @@ class CmbDiagonalChi2(CosmolikeChi2):
       focal reduction, so every knob applies to the CMB chi2 unchanged.
   """
 
+  # the optional residual-roughness term (D-CM8): absent (None, the class
+  # default) = the loss path is byte-identical to the plain chi2 path;
+  # configure_roughness attaches it. lam is a fixed per-run multiplier (a
+  # constant in the compiled graph, unlike the per-epoch trim/focus
+  # tensors).
+  _rough     = None
+  _rough_lam = None
+
+  def configure_roughness(self, lam, period_cut):
+    """Attach the residual-roughness term (train_args.loss.roughness).
+
+    Arguments:
+      lam        = weight of the per-sample roughness penalty added to
+                   the per-sample chi2 (c_total = c_chi2 + lam*c_rough);
+                   > 0 (an absent block, not lam 0, states OFF).
+      period_cut = the penalized-band edge in multipoles (see
+                   ResidualRoughness).
+
+    Returns:
+      self (so the caller can configure in one expression).
+    """
+    self._rough_lam = float(lam)
+    self._rough     = ResidualRoughness(period_cut=period_cut,
+                                        device=self.geom.center.device)
+    return self
+
   def chi2(self, pred, target, full=False):
     """Per-sample chi2 = sum of squared whitened residuals.
 
@@ -78,7 +187,9 @@ class CmbDiagonalChi2(CosmolikeChi2):
     Mahalanobis distance is the plain squared L2 residual summed over the
     multipoles. full is accepted so the signature matches
     CosmolikeChi2.chi2 but has no effect: a diagonal geometry has no
-    masked entries to scatter through.
+    masked entries to scatter through. The roughness term never enters
+    here — chi2 is the evaluation metric; the penalty is a TRAINING
+    objective addition, applied in loss only.
 
     Arguments:
       pred   = (B, n_ell) network outputs in the whitened space.
@@ -91,6 +202,37 @@ class CmbDiagonalChi2(CosmolikeChi2):
     """
     r = pred - target
     return (r * r).sum(dim=1)
+
+  def loss(self, pred, target, mode="sqrt", trim=0.05,
+           focus=0.0, focus_scale=1.0, berhu_knot=None, berhu_cap=None,
+           berhu_s=None):
+    """Training loss; adds the roughness penalty per sample when present.
+
+    With no roughness term this delegates to CosmolikeChi2.loss unchanged
+    (byte-identical, the off-identity rule). With one, the composition is
+    the D-CM8 rule: c_total = c_chi2 + lam * c_rough per SAMPLE, before
+    the shared reduction — so trim / focus / berhu / the mode transform
+    all act on one number per sample and compose with the penalty
+    exactly as they compose with the plain chi2 (one reduction path, no
+    second ladder). Both pred and target hold any imposed amplitude
+    factor, so the residual (and hence the penalty) is law-neutral.
+
+    Arguments: identical to CosmolikeChi2.loss (mode / trim / focus /
+    focus_scale / berhu knots), forwarded to the shared _reduce.
+
+    Returns:
+      a scalar loss tensor.
+    """
+    if self._rough is None:
+      return super().loss(pred, target, mode=mode, trim=trim,
+                          focus=focus, focus_scale=focus_scale,
+                          berhu_knot=berhu_knot, berhu_cap=berhu_cap,
+                          berhu_s=berhu_s)
+    c = self.chi2(pred=pred, target=target)
+    c = c + self._rough_lam * self._rough.per_sample(pred - target)
+    return self._reduce(c=c, mode=mode, trim=trim, focus=focus,
+                        focus_scale=focus_scale, berhu_knot=berhu_knot,
+                        berhu_cap=berhu_cap, berhu_s=berhu_s)
 
 
 class CmbFactoredChi2(CmbDiagonalChi2):

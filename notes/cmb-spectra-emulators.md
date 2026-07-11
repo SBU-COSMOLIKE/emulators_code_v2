@@ -798,27 +798,174 @@ Implementer).
      "amplitude_law"/"as_name"/"tau_name" (getattr off the geometry;
      None on non-CMB artifacts).
 
-### NOT built (the honest boundary; designed, next in line)
+### Increment 3 (D-CM3-A) LANDED + Mac-gated (2026-07-11, Architect)
 
-- Increment 3 (D-CM3-A): generator_core extraction + the re-thinned
-  lensing driver + dataset_generator_cmb.py. Untouched — the 1100-line
-  verbatim-move surgery deserves fresh context, not the tail of this
-  window.
-- Increment 4 (D-CM5): emul_cmb.py + the predictor's CME decoder
-  branch (endorsed decision 7). The decode needs the law: rebuild now
-  surfaces amplitude_law/as_name/tau_name, and CmbFactoredChi2.decode
-  is the single-source (build a law chi2 from the rebuilt geom +
-  pgeom, reuse its decode — the transfer-decoder precedent).
-- Increment 5 (D-CM6/8/9/10): gates cmb-identity/cmb-smoke + configs +
-  example training YAML + the README section draft + the D-CM8
-  roughness term + the D-CM9 diagnostics + the D-CM10 finetune leg
-  (and the finetune-dispatch integration the interim error guards).
-- SPE-FT / BSN / GEO / POL: specced, queued, untouched (stacking
-  further un-boarded units overnight = unreviewed bulk).
+- **compute_data_vectors/generator_core.py (new):** make_cli_parser
+  (the 15 shared flags verbatim), capture_native_output (verbatim),
+  class GeneratorCore = the lensing `dataset` class moved verbatim with
+  exactly TWO recorded transformations: (a) module-global `args` ->
+  `self.args` (constructor arg), (b) the dv-store lines -> overridable
+  `_dv_*` hooks whose DEFAULT bodies are the lensing single-2D store,
+  verbatim. Subclass surface: VALID_PROBES, EXTRA_TRAIN_KEYS,
+  _read_train_args (called after self.model exists, so drivers can
+  add_requirements), _compute_dvs_from_sample, and the seven store
+  hooks (_dv_chk_files / _dv_load_chk / _dv_save / _dv_append /
+  _dv_alloc / _dv_write / _dv_zero). run_generator(cls, prog) is the
+  shared __main__ (same crash/Abort behavior).
+- **dataset_generator_lensing.py re-thinned:** header comment +
+  _compute_dvs_from_sample VERBATIM (probe leg 5 = exact line match);
+  probes cs/ggl/gc; default store untouched. Recorded micro-deviation:
+  argparse moved under the __main__ guard (import-safe for the census;
+  script behavior identical).
+- **dataset_generator_cmb.py (new):** probes cmblensed/cmbunlensed;
+  EXTRA_TRAIN_KEYS = lrange with 2 <= lmin < lmax enforced (l=0,1 rows
+  would be zeros -> zero-variance whitening poison; the D-CM11 file
+  starts at l=2); adds Cl requirements to the model ITSELF (dummy
+  `one` likelihood suffices); payload = (4, nell) float32 in
+  (tt, te, ee, pp) order via get_Cl(ell_factor=False, units="muK2") —
+  the SAME call as compute_cmb_covariance.py line 358, so dumps and
+  covariance share units by construction; pp rides get_Cl on either
+  probe (unlensed probe requests unlensed_Cl tt/te/ee + Cl pp); four
+  per-spectrum 2D files {dvsf}_tt/_te/_ee/_pp.npy; all three D-CM3-A
+  deviations recorded in the header. Store = four arrays, one shared
+  RAM policy. Uniform core flow change vs legacy: the FIRST sample is
+  computed on rank 0 to size the store (legacy CMB pre-sized from
+  lrange) — benign, recorded.
+- **Mac probe 10/10** (scratchpad probe_inc3.py): CLI census 15/15
+  flags equal; output-filename formats all present; verbatim-span
+  audit clean (mechanical transforms only); stub-import probe (emcee/
+  psutil/yaml/cobaya/mpi4py/getdist stubbed) — both drivers subclass
+  the core with the right whitelists; lensing compute verbatim; CMB
+  store round-trips in-RAM AND memmap (write/zero/save/load/append +
+  row-count guard); lrange legs + both probes' requirement dicts
+  exact; first_dvs shape guard; __main__ wiring + no module-level
+  argparse.
+
+### Increment 4 (D-CM5) LANDED + Mac-gated (2026-07-11, Architect)
+
+- **emulator/inference.py:** the CMB predictor branch (endorsed decision
+  7). `self._cmb = info["cmb"]` set beside `_scalar`; the CMB branch
+  returns before the 3x2pt mask/section accounting; exposes spectrum /
+  ell / units / amplitude_law off the artifact. `_build_cmb_decoder`
+  law-dispatches through make_cmb_chi2 — "none" wraps geom-decode in the
+  (pred, x_enc) closure, "as_exp2tau" returns CmbFactoredChi2.decode
+  DIRECTLY (its (pred, params_whitened) signature already matches the
+  decoder convention; single-sourced, never re-derived). predict()
+  returns the physical C_ell row as 1-D numpy on the stored grid.
+- **cobaya_theory/emul_cmb.py (new):** the emul_scalars template applied
+  to Cl. extra_args = device/emulators/compile only; spectra + lmax +
+  units are artifact facts. Guards: wrong-kind (names the right adapter),
+  duplicate spectrum, tt/te/ee units mismatch, empty list, unknown keys.
+  must_provide validates every requested spectrum + lmax against the
+  loaded artifacts (an emulator has no accuracy beyond its training
+  grid — loud, never truncated/padded). calculate assembles the cobaya
+  Cl dict on one shared 0..lmax_global ell axis, zero below each
+  artifact's range. get_Cl serves the ARTIFACT convention only
+  (ell_factor=False, stored units) and refuses anything else loudly
+  (never a silent unit conversion).
+- **Wrong-kind guards both ways:** emul_cosmic_shear now rejects scalar
+  and CMB artifacts loudly (it previously had NO kind guard — a CMB
+  artifact would have silently served C_ell as a dv section);
+  emul_scalars' wrong-kind message now names emul_cmb for a CMB
+  artifact.
+- **Mac probe 4/4** (scratchpad probe_inc4.py): py_compile x4; branch
+  ordering in __init__ AND predict (AST/order census); emul_cmb logic on
+  fake predictors — requirements union, lmax layout, must_provide legs
+  (unknown spectrum / beyond-lmax loud, valid quiet, non-Cl ignored),
+  calculate zero-padding + values at the right multipoles, get_Cl
+  passthrough + both convention guards, all five initialize guards;
+  guard presence census in both sibling adapters.
+
+### Increment 5 (D-CM6/8/9/10) LANDED + Mac-gated (2026-07-11, Architect)
+
+- **D-CM8 roughness (losses/cmb.py + training.py):** ResidualRoughness
+  = double-boxcar high-pass on the whitened residual (width =
+  period_cut rounded odd, reflect-padded; discrete band ratio 102 at
+  period 30 vs 300 with period_cut 50; the lensing-guard proxy 0.17%
+  << 3%). CmbDiagonalChi2 gains configure_roughness + a loss override:
+  absent -> super().loss (byte-identical OFF); present -> c_chi2 +
+  lam*c_rough per sample through the ONE shared reduction (trim /
+  focus / berhu compose; the factored law inherits it). YAML:
+  train_args.loss.roughness{lam, period_cut}, both REQUIRED when
+  present, lam <= 0 loud (absent = OFF, never lam 0), phase blocks
+  reject it (an inherited top-level block is stripped before per-pass
+  re-resolution — the phase-name hazard); run_emulator applies it once
+  to the chi2fn, and a non-CMB chi2fn carrying the block is loud. THE
+  PROBE-CAUGHT BUG: validate_loss's loss=None early return lacked the
+  new "roughness" key — every run with NO loss block would have
+  crashed at the run_emulator read; fixed and probed.
+- **D-CM10 finetune (experiment.py + warmstart.py):** validate_cmb's
+  interim error died; the from_config cmb branch gains the finetune
+  sub-path (validate_finetune_config + load_source + a wrong-kind
+  guard naming the right family); the cosmolike finetune branch in
+  build_geometry is now guarded `not self._cmb` (LATENT ORDERING BUG
+  fixed: a CMB finetune run would have entered the cosmolike pin); the
+  cmb branch pins the SOURCE geometry wholesale (the D-FT4 analogue)
+  after four loud checks — spectrum, law+columns, ell grid, sigma (the
+  same covariance file) — so epoch 0 reproduces the source bitwise;
+  the input side rides extend_input_geometry (D-FT3, family-agnostic).
+  pin_output_geometry (cosmolike) gains the wrong-kind guard.
+- **D-CM9 diagnostics (diagnostics.py + plotting.py + both drivers):**
+  cmb_residual_diagnostic (physical decode via the training chi2fn;
+  fractional AND error-bar-unit bands — TE crosses zero, the sigma
+  panel is the readable one; worst-cosmology overlay; the D-CM8
+  high-pass wiggle content at the run's own period_cut) and
+  scalar_output_diagnostic (truth/pred/residual physical+standardized
+  + the bias-hunt tables). plot_diagnostics gains cmb=/scalar= kwargs
+  (None default = the cosmic-shear PDF byte-identical); _cmb_pages (2
+  pages) + _scalar_pages (3 pages), colorblind-safe.
+  train_single_emulator_cosmic_shear passes cmb= on a data.cmb run;
+  train_scalar_emulator GAINS --diagnostic (shared chi2 pages + scalar
+  pages; the floor applies — ScalarChi2 is a plain chi2). LATENT CRASH
+  fixed: hard_direction_regression hard-indexed omegab/H0 — now NaN
+  r2_omega when a family's dump lacks them.
+- **Gates:** gates/checks/cmb_identity.py (CME-A, torch-only: ruled
+  constants exact, state round-trip, law exact both ways + loud
+  errors, save/rebuild/predict bitwise on BOTH laws, the emul_cmb
+  adapter legs via the cobaya.theory stub, all five D-CM8 legs, the
+  D-CM10 parity + wrong-kind + validate_cmb-accepts legs) and
+  gates/checks/cmb_smoke.py (CME-B, board: generator dumps 200 rows
+  l=2..350 cmblensed with As sampled LINEARLY -> four dv files +
+  filled phiphi asserted; the D-CM11 script's first real run
+  (Gaussian, zero noise) -> .npz consumed by the training; the
+  dead-network-RELATIVE bar best-median < 0.5x the staged mean
+  predictor; the real cobaya lifecycle get_model + add_requirements +
+  provider.get_Cl == the predictor's own C_ell; the 2-page diagnostics
+  leg). scalar_smoke.py gains the 3-page scalar diagnostics leg
+  (D-CM9's rule: every family smoke). Board registry = 27 gates
+  (25 + cmb-identity + cmb-smoke), census-counted.
+- **Configs/docs:** example_yamls/cmb_emulator.yaml (the full data.cmb
+  + train_args block set incl. roughness + the commented finetune
+  block); the README section draft in [[readme-cmb-section-draft]]
+  (applied to the MAIN checkout after the origin/main merge, the
+  scalar-section precedent).
+- **Mac probes:** probe_inc5a 5/5 (band math, validate_loss legs on
+  the REAL function under torch stubs, off-identity + wiring order,
+  D-CM10 order census, validate_cmb exec-probe) and probe_inc5b 5/5
+  (compile x8, board census 27, example-YAML validate_cmb + subscript
+  census + roughness resolution, D-CM9 wiring census, gate AST).
+
+### CME status: CODE COMPLETE — awaiting the workstation board
+
+All five increments are landed and Mac-gated. Board: 27 gates; the new
+runs are `python gates/run_board.py --force-rerun cmb-identity` and
+`--force-rerun cmb-smoke` (budget several minutes for the smoke: ~400
+serial low-accuracy CAMB calls + one covariance call). KNOWN FIRST-RUN
+RISKS (the SPE precedent says the board rules): (a) the cmb-smoke
+cobaya leg's requirement path (get_model + add_requirements —
+programmatic, chosen over an evaluate-YAML readback exactly because
+the SPE evaluate YAML took three deltas); (b) the generator's
+cobaya-internals walk on a camb-only model (check_cache_and_compute —
+legacy-proven on cosmolike, first CAMB-only run here); (c) generator
+runtime (serial; if slow, lower LMAX / NROWS in the check). D-CM12
+(NG-trained dense-Cinv) stays sequenced behind Gaussian results;
+D-CM13 (heads on cmb) stays the recorded follow-up.
 
 ### For the board (when the user wakes)
 
-Nothing new is board-runnable yet (the CME gates are increment 5); the
-landed work is Mac-gated only. The landing sequence in the chat handoff
-commits the overnight diffs; cmb-identity/cmb-smoke arrive with
-increment 5.
+Two new gates: cmb-identity (torch-only, fast) and cmb-smoke (torch +
+cobaya + compiled CAMB, minutes). Rerun scalar-smoke too (it gained
+the 3-page diagnostics leg). The loss/validate_loss edits touch every
+training run's config path — loss-schema-equivalence / berhu-loss /
+berhu-anneal are the regression sentinels if anything looks off; the
+off-identity probes say byte-identical.

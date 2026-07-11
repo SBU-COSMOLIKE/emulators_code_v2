@@ -639,8 +639,19 @@ def pin_output_geometry(source, run_data, run_probe, new_dv_width):
     the source DataVectorGeometry, unchanged, to wrap in the run's chi2.
 
   Raises:
-    ValueError naming any mismatch (data dir, dataset, probe, width).
+    ValueError naming any mismatch (data dir, dataset, probe, width), or a
+    source of the wrong family (a scalar / CMB artifact pins on its own
+    family's path, never here).
   """
+  # wrong-kind guard: this pin is the cosmolike (data-vector) one; a scalar
+  # or CMB source has no probe/dataset to check and pins on its own path
+  # (experiment.build_geometry's scalar / cmb branches).
+  geom_kind = type(source.geom).__name__
+  if geom_kind != "DataVectorGeometry":
+    raise ValueError(
+      "finetune source rebuilds a " + geom_kind + " output geometry; the "
+      "cosmolike warm-start pin serves data-vector sources only (a scalar "
+      "or CMB source fine-tunes through its own family's run config)")
   run_dir = run_data.get("cosmolike_data_dir")
   run_set = run_data.get("cosmolike_dataset")
   if run_dir != source.data_dir or run_set != source.dataset:

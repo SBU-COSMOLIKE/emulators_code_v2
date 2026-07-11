@@ -448,6 +448,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
   from .designs.blocks import make_norm
   from .geometries_scalar import ScalarGeometry
   from .geometries_cmb import CmbDiagonalGeometry
+  from .geometries_grid import GridGeometry
 
   def _read_group(g):
     # inverse of save's write_state: numeric datasets -> tensors, string
@@ -619,8 +620,27 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # persisted in the geometry state (D-CM1), surfaced here so the
     # predictor / cobaya adapter rebuild the law-aware decode (D-CM5)
     # without rereading the config. None / absent on non-CMB artifacts.
+    # the law keys are guarded by the class check (a GridGeometry also
+    # carries a .law attr — its TARGET law, a different registry), so a
+    # bare getattr would smear one family's fact onto another.
     "cmb":            isinstance(geom, CmbDiagonalGeometry),
-    "amplitude_law":  getattr(geom, "law", None),
-    "as_name":        getattr(geom, "as_name", None),
-    "tau_name":       getattr(geom, "tau_name", None),
+    "amplitude_law":  (geom.law
+                       if isinstance(geom, CmbDiagonalGeometry) else None),
+    "as_name":        (geom.as_name
+                       if isinstance(geom, CmbDiagonalGeometry) else None),
+    "tau_name":       (geom.tau_name
+                       if isinstance(geom, CmbDiagonalGeometry) else None),
+    # grid (background-function) emulator (D-BSN1): dispatched on the
+    # rebuilt class; the quantity / units / law / offset are ARTIFACT
+    # FACTS persisted in the geometry state, surfaced for the predictor
+    # and the emul_baosn adapter. None / absent on non-grid artifacts.
+    "grid":           isinstance(geom, GridGeometry),
+    "grid_quantity":  (geom.quantity
+                       if isinstance(geom, GridGeometry) else None),
+    "grid_units":     (geom.units
+                       if isinstance(geom, GridGeometry) else None),
+    "grid_law":       (geom.law
+                       if isinstance(geom, GridGeometry) else None),
+    "grid_offset":    (geom.offset
+                       if isinstance(geom, GridGeometry) else None),
   }
