@@ -1,7 +1,8 @@
 # CMB spectra emulators (spec)
 
-**Date:** 2026-07-10. **Status:** SPEC (Architect, Fable). **Spec code:**
-CME. **Home note** for the gates `cmb-identity` / `cmb-smoke`.
+**Date:** 2026-07-10. **Status:** EXECUTING (kickoff addendum at the
+tail; SPE, unit 1 of the pass, is CLOSED at board 25/25). **Spec
+code:** CME. **Home note** for the gates `cmb-identity` / `cmb-smoke`.
 Companion unit to [[scalar-parameter-emulators]] (SPE); both ship in one
 implementation pass (user away from the computer; sequencing below).
 
@@ -208,3 +209,89 @@ Implementer session by the user); the SPE note carries a pointer here.
   precedent) — the Architect rules from the notes when handbacks arrive.
 - **Next milestone:** one IMPLEMENTER_HANDOFF per unit, SPE first, diffs
   on the branch, no git run by the Implementer.
+
+## CME execution addendum (2026-07-10, Architect) — SPE closed, CME active
+
+SPE is CLOSED (board 25/25, run 5; full record + delta ledger in
+[[scalar-parameter-emulators]]). The unified handoff above stands, with
+these updates and BINDING additions from SPE's five board runs:
+
+**Corrections to the block above:**
+- Board counts: the registry held 23 before SPE (the 24 was note
+  arithmetic, corrected); CME lands the board at 25 -> 27. Count gates
+  by enumerating the Gate() registry, never from notes.
+- The user is present and relaying: checkpoint at every stop with a
+  relayable CHECKPOINT handoff (the SPE cadence — eight checkpoints,
+  audit each); the self-contained-handback clause still applies to any
+  stretch the user steps away for.
+
+**The reuse surface is now concrete (was anticipated):**
+- cobaya_theory/emul_scalars.py is the TEMPLATE for emul_cmb.py: the
+  _ALLOWED_EXTRA_ARGS whitelist, _pick_device, ROOTDIR-relative roots,
+  the initialize unions + loud duplicate/overlap errors, and the
+  D-SPE2-4 wrong-kind guard (emul_cmb must loudly reject a non-CMB
+  artifact root; the reverse direction already works — emul_scalars
+  rejects anything whose rebuild is not a ScalarGeometry).
+- EmulatorPredictor dispatches on the rebuilt geometry; the CME
+  spectra ride the dv branch (a DataVectorGeometry subclass or a
+  from-fiducial constructor per D-CM1), so save/rebuild/predict come
+  free via the cls marker exactly as SPE proved.
+
+**The SPE lesson bank, binding on CME (each cost one board run):**
+1. D-SPE2-7: every new gate cfg AND example YAML carries all six
+   required train_args blocks (model / optimizer / lr / scheduler /
+   trim / focus + loss / nepochs / bs); validate on the Mac with the
+   build_run_specs required-subscript census BEFORE the board.
+2. D-SPE2-6: the generator (compute_cmb_dvs.py) writes the standing
+   dump format INCLUDING the .paramnames sidecar; any by-name column
+   loading uses the chain-root-aware sidecar resolution already in
+   data_staging (exact stem, then integer-suffix root).
+3. D-SPE2-5 (+ the personal-memory rule): the cmb-smoke bars must fail
+   a dead network — assert Cl at a NON-fiducial point and set the
+   collapse bar below the mean-predictor baseline; compute that
+   baseline explicitly when designing the gate.
+4. D-SPE2-8: the evaluate YAML uses priors + the evaluate sampler's
+   override, never value:-fixed params; theory-level stop_at_error;
+   force: True.
+5. D-SPE2-9: an evaluate run writes NO .paramnames; read products from
+   the stdout blocks or the chain's own header row. For get_Cl the
+   readback is different in kind (a theory product, not a derived
+   param): the proven pattern is the cobaya-adapter leg — a real
+   likelihood consuming the product + exit code; design the assertion
+   around what the run provably emits, and SHIP THE DIAG (dir listing,
+   stdout tail) in the first version, not after the first red.
+6. Honest counts and honest margins: report what the probe/board says
+   (the SPE count catch and the 4.65%-of-5% margin are the precedents).
+
+**Unchanged and binding:** D-CM1..D-CM7 in full; the verbatim numerics
+(covinv = diag(2/(2l+1)/Cl_fid^2), l = 2..ellmax; target' =
+Cl * exp(2*tau) / As, multiplied back at decode); the BINDING reads
+before writing (legacy emulcmb + emultraincmb.py for the physics
+conventions, emul_cosmic_shear + emul_scalars for the adapter shape);
+ONE CAMB pass -> all four spectra; data.cmb exclusive with cosmolike
+keys, loud; phiphi PCA out of scope V1; no cosmolike import on the CME
+path; whole-driver-path forward-walk with the config-access census.
+
+### ARCHITECT_HANDOFF: CME EXECUTION START (relay to the Implementer)
+
+- **You are the Implementer (Opus 4.8).** Unit: CME, the second of the
+  SPE+CME pass. Base: main at the SPE close (branch
+  claude/amazing-keller-e798b6 merged; verify with git log before
+  starting).
+- **Read first:** this note in full (D-CM1..7 + this addendum), the
+  SPE close section of [[scalar-parameter-emulators]] (the lesson
+  bank), and the binding sources before writing the adapter/trainer:
+  Downloads/emulators_code-main/emulcmb + emultraining/emultraincmb.py,
+  cobaya_theory/emul_cosmic_shear.py, cobaya_theory/emul_scalars.py.
+- **Suggested increments (checkpoint at each):** (1) the from-fiducial
+  diagonal geometry + the amplitude-law registry (D-CM1/2, the core);
+  (2) the data.cmb driver branch + staging (D-CM4); (3) the generator
+  compute_cmb_dvs.py (D-CM3); (4) emul_cmb.py (D-CM5, after the
+  binding reads); (5) gates + configs + example YAML + README draft
+  (D-CM6, with the lesson bank applied); then the full CME
+  IMPLEMENTER_HANDOFF with the force-rerun list (cmb-identity,
+  cmb-smoke; board 25 -> 27).
+- **Mac discipline:** compileall + AST + numpy probes per increment;
+  torch/CAMB legs ride the board.
+- **Every stop emits a relayable CHECKPOINT handoff.** The Architect
+  audits each against raw source, as in SPE.
