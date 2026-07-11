@@ -180,10 +180,13 @@ def check_cobaya_evaluate(tmp, root):
         "      device: cpu\n"
         "      emulators:\n"
         "        - " + root + "\n"
+        # the lambda's argument name is how a cobaya external likelihood
+        # declares its input params; omegamh2 then resolves from the
+        # theory's provides. No separate requires key (D-SPE2-6b): the
+        # signature is the documented mechanism.
         "likelihood:\n"
         "  test_like:\n"
         "    external: 'lambda omegamh2: 0.0'\n"
-        "    requires: [omegamh2]\n"
         "params:\n"
         "  H0:\n    value: " + repr(h0_t) + "\n"
         "  omegam:\n    value: " + repr(om_t) + "\n"

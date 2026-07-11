@@ -704,12 +704,29 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
     raise ValueError("load_scalar_source needs a torch.Generator (gen=)")
   # the sidecar is required on the scalar path: it locates the output
   # columns by name and pins the input block to the whitening order.
-  sidecar = os.path.splitext(params_path)[0] + ".paramnames"
-  if not os.path.exists(sidecar):
+  # Resolution follows getdist's own pairing (D-SPE2-6): a generator dump
+  # pairs X.txt with X.paramnames (the exact stem), while a cobaya chain
+  # pairs X.1.txt with X.paramnames — ONE sidecar shared by every chain
+  # number, so the pure-integer suffix must be stripped to find it. Try
+  # the exact stem first, then the chain root; a miss names every
+  # candidate tried.
+  base = os.path.splitext(params_path)[0]
+  candidates = [base + ".paramnames"]
+  root, chain_ext = os.path.splitext(base)
+  if chain_ext[1:].isdigit():
+    candidates.append(root + ".paramnames")
+  sidecar = None
+  for cand in candidates:
+    if os.path.exists(cand):
+      sidecar = cand
+      break
+  if sidecar is None:
     raise ValueError(
       f"scalar training needs a getdist .paramnames sidecar beside "
-      f"{params_path!r} (expected {sidecar!r}): it names the .txt "
-      "columns so the output parameters can be found by name")
+      f"{params_path!r}; tried {candidates!r} (a cobaya chain X.1.txt "
+      "pairs with X.paramnames, a generator dump X.txt with "
+      "X.paramnames). The sidecar names the .txt columns so the output "
+      "parameters can be found by name")
   # D-SPE2-1(b): the non-derived sidecar names must equal in_names (order
   # included), pinning the sampled block to the covmat / whitening order
   # before the by-name lookups. check_paramnames raises on a mismatch.

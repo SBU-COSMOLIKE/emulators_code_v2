@@ -1447,3 +1447,58 @@ run's evidence, never below the mean-predictor line (0.455 / 13.7%).
    (flag before id). Expected: 23 resume-skip greens + 2 new = 25/25.
 6. relay the board output; the Architect closes SPE on green (or
    rules on any delta), and CME (the second unit of the pass) begins.
+
+## Board run 1 + D-SPE2-6 (2026-07-10, Fable)
+
+**Relay (workstation, HEAD 4a1621d): 24/25 — scalar-identity GREEN on
+its first execution (every leg); scalar-smoke RED.** The log names the
+defect exactly:
+
+    ValueError: scalar training needs a getdist .paramnames sidecar
+    beside '/tmp/.../train.1.txt' (expected '/tmp/.../train.1.paramnames')
+
+### D-SPE2-6a (library, CLOSED by the Architect as a declared deviation):
+the sidecar derivation missed the getdist chain convention
+
+load_scalar_source derived the sidecar as splitext(params_path) +
+".paramnames", which strips only ".txt": for a cobaya chain X.1.txt it
+demanded X.1.paramnames, while getdist pairs ALL chain numbers with ONE
+X.paramnames. The gate's fixture used the REAL chain shape (train.1.txt
++ train.paramnames) — the fixture was right, the loader wrong — and the
+documented D-SP2 use case (chain_thetastar_lcdm.1.txt +
+chain_thetastar_lcdm.paramnames, exactly as the example YAML's comment
+pairs them) would have failed identically on real data. So this was a
+genuine library bug the smoke caught, not a fixture artifact. Fix in
+load_scalar_source: candidate resolution — the exact stem first
+(X.txt -> X.paramnames, the generator-dump shape; also admits a
+per-chain X.1.paramnames), then, when the remaining suffix is a pure
+integer, the chain root (X.1.txt -> X.paramnames); a miss raises naming
+every candidate tried. Architect-probed on the SHIPPED span (real
+_scalar_columns + check_paramnames, torch stubbed): all four legs green
+— the chain shape (the board red), the generator shape, the per-chain
+sidecar, and the no-sidecar error naming both candidates.
+
+### D-SPE2-6b (gate, preemptive): the evaluate YAML's requires key dropped
+
+The external-lambda likelihood declared `requires: [omegamh2]` on top of
+the lambda already naming omegamh2 as its argument — the argument
+signature IS cobaya's documented input-declaration mechanism for
+external likelihoods, and the redundant requires key was the one
+honestly-flagged first-run risk. Removed; the lambda signature stands
+alone. If the evaluate leg still reds, the next delta comes with the
+run's stderr.
+
+### README section applied (the pending step 3)
+
+Section 14 "Scalar (derived-parameter) emulators" inserted from the
+polished draft; appendices renumbered 15-20 (41 label/anchor
+replacements, slug-keyed, descending); Contents row added. Verified:
+97 anchors all resolve, numbered sections run 1..20 in order, fences
+balanced, every in-text [appendix N] label matches its anchor number.
+
+### Remaining to close SPE
+
+Commit -> merge to main -> push -> workstation pull ->
+`python gates/run_board.py --force-rerun scalar-smoke` (scalar-identity
+resume-skips green). Expected 25/25. On green SPE is CLOSED and CME
+begins.
