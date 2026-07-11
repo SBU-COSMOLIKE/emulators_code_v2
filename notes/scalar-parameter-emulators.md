@@ -996,3 +996,82 @@ emulator precedent, or a synthesized minimal dv h5).
   scalar_emulator_*.yaml; the README scalar-section draft (against
   origin/main's README, per the integration order). Then the full SPE
   IMPLEMENTER_HANDOFF with the workstation force-rerun list.
+
+### Update 6 (2026-07-10, Opus): D-SPE2-4 closed; gate design recorded
+
+- D-SPE2-4 CLOSED in cobaya_theory/emul_scalars.py: inside the root loop,
+  right after the predictor is built, `if not predictor._scalar: raise
+  ValueError(...)` (verbatim from the note; the spec's ` -- ` rendered `;`
+  per the house de-dash rule, the IS->is precedent). py_compile OK.
+
+**Concrete gate design (studied finetune_identity.py + gct_parity.py, ready
+to write next turn):**
+- `gates/checks/scalar_identity.py` mirrors finetune_identity.py's shape
+  (report(); tempdir; a `save_synthetic_scalar(root, device)` helper that
+  hand-builds a tiny ParamGeometry (from a written covmat) + a
+  ScalarGeometry.from_targets over synthetic targets + a small ResMLP via
+  make_model, then save_emulator with geometry=the ScalarGeometry, ia=None
+  recipe). Legs: (1) rebuild -> predict {name:value} bitwise vs a same-path
+  reference; (2) ScalarGeometry.state() byte-identity across save/rebuild;
+  (3) D-SPE1-1: from_targets on a 0.31 constant column raises; (4) D-SPE2-1:
+  a duplicated .paramnames name raises in _scalar_columns; (5) D-SPE2-3:
+  from_config on a `name: rescnn` scalar cfg raises (build a minimal scalar
+  cfg dict + MODELS); (6) emul_scalars legs via the ARCHITECT's stub-cobaya
+  pattern (stub sys.modules["cobaya"] + ["cobaya.theory"].Theory = a trivial
+  base with a no-op initialize BEFORE importing emul_scalars; then build 2
+  tiny scalar emulators, instantiate emul_scalars(), set extra_args, call
+  initialize): auto-provides == stored output names; dup-output raises;
+  input/provide overlap raises; provides subset ok / superset raises;
+  D-SPE2-4 wrong-kind (feed a dv artifact -> raises). scalar-identity is
+  "torch only" (no real cobaya), so the stub is the mechanism.
+- `gates/checks/scalar_smoke.py`: write a tiny fixture params .txt (weight,
+  lnp, omegabh2, omegach2, H0*, omegam*, chi2 columns) + its .paramnames
+  sidecar, with an exactly-derivable target column omegamh2 = omegam*(H0/
+  100)^2 computed from the row's own H0/omegam; a scalar YAML with outputs:
+  [omegamh2]; run train_scalar_emulator for 2 epochs; assert val collapses;
+  then a cobaya evaluate through emul_scalars returns the emulated value.
+  (Board only; needs cobaya + a real ROOTDIR.)
+- Board registration: gates/board.py near line 817 (the gate_ftw_a
+  pattern): `ctx.require_caps("torch"); ctx.run_check("gates/checks/
+  scalar_identity.py")` for SPE-A, and a board+cobaya gate for SPE-B
+  (scalar-smoke) mirroring gct_parity's cobaya-evaluate gate.
+
+**Checkpoint:** stopped at the D-SPE2-4 boundary (closed + gated) with the
+gates fully designed, to avoid rushing a ~350-line torch/cobaya gate into a
+filling context. Next turn writes scalar_identity.py + scalar_smoke.py +
+board reg + example YAML + README draft -> the full SPE handoff.
+
+## Architect audit: D-SPE2-4 closure (2026-07-10, Fable)
+
+**Verdict: D-SPE2-4 CLOSED (guard verbatim, the `--`->`;` de-dash
+endorsed under the IS->is precedent); the gate design is APPROVED as
+recorded in Update 6. Write the gates.** Evidence: my stub-import probe
+re-run against the shipped file — a dv artifact now raises the loud
+wrong-kind error naming the root; a scalar artifact still builds with
+the correct provides; a MIXED scalar+dv list raises on the dv root (a
+leg beyond the handoff's). The guard sits before the predictors.append
+and before any output_names access.
+
+Gate-design endorsement, three specifics: (1) using the stub-cobaya
+import pattern for the emul_scalars legs keeps scalar-identity
+torch-only exactly as D-SP7 requires — the real cobaya lifecycle
+evidence stays where it belongs, in scalar-smoke's evaluate leg;
+(2) the fixture route (its own tiny .txt + .paramnames with the
+omegamh2 column) should also assert the sidecar-required error path,
+per the earlier gate clarification; (3) the identity gate carries ALL
+the accumulated delta legs (D-SPE1-1 constant-column both regression
+directions, D-SPE2-1 dup-sidecar, D-SPE2-3 rescnn-raises, D-SPE2-4
+wrong-kind) so the board re-proves every ruling of this unit on every
+run.
+
+### ARCHITECT_HANDOFF: D-SPE2-4 CLOSED — WRITE THE GATES
+
+- **Audit outcome:** the guard verified in place and probe-confirmed
+  (dv, scalar, mixed legs); gate design approved as recorded.
+- **Next milestone (the full SPE handoff):** scalar_identity.py +
+  scalar_smoke.py + board registration + example YAML + the README
+  scalar-section draft against origin/main -> the full SPE
+  IMPLEMENTER_HANDOFF with the workstation force-rerun list. The
+  handback must stand alone: force-rerun list, expected green counts,
+  and the integration order (merge origin/main -> apply README draft ->
+  merge to main -> push -> workstation pull + board).

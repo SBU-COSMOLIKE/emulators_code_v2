@@ -87,6 +87,16 @@ class emul_scalars(Theory):
             path = root if os.path.isabs(root) else os.path.join(rootdir, root)
             predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model)
+            # D-SPE2-4: a data-vector artifact rebuilds without output_names,
+            # so reject it loudly here rather than dying on the attribute
+            # access below (the D-SPE2-3 failure class, one layer up).
+            if not predictor._scalar:
+                raise ValueError(
+                    "emul_scalars: " + repr(root) + " is not a scalar "
+                    "emulator (its h5 rebuilds a data-vector geometry); "
+                    "this theory serves scalar artifacts only; a "
+                    "data-vector emulator belongs in emul_cosmic_shear's "
+                    "emulators list")
             self.predictors.append(predictor)
             # duplicate output across two artifacts = loud (D-SP4): a derived
             # parameter must be produced by exactly one emulator.
