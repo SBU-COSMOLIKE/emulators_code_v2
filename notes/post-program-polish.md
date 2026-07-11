@@ -141,3 +141,80 @@ the pre-SPE tree (training.py, batching.py, scheduling.py,
 analytics.py, activations.py, designs/, losses/core+ia+pce,
 plotting.py, the four cosmic-shear drivers, gates/board.py's older
 gates).
+
+## Resume state (Architect, 2026-07-11 second pass — POL executed)
+
+The user directed the remaining queue to run without waiting for the
+merge/board ("continue do the tasks"); everything below is uncommitted
+in the amazing-keller worktree, landing blocks printed in the session
+close.
+
+**POL-1 main README — DONE (the wait-for-merge gate was replaced by a
+proof).** The worktree README.md = main's README (git show main:) +
+the three family sections (15 CMB / 16 BSN / 17 MPS from the notes/
+drafts) + the Drivers subsection at the end of section 1
+(anchor `drivers-table`) + the EMUL2 pointer paragraph in section 1 +
+the transfer-scope paragraph in section 13 + appendix 23 grown
+(five-adapter intro/diagram, three predict-returns rows, the
+background scripting pattern) + appendices renumbered 15..21 ->
+18..24 (descending replace) + two coherence catches fixed (the
+glossary sentence whose link text still said 14/15, and six
+`geometries_*.py` references updated to the post-GEO
+`geometries/*.py` paths, length-neutral in the ASCII diagrams).
+Acceptance: anchor census 113/113 links + path census green on both
+READMEs (the probe needed contextual-root + fenced-block fixes, both
+probe bugs). MERGE FACT, proven with git merge-file: README.md
+CONFLICTS on merge (main's appendix-20 commit touched the same lines
+the renumber moved) and the resolution is always the branch side —
+`git merge-file --ours` output is byte-identical to the consolidated
+file, so nothing from main is lost. Resolution command for the user,
+merging the branch into main:
+`git checkout --theirs README.md && git add README.md`.
+
+**EMUL2 acceptance YAML — ships as
+`cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml`.** Mirrors
+projects/lsst_y1/EXAMPLE_EMUL2_EVALUATE1.yaml (read from the june2026
+Cocoa checkout) with the three legacy theory blocks (emulrdrag GP /
+emulbaosn pt+extrapar / emulmps keras) replaced by emul_scalars +
+emul_baosn + emul_mps; likelihood, params, and the evaluate override
+kept so the two runs evaluate the same point. The emulators lists
+carry placeholder roots (projects/lsst_y1/emulators/{rdrag,baosn,mps}/
+...) for the user to point at trained artifacts.
+
+**POL-2 — DONE (doc-only, proven).** Stale-claim fixes:
+plotting.py header (family pages added), losses/core.py (subclass
+list + scalar.py/cmb.py), designs/plain.py (family-blind trunk
+sentence + the geometry paths in the diagram to slash form),
+training.py (loss block is {mode, berhu, roughness}),
+train_single_emulator_cosmic_shear.py (the driver trains cmb/grid/
+grid2d too — matches the new Drivers table). The rest of the
+inventory (batching, scheduling, analytics, activations, blocks,
+designs/pce, losses/ia+pce, the other three cosmic-shear drivers)
+audited ACCURATE as-is — the GBC-era campaign already ran
+define-or-drop over them. PROOF: the AST body-hash census
+(scratchpad ast_body_hash.py) over all 88 repo .py files is
+byte-identical before/after the doc pass.
+
+**POL-3 — DONE (8 files, probes 7/7).** No walrus anywhere; single
+ternaries KEPT (C has ?:, the table bans pileups; none nested);
+`nn.Sequential(*layers)`-style stars KEPT (idiomatic, not
+gymnastics); plotting's itertools.cycle and pce's
+itertools.combinations KEPT (conventional/mathematical). Converted,
+all cold paths: activations.py 5 factory lambdas -> named factories;
+designs/blocks.py 2 factory lambdas -> module-level affine_norm /
+identity_norm + the ResBlock default-arg lambda -> affine_norm;
+analytics.py 2 assigned coerce lambdas -> defs; training.py 3
+conditional dict comprehensions -> explicit loops (the roughness
+strip; opt_extras/sched_kwargs hoisted above resolved_train);
+the 4 min(key=lambda) epoch picks -> named epoch_rank defs (train
+driver, tune driver x2, family_drivers); plotting.py
+`coefs, *_ = lstsq` -> `[0]` indexing. PROOF: probe_pol3.py 7/7
+(old spans exec'd from git HEAD vs new, same inputs -> identical
+outputs, including the ValueError texts and the ResBlock default);
+the AST census confirms the code-changed set is EXACTLY these 8
+files; full compileall green. Torch-side confirmation rides the
+normal board (no gate config touched).
+
+**Still open, unchanged rulings:** the driver renames stay
+DEFERRED-UNTIL-BOARD-GREEN; MPS-DIAG (grid2d diagnostics pages) and
+the other recorded interims ride later deltas.

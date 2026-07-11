@@ -295,3 +295,13 @@ Steps 3-7 landed on the increment-1 foundations:
    readme-mps-section-draft.md; EMUL2 acceptance =
    EXAMPLE_EMUL2_EVALUATE1.yaml end to end on the workstation
    (recorded as the unit's acceptance experiment, user-run).
+
+**Acceptance YAML shipped (2026-07-11, POL window):** the v2 evaluate
+config is `cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml` — the legacy
+lsst_y1 EXAMPLE_EMUL2_EVALUATE1.yaml with its three legacy theory
+blocks (emulrdrag / emulbaosn / emulmps) replaced by emul_scalars +
+emul_baosn + emul_mps; likelihood, params, and the evaluate override
+kept verbatim so the legacy and v2 runs evaluate the same point. The
+emulators lists carry placeholder roots under
+projects/lsst_y1/emulators/ — point them at the trained rdrag /
+hubble+dm / pklin+boost artifacts before running.

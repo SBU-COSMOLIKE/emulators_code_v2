@@ -1,0 +1,238 @@
+# Example cobaya "evaluate" config for EMUL2 hybrid inference with schema-v2
+# emulators — the MPS unit's acceptance experiment.
+#
+# EMUL2 = cosmolike's use_emulator: 2 mode: the full cosmolike likelihood
+# runs, but every CAMB product it needs is served by an emulator instead of
+# CAMB — P(k, z) linear + nonlinear from emul_mps, H(z) and the distances
+# from emul_baosn, the sound horizon r_drag from emul_scalars. Three theory
+# blocks, one sampling YAML.
+#
+# This file mirrors projects/lsst_y1/EXAMPLE_EMUL2_EVALUATE1.yaml (the legacy
+# pattern: emulrdrag + emulbaosn + emulmps with their ord / extrapar / file
+# lists) with the three legacy theory blocks replaced by the schema-v2
+# adapters. Each adapter names saved-emulator path ROOTS and nothing else —
+# spectrum ranges, grids, units, laws, and input names are all read from the
+# <root>.h5 (the never-trust-defaults rule, applied to the sampling YAML).
+# The likelihood, params, and evaluate blocks are kept from the legacy file
+# so the two runs evaluate the same point.
+#
+# Before running: point the three emulators lists at trained artifacts —
+#   emul_mps     needs a pklin artifact (law syren_linear) and a boost
+#                artifact (law syren_halofit); symbolic_pofk must be
+#                installed (the syren base is multiplied back at inference)
+#   emul_baosn   needs the Hubble artifact (SN window) and the D_M artifact
+#                (recombination window)
+#   emul_scalars needs the rdrag scalar artifact
+#
+# Run (from $ROOTDIR, cobaya installed):
+#   cobaya-run ./external_modules/code/emulators_code_v2/cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml
+
+timing: True
+debug: False
+stop_at_error: True
+
+likelihood:
+  lsst_y1.cosmic_shear:
+    use_emulator: 2
+    path: ./external_modules/data/lsst_y1
+    data_file: lsst_y1_M1_GGL0.05.dataset
+    accuracyboost: 1.0
+    integration_accuracy: 0
+    lmax: 50000
+    kmax_boltzmann: 5.0
+    # 1 EE2, 2 Halofit — the boost artifact corrects syren-halofit, so the
+    # comparable cosmolike setting is Halofit
+    non_linear_emul: 2
+    IA_model: 0
+    IA_code: 0
+    IA_redshift_evolution: 3
+    print_datavector: False
+    print_datavector_file: "./projects/lsst_y1/chains/example_emul2_v2_theory.modelvector"
+
+params:
+  As_1e9:
+    prior:
+      min: 0.5
+      max: 5
+    ref:
+      dist: norm
+      loc: 2.1
+      scale: 0.25
+    proposal: 0.2
+    latex: 10^9 A_\mathrm{s}
+    renames: A
+  ns:
+    prior:
+      min: 0.87
+      max: 1.07
+    ref:
+      dist: norm
+      loc: 0.96605
+      scale: 0.01
+    proposal: 0.01
+    latex: n_\mathrm{s}
+  H0:
+    prior:
+      min: 55
+      max: 91
+    ref:
+      dist: norm
+      loc: 67.32
+      scale: 5
+    proposal: 3
+    latex: H_0
+  omegab:
+    prior:
+      min: 0.03
+      max: 0.07
+    ref:
+      dist: norm
+      loc: 0.0495
+      scale: 0.004
+    proposal: 0.004
+    latex: \Omega_\mathrm{b}
+  omegam:
+    prior:
+      min: 0.1
+      max: 0.9
+    ref:
+      dist: norm
+      loc: 0.316
+      scale: 0.02
+    proposal: 0.02
+    latex: \Omega_\mathrm{m}
+  w0pwa:
+    prior:
+      min: -5
+      max: -0.01
+    ref:
+      dist: norm
+      loc: -0.99
+      scale: 0.05
+    proposal: 0.05
+    latex: w_{0,\mathrm{DE}}+w_{a,\mathrm{DE}}
+    drop: true
+  w:
+    prior:
+      min: -3
+      max: -0.01
+    ref:
+      dist: norm
+      loc: -0.99
+      scale: 0.05
+    proposal: 0.05
+    latex: w_{0,\mathrm{DE}}
+  wa:
+    value: 'lambda w0pwa, w: w0pwa - w'
+    derived: false
+    latex: 'w_{a,\mathrm{DE}}'
+  mnu:
+    value: 0.06
+  # Derived bridges: each schema-v2 artifact requires exactly the names
+  # stored in its h5. The rdrag scalar artifact was trained on
+  # omegabh2/omegach2; the mps/baosn artifacts read whatever their training
+  # dumps sampled. These lambdas make both spellings available — cobaya
+  # only computes the ones a theory actually requests.
+  omegabh2:
+    value: 'lambda omegab, H0: omegab*(H0/100)**2'
+    latex: \Omega_\mathrm{b} h^2
+  omegach2:
+    value: 'lambda omegam, omegab, mnu, H0: (omegam-omegab)*(H0/100)**2-(mnu*(3.046/3)**0.75)/94.0708'
+    latex: \Omega_\mathrm{c} h^2
+  As:
+    value: 'lambda As_1e9: 1e-9*As_1e9'
+    latex: 'A_\mathrm{s}'
+  # Intrinsic alignment (overwrites the likelihood defaults)
+  LSST_A2_1:
+    prior:
+      min: -5
+      max:  5
+    ref:
+      dist: norm
+      loc: -1.36
+      scale: 0.5
+    proposal: 0.5
+    latex: A_\mathrm{2-IA,LSST}^1
+  LSST_A2_2:
+    prior:
+      min: -5
+      max:  5
+    ref:
+      dist: norm
+      loc: -2.5
+      scale: 0.5
+    proposal: 0.5
+    latex: A_\mathrm{2-IA,LSST}^2
+  LSST_BTA_1:
+    prior:
+      min: 0
+      max: 2
+    ref:
+      dist: norm
+      loc: 1
+      scale: 0.15
+    proposal: 0.1
+    latex: A_\mathrm{BTA-IA,LSST}^1
+
+theory:
+  emul_scalars:
+    # python_path (NOT path) is cobaya's external-class key; without it a
+    # legacy adapter bundled in cocoa's cobaya fork shadows this class.
+    python_path: ./external_modules/code/emulators_code_v2/cobaya_theory/
+    stop_at_error: True
+    extra_args:
+      device: 'cuda'
+      # the rdrag scalar artifact (replaces the legacy emulrdrag GP joblib)
+      emulators:
+        - projects/lsst_y1/emulators/rdrag/emul_v2
+  emul_baosn:
+    python_path: ./external_modules/code/emulators_code_v2/cobaya_theory/
+    stop_at_error: True
+    extra_args:
+      device: 'cuda'
+      # the two background artifacts (replace the legacy emulbaosn .pt +
+      # extrapar INT block): H(z) on the SN window feeds the distance
+      # integration; D_M on the recombination window serves the CMB anchor
+      emulators:
+        - projects/lsst_y1/emulators/baosn/hubble_v2
+        - projects/lsst_y1/emulators/baosn/dm_v2
+  emul_mps:
+    python_path: ./external_modules/code/emulators_code_v2/cobaya_theory/
+    stop_at_error: True
+    extra_args:
+      device: 'cuda'
+      # the two matter-power artifacts (replace the legacy emulmps keras
+      # pair): pklin corrects the syren linear formula, boost corrects
+      # syren-halofit; P_nl = P_lin * B is assembled in the adapter
+      emulators:
+        - projects/lsst_y1/emulators/mps/pklin_v2
+        - projects/lsst_y1/emulators/mps/boost_v2
+
+sampler:
+  evaluate:
+    N: 1
+    override:
+      As_1e9: 2.1
+      ns: 0.96605
+      H0: 67.32
+      omegab: 0.04
+      omegam: 0.3
+      w0pwa: -0.9
+      w: -0.9
+      LSST_DZ_S1: 0.0414632
+      LSST_DZ_S2: 0.00147332
+      LSST_DZ_S3: 0.0237035
+      LSST_DZ_S4: -0.0773436
+      LSST_DZ_S5: -8.67127e-05
+      LSST_M1: 0.0191832
+      LSST_M2: -0.0431752
+      LSST_M3: -0.034961
+      LSST_M4: -0.0158096
+      LSST_M5: -0.0158096
+      LSST_A1_1: 0.606102
+      LSST_A1_2: -1.51541
+      LSST_A2_1: 0.0
+      LSST_A2_2: -1.51541
+      LSST_BTA_1: 0.0
+
+output: ./projects/lsst_y1/chains/EXAMPLE_EMUL2_EVALUATE_V2

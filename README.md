@@ -11,7 +11,7 @@ inference loop. `xi` is the cosmic-shear two-point correlation functions — the
 data the analysis measures; cosmolike (inside Cocoa) supplies the analysis mask
 and covariance. Accuracy is judged as chi2 — the prediction error in the
 covariance units inference actually cares about (the
-[chi2 metric](#16-appendix-the-chi2-metric-mahalanobis)).
+[chi2 metric](#19-appendix-the-chi2-metric-mahalanobis)).
 
 The pipeline at a glance — every stage is one section of this README:
 
@@ -58,6 +58,7 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
     9. [Where next](#where-next)
     10. [The `sweep:` block (one-knob sweeps)](#sweep-block)
     11. [Multi-GPU execution and packing](#multi-gpu)
+    12. [The drivers, family by family](#drivers-table)
 2. [The YAML file](#2-the-yaml-file)
 3. [`data`](#3-data)
     1. [`param_cuts`](#param_cuts)
@@ -86,13 +87,16 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
     2. [Transfer learning (`transfer:`)](#transfer-learning-transfer)
     3. [Joint refinement (`transfer.refine`, optional stage 2)](#joint-refinement-transferrefine-optional-stage-2)
 14. [Scalar (derived-parameter) emulators](#14-scalar-derived-parameter-emulators)
-15. [Appendix: the pipeline](#15-appendix-the-pipeline)
-16. [Appendix: the chi2 metric (Mahalanobis)](#16-appendix-the-chi2-metric-mahalanobis)
-17. [Appendix: activation functions](#17-appendix-activation-functions)
+15. [Emulating CMB spectra (TT / TE / EE / phi-phi)](#15-emulating-cmb-spectra-tt--te--ee--phi-phi)
+16. [Emulating the expansion history (H(z), BAO and SN distances)](#16-emulating-the-expansion-history-hz-bao-and-sn-distances)
+17. [Emulating the matter power spectrum (hybrid inference, EMUL2)](#17-emulating-the-matter-power-spectrum-hybrid-inference-emul2)
+18. [Appendix: the pipeline](#18-appendix-the-pipeline)
+19. [Appendix: the chi2 metric (Mahalanobis)](#19-appendix-the-chi2-metric-mahalanobis)
+20. [Appendix: activation functions](#20-appendix-activation-functions)
     1. [The paper's $H(x)$](#the-papers-hx)
     2. [Generalizations](#generalizations)
     3. [Selecting one](#selecting-one)
-18. [Appendix: precedence — who wins when settings collide](#18-appendix-precedence--who-wins-when-settings-collide)
+21. [Appendix: precedence — who wins when settings collide](#21-appendix-precedence--who-wins-when-settings-collide)
     1. [A. Activation family](#a-activation-family)
     2. [B. Phase blocks vs the top level (two-phase models)](#b-phase-blocks-vs-the-top-level-two-phase-models)
     3. [C. Single-phase demotion (the same YAML on `resmlp`)](#c-single-phase-demotion-the-same-yaml-on-resmlp)
@@ -101,8 +105,9 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
     6. [E. Sweeps and searches](#e-sweeps-and-searches)
     7. [F. Constructor / driver args vs the YAML](#f-constructor--driver-args-vs-the-yaml)
     8. [G. Deliberately no knob (nothing to win)](#g-deliberately-no-knob-nothing-to-win)
-19. [Appendix: Generating the training set](#19-appendix-generating-the-training-set)
-20. [AI-Usage](#20-ai-usage)
+22. [Appendix: Generating the training set](#22-appendix-generating-the-training-set)
+23. [Appendix: scripting a saved emulator (without Cobaya)](#23-appendix-scripting-a-saved-emulator-without-cobaya)
+24. [AI-Usage](#24-ai-usage)
 
 ---
 
@@ -192,6 +197,14 @@ likelihood            scores it as usual
 A copyable full evaluate config — the likelihood, params, and sampler
 blocks wrapped around this theory block — ships as
 `cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml`.
+
+An emulator can also replace CAMB *inside* cosmolike rather than
+replacing cosmolike itself: cosmolike's `use_emulator: 2` mode consumes
+emulated CAMB products — the matter power spectrum, the expansion
+history, and the sound horizon r_drag — served by `emul_mps`,
+`emul_baosn`, and `emul_scalars` as three theory blocks in one sampling
+YAML. That hybrid pattern is
+[section 17](#17-emulating-the-matter-power-spectrum-hybrid-inference-emul2).
 
 ### The `N_train` learning curve
 
@@ -385,6 +398,36 @@ the sharing arithmetic live in `scheduling.py`
 journal file (`--journal`): the parent enqueues the warm-start, `--n-trials`
 splits across workers, and reusing the journal resumes it (serial on 1 GPU/MPS).
 
+### The drivers, family by family <a name="drivers-table"></a>
+
+The driver namespace is `<verb>_<family>_emulator.py`. Every family trains
+through the same config dispatch — the `data` block names the family
+(`data.outputs` -> scalar, `data.cmb` -> CMB, `data.grid` -> background,
+`data.grid2d` -> matter power; a cosmolike block -> cosmic shear) — so the
+per-family drivers differ only in their prog names and defaults.
+
+| Driver | Family | What it does |
+|---|---|---|
+| train_single_emulator_cosmic_shear.py | cosmic shear + cmb + baosn + mps | train one emulator from a YAML — the family comes from the data block; `--diagnostic` writes the multipage PDF |
+| train_scalar_emulator.py | scalar | train one derived-parameter emulator; `--diagnostic` |
+| sweep_ntrain_emulator_cosmic_shear.py | cosmic shear | f(delta-chi2 > thr) vs `N_train`, multi-GPU pool + gpu-pack |
+| sweep_ntrain_scalar_emulator.py | scalar | the same learning curve, serial |
+| sweep_ntrain_cmb_emulator.py | cmb | the same, serial |
+| sweep_ntrain_baosn_emulator.py | baosn | the same, serial |
+| sweep_ntrain_mps_emulator.py | mps | the same, serial |
+| tune_single_emulator_cosmic_shear.py | cosmic shear | Optuna study, multi-GPU journal |
+| tune_scalar_emulator.py | scalar | Optuna study, serial in-memory |
+| tune_cmb_emulator.py | cmb | the same |
+| tune_baosn_emulator.py | baosn | the same |
+| tune_mps_emulator.py | mps | the same |
+| bakeoff_activation_emulator_cosmic_shear.py | cosmic shear | activation bake-off learning curves |
+| sweep_hyperparam_emulator_cosmic_shear.py | cosmic shear | one-axis hyperparameter sweeps |
+
+The four cosmic-shear drivers still carry their original names; renaming
+them into the namespace is a recorded polish item that lands after the
+first full gate-board run, and the board configs and README references
+move with it.
+
 ---
 
 ## 2. The YAML file
@@ -396,7 +439,7 @@ scalar or a `[default, min, max, kind]` search range, where `kind` is `int`,
 `float`, or `log`; only `tune_single` searches the ranges, and every other
 driver collapses a range to its default value. Sections 3–11 document each
 block. When two settings collide, the winner is defined in the
-[precedence appendix](#18-appendix-precedence--who-wins-when-settings-collide).
+[precedence appendix](#21-appendix-precedence--who-wins-when-settings-collide).
 Templates live in `example_yamls/`, and the `sweep:` block is described in
 [Run it](#sweep-block).
 
@@ -427,14 +470,14 @@ train_args:
 ```
 
 Six terms the chapter uses. The details live in appendices
-[14](#15-appendix-the-pipeline) and
-[15](#16-appendix-the-chi2-metric-mahalanobis).
+[18](#18-appendix-the-pipeline) and
+[19](#19-appendix-the-chi2-metric-mahalanobis).
 
 | Term | Meaning |
 |---|---|
 | data vector, dv | The masked cosmic-shear two-point functions xi+/- stacked into one vector. This is what the network predicts. |
-| chi2 | Prediction error measured in the analysis covariance, `r^T Cinv r` — [appendix 16](#16-appendix-the-chi2-metric-mahalanobis). The headline metric is written `frac>0.2` in the logs: the fraction of validation cosmologies with delta-chi2 above 0.2. The goal is to drive it down. |
-| whitened | Rotated and rescaled so the components are decorrelated with unit variance. This is the form the network sees, input and output — [appendix 15](#15-appendix-the-pipeline). |
+| chi2 | Prediction error measured in the analysis covariance, `r^T Cinv r` — [appendix 19](#19-appendix-the-chi2-metric-mahalanobis). The headline metric is written `frac>0.2` in the logs: the fraction of validation cosmologies with delta-chi2 above 0.2. The goal is to drive it down. |
+| whitened | Rotated and rescaled so the components are decorrelated with unit variance. This is the form the network sees, input and output — [appendix 18](#18-appendix-the-pipeline). |
 | theta order | The data vector re-sorted to vary smoothly along the angular axis. The correction heads work in this basis. |
 | trunk / head | Every architecture is a shared ResMLP trunk; `rescnn` and `restrf` add a gated correction head on top — [section 10](#10-model). |
 | dump | The big on-disk table of parameters and data vectors the physics code wrote. Training memmaps it — reads slices from disk, never the whole file — and stages only the rows it needs, [section 3](#3-data). |
@@ -453,7 +496,7 @@ holds fewer rows the run raises rather than training on less than you asked.
 `split_seed` seeds the shuffle; `ram_frac` is the fraction of free RAM staging
 may fill before it streams from the disk memmap instead. Where these dumps
 come from — how the training parameters are sampled, whitened, and named — is
-[appendix 19](#19-appendix-generating-the-training-set).
+[appendix 22](#22-appendix-generating-the-training-set).
 
 ```
 dv/params dump ─▶ seeded shuffle ─▶ param_cuts ─▶ first n_train (+ n_val)
@@ -510,7 +553,7 @@ The run-level knobs that are not their own block:
 |---|---|
 | `nepochs` | Passes over the training set. |
 | `bs` | The training minibatch size. Validation uses its own batch size, derived to target ~1024 rows by `derive_eval_bs`, so a small `bs` does not slow scoring. |
-| `trunk_epochs` / `freeze_trunk` | The two-phase schedule of [section 11](#11-two-phase-schedule--the-trunk--head-blocks). The mode table is precedence [C2](#18-appendix-precedence--who-wins-when-settings-collide). |
+| `trunk_epochs` / `freeze_trunk` | The two-phase schedule of [section 11](#11-two-phase-schedule--the-trunk--head-blocks). The mode table is precedence [C2](#21-appendix-precedence--who-wins-when-settings-collide). |
 | `silent` | Suppress the per-epoch progress lines. |
 | `clip` | A per-step ceiling on the gradient norm; `0` turns it off. The whole gradient is rescaled toward the ceiling and keeps its direction, so one batch holding an extreme sample cannot kick the weights. The rule is below. |
 | `rewind` | On every learning-rate cut by the plateau scheduler of [section 6](#6-optimizer-lr-scheduler), reload the best weights and optimizer snapshot while keeping the reduced rate. An excursion into a bad basin then costs at most `patience` epochs. |
@@ -532,7 +575,7 @@ train_args:
 
 The training objective. `loss.mode` picks a per-sample transform $L(c)$ of
 each sample's chi2 $c = r^\top C^{-1} r$
-([Mahalanobis](#16-appendix-the-chi2-metric-mahalanobis)); the batch loss is
+([Mahalanobis](#19-appendix-the-chi2-metric-mahalanobis)); the batch loss is
 the (trimmed, focally weighted; [sections 7–8](#7-trim)) mean of $L(c)$. The transform sets how a
 sample's gradient vote scales with its misfit:
 
@@ -563,7 +606,7 @@ plateaus above $K$ so a chi2=100 monster stays bounded.
 The `berhu:` sub-block sets the knots (spell it `berhu:` — the family, so it
 survives a `mode` sweep — or after the active mode as `berhu_capped:`; giving
 both is an error, see precedence
-[D](#18-appendix-precedence--who-wins-when-settings-collide)). An optional
+[D](#21-appendix-precedence--who-wins-when-settings-collide)). An optional
 `anneal:` (presence = on) starts as plain sqrt and blends into the berhu shape
 on the [shared schedule](#7-trim), $s: 0 \to 1$:
 
@@ -592,7 +635,7 @@ together.
 |---|---|
 | `optimizer` | The class is fixed to **AdamW**. `weight_decay` decays only the true weight matrices — the `.weight` of `Linear`, `Conv1d`, and `BinLinear` — never biases, norms, or activation parameters. On CUDA the faster fused kernel is used. The full decay rule is detailed below. |
 | `lr` | The learning rate scales with the square root of the batch size: bigger batches average away gradient noise, so the step can grow. The formula is below. `bs_base` is the run-global anchor and never sits inside a phase block. `warmup_epochs` ramps the rate linearly from 0 over the first epochs. |
-| `scheduler` | The class is fixed to **ReduceLROnPlateau**, with `mode`, `patience`, and `factor` as its settings, stepped every epoch on the **raw** validation median — the EMA average never feeds it. A per-phase `scheduler:` replaces the settings but keeps the class; see precedence [B](#18-appendix-precedence--who-wins-when-settings-collide). |
+| `scheduler` | The class is fixed to **ReduceLROnPlateau**, with `mode`, `patience`, and `factor` as its settings, stepped every epoch on the **raw** validation median — the EMA average never feeds it. A per-phase `scheduler:` replaces the settings but keeps the class; see precedence [B](#21-appendix-precedence--who-wins-when-settings-collide). |
 
 $$\mathrm{lr} = \ell \sqrt{B/B_0}$$
 
@@ -934,7 +977,7 @@ away from it as training demands.
 
 The block is `{type, n_gates}` or a bare type string; `n_gates` is
 read only by the two multi-gate families. The exact formulas are in
-the [activation appendix](#17-appendix-activation-functions).
+the [activation appendix](#20-appendix-activation-functions).
 
 ```yaml
   activation:
@@ -948,7 +991,7 @@ A `rescnn` / `restrf` head may pin its own family with
 absent means the head shares the trunk's. A pinned head needs a
 frozen-trunk head phase, `head: activation:` is an alias for the same
 pin, and the precedence and its warning are precedence
-[A](#18-appendix-precedence--who-wins-when-settings-collide).
+[A](#21-appendix-precedence--who-wins-when-settings-collide).
 
 ### `norm`
 
@@ -1291,7 +1334,7 @@ heads just means more, narrower attention tables per bin pair.
 
 `compile_mode` (optional, flat) sets the CUDA `torch.compile` mode; the
 defaults are precedence
-[F](#18-appendix-precedence--who-wins-when-settings-collide).
+[F](#21-appendix-precedence--who-wins-when-settings-collide).
 
 ```yaml
   model:
@@ -1337,11 +1380,11 @@ block, and they override in two different ways:
 | `loss`, `trim`, `focus`, `clip`, `rewind`, `ema` | A full replacement: state the whole block you want for that pass, including sub-keys. Nothing merges. |
 
 The fine print is precedence
-[B](#18-appendix-precedence--who-wins-when-settings-collide). One
+[B](#21-appendix-precedence--who-wins-when-settings-collide). One
 asymmetry: the `head:` block may also carry `activation:`, an alias that
 pins the head's own activation family. The same key inside `trunk:` is an
 error; that rule is precedence
-[A](#18-appendix-precedence--who-wins-when-settings-collide).
+[A](#21-appendix-precedence--who-wins-when-settings-collide).
 
 Single-phase models never break on a two-phase YAML. On any `resmlp`,
 `train()` demotes the phase keys: `trunk:` merges into the top level, and
@@ -1532,7 +1575,7 @@ loss ladder (berhu included), trim / focus / clip / rewind / ema. `pce:` is
 exclusive with `--rescale` and `model.ia` (each replaces the chi2 loss), and it
 is structurally unsweepable — a top-level block, not a `train_args` leaf, so
 one base per study; the collision rules are the
-[precedence appendix](#18-appendix-precedence--who-wins-when-settings-collide).
+[precedence appendix](#21-appendix-precedence--who-wins-when-settings-collide).
 
 ---
 
@@ -1592,6 +1635,11 @@ choosing the other prints a note explaining the trade-off). The frozen base
 is evaluated once per training row and cached, so training costs only the
 small net; the saved result embeds the base, so the artifact reloads and
 samples with no other file.
+
+Transfer learning exists for the cosmolike and CMB data-vector families
+only, and that restriction is permanent — a `transfer:` block on a
+scalar, background, or matter-power config is a loud error; those
+families [fine-tune](#fine-tuning-train_argsfinetune) instead.
 
 ```yaml
 transfer:
@@ -1713,12 +1761,284 @@ Full example: `example_yamls/scalar_emulator.yaml`. Design record:
 
 ---
 
-## 15. Appendix: the pipeline
+## 15. Emulating CMB spectra (TT / TE / EE / phi-phi)
+
+A CMB emulator maps cosmological parameters to one spectrum's C_ell
+values — the angular power spectrum of the cosmic microwave background
+(TT = temperature, TE = temperature-polarization cross, EE = E-mode
+polarization, phi-phi = the lensing potential), on a fixed multipole
+grid l = 2..lmax. One emulator learns ONE spectrum; a full set is four
+artifacts. Everything rides the same training stack as the data-vector
+emulators — the losses, trimming, focal weighting, EMA, fine-tuning all
+compose unchanged — because the loss exposes the same per-sample chi2
+interface.
+
+The pipeline, end to end:
+
+    dataset_generator_cmb.py            compute_cmb_covariance.py
+    (CAMB through cobaya, one call      (Motloch & Hu 1709.03599 eqs 1-7,
+     per sampled cosmology)              one fiducial-LCDM CAMB call)
+          |                                   |
+          |  dvs_*_tt.npy (+ te/ee/pp)        |  cmbcov_lcdm.npz
+          |  params_*.1.txt + sidecars        |  (sigma_ell per spectrum,
+          v                                   v   fiducial C_ell, provenance)
+    +---------------------------------------------------+
+    |  train_single_emulator_cosmic_shear.py             |
+    |  with a data.cmb block: whiten each multipole by   |
+    |  its error bar sigma_ell, impose the amplitude     |
+    |  law, train the ResMLP trunk                       |
+    +---------------------------------------------------+
+          |
+          |  emulator_tt_*.h5 + .emul   (the artifact)
+          v
+    cobaya_theory/emul_cmb.py    serves get_Cl to any cobaya likelihood
+
+### The covariance file (why a separate script)
+
+For cosmic shear the loss covariance comes from cosmolike. A CMB
+spectrum's covariance is analytic instead: the Gaussian variance of one
+measured C_ell is (Motloch & Hu 1709.03599, eq 3)
+
+    var(C_ell) = 2 / [(2l+1) fsky] * (C_ell + N_ell)^2
+
+where N_ell is the instrumental noise spectrum built from the detector
+noise level (in muK-arcmin) and the beam width (eq 1). The script
+`compute_data_vectors/compute_cmb_covariance.py` computes this once, on
+a fiducial LCDM cosmology at high CAMB accuracy, and writes one .npz the
+training consumes; the optional non-Gaussian lensing terms (eq 6) sit
+behind a flag, off by default. What you state in its YAML is the
+experiment: the noise level, the beam, the sky fraction.
+
+### The imposed amplitude law
+
+The primary CMB spectra scale almost exactly as A_s e^(-2 tau) (the
+primordial amplitude damped by reionization). Rather than making the
+network learn that known scaling, the training can impose it: with
+
+```yaml
+  cmb:
+    spectrum: tt
+    covariance: cmbcov_lcdm.npz
+    amplitude_law: as_exp2tau
+    as_name:       As
+    tau_name:      tau
+```
+
+the target the network sees is C_ell * exp(2 tau) / A_s — the SHAPE
+only — and the emulator multiplies the law back on the way out. A_s and
+tau are read from named parameter columns of the training dump (As must
+be the linear amplitude, which the generator samples directly). Set
+`amplitude_law: none` to learn the raw C_ell instead (and drop the two
+names). The law is stored in the artifact by name, so a saved emulator
+always knows its own convention.
+
+### The roughness penalty (optional)
+
+CMB spectra are smooth in l; short-period wiggles in the emulator
+residual are network artifacts, never physics. The optional loss term
+
+```yaml
+  loss:
+    mode: sqrt
+    roughness:
+      lam:        0.1   # weight; absent block = the term does not exist
+      period_cut: 50    # penalize residual oscillation periods below this
+```
+
+adds, per training sample, `lam` times the short-period content of the
+residual (a high-pass filter at `period_cut` multipoles) to the chi2
+before the usual reduction. It acts on the residual — prediction minus
+truth — so a perfect prediction pays nothing, however sharp or smooth
+the true peaks: it cannot bias the lensing-induced peak smoothing,
+whose period (~200-300, the acoustic spacing) the filter passes
+untouched.
+
+### Serving the spectra in an MCMC
+
+```yaml
+theory:
+  emul_cmb:
+    python_path: ./cobaya_theory/
+    extra_args:
+      device: cuda
+      emulators:
+        - chains/emulator_tt_resmlp_ntrain50000
+        - chains/emulator_ee_resmlp_ntrain50000
+```
+
+Each path root declares its own spectrum, multipole range, and units
+(they are stored in the artifact — nothing is restated in the YAML).
+A likelihood that requests a spectrum no artifact provides, or
+multipoles beyond an artifact's training grid, fails loudly at startup.
+get_Cl serves raw C_ell in the dump units (muK^2; phi-phi
+dimensionless), zero below l = 2.
+
+### Fine-tuning
+
+A CMB emulator warm-starts from a saved CMB emulator of the same
+spectrum, law, and covariance file, exactly like the data-vector
+fine-tune: add
+
+```yaml
+train_args:
+  finetune:
+    from: chains/emulator_tt_resmlp_ntrain50000
+```
+
+and delete the `model:` block (the architecture is inherited). Epoch 0
+reproduces the source exactly; training then refines it on the new
+dump.
+
+### The diagnostics pages
+
+`--diagnostic` on a data.cmb run appends two CMB pages to the usual
+PDF: per-multipole residual bands (fractional AND in error-bar units —
+read the error-bar panel for TE, which crosses zero) with the
+worst-cosmology overlay, and the residual's short-period wiggle content
+(what the roughness term sees). The example config is
+`example_yamls/cmb_emulator.yaml`; the gates are cmb-identity and
+cmb-smoke on the board.
+
+---
+
+## 16. Emulating the expansion history (H(z), BAO and SN distances)
+
+Only H(z) is a network; every distance is known physics computed from
+it. The BAOSN family serves the background — the Hubble rate and the
+comoving / angular-diameter / luminosity distances — to BAO and
+supernova likelihoods from TWO small artifacts:
+
+    the "Hubble" artifact                the "D_M" artifact
+    H(z) on the SN range, z in [0, 3]    the comoving distance, trained
+       │                                 directly on the recombination
+       │  emulator/background.py:        window z in [1000, 1200] (the
+       │  chi(z) = integral of c/H       CMB-distance anchor)
+       ▼  (cumulative Simpson)
+    D_C = chi, D_A = chi/(1+z),
+    D_L = chi*(1+z)   (flat)
+
+Nothing is emulated between the two windows — no likelihood queries
+that desert — and a query there is a loud error, never a silent bridge.
+The training target for H(z) is log(H + offset) (the `log_offset` law,
+persisted in the artifact); D_M trains raw (`none`). Dumps come from
+`compute_data_vectors/dataset_generator_background.py`: one
+background-only CAMB evaluation per sampled cosmology yields BOTH
+quantities and the grids ride beside the dumps as `_z.npy` sidecars.
+
+```yaml
+data:
+  grid:
+    quantity: Hubble        # or D_M for the recombination artifact
+    units:    km/s/Mpc      # Mpc for D_M
+    law:      log_offset    # none for D_M
+    offset:   0.0
+    z_file:   dvs_train_background_unifs_h_z.npy
+```
+
+Serving in an MCMC pairs the two artifacts in one theory block (rdrag
+comes separately, from the
+[scalar-emulator family](#14-scalar-derived-parameter-emulators)):
+
+```yaml
+theory:
+  emul_baosn:
+    python_path: ./cobaya_theory/
+    extra_args:
+      device: cuda
+      emulators:
+        - chains/emulator_hubble_resmlp_ntrain50000
+        - chains/emulator_dm_resmlp_ntrain50000
+```
+
+get_Hubble (km/s/Mpc or 1/Mpc), get_comoving_radial_distance,
+get_angular_diameter_distance (+ the two-redshift variant), and
+get_luminosity_distance are served piecewise by query redshift. V1 is
+flat-only (a sampled omk is a loud error; the legacy curvature formula
+was dimensionally wrong and is not reproduced). Fine-tuning works per
+artifact (same quantity, grid, units, and law; the model: block is
+inherited). `--diagnostic` adds the per-redshift residual bands and,
+for the Hubble artifact, the derived-distance page computed through the
+real integration pipeline. Gates: bsn-identity / bsn-smoke — the smoke
+checks the served values against CAMB's own background, so it is the
+strongest end-to-end test in the board.
+
+---
+
+## 17. Emulating the matter power spectrum (hybrid inference, EMUL2)
+
+The MPS emulators CORRECT an approximate formula. The syren
+(symbolic_pofk) expressions give an analytic P(k, z); the network
+learns only the residual:
+
+    target = log( P(k, z) / P_syren(k, z; params) )
+
+so the amplitude and shape it must capture are gentle, and the exact
+formula is multiplied back at inference. Two artifacts serve
+everything:
+
+    the "pklin" artifact               the "boost" artifact
+    corrects the syren linear          corrects syren-halofit's
+    formula -> P_lin(k, z) [Mpc^3]     boost -> B = P_nl / P_lin
+                        \                /
+                         P_nl = B * P_lin
+
+Dumps come from `compute_data_vectors/dataset_generator_mps.py`: one
+CAMB call per sampled cosmology writes the raw surfaces AND the syren
+base beside them (the training divides the base out once, at staging —
+it is never recomputed under a possibly-updated package). The (z, k)
+grids ride as `_z.npy` / `_k.npy` sidecars and persist into the
+artifact; V1 trains on a thinned k grid (`k_stride`, top edge always
+kept) and the served interpolator fills between kept points.
+
+```yaml
+data:
+  grid2d:
+    quantity: boost           # or pklin for the linear artifact
+    units:    dimensionless   # Mpc3 for pklin
+    law:      syren_halofit   # syren_linear for pklin; none = raw
+    train_base: dvs_train_mps_unifs_boost_base.npy
+    val_base:   dvs_val_mps_unifs_boost_base.npy
+    z_file:     dvs_train_mps_unifs_z.npy
+    k_file:     dvs_train_mps_unifs_k.npy
+    k_stride:   10
+```
+
+**Hybrid inference (EMUL2):** cosmolike's `use_emulator: 2` mode
+consumes EMULATED CAMB PRODUCTS instead of a full data-vector emulator:
+P(k, z) from `emul_mps`, distances and H(z) from `emul_baosn`
+([section 16](#16-emulating-the-expansion-history-hz-bao-and-sn-distances)),
+r_drag from the
+[scalar-emulator family](#14-scalar-derived-parameter-emulators) —
+three theories in one sampling YAML. `emul_mps` serves `get_Pk_grid` /
+`get_Pk_interpolator` (linear and nonlinear) through the
+CAMB-compatible interpolator (adapted from CAMB by Antony Lewis), so a
+likelihood written against CAMB's provider needs no change:
+
+```yaml
+theory:
+  emul_mps:
+    python_path: ./cobaya_theory/
+    extra_args:
+      device: cuda
+      emulators:
+        - chains/emulator_pklin_resmlp_ntrain50000
+        - chains/emulator_boost_resmlp_ntrain50000
+```
+
+The acceptance experiment for the unit is the full EMUL2 evaluate run
+(the EXAMPLE_EMUL2_EVALUATE1.yaml pattern) with all three theories.
+Fine-tuning works per artifact (same quantity, law, and grids).
+Transfer learning is exclusive to the cosmolike and CMB data-vector
+families and is permanently out here. Gates: mps-identity / mps-smoke.
+
+---
+
+## 18. Appendix: the pipeline
 
 The goal is to replace an expensive physics code with a network that maps a
 handful of cosmological parameters to the cosmic-shear data vector, fast enough
 to call inside a cosmological inference and accurate enough that the data
-vector's [**chi2**](#16-appendix-the-chi2-metric-mahalanobis) — its distance from
+vector's [**chi2**](#19-appendix-the-chi2-metric-mahalanobis) — its distance from
 truth measured in the data covariance (a Mahalanobis distance; see the appendix),
 the quantity inference actually cares about — stays small. Two ideas run through the
 whole pipeline. **Whitening**: both the inputs and the outputs are rotated and
@@ -1729,13 +2049,13 @@ per-element error, because that is what an analysis uses.
 
 ```
 cosmological parameters
-   │   geometries_parameter.py   center, rotate, unit-scale          (whiten in)
+   │   geometries/parameter.py   center, rotate, unit-scale          (whiten in)
    ▼
 whitened inputs
    │   designs/plain.py          ResMLP, ResCNN, or ResTRF
    ▼
 whitened data vector
-   │   geometries_output.py      un-whiten + scatter to full length  (whiten out)
+   │   geometries/output.py      un-whiten + scatter to full length  (whiten out)
    ▼
 physical residual vs truth
    │   losses/core.py            contract with the inverse covariance
@@ -1788,14 +2108,14 @@ The local `arange` reindex is the trick: every consumer reads `C` / `dv` only
 through `idx`, so it does not matter whether `idx` points into the full memmap or
 the compact in-RAM subset — the pipeline is identical either way.
 
-**2. Whiten the inputs** (`geometries_parameter.py`). Raw cosmological parameters
+**2. Whiten the inputs** (`geometries/parameter.py`). Raw cosmological parameters
 are correlated and span wildly different scales. `ParamGeometry` centers them,
 rotates into the parameter-covariance eigenbasis, and scales each direction to
 unit variance, so the network receives decorrelated, unit-variance inputs rather
 than strongly correlated physical numbers.
 
 ```
-2.  Whiten the inputs                          ParamGeometry · geometries_parameter.py
+2.  Whiten the inputs                          ParamGeometry · geometries/parameter.py
 
       raw params  θ                            (B, n_param)  physical, correlated
           │
@@ -1812,7 +2132,7 @@ than strongly correlated physical numbers.
       encode(θ) = (θ − c) @ evecs / √λ          decode = (X · √λ) @ evecsᵀ + c  (exact inverse)
 ```
 
-**3. Whiten the output, and keep the metric** (`geometries_output.py`). The data
+**3. Whiten the output, and keep the metric** (`geometries/output.py`). The data
 vector is *masked* (the analysis keeps only some entries) and strongly
 correlated. `DataVectorGeometry` *squeezes* to the unmasked entries and whitens
 them in the data-covariance eigenbasis, so every network output is decorrelated
@@ -1820,7 +2140,7 @@ and equally hard to fit. The same object holds `Cinv`, the masked inverse
 covariance the chi2 contracts against — geometry and metric live together.
 
 ```
-3.  Whiten the output, keep the metric         DataVectorGeometry · geometries_output.py
+3.  Whiten the output, keep the metric         DataVectorGeometry · geometries/output.py
 
       raw data vector  d                        (B, total_size)  full 3x2pt
           │
@@ -1842,7 +2162,7 @@ covariance the chi2 contracts against — geometry and metric live together.
 ```
 
 **4. Build the loss** (`losses/core.py`). `make_chi2` wraps the output
-geometry in a chi2 — the error metric of [appendix 16](#16-appendix-the-chi2-metric-mahalanobis),
+geometry in a chi2 — the error metric of [appendix 19](#19-appendix-the-chi2-metric-mahalanobis),
 which weighs each residual by how well the survey can measure it.
 
 The network never sees raw data vectors. It is trained on *whitened*
@@ -1968,7 +2288,7 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 
 ---
 
-## 16. Appendix: the chi2 metric (Mahalanobis)
+## 19. Appendix: the chi2 metric (Mahalanobis)
 
 The loss and the reported metric are both a **chi2**, which is a squared
 **Mahalanobis distance** — the distance between two points measured *in units of
@@ -2014,7 +2334,7 @@ units, with correlations removed).
 
 ---
 
-## 17. Appendix: activation functions
+## 20. Appendix: activation functions
 
 The `ResBlock` nonlinearity is a **learnable, per-feature activation**: every
 feature (one entry of the vector) carries its own shape parameters, trained with
@@ -2101,7 +2421,7 @@ guard.
 
 ---
 
-## 18. Appendix: precedence — who wins when settings collide
+## 21. Appendix: precedence — who wins when settings collide
 
 Configuration arrives from several places — the YAML, the driver flags, the
 per-phase override blocks, and the built-in defaults. When two of them speak
@@ -2251,7 +2571,7 @@ source to disagree with — the heads-up is that a "missing knob" is intentional
 
 ---
 
-## 19. Appendix: Generating the training set
+## 22. Appendix: Generating the training set
 
 The `data` block (section 3) names five dumps — `train_dv`, `train_params`,
 `train_covmat`, `val_dv`, `val_params`. This appendix is where they come from:
@@ -2348,7 +2668,114 @@ mpirun -n 10 --report-bindings \
 
 ---
 
-## 20. AI-Usage
+## 23. Appendix: scripting a saved emulator (without Cobaya)
+
+A saved emulator has two doors. In a chain, the Cobaya theory blocks
+serve it — `emul_cosmic_shear` for data vectors ([section 1](#run-the-saved-emulator-in-a-cobaya-mcmc)),
+`emul_scalars` for derived parameters ([section 14](#14-scalar-derived-parameter-emulators)),
+`emul_cmb` for CMB spectra ([section 15](#15-emulating-cmb-spectra-tt--te--ee--phi-phi)),
+`emul_baosn` for the expansion history ([section 16](#16-emulating-the-expansion-history-hz-bao-and-sn-distances)),
+and `emul_mps` for the matter power spectrum ([section 17](#17-emulating-the-matter-power-spectrum-hybrid-inference-emul2)).
+Everywhere else — profile likelihoods, quick checks, plots, batch
+evaluation — you call the same artifact directly from Python, with no
+Cobaya anywhere:
+
+```
+                        ┌── in a chain: the Cobaya theory blocks
+saved emulator  ────────┤     emul_cosmic_shear / emul_scalars /
+ <root>.h5 + .emul      │     emul_cmb / emul_baosn / emul_mps
+                        └── in a script: EmulatorPredictor
+                              predict(dict) -> the family's native
+                                              output (table below)
+```
+
+Both doors share one decode path, so a script and a chain get identical
+values from the same artifact by construction.
+
+### Load one
+
+```python
+import os, sys
+sys.path.insert(0, os.path.join(os.environ["ROOTDIR"],
+                                "external_modules/code/emulators_code_v2"))
+from emulator.inference import EmulatorPredictor
+
+pred = EmulatorPredictor(
+    os.path.join(os.environ["ROOTDIR"],
+                 "projects/lsst_y1/chains/emulator_resmlp_t256_ntrain250000"),
+    device="cuda")          # "cpu" and "mps" work too
+```
+
+The one argument that matters is the path root — the saved emulator
+without its extension, resolving to `<root>.h5` + `<root>.emul`. The
+input names, their order, the rescalings, and the outputs are all read
+from the file; there is nothing else to configure.
+
+### What `predict` returns
+
+| the artifact | `predict({...})` returns |
+|---|---|
+| a data-vector emulator (sections 2–13) | a 1-D numpy array: by default this emulator's own probe block; build with `dv_return="3x2pt"` to get the full-length vector instead, kept entries in place and zeros elsewhere |
+| a scalar emulator (section 14) | a `{name: value}` dict of plain Python floats, one entry per emulated output |
+| a CMB emulator (section 15) | a 1-D numpy array of C_ell on the training multipole grid, in the dump units (muK^2; phi-phi dimensionless). The stored amplitude law is already multiplied back — the values are physical C_ell |
+| a background emulator (section 16) | a dict `{"z": the stored grid, "<quantity>": values}` — e.g. `"Hubble"` in km/s/Mpc; feed it to `distance_interpolators` for the distances (pattern below) |
+| a matter-power emulator (section 17) | a dict `{"z": ..., "k": ..., "<quantity>": an (nz, nk) surface}` in LAW space — for a syren-law artifact this is log(P / P_syren); the syren base is multiplied back by `emul_mps`, not here |
+
+The input is a dict of physical parameter values. Its keys are the
+artifact's stored input names — read them off `pred.names`; a scalar
+artifact also exposes `pred.output_names`. Extra keys in the dict are
+ignored; a missing one is an error naming it.
+
+### The profile-script pattern
+
+The legacy per-emulator classes took `file` / `extra` / `ord` /
+`extrapar` lists and one hardcoded getter per output. The v2 form of
+the same computation:
+
+```python
+etheta = EmulatorPredictor(root_thetaH0, device="cuda")
+erd    = EmulatorPredictor(root_rdrag,   device="cuda")
+
+out = etheta.predict({"omegabh2": 0.02238,
+                      "omegach2": 0.1201,
+                      "thetastar": 1.04109})
+h0, om = out["H0"], out["omegam"]
+rd     = erd.predict({"omegabh2": 0.02238,
+                      "omegach2": 0.1201})["rdrag"]
+```
+
+Each call evaluates one point; loop for a profile's grid. The
+`compile_model` flag defaults to False — single-point latency rarely
+pays back a compile.
+
+### The background pattern
+
+A background artifact returns its quantity on the stored redshift
+grid; the distances come from the same function the Cobaya adapter
+uses, so a script and a chain share one convention:
+
+```python
+from emulator.background import distance_interpolators
+
+ehub = EmulatorPredictor(root_hubble, device="cuda")
+out  = ehub.predict({"omegabh2": 0.02238, "omegach2": 0.1201,
+                     "H0": 67.36, "w": -1.0})
+dist = distance_interpolators(z_grid=out["z"], h_grid=out["Hubble"])
+dist["dl"](1.5)      # luminosity distance at z = 1.5, in Mpc
+dist["H"](0.5)       # H(z = 0.5), km/s/Mpc
+```
+
+### One caveat
+
+The predictor reads schema-v2 artifacts only. The legacy `.joblib` /
+`.pt` files with their `extra` / `ord` sidecars stay on the legacy
+classes; the v2 replacement is a retrain
+([section 14](#14-scalar-derived-parameter-emulators) — scalar maps
+retrain from a chain in minutes).
+
+---
+
+## 24. AI-Usage
 
 AI Usage: This library (under the `dev` folder) was developed with Claude
 Code assistance. However, Prof. Miranda heavily influenced the code at every
