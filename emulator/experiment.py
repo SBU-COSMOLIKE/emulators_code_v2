@@ -1381,6 +1381,18 @@ class EmulatorExperiment:
         raise ValueError(
           "no scalar model for architecture " + repr(name) + " (a scalar "
           "run is a plain design, ia=None; pick a name that has it)")
+      # D-SPE2-3: a scalar output has no angular axis, so the conv / TRF
+      # correction heads (which correct along it) cannot apply. Keyed on the
+      # class's declared head_block, not the name, so a future trunk-only
+      # design composes automatically. Without this a `name: rescnn` scalar
+      # YAML sails through and crashes deep at build_shear_angle_map.
+      model_cls = models[(name, None)]
+      if model_cls.head_block is not None:
+        raise ValueError(
+          f"model.name {name!r} has a correction head "
+          f"({model_cls.head_block}): the heads correct along the "
+          "angular axis, and a scalar output has no angular axis. A "
+          "scalar run is trunk-only; use name: resmlp")
       # activation precedence, the same rule as the normal path below: an
       # explicit --activation flag wins over model.activation, then "H".
       explicit_flag = kwargs.get("activation")
@@ -1393,7 +1405,7 @@ class EmulatorExperiment:
         else:
           kwargs["activation"] = "H"
       exp = cls(data=cfg["data"], train_args=ta,
-                model_cls=models[(name, None)],
+                model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
       exp.pce_opts   = None
       exp.ia         = None

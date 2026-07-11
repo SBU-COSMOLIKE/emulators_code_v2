@@ -544,6 +544,41 @@ scalar branch, then the binding emul_cosmic_shear + legacy emultheta reads
 -> emul_scalars, gates scalar-identity / scalar-smoke + configs + example
 YAML + README draft.
 
+### Update 4 (2026-07-10, Opus): D-SPE2-3 + driver + predictor landed + gated
+
+- D-SPE2-3 CLOSED: from_config scalar branch resolves `model_cls =
+  models[(name, None)]` and raises if `model_cls.head_block is not None`
+  (verbatim from the note); keyed on the declared head_block, not the name,
+  so a `name: rescnn` scalar YAML fails loudly at config time instead of
+  crashing at build_shear_angle_map. Probe leg added (guard present +
+  message + logic shape); the end-to-end rescnn-raises leg rides the
+  scalar-identity board gate.
+- `train_scalar_emulator.py` (new, thin driver): train_single minus
+  rescale / diagnostic / cosmolike; own `run_tag` = `<model>_ntrain<N>` (no
+  _cs_<T> temperature tag) and own attrs (train_params / val_params
+  basenames + outputs, no train_dv/val_dv, per the forward-walk finding);
+  save_emulator with pce=None / transfer_base=None.
+- `emulator/inference.py` EmulatorPredictor scalar branch (D-SP5): __init__
+  branches on `info["scalar"]` BEFORE the dv-geometry accounting
+  (section_sizes / probe, which a ScalarGeometry lacks), sets
+  output_names + _dtype, returns early (no _build_decoder); predict()
+  destandardizes via `geom.decode(pred)` and returns a `{name: value}`
+  dict. dv predict path unchanged (self._decode / unsqueeze intact).
+
+**Gate (Mac):** py_compile OK (experiment / inference / train_scalar_
+emulator); experiment probe ALL PASS incl. the new D-SPE2-3 legs; diffs
+additive/guarded (experiment +D-SPE2-3; inference 27+/5-, dv path intact).
+torch legs (real predict round-trip, save/rebuild, a scalar train) ride the
+scalar-identity / scalar-smoke board gates.
+
+**Next:** the BINDING reads (cobaya_theory/emul_cosmic_shear.py + a legacy
+emultheta / emulrdrag under Downloads/emulators_code-main) -> write
+cobaya_theory/emul_scalars.py (D-SP4 forbid-overlap, ruled); then gates
+scalar-identity (bitwise round-trip + auto-provides + subset/dup/overlap +
+D-SPE2-3 + D-SPE1-1 legs) / scalar-smoke (deterministic fixture dump +
+sidecar per D-SP7) + board configs + example YAML + README draft -> the
+full SPE IMPLEMENTER_HANDOFF with the workstation force-rerun list.
+
 ## Architect audit: increment-2 checkpoint (2026-07-10, Fable)
 
 **Verdict: both landed deltas VERIFIED (D-SPE1-1 closed, D-SP3 landed);
@@ -790,3 +825,65 @@ raises this error — to the Mac probe and the scalar-identity gate.
   emul_cosmic_shear.py + legacy emultheta reads -> emul_scalars.py,
   gates + configs + example YAML + README draft -> the full SPE
   IMPLEMENTER_HANDOFF with the workstation force-rerun list.
+
+## Architect audit: driver + predictor checkpoint (2026-07-10, Fable)
+
+**Verdict: D-SPE2-3 CLOSED (guard verbatim at experiment.py:1390);
+train_scalar_emulator.py VERIFIED with its whole external path walked;
+the EmulatorPredictor scalar branch VERIFIED with the dv path intact.
+NO new deltas — one optional nit. Proceed to the cobaya adapter.**
+Evidence is the Architect's own run.
+
+### Evidence
+
+- D-SPE2-3: the guard is the note's code verbatim, positioned after the
+  MODELS resolution and before the experiment is built; a name: rescnn
+  scalar YAML now dies at config with the angular-axis message.
+- Driver forward-walk (the new file's ENTIRE external surface):
+  resolve_cocoa_config rewrites _DATA_PATH_KEYS presence-guarded
+  (cocoa.py:136-138, `if key in data:`), so the absent train_dv /
+  val_dv never bite and the params/covmat paths land absolute — the
+  sidecar path derives from params_path inside load_scalar_source and
+  inherits the absolutization; from_config takes the scalar branch on
+  data.outputs; run() returns the loop's standard 5-tuple; every exp
+  attribute the driver reads (arch, activation, train_set/val_set idx,
+  resolved_train/resolved_model, thresholds, train_args) is set on the
+  scalar path; save_emulator's signature matches the call (pce /
+  pce_form / transfer_base None, attrs mapping). The attrs record
+  resolved values and REPLACE train_dv/val_dv with train_params /
+  val_params basenames + the outputs list — the forward-walk finding
+  landed as designed.
+- Predictor: the scalar branch in __init__ sits after self.names and
+  BEFORE the dv accounting (dest_idx / section_sizes / probe), sets
+  _scalar / output_names / _dtype and returns early; on the dv path
+  _scalar = False is still set (the assignment precedes the branch), so
+  predict's dispatch is always defined. predict's scalar leg is
+  geom.decode(pred)[0] zipped with output_names into {name: float} —
+  shape-correct against ScalarGeometry.decode. The dv legs (_decode,
+  unsqueeze, the section/3x2pt returns) appear only as CONTEXT lines in
+  the diff: untouched, matching the 27+/5- stat (the 5 deletions are
+  the predict docstring's Returns paragraph, rewritten to cover both).
+- Optional nit (no delta): run_tag and the attrs use
+  `exp.arch or "resmlp"` — arch is always set on the scalar path, so
+  the fallback is dead; on a persisted surface the purist
+  never-trust-defaults form drops the `or "resmlp"`. Cosmetic; fold in
+  only if touching the file anyway.
+
+### ARCHITECT_HANDOFF: DRIVER + PREDICTOR VERIFIED — BUILD THE COBAYA ADAPTER
+
+- **Audit outcome:** D-SPE2-3 CLOSED; the driver's external path walked
+  end to end (presence-guarded path rewriting confirmed at the source);
+  the predictor scalar branch verified with the dv path proven
+  untouched; no new deltas.
+- **Binding next step (unchanged):** READ cobaya_theory/
+  emul_cosmic_shear.py and a legacy emultheta / emulrdrag BEFORE
+  writing emul_scalars.py — the cobaya API surface (initialize /
+  get_requirements / get_can_provide_params / get_param / calculate /
+  must_provide) comes from those sources, never from this note's
+  paraphrase. D-SP4 as RULED: plain unions, forbid overlap loud,
+  duplicate outputs loud, provides: subset-check-only.
+- **Then:** gates scalar-identity (incl. the D-SPE1-1 / D-SPE2-1 /
+  D-SPE2-3 legs) / scalar-smoke (fixture dump + sidecar for the
+  computed omegamh2 target) + board configs + example YAML + README
+  draft -> the full SPE IMPLEMENTER_HANDOFF with the workstation
+  force-rerun list.

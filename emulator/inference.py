@@ -117,6 +117,16 @@ class EmulatorPredictor:
                               compile_model=compile_model)
 
     self.names      = list(self.pgeom.names)
+    # scalar (derived-parameter) emulator (D-SP5): predict returns a
+    # {name: value} dict, not a data vector, so skip the dv-geometry
+    # accounting (section_sizes / probe) and the physical-dv decoder that a
+    # ScalarGeometry does not have. The emulated output names come off the
+    # geometry; the input dtype still comes from the parameter whitening.
+    self._scalar = info["scalar"]
+    if self._scalar:
+      self.output_names = list(self.geom.names)
+      self._dtype = self.pgeom.center.dtype
+      return
     self.dest_idx   = self.geom.dest_idx
     self.total_size = self.geom.total_size
     # section accounting the geometry persisted (None on a file that predates
@@ -290,16 +300,28 @@ class EmulatorPredictor:
                factored combine, never entered into the network).
 
     Returns:
-      a 1-D numpy array. dv_return 'section' (the default): this emulator's
-      own probe block(s), shape (section_size,); for a cosmic-shear emulator
-      the xi block, the length the likelihood glues per probe. dv_return
-      '3x2pt': the full scattered vector (total_size,), the kept entries at
-      their dest_idx positions and 0 everywhere else.
+      For a scalar (derived-parameter) emulator: a {name: value} dict, one
+      entry per emulated output (D-SP5); the dv_return / section machinery
+      does not apply. For a data-vector emulator: a 1-D numpy array.
+      dv_return 'section' (the default): this emulator's own probe block(s),
+      shape (section_size,); for a cosmic-shear emulator the xi block, the
+      length the likelihood glues per probe. dv_return '3x2pt': the full
+      scattered vector (total_size,), the kept entries at their dest_idx
+      positions and 0 everywhere else.
     """
     x     = self._as_row(params)
     x_enc = self.pgeom.encode(x)
     with torch.no_grad():
       pred = self.model(x_enc)
+    # scalar (derived-parameter) emulator (D-SP5): destandardize the outputs
+    # (geom.decode) and return a {name: value} dict, not a data vector; there
+    # is no mask to unsqueeze through and no section to slice.
+    if self._scalar:
+      out = self.geom.decode(pred)[0]
+      result = {}
+      for i, nm in enumerate(self.output_names):
+        result[nm] = float(out[i])
+      return result
     dv_kept = self._decode(pred, x_enc)      # (1, n_keep) kept-entry
     dv_full = self.geom.unsqueeze(dv_kept)   # (1, total_size), 0 off dest_idx
     if self.dv_return == "3x2pt":
