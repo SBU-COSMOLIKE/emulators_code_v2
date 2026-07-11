@@ -27,9 +27,6 @@ emulator/                              the library (torch; cosmolike only in geo
     cmb.py                             the per-multipole diagonal C_ell geometry
     grid.py                            background functions of z + the log_offset law
     grid2d.py                          the (z, k) matter-power surfaces + the syren laws
-  geometries_*.py                      LEGACY SHIMS only: saved artifacts persist the OLD
-                                       flat module paths, so these re-exports live forever;
-                                       new code never imports them (a gate censuses it)
   background.py                        H(z) -> distances: the imposed background physics
   syren_base.py                        the syren analytic P(k) base the MPS emulators correct
   analytics.py                         analytic xi rescaling R (optional preprocessing)
@@ -60,6 +57,7 @@ emulator/                              the library (torch; cosmolike only in geo
   cocoa.py                             the cocoa project layout (paths, YAML resolution)
 
 train_single_*.py / train_scalar_*.py  CLI: one training run (+ optional diagnostics PDF)
+train_{cmb,baosn,mps}_emulator.py      CLI: the same run, family pinned (thin wrappers)
 tune_*.py                              CLI: Optuna search (cosmic shear multi-GPU; the
                                        per-family tune_{scalar,cmb,baosn,mps}_ serial)
 sweep_ntrain_*.py                      CLI: f(dchi2 > thr) vs N_train (same split)
@@ -67,6 +65,9 @@ sweep_hyperparam_*.py                  CLI: sweep ONE YAML-chosen knob  (multi-G
 bakeoff_activation_*.py                CLI: one curve per activation    (multi-GPU)
 example_yamls/                         template YAMLs; copy one into a project's --fileroot
 cobaya_theory/                         one thin cobaya Theory adapter per artifact kind
+syren/                                 the VENDORED syren (symbolic_pofk) P(k) formulas
+                                       the MPS emulators correct (numpy-only; provenance
+                                       + the import-only deviations in syren/README.md)
 compute_data_vectors/                  the training-set generators + the CMB covariance
 gates/                                 the acceptance board (32 gates; see gates/README.md)
 ```
@@ -121,9 +122,8 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `geometries/cmb.py` | `CmbDiagonalGeometry`: per-multipole whitening by the cosmic-variance error bar (sigma from the covariance script's .npz), the spectrum / units / amplitude-law facts persisted. |
 | `geometries/grid.py` | `GridGeometry` + `TARGET_LAWS`: a function on a stored z grid, the law (`log_offset` / `none`) inside encode/decode. |
 | `geometries/grid2d.py` | `Grid2DGeometry` + `TARGET_LAWS_2D`: a flattened (z, k) surface standardized in LAW space (the syren division happens at staging; see `syren_base.py`). |
-| `geometries_*.py` (flat) | The legacy shims — one re-export line each. Saved artifacts persist geometry classes as full module paths, and `rebuild_emulator` imports exactly the stored string, so the old paths must import forever. |
 | `background.py` | The BAOSN imposed physics: the legacy cumulative Simpson (verbatim), c/H on the doubled grid, the flat distance conversions, `distance_interpolators`. |
-| `syren_base.py` | The syren (symbolic_pofk) base formulas the MPS emulators correct (`base_pklin`, `base_boost`) + `syren_params_from` (the ONE rule mapping resolved parameters to the base's arguments — generator and adapter cannot disagree). |
+| `syren_base.py` | The syren base surface the MPS emulators correct (`base_pklin`, `base_boost`) + `syren_params_from` (the ONE rule mapping resolved parameters to the base's arguments — generator and adapter cannot disagree). The formulas themselves are vendored in `syren/` (numpy-only), so the imports are unconditional. |
 | `analytics.py` | Closed-form analytic xi (Eisenstein-Hu) to divide out broadband cosmology dependence — the optional rescaling `R`. |
 
 **Model**
@@ -165,6 +165,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 |---|---|
 | `train_single_emulator_cosmic_shear.py` | One training run — cosmic shear, cmb, grid, or grid2d (the data block picks the family); `--diagnostic` writes the multipage PDF with that family's pages. |
 | `train_scalar_emulator.py` | One scalar training run; `--diagnostic` adds the scalar pages. |
+| `train_{cmb,baosn,mps}_emulator.py` | Thin family wrappers over the cosmic-shear driver's `main()`: each pins its data-block family (`cmb` / `grid` / `grid2d`), so a wrong-family YAML fails naming the right driver (`require_family_block`). |
 | `tune_single_emulator_cosmic_shear.py` | Optuna study; multi-GPU via a shared journal-file study. |
 | `tune_{scalar,cmb,baosn,mps}_emulator.py` | The per-family Optuna studies (serial, in-memory; `family_drivers.run_tune`). |
 | `sweep_ntrain_emulator_cosmic_shear.py` | `f(dchi2 > thr)` vs `N_train`; multi-GPU, LPT-balanced; `--gpu-pack`. |
@@ -208,6 +209,7 @@ other kinds' artifacts loudly, naming the right adapter)
 | an activation function | `activations.py` (register it in `make_activation`) |
 | the loss / add a chi2 variant | `losses/core.py` (variants in their family files); the shared reduction is `_reduce` there |
 | a new imposed target law | the family geometry's registry + its executor (`losses/cmb.py` for amplitude laws; the geometry itself for grid laws; `syren_base.py` for a cosmology-dependent base) |
+| update the syren base formulas | re-vendor `syren/` deliberately (see `syren/README.md`) and RETRAIN the MPS artifacts — the base dumps beside old training data still carry the formula they were generated with |
 | how parameters are whitened (input) | `geometries/parameter.py` |
 | dv whitening / cosmolike reading (output) | `geometries/output.py` |
 | a NEW output family | a geometry module (+ `state`/`from_state`), a loss (or reuse `ScalarChi2`), a `validate_<family>` + `from_config` branch + `build_geometry` branch in `experiment.py`, a predictor branch in `inference.py`, an adapter in `cobaya_theory/`, two gates — scalar / cmb / grid / grid2d are four worked examples |
@@ -314,7 +316,8 @@ The BAOSN imposed physics (one definition for the adapter AND direct scripts).
 ### `emulator/syren_base.py` <a name="apx-syren_base"></a>
 
 The syren analytic P(k) base (one definition for the generator, `emul_mps`,
-and the gates).
+and the gates). The formulas import from the vendored `syren/` package
+(numpy-only; provenance + deviations in `syren/README.md`).
 
 - `syren_params_from(params)` — the ONE mapping rule from resolved parameters to the base arguments (`As`/`As_1e9`; an absent equation of state means LCDM on both sides).
 - `base_pklin(...)` / `base_boost(...)` — the legacy `_compute_mps_approximation` / `_compute_boost_approximation` math verbatim (unit conventions included).
@@ -448,6 +451,7 @@ Each `main()` reads `--root` / `--fileroot` / `--yaml`.
 
 - `train_single_emulator_cosmic_shear.py` — one training run (any dv-shaped family) + the diagnostics PDF.
 - `train_scalar_emulator.py` — one scalar run + the diagnostics PDF.
+- `train_cmb_emulator.py` / `train_baosn_emulator.py` / `train_mps_emulator.py` — the thin family wrappers (`main(prog, family)` + `require_family_block`).
 - `tune_single_emulator_cosmic_shear.py` — the multi-GPU journal study; `tune_{scalar,cmb,baosn,mps}_emulator.py` — the serial per-family studies.
 - `sweep_ntrain_emulator_cosmic_shear.py` — the multi-GPU learning curve; `sweep_ntrain_{scalar,cmb,baosn,mps}_emulator.py` — the serial per-family curves.
 - `sweep_hyperparam_emulator_cosmic_shear.py` — one YAML-chosen knob.

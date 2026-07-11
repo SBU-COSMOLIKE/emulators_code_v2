@@ -30,8 +30,9 @@ data:
     law: syren_halofit
 
     # the generator's *_base dumps (REQUIRED under a syren law): the
-    # analytic base rows the staging divides out, read from disk so the
-    # training never re-runs a possibly-drifted symbolic_pofk.
+    # analytic base rows the staging divides out, read from disk so
+    # training uses exactly the base the generator wrote (the formulas
+    # themselves are vendored in syren/ — pinned twice).
     train_base: dvs_train_mps_unifs_boost_base.npy
     val_base:   dvs_val_mps_unifs_boost_base.npy
 

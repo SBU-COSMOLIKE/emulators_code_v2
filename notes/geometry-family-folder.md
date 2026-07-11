@@ -117,3 +117,37 @@ pattern), [[scalar-parameter-emulators]], [[cmb-spectra-emulators]],
 
 GEO executed 2026-07-11 (above). Board acceptance pending on the
 workstation.
+
+## D-GEO5 — the shims retired (user ruling, 2026-07-11)
+
+The user, seeing six `geometries_*.py` files still in the tree, ruled:
+**no real (science) emulator was ever trained — only test artifacts —
+so the backward-compat constraint the shims served does not exist.**
+The shims were built for artifacts that predate the folder; with none
+worth preserving, they retire immediately rather than "live forever".
+
+- **Deleted:** the six flat shims (`git rm`), each was a docstring +
+  one re-export.
+- **The gate contract INVERTED** (gates/checks/geo_paths.py rewritten,
+  board docstring/label/maps updated, still 32 gates): leg 1 = a fresh
+  save writes the folder cls paths and rebuilds + predicts through
+  them; leg 2 = the old flat paths are DEAD, loudly — gone from disk
+  AND `import emulator.geometries_<name>` raises ModuleNotFoundError
+  naming the path (a stale artifact fails its rebuild with the module
+  path in the error, never a silent partial load); leg 3 = the tree
+  census, now with NO shim exemption (only the gate file itself is
+  excluded).
+- **Docs:** the geometries/__init__ docstring records the retirement;
+  the code map's shim tree entry + table row deleted.
+- **Mac probe 4/4:** flat files gone from disk (6/6); under the GEO
+  probe's exact stub harness (where the shim imports SUCCEEDED
+  pre-retirement) every old path now raises ModuleNotFoundError naming
+  it while every folder path imports; census clean; board registry
+  census 32 with geo-paths torch-only.
+- Torch-side confirmation = the geo-paths gate on the workstation
+  board, as before.
+
+The h5 cls-marker mechanism itself is unchanged (artifacts persist
+full module paths; rebuild imports the stored string) — new saves have
+written folder paths since D-GEO1, so nothing saved after the move is
+affected.

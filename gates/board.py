@@ -1126,9 +1126,10 @@ def gate_mps_b(ctx):
   mean predictor; the real cobaya lifecycle through emul_mps serves
   P_lin and P_nl (grid + interpolator) within 5% of CAMB's OWN
   P(k, z) at an off-center point; the interpolator range guard. The
-  syren-law path is exactly gated by mps-identity's stubbed legs, and
-  the full syren + EMUL2 hybrid run is the unit's recorded acceptance
-  experiment (EXAMPLE_EMUL2_EVALUATE1.yaml, user-run on the
+  syren-law path is exactly gated by mps-identity's stubbed legs (the
+  formulas themselves are vendored in syren/), and the full syren +
+  EMUL2 hybrid run is the unit's recorded acceptance experiment
+  (cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml, user-run on the
   workstation). torch + cobaya + a compiled CAMB under $ROOTDIR
   (spec: mps-emulators.md, D-MP3/4/6).
   """
@@ -1143,27 +1144,27 @@ def gate_mps_b(ctx):
 
 
 def gate_geo_a(ctx):
-  """geo-paths: the geometry folder move is artifact-immune.
+  """geo-paths: the geometry folder is the ONLY geometry home.
 
-  WHAT: a fresh artifact's geometry cls markers rewritten to the OLD
-  flat module paths (emulator.geometries_<name>.<Class> — what every
-  pre-GEO artifact persists) must rebuild and predict BITWISE against
-  the untouched artifact (the legacy shims route the stored import to
-  the one class object); a fresh save writes the NEW folder paths
-  automatically (type().__module__, the resolved-values rule); each
-  shim's classes ARE the folder classes (alias, isinstance sound); and
-  the tree-wide census proves no code outside the shims references the
-  old flat names. Acceptance beyond this gate = the full board green
+  WHAT: a fresh save writes the folder cls paths automatically
+  (emulator.geometries.<name>.<Class> via type().__module__, the
+  resolved-values rule) and rebuilds + predicts through those stored
+  strings; the six legacy flat modules are DEAD — gone from disk and
+  raising ModuleNotFoundError on import (a pre-retirement artifact
+  fails loudly with the module path in the error, never a silent
+  partial load); and the tree-wide census proves nothing references
+  the old flat names. The shims that originally rode the move were
+  retired by user ruling 2026-07-11 (no science artifact predates the
+  move; D-GEO5). Acceptance beyond this gate = the full board green
   (every gate touches geometries) with ema-off-identity pinning
   byte-identity, the GRF precedent (spec: geometry-family-folder.md,
-  D-GEO1..4).
+  D-GEO1..5).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/geo_paths.py")
   if not ctx.dry:
     ctx.expect(
-      label="geo-paths old-path rebuild + new-save markers + shim "
-            "identity/census",
+      label="geo-paths new-save markers + dead legacy paths + census",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
              + " (gates/checks/geo_paths.py)")
@@ -1372,12 +1373,12 @@ BOARD = [
        needs=("torch",)),
   Gate(id="geo-paths",
        spec_code="GEO-A",
-       title="Geometry folder artifact immunity",
+       title="Geometry folder is the only geometry home",
        tier=TIER_NEW_FEATURES,
        home="geometry-family-folder",
-       maps="D-GEO2 (shims); D-GEO3 (import rewrite census); D-GEO4 "
-            "(old-path rebuild + new-save markers + full-board "
-            "acceptance)",
+       maps="D-GEO3 (import rewrite census); D-GEO4 (new-save markers "
+            "+ full-board acceptance); D-GEO5 (shims retired: legacy "
+            "flat paths dead, loudly)",
        run=gate_geo_a,
        needs=("torch",)),
 
