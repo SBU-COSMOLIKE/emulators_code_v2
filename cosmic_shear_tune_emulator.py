@@ -125,7 +125,7 @@ def journal_storage(path):
 
 
 def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
-                 journal_path, timeout, quiet):
+                 journal_path, study_name, timeout, quiet):
   """
   One GPU's share of the study; runs in its own spawned process.
 
@@ -165,7 +165,7 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
 
   optuna.logging.set_verbosity(optuna.logging.WARNING)
   study = optuna.load_study(
-    study_name=STUDY_NAME,
+    study_name=study_name,
     storage=journal_storage(journal_path),
     sampler=optuna.samplers.TPESampler(seed=gpu_id))
 
@@ -214,9 +214,8 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
                  callbacks=[log_trial])
 
 
-def main():
-  parser = argparse.ArgumentParser(
-    prog="cosmic_shear_tune_emulator")
+def main(prog="cosmic_shear_tune_emulator", family=None):
+  parser = argparse.ArgumentParser(prog=prog)
   # --root / --fileroot / --yaml: the cocoa project layout (data under
   # --root, YAML under --fileroot; train_args may carry [default, min,
   # max, kind] ranges).
@@ -279,6 +278,16 @@ def main():
   # $ROOTDIR/<root>, YAML under <fileroot>), load the YAML, and make its data
   # paths absolute. The fileroot also hosts the parallel path's journal file.
   cfg, fileroot, _ = resolve_cocoa_config(args)
+  # a thin per-family driver passes its family (the DATA-BLOCK key:
+  # outputs / cmb / grid / grid2d); the dispatching driver passes
+  # None. require_family_block (cosmic_shear_train_emulator.py): a
+  # wrong-family YAML fails here NAMING the right driver.
+  if family is not None:
+    from cosmic_shear_train_emulator import require_family_block
+    require_family_block(data=cfg["data"], family=family, prog=prog)
+  # per-family studies own their name (one journal file can never
+  # mix families); the cosmic-shear study keeps its historic name.
+  study_name = STUDY_NAME if family is None else prog
 
   # Setup (config parse, model resolution, device, data staging, geometry,
   # chi2, per-run spec assembly) lives in EmulatorExperiment, shared with the
@@ -398,7 +407,7 @@ def main():
     # cocoa_output (cocoa.py): join the fileroot to the journal name.
     journal_path = cocoa_output(fileroot, args.journal)
     study = optuna.create_study(
-      study_name=STUDY_NAME,
+      study_name=study_name,
       storage=journal_storage(journal_path),
       direction="minimize",
       load_if_exists=True)
@@ -434,8 +443,8 @@ def main():
     for k in range(n_workers):
       # args positional order matches _tune_worker's signature:
       # (gpu_id, n_trials, cfg, rescale, activation, journal_path,
-      #  timeout, quiet). Process forwards them positionally, so the
-      # tuple order is load-bearing.
+      #  study_name, timeout, quiet). Process forwards them
+      # positionally, so the tuple order is load-bearing.
       p = ctx.Process(target=_tune_worker,
                       args=(k,
                             shares[k],
@@ -443,6 +452,7 @@ def main():
                             args.rescale,
                             args.activation,
                             journal_path,
+                            study_name,
                             args.timeout,
                             args.quiet))
       p.start()
@@ -451,7 +461,7 @@ def main():
       p.join()
 
     # re-read the study so the summary reflects every worker's trials.
-    study = optuna.load_study(study_name=STUDY_NAME,
+    study = optuna.load_study(study_name=study_name,
                               storage=journal_storage(journal_path))
     finished = False
     for t in study.trials:

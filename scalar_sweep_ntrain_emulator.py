@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Trace f(delta-chi2 > thr) vs N_train for a SCALAR emulator (D-MP5).
+"""Trace f(delta-chi2 > thr) vs N_train for a scalar (derived-parameter) emulator.
 
-The scalar sibling of cosmic_shear_sweep_ntrain_emulator.py: same YAML
-schema as scalar_train_emulator.py (data.outputs marks the family), one
-fresh training per grid point, serial (scalar trainings are cheap; the
-multi-GPU pool stays the cosmic-shear driver's tool). Writes <out>.txt
-(the np.loadtxt-loadable curve) and <out>.pdf under --fileroot.
+The scalar sibling of cosmic_shear_sweep_ntrain_emulator.py, and a thin
+wrapper over that driver's main(): the SAME code path, so every
+capability carries over — the multi-GPU pool (--n-gpus), --gpu-pack
+co-location, the LPT balance, and the serial path on one GPU / Apple
+MPS. The YAML is the training driver's, with a data.outputs block marking
+the family; one fresh training per grid point; writes <out>.txt (the
+np.loadtxt-loadable curve) and <out>.pdf under --fileroot.
 
 Example:
   python .../scalar_sweep_ntrain_emulator.py \\
@@ -15,26 +17,15 @@ Example:
     --n-min 2000 --n-points 6 --out ntrain_scalar
 """
 
-import argparse
-
-from emulator.cocoa import add_cocoa_path_args
-from emulator.family_drivers import add_sweep_args, run_ntrain_sweep
-
-
-def main():
-  """Parse the shared sweep CLI and run the serial scalar sweep."""
-  parser = argparse.ArgumentParser(prog="scalar_sweep_ntrain_emulator")
-  add_cocoa_path_args(parser)
-  add_sweep_args(parser)
-  parser.add_argument("--out",
-                      dest="out",
-                      help="output name root under --fileroot "
-                           "(default ntrain_scalar)",
-                      type=str,
-                      default="ntrain_scalar")
-  args, _ = parser.parse_known_args()
-  run_ntrain_sweep(args, family="scalar", out_default="ntrain_scalar")
-
+# main (cosmic_shear_sweep_ntrain_emulator.py): the whole sweep driver —
+# the CLI (--n-min/--n-max/--n-points/--threshold/--n-gpus/--gpu-pack/
+# --out), the serial and multi-GPU paths, and the outputs. The wrapper
+# only pins the family: family="outputs" makes a YAML without a
+# data.outputs block fail at startup NAMING the right driver
+# (require_family_block), and out_default keeps this family's own
+# output name when --out is absent.
+from cosmic_shear_sweep_ntrain_emulator import main
 
 if __name__ == "__main__":
-  main()
+  main(prog="scalar_sweep_ntrain_emulator", family="outputs",
+       out_default="ntrain_scalar")

@@ -70,7 +70,20 @@ In order, with the commit that carries each:
    interface. Both await the user's audit and are sequenced AFTER the
    board baseline + EMUL2. Open ruling inside D-CM12: what the
    roughness term means under a rotated (non-diagonal) whitening.
-9. **The notes consolidation** (this commit): ~85 notes rewritten into
+9. **Family driver parity** (evening, user directive "mimic the
+   cosmic-shear capabilities"): the cosmic-shear sweep_ntrain /
+   sweep_hyperparam / tune drivers gained the train driver's
+   main(prog, family) surface (+ out_default; per-family Optuna
+   study names), and ALL twelve family sweep/tune drivers became
+   thin wrappers over them — multi-GPU, --gpu-pack, LPT, and the
+   journal study now work for every family; the earlier serial
+   family_drivers loops were deleted (family_drivers.py keeps the
+   sweep-block helpers, one definition tree-wide); gpu-pack's VRAM
+   estimate handles the scalar family's dv-less data block. Pool
+   workers proven AST-identical to HEAD; probes 4/4. Every thin
+   wrapper (train included) now carries provenance comments naming
+   where main lives and what the wrapper pins.
+10. **The notes consolidation**: ~85 notes rewritten into
    ~11; the old files are retired but survive in git history — for any
    forensic question, `git log --follow` the old path.
 

@@ -227,7 +227,13 @@ def _run_parallel(cfg, sizes, n_workers, args, log):
   lanes = 1
   job_tokens = None
   if args.gpu_pack:
-    dv_width = np.load(cfg["data"]["train_dv"], mmap_mode="r").shape[1]
+    if "train_dv" in cfg["data"]:
+      dv_width = np.load(cfg["data"]["train_dv"],
+                         mmap_mode="r").shape[1]
+    else:
+      # a scalar run has no dv dump; its targets are the named
+      # output columns, len(outputs) wide (tiny).
+      dv_width = len(cfg["data"]["outputs"])
     # get_device_properties(0): the positional 0 is the CUDA device
     # index (GPU 0, under the homogeneous-GPU assumption above).
     total    = torch.cuda.get_device_properties(0).total_memory
@@ -291,9 +297,9 @@ def _run_parallel(cfg, sizes, n_workers, args, log):
   return fracs
 
 
-def main():
-  parser = argparse.ArgumentParser(
-    prog="cosmic_shear_sweep_ntrain_emulator")
+def main(prog="cosmic_shear_sweep_ntrain_emulator", family=None,
+         out_default="ntrain_sweep"):
+  parser = argparse.ArgumentParser(prog=prog)
   # --root / --fileroot / --yaml: the cocoa project layout (data under
   # --root, YAML + curve outputs under --fileroot). Same schema as the
   # training driver.
@@ -358,14 +364,19 @@ def main():
   parser.add_argument("--out",
                       dest="out",
                       help="output base path -> <out>.txt + <out>.pdf "
-                           "(default ntrain_sweep)",
+                           "(default: the driver's own name, e.g. "
+                           "ntrain_sweep)",
                       type=str,
-                      default="ntrain_sweep")
+                      default=None)
   parser.add_argument("--quiet",
                       dest="quiet",
                       help="suppress all stdout (txt / pdf still written)",
                       action="store_true")
   args, unknown = parser.parse_known_args()
+  # --out absent -> the driver's own default (the family
+  # wrappers pass their per-family name through out_default).
+  if args.out is None:
+    args.out = out_default
 
   # headless figure output: pick a non-interactive matplotlib backend before
   # emulator.plotting imports pyplot (lazily below) and before any worker spawns,
@@ -378,6 +389,13 @@ def main():
   # to each GPU process; absolute paths mean every spawned worker reads the
   # same files.
   cfg, fileroot, _ = resolve_cocoa_config(args)
+  # a thin per-family driver passes its family (the DATA-BLOCK key:
+  # outputs / cmb / grid / grid2d); the dispatching driver passes
+  # None. require_family_block (cosmic_shear_train_emulator.py): a
+  # wrong-family YAML fails here NAMING the right driver.
+  if family is not None:
+    from cosmic_shear_train_emulator import require_family_block
+    require_family_block(data=cfg["data"], family=family, prog=prog)
 
   # build the experiment on the real compute device (CUDA, or Apple MPS on the
   # dev machine); pool size and model name are read off it, and the serial path
@@ -464,6 +482,7 @@ def main():
     sizes=sizes,
     curves={"frac": fracs},
     meta={"model": model_name,
+          "family": family or "cosmic_shear",
           "rescale": args.rescale,
           "activation": args.activation,
           "threshold": args.threshold,

@@ -36,6 +36,11 @@ compute_data_vectors/compute_cmb_covariance.py.
 #  (per-multipole residual bands + the short-period wiggle content) to
 #  the standard PDF.
 
+# main (cosmic_shear_train_emulator.py): the whole train driver —
+# the CLI (--save/--diagnostic/--quiet/...), training, saving, and
+# the per-family diagnostics pages. The wrapper only pins the
+# family: family="cmb" makes a wrong-family YAML fail at
+# startup NAMING the right driver (require_family_block).
 from cosmic_shear_train_emulator import main
 
 if __name__ == "__main__":

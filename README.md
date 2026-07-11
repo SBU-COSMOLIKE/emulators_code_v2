@@ -315,7 +315,9 @@ edit it). The `sweep:` block is documented [below](#sweep-block).
 
 ### The `sweep:` block (one-knob sweeps) <a name="sweep-block"></a>
 
-`cosmic_shear_sweep_hyperparam_emulator.py` reads one extra top-level YAML
+`cosmic_shear_sweep_hyperparam_emulator.py` (and the per-family
+`<family>_sweep_hyperparam_emulator.py` siblings, which run the same
+sweep serially) reads one extra top-level YAML
 block (the other drivers ignore it) naming exactly one `train_args` leaf by
 its dotted path, and the values to try — one full training per value at
 fixed `N_train`:
@@ -414,17 +416,18 @@ per-family drivers differ only in their prog names and defaults.
 | baosn_train_emulator.py | baosn | train one background emulator (requires data.grid); `--diagnostic` adds the redshift + derived-distance pages |
 | mps_train_emulator.py | mps | train one matter-power emulator (requires data.grid2d); `--diagnostic` adds the (z, k) residual-surface pages |
 | cosmic_shear_sweep_ntrain_emulator.py | cosmic shear | f(delta-chi2 > thr) vs `N_train`, multi-GPU pool + gpu-pack |
-| scalar_sweep_ntrain_emulator.py | scalar | the same learning curve, serial |
-| cmb_sweep_ntrain_emulator.py | cmb | the same, serial |
-| baosn_sweep_ntrain_emulator.py | baosn | the same, serial |
-| mps_sweep_ntrain_emulator.py | mps | the same, serial |
+| scalar_sweep_ntrain_emulator.py | scalar | the same learning curve (thin wrapper: multi-GPU + `--gpu-pack` carry over) |
+| cmb_sweep_ntrain_emulator.py | cmb | the same (thin wrapper) |
+| baosn_sweep_ntrain_emulator.py | baosn | the same (thin wrapper) |
+| mps_sweep_ntrain_emulator.py | mps | the same (thin wrapper) |
 | cosmic_shear_tune_emulator.py | cosmic shear | Optuna study, multi-GPU journal |
-| scalar_tune_emulator.py | scalar | Optuna study, serial in-memory |
+| scalar_tune_emulator.py | scalar | Optuna study (thin wrapper: serial or `--n-gpus` journal study) |
 | cmb_tune_emulator.py | cmb | the same |
 | baosn_tune_emulator.py | baosn | the same |
 | mps_tune_emulator.py | mps | the same |
 | cosmic_shear_bakeoff_activation_emulator.py | cosmic shear | activation bake-off learning curves |
-| cosmic_shear_sweep_hyperparam_emulator.py | cosmic shear | one-axis hyperparameter sweeps |
+| cosmic_shear_sweep_hyperparam_emulator.py | cosmic shear | one-axis hyperparameter sweeps, multi-GPU |
+| {scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py | each family | thin wrappers over the cosmic-shear driver: same one-knob sweep, multi-GPU + `--gpu-pack` |
 
 The four cosmic-shear drivers still carry their original names; renaming
 them into the namespace is a recorded polish item that lands after the

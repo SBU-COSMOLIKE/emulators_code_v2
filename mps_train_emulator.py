@@ -39,6 +39,11 @@ interpolator fills back in.
 #  bands at three redshifts — under a syren law the residual reads as
 #  ln(P_pred / P_truth), the base cancels in law space).
 
+# main (cosmic_shear_train_emulator.py): the whole train driver —
+# the CLI (--save/--diagnostic/--quiet/...), training, saving, and
+# the per-family diagnostics pages. The wrapper only pins the
+# family: family="grid2d" makes a wrong-family YAML fail at
+# startup NAMING the right driver (require_family_block).
 from cosmic_shear_train_emulator import main
 
 if __name__ == "__main__":
