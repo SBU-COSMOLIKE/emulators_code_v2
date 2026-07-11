@@ -8,15 +8,15 @@ so an array larger than RAM is never loaded whole.
 #-------------------------------------------------------------------------------
 # How to run this program
 #-------------------------------------------------------------------------------
-# This driver is the tuning twin of train_single_emulator_cosmic_shear.py: it
+# This driver is the tuning twin of cosmic_shear_train_emulator.py: it
 # reuses the same single cosmic-shear (xi) emulator setup (resmlp | rescnn |
 # restrf, optionally with a factored ia design, per the YAML), but runs an
 # Optuna study minimizing validation f(delta-chi2 > 0.2) rather than one run.
 #
-# python .../emultrfv2/tune_single_emulator_cosmic_shear.py \
+# python .../emultrfv2/cosmic_shear_tune_emulator.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
-#   --yaml train_single_emulator_cosmic_shear.yaml \
+#   --yaml cosmic_shear_train_emulator.yaml \
 #   --n-trials 50 --timeout 4200
 #
 #- The searched hyperparameters come from the YAML train_args block. Each leaf is
@@ -95,7 +95,7 @@ from emulator.experiment import EmulatorExperiment, validate_sweep_paths
 
 # one shared study name inside the journal file; the file path (not
 # this name) is what separates studies.
-STUDY_NAME = "tune_single"
+STUDY_NAME = "cosmic_shear_tune"
 
 
 def journal_storage(path):
@@ -216,7 +216,7 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
 
 def main():
   parser = argparse.ArgumentParser(
-    prog="tune_single_emulator_cosmic_shear")
+    prog="cosmic_shear_tune_emulator")
   # --root / --fileroot / --yaml: the cocoa project layout (data under
   # --root, YAML under --fileroot; train_args may carry [default, min,
   # max, kind] ranges).

@@ -1,6 +1,6 @@
-# Config for train_single_emulator_cosmic_shear.py
+# Config for cosmic_shear_train_emulator.py
 #
-# sweep_ntrain_emulator_cosmic_shear.py and bakeoff_activation_emulator_cosmic_shear.py
+# cosmic_shear_sweep_ntrain_emulator.py and cosmic_shear_bakeoff_activation_emulator.py
 # reuse this same YAML unchanged (their range leaves collapse to the defaults).
 #
 # The data files below are bare filenames; the driver resolves them under
@@ -37,7 +37,7 @@ data:
   split_seed:    0
   ram_frac:      0.7     # RAM fraction stage_source may fill
 
-# Read only by sweep_hyperparam_emulator_cosmic_shear.py (the other
+# Read only by cosmic_shear_sweep_hyperparam_emulator.py (the other
 # drivers ignore this block): sweep exactly one train_args leaf, named
 # by its dotted path, over the listed values (one full training per
 # value at fixed N_train; outputs a value/frac table + figure like the
@@ -60,14 +60,14 @@ data:
 # continue a saved emulator on a new training set with a lower initial
 # learning rate, by adding a train_args.finetune block (and dropping the
 # model: block, whose architecture is then inherited from the source). See
-# example_yamls/finetune_emulator_cosmic_shear.yaml and
+# example_yamls/cosmic_shear_finetune_emulator.yaml and
 # notes/finetune-warm-start.md.
 #
 # Transfer learning (a frozen base + a small parallel correction net, for a
 # larger model extension like Early Dark Energy + w(z)-PCA): add a top-level
 # transfer: block (from / form / space) and keep a model: block describing the
 # correction net's capacity. See
-# example_yamls/transfer_emulator_cosmic_shear.yaml and
+# example_yamls/cosmic_shear_transfer_emulator.yaml and
 # notes/transfer-parallel-emulator.md.
 
 train_args:

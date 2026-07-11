@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Trace f(delta-chi2 > thr) vs N_train for an MPS grid2d emulator (D-MP5).
 
-The matter-power-spectrum sibling of sweep_ntrain_emulator_cosmic_shear.py:
+The matter-power-spectrum sibling of cosmic_shear_sweep_ntrain_emulator.py:
 same YAML schema as the training driver with a data.grid2d block (the
 linear P(k, z) or the nonlinear boost — one artifact per run), one fresh
 training per grid point, serial. Writes <out>.txt (the
 np.loadtxt-loadable curve) and <out>.pdf under --fileroot.
 
 Example:
-  python .../sweep_ntrain_mps_emulator.py \\
+  python .../mps_sweep_ntrain_emulator.py \\
     --root projects/mps/ \\
     --fileroot emulators/training_scripts/ \\
     --yaml mps_boost_emulator.yaml \\
@@ -23,7 +23,7 @@ from emulator.family_drivers import add_sweep_args, run_ntrain_sweep
 
 def main():
   """Parse the shared sweep CLI and run the serial MPS sweep."""
-  parser = argparse.ArgumentParser(prog="sweep_ntrain_mps_emulator")
+  parser = argparse.ArgumentParser(prog="mps_sweep_ntrain_emulator")
   add_cocoa_path_args(parser)
   add_sweep_args(parser)
   parser.add_argument("--out",

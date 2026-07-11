@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Trace f(delta-chi2 > thr) vs N_train for a BAOSN grid emulator (D-MP5).
 
-The background-family sibling of sweep_ntrain_emulator_cosmic_shear.py:
+The background-family sibling of cosmic_shear_sweep_ntrain_emulator.py:
 same YAML schema as the training driver with a data.grid block (H(z) on
 the SN range, or D_M on the recombination window — one artifact per
 run), one fresh training per grid point, serial. Writes <out>.txt (the
 np.loadtxt-loadable curve) and <out>.pdf under --fileroot.
 
 Example:
-  python .../sweep_ntrain_baosn_emulator.py \\
+  python .../baosn_sweep_ntrain_emulator.py \\
     --root projects/baosn/ \\
     --fileroot emulators/training_scripts/ \\
     --yaml baosn_hubble_emulator.yaml \\
@@ -23,7 +23,7 @@ from emulator.family_drivers import add_sweep_args, run_ntrain_sweep
 
 def main():
   """Parse the shared sweep CLI and run the serial BAOSN sweep."""
-  parser = argparse.ArgumentParser(prog="sweep_ntrain_baosn_emulator")
+  parser = argparse.ArgumentParser(prog="baosn_sweep_ntrain_emulator")
   add_cocoa_path_args(parser)
   add_sweep_args(parser)
   parser.add_argument("--out",

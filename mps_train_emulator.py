@@ -8,7 +8,7 @@ CORRECTION log(P / P_base) to the vendored analytic formulas (syren/),
 with the base divided out once at staging from the generator's *_base
 dumps and multiplied back at inference by the emul_mps adapter.
 
-This is a thin wrapper over train_single_emulator_cosmic_shear.py's
+This is a thin wrapper over cosmic_shear_train_emulator.py's
 main() — the training stack is identical for every family; the wrapper
 pins the family, so a YAML without a data.grid2d block fails here with
 the right driver's name instead of deep inside config validation.
@@ -23,7 +23,7 @@ interpolator fills back in.
 #-------------------------------------------------------------------------------
 # Example how to run this program
 #-------------------------------------------------------------------------------
-# python .../emulators_code_v2/train_mps_emulator.py \
+# python .../emulators_code_v2/mps_train_emulator.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
 #   --yaml mps_boost_emulator.yaml \
@@ -38,7 +38,7 @@ interpolator fills back in.
 #  grid2d-specific pages are a recorded follow-up, MPS-DIAG in
 #  notes/mps-emulators.md).
 
-from train_single_emulator_cosmic_shear import main
+from cosmic_shear_train_emulator import main
 
 if __name__ == "__main__":
-  main(prog="train_mps_emulator", family="grid2d")
+  main(prog="mps_train_emulator", family="grid2d")

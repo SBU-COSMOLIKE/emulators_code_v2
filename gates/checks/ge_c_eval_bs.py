@@ -140,7 +140,7 @@ if DEV.type == "cuda":
 else:
     print("  (CPU: timing meaningless; run Part 2 on the 3060.)")
 
-print("\nReal check: one `train_single ... bs: 32` run vs the pre-change "
+print("\nReal check: one `cosmic_shear_train ... bs: 32` run vs the pre-change "
       "build: epoch time drops ~0.3 s, metrics match to rtol 1e-6.")
 
 # Added for the harness: the runner reads this exit code (Part 1 is the

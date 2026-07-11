@@ -1,4 +1,4 @@
-# Config for tune_single_emulator_cosmic_shear.py
+# Config for cosmic_shear_tune_emulator.py
 #
 # Same schema as the training YAML, except a numeric train_args leaf may
 # be a search range instead of a fixed scalar:

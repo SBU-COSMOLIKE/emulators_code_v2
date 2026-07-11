@@ -11,7 +11,7 @@ inference loop. `xi` is the cosmic-shear two-point correlation functions — the
 data the analysis measures; cosmolike (inside Cocoa) supplies the analysis mask
 and covariance. Accuracy is judged as chi2 — the prediction error in the
 covariance units inference actually cares about (the
-[chi2 metric](#19-appendix-the-chi2-metric-mahalanobis)).
+[chi2 metric](#20-appendix-the-chi2-metric-mahalanobis)).
 
 The pipeline at a glance — every stage is one section of this README:
 
@@ -90,13 +90,14 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 15. [Emulating CMB spectra (TT / TE / EE / phi-phi)](#15-emulating-cmb-spectra-tt--te--ee--phi-phi)
 16. [Emulating the expansion history (H(z), BAO and SN distances)](#16-emulating-the-expansion-history-hz-bao-and-sn-distances)
 17. [Emulating the matter power spectrum (hybrid inference, EMUL2)](#17-emulating-the-matter-power-spectrum-hybrid-inference-emul2)
-18. [Appendix: the pipeline](#18-appendix-the-pipeline)
-19. [Appendix: the chi2 metric (Mahalanobis)](#19-appendix-the-chi2-metric-mahalanobis)
-20. [Appendix: activation functions](#20-appendix-activation-functions)
+18. [Generating the training set](#18-generating-the-training-set)
+19. [Appendix: the pipeline](#19-appendix-the-pipeline)
+20. [Appendix: the chi2 metric (Mahalanobis)](#20-appendix-the-chi2-metric-mahalanobis)
+21. [Appendix: activation functions](#21-appendix-activation-functions)
     1. [The paper's $H(x)$](#the-papers-hx)
     2. [Generalizations](#generalizations)
     3. [Selecting one](#selecting-one)
-21. [Appendix: precedence — who wins when settings collide](#21-appendix-precedence--who-wins-when-settings-collide)
+22. [Appendix: precedence — who wins when settings collide](#22-appendix-precedence--who-wins-when-settings-collide)
     1. [A. Activation family](#a-activation-family)
     2. [B. Phase blocks vs the top level (two-phase models)](#b-phase-blocks-vs-the-top-level-two-phase-models)
     3. [C. Single-phase demotion (the same YAML on `resmlp`)](#c-single-phase-demotion-the-same-yaml-on-resmlp)
@@ -105,7 +106,6 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
     6. [E. Sweeps and searches](#e-sweeps-and-searches)
     7. [F. Constructor / driver args vs the YAML](#f-constructor--driver-args-vs-the-yaml)
     8. [G. Deliberately no knob (nothing to win)](#g-deliberately-no-knob-nothing-to-win)
-22. [Appendix: Generating the training set](#22-appendix-generating-the-training-set)
 23. [Appendix: scripting a saved emulator (without Cobaya)](#23-appendix-scripting-a-saved-emulator-without-cobaya)
 24. [AI-Usage](#24-ai-usage)
 
@@ -135,9 +135,9 @@ Train the YAML's model once; `--diagnostic` adds a
 multipage PDF of accuracy diagnostics:
 
 ```bash
-python $D/train_single_emulator_cosmic_shear.py \
+python $D/cosmic_shear_train_emulator.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml train_single_emulator_cosmic_shear.yaml --diagnostic diagnostic
+  --yaml cosmic_shear_train_emulator.yaml --diagnostic diagnostic
 ```
 
 This writes the trained emulator under `--root/chains` as a `.emul` / `.h5`
@@ -216,9 +216,9 @@ independent trainings, so they run in parallel — one whole training per GPU,
 all visible GPUs by default ([Multi-GPU](#multi-gpu) below):
 
 ```bash
-python $D/sweep_ntrain_emulator_cosmic_shear.py \
+python $D/cosmic_shear_sweep_ntrain_emulator.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml train_single_emulator_cosmic_shear.yaml --n-points 8 --out curve
+  --yaml cosmic_shear_train_emulator.yaml --n-points 8 --out curve
 ```
 
 ### A one-knob sweep
@@ -241,9 +241,9 @@ The block's full rules are in [The `sweep:` block](#sweep-block). Run it
 with:
 
 ```bash
-python $D/sweep_hyperparam_emulator_cosmic_shear.py \
+python $D/cosmic_shear_sweep_hyperparam_emulator.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml train_single_emulator_cosmic_shear.yaml --out lrsweep
+  --yaml cosmic_shear_train_emulator.yaml --out lrsweep
 ```
 
 ### A hyperparameter search
@@ -270,9 +270,9 @@ train_args:
 `--n-trials` bounds the study:
 
 ```bash
-python $D/tune_single_emulator_cosmic_shear.py \
+python $D/cosmic_shear_tune_emulator.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml tune_single_emulator_cosmic_shear.yaml --n-trials 64
+  --yaml cosmic_shear_tune_emulator.yaml --n-trials 64
 ```
 
 ### The activation bake-off
@@ -283,9 +283,9 @@ head-to-head showing whether a family genuinely learns faster (a lower curve
 everywhere) or just ties:
 
 ```bash
-python $D/bakeoff_activation_emulator_cosmic_shear.py \
+python $D/cosmic_shear_bakeoff_activation_emulator.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
-  --yaml train_single_emulator_cosmic_shear.yaml --out bakeoff
+  --yaml cosmic_shear_train_emulator.yaml --out bakeoff
 ```
 
 ### Packing runs on one big card
@@ -315,7 +315,7 @@ edit it). The `sweep:` block is documented [below](#sweep-block).
 
 ### The `sweep:` block (one-knob sweeps) <a name="sweep-block"></a>
 
-`sweep_hyperparam_emulator_cosmic_shear.py` reads one extra top-level YAML
+`cosmic_shear_sweep_hyperparam_emulator.py` reads one extra top-level YAML
 block (the other drivers ignore it) naming exactly one `train_args` leaf by
 its dotted path, and the values to try — one full training per value at
 fixed `N_train`:
@@ -364,7 +364,7 @@ which index means which setting:
 
 Both layouts load with a plain `np.loadtxt` (the labels live in comment
 lines). The full template is
-`example_yamls/sweep_hyperparam_emulator_cosmic_shear.yaml`, with the common
+`example_yamls/cosmic_shear_sweep_hyperparam_emulator.yaml`, with the common
 sweeps (bs, activation family, film on/off, conv depth, head lr) ready to
 swap in.
 
@@ -379,7 +379,7 @@ across GPUs — one whole training per spawned worker:
 | `sweep_ntrain` | one training per `N_train` | LPT (cost ∝ N: biggest first to the least-loaded GPU) | `--gpu-pack` |
 | `sweep_hyperparam` | one training per value | round-robin (equal cost) | `--gpu-pack` |
 | `bakeoff_activation` | one learning curve per activation | by activation | |
-| `tune_single` | Optuna trials | one worker per GPU, one shared study | `--journal` |
+| `tune` | Optuna trials | one worker per GPU, one shared study | `--journal` |
 
 **`--gpu-pack` (both sweep drivers; off by default)** runs several small
 trainings on the same card at once. A small model often leaves the card
@@ -394,7 +394,7 @@ runs (sharing makes each run slower and noisier). The memory estimate and
 the sharing arithmetic live in `scheduling.py`
 (`estimate_train_vram_fraction`, `vram_tokens`).
 
-**Parallel Optuna (`tune_single --n-gpus N`)** shares a single study through a
+**Parallel Optuna (`cosmic_shear_tune_emulator.py --n-gpus N`)** shares a single study through a
 journal file (`--journal`): the parent enqueues the warm-start, `--n-trials`
 splits across workers, and reusing the journal resumes it (serial on 1 GPU/MPS).
 
@@ -408,23 +408,23 @@ per-family drivers differ only in their prog names and defaults.
 
 | Driver | Family | What it does |
 |---|---|---|
-| train_single_emulator_cosmic_shear.py | cosmic shear (any data-block family) | train one emulator from a YAML — the family comes from the data block; also the shared engine the three family train drivers wrap; `--diagnostic` writes the multipage PDF |
-| train_scalar_emulator.py | scalar | train one derived-parameter emulator; `--diagnostic` |
-| train_cmb_emulator.py | cmb | train one CMB-spectrum emulator (requires a data.cmb block, wrong-family YAMLs name the right driver); `--diagnostic` adds the CMB pages |
-| train_baosn_emulator.py | baosn | train one background emulator (requires data.grid); `--diagnostic` adds the redshift + derived-distance pages |
-| train_mps_emulator.py | mps | train one matter-power emulator (requires data.grid2d) |
-| sweep_ntrain_emulator_cosmic_shear.py | cosmic shear | f(delta-chi2 > thr) vs `N_train`, multi-GPU pool + gpu-pack |
-| sweep_ntrain_scalar_emulator.py | scalar | the same learning curve, serial |
-| sweep_ntrain_cmb_emulator.py | cmb | the same, serial |
-| sweep_ntrain_baosn_emulator.py | baosn | the same, serial |
-| sweep_ntrain_mps_emulator.py | mps | the same, serial |
-| tune_single_emulator_cosmic_shear.py | cosmic shear | Optuna study, multi-GPU journal |
-| tune_scalar_emulator.py | scalar | Optuna study, serial in-memory |
-| tune_cmb_emulator.py | cmb | the same |
-| tune_baosn_emulator.py | baosn | the same |
-| tune_mps_emulator.py | mps | the same |
-| bakeoff_activation_emulator_cosmic_shear.py | cosmic shear | activation bake-off learning curves |
-| sweep_hyperparam_emulator_cosmic_shear.py | cosmic shear | one-axis hyperparameter sweeps |
+| cosmic_shear_train_emulator.py | cosmic shear (any data-block family) | train one emulator from a YAML — the family comes from the data block; also the shared engine the three family train drivers wrap; `--diagnostic` writes the multipage PDF |
+| scalar_train_emulator.py | scalar | train one derived-parameter emulator; `--diagnostic` |
+| cmb_train_emulator.py | cmb | train one CMB-spectrum emulator (requires a data.cmb block, wrong-family YAMLs name the right driver); `--diagnostic` adds the CMB pages |
+| baosn_train_emulator.py | baosn | train one background emulator (requires data.grid); `--diagnostic` adds the redshift + derived-distance pages |
+| mps_train_emulator.py | mps | train one matter-power emulator (requires data.grid2d) |
+| cosmic_shear_sweep_ntrain_emulator.py | cosmic shear | f(delta-chi2 > thr) vs `N_train`, multi-GPU pool + gpu-pack |
+| scalar_sweep_ntrain_emulator.py | scalar | the same learning curve, serial |
+| cmb_sweep_ntrain_emulator.py | cmb | the same, serial |
+| baosn_sweep_ntrain_emulator.py | baosn | the same, serial |
+| mps_sweep_ntrain_emulator.py | mps | the same, serial |
+| cosmic_shear_tune_emulator.py | cosmic shear | Optuna study, multi-GPU journal |
+| scalar_tune_emulator.py | scalar | Optuna study, serial in-memory |
+| cmb_tune_emulator.py | cmb | the same |
+| baosn_tune_emulator.py | baosn | the same |
+| mps_tune_emulator.py | mps | the same |
+| cosmic_shear_bakeoff_activation_emulator.py | cosmic shear | activation bake-off learning curves |
+| cosmic_shear_sweep_hyperparam_emulator.py | cosmic shear | one-axis hyperparameter sweeps |
 
 The four cosmic-shear drivers still carry their original names; renaming
 them into the namespace is a recorded polish item that lands after the
@@ -439,10 +439,10 @@ The YAML has two top-level blocks. `data` says where the training vectors
 come from and how many rows to use. `train_args` describes the whole run:
 objective, optimizer, schedules, model. Any numeric leaf may be a plain
 scalar or a `[default, min, max, kind]` search range, where `kind` is `int`,
-`float`, or `log`; only `tune_single` searches the ranges, and every other
-driver collapses a range to its default value. Sections 3–11 document each
+`float`, or `log`; only the `*_tune_emulator.py` drivers search the
+ranges, and every other driver collapses a range to its default value. Sections 3–11 document each
 block. When two settings collide, the winner is defined in the
-[precedence appendix](#21-appendix-precedence--who-wins-when-settings-collide).
+[precedence appendix](#22-appendix-precedence--who-wins-when-settings-collide).
 Templates live in `example_yamls/`, and the `sweep:` block is described in
 [Run it](#sweep-block).
 
@@ -473,14 +473,14 @@ train_args:
 ```
 
 Six terms the chapter uses. The details live in appendices
-[18](#18-appendix-the-pipeline) and
-[19](#19-appendix-the-chi2-metric-mahalanobis).
+[19](#19-appendix-the-pipeline) and
+[20](#20-appendix-the-chi2-metric-mahalanobis).
 
 | Term | Meaning |
 |---|---|
 | data vector, dv | The masked cosmic-shear two-point functions xi+/- stacked into one vector. This is what the network predicts. |
-| chi2 | Prediction error measured in the analysis covariance, `r^T Cinv r` — [appendix 19](#19-appendix-the-chi2-metric-mahalanobis). The headline metric is written `frac>0.2` in the logs: the fraction of validation cosmologies with delta-chi2 above 0.2. The goal is to drive it down. |
-| whitened | Rotated and rescaled so the components are decorrelated with unit variance. This is the form the network sees, input and output — [appendix 18](#18-appendix-the-pipeline). |
+| chi2 | Prediction error measured in the analysis covariance, `r^T Cinv r` — [appendix 20](#20-appendix-the-chi2-metric-mahalanobis). The headline metric is written `frac>0.2` in the logs: the fraction of validation cosmologies with delta-chi2 above 0.2. The goal is to drive it down. |
+| whitened | Rotated and rescaled so the components are decorrelated with unit variance. This is the form the network sees, input and output — [appendix 19](#19-appendix-the-pipeline). |
 | theta order | The data vector re-sorted to vary smoothly along the angular axis. The correction heads work in this basis. |
 | trunk / head | Every architecture is a shared ResMLP trunk; `rescnn` and `restrf` add a gated correction head on top — [section 10](#10-model). |
 | dump | The big on-disk table of parameters and data vectors the physics code wrote. Training memmaps it — reads slices from disk, never the whole file — and stages only the rows it needs, [section 3](#3-data). |
@@ -499,7 +499,7 @@ holds fewer rows the run raises rather than training on less than you asked.
 `split_seed` seeds the shuffle; `ram_frac` is the fraction of free RAM staging
 may fill before it streams from the disk memmap instead. Where these dumps
 come from — how the training parameters are sampled, whitened, and named — is
-[appendix 22](#22-appendix-generating-the-training-set).
+[section 18](#18-generating-the-training-set).
 
 ```
 dv/params dump ─▶ seeded shuffle ─▶ param_cuts ─▶ first n_train (+ n_val)
@@ -556,7 +556,7 @@ The run-level knobs that are not their own block:
 |---|---|
 | `nepochs` | Passes over the training set. |
 | `bs` | The training minibatch size. Validation uses its own batch size, derived to target ~1024 rows by `derive_eval_bs`, so a small `bs` does not slow scoring. |
-| `trunk_epochs` / `freeze_trunk` | The two-phase schedule of [section 11](#11-two-phase-schedule--the-trunk--head-blocks). The mode table is precedence [C2](#21-appendix-precedence--who-wins-when-settings-collide). |
+| `trunk_epochs` / `freeze_trunk` | The two-phase schedule of [section 11](#11-two-phase-schedule--the-trunk--head-blocks). The mode table is precedence [C2](#22-appendix-precedence--who-wins-when-settings-collide). |
 | `silent` | Suppress the per-epoch progress lines. |
 | `clip` | A per-step ceiling on the gradient norm; `0` turns it off. The whole gradient is rescaled toward the ceiling and keeps its direction, so one batch holding an extreme sample cannot kick the weights. The rule is below. |
 | `rewind` | On every learning-rate cut by the plateau scheduler of [section 6](#6-optimizer-lr-scheduler), reload the best weights and optimizer snapshot while keeping the reduced rate. An excursion into a bad basin then costs at most `patience` epochs. |
@@ -578,7 +578,7 @@ train_args:
 
 The training objective. `loss.mode` picks a per-sample transform $L(c)$ of
 each sample's chi2 $c = r^\top C^{-1} r$
-([Mahalanobis](#19-appendix-the-chi2-metric-mahalanobis)); the batch loss is
+([Mahalanobis](#20-appendix-the-chi2-metric-mahalanobis)); the batch loss is
 the (trimmed, focally weighted; [sections 7–8](#7-trim)) mean of $L(c)$. The transform sets how a
 sample's gradient vote scales with its misfit:
 
@@ -609,7 +609,7 @@ plateaus above $K$ so a chi2=100 monster stays bounded.
 The `berhu:` sub-block sets the knots (spell it `berhu:` — the family, so it
 survives a `mode` sweep — or after the active mode as `berhu_capped:`; giving
 both is an error, see precedence
-[D](#21-appendix-precedence--who-wins-when-settings-collide)). An optional
+[D](#22-appendix-precedence--who-wins-when-settings-collide)). An optional
 `anneal:` (presence = on) starts as plain sqrt and blends into the berhu shape
 on the [shared schedule](#7-trim), $s: 0 \to 1$:
 
@@ -638,7 +638,7 @@ together.
 |---|---|
 | `optimizer` | The class is fixed to **AdamW**. `weight_decay` decays only the true weight matrices — the `.weight` of `Linear`, `Conv1d`, and `BinLinear` — never biases, norms, or activation parameters. On CUDA the faster fused kernel is used. The full decay rule is detailed below. |
 | `lr` | The learning rate scales with the square root of the batch size: bigger batches average away gradient noise, so the step can grow. The formula is below. `bs_base` is the run-global anchor and never sits inside a phase block. `warmup_epochs` ramps the rate linearly from 0 over the first epochs. |
-| `scheduler` | The class is fixed to **ReduceLROnPlateau**, with `mode`, `patience`, and `factor` as its settings, stepped every epoch on the **raw** validation median — the EMA average never feeds it. A per-phase `scheduler:` replaces the settings but keeps the class; see precedence [B](#21-appendix-precedence--who-wins-when-settings-collide). |
+| `scheduler` | The class is fixed to **ReduceLROnPlateau**, with `mode`, `patience`, and `factor` as its settings, stepped every epoch on the **raw** validation median — the EMA average never feeds it. A per-phase `scheduler:` replaces the settings but keeps the class; see precedence [B](#22-appendix-precedence--who-wins-when-settings-collide). |
 
 $$\mathrm{lr} = \ell \sqrt{B/B_0}$$
 
@@ -980,7 +980,7 @@ away from it as training demands.
 
 The block is `{type, n_gates}` or a bare type string; `n_gates` is
 read only by the two multi-gate families. The exact formulas are in
-the [activation appendix](#20-appendix-activation-functions).
+the [activation appendix](#21-appendix-activation-functions).
 
 ```yaml
   activation:
@@ -994,7 +994,7 @@ A `rescnn` / `restrf` head may pin its own family with
 absent means the head shares the trunk's. A pinned head needs a
 frozen-trunk head phase, `head: activation:` is an alias for the same
 pin, and the precedence and its warning are precedence
-[A](#21-appendix-precedence--who-wins-when-settings-collide).
+[A](#22-appendix-precedence--who-wins-when-settings-collide).
 
 ### `norm`
 
@@ -1337,7 +1337,7 @@ heads just means more, narrower attention tables per bin pair.
 
 `compile_mode` (optional, flat) sets the CUDA `torch.compile` mode; the
 defaults are precedence
-[F](#21-appendix-precedence--who-wins-when-settings-collide).
+[F](#22-appendix-precedence--who-wins-when-settings-collide).
 
 ```yaml
   model:
@@ -1383,11 +1383,11 @@ block, and they override in two different ways:
 | `loss`, `trim`, `focus`, `clip`, `rewind`, `ema` | A full replacement: state the whole block you want for that pass, including sub-keys. Nothing merges. |
 
 The fine print is precedence
-[B](#21-appendix-precedence--who-wins-when-settings-collide). One
+[B](#22-appendix-precedence--who-wins-when-settings-collide). One
 asymmetry: the `head:` block may also carry `activation:`, an alias that
 pins the head's own activation family. The same key inside `trunk:` is an
 error; that rule is precedence
-[A](#21-appendix-precedence--who-wins-when-settings-collide).
+[A](#22-appendix-precedence--who-wins-when-settings-collide).
 
 Single-phase models never break on a two-phase YAML. On any `resmlp`,
 `train()` demotes the phase keys: `trunk:` merges into the top level, and
@@ -1578,7 +1578,7 @@ loss ladder (berhu included), trim / focus / clip / rewind / ema. `pce:` is
 exclusive with `--rescale` and `model.ia` (each replaces the chi2 loss), and it
 is structurally unsweepable — a top-level block, not a `train_args` leaf, so
 one base per study; the collision rules are the
-[precedence appendix](#21-appendix-precedence--who-wins-when-settings-collide).
+[precedence appendix](#22-appendix-precedence--who-wins-when-settings-collide).
 
 ---
 
@@ -1622,7 +1622,7 @@ train_args:
     warmup_epochs: 5
 ```
 
-Full example: `example_yamls/finetune_emulator_cosmic_shear.yaml`. Design
+Full example: `example_yamls/cosmic_shear_finetune_emulator.yaml`. Design
 record: `notes/finetune-warm-start.md`.
 
 ### Transfer learning (`transfer:`)
@@ -1658,7 +1658,7 @@ train_args:
       n_blocks: 1
 ```
 
-Full example: `example_yamls/transfer_emulator_cosmic_shear.yaml`. Design
+Full example: `example_yamls/cosmic_shear_transfer_emulator.yaml`. Design
 record: `notes/transfer-parallel-emulator.md`.
 
 ### Joint refinement (`transfer.refine`, optional stage 2)
@@ -1691,7 +1691,7 @@ parameters — H0, omegam, rdrag — one number each. The classic use lets a
 sampler walk a fast variable while the slow map runs as an emulator: sample
 the acoustic scale thetastar and emulate (omegabh2, omegach2, thetastar) ->
 (H0, omegam), so cosmolike, which needs H0, keeps running. A separate driver,
-`train_scalar_emulator.py`, trains one; there is no data vector, no mask, and
+`scalar_train_emulator.py`, trains one; there is no data vector, no mask, and
 no cosmolike anywhere on this path.
 
 ```
@@ -1786,7 +1786,7 @@ The pipeline, end to end:
           |  params_*.1.txt + sidecars        |  (sigma_ell per spectrum,
           v                                   v   fiducial C_ell, provenance)
     +---------------------------------------------------+
-    |  train_cmb_emulator.py                              |
+    |  cmb_train_emulator.py                              |
     |  (a data.cmb block): whiten each multipole by       |
     |  its error bar sigma_ell, impose the amplitude      |
     |  law, train the ResMLP trunk                        |
@@ -1938,7 +1938,7 @@ data:
     z_file:   dvs_train_background_unifs_h_z.npy
 ```
 
-Training runs through `train_baosn_emulator.py`, a thin wrapper over
+Training runs through `baosn_train_emulator.py`, a thin wrapper over
 the shared train driver that pins the family; the full commented
 config is `example_yamls/baosn_hubble_emulator.yaml`.
 
@@ -2013,7 +2013,7 @@ data:
     k_stride:   10
 ```
 
-Training runs through `train_mps_emulator.py`, a thin wrapper over
+Training runs through `mps_train_emulator.py`, a thin wrapper over
 the shared train driver that pins the family; the full commented
 config is `example_yamls/mps_boost_emulator.yaml`.
 
@@ -2049,12 +2049,126 @@ families and is permanently out here. Gates: mps-identity / mps-smoke.
 
 ---
 
-## 18. Appendix: the pipeline
+## 18. Generating the training set
+
+The `data` block (section 3) names the training dumps. This section is
+where they come from: the `compute_data_vectors/` generators — MPI +
+emcee + cobaya tools that draw cosmologies, compute each one's
+training targets through the physics code, and write exactly the files
+the trainer reads. One shared core (`generator_core.py`) owns the CLI,
+the sampling, the MPI farm, and the checkpointing; each family adds a
+thin driver that states its physics requirements and its file store:
+
+| generator | family (README section) | truth code | writes |
+|---|---|---|---|
+| `dataset_generator_lensing.py` | cosmic shear (2–13) | cosmolike | one dv `.npy` + the params/covmat/ranges sidecars |
+| `dataset_generator_cmb.py` | CMB spectra (15) | CAMB | four spectra files `_tt`/`_te`/`_ee`/`_pp.npy` |
+| `dataset_generator_background.py` | expansion history (16) | CAMB (background) | the `_h`/`_dm` pair + `_z.npy` grid sidecars |
+| `dataset_generator_mps.py` | matter power (17) | CAMB | the `pklin`/`boost` surfaces (+ their syren `_base` files) + `_z`/`_k` sidecars |
+
+The CMB family needs one more file the trainer consumes: the analytic
+per-multipole covariance, computed once on a fiducial cosmology by
+`compute_data_vectors/compute_cmb_covariance.py` (section 15 walks its
+physics). Everything below — the sampling modes, the tempered
+posterior, the knobs, the machinery, the output contract — is the
+shared core and applies to every generator; the lensing driver is the
+worked example.
+
+**The goal.** An emulator is only trustworthy inside the cloud of cosmologies
+it was trained on, so the training density must cover *where chains will
+explore* — which is broader than the posterior itself. A sampler that walks to
+the edge of the posterior must still land inside the training support, so the
+generator samples a deliberately widened distribution, not the posterior.
+
+**Two sampling modes (peers, chosen by `--unif`).**
+
+- Gaussian / tempered (`--unif 0`, the default): draws follow the tempered
+  posterior below — a training cloud shaped like a widened posterior, dense
+  where chains spend time.
+- Uniform (`--unif 1`): draws are uniform inside the (temperature-stretched)
+  hard bounds — a flat cloud filling the whole box, with no posterior shaping,
+  and `lnp` is set to 1 (the rows carry no importance weight). Even uniform
+  sampling still needs `--temp`: the temperature sets the hard-boundary stretch
+  for parameters whose priors are Gaussian or unbounded (each such bound is
+  widened by `temp * width / 5`), so without it those parameters have no box to
+  be uniform in. Uniform outputs tag as `_<probe>_unifs` instead of
+  `_<probe>_<T>`, so the trainer's `data:` filenames differ accordingly.
+
+Which to use: tempered for production training sets (density where chains
+explore); uniform for coverage studies or stress tests far from the posterior.
+
+**The tempered posterior (`--unif 0`).** The generator samples
+
+$$\log p_T(\theta) = \frac{1}{T}\left[ -\tfrac{1}{2}(\theta-\theta_0)^\top \tilde\Sigma^{-1} (\theta-\theta_0) + \log \pi(\theta)\right]$$
+
+legend: theta = the sampled parameter vector; theta_0 = the fiducial
+(`train_args.fiducial` in the generator YAML); T = the temperature (`--temp`,
+also the `_cs_<T>` tag in every output filename — the same tag the trainer's
+file names and the drivers' `t<T>` run tag parse); pi = the cobaya prior (hard
+bounds respected, infinite-prior bounds stretched by `temp * width / 5`);
+Sigma-tilde = the Fisher / params covmat (`params_covmat_file`) with its
+correlations clipped to at most `maxcorr` (default 0.15). The whole bracket is
+divided by T, so the effective covariance is `T * Sigma-tilde` — wider than the
+posterior.
+
+**Why each knob.**
+
+| Knob | Why it exists |
+|---|---|
+| `--temp` | Flattens the likelihood by the temperature T, so the training cloud extends past the posterior. At T = 1 the cloud would hug the posterior, and a chain that reaches the posterior's edge would step outside the training support. Larger T widens the cloud. |
+| `--maxcorr` | Fills the volume *perpendicular* to the degeneracy directions. A raw Fisher covmat is a thin pancake along the degeneracy, and the emulator needs volume there, not a line. Clipping the off-diagonal correlations fattens the pancake. |
+| `--boundary` | Below 1, shrinks the validation and test sets *inside* the training support. Accuracy degrades at the cloud's edge, so the validation set must not sit on it. |
+
+**The machinery.** emcee samples log p_T with differential-evolution moves
+(`DEMove` 90%, `DESnookerMove` 10%); the chain is de-duplicated and reduced to
+`--nparams` points, with the autocorrelation time reported. An MPI master hands
+parameter rows to workers, each of which computes the data vector through the
+cobaya model (CAMB + cosmolike, per the generator YAML). The run is
+checkpointed (`--freqchk` / `--loadchk` / `--append`): a failed evaluation is
+zeroed and flagged in the failfile, and recomputed by rerunning with
+`--loadchk 1`.
+
+**The output contract** (this is where every loop closes; `<T>` is the
+temperature, or `unifs` for a uniform run):
+
+| file | content | consumed by |
+|---|---|---|
+| `<paramfile>_<probe>_<T>.1.txt` | columns `weights`, `lnp`, `<params>`, `chi2*` | the trainer's staging slice (it drops the leading `weights` / `lnp` and the trailing `chi2*`) |
+| `<paramfile>_<probe>_<T>.paramnames` | first column = the cobaya parameter names | ParamGeometry names, then the h5, then `get_requirements` (the naming loop) |
+| `<paramfile>_<probe>_<T>.covmat` | the parameter covmat | the trainer's `data.train_covmat` — the input whitening basis |
+| `<paramfile>_<probe>_<T>.ranges` | the sampled bounds | getdist plotting of the training cloud |
+| `<datavsfile>_<probe>_<T>.npy` | the stacked training targets | the trainer memmaps it as `data.train_dv` (per-family store: the table above lists each family's file set) |
+| `<failfile>_<probe>_<T>.txt` | the flagged failed rows | `--loadchk 1` reruns to recompute them |
+
+**Two `train_args`, named loudly.** The generator YAML is a *cobaya* YAML with
+its own `train_args` block (`probe`, `ord`, `fiducial`, `params_covmat_file`).
+This is unrelated to the *emulator trainer's* `train_args` (section 2): two
+stages, two schemas. The generator's `train_args` configures the cobaya model
+that produces the dumps; the trainer's `train_args` configures the network that
+learns them.
+
+**Run it** (`$D` is the driver-folder shorthand from [section 1](#1-run-it);
+the script's own header keeps a `roman_real` example verbatim):
+
+```bash
+mpirun -n 10 --report-bindings \
+  python $D/compute_data_vectors/dataset_generator_lensing.py \
+    --root projects/lsst_y1/ --fileroot emulators/nla_cosmic_shear/ \
+    --nparams 10000 --yaml w0wa_takahashi_cs_cnn.yaml \
+    --datavsfile w0wa_takahashi_dvs_train \
+    --paramfile  w0wa_takahashi_params_train \
+    --failfile   w0wa_takahashi_params_failed_train \
+    --unif 0 --temp 64 --maxcorr 0.15 --freqchk 2000 --boundary 1.0
+```
+
+---
+
+## 19. Appendix: the pipeline
 
 The goal is to replace an expensive physics code with a network that maps a
 handful of cosmological parameters to the cosmic-shear data vector, fast enough
 to call inside a cosmological inference and accurate enough that the data
-vector's [**chi2**](#19-appendix-the-chi2-metric-mahalanobis) — its distance from
+vector's [**chi2**](#20-appendix-the-chi2-metric-mahalanobis) — its distance from
 truth measured in the data covariance (a Mahalanobis distance; see the appendix),
 the quantity inference actually cares about — stays small. Two ideas run through the
 whole pipeline. **Whitening**: both the inputs and the outputs are rotated and
@@ -2178,7 +2292,7 @@ covariance the chi2 contracts against — geometry and metric live together.
 ```
 
 **4. Build the loss** (`losses/core.py`). `make_chi2` wraps the output
-geometry in a chi2 — the error metric of [appendix 19](#19-appendix-the-chi2-metric-mahalanobis),
+geometry in a chi2 — the error metric of [appendix 20](#20-appendix-the-chi2-metric-mahalanobis),
 which weighs each residual by how well the survey can measure it.
 
 The network never sees raw data vectors. It is trained on *whitened*
@@ -2295,7 +2409,7 @@ driver is a thin wrapper that varies one knob:
                                 │
      ┌────────────┬─────────────┼───────────────┬──────────────────┐
      ▼            ▼             ▼               ▼                  ▼
-train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
+train         tune          sweep_ntrain  sweep_hyperparam  bakeoff_activation
   one run    Optuna search f(dchi2) vs N  one YAML knob      one curve per act
              (multi-GPU,   (multi-GPU,    (multi-GPU,        (multi-GPU, by act)
               journal)      LPT, --gpu-    even split,
@@ -2304,7 +2418,7 @@ train_single  tune_single  sweep_ntrain  sweep_hyperparam  bakeoff_activation
 
 ---
 
-## 19. Appendix: the chi2 metric (Mahalanobis)
+## 20. Appendix: the chi2 metric (Mahalanobis)
 
 The loss and the reported metric are both a **chi2**, which is a squared
 **Mahalanobis distance** — the distance between two points measured *in units of
@@ -2350,7 +2464,7 @@ units, with correlations removed).
 
 ---
 
-## 20. Appendix: activation functions
+## 21. Appendix: activation functions
 
 The `ResBlock` nonlinearity is a **learnable, per-feature activation**: every
 feature (one entry of the vector) carries its own shape parameters, trained with
@@ -2437,7 +2551,7 @@ guard.
 
 ---
 
-## 21. Appendix: precedence — who wins when settings collide
+## 22. Appendix: precedence — who wins when settings collide
 
 Configuration arrives from several places — the YAML, the driver flags, the
 per-phase override blocks, and the built-in defaults. When two of them speak
@@ -2584,103 +2698,6 @@ omitted.
 
 Why: these are fixed by design or derived from the data, so there is no second
 source to disagree with — the heads-up is that a "missing knob" is intentional.
-
----
-
-## 22. Appendix: Generating the training set
-
-The `data` block (section 3) names five dumps — `train_dv`, `train_params`,
-`train_covmat`, `val_dv`, `val_params`. This appendix is where they come from:
-`compute_data_vectors/dataset_generator_lensing.py`, an MPI + emcee + cobaya
-tool that draws cosmologies, computes each one's cosmic-shear data vector
-through cosmolike, and writes exactly the files the trainer reads.
-
-**The goal.** An emulator is only trustworthy inside the cloud of cosmologies
-it was trained on, so the training density must cover *where chains will
-explore* — which is broader than the posterior itself. A sampler that walks to
-the edge of the posterior must still land inside the training support, so the
-generator samples a deliberately widened distribution, not the posterior.
-
-**Two sampling modes (peers, chosen by `--unif`).**
-
-- Gaussian / tempered (`--unif 0`, the default): draws follow the tempered
-  posterior below — a training cloud shaped like a widened posterior, dense
-  where chains spend time.
-- Uniform (`--unif 1`): draws are uniform inside the (temperature-stretched)
-  hard bounds — a flat cloud filling the whole box, with no posterior shaping,
-  and `lnp` is set to 1 (the rows carry no importance weight). Even uniform
-  sampling still needs `--temp`: the temperature sets the hard-boundary stretch
-  for parameters whose priors are Gaussian or unbounded (each such bound is
-  widened by `temp * width / 5`), so without it those parameters have no box to
-  be uniform in. Uniform outputs tag as `_<probe>_unifs` instead of
-  `_<probe>_<T>`, so the trainer's `data:` filenames differ accordingly.
-
-Which to use: tempered for production training sets (density where chains
-explore); uniform for coverage studies or stress tests far from the posterior.
-
-**The tempered posterior (`--unif 0`).** The generator samples
-
-$$\log p_T(\theta) = \frac{1}{T}\left[ -\tfrac{1}{2}(\theta-\theta_0)^\top \tilde\Sigma^{-1} (\theta-\theta_0) + \log \pi(\theta)\right]$$
-
-legend: theta = the sampled parameter vector; theta_0 = the fiducial
-(`train_args.fiducial` in the generator YAML); T = the temperature (`--temp`,
-also the `_cs_<T>` tag in every output filename — the same tag the trainer's
-file names and the drivers' `t<T>` run tag parse); pi = the cobaya prior (hard
-bounds respected, infinite-prior bounds stretched by `temp * width / 5`);
-Sigma-tilde = the Fisher / params covmat (`params_covmat_file`) with its
-correlations clipped to at most `maxcorr` (default 0.15). The whole bracket is
-divided by T, so the effective covariance is `T * Sigma-tilde` — wider than the
-posterior.
-
-**Why each knob.**
-
-| Knob | Why it exists |
-|---|---|
-| `--temp` | Flattens the likelihood by the temperature T, so the training cloud extends past the posterior. At T = 1 the cloud would hug the posterior, and a chain that reaches the posterior's edge would step outside the training support. Larger T widens the cloud. |
-| `--maxcorr` | Fills the volume *perpendicular* to the degeneracy directions. A raw Fisher covmat is a thin pancake along the degeneracy, and the emulator needs volume there, not a line. Clipping the off-diagonal correlations fattens the pancake. |
-| `--boundary` | Below 1, shrinks the validation and test sets *inside* the training support. Accuracy degrades at the cloud's edge, so the validation set must not sit on it. |
-
-**The machinery.** emcee samples log p_T with differential-evolution moves
-(`DEMove` 90%, `DESnookerMove` 10%); the chain is de-duplicated and reduced to
-`--nparams` points, with the autocorrelation time reported. An MPI master hands
-parameter rows to workers, each of which computes the data vector through the
-cobaya model (CAMB + cosmolike, per the generator YAML). The run is
-checkpointed (`--freqchk` / `--loadchk` / `--append`): a failed evaluation is
-zeroed and flagged in the failfile, and recomputed by rerunning with
-`--loadchk 1`.
-
-**The output contract** (this is where every loop closes; `<T>` is the
-temperature, or `unifs` for a uniform run):
-
-| file | content | consumed by |
-|---|---|---|
-| `<paramfile>_cs_<T>.1.txt` | columns `weights`, `lnp`, `<params>`, `chi2*` | the trainer's staging slice (it drops the leading `weights` / `lnp` and the trailing `chi2*`) |
-| `<paramfile>_cs_<T>.paramnames` | first column = the cobaya parameter names | ParamGeometry names, then the h5, then `get_requirements` (the naming loop) |
-| `<paramfile>_cs_<T>.covmat` | the parameter covmat | the trainer's `data.train_covmat` — the input whitening basis |
-| `<paramfile>_cs_<T>.ranges` | the sampled bounds | getdist plotting of the training cloud |
-| `<datavsfile>_cs_<T>.npy` | the stacked data vectors | the trainer memmaps it as `data.train_dv` |
-| `<failfile>_cs_<T>.txt` | the flagged failed rows | `--loadchk 1` reruns to recompute them |
-
-**Two `train_args`, named loudly.** The generator YAML is a *cobaya* YAML with
-its own `train_args` block (`probe`, `ord`, `fiducial`, `params_covmat_file`).
-This is unrelated to the *emulator trainer's* `train_args` (section 2): two
-stages, two schemas. The generator's `train_args` configures the cobaya model
-that produces the dumps; the trainer's `train_args` configures the network that
-learns them.
-
-**Run it** (`$D` is the driver-folder shorthand from [section 1](#1-run-it);
-the script's own header keeps a `roman_real` example verbatim):
-
-```bash
-mpirun -n 10 --report-bindings \
-  python $D/compute_data_vectors/dataset_generator_lensing.py \
-    --root projects/lsst_y1/ --fileroot emulators/nla_cosmic_shear/ \
-    --nparams 10000 --yaml w0wa_takahashi_cs_cnn.yaml \
-    --datavsfile w0wa_takahashi_dvs_train \
-    --paramfile  w0wa_takahashi_params_train \
-    --failfile   w0wa_takahashi_params_failed_train \
-    --unif 0 --temp 64 --maxcorr 0.15 --freqchk 2000 --boundary 1.0
-```
 
 ---
 

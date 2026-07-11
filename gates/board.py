@@ -50,7 +50,7 @@ TIER_SAVE_AND_SAMPLE = "save-and-sample"
 # The sweep-over-n_train driver npce-training's 2-point smoke runs; the
 # default single-train driver would execute the wrong program on a sweep
 # YAML. It sits beside the emulator package at the repo root.
-SWEEP_NTRAIN_DRIVER = "sweep_ntrain_emulator_cosmic_shear.py"
+SWEEP_NTRAIN_DRIVER = "cosmic_shear_sweep_ntrain_emulator.py"
 
 
 @dataclass(frozen=True)
@@ -340,7 +340,7 @@ def gate_gh_e(ctx):
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="head-scheduler-override",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best)")
   out = _smoke_driver(ctx=ctx,
                       config_key="head-scheduler-override-config",
@@ -396,7 +396,7 @@ def gate_gb_c(ctx):
              + " (gates/checks/gb_c_berhu_reduce.py)")
   _golden_leg(ctx=ctx,
               gate_id="berhu-loss",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best)")
   _smoke_driver(ctx=ctx,
                 config_key="berhu-loss-config",
@@ -416,7 +416,7 @@ def gate_gl_d(ctx):
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="loss-schema-equivalence",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best)")
   _smoke_driver(ctx=ctx,
                 config_key="berhu-loss-config",
@@ -437,7 +437,7 @@ def gate_gba_c(ctx):
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="berhu-anneal",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best)")
   out = _smoke_driver(ctx=ctx,
                       config_key="berhu-anneal-config",
@@ -463,7 +463,7 @@ def gate_gme_c(ctx):
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="ema-anneal",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best|ema)")
   _smoke_driver(ctx=ctx,
                 config_key="ema-anneal-config",
@@ -536,7 +536,7 @@ def gate_gft_c(ctx):
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="joint-training",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best|run:)")
   joint_yaml = ctx.require_config("joint-training-config")
   rc_j, out = ctx.run_driver(yaml_path=joint_yaml, allow_fail=True)
@@ -584,7 +584,7 @@ def gate_gha_f(ctx):
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="head-activation-pin",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best|model spec)")
   out = _smoke_driver(ctx=ctx,
                       config_key="head-activation-pin-config",
@@ -625,7 +625,7 @@ def gate_gan_c(ctx):
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="relu-tanh-norm",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best)")
   _smoke_driver(ctx=ctx,
                 config_key="relu-tanh-norm-per-feature",
@@ -653,7 +653,7 @@ def gate_gwd_c(ctx):
                detail="census check exit code " + str(rc))
   _golden_leg(ctx=ctx,
               gate_id="weight-decay-census",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best)")
 
 
@@ -671,7 +671,7 @@ def gate_gpc_c(ctx):
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="npce-training",
-              yaml_name="train_single_emulator_cosmic_shear.yaml",
+              yaml_name="cosmic_shear_train_emulator.yaml",
               grep_pattern="^(phase|epoch|best)")
   _smoke_driver(ctx=ctx,
                 config_key="npce-training-residual",

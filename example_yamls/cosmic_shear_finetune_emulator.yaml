@@ -1,4 +1,4 @@
-# Fine-tune warm start config for train_single_emulator_cosmic_shear.py
+# Fine-tune warm start config for cosmic_shear_train_emulator.py
 # (see notes/finetune-warm-start.md and emulator/warmstart.py).
 #
 # A fine-tune run continues a saved emulator on a new training set with a

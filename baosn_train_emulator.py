@@ -9,7 +9,7 @@ raw). Every distance an MCMC needs is computed FROM the served H(z) by
 emulator/background.py (cumulative Simpson, flat conversions) — only
 H(z) and D_M are networks; two artifacts serve the whole background.
 
-This is a thin wrapper over train_single_emulator_cosmic_shear.py's
+This is a thin wrapper over cosmic_shear_train_emulator.py's
 main() — the training stack is identical for every family; the wrapper
 pins the family, so a YAML without a data.grid block fails here with
 the right driver's name instead of deep inside config validation.
@@ -23,7 +23,7 @@ generator's _z.npy sidecar.
 #-------------------------------------------------------------------------------
 # Example how to run this program
 #-------------------------------------------------------------------------------
-# python .../emulators_code_v2/train_baosn_emulator.py \
+# python .../emulators_code_v2/baosn_train_emulator.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
 #   --yaml baosn_hubble_emulator.yaml \
@@ -37,7 +37,7 @@ generator's _z.npy sidecar.
 #  bands and, for a Hubble artifact, the derived-distance page computed
 #  through the real integration pipeline.
 
-from train_single_emulator_cosmic_shear import main
+from cosmic_shear_train_emulator import main
 
 if __name__ == "__main__":
-  main(prog="train_baosn_emulator", family="grid")
+  main(prog="baosn_train_emulator", family="grid")

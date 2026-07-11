@@ -71,7 +71,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #   2. phi-phi is FILLED from get_Cl (the legacy file zeroed that column and
 #      never produced phiphi training data).
 #   3. The legacy "EXTRA" derived-parameter column dies — derived scalars are
-#      the scalar-emulator unit's job (train_scalar_emulator on the same
+#      the scalar-emulator unit's job (scalar_train_emulator on the same
 #      params dump).
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------

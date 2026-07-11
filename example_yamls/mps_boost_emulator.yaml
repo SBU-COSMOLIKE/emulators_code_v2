@@ -1,5 +1,5 @@
 # MPS grid2d emulator config (the nonlinear-boost artifact) for
-# train_single_emulator_cosmic_shear.py (see notes/mps-emulators.md and
+# cosmic_shear_train_emulator.py (see notes/mps-emulators.md and
 # emulator/geometries_grid2d.py).
 #
 # The MPS family serves P(k, z) from TWO artifacts: this one emulates the

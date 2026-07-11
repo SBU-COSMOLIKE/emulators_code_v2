@@ -19,10 +19,10 @@ file, read in slices so it is never loaded whole.
 # the curve shape: a real inductive-bias win keeps descending (lower sample
 # complexity) where others flatten, not a single-N offset.
 #
-#     python .../emultrfv2/bakeoff_activation_emulator_cosmic_shear.py \
+#     python .../emultrfv2/cosmic_shear_bakeoff_activation_emulator.py \
 #       --root projects/lsst_y1/ \
 #       --fileroot emulators/training_scripts/ \
-#       --yaml train_single_emulator_cosmic_shear.yaml \
+#       --yaml cosmic_shear_train_emulator.yaml \
 #       --n-min 2000 --n-points 6 --out bakeoff_act
 #
 #- Per N_train (geometric grid [--n-min .. --n-max], --n-max defaults to the
@@ -37,10 +37,10 @@ file, read in slices so it is never loaded whole.
 #  the N_train sweep). At most len(activations) GPUs used; default 4
 #  activations, 8 GPUs, 4 idle. With --n-gpus 4:
 #
-#     python .../emultrfv2/bakeoff_activation_emulator_cosmic_shear.py \
+#     python .../emultrfv2/cosmic_shear_bakeoff_activation_emulator.py \
 #       --root projects/lsst_y1/ \
 #       --fileroot emulators/training_scripts/ \
-#       --yaml train_single_emulator_cosmic_shear.yaml \
+#       --yaml cosmic_shear_train_emulator.yaml \
 #       --n-points 8 --n-gpus 4 --out bakeoff_act
 #
 #  One GPU (or none, e.g. the Apple-MPS dev machine) runs the serial double
@@ -260,7 +260,7 @@ def _run_parallel_bakeoff(cfg, sizes, activations, n_workers, args, log):
 
 def main():
   parser = argparse.ArgumentParser(
-    prog="bakeoff_activation_emulator_cosmic_shear")
+    prog="cosmic_shear_bakeoff_activation_emulator")
   # --root / --fileroot / --yaml: the cocoa project layout (data under
   # --root, YAML + curve outputs under --fileroot). Same schema as the
   # training driver.

@@ -16,10 +16,10 @@ loaded whole.
 # whether the floor is data-limited (still falling at the largest N) or
 # capacity / architecture-limited (a flat tail).
 #
-# python .../emultrfv2/sweep_ntrain_emulator_cosmic_shear.py \
+# python .../emultrfv2/cosmic_shear_sweep_ntrain_emulator.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
-#   --yaml train_single_emulator_cosmic_shear.yaml \
+#   --yaml cosmic_shear_train_emulator.yaml \
 #   --n-min 2000 --n-points 6 --out ntrain_resmlp
 #
 #- Reuses the training driver's YAML (and its model/rescale/activation choices).
@@ -293,7 +293,7 @@ def _run_parallel(cfg, sizes, n_workers, args, log):
 
 def main():
   parser = argparse.ArgumentParser(
-    prog="sweep_ntrain_emulator_cosmic_shear")
+    prog="cosmic_shear_sweep_ntrain_emulator")
   # --root / --fileroot / --yaml: the cocoa project layout (data under
   # --root, YAML + curve outputs under --fileroot). Same schema as the
   # training driver.

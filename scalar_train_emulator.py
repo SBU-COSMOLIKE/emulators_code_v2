@@ -18,10 +18,10 @@ runs do not overwrite each other.
 #-------------------------------------------------------------------------------
 # Example how to run this program
 #-------------------------------------------------------------------------------
-# python .../emulators_code_v2/train_scalar_emulator.py \
+# python .../emulators_code_v2/scalar_train_emulator.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
-#   --yaml train_scalar_emulator.yaml
+#   --yaml scalar_train_emulator.yaml
 #
 #- Cocoa layout: export $ROOTDIR, then --root names the project folder under
 #  it ($ROOTDIR/projects/lsst_y1) and --fileroot a subfolder holding this
@@ -128,7 +128,7 @@ def main():
   they apply to every family) plus the scalar truth/residual pages
   (D-CM9).
   """
-  parser = argparse.ArgumentParser(prog="train_scalar_emulator")
+  parser = argparse.ArgumentParser(prog="scalar_train_emulator")
   # --root / --fileroot / --yaml: the cocoa project layout.
   add_cocoa_path_args(parser)
   parser.add_argument("--save",

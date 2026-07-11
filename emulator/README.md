@@ -163,15 +163,15 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 
 | File | Role |
 |---|---|
-| `train_single_emulator_cosmic_shear.py` | One training run — cosmic shear, cmb, grid, or grid2d (the data block picks the family); `--diagnostic` writes the multipage PDF with that family's pages. |
-| `train_scalar_emulator.py` | One scalar training run; `--diagnostic` adds the scalar pages. |
+| `cosmic_shear_train_emulator.py` | One training run — cosmic shear, cmb, grid, or grid2d (the data block picks the family); `--diagnostic` writes the multipage PDF with that family's pages. |
+| `scalar_train_emulator.py` | One scalar training run; `--diagnostic` adds the scalar pages. |
 | `train_{cmb,baosn,mps}_emulator.py` | Thin family wrappers over the cosmic-shear driver's `main()`: each pins its data-block family (`cmb` / `grid` / `grid2d`), so a wrong-family YAML fails naming the right driver (`require_family_block`). |
-| `tune_single_emulator_cosmic_shear.py` | Optuna study; multi-GPU via a shared journal-file study. |
+| `cosmic_shear_tune_emulator.py` | Optuna study; multi-GPU via a shared journal-file study. |
 | `tune_{scalar,cmb,baosn,mps}_emulator.py` | The per-family Optuna studies (serial, in-memory; `family_drivers.run_tune`). |
-| `sweep_ntrain_emulator_cosmic_shear.py` | `f(dchi2 > thr)` vs `N_train`; multi-GPU, LPT-balanced; `--gpu-pack`. |
+| `cosmic_shear_sweep_ntrain_emulator.py` | `f(dchi2 > thr)` vs `N_train`; multi-GPU, LPT-balanced; `--gpu-pack`. |
 | `sweep_ntrain_{scalar,cmb,baosn,mps}_emulator.py` | The per-family learning curves (serial; `family_drivers.run_ntrain_sweep`). |
-| `sweep_hyperparam_emulator_cosmic_shear.py` | Sweep ONE hyperparameter chosen in the YAML `sweep:` block; multi-GPU. |
-| `bakeoff_activation_emulator_cosmic_shear.py` | One learning curve per activation; multi-GPU. |
+| `cosmic_shear_sweep_hyperparam_emulator.py` | Sweep ONE hyperparameter chosen in the YAML `sweep:` block; multi-GPU. |
+| `cosmic_shear_bakeoff_activation_emulator.py` | One learning curve per activation; multi-GPU. |
 
 The naming rule for every new driver is `<verb>_<family>_emulator.py`;
 renaming the pre-rule cosmic-shear drivers into it is a recorded POL-1
@@ -449,10 +449,10 @@ Post-training analyses (each returns a dict the plotting reads).
 
 Each `main()` reads `--root` / `--fileroot` / `--yaml`.
 
-- `train_single_emulator_cosmic_shear.py` — one training run (any dv-shaped family) + the diagnostics PDF.
-- `train_scalar_emulator.py` — one scalar run + the diagnostics PDF.
-- `train_cmb_emulator.py` / `train_baosn_emulator.py` / `train_mps_emulator.py` — the thin family wrappers (`main(prog, family)` + `require_family_block`).
-- `tune_single_emulator_cosmic_shear.py` — the multi-GPU journal study; `tune_{scalar,cmb,baosn,mps}_emulator.py` — the serial per-family studies.
-- `sweep_ntrain_emulator_cosmic_shear.py` — the multi-GPU learning curve; `sweep_ntrain_{scalar,cmb,baosn,mps}_emulator.py` — the serial per-family curves.
-- `sweep_hyperparam_emulator_cosmic_shear.py` — one YAML-chosen knob.
-- `bakeoff_activation_emulator_cosmic_shear.py` — one curve per activation.
+- `cosmic_shear_train_emulator.py` — one training run (any dv-shaped family) + the diagnostics PDF.
+- `scalar_train_emulator.py` — one scalar run + the diagnostics PDF.
+- `cmb_train_emulator.py` / `baosn_train_emulator.py` / `mps_train_emulator.py` — the thin family wrappers (`main(prog, family)` + `require_family_block`).
+- `cosmic_shear_tune_emulator.py` — the multi-GPU journal study; `tune_{scalar,cmb,baosn,mps}_emulator.py` — the serial per-family studies.
+- `cosmic_shear_sweep_ntrain_emulator.py` — the multi-GPU learning curve; `sweep_ntrain_{scalar,cmb,baosn,mps}_emulator.py` — the serial per-family curves.
+- `cosmic_shear_sweep_hyperparam_emulator.py` — one YAML-chosen knob.
+- `cosmic_shear_bakeoff_activation_emulator.py` — one curve per activation.

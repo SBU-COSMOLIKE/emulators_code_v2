@@ -1,4 +1,4 @@
-# Transfer-learning config for train_single_emulator_cosmic_shear.py
+# Transfer-learning config for cosmic_shear_train_emulator.py
 # (see notes/transfer-parallel-emulator.md and emulator/losses/transfer.py).
 #
 # A transfer run freezes a trained base emulator whole and trains a small

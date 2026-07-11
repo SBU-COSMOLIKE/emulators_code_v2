@@ -1,5 +1,5 @@
 # BAOSN grid emulator config (the SN-range H(z) artifact) for
-# train_single_emulator_cosmic_shear.py (see notes/baosn-emulators.md and
+# cosmic_shear_train_emulator.py (see notes/baosn-emulators.md and
 # emulator/geometries_grid.py).
 #
 # The BAOSN family serves the expansion history from TWO artifacts (the

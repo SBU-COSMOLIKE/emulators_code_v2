@@ -218,3 +218,71 @@ normal board (no gate config touched).
 **Still open, unchanged rulings:** the driver renames stay
 DEFERRED-UNTIL-BOARD-GREEN; MPS-DIAG (grid2d diagnostics pages) and
 the other recorded interims ride later deltas.
+
+## The driver renames — EXECUTED (user order, 2026-07-11)
+
+Two rulings changed by explicit user instruction, superseding the
+records above:
+
+1. **The namespace is FAMILY-FIRST** — `<family>_<verb>_emulator.py`,
+   "what you are emulating comes first always" — superseding D-MP5's
+   verb-first `<verb>_<family>_emulator.py`. (Bonus: `ls` now groups
+   the drivers by family.)
+2. **Executed BEFORE the first 32-gate board run** — the
+   deferred-until-board-green ruling was the Architect's caution; the
+   user ordered the rename now, after proving main in sync.
+
+The map (17 drivers, `git mv` + a longest-first text sweep — needed
+because sweep_ntrain_scalar_emulator CONTAINS train_scalar_emulator):
+
+    train_single_emulator_cosmic_shear  -> cosmic_shear_train_emulator
+    train_{scalar,cmb,baosn,mps}_emulator -> {f}_train_emulator
+    sweep_ntrain_emulator_cosmic_shear  -> cosmic_shear_sweep_ntrain_emulator
+    sweep_ntrain_{f}_emulator           -> {f}_sweep_ntrain_emulator
+    tune_single_emulator_cosmic_shear   -> cosmic_shear_tune_emulator
+    tune_{f}_emulator                   -> {f}_tune_emulator
+    bakeoff_activation_emulator_cosmic_shear
+                                -> cosmic_shear_bakeoff_activation_emulator
+    sweep_hyperparam_emulator_cosmic_shear
+                                -> cosmic_shear_sweep_hyperparam_emulator
+
+"single" was DROPPED (the family names never carried it). Five
+driver-named example YAMLs moved with their drivers
+(cosmic_shear_{train,tune,sweep_hyperparam,finetune,transfer}_
+emulator.yaml). Rode along: gates/run_board.py `_DRIVER`,
+board_config.json's golden-config yaml name + key description, the
+FAMILY_DRIVERS map + wrapper imports/progs, the Optuna
+`STUDY_NAME` "tune_single" -> "cosmic_shear_tune" (only test studies
+exist, per the user), a ge_c_eval_bs print label, README shorthand
+labels (`tune_single` -> `tune`; the appendix driver diagram relabeled
+with column alignment kept), and both READMEs' tables/globs/examples.
+notes/ history untouched by design — this section is the map.
+
+Evidence: 20 `git mv` + 32 files text-swept (163 hits) + residuals;
+leftover-name census clean outside notes/; full compileall; both
+README censuses green (the path census re-proves every renamed
+backticked path resolves); board registry 32; wrappers re-probed
+(new prog/family pairs + the renamed engine import).
+
+WORKSTATION NOTE: if a local board_config.json override exists there,
+it must be dropped (`git checkout -- gates/board_config.json`) or its
+golden-config yaml name updated — the repo copy now says
+cosmic_shear_train_emulator.yaml.
+
+## Generating-the-training-set promoted to a section (user, 2026-07-11)
+
+"Appendix: Generating the training set" is generation — a pipeline
+STAGE, not reference material — so it moved out of the appendix run:
+now **section 18**, physically between the family sections and the
+appendices (which shifted 19..22; scripting 23 and AI-Usage 24 kept
+their numbers). While promoting, the pre-CME staleness died: the
+section opened as if dataset_generator_lensing.py were the only
+generator; it now opens with the four-generator table (lensing / cmb /
+background / mps: family, truth code, file store), names
+compute_cmb_covariance.py as the fifth generation-side tool (the
+user's discoverability complaint — the script lives in
+compute_data_vectors/, section 15 has its physics), frames the shared
+core (generator_core.py) as what the rest of the section describes,
+and generalizes the output-contract table's `_cs_` tags to
+`_<probe>_`. Anchor census 113/113 + path census 39 paths green after
+the move.

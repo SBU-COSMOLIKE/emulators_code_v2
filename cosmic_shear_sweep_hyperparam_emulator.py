@@ -14,15 +14,15 @@ loaded whole.
 # This driver sweeps a single hyperparameter (chosen in the YAML, one value per
 # training run at a fixed N_train) and records validation f(delta-chi2 >
 # threshold) per value, with the same table + figure outputs as the N_train
-# sweep. sweep_ntrain_emulator_cosmic_shear.py stays the driver for the N_train
+# sweep. cosmic_shear_sweep_ntrain_emulator.py stays the driver for the N_train
 # axis (its points have unequal cost and its staging differs per point); this
 # one covers every other knob: batch size, learning rate, kernel size, film
 # on/off, the activation family, ...
 #
-# python .../emultrfv2/sweep_hyperparam_emulator_cosmic_shear.py \
+# python .../emultrfv2/cosmic_shear_sweep_hyperparam_emulator.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
-#   --yaml train_single_emulator_cosmic_shear.yaml \
+#   --yaml cosmic_shear_train_emulator.yaml \
 #   --out lrsweep_rescnn
 #
 #- The swept knob lives in a `sweep` block of the same training YAML (one YAML
@@ -270,7 +270,7 @@ def _hyper_job(gpu_id, exp, payload, extra):
 
 def main():
   parser = argparse.ArgumentParser(
-    prog="sweep_hyperparam_emulator_cosmic_shear")
+    prog="cosmic_shear_sweep_hyperparam_emulator")
   # --root / --fileroot / --yaml: the cocoa project layout (data under
   # --root, YAML + sweep outputs under --fileroot). Same schema as the
   # training driver, plus the sweep: block.

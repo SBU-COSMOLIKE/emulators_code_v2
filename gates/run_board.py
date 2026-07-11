@@ -61,7 +61,7 @@ _BOARD_MD = _LOGS_DIR / "BOARD.md"
 _CONFIG_FILE = _GATES_DIR / "board_config.json"
 
 # The training driver every run-shaped gate invokes.
-_DRIVER = "train_single_emulator_cosmic_shear.py"
+_DRIVER = "cosmic_shear_train_emulator.py"
 
 
 # --------------------------------------------------------------------------
@@ -289,7 +289,7 @@ class RunContext:
 
     Arguments:
       yaml_name = the shipped config filename (e.g.
-                  train_single_emulator_cosmic_shear.yaml).
+                  cosmic_shear_train_emulator.yaml).
 
     Returns:
       the absolute Path. In dry mode an unset yaml_dir yields a visible
@@ -371,7 +371,7 @@ class RunContext:
       extra      = extra driver flags (e.g. ("--diagnostic",)).
       driver     = the driver filename; defaults to the
                    single-train driver, overridden e.g. by the npce-training
-                   sweep leg with sweep_ntrain_emulator_cosmic_shear.py.
+                   sweep leg with cosmic_shear_sweep_ntrain_emulator.py.
       allow_fail = passed through to sh (a gate that asserts on a
                    nonzero exit sets it True).
 

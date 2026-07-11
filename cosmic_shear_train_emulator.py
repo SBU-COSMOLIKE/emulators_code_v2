@@ -4,10 +4,10 @@
 Cosmic shear (xi) is the default; a data.cmb / data.grid / data.grid2d
 block in the YAML trains a CMB-spectrum / background / matter-power
 emulator instead — same trunk, same train_args, the data block picks
-the family. The thin wrappers train_cmb_emulator.py /
-train_baosn_emulator.py / train_mps_emulator.py run this same main()
+the family. The thin wrappers cmb_train_emulator.py /
+baosn_train_emulator.py / mps_train_emulator.py run this same main()
 with the family pinned (a wrong-family YAML names the right driver);
-scalar emulators have their own driver, train_scalar_emulator.py.
+scalar emulators have their own driver, scalar_train_emulator.py.
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
 variance (the decorrelated form the network sees); dump = the full on-disk
@@ -28,10 +28,10 @@ is never loaded whole.
 # its per-multipole error bars; a background or matter-power grid), reusing
 # the whole train_args surface unchanged.
 #
-# python .../emultrfv2/train_single_emulator_cosmic_shear.py \
+# python .../emultrfv2/cosmic_shear_train_emulator.py \
 #   --root projects/lsst_y1/ \
 #   --fileroot emulators/training_scripts/ \
-#   --yaml train_single_emulator_cosmic_shear.yaml \
+#   --yaml cosmic_shear_train_emulator.yaml \
 #   --diagnostic diagnostic
 #
 #- Cocoa layout: export $ROOTDIR, then --root names the project folder under it
@@ -221,10 +221,10 @@ def run_tag(cfg, exp):
 # which thin driver trains which data-block family; require_family_block
 # reads it to point a wrong-family YAML at its home.
 FAMILY_DRIVERS = {
-  "cmb":     "train_cmb_emulator.py",
-  "grid":    "train_baosn_emulator.py",
-  "grid2d":  "train_mps_emulator.py",
-  "outputs": "train_scalar_emulator.py",
+  "cmb":     "cmb_train_emulator.py",
+  "grid":    "baosn_train_emulator.py",
+  "grid2d":  "mps_train_emulator.py",
+  "outputs": "scalar_train_emulator.py",
 }
 
 
@@ -256,10 +256,10 @@ def require_family_block(data, family, prog):
   raise SystemExit(
     f"{prog}: this YAML has no data.{family} block; a cosmolike "
     f"data-vector YAML trains through "
-    f"train_single_emulator_cosmic_shear.py")
+    f"cosmic_shear_train_emulator.py")
 
 
-def main(prog="train_single_emulator_cosmic_shear", family=None):
+def main(prog="cosmic_shear_train_emulator", family=None):
   parser = argparse.ArgumentParser(prog=prog)
   # --root / --fileroot / --yaml: the cocoa project layout (data + run
   # products under --root/chains, YAML configs under --fileroot).
