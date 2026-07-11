@@ -1,4 +1,4 @@
-# npce-training, exclusivity leg (spec code GPC-C; npce-yaml-wiring.md:117-122).
+# npce-training, exclusivity leg (spec code GPC-C; models-and-designs.md:117-122).
 # DELIBERATELY INVALID: pce beside model.ia. Both replace the chi2 loss, so the
 # build must error loudly; the test expects a nonzero exit + the exclusivity message.
 #

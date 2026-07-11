@@ -1,4 +1,4 @@
-# head-activation-pin, license leg (spec code GHA-F; head-activation-per-component.md:429-430).
+# head-activation-pin, license leg (spec code GHA-F; models-and-designs.md:429-430).
 # DELIBERATELY INVALID: a head activation pin WITH freeze_trunk false ->
 # build_specs errors with the frozen-trunk-head message. The test expects a
 # nonzero exit + that message.

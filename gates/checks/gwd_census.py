@@ -25,7 +25,7 @@ undecayed = the group left at weight decay 0. Membership is decided by
 module role (the allowlist), not by tensor shape, so a many-parameter
 activation is never decayed.
 
-Spec code GWD-C. Home note: weight-decay-only-weight-matrices.md:143-147.
+Spec code GWD-C. Home note: training-stack.md:143-147.
 """
 
 import sys

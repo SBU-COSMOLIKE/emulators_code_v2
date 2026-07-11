@@ -1,5 +1,5 @@
 # ema-off-identity, golden config (spec code GM-C;
-# weight-ema-snapshot-coupled.md:98-101, 229-238). A SHORT (~40 epoch)
+# training-stack.md:98-101, 229-238). A SHORT (~40 epoch)
 # plain resmlp run with NO ema block. The golden byte-identity leg trains
 # this on the current tree and on the pre-EMA commit (46ec5e1, in a
 # temporary worktree) and requires character-identical epoch / best-epoch

@@ -1,5 +1,5 @@
 # CMB spectrum emulator config for cosmic_shear_train_emulator.py
-# (see notes/cmb-spectra-emulators.md and emulator/geometries_cmb.py).
+# (see notes/families-scalar-cmb.md and emulator/geometries_cmb.py).
 #
 # A CMB emulator maps cosmological parameters to ONE spectrum's C_ell rows
 # (tt / te / ee / pp), on the multipole grid the dumps were generated with.

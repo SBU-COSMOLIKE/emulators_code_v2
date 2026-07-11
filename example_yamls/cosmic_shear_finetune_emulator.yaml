@@ -1,5 +1,5 @@
 # Fine-tune warm start config for cosmic_shear_train_emulator.py
-# (see notes/finetune-warm-start.md and emulator/warmstart.py).
+# (see notes/artifacts-inference-warmstart.md and emulator/warmstart.py).
 #
 # A fine-tune run continues a saved emulator on a new training set with a
 # lower initial learning rate, instead of starting from random weights. The

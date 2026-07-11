@@ -32,7 +32,7 @@ printed; any mismatch exits non-zero.
 _reduce is a method but reads no instance state (only the tensor and the
 knots passed in), so it is called unbound with self = None.
 
-Spec code GB-C. Home note: loss-mode-berhu.md:148-153.
+Spec code GB-C. Home note: training-stack.md:148-153.
 """
 
 import sys

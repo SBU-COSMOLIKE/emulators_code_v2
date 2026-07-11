@@ -1,5 +1,5 @@
 # Scalar (derived-parameter) emulator config for scalar_train_emulator.py
-# (see notes/scalar-parameter-emulators.md and emulator/geometries_scalar.py).
+# (see notes/families-scalar-cmb.md and emulator/geometries_scalar.py).
 #
 # A scalar emulator maps cosmological parameters to a small set of NAMED
 # derived parameters (H0, omegam, rdrag, ...), not a cosmolike data vector.

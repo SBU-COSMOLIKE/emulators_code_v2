@@ -201,7 +201,7 @@ def gate_gm_c(ctx):
   feature that is off must not perturb any existing run. HOW: the same
   config trained on the current tree and on the pre-EMA commit must give
   character-identical epoch and best-epoch lines (wall-clock column
-  stripped) (spec: weight-ema-snapshot-coupled.md:98-101, 229-238). The
+  stripped) (spec: training-stack.md:98-101, 229-238). The
   golden config is
   its own short bespoke YAML (ema-off-identity-golden), resolved through
   gate_configs for both legs; identity is proven per epoch line, so two
@@ -221,7 +221,7 @@ def gate_gm_d(ctx):
   test proves EMA off is harmless, not that EMA on works. HOW: the
   banner must read "ema: horizon 3 epochs" and a plateau lr cut must
   print "rewound to best epoch"
-  (spec: weight-ema-snapshot-coupled.md:104-107, 240-251).
+  (spec: training-stack.md:104-107, 240-251).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   out = _smoke_driver(ctx=ctx,
@@ -231,7 +231,7 @@ def gate_gm_d(ctx):
     return
   ctx.expect(label="ema-smoke rewind line ('lr cut -> rewound to best epoch')",
              ok=logscan.search(text=out, pattern=r"rewound to best epoch"),
-             detail="weight-ema-snapshot-coupled.md:246-249: a rewind fires")
+             detail="training-stack.md:246-249: a rewind fires")
 
 
 def gate_diag(ctx):
@@ -304,7 +304,7 @@ def gate_gp_d(ctx):
   that config used to crash, and the fix must not alter genuinely
   two-phase models. HOW: the resmlp run trains with no traceback and
   prints the demotion notice; the same config on rescnn + nla runs
-  unchanged (spec: resolve-phase-args-single-phase.md:110-113).
+  unchanged (spec: training-stack.md:110-113).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   single_yaml = ctx.require_config("single-phase-demotion-single")
@@ -322,7 +322,7 @@ def gate_gp_d(ctx):
              ok=logscan.search(text=out_s,
                                pattern=r"(single-phase|demot|resolve)"),
              detail="EXACT notice string to confirm against "
-                    "resolve-phase-args-single-phase.md:111")
+                    "training-stack.md:111")
   ctx.expect(label="single-phase-demotion control rescnn+nla reproduces today (no-op)",
              ok=(rc_c == 0),
              detail="control run exit code " + str(rc_c))
@@ -335,7 +335,7 @@ def gate_gh_e(ctx):
   of 25. WHY: the override must act on that phase only. HOW: the banner
   shows "[head overrides: scheduler]" and the head phase's first lr cut
   lands on the patience-10 cadence; plus a golden no-phase-blocks run
-  (spec: phase-blocks-nested-lr-scheduler.md:262-279).
+  (spec: training-stack.md:262-279).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
@@ -350,7 +350,7 @@ def gate_gh_e(ctx):
   ctx.log("head-scheduler-override cadence: the head phase's first lr "
           "cut should land on the patience-10 cadence (vs 25); confirm "
           "from the lr-cut epoch spacing in the log "
-          "(phase-blocks-nested-lr-scheduler.md:265).")
+          "(training-stack.md:265).")
 
 
 def gate_ge_c(ctx):
@@ -360,7 +360,7 @@ def gate_ge_c(ctx):
   changing how the eval set is chunked must not move any metric. HOW: a
   torch-only script checks the per-row chi2 agrees across eval batch
   sizes to rtol 1e-6 and prints "Part 1: PASS"
-  (spec: eval-bs-decoupling.md:102-108; the script itself is 202-300).
+  (spec: training-stack.md:102-108; the script itself is 202-300).
   """
   ctx.require_caps("torch", "gpu")
   rc, out = ctx.run_check("gates/checks/ge_c_eval_bs.py")
@@ -384,7 +384,7 @@ def gate_gb_c(ctx):
   berhu below the cap, gradient continuous at both knots), then a run
   shows "loss_mode sqrt" on the trunk and "loss_mode berhu_capped (knot
   0.2, cap 10)" on the head; plus a golden non-berhu run
-  (spec: loss-mode-berhu.md:148-153, 290-314).
+  (spec: training-stack.md:148-153, 290-314).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   rc, out = ctx.run_check("gates/checks/gb_c_berhu_reduce.py")
@@ -411,7 +411,7 @@ def gate_gl_d(ctx):
   config-layer rename must reproduce the old run exactly. HOW: a golden
   run in the new schema matches the pre-change epoch lines to the
   character, reusing the head-berhu config as the production shape
-  (spec: loss-block-nesting.md:237-244).
+  (spec: training-stack.md:237-244).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
@@ -432,7 +432,7 @@ def gate_gba_c(ctx):
   ramp start. HOW: the banner reads "anneal: hold 5 + 10 cosine", the
   train loss is continuous at the hold boundary, and the shape is full
   berHu by epoch 15; plus the golden no-anneal run
-  (spec: berhu-anneal-schedule.md:199-221).
+  (spec: training-stack.md:199-221).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
@@ -447,7 +447,7 @@ def gate_gba_c(ctx):
   ctx.log("berhu-anneal schedule: confirm the train loss is continuous at the "
           "hold boundary (epoch 5->6) and s=1 (full berhu) by epoch 15; "
           "the first ~5 epochs match a plain sqrt run "
-          "(berhu-anneal-schedule.md:213-221).")
+          "(training-stack.md:213-221).")
 
 
 def gate_gme_c(ctx):
@@ -458,7 +458,7 @@ def gate_gme_c(ctx):
   epochs would poison the shipped weights. HOW: the banner names the
   horizon and "anneal: hold 5 + 10 cosine", and the average's metrics
   first appear at the live point (epoch 6+); plus the golden no-anneal
-  run (spec: ema-anneal-schedule.md:180-197).
+  run (spec: training-stack.md:180-197).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
@@ -479,7 +479,7 @@ def gate_item27(ctx):
   HOW: the run finishes and the pool shrinkage matches the "used N of P
   cut rows" banner; the duplicate cosmolike init_probes call is the
   paired eye check on this run's evidence (specs:
-  omegamh2-ns-product-cuts.md:125-126, param-cuts-nested-block.md:94-95).
+  data-generation-and-cuts.md:125-126, data-generation-and-cuts.md:94-95).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   window_yaml = ctx.require_config("param-window-cuts-config")
@@ -495,7 +495,7 @@ def gate_item27(ctx):
              detail="the banner cut count must match the pool shrinkage")
   ctx.log("param-window-cuts ci.init_probes A/B: the duplicate init_probes call in "
           "geometries.output.py is inspected with this run's evidence "
-          "(omegamh2-ns-product-cuts.md:248); a manual A/B, not an "
+          "(data-generation-and-cuts.md:248); a manual A/B, not an "
           "automatable assertion.")
 
 
@@ -507,7 +507,7 @@ def gate_gt_b(ctx):
   which region was cut. HOW: a synthetic-sample triangle must fill
   exactly the coverage-table panels in one colour, plus the omh2
   marginal band; optional (runs only when --gate names it), no
-  cosmolike needed (spec: triangle-cut-shading-all-windows.md:72-75).
+  cosmolike needed (spec: data-generation-and-cuts.md:72-75).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/gt_b_triangle.py")
@@ -531,7 +531,7 @@ def gate_gft_c(ctx):
   frozen. HOW: the run announces "two-phase: N trunk + M joint" and
   "phase 'joint'", and its phase-2 epoch time sits visibly above a
   freeze_trunk-true control; plus the golden absent-key run
-  (spec: freeze-trunk-joint-phase2.md:115-120, 211-228).
+  (spec: training-stack.md:115-120, 211-228).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
@@ -566,7 +566,7 @@ def gate_gft_c(ctx):
           "joint time ABOVE the control, the trunk backward returned):")
   ctx.log("  joint (freeze_trunk:false):  " + joint_last)
   ctx.log("  control (freeze_trunk:true): " + control_last)
-  ctx.log("loss continuous at the handoff (freeze-trunk-joint-phase2.md:"
+  ctx.log("loss continuous at the handoff (training-stack.md:"
           "226-228); the two numbers above are the Architect's visual check.")
 
 
@@ -579,7 +579,7 @@ def gate_gha_f(ctx):
   "model spec:" banner shows the pinned activation; --activation power
   prints the flag-vs-pin warning; the deliberately-invalid license YAML
   makes build_specs exit with the frozen-trunk message; plus the golden
-  no-pin run (spec: head-activation-per-component.md:239-242, 405-430).
+  no-pin run (spec: models-and-designs.md:239-242, 405-430).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
@@ -620,7 +620,7 @@ def gate_gan_c(ctx):
   guard, and the classic affine baseline must still work. HOW: a tanh +
   per_feature run and a tanh + affine run each name their norm in the
   banner and descend in loss; plus the golden absent-key run
-  (spec: activation-families-norm-knob.md:99-101).
+  (spec: models-and-designs.md:99-101).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
@@ -643,7 +643,7 @@ def gate_gwd_c(ctx):
   drags the model toward degenerate forms. HOW: with weight_decay 1e-4,
   the parameter groups hold exactly the Linear / Conv1d / BinLinear
   weights in the decayed group and everything else undecayed; plus the
-  golden wd-0 run (spec: weight-decay-only-weight-matrices.md:143-147).
+  golden wd-0 run (spec: training-stack.md:143-147).
   """
   ctx.require_caps("torch", "gpu")
   rc, out = ctx.run_check("gates/checks/gwd_census.py")
@@ -666,7 +666,7 @@ def gate_gpc_c(ctx):
   training-set size. HOW: residual and ratio runs print the fit report
   and descend; pce+ia (YAML) and pce+--rescale (flag) both exit with the
   exclusivity error; a 2-point n_train sweep refits the base per point;
-  plus the golden absent-pce run (spec: npce-yaml-wiring.md:117-122).
+  plus the golden absent-pce run (spec: models-and-designs.md:117-122).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
@@ -723,7 +723,7 @@ def gate_gpc_c(ctx):
           " -> from_state rebuild == base(theta) on a probe batch belongs"
           " in the check-script set (save-rebuild-drift's NPCE save"
           " round-trips the pce group; a standalone npce-training probe"
-          " if wanted). Named in the remainder (npce-yaml-wiring.md:117).")
+          " if wanted). Named in the remainder (models-and-designs.md:117).")
 
 
 # --------------------------------------------------------------------------
@@ -740,7 +740,7 @@ def gate_gsv_c(ctx):
   save, rebuild, require the outputs bitwise-equal on a probe; then
   patch a code default and rebuild unchanged; one factored and one NPCE
   save round-trip too; a v1 file is refused (specs:
-  save-schema-resolved-config.md:86-93; workstation-board-2026-07.md:66-71).
+  artifacts-inference-warmstart.md:86-93; gates-and-board.md:66-71).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   rc, out = ctx.run_check("gates/checks/gsv_bitwise_drift.py")
@@ -761,7 +761,7 @@ def gate_gct_c(ctx):
   rtol 1e-6 (including the factored save -> rebuild -> predict
   round-trip), the example evaluate run against the lsst_y1 likelihood
   finishes, and a short MCMC smoke follows; depends on
-  save-rebuild-drift (spec: cobaya-theory-adapter.md:117-123, 234-238).
+  save-rebuild-drift (spec: artifacts-inference-warmstart.md:117-123, 234-238).
   """
   ctx.require_caps("torch", "cosmolike", "cobaya", "gpu")
   rc, out = ctx.run_check("gates/checks/gct_parity.py")
@@ -797,7 +797,7 @@ def gate_gct_c(ctx):
              ok=(rc_ev == 0),
              detail="cobaya-run exit code " + str(rc_ev))
   ctx.log("cobaya-adapter MCMC smoke: a short-chain sampler run confirms the theory "
-          "block drives an MCMC (cobaya-theory-adapter.md:123); run it with "
+          "block drives an MCMC (artifacts-inference-warmstart.md:123); run it with "
           "an mcmc sampler override once the evaluate leg is green.")
 
 
@@ -810,7 +810,7 @@ def gate_ftw_a(ctx):
   small ResMLP with hand-built geometries, no cosmolike), saves it, then runs
   the warm-start path with two extra parameters and asserts the shared-
   parameter encoding, the weight transfer, the pre-train parity, the no-extras
-  degenerate case, and the loud errors (spec: finetune-warm-start.md, the
+  degenerate case, and the loud errors (spec: artifacts-inference-warmstart.md, the
   finetune-identity validation gate). torch only, no cosmolike.
   """
   ctx.require_caps("torch")
@@ -832,7 +832,7 @@ def gate_ftw_b(ctx):
   prints, the startup banner names the source, and the run completes. The
   saved-artifact provenance (the finetuned_from root attr) and the save ->
   rebuild -> predict round-trip are the save-and-sample follow-up the Architect
-  confirms from the workstation artifact (spec: finetune-warm-start.md, the
+  confirms from the workstation artifact (spec: artifacts-inference-warmstart.md, the
   finetune-smoke validation gate). Depends on save-rebuild-drift, which
   persists the source emulator this run continues.
   """
@@ -868,7 +868,7 @@ def gate_tpe_a(ctx):
   The check builds two tiny synthetic bases (no cosmolike), saves and reloads
   them, and asserts the base-encoding slice, the epoch-0 identity, the base
   caching, the zero-init surgery, and the config error paths (spec:
-  transfer-parallel-emulator.md, the transfer-identity validation gate). torch
+  artifacts-inference-warmstart.md, the transfer-identity validation gate). torch
   only, no cosmolike.
   """
   ctx.require_caps("torch")
@@ -891,7 +891,7 @@ def gate_tpe_b(ctx):
   provenance (the transfer_from root attr, the embedded transfer_base group) and
   the save -> rebuild -> predict round-trip are the save-and-sample follow-up the
   Architect confirms from the workstation artifact (spec:
-  transfer-parallel-emulator.md, the transfer-smoke validation gate). Depends on
+  artifacts-inference-warmstart.md, the transfer-smoke validation gate). Depends on
   save-rebuild-drift, which persists the base this run composes.
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
@@ -928,7 +928,7 @@ def gate_tpe_b(ctx):
 
 
 # --------------------------------------------------------------------------
-# The board, in execution order (workstation-board-2026-07.md).
+# The board, in execution order (gates-and-board.md).
 # --------------------------------------------------------------------------
 
 def gate_spe_a(ctx):
@@ -941,7 +941,7 @@ def gate_spe_a(ctx):
   directions, D-SPE2-1, D-SPE2-3, plus the emul_scalars provides / duplicate /
   overlap / subset / wrong-kind D-SPE2-4 legs, the adapter loaded torch-only
   through a cobaya.theory stub). torch only, no cosmolike (spec:
-  scalar-parameter-emulators.md, the scalar-identity gate).
+  families-scalar-cmb.md, the scalar-identity gate).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/scalar_identity.py")
@@ -962,7 +962,7 @@ def gate_spe_b(ctx):
   the analytic value at an off-center point within 5%, and a cobaya evaluate
   through emul_scalars returns the same derived value. torch + cobaya, no
   cosmolike (the scalar path is cosmolike-free); the check writes its own
-  fixture, so it needs no other gate (spec: scalar-parameter-emulators.md, the
+  fixture, so it needs no other gate (spec: families-scalar-cmb.md, the
   scalar-smoke gate).
   """
   ctx.require_caps("torch", "cobaya")
@@ -992,7 +992,7 @@ def gate_cme_a(ctx):
   bitwise, one-reduction composition, the lensing guard < 3%); and the
   D-CM10 finetune legs (epoch-0 parity from a CMB source, the cosmolike
   pin's wrong-kind refusal, validate_cmb accepting finetune). torch only,
-  no CAMB (spec: cmb-spectra-emulators.md, D-CM6/8/10).
+  no CAMB (spec: families-scalar-cmb.md, D-CM6/8/10).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/cmb_identity.py")
@@ -1018,7 +1018,7 @@ def gate_cme_b(ctx):
   lifecycle (get_model + add_requirements + provider.get_Cl equals the
   predictor's own output); and the D-CM9 diagnostics pages build. torch +
   cobaya + a compiled CAMB under $ROOTDIR; budget several minutes (~400
-  serial low-accuracy CAMB calls) (spec: cmb-spectra-emulators.md,
+  serial low-accuracy CAMB calls) (spec: families-scalar-cmb.md,
   D-CM6/9/11).
   """
   ctx.require_caps("torch", "cobaya")
@@ -1046,7 +1046,7 @@ def gate_bsn_a(ctx):
   D_M artifact, get_Hubble units + window guards, D_A_2); and the
   D-BSN9 finetune legs (epoch-0 parity from a grid source; the
   metadata-mismatch and cross-quantity from_config errors). torch +
-  scipy, no CAMB (spec: baosn-emulators.md, D-BSN1/3/3-A/4/6/9).
+  scipy, no CAMB (spec: families-background-mps.md, D-BSN1/3/3-A/4/6/9).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/bsn_identity.py")
@@ -1072,7 +1072,7 @@ def gate_bsn_b(ctx):
   background at an off-center point — truth is available here, the
   strongest smoke of the program; the desert stays loud through the
   real lifecycle; the D-BSN8 diagnostics pages build. torch + cobaya +
-  a compiled CAMB under $ROOTDIR (spec: baosn-emulators.md, D-BSN6/8).
+  a compiled CAMB under $ROOTDIR (spec: families-background-mps.md, D-BSN6/8).
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("gates/checks/bsn_smoke.py")
@@ -1103,7 +1103,7 @@ def gate_mps_a(ctx):
   base-file / k_stride / transfer-PERMANENT legs; the D-MP7 finetune
   parity + metadata-mismatch legs. torch + scipy, no CAMB, no
   symbolic_pofk (the real syren formulas ride the EMUL2 acceptance)
-  (spec: mps-emulators.md, D-MP1/2/2-A/6/7).
+  (spec: families-background-mps.md, D-MP1/2/2-A/6/7).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/mps_identity.py")
@@ -1133,7 +1133,7 @@ def gate_mps_b(ctx):
   EMUL2 hybrid run is the unit's recorded acceptance experiment
   (cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml, user-run on the
   workstation). torch + cobaya + a compiled CAMB under $ROOTDIR
-  (spec: mps-emulators.md, D-MP3/4/6).
+  (spec: families-background-mps.md, D-MP3/4/6).
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("gates/checks/mps_smoke.py")
@@ -1159,7 +1159,7 @@ def gate_geo_a(ctx):
   retired by user ruling 2026-07-11 (no science artifact predates the
   move; D-GEO5). Acceptance beyond this gate = the full board green
   (every gate touches geometries) with ema-off-identity pinning
-  byte-identity, the GRF precedent (spec: geometry-family-folder.md,
+  byte-identity, the GRF precedent (spec: artifacts-inference-warmstart.md,
   D-GEO1..5).
   """
   ctx.require_caps("torch")
@@ -1177,7 +1177,7 @@ BOARD = [
        spec_code="GM-C",
        title="EMA off-mode byte-identity",
        tier=TIER_BACKLOG,
-       home="weight-ema-snapshot-coupled",
+       home="training-stack",
        maps="98-101 (byte-identity gate); 229-238 (the epoch-line diff recipe)",
        run=gate_gm_c,
        needs=("torch", "cosmolike", "gpu"),
@@ -1186,7 +1186,7 @@ BOARD = [
        spec_code="GM-D",
        title="EMA on-mode smoke",
        tier=TIER_BACKLOG,
-       home="weight-ema-snapshot-coupled",
+       home="training-stack",
        maps="104-107, 240-251 (on-mode smoke: horizon banner + metrics); "
             "246-249 (the lr-cut rewind line)",
        run=gate_gm_d,
@@ -1195,19 +1195,19 @@ BOARD = [
        spec_code="DIAG (G1, G-F, GN-F, GS-D, GT-C)",
        title="Production diagnostic run",
        tier=TIER_BACKLOG,
-       home="driver-audit-phase-sweep-guards",
-       maps="G1 audit-package-style-2026-07-05.md:232-234; G-F "
-            "omegamh2-ns-product-cuts.md:125-126; GN-F "
-            "param-cuts-nested-block.md:94-95; GS-D "
-            "n-train-n-val-absolute-counts.md:110-112; GT-C "
-            "triangle-cut-shading-all-windows.md:76-79",
+       home="training-stack",
+       maps="G1 conventions-and-workflow.md:232-234; G-F "
+            "data-generation-and-cuts.md:125-126; GN-F "
+            "data-generation-and-cuts.md:94-95; GS-D "
+            "training-stack.md:110-112; GT-C "
+            "data-generation-and-cuts.md:76-79",
        run=gate_diag,
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="single-phase-demotion",
        spec_code="GP-D",
        title="Single-phase phase-arg demotion",
        tier=TIER_BACKLOG,
-       home="resolve-phase-args-single-phase",
+       home="training-stack",
        maps="110-113 (single-phase demotion trains; two-phase control no-op)",
        run=gate_gp_d,
        needs=("torch", "cosmolike", "gpu")),
@@ -1215,7 +1215,7 @@ BOARD = [
        spec_code="GH-E",
        title="Head scheduler override",
        tier=TIER_BACKLOG,
-       home="phase-blocks-nested-lr-scheduler",
+       home="training-stack",
        maps="262-267 (head override banner + cadence); 269-279 (golden diff)",
        run=gate_gh_e,
        needs=("torch", "cosmolike", "gpu")),
@@ -1223,7 +1223,7 @@ BOARD = [
        spec_code="GE-C",
        title="Eval-batch partition invariance",
        tier=TIER_BACKLOG,
-       home="eval-bs-decoupling",
+       home="training-stack",
        maps="102-108 (partition invariance rtol 1e-6 + timing); 202-300 script",
        run=gate_ge_c,
        needs=("torch", "gpu")),
@@ -1231,7 +1231,7 @@ BOARD = [
        spec_code="GB-C",
        title="berHu head loss",
        tier=TIER_BACKLOG,
-       home="loss-mode-berhu",
+       home="training-stack",
        maps="148-153 (leg 1: berhu/_reduce numerics + autograd continuity); "
             "290-314 (leg 2: golden + head-berhu banners)",
        run=gate_gb_c,
@@ -1240,7 +1240,7 @@ BOARD = [
        spec_code="GL-D",
        title="Nested loss-schema equivalence",
        tier=TIER_BACKLOG,
-       home="loss-block-nesting",
+       home="training-stack",
        maps="237-244 (new-schema reproduces pre-change epoch lines)",
        run=gate_gl_d,
        needs=("torch", "cosmolike", "gpu")),
@@ -1248,7 +1248,7 @@ BOARD = [
        spec_code="GBA-C",
        title="berHu anneal schedule",
        tier=TIER_BACKLOG,
-       home="berhu-anneal-schedule",
+       home="training-stack",
        maps="199-221 (golden no-anneal + anneal banner + continuity + s=1)",
        run=gate_gba_c,
        needs=("torch", "cosmolike", "gpu")),
@@ -1256,7 +1256,7 @@ BOARD = [
        spec_code="GME-C",
        title="EMA anneal schedule",
        tier=TIER_BACKLOG,
-       home="ema-anneal-schedule",
+       home="training-stack",
        maps="180-197 (golden no-anneal + anneal banner + live-point metrics)",
        run=gate_gme_c,
        needs=("torch", "cosmolike", "gpu")),
@@ -1264,9 +1264,9 @@ BOARD = [
        spec_code="item-27",
        title="Parameter-window cuts",
        tier=TIER_BACKLOG,
-       home="omegamh2-ns-product-cuts",
+       home="data-generation-and-cuts",
        maps="125-126 (tight window: pool shrinkage matches count); "
-            "param-cuts-nested-block.md:94-95 (nested block normal banner); "
+            "data-generation-and-cuts.md:94-95 (nested block normal banner); "
             "248 (ci.init_probes A/B inspection)",
        run=gate_item27,
        needs=("torch", "cosmolike", "gpu")),
@@ -1274,7 +1274,7 @@ BOARD = [
        spec_code="GT-B",
        title="Triangle cut shading",
        tier=TIER_BACKLOG,
-       home="triangle-cut-shading-all-windows",
+       home="data-generation-and-cuts",
        maps="72-75 (synthetic four-window triangle: artist-list fills + band)",
        run=gate_gt_b,
        optional=True,
@@ -1284,7 +1284,7 @@ BOARD = [
        spec_code="GFT-C",
        title="freeze_trunk-false joint training",
        tier=TIER_NEW_FEATURES,
-       home="freeze-trunk-joint-phase2",
+       home="training-stack",
        maps="115-120, 211-228 (joint banners + continuity + epoch-time signal)",
        run=gate_gft_c,
        needs=("torch", "cosmolike", "gpu")),
@@ -1292,7 +1292,7 @@ BOARD = [
        spec_code="GHA-F",
        title="Pinned head activation",
        tier=TIER_NEW_FEATURES,
-       home="head-activation-per-component",
+       home="models-and-designs",
        maps="239-242, 405-430 (model-spec banner + param count + warning); "
             "429-430 (leg 4: freeze_trunk false + pin -> build_specs errors)",
        run=gate_gha_f,
@@ -1301,7 +1301,7 @@ BOARD = [
        spec_code="GAN-C",
        title="relu/tanh with the norm knob",
        tier=TIER_NEW_FEATURES,
-       home="activation-families-norm-knob",
+       home="models-and-designs",
        maps="99-101 (tanh+per_feature + tanh+affine + golden absent-key)",
        run=gate_gan_c,
        needs=("torch", "cosmolike", "gpu")),
@@ -1309,7 +1309,7 @@ BOARD = [
        spec_code="GWD-C",
        title="Weight-decay param-group census",
        tier=TIER_NEW_FEATURES,
-       home="weight-decay-only-weight-matrices",
+       home="training-stack",
        maps="143-147 (gated_power wd 1e-4 census + golden wd-0 byte-identity)",
        run=gate_gwd_c,
        needs=("torch", "gpu")),
@@ -1317,7 +1317,7 @@ BOARD = [
        spec_code="GPC-C",
        title="NPCE training",
        tier=TIER_NEW_FEATURES,
-       home="npce-yaml-wiring",
+       home="models-and-designs",
        maps="117-122, 201-204 (residual + ratio + rebuild + exclusivity + sweep)",
        run=gate_gpc_c,
        needs=("torch", "cosmolike", "gpu")),
@@ -1325,7 +1325,7 @@ BOARD = [
        spec_code="FTW-A",
        title="Fine-tune warm-start identity",
        tier=TIER_NEW_FEATURES,
-       home="finetune-warm-start",
+       home="artifacts-inference-warmstart",
        maps="256-273 (encode + transfer + parity + degenerate + error paths)",
        run=gate_ftw_a,
        needs=("torch",)),
@@ -1333,7 +1333,7 @@ BOARD = [
        spec_code="TPE-A",
        title="Transfer frozen-base identity",
        tier=TIER_NEW_FEATURES,
-       home="transfer-parallel-emulator",
+       home="artifacts-inference-warmstart",
        maps="204-219 (slice + 4x form/space identity + packing + surgery + errors)",
        run=gate_tpe_a,
        needs=("torch",)),
@@ -1341,7 +1341,7 @@ BOARD = [
        spec_code="SPE-A",
        title="Scalar emulator identity",
        tier=TIER_NEW_FEATURES,
-       home="scalar-parameter-emulators",
+       home="families-scalar-cmb",
        maps="123-127 (round-trip + state + auto-provides + subset/dup + "
             "D-SPE1-1/2-1/2-3/2-4 error legs)",
        run=gate_spe_a,
@@ -1350,7 +1350,7 @@ BOARD = [
        spec_code="CME-A",
        title="CMB emulator identity",
        tier=TIER_NEW_FEATURES,
-       home="cmb-spectra-emulators",
+       home="families-scalar-cmb",
        maps="110-117 (D-CM6 identity legs); 517-530 (D-CM8 gate legs); "
             "582-591 (D-CM10 finetune legs)",
        run=gate_cme_a,
@@ -1359,7 +1359,7 @@ BOARD = [
        spec_code="BSN-A",
        title="BAOSN grid emulator identity",
        tier=TIER_NEW_FEATURES,
-       home="baosn-emulators",
+       home="families-background-mps",
        maps="118-127 (D-BSN6 identity legs); 138-176 (the D-BSN3-A "
             "two-regime + desert legs); 217-231 (D-BSN9 finetune legs)",
        run=gate_bsn_a,
@@ -1368,7 +1368,7 @@ BOARD = [
        spec_code="MPS-A",
        title="MPS grid2d emulator identity",
        tier=TIER_NEW_FEATURES,
-       home="mps-emulators",
+       home="families-background-mps",
        maps="D-MP1/2 (geometry + laws); D-MP2-A (the base placement + "
             "staging transform); D-MP6 (identity legs); D-MP7 (finetune)",
        run=gate_mps_a,
@@ -1377,7 +1377,7 @@ BOARD = [
        spec_code="GEO-A",
        title="Geometry folder is the only geometry home",
        tier=TIER_NEW_FEATURES,
-       home="geometry-family-folder",
+       home="artifacts-inference-warmstart",
        maps="D-GEO3 (import rewrite census); D-GEO4 (new-save markers "
             "+ full-board acceptance); D-GEO5 (shims retired: legacy "
             "flat paths dead, loudly)",
@@ -1388,16 +1388,16 @@ BOARD = [
        spec_code="GSV-C",
        title="Save/rebuild bitwise + drift",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="save-schema-resolved-config",
+       home="artifacts-inference-warmstart",
        maps="86-93 (bitwise + drift + v1 refusal); "
-            "workstation-board-2026-07.md:66-71 (one factored + one NPCE save)",
+            "gates-and-board.md:66-71 (one factored + one NPCE save)",
        run=gate_gsv_c,
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="cobaya-adapter",
        spec_code="GCT-C",
        title="Cobaya adapter parity",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="cobaya-theory-adapter",
+       home="artifacts-inference-warmstart",
        maps="117-123 (parity rtol 1e-6 + evaluate + MCMC); 234-238 (round-trip)",
        run=gate_gct_c,
        deps=("save-rebuild-drift",),
@@ -1406,7 +1406,7 @@ BOARD = [
        spec_code="FTW-B",
        title="Fine-tune warm-start smoke",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="finetune-warm-start",
+       home="artifacts-inference-warmstart",
        maps="277-284 (names-equal fine-tune: parity line + banner + completes; "
             "finetuned_from + save-rebuild round-trip are the workstation leg)",
        run=gate_ftw_b,
@@ -1416,7 +1416,7 @@ BOARD = [
        spec_code="TPE-B",
        title="Transfer frozen-base smoke",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="transfer-parallel-emulator",
+       home="artifacts-inference-warmstart",
        maps="221-228 (names-equal gain transfer: parity + banner + completes; "
             "transfer_from + embedded base + round-trip are the workstation leg)",
        run=gate_tpe_b,
@@ -1426,7 +1426,7 @@ BOARD = [
        spec_code="SPE-B",
        title="Scalar emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="scalar-parameter-emulators",
+       home="families-scalar-cmb",
        maps="128-134 (fixture train + collapse + off-center predict + "
             "cobaya evaluate through emul_scalars)",
        run=gate_spe_b,
@@ -1435,7 +1435,7 @@ BOARD = [
        spec_code="CME-B",
        title="CMB emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="cmb-spectra-emulators",
+       home="families-scalar-cmb",
        maps="118-124 (D-CM6 end-to-end: generator + covariance + train + "
             "cobaya lifecycle); 575-578 (the D-CM9 diagnostics leg)",
        run=gate_cme_b,
@@ -1444,7 +1444,7 @@ BOARD = [
        spec_code="BSN-B",
        title="BAOSN emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="baosn-emulators",
+       home="families-background-mps",
        maps="128-136 (D-BSN6 end-to-end vs CAMB's own background); "
             "178-194 (the D-BSN8 diagnostics leg)",
        run=gate_bsn_b,
@@ -1453,7 +1453,7 @@ BOARD = [
        spec_code="MPS-B",
        title="MPS emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
-       home="mps-emulators",
+       home="families-background-mps",
        maps="D-MP3 (the generator incl. the wants-Cl quirk); D-MP4/6 "
             "(the emul_mps lifecycle vs CAMB's own P(k, z))",
        run=gate_mps_b,

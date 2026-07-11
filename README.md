@@ -1623,7 +1623,7 @@ train_args:
 ```
 
 Full example: `example_yamls/cosmic_shear_finetune_emulator.yaml`. Design
-record: `notes/finetune-warm-start.md`.
+record: `notes/artifacts-inference-warmstart.md`.
 
 ### Transfer learning (`transfer:`)
 
@@ -1659,7 +1659,7 @@ train_args:
 ```
 
 Full example: `example_yamls/cosmic_shear_transfer_emulator.yaml`. Design
-record: `notes/transfer-parallel-emulator.md`.
+record: `notes/artifacts-inference-warmstart.md`.
 
 ### Joint refinement (`transfer.refine`, optional stage 2)
 
@@ -1760,7 +1760,7 @@ theory:
 ```
 
 Full example: `example_yamls/scalar_emulator.yaml`. Design record:
-`notes/scalar-parameter-emulators.md`.
+`notes/families-scalar-cmb.md`.
 
 ---
 

@@ -1,4 +1,4 @@
-# relu-tanh-norm, leg 2 (spec code GAN-C; activation-families-norm-knob.md:99-101):
+# relu-tanh-norm, leg 2 (spec code GAN-C; models-and-designs.md:99-101):
 # tanh + affine norm, the classic baseline. The banner names the norm.
 #
 data:

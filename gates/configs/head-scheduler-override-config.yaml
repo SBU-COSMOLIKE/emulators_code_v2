@@ -1,4 +1,4 @@
-# head-scheduler-override (spec code GH-E; phase-blocks-nested-lr-scheduler.md:262-267).
+# head-scheduler-override (spec code GH-E; training-stack.md:262-267).
 # The banner shows [head overrides: scheduler]; the head phase cuts on
 # patience 10 vs the run's 25.
 #

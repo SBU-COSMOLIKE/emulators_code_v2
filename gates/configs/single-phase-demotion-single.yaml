@@ -1,4 +1,4 @@
-# single-phase-demotion (spec code GP-D; resolve-phase-args-single-phase.md:110-113):
+# single-phase-demotion (spec code GP-D; training-stack.md:110-113):
 # a single-phase resmlp WITH phase keys. The demotion notice fires and the run
 # trains (this exact config used to be a traceback).
 #

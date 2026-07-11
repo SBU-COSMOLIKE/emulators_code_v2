@@ -6,7 +6,7 @@ Cosmic-shear data-vector emulator (PyTorch): the `emulator/` package plus the
 five CLI drivers beside it, trained against the full-3x2pt chi2 from
 cosmolike. This repo is one arm of the wider Cocoa program; the other two
 arms — CAMB Fortran ports and CosmoLike C — live under
-`$ROOTDIR/external_modules/code/` (see `notes/cocoa-rootdir-env.md`), and the
+`$ROOTDIR/external_modules/code/` (see `notes/conventions-and-workflow.md`), and the
 dual-agent protocol below covers all three.
 
 ## Session start
@@ -65,16 +65,13 @@ delegation choice:
 
 ## Conventions (pointers, not copies)
 
-- Python house style: `notes/py-module-style-conventions.md` — paren
-  alignment, named parameters, formal `Arguments:` docstring blocks,
-  shape-flow diagrams with every symbol in a legend, no comprehensions
-  outside hot loops.
-- YAML: block style, one key per line — never inline `{...}` flow.
-- Plots: colorblind-safe palette, never red+green
-  (`notes/plots-no-red-green.md`).
-- Machines: Mac M2/MPS for dev, NVIDIA for training
-  (`notes/dev-machine-mac-m2-32gb.md`, `notes/test-workstation-gpus.md`).
-- Terminal output: essential-only; full streams go to per-run log files, a
-  debug switch restores them (`notes/terminal-output-essential-only.md`).
-- `notes/` ritual: every milestone gets a note plus a `MEMORY.md` index line,
-  unprompted.
+All house rules live in ONE note, `notes/conventions-and-workflow.md`:
+Python style (paren alignment, named parameters, formal `Arguments:`
+blocks, shape-flow diagrams with legends, no comprehensions outside
+hot loops, no Alien Python), YAML block style (never inline `{...}`
+flow; every change reported as a paste-ready block), plots
+(colorblind-safe, never red+green), terminal output (essential-only;
+full streams to log files, a debug switch restores them), machines
+(Mac M2/MPS for dev — numpy-only python3; NVIDIA for training), and
+the ROOTDIR environment. The `notes/` ritual: every milestone gets a
+note plus a `MEMORY.md` index line, unprompted.

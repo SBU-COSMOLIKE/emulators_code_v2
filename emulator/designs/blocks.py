@@ -352,7 +352,7 @@ class FiLMGenerator(nn.Module):
   Predicts a per-channel affine modulation (gamma, beta) from a
   conditioning vector: the generator half of FiLM (Feature-wise
   Linear Modulation; Dumoulin et al. 2018, and the recovered
-  design note notes/film-conditioning.md).
+  design note notes/models-and-designs.md).
 
     z  (B, n_cond)            conditioning vector (here: the
        │                      non-amplitude whitened parameters)

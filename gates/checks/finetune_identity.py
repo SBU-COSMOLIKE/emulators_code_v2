@@ -33,7 +33,7 @@ How it works, in order:
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
-Spec code FTW-A. Home note: finetune-warm-start.md (design rules D-FT1..D-FT8;
+Spec code FTW-A. Home note: artifacts-inference-warmstart.md (design rules D-FT1..D-FT8;
 this check is the finetune-identity gate the note's validation section names).
 """
 

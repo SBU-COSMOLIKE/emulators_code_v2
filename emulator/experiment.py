@@ -2192,7 +2192,7 @@ class EmulatorExperiment:
     # emulator, so this path bypasses the model-name resolution below. It
     # validates the finetune YAML surface, loads + validates the source once
     # (on the run's device), and builds the experiment on the source's class.
-    # See emulator/warmstart.py and notes/finetune-warm-start.md.
+    # See emulator/warmstart.py and notes/artifacts-inference-warmstart.md.
     if ta.get("finetune") is not None:
       warmstart.validate_finetune_config(
         cfg=cfg,
@@ -2398,7 +2398,7 @@ class EmulatorExperiment:
     single-phase model that carries two-phase keys prints them demoted, with
     the notice) and the model spec filtered to the chosen architecture (the
     class's own describe_spec). The banner then cannot contradict what the
-    run executes (the banner-prints-consumed-view directive).
+    run executes (the training-stack directive).
 
     Lines printed, in order:
 
@@ -2432,7 +2432,7 @@ class EmulatorExperiment:
     A sweep or a study varies pieces per point / per trial; this
     banner shows the resolved defaults those variations start from.
     """
-    # display the consumed view (the banner-prints-consumed-view directive):
+    # display the consumed view (the training-stack directive):
     # resolve the phase schedule against the model's real capability, so a
     # single-phase model carrying two-phase keys prints them demoted (no
     # two-phase fragment, no trunk: / head: lines) exactly as train() runs
@@ -3500,7 +3500,7 @@ class EmulatorExperiment:
     ta["model"] = model_opts
 
     # the per-head activation (rulings c/d, notes head-activation-per-
-    # component + freeze-trunk-joint-phase2): the canonical pin
+    # component + training-stack): the canonical pin
     # (model.<head>.activation, in head_pin) and the head: activation:
     # alias are one setting — resolve them (both given = a loud error),
     # license the pin against a frozen-trunk head phase (trunk_epochs > 0

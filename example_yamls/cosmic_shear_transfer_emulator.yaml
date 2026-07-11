@@ -1,5 +1,5 @@
 # Transfer-learning config for cosmic_shear_train_emulator.py
-# (see notes/transfer-parallel-emulator.md and emulator/losses/transfer.py).
+# (see notes/artifacts-inference-warmstart.md and emulator/losses/transfer.py).
 #
 # A transfer run freezes a trained base emulator whole and trains a small
 # parallel correction net over the full new parameter space; the final data

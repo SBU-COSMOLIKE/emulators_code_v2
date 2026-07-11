@@ -1,4 +1,4 @@
-# head-activation-pin (spec code GHA-F; head-activation-per-component.md:405-430): a pinned
+# head-activation-pin (spec code GHA-F; models-and-designs.md:405-430): a pinned
 # gated_power head. restrf + trf.activation gated_power; the 'model spec:' banner
 # shows the pin.
 #
