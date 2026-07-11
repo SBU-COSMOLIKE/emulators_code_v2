@@ -37,6 +37,11 @@ generator's _z.npy sidecar.
 #  bands and, for a Hubble artifact, the derived-distance page computed
 #  through the real integration pipeline.
 
+# main (cosmic_shear_train_emulator.py): the whole train driver —
+# the CLI (--save/--diagnostic/--quiet/...), training, saving, and
+# the per-family diagnostics pages. The wrapper only pins the
+# family: family="grid" makes a wrong-family YAML fail at
+# startup NAMING the right driver (require_family_block).
 from cosmic_shear_train_emulator import main
 
 if __name__ == "__main__":

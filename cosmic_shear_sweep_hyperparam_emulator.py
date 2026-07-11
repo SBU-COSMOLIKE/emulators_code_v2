@@ -182,9 +182,9 @@ def _hyper_job(gpu_id, exp, payload, extra):
   return (idx, f, gpu_id, time.time() - t0)
 
 
-def main():
-  parser = argparse.ArgumentParser(
-    prog="cosmic_shear_sweep_hyperparam_emulator")
+def main(prog="cosmic_shear_sweep_hyperparam_emulator", family=None,
+         out_default="hyperparam_sweep"):
+  parser = argparse.ArgumentParser(prog=prog)
   # --root / --fileroot / --yaml: the cocoa project layout (data under
   # --root, YAML + sweep outputs under --fileroot). Same schema as the
   # training driver, plus the sweep: block.
@@ -231,15 +231,20 @@ def main():
   parser.add_argument("--out",
                       dest="out",
                       help="output base path -> <out>.txt + "
-                           "<out>.pdf (default hyperparam_sweep)",
+                           "<out>.pdf (default: the driver's own "
+                           "name, e.g. hyperparam_sweep)",
                       type=str,
-                      default="hyperparam_sweep")
+                      default=None)
   parser.add_argument("--quiet",
                       dest="quiet",
                       help="suppress all stdout (txt / pdf still "
                            "written)",
                       action="store_true")
   args, unknown = parser.parse_known_args()
+  # --out absent -> the driver's own default (the family
+  # wrappers pass their per-family name through out_default).
+  if args.out is None:
+    args.out = out_default
 
   # headless figure output, set before pyplot loads and before any
   # worker spawns (children inherit it).
@@ -248,6 +253,13 @@ def main():
   # resolve_cocoa_config (cocoa.py): load the YAML and make its data paths
   # absolute under $ROOTDIR/<root>; fileroot receives the sweep outputs.
   cfg, fileroot, _ = resolve_cocoa_config(args)
+  # a thin per-family driver passes its family (the DATA-BLOCK key:
+  # outputs / cmb / grid / grid2d); the dispatching driver passes
+  # None. require_family_block (cosmic_shear_train_emulator.py): a
+  # wrong-family YAML fails here NAMING the right driver.
+  if family is not None:
+    from cosmic_shear_train_emulator import require_family_block
+    require_family_block(data=cfg["data"], family=family, prog=prog)
   param, values, act_mode = read_sweep_block(cfg)
   if act_mode and args.activation is not None:
     raise ValueError(
@@ -343,11 +355,17 @@ def main():
     # --gpu-pack: every point stages the same N_train, so one token
     # count covers all jobs. n_train is the exact staged row count
     # (post-cut, enforced by load_source), so the estimate is exact;
-    # the memmap stays open only for the dv width dv.shape[1].
+    # the memmap (when one exists) stays open only for its width.
     lanes = 1
     job_tokens = None
     if args.gpu_pack:
-      dv = np.load(cfg["data"]["train_dv"], mmap_mode="r")
+      if "train_dv" in cfg["data"]:
+        dv_width = np.load(cfg["data"]["train_dv"],
+                           mmap_mode="r").shape[1]
+      else:
+        # a scalar run has no dv dump; its targets are the named
+        # output columns, len(outputs) wide (tiny).
+        dv_width = len(cfg["data"]["outputs"])
       n_est = int(cfg["data"]["n_train"])
       # get_device_properties(0): the positional 0 is the CUDA device
       # index (GPU 0; a homogeneous-GPU assumption for the estimate).
@@ -356,7 +374,7 @@ def main():
       # the point's row/width estimate into a fraction of a card, then
       # into capacity tokens the pool packs against.
       frac  = estimate_train_vram_fraction(n_rows=n_est,
-                                           dv_width=dv.shape[1],
+                                           dv_width=dv_width,
                                            total_bytes=total)
       tokens = vram_tokens(fraction=frac)
       def job_tokens(payload):
@@ -421,6 +439,7 @@ def main():
     values=values,
     fracs=fracs,
     meta={"model": exp.model_name,
+          "family": family or "cosmic_shear",
           "rescale": args.rescale,
           "activation": ("swept" if act_mode else args.activation),
           "threshold": args.threshold,

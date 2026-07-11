@@ -1,40 +1,31 @@
 #!/usr/bin/env python3
-"""Trace f(delta-chi2 > thr) vs N_train for an MPS grid2d emulator (D-MP5).
+"""Trace f(delta-chi2 > thr) vs N_train for a matter-power emulator.
 
-The matter-power-spectrum sibling of cosmic_shear_sweep_ntrain_emulator.py:
-same YAML schema as the training driver with a data.grid2d block (the
-linear P(k, z) or the nonlinear boost — one artifact per run), one fresh
-training per grid point, serial. Writes <out>.txt (the
+The mps sibling of cosmic_shear_sweep_ntrain_emulator.py, and a thin
+wrapper over that driver's main(): the SAME code path, so every
+capability carries over — the multi-GPU pool (--n-gpus), --gpu-pack
+co-location, the LPT balance, and the serial path on one GPU / Apple
+MPS. The YAML is the training driver's, with a data.grid2d block marking
+the family; one fresh training per grid point; writes <out>.txt (the
 np.loadtxt-loadable curve) and <out>.pdf under --fileroot.
 
 Example:
   python .../mps_sweep_ntrain_emulator.py \\
-    --root projects/mps/ \\
+    --root projects/lsst_y1/ \\
     --fileroot emulators/training_scripts/ \\
     --yaml mps_boost_emulator.yaml \\
-    --n-min 2000 --n-points 6 --out ntrain_mps_boost
+    --n-min 2000 --n-points 6 --out ntrain_mps
 """
 
-import argparse
-
-from emulator.cocoa import add_cocoa_path_args
-from emulator.family_drivers import add_sweep_args, run_ntrain_sweep
-
-
-def main():
-  """Parse the shared sweep CLI and run the serial MPS sweep."""
-  parser = argparse.ArgumentParser(prog="mps_sweep_ntrain_emulator")
-  add_cocoa_path_args(parser)
-  add_sweep_args(parser)
-  parser.add_argument("--out",
-                      dest="out",
-                      help="output name root under --fileroot "
-                           "(default ntrain_mps)",
-                      type=str,
-                      default="ntrain_mps")
-  args, _ = parser.parse_known_args()
-  run_ntrain_sweep(args, family="mps", out_default="ntrain_mps")
-
+# main (cosmic_shear_sweep_ntrain_emulator.py): the whole sweep driver —
+# the CLI (--n-min/--n-max/--n-points/--threshold/--n-gpus/--gpu-pack/
+# --out), the serial and multi-GPU paths, and the outputs. The wrapper
+# only pins the family: family="grid2d" makes a YAML without a
+# data.grid2d block fail at startup NAMING the right driver
+# (require_family_block), and out_default keeps this family's own
+# output name when --out is absent.
+from cosmic_shear_sweep_ntrain_emulator import main
 
 if __name__ == "__main__":
-  main()
+  main(prog="mps_sweep_ntrain_emulator", family="grid2d",
+       out_default="ntrain_mps")

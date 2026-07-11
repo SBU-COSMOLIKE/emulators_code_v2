@@ -1,33 +1,32 @@
 #!/usr/bin/env python3
-"""Optuna-tune an MPS grid2d emulator's train_args (D-MP5).
+"""Run an Optuna hyperparameter search for a matter-power emulator.
 
-The matter-power-spectrum sibling of cosmic_shear_tune_emulator.py:
-same YAML schema as the training driver with a data.grid2d block, with
-[default, min, max, kind] search ranges on any train_args leaf; the study
-minimizes the best epoch's frac(delta-chi2 > 0.2). Serial and in-memory.
+The mps sibling of cosmic_shear_tune_emulator.py, and a thin wrapper
+over that driver's main(): the SAME code path, so every capability
+carries over — serial on one GPU / Apple MPS, or a multi-GPU study
+(--n-gpus) cooperating through a shared journal file (--journal;
+reusing the journal resumes the study). The YAML is the training
+driver's, with a data.grid2d block marking the family and
+[default, min, max, kind] search ranges on any train_args leaf; the
+study minimizes the best epoch's frac(delta-chi2 > 0.2).
 
 Example:
   python .../mps_tune_emulator.py \\
-    --root projects/mps/ \\
+    --root projects/lsst_y1/ \\
     --fileroot emulators/training_scripts/ \\
     --yaml mps_boost_emulator.yaml \\
-    --n-trials 50
+    --n-trials 40
 """
 
-import argparse
-
-from emulator.cocoa import add_cocoa_path_args
-from emulator.family_drivers import add_tune_args, run_tune
-
-
-def main():
-  """Parse the shared tune CLI and run the serial MPS study."""
-  parser = argparse.ArgumentParser(prog="mps_tune_emulator")
-  add_cocoa_path_args(parser)
-  add_tune_args(parser)
-  args, _ = parser.parse_known_args()
-  run_tune(args, family="mps")
-
+# main (cosmic_shear_tune_emulator.py): the whole Optuna driver — the
+# CLI (--n-trials/--timeout/--n-gpus/--journal), trial suggestion off
+# the YAML's [default, min, max, kind] ranges, the serial in-memory
+# study and the multi-GPU journal study. The wrapper only pins the
+# family: family="grid2d" makes a YAML without a data.grid2d block fail
+# at startup NAMING the right driver (require_family_block), and the
+# study name becomes this prog (per-family studies never mix in a
+# shared journal file).
+from cosmic_shear_tune_emulator import main
 
 if __name__ == "__main__":
-  main()
+  main(prog="mps_tune_emulator", family="grid2d")

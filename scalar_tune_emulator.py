@@ -1,35 +1,32 @@
 #!/usr/bin/env python3
-"""Optuna-tune a SCALAR emulator's train_args (D-MP5).
+"""Run an Optuna hyperparameter search for a scalar (derived-parameter) emulator.
 
-The scalar sibling of cosmic_shear_tune_emulator.py: same YAML
-schema as scalar_train_emulator.py (data.outputs marks the family), with
+The scalar sibling of cosmic_shear_tune_emulator.py, and a thin wrapper
+over that driver's main(): the SAME code path, so every capability
+carries over — serial on one GPU / Apple MPS, or a multi-GPU study
+(--n-gpus) cooperating through a shared journal file (--journal;
+reusing the journal resumes the study). The YAML is the training
+driver's, with a data.outputs block marking the family and
 [default, min, max, kind] search ranges on any train_args leaf; the
-study minimizes the best epoch's frac(delta-chi2 > 0.2). Serial and
-in-memory (the multi-GPU journal study stays the cosmic-shear tune
-driver's tool).
+study minimizes the best epoch's frac(delta-chi2 > 0.2).
 
 Example:
   python .../scalar_tune_emulator.py \\
     --root projects/lsst_y1/ \\
     --fileroot emulators/training_scripts/ \\
     --yaml scalar_emulator.yaml \\
-    --n-trials 50
+    --n-trials 40
 """
 
-import argparse
-
-from emulator.cocoa import add_cocoa_path_args
-from emulator.family_drivers import add_tune_args, run_tune
-
-
-def main():
-  """Parse the shared tune CLI and run the serial scalar study."""
-  parser = argparse.ArgumentParser(prog="scalar_tune_emulator")
-  add_cocoa_path_args(parser)
-  add_tune_args(parser)
-  args, _ = parser.parse_known_args()
-  run_tune(args, family="scalar")
-
+# main (cosmic_shear_tune_emulator.py): the whole Optuna driver — the
+# CLI (--n-trials/--timeout/--n-gpus/--journal), trial suggestion off
+# the YAML's [default, min, max, kind] ranges, the serial in-memory
+# study and the multi-GPU journal study. The wrapper only pins the
+# family: family="outputs" makes a YAML without a data.outputs block fail
+# at startup NAMING the right driver (require_family_block), and the
+# study name becomes this prog (per-family studies never mix in a
+# shared journal file).
+from cosmic_shear_tune_emulator import main
 
 if __name__ == "__main__":
-  main()
+  main(prog="scalar_tune_emulator", family="outputs")
