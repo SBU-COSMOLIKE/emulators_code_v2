@@ -969,3 +969,82 @@ the 3-page diagnostics leg). The loss/validate_loss edits touch every
 training run's config path — loss-schema-equivalence / berhu-loss /
 berhu-anneal are the regression sentinels if anything looks off; the
 off-identity probes say byte-identical.
+
+## Follow-up SPECS (Architect, 2026-07-11 overnight window): D-CM12 + D-CM13
+
+Status: SPECS FOR AUDIT — deliberately NOT implemented overnight (both
+change design surfaces; the propose-don't-guess rule). Each is a small
+delta on the CME family, ready to hand off or implement on approval.
+
+### D-CM12 — dense-Cinv training from the non-Gaussian covariance
+
+**What exists:** compute_cmb_covariance.py already writes the dense
+per-spectrum blocks `cov_tt/te/ee` (n_ell x n_ell, Gaussian + the eq-6
+lensing N^(phi)) into the .npz when `cov_args.nongaussian.enabled` —
+the producing side is DONE. Training reads only `sigma_<spec>` (the
+Gaussian diagonal): the lensing-induced multipole coupling is ignored
+by the loss metric today.
+
+**The ruled design (reuse, not invent):** whitening by a dense
+covariance's eigenbasis and a dense-chi2 loss are EXACTLY what the
+cosmic-shear family already does. When `data.cmb.dense: true`
+(default false — byte-identical without it):
+1. validate_cmb requires the npz to carry `cov_<spectrum>` (loud
+   error naming the flag and the covariance YAML when only the
+   Gaussian diagonal is present).
+2. build_geometry constructs the whitening from the eigen-decomposition
+   of the dense block INSTEAD of the sigma diagonal — same amplitude
+   law applied FIRST (law space), then the rotation; persisted in the
+   geometry state exactly like the dv eigenbasis (schema v2, resolved
+   values).
+3. The loss stays the per-sample chi2 interface: r^T Cinv r with the
+   dense Cinv, i.e. sum of squares in the whitened basis — the
+   existing CmbDiagonalChi2 body already reduces whitened squares, so
+   the change is IN THE GEOMETRY, not the loss (audit focus: the
+   roughness term acts on the whitened residual — under a rotation the
+   "short-period" notion changes basis; ruling needed: roughness
+   stays defined in the PRE-rotation law basis, so compute it off the
+   un-rotated residual, or forbid roughness+dense V1 loudly).
+4. emul_cmb serves identically (decode inverts rotation + law); the
+   artifact records dense=true + the covariance file.
+Deltas: D-CM12-1 validator+geometry, D-CM12-2 the roughness/dense
+ruling, D-CM12-3 gate legs (cmb-identity: dense round-trip byte-parity
++ diagonal-vs-dense OFF-identity; a smoke leg is optional — the NG
+covariance needs a lensed-CAMB run, minutes).
+Risks: eigen-decomposition conditioning of the NG block (clip small
+eigenvalues loudly, never silently); memory trivial (n_ell^2).
+
+### D-CM13 — conv/TRF correction heads on the CMB path
+
+**What exists:** experiment.py's model resolution REJECTS rescnn /
+restrf under data.cmb ("the heads' basis-change buffers assume an
+eigenbasis data-vector geometry"). The heads (needs_geom=True) consume
+the dv geometry's full<->theta basis buffers + bin sizes
+(build_shear_angle_map): xi-specific machinery.
+
+**The ruled design (family-agnostic head coordinates):** the heads
+need only (a) an ordered 1D coordinate per output bin and (b) the
+whitened<->ordered basis change. Give the GEOMETRY the say:
+1. A small head-interface on the geometries: `head_coords()` returning
+   {order permutation, bin coordinate array, bin sizes}. For
+   DataVectorGeometry = the existing theta machinery (byte-identical
+   path); for CmbDiagonalGeometry = identity permutation, coordinate =
+   ell (single "bin" spanning the spectrum), basis change = the
+   diagonal scale.
+2. Lift the guard only when the geometry implements the interface;
+   the error message then names geometries, not families.
+3. The physics bet (why bother): C_ell is smooth with acoustic
+   structure — the conv head's locality prior is plausibly a better
+   fit than for xi; the TRF head's bin tokens map to ell bands.
+Deltas: D-CM13-1 the interface + dv wiring (byte-identity gated),
+D-CM13-2 the cmb implementation + guard lift, D-CM13-3 gate legs
+(cmb-identity: rescnn save/rebuild/predict parity; smoke stays resmlp).
+Risks: the ResCNN kernel-size heuristics assume xi bin counts —
+rescale_kernel_size must see n_ell; audit the head's zero-init gate so
+epoch-0 finetune parity still holds on cmb.
+
+**Sequencing:** both AFTER the first full 32-gate green + the EMUL2
+acceptance (no new design surface before the board baseline exists).
+D-CM12 first (science value: the NG metric changes what "accurate
+enough" means); D-CM13 is an optimization experiment, not a
+correctness need.
