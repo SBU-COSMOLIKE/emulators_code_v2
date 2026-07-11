@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Train one cosmic-shear (xi) emulator (resmlp, rescnn, or restrf) from a YAML.
+"""Train one emulator (resmlp, rescnn, or restrf) from a YAML.
+
+Cosmic shear (xi) is the default; a data.cmb / data.grid / data.grid2d
+block in the YAML trains a CMB-spectrum / background / matter-power
+emulator instead — same trunk, same train_args, the data block picks
+the family (scalar emulators have their own driver,
+train_scalar_emulator.py).
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
 variance (the decorrelated form the network sees); dump = the full on-disk
@@ -15,7 +21,10 @@ is never loaded whole.
 # resmlp (plain residual MLP), rescnn (ResMLP trunk + 1D-CNN correction head),
 # or restrf (ResMLP trunk + bin-token transformer head), mapping cosmological
 # parameters to the whitened, masked xi data vector. Loss = full-3x2pt chi2
-# (cosmolike's masked inverse covariance).
+# (cosmolike's masked inverse covariance). With a data.cmb / data.grid /
+# data.grid2d block it trains that family instead (a CMB spectrum whitened by
+# its per-multipole error bars; a background or matter-power grid), reusing
+# the whole train_args surface unchanged.
 #
 # python .../emultrfv2/train_single_emulator_cosmic_shear.py \
 #   --root projects/lsst_y1/ \
@@ -292,8 +301,9 @@ def main():
 
   # run_emulator already restored the best-frac>0.2 epoch; report which one.
   # fracs[i][0] is frac>0.2 at epoch i+1, median the tiebreaker (loop's rule).
-  best = min(range(len(fracs)),
-             key=lambda i: (fracs[i][0].item(), medians[i]))
+  def epoch_rank(i):
+    return (fracs[i][0].item(), medians[i])
+  best = min(range(len(fracs)), key=epoch_rank)
   log(f"best epoch {best + 1}: "
       f"frac>0.2 {fracs[best][0].item():.4f}  "
       f"median {medians[best]:.4f}")

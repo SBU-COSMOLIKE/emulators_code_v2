@@ -14,8 +14,8 @@ the model plus the per-epoch histories.
 In front of the loop sits a pure configuration layer: validate_phase_block,
 validate_loss, validate_berhu, and validate_ema check and canonicalize the
 train_args blocks (the eight-key per-phase whitelist, the nested loss {mode,
-berhu} block, the berhu {knot, cap, anneal} schedule, the ema {horizon_epochs,
-anneal} block) before anything runs; derive_eval_bs and derive_ema_beta turn
+berhu, roughness} block, the berhu {knot, cap, anneal} schedule, the ema
+{horizon_epochs, anneal} block) before anything runs; derive_eval_bs and derive_ema_beta turn
 run-global targets into the evaluation batch size and the per-epoch EMA decay.
 The loss modes the loop can apply are chi2 / sqrt / sqrt_dchi2 / berhu /
 berhu_capped (losses/core.py).
@@ -2702,7 +2702,11 @@ def run_emulator(train_set,
     # roughness block still rejects loudly inside validate_loss).
     if (phase is not None and loss_raw is loss
         and isinstance(loss_raw, dict) and "roughness" in loss_raw):
-      loss_raw = {k: v for k, v in loss_raw.items() if k != "roughness"}
+      pruned = {}
+      for loss_key, loss_val in loss_raw.items():
+        if loss_key != "roughness":
+          pruned[loss_key] = loss_val
+      loss_raw = pruned
     loss_pass  = validate_loss(loss_raw, which_l)
     mode_pass  = loss_pass["mode"]
     berhu_pass = loss_pass["berhu"]
@@ -2881,6 +2885,16 @@ def run_emulator(train_set,
   # resolved_model + the geometry states, not from this.
   def _qual(c):
     return c.__module__ + "." + c.__qualname__
+  # the optimizer/scheduler *_opts minus their bookkeeping keys: what is
+  # left is exactly the constructor extras the run passed through.
+  opt_extras = {}
+  for opt_key, opt_val in opt_opts.items():
+    if opt_key not in ("cls", "weight_decay"):
+      opt_extras[opt_key] = opt_val
+  sched_kwargs = {}
+  for sched_key, sched_val in sched_opts.items():
+    if sched_key != "cls":
+      sched_kwargs[sched_key] = sched_val
   resolved_train = {
     "bs": bs, "nepochs": nepochs, "seed": seed,
     "thresholds": [float(t) for t in thresholds],
@@ -2893,11 +2907,9 @@ def run_emulator(train_set,
            "lr": learning_rate},
     "optimizer": {"cls": _qual(opt_opts["cls"]),
                   "weight_decay": opt_opts.get("weight_decay", 0.0),
-                  "extras": {k: v for k, v in opt_opts.items()
-                             if k not in ("cls", "weight_decay")}},
+                  "extras": opt_extras},
     "scheduler": {"cls": _qual(sched_opts["cls"]),
-                  "kwargs": {k: v for k, v in sched_opts.items()
-                             if k != "cls"}},
+                  "kwargs": sched_kwargs},
     "trim": trim_opts, "focus": focus_opts,
     "trunk": trunk_opts, "head": head_opts,
     "eval_bs": (data.get("eval_bs") if isinstance(data, dict) else None),

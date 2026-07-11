@@ -253,17 +253,27 @@ def make_activation(name, n_gates=3):
   if name == "H":
     return activation_fcn
   if name == "power":
-    return lambda dim: PowerGatedActivation(dim)
+    def power_factory(dim):
+      return PowerGatedActivation(dim)
+    return power_factory
   if name == "multigate":
-    return lambda dim: GatedActivation(dim, n_gates=n_gates)
+    def multigate_factory(dim):
+      return GatedActivation(dim, n_gates=n_gates)
+    return multigate_factory
   if name == "gated_power":
-    return lambda dim: GatedPowerActivation(dim, n_gates=n_gates)
+    def gated_power_factory(dim):
+      return GatedPowerActivation(dim, n_gates=n_gates)
+    return gated_power_factory
   # parameter-free families: the factory ignores dim (ReLU / Tanh take
   # no shape argument), still honoring the act(dim) -> module contract.
   if name == "relu":
-    return lambda dim: nn.ReLU()
+    def relu_factory(dim):
+      return nn.ReLU()
+    return relu_factory
   if name == "tanh":
-    return lambda dim: nn.Tanh()
+    def tanh_factory(dim):
+      return nn.Tanh()
+    return tanh_factory
   raise ValueError(
     f"unknown activation {name!r}; one of: H / power / multigate / "
     f"gated_power / relu / tanh")

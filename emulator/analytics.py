@@ -75,17 +75,18 @@ def _analytic_R(theta_arcmin,
   # library/dtype/device to broadcast.
   is_torch = torch.is_tensor(cosmo)
   if is_torch:
-    log    = torch.log
-    coerce = lambda a: torch.as_tensor(
-      a, dtype=cosmo.dtype, device=cosmo.device)
+    log = torch.log
+    def coerce(a):
+      return torch.as_tensor(a, dtype=cosmo.dtype, device=cosmo.device)
     # a lone 1D row -> (1, n_param): the tensor np.atleast_2d, so
     # the [:, col] indexing below works.
     if cosmo.ndim == 1:
       cosmo = cosmo[None, :]
   else:
-    log    = np.log
-    coerce = lambda a: np.asarray(a, dtype="float64")
-    cosmo  = np.atleast_2d(
+    log = np.log
+    def coerce(a):
+      return np.asarray(a, dtype="float64")
+    cosmo = np.atleast_2d(
       np.asarray(cosmo, dtype="float64"))
   mid = coerce(cosmo_mid)
 

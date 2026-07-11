@@ -227,8 +227,9 @@ def run_tune(args, family):
     ta = suggest_train_args(trial=trial, train_args=raw_ta)
     (_m, _tl, medians,
      _mn, fracs) = exp.train(train_args=ta, silent=True)
-    best = min(range(len(fracs)),
-               key=lambda i: (fracs[i][0].item(), medians[i]))
+    def epoch_rank(i):
+      return (fracs[i][0].item(), medians[i])
+    best = min(range(len(fracs)), key=epoch_rank)
     trial.set_user_attr("median", float(medians[best]))
     return fracs[best][0].item()
 

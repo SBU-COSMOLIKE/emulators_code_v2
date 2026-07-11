@@ -1,11 +1,15 @@
-"""Training-history, learning-curve, coverage, and xi plots.
+"""Training-history, learning-curve, coverage, xi, and family plots.
 
 This module draws every matplotlib figure the package produces, all in
 a colorblind-safe palette (never red with green). plot_history draws
 the training history, plot_diagnostics the multipage diagnostics PDF
 (history, coverage, the local-linear floor, the hard-direction
 regression, a chi2-colored lcdm triangle, and the ln-parameter PCA
-plane colored by chi2 and by training sparsity), and
+plane colored by chi2 and by training sparsity; a CMB / scalar /
+background run appends its family's pages — per-multipole residual
+bands and short-period wiggle content for CMB, per-output residual
+pages for scalars, per-redshift bands plus the derived-distance page
+for the background), and
 plot_learning_curves overlays f(delta-chi2 > thr) vs N_train curves
 (the sweep / bake-off output). source_param_samples, dv_to_xi, and
 plot_xi handle the parameter-coverage triangle and the xi
@@ -983,7 +987,7 @@ def _lnparam_pca_fig(source, names, color, clabel, title,
     t = np.log(np.maximum(np.asarray(fit_target, dtype="float64"),
                           1e-300))
     A = np.column_stack([np.ones(Z.shape[0]), Z])
-    coefs, *_ = np.linalg.lstsq(A, t, rcond=None)
+    coefs = np.linalg.lstsq(A, t, rcond=None)[0]
     pred = A @ coefs
     ss_res = ((t - pred) ** 2).sum()
     ss_tot = ((t - t.mean()) ** 2).sum()
