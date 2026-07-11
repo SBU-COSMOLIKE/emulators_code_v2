@@ -351,3 +351,87 @@ cmblensed/cmbunlensed), and the required train_args keys. ~85% shared.
 generator_core + re-thin the lensing driver (verbatim moves + the CLI
 census probe), then (3b) the CMB driver on the core. Everything else
 in the kickoff block stands.
+
+## D-CM8 — the smoothness (residual-roughness) loss term
+(2026-07-10, user directive + ruling)
+
+**The physics directive:** CMB spectra are smooth ell by ell; the loss
+must be able to penalize high-frequency oscillations in the emulator
+output — where "high frequency" means periods MUCH shorter than the
+acoustic structure (the peak spacing ell_A = pi*D_A(z*)/r_s, roughly
+200-300 in ell) — while never over-penalizing the physical peak
+SMOOTHING that lensing imprints.
+
+**The two structural rules that satisfy both cautions:**
+
+1. **Residual, never prediction.** The penalty acts on the whitened
+   residual r = pred - target, not on the prediction's own shape. A
+   prediction-smoothness prior would bias the network toward
+   over-smooth spectra — mimicking extra lensing-style peak smoothing
+   (the A_L-shaped science risk) — while a residual term is
+   identically ZERO when the prediction equals the lensed truth,
+   however smooth or sharp the true peaks are. Lensing neutrality is
+   therefore structural, not calibrated.
+2. **Band-explicit.** The term's transfer function passes only
+   oscillation periods well below the acoustic band: full weight at
+   periods <= `period_cut` (default 50 in ell), negligible weight at
+   periods >= ~200. Genuine parameter-induced misfits (a shifted
+   theta*, a wrong lensing amplitude) produce residuals with
+   acoustic-period structure — those belong to the PLAIN chi2, and the
+   roughness term must not reweight them. The default separation
+   (50 vs 200-300) is a factor >= 4.
+
+**The composition rule (fits the existing machinery untouched):** the
+roughness term is a per-sample scalar added to the per-sample chi2
+BEFORE reduction:
+
+    c_total = c_chi2 + lam * c_rough        (per sample)
+
+so trim / focus / berhu / EMA / anchor all compose unchanged (they act
+on one number per sample — the SPE inheritance argument again). The
+whitened basis is the right home: the cosmic-variance sigma_ell and
+the amplitude law are smooth in ell, so whitening introduces no
+artificial high frequencies.
+
+**YAML (paste-ready; absent block = OFF, byte-identical to the plain
+loss — the standing off-identity rule):**
+
+```yaml
+  loss:
+    mode: sqrt
+    roughness:
+      lam:        0.1   # weight of the residual-roughness term;
+                        # block absent = the term does not exist
+      period_cut: 50    # penalize residual oscillations with period
+                        # below this many ells; the acoustic band
+                        # (~200-300, incl. lensing peak smoothing)
+                        # stays with the plain chi2
+```
+
+**Implementation freedom (Implementer proposes the smaller diff):** a
+smooth high-pass of the residual (convolution kernel of width ~
+period_cut, penalty = sum of squares of the remainder) or a DCT band
+mask — either satisfies the transfer-function requirement; a bare
+second-difference does NOT by itself (its (2pi/P)^4 law has no
+explicit band edge), though second-difference-after-high-pass is
+admissible. The gate rules, not the prose.
+
+**Gate legs (cmb-identity additions):**
+- band ratio: a synthetic residual wiggle of fixed amplitude at
+  period 30 vs period 300 -> penalty ratio > 100;
+- zero residual -> exactly zero penalty;
+- OFF identity: no roughness block -> the loss path is byte-identical
+  to the plain CosmolikeChi2 path (the ema-off-identity pattern);
+- composition: trim/focus/berhu receive c_chi2 + lam*c_rough per
+  sample (one reduction path, no second ladder);
+- the lensing guard, made concrete: the penalty evaluated on a
+  residual shaped like (lensed - unlensed) Cl — the exact signature
+  of peak smoothing, acoustic-period by construction — must be
+  negligible against the same vector's plain chi2 (< a few percent);
+  synthetic acoustic-period proxy on the Mac, the real CAMB pair in
+  cmb-smoke where truth is available.
+
+**Recorded:** lam and period_cut are sweepable train_args leaves; the
+default lam is 0-when-absent (never a silent nonzero); calibrating a
+USEFUL lam is a science-thread experiment, not a gate claim — the
+gates prove the band and the identities, not the benefit.
