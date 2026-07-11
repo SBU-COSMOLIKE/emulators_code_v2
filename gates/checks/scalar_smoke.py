@@ -116,10 +116,12 @@ def check_train_and_predict(tmp, device):
     exp = EmulatorExperiment.from_config(cfg, device=device, quiet=True)
     model, train_losses, medians, means, fracs = exp.run()
     # a deterministic smooth 2->1 map: the validation median chi2 must be
-    # small after 2 epochs (val collapses).
+    # small after 2 epochs (val collapses). D-SPE2-5: the bar is 0.3, below
+    # the mean-predictor's median standardized chi2 (0.455, the median of a
+    # chi-square-1), so a dead network that only learns the target mean fails.
     best_median = min(float(m) for m in medians)
     report("val collapses on the deterministic map (median chi2 small)",
-           best_median < 1.0, "best val median = %.3g" % best_median)
+           best_median < 0.3, "best val median = %.3g" % best_median)
 
     root = os.path.join(tmp, "emul_scalar_smoke")
     save_emulator(path_root=root, model=model,
@@ -134,8 +136,11 @@ def check_train_and_predict(tmp, device):
 
     # rebuild + predict at a test point; the emulated omegamh2 must track the
     # analytic value (the map is exact, so a trained emulator is close).
+    # D-SPE2-5: OFF the fixture mean (one sigma out in each input, still
+    # in-distribution), so a network that only learned the target mean is
+    # 13.7% off and fails the 5% bar, while a trained one passes.
     pred = EmulatorPredictor(root, device, compile_model=False)
-    h0_t, om_t = 70.0, 0.3
+    h0_t, om_t = 73.0, 0.32
     got = pred.predict({"H0": h0_t, "omegam": om_t})[OUT_NAME]
     want = omegamh2(h0_t, om_t)
     rel = abs(got - want) / want
@@ -162,7 +167,9 @@ def check_cobaya_evaluate(tmp, root):
     cobaya_dir = str(Path(__file__).resolve().parents[2] / "cobaya_theory")
     out_root = os.path.join(tmp, "evaluate", "scalar_eval")
     os.makedirs(os.path.dirname(out_root), exist_ok=True)
-    h0_t, om_t = 70.0, 0.3
+    # D-SPE2-5: off the fixture mean (same point as the predict leg), so the
+    # evaluate leg also fails a mean-only network.
+    h0_t, om_t = 73.0, 0.32
     want = omegamh2(h0_t, om_t)
     yaml_text = (
         "stop_at_error: True\n"

@@ -1099,6 +1099,20 @@ scalar-section draft (against origin/main's rewritten README) -> the full
 SPE IMPLEMENTER_HANDOFF with the workstation force-rerun list, expected
 green counts, and the integration order.
 
+### Update 9 (2026-07-10, Opus): D-SPE2-5 closed (dead-network guard)
+
+scalar_smoke.py: the predict and cobaya-evaluate test points moved off the
+fixture mean to (H0, omegam) = (73.0, 0.32) (one sigma out each, still
+in-distribution), and the val bar tightened to best_median < 0.3. Verified:
+omegamh2(73, 0.32) = 0.17053 vs the mean-predictor's 0.147 = 13.8% off, so a
+network that learned only the target mean fails the 5% predict bar and the
+0.3 val bar (the mean-predictor's median standardized chi2 is 0.455).
+py_compile OK. Both gate scripts are now complete + Mac-gated.
+
+**Next:** board registration (gate_spe_a / gate_spe_b + gate-id translation)
++ example_yamls/scalar_emulator.yaml + the README scalar-section draft
+against origin/main -> the full SPE IMPLEMENTER_HANDOFF.
+
 ## Architect audit: D-SPE2-4 closure (2026-07-10, Fable)
 
 **Verdict: D-SPE2-4 CLOSED (guard verbatim, the `--`->`;` de-dash
@@ -1260,3 +1274,29 @@ Fix, four lines:
   scalar-section draft against origin/main -> the full SPE
   IMPLEMENTER_HANDOFF with the force-rerun list, expected green
   counts, and the integration order.
+
+## Architect audit: D-SPE2-5 closure (2026-07-10, Fable)
+
+**Verdict: D-SPE2-5 CLOSED.** Diff-verified: both test points moved to
+(73.0, 0.32) — the predict leg and the cobaya evaluate leg — and the
+val bar tightened to best_median < 0.3, each with its rationale
+comment; nothing else in the file changed. A mean-only network now
+fails all three assertions (13.7% > 5% at the off-center point; 0.455 >
+0.3 on the val bar). One calibration note, recorded: if the board's
+2-epoch run misses either bar, that is a BAR-calibration delta (loosen
+with evidence), not a code defect — the plumbing is already verified.
+Both gate scripts are now complete and delta-clean; the remaining work
+is wiring and docs only.
+
+### ARCHITECT_HANDOFF: GATES COMPLETE — WIRE THE BOARD, DRAFT THE DOCS
+
+- **Audit outcome:** D-SPE2-5 closed, diff-verified; scalar_identity +
+  scalar_smoke both complete with every delta leg in place.
+- **Next milestone (the full SPE handoff):** board registration
+  (gate_spe_a torch tier / gate_spe_b cobaya tier + the gate-id
+  translation entry) + example_yamls/scalar_emulator.yaml + the README
+  scalar-section draft against origin/main -> the full SPE
+  IMPLEMENTER_HANDOFF with the workstation force-rerun list, expected
+  green counts (the board grows 24 -> 26), and the integration order
+  (merge origin/main -> apply README draft -> merge to main -> push ->
+  workstation pull + board).
