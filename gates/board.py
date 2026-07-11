@@ -931,6 +931,50 @@ def gate_tpe_b(ctx):
 # The board, in execution order (workstation-board-2026-07.md).
 # --------------------------------------------------------------------------
 
+def gate_spe_a(ctx):
+  """scalar-identity: a scalar emulator saves, rebuilds, and predicts exactly.
+
+  WHAT: a tiny synthetic scalar emulator (a ParamGeometry over a written
+  covmat + a ScalarGeometry over synthetic targets + a small ResMLP), saved
+  and rebuilt, reproduces predict bitwise; its ScalarGeometry state round-trips
+  byte-identical; and every scalar-path loud error fires (D-SPE1-1 both
+  directions, D-SPE2-1, D-SPE2-3, plus the emul_scalars provides / duplicate /
+  overlap / subset / wrong-kind D-SPE2-4 legs, the adapter loaded torch-only
+  through a cobaya.theory stub). torch only, no cosmolike (spec:
+  scalar-parameter-emulators.md, the scalar-identity gate).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/scalar_identity.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="scalar-identity round-trip + state + provides + all error legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/scalar_identity.py)")
+
+
+def gate_spe_b(ctx):
+  """scalar-smoke: a real scalar emulator learns an exactly-derivable target.
+
+  WHAT: a fixture parameter chain whose only output is
+  omegamh2 = omegam*(H0/100)^2, trained two epochs; the validation error
+  collapses below the mean-predictor baseline (D-SPE2-5), predict reproduces
+  the analytic value at an off-center point within 5%, and a cobaya evaluate
+  through emul_scalars returns the same derived value. torch + cobaya, no
+  cosmolike (the scalar path is cosmolike-free); the check writes its own
+  fixture, so it needs no other gate (spec: scalar-parameter-emulators.md, the
+  scalar-smoke gate).
+  """
+  ctx.require_caps("torch", "cobaya")
+  rc, out = ctx.run_check("gates/checks/scalar_smoke.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="scalar-smoke fixture train + off-center predict + cobaya evaluate",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/scalar_smoke.py)")
+
+
 BOARD = [
   Gate(id="ema-off-identity",
        spec_code="GM-C",
@@ -1096,6 +1140,15 @@ BOARD = [
        maps="204-219 (slice + 4x form/space identity + packing + surgery + errors)",
        run=gate_tpe_a,
        needs=("torch",)),
+  Gate(id="scalar-identity",
+       spec_code="SPE-A",
+       title="Scalar emulator identity",
+       tier=TIER_NEW_FEATURES,
+       home="scalar-parameter-emulators",
+       maps="123-127 (round-trip + state + auto-provides + subset/dup + "
+            "D-SPE1-1/2-1/2-3/2-4 error legs)",
+       run=gate_spe_a,
+       needs=("torch",)),
 
   Gate(id="save-rebuild-drift",
        spec_code="GSV-C",
@@ -1135,4 +1188,13 @@ BOARD = [
        run=gate_tpe_b,
        deps=("save-rebuild-drift",),
        needs=("torch", "cosmolike", "gpu")),
+  Gate(id="scalar-smoke",
+       spec_code="SPE-B",
+       title="Scalar emulator smoke",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="scalar-parameter-emulators",
+       maps="128-134 (fixture train + collapse + off-center predict + "
+            "cobaya evaluate through emul_scalars)",
+       run=gate_spe_b,
+       needs=("torch", "cobaya")),
 ]

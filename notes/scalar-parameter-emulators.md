@@ -1113,6 +1113,28 @@ py_compile OK. Both gate scripts are now complete + Mac-gated.
 + example_yamls/scalar_emulator.yaml + the README scalar-section draft
 against origin/main -> the full SPE IMPLEMENTER_HANDOFF.
 
+### Update 10 (2026-07-10, Opus): board wired + example YAML + gate-id entry
+
+- gates/board.py: gate_spe_a (require_caps torch, runs scalar_identity.py) +
+  gate_spe_b (require_caps torch + cobaya, runs scalar_smoke.py) functions;
+  two Gate() entries (scalar-identity SPE-A new-features torch; scalar-smoke
+  SPE-B save-and-sample torch+cobaya). board loads clean, no dup ids.
+- COUNT DISCREPANCY (honest): the committed base board.py had 23 Gate()
+  entries (not 24), so the board goes 23 -> 25, not the handoff's expected
+  24 -> 26. My registration is correct (exactly 2 gates added, unique). The
+  Architect's "24" is one high vs len(BOARD); to reconcile.
+- notes/gates-id-translation.md: added scalar-identity->SPE-A, scalar-smoke
+  ->SPE-B rows. (Aside: finetune/transfer gates FTW-A/B, TPE-A/B are absent
+  from that table too, a pre-existing gap, not backfilled here.)
+- example_yamls/scalar_emulator.yaml: the scalar data block (train/val
+  params + covmat + outputs + sizes; note the required .paramnames sidecar
+  and param_cuts optional) + train_args (resmlp trunk-only, loss sqrt,
+  AdamW, lr, ReduceLROnPlateau).
+
+**Only remaining for the full SPE handoff:** the README scalar-section draft
+against origin/main's rewritten README (delivered as a ready-to-apply block,
+per the integration order).
+
 ## Architect audit: D-SPE2-4 closure (2026-07-10, Fable)
 
 **Verdict: D-SPE2-4 CLOSED (guard verbatim, the `--`->`;` de-dash
@@ -1300,3 +1322,65 @@ is wiring and docs only.
   green counts (the board grows 24 -> 26), and the integration order
   (merge origin/main -> apply README draft -> merge to main -> push ->
   workstation pull + board).
+
+## Architect audit: board wiring + YAML + gate-id (2026-07-10, Fable)
+
+**Verdict: board wiring VERIFIED (both gate functions house-pattern,
+tiers right, 25 unique ids); the example YAML VERIFIED (block style,
+keys match validate_scalar / DATA_KEYS, every unit rule explained in
+place); the translation rows VERIFIED. COUNT RULING: the Implementer is
+right — the board goes 23 -> 25, and my "24 -> 26" was a
+note-arithmetic error, corrected below. One tiny required item:
+backfill the four missing FTW/TPE translation rows. Then the README
+draft closes the unit.**
+
+### The count, reconciled (the record correction)
+
+The pre-scalar registry holds 23 Gate entries (ids enumerated from
+board.py, unique, branch == main on this file). Reconstruction: the
+infrastructure close was 21 gates (run 12d's 21/21 was the last
+verbatim full-board summary); TPE added transfer-identity +
+transfer-smoke = 23. The "22/22 green" line in the running records
+double-counted triangle-shading as a NEW gate (it existed at 21/21 and
+its D-GTB-1 rerun was a re-run, not an addition), and "24/24" inherited
+that +1. The registry is the ground truth; every "board grows to N"
+statement derived from 24 is corrected to derive from 23. SPE lands the
+board at 25.
+
+### Verified this checkpoint
+
+- gate_spe_a / gate_spe_b mirror the house gate shape (require_caps ->
+  run_check -> ctx.expect with a labeled verdict); the docstrings carry
+  the WHAT line, the delta inventory, and the spec pointer;
+  scalar-smoke correctly declares torch + cobaya and its
+  self-contained fixture (no gate-ordering dependence).
+- Tier placement: scalar-identity in new-features beside
+  transfer-identity; scalar-smoke in save-and-sample beside
+  transfer-smoke. Board imports clean, 25 unique ids, no duplicates
+  (the Implementer's probe output, structure re-checked by me).
+- example_yamls/scalar_emulator.yaml: block style, one key per line;
+  keys are exactly the validated set; the comments teach the sidecar
+  requirement, the forbidden dv/cosmolike keys, the optional
+  param_cuts, and the trunk-only rule at the point of use.
+
+### Required (tiny): backfill the gate-id translation note
+
+The note is missing the four FTW/TPE rows (a pre-existing gap, flagged
+by the Implementer). Backfill them while the file is open, taking each
+spec code from the Gate entry's own spec_code field in board.py (the
+single source, never memory): finetune-identity, finetune-smoke,
+transfer-identity, transfer-smoke.
+
+### ARCHITECT_HANDOFF: WIRING VERIFIED, COUNT CORRECTED — DRAFT THE README
+
+- **Audit outcome:** board wiring + example YAML + translation rows
+  VERIFIED; the count ruling stands at 23 -> 25 (my error, recorded and
+  corrected above); backfill the four FTW/TPE translation rows from
+  board.py's spec_code fields.
+- **Next milestone (the full SPE handoff):** the README scalar-section
+  draft against origin/main's README (a ready-to-apply block) -> the
+  full SPE IMPLEMENTER_HANDOFF with the force-rerun list
+  (--force-rerun scalar-identity, --force-rerun scalar-smoke; flag
+  before id), the corrected expected green counts (25/25), and the
+  integration order (merge origin/main -> apply README draft -> merge
+  to main -> push -> workstation pull + board).

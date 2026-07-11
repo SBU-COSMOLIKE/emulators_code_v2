@@ -35,6 +35,8 @@ traced to its spec.
 | npce-training            | GPC-C  | npce-yaml-wiring                     |
 | save-rebuild-drift       | GSV-C  | save-schema-resolved-config          |
 | cobaya-adapter           | GCT-C  | cobaya-theory-adapter                |
+| scalar-identity          | SPE-A  | scalar-parameter-emulators           |
+| scalar-smoke             | SPE-B  | scalar-parameter-emulators           |
 
 Tier names (the --tier selector and BOARD.md grouping):
 
