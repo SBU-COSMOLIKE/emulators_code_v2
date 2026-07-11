@@ -579,6 +579,43 @@ D-SPE2-3 + D-SPE1-1 legs) / scalar-smoke (deterministic fixture dump +
 sidecar per D-SP7) + board configs + example YAML + README draft -> the
 full SPE IMPLEMENTER_HANDOFF with the workstation force-rerun list.
 
+### Update 5 (2026-07-10, Opus): cobaya adapter emul_scalars.py landed + gated
+
+Binding reads done: cobaya_theory/emul_cosmic_shear.py (the modern thin
+structure: _ALLOWED_EXTRA_ARGS whitelist, _pick_device, initialize builds
+one predictor per root, get_requirements) + legacy emultheta.py (the
+derived-param mechanism: calculate writes state[name] + state["derived"]
+[name], per-getter get_H0/get_omegam that the unified class replaces; it
+needed a hand-typed YAML `provides:`). cobaya_theory/emul_scalars.py
+written from those sources, NOT the paraphrase:
+- get_can_provide_params() = the union of the predictors' output_names
+  (artifact-derived, D-SP4); get_param(name) = self.current_state[name],
+  the single generic getter replacing the per-output methods.
+- get_requirements() = the plain union of the predictors' input names
+  (predictor.names). D-SP4 ruled unions, no subtraction.
+- initialize: duplicate output name across artifacts -> loud; forbid
+  input/provide overlap -> loud (chaining out of scope, D-SP8); optional
+  extra_args `provides` = subset-CHECK-only, never a source.
+- calculate: one predictor.predict(params) per artifact -> {name: value};
+  caches state[name] (for get_param) + state["derived"][name] (when
+  want_derived), the legacy's derived mechanism.
+- _pick_device / _check_extra_args mirror emul_cosmic_shear (TPU dropped).
+- Gate (Mac): py_compile OK; AST/source probe ALL PASS (Theory subclass;
+  all 7 methods; the three D-SP4 error branches; get_can_provide returns
+  the union; get_param reads the cache; extra_args whitelist; derived
+  write). cobaya evaluate + the runtime dup/overlap/subset legs ride the
+  scalar-identity / scalar-smoke board gates (cobaya not importable on Mac).
+
+**Next (SPE remainder):** gates gates/checks/scalar_identity.py (bitwise
+predict round-trip after save/rebuild; ScalarGeometry state byte-identical;
+emul_scalars auto-provides == stored names + the dup/overlap/subset error
+legs + D-SPE2-3 rescnn-raises + D-SPE1-1 constant-column legs) and
+scalar_smoke (a tiny fixture params .txt + .paramnames with an
+exactly-derivable omegamh2 column, 2-epoch train, cobaya evaluate through
+emul_scalars) + board registration/configs + example_yamls YAML + the
+README scalar-section draft (against origin/main's rewritten README, for
+post-sync apply) -> the full SPE IMPLEMENTER_HANDOFF + force-rerun list.
+
 ## Architect audit: increment-2 checkpoint (2026-07-10, Fable)
 
 **Verdict: both landed deltas VERIFIED (D-SPE1-1 closed, D-SP3 landed);
