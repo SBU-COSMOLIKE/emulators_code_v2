@@ -70,3 +70,23 @@ train_args:
     mode:     min
     patience: 25
     factor:   0.8
+
+  # trim and focus are REQUIRED blocks (build_run_specs reads them with no
+  # code default — the resolved-values rule). Both ship off here: a scalar
+  # chain rarely needs outlier trimming or hardness weighting. Raise
+  # trim.start to drop that fraction of the hardest samples early, or
+  # focus.end for a focal hardness weight, exactly as on a data-vector run.
+  trim:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         cosine
+
+  focus:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         linear
+    kappa:         0.15

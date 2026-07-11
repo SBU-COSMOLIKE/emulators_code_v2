@@ -93,12 +93,24 @@ def build_cfg(tmp, n_train, n_val):
             "n_val":        n_val,
             "split_seed":   0,
         },
+        # the full block set build_run_specs requires (model / optimizer /
+        # lr / scheduler / trim / focus are plain subscripts there, no
+        # code defaults — D-SPE2-7); the shape mirrors the proven-green
+        # transfer-smoke-config.yaml, trim / focus zeroed.
         "train_args": {
             "nepochs": 2,
             "bs": 128,
             "model": {"name": "resmlp",
                       "mlp": {"width": 32, "n_blocks": 2}},
+            "loss": {"mode": "sqrt"},
+            "optimizer": {"weight_decay": 0.0},
             "lr": {"lr_base": 0.01, "bs_base": 128.0, "warmup_epochs": 0},
+            "scheduler": {"mode": "min", "patience": 10, "factor": 0.8},
+            "trim": {"start": 0.0, "end": 0.0, "hold_epochs": 0,
+                     "anneal_epochs": 1, "shape": "cosine"},
+            "focus": {"start": 0.0, "end": 0.0, "hold_epochs": 0,
+                      "anneal_epochs": 1, "shape": "linear",
+                      "kappa": 0.15},
         },
     }
 

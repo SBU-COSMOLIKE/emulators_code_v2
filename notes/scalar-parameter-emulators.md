@@ -1502,3 +1502,45 @@ Commit -> merge to main -> push -> workstation pull ->
 `python gates/run_board.py --force-rerun scalar-smoke` (scalar-identity
 resume-skips green). Expected 25/25. On green SPE is CLOSED and CME
 begins.
+
+## Board run 2 + D-SPE2-7 (2026-07-10, Fable)
+
+**Relay (HEAD 2975262): scalar-smoke RED again, one step further —
+D-SPE2-6a is confirmed FIXED (the run passed staging into build_specs)
+and the new red is the exact risk flagged in the smoke audit:**
+
+    training.py:636, in build_run_specs
+      "opt_opts": {"cls": opt_cls, **train_args["optimizer"]},
+    KeyError: 'optimizer'
+
+### D-SPE2-7 (gate + example YAML, CLOSED by the Architect as a
+declared deviation): the config must materialize every required block
+
+build_run_specs reads model / optimizer / lr / scheduler / trim / focus
+as plain subscripts — no code defaults, exactly the resolved-values
+rule — and the gate's minimal cfg carried only model + lr. The fix is
+in the CONFIGS, not the library (backfilling code defaults would break
+the never-trust-defaults contract):
+- gates/checks/scalar_smoke.py build_cfg: gains loss / optimizer /
+  scheduler / trim / focus, mirroring the proven-green
+  transfer-smoke-config.yaml shape (trim and focus zeroed).
+- example_yamls/scalar_emulator.yaml: the SAME gap — a user running the
+  documented example would have hit the identical KeyError — gains the
+  trim + focus blocks, off by value, with the comment naming them
+  required and pointing at the knobs.
+Architect probe: the shipped build_cfg exec'd against an AST census of
+build_run_specs' required subscripts — missing: NONE; loss / nepochs /
+bs present. py_compile green.
+
+Recorded lesson (for CME's gate authoring): a NEW-path smoke config is
+validated by the required-subscript census BEFORE the board, not by the
+board — `train_args` plain subscripts in build_run_specs are the
+contract, and any config (gate or example) must carry all six blocks.
+
+### Remaining to close SPE
+
+Commit -> merge to main -> push -> workstation pull ->
+`python gates/run_board.py --force-rerun scalar-smoke`. The legs past
+build_specs (the 2-epoch train, the bars, the cobaya evaluate minus the
+dropped requires key) run for the first time; the bar-calibration and
+evaluate-YAML contingencies recorded above still stand.
