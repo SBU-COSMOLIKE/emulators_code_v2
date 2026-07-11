@@ -1041,6 +1041,35 @@ gates fully designed, to avoid rushing a ~350-line torch/cobaya gate into a
 filling context. Next turn writes scalar_identity.py + scalar_smoke.py +
 board reg + example YAML + README draft -> the full SPE handoff.
 
+### Update 7 (2026-07-10, Opus): gates/checks/scalar_identity.py landed + gated
+
+Written per the approved design (mirrors finetune_identity.py). Helpers:
+save_synthetic_scalar (ParamGeometry.from_covmat + ScalarGeometry.from_
+targets + a tiny ResMLP via the scalar recipe, save_emulator);
+_load_emul_scalars_stubbed (stubs cobaya + cobaya.theory.Theory, then
+importlib-loads the shipped emul_scalars.py so its logic runs torch-only);
+_save_tiny_dv (a minimal DataVectorGeometry artifact for the wrong-kind
+leg). Checks in main: check_roundtrip (rebuild -> predict {name:value}
+bitwise vs the pre-save model + predictor._scalar/output_names),
+check_state (ScalarGeometry.state byte-identity + info["scalar"]),
+check_from_targets_errors (D-SPE1-1 0.31 constant raises), check_sidecar_
+errors (D-SPE2-1 dup .paramnames raises), check_head_architecture (D-SPE2-3
+from_config rescnn -> "trunk-only" raise), check_adapter (auto-provides ==
+union; requirements union; dup-output / input-provide-overlap / provides
+subset-ok+superset-raise / D-SPE2-4 wrong-kind all fire).
+- Gate (Mac): py_compile OK; AST-structure probe ALL PASS (14 defs unique;
+  main runs all six checks; D-SPE2-3/2-4 assertions + stub-cobaya present).
+  The torch/cobaya legs run on the board (imports don't execute under
+  py_compile).
+
+**Next:** gates/checks/scalar_smoke.py (fixture .txt + .paramnames with the
+exactly-derivable omegamh2 column, 2-epoch train_scalar_emulator, cobaya
+evaluate through emul_scalars) + board registration (gates/board.py near
+gate_ftw_a) + example_yamls/scalar_emulator.yaml + the README scalar-section
+draft (against origin/main's README) -> the full SPE IMPLEMENTER_HANDOFF
+with the workstation force-rerun list + expected green counts + the
+integration order.
+
 ## Architect audit: D-SPE2-4 closure (2026-07-10, Fable)
 
 **Verdict: D-SPE2-4 CLOSED (guard verbatim, the `--`->`;` de-dash
@@ -1075,3 +1104,71 @@ run.
   handback must stand alone: force-rerun list, expected green counts,
   and the integration order (merge origin/main -> apply README draft ->
   merge to main -> push -> workstation pull + board).
+
+## Architect audit: scalar_identity.py (2026-07-10, Fable)
+
+**Verdict: the gate is VERIFIED — every board-run risk point checked
+against the source it will execute — with ONE required addition: the
+D-SPE1-1 must-NOT-raise regression leg is missing. Add it, then write
+the smoke.** The Mac cannot run this file (torch), so my audit is the
+board-red-prevention read: every constructor call, signature, and
+control path the torch legs will hit, verified against the shipped
+modules. The user is away — a board red costs a full round trip, so
+this read is the audit.
+
+### The five board-risk points, all sound
+
+- rebuild_emulator returns (model, pgeom, geom, info) — check_state's
+  `_, _, geom_rb, info` unpack is correct (results.py:604).
+- No attrs["rescale"] demand anywhere on the scalar rebuild/predict
+  path (the D-FTW-1 concern checked and cleared); the tiny dv artifact
+  carries rescale = "none" anyway.
+- ParamGeometry.__init__(device, names, center, evecs, sqrt_ev) and
+  DataVectorGeometry.__init__(device, total_size, dest_idx, evecs,
+  sqrt_ev, Cinv, center, dtype, section_sizes, probe) — both direct
+  constructions in the gate match the real signatures argument for
+  argument; the tiny dv geometry's shapes are self-consistent
+  (dest_idx / evecs / center over n_keep 4, Cinv over total 6,
+  section_sizes [6] sums to total_size, probe set).
+- The wrong-kind leg genuinely reaches the D-SPE2-4 guard: the dv
+  predictor branch reads dest_idx / total_size / section_sizes / probe
+  (all present), info["ia"] = None -> the plain decoder — the full
+  EmulatorPredictor init succeeds, THEN the guard fires.
+- The D-SPE2-3 leg: from_config(cfg, device=...) forwards kwargs into
+  __init__(device=None) — and the head_block guard fires before
+  cls(...) is reached, so the dummy file names never resolve.
+
+Also verified: the stub-cobaya loader stubs ONLY cobaya (torch stays
+real — the correct board form of my Mac pattern, where torch was
+stubbed too); the module name "emul_scalars_shim" avoids collisions and
+run_check's subprocess isolates the sys.modules override; the
+round-trip reference (pre-save model + geometry, same device / dtype /
+path) is a legitimate bitwise same-path claim.
+
+### Required addition (part of D-SPE1-1's closure, not a new delta)
+
+check_from_targets_errors has the 0.31-constant RAISES leg but not its
+counterpart: a center 1e-9 / 10%-spread column must BUILD (and its
+standardized std come out ~1). The D-SPE1-1 ruling put BOTH legs in the
+Mac probe AND the scalar-identity gate — the not-raise leg is what
+catches an over-tightened guard regression. One leg, ~6 lines, in
+check_from_targets_errors.
+
+Optional (recorded, not required): the D-SPE2-1(b) strict-order
+check_paramnames leg is not gated anywhere; the smoke's fixture could
+assert it cheaply alongside the sidecar-required error leg.
+
+### ARCHITECT_HANDOFF: IDENTITY GATE VERIFIED — ADD ONE LEG, WRITE THE SMOKE
+
+- **Audit outcome:** scalar_identity.py VERIFIED against the shipped
+  sources at every torch-leg risk point (constructor signatures,
+  rebuild unpack order, attr demands, guard reachability); the gate
+  should green on the first board run.
+- **Required:** add the D-SPE1-1 must-NOT-raise leg (center 1e-9, 10%
+  spread builds; standardized std ~ 1) to check_from_targets_errors.
+- **Optional:** the check_paramnames strict-order leg riding the smoke
+  fixture.
+- **Next milestone (unchanged):** scalar_smoke.py + board registration
+  + example YAML + the README scalar-section draft -> the full SPE
+  IMPLEMENTER_HANDOFF (force-rerun list, expected green counts, the
+  integration order).
