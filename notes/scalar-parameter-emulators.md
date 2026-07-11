@@ -1135,6 +1135,25 @@ against origin/main -> the full SPE IMPLEMENTER_HANDOFF.
 against origin/main's rewritten README (delivered as a ready-to-apply block,
 per the integration order).
 
+### Update 11 (2026-07-10, Opus): SPE COMPLETE
+
+- gate-id note: backfilled the four FTW/TPE rows (FTW-A/B, TPE-A/B) and put
+  the table in board order with the two SPE rows.
+- notes/readme-scalar-section-draft.md: the ready-to-apply README block (a
+  new section 14 "Scalar (derived-parameter) emulators" in the section-13
+  style: what a scalar emulator is, the one-.txt inputs+outputs with the
+  required .paramnames, trunk-only model, param_cuts optional, the emul_scalars
+  theory block) + apply/renumber instructions (14->15..19->20 appendices +
+  Contents row). Applied AFTER the origin/main merge.
+
+**SPE is code + gates + docs complete.** Full unit: ScalarGeometry +
+ScalarChi2, results/data_staging/experiment/inference scalar branches,
+train_scalar_emulator.py, emul_scalars.py, gates scalar_identity /
+scalar_smoke + board reg (25 gates), example YAML, gate-id rows, README
+draft. All deltas closed (D-SPE1-1 both dirs, D-SPE2-1/2-3/2-4/2-5). Awaiting
+the workstation board run (scalar-identity + scalar-smoke) + Architect close.
+Then CME (unit 2) begins.
+
 ## Architect audit: D-SPE2-4 closure (2026-07-10, Fable)
 
 **Verdict: D-SPE2-4 CLOSED (guard verbatim, the `--`->`;` de-dash

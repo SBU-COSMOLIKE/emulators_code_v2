@@ -33,9 +33,13 @@ traced to its spec.
 | relu-tanh-norm           | GAN-C  | activation-families-norm-knob        |
 | weight-decay-census      | GWD-C  | weight-decay-only-weight-matrices    |
 | npce-training            | GPC-C  | npce-yaml-wiring                     |
+| finetune-identity        | FTW-A  | finetune-warm-start                  |
+| transfer-identity        | TPE-A  | transfer-parallel-emulator           |
+| scalar-identity          | SPE-A  | scalar-parameter-emulators           |
 | save-rebuild-drift       | GSV-C  | save-schema-resolved-config          |
 | cobaya-adapter           | GCT-C  | cobaya-theory-adapter                |
-| scalar-identity          | SPE-A  | scalar-parameter-emulators           |
+| finetune-smoke           | FTW-B  | finetune-warm-start                  |
+| transfer-smoke           | TPE-B  | transfer-parallel-emulator           |
 | scalar-smoke             | SPE-B  | scalar-parameter-emulators           |
 
 Tier names (the --tier selector and BOARD.md grouping):
