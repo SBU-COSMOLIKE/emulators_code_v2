@@ -102,7 +102,8 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
     7. [F. Constructor / driver args vs the YAML](#f-constructor--driver-args-vs-the-yaml)
     8. [G. Deliberately no knob (nothing to win)](#g-deliberately-no-knob-nothing-to-win)
 19. [Appendix: Generating the training set](#19-appendix-generating-the-training-set)
-20. [AI-Usage](#20-ai-usage)
+20. [Appendix: scripting a saved emulator (without Cobaya)](#20-appendix-scripting-a-saved-emulator-without-cobaya)
+21. [AI-Usage](#21-ai-usage)
 
 ---
 
@@ -2348,7 +2349,91 @@ mpirun -n 10 --report-bindings \
 
 ---
 
-## 20. AI-Usage
+## 20. Appendix: scripting a saved emulator (without Cobaya)
+
+A saved emulator has two doors. In a chain, the Cobaya theory blocks
+serve it — `emul_cosmic_shear` for data vectors ([section 1](#run-the-saved-emulator-in-a-cobaya-mcmc)),
+`emul_scalars` for derived parameters ([section 14](#14-scalar-derived-parameter-emulators)).
+Everywhere else — profile likelihoods, quick checks, plots, batch
+evaluation — you call the same artifact directly from Python, with no
+Cobaya anywhere:
+
+```
+                        ┌── in a chain: the Cobaya theory blocks
+saved emulator  ────────┤     emul_cosmic_shear / emul_scalars
+ <root>.h5 + .emul      │
+                        └── in a script: EmulatorPredictor
+                              predict(dict) -> data vector, or
+                                              {name: value}
+```
+
+Both doors share one decode path, so a script and a chain get identical
+values from the same artifact by construction.
+
+### Load one
+
+```python
+import os, sys
+sys.path.insert(0, os.path.join(os.environ["ROOTDIR"],
+                                "external_modules/code/emulators_code_v2"))
+from emulator.inference import EmulatorPredictor
+
+pred = EmulatorPredictor(
+    os.path.join(os.environ["ROOTDIR"],
+                 "projects/lsst_y1/chains/emulator_resmlp_t256_ntrain250000"),
+    device="cuda")          # "cpu" and "mps" work too
+```
+
+The one argument that matters is the path root — the saved emulator
+without its extension, resolving to `<root>.h5` + `<root>.emul`. The
+input names, their order, the rescalings, and the outputs are all read
+from the file; there is nothing else to configure.
+
+### What `predict` returns
+
+| the artifact | `predict({...})` returns |
+|---|---|
+| a data-vector emulator (sections 2–13) | a 1-D numpy array: by default this emulator's own probe block; build with `dv_return="3x2pt"` to get the full-length vector instead, kept entries in place and zeros elsewhere |
+| a scalar emulator (section 14) | a `{name: value}` dict of plain Python floats, one entry per emulated output |
+
+The input is a dict of physical parameter values. Its keys are the
+artifact's stored input names — read them off `pred.names`; a scalar
+artifact also exposes `pred.output_names`. Extra keys in the dict are
+ignored; a missing one is an error naming it.
+
+### The profile-script pattern
+
+The legacy per-emulator classes took `file` / `extra` / `ord` /
+`extrapar` lists and one hardcoded getter per output. The v2 form of
+the same computation:
+
+```python
+etheta = EmulatorPredictor(root_thetaH0, device="cuda")
+erd    = EmulatorPredictor(root_rdrag,   device="cuda")
+
+out = etheta.predict({"omegabh2": 0.02238,
+                      "omegach2": 0.1201,
+                      "thetastar": 1.04109})
+h0, om = out["H0"], out["omegam"]
+rd     = erd.predict({"omegabh2": 0.02238,
+                      "omegach2": 0.1201})["rdrag"]
+```
+
+Each call evaluates one point; loop for a profile's grid. The
+`compile_model` flag defaults to False — single-point latency rarely
+pays back a compile.
+
+### One caveat
+
+The predictor reads schema-v2 artifacts only. The legacy `.joblib` /
+`.pt` files with their `extra` / `ord` sidecars stay on the legacy
+classes; the v2 replacement is a retrain
+([section 14](#14-scalar-derived-parameter-emulators) — scalar maps
+retrain from a chain in minutes).
+
+---
+
+## 21. AI-Usage
 
 AI Usage: This library (under the `dev` folder) was developed with Claude
 Code assistance. However, Prof. Miranda heavily influenced the code at every
