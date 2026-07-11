@@ -924,3 +924,75 @@ Evidence is the Architect's own run.
   computed omegamh2 target) + board configs + example YAML + README
   draft -> the full SPE IMPLEMENTER_HANDOFF with the workstation
   force-rerun list.
+
+## Architect audit: cobaya adapter checkpoint (2026-07-10, Fable)
+
+**Verdict: emul_scalars.py VERIFIED — every D-SP4 branch confirmed on my
+own stub-import probe, conventions mirrored from emul_cosmic_shear line
+for line, the legacy mechanism honored — with ONE new small delta
+(D-SPE2-4, the wrong-kind artifact guard). SPE is code-complete;
+proceed to gates + YAML + README draft.** Evidence is the Architect's
+own run.
+
+### Evidence
+
+- My stub-import probe (torch / cobaya.theory / EmulatorPredictor
+  stubbed, the SHIPPED file imported and executed): two disjoint
+  artifacts produce the correct unions (provides in load order,
+  requirements as a cobaya dict); the duplicate-output error names both
+  roots; the input/output-overlap error fires on a would-be chain; the
+  provides: subset check accepts a subset and rejects a superset naming
+  both lists; an unknown extra_args key (the legacy `ord`) is loudly
+  retired; an empty emulators list raises; calculate caches
+  state[name] + state["derived"][name] and get_param serves the value —
+  9 legs, 8 PASS.
+- Conventions: _ALLOWED_EXTRA_ARGS whitelist, renames/extra_args class
+  attrs, _pick_device's cuda->mps->cpu fallback, and the
+  ROOTDIR-relative root resolution are the cosmic-shear adapter's own
+  lines — one house contract, two theories. EmulatorPredictor call
+  matches the ctor (path_root, device, compile_model). The legacy
+  mechanism claim checked against Downloads emultheta2.py directly:
+  calculate caches state["H0"]/state["omegam"] and getters read the
+  state — the generic get_param is exactly that, generalized.
+- The cobaya-side behavior (real Theory lifecycle, evaluate leg) is
+  correctly deferred to scalar-smoke on the board — the same evidence
+  boundary as the cosmic-shear adapter's own gate.
+
+### D-SPE2-4 (delta, small, REQUIRED): reject a non-scalar artifact loudly
+
+My probe's 9th leg, live: a data-vector artifact root in the emulators
+list dies at initialize with a bare AttributeError ("no attribute
+'output_names'") — the D-SPE2-3 failure class, one layer up. Fix inside
+the root loop, right after the predictor is built:
+
+```python
+            if not predictor._scalar:
+                raise ValueError(
+                    "emul_scalars: " + repr(root) + " is not a scalar "
+                    "emulator (its h5 rebuilds a data-vector geometry); "
+                    "this theory serves scalar artifacts only -- a "
+                    "data-vector emulator belongs in emul_cosmic_shear's "
+                    "emulators list")
+```
+
+Gate leg: scalar-identity asserts the wrong-kind error using whatever
+dv artifact the gate context offers (the save-rebuild-drift tiny
+emulator precedent, or a synthesized minimal dv h5).
+
+### ARCHITECT_HANDOFF: ADAPTER VERIFIED — AUTHOR THE GATES
+
+- **Audit outcome:** emul_scalars.py VERIFIED (stub-import probe 8/9 +
+  the mechanics leg; conventions line-identical to emul_cosmic_shear;
+  legacy mechanism checked at its source). SPE code-complete.
+- **Delta D-SPE2-4 (required):** the wrong-kind guard above, plus its
+  scalar-identity leg.
+- **Next milestone (the full SPE handoff):** gates/checks/
+  scalar_identity.py (bitwise round-trip, state byte-identity,
+  auto-provides == stored names, dup / overlap / subset / wrong-kind
+  error legs, D-SPE1-1 + D-SPE2-1 + D-SPE2-3 legs) and gates/checks/
+  scalar_smoke.py (fixture .txt + .paramnames with the exactly-
+  derivable omegamh2 column, 2-epoch train, cobaya evaluate through
+  emul_scalars); board registration + configs; example_yamls/
+  scalar_emulator_*.yaml; the README scalar-section draft (against
+  origin/main's README, per the integration order). Then the full SPE
+  IMPLEMENTER_HANDOFF with the workstation force-rerun list.
