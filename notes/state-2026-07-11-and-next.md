@@ -120,6 +120,31 @@ In order, with the commit that carries each:
    (real training path, bitwise round-trip proving the whole
    attach -> save -> rebuild chain) + a deleted-split refusal leg.
    Trunk-only artifacts' state is byte-identical to before.
+13. **Board run 2 triage (late night)**: the user ran the board at a
+   STALE HEAD (295d0fa — before the D-CM13 pair landed, and without
+   the --force-rerun list, so the head legs and the save-rebuild-
+   drift re-run are still pending). 29/32 green including all four
+   new family identity gates + geo-paths, first try. The three smoke
+   failures, three distinct root causes, all fixed on the branch:
+   (a) cmb-smoke — the GATE's cov_yaml wrote cobaya-style
+   {value: X} params; compute_cmb_covariance demands plain numbers
+   (the example YAML's form); fixture fixed. (b) bsn-smoke — the
+   background generator lacked the legacy wants-Cl quirk
+   ("Cl": {tt: 0}); with background-only requirements the manual
+   check_cache_and_compute(cached=True) loop serves a STALE
+   first-sample CAMBdata, so every dump row was the same cosmology
+   (the geometry guard caught it as degenerate H columns). Quirk
+   added (LOAD-BEARING comment) + a dump-variance tripwire leg in
+   the gate that fails AT THE DUMP naming the quirk. (c) mps-smoke —
+   D-MP9: the boost surface is PHYSICALLY constant at low k
+   (B = 1 below the nonlinear scale, syren-halofit's boost too, so
+   log(B/B_base) = 0 identically). Grid2DGeometry.from_targets now
+   PINS constant law-space columns under a syren law (scale 1,
+   decode returns the training constant — the base is exact there;
+   const_mask persisted schema-additively; one quiet-gated report
+   line at build), while law-none constants and a WHOLLY constant
+   surface (the stale-dump signature) still raise. mps-identity
+   gained the D-MP9 legs. Probes 11/11 on the real bodies.
 
 ## Evidence status: what is PROVEN vs what is PENDING
 
@@ -131,7 +156,12 @@ board-registry census (32), and the stale-reference censuses. The
 syren vendoring and the background/MPS pure math executed FOR REAL
 here (numpy-only paths).
 
-PENDING — nothing torch-side has run since the board was 25/25:
+PENDING — the torch-side state after board run 2 (2026-07-11 evening,
+at the STALE HEAD 295d0fa): 29/32 green (all four family identity
+gates + geo-paths passed first try); the three smoke fails are fixed
+on the branch (ledger item 13) but UNPROVEN until the next board run;
+the D-CM13 head legs and the save-rebuild-drift head variant have
+never run at all.
 
 ## The tests the user still must run (in this order)
 

@@ -47,6 +47,10 @@ class Grid2DGeometry:
   "boost"), units ("Mpc3" / "dimensionless"), law (a TARGET_LAWS_2D
   key). center/scale are per flattened grid point over the law-space
   training rows. dest_idx / total_size are the identity over nz*nk.
+  const_mask (D-MP9, optional) marks the pinned base-exact points —
+  constant law-space columns under a syren law (the boost's low-k
+  region): decode returns the training constant there, and the mask
+  persists with the artifact. None = no pins (every pre-D-MP9 file).
   """
 
   def __init__(self,
@@ -57,7 +61,8 @@ class Grid2DGeometry:
                z,
                k,
                center,
-               scale):
+               scale,
+               const_mask = None):
     """Place the 2D grid-geometry tensors on the device.
 
     Arguments:
@@ -69,7 +74,17 @@ class Grid2DGeometry:
       k        = (nk,) ascending wavenumber axis, 1/Mpc (the grid the
                  run trained on — already downsampled if it was).
       center   = (nz*nk,) per-point training mean IN LAW SPACE.
-      scale    = (nz*nk,) per-point training std IN LAW SPACE.
+      scale    = (nz*nk,) per-point training std IN LAW SPACE (1.0 at
+                 the pinned points below).
+      const_mask = the D-MP9 pinned-point mask, or None (no pins —
+                 every older artifact, and any run whose surface has
+                 spread everywhere; state() then omits the key, so
+                 pre-D-MP9 files are byte-identical). (nz*nk,)
+                 booleans: True where the LAW-SPACE training column
+                 was constant — under a syren law that is the
+                 base-exact region (boost = 1 below the nonlinear
+                 scale), so decode returns the training constant
+                 there exactly instead of scale-noise.
     """
     if law not in TARGET_LAWS_2D:
       raise ValueError(
@@ -96,6 +111,19 @@ class Grid2DGeometry:
         + "; the rows must be the flattened (z-outer) surface")
     self.total_size = n_out
     self.dest_idx   = torch.arange(n_out, device=device)
+    # the D-MP9 pinned-point mask (None = no pins, decode untouched).
+    # h5 round-trips it as a small integer tensor; normalize to bool.
+    if const_mask is None:
+      self.const_mask = None
+    else:
+      self.const_mask = torch.as_tensor(const_mask,
+                                        device=device).to(torch.bool)
+      if int(self.const_mask.numel()) != n_out:
+        raise ValueError(
+          "Grid2DGeometry: const_mask has "
+          + str(int(self.const_mask.numel())) + " points but the "
+          "(z, k) grid is " + str(n_out) + "; the mask must cover the "
+          "flattened surface")
 
   @classmethod
   def from_state(cls, device, state):
@@ -154,31 +182,64 @@ class Grid2DGeometry:
     scale  = Y.std(0)                          # population std (ddof 0)
     tiny = 8.0 * np.finfo("float32").eps * np.abs(center)
     zero = np.nonzero(scale <= tiny)[0]
+    const_mask = None
     if zero.size > 0:
       show = []
       for j in zero[:8].tolist():
         show.append((float(z[j // k.shape[0]]),
                      float(k[j % k.shape[0]])))
-      raise ValueError(
-        "Grid2DGeometry.from_targets: un-standardizable grid point(s) "
-        "at (z, k) " + repr(show) + " (first 8): the training spread "
-        "there is below float32 resolution at its magnitude. The dump "
-        "is degenerate at those points — check the generator (a "
-        "constant law-space column usually means the base already "
-        "equals the truth there).")
+      # a WHOLLY constant surface is a dead dump under any law (a
+      # stale generator writing one cosmology's rows everywhere — the
+      # bsn-smoke failure class), never a physical region.
+      if zero.size == n_out:
+        raise ValueError(
+          "Grid2DGeometry.from_targets: EVERY grid point is constant "
+          "across the training rows — the dump is degenerate (a stale "
+          "generator writing one cosmology everywhere); check the "
+          "generator, this is never a physical surface.")
+      if law == "none":
+        raise ValueError(
+          "Grid2DGeometry.from_targets: un-standardizable grid "
+          "point(s) at (z, k) " + repr(show) + " (first 8): the "
+          "training spread there is below float32 resolution at its "
+          "magnitude. Under law 'none' there is no base to fall back "
+          "on, so a constant column is a degenerate dump — check the "
+          "generator.")
+      # D-MP9: under a SYREN law a constant LAW-SPACE column means the
+      # analytic base already equals the truth there for every
+      # training cosmology — for the boost that is the whole low-k
+      # region (B = 1 below the nonlinear scale, and syren-halofit's
+      # boost is 1 there too, so log(B/B_base) = 0 identically; the
+      # first mps-smoke board run hit exactly this). That is physics,
+      # not a generator bug: PIN those points — scale 1 (nothing to
+      # whiten by), and decode returns the training constant exactly
+      # (the consumer then serves base * e^const = the base, which is
+      # exact there by construction). The mask persists in the
+      # artifact (state), so serving matches training bit for bit.
+      const_mask = np.zeros(n_out, dtype=bool)
+      const_mask[zero] = True
+      scale = scale.copy()
+      scale[zero] = 1.0
     return cls(device=device, quantity=quantity, units=units, law=law,
-               z=z, k=k, center=center, scale=scale)
+               z=z, k=k, center=center, scale=scale,
+               const_mask=const_mask)
 
   def state(self):
     """Tensors/strings to save; keys match __init__ (dest_idx /
-    total_size are derived from the axes, so they are not persisted)."""
-    return {"quantity": self.quantity,
-            "units":    self.units,
-            "law":      self.law,
-            "z":        self.z.cpu(),
-            "k":        self.k.cpu(),
-            "center":   self.center.cpu(),
-            "scale":    self.scale.cpu()}
+    total_size are derived from the axes, so they are not persisted).
+    const_mask joins only when pins exist (D-MP9), so a pin-free
+    artifact is byte-identical to a pre-D-MP9 one; it rides as a small
+    integer tensor (h5 has no bool), normalized back by __init__."""
+    st = {"quantity": self.quantity,
+          "units":    self.units,
+          "law":      self.law,
+          "z":        self.z.cpu(),
+          "k":        self.k.cpu(),
+          "center":   self.center.cpu(),
+          "scale":    self.scale.cpu()}
+    if self.const_mask is not None:
+      st["const_mask"] = self.const_mask.cpu().to(torch.uint8)
+    return st
 
   def attach_head_coords(self):
     """Attach the conv/TRF heads' channel/token split (D-CM13).
@@ -218,10 +279,19 @@ class Grid2DGeometry:
     """Standardized output -> law-space rows (the consumer multiplies
     the base back through emulator/syren_base.py, D-MP2-A(4)).
 
+    At the D-MP9 pinned points (constant law-space training columns —
+    the base-exact region) the network's output is REPLACED by the
+    training constant: the base is exact there by construction, and
+    letting network noise through at scale 1.0 would leak a spurious
+    percent-level wiggle into the served spectrum's low-k tail.
+
     Arguments:
       t = (B, nz*nk) network output.
 
     Returns:
       (B, nz*nk) law-space rows (log(P/P_base) for the syren laws).
     """
-    return t * self.scale + self.center
+    out = t * self.scale + self.center
+    if self.const_mask is not None:
+      out = torch.where(self.const_mask, self.center, out)
+    return out

@@ -114,9 +114,24 @@ class dataset(GeneratorCore):
     # explicit background requirements on the model itself (the training
     # YAML may carry only the dummy `one` likelihood). Hubble in
     # km/s/Mpc; comoving_radial_distance is served in Mpc.
+    #
+    # The trivial Cl requirement is the wants-Cl quirk
+    # (dataset_generator_mps.py carries it verbatim from the legacy
+    # code: "DONT REMOVE - SOME WEIRD BEHAVIOR IN CAMB WITHOUT
+    # WANTS_CL"). It is LOAD-BEARING here: with background-only
+    # requirements, cobaya-CAMB's component split leaves the piece
+    # that computes CAMBdata without the varying cosmology among its
+    # input params, so the manual check_cache_and_compute(cached=True)
+    # loop in _compute_dvs_from_sample hits a stale cache and EVERY
+    # sample returns the first cosmology's background — the first
+    # bsn-smoke board run caught exactly that (degenerate H(z)
+    # columns, all cosmologies agreeing). Requesting one trivial Cl
+    # forces the transfers component to own the cosmology params, so
+    # the cache misses per sample and the background is fresh.
     self.model.add_requirements(
       {"Hubble": {"z": self.z_sn, "units": "km/s/Mpc"},
-       "comoving_radial_distance": {"z": self.z_rec}})
+       "comoving_radial_distance": {"z": self.z_rec},
+       "Cl": {"tt": 0}})
 
   #-----------------------------------------------------------------------------
   # data-vector store: two per-quantity 2D arrays -> {dvsf}_<q>.npy

@@ -9,7 +9,10 @@ Legs:
   - Grid2DGeometry: standardize round-trip to float32 round-off; state
     round-trip byte-identical (seven keys incl. quantity/units/law);
     the width / un-standardizable / unknown-law guards (errors name
-    (z, k) points);
+    (z, k) points); the D-MP9 pinning (a constant law-space column
+    under a syren law = the base-exact region: scale 1, decode returns
+    the training constant, const_mask persists; law-none constants and
+    a wholly constant surface still raise);
   - the STAGING law transform through the REAL load_source +
     _grid2d_law_rows: law rows == log(raw / base) with the base dump
     aligned by dump_rows through a real shuffled staging; the k_stride
@@ -133,6 +136,41 @@ def check_geometry(device):
         report("unknown law raises", False, "no raise")
     except ValueError:
         report("unknown law raises", True, "ValueError")
+    # D-MP9: under a SYREN law a constant law-space column is the
+    # base-exact region (boost = 1 below the nonlinear scale) — pinned
+    # (scale 1, decode returns the training constant, mask persisted),
+    # never rejected; a WHOLLY constant surface still dies loudly.
+    Yc = Y.copy()
+    Yc[:, 3] = 7.0
+    geom_c = Grid2DGeometry.from_targets(device=device, targets=Yc,
+                                         z=Z4, k=K6, quantity="boost",
+                                         units="dimensionless",
+                                         law="syren_halofit")
+    t = torch.randn(5, Z4.size * K6.size)
+    dec = geom_c.decode(t)
+    st_c = geom_c.state()
+    geom_c2 = Grid2DGeometry.from_state(device=device, state=st_c)
+    dec2 = geom_c2.decode(t)
+    ok = (geom_c.const_mask is not None
+          and int(geom_c.const_mask.sum()) == 1
+          and bool(geom_c.const_mask[3])
+          and float(geom_c.scale[3]) == 1.0
+          and bool((dec[:, 3] == geom_c.center[3]).all())
+          and "const_mask" in st_c
+          and torch.equal(dec, dec2))
+    report("D-MP9: syren-law constant column pinned + round-trip", ok,
+           "1 pin, scale 1.0, decode = the constant, state key rides")
+    try:
+        Yall = np.tile(Y[:1], (Y.shape[0], 1))
+        Grid2DGeometry.from_targets(device=device, targets=Yall, z=Z4,
+                                    k=K6, quantity="boost",
+                                    units="dimensionless",
+                                    law="syren_halofit")
+        report("D-MP9: wholly constant surface still raises", False,
+               "no raise")
+    except ValueError as e:
+        report("D-MP9: wholly constant surface still raises",
+               "EVERY grid point" in str(e), "names the dead dump")
 
 
 def check_staging(tmp):

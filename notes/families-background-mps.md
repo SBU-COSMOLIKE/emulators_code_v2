@@ -16,6 +16,15 @@ models-and-designs.md.
 
 ## BSN — the expansion history. CODE COMPLETE; gates bsn-identity/bsn-smoke.
 
+- THE WANTS-CL QUIRK IS LOAD-BEARING (board run 1, 2026-07-11): the
+  background generator's requirements now include "Cl": {tt: 0}
+  beside Hubble + comoving_radial_distance. Without it, cobaya-CAMB's
+  component split leaves the CAMBdata-computing piece with no varying
+  input params, the manual check_cache_and_compute(cached=True) loop
+  hits a stale cache, and EVERY dump row is the first cosmology's
+  background (caught as degenerate H columns). bsn-smoke carries a
+  dump-variance tripwire that fails AT THE DUMP naming the quirk.
+  Never remove it — the MPS generator's copy says the same.
 - Headline: only H(z) is a network; every distance is IMPOSED physics
   computed from it. The two-regime ruling (D-BSN3-A, the user's call:
   the recombination distance is the discontinuity): (1) an H(z)
@@ -99,6 +108,17 @@ models-and-designs.md.
   persists as the stored grid itself. Legacy grids recorded: z = 122
   points (three linspace segments 0-2-10-50), k = logspace(-4, 2,
   2000), extrap_kmax 200.
+- D-MP9 (board run 1, 2026-07-11): constant LAW-SPACE columns under a
+  syren law are the BASE-EXACT region, not a bug — the boost is 1
+  below the nonlinear scale for every cosmology and syren-halofit's
+  boost is 1 there too, so log(B/B_base) = 0 identically at low k.
+  from_targets PINS them: scale 1, decode returns the training
+  constant exactly (serving = base there, doubly consistent with
+  emul_mps's k_t blend), const_mask persisted schema-additively (no
+  pins = byte-identical state), one quiet-gated report line at build.
+  Still loud: law-none constants (no base to fall back on) and a
+  WHOLLY constant surface (the stale-generator signature). Gate legs
+  in mps-identity.
 - Generation: dataset_generator_mps.py — the verbatim CAMB quirk
   `"Cl": {"tt": 0}` ("DONT REMOVE THIS - SOME WEIRD BEHAVIOR IN CAMB
   WITHOUT WANTS_CL") kept; write_syren_base fails AT SETUP when the

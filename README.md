@@ -2020,7 +2020,12 @@ kept) and the served interpolator fills between kept points. The full
 training surface applies here unchanged, correction heads included
 ([section 10](#10-model)): the flattening is z-outer, so `rescnn` gets
 the z slices as conv channels and slides along k (mixing redshifts at
-like k), and `restrf` gets one attention token per z slice.
+like k), and `restrf` gets one attention token per z slice. One
+physical fact the training handles for you: below the nonlinear scale
+the boost is 1 for every cosmology and the syren formula is exact
+there, so those grid points carry no signal — the geometry pins them
+(the served value is the analytic base, exactly) instead of failing
+on an unlearnable column, and reports how many it pinned at startup.
 
 ```yaml
 data:

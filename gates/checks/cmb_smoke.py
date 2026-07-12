@@ -110,7 +110,14 @@ def gen_yaml():
 
 
 def cov_yaml():
-    """The D-CM11 covariance YAML: fixed fiducial LCDM, zero noise."""
+    """The D-CM11 covariance YAML: fixed fiducial LCDM, zero noise.
+
+    The params block is PLAIN NUMBERS, never cobaya {value: X}
+    mappings: compute_cmb_covariance.py evaluates ONE fiducial
+    cosmology and rejects anything else loudly (the first board run
+    caught this gate writing the cobaya spelling). The canonical form
+    is example_yamls/cmb_covariance_lcdm.yaml's.
+    """
     return (
         "theory:\n"
         "  camb:\n"
@@ -120,20 +127,13 @@ def cov_yaml():
         "      AccuracyBoost: 0.7\n"
         "      lens_potential_accuracy: 1\n"
         "params:\n"
-        "  As:\n"
-        "    value: 2.1e-9\n"
-        "  ns:\n"
-        "    value: 0.965\n"
-        "  H0:\n"
-        "    value: 67.36\n"
-        "  ombh2:\n"
-        "    value: 0.02237\n"
-        "  omch2:\n"
-        "    value: 0.12\n"
-        "  tau:\n"
-        "    value: 0.055\n"
-        "  mnu:\n"
-        "    value: 0.06\n"
+        "  As:    2.1e-9\n"
+        "  ns:    0.965\n"
+        "  H0:    67.36\n"
+        "  ombh2: 0.02237\n"
+        "  omch2: 0.12\n"
+        "  tau:   0.055\n"
+        "  mnu:   0.06\n"
         "cov_args:\n"
         "  lmax: " + str(LMAX) + "\n"
         "  fsky: 1.0\n"
