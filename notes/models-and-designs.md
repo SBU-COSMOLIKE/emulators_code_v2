@@ -183,6 +183,71 @@ total_size/encode/decode. needs_params = "encode/decode/chi2/loss
 take the whitened params" — every diagnostic MUST branch on it (a
 hardcoded geom.decode is silently wrong for param-aware losses).
 
+## Model-block value schema (red-team 2026-07-12 fourteenth wave, Architect-VERIFIED, open; joins the train_args-totality cluster)
+
+The nested model: schema validates KEY NAMES only (experiment.py:225
+"an unknown key raises, listing what is allowed") and copies active
+block values straight into the design constructors. There is no value
+contract, and the headline failure is a SILENT ARCHITECTURE DEMOTION,
+not a crash:
+
+- `model.trf.n_blocks: 0` builds an empty block list; the ResTRF
+  forward (ia.py:933-947) leaves t == t0 so corr = t - t0 is
+  identically zero FOREVER. The identity-start doctrine ("corr = 0 at
+  init", the two-phase enabler) is exactly what makes this silent:
+  the trunk trains normally, aggregate collapse bars can pass, and
+  the requested transformer head never exists scientifically. This is
+  the architecture-level analogue of the dead-network rule — a gate
+  must prove the head CANNOT silently reduce to the trunk.
+- Quoted "false" is truthy: rescale_kernel / separable / film /
+  shared_mlp flow untyped into constructors and flip designs on.
+- Zero-block crashes with unrelated messages: `model.cnn.n_blocks: 0`
+  hits `self.convs[-1]` (ia.py:505, IndexError);
+  `model.trf.n_mlp_blocks: 0` hits `self.mlp_lins[-1]`
+  (blocks.py:639).
+- `n_heads: 0` divides/modulos by zero (blocks.py:602 — the assert
+  ITSELF evaluates `dim % 0`); incompatible n_heads relies on that
+  assert and vanishes under python -O. kernel_size (ia.py:353),
+  groups (ia.py:416), and the geometry assumptions (ia.py:423, :448)
+  likewise rely on assertions on public config paths.
+- `gate_init` passes through float() (ia.py:490): NaN/Inf accepted,
+  and since corr starts 0, `out = y + gate * corr` makes Inf * 0 =
+  NaN immediately.
+- int() coercions: n_gates on BOTH the trunk activation path
+  (experiment.py:292) and the head-pin path (:4108, :4258, :4267);
+  n_tokens at plain.py:866. Bools become 0/1, floats truncate,
+  numeric strings pass, zero reaches a zero-length gate tensor.
+
+Adopted contract (theirs, whole): ONE pure active-model value
+validator before geometry/model construction — the standing ruling
+that INACTIVE architecture blocks may stay configured-but-unused is
+preserved. Boolean fields require actual YAML booleans (no truthiness,
+no coercion). Integral fields reject bools, strings, and fractional
+values: positive width / gate count / head depth / MLP depth / head
+count; CNN and TRF correction-block counts at least one; n_tokens
+None or an exact integer, then its geometry-dependent bounds check.
+kernel_size positive odd; groups an exact allowed value for the
+selected design; n_heads positive and dividing the resolved token
+width. gate_init a finite real non-bool. Normalized values persist in
+the resolved recipe; validation never changes accepted-run values.
+Constructor assertions on public config paths become explicit typed
+exceptions so -O behaves identically.
+
+Interlock with the asserts-under--O unit (queue 12): the ia.py /
+blocks.py constructor asserts in its census are SATISFIED BY THIS
+UNIT's typed-exception clause — cross-reference, no double work; unit
+12 keeps the non-model surfaces.
+
+Red legs (adopted): each quoted-false field raises at its full dotted
+path while genuine false keeps today's recipe and parameter census;
+zero CNN / TRF / TRF-MLP blocks each raise before construction;
+zero/incompatible heads, even/non-positive kernel, invalid groups,
+coerced n_tokens raise diagnostically; NaN/Inf/bool gate_init and
+zero/negative/fractional/bool/string n_gates raise; valid boundary
+controls build under ordinary Python AND python -O; and the
+demotion-proof leg — a model requested as ResCNN/ResTRF must contain
+at least one corresponding head block.
+
 ## The science doctrine
 
 - The objective is SAMPLE EFFICIENCY: the position of the

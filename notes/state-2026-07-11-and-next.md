@@ -345,6 +345,16 @@ files were created. Priority follows user-visible risk:
 12. **Optimized-mode validation parity.** Seventeen runtime guards across
     batching, model designs, geometry, and loss code are `assert` statements
     and disappear under `python -O`. Spec: conventions-and-workflow.md.
+    VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
+    EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
+    designs/plain 6, designs/blocks 1, losses/core 1,
+    geometries/output 2, geometries/parameter 1), all config/geometry/
+    user-data guards. The red team concurs (2026-07-12): seventeen was
+    a counting error on their side; eighteen stands at 4f4dab3 and at
+    the reviewed HEAD. (This paragraph was misfiled under entry 28 by
+    an earlier edit; restored here 2026-07-12.) The ia.py/blocks.py
+    entries of this census are satisfied by unit 29's typed-exception
+    clause — cross-reference, no double work.
 13. **Covariance-input validation** (red-team, 2026-07-12 third wave).
     cov_args has no schema/range boundary: band_width <= 0 hangs
     band_windows; step_fracs order silently changes the kept
@@ -470,7 +480,8 @@ files were created. Priority follows user-visible risk:
     data and the run silently trains a plain emulator (all feature
     reads are cfg.get(): experiment.py ~589/721/736/1239). Spec:
     training-stack.md, "Run-control schema totality" (including
-    the root-level clause) — bundles with units 18 + 20 as one
+    the root-level clause) — bundles with units 18 + 20 (+ 29,
+    the model-block value schema, fourteenth wave) as one
     train_args-totality cluster.
     VERIFIED (Fable, 2026-07-12): validate_phase_block ~492-522
     (eight-key whitelist, structural checks only), loop ~1977
@@ -577,13 +588,34 @@ files were created. Priority follows user-visible risk:
     samefile/duplicate check anywhere; data_staging.py ~536/~779
     (raw loadtxt 2-D indexing vs generator_core ~610's atleast_2d);
     bare int()/float() control reads.
-    VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
-    EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
-    designs/plain 6, designs/blocks 1, losses/core 1,
-    geometries/output 2, geometries/parameter 1), all config/geometry/
-    user-data guards. The red team concurs (2026-07-12): seventeen was
-    a counting error on their side; eighteen stands at 4f4dab3 and at
-    the reviewed HEAD.
+29. **Model-block value schema** (fourteenth wave; joins the
+    train_args-totality cluster 18+20+23, distinct from
+    range-SYNTAX validation — fixed YAML values have the same
+    holes). The nested model: schema validates key names only;
+    values flow untyped into the design constructors. Headline:
+    `model.trf.n_blocks: 0` is a SILENT ARCHITECTURE DEMOTION — the
+    identity-start doctrine makes corr = t - t0 identically zero, the
+    trunk trains, collapse bars can pass, and the requested
+    transformer head never exists. Plus: quoted-"false" truthiness
+    (rescale_kernel/separable/film/shared_mlp), zero-block
+    IndexErrors with unrelated messages, n_heads 0 dividing by zero
+    inside its own assert (gone under -O), float(gate_init)
+    accepting NaN/Inf (Inf * corr-0 = NaN at step one), int()
+    coercions on n_gates (both activation paths) and n_tokens.
+    Contract: one pure active-model value validator before
+    construction; inactive-blocks-stay ruling preserved; constructor
+    asserts on public config paths become typed exceptions
+    (SATISFIES unit 12's ia.py/blocks.py census entries —
+    cross-reference, no double work). Spec: models-and-designs.md,
+    "Model-block value schema".
+    VERIFIED (Fable, 2026-07-12, fourteenth wave): whitelist
+    key-names-only at experiment.py:225; ResTRF forward t == t0 at
+    ia.py:933-947; convs[-1] at ia.py:505; mlp_lins[-1] at
+    blocks.py:639; `assert dim % n_heads == 0` at blocks.py:602;
+    kernel/groups/geometry asserts at ia.py:353/:416/:423/:448;
+    float(gate_init) at ia.py:490; int(n_gates) at
+    experiment.py:292/:4108/:4258/:4267; int(n_tokens) at
+    plain.py:866.
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
