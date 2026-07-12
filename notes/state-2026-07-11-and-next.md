@@ -449,6 +449,35 @@ files were created. Priority follows user-visible risk:
     a counting error on their side; eighteen stands at 4f4dab3 and at
     the reviewed HEAD.
 
+### Continued red-team findings awaiting Architect adjudication
+
+These are evidenced contracts, not numbered/accepted queue units yet;
+their detailed specs are in the existing topic notes (no new files):
+
+- **Sweep completion truth** (`training-stack.md`): serial and parallel
+  turn identical point failures into different final outcomes; NaN rows
+  can be published as a normal successful sweep.
+- **Generator scalar/grid finiteness** (`data-generation-and-cuts.md`):
+  lossy int/bool coercions change requested grids and switches; NaN
+  extrapolation and NaN prior results evade comparison-only guards.
+- **Nested path + validation-axis identity**
+  (`data-generation-and-cuts.md`): Cocoa resolves primary dumps but not
+  family covariance/grid/base sidecars; validation axes are inferred
+  from training axes and same-width swaps are undetectable.
+- **Bounded-grid2d amendment** (`data-generation-and-cuts.md`): the
+  in-flight memory fix must use stable Chan/Welford moments over the
+  exact stored float32 rows; its reviewed sum/sum-of-squares draft can
+  mis-scale or falsely pin a varying column.
+- **Gate terminology cleanup**: human-facing board/check comments,
+  docstrings, maps, and report labels say "independent known-answer
+  calculation/check"; only existing identifiers may retain `oracle`.
+
+Role/sequencing: Fable decides queue numbers and priority. The grid2d
+numeric amendment is blocking feedback on the already in-flight unit,
+not a later cleanup. The other findings should fold into the existing
+train-argument, generator-ingress/file-set, and documentation contracts
+where their roots already live.
+
 ## Standing constraints that gate future work
 
 - Transfer learning rides cosmolike + cmb + grid + grid2d since the

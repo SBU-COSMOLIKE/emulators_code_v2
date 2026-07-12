@@ -490,6 +490,31 @@ staging; valid PCE, transfer, and sweep configs pass through their
 owners; feature-on startup banners/artifact records provably differ
 from feature-off after a misspelling.
 
+## Sweep completion truth (red-team continuation, evidenced 2026-07-12; awaiting Architect adjudication)
+
+The three sweep drivers do not have one failure contract. N-train and
+activation-bakeoff points raise on the serial path, but their parallel
+workers catch every exception and return `frac = NaN`; the generic
+hyperparameter worker catches in both modes. None of the parents checks
+that every requested point returned exactly once with a finite metric
+before writing the ordinary `.txt` / `.pdf` and exiting successfully.
+The same invalid experiment can therefore fail loudly on one machine
+and look completed on another. The CLI boundary also leaves
+`n_points`, `n_gpus`, and the finite/nonnegative threshold relation
+unguarded; a NaN threshold makes every finite chi2 comparison false and
+reports a perfect zero bad-fraction.
+
+Required contract: workers may continue after a point failure, but return
+a structured status/error rather than encoding failure as a scientific
+float. The parent requires one finite success for every requested point
+before normal publication/success; any optional partial diagnostic is
+marked incomplete and exits nonzero. Serial and parallel call the same
+total wrapper. Validate finite threshold >= 0, positive point/GPU counts,
+positive ordered N limits, and a nonempty activation list. Gates inject
+the same failure in both modes for all three drivers, plus missing,
+duplicate, NaN/Inf, and all-failed result sets; valid output ordering and
+values stay unchanged.
+
 ## Where the deltas live (IDs preserved for git archaeology)
 
 D-B1 (deleted by the loss-block nesting — the structural fix beat the

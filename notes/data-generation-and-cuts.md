@@ -187,6 +187,29 @@ production-sized MPS PCE until a separate streamed/randomized low-rank
 fit contract and accuracy calculation are designed; do not smuggle that
 research change into the bounded-staging unit.
 
+### Red-team amendment to bounded grid2d staging: stable moments over the stored payload
+
+The Implementer's in-flight bounded-read design (kept columns chosen
+before every read; row chunks; RAM-or-memmap result) closes the memory
+mechanism, but the reviewed draft computes population variance as
+`(s2 - s1*s1/n)/n` and clamps negatives to zero. That subtraction is
+not equivalent to the former `Y.std(0)` path: for 50,000 alternating
+float32 values 1e8 and its next representable value, the true std is
+4.0 while the draft returns 4.127875...; at one million rows it becomes
+negative and the clamp turns a varying column into an exact constant.
+That can change whitening and the physical-constant/dead-dump decision.
+
+The draft also accumulates moments from the pre-cast float64 law chunk,
+then trains on its float32 cast. The old path cast the law rows to
+float32 first and computed geometry statistics from those exact stored
+targets promoted to float64. Required before landing: merge chunk
+mean/M2 with a stable Chan/Welford algorithm in float64, but feed it the
+exact float32 payload written to the result. Gates compare center,
+population std, constant mask, and encoded rows against the former
+materialized-float32 path across uneven chunks, a high-offset/one-ULP
+spread, a true constant, and ordinary log-ratio rows. An analytic
+pre-cast log result alone is not the reference.
+
 ### File names and row counts do not prove dataset identity
 
 `load_source` checks only that parameter and dv row counts match. A
@@ -200,6 +223,31 @@ spawn many readers, verification must be performed once per immutable
 file identity and shared/cached safely rather than re-hashing the full
 bundle in every worker. The gate swaps same-shaped dv files between two
 fixtures and requires a pre-staging identity failure.
+
+### Family sidecar paths and validation axes are not bound (red-team continuation, evidenced 2026-07-12; awaiting Architect adjudication)
+
+`resolve_cocoa_config` resolves the five flat dv/parameter/covmat paths
+under `<project>/chains`, but leaves `data.cmb.covariance`,
+`data.grid.z_file`, and grid2d's `z_file` / `k_file` / `train_base` /
+`val_base` cwd-relative. The shipped examples use bare names and tell
+the user to launch from `$ROOTDIR`; a direct resolver probe therefore
+made `train_dv` absolute while leaving `z_file` and `train_base` bare.
+Existing gates hide the split by constructing absolute nested paths.
+One dotted-path registry must resolve every file-valued leaf against its
+documented base (absolute paths unchanged), and missing-file errors name
+the dotted key.
+
+There is also only one background z sidecar and one grid2d (z,k) pair:
+the training axes are reused to interpret validation dumps. A validation
+dump/base from a different generator run with the same width passes and
+is scored on the wrong coordinates; CMB has the analogous same-width
+ell identity gap. The committed dataset manifest should bind each
+train/val raw/base dump to its own axis bytes, parameter order, failure
+mask, settings, and generation id, then require exact train/val axis
+equality before staging. Until that manifest lands, explicit validation
+sidecars plus `array_equal` guards are the minimum. Red legs use shifted,
+reversed, and permuted same-width axes and a swapped same-shaped val base;
+byte-identical separately written axes pass.
 
 ### No-cut learning-curve pool counting is broken
 
@@ -249,6 +297,28 @@ separate diagnostics; duplicate header + header/matrix mismatch
 raise; NaN/Inf covariance or fiducial raise before sampling;
 insufficient unique rows cannot publish; an unknown optional flag is
 rejected. The verbatim lensing physics loop is untouched.
+
+## Generator scalar/grid configuration finiteness (red-team continuation, evidenced 2026-07-12; awaiting Architect adjudication)
+
+The family generators validate ranges only after lossy coercion.
+Executed probes against their real `_read_train_args` methods found:
+MPS `n=8.9` / `nk=8.9` truncate to 8, quoted endpoint and
+`write_syren_base: "false"` become true, and NaN `extrap_kmax` is
+stored; CMB `lrange: [2.9, 500.9]` becomes `[2, 500]`; background
+`nz=8.9` becomes 8. Validate the parsed values before conversion:
+counts/multipoles exact non-bool ints, switches exact bool, every grid
+edge/extrapolation limit finite, unknown family keys loud, and
+`extrap_kmax >= max(k)` after finiteness. Valid shipped axes and model
+requirements must remain byte-identical.
+
+The shared post-sampling prior check uses only `math.isinf(logprior)`;
+`math.isinf(NaN)` is false, so a uniform sample whose Cobaya prior is
+NaN is accepted and written with the hard-coded uniform `lnp = 1`.
+Before sampling require finite ordered bounds (and finite fiducial /
+covariance / Cholesky / inverse on Gaussian runs); every prior result
+uses `isfinite` in the log-posterior, post-sampling, append, and reload
+paths. Nonfinite modeled columns or metadata fail before chain/dv
+publication and name their parameter/row.
 
 ## The physical cuts (data.param_cuts)
 
