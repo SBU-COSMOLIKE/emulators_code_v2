@@ -10,7 +10,14 @@ history (`git log -p notes/state-2026-07-11-and-next.md`).
 
 ## Where the code stands
 
-The queued program is CODE COMPLETE. **The board's first full 32/32
+The feature program reached code-complete, but the 2026-07-12 red-team
+static review found release blockers outside the board's current
+oracles: production grid2d staging defeats the memory ladder; standard
+generated `.1.txt` files bypass the parameter-order sidecar check; dump
+members and artifact pairs are not identity-bound; and parallel worker
+success is not truthfully accounted. Treat "code complete" below as
+feature coverage, not a release-readiness claim, until the open audit
+queue closes. **The board's first full 32/32
 green was run 9 (2026-07-12 00:12)** — simultaneously GEO's
 acceptance and the board baseline for D-CM12 and the science thread;
 the CURRENT standing is run 11's 30/32 (one red fixed on the branch
@@ -129,8 +136,11 @@ evidence line under each unit is the anchor a spec starts from:
 
 1. D-CM11-A, the eq-6 normalization (spec of record:
    families-scalar-cmb.md "D-CM11-A") — IMPLEMENTED (Opus) and
-   Architect-audited ACCEPTED 2026-07-12 (the audit record sits under
-   the resume in the family note); closes on the workstation pass.
+   independently Architect-audited ACCEPTED on Mac scope at merged HEAD
+   7f455e6; the family note's later provenance-correction section is the
+   real audit record (the earlier pre-written Fable verdict and commit
+   attribution are invalid). One raw-vs-scaled oracle delta plus the
+   workstation pass remain before close.
 2. Dataset readiness + MPS sigma8. VERIFIED: run_generator ends
    MPI.Finalize(); exit(0) unconditionally (generator_core.py tail)
    while per-sample failures zero the dv row and mark the failfile;
@@ -171,6 +181,40 @@ evidence line under each unit is the anchor a spec starts from:
    (python -O strips it), results.py:614 torch.load without
    weights_only, _pick_device returns cpu for an unrecognized
    device string, plot_xi carries mutable list defaults.
+
+### Second red-team wave: verified open queue
+
+These findings are recorded in their existing topic notes; no new note
+files were created. Priority follows user-visible risk:
+
+1. **Bounded grid2d staging (next handoff).** The shipped 50,000-row,
+   122 x 2,000 MPS setup selects/casts whole unthinned raw and base
+   matrices before `k_stride`; at least two 90.897 GiB float64
+   selections coexist. Spec and gate: data-generation-and-cuts.md,
+   "Grid2d staging defeats its own memory ladder". This closes the
+   ordinary/finetune/frozen-transfer paths; production-scale grid2d PCE
+   remains a separately recorded low-rank-fit design problem.
+2. **Data-selection truth.** The no-cut scalar/CMB/grid/grid2d
+   learning-curve wrappers fail in `pool_size` by indexing an absent
+   `omegabh2_hi`; ordinary `load_source` looks for
+   `X.1.paramnames` while the generator writes `X.paramnames`, disabling
+   its own order guard; same-shaped params/dv/base files can be mixed
+   silently. Spec: data-generation-and-cuts.md.
+3. **Artifact-pair integrity.** Direct two-file overwrite plus no digest
+   lets same-shaped wrong weights load strictly against an unrelated h5.
+   Syren-law artifacts also do not bind the inference formula version.
+   Spec: artifacts-inference-warmstart.md.
+4. **Parallel truth and cleanup.** Parallel Optuna ignores worker exit
+   codes and accepts any historical COMPLETE trial; the shared GPU pool
+   can orphan children or wait forever on invalid token plans. Spec:
+   training-stack.md.
+5. **Live resource sizing and result-table truth.** `dv_len=3000` is
+   hardcoded across dense and wide-diagonal losses; sweep-table length
+   mismatch truncates silently. Spec: training-stack.md.
+6. **Python documentation truth.** The exact census and remaining
+   internal-ledger prose are in conventions-and-workflow.md. This is a
+   separate doc-only unit after correctness work, proven by an
+   AST-minus-docstrings hash.
 
 ## Standing constraints that gate future work
 

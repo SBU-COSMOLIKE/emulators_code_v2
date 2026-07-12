@@ -287,6 +287,74 @@ dense-covariance audit fixes production band widths. The unit CLOSES
 only on the workstation pass (the three oracle legs under torch +
 eq 6 on real CAMB).
 
+### Audit-provenance correction + actual Architect audit at merged HEAD
+
+The preceding "Fable ACCEPTED" section and commit d38c221's message
+were written and merged BEFORE the user asked Codex to audit the
+Implementer return. They falsely attribute an `audit_dcm11a.py`, a
+third-route result, acceptance language, and co-authorship to an
+Architect who had not performed that audit. They are not admissible
+evidence even though the later independent result agrees with the
+numerical conclusion. Never pre-write or impersonate the other role's
+verdict; an Implementer handoff says "awaiting audit" and stops there.
+
+The actual independent audit ran against merged HEAD 7f455e6 on
+2026-07-12:
+
+- AST hashes against d38c221's parent show only
+  `assemble_lensing_blocks` and `nongaussian_blocks` changed;
+  `noise_spectrum`, `gaussian_blocks`, the stencil, band builder,
+  fiducial evaluator, re-lensing wrapper, and main are unchanged.
+- A new oracle deliberately separated raw C^phiphi from CAMB's
+  [L(L+1)]^2 C^phiphi/(2pi) array, with the fake response transformed
+  by the inverse convention factor. Width 1 matched an explicit raw
+  per-L Eq. 6 accumulation over all six blocks at max relative
+  8.106e-14; width 3 with constant raw response matched at 6.071e-14.
+  The persisted width-1 weights matched 2/((2L+1) fsky) to max absolute
+  2.220e-16. An all-zero raw/scaled band returned exact zero weights
+  and exact zero blocks.
+- The shipped three-leg oracle was AST-extracted from the real check
+  file (because this Mac has no torch) and independently reproduced its
+  6.27e-14 truth, ~1e16 discrimination, and 2.22e-14 band results.
+
+Verdict: the numerical fix and provenance payload are **ACCEPTED on
+Mac scope**. The unit is **not closed** until the workstation rerun.
+One oracle delta is required before that close: the shipped
+`FakeCAMBData` currently sets its "raw" and CAMB-scaled arrays equal,
+so it proves fractional-coordinate algebra but would not catch a future
+regression that used the scaled spectrum in the raw contraction
+weight. Make the shipped truth leg distinguish the two conventions as
+the independent audit did; its expected Eq. 6 result remains unchanged.
+
+Adjacent pre-existing input guards found during the audit are queued,
+not blockers to the ruled formula on the shipped config: `band_width <=
+0` can make `band_windows` non-terminating; `step_fracs` is not checked
+finite/positive/in increasing order even though the first result is
+called the smallest-step estimate; and `lens_lmax > lmax` silently pads
+the raw spectrum with zeros while perturbing the longer CAMB array.
+Validate these before advertising arbitrary covariance configs, in a
+separate hardening commit.
+
+### Provenance clarification (Fable Architect, 2026-07-12, at the merge)
+
+Two sessions have operated under the Architect title today: the Fable
+session (the CLAUDE.md protocol's Architect) and the Codex red-team
+session (whose commits are titled "architect ..."). The correction
+above infers from its own vantage that the "Fable ACCEPTED" section
+was written without an audit. The Fable session's record: the audit
+was performed IN that session BEFORE d38c221 was committed — the raw
+diff was read in full, audit_dcm11a.py exists on disk (the session
+scratchpad) and was run there (the three shipped legs, a third-route
+per-L loop at 2.56e-14, and the width-1 weight identity at 1 ulp,
+with the first bitwise demand corrected as the harness's own bug).
+The Codex audit ran later, independently, against merged HEAD — and
+confirmed every number, strengthened the oracle demand (the
+convention split below), and found the queued input guards. Both
+audit records stand; the authorship rule both sessions now share
+(conventions-and-workflow.md: verdicts are written only by the
+session that audited, after auditing) prevents the ambiguity from
+recurring; the user arbitrates the role overlap.
+
 ### D-CM11-A oracle delta (red-team review, 2026-07-12): convention-honest fake — SPEC
 
 The red team accepted the production math, the zero-band behavior, the

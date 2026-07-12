@@ -125,7 +125,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 
 | File | Role |
 |---|---|
-| `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical density windows (`omega_b h^2` bound, plus the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Memmaps the dv dump (never loads it whole). Returns `dump_rows` so a sibling dump file (the MPS base dumps) can be row-aligned. |
+| `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical density windows (`omega_b h^2` bound, plus the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Memmaps ordinary dv dumps and returns `dump_rows` so a sibling dump file can stay row-aligned. Known gaps (fix queued): standard `X.1.txt` misses the generator's `X.paramnames` order check, and the later grid2d law transform currently defeats the memory ladder; details in `notes/data-generation-and-cuts.md`. |
 | `geometries/parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. |
 | `geometries/output.py` | The 3x2pt output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry`, `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** |
 | `geometries/scalar.py` | `ScalarGeometry`: per-output standardization over named derived parameters, with the un-standardizable-column guard. |
@@ -161,8 +161,8 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 |---|---|
 | `experiment.py` | `EmulatorExperiment`: config → device → data → geometry → chi2 → spec → train as one reusable object (`from_yaml` / `from_config`). Holds every family's validator (`validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_param_cuts` / `validate_sizes`), the family branches of `from_config` / `build_geometry` (including the fine-tune geometry pins), and the grid2d staging law transform. The drivers compose it. |
 | `warmstart.py` | Fine-tune / transfer sources: `load_source` (validate a saved artifact), `extend_input_geometry` (block-extend for new parameters), `pin_output_geometry` (the cosmolike pin; the scalar/cmb/grid/grid2d pins live in their `build_geometry` branches), `build_warm_start` (transfer the weights + prove epoch-0 parity), `anchor_masks`. |
-| `scheduling.py` | GPU job balancing (`lpt_assign`, `even_assign`), the spawned worker pool (`run_gpu_pool`), and the `--gpu-pack` VRAM-token machinery. |
-| `results.py` | `save_learning_curves` / `save_sweep_table`; `save_emulator` (`.emul` weights + `.h5` record — geometries persisted by `state()` + full cls path); `rebuild_emulator` (the h5-only guarantee; its `info` dict carries the family flags `scalar` / `cmb` / `grid` / `grid2d` + each family's artifact facts, class-guarded). |
+| `scheduling.py` | GPU job balancing (`lpt_assign`, `even_assign`), the spawned worker pool (`run_gpu_pool`), and the `--gpu-pack` VRAM-token machinery. Known lifecycle gap (fix queued): early failures do not yet guarantee every sibling process is terminated/joined, and invalid token plans can wait forever; details in `notes/training-stack.md`. |
+| `results.py` | `save_learning_curves` / `save_sweep_table`; `save_emulator` (`.emul` weights + `.h5` record — geometries persisted by `state()` + full cls path); `rebuild_emulator` (h5-driven recipe plus the paired weights; its `info` dict carries the family flags `scalar` / `cmb` / `grid` / `grid2d` + each family's artifact facts, class-guarded). Known integrity gap (fix queued): the two files are not yet transactionally published or digest-bound; details in `notes/artifacts-inference-warmstart.md`. |
 | `inference.py` | `EmulatorPredictor`: rebuild a saved emulator and predict — one `predict(params)` for every artifact kind: the dv section, the scalar `{name: value}` dict, the physical C_ell row, the background `{"z", quantity}` function, or the (z, k) law-space surface. Reuses the exact training decode per family. |
 | `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves, and the multipage diagnostics PDF with the per-family pages (`cmb=` / `scalar=` / `grid=` / `grid2d=`). |
 | `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`, `grid2d_residual_diagnostic`). |
@@ -176,13 +176,18 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `cosmic_shear_train_emulator.py` | One training run — cosmic shear, cmb, grid, or grid2d (the data block picks the family); `--diagnostic` writes the multipage PDF with that family's pages. |
 | `scalar_train_emulator.py` | One scalar training run; `--diagnostic` adds the scalar pages. |
 | `{cmb,baosn,mps}_train_emulator.py` | Thin family wrappers over the cosmic-shear driver's `main()`: each pins its data-block family (`cmb` / `grid` / `grid2d`), so a wrong-family YAML fails naming the right driver (`require_family_block`). |
-| `cosmic_shear_tune_emulator.py` | Optuna study; multi-GPU via a shared journal-file study. |
+| `cosmic_shear_tune_emulator.py` | Optuna study; multi-GPU via a shared journal-file study. Known accounting gap (fix queued): the parent does not inspect worker exit codes and can accept an old COMPLETE trial after current-worker failures; details in `notes/training-stack.md`. |
 | `{scalar,cmb,baosn,mps}_tune_emulator.py` | Thin wrappers over the cosmic-shear tune driver's `main(prog, family)`: the full capability (serial or `--n-gpus` journal study), the family pinned, per-family study names. |
 | `cosmic_shear_sweep_ntrain_emulator.py` | `f(dchi2 > thr)` vs `N_train`; multi-GPU, LPT-balanced; `--gpu-pack`. |
 | `{scalar,cmb,baosn,mps}_sweep_ntrain_emulator.py` | Thin wrappers over the cosmic-shear sweep driver's `main(prog, family, out_default)`: multi-GPU + `--gpu-pack` carry over; wrong-family YAMLs name the right driver. |
 | `cosmic_shear_sweep_hyperparam_emulator.py` | Sweep ONE hyperparameter chosen in the YAML `sweep:` block; multi-GPU. |
 | `{scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py` | Thin wrappers over the cosmic-shear one-knob driver's `main(prog, family, out_default)`: the same `sweep:` block, multi-GPU + `--gpu-pack`. |
 | `cosmic_shear_bakeoff_activation_emulator.py` | One learning curve per activation; multi-GPU. |
+
+Known learning-curve gap (fix queued): the optional-cut families' wrappers reach
+`pool_size`, which currently indexes `omegabh2_hi` even when `param_cuts` is
+absent. Their no-cut examples can fail before training; the shared selection
+contract is in `notes/data-generation-and-cuts.md`.
 
 The naming rule for every driver is `<family>_<verb>_emulator.py` — what
 you are emulating comes first, always (the 2026-07-11 family-first
@@ -256,6 +261,12 @@ loss.
 | Factored IA | `designs/ia.py` + `losses/ia.py` | emulate cosmology-only templates and apply the IA-amplitude polynomial in closed form (the amplitudes never enter the network). |
 | Transfer | `warmstart.py` + `losses/transfer.py` | a frozen trained base under a parallel correction net. Family-wide since the 2026-07-12 symmetry ruling (cosmolike + cmb + grid + grid2d; frozen-base only off cosmolike); SCALAR is the one family out (a recorded ruling; see notes/families-scalar-cmb.md). |
 | Fine-tuning | `warmstart.py` (`train_args.finetune`) | warm-start from a saved source of the SAME family and geometry; epoch 0 reproduces the source exactly. Supported by EVERY family. |
+
+The grid2d NPCE algebra is implemented and smoke-gated, but the fit is not
+production-scale: it materializes the full thinned target on the GPU and runs a
+dense float64 SVD on the CPU. Treat MPS NPCE as a research path until the
+separate scalable low-rank-fit contract in `notes/data-generation-and-cuts.md`
+lands.
 
 Removed: the per-bin CNN (its own folder, deleted) — tested; the grouped conv
 was absorbed into `rescnn`'s `groups` / `separable` knobs, the per-bin split
@@ -405,7 +416,7 @@ The run layer that ties everything together.
 - `validate_param_cuts` / `validate_sizes` / `validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_transfer` — the pure data-block validators, one per concern.
 - `resolve_phase_args` / `validate_sweep_paths` — the two-phase schedule resolution.
 - `_head_activation_spec` / `_resolve_head_activation` / `_activation_flag_notice` / `_pinned_head_warning` — the per-head activation config layer.
-- `stage_train` / `stage_val` / `pool_size` — stage the sources (the grid2d branch materializes the law-space rows here, `_grid2d_law_rows`); the physical-cut pool size.
+- `stage_train` / `stage_val` / `pool_size` — stage the sources (the grid2d branch forms the law-space rows here, `_grid2d_law_rows`); the physical-cut pool size. The grid2d transform is currently an open production blocker because it materializes unthinned float64 selections before `k_stride`; see `notes/data-generation-and-cuts.md`.
 - `build_geometry` / `build_specs` — the input/output geometry + chi2 per family (the fine-tune pins live here); the `run_emulator` spec dicts.
 - `train` / `run` / `frac_above` — train on the staged data; the full pipeline; the sweep metric.
 - `print_design()` — the shared startup banner (family line included), so a stale YAML is caught at launch.

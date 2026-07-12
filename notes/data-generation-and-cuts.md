@@ -86,6 +86,109 @@ set" — the four-generator table + the shared-core walkthrough).
   column must match the covmat-header names ORDER INCLUDED; mismatch
   is a loud error naming both lists.
 
+## Red-team staging gaps (verified 2026-07-12, open)
+
+### The ordinary `.1.txt` naming check is bypassed
+
+The generator writes `X.1.txt` and `X.paramnames`. Ordinary
+`load_source` looks only for `X.1.paramnames`, so the advertised
+sidecar-vs-covmat order check is skipped on the standard generated
+file name. `load_scalar_source` already contains the correct resolver:
+try the exact stem, then strip a purely numeric chain suffix and try
+the chain root. One shared resolver must serve both loaders. The gate
+uses `X.1.txt` + `X.paramnames` with a deliberately permuted order and
+requires `load_source` to reject it. Generated training data should
+require the sidecar; any legacy no-sidecar escape must be explicit and
+loud in the banner, never inferred from absence.
+
+### Grid2d staging defeats its own memory ladder
+
+The documented production MPS grid is 122 redshifts x 2,000 k values;
+the shipped trainer asks for 50,000 rows and `k_stride: 10`. The raw
+selected float32 surface is 45.449 GiB. `_grid2d_law_rows` currently:
+
+1. calls ordinary `load_source(..., with_means=True)`, which streams
+   statistics over every unthinned raw column even though that mean is
+   discarded;
+2. fancy-indexes every selected raw row and casts the whole selection
+   to float64 (90.897 GiB);
+3. fancy-indexes the whole base selection and casts that to float64
+   too (another 90.897 GiB, simultaneously resident);
+4. forms the ratio/log, and only then keeps the 201 k columns selected
+   by the stride (the final float32 target is about 4.568 GiB);
+5. forcibly replaces the source with an in-RAM array, ignoring the
+   `ram_frac` / memmap decision the preceding staging step made; and
+6. later passes the whole thinned matrix through
+   `Grid2DGeometry.from_targets`, which casts it to float64 again to
+   compute center/scale instead of using streamed statistics.
+
+This is a production blocker and contradicts every "never loads the
+dump whole" statement. The required behavior is outcome-based:
+
+- derive and validate the kept `(z, k)` columns first; read only those
+  columns for bounded row chunks from both raw and base memmaps;
+- perform positivity checks and the law transform on consumed entries
+  in those chunks; never materialize an unthinned selected matrix;
+- compute `dv_mean` from the thinned law-space rows, not from the raw
+  dump, compute scale/constant pins with the same bounded statistics,
+  and preserve exact `C` / `dv` / `dump_rows` alignment;
+- honor `ram_frac` after transformation: the final thinned source may
+  be resident or memmapped, and train/validation workers must not each
+  create an unconditional private full copy;
+- validate both row count and width for every raw/base/grid member.
+
+Add this as a leg of `mps-identity`, not a new board item: a synthetic
+122 x 2,000 grid with stride 10, a deliberately tiny memory budget, and
+guarded memmap reads must prove that every read is row-chunked and
+column-thinned, the result has 122 x 201 columns, its values/mean equal
+a small direct oracle, and the low-RAM result remains disk-backed. The
+test must fail on the current whole-selection implementation.
+
+This unit closes ordinary grid2d training, fine-tuning, and frozen-base
+transfer only. The optional grid2d PCE fit has a separate scale blocker:
+`_fit_diag_pce` materializes every thinned target, moves it all to the
+GPU, copies it back as float64, and runs a dense SVD. At the documented
+production shape the target alone is about 4.568 GiB float32 / 9.135 GiB
+float64, before SVD workspace, and cannot fit the 12 GiB test cards.
+The identity gate proves only smoke-scale algebra. Do not claim
+production-sized MPS PCE until a separate streamed/randomized low-rank
+fit contract and accuracy oracle are designed; do not smuggle that
+research change into the bounded-staging unit.
+
+### File names and row counts do not prove dataset identity
+
+`load_source` checks only that parameter and dv row counts match. A
+parameter table from run A and a same-shaped dv from run B silently
+train as pairs; the MPS raw/base/grid/fail members have the same issue.
+The finalized generator output needs one manifest identity covering the
+parameter order, row count, parameter file, every dv/base/grid member,
+and the failure mask, with strong content digests. Staging verifies the
+bundle before cuts or shuffles. Because the dumps are large and sweeps
+spawn many readers, verification must be performed once per immutable
+file identity and shared/cached safely rather than re-hashing the full
+bundle in every worker. The gate swaps same-shaped dv files between two
+fixtures and requires a pre-staging identity failure.
+
+### No-cut learning-curve pool counting is broken
+
+`EmulatorExperiment.pool_size` correctly recognizes that scalar, CMB,
+grid, and grid2d configs may omit `data.param_cuts`, assigns `{}`, and
+then immediately reads `pc["omegabh2_hi"]`. Their family
+`*_sweep_ntrain_emulator.py` wrappers call this before staging, so every
+shipped no-cut example can die with `KeyError` before its first point.
+The scalar branch also re-slices the chain positionally instead of
+using the same sidecar-resolved input columns as `load_scalar_source`.
+
+Pool counting must reuse the exact staging selection contract: no cuts
+means the full row count; active cuts use the same named input columns,
+formulas, and bounds as `stage_train`; scalar inputs come from the
+sidecar resolver; and the reported pool must equal the maximum legal
+`stage_train(n_train=...)`. Add one cheap no-cut and one active-cut pool
+leg for each optional-cut family to its existing identity gate, plus a
+thin-wrapper invocation that reaches `pool_size` without a GPU training
+step. This is a small driver-truth unit, separate from bounded grid2d
+staging.
+
 ## The physical cuts (data.param_cuts)
 
 - Schema: nested `data.param_cuts:` block, whitelist of 8 keys;
