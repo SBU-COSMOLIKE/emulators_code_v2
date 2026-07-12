@@ -683,6 +683,110 @@ def check_finetune(tmp, device):
         report("validate_cmb accepts train_args.finetune", False, str(e)[:80])
 
 
+def check_npce(tmp, device):
+    """NPCE on the CMB family (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra is exact under the diagonal metric,
+    the D-CM8 roughness penalty composes on the FULL whitened residual,
+    save -> rebuild -> predict composes base + net bitwise, and the
+    pce x amplitude-law exclusivity is loud (validate_cmb)."""
+    from emulator.designs.pce import PCEEmulator
+    from emulator.losses.pce import PCEResidualDiagChi2
+    pgeom, covmat_path = make_pgeom(tmp, device, seed=71)
+    ell, cl = synth_ell_cl()
+    n_ell = int(ell.size)
+    g = np.random.default_rng(72)
+    C = np.column_stack([g.normal(2.1e-9, 5e-11, 400),
+                         g.normal(0.055, 0.003, 400),
+                         g.normal(0.31, 0.01, 400)]).astype("float64")
+    # C_ell rows that REALLY scale with the sampled amplitude, so the
+    # LOO gate keeps a mode and the fitted base is alive (the
+    # smoke-gate rule).
+    Y = (cl[None, :] * (C[:, 0:1] / 2.1e-9)
+         * (1.0 + 0.005 * g.standard_normal((400, n_ell))))
+    geom = CmbDiagonalGeometry.from_fiducial(
+        device=device, spectrum="tt", ell=ell, fiducial_cl=cl,
+        center=Y.mean(axis=0), units="muK2", law="none")
+    X_white = pgeom.encode(
+        torch.from_numpy(C.astype("float32")).to(device))
+    dv = torch.from_numpy(Y.astype("float32")).to(device)
+    pce = PCEEmulator.from_training(device, X_white, geom.encode(dv),
+                                    p_max=2, r_max=2, q=0.5, k_max=4,
+                                    loo_max=0.9, max_terms=8, silent=True)
+    chi2fn = PCEResidualDiagChi2(geom=geom, pce=pce)
+    with torch.no_grad():
+        base = pce(X_white[:8])
+    report("NPCE base is alive (the fit kept a real mode)",
+           base.abs().max().item() > 1e-4,
+           "max|base| = %.2e" % base.abs().max().item())
+    enc = chi2fn.encode(dv[:8], X_white[:8])
+    report("NPCE encode: whitened truth minus the base, bitwise",
+           torch.equal(enc, geom.encode(dv[:8]) - base), "")
+    y = torch.randn(8, n_ell, device=device)
+    report("NPCE decode: geom.decode(net + base), bitwise",
+           torch.equal(chi2fn.decode(y, X_white[:8]),
+                       geom.decode(y + base)), "")
+    # D-CM8 roughness composes: the penalty acts on pred - target, which
+    # under the residual construction IS the full whitened residual
+    # (base + net - truth); with lam > 0 the loss must move.
+    plain = chi2fn.loss(y, enc, X_white[:8]).item()
+    chi2fn.configure_roughness(lam=10.0, period_cut=40)
+    rough = chi2fn.loss(y, enc, X_white[:8]).item()
+    report("NPCE + roughness compose (lam moves the loss)",
+           np.isfinite(rough) and rough > plain,
+           "plain %.4f -> rough %.4f" % (plain, rough))
+    # save -> rebuild -> predict: base + net composed by the predictor
+    # (a bare law-none decode here would be silently wrong).
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    model = ResMLP(input_dim=N_IN, output_dim=n_ell, int_dim_res=16,
+                   n_blocks=2, block_opts=block_opts).to(device)
+    root = os.path.join(tmp, "emul_cmb_npce")
+    config = {"data": {"cmb": {"spectrum": "tt", "covariance": "cov.npz",
+                               "amplitude_law": "none"},
+                       "train_dv": "t.npy", "val_dv": "v.npy",
+                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat_path)},
+              "pce": {"form": "residual"},
+              "train_args": {"nepochs": 1}}
+    histories = {"train_losses": [0.1], "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
+                  geometry=geom, config=config, histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=cmb_recipe(n_ell),
+                  pce=pce, pce_form="residual",
+                  attrs={"rescale": "none", "spectrum": "tt"})
+    theta = np.array([[2.15e-9, 0.056, 0.312]])
+    x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        x1e = pgeom.encode(x1)
+        ref = geom.decode(model(x1e) + pce(x1e))[0].cpu().numpy()
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    report("NPCE save -> rebuild -> predict composes base + net bitwise",
+           np.array_equal(got, ref),
+           "max|d| = %.2e" % np.abs(got - ref).max())
+    # the pce x amplitude-law exclusivity (one target construction at a
+    # time): validate_cmb must be loud.
+    cfg = {"data": {"cmb": {"spectrum": "tt", "covariance": "c.npz",
+                            "amplitude_law": "as_exp2tau",
+                            "as_name": "As", "tau_name": "tau"},
+                    "train_dv": "a", "val_dv": "b", "train_params": "c",
+                    "val_params": "d", "train_covmat": "e"},
+           "pce": {"form": "residual"}, "transfer": None}
+    try:
+        validate_cmb(cfg, train_args={}, rescale="none")
+        report("pce + amplitude_law exclusivity raises", False, "no raise")
+    except ValueError as e:
+        report("pce + amplitude_law exclusivity raises",
+               "amplitude_law: none" in str(e),
+               "ValueError names the fix")
+
+
 def main():
     """Run the cmb-identity checks in a tempdir; exit non-zero on failure."""
     print("cmb-identity (CME-A): geometry + law + round-trip + roughness "
@@ -695,6 +799,7 @@ def main():
         check_roundtrip(tmp, device, law="none")
         check_roundtrip(tmp, device, law="as_exp2tau")
         check_head(tmp, device)
+        check_npce(tmp, device)
         check_adapter(tmp, device)
         check_roughness(device)
         check_finetune(tmp, device)

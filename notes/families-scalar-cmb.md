@@ -184,6 +184,16 @@ What shipped (simpler than the spec — the identity insight):
   (ResCNN on z-slice channels + the n_tokens-on-real-bins rejection
   + the bitwise round-trip). The round-trip legs specifically prove
   the rebuild-side attach.
+- NPCE rides both families since the 2026-07-12 family-wide ruling
+  (scalar included — the PCE trunk needs no coordinate axis, so the
+  heads-on-scalar exclusion does NOT extend to it): residual-only,
+  and on cmb only with amplitude_law "none" (the imposed law and the
+  base each replace the target construction — validate_cmb is loud).
+  Roughness composes on a cmb NPCE run (the penalty sees the full
+  whitened residual). Legs: check_npce in scalar-identity and
+  cmb-identity (algebra bitwise + save->rebuild->predict composing
+  base + net + the exclusivity raises). Design facts:
+  models-and-designs.md (the NPCE FAMILY-WIDE bullet).
 - DISCOVERED IN PASSING and FIXED the same evening (the follow-up
   commit): the COSMIC-SHEAR head artifacts could not rebuild
   (build_shear_angle_map is never called on the rebuild path, and

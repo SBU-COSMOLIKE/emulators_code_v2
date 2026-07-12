@@ -14,6 +14,14 @@ n_tokens rejected, n_heads must divide the post-stride nk). The
 identity-basis details live in families-scalar-cmb.md (D-CM13) and
 models-and-designs.md.
 
+NPCE rides both since the 2026-07-12 family-wide ruling (residual
+only; the base fits the law-space rows — for the boost that is
+exactly the user's arXiv 2404.12344 configuration, and
+EuclidEmulator2 is a PCE of pklin). A D-MP9 constant pin composes in
+decode (the geometry pins the COMBINED base + net prediction). Legs:
+check_npce in bsn-identity and mps-identity. Design facts:
+models-and-designs.md (the NPCE FAMILY-WIDE bullet).
+
 ## BSN — the expansion history. ACCEPTED END TO END (board run 6, 2026-07-11); gates bsn-identity/bsn-smoke.
 
 - THE STALE-BACKGROUND SAGA (board runs 1 + 3, 2026-07-11; the full

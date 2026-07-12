@@ -233,6 +233,86 @@ def check_roundtrip(tmp, device, law):
     return root
 
 
+def check_npce(tmp, device):
+    """NPCE on the grid family (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra is exact under the diagonal metric,
+    decode composes base + net THROUGH the target law (log_offset), and
+    save -> rebuild -> predict is bitwise (_build_diag_decoder)."""
+    from emulator.designs.pce import PCEEmulator
+    from emulator.losses.pce import PCEResidualDiagChi2
+    covmat = os.path.join(tmp, "grid_npce.covmat")
+    write_covmat(covmat, IN_NAMES, seed=61)
+    pgeom = ParamGeometry.from_covmat(
+        device=device, center=np.array([0.31, 67.0, -1.0]),
+        covmat_path=covmat)
+    z = np.linspace(0.001, 3.0, 64)
+    g = np.random.default_rng(62)
+    C = np.column_stack([g.normal(0.31, 0.01, 400),
+                         g.normal(67.0, 2.0, 400),
+                         g.normal(-1.0, 0.05, 400)]).astype("float32")
+    # H(z) rows that REALLY move with the sampled H0, so the LOO gate
+    # keeps a mode and the fitted base is alive (the smoke-gate rule).
+    Y = (lcdm_h(z)[None, :] * (C[:, 1:2] / 67.0)
+         * (1.0 + 0.01 * g.standard_normal((400, z.size))))
+    geom = GridGeometry.from_targets(device=device, targets=Y, z=z,
+                                     quantity="Hubble", units="km/s/Mpc",
+                                     law="log_offset", offset=1.0)
+    X_white = pgeom.encode(torch.from_numpy(C).to(device))
+    dv = torch.from_numpy(Y.astype("float32")).to(device)
+    pce = PCEEmulator.from_training(device, X_white, geom.encode(dv),
+                                    p_max=2, r_max=2, q=0.5, k_max=4,
+                                    loo_max=0.9, max_terms=8, silent=True)
+    chi2fn = PCEResidualDiagChi2(geom=geom, pce=pce)
+    with torch.no_grad():
+        base = pce(X_white[:8])
+    report("NPCE base is alive (the fit kept a real mode)",
+           base.abs().max().item() > 1e-4,
+           "max|base| = %.2e" % base.abs().max().item())
+    enc = chi2fn.encode(dv[:8], X_white[:8])
+    report("NPCE encode: whitened truth minus the base, bitwise",
+           torch.equal(enc, geom.encode(dv[:8]) - base), "")
+    y = torch.randn(8, z.size, device=device)
+    report("NPCE decode composes base + net through the log law, bitwise",
+           torch.equal(chi2fn.decode(y, X_white[:8]),
+                       geom.decode(y + base)), "")
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    model = ResMLP(input_dim=N_IN, output_dim=z.size, int_dim_res=16,
+                   n_blocks=2, block_opts=block_opts).to(device)
+    root = os.path.join(tmp, "emul_grid_npce")
+    config = {"data": {"grid": {"quantity": "Hubble",
+                                "units": "km/s/Mpc",
+                                "law": "log_offset", "offset": 1.0,
+                                "z_file": "z.npy"},
+                       "train_dv": "t.npy", "val_dv": "v.npy",
+                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat)},
+              "pce": {"form": "residual"},
+              "train_args": {"nepochs": 1}}
+    histories = {"train_losses": [0.1], "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
+                  geometry=geom, config=config, histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=grid_recipe(z.size),
+                  pce=pce, pce_form="residual",
+                  attrs={"rescale": "none", "quantity": "Hubble"})
+    theta = np.array([[0.32, 68.0, -0.98]])
+    x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        x1e = pgeom.encode(x1)
+        ref = geom.decode(model(x1e) + pce(x1e))[0].cpu().numpy()
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    report("NPCE save -> rebuild -> predict composes base + net bitwise",
+           np.array_equal(got["Hubble"], ref),
+           "max|d| = %.2e" % np.abs(got["Hubble"] - ref).max())
+
+
 def _load_emul_baosn_stubbed():
     if "cobaya" not in sys.modules:
         sys.modules["cobaya"] = types.ModuleType("cobaya")
@@ -422,6 +502,7 @@ def main():
         check_geometry(device)
         check_roundtrip(tmp, device, law="log_offset")
         check_roundtrip(tmp, device, law="none")
+        check_npce(tmp, device)
         check_adapter(tmp, device)
         check_finetune(tmp, device)
     if FAILURES:

@@ -494,6 +494,9 @@ def scalar_output_diagnostic(model,
   rows  = np.sort(val_set["idx"])
   C     = np.asarray(val_set["C"][rows], dtype="float64")
   truth = np.asarray(val_set["dv"][rows], dtype="float64")
+  # an NPCE run's loss is param-aware (needs_params: decode evaluates
+  # the frozen base from the whitened inputs) — the doctrine branch.
+  needs_p = getattr(chi2fn, "needs_params", False)
 
   preds = []
   model.eval()
@@ -503,7 +506,10 @@ def scalar_output_diagnostic(model,
       stop  = min(len(rows), start + bs)
       x     = torch.from_numpy(C[start:stop]).float().to(device)
       x_enc = param_geometry.encode(x)
-      out   = chi2fn.decode(model(x_enc))
+      if needs_p:
+        out = chi2fn.decode(model(x_enc), x_enc)
+      else:
+        out = chi2fn.decode(model(x_enc))
       preds.append(out.double().cpu().numpy())
       start = stop
   pred  = np.concatenate(preds)
@@ -564,6 +570,10 @@ def grid_residual_diagnostic(model,
   rows  = np.sort(val_set["idx"])
   C     = np.asarray(val_set["C"][rows], dtype="float64")
   truth = np.asarray(val_set["dv"][rows], dtype="float64")
+  # an NPCE run's loss is param-aware (needs_params: encode / decode
+  # evaluate the frozen base from the whitened inputs) — the doctrine
+  # branch.
+  needs_p = getattr(chi2fn, "needs_params", False)
 
   preds = []
   chi2s = []
@@ -576,8 +586,12 @@ def grid_residual_diagnostic(model,
       x_enc = param_geometry.encode(x)
       p     = model(x_enc)
       t     = torch.from_numpy(truth[start:stop]).float().to(device)
-      tw    = chi2fn.encode(t)
-      preds.append(chi2fn.decode(p).double().cpu().numpy())
+      if needs_p:
+        tw = chi2fn.encode(t, x_enc)
+        preds.append(chi2fn.decode(p, x_enc).double().cpu().numpy())
+      else:
+        tw = chi2fn.encode(t)
+        preds.append(chi2fn.decode(p).double().cpu().numpy())
       chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
       start = stop
   pred  = np.concatenate(preds)
@@ -673,6 +687,10 @@ def grid2d_residual_diagnostic(model,
   rows  = np.sort(val_set["idx"])
   C     = np.asarray(val_set["C"][rows], dtype="float64")
   truth = np.asarray(val_set["dv"][rows], dtype="float64")
+  # an NPCE run's loss is param-aware (needs_params: encode / decode
+  # evaluate the frozen base from the whitened inputs) — the doctrine
+  # branch.
+  needs_p = getattr(chi2fn, "needs_params", False)
 
   preds = []
   chi2s = []
@@ -685,8 +703,12 @@ def grid2d_residual_diagnostic(model,
       x_enc = param_geometry.encode(x)
       p     = model(x_enc)
       t     = torch.from_numpy(truth[start:stop]).float().to(device)
-      tw    = chi2fn.encode(t)
-      preds.append(chi2fn.decode(p).double().cpu().numpy())
+      if needs_p:
+        tw = chi2fn.encode(t, x_enc)
+        preds.append(chi2fn.decode(p, x_enc).double().cpu().numpy())
+      else:
+        tw = chi2fn.encode(t)
+        preds.append(chi2fn.decode(p).double().cpu().numpy())
       chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
       start = stop
   pred  = np.concatenate(preds)

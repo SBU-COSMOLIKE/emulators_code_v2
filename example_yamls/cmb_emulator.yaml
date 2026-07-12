@@ -51,6 +51,17 @@ data:
   # data.param_cuts is OPTIONAL on the CMB path (the omega windows
   # reference cosmic-shear parameter names a CMB dump may not carry).
 
+# OPTIONAL NPCE trunk (README section 12): fit a closed-form
+# sparse-Legendre base on the whitened C_ell rows at staging, then train
+# the model below as the refiner correcting it. A top-level block (a
+# sibling of data / train_args — structurally unsweepable, one base per
+# study). On this family the form is residual only, and the block needs
+# amplitude_law: none above — the imposed law and the base each replace
+# the target construction, one at a time. The fit knobs and their
+# defaults are annotated in example_yamls/cosmic_shear_train_emulator.yaml.
+# pce:
+#   form: residual
+
 train_args:
   nepochs: 400
   bs:      256

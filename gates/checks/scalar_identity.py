@@ -491,6 +491,87 @@ def check_finetune(tmp, device):
                "scalar source" in str(e), "ValueError names the family")
 
 
+def check_npce(tmp, device):
+    """NPCE on the scalar family (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra is exact under the standardized
+    metric, and save -> rebuild -> predict composes base + net exactly
+    in the {name: value} dict (_build_diag_decoder on ScalarGeometry)."""
+    from emulator.designs.pce import PCEEmulator
+    from emulator.losses.pce import PCEResidualDiagChi2
+    covmat_path = os.path.join(tmp, "npce.covmat")
+    write_covmat(covmat_path, IN_NAMES, seed=81)
+    center = np.array([0.0224, 0.120, 1.041])
+    pgeom = ParamGeometry.from_covmat(device=device, center=center,
+                                      covmat_path=covmat_path)
+    g = np.random.default_rng(82)
+    C = np.column_stack([g.normal(0.0224, 0.0002, 400),
+                         g.normal(0.120, 0.002, 400),
+                         g.normal(1.041, 0.001, 400)]).astype("float32")
+    # outputs that REALLY move with the inputs (H0-like and omegam-like
+    # linear responses), so the LOO gate keeps a mode and the fitted
+    # base is alive (the smoke-gate rule).
+    Y = np.column_stack([
+        67.0 + 3000.0 * (C[:, 1] - 0.120) + 0.1 * g.standard_normal(400),
+        0.31 + 5.0 * (C[:, 1] - 0.120)
+        + 0.001 * g.standard_normal(400)]).astype("float32")
+    geom = ScalarGeometry.from_targets(device=device, targets=Y,
+                                       names=OUT_NAMES)
+    X_white = pgeom.encode(torch.from_numpy(C).to(device))
+    dv = torch.from_numpy(Y).to(device)
+    pce = PCEEmulator.from_training(device, X_white, geom.encode(dv),
+                                    p_max=2, r_max=2, q=0.5, k_max=2,
+                                    loo_max=0.9, max_terms=8, silent=True)
+    chi2fn = PCEResidualDiagChi2(geom=geom, pce=pce)
+    with torch.no_grad():
+        base = pce(X_white[:8])
+    report("NPCE base is alive (the fit kept a real mode)",
+           base.abs().max().item() > 1e-4,
+           "max|base| = %.2e" % base.abs().max().item())
+    enc = chi2fn.encode(dv[:8], X_white[:8])
+    report("NPCE encode: standardized truth minus the base, bitwise",
+           torch.equal(enc, geom.encode(dv[:8]) - base), "")
+    y = torch.randn(8, N_OUT, device=device)
+    report("NPCE decode: geom.decode(net + base), bitwise",
+           torch.equal(chi2fn.decode(y, X_white[:8]),
+                       geom.decode(y + base)), "")
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    model = ResMLP(input_dim=N_IN, output_dim=N_OUT, int_dim_res=16,
+                   n_blocks=2, block_opts=block_opts).to(device)
+    root = os.path.join(tmp, "emul_npce")
+    config = {"data": {"train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat_path),
+                       "outputs": list(OUT_NAMES)},
+              "pce": {"form": "residual"},
+              "train_args": {"nepochs": 1}}
+    histories = {"train_losses": [0.1], "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    recipe = scalar_recipe()
+    save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
+                  geometry=geom, config=config, histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=recipe,
+                  pce=pce, pce_form="residual",
+                  attrs={"outputs": " ".join(OUT_NAMES),
+                         "rescale": "none"})
+    theta = np.array([[0.0225, 0.121, 1.0412]])
+    x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        x1e = pgeom.encode(x1)
+        ref = geom.decode(model(x1e) + pce(x1e))[0]
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    ok = True
+    for i, nm in enumerate(OUT_NAMES):
+        ok = ok and got[nm] == float(ref[i])
+    report("NPCE save -> rebuild -> predict composes base + net exactly",
+           ok, "H0 %.6f, omegam %.6f" % (got["H0"], got["omegam"]))
+
+
 def main():
     """Run the scalar-identity checks in a tempdir and exit non-zero on any
     failure."""
@@ -505,6 +586,7 @@ def main():
         check_from_targets_errors(device)
         check_sidecar_errors(tmp)
         check_head_architecture()
+        check_npce(tmp, device)
         check_adapter(tmp, device)
         check_finetune(tmp, device)
     if FAILURES:

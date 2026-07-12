@@ -1563,7 +1563,11 @@ with $B$ = the closed-form base and $f$ = the refiner. `residual`
 adds the correction in the same rescaled basis the fit runs in and is
 the usual choice. `ratio` multiplies in physical units and suits a
 smooth low-order base — a multiplicative refiner has little leverage
-where the base is near zero.
+where the base is near zero. `ratio` exists only on the cosmic-shear
+family: the other families whiten element by element, so the residual
+form already gives the refiner per-element leverage (and on the
+log-law grids a rescaled-basis residual IS a multiplicative
+correction in physical units).
 
 ```yaml
 pce:
@@ -1585,6 +1589,26 @@ exclusive with `--rescale` and `model.ia` (each replaces the chi2 loss), and it
 is structurally unsweepable — a top-level block, not a `train_args` leaf, so
 one base per study; the collision rules are the
 [precedence appendix](#22-appendix-precedence--who-wins-when-settings-collide).
+
+The block rides **every family**: scalar, CMB spectra, background, and
+matter power, exactly as here (form `residual`; the base fits the
+family's own rescaled targets — for MPS that is the law-space surface,
+the arXiv 2404.12344 configuration, and EuclidEmulator2 is itself a
+PCE). One family-specific exclusivity: on CMB the `pce:` block needs
+`amplitude_law: none` — the imposed law and the base each replace the
+target construction, one at a time.
+
+```yaml
+# an MPS boost run with a PCE trunk under the network refiner
+data:
+  grid2d:
+    quantity: boost
+    units: dimensionless
+    law: syren_halofit
+    # ... the usual grid2d keys (section 17) ...
+pce:
+  form: residual         # the diagonal families are residual-only
+```
 
 ---
 
@@ -1739,7 +1763,10 @@ family has one), and a scalar output is a set of named values with no axis
 between them, so `rescnn` / `restrf` are a loud error here. Everything
 else — the loss ladder, trimming,
 focus, EMA, the L2-SP anchor — works unchanged, since they act on a
-per-sample error. A scalar map is cheap, so small widths and a few hundred
+per-sample error. The NPCE trunk needs no coordinate axis either, so a
+`pce:` block works here too ([section 12](#12-pce), `form: residual`) —
+a closed-form polynomial base under the network refiner, the classic
+PCE setting (a handful of smooth scalar outputs). A scalar map is cheap, so small widths and a few hundred
 epochs are plenty. The physical-window `param_cuts` are optional on this
 path, because a parameter chain is already the target distribution.
 
@@ -1788,7 +1815,11 @@ per-sample chi2 interface. The correction heads apply too ([section
 the spectrum into `model.trf.n_tokens` contiguous windows and attends
 across them — the tokenization of the attention-based CMB emulators
 (arXiv 2505.22574, which finds attention cuts the outlier count vs a
-plain MLP at this exact task).
+plain MLP at this exact task). So does the NPCE trunk ([section
+12](#12-pce)): a `pce:` block fits the closed-form base on the
+whitened C_ell rows (`form: residual`, and only with
+`amplitude_law: none` — the imposed law and the base each replace the
+target construction, one at a time).
 
 The pipeline, end to end:
 
@@ -1946,7 +1977,9 @@ The full training surface applies here unchanged — the loss ladder,
 trimming, focal weighting, EMA, clip / rewind, fine-tuning, and the
 correction heads ([section 10](#10-model)): the standardization keeps
 the z order, so `rescnn` slides its kernel along z and `restrf`
-re-segments the grid into `model.trf.n_tokens` attention windows.
+re-segments the grid into `model.trf.n_tokens` attention windows. The
+NPCE trunk rides too ([section 12](#12-pce)): a `pce:` block fits the
+closed-form base on the law-space rows (`form: residual`).
 
 ```yaml
 data:
@@ -2022,7 +2055,11 @@ kept) and the served interpolator fills between kept points. The full
 training surface applies here unchanged, correction heads included
 ([section 10](#10-model)): the flattening is z-outer, so `rescnn` gets
 the z slices as conv channels and slides along k (mixing redshifts at
-like k), and `restrf` gets one attention token per z slice. One
+like k), and `restrf` gets one attention token per z slice. The NPCE
+trunk rides too ([section 12](#12-pce)): a `pce:` block fits the
+closed-form base on the staged law-space surface (`form: residual`) —
+the arXiv 2404.12344 configuration, an NPCE on the boost, and
+EuclidEmulator2 is itself a PCE of exactly this quantity. One
 physical fact the training handles for you: below the nonlinear scale
 the boost is 1 for every cosmology, so those grid points carry no
 signal under any law — the geometry pins them (the served value is

@@ -129,6 +129,8 @@ class EmulatorPredictor:
     if self._scalar:
       self.output_names = list(self.geom.names)
       self._dtype = self.pgeom.center.dtype
+      self._decode = self._build_diag_decoder(pce_base=info["pce_base"],
+                                              pce_form=info["pce_form"])
       return
     # grid (background-function) emulator (D-BSN5): predict returns
     # {"z": grid, quantity: row} — the raw physical function on the
@@ -141,6 +143,8 @@ class EmulatorPredictor:
       self.law      = self.geom.law
       self.z        = self.geom.z
       self._dtype   = self.pgeom.center.dtype
+      self._decode  = self._build_diag_decoder(pce_base=info["pce_base"],
+                                               pce_form=info["pce_form"])
       return
     # grid2d (matter-power-spectrum) emulator (D-MP1): predict returns
     # the LAW-SPACE surface on the stored (z, k) axes — log(P/P_base)
@@ -154,6 +158,8 @@ class EmulatorPredictor:
       self.z        = self.geom.z
       self.k        = self.geom.k
       self._dtype   = self.pgeom.center.dtype
+      self._decode  = self._build_diag_decoder(pce_base=info["pce_base"],
+                                               pce_form=info["pce_form"])
       return
     # CMB spectrum emulator (D-CM5): predict returns the physical C_ell
     # row on the stored multipole grid (a 1-D numpy array over .ell), so
@@ -166,9 +172,21 @@ class EmulatorPredictor:
       self.ell            = self.geom.ell
       self.units          = self.geom.units
       self.amplitude_law  = info["amplitude_law"]
-      self._decode = self._build_cmb_decoder(law=info["amplitude_law"],
-                                             as_name=info["as_name"],
-                                             tau_name=info["tau_name"])
+      # an NPCE cmb artifact composes base + net (residual, law "none"
+      # enforced at training); otherwise the law-dispatched decode.
+      if info["pce_base"] is not None:
+        if info["amplitude_law"] != "none":
+          raise ValueError(
+            "the saved emulator carries both an NPCE base and "
+            "amplitude_law " + repr(info["amplitude_law"]) + "; the two "
+            "are mutually exclusive (validate_cmb), so the file is "
+            "inconsistent")
+        self._decode = self._build_diag_decoder(pce_base=info["pce_base"],
+                                                pce_form=info["pce_form"])
+      else:
+        self._decode = self._build_cmb_decoder(law=info["amplitude_law"],
+                                               as_name=info["as_name"],
+                                               tau_name=info["tau_name"])
       self._dtype = self.pgeom.center.dtype
       return
     self.dest_idx   = self.geom.dest_idx
@@ -215,6 +233,42 @@ class EmulatorPredictor:
     # kept-column ParamGeometry to reach the whitening tensors.
     base_pg     = getattr(self.pgeom, "pg_keep", self.pgeom)
     self._dtype = base_pg.center.dtype
+
+  def _build_diag_decoder(self, pce_base, pce_form):
+    """Pick the whitened-output -> physical map for a diagonal family.
+
+    The scalar / cmb / grid / grid2d branches all decode through this:
+    with an NPCE base (the 2026-07-12 family-wide ruling) it
+    reconstructs the training loss purely for its decode, so the
+    base + net recombine keeps one definition (losses/pce.py), exactly
+    the single-sourcing rule of the dv branches; without a base the
+    module output is the whitened row itself and geom.decode alone
+    inverts it (byte-identical to the pre-NPCE path).
+
+    Arguments:
+      pce_base = the frozen PCEEmulator rebuilt off the h5, or None.
+      pce_form = the persisted combine form; a diagonal family persists
+                 only "residual" (anything else = a corrupt file).
+
+    Returns:
+      a callable (pred, x_enc) -> (1, n_out) physical row; the plain
+      closure ignores x_enc, the NPCE decode evaluates the base from it.
+    """
+    if pce_base is None:
+      def _diag_plain_decode(pred, x_enc):
+        # the module output is the whitened row itself; no base.
+        return self.geom.decode(pred)
+      return _diag_plain_decode
+    if pce_form != "residual":
+      raise ValueError(
+        "the saved emulator is a diagonal-family artifact whose pce "
+        "group records form " + repr(pce_form) + "; these families are "
+        "residual-only (validate_pce), so the file is inconsistent")
+    from .losses.pce import PCEResidualDiagChi2
+    chi2 = PCEResidualDiagChi2(geom=self.geom, pce=pce_base)
+    # PCEResidualDiagChi2.decode(y, params_whitened) already matches the
+    # predictor's (pred, x_enc) decoder convention.
+    return chi2.decode
 
   def _build_cmb_decoder(self, law, as_name, tau_name):
     """Pick the whitened-output -> physical-C_ell map for a CMB emulator.
@@ -398,10 +452,11 @@ class EmulatorPredictor:
     with torch.no_grad():
       pred = self.model(x_enc)
     # scalar (derived-parameter) emulator (D-SP5): destandardize the outputs
-    # (geom.decode) and return a {name: value} dict, not a data vector; there
+    # (the decoder built at init: geom.decode alone, or the NPCE base + net
+    # recombine) and return a {name: value} dict, not a data vector; there
     # is no mask to unsqueeze through and no section to slice.
     if self._scalar:
-      out = self.geom.decode(pred)[0]
+      out = self._decode(pred, x_enc)[0]
       result = {}
       for i, nm in enumerate(self.output_names):
         result[nm] = float(out[i])
@@ -410,7 +465,7 @@ class EmulatorPredictor:
     # target law (e.g. exp(y) - offset) and returns the physical
     # function keyed by its quantity tag, with the stored grid beside it.
     if self._grid:
-      row = self.geom.decode(pred)[0].detach().cpu().numpy()
+      row = self._decode(pred, x_enc)[0].detach().cpu().numpy()
       return {"z": self.z.detach().cpu().numpy(),
               self.quantity: row}
     # grid2d emulator (D-MP1): decode destandardizes to LAW SPACE (the
@@ -419,7 +474,7 @@ class EmulatorPredictor:
     if self._grid2d:
       nz = int(self.z.numel())
       nk = int(self.k.numel())
-      surface = self.geom.decode(pred)[0].detach().cpu().numpy()
+      surface = self._decode(pred, x_enc)[0].detach().cpu().numpy()
       return {"z": self.z.detach().cpu().numpy(),
               "k": self.k.detach().cpu().numpy(),
               self.quantity: surface.reshape(nz, nk)}

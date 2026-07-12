@@ -38,6 +38,16 @@ data:
   # scalar input set may not carry). Omit it to keep the whole pool; include
   # it only when the input names carry omegab / H0 / omegam / ns.
 
+# OPTIONAL NPCE trunk (README section 12): fit a closed-form
+# sparse-Legendre base on the standardized outputs at staging, then
+# train the model below as the refiner correcting it — the classic PCE
+# setting (a handful of smooth scalar outputs). A top-level block (a
+# sibling of data / train_args — structurally unsweepable, one base per
+# study); residual only on this family. The fit knobs and their defaults
+# are annotated in example_yamls/cosmic_shear_train_emulator.yaml.
+# pce:
+#   form: residual
+
 train_args:
   nepochs: 300         # scalar maps are cheap; a few hundred epochs suffice
   bs:      256

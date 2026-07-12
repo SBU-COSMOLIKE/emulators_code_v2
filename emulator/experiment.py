@@ -507,7 +507,9 @@ def validate_scalar(cfg, train_args, rescale="none"):
     data-vector or cosmolike key is present (train_dv / val_dv /
     cosmolike_data_dir / cosmolike_dataset); if a required param file /
     covmat is missing; if a data-vector-only feature is requested
-    (rescale, model.ia, pce, transfer, finetune).
+    (rescale, model.ia, transfer, finetune). The pce: block is legal
+    here (the 2026-07-12 family-wide NPCE ruling); validate_pce vets it
+    with diagonal=True on the from_config scalar branch.
   """
   data = cfg["data"]
   outputs = data["outputs"]
@@ -552,10 +554,6 @@ def validate_scalar(cfg, train_args, rescale="none"):
     raise ValueError(
       f"train_args.model.ia {ia!r} is an intrinsic-alignment (data-vector) "
       "design; a scalar run has no ia (remove it)")
-  if cfg.get("pce") is not None:
-    raise ValueError(
-      "a top-level pce: block is a data-vector concept; a scalar run has no "
-      "PCE base (remove it)")
   if cfg.get("transfer") is not None:
     raise ValueError(
       "transfer learning is out of scope for scalar emulators (D-SP8); "
@@ -596,8 +594,12 @@ def validate_cmb(cfg, train_args, rescale="none"):
     tt/te/ee/pp; an amplitude law outside the registry; law-column
     names missing (as_exp2tau) or present (none); a cosmolike or
     scalar key beside data.cmb; a missing dv/params/covmat file key;
-    a data-vector-only feature (rescale, model.ia, pce, transfer) or
-    the not-yet-integrated finetune (D-CM10 interim).
+    a data-vector-only feature (rescale, model.ia, transfer) or
+    the not-yet-integrated finetune (D-CM10 interim); a pce: block
+    beside an amplitude_law other than "none" (each replaces the
+    target construction — one at a time). The pce: block itself is
+    legal (the 2026-07-12 family-wide NPCE ruling); validate_pce vets
+    it with diagonal=True on the from_config cmb branch.
   """
   # the amplitude-law registry lives with the CMB loss; imported here
   # (not at module top) so this validator stays importable in the same
@@ -677,10 +679,19 @@ def validate_cmb(cfg, train_args, rescale="none"):
     raise ValueError(
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a CMB run has no ia (remove it)")
-  if cfg.get("pce") is not None:
+  # NPCE rides the CMB family (the 2026-07-12 family-wide ruling), but
+  # only under amplitude_law "none": the as_exp2tau law's loss owns the
+  # target construction (CmbFactoredChi2), the same one-at-a-time
+  # exclusivity as pce vs rescale / model.ia. validate_pce vets the
+  # block itself (with diagonal=True) on the from_config cmb branch.
+  if (cfg.get("pce") is not None
+      and str(cmb.get("amplitude_law")) != "none"):
     raise ValueError(
-      "a top-level pce: block is a cosmic-shear concept; a CMB run has "
-      "no PCE base (remove it)")
+      "the pce: block and data.cmb.amplitude_law "
+      + repr(cmb.get("amplitude_law")) + " are exclusive: each replaces "
+      "the target construction (pce fits a closed-form base; the law "
+      "rescales the target per row). Use one at a time (the NPCE base "
+      "needs amplitude_law: none)")
   if cfg.get("transfer") is not None:
     raise ValueError(
       "transfer learning over CMB emulators is deferred (D-CM7: eligible "
@@ -719,8 +730,11 @@ def validate_grid(cfg, train_args, rescale="none"):
     Hubble / D_M; a law outside the TARGET_LAWS registry; an offset
     missing (log_offset) or present (none); a cosmolike / scalar / cmb
     key beside data.grid; a missing dv/params/covmat file key; a
-    data-vector-only feature (rescale, model.ia, pce) or transfer (a
-    PERMANENT forbid for this family — the scope ruling).
+    data-vector-only feature (rescale, model.ia) or transfer (a
+    PERMANENT forbid for this family — the scope ruling). The pce:
+    block is legal (the 2026-07-12 family-wide NPCE ruling);
+    validate_pce vets it with diagonal=True on the from_config grid
+    branch.
   """
   # the target-law registry lives with the grid geometry; imported here
   # (not at module top) so this validator stays importable in the same
@@ -794,10 +808,6 @@ def validate_grid(cfg, train_args, rescale="none"):
     raise ValueError(
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a grid run has no ia (remove it)")
-  if cfg.get("pce") is not None:
-    raise ValueError(
-      "a top-level pce: block is a cosmic-shear concept; a grid run has "
-      "no PCE base (remove it)")
   if cfg.get("transfer") is not None:
     raise ValueError(
       "transfer learning is PERMANENTLY out of scope for the background "
@@ -839,8 +849,10 @@ def validate_grid2d(cfg, train_args, rescale="none"):
     syren_halofit corrects boost); base files missing under a syren
     law or present under "none"; a bad k_stride; another family's key
     beside data.grid2d; a missing dv/params/covmat file key; rescale /
-    model.ia / pce; or transfer (a PERMANENT forbid for this family —
-    the scope ruling).
+    model.ia; or transfer (a PERMANENT forbid for this family — the
+    scope ruling). The pce: block is legal (the 2026-07-12 family-wide
+    NPCE ruling); validate_pce vets it with diagonal=True on the
+    from_config grid2d branch.
   """
   from .geometries.grid2d import TARGET_LAWS_2D
 
@@ -939,10 +951,6 @@ def validate_grid2d(cfg, train_args, rescale="none"):
     raise ValueError(
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a grid2d run has no ia (remove it)")
-  if cfg.get("pce") is not None:
-    raise ValueError(
-      "a top-level pce: block is a cosmic-shear concept; a grid2d run "
-      "has no PCE base (remove it)")
   if cfg.get("transfer") is not None:
     raise ValueError(
       "transfer learning is PERMANENTLY out of scope for the MPS "
@@ -1037,7 +1045,7 @@ _PCE_DEFAULTS = {
 _PCE_INT_KEYS = ("p_max", "r_max", "k_max", "max_terms", "max_fail")
 
 
-def validate_pce(pce, rescale="none", ia=None):
+def validate_pce(pce, rescale="none", ia=None, diagonal=False):
   """
   Validate the top-level pce: block (the NPCE closed-form base).
 
@@ -1053,11 +1061,19 @@ def validate_pce(pce, rescale="none", ia=None):
   pce is rejected alongside --rescale or a model.ia design (one at a time).
 
   Arguments:
-    pce     = the parsed top-level "pce" block, or None (the block absent).
-    rescale = the analytic-R rescale mode (a driver flag), for the
-              exclusivity check; pce is exclusive with rescale != "none".
-    ia      = the resolved model.ia design (None | "nla" | "tatt"), for
-              the exclusivity check; pce is exclusive with an ia design.
+    pce      = the parsed top-level "pce" block, or None (the block absent).
+    rescale  = the analytic-R rescale mode (a driver flag), for the
+               exclusivity check; pce is exclusive with rescale != "none".
+    ia       = the resolved model.ia design (None | "nla" | "tatt"), for
+               the exclusivity check; pce is exclusive with an ia design.
+    diagonal = True on the elementwise-whitened families (cmb / grid /
+               grid2d / scalar), where only form "residual" exists: the
+               ratio form is a dense-covariance concept (a fractional
+               correction where whitening mixes elements); with a
+               per-element whitening the residual form already gives the
+               refiner per-element leverage, and on the log-law grids a
+               whitened residual IS a multiplicative correction in
+               linear space.
 
   Returns:
     None when pce is None (NPCE off, byte-identical everywhere), else the
@@ -1066,9 +1082,9 @@ def validate_pce(pce, rescale="none", ia=None):
   Raises:
     TypeError if pce is not a mapping.
     ValueError on: an unknown key; a missing / non-{residual, ratio} form;
-    a non-positive-int p_max / r_max / k_max / max_terms / max_fail; q
-    outside (0, 1]; loo_max <= 0; or pce set together with rescale != "none"
-    or a model.ia design.
+    form "ratio" on a diagonal family; a non-positive-int p_max / r_max /
+    k_max / max_terms / max_fail; q outside (0, 1]; loo_max <= 0; or pce
+    set together with rescale != "none" or a model.ia design.
   """
   if pce is None:
     return None
@@ -1087,6 +1103,13 @@ def validate_pce(pce, rescale="none", ia=None):
     raise ValueError(
       "pce.form is required and must be 'residual' (base + net) or "
       f"'ratio' (base * (1 + net)), got {form!r}")
+  if diagonal and form == "ratio":
+    raise ValueError(
+      "pce.form 'ratio' exists only on the cosmolike (dense-covariance) "
+      "family: with an elementwise whitening the residual form already "
+      "gives the refiner per-element leverage (and on a log-law grid a "
+      "whitened residual IS a multiplicative correction in linear space); "
+      "use form: residual")
   out = dict(_PCE_DEFAULTS)
   out.update({k: v for k, v in pce.items() if k != "form"})
   out["form"] = form
@@ -1896,7 +1919,12 @@ class EmulatorExperiment:
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
-      exp.pce_opts   = None
+      # NPCE (the 2026-07-12 family-wide ruling): the pce: block is legal
+      # on the scalar family; diagonal=True = residual-only (the ratio
+      # form is a dense-covariance concept). rescale / ia were already
+      # rejected by validate_scalar, so the exclusivity args are their
+      # known-clean values.
+      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -1988,7 +2016,10 @@ class EmulatorExperiment:
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
-      exp.pce_opts   = None
+      # NPCE (the 2026-07-12 family-wide ruling): legal here, residual
+      # only (diagonal=True); validate_cmb already rejected the block
+      # beside an amplitude_law other than "none".
+      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2095,7 +2126,9 @@ class EmulatorExperiment:
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
-      exp.pce_opts   = None
+      # NPCE (the 2026-07-12 family-wide ruling): legal here, residual
+      # only (diagonal=True); the base fits the law-space whitened rows.
+      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2203,7 +2236,10 @@ class EmulatorExperiment:
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
-      exp.pce_opts   = None
+      # NPCE (the 2026-07-12 family-wide ruling): legal here, residual
+      # only (diagonal=True); the base fits the staged law-space rows
+      # (arXiv 2404.12344 runs exactly this — an NPCE on the boost).
+      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2884,6 +2920,40 @@ class EmulatorExperiment:
                            param_file=d["train_params"])
     return int(len(phys))
 
+  def _fit_diag_pce(self, train_set):
+    """Fit the NPCE base and wrap the diagonal residual refiner loss.
+
+    The family-wide NPCE hook (the 2026-07-12 ruling): shared by the
+    scalar / cmb / grid / grid2d build_geometry branches, each calling
+    it after self.pgeom and self.geom exist. Mirrors the cosmolike hook
+    in build_geometry: materialize the whitened fit inputs once — the
+    loaders' own tensor path, so the base sees exactly the rows the
+    refiner will train on (for grid2d those are the staged law-space
+    rows) — fit the closed-form sparse-Legendre base, and wrap the
+    residual refiner loss in place of the family's plain chi2.
+    validate_pce (diagonal=True) already pinned form "residual".
+
+    Arguments:
+      train_set = the staged training source dict ("C" / "dv" / "idx").
+
+    Returns:
+      the PCEResidualDiagChi2 chi2fn (the caller assigns self.chi2fn).
+    """
+    from .designs.pce import PCEEmulator
+    from .losses.pce import PCEResidualDiagChi2
+    idx = train_set["idx"]
+    X_white = self.pgeom.encode(
+      torch.from_numpy(np.asarray(train_set["C"][idx])).float().to(
+        self.device))
+    Y_white = self.geom.encode(
+      torch.from_numpy(np.asarray(train_set["dv"][idx])).float().to(
+        self.device))
+    fit_opts = {k: v for k, v in self.pce_opts.items() if k != "form"}
+    # quiet-gated fit report (beside the loading-sources lines).
+    pce = PCEEmulator.from_training(
+      self.device, X_white, Y_white, silent=self.quiet, **fit_opts)
+    return PCEResidualDiagChi2(geom=self.geom, pce=pce)
+
   def build_geometry(self, train_set=None):
     """
     Build the input + output geometries and the chi2 (cached as
@@ -3021,6 +3091,12 @@ class EmulatorExperiment:
       targets = np.asarray(train_set["dv"])[idx]
       self.geom = ScalarGeometry.from_targets(
         device=self.device, targets=targets, names=self.outputs)
+      # NPCE (the 2026-07-12 family-wide ruling): fit the closed-form
+      # base on the standardized outputs and wrap the residual refiner
+      # loss in place of the plain scalar chi2 (_fit_diag_pce).
+      if self.pce_opts is not None:
+        self.chi2fn = self._fit_diag_pce(train_set=train_set)
+        return self.pgeom, self.geom, self.chi2fn
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
@@ -3166,6 +3242,13 @@ class EmulatorExperiment:
       # split — one bin, coordinate = ell (attach_head_coords).
       if getattr(self.model_cls, "needs_bins", False):
         self.geom.attach_head_coords()
+      # NPCE (the 2026-07-12 family-wide ruling): fit the closed-form
+      # base on the whitened C_ell rows and wrap the residual refiner
+      # loss (_fit_diag_pce). validate_cmb guaranteed amplitude_law
+      # "none" here, so geom.encode is the loss's whole encode.
+      if self.pce_opts is not None:
+        self.chi2fn = self._fit_diag_pce(train_set=train_set)
+        return self.pgeom, self.geom, self.chi2fn
       if law == "none":
         self.chi2fn = make_cmb_chi2(geom=self.geom, law=law)
       else:
@@ -3239,6 +3322,12 @@ class EmulatorExperiment:
       # split — one bin, coordinate = z (attach_head_coords).
       if getattr(self.model_cls, "needs_bins", False):
         self.geom.attach_head_coords()
+      # NPCE (the 2026-07-12 family-wide ruling): fit the closed-form
+      # base on the law-space whitened rows and wrap the residual
+      # refiner loss (_fit_diag_pce).
+      if self.pce_opts is not None:
+        self.chi2fn = self._fit_diag_pce(train_set=train_set)
+        return self.pgeom, self.geom, self.chi2fn
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
@@ -3321,6 +3410,13 @@ class EmulatorExperiment:
       # (attach_head_coords; conv channels / TRF tokens = z slices).
       if getattr(self.model_cls, "needs_bins", False):
         self.geom.attach_head_coords()
+      # NPCE (the 2026-07-12 family-wide ruling): fit the closed-form
+      # base on the staged law-space rows and wrap the residual refiner
+      # loss (_fit_diag_pce); a D-MP9 constant pin composes in decode
+      # (the geometry pins the COMBINED base + net prediction).
+      if self.pce_opts is not None:
+        self.chi2fn = self._fit_diag_pce(train_set=train_set)
+        return self.pgeom, self.geom, self.chi2fn
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 

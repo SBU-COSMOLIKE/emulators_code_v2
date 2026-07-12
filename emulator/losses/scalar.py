@@ -75,10 +75,14 @@ def make_scalar_chi2(geom):
   """
   Build the scalar chi2fn (loss + geometry wrapper) for run_emulator.
 
-  The scalar analogue of make_chi2: there is no rescaling / ia / pce
-  variant (those are data-vector concepts), so this simply wraps the
-  ScalarGeometry in a ScalarChi2. Kept as a factory so the driver and
-  experiment build the loss by a call, mirroring make_chi2.
+  The scalar analogue of make_chi2: there is no rescaling / ia variant
+  (those are data-vector concepts), so this simply wraps the geometry in
+  a ScalarChi2. The NPCE variant DOES exist family-wide (the 2026-07-12
+  ruling) but is not built here: when a pce: block is present the
+  experiment fits the base and wraps PCEResidualDiagChi2 instead of
+  calling this factory (experiment._fit_diag_pce). Kept as a factory so
+  the driver and experiment build the loss by a call, mirroring
+  make_chi2.
 
   Arguments:
     geom = ScalarGeometry for the emulated outputs (its .state() is what

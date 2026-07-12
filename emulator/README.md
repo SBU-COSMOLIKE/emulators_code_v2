@@ -106,6 +106,11 @@ unchanged for all of them:
 | background (BAO/SN) | `grid` | `geometries/grid.py` | `losses/scalar.py` (reused) | `emul_baosn` |
 | matter power (EMUL2) | `grid2d` | `geometries/grid2d.py` | `losses/scalar.py` (reused) | `emul_mps` |
 
+The NPCE trunk (`pce:`) rides every row (the 2026-07-12 family-wide
+ruling): on the four diagonal families it wraps
+`losses/pce.py::PCEResidualDiagChi2` (residual only; on CMB only with
+amplitude law "none").
+
 Two physics modules sit beside the geometries, each with exactly one
 definition shared by its generator, its adapter, and its gates:
 `background.py` (the distances are KNOWN physics integrated from the emulated
@@ -363,7 +368,7 @@ shared `_reduce`.
 
 - `losses/core.py` — `anneal_value`; `CosmolikeChi2` (the plain chi2 + the `chi2`/`sqrt`/`sqrt_dchi2`/`berhu`/`berhu_capped` transform ladder); `RescaledChi2` / `ResidualBaseChi2` (analytic-R); `ElementWeightedChi2`; `make_chi2`.
 - `losses/ia.py` — `nla_coeffs`, `tatt_coeffs`; `NLAAmpFactoredChi2`, `TemplateFactoredChi2`.
-- `losses/pce.py` — `PCEResidualChi2`, `PCERatioChi2`.
+- `losses/pce.py` — `PCEResidualChi2`, `PCERatioChi2` (the cosmolike forms); `PCEResidualDiagChi2` (the family-wide residual form over the elementwise-whitened geometries — cmb law-none / grid / grid2d / scalar; roughness composes).
 - `losses/scalar.py` — `ScalarChi2` + `make_scalar_chi2` (the standardized-residual chi2; also wraps `GridGeometry` and `Grid2DGeometry` — their laws live in the geometry).
 - `losses/cmb.py` — `AMPLITUDE_LAWS`; `CmbDiagonalChi2` (plain per-multipole chi2) / `CmbFactoredChi2` (the imposed `C_ell e^{2tau}/A_s` target, reading named columns); `ResidualRoughness` + `configure_roughness` (the optional short-period residual penalty, byte-identical when absent); `make_cmb_chi2`.
 - `losses/transfer.py` — `TransferChi2` (a frozen base + a parallel correction; gain/sum, physical/whitened).
@@ -428,7 +433,7 @@ routes through).
 
 ### `emulator/inference.py` <a name="apx-inference"></a>
 
-- `EmulatorPredictor` — rebuild + predict for every artifact kind. `__init__` branches on the rebuilt family (scalar → output names; cmb → spectrum/ell/units + the law-dispatched decoder; grid → quantity/z; grid2d → quantity/z/k; else the dv path with the ia/pce/transfer decoder). `predict(params)` returns the family's natural object (see the class docstring's table); `_build_decoder` / `_build_cmb_decoder` reuse the exact training `chi2fn.decode`.
+- `EmulatorPredictor` — rebuild + predict for every artifact kind. `__init__` branches on the rebuilt family (scalar → output names; cmb → spectrum/ell/units + the law-dispatched decoder; grid → quantity/z; grid2d → quantity/z/k; else the dv path with the ia/pce/transfer decoder). Every family branch builds its decoder at init: `_build_diag_decoder` composes an NPCE base when the artifact carries a `pce` group (plain `geom.decode` otherwise, byte-identical). `predict(params)` returns the family's natural object (see the class docstring's table); `_build_decoder` / `_build_cmb_decoder` / `_build_diag_decoder` reuse the exact training `chi2fn.decode`.
 
 ### `emulator/plotting.py` <a name="apx-plotting"></a>
 

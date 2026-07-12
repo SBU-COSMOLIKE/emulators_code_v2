@@ -70,6 +70,12 @@ name their own path.
   phase bypasses the zero-init head at pure-ResMLP cost, the head
   phase runs the frozen trunk under no_grad) and the factored-IA
   templates. Single-phase = resmlp, incl. its ia variants.
+- NPCE family-wide (the 2026-07-12 ruling): the top-level pce: block
+  fits the closed-form base on EVERY family (residual-only off
+  cosmolike; on cmb only with amplitude_law none); the refiner is
+  whatever model: names — heads, two-phase, and the whole loss
+  surface included. Design facts: models-and-designs.md (the NPCE
+  section's FAMILY-WIDE bullet).
 - Single-phase demotion (`resolve_phase_args`, pure, the single choke
   point at the top of experiment.train()): drops head/trunk_epochs/
   freeze_trunk, merges trunk.X to the top by pure prefix-strip, on a

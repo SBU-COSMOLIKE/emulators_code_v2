@@ -95,8 +95,10 @@ gates the user runs on a GPU workstation.
 SPE established it; CME/BSN/MPS instantiated it; the code map carries
 it as a change-X row. A new family adds: (1) a data.<family> block
 key, mutually exclusive with all others; (2) a pure validator
-(rescale/ia/pce forbidden; transfer per the scope ruling; finetune
-admitted with a pin); (3) a from_config branch — param_cuts optional,
+(rescale/ia forbidden; pce admitted since the 2026-07-12 family-wide
+NPCE ruling — validate_pce(diagonal=True), residual-only; transfer per
+the scope ruling; finetune admitted with a pin); (3) a from_config
+branch — param_cuts optional,
 trunk-only head guard via model_cls.head_block, the finetune sub-path
 validated BEFORE any model-block read, and the cosmolike finetune
 branch guarded `not self._<family>` (the ordering hazard, hit three

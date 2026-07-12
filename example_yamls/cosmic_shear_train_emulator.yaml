@@ -455,7 +455,9 @@ train_args:
 # purpose: sweep_hyperparam builds the base once, so a pce knob under
 # train_args would sweep without refitting it (a silent no-op) -> one base per
 # study. Exclusive with --rescale and model.ia (each replaces the chi2 loss).
-# Uncomment to enable:
+# The block rides EVERY family (the scalar / cmb / baosn / mps example
+# YAMLs carry it too; residual-only there, and on CMB only with
+# amplitude_law: none). Uncomment to enable:
 # pce:
 #   form: residual         # residual = base + net | ratio = base * (1 + net)
 #   # fit knobs (defaults = the values shown; all optional):
