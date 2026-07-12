@@ -11,7 +11,8 @@ the topic file your task touches.
 
 - [State + what comes next](state-2026-07-11-and-next.md) — first
   full 32/32 green at run 9; current standing run 11 at 30/32 (one
-  red fixed awaiting rerun, one open); the redistribution map to the
+  eq-6 path Mac-audited awaiting its fixture/workstation rerun, one
+  diagonal-transfer red open); the redistribution map to the
   topic notes; plus the verified static-audit queue headed by bounded
   production grid2d staging, dataset/artifact identity, and parallel
   worker truth before the five artifacts -> EMUL2 -> science.
@@ -22,7 +23,9 @@ the topic file your task touches.
   ladder + roughness), the shared anneal family, phase blocks +
   demotion, EMA + the snapshot invariant, consumed-view banners,
   sizing (absolute counts, derived eval bs, weight-decay allowlist),
-  the loud no-alias migration pattern.
+  the loud no-alias migration pattern; open red-team details include
+  the dead validation-safe chunk, the unbounded wide-output
+  diagnostics path, and activation-bakeoff process liveness.
 - [Models + designs](models-and-designs.md) — ResMLP/ResCNN/ResTRF,
   the correction-head philosophy, zero-init identity discipline,
   factored IA, activations/norms, FiLM, NPCE, the science doctrine
@@ -31,7 +34,9 @@ the topic file your task touches.
   — schema v2 (never-trust-defaults), rebuild, EmulatorPredictor, the
   five cobaya adapters (python_path trap incl.), fine-tuning (FTW),
   transfer (TPE, refine, anchors), the geometry folder (GEO,
-  D-GEO5 shims retired).
+  D-GEO5 shims retired), plus the open real-Cobaya dependency-routing
+  defects hidden by stubbed adapter gates and the open geometry-state /
+  covariance-validation contract.
 - [Families: scalar + CMB](families-scalar-cmb.md) — SPE (closed,
   the lesson bank) and CME (covinv ruling, amplitude law, covariance
   script, roughness, diagnostics dispatch) + the D-CM12 SPEC AWAITING
@@ -44,7 +49,9 @@ the topic file your task touches.
 - [Data generation + cuts](data-generation-and-cuts.md) — the four
   generators on generator_core + the covariance script, tempered/
   uniform sampling, the output contract, staging/memmap, the
-  param_cuts windows and the coverage-cut lesson.
+  param_cuts windows and the coverage-cut lesson; open checkpoint-set
+  integrity covers manifest membership, append publication, and the
+  destructive load-error fallback.
 - [Gates + the board](gates-and-board.md) — the harness the user
   runs, the 32 gates, identity/smoke philosophy, dead-network rule,
   --force-rerun-all, and the run-history table (eleven runs, every

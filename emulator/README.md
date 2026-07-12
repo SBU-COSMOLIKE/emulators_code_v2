@@ -126,8 +126,8 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | File | Role |
 |---|---|
 | `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical density windows (`omega_b h^2` bound, plus the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Memmaps ordinary dv dumps and returns `dump_rows` so a sibling dump file can stay row-aligned. Known gaps (fix queued): standard `X.1.txt` misses the generator's `X.paramnames` order check, and the later grid2d law transform currently defeats the memory ladder; details in `notes/data-generation-and-cuts.md`. |
-| `geometries/parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. |
-| `geometries/output.py` | The 3x2pt output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry`, `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** |
+| `geometries/parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. Known numerical gap (fix queued): covariance eigenvalues and rebuilt scales are not yet validated before division; details in `notes/artifacts-inference-warmstart.md`. |
+| `geometries/output.py` | The 3x2pt output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry`, `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** Known numerical gap (fix queued): a singular per-bin covariance is clipped to zero and then used as a divisor; details in `notes/artifacts-inference-warmstart.md`. |
 | `geometries/scalar.py` | `ScalarGeometry`: per-output standardization over named derived parameters, with the un-standardizable-column guard. |
 | `geometries/cmb.py` | `CmbDiagonalGeometry`: per-multipole whitening by the cosmic-variance error bar (sigma from the covariance script's .npz), the spectrum / units / amplitude-law facts persisted. |
 | `geometries/grid.py` | `GridGeometry` + `TARGET_LAWS`: a function on a stored z grid, the law (`log_offset` / `none`) inside encode/decode. |
@@ -152,7 +152,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `losses/scalar.py` | `ScalarChi2` + `make_scalar_chi2`: the standardized-residual chi2 (also wraps the grid and grid2d geometries — their laws live in the geometry, so the loss needs nothing new). |
 | `losses/cmb.py` | `AMPLITUDE_LAWS` (`none` / `as_exp2tau`), `CmbDiagonalChi2` / `CmbFactoredChi2` (the imposed-amplitude target), `ResidualRoughness` (the optional band-explicit penalty on short-period residual wiggles), `make_cmb_chi2`. |
 | `losses/transfer.py` | `TransferChi2`: a frozen base network under a parallel correction (gain / sum, physical / whitened space, the cosmolike form). `TransferDiagChi2`: the same design on the elementwise-whitened families — cmb law-none / grid / grid2d, whitened space only (the 2026-07-12 symmetry ruling). |
-| `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. |
+| `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. Known gap (fix queued): validation computes its own safe chunk against the remaining budget, but the training loop uses the train chunk for validation and can exceed that bound; details in `notes/training-stack.md`. |
 | `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the config validators (`validate_phase_block` / `validate_loss` — now with the `roughness:` sub-block — / `validate_berhu` / `validate_ema`), the per-epoch loop, and `run_emulator`. |
 
 **Orchestration & output**
@@ -165,7 +165,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `results.py` | `save_learning_curves` / `save_sweep_table`; `save_emulator` (`.emul` weights + `.h5` record — geometries persisted by `state()` + full cls path); `rebuild_emulator` (h5-driven recipe plus the paired weights; its `info` dict carries the family flags `scalar` / `cmb` / `grid` / `grid2d` + each family's artifact facts, class-guarded). Known integrity gap (fix queued): the two files are not yet transactionally published or digest-bound; details in `notes/artifacts-inference-warmstart.md`. |
 | `inference.py` | `EmulatorPredictor`: rebuild a saved emulator and predict — one `predict(params)` for every artifact kind: the dv section, the scalar `{name: value}` dict, the physical C_ell row, the background `{"z", quantity}` function, or the (z, k) law-space surface. Reuses the exact training decode per family. |
 | `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves, and the multipage diagnostics PDF with the per-family pages (`cmb=` / `scalar=` / `grid=` / `grid2d=`). |
-| `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`, `grid2d_residual_diagnostic`). |
+| `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`, `grid2d_residual_diagnostic`). Known production-width gap (fix queued): the local-linear floor materializes validation rows x 40 neighbours x output width, so an MPS `--diagnostic` run is not bounded; details in `notes/training-stack.md`. |
 | `family_drivers.py` | The shared sweep-block helpers (`read_sweep_block`, `set_by_path`, `SWEEPABLE_TOP_KEYS`, `ACTIVATION_PATHS`) — one definition of the YAML `sweep:` block, imported by the cosmic-shear one-knob driver. Every per-family tune/sweep driver is a thin wrapper over `main(prog, family)`, and the CMB/BAOSN/MPS trainers are wrappers too, so the multi-GPU pool, `--gpu-pack`, and the Optuna journal study carry over. `scalar_train_emulator.py` is standalone: its file naming and provenance have no data-vector file. |
 | `cocoa.py` | The cocoa project layout: `--root` / `--fileroot` / `--yaml` resolution, output paths. |
 
@@ -182,7 +182,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `{scalar,cmb,baosn,mps}_sweep_ntrain_emulator.py` | Thin wrappers over the cosmic-shear sweep driver's `main(prog, family, out_default)`: multi-GPU + `--gpu-pack` carry over; wrong-family YAMLs name the right driver. |
 | `cosmic_shear_sweep_hyperparam_emulator.py` | Sweep ONE hyperparameter chosen in the YAML `sweep:` block; multi-GPU. |
 | `{scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py` | Thin wrappers over the cosmic-shear one-knob driver's `main(prog, family, out_default)`: the same `sweep:` block, multi-GPU + `--gpu-pack`. |
-| `cosmic_shear_bakeoff_activation_emulator.py` | One learning curve per activation; multi-GPU. |
+| `cosmic_shear_bakeoff_activation_emulator.py` | One learning curve per activation; multi-GPU. Known lifecycle gap (fix queued): a worker failure before its training loop emits no result while the parent waits on a fixed number of un-timed queue reads; details in `notes/training-stack.md`. |
 
 Known learning-curve gap (fix queued): the optional-cut families' wrappers reach
 `pool_size`, which currently indexes `omegabh2_hi` even when `param_cuts` is
@@ -199,21 +199,21 @@ other kinds' artifacts loudly, naming the right adapter)
 | File | Serves |
 |---|---|
 | `emul_cosmic_shear.py` | data-vector artifacts → the likelihood's dv (`state["cosmic_shear"]`). |
-| `emul_scalars.py` | scalar artifacts → named derived parameters (provides read FROM the artifacts). |
+| `emul_scalars.py` | scalar artifacts → named derived parameters (provides read FROM the artifacts). Known Cobaya-contract gap (fix queued): `calculate` does not create `state["derived"]`; the stubbed identity gate never calls that path. |
 | `emul_cmb.py` | CMB artifacts → the cobaya Cl dict (spectra / lmax / units are artifact facts; `must_provide` refuses beyond-training requests). |
 | `emul_baosn.py` | the H(z) + recombination-D_M pair → Hubble + distances, served PIECEWISE by redshift window (the desert between the windows is a loud error, never a bridge); flat-only V1. |
-| `emul_mps.py` | the pklin + boost pair → `get_Pk_grid` / `get_Pk_interpolator` (linear + nonlinear) for cosmolike's hybrid mode (`use_emulator: 2`); multiplies the syren base back per the artifacts' stored laws. Known defect (fix in progress): the derived-sigma8 helper uses a radius of 8 Mpc against k in 1/Mpc, not 8 Mpc/h — do not trust served sigma8 until the queued fix lands (notes/state-2026-07-11-and-next.md). |
+| `emul_mps.py` | the pklin + boost pair → `get_Pk_grid` / `get_Pk_interpolator` (linear + nonlinear) for cosmolike's hybrid mode (`use_emulator: 2`); multiplies the syren base back per the artifacts' stored laws. Known defects (fix in progress): the derived-sigma8 helper uses 8 Mpc against k in 1/Mpc, its products are advertised through Cobaya's input-support hook, and its Syren requirement narrows the shared `As_1e9`/`As` rule to `As`; do not treat the stubbed identity gate as a real Cobaya dependency test (notes/artifacts-inference-warmstart.md). |
 
 **compute_data_vectors/** (the training-set generators)
 
 | File | Role |
 |---|---|
-| `generator_core.py` | The shared machinery: the CLI (identical flags for every driver), emcee/uniform sampling, the chain + `.paramnames` + `.ranges` + `.covmat` writers, checkpoint save/load/append, the RAM-aware dv store, the MPI master/worker farm. Drivers subclass `GeneratorCore` and override only the probe whitelist, their train_args keys, the dv store hooks, and `_compute_dvs_from_sample`. Known gap (fix in progress): failed samples stay as zeroed dv rows, the exit code stays 0, and staging never reads the failfile — a dump with any failure flag is not training-ready. |
+| `generator_core.py` | The shared machinery: the CLI (identical flags for every driver), emcee/uniform sampling, the chain + `.paramnames` + `.ranges` + `.covmat` writers, checkpoint save/load/append, the RAM-aware dv store, the MPI master/worker farm. Drivers subclass `GeneratorCore` and override only the probe whitelist, their train_args keys, the dv store hooks, and `_compute_dvs_from_sample`. Known gaps (fix in progress): failed samples stay as zeroed dv rows while staging ignores the failfile; and checkpoint append is not one manifest-bound transaction — omitted sidecars or a load error can fall through to fresh generation on the same roots. |
 | `dataset_generator_lensing.py` | cosmolike data vectors (cs / ggl / gc); the core's default single-2D store. |
 | `dataset_generator_cmb.py` | CMB spectra: four per-spectrum 2D files (tt / te / ee / pp) from one CAMB pass, phi-phi filled. |
 | `dataset_generator_background.py` | H(z) on the SN grid + D_M on the recombination window, one background-only CAMB evaluation per sample, grid sidecars beside the dumps. |
 | `dataset_generator_mps.py` | linear P + boost on the (z, k) grids (+ the syren base files when `write_syren_base`), through the Pk_interpolator requirement (the wants-Cl quirk kept verbatim). |
-| `compute_cmb_covariance.py` | The Motloch & Hu CMB covariance (eqs 1-7): the Gaussian part always, the lens-induced non-Gaussian terms behind a default-off flag with a 5-point-stencil convergence study; writes the `.npz` the CMB training consumes. Known defect (fix in progress): the non-Gaussian contraction currently keeps a C_L^2 the fractional-amplitude derivative already carries, so its dense blocks are not a valid eq-6 covariance — the Gaussian sigmas are unaffected; details in notes/families-scalar-cmb.md. |
+| `compute_cmb_covariance.py` | The Motloch & Hu CMB covariance (eqs 1-7): the Gaussian part always, the lens-induced non-Gaussian terms behind a default-off flag with a 5-point-stencil convergence study; writes the `.npz` the CMB training consumes. The non-Gaussian normalization fix is Mac-audited against an independent known-answer calculation, but the raw-vs-CAMB-scaled fixture delta and workstation identity/smoke rerun remain before science close; the Gaussian path is unchanged (notes/families-scalar-cmb.md). |
 
 ---
 

@@ -12,7 +12,7 @@ history (`git log -p notes/state-2026-07-11-and-next.md`).
 
 The feature program reached code-complete, but the 2026-07-12 red-team
 static review found release blockers outside the board's current
-oracles: production grid2d staging defeats the memory ladder; standard
+gate suite: production grid2d staging defeats the memory ladder; standard
 generated `.1.txt` files bypass the parameter-order sidecar check; dump
 members and artifact pairs are not identity-bound; and parallel worker
 success is not truthfully accounted. Treat "code complete" below as
@@ -98,11 +98,13 @@ gates-and-board.md.
 
 ## The runs the user still owes the code (in this order)
 
-1. **The D-CM11-A unit, then one rerun** (runs 10 + 11 retired the
-   full passes): the Implementer lands the eq-6 normalization fix
-   (the unit queue below), the user pastes
-   gates/logs/transfer-identity.log for the open red, then one
-   workstation pass:
+1. **Close the two remaining workstation reds.** The eq-6 normalization
+   implementation is already merged at HEAD 7f455e6 and independently
+   accepted on the Mac math scope (maximum relative error about 8.1e-14).
+   Its gate fixture still needs the recorded raw-vs-CAMB-scaled
+   lens-potential delta. The user also pastes
+   gates/logs/transfer-identity.log for the open diagonal-transfer red,
+   then runs one workstation pass:
    `python gates/run_board.py --force-rerun cmb-identity cmb-smoke transfer-identity`
    (~12 min; any covariance failure now names its own cause via the
    stdout tail).
@@ -139,7 +141,8 @@ evidence line under each unit is the anchor a spec starts from:
    independently Architect-audited ACCEPTED on Mac scope at merged HEAD
    7f455e6; the family note's later provenance-correction section is the
    real audit record (the earlier pre-written Fable verdict and commit
-   attribution are invalid). One raw-vs-scaled oracle delta plus the
+   attribution are invalid). One raw-vs-scaled known-answer fixture
+   delta plus the
    workstation pass remain before close.
 2. Dataset readiness + MPS sigma8. VERIFIED: run_generator ends
    MPI.Finalize(); exit(0) unconditionally (generator_core.py tail)
@@ -215,6 +218,33 @@ files were created. Priority follows user-visible risk:
    internal-ledger prose are in conventions-and-workflow.md. This is a
    separate doc-only unit after correctness work, proven by an
    AST-minus-docstrings hash.
+7. **Real Cobaya adapter contract.** The MPS adapter advertises outputs
+   through the input-support hook; scalar calculate does not create the
+   required derived-state mapping; the MPS amplitude alternative is
+   narrowed to `As` despite the shared reader accepting `As_1e9`.
+   Stubbed identity gates miss all three. Spec:
+   artifacts-inference-warmstart.md.
+8. **Checkpoint-set integrity.** Axis sidecars and `.paramnames` are not
+   in the resume census, multi-file append is not one transaction, and a
+   load error falls through to fresh generation on the same roots — an
+   intended append can replace the prior set. Spec:
+   data-generation-and-cuts.md.
+9. **Validation and diagnostic memory truth.** Validation ignores its own
+   safe chunk and uses the train chunk; the generic local-linear floor
+   expands as N_val x 40 x output width and is not runnable on production
+   MPS. Spec: training-stack.md.
+10. **Activation-bakeoff liveness.** Its bespoke parent blocks on a fixed
+    count of un-timed queue reads before joining children; worker failures
+    during setup/staging/geometry emit no result and hang the command. Spec:
+    training-stack.md.
+11. **Geometry numerical and read-side integrity.** Covariance builders take
+    square roots without an SPD check, block whitening clips singular modes
+    to zero and divides by them, and saved geometry states are rebuilt without
+    finite/shape/invertibility validation. Spec:
+    artifacts-inference-warmstart.md.
+12. **Optimized-mode validation parity.** Seventeen runtime guards across
+    batching, model designs, geometry, and loss code are `assert` statements
+    and disappear under `python -O`. Spec: conventions-and-workflow.md.
 
 ## Standing constraints that gate future work
 

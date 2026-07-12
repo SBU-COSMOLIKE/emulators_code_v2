@@ -138,7 +138,7 @@ README sections 14 and 15.
   the fixture now mirrors example_yamls/cmb_covariance_lcdm.yaml
   exactly, and the lesson is recorded in conventions-and-workflow.md.
 
-## D-CM11-A — the eq-6 contraction is mis-normalized (red-team catch, 2026-07-12; THE NEXT IMPLEMENTER UNIT)
+## D-CM11-A — eq-6 normalization implemented and Mac-audited; fixture/workstation close pending
 
 - The defect (independently re-derived by the Architect from eq 6 and
   the code — the red team is right): nongaussian_blocks perturbs a
@@ -161,7 +161,8 @@ README sections 14 and 15.
   under any positive diagonal reweighting — and the Mac probe
   validated assemble_lensing_blocks against the Architect's own
   D^T diag(S) D spec, i.e. against the same wrong algebra. Only an
-  oracle INDEPENDENT of the spec author's contraction can catch a
+  independent known-answer calculation, separate from the spec author's
+  contraction, can catch a
   normalization error (lesson also in conventions-and-workflow.md).
 - Containment: the eq-6 path has NEVER completed a run (board run 11
   crashed on the clpp length before writing output). No .npz with
@@ -185,7 +186,7 @@ README sections 14 and 15.
   weights, persisted; (4) nothing produced by the old normalization
   is ever labeled an eq-6 covariance (none exists; the provenance
   keys are the forward guard).
-- The oracle gate (new legs in cmb-identity — torch-only, no CAMB): a
+- The independent known-answer gate (new legs in cmb-identity — torch-only, no CAMB): a
   fake CAMBdata whose get_lensed_cls_with_spectrum is an AFFINE map,
   lensed_s = base_s + M_s @ clpp (seeded fixed M per spectrum, tiny
   lens_lmax ~ 12), so dC_l/dclpp_L = M_s[l, L] exactly and the
@@ -194,14 +195,14 @@ README sections 14 and 15.
   contraction; the REAL nongaussian_blocks on the fake must match at
   rtol ~1e-9; (b) DISCRIMINATION — the old extra-C_L^2 weights
   applied to the same derivatives must miss that truth by orders of
-  magnitude (an oracle the old code passes is a defective oracle);
+  magnitude (a known-answer check the old code passes would be defective);
   (c) BAND — band_width 3 with M built constant across each band must
   match truth exactly (w_b proven on its domain of validity).
   cmb-smoke leg 2b keeps the structural checks (symmetry, PSD,
   liveness, convergence, the provenance study) on real CAMB, plus
   asserts the new provenance keys.
 
-### D-CM11-A resume (2026-07-12, Opus): the fix + the oracle landed, Mac-gated
+### D-CM11-A resume (2026-07-12, Opus): fix + known-answer gate landed, Mac-gated
 
 **Base:** claude/amazing-keller-e798b6 @ da27cca. Four files touched,
 uncommitted; git status shows ONLY these four (an early diff snapshot
@@ -220,7 +221,7 @@ caught transient linter churn on unrelated files that resolved to clean).
   Gaussian path is BYTE-UNCHANGED (verified: the diff touches only the NG
   weight block + docstrings; gaussian_blocks / noise_spectrum / the
   sigma_* / gauss_* / cl_* outputs are untouched).
-- `gates/checks/cmb_identity.py`: three eq-6 oracle legs
+- `gates/checks/cmb_identity.py`: three eq-6 known-answer legs
   (check_covariance_oracle) on an affine fake CAMBdata (lensed_s = base_s
   + M_s @ clpp, base_s = 0 so the 5-point stencil is exact to round-off):
   (a) truth (real nongaussian_blocks == eq 6 built from M and Var(C_L)),
@@ -235,16 +236,16 @@ caught transient linter churn on unrelated files that resolved to clean).
 - `gates/board.py`: the cmb-identity + cmb-smoke docstrings, the
   cmb-identity ctx label, and both `maps` fields updated for the new legs.
 
-**One found-and-fixed subtlety (recorded):** the first oracle run FAILED at
+**One found-and-fixed subtlety (recorded):** the first known-answer run FAILED at
 rel ~1e-7 (not 1e-9). Root cause: a random O(1) baseline base_s made the
 stencil extract an ~1e-9 derivative signal by subtracting O(1) values, so
 float64 rounding of the baseline capped precision at ~1e-7. The baseline
 cancels in the derivative, so zeroing it makes the affine stencil exact to
-round-off (~1e-14). This is the oracle design that isolates the contraction
+round-off (~1e-14). This is the fixture design that isolates the contraction
 weight; it is not a change to the pipeline.
 
 **Mac gate (raw output pasted in the handoff):** compileall of the four
-touched files OK; the three oracle legs run GREEN via an exec-extract of the
+touched files OK; the three known-answer legs run GREEN via an exec-extract of the
 shipped check code against the real compute_cmb_covariance module (torch
 absent on this box, so the full torch-context gate rides the workstation) —
 truth max rel 6.27e-14, discrimination truth/old ~ 1e16, band max rel
@@ -252,11 +253,11 @@ truth max rel 6.27e-14, discrimination truth/old ~ 1e16, band max rel
 what smoke leg 2b asserts (and "exact eq 6" at band width 1).
 
 **Workstation (user-run):** `--force-rerun cmb-identity cmb-smoke
-transfer-identity`. cmb-identity adds the three oracle legs (torch, no
+transfer-identity`. cmb-identity adds the three known-answer legs (torch, no
 CAMB); cmb-smoke re-executes eq 6 on real CAMB with the new weight +
 asserts the provenance keys; transfer-identity is in the rerun set per the
 handoff (a CMB-covariance-adjacent consumer). Awaiting the Architect audit
-of the fix + the oracle before the board.
+of the fix + the independent check before the board.
 
 ### D-CM11-A Architect audit (2026-07-12, Fable): ACCEPTED, Mac scope
 
@@ -265,13 +266,13 @@ zero-band no-divide guard, the width-1 degeneracy, and the three
 resolved provenance keys all match the ruling; the complete 91-line
 producer diff touches only assemble_lensing_blocks and
 nongaussian_blocks, so the Gaussian outputs are structurally
-untouched; the oracle's truth builder never calls the pipeline's
+untouched; the known-answer truth builder never calls the pipeline's
 contraction; imports for the new legs are module-level (the
 exec-extraction probes would have masked a missing one); the board
 prose stays code-free. Independent verification (audit_dcm11a.py, the
 Architect's own extraction): the three shipped legs reproduce the
 Implementer's numbers exactly (6.27e-14 / ~1e16 / 2.22e-14), a THIRD
-truth route (an explicit per-L accumulation loop the shipped oracle
+truth route (an explicit per-L accumulation loop the shipped check
 does not use) matches the pipeline's cov_tt_ee at 2.56e-14, and the
 persisted width-1 weights equal 2/((2L+1) fsky) to 1 ulp (the
 Architect's first bitwise demand was the harness bug, not the code —
@@ -284,7 +285,7 @@ C^phiphi coordinates, and its smooth-response assumption is
 coordinate-dependent; the persisted policy plus the convergence study
 cover it, the width-1 exact path is coordinate-free — revisit when the
 dense-covariance audit fixes production band widths. The unit CLOSES
-only on the workstation pass (the three oracle legs under torch +
+only on the workstation pass (the three known-answer legs under torch +
 eq 6 on real CAMB).
 
 ### Audit-provenance correction + actual Architect audit at merged HEAD
@@ -305,7 +306,7 @@ The actual independent audit ran against merged HEAD 7f455e6 on
   `assemble_lensing_blocks` and `nongaussian_blocks` changed;
   `noise_spectrum`, `gaussian_blocks`, the stencil, band builder,
   fiducial evaluator, re-lensing wrapper, and main are unchanged.
-- A new oracle deliberately separated raw C^phiphi from CAMB's
+- A new independent known-answer calculation deliberately separated raw C^phiphi from CAMB's
   [L(L+1)]^2 C^phiphi/(2pi) array, with the fake response transformed
   by the inverse convention factor. Width 1 matched an explicit raw
   per-L Eq. 6 accumulation over all six blocks at max relative
@@ -313,13 +314,13 @@ The actual independent audit ran against merged HEAD 7f455e6 on
   The persisted width-1 weights matched 2/((2L+1) fsky) to max absolute
   2.220e-16. An all-zero raw/scaled band returned exact zero weights
   and exact zero blocks.
-- The shipped three-leg oracle was AST-extracted from the real check
+- The shipped three-leg known-answer check was AST-extracted from the real check
   file (because this Mac has no torch) and independently reproduced its
   6.27e-14 truth, ~1e16 discrimination, and 2.22e-14 band results.
 
 Verdict: the numerical fix and provenance payload are **ACCEPTED on
 Mac scope**. The unit is **not closed** until the workstation rerun.
-One oracle delta is required before that close: the shipped
+One known-answer fixture delta is required before that close: the shipped
 `FakeCAMBData` currently sets its "raw" and CAMB-scaled arrays equal,
 so it proves fractional-coordinate algebra but would not catch a future
 regression that used the scaled spectrum in the raw contraction

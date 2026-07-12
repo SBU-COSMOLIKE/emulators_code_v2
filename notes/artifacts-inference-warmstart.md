@@ -141,6 +141,82 @@ unaffected.
   emulator" — EmulatorPredictor two-door pattern; the background
   family pairs with emulator.background.distance_interpolators.
 
+### Red-team Cobaya-contract gaps (verified 2026-07-12, open)
+
+The artifact-only adapter tests are not a substitute for a real Cobaya
+dependency-resolution test. Two current defects sit specifically at that
+boundary:
+
+- `emul_mps.get_can_support_params()` returns `Pk_grid`,
+  `Pk_interpolator`, and `sigma8`. In Cobaya 3.6 this hook declares
+  input parameters a component is willing to own; it does not declare
+  products or derived outputs. The two P(k) products already advertise
+  themselves through their `get_...` methods, while `sigma8` must be
+  returned by `get_can_provide_params()`. The present mps-identity gate
+  stubs `Theory`, manually assigns `output_params = []`, and therefore
+  cannot exercise or falsify the real dependency routing.
+- `emul_scalars.calculate()` writes `state["derived"]` only if that key
+  already exists. Cobaya's calculate contract makes the component create
+  the derived mapping when `want_derived` is true; the current scalar
+  identity gate tests the artifact-derived name union but never calls the
+  adapter's `calculate` method. A real model can therefore know that a
+  scalar output is available yet receive no derived result from the
+  component state.
+
+The MPS amplitude requirement has a second naming fork. The shared Syren
+reader accepts `As_1e9` or `As`, preferring `As_1e9`, but the adapter
+unconditionally adds `As` to its requirements whenever either artifact
+uses a Syren law. The shipped EMUL2 example samples `As_1e9` and masks the
+fork by defining an extra derived `As` bridge. Requirement construction
+must follow the artifact names and the shared reader's alternative-name
+rule, so an `As_1e9` artifact does not require a redundant `As` parameter.
+
+The pair validator also checks only quantity presence and exact grid
+equality. It does not enforce the serve-time tuple
+`pklin/Mpc3/(none|syren_linear)` plus
+`boost/dimensionless/(none|syren_halofit)`. Training validates those
+tuples, but the read side claims artifacts are authoritative and must
+reject a malformed or hand-built h5 rather than silently treating an
+unrecognized-for-that-quantity Syren law as raw output.
+
+Required acceptance is one small real Cobaya construction (not a stubbed
+base class) using synthetic artifacts: dependency resolution must assign
+Pk products to the MPS theory, register sigma8 as derived, run a scalar
+calculate with `want_derived=True`, and prove the returned state contains
+the exact advertised outputs. Separate negative legs cover the wrong MPS
+law/units tuple and an `As_1e9`-only config with no `As` bridge.
+
+### Red-team geometry-state and covariance guards (verified 2026-07-12, open)
+
+The persisted class marker proves which constructor to call, but neither
+`rebuild_emulator` nor most `from_state` constructors validate that the
+geometry tensors describe a finite invertible transform. Scalar/grid/CMB
+states can carry a zero or non-finite scale; parameter and data-vector
+states can carry a non-positive `sqrt_ev`, malformed basis, duplicate or
+out-of-range `dest_idx`, or inconsistent center/Cinv dimensions. The model
+can still load strictly because weight shapes do not authenticate those
+values, then prediction returns NaN/Inf or a wrong coordinate map.
+
+The training builders share the numerical hole. `ParamGeometry.from_covmat`,
+the log-parameter builder, amplitude-factor geometry, warm-start extension,
+and `DataVectorGeometry.from_cosmolike` take `sqrt(eigh(...))` without a
+finite/symmetric/strictly-positive eigenvalue check. The block-diagonal
+output geometry is worse: it clips every negative per-bin eigenvalue to
+zero and then divides by its square root. A singular block therefore turns
+an invalid covariance into infinite whitened targets instead of a loud
+error; model heads repeat divisions by the inherited scales.
+
+Required contract: one shared validation layer checks shapes, finite values,
+unique/in-range indices, monotonic finite axes, positive scales/eigenvalues,
+orthonormal bases within a documented tolerance, covariance symmetry and
+positive definiteness, plus family registry/units tuples. Apply it on both
+training construction and h5 rebuild before tensors feed a model. Do not
+silently floor or clip a scientific covariance: reject it with the smallest
+eigenvalue and source/bin name. Gates cover a singular covariance block, a
+tiny negative eigenvalue, a zero scale in a same-shaped h5, duplicate
+`dest_idx`, and a valid ill-conditioned SPD matrix just above the stated
+tolerance.
+
 ## Fine-tuning (FTW; universal across families)
 
 - `train_args.finetune: {from, compile_mode?}`; architecture inherited
