@@ -1151,7 +1151,29 @@ trial under manifest A reported as manifest B's winner); the
 default-control leg (a failed-only study still enqueues the default
 once).
 
-## Transfer refinement silently leaves the correction trunk frozen (red-team 45M-43, 2026-07-12, Architect-VERIFIED; queue 54 — executed-optimizer-graph truth, distinct from the anchor/EMA-order and resolved-record units)
+## RETRACTED: transfer refinement frozen-trunk claim (45M-43, retracted by the red team 2026-07-12 with 45M-44; unit 54 WITHDRAWN)
+
+Both retractions Architect-verified: validate_transfer
+(experiment.py:1321-1331) rejects train_args.trunk / train_args.head,
+positive trunk_epochs, and freeze_trunk on every transfer run —
+"a transfer run is single-phase (V1)". The frozen-head state (45M-43)
+and a head-lr override (45M-44) are therefore UNREACHABLE: the plan is
+[(nepochs, None)], set_train_phase never runs, correction parameters
+keep constructor requires_grad True, lr_pass == learning_rate, and
+refinement's base-only unfreeze plus top-level lr are correct under
+the enforced schema. AUDIT LESSON (mine): the original adjudication
+verified the state-chain MECHANISM but not REACHABILITY — the missing
+step was the forward-walk from the config validator (the standing
+forward-walk-the-whole-driver-path lesson). Adopted going forward: a
+red-team state-chain finding needs a reachable configuration proven
+at the validator boundary before it earns a queue number; the red
+team has adopted the same standard on their side. If transfer ever
+gains two-phase correction (a V2 design change), refinement's
+trainability establishment and lr inheritance must be specified in
+that design — recorded here as a design-time obligation, not a queue
+unit. The section below is kept for the record and is VOID.
+
+## VOID (retained for the record): the original 45M-43 adjudication
 
 The default two-phase head path ends in "head" mode (training.py
 :2770 executes set_train_phase("head" if freeze_trunk else "joint");

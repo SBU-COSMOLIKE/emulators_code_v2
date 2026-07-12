@@ -1068,16 +1068,14 @@ experiment identity: no manifest/digest, resume mixes incomparable
 science; spec training-stack.md "The Optuna journal has no experiment
 identity"; slots in the campaign phase before the docs batch,
 interlocks unit 37's implementation identity + the digest machinery).
-LATE ADDITION 45M-43 = queue 54
-(transfer refinement inherits the frozen correction trunk from
-phase-2 "head" mode — the advertised joint pass trains base + head
-with an inert trunk on the default ResCNN/ResTRF path; ruling: the
-published trains-both-together contract wins, refinement establishes
-complete trainability on entry, per-set trainable counts in the
-banner + unit-41 record; spec training-stack.md "Transfer refinement
-silently leaves the correction trunk frozen"; joins the
-transfer-refine campaign beside unit 24, distinct from its
-order/record clauses). 45M-20 amends unit 22
+45M-43 AND 45M-44 RETRACTED by the red team
+(2026-07-12), retraction Architect-verified: validate_transfer
+(experiment.py:1321-1331) makes transfer single-phase V1 — the
+frozen-head state and a head-lr override are unreachable, so unit 54
+is WITHDRAWN (the number stays retired, not reused). Audit lesson
+recorded in training-stack.md: mechanism verification without a
+reachability proof at the validator boundary no longer earns a queue
+number. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
