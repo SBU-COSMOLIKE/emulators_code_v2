@@ -200,6 +200,20 @@ In order, with the commit that carries each:
    (absolute path from $ROOTDIR) — the recorded "cobaya-run from
    $ROOTDIR" rule extends to in-process get_model with relative
    theory paths.
+18. **mps-smoke made ~10-20x cheaper (user ask: "MPS check is taking
+   too long")**: the hour lived in the generator's hardcoded Pk
+   requirement k_max = 200 — every one of the 400 smoke CAMB calls
+   computed transfers to k = 200 against a k grid topping at 10.
+   The constant decodes as 2 x the legacy production k top (100),
+   so it is now DERIVED: max(2 x k_top, 20) — byte-identical
+   requirement on the production grid, 20 for the smoke. The gate's
+   camb_truth mirrors the derived k_max and gains AccuracyBoost 0.7
+   (matching cmb-smoke's speed convention; gen_yaml too), so truth
+   and training data share one convention and the comparison tests
+   the pipeline, not CAMB convergence deltas. bsn-smoke went GREEN
+   this same stretch (run 6: full gate incl. cobaya-vs-CAMB within
+   2% and the derived-distance pages) — the board stands 31/32 with
+   only mps-smoke pending.
 
 ## Evidence status: what is PROVEN vs what is PENDING
 
