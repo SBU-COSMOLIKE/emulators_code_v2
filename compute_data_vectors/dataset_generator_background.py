@@ -113,25 +113,28 @@ class dataset(GeneratorCore):
 
     # explicit background requirements on the model itself (the training
     # YAML may carry only the dummy `one` likelihood). Hubble in
-    # km/s/Mpc; comoving_radial_distance is served in Mpc.
+    # km/s/Mpc; comoving_radial_distance is served in Mpc. Background
+    # products ONLY — no Cl requirement, so CAMB never computes
+    # perturbations and one evaluation per sample stays cheap.
     #
-    # The trivial Cl requirement is the wants-Cl quirk
-    # (dataset_generator_mps.py carries it verbatim from the legacy
-    # code: "DONT REMOVE - SOME WEIRD BEHAVIOR IN CAMB WITHOUT
-    # WANTS_CL"). It is LOAD-BEARING here: with background-only
-    # requirements, cobaya-CAMB's component split leaves the piece
-    # that computes CAMBdata without the varying cosmology among its
-    # input params, so the manual check_cache_and_compute(cached=True)
-    # loop in _compute_dvs_from_sample hits a stale cache and EVERY
-    # sample returns the first cosmology's background — the first
-    # bsn-smoke board run caught exactly that (degenerate H(z)
-    # columns, all cosmologies agreeing). Requesting one trivial Cl
-    # forces the transfers component to own the cosmology params, so
-    # the cache misses per sample and the background is fresh.
+    # History, recorded because it cost two board runs: with these
+    # background-only requirements the hand-rolled
+    # check_cache_and_compute(cached=True) component loop (the idiom
+    # the other generators inherit from the legacy code) returned the
+    # SAME background for every sample (board run 1: bitwise-constant
+    # H(z) columns). Adding the MPS generator's wants-Cl quirk
+    # ("Cl": {tt: 0}) did NOT cure it — board run 3's dump-variance
+    # tripwire still measured relative spread exactly 0.0, falsifying
+    # the transfers-cache hypothesis. The real fix lives in
+    # _compute_dvs_from_sample: THIS generator evaluates through the
+    # standard model.logposterior(point, cached=False) lifecycle,
+    # which recomputes every component with cobaya's own parameter
+    # routing and cannot serve stale physics. The quirk is therefore
+    # gone again on purpose; if background staleness ever returns,
+    # bsn-smoke's tripwire fails at the dump naming this history.
     self.model.add_requirements(
       {"Hubble": {"z": self.z_sn, "units": "km/s/Mpc"},
-       "comoving_radial_distance": {"z": self.z_rec},
-       "Cl": {"tt": 0}})
+       "comoving_radial_distance": {"z": self.z_rec}})
 
   #-----------------------------------------------------------------------------
   # data-vector store: two per-quantity 2D arrays -> {dvsf}_<q>.npy
@@ -306,28 +309,30 @@ class dataset(GeneratorCore):
     # Define fortran errors we want to capture ---------------------------------
     camb_error_keywords = {"ERROR", "error", "Did not converge"}
 
-    # Compute data vector (within using cobaya API) ----------------------------
+    # sample arrives in ord order; sample[idx] is the model's sampled
+    # order (the same reordering the prior check uses).
     idx = self.reorder_idx_from_ord_to_yaml()
-    param = dict(self.model.parameterization.to_input(
-        sampled_params_values=dict(zip(self.names, sample[idx])))
-    )
-    self.model.provider.set_current_input_params(param)
 
     # Check prior before attempting computation --------------------------------
     if math.isinf(self.model.prior.logp(sample[idx])):
       raise RuntimeError(f"Prior is -inf (this should not happen). "
                          f"Values: {dict(zip(self.sampled_params, sample))}")
 
+    # Evaluate through the STANDARD cobaya lifecycle, not the legacy
+    # hand-rolled check_cache_and_compute component loop the other
+    # generators inherit. With this generator's background-only
+    # requirement set that loop returned the SAME background for every
+    # sample (board run 1: bitwise-constant H(z) dump columns), and the
+    # wants-Cl quirk did not cure it (board run 3: the bsn-smoke
+    # tripwire still measured spread exactly 0.0 — hypothesis
+    # falsified). logposterior(point, cached=False) recomputes every
+    # component with cobaya's own parameter routing (the dropped
+    # omegam + the omch2 lambda included), so it cannot serve stale
+    # physics; the dummy `one` likelihood keeps it as cheap as the
+    # theory call itself.
     captured = 0 # variable that will hold terminal output
     with capture_native_output() as tmp:
-      for (x, _), z in zip(self.model._component_order.items(),
-                           self.model._params_of_dependencies):
-        x.check_cache_and_compute(
-            params_values_dict = dict({p: param[p] for p in x.input_params}),
-            want_derived = self.derived,
-            dependency_params = list(param.keys()),
-            cached = True
-        )
+      self.model.logposterior(sample[idx], cached=False)
       tmp.seek(0)
       captured = tmp.read() # copy terminal output -----------------------------
 

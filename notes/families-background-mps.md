@@ -16,15 +16,25 @@ models-and-designs.md.
 
 ## BSN — the expansion history. CODE COMPLETE; gates bsn-identity/bsn-smoke.
 
-- THE WANTS-CL QUIRK IS LOAD-BEARING (board run 1, 2026-07-11): the
-  background generator's requirements now include "Cl": {tt: 0}
-  beside Hubble + comoving_radial_distance. Without it, cobaya-CAMB's
-  component split leaves the CAMBdata-computing piece with no varying
-  input params, the manual check_cache_and_compute(cached=True) loop
-  hits a stale cache, and EVERY dump row is the first cosmology's
-  background (caught as degenerate H columns). bsn-smoke carries a
-  dump-variance tripwire that fails AT THE DUMP naming the quirk.
-  Never remove it — the MPS generator's copy says the same.
+- THE STALE-BACKGROUND SAGA (board runs 1 + 3, 2026-07-11; the full
+  hypothesis-falsified arc, recorded so nobody re-walks it): with
+  background-only requirements the legacy hand-rolled
+  check_cache_and_compute(cached=True) component loop returned the
+  SAME background for every sample (run 1: bitwise-constant H(z)
+  columns). Hypothesis 1 — the MPS wants-Cl quirk ("Cl": {tt: 0})
+  forces the transfers component to own the cosmology params —
+  FALSIFIED by run 3: the quirk was added and bsn-smoke's
+  dump-variance tripwire still measured spread exactly 0.0. The fix
+  that stands: dataset_generator_background._compute_dvs_from_sample
+  evaluates through the STANDARD model.logposterior(point,
+  cached=False) lifecycle (cobaya's own parameter routing, every
+  component recomputed — the SPE "prefer the programmatic lifecycle"
+  lesson), and the Cl requirement is gone again, so the generator
+  stays background-only fast (no perturbations). The tripwire
+  remains the sentinel: a regression fails AT THE DUMP. NB: the MPS
+  generator KEEPS its own wants-Cl quirk verbatim (its requirement
+  set is different, its dumps proven varying — mps pklin trained);
+  do not harmonize the two evaluation idioms without gate evidence.
 - Headline: only H(z) is a network; every distance is IMPOSED physics
   computed from it. The two-regime ruling (D-BSN3-A, the user's call:
   the recombination distance is the discontinuity): (1) an H(z)
