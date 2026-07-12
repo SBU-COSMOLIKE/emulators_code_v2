@@ -466,3 +466,171 @@ dual names must agree (As_1e9 == 1e9 * As; w == w0) or the reader
 raises naming both — silent preference is retired as a correctness
 policy. Spec + red legs: artifacts-inference-warmstart.md ("UNIT 7
 AMENDED (45M-45)").
+
+## UNIT 16 AMENDED (45M-54, ninth batch): the mps-smoke range leg must certify the refusal contract, not "any raise"
+
+The final range leg of the board-listed mps-smoke
+(gates/checks/mps_smoke.py:394-398) is
+
+    try:
+        lin.P(0.25, 50.0)
+        report("interpolator range guard", False, "no raise")
+    except Exception:
+        report("interpolator range guard", True, "raised")
+
+— ANY exception is accepted as proof of a correct refusal, and none
+of the other three boundaries (low k, low z, high z) is exercised at
+all. The leg has zero catch power of its own: an interpolator whose
+refusal path raises the wrong class (a scipy internal error, a
+corrupt-spline RuntimeError, an attribute error from a refactor)
+greens it.
+
+The contract it should certify is vendored in this repo and precise:
+PowerSpectrumInterpolator.check_ranges
+(cobaya_theory/emul_mps.py:144-165) raises cobaya's LoggedError with
+"Not possible to extrapolate to k=... 1/Mpc (maximum k possible is
+... 1/Mpc)." (and the z / minimum analogues) — the coordinate, the
+requested value, and the stored limit are all named — and both P
+(:167) and logP (:176) call it before evaluating. np.allclose slack
+applies at the boundary, so refusal probes must sit clearly outside
+it.
+
+Architect precision ruling on the mutation arm: a P that raises for
+EVERY input already reds the whole gate today — the lifecycle leg
+computes got_lin = lin.P(z_probe, k_probe) inside the same try and
+reports "cobaya lifecycle through emul_mps" FAIL — so the
+always-raising mutant is non-discriminating at gate level (the red
+team's LEG-level false green stands as stated). The discriminating
+mutant is an interpolator healthy in range whose refusal raises the
+WRONG class: today's leg PASSES that mutant; the amended leg must
+RED it.
+
+The amendment (all inside mps-smoke's check_cobaya; no production
+code change; workstation-owed like every torch/cobaya leg):
+
+1. In-range scalar control FIRST: lin.P at an interior (z, k)
+   returns a finite value (the earlier grid-path lifecycle call is
+   not a substitute for the scalar path the refusal legs use).
+2. Four independent refusal legs — k below kmin, k above kmax, z
+   below zmin, z above zmax — probe values derived from the object's
+   own stored bounds (lin.z[0], lin.z[-1], lin.kmin, lin.kmax),
+   placed a factor ~1.05 beyond the limit (outside allclose slack).
+3. Catch LoggedError ONLY (from cobaya.log import LoggedError);
+   assert the message carries the offending coordinate token ("k="
+   or "z="), the requested value, and the stored limit (the two
+   formatted numbers must appear in the text).
+4. Any other exception class = the leg goes RED reporting the
+   exception type and message.
+5. Mutation arm: the wrong-class mutant above must red the amended
+   legs; the always-raising variant is recorded as covered by the
+   lifecycle leg (both documented in the check).
+6. This stays inside the existing board-listed mps-smoke; no new
+   gate, no new production code.
+
+## UNIT 58 (45M-55, ninth batch): BAOSN distances integrate through an untrained redshift interval — the SN grid must start at z = 0
+
+CONFIRMED (Fable, 2026-07-12, live reproduction with the REAL
+module). The generator schema and the distance pipeline contradict
+each other by construction:
+
+- dataset_generator_background.py:102-104 REQUIRES 0 < zmin (a
+  zero-starting SN grid is refused today); its docstring example is
+  z_sn: [0.001, 3.0, 600] (:42).
+- emulator/background.py comoving_distance_grid builds the integral
+  from exactly z = 0: interp1d(z_grid, c/H, kind='cubic',
+  fill_value="extrapolate") (:121-124) evaluated on
+  zstep = linspace(0.0, z_grid[-1], 2*NZ + 1) (:125) — every point
+  of [0, zmin) is cubic EXTRAPOLATION through an interval no H value
+  was ever generated or trained on. The docstring blesses it ("the
+  grid need not start at 0 — the interpolation extends c/H to 0
+  exactly as the legacy did"): a legacy-verbatim convention hereby
+  adjudicated WRONG (the 45M-12 cumulative-Simpson precedent — a
+  faithful port of an error is still an error).
+- distance_interpolators wraps H ITSELF in the same extrapolating
+  interp1d over z_grid (:156-166), so get_Hubble serves untrained
+  H(z < zmin) directly — a second serving surface.
+- The adapter hardcodes the lower window bound: _check_windows uses
+  z >= 0.0 (emul_baosn.py:249) and get_Hubble refuses only z < 0.0
+  (:325), while _sn_max is read from the persisted grid (:155). The
+  advertised window [0, z_max] is never proven against the persisted
+  first node.
+
+Reproduction (the real emulator/background.py imported by file path
+under the cocoa clone's python, scipy 1.12.0; truth via scipy quad;
+analytic flat constant-w model
+H(z) = 70*sqrt(0.1(1+z)^3 + 0.9(1+z)^(3(1+w))), w = -1.5):
+
+    z_sn = [1, 3, 600]:   served chi(1) = 4614.90 Mpc vs truth
+                          4521.66 -> +2.06%; served H(0.5) = 63.5065
+                          vs 63.6730 -> -0.26%, finite and positive
+    z_sn = [2, 3, 600]:   served chi(2) = 8626.36 Mpc vs truth
+                          7753.45 -> +11.26%; served H(1.0) -1.14%
+    z_sn = [0.001, 3, 600] and the board fixture [0.01, 3, 120]:
+                          bias < 1e-3% — shipped-scale zmin is NOT
+                          materially wrong; the bite is the OPEN
+                          SCHEMA CLASS, reachable at the validator
+                          boundary today
+
+(the red team quoted +3.02% for zmin = 1 on an unstated grid spec;
+the zmin = 2 figures agree to 0.1% and the direction and magnitude
+class agree everywhere — the contract does not hang on the exact
+figure). The extrapolated H stays finite, positive, and monotonic,
+so unit 15's physical-totality guards are BLIND to this by design:
+15 certifies values, 58 certifies that the integration/declaration
+DOMAIN is actually trained. Distinct units, same home note, land
+together.
+
+Contract (six clauses):
+
+1. Generator schema: z_sn must start at exactly zero — require
+   z_sn[0] == 0.0, replacing the current 0 < zmin rule (z_rec keeps
+   its existing rule; the desert check is unchanged).
+2. comoving_distance_grid REQUIRES z_grid[0] == 0.0 and drops
+   fill_value="extrapolate" (bounds_error=True): it never
+   establishes the lower integration boundary by extrapolating
+   through an untrained interval. distance_interpolators' H wrapper
+   gets the same boundary honesty. Docstrings corrected (the "need
+   not start at 0" sentence is retired WITH this record of why).
+3. The adapter refuses legacy Hubble artifacts whose persisted grid
+   starts above zero, at LOAD time (where z_sn is read from the
+   artifact, before distance_interpolators at :279 and before any
+   getter), with a migration message naming the artifact, the
+   persisted z[0], and the regeneration/retraining requirement.
+   emulator/diagnostics.py:642 inherits the same protection through
+   the artifact refusal.
+4. The declared window comes from the persisted grid: [0, _sn_max]
+   may be advertised only after proving the first node is exactly
+   zero.
+5. Migration (dataset/artifact break, declared): the generator
+   docstring example [0.001, 3.0, 600] -> [0.0, 3.0, 600]; the
+   board's bsn-smoke config z_sn: [0.01, 3.0, 120]
+   (bsn_smoke.py:97) -> [0.0, 3.0, 120]; the SIX 0.001-starting
+   bsn_identity fixture grids (:145, :164, :226, :308, :414, :515)
+   -> zero-starting; existing artifacts must be regenerated and
+   retrained; served-number change at shipped-scale zmin is below
+   1e-5 relative, declared here.
+6. The cubic interpolation and the corrected (45M-12) cumulative
+   Simpson are UNTOUCHED on valid zero-starting grids — this finding
+   authorizes no quadrature redesign.
+
+Gate legs (inside the existing board-listed bsn-identity +
+bsn-smoke):
+
+- zero-starting analytic H controls retain the expected distances
+  (known-answer values recomputed on the migrated fixtures);
+- grids starting at 0.001, 0.5, and 1.0 are REFUSED by
+  comoving_distance_grid (and the adapter-load path for a persisted
+  z[0] > 0), never extrapolated;
+- mutation arm: the old extrapolating construction on the
+  z_sn = [1, 3, 600] fixture must reproduce the wrong finite
+  distance (+2.06% is the recorded known answer);
+- artifact reload with z[0] > 0 fails BEFORE serving (constructor,
+  not first query);
+- the real-CAMB smoke regenerates its fixture with z_sn[0] = 0 and
+  keeps comparing off-center distances.
+
+Placement: fourth wave, lands WITH unit 15 (same surfaces, same
+gates), BEFORE the EMUL2 acceptance. USER-VISIBLE: schema break (old
+z_sn configs refused loudly) + artifact migration (old artifacts
+refused loudly); served numbers at shipped-scale zmin change
+imperceptibly (< 1e-5 relative).

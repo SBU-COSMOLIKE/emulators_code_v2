@@ -465,6 +465,14 @@ files were created. Priority follows user-visible risk:
     VERIFIED (Fable, 2026-07-12): emul_mps ~144-164 (guards are
     </> only), ~94-114 (NaN bound kept when the extend-check branch
     is skipped).
+    AMENDED (45M-54, ninth batch): the mps-smoke range leg
+    (mps_smoke.py:394-398) reports PASS on ANY exception — zero
+    leg-level catch power for the refusal contract the vendored
+    check_ranges actually provides (LoggedError naming coordinate,
+    requested value, stored limit). Amendment: in-range control
+    first, all four boundaries, LoggedError-only with the message
+    pinned, wrong-class mutation arm. Spec:
+    families-background-mps.md "UNIT 16 AMENDED (45M-54)".
 17. **Generator ingress identity** (fourth wave). ord validated by
     set equality only — duplicates pass and the two reorder helpers
     collapse them DIFFERENTLY (sampler dim 4 vs model dim 3 in the
@@ -1228,6 +1236,41 @@ max(1e-6, 32*eps*n_terms) (per-run constant: compile-safe, not
 batch-poisonable); (e) slots BEFORE 42+43. Also this batch:
 Implementer closures 14(c) 97963b8, 14(d) 63880d1, 36 387c650 all
 recorded, pending batch audit; 14 reopens on (e) only.
+
+NINTH 45M BATCH (2026-07-12): 45M-54 = unit 16 AMENDED (the
+mps-smoke range leg passes on ANY exception; the amended legs pin
+the vendored check_ranges contract — LoggedError naming the
+coordinate, the requested value, and the stored limit,
+emul_mps.py:144-165 — on all four boundaries with an in-range
+control first; Architect precision ruling: an always-raising P
+already reds the gate through the lifecycle leg, so the
+discriminating mutant is in-range-healthy + wrong-class refusal —
+today's leg greens it, the amended leg must red it). 45M-55 = NEW
+UNIT 58 (BAOSN distances integrate from z = 0 while the generator
+schema FORBIDS a zero-starting SN grid: comoving_distance_grid
+cubic-extrapolates c/H through the untrained [0, zmin), and the
+docstring blesses it as legacy-verbatim — a legacy convention now
+adjudicated WRONG, the 45M-12 precedent; reproduced with the REAL
+module: z_sn=[1,3,600] serves chi(1) +2.06% high, [2,3,600]
++11.26%, extrapolated H finite/positive/monotonic so unit 15's
+guards are blind; shipped-scale zmin (0.001 example, 0.01 board
+fixture) bias < 1e-3% — the bite is the open schema class;
+contract: z_sn[0] == 0.0 exactly, no extrapolating fill in
+comoving_distance_grid or distance_interpolators, legacy Hubble
+artifacts with z[0] > 0 refused at adapter load with a migration
+message, the [0, z_max] window declared only after proving the
+persisted first node is zero, cubic + corrected Simpson untouched
+on valid grids; fixtures migrate: generator docstring example,
+bsn_smoke.py:97, SIX bsn_identity 0.001-starting grids; rides the
+fourth wave WITH unit 15, before the EMUL2 acceptance; spec
+families-background-mps.md). Also this batch: Implementer closure
+42 (5661c08, CMB amplitude-law metric fix) recorded, pending batch
+audit. CAPABILITY NOTE: the cocoa clone's python on the Mac dev
+box (Cocoa/.local/bin/python) carries torch 2.6.0 (CPU + MPS
+backend), cobaya 3.6.2, and scipy 1.12.0 — Mac probes can now
+exercise REAL torch/scipy/cobaya paths (the 45M-55 reproduction
+imported the real background.py under it); board gate runs stay
+workstation-owed.
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
