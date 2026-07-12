@@ -44,7 +44,7 @@ import torch
 
 from .geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
 from .results import rebuild_emulator
-from .training import make_model
+from .training import make_model, _report_nonfinite
 from .activations import make_activation
 from .designs.blocks import make_norm
 
@@ -785,6 +785,44 @@ def _shared_columns(source_pgeom, new_pgeom, device):
   return shared_cols, extra_cols
 
 
+def _require_parity_finite(side, quantity, values, rows):
+  """Abort the pre-train parity check if any per-row value is non-finite.
+
+  The finite contract on the warm-start parity gates (finetune and
+  transfer): the "[ok] parity" verdict must be IMPOSSIBLE unless every
+  compared tensor is finite. Otherwise a diverged epoch-0 model makes the
+  compared difference non-finite, and "max|dv| = nan" compares False to
+  the tolerance (and torch.equal reads a NaN as an ordinary mismatch) —
+  so a broken warm start prints as if parity held, or fails with a
+  misleading "extras leaked" / "not the frozen base" reason. This raises
+  the one shared finite-contract message instead (never a sentinel),
+  naming the offending staged rows.
+
+  Arguments:
+    side     = "finetune parity" or "transfer parity" (the pipeline side,
+               threaded into the shared _report_nonfinite message).
+    quantity = what was checked (a noun phrase, e.g. "epoch-0 new-model
+               outputs"); reads as "N of M <quantity> are non-finite".
+    values   = the tensor to test; its first axis is the staged rows, any
+               remaining axes are the per-row payload (flattened here).
+    rows     = the staged row indices aligned to values' first axis.
+
+  Raises:
+    ValueError (the shared finite-contract message) on any non-finite
+    entry; returns None otherwise.
+  """
+  # collapse every per-row payload axis so a row counts as bad if any of
+  # its entries is non-finite (works for a (R, W) output and a factored
+  # (R, T, W) surface alike).
+  per_row = torch.isfinite(values).reshape(values.shape[0], -1).all(dim=1)
+  if bool(per_row.all()):
+    return
+  bad_rows = np.asarray(rows)[(~per_row).cpu().numpy()]
+  _report_nonfinite(side=side, quantity=quantity,
+                    n_bad=int(bad_rows.size), n_total=int(values.shape[0]),
+                    positions=bad_rows[:8].tolist())
+
+
 def build_warm_start(source,
                      new_pgeom,
                      pinned_geom,
@@ -820,8 +858,10 @@ def build_warm_start(source,
     their extra columns).
 
   Raises:
-    ValueError if the parity tolerance is exceeded, or if the extra
-    parameters leak into the epoch-0 output.
+    ValueError if the parity tolerance is exceeded, if the extra
+    parameters leak into the epoch-0 output, or (the finite contract) if
+    the encoded inputs or either model output are non-finite — the [ok]
+    verdict is impossible unless every compared tensor is finite.
   """
   n_extra = len(extra_names)
   in_dim  = len(new_pgeom.names)
@@ -858,8 +898,25 @@ def build_warm_start(source,
   with torch.no_grad():
     # new model on the full (n_n) input; source model on the shared params in
     # source order (theta[:, shared_cols] is (R, n_s), source-ordered).
-    out_new = model(new_pgeom.encode(theta))               # model(x): x=input
-    out_src = source.model(source.pgeom.encode(theta[:, shared_cols]))
+    enc_new = new_pgeom.encode(theta)                      # model(x): x=input
+    enc_src = source.pgeom.encode(theta[:, shared_cols])
+    out_new = model(enc_new)
+    out_src = source.model(enc_src)
+    # finite contract (before any comparison below): guard the encoded
+    # inputs and BOTH model outputs, naming the offending staged rows and
+    # which arm diverged. Their difference and the scalar max are then
+    # finite by construction, so the tolerance comparison at the foot of
+    # this function and the extras-independence torch.equal just below can
+    # never read a NaN as an ordinary mismatch — which would print parity
+    # as HELD, or raise the wrong reason, on a broken warm start.
+    _require_parity_finite("finetune parity", "encoded new-run inputs",
+                           enc_new, rows)
+    _require_parity_finite("finetune parity", "encoded source inputs",
+                           enc_src, rows)
+    _require_parity_finite("finetune parity", "epoch-0 new-model outputs",
+                           out_new, rows)
+    _require_parity_finite("finetune parity", "epoch-0 source-model outputs",
+                           out_src, rows)
     max_dv = (out_new - out_src).abs().max().item()
 
     # extras-independence: perturbing only the extra columns must not move the
@@ -981,7 +1038,10 @@ def build_transfer_start(chi2fn,
     run_emulator as init_state, and the one-line parity verdict.
 
   Raises:
-    ValueError if epoch 0 is not the frozen base bitwise, or the extras move it.
+    ValueError if epoch 0 is not the frozen base bitwise, if the extras
+    move it, or (the finite contract) if the encoded inputs, the composed
+    prediction, or the frozen base decode are non-finite — the [ok]
+    verdict is impossible unless every compared tensor is finite.
   """
   in_dim  = getattr(new_pgeom, "encoded_dim", len(new_pgeom.names))
   out_dim = int(chi2fn.dest_idx.numel())
@@ -1011,6 +1071,18 @@ def build_transfer_start(chi2fn,
     enc      = new_pgeom.encode(theta)
     composed = chi2fn.decode(corr(enc), enc)       # base + zero correction
     base     = chi2fn.base_decode(enc)             # the frozen base, same space
+    # finite contract (before the bitwise / extras comparisons below): a
+    # non-finite composed or base makes torch.equal read False and the
+    # error below print "max|dv| = nan" as if a real parity failure
+    # occurred. Guard the encoded inputs and both surfaces here, naming
+    # the offending staged rows, so the [ok] verdict is impossible unless
+    # epoch 0 really is the frozen base.
+    _require_parity_finite("transfer parity", "encoded run inputs",
+                           enc, rows)
+    _require_parity_finite("transfer parity", "epoch-0 composed prediction",
+                           composed, rows)
+    _require_parity_finite("transfer parity", "frozen base decode",
+                           base, rows)
     if not torch.equal(composed, base):
       max_dv = (composed - base).abs().max().item()
       raise ValueError(

@@ -1311,6 +1311,63 @@ def derive_ema_beta(horizon_epochs, steps_per_epoch):
   return 1.0 - 1.0 / denom
 
 
+# --- the finite training/evaluation contract ---
+# A NaN or Inf score must NEVER rank, select, or report as a valid
+# result. A non-finite per-sample chi2 compares False to every threshold,
+# so it counts as BELOW threshold — a diverged model would report a
+# perfect frac 0.0 and be snapshotted as the best epoch, defeating the
+# dead-network gate discipline itself. So every training/scoring site
+# aborts LOUDLY on a non-finite value: never a sentinel, never counted
+# below threshold. These helpers give one uniform error across the sites.
+def _report_nonfinite(side, quantity, n_bad, n_total, positions):
+  """Raise the finite-contract error, one message shape for every site.
+
+  Arguments:
+    side      = "training" or "validation" (the pipeline side at fault).
+    quantity  = what went non-finite (e.g. "per-sample chi2").
+    n_bad     = how many entries are non-finite.
+    n_total   = the total checked.
+    positions = the first few offending positions (validation row
+                indices, or a batch identity), already a Python list.
+
+  Raises:
+    ValueError, always — the caller only calls this once it has found a
+    non-finite value.
+  """
+  raise ValueError(
+    "finite contract [" + side + "]: " + str(int(n_bad)) + " of "
+    + str(int(n_total)) + " " + quantity + " are non-finite (NaN/Inf) "
+    "— a diverged run. First offending positions: " + str(positions)
+    + ". A non-finite score must never rank or select a model; fix the "
+    "run, never score it (no sentinel, never counted below threshold).")
+
+
+def _global_grad_norm(params):
+  """The L2 norm of all parameter gradients, READ-ONLY (None grads
+  skipped, the frozen trunk in a head phase).
+
+  The finite contract's gradient check when clipping is off: clip is 0
+  so clip_grad_norm_ is not called, but the step must still be refused on
+  a NaN/Inf gradient. This computes the same global norm clip_grad_norm_
+  would, WITHOUT scaling the gradients, so a clipping-off run stays
+  byte-identical to the pre-contract path (only the finite check is
+  added).
+
+  Arguments:
+    params = the model parameters (an iterator; each may carry .grad).
+
+  Returns:
+    a 0-dim tensor: the global gradient L2 norm (0 when no grads exist).
+  """
+  parts = []
+  for p in params:
+    if p.grad is not None:
+      parts.append(torch.linalg.vector_norm(p.grad.detach()))
+  if not parts:
+    return torch.zeros(())
+  return torch.linalg.vector_norm(torch.stack(parts))
+
+
 def eval_val(model, lossfn, data, load, bs, thresholds,
              fwd_chi2=None):
   """
@@ -1396,9 +1453,11 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
       return lossfn.chi2(pred=pred, target=yb)
 
   chi2s = []
+  order_rows = []   # the global val rows in c's order, for the finite guard
   with torch.no_grad():
     for cs in range(0, len(vidx), load):
       rows = np.sort(vidx[cs:cs+load])
+      order_rows.append(rows)
       Cc  = load_C(rows)             # (m, Ncosmo)
       dvc = load_dv(rows)            # (m, out_dim)
       m   = Cc.shape[0]
@@ -1423,6 +1482,18 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
         chi2s.append(fwd_chi2(xb, yb)[:n].clone())
 
   c = torch.cat(chi2s).cpu() # per-sample chi2; the one D2H copy
+  # finite contract (the single validation chokepoint: the baseline, the
+  # raw eval, and the ema eval all pass through here, so the best-epoch
+  # selection only ever compares finite scores). A NaN/Inf per-sample
+  # chi2 must never reach the median / mean / threshold fractions — it
+  # would count as below every threshold and rank a diverged model best.
+  finite = torch.isfinite(c)
+  if not bool(finite.all()):
+    bad = np.nonzero(~finite.numpy())[0]
+    order = np.concatenate(order_rows)
+    _report_nonfinite(side="validation", quantity="per-sample chi2",
+                      n_bad=int(bad.size), n_total=int(c.numel()),
+                      positions=order[bad][:8].tolist())
   mean   = c.mean().item()
   median = c.median().item()
 
@@ -1493,6 +1564,17 @@ def eval_source_chi2(model,
       chunks.append(c.cpu())
 
   dchi2 = torch.cat(chunks).double().numpy()
+  # finite contract: a diverged model's non-finite per-row chi2 must not
+  # be published as a diagnostic metric (a silent NaN in the parameter-
+  # space plots). Abort, naming the offending source rows. (The
+  # diagnostics' own NaN-from-finite-input is a separate unit; this
+  # guards the MODEL output that feeds them.)
+  finite = np.isfinite(dchi2)
+  if not finite.all():
+    bad = np.nonzero(~finite)[0]
+    _report_nonfinite(side="diagnostic", quantity="per-row chi2",
+                      n_bad=int(bad.size), n_total=int(dchi2.size),
+                      positions=rows[bad][:8].tolist())
   return params, dchi2
 
 
@@ -1967,16 +2049,41 @@ def training_loop_batched(nepochs,
       n_full = (Cc.shape[0] // bs) * bs   # whole batches only
       for s in range(0, n_full, bs):
         loss = fwd_loss(Cc[s:s+bs], dvc[s:s+bs], trim_t, focus_t, s_t)
+        # finite contract: refuse to backward a non-finite loss — it
+        # would produce NaN gradients, corrupt the weights, and the
+        # corrupted model would then score frac 0.0 (a NaN val chi2
+        # counts below every threshold) and be selected best. One host
+        # sync per step, the deliberate price of catching divergence at
+        # its source rather than mis-selecting the run.
+        if not bool(torch.isfinite(loss)):
+          _report_nonfinite(
+            side="training", quantity="scalar training loss",
+            n_bad=1, n_total=1,
+            positions=["epoch " + str(epoch) + " chunk@" + str(cs)
+                       + " batch@" + str(s)])
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        # gradient-norm clipping (0 = off): rescale the full
-        # gradient vector to norm <= clip before the step, so one
-        # monster-outlier batch cannot kick the weights (direction
-        # kept, size bounded). clip_grad_norm_ skips parameters
-        # whose grad is None, the frozen trunk in a head phase.
+        # gradient-norm clipping (0 = off): rescale the full gradient
+        # vector to norm <= clip before the step, so one monster-outlier
+        # batch cannot kick the weights (direction kept, size bounded).
+        # clip_grad_norm_ skips parameters whose grad is None, the frozen
+        # trunk in a head phase, and returns the pre-clip norm.
         if clip > 0.0:
-          nn.utils.clip_grad_norm_(model.parameters(),
-                                   max_norm=clip)
+          grad_norm = nn.utils.clip_grad_norm_(model.parameters(),
+                                               max_norm=clip)
+        else:
+          # clipping off: still compute the norm (read-only, byte-
+          # identical to the old no-clip path) so the finite contract can
+          # refuse a NaN/Inf gradient before optimizer.step mutates the
+          # weights — clipping disabled is not the same as unchecked.
+          grad_norm = _global_grad_norm(model.parameters())
+        if not bool(torch.isfinite(grad_norm)):
+          _report_nonfinite(
+            side="training", quantity="gradient norm",
+            n_bad=1, n_total=1,
+            positions=["epoch " + str(epoch) + " chunk@" + str(cs)
+                       + " batch@" + str(s) + " grad_norm="
+                       + repr(float(grad_norm))])
         optimizer.step()
         # weight-average update (once ema is live): theta_bar <-
         # beta*theta_bar + (1-beta)*theta, a handful of fused foreach

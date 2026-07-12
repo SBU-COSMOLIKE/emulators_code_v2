@@ -1222,6 +1222,38 @@ def gate_geo_a(ctx):
              + " (gates/checks/geo_paths.py)")
 
 
+def gate_finite_contract(ctx):
+  """finite-contract: a NaN / Inf never ranks, selects, or ships a model.
+
+  WHAT: the finite training/evaluation contract, on the REAL functions. A
+  non-finite per-sample chi2 counts as below every threshold, so a diverged
+  model would report a perfect fraction of 0.0 and be snapshotted best, and
+  the pre-train parity gates would print "[ok] ... max|dv| = nan" as if the
+  warm start held. Every site must abort loudly instead. WHY: the board's
+  primary selection metric and the warm-start parity verdict must be
+  impossible to satisfy with a non-finite value; the dead-network collapse
+  bars themselves fail open otherwise. HOW: a CPU torch-only check drives
+  eval_val (a finite control reproduces the reference metrics; one NaN;
+  +/-Inf), the real training_loop_batched step (a NaN loss raises before
+  backward, a non-finite gradient before optimizer.step, the weights bitwise
+  unchanged), eval_source_chi2 (side diagnostic), and both warm-start parity
+  gates (no-extra both-arms NaN, one-arm NaN, Inf, extras-present NaN, and a
+  non-finite transfer surface, each with the finite-contract message, never a
+  misleading "extras leaked" / "frozen base" / tolerance verdict); the valid
+  controls keep their metrics and their [ok] parity lines. torch only, no
+  cosmolike, no GPU (spec: training-stack.md, the "NaN scores as a perfect
+  emulator" section and its pre-training parity clause).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/finite_contract.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="finite-contract eval/train/diagnostic/parity legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/finite_contract.py)")
+
+
 BOARD = [
   Gate(id="ema-off-identity",
        spec_code="GM-C",
@@ -1278,6 +1310,18 @@ BOARD = [
        maps="102-108 (partition invariance rtol 1e-6 + timing); 202-300 script",
        run=gate_ge_c,
        needs=("torch", "gpu")),
+  Gate(id="finite-contract",
+       spec_code="FIN-A",
+       title="Finite training/evaluation contract",
+       tier=TIER_BACKLOG,
+       home="training-stack",
+       maps="the training-stack finite contract: the 'NaN scores as a "
+            "perfect emulator' section (the eval_val / train-step / "
+            "eval_source_chi2 guards) and its pre-training parity clause "
+            "(build_warm_start + build_transfer_start); the five red legs "
+            "plus the finite controls",
+       run=gate_finite_contract,
+       needs=("torch",)),
   Gate(id="berhu-loss",
        spec_code="GB-C",
        title="berHu head loss",
@@ -1426,9 +1470,11 @@ BOARD = [
        home="families-background-mps",
        maps="the note's matter-power sections: geometry + laws; the base "
             "placement + staging transform; the bounded-staging + "
-            "stable-moments legs (Grid2d staging defeats its own memory "
-            "ladder, data-generation-and-cuts.md); identity legs; "
-            "finetune",
+            "stable-moments legs and the staging-lifecycle legs "
+            "(experiment-owned temp files, supersede-on-restage, "
+            "sweep-lane release, failure unlink; Grid2d staging defeats "
+            "its own memory ladder, data-generation-and-cuts.md); "
+            "identity legs; finetune",
        run=gate_mps_a,
        needs=("torch",)),
   Gate(id="geo-paths",
