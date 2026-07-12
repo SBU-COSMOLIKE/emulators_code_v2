@@ -603,6 +603,75 @@ refactor, band policy unchanged):**
    legs stay green unchanged).
 6. README prose in plain language; ledger codes stay in notes/.
 
+### 45M-01 amendment (2026-07-12, red-team; Architect-VERIFIED): the fiducial params block — schema, resolution, provenance
+
+(The red-team rounds are now labeled 45M-XY by user convention; the
+Implementer handoff for this unit carries 45M-01.)
+
+The unit above validates cov_args; the params block has the same
+disease one level up. validate_lcdm_params
+(compute_cmb_covariance.py:334-378) checks only entries that happen
+to be PRESENT — no required-key schema, no
+mutually-exclusive-alternatives rule — and its per-value checks have
+two type holes: `isinstance(value, (int, float))` admits bool (a
+subclass of int), and the LCDM_FIXED_ONLY pin uses
+`abs(float(value) - pin) > 1e-12`, which NaN answers False (every
+NaN comparison is false), so `omk: .nan` PASSES the "omk must be 0"
+check. Probe-confirmed on the shipped body (exec-extracted via AST,
+7/7 accepted): empty `params: {}`; `As: true`; `As: .nan`;
+`omk: .nan`; no amplitude parameter at all; both As and logA; both
+H0 and thetastar. The accepted mapping is handed UNCHANGED to cobaya
+(fiducial_spectra: `model_info["params"] = info["params"]`, :405)
+and provenance persists that same unresolved mapping
+(`"fiducial_params": info["params"]`, :751) — omitted parameters are
+therefore external Cobaya/CAMB defaults, and the covariance file
+cannot reconstruct the fiducial cosmology that generated its own
+spectra. That breaks the never-trust-defaults doctrine on both
+surfaces at once: a silent input default AND an unresolved persisted
+value.
+
+Contract (folds into the SAME Implementer unit; same discipline —
+producer + pure gate legs, shipped numbers preserved):
+
+1. One exact fiducial-parameter schema (in validate_lcdm_params or a
+   sibling it calls), validated BEFORE any Cobaya/CAMB construction.
+2. Every value a finite, non-bool real: reject
+   `isinstance(value, bool)` explicitly, reject non-finite via
+   math.isfinite. This kills `As: true`, `As: .nan`, and the
+   `omk: .nan` pin defeat upstream of the pin comparison.
+3. Exactly ONE amplitude parameter from {As, logA} and exactly ONE
+   expansion parameter from {H0, thetastar, cosmomc_theta}; zero or
+   two-plus from either set raises a corrective error naming the set
+   and what was found.
+4. Required singletons: ns, omegabh2, omegach2, tau, mnu — each
+   present or a corrective error naming the missing key.
+5. omk, w, wa REQUIRED EXPLICIT in the YAML at their LCDM values,
+   where the existing pin check applies (Architect ruling, consistent
+   with the cov_args sharpening "ALL keys explicit in the YAML, no
+   code defaults"). omk 0 / w -1 / wa 0 ARE the CAMB defaults, so the
+   shipped solve is numerically identical. Contingency: if the
+   workstation's real-CAMB check shows the explicit keys perturb the
+   solve (they should not), fall back to the red team's alternative —
+   materialize the three into the resolved mapping inside this
+   repository before model construction — and record which branch
+   shipped in the resume.
+6. The mapping that passed the schema IS the resolved mapping: the
+   same object goes to cobaya and into provenance
+   ("fiducial_params") — written and consumed cosmologies identical
+   by construction.
+7. The shipped example_yamls/cmb_covariance_lcdm.yaml params block
+   gains omk/w/wa (config fix, never a code default; paste-ready
+   block in the resume); every other number untouched.
+8. Gate legs (pure, no CAMB/Torch/GPU, riding cmb-identity beside the
+   cov_args legs): empty mapping; bool value; NaN value; Inf value;
+   missing amplitude; double amplitude (As + logA); missing
+   expansion; double expansion (H0 + thetastar); `omk: .nan` (the
+   defeated pin — must now die on finiteness); missing omk/w/wa;
+   non-flat omk (regression — already caught, keep it caught); and a
+   shipped-config control: the amended params block validates clean
+   and the persisted fiducial mapping equals the consumed one and is
+   complete.
+
 ## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented; the PRODUCING side is BLOCKED ON D-CM11-A)
 
 Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.

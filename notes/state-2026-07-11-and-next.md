@@ -375,6 +375,22 @@ files were created. Priority follows user-visible risk:
     capped at lmax (~415), fsky/.get defaults (~686, ~517-519,
     ~706), and bool(str) truthiness at ~728/759. Queued AFTER the
     in-flight transfer-fixture unit and the grid2d staging unit.
+    AMENDED 45M-01 (2026-07-12; the red-team rounds are now labeled
+    45M-XY by user convention, and Implementer handoffs carry the
+    label): the fiducial params block has the same disease —
+    validate_lcdm_params (compute_cmb_covariance.py:334-378) checks
+    only PRESENT entries (no required keys, no exclusive-alternatives
+    rule), bool passes the numeric check (subclass of int), and NaN
+    defeats the omk pin (abs(nan) > 1e-12 is False). Probe-confirmed
+    7/7 on the exec-extracted shipped body: empty mapping, As: true,
+    As: .nan, omk: .nan, no amplitude at all, As+logA, and
+    H0+thetastar are ALL accepted. The unresolved mapping goes to
+    cobaya (:405) and to provenance (:751), so the covariance file
+    cannot reconstruct the fiducial cosmology that generated its own
+    spectra. Schema (exactly-one amplitude/expansion, required
+    singletons, finite non-bool values, omk/w/wa explicit) +
+    resolved-mapping persistence folded into this unit's spec:
+    families-scalar-cmb.md, "45M-01 amendment".
 14. **Finite training/evaluation contract** (red-team fourth wave,
     2026-07-12, CRITICAL — JUMPS THE QUEUE to right after the
     in-flight fixture unit: it protects every production training,
