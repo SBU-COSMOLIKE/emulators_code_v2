@@ -1243,10 +1243,13 @@ def gate_finite_contract(ctx):
   45M-24 safe-sqrt producer (an exact-fit chi2 == 0 has a finite, zero
   gradient in every sqrt mode instead of the 0/0 = NaN it used to produce;
   positives agree with sqrt; a negative / NaN chi2 is refused; eager and
-  torch.compile agree); the valid controls keep their metrics and their [ok]
-  parity lines. torch only, no cosmolike, no GPU (spec: training-stack.md, the
-  "NaN scores as a perfect emulator" section and its pre-training parity +
-  45M-24 clauses).
+  torch.compile agree), and the 45M-47 epoch reduction (a finite per-batch
+  loss near the float32 max yields a finite epoch mean via host float64
+  accumulation, where the old device float32 loss*bs product overflowed to
+  Inf); the valid controls keep their metrics and their [ok] parity lines.
+  torch only, no cosmolike, no GPU (spec: training-stack.md, the "NaN scores
+  as a perfect emulator" section and its pre-training parity + 45M-24 + 45M-47
+  clauses).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/finite_contract.py")
@@ -1322,10 +1325,13 @@ BOARD = [
        maps="the training-stack finite contract: the 'NaN scores as a "
             "perfect emulator' section (the eval_val / train-step / "
             "eval_source_chi2 guards), its pre-training parity clause "
-            "(build_warm_start + build_transfer_start), and the 45M-24 "
+            "(build_warm_start + build_transfer_start), the 45M-24 "
             "safe-sqrt producer clause (exact-fit finite gradients per "
             "mode, positives analytic, negative/NaN chi2 refused, eager + "
-            "compiled); the red legs plus the finite controls",
+            "compiled), and the 45M-47 epoch-reduction clause (host "
+            "float64 accumulation; a finite epoch mean where the old "
+            "float32 loss*bs product overflowed); the red legs plus the "
+            "finite controls",
        run=gate_finite_contract,
        needs=("torch",)),
   Gate(id="berhu-loss",

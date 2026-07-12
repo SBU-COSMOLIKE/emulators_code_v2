@@ -618,6 +618,42 @@ emulator/warmstart.py (b), emulator/losses/core.py (c),
 gates/checks/finite_contract.py, gates/board.py, notes/training-stack.md.
 Per-step host-sync epoch cost still to be measured on the workstation.
 
+#### Finite-contract resume (2026-07-12, Opus) — increment (d) 45M-47 in; unit 14 NOW closes on a+b+c+d+gate
+
+45M-47 landed as a concurrent notes commit while I was committing (c); its
+increment (d) was not in the original work order's "three increments", so I
+folded it in right after (c) to genuinely close unit 14. Self-committed on
+the branch (batch grant, pending Architect audit).
+
+Increment (d) — the epoch reduction cannot publish an Inf from finite
+per-batch losses (training.py `training_loop_batched`):
+- The epoch loss now accumulates on the HOST as a python float:
+  `run_sum = 0.0`, then `run_sum += float(loss.detach()) * bs`. The finite
+  contract already syncs every step at the isfinite(loss) check, so the
+  host read adds no new stall; the accumulator is diagnostic-only, so the
+  training path is untouched. This removes the device float32 product
+  (a finite loss near float32 max times bs -> Inf before the sum) AND the
+  MPS float32 accumulator (the `acc_dtype` block is deleted).
+- The completed `train_loss = run_sum / run_n` is REQUIRED finite before it
+  is appended / printed / persisted: `if not np.isfinite(train_loss):
+  _report_nonfinite(side="training", quantity="epoch mean loss", ...
+  positions=["epoch " + str(epoch)])` (the shared message, naming the
+  epoch) -- the recorded general rule that a reduction's result must be
+  checked, finite operands do not prove a finite reduction.
+- Gate Part G (finite_contract.py, EXTENDS the finite-contract check, not a
+  new gate): drives the REAL training_loop_batched with two full batches and
+  a finite 1e38 per-batch loss -> a finite epoch mean near 1e38; the
+  mutation arm shows the old float32 loss*bs product overflows to Inf. Board
+  maps + gate docstring name the 45M-47 clause.
+
+Mac gate (raw): py_compile OK (training.py, board.py, finite_contract.py);
+probe_finite_contract.py 5/5 (increment a core intact); board AST 33 gates.
+The real epoch-mean loop leg rides the workstation finite-contract gate.
+
+Unit 14 (queue) closes on a + b (a0d03f5) + c (97963b8, 45M-24) + d (this,
+45M-47) + the extended finite-contract gate. Files for (d): training.py,
+gates/checks/finite_contract.py, gates/board.py, notes/training-stack.md.
+
 ## Schedule validation + direction-correct step (red-team 2026-07-12 fifth wave, Architect-VERIFIED, open)
 
 trim/focus schedules reach anneal_value with NO validator (the

@@ -39,6 +39,10 @@ The parts, in order:
      sqrt(t2*c) where-mask leak); positives agree analytically with sqrt; a
      materially negative / non-finite chi2 is refused (a non-finite loss);
      eager and torch.compile agree.
+  G. epoch-reduction finite truth (45M-47) — a finite per-batch loss near the
+     float32 max yields a finite epoch mean (accumulated on the host in
+     float64), where the old device-float32 loss*bs product would overflow to
+     Inf and publish it.
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
@@ -713,6 +717,63 @@ def check_safe_sqrt():
 
 
 # ==========================================================================
+# Part G: epoch-reduction finite truth (45M-47) -- a finite per-batch loss
+#         must not publish an Inf epoch mean.
+# ==========================================================================
+
+class _BigLoss:
+  """A finite training loss pinned near the float32 max (finite gradient).
+
+  Its per-batch scalar is 1e38 (finite in float32) with a real gradient, so
+  the per-step finite guard passes -- but the OLD device-float32 epoch
+  product loss * bs would overflow to Inf before the accumulator. .chi2 is
+  the clean eval metric.
+  """
+
+  needs_params = False
+
+  def loss(self, pred, target, mode="sqrt", trim=None, focus=None,
+           focus_scale=None, berhu_knot=None, berhu_cap=None, berhu_s=None):
+    base = ((pred - target) ** 2).sum(dim=1).mean()
+    return base + (1.0e38 - base.detach())        # value 1e38, gradient d base
+
+  def chi2(self, pred, target):
+    return ((pred - target) ** 2).sum(dim=1)
+
+
+def check_epoch_reduction():
+  """Part G: the epoch mean accumulates on the host, finite despite a
+  near-overflow per-batch loss; the old float32 product would overflow."""
+  torch.manual_seed(5)
+  model = nn.Linear(N_IN, N_OUT)
+  optimizer = torch.optim.Adam(model.parameters(), lr=1e-6)
+  scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+  n_train, bs = 16, 8                             # two full batches per epoch
+  Ctr, DVtr = torch.randn(n_train, N_IN), torch.randn(n_train, N_OUT)
+  Cvl, DVvl = torch.randn(N_VALB, N_IN), torch.randn(N_VALB, N_OUT)
+  data = {"train": {"load_C": lambda r: Ctr[r], "load_dv": lambda r: DVtr[r],
+                    "idx": np.arange(n_train), "load": n_train},
+          "val": {"load_C": lambda r: Cvl[r], "load_dv": lambda r: DVvl[r],
+                  "idx": np.arange(N_VALB), "load": N_VALB}}
+  result = training_loop_batched(
+    nepochs=1, optimizer=optimizer, scheduler=scheduler, model=model,
+    bs=bs, lossfn=_BigLoss(), mode="sqrt", data=data,
+    trim_opts=TRIM, focus_opts=FOCUS,
+    thresholds=torch.tensor([0.2, 0.5, 1.0]), silent=True)
+  epoch_loss = result[0][0]
+  report("epoch reduction: a finite 1e38 per-batch loss yields a finite "
+         "epoch mean (host float64)",
+         np.isfinite(epoch_loss) and 5e37 < epoch_loss < 5e38,
+         "epoch loss = %.3e" % epoch_loss)
+
+  # mutation arm: the pre-fix device float32 product loss * bs overflowed.
+  old = np.float32(1.0e38) * np.float32(bs)
+  report("epoch reduction: the old float32 loss*bs product overflows to Inf",
+         not np.isfinite(old),
+         "np.float32(1e38) * " + str(bs) + " = " + repr(float(old)))
+
+
+# ==========================================================================
 # helpers + main
 # ==========================================================================
 
@@ -756,6 +817,8 @@ def main():
   check_transfer_parity(source, pgeom_x, extras_x, C_x)
   print("\n-- Part F: the safe-sqrt producer (45M-24) --")
   check_safe_sqrt()
+  print("\n-- Part G: epoch-reduction finite truth (45M-47) --")
+  check_epoch_reduction()
 
   print("")
   if len(FAILURES) == 0:

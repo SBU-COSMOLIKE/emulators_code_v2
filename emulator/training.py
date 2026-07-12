@@ -1775,12 +1775,6 @@ def training_loop_batched(nepochs,
 
   train_losses, medians, means, fracs = [], [], [], []
 
-  # MPS (Apple Silicon) has no float64. Accumulate the loss in
-  # float64 where supported (CUDA/CPU), float32 on MPS: only
-  # the epoch-mean train loss, so the fallback is harmless.
-  acc_dtype = (torch.float32 if device.type == "mps"
-                             else torch.float64)
-
   amp_dtype = (torch.float16 if device.type == "mps"
                else torch.bfloat16)
 
@@ -2023,10 +2017,15 @@ def training_loop_batched(nepochs,
                              steps_per_epoch=steps_per_epoch)
 
     # epoch training loss, accumulated on-device
-    run_sum = torch.zeros((),
-                          device=device,
-                          dtype=acc_dtype)
-
+    # 45M-47: accumulate the epoch loss on the HOST as a python float
+    # (float64 on every backend, MPS included), not a device float32 sum.
+    # A finite per-batch loss near the float32 max, times bs, overflows a
+    # float32 product to Inf before it reaches the accumulator (and on MPS
+    # the accumulator itself is float32). The finite contract already syncs
+    # every step at the isfinite(loss) check below, so float(loss) adds no
+    # new stall; the accumulator is diagnostic-only (selection reads the val
+    # metrics), so the host read does not touch the training path.
+    run_sum = 0.0
     run_n   = 0
     for cs in range(0, ntrain, load):
       rows = np.sort(perm[cs:cs+load])
@@ -2100,9 +2099,19 @@ def training_loop_batched(nepochs,
         # weights (the shipped model).
         if anchor is not None:
           anchor.apply(optimizer)
-        run_sum += loss.detach() * bs
+        # host float64 accumulation (45M-47): read the scalar loss to the
+        # host and multiply by bs there, so the product cannot overflow a
+        # float32 before the sum. loss is already finite (the guard above).
+        run_sum += float(loss.detach()) * bs
         run_n   += bs
-    train_loss = (run_sum / run_n).item()
+    train_loss = run_sum / run_n
+    # 45M-47: a reduction's result must be checked -- finite per-batch
+    # operands do not prove a finite epoch mean. Refuse to publish (append,
+    # print, persist) a non-finite epoch loss; name the epoch.
+    if not np.isfinite(train_loss):
+      _report_nonfinite(side="training", quantity="epoch mean loss",
+                        n_bad=1, n_total=1,
+                        positions=["epoch " + str(epoch)])
     model.eval()
     # the raw eval drives the plateau scheduler (its dynamics are
     # unchanged); when ema is off this is also the selected / printed
