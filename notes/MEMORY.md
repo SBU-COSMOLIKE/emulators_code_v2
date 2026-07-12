@@ -31,8 +31,9 @@ the topic file your task touches.
   D-GEO5 shims retired).
 - [Families: scalar + CMB](families-scalar-cmb.md) — SPE (closed,
   the lesson bank) and CME (covinv ruling, amplitude law, covariance
-  script, roughness, diagnostics dispatch) + the D-CM12/D-CM13
-  SPECS AWAITING AUDIT.
+  script, roughness, diagnostics dispatch) + the D-CM12 SPEC AWAITING
+  AUDIT and D-CM13 IMPLEMENTED (heads on every coordinate family,
+  user-ordered 2026-07-11).
 - [Families: background + matter power](families-background-mps.md)
   — BSN (two-regime, imposed distances, flat-only, the Simpson
   finding) and MPS (correction-to-syren, D-MP2-A base-on-disk, the

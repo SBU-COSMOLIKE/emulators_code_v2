@@ -136,7 +136,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 |---|---|
 | `activations.py` | Learnable activations: the paper's `H` plus Power / Gated / GatedPower variants; `make_activation` maps a name → factory. |
 | `designs/blocks.py` | The small `nn.Module`s models are built from: `Affine`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, plus `rescale_kernel_size`. |
-| `designs/plain.py` | The full networks: `ResMLP` (baseline; the only design the scalar / cmb / grid / grid2d families accept — the conv/TRF heads assume the 3x2pt eigenbasis geometry), `ResCNN`, `ResTRF`. The factored-IA and NPCE variants are `designs/ia.py` / `designs/pce.py`. |
+| `designs/plain.py` | The full networks: `ResMLP` (baseline; the only design the SCALAR family accepts — named outputs have no coordinate axis), `ResCNN`, `ResTRF` (the correction heads; since the D-CM13 lift they ride cmb / grid / grid2d too — the diagonal geometries keep physical order, so the basis change degenerates to the identity and the split comes from `attach_head_coords()`; `model.trf.n_tokens` re-segments a single-bin spectrum into attention windows). The factored-IA and NPCE variants are `designs/ia.py` / `designs/pce.py`. |
 
 **Loss & training**
 
@@ -160,7 +160,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `inference.py` | `EmulatorPredictor`: rebuild a saved emulator and predict — one `predict(params)` for every artifact kind: the dv section, the scalar `{name: value}` dict, the physical C_ell row, the background `{"z", quantity}` function, or the (z, k) law-space surface. Reuses the exact training decode per family. |
 | `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves, and the multipage diagnostics PDF with the per-family pages (`cmb=` / `scalar=` / `grid=` / `grid2d=`). |
 | `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`, `grid2d_residual_diagnostic`). |
-| `family_drivers.py` | `run_ntrain_sweep` / `run_hyperparam_sweep` / `run_tune`: the SERIAL per-family loops the thin `<family>_sweep_ntrain_` / `<family>_sweep_hyperparam_` / `<family>_tune_` drivers call (the multi-GPU pool stays the cosmic-shear drivers' tool), plus the sweep-block helpers (`read_sweep_block`, `set_by_path`) the cosmic-shear hyperparameter driver imports. |
+| `family_drivers.py` | The shared sweep-block helpers (`read_sweep_block`, `set_by_path`, `SWEEPABLE_TOP_KEYS`, `ACTIVATION_PATHS`) — one definition of the YAML `sweep:` block, imported by the cosmic-shear one-knob driver; every per-family driver is a thin wrapper over the cosmic-shear drivers' `main(prog, family)`, so the multi-GPU pool, `--gpu-pack`, and the Optuna journal study carry over to all of them. |
 | `cocoa.py` | The cocoa project layout: `--root` / `--fileroot` / `--yaml` resolution, output paths. |
 
 **Drivers** (beside `emulator/`; each reads `--root` / `--fileroot` / `--yaml`)
@@ -178,9 +178,9 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `{scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py` | Thin wrappers over the cosmic-shear one-knob driver's `main(prog, family, out_default)`: the same `sweep:` block, multi-GPU + `--gpu-pack`. |
 | `cosmic_shear_bakeoff_activation_emulator.py` | One learning curve per activation; multi-GPU. |
 
-The naming rule for every new driver is `<verb>_<family>_emulator.py`;
-renaming the pre-rule cosmic-shear drivers into it is a recorded POL-1
-follow-up (the board configs move with the rename).
+The naming rule for every driver is `<family>_<verb>_emulator.py` — what
+you are emulating comes first, always (the 2026-07-11 family-first
+rename; the board configs moved with it).
 
 **cobaya_theory/** (one thin adapter per artifact kind; each rejects the
 other kinds' artifacts loudly, naming the right adapter)
@@ -299,16 +299,19 @@ covariance. The only file importing cosmolike.
 ### `emulator/geometries/cmb.py` <a name="apx-geometries_cmb"></a>
 
 - `CmbDiagonalGeometry` — per-multipole whitening by the cosmic-variance error bar; persists spectrum / ell / units / the amplitude-law facts (`from_fiducial` for synthetic fixtures — the ruled `sigma_l = C_fid sqrt(2/(2l+1))`; the training path feeds sigma from the covariance `.npz` through `__init__`).
+- `attach_head_coords()` — the conv/TRF heads' channel/token split (D-CM13): one bin covering the spectrum, coordinate = ell; pure, idempotent, run at training and at rebuild.
 
 ### `emulator/geometries/grid.py` <a name="apx-geometries_grid"></a>
 
 - `TARGET_LAWS` — `{none, log_offset}`; the law lives INSIDE encode/decode here.
 - `GridGeometry` — a function on a stored z grid (`from_targets` applies the law first; persists quantity / units / law / offset / z).
+- `attach_head_coords()` — the heads' split (D-CM13): one bin, coordinate = z.
 
 ### `emulator/geometries/grid2d.py` <a name="apx-geometries_grid2d"></a>
 
 - `TARGET_LAWS_2D` — `{none, syren_linear, syren_halofit}` (names only: the cosmology-dependent base is the consumer's multiply, through `syren_base.py`).
 - `Grid2DGeometry` — a flattened (z-outer) surface standardized in LAW space; persists quantity / units / law / z / k (the stored k IS the thinned grid).
+- `attach_head_coords()` — the heads' split (D-CM13): one bin PER Z SLICE, length nk (conv channels / TRF tokens = z slices).
 
 ### `emulator/background.py` <a name="apx-background"></a>
 
@@ -447,8 +450,7 @@ Post-training analyses (each returns a dict the plotting reads).
 
 ### `emulator/family_drivers.py` <a name="apx-family_drivers"></a>
 
-- `add_sweep_args` / `add_tune_args` — the shared per-family CLI flags.
-- `set_by_path(train_args, path, value)` / `read_sweep_block(cfg)` + `SWEEPABLE_TOP_KEYS` / `ACTIVATION_PATHS` — the one definition of the `sweep:` block, imported by the cosmic-shear one-knob driver (the family drivers are wrappers, so they inherit it).
+- `set_by_path(train_args, path, value)` / `read_sweep_block(cfg)` + `SWEEPABLE_TOP_KEYS` / `ACTIVATION_PATHS` — the one definition of the `sweep:` block, imported by the cosmic-shear one-knob driver (the family drivers are wrappers over `main(prog, family)`, so they inherit it).
 
 ### drivers (beside `emulator/`) <a name="apx-drivers"></a>
 

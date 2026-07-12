@@ -7,10 +7,12 @@ default values change afterward. If that promise breaks, a reloaded model
 quietly returns different numbers than the run that was published.
 
 How it works, in order:
-  1. Train three tiny emulators in this process: a plain one, a factored
+  1. Train four tiny emulators in this process: a plain one, a factored
      intrinsic-alignment one (its amplitudes are applied in the loss, not
-     the network), and a neural-PCE one (a polynomial base plus a small
-     correcting network).
+     the network), a neural-PCE one (a polynomial base plus a small
+     correcting network), and a conv-head one (rescnn: the training
+     attach's bin split must PERSIST in the dv-geometry state — the
+     2026-07-11 fix — for the head to rebuild without the dataset ini).
   2. Save each, rebuild each from its saved file alone, and compare the
      rebuilt model's output to the still-in-memory model's on the same
      input rows. "Exactly" means torch.equal here: every output number
@@ -19,7 +21,9 @@ How it works, in order:
      the output is still identical. That can only hold if the rebuild reads
      the saved file and ignores the changed default.
   4. Confirm an old-format file (schema version 1) is refused, not silently
-     mis-loaded.
+     mis-loaded — and a head save whose persisted bin split is deleted
+     (an artifact predating the persistence) is refused naming the fix,
+     never re-derived or crashed on.
 Every compared value is printed; any mismatch prints a FAIL line and the
 run exits non-zero.
 
@@ -102,7 +106,7 @@ def load_deploy():
   return device, data_dir
 
 
-def tiny_config(data_dir, *, ia=None, pce=False):
+def tiny_config(data_dir, *, ia=None, pce=False, head=False):
   """A tiny but real training config for one variant.
 
   Arguments:
@@ -111,6 +115,11 @@ def tiny_config(data_dir, *, ia=None, pce=False):
     ia       = None for plain, or "nla" for the factored variant.
     pce      = True to add the top-level pce block (the NPCE variant;
                exclusive with ia).
+    head     = True for the conv-head variant (name rescnn + a small
+               cnn block): training runs build_shear_angle_map, so the
+               save must persist the bin split (bin_sizes / pm_kept in
+               the dv-geometry state) for the rebuild to reconstruct
+               the head without the dataset ini.
 
   Returns:
     the config dict (data + train_args, plus pce when asked).
@@ -139,6 +148,9 @@ def tiny_config(data_dir, *, ia=None, pce=False):
            "compile_mode": None}
   if ia is not None:
     model["ia"] = ia
+  if head:
+    model["name"] = "rescnn"
+    model["cnn"] = {"kernel_size": 5, "n_blocks": 1}
   # trim + focus are hard-required by build_run_specs (training.py:
   # dict(train_args["trim"]) / dict(train_args["focus"]), no default), so
   # a config without them raises KeyError before training. Benign off
@@ -266,17 +278,20 @@ def run_variant(name, cfg, device, tmp, persist_root=None):
 
 
 def main():
-  """Run the three save-rebuild checks, the drift test, and the v1 refusal.
+  """Run the four save-rebuild checks, the drift test, and the refusals.
 
-  In order: read the deploy paths; then, for the plain, factored, and
-  neural-PCE variants, train a tiny emulator, save it, rebuild it from the
-  file, and require the rebuilt output to match the live output to the last
-  bit (the plain one is also saved to a stable location for the board's
-  cobaya-adapter evaluate leg). Then the drift test on the plain save: patch
-  make_activation's n_gates default and the compile-mode default, rebuild,
-  and require an identical output. Last, set the saved file's schema version
-  to 1 and require the rebuild to raise. Any failed step prints a FAIL line;
-  main returns 1 if any failed, else 0.
+  In order: read the deploy paths; then, for the plain, factored,
+  neural-PCE, and conv-head variants, train a tiny emulator, save it,
+  rebuild it from the file, and require the rebuilt output to match the
+  live output to the last bit (the plain one is also saved to a stable
+  location for the board's cobaya-adapter evaluate leg; the head one
+  proves the persisted bin split reconstructs the ResCNN with no dataset
+  ini). Then the drift test on the plain save: patch make_activation's
+  n_gates default and the compile-mode default, rebuild, and require an
+  identical output. Last the two refusals: a schema-version-1 file, and
+  a head save with its persisted bin split deleted (a pre-persistence
+  artifact) — each must raise loudly. Any failed step prints a FAIL
+  line; main returns 1 if any failed, else 0.
   """
   print("== save-rebuild-drift (spec code GSV-C) ==")
   device, data_dir = load_deploy()
@@ -290,6 +305,13 @@ def main():
     "plain", tiny_config(data_dir), device, tmp, persist_root=evaluate_root)
   run_variant("factored", tiny_config(data_dir, ia="nla"), device, tmp)
   run_variant("npce", tiny_config(data_dir, pce=True), device, tmp)
+  # the conv-head variant: training attaches the bin split
+  # (build_shear_angle_map), the save persists it (bin_sizes / pm_kept
+  # in the dv-geometry state), and the rebuild reconstructs the ResCNN
+  # from the files alone — before the persistence this died in the
+  # constructor's bin_sizes assert.
+  head_root, _ = run_variant(
+    "head", tiny_config(data_dir, head=True), device, tmp)
 
   # drift test: monkeypatch the telling default, make_activation's
   # n_gates (activations.py). If rebuild trusted the code default the
@@ -324,6 +346,27 @@ def main():
   report("v1 refusal: rebuild raises on schema_version != 2",
          refused,
          "a v1 file must be refused with a clear message")
+
+  # pre-persistence head-artifact refusal: delete the persisted bin
+  # split from the head save (simulating an artifact written before
+  # 2026-07-11); rebuild must raise the loud KeyError naming the
+  # persistence, never re-derive the split or crash in the
+  # constructor's assert.
+  with h5py.File(str(head_root) + ".h5", "r+") as f:
+    del f["dv_geometry"]["bin_sizes"]
+    if "pm_kept" in f["dv_geometry"]:
+      del f["dv_geometry"]["pm_kept"]
+  refused_head = False
+  named = False
+  try:
+    rebuild_emulator(path_root=str(head_root), device=device)
+  except KeyError as e:
+    refused_head = True
+    named = "bin-split persistence" in str(e)
+  report("old head artifact refusal: rebuild raises naming the "
+         "persistence",
+         refused_head and named,
+         "a head file without bin_sizes must be refused, not guessed")
 
   print("")
   if len(FAILURES) == 0:

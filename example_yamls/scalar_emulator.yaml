@@ -1,5 +1,5 @@
 # Scalar (derived-parameter) emulator config for scalar_train_emulator.py
-# (see notes/families-scalar-cmb.md and emulator/geometries_scalar.py).
+# (see notes/families-scalar-cmb.md and emulator/geometries/scalar.py).
 #
 # A scalar emulator maps cosmological parameters to a small set of NAMED
 # derived parameters (H0, omegam, rdrag, ...), not a cosmolike data vector.
@@ -43,8 +43,10 @@ train_args:
   bs:      256
 
   # the model: a trunk-only design (resmlp). The conv / trf heads correct
-  # along an angular axis a scalar output does not have, so they are a loud
-  # error here (name: rescnn / restrf are rejected). Small widths are plenty.
+  # along an output COORDINATE axis (theta / ell / z / k — every other
+  # family has one, D-CM13), and a scalar output is a set of named values
+  # with no axis between them, so name: rescnn / restrf stay a loud error
+  # here. Small widths are plenty.
   model:
     name: resmlp
     mlp:
@@ -70,6 +72,16 @@ train_args:
     mode:     min
     patience: 25
     factor:   0.8
+
+  # OPTIONAL training guards — the SAME shared loop as every family
+  # (off when absent): clip = per-step gradient-norm ceiling; rewind =
+  # reload the best weights + optimizer snapshot on every plateau lr
+  # cut; ema = a Polyak weight average {horizon_epochs, anneal}. The
+  # annotated versions live in cosmic_shear_train_emulator.yaml.
+  # clip:   1.0
+  # rewind: true
+  # ema:
+  #   horizon_epochs: 20
 
   # trim and focus are REQUIRED blocks (build_run_specs reads them with no
   # code default — the resolved-values rule). Both ship off here: a scalar

@@ -5,6 +5,15 @@ Consolidated 2026-07-11 from baosn-emulators.md and mps-emulators.md
 README sections 16 and 17; the EMUL2 acceptance config is
 cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml.
 
+Both families carry the FULL training surface (shared loop: loss
+ladder + anneals, trim/focus, EMA, clip/rewind, finetune) and — since
+the D-CM13 lift (2026-07-11) — the conv/TRF correction heads: grid =
+one bin over z (model.trf.n_tokens re-segments it for attention);
+grid2d = one bin per z slice (conv channels / TRF tokens = z slices;
+n_tokens rejected, n_heads must divide the post-stride nk). The
+identity-basis details live in families-scalar-cmb.md (D-CM13) and
+models-and-designs.md.
+
 ## BSN — the expansion history. CODE COMPLETE; gates bsn-identity/bsn-smoke.
 
 - Headline: only H(z) is a network; every distance is IMPOSED physics

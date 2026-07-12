@@ -102,8 +102,9 @@ from .training import (
 # (AmplitudeFactorGeometry input + the template-combining loss),
 # needs_geom (geom injected for the fixed full<->theta basis buffers;
 # compile_mode defaulted to "default"), and needs_bins
-# (build_shear_angle_map run on the data geometry, attaching the
-# per-bin split the bin-token head needs).
+# (build_shear_angle_map run on the cosmolike data geometry — or
+# attach_head_coords() on a diagonal family geometry, the D-CM13
+# lift — attaching the per-bin split the heads need).
 MODELS = {("resmlp", None):   ResMLP,
           ("rescnn", None):   ResCNN,
           ("restrf", None):   ResTRF,
@@ -172,6 +173,7 @@ MODEL_BLOCK_KEYS = {
   "trf": {"n_heads":      "n_heads",
           "n_blocks":     "n_blocks_trf",
           "n_mlp_blocks": "n_mlp_blocks",
+          "n_tokens":     "n_tokens",
           "shared_mlp":   "shared_mlp",
           "film":         "film",
           "gate_init":    "gate_init",
@@ -1584,12 +1586,16 @@ class EmulatorExperiment:
                        "cnn" (kernel_size, rescale_kernel, groups,
                        separable, film, n_blocks, gate_init,
                        activation; name rescnn only), "trf" (n_heads,
-                       n_blocks, n_mlp_blocks, shared_mlp, film,
-                       gate_init, activation; name restrf only,
+                       n_blocks, n_mlp_blocks, n_tokens, shared_mlp,
+                       film, gate_init, activation; name restrf only,
                        the tokens live at the natural bin width, so
                        there is no width knob, and the per-token MLP
                        layers run at that width too, n_mlp_blocks is
-                       depth only). The head's activation ({type,
+                       depth only; n_tokens re-segments a single-bin
+                       family geometry — cmb's ell / grid's z — into
+                       that many attention windows, D-CM13, and is
+                       rejected where physical bins exist). The
+                       head's activation ({type,
                        n_gates} or a bare string) pins its own family
                        (absent = shares model.activation, the trunk's;
                        the head trains only in phase 2, so it needs a
@@ -1857,17 +1863,19 @@ class EmulatorExperiment:
         raise ValueError(
           "no scalar model for architecture " + repr(name) + " (a scalar "
           "run is a plain design, ia=None; pick a name that has it)")
-      # D-SPE2-3: a scalar output has no angular axis, so the conv / TRF
-      # correction heads (which correct along it) cannot apply. Keyed on the
-      # class's declared head_block, not the name, so a future trunk-only
-      # design composes automatically. Without this a `name: rescnn` scalar
-      # YAML sails through and crashes deep at build_shear_angle_map.
+      # D-SPE2-3 (still standing after the D-CM13 family lift): the conv /
+      # TRF heads correct along an output COORDINATE axis (theta / ell /
+      # z / k), and a scalar output is a set of NAMED values with no axis
+      # between them — no locality for a conv, no windows for attention.
+      # Keyed on the class's declared head_block, not the name, so a
+      # future trunk-only design composes automatically.
       model_cls = models[(name, None)]
       if model_cls.head_block is not None:
         raise ValueError(
           f"model.name {name!r} has a correction head "
-          f"({model_cls.head_block}): the heads correct along the "
-          "angular axis, and a scalar output has no angular axis. A "
+          f"({model_cls.head_block}): the heads correct along an output "
+          "coordinate axis (theta / ell / z / k), and a scalar output "
+          "is a set of named values with no axis between them. A "
           "scalar run is trunk-only; use name: resmlp")
       # activation precedence, the same rule as the normal path below: an
       # explicit --activation flag wins over model.activation, then "H".
@@ -1953,13 +1961,14 @@ class EmulatorExperiment:
           "no plain model for architecture " + repr(name) + " (a CMB run "
           "uses the plain designs, ia=None; pick a name that has one)")
       model_cls = models[(name, None)]
-      if model_cls.head_block is not None:
-        raise ValueError(
-          "model.name " + repr(name) + " has a correction head ("
-          + str(model_cls.head_block) + "): the heads' basis-change "
-          "buffers assume an eigenbasis data-vector geometry, which the "
-          "diagonal CMB geometry does not carry — head support on the "
-          "CMB path is the recorded D-CM13 follow-up. Use name: resmlp")
+      # D-CM13 (user order 2026-07-11; arXiv 2505.22574's attention-vs-MLP
+      # outlier result for CMB spectra): the conv/TRF heads ride this
+      # family. The diagonal CMB whitening keeps the multipole order, so
+      # the heads' basis change degenerates to the identity (the models
+      # keep W_fd / W_df as None) and the channel/token split is
+      # CmbDiagonalGeometry.attach_head_coords() in build_geometry — one
+      # bin, coordinate = ell; model.trf.n_tokens re-segments it so
+      # attention has windows to attend across.
       # activation precedence, the same rule as the scalar/normal paths:
       # an explicit --activation flag wins over model.activation, then H.
       explicit_flag = kwargs.get("activation")
@@ -1980,11 +1989,19 @@ class EmulatorExperiment:
       exp.model_name = name
       exp._cmb       = True
       exp.cmb        = dict(cmb)
-      # a plain design has no head block, so no per-head activation pin.
+      # the per-head activation pin, read for the startup notice exactly
+      # as on the cosmolike path (canonical model.<head>.activation or
+      # the head: alias); build_specs licenses / rejects it later.
+      head_block = exp.model_cls.head_block
+      head_pin   = None
+      if head_block is not None:
+        head_pin = ta["model"].get(head_block, {}).get("activation")
+        if head_pin is None and isinstance(ta.get("head"), dict):
+          head_pin = ta["head"].get("activation")
       exp._activation_notice = _activation_flag_notice(
         flag_type=explicit_flag,
-        head_block=exp.model_cls.head_block,
-        head_pin=None)
+        head_block=head_block,
+        head_pin=head_pin)
       return exp
 
     # grid (background-function) run (D-BSN1): one background quantity's
@@ -2054,13 +2071,12 @@ class EmulatorExperiment:
           "run uses the plain designs, ia=None; pick a name that has "
           "one)")
       model_cls = models[(name, None)]
-      if model_cls.head_block is not None:
-        raise ValueError(
-          "model.name " + repr(name) + " has a correction head ("
-          + str(model_cls.head_block) + "): the heads' basis-change "
-          "buffers assume an eigenbasis data-vector geometry, which the "
-          "grid geometry does not carry — a grid run is trunk-only "
-          "(V1). Use name: resmlp")
+      # D-CM13 family lift (user order 2026-07-11): the conv/TRF heads
+      # ride the grid family too. The diagonal standardization keeps the
+      # z order, so the basis change is the identity (W_fd / W_df stay
+      # None) and the split is GridGeometry.attach_head_coords() in
+      # build_geometry — one bin, coordinate = z; model.trf.n_tokens
+      # re-segments it for attention.
       # activation precedence, the same rule as the scalar/cmb paths.
       explicit_flag = kwargs.get("activation")
       if kwargs.get("activation") is None:
@@ -2080,11 +2096,18 @@ class EmulatorExperiment:
       exp.model_name = name
       exp._grid      = True
       exp.grid       = dict(grid)
-      # a plain design has no head block, so no per-head activation pin.
+      # the per-head activation pin, read for the startup notice exactly
+      # as on the cosmolike path; build_specs licenses / rejects it.
+      head_block = exp.model_cls.head_block
+      head_pin   = None
+      if head_block is not None:
+        head_pin = ta["model"].get(head_block, {}).get("activation")
+        if head_pin is None and isinstance(ta.get("head"), dict):
+          head_pin = ta["head"].get("activation")
       exp._activation_notice = _activation_flag_notice(
         flag_type=explicit_flag,
-        head_block=exp.model_cls.head_block,
-        head_pin=None)
+        head_block=head_block,
+        head_pin=head_pin)
       return exp
 
     # grid2d (matter-power-spectrum) run (D-MP1): one MPS quantity's
@@ -2154,13 +2177,14 @@ class EmulatorExperiment:
           "run uses the plain designs, ia=None; pick a name that has "
           "one)")
       model_cls = models[(name, None)]
-      if model_cls.head_block is not None:
-        raise ValueError(
-          "model.name " + repr(name) + " has a correction head ("
-          + str(model_cls.head_block) + "): the heads' basis-change "
-          "buffers assume an eigenbasis data-vector geometry, which the "
-          "grid2d geometry does not carry — a grid2d run is trunk-only "
-          "(V1). Use name: resmlp")
+      # D-CM13 family lift (user order 2026-07-11): the conv/TRF heads
+      # ride the grid2d family too. The flattening is z-outer and the
+      # standardization keeps the grid order, so the basis change is the
+      # identity (W_fd / W_df stay None) and the split is
+      # Grid2DGeometry.attach_head_coords() in build_geometry — one bin
+      # PER Z SLICE: conv channels = z slices sliding along k, TRF
+      # tokens = z slices (n_tokens is rejected: the slices ARE the
+      # tokens).
       # activation precedence, the same rule as every family path.
       explicit_flag = kwargs.get("activation")
       if kwargs.get("activation") is None:
@@ -2180,11 +2204,18 @@ class EmulatorExperiment:
       exp.model_name = name
       exp._grid2d    = True
       exp.grid2d     = dict(grid2d)
-      # a plain design has no head block, so no per-head activation pin.
+      # the per-head activation pin, read for the startup notice exactly
+      # as on the cosmolike path; build_specs licenses / rejects it.
+      head_block = exp.model_cls.head_block
+      head_pin   = None
+      if head_block is not None:
+        head_pin = ta["model"].get(head_block, {}).get("activation")
+        if head_pin is None and isinstance(ta.get("head"), dict):
+          head_pin = ta["head"].get("activation")
       exp._activation_notice = _activation_flag_notice(
         flag_type=explicit_flag,
-        head_block=exp.model_cls.head_block,
-        head_pin=None)
+        head_block=head_block,
+        head_pin=head_pin)
       return exp
 
     # fine-tune warm start (train_args.finetune present): the architecture,
@@ -3076,6 +3107,11 @@ class EmulatorExperiment:
             "SAME experiment covariance file the source trained with "
             "(epoch-0 parity is impossible under a different whitening)")
         self.geom = sgeom
+        # conv/TRF heads (needs_bins; D-CM13): attach the channel/token
+        # split — a pure derivation from the pinned geometry's own ell
+        # grid, so a head-model source rebuilds and fine-tunes exactly.
+        if getattr(self.model_cls, "needs_bins", False):
+          self.geom.attach_head_coords()
         if law == "none":
           self.chi2fn = make_cmb_chi2(geom=self.geom, law=law)
         else:
@@ -3121,6 +3157,10 @@ class EmulatorExperiment:
                                       law=law,
                                       as_name=as_name,
                                       tau_name=tau_name)
+      # conv/TRF heads (needs_bins; D-CM13): attach the channel/token
+      # split — one bin, coordinate = ell (attach_head_coords).
+      if getattr(self.model_cls, "needs_bins", False):
+        self.geom.attach_head_coords()
       if law == "none":
         self.chi2fn = make_cmb_chi2(geom=self.geom, law=law)
       else:
@@ -3176,6 +3216,10 @@ class EmulatorExperiment:
           device=self.device)
         self._finetune_extra_names = extra_names
         self.geom = sgeom
+        # conv/TRF heads (needs_bins; D-CM13): the split derives from
+        # the pinned geometry's own z grid (attach_head_coords).
+        if getattr(self.model_cls, "needs_bins", False):
+          self.geom.attach_head_coords()
         self.chi2fn = make_scalar_chi2(self.geom)
         return self.pgeom, self.geom, self.chi2fn
       self.pgeom = ParamGeometry.from_covmat(
@@ -3186,6 +3230,10 @@ class EmulatorExperiment:
       self.geom = GridGeometry.from_targets(
         device=self.device, targets=targets, z=z,
         quantity=quantity, units=units, law=law, offset=offset)
+      # conv/TRF heads (needs_bins; D-CM13): attach the channel/token
+      # split — one bin, coordinate = z (attach_head_coords).
+      if getattr(self.model_cls, "needs_bins", False):
+        self.geom.attach_head_coords()
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
@@ -3240,6 +3288,10 @@ class EmulatorExperiment:
           device=self.device)
         self._finetune_extra_names = extra_names
         self.geom = sgeom
+        # conv/TRF heads (needs_bins; D-CM13): the split derives from
+        # the pinned geometry's own (z, k) axes (attach_head_coords).
+        if getattr(self.model_cls, "needs_bins", False):
+          self.geom.attach_head_coords()
         self.chi2fn = make_scalar_chi2(self.geom)
         return self.pgeom, self.geom, self.chi2fn
       self.pgeom = ParamGeometry.from_covmat(
@@ -3250,6 +3302,11 @@ class EmulatorExperiment:
       self.geom = Grid2DGeometry.from_targets(
         device=self.device, targets=targets, z=z2, k=k2,
         quantity=quantity, units=units, law=law)
+      # conv/TRF heads (needs_bins; D-CM13): attach the channel/token
+      # split — one bin per z slice, each of length nk
+      # (attach_head_coords; conv channels / TRF tokens = z slices).
+      if getattr(self.model_cls, "needs_bins", False):
+        self.geom.attach_head_coords()
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 

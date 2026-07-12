@@ -279,6 +279,22 @@ class CmbDiagonalGeometry:
             "as_name":     self.as_name,
             "tau_name":    self.tau_name}
 
+  def attach_head_coords(self):
+    """Attach the conv/TRF heads' channel/token split (D-CM13).
+
+    The correction heads (designs/plain.py ResCNN / ResTRF) read
+    geom.bin_sizes for their channel/token layout — the cosmolike
+    geometry gets it from build_shear_angle_map; here it is a pure
+    derivation from the geometry's own ell grid: ONE bin covering the
+    whole spectrum, coordinate = ell (the conv slides along ell; the
+    TRF re-segments via model.trf.n_tokens so attention has windows
+    to attend across). There is no permutation and no basis change:
+    the whitening is per multipole IN ell order, so the heads' W_fd /
+    W_df maps stay None. Idempotent; no files, no torch build — safe
+    at training (build_geometry) and at rebuild (rebuild_emulator).
+    """
+    self.bin_sizes = [int(self.ell.numel())]
+
   # --- low-level transforms (all multipoles kept, so squeeze /
   #     unsqueeze are the identity gather / scatter) ---
   def squeeze(self, dv):

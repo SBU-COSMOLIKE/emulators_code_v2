@@ -180,6 +180,28 @@ class Grid2DGeometry:
             "center":   self.center.cpu(),
             "scale":    self.scale.cpu()}
 
+  def attach_head_coords(self):
+    """Attach the conv/TRF heads' channel/token split (D-CM13).
+
+    The correction heads (designs/plain.py ResCNN / ResTRF) read
+    geom.bin_sizes for their channel/token layout; here it is a pure
+    derivation from the geometry's own axes. The flattening is
+    z-outer (row = z0 all k, z1 all k, ...), so the natural split is
+    one bin PER Z SLICE, each of length nk: the conv gets the z
+    slices as channels and slides along k (channel mixing couples
+    redshifts at like k), the TRF gets one token per z slice
+    (attention shares information across redshifts, each slice's
+    private MLP specializes along k). model.trf.n_tokens is rejected
+    here — the z slices ARE the tokens. No permutation, no basis
+    change: the whitening is per (z, k) point in grid order, so the
+    heads' W_fd / W_df maps stay None. Idempotent; no files, no
+    torch build — safe at training and at rebuild.
+    """
+    sizes = []
+    for _ in range(int(self.z.numel())):
+      sizes.append(int(self.k.numel()))
+    self.bin_sizes = sizes
+
   def encode(self, y):
     """Law-space rows -> standardized target.
 

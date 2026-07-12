@@ -1,5 +1,5 @@
-# CMB spectrum emulator config for cosmic_shear_train_emulator.py
-# (see notes/families-scalar-cmb.md and emulator/geometries_cmb.py).
+# CMB spectrum emulator config for cmb_train_emulator.py
+# (see notes/families-scalar-cmb.md and emulator/geometries/cmb.py).
 #
 # A CMB emulator maps cosmological parameters to ONE spectrum's C_ell rows
 # (tt / te / ee / pp), on the multipole grid the dumps were generated with.
@@ -55,9 +55,15 @@ train_args:
   nepochs: 400
   bs:      256
 
-  # the model: a plain trunk design (resmlp). The conv / trf correction
-  # heads assume an eigenbasis data-vector geometry the diagonal CMB
-  # geometry does not carry (D-CM13), so they are a loud error here.
+  # the model. name picks the architecture: resmlp (the plain trunk) or
+  # the correction heads rescnn / restrf (D-CM13) — the same heads the
+  # cosmic-shear path trains. The diagonal CMB geometry keeps the
+  # multipole order, so the heads correct along the spectrum directly:
+  # rescnn slides an odd-width conv kernel along ell (locality across
+  # neighboring multipoles); restrf re-segments the spectrum into
+  # model.trf.n_tokens contiguous windows and attends across them (the
+  # attention-emulator tokenization, arXiv 2505.22574). Uncomment ONE
+  # head block together with its name.
   model:
     name: resmlp
     mlp:
@@ -66,12 +72,24 @@ train_args:
     activation:
       type:    H
       n_gates: 3
+    # cnn:                   # with name: rescnn
+    #   kernel_size: 11      # odd conv width, slides along ell
+    #   n_blocks:    1
+    # trf:                   # with name: restrf
+    #   n_heads:      2      # must divide ceil(n_ell / n_tokens)
+    #   n_blocks:     1
+    #   n_mlp_blocks: 2
+    #   n_tokens:     16     # attention windows over the spectrum
 
   # the per-multipole cosmic-variance chi2 (losses/cmb.py); sqrt is the
-  # usual default. The OPTIONAL roughness sub-block (D-CM8) penalizes
-  # short-period residual oscillations (periods below period_cut in ell)
-  # without touching the acoustic band (~200-300, incl. lensing peak
-  # smoothing); absent block = the term does not exist.
+  # usual default, and the FULL shared mode ladder applies here exactly
+  # as on cosmic shear (chi2 / sqrt / sqrt_dchi2 / berhu / berhu_capped,
+  # with the berhu: knot / cap / anneal sub-block — see the annotated
+  # ladder in example_yamls/cosmic_shear_train_emulator.yaml). The
+  # OPTIONAL roughness sub-block (D-CM8) penalizes short-period residual
+  # oscillations (periods below period_cut in ell) without touching the
+  # acoustic band (~200-300, incl. lensing peak smoothing); absent
+  # block = the term does not exist.
   loss:
     mode: sqrt
     roughness:
@@ -90,6 +108,18 @@ train_args:
     mode:     min
     patience: 25
     factor:   0.8
+
+  # OPTIONAL training guards — the SAME shared loop as cosmic shear, so
+  # all three apply here unchanged (off when absent). clip = per-step
+  # gradient-norm ceiling; rewind = on every plateau lr cut, reload the
+  # best weights + optimizer snapshot (the self-heal after a bad
+  # excursion); ema = a Polyak weight average {horizon_epochs, anneal}
+  # coupled to the best snapshot / rewind. The annotated versions live
+  # in example_yamls/cosmic_shear_train_emulator.yaml.
+  # clip:   1.0
+  # rewind: true
+  # ema:
+  #   horizon_epochs: 20
 
   # trim and focus are REQUIRED blocks (build_run_specs reads them with no
   # code default — the resolved-values rule). Both ship off here.

@@ -18,6 +18,12 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
   - save -> rebuild -> EmulatorPredictor.predict is bitwise vs the pre-save
     decode, on BOTH laws; the predictor takes the CMB branch and exposes
     spectrum / ell / units / amplitude_law;
+  - the D-CM13 head leg: attach_head_coords (one bin, coordinate = ell),
+    the identity basis (W_fd / W_df None), the n_tokens segmentation
+    (10 windows of 20 multipoles) and its loud range error, the ResTRF
+    epoch-0 identity start, and the head save -> rebuild -> predict
+    bitwise round-trip (the rebuild-side attach in
+    results._rebuild_model);
   - the cobaya adapter emul_cmb assembles the Cl dict from two synthetic
     artifacts (shared ell axis, zero-padded below l=2 and outside each
     artifact's range) and raises on: a duplicate spectrum, a wrong-kind
@@ -476,6 +482,119 @@ def check_roughness(device):
            pen / plain < 0.03, "ratio %.2e" % (pen / plain))
 
 
+def cmb_head_recipe(n_ell):
+    """The model_recipe a schema-v2 save stores for the CMB ResTRF leg
+    (D-CM13): needs_geom True (rebuild re-injects the geometry after
+    attach_head_coords), every constructor default materialized, the
+    n_tokens segmentation recorded."""
+    return {
+        "cls": "emulator.designs.plain.ResTRF",
+        "name": "restrf",
+        "ia": None,
+        "input_dim": N_IN,
+        "output_dim": n_ell,
+        "compile_mode": None,
+        "needs_geom": True,
+        "kwargs": {
+            "int_dim_res": 16,
+            "n_blocks": 2,
+            "n_heads": 2,
+            "n_blocks_trf": 1,
+            "n_mlp_blocks": 1,
+            "n_tokens": 10,
+            "gate_init": 0.1,
+            "shared_mlp": False,
+            "film": False,
+            "head_act": None,
+            "block_opts": {"act": {"type": "H", "n_gates": 3},
+                           "norm": "affine"},
+        },
+    }
+
+
+def check_head(tmp, device):
+    """D-CM13: the TRF head on the CMB geometry — the attach, the
+    identity basis, the epoch-0 identity start, the n_tokens loud
+    error, and save -> rebuild -> predict bitwise (proving the
+    rebuild-side attach_head_coords in results._rebuild_model)."""
+    from emulator.designs.plain import ResTRF
+    n_ell = 200
+    pgeom, covmat_path = make_pgeom(tmp, device, seed=140)
+    ell, cl = synth_ell_cl(n_ell=n_ell)
+    geom = CmbDiagonalGeometry.from_fiducial(
+        device=device, spectrum="tt", ell=ell, fiducial_cl=cl,
+        center=cl, units="muK2", law="none")
+    geom.attach_head_coords()
+    report("attach_head_coords: one bin covering the spectrum",
+           geom.bin_sizes == [n_ell],
+           "bin_sizes %s" % (geom.bin_sizes,))
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    model = ResTRF(input_dim=N_IN, output_dim=n_ell, int_dim_res=16,
+                   geom=geom, n_heads=2, n_blocks=2, n_blocks_trf=1,
+                   n_mlp_blocks=1, n_tokens=10,
+                   block_opts=block_opts).to(device)
+    report("identity basis: W_fd / W_df stay None on the CMB geometry",
+           model.W_fd is None and model.W_df is None,
+           "n_bins %d, max_bin %d" % (model.n_bins, model.max_bin))
+    report("n_tokens segmentation: 10 windows of 20 multipoles",
+           model.n_bins == 10 and model.max_bin == 20,
+           "n_bins %d, max_bin %d" % (model.n_bins, model.max_bin))
+    x = torch.randn(4, N_IN, device=device)
+    with torch.no_grad():
+        full = model(x)
+        trunk = model.mlp(x)
+    report("epoch-0 identity: the head model equals its trunk bitwise",
+           torch.equal(full, trunk),
+           "max|d| = %.2e" % (full - trunk).abs().max().item())
+    try:
+        ResTRF(input_dim=N_IN, output_dim=n_ell, int_dim_res=8,
+               geom=geom, n_tokens=n_ell + 1, block_opts=block_opts)
+        report("n_tokens beyond the spectrum raises", False, "no raise")
+    except ValueError as e:
+        report("n_tokens beyond the spectrum raises",
+               "2.." in str(e), "ValueError names the valid range")
+    # save -> rebuild -> predict, bitwise: the rebuilt geometry has NO
+    # bin_sizes in its state (derived, never persisted), so this leg
+    # fails unless _rebuild_model re-attaches before construction.
+    chi2fn = make_cmb_chi2(geom=geom, law="none")
+    root = os.path.join(tmp, "emul_cmb_head")
+    config = {"data": {"cmb": {"spectrum": "tt",
+                               "covariance": "cov.npz",
+                               "amplitude_law": "none"},
+                       "train_dv": "t.npy", "val_dv": "v.npy",
+                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat_path)},
+              "train_args": {"nepochs": 1}}
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    save_emulator(path_root=str(root),
+                  model=model,
+                  param_geometry=pgeom,
+                  geometry=geom,
+                  config=config,
+                  histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=cmb_head_recipe(n_ell),
+                  attrs={"rescale": "none", "spectrum": "tt"})
+    g = np.random.default_rng(150)
+    theta = np.array([[2.1e-9, 0.055, 0.31]]) * (1.0 + 0.01
+                                                 * g.standard_normal((1, 3)))
+    x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        ref = chi2fn.decode(model(pgeom.encode(x1)))[0]
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    report("head save -> rebuild -> predict bitwise (rebuild attach)",
+           np.array_equal(got, ref.cpu().numpy()),
+           "max|d| = %.2e" % np.abs(got - ref.cpu().numpy()).max())
+
+
 def check_finetune(tmp, device):
     """D-CM10: warm-start parity from a CMB source + the wrong-kind guard."""
     root = os.path.join(tmp, "emul_ft_src")
@@ -544,6 +663,7 @@ def main():
         check_law(tmp, device)
         check_roundtrip(tmp, device, law="none")
         check_roundtrip(tmp, device, law="as_exp2tau")
+        check_head(tmp, device)
         check_adapter(tmp, device)
         check_roughness(device)
         check_finetune(tmp, device)
