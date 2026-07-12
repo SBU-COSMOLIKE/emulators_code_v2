@@ -176,6 +176,20 @@ In order, with the commit that carries each:
    lesson: a gate fixture MIRRORS the shipped example, never
    re-types its keys from memory). bsn-smoke/mps-smoke results were
    pending when the logs were exported.
+16. **Board run 4 — cmb-smoke FULLY GREEN + the quirk hypothesis
+   falsified**: at HEAD 2568f15, cmb-smoke passed every leg
+   (generator, the fixed covariance, training over the relative bar,
+   provider.get_Cl bitwise vs the predictor, 2 CMB pages) — the CMB
+   family is end-to-end accepted. bsn-smoke's tripwire fired with
+   spread EXACTLY 0.0 despite the wants-Cl quirk — hypothesis
+   falsified (the tripwire working as designed). The standing fix:
+   the bsn generator abandons the legacy hand-rolled
+   check_cache_and_compute loop for the standard
+   model.logposterior(point, cached=False) lifecycle, and the Cl
+   requirement is removed again (background-only fast). The store
+   was cleared on the Mac side first (bitwise-constant NONZERO rows
+   = stale provider, not a write bug). mps-smoke (with D-MP9) was
+   still running at export.
 
 ## Evidence status: what is PROVEN vs what is PENDING
 
