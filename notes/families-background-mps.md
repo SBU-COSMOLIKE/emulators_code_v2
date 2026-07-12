@@ -194,5 +194,8 @@ models-and-designs.md (the NPCE FAMILY-WIDE bullet).
   probes). Both are known quantities for the EMUL2 acceptance.
 - Never re-propose: the base inside encode/decode; a torch port of
   the syren formulas; recomputing the base at staging or serving; the
-  w0/wa padding block; porting .keras weights (retrain); transfer
-  over MPS (PERMANENT); removing the wants-Cl quirk.
+  w0/wa padding block; porting .keras weights (retrain); removing
+  the wants-Cl quirk. (Transfer over MPS sat on this list as
+  PERMANENT until the 2026-07-12 symmetry ruling overturned it —
+  the same overturn recorded in the BSN list above; MPS now carries
+  frozen-base transfer via TransferDiagChi2.)

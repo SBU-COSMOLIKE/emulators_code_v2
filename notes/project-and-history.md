@@ -53,8 +53,10 @@ gates the user runs on a GPU workstation.
    geometry, epoch-0 parity) then TPE transfer learning (frozen base
    + parallel correction, embed-the-base artifacts, refine + the
    shared L2-SP anchor) — the infrastructure capstone: four training
-   modes with one dial. Transfer later ruled EXCLUSIVE to the
-   cosmolike + CMB data-vector families, permanently.
+   modes with one dial. Transfer was at first ruled EXCLUSIVE to
+   the cosmolike + CMB data-vector families "permanently" — a forbid
+   the 2026-07-12 symmetry ruling overturned (item 11: every family
+   but scalar).
 8. **The five-family program (2026-07-10..11).** SPE scalars (closed
    25/25, five board runs, the lesson bank); then in one long
    Architect-implemented window: CME (CMB spectra: the covinv ruling,
@@ -105,8 +107,11 @@ gates the user runs on a GPU workstation.
    Plus the alien-Python sweep (143 packed dicts reflowed one pair
    per line, every staged tensor chain split into named temps) and
    the empty PCE/IA/parallel folder cleanup in the main checkout.
-   Details: the family notes + artifacts-inference-warmstart.md;
-   the new legs first-execute on the queued --force-rerun-all pass.
+   Details: the family notes + artifacts-inference-warmstart.md.
+   The new legs first-executed on board run 11 (2026-07-12):
+   check_npce green in all four family identity gates, the phase
+   legs green; the eq-6 leg and check_diagonal were run 11's two
+   first-execution reds (the run table in gates-and-board.md).
 
 ## The family-pattern recipe (what a NEW output family adds)
 

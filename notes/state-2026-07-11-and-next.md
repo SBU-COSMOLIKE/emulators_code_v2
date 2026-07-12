@@ -10,10 +10,11 @@ history (`git log -p notes/state-2026-07-11-and-next.md`).
 
 ## Where the code stands
 
-The queued program is CODE COMPLETE and **the 32-gate board is
-GREEN — the first full 32/32, board run 9, 2026-07-12 00:12**. That
-green is simultaneously GEO's acceptance and the board baseline for
-D-CM12 and the science thread. One PyTorch training stack serves five
+The queued program is CODE COMPLETE. **The board's first full 32/32
+green was run 9 (2026-07-12 00:12)** — simultaneously GEO's
+acceptance and the board baseline for D-CM12 and the science thread;
+the CURRENT standing is run 11's 30/32 (one red fixed on the branch
+awaiting rerun, one open — the evidence section below). One PyTorch training stack serves five
 output families — cosmic shear (3x2pt data vectors), scalar (named
 derived parameters), CMB spectra (TT/TE/EE/phi-phi), background
 (H(z) + D_M), matter power (P_lin + the nonlinear boost) — each with
