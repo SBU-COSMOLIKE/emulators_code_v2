@@ -295,6 +295,36 @@ tolerance.
   frozen-base transfer, anchored joint refinement — the decoupled
   L2-SP lambda spans frozen to free.
 
+### transfer-identity cross-family leg: FIXTURE DEFECT (board run 12, root-caused; fix pending)
+
+The run-12 red (the only board red, 58/59 legs green) is in the GATE
+FIXTURE, not the library. The "cross-family transfer base raises" leg
+(gates/checks/transfer_identity.py, the end of the diagonal section)
+builds a grid2d config whose `transfer.from` points at the
+`diag_transfer` artifact saved two legs earlier — an artifact that
+EMBEDS a transfer_base group (it exists to test composed prediction).
+`_load_diag_transfer` (emulator/experiment.py) calls
+`warmstart.load_source` BEFORE its family-kind check, and load_source's
+chaining refusal ("chaining a transfer over a transfer is out of scope
+(no chaining)") fires first; the leg's needle test wants "never" and
+"families", so it fails on the wrong — but equally correct — message.
+The library's cross-family rule is implemented and correctly ordered
+(kind check immediately after load; message "a transfer never crosses
+families"); the fixture hands it an artifact invalid in TWO ways, and
+the other guard answers first.
+
+**Fix spec (Implementer; gate file only, library frozen):** in that
+leg, save a PLAIN grid base artifact (the leg's local `base` net +
+`geom` through the same save_emulator call, WITHOUT the transfer_base=
+argument, with the same rescale="none" attrs) at its own root, and
+point the grid2d config's `transfer.from` at THAT root. load_source
+then succeeds, the kind check sees GridGeometry != Grid2DGeometry, and
+the cross-family ValueError fires with both needles. No other leg
+changes; the chaining refusal keeps its own dedicated green leg
+(lifecycle: "chaining refused"). Lesson (also in gates-and-board.md
+run 12): a loud-error leg's fixture must be invalid ONLY in the way
+under test.
+
 ## Follow-the-IDs (git archaeology)
 
 FTW: D-FT1..10, D-FTW-1/2. TPE: D-TP1..10, D-TPE-1, D-TPE2-1..3,

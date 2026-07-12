@@ -510,6 +510,32 @@ shipped check does not contain):
 The unit still CLOSES only on the workstation pass (the three-gate
 force-rerun above, raw logs).
 
+### Workstation run 12 (2026-07-12 12:53, HEAD 7f455e6): the eq-6 MATH is workstation-proven
+
+The user ran the three-gate force-rerun BEFORE the oracle delta merged,
+so the executed tree carried the three-leg oracle:
+
+- cmb-identity GREEN under torch: truth 5.89e-14, discrimination
+  ~1e16, band projection 3.02e-14 (the Mac numbers reproduced on CUDA
+  to the same order).
+- cmb-smoke GREEN — the FIRST full eq-6 execution on real CAMB: six
+  dense blocks symmetric/PSD/off-diagonal-alive, and leg 2b asserted
+  the fractional-amplitude provenance keys on the real .npz
+  (derivative_coordinate fractional_band_amplitude, policy
+  smooth-response band projection, per-band weights present). The
+  run-11 clpp-length fix is proven by the same execution.
+- transfer-identity stayed red on ONE leg — a gate-fixture defect,
+  root-caused (artifacts-inference-warmstart.md, "transfer-identity
+  cross-family leg"), unrelated to the covariance path.
+
+Status: the D-CM11-A NUMERICAL fix is closed on workstation evidence.
+The five-leg oracle delta (86db0b4, Architect-accepted) still needs
+one cmb-identity force-rerun after it merges — that rerun rides with
+the transfer-identity fixture fix:
+`python gates/run_board.py --force-rerun cmb-identity transfer-identity`
+(cmb-smoke needs no rerun: the delta touches only the gate file, and
+smoke is green at the unchanged producer).
+
 ## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented; the PRODUCING side is BLOCKED ON D-CM11-A)
 
 Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.
