@@ -412,6 +412,103 @@ green at the reported HEAD. The adjacent covariance-input guards
 (invalid band widths, unordered/non-positive stencil steps,
 lens_lmax > lmax) are a SEPARATE hardening unit — not in this delta.
 
+### D-CM11-A oracle delta resume (2026-07-12, Opus): convention-honest fake landed, Mac-gated — awaiting Architect audit
+
+**Scope kept:** gates/checks/cmb_identity.py ONLY (the sole uncommitted
+change); compute_cmb_covariance.py untouched (frozen, its fix committed at
+d38c221). The covariance-input guards stay out per the spec.
+
+**Landed (all in the oracle section of cmb_identity.py):**
+- New helper `_lensing_potential_scale(n)` = [L(L+1)]^2/(2 pi), zero at
+  L < 2 (the convention factor and its inverse).
+- FakeCAMBData now holds the RAW clpp_raw; get_lens_potential_cls
+  (raw_cl=False) returns the SCALED [L(L+1)]^2 C/(2 pi) array (0 at
+  L < 2); raw_cl=True raises loudly. get_lensed_cls_with_spectrum
+  converts the incoming scaled argument back to raw internally
+  (raw = scaled / scale, 0 at L < 2) and returns base + M_raw @ raw, so
+  dC_l/dC^raw_L = M_raw exactly and _oracle_truth keeps contracting raw
+  derivatives with the raw variance (its math is unchanged, its
+  parameter renamed clpp -> clpp_raw).
+- The pipeline is fed cls["pp"] = clpp_raw while its perturbation array
+  comes from the scaled getter, so the raw/scaled boundary is exercised
+  for real.
+- New fixture-integrity leg: scaled and raw differ for every L >= 2 and
+  their ratio is L-dependent (5.73..3873 over L = 2..12), and the
+  raw_cl=True guard raises.
+- The width-3 leg gains the zero-band assertion: the last band's
+  clpp_raw is zeroed, its persisted per_band_weight is exactly 0.0, and
+  the truth still matches.
+
+**One subtlety found + handled (a fixture choice, not a code change):**
+a zeroed band's derivative is genuinely zero, but the stencil
+f_m2 - 8 f_m1 + 8 f_p1 - f_p2 on four bit-identical re-lensings (its
+perturbation 0*(1+eps) is 0 for every step) leaves a ~1e-22 rounding
+residue; that residue is identical across steps and the derivative
+scales as 1/h, so the relative spread is exactly 1 - h_min/h_next = 0.5
+and trips the production convergence guard. compute_cmb_covariance.py is
+frozen, so leg (c) uses converge_rtol = 1.0 (documented in the code):
+the oracle tests the contraction weight, not stencil convergence (the
+smoke gate covers that on real CAMB); the real bands still converge to
+~3e-14 and the worst-rel < 1e-9 truth comparison validates the numbers.
+The kept derivative is always the smallest-step estimate, so the loose
+tolerance changes no computed block.
+
+**Mac gate (raw output in the handoff):** py_compile OK on the three
+review files; the shipped oracle (exec-extracted against the real
+covariance module, torch absent) is 5/5 green — truth 4.87e-14,
+discrimination truth/old ~ 1e16, fixture integrity (ratio 5.73..3873,
+raw_cl guard raises), band projection 4.40e-14 (smooth-response policy),
+zero band per_band_weight[-1] = 0.0.
+
+**Close (user-run, workstation):** `python gates/run_board.py
+--force-rerun cmb-identity cmb-smoke transfer-identity` — return the raw
+three gate logs; close needs all three green at the reported HEAD.
+transfer-identity is the standing open red; if it stays red its log
+comes back too. Awaiting the Architect audit of this delta.
+
+### Oracle-delta Architect audit (2026-07-12, Fable): ACCEPTED, Mac scope
+
+Audited against the raw diff (one file, 238 diff lines; the producer is
+byte-untouched per git status) plus an independent probe
+(audit_dcm11a_delta.py, the Architect's own AST extraction — a probe the
+shipped check does not contain):
+
+- The five shipped legs reproduce the Implementer's numbers exactly:
+  truth 4.87e-14, discrimination ~1e16, integrity ratio 5.73..3873.19
+  with the raw_cl=True guard raising, band projection 4.40e-14,
+  per_band_weight[-1] exactly 0.0.
+- The convention boundary the fixture models is the REAL one, verified
+  in the producer: the weight comes from cls["pp"], which main() fills
+  from cobaya's get_Cl(ell_factor=False) — the raw C^phiphi — while the
+  perturbation array comes from get_lens_potential_cls(raw_cl=False),
+  CAMB's [L(L+1)]^2 C/(2 pi) convention. The fake now answers each call
+  in its own convention and refuses raw_cl=True loudly.
+- The scale factor matches manual arithmetic at L = 2, 7, 12 and is
+  zero at L < 2; a per-L accumulation-loop truth (a third route) matches
+  the pipeline at 3.04e-14 in the new fixture.
+- Catch-power PROVEN, not assumed: feeding the pipeline the SCALED
+  array as cls["pp"] (the exact regression the red team demanded the
+  fixture catch) makes the width-3 result miss the raw truth by
+  1.4e-1 while the raw control arm matches at 2.6e-14. The probe run
+  is the evidence; the negative test stays in the probe, not the gate
+  (the gate asserts the positive contract; the probe proves the
+  fixture's teeth).
+- The converge_rtol = 1.0 fixture choice for the width-3 leg is
+  accepted: the zeroed band's stencil numerator is the same rounding
+  residue at every step, so its derivative scales as 1/h and the
+  relative spread is exactly 0.5 by construction; on an affine map
+  every nonzero band's stencil is exact at every step, so the loose
+  tolerance can mask nothing real, and the < 1e-9 truth comparison is
+  the actual validator. The producer's guard is deliberately not
+  touched (frozen).
+- One stale line recorded, NOT a blocker: gates/board.py's cmb-identity
+  `maps` field still names three oracle legs (now five) — the delta's
+  frozen scope excluded board.py; the one-line update rides with the
+  next unit that touches gates/.
+
+The unit still CLOSES only on the workstation pass (the three-gate
+force-rerun above, raw logs).
+
 ## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented; the PRODUCING side is BLOCKED ON D-CM11-A)
 
 Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.

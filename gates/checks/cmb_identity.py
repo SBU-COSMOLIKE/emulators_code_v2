@@ -52,12 +52,18 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     pure numpy): an affine fake CAMBdata makes the 5-point stencil exact,
     so the non-Gaussian contraction is checked against eq 6 built
     directly from the sensitivity matrix and the lensing-potential
-    variance — the truth leg (the real contraction equals the direct
-    eq 6 at round-off), the discrimination leg (the earlier
-    band-summed-variance weights miss that truth by orders of magnitude,
-    so an oracle those weights pass would be defective), and the band
-    leg (a width-3 contraction with a response held constant across each
-    band reproduces the per-multipole eq 6).
+    variance. The fake keeps the raw C^phiphi and CAMB's scaled
+    [L(L+1)]^2 C/(2 pi) array genuinely distinct, so the pipeline reads
+    the raw spectrum for its weight and the scaled one for the
+    perturbation exactly as a real run does. The truth leg (the real
+    contraction equals the direct eq 6 at round-off), the discrimination
+    leg (the earlier band-summed-variance weights miss that truth by
+    orders of magnitude, so an oracle those weights pass would be
+    defective), a fixture-integrity leg (scaled and raw differ by an
+    L-dependent factor; the raw_cl=True guard raises), and the band leg
+    (a width-3 contraction with a response held constant across each band
+    reproduces the per-multipole eq 6, and a zeroed last band carries a
+    persisted weight of exactly 0).
 
 The adapter legs stub cobaya.theory before loading the shipped emul_cmb.py
 (this gate is torch-only; the real cobaya lifecycle is the cmb-smoke board
@@ -844,71 +850,131 @@ def _load_cov_module():
     return mod
 
 
+def _lensing_potential_scale(n):
+    """The [L(L+1)]^2/(2 pi) factor CAMB folds into get_lens_potential_cls.
+
+    Multiplying a raw lensing-potential spectrum C^phiphi_L by this gives
+    the scaled array scaled_L = [L(L+1)]^2 C^phiphi_L / (2 pi) CAMB
+    returns; dividing the scaled array by it recovers the raw spectrum.
+    Zero at L < 2 (the monopole and dipole carry no lensing, and the
+    scaled array is defined zero there).
+
+    Arguments:
+      n = array length (L = 0..n-1).
+
+    Returns:
+      (n,) the per-L scale factor, 0 at L = 0 and 1.
+    """
+    big_l = np.arange(n, dtype="float64")
+    scale = (big_l * (big_l + 1.0)) ** 2 / (2.0 * np.pi)
+    scale[:2] = 0.0
+    return scale
+
+
 class FakeCAMBData:
     """A CAMB results stand-in whose re-lensing is an exact affine map.
 
-    get_lensed_cls_with_spectrum(clpp) returns base_s + M_s @ clpp per
-    spectrum, so dC_l/dclpp_L = M_s[l, L] exactly and the 5-point stencil
-    the covariance script runs is exact to round-off (an affine function
-    has no truncation error). That lets the gate compare the script's
-    eq-6 contraction against a truth built straight from M and the
-    lensing-potential variance, an oracle independent of the script's own
-    contraction algebra.
+    get_lensed_cls_with_spectrum returns base_s + M_s @ C^raw, where the
+    incoming argument is CAMB's SCALED lensing array and the fake converts
+    it back to the raw C^phiphi internally, so dC_l/dC^raw_L = M_s[l, L]
+    exactly and the 5-point stencil the covariance script runs is exact to
+    round-off (an affine map has no truncation error). That lets the gate
+    compare the script's eq-6 contraction against a truth built straight
+    from M and the raw lensing-potential variance, independent of the
+    script's own contraction algebra.
 
-    The oracle sets the raw C^phiphi equal to the array the script reads
-    through get_lens_potential_cls, so raw and scaled agree and no
-    convention factor enters (the amplitude is scaled fractionally, which
-    is convention-invariant; see notes/families-scalar-cmb.md).
+    The fixture keeps the two conventions genuinely distinct: the raw
+    C^phiphi_L versus the scaled [L(L+1)]^2 C^phiphi_L / (2 pi) that CAMB
+    returns. The covariance script reads the raw spectrum for its
+    contraction weight (cls["pp"]) but the scaled spectrum for the
+    perturbation array (get_lens_potential_cls), and the two differ by an
+    L-dependent factor, so a bug that used one convention where the other
+    belongs would change the result. See notes/families-scalar-cmb.md.
 
     Arguments (constructor):
-      clpp = (lens_lmax+1,) the fiducial lensing-potential array.
-      M    = dict tt/te/ee of (lmax+1, lens_lmax+1) sensitivity matrices.
-      base = dict tt/te/ee of (lmax+1,) unperturbed lensed spectra.
+      clpp_raw = (lens_lmax+1,) the raw fiducial C^phiphi_L (0 at L < 2).
+      M        = dict tt/te/ee of (lmax+1, lens_lmax+1) RAW sensitivities
+                 (dC_l/dC^raw_L).
+      base     = dict tt/te/ee of (lmax+1,) unperturbed lensed spectra.
     """
 
-    def __init__(self, clpp, M, base):
-        self._clpp = np.asarray(clpp, dtype="float64")
+    def __init__(self, clpp_raw, M, base):
+        self._clpp_raw = np.asarray(clpp_raw, dtype="float64")
         self._M = M
         self._base = base
+        self._scale = _lensing_potential_scale(self._clpp_raw.shape[0])
 
     def get_lens_potential_cls(self, raw_cl=False):
-        """Column 0 = the lensing-potential spectrum the script perturbs.
+        """The SCALED lensing array scaled_L = [L(L+1)]^2 C^phiphi_L/(2 pi).
 
-        CAMB returns at least four columns; the script reads only column
-        0, so a wide zero array carrying clpp there is enough.
+        The covariance script reads column 0 with raw_cl=False, the
+        convention CAMB returns. A raw_cl=True call raises: the script
+        never makes one, and the fixture must not silently answer in the
+        wrong convention.
+
+        Arguments:
+          raw_cl = must be False (the scaled convention the script reads);
+                   True raises loudly.
+
+        Returns:
+          (n, 4) array, column 0 the scaled lensing spectrum, 0 at L < 2.
         """
-        arr = np.zeros((self._clpp.shape[0], 4), dtype="float64")
-        arr[:, 0] = self._clpp
+        if raw_cl:
+            raise ValueError(
+                "FakeCAMBData.get_lens_potential_cls: raw_cl=True is not "
+                "supported; the covariance script reads the scaled "
+                "[L(L+1)]^2 C/(2 pi) array (raw_cl=False), so the fixture "
+                "answers only in that convention")
+        arr = np.zeros((self._clpp_raw.shape[0], 4), dtype="float64")
+        arr[:, 0] = self._scale * self._clpp_raw
         return arr
 
     def get_lensed_cls_with_spectrum(self, clpp, lmax, CMB_unit="muK",
                                      raw_cl=True):
-        """The affine re-lensing: lensed_s = base_s + M_s @ clpp.
+        """Affine re-lensing: convert the scaled argument to raw, then map.
 
-        Columns follow CAMB order (0 = TT, 1 = EE, 2 = BB, 3 = TE), the
-        columns lensed_cls_with_clpp reads.
+        clpp arrives in CAMB's scaled convention (the script perturbs the
+        array get_lens_potential_cls returned). The fake converts it back
+        to the raw C^phiphi (raw_L = scaled_L / ([L(L+1)]^2/(2 pi)),
+        0 at L < 2) and returns base_s + M_raw_s @ raw, so the derivative
+        with respect to the RAW spectrum is exactly M_raw. Columns follow
+        CAMB order (0 = TT, 1 = EE, 2 = BB, 3 = TE), the columns
+        lensed_cls_with_clpp reads.
+
+        Arguments:
+          clpp     = (lens_lmax+1,) the scaled lensing array (perturbed).
+          lmax     = top multipole of the returned spectra.
+          CMB_unit = accepted for signature parity (unused).
+          raw_cl   = accepted for signature parity (unused).
+
+        Returns:
+          (lmax+1, 4) the affine-re-lensed spectra.
         """
-        vec = np.asarray(clpp, dtype="float64")
+        scaled = np.asarray(clpp, dtype="float64")
+        raw_vec = np.zeros_like(scaled)
+        # invert the convention factor; L < 2 has scale 0, so it stays 0.
+        raw_vec[2:] = scaled[2:] / self._scale[2:]
         n = int(lmax) + 1
         out = np.zeros((n, 4), dtype="float64")
-        out[:, 0] = self._base["tt"][:n] + self._M["tt"][:n] @ vec
-        out[:, 1] = self._base["ee"][:n] + self._M["ee"][:n] @ vec
-        out[:, 3] = self._base["te"][:n] + self._M["te"][:n] @ vec
+        out[:, 0] = self._base["tt"][:n] + self._M["tt"][:n] @ raw_vec
+        out[:, 1] = self._base["ee"][:n] + self._M["ee"][:n] @ raw_vec
+        out[:, 3] = self._base["te"][:n] + self._M["te"][:n] @ raw_vec
         return out
 
 
-def _oracle_truth(M, clpp, fsky, ell, lens_lmax):
-    """Eq 6 straight from M and the lensing-potential variance.
+def _oracle_truth(M, clpp_raw, fsky, ell, lens_lmax):
+    """Eq 6 straight from M and the RAW lensing-potential variance.
 
     N^{ab}_{ll'} = sum_{L=2}^{lens_lmax} M_a[l, L] Var_L M_b[l', L],
-    Var_L = 2 C^phiphi_L^2 / ((2L+1) fsky), the Gaussian variance of the
-    lensing potential (raw = scaled in the oracle, so this is dC_l/dclpp_L
-    contracted with Cov^phiphi_LL exactly as eq 6 reads). The l index runs
-    over the covariance grid `ell`, the rows sliced from M.
+    Var_L = 2 (C^raw_L)^2 / ((2L+1) fsky), the Gaussian variance of the
+    raw lensing potential. M is dC_l/dC^raw_L (the fake maps in raw
+    coordinates), so this contracts raw derivatives with the raw variance
+    exactly as eq 6 reads, never through the pipeline's own contraction.
+    The l index runs over the covariance grid `ell`, the rows sliced from M.
 
     Arguments:
-      M         = dict tt/te/ee of (lmax+1, lens_lmax+1) sensitivities.
-      clpp      = (lens_lmax+1,) lensing-potential spectrum.
+      M         = dict tt/te/ee of (lmax+1, lens_lmax+1) raw sensitivities.
+      clpp_raw  = (lens_lmax+1,) raw C^phiphi_L.
       fsky      = sky fraction (rescales the variance).
       ell       = (n_ell,) covariance multipole grid (l = 2..lmax).
       lens_lmax = top L of the phi sum.
@@ -917,7 +983,7 @@ def _oracle_truth(M, clpp, fsky, ell, lens_lmax):
       dict of (n_ell, n_ell) arrays keyed like assemble_lensing_blocks
       (cov_tt/cov_te/cov_ee and cov_tt_te/cov_tt_ee/cov_te_ee).
     """
-    cl = np.asarray(clpp, dtype="float64")
+    cl = np.asarray(clpp_raw, dtype="float64")
     big_l = np.arange(0, lens_lmax + 1, dtype="float64")
     var_l = np.zeros(lens_lmax + 1, dtype="float64")
     var_l[2:] = 2.0 * cl[2:lens_lmax + 1] ** 2 / ((2.0 * big_l[2:] + 1.0)
@@ -977,7 +1043,14 @@ def _worst_rel(blocks, truth):
 
 
 def check_covariance_oracle():
-    """The three eq-6 oracle legs (truth, discrimination, band)."""
+    """The eq-6 oracle legs: truth, discrimination, fixture, band + zero band.
+
+    The fake keeps the raw C^phiphi and CAMB's scaled
+    [L(L+1)]^2 C^phiphi/(2 pi) genuinely distinct, so the pipeline reads
+    the raw spectrum for its weight and the scaled one for the
+    perturbation (the real convention boundary), and the truth is built
+    from the raw sensitivity and the raw variance throughout.
+    """
     cov = _load_cov_module()
     rng = np.random.default_rng(2024)
 
@@ -986,10 +1059,10 @@ def check_covariance_oracle():
     lmax = 12
     ell = np.arange(2, lmax + 1, dtype="int64")     # l = 2..12, n_ell = 11
     fsky = 0.4
-    # a positive lensing-potential array, physically small so the old
+    # a positive RAW lensing-potential array, physically small so the old
     # extra-C_L^2 weights land many orders of magnitude below the truth.
-    clpp = np.zeros(lens_lmax + 1, dtype="float64")
-    clpp[2:] = 1e-8 * (1.0 + 0.5 * rng.random(lens_lmax - 1))
+    clpp_raw = np.zeros(lens_lmax + 1, dtype="float64")
+    clpp_raw[2:] = 1e-8 * (1.0 + 0.5 * rng.random(lens_lmax - 1))
     M = {}
     base = {}
     for s in ("tt", "te", "ee"):
@@ -1000,8 +1073,10 @@ def check_covariance_oracle():
         # stencil of the affine map is exact to round-off, isolating the
         # contraction weight the oracle tests.
         base[s] = np.zeros(lmax + 1, dtype="float64")
-    fake = FakeCAMBData(clpp=clpp, M=M, base=base)
-    cls = {"pp": clpp.copy(),
+    fake = FakeCAMBData(clpp_raw=clpp_raw, M=M, base=base)
+    # the pipeline reads the RAW spectrum for its weight (cls["pp"]) and
+    # the SCALED spectrum for the perturbation (from the fake's getter).
+    cls = {"pp": clpp_raw.copy(),
            "tt": np.zeros(lmax + 1, dtype="float64"),
            "te": np.zeros(lmax + 1, dtype="float64"),
            "ee": np.zeros(lmax + 1, dtype="float64")}
@@ -1013,7 +1088,7 @@ def check_covariance_oracle():
     blocks1, study1 = cov.nongaussian_blocks(cambdata=fake, cls=cls, ell=ell,
                                              ng_cfg=ng1, fsky=fsky,
                                              log=lambda *a: None)
-    truth1 = _oracle_truth(M=M, clpp=clpp, fsky=fsky, ell=ell,
+    truth1 = _oracle_truth(M=M, clpp_raw=clpp_raw, fsky=fsky, ell=ell,
                            lens_lmax=lens_lmax)
     worst1 = _worst_rel(blocks1, truth1)
     report("eq-6 truth: real contraction matches eq 6 from M and Var(C_L)",
@@ -1022,11 +1097,11 @@ def check_covariance_oracle():
     # (b) discrimination: the OLD weights (band-summed C^phiphi variance,
     # the extra C_L^2) on the same derivatives must miss the truth by
     # orders of magnitude. deriv is the affine map's exact analytic
-    # derivative, dCl/dA_b = sum_{L in b} M[l, L] C^phiphi_L.
+    # derivative in RAW coordinates, dCl/dA_b = sum_{L in b} M[l, L] C^raw_L.
     bands = cov.band_windows(lmin=2, lmax=lens_lmax, band_width=1)
     big_l = np.arange(0, lens_lmax + 1, dtype="float64")
     var_pp = np.zeros(lens_lmax + 1, dtype="float64")
-    var_pp[2:] = 2.0 * clpp[2:] ** 2 / ((2.0 * big_l[2:] + 1.0) * fsky)
+    var_pp[2:] = 2.0 * clpp_raw[2:] ** 2 / ((2.0 * big_l[2:] + 1.0) * fsky)
     lo = int(ell[0])
     hi = int(ell[-1]) + 1
     n_ell = len(ell)
@@ -1036,7 +1111,7 @@ def check_covariance_oracle():
     s_old = np.zeros(len(bands), dtype="float64")
     for bi, (b_lo, b_hi) in enumerate(bands):
         s_old[bi] = var_pp[b_lo:b_hi + 1].sum()
-        band_cl = clpp[b_lo:b_hi + 1]
+        band_cl = clpp_raw[b_lo:b_hi + 1]
         for s in ("tt", "te", "ee"):
             deriv[s][bi] = (M[s][lo:hi, b_lo:b_hi + 1] * band_cl).sum(axis=1)
     old_blocks = cov.assemble_lensing_blocks(deriv=deriv, w=s_old)
@@ -1046,40 +1121,79 @@ def check_covariance_oracle():
     report("eq-6 discrimination: the old extra-C_L^2 weights miss by orders",
            orders > 6.0, "truth / old magnitude ~ 1e%.0f" % orders)
 
+    # fixture integrity: the scaled array the pipeline perturbs and the raw
+    # array it weights with must genuinely differ for every L >= 2, and by
+    # an L-DEPENDENT factor (a constant ratio would leave the wide-band
+    # weight invariant and weaken the leg the same way raw == scaled did).
+    scaled = fake.get_lens_potential_cls(raw_cl=False)[:, 0]
+    differ = bool((scaled[2:] != clpp_raw[2:]).all())
+    ratio = scaled[2:] / clpp_raw[2:]
+    l_dependent = float(ratio.max()) > 1.5 * float(ratio.min())
+    raw_raises = False
+    try:
+        fake.get_lens_potential_cls(raw_cl=True)
+    except ValueError:
+        raw_raises = True
+    report("fixture integrity: scaled != raw for L>=2, ratio L-dependent, "
+           "raw_cl=True raises",
+           differ and l_dependent and raw_raises,
+           "ratio %.2f..%.2f, raw_cl guard %s"
+           % (float(ratio.min()), float(ratio.max()), raw_raises))
+
     # ---- leg (c): band width 3, a sensitivity CONSTANT across each band ----
     # the smooth-response projection is then exact, so the width-3
-    # contraction must reproduce the per-L eq 6 truth.
+    # contraction must reproduce the per-L eq 6 truth. The last band's raw
+    # spectrum is zeroed: its weight must be exactly 0 (the no-divide
+    # guard) and the truth still matches (a zero band contributes nothing
+    # on both sides).
     lens_lmax_c = 13
     lmax_c = 13
     ell_c = np.arange(2, lmax_c + 1, dtype="int64")   # l = 2..13
     band_width_c = 3
-    clpp_c = np.zeros(lens_lmax_c + 1, dtype="float64")
-    clpp_c[2:] = 1e-8 * (1.0 + 0.5 * rng.random(lens_lmax_c - 1))
+    clpp_raw_c = np.zeros(lens_lmax_c + 1, dtype="float64")
+    clpp_raw_c[2:] = 1e-8 * (1.0 + 0.5 * rng.random(lens_lmax_c - 1))
+    bands_c = cov.band_windows(lmin=2, lmax=lens_lmax_c,
+                               band_width=band_width_c)
+    last_lo, last_hi = bands_c[-1]
+    clpp_raw_c[last_lo:last_hi + 1] = 0.0            # zero the last band
     M_c = {}
     base_c = {}
     for s in ("tt", "te", "ee"):
         M_c[s] = _band_constant_M(rng, lmax_c + 1, lens_lmax_c, band_width_c)
         # zero baseline (see the width-1 leg): the stencil stays exact.
         base_c[s] = np.zeros(lmax_c + 1, dtype="float64")
-    fake_c = FakeCAMBData(clpp=clpp_c, M=M_c, base=base_c)
-    cls_c = {"pp": clpp_c.copy(),
+    fake_c = FakeCAMBData(clpp_raw=clpp_raw_c, M=M_c, base=base_c)
+    cls_c = {"pp": clpp_raw_c.copy(),
              "tt": np.zeros(lmax_c + 1, dtype="float64"),
              "te": np.zeros(lmax_c + 1, dtype="float64"),
              "ee": np.zeros(lmax_c + 1, dtype="float64")}
+    # the zeroed last band has an identically-zero derivative, but the
+    # stencil formula f_m2 - 8 f_m1 + 8 f_p1 - f_p2 on the four
+    # bit-identical re-lensings (its perturbation 0*(1+eps) is 0 for every
+    # step) leaves a ~1e-22 rounding residue; that residue is the same at
+    # both steps and the derivative scales as 1/h, so its relative spread
+    # is exactly 1 - h_min/h_next = 0.5. The oracle checks the contraction
+    # weight, not stencil convergence (the smoke gate covers that on real
+    # CAMB), so it uses a loose convergence tolerance here; the real bands
+    # still converge to ~3e-14 and the truth comparison below is what
+    # validates the numbers.
     ng3 = {"enabled": True,
            "lens_lmax": lens_lmax_c,
            "band_width": band_width_c,
            "step_fracs": [0.01, 0.02],
-           "converge_rtol": 0.05}
+           "converge_rtol": 1.0}
     blocks3, study3 = cov.nongaussian_blocks(cambdata=fake_c, cls=cls_c,
                                              ell=ell_c, ng_cfg=ng3, fsky=fsky,
                                              log=lambda *a: None)
-    truth3 = _oracle_truth(M=M_c, clpp=clpp_c, fsky=fsky, ell=ell_c,
+    truth3 = _oracle_truth(M=M_c, clpp_raw=clpp_raw_c, fsky=fsky, ell=ell_c,
                            lens_lmax=lens_lmax_c)
     worst3 = _worst_rel(blocks3, truth3)
+    last_weight = study3["per_band_weight"][-1]
     report("eq-6 band projection: width-3 constant-response matches truth",
            worst3 < 1e-9, "max rel %.2e (policy %s)"
            % (worst3, study3["band_weight_policy"]))
+    report("eq-6 zero band: the zeroed last band's weight is exactly 0",
+           last_weight == 0.0, "per_band_weight[-1] = %r" % last_weight)
 
 
 def main():
