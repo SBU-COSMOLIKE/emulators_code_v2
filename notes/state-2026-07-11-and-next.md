@@ -107,9 +107,12 @@ the cosmic-shear no-regression proof and those legs' first execution.
 
 ## Standing constraints that gate future work
 
-- Transfer learning is PERMANENTLY exclusive to the cosmolike + CMB
-  data-vector families; fine-tuning is universal; heads-on-scalar is
-  a permanent no (no coordinate axis between named outputs).
+- Transfer learning rides cosmolike + cmb + grid + grid2d since the
+  2026-07-12 overnight symmetry ruling (the user overturned the
+  BAOSN/MPS permanent forbid and closed D-CM7); SCALAR stays out
+  (D-SP8, a recorded ruling the user may overturn). Fine-tuning is
+  universal; heads-on-scalar is a permanent no (no coordinate axis
+  between named outputs).
 - The BSN family is flat-only V1 (the legacy curvature formula was
   dimensionally wrong and is deliberately not reproduced; a curvature
   branch would be a new spec).

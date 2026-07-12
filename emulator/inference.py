@@ -129,8 +129,12 @@ class EmulatorPredictor:
     if self._scalar:
       self.output_names = list(self.geom.names)
       self._dtype = self.pgeom.center.dtype
-      self._decode = self._build_diag_decoder(pce_base=info["pce_base"],
-                                              pce_form=info["pce_form"])
+      self._decode = self._build_diag_decoder(
+        pce_base=info["pce_base"],
+        pce_form=info["pce_form"],
+        transfer_base=info["transfer_base"],
+        transfer_form=info["transfer_form"],
+        transfer_space=info["transfer_space"])
       return
     # grid (background-function) emulator (D-BSN5): predict returns
     # {"z": grid, quantity: row} — the raw physical function on the
@@ -143,8 +147,12 @@ class EmulatorPredictor:
       self.law      = self.geom.law
       self.z        = self.geom.z
       self._dtype   = self.pgeom.center.dtype
-      self._decode  = self._build_diag_decoder(pce_base=info["pce_base"],
-                                               pce_form=info["pce_form"])
+      self._decode  = self._build_diag_decoder(
+        pce_base=info["pce_base"],
+        pce_form=info["pce_form"],
+        transfer_base=info["transfer_base"],
+        transfer_form=info["transfer_form"],
+        transfer_space=info["transfer_space"])
       return
     # grid2d (matter-power-spectrum) emulator (D-MP1): predict returns
     # the LAW-SPACE surface on the stored (z, k) axes — log(P/P_base)
@@ -158,8 +166,12 @@ class EmulatorPredictor:
       self.z        = self.geom.z
       self.k        = self.geom.k
       self._dtype   = self.pgeom.center.dtype
-      self._decode  = self._build_diag_decoder(pce_base=info["pce_base"],
-                                               pce_form=info["pce_form"])
+      self._decode  = self._build_diag_decoder(
+        pce_base=info["pce_base"],
+        pce_form=info["pce_form"],
+        transfer_base=info["transfer_base"],
+        transfer_form=info["transfer_form"],
+        transfer_space=info["transfer_space"])
       return
     # CMB spectrum emulator (D-CM5): predict returns the physical C_ell
     # row on the stored multipole grid (a 1-D numpy array over .ell), so
@@ -172,17 +184,24 @@ class EmulatorPredictor:
       self.ell            = self.geom.ell
       self.units          = self.geom.units
       self.amplitude_law  = info["amplitude_law"]
-      # an NPCE cmb artifact composes base + net (residual, law "none"
+      # an NPCE or transfer cmb artifact composes base + net (law "none"
       # enforced at training); otherwise the law-dispatched decode.
-      if info["pce_base"] is not None:
+      if (info["pce_base"] is not None
+          or info["transfer_base"] is not None):
         if info["amplitude_law"] != "none":
+          kind = "an NPCE base" if info["pce_base"] is not None \
+              else "a transfer base"
           raise ValueError(
-            "the saved emulator carries both an NPCE base and "
+            "the saved emulator carries both " + kind + " and "
             "amplitude_law " + repr(info["amplitude_law"]) + "; the two "
             "are mutually exclusive (validate_cmb), so the file is "
             "inconsistent")
-        self._decode = self._build_diag_decoder(pce_base=info["pce_base"],
-                                                pce_form=info["pce_form"])
+        self._decode = self._build_diag_decoder(
+          pce_base=info["pce_base"],
+          pce_form=info["pce_form"],
+          transfer_base=info["transfer_base"],
+          transfer_form=info["transfer_form"],
+          transfer_space=info["transfer_space"])
       else:
         self._decode = self._build_cmb_decoder(law=info["amplitude_law"],
                                                as_name=info["as_name"],
@@ -234,26 +253,50 @@ class EmulatorPredictor:
     base_pg     = getattr(self.pgeom, "pg_keep", self.pgeom)
     self._dtype = base_pg.center.dtype
 
-  def _build_diag_decoder(self, pce_base, pce_form):
+  def _build_diag_decoder(self, pce_base, pce_form,
+                          transfer_base=None, transfer_form=None,
+                          transfer_space=None):
     """Pick the whitened-output -> physical map for a diagonal family.
 
     The scalar / cmb / grid / grid2d branches all decode through this:
-    with an NPCE base (the 2026-07-12 family-wide ruling) it
-    reconstructs the training loss purely for its decode, so the
-    base + net recombine keeps one definition (losses/pce.py), exactly
-    the single-sourcing rule of the dv branches; without a base the
-    module output is the whitened row itself and geom.decode alone
-    inverts it (byte-identical to the pre-NPCE path).
+    with an NPCE base (the 2026-07-12 family-wide ruling) or a frozen
+    transfer base (the same day's symmetry ruling) it reconstructs the
+    training loss purely for its decode, so the recombine keeps one
+    definition (losses/pce.py / losses/transfer.py), exactly the
+    single-sourcing rule of the dv branches; with neither, the module
+    output is the whitened row itself and geom.decode alone inverts it
+    (byte-identical to the pre-NPCE path).
 
     Arguments:
-      pce_base = the frozen PCEEmulator rebuilt off the h5, or None.
-      pce_form = the persisted combine form; a diagonal family persists
-                 only "residual" (anything else = a corrupt file).
+      pce_base      = the frozen PCEEmulator rebuilt off the h5, or None.
+      pce_form      = the persisted combine form; a diagonal family
+                      persists only "residual" (else a corrupt file).
+      transfer_base = the rebuilt frozen transfer-base bundle ({model,
+                      pgeom, geom}) or None; exclusive with pce_base.
+      transfer_form / transfer_space = the persisted transfer combine
+                      flags (gain|sum / "whitened" on these families).
 
     Returns:
       a callable (pred, x_enc) -> (1, n_out) physical row; the plain
-      closure ignores x_enc, the NPCE decode evaluates the base from it.
+      closure ignores x_enc, the NPCE / transfer decodes evaluate their
+      base from it.
     """
+    if transfer_base is not None and pce_base is not None:
+      raise ValueError(
+        "the saved emulator carries both a transfer base and an NPCE "
+        "base; the two are mutually exclusive (transfer excludes pce), "
+        "so the file is inconsistent")
+    if transfer_base is not None:
+      from .losses.transfer import TransferDiagChi2
+      chi2 = TransferDiagChi2(
+        geom=self.geom,
+        base_net=transfer_base["model"],
+        base_in_dim=len(transfer_base["pgeom"].names),
+        form=transfer_form,
+        space=transfer_space)
+      # TransferDiagChi2.decode(pred, params_whitened) matches the
+      # predictor's (pred, x_enc) decoder convention.
+      return chi2.decode
     if pce_base is None:
       def _diag_plain_decode(pred, x_enc):
         # the module output is the whitened row itself; no base.

@@ -87,8 +87,12 @@ models-and-designs.md (the NPCE FAMILY-WIDE bullet).
   an off-center point (2%) — truth available, the strongest
   end-to-end test on the board.
 - Never re-propose: the analytic extension; the legacy curvature
-  formula; PCA/TMAT compression in V1; transfer over BSN (PERMANENT);
-  porting legacy .pt artifacts (retrain); a silent desert bridge.
+  formula; PCA/TMAT compression in V1; porting legacy .pt artifacts
+  (retrain); a silent desert bridge. (Transfer over BSN was on this
+  list as PERMANENT until the user overturned it, 2026-07-12: both
+  BSN and MPS now carry frozen-base transfer — TransferDiagChi2,
+  whitened space, sum recommended; details in
+  artifacts-inference-warmstart.md.)
 
 ## MPS — the matter power spectrum. ACCEPTED END TO END (board run 9, 2026-07-12: rel 0.93% vs CAMB against the 5% bar); gates mps-identity/mps-smoke.
 

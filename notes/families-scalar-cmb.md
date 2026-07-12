@@ -48,8 +48,9 @@ README sections 14 and 15.
 - Never re-propose: chaining scalar emulators; provides: as a source;
   the absolute zero-variance guard; porting joblib/GP or .pt legacy
   artifacts (replaced-not-ported: retrain); transfer over scalars
-  (PERMANENT — transfer is exclusive to the cosmolike + CMB
-  data-vector families; fine-tuning is universal).
+  (D-SP8 — the one family transfer does NOT ride after the 2026-07-12
+  symmetry lift; a recorded ruling the user may overturn, not a
+  structural bar; fine-tuning is universal).
 
 ## CME — CMB spectra emulators. ACCEPTED END TO END (board run 4, 2026-07-11); gates cmb-identity/cmb-smoke.
 
@@ -116,8 +117,11 @@ README sections 14 and 15.
   sigma panel — + the high-pass wiggle content with the acoustic
   band marked).
 - Fine-tuning: four loud pin checks (spectrum, law + columns, ell
-  grid, covariance file). Transfer for CMB is DEFERRED (D-CM7), not
-  permanent — the one family besides cosmolike allowed to get it.
+  grid, covariance file). Transfer for CMB is IMPLEMENTED since
+  2026-07-12 (D-CM7's deferral closed by the symmetry ruling):
+  TransferDiagChi2, whitened space, amplitude_law "none" both sides,
+  the same four whitening pins as the finetune path; details in
+  artifacts-inference-warmstart.md, legs in transfer-identity.
 - First-run risks — ALL RESOLVED by the board saga (run 4 green):
   the get_model + add_requirements path and the generator's CAMB run
   worked as shipped; the ~400 serial CAMB calls cost ~10 min at

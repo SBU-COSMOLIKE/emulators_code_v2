@@ -71,6 +71,19 @@ data:
 # pce:
 #   form: residual
 
+# OPTIONAL frozen-base transfer (README section 13): freeze a saved
+# emulator of the SAME quantity, law, and (z, k) grids (same k_stride)
+# and train the model below as a small parallel correction — the tool
+# for a NEW physics sector, where fine-tuning's same-capacity
+# adaptation is not enough (the 2026-07-12 ruling: "this for sure
+# should be allowed for MPS"). On this family the composition acts in
+# the whitened space (form sum recommended; gain prints a
+# zero-crossing note); refine: is not offered here yet. Exclusive with
+# pce: and train_args.finetune.
+# transfer:
+#   from: chains/my_lcdm_boost_base
+#   form: sum
+
 train_args:
   nepochs: 300
   bs:      256

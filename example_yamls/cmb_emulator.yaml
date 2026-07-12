@@ -62,6 +62,18 @@ data:
 # pce:
 #   form: residual
 
+# OPTIONAL frozen-base transfer (README section 13): freeze a saved CMB
+# emulator of the SAME spectrum and covariance file and train the model
+# below as a small parallel correction — the tool for a NEW physics
+# sector, where fine-tuning's same-capacity adaptation is not enough.
+# On this family the composition acts in the whitened space (form sum
+# recommended; gain prints a zero-crossing note), the block needs
+# amplitude_law: none above (base and run both), and refine: is not
+# offered here yet. Exclusive with pce: and train_args.finetune.
+# transfer:
+#   from: chains/my_lcdm_tt_base
+#   form: sum
+
 train_args:
   nepochs: 400
   bs:      256

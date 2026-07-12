@@ -7,6 +7,14 @@ combines the two per element (per template, for a factored base) before the
 amplitude combine. The base is expensive to expand, so the correction only
 learns the difference the new physics makes.
 
+Two classes share that design. TransferChi2 is the cosmolike
+(dense-covariance) form, covering the full form x space matrix and the
+factored template bases. TransferDiagChi2 (the 2026-07-12 symmetry ruling:
+"it is weird to have a feature not symmetric to all cases") is the
+elementwise-whitened form for the cmb / grid / grid2d families — plain
+bases only, composition in the whitened space only (which for these
+families IS the chi2 metric basis), both combine forms.
+
 The combination is a class picked by two YAML flags, orthogonal to each other:
 
   form  = how the correction combines with the base
@@ -40,6 +48,7 @@ squared residual the chi2 always scores in the physical representation.
 
 import torch
 
+from .cmb import CmbDiagonalChi2
 from .core import CosmolikeChi2
 
 
@@ -512,3 +521,274 @@ class TransferChi2(CosmolikeChi2):
     """
     self._params = params_whitened
     return CosmolikeChi2.loss(self, pred, target, *args, **kwargs)
+
+
+class TransferDiagChi2(CmbDiagonalChi2):
+  """
+  A frozen base under a parallel correction, on the diagonal families.
+
+  The elementwise-whitened sibling of TransferChi2 (the 2026-07-12
+  symmetry ruling), serving cmb (amplitude law "none") / grid / grid2d:
+  a plain frozen base whose output is the whitened row, a correction net
+  of the same width, and the composition ALWAYS in the whitened space —
+  for these families that space is the chi2 metric basis, and composing
+  anywhere else would either be an elementwise scale away (no new
+  capability) or pass a log-law domain edge (a NaN risk). Both combine
+  forms exist:
+
+      gain: pred_w = base_w * (1 + r)     sum: pred_w = base_w + r
+
+  and both are exactly the base at r = 0 (the epoch-0 parity gate).
+  Note the whitened coordinates are centered, so base_w crosses zero
+  element by element and gain has no leverage at the crossings —
+  validate_transfer recommends sum on these families for that reason.
+
+  Speed design (the TransferChi2 pattern): the frozen base runs once
+  per row at encode (load) time and is packed beside the whitened truth
+  into a doubled target (target_dim, read by batching.py); the hot chi2
+  only unpacks and composes.
+
+    encode (at load, once per row)
+      dv, enc                    enc = the run's whitened parameters
+        │  base_w = base_net(enc[:, :base_in_dim])   (no_grad; the
+        │                        D-TP3 block-extension column slice)
+        ▼
+      target = [base_w ; geom.encode(dv)]   (B, 2 n_out)
+
+    chi2 (hot path, per batch)
+      target, pred               pred = the correction net output
+        │  unpack base_w, truth_w
+        │  compose per the form
+        ▼
+      r = pred_w - truth_w       whitened residual
+        ▼
+      c = sum(r^2) over n_out    the family's diagonal chi2
+
+  (legend: B = batch rows; n_out = the family's output length, n_ell /
+  nz / nz*nk; enc = the run's encoded parameters, the model input;
+  base_in_dim = the base's whitened-input width, its columns a
+  bit-identical slice of the run's encoding per D-TP3.)
+
+  needs_params = True: encode / chi2 / decode take the run's whitened
+  parameters (to slice the base input).
+  """
+  needs_params = True
+  _params = None
+
+  def __init__(self,
+               geom,
+               base_net,
+               base_in_dim,
+               form,
+               space):
+    """Hold the geometry, the frozen base, and the combine form.
+
+    Arguments:
+      geom        = the family's elementwise-whitened output geometry,
+                    PINNED from the base artifact (the run must share
+                    the base's whitening; build_geometry checks).
+      base_net    = the frozen base network (eval mode; run under
+                    no_grad): outputs the (B, n_out) whitened row.
+      base_in_dim = the base network's whitened-input width; the base
+                    input is the first base_in_dim columns of the run's
+                    encoding (the D-TP3 block-extension invariant).
+      form        = "gain" (base * (1 + r)) or "sum" (base + r).
+      space       = accepted for signature parity with TransferChi2 and
+                    must be "whitened": the diagonal families compose in
+                    the metric basis only (loud otherwise).
+    """
+    super().__init__(geom)
+    if form not in FORMS:
+      raise ValueError(
+        "transfer form must be one of " + str(list(FORMS)) + ", got "
+        + repr(form))
+    if space != "whitened":
+      raise ValueError(
+        "the diagonal families compose in the whitened space only (it IS "
+        "their chi2 metric basis; a physical composition is an elementwise "
+        "scale away, or crosses a log-law domain edge); got space "
+        + repr(space))
+    self.base_net    = base_net
+    self.base_in_dim = int(base_in_dim)
+    self.form        = form
+    self.space       = space
+    # live-base mode (the refine stage) is NOT offered on the diagonal
+    # families in V1 — validate_transfer rejects transfer.refine there —
+    # but the flag exists so the loop's set_live probes stay uniform.
+    self.live        = False
+
+  @property
+  def target_dim(self):
+    """Staged-target width: encode packs [base_w ; truth_w].
+
+    Returns:
+      2 * n_out (the base row cached beside the whitened truth), read
+      by batching.py to stage the doubled target.
+    """
+    return 2 * self.geom.dest_idx.numel()
+
+  def set_live(self, flag):
+    """Switch the base between frozen (packed) and live modes.
+
+    Signature parity with TransferChi2; the diagonal families are
+    frozen-base only in V1 (validate_transfer rejects refine), so the
+    loop never flips this on a diagonal run.
+
+    Arguments:
+      flag = True re-evaluates the base with grad each step; False
+             (the default) unpacks the packed reference.
+    """
+    self.live = bool(flag)
+
+  def _base(self, enc):
+    """Run the frozen base on the D-TP3 column slice.
+
+    Arguments:
+      enc = (B, encoded_dim) the run's whitened parameters.
+
+    Returns:
+      (B, n_out) the base's whitened row; under no_grad when frozen.
+    """
+    if self.live:
+      return self.base_net(enc[:, :self.base_in_dim])
+    with torch.no_grad():
+      return self.base_net(enc[:, :self.base_in_dim])
+
+  def _compose(self, base_w, correction):
+    """Combine the base with the correction, per the form.
+
+    Arguments:
+      base_w     = (B, n_out) the base's whitened row.
+      correction = (B, n_out) the correction net output.
+
+    Returns:
+      base_w * (1 + correction) for gain, base_w + correction for sum;
+      exactly base_w when the correction is zero (epoch-0 parity).
+    """
+    if self.form == "gain":
+      return base_w * (1.0 + correction)
+    return base_w + correction
+
+  def encode(self, dv, params_whitened):
+    """Raw target row -> the packed [base_w ; truth_w] target.
+
+    Arguments:
+      dv              = (B, n_out) raw target rows.
+      params_whitened = (B, encoded_dim) the run's encoding (for the
+                        base slice).
+
+    Returns:
+      (B, 2 n_out) packed target; the base never re-runs in the loop.
+    """
+    base_w = self._base(params_whitened)
+    return torch.cat([base_w, self.geom.encode(dv)], dim=1)
+
+  def _unpack(self, target):
+    """Split a packed target into (base_w, truth_w).
+
+    Arguments:
+      target = (B, 2 n_out) packed [base_w ; truth_w] from encode.
+
+    Returns:
+      (base_w, truth_w), each (B, n_out).
+    """
+    n_out = self.geom.dest_idx.numel()
+    return target[:, :n_out], target[:, n_out:]
+
+  def chi2(self, pred, target, params_whitened=None, full=False):
+    """Per-sample chi2 of the composed prediction against the truth.
+
+    Arguments:
+      pred            = (B, n_out) the correction net output.
+      target          = (B, 2 n_out) packed [base_w ; truth_w].
+      params_whitened = the run's encoding, or None to use the loss()
+                        stash (needed only when live).
+      full            = accepted for interface parity; ignored (no
+                        mask / covariance on the diagonal families).
+
+    Returns:
+      (B,) per-sample chi2 = sum of squared whitened residuals of the
+      composed prediction.
+    """
+    if params_whitened is None:
+      params_whitened = self._params
+    if self.live:
+      base_w  = self._base(params_whitened)
+      n_out   = self.geom.dest_idx.numel()
+      truth_w = target[:, n_out:]
+    else:
+      base_w, truth_w = self._unpack(target)
+    pred_w = self._compose(base_w=base_w, correction=pred)
+    r = pred_w - truth_w
+    return (r * r).sum(dim=1)
+
+  def decode(self, pred, params_whitened):
+    """Composed physical prediction (diagnostics; recomputes the base).
+
+    Arguments:
+      pred            = (B, n_out) the correction net output.
+      params_whitened = (B, encoded_dim) the run's encoding.
+
+    Returns:
+      (B, n_out) physical row: geom.decode of the composed whitened
+      prediction (the family's law inverse / pins act on the whole).
+    """
+    base_w = self._base(params_whitened)
+    return self.geom.decode(self._compose(base_w=base_w,
+                                          correction=pred))
+
+  def base_decode(self, params_whitened):
+    """The frozen base's own physical decode (the parity reference).
+
+    Equal to decode() with the correction identically zero; the D-TP7
+    parity gate compares the epoch-0 composed prediction to this.
+
+    Arguments:
+      params_whitened = (B, encoded_dim) the run's encoding.
+
+    Returns:
+      (B, n_out) the frozen base's physical prediction.
+    """
+    return self.geom.decode(self._base(params_whitened))
+
+  def configure_roughness(self, lam, period_cut):
+    """Reject the D-CM8 roughness term on a transfer run, loudly.
+
+    The inherited penalty acts on pred - target, which for a transfer
+    loss is a correction against a PACKED target, not a whitened
+    residual — attaching it would crash with a shape error at the
+    first loss. A composed-residual roughness needs its own design;
+    until then the combination is refused with the fix named.
+
+    Arguments:
+      lam, period_cut = accepted for signature parity; never used.
+
+    Raises:
+      ValueError, always.
+    """
+    raise ValueError(
+      "loss.roughness does not compose with a transfer run (the penalty "
+      "is defined on the whitened residual; the transfer loss trains a "
+      "correction against a packed [base ; truth] target). Remove the "
+      "loss.roughness block, or train without transfer.")
+
+  def loss(self, pred, target, params_whitened, *args, **kwargs):
+    """Scalar training loss from the composed-prediction chi2.
+
+    Stashes params so the inherited reduction (which calls self.chi2
+    without params) can slice the base input when live; the frozen
+    path unpacks the packed base and never needs them.
+
+    Arguments:
+      pred            = (B, n_out) the correction net output.
+      target          = (B, 2 n_out) packed [base_w ; truth_w].
+      params_whitened = (B, encoded_dim) the run's encoding.
+      *args, **kwargs = the mode / trim / focus reduction controls,
+                        forwarded positionally (never keyword pred /
+                        target before the *args forwarder).
+
+    Returns:
+      a scalar loss tensor.
+    """
+    self._params = params_whitened
+    return CmbDiagonalChi2.loss(self, pred, target, *args, **kwargs)

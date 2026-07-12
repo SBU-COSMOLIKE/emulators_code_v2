@@ -1669,16 +1669,28 @@ is evaluated once per training row and cached, so training costs only the
 small net; the saved result embeds the base, so the artifact reloads and
 samples with no other file.
 
-Transfer learning exists for the cosmolike and CMB data-vector families
-only, and that restriction is permanent — a `transfer:` block on a
-scalar, background, or matter-power config is a loud error; those
-families [fine-tune](#fine-tuning-train_argsfinetune) instead.
+Transfer learning rides **every family except scalar**: cosmic shear
+(where the factored NLA/TATT bases live), CMB spectra, background, and
+matter power. On the three non-cosmolike families the composition acts
+in the whitened space only — for them that space IS the chi2 metric,
+so composing anywhere else adds nothing (an element-by-element scale
+away) or risks stepping outside a log law's domain; `space: physical`
+there is a loud error, `form: gain` prints a note recommending `sum`
+(whitened coordinates cross zero, where a multiplicative correction
+has no leverage), `transfer.refine` is not offered yet, and a CMB
+transfer needs `amplitude_law: none` on both the base and the run (the
+law and the transfer each replace the target construction — one at a
+time). The base must be the same family, quantity, and grids as the
+run — every mismatch is a loud error naming the fix. A `transfer:`
+block on a scalar config remains a loud error (the D-SP8 ruling);
+scalar maps [fine-tune](#fine-tuning-train_argsfinetune) instead.
 
 ```yaml
 transfer:
   from: projects/lsst_y1/chains/my_lcdm_run
   form: gain            # gain = base*(1+r) | sum = base + r
   space: physical       # optional; defaults to the form's recommendation
+                        # (cmb/baosn/mps: whitened only, sum recommended)
 
 train_args:
   model:                # the SMALL correction net (the base is untouched)
@@ -1699,7 +1711,9 @@ rate (`base_lr_scale`) and is pulled back toward its saved weights by the
 `anchor` (both keys are required — an explicit `anchor: 0.0` states free
 fine-tuning deliberately). The saved artifact keeps the ORIGINAL base, the
 drifted base, and the drift itself, so you can always see how far the trusted
-emulator moved to buy the extra accuracy.
+emulator moved to buy the extra accuracy. The refine stage exists on the
+cosmic-shear family only for now; on CMB / background / matter power a
+`refine:` block is a loud error (frozen-base transfer first).
 
 ```yaml
 transfer:
@@ -1808,8 +1822,10 @@ polarization, phi-phi = the lensing potential), on a fixed multipole
 grid l = 2..lmax. One emulator learns ONE spectrum; a full set is four
 artifacts. Everything rides the same training stack as the data-vector
 emulators — the losses, trimming, focal weighting, EMA, clip / rewind,
-fine-tuning all compose unchanged — because the loss exposes the same
-per-sample chi2 interface. The correction heads apply too ([section
+fine-tuning, and frozen-base transfer ([section
+13](#13-starting-from-a-saved-emulator-fine-tuning--transfer)) all
+compose unchanged — because the loss exposes the same per-sample chi2
+interface. The correction heads apply too ([section
 10](#10-model)): the CMB whitening keeps the multipole order, so
 `rescnn` slides its kernel along ell directly, and `restrf` re-segments
 the spectrum into `model.trf.n_tokens` contiguous windows and attends
@@ -1974,9 +1990,11 @@ persisted in the artifact); D_M trains raw (`none`). Dumps come from
 background-only CAMB evaluation per sampled cosmology yields BOTH
 quantities and the grids ride beside the dumps as `_z.npy` sidecars.
 The full training surface applies here unchanged — the loss ladder,
-trimming, focal weighting, EMA, clip / rewind, fine-tuning, and the
-correction heads ([section 10](#10-model)): the standardization keeps
-the z order, so `rescnn` slides its kernel along z and `restrf`
+trimming, focal weighting, EMA, clip / rewind, fine-tuning,
+frozen-base transfer ([section
+13](#13-starting-from-a-saved-emulator-fine-tuning--transfer)), and
+the correction heads ([section 10](#10-model)): the standardization
+keeps the z order, so `rescnn` slides its kernel along z and `restrf`
 re-segments the grid into `model.trf.n_tokens` attention windows. The
 NPCE trunk rides too ([section 12](#12-pce)): a `pce:` block fits the
 closed-form base on the law-space rows (`form: residual`).
@@ -2052,14 +2070,17 @@ base is pinned twice). The (z, k)
 grids ride as `_z.npy` / `_k.npy` sidecars and persist into the
 artifact; V1 trains on a thinned k grid (`k_stride`, top edge always
 kept) and the served interpolator fills between kept points. The full
-training surface applies here unchanged, correction heads included
+training surface applies here unchanged — correction heads included
 ([section 10](#10-model)): the flattening is z-outer, so `rescnn` gets
 the z slices as conv channels and slides along k (mixing redshifts at
-like k), and `restrf` gets one attention token per z slice. The NPCE
-trunk rides too ([section 12](#12-pce)): a `pce:` block fits the
-closed-form base on the staged law-space surface (`form: residual`) —
-the arXiv 2404.12344 configuration, an NPCE on the boost, and
-EuclidEmulator2 is itself a PCE of exactly this quantity. One
+like k), and `restrf` gets one attention token per z slice; and
+frozen-base transfer too ([section
+13](#13-starting-from-a-saved-emulator-fine-tuning--transfer)). The
+NPCE trunk rides as well ([section 12](#12-pce)): a `pce:` block fits
+the closed-form base on the staged law-space surface
+(`form: residual`) — the arXiv 2404.12344 configuration, an NPCE on
+the boost, and EuclidEmulator2 is itself a PCE of exactly this
+quantity. One
 physical fact the training handles for you: below the nonlinear scale
 the boost is 1 for every cosmology, so those grid points carry no
 signal under any law — the geometry pins them (the served value is

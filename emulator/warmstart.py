@@ -202,6 +202,14 @@ def validate_finetune_config(cfg, train_args, rescale, activation_flag):
     raise KeyError(
       "a finetune run does not compose with a pce: block (warm-starting a "
       "PCE refiner across bases needs its own design; D-FT10); remove it")
+  # transfer x finetune: two different reuse tools, one at a time (the
+  # same rule validate_transfer states from its side; checked here too so
+  # neither branch order can silently ignore the other block).
+  if cfg.get("transfer") is not None:
+    raise ValueError(
+      "train_args.finetune and a transfer: block are exclusive (a warm "
+      "start adapts every weight; a transfer freezes the base under a "
+      "parallel correction); use one at a time")
   # the loss form is inherited too; a rescale would restate the target.
   if rescale != "none":
     raise ValueError(
