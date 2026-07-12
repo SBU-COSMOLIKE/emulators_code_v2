@@ -13,7 +13,11 @@ saves it with save_emulator, rebuilds it, and asserts:
     on a scalar run);
   - the cobaya adapter emul_scalars derives its provides from the artifacts
     and raises on a duplicate output, an input/provide overlap, a bad
-    `provides` subset, and a wrong-kind (data-vector) artifact (D-SPE2-4).
+    `provides` subset, and a wrong-kind (data-vector) artifact (D-SPE2-4);
+  - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra bitwise under the standardized
+    metric, save -> rebuild -> predict composing base + net exactly in
+    the {name: value} dict.
 
 The adapter legs stub cobaya.theory before loading the shipped
 emul_scalars.py (this gate is torch-only; the real cobaya lifecycle is the
@@ -246,10 +250,16 @@ def check_head_architecture():
     """D-SPE2-3: from_config raises on a head architecture (scalar is
     trunk-only). The head_block guard fires before the experiment is built,
     so dummy file names in the data block are enough."""
-    cfg = {"data": {"train_params": "t.1.txt", "val_params": "v.1.txt",
-                    "train_covmat": "t.covmat", "outputs": ["H0"],
-                    "n_train": 10, "n_val": 5, "split_seed": 0},
-           "train_args": {"nepochs": 1, "bs": 8, "model": {"name": "rescnn"}}}
+    cfg = {"data": {"train_params": "t.1.txt",
+                    "val_params": "v.1.txt",
+                    "train_covmat": "t.covmat",
+                    "outputs": ["H0"],
+                    "n_train": 10,
+                    "n_val": 5,
+                    "split_seed": 0},
+           "train_args": {"nepochs": 1,
+                          "bs": 8,
+                          "model": {"name": "rescnn"}}}
     try:
         EmulatorExperiment.from_config(cfg, device=torch.device("cpu"))
         report("D-SPE2-3 rescnn scalar run raises", False, "did not raise")
@@ -385,19 +395,26 @@ def _save_tiny_dv(root, device):
                   "norm": make_norm("affine")}
     model = ResMLP(input_dim=n_in, output_dim=out_dim, int_dim_res=16,
                    n_blocks=2, block_opts=block_opts).to(device)
-    recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-              "ia": None, "input_dim": n_in, "output_dim": out_dim,
-              "compile_mode": None, "needs_geom": False,
-              "kwargs": {"int_dim_res": 16, "n_blocks": 2,
+    recipe = {"cls": "emulator.designs.plain.ResMLP",
+              "name": "resmlp",
+              "ia": None,
+              "input_dim": n_in,
+              "output_dim": out_dim,
+              "compile_mode": None,
+              "needs_geom": False,
+              "kwargs": {"int_dim_res": 16,
+                         "n_blocks": 2,
                          "block_opts": {"act": {"type": "H", "n_gates": 3},
                                         "norm": "affine"}}}
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom,
                   config={"data": {"cosmolike_data_dir": "lsst_y1",
                                    "cosmolike_dataset": "d.dataset",
-                                   "train_dv": "t.npy", "val_dv": "v.npy"},
+                                   "train_dv": "t.npy",
+                                   "val_dv": "v.npy"},
                           "train_args": {"nepochs": 1}},
-                  histories={"train_losses": [0.1], "val_medians": [0.1],
+                  histories={"train_losses": [0.1],
+                             "val_medians": [0.1],
                              "val_means": [0.1],
                              "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                              "thresholds": torch.tensor([0.2, 1.0, 10.0])},
@@ -425,7 +442,9 @@ def check_finetune(tmp, device):
     # parity violation, so returning is the pass; assert bitwise anyway.
     g = np.random.default_rng(210)
     C2 = g.standard_normal((64, 2)).astype("float32")
-    train_set = {"C": C2, "idx": np.arange(64), "C_mean": C2.mean(axis=0)}
+    train_set = {"C": C2,
+                 "idx": np.arange(64),
+                 "C_mean": C2.mean(axis=0)}
     new_pgeom, extra = warmstart.extend_input_geometry(
         source=source, covmat_path=src_cov,
         train_mean=train_set["C_mean"], device=device)
@@ -446,7 +465,9 @@ def check_finetune(tmp, device):
     ext_cov = os.path.join(tmp, "ft_ext.covmat")
     write_covmat(ext_cov, ["omegabh2", "omegach2", "thetastar"], seed=220)
     C3 = g.standard_normal((64, 3)).astype("float32")
-    train_set3 = {"C": C3, "idx": np.arange(64), "C_mean": C3.mean(axis=0)}
+    train_set3 = {"C": C3,
+                  "idx": np.arange(64),
+                  "C_mean": C3.mean(axis=0)}
     new_pgeom3, extra3 = warmstart.extend_input_geometry(
         source=source, covmat_path=ext_cov,
         train_mean=train_set3["C_mean"], device=device)
@@ -467,10 +488,15 @@ def check_finetune(tmp, device):
     # loud BEFORE any staging (dummy data file names suffice), and the
     # finetune YAML carries no model: block (the FTW model-block lesson).
     def ft_cfg(outputs, from_root):
-        return {"data": {"train_params": "t.1.txt", "val_params": "v.1.txt",
-                         "train_covmat": ext_cov, "outputs": list(outputs),
-                         "n_train": 10, "n_val": 5, "split_seed": 0},
-                "train_args": {"nepochs": 1, "bs": 8,
+        return {"data": {"train_params": "t.1.txt",
+                         "val_params": "v.1.txt",
+                         "train_covmat": ext_cov,
+                         "outputs": list(outputs),
+                         "n_train": 10,
+                         "n_val": 5,
+                         "split_seed": 0},
+                "train_args": {"nepochs": 1,
+                               "bs": 8,
                                "finetune": {"from": from_root}}}
     try:
         EmulatorExperiment.from_config(ft_cfg(["H0"], root),
@@ -491,6 +517,90 @@ def check_finetune(tmp, device):
                "scalar source" in str(e), "ValueError names the family")
 
 
+def check_npce(tmp, device):
+    """NPCE on the scalar family (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra is exact under the standardized
+    metric, and save -> rebuild -> predict composes base + net exactly
+    in the {name: value} dict (_build_diag_decoder on ScalarGeometry)."""
+    from emulator.designs.pce import PCEEmulator
+    from emulator.losses.pce import PCEResidualDiagChi2
+    covmat_path = os.path.join(tmp, "npce.covmat")
+    write_covmat(covmat_path, IN_NAMES, seed=81)
+    center = np.array([0.0224, 0.120, 1.041])
+    pgeom = ParamGeometry.from_covmat(device=device, center=center,
+                                      covmat_path=covmat_path)
+    g = np.random.default_rng(82)
+    C = np.column_stack([g.normal(0.0224, 0.0002, 400),
+                         g.normal(0.120, 0.002, 400),
+                         g.normal(1.041, 0.001, 400)]).astype("float32")
+    # outputs that REALLY move with the inputs (H0-like and omegam-like
+    # linear responses), so the LOO gate keeps a mode and the fitted
+    # base is alive (the smoke-gate rule).
+    Y = np.column_stack([
+        67.0 + 3000.0 * (C[:, 1] - 0.120) + 0.1 * g.standard_normal(400),
+        0.31 + 5.0 * (C[:, 1] - 0.120)
+        + 0.001 * g.standard_normal(400)]).astype("float32")
+    geom = ScalarGeometry.from_targets(device=device, targets=Y,
+                                       names=OUT_NAMES)
+    tC = torch.from_numpy(C).to(device)
+    X_white = pgeom.encode(tC)
+    dv = torch.from_numpy(Y).to(device)
+    pce = PCEEmulator.from_training(device, X_white, geom.encode(dv),
+                                    p_max=2, r_max=2, q=0.5, k_max=2,
+                                    loo_max=0.9, max_terms=8, silent=True)
+    chi2fn = PCEResidualDiagChi2(geom=geom, pce=pce)
+    with torch.no_grad():
+        base = pce(X_white[:8])
+    report("NPCE base is alive (the fit kept a real mode)",
+           base.abs().max().item() > 1e-4,
+           "max|base| = %.2e" % base.abs().max().item())
+    enc = chi2fn.encode(dv[:8], X_white[:8])
+    report("NPCE encode: standardized truth minus the base, bitwise",
+           torch.equal(enc, geom.encode(dv[:8]) - base), "")
+    y = torch.randn(8, N_OUT, device=device)
+    report("NPCE decode: geom.decode(net + base), bitwise",
+           torch.equal(chi2fn.decode(y, X_white[:8]),
+                       geom.decode(y + base)), "")
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    model = ResMLP(input_dim=N_IN, output_dim=N_OUT, int_dim_res=16,
+                   n_blocks=2, block_opts=block_opts).to(device)
+    root = os.path.join(tmp, "emul_npce")
+    config = {"data": {"train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat_path),
+                       "outputs": list(OUT_NAMES)},
+              "pce": {"form": "residual"},
+              "train_args": {"nepochs": 1}}
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    recipe = scalar_recipe()
+    save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
+                  geometry=geom, config=config, histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=recipe,
+                  pce=pce, pce_form="residual",
+                  attrs={"outputs": " ".join(OUT_NAMES),
+                         "rescale": "none"})
+    theta = np.array([[0.0225, 0.121, 1.0412]])
+    x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        x1e = pgeom.encode(x1)
+        ref = geom.decode(model(x1e) + pce(x1e))[0]
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    ok = True
+    for i, nm in enumerate(OUT_NAMES):
+        ok = ok and got[nm] == float(ref[i])
+    report("NPCE save -> rebuild -> predict composes base + net exactly",
+           ok, "H0 %.6f, omegam %.6f" % (got["H0"], got["omegam"]))
+
+
 def main():
     """Run the scalar-identity checks in a tempdir and exit non-zero on any
     failure."""
@@ -505,6 +615,7 @@ def main():
         check_from_targets_errors(device)
         check_sidecar_errors(tmp)
         check_head_architecture()
+        check_npce(tmp, device)
         check_adapter(tmp, device)
         check_finetune(tmp, device)
     if FAILURES:

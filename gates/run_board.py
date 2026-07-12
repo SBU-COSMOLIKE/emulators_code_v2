@@ -552,7 +552,10 @@ def preflight(cfg):
     cosmolike / cobaya / gpu), consumed by RunContext.require_caps.
   """
   ok = True
-  env = {"torch": False, "cosmolike": False, "cobaya": False, "gpu": False}
+  env = {"torch": False,
+         "cosmolike": False,
+         "cobaya": False,
+         "gpu": False}
 
   print("== preflight ==")
 
@@ -955,7 +958,9 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
 
     if outcome == "FAIL":
       failures = failures + 1
-    status[gate.id] = {"status": outcome, "detail": detail, "ts": _now()}
+    status[gate.id] = {"status": outcome,
+                       "detail": detail,
+                       "ts": _now()}
     _save_status(status)
     _write_board_md(status)
 

@@ -55,6 +55,17 @@ ruling in notes/families-scalar-cmb.md): one .npz holding
   cov_tt/te/ee           (n_ell, n_ell)  the DENSE per-spectrum block
                                    G + N^(phi); present ONLY when the
                                    non-Gaussian flag was on
+  cov_tt_te, cov_tt_ee, cov_te_ee
+                         (n_ell, n_ell)  the DENSE cross-spectrum
+                                   blocks (eq 6 off-pair + the eq 3
+                                   l-diagonal on their diagonals);
+                                   present ONLY when the non-Gaussian
+                                   flag was on. Together with the
+                                   per-spectrum blocks these tile the
+                                   full (3 n_ell, 3 n_ell) TT/TE/EE
+                                   covariance a joint likelihood or a
+                                   dense whitening (the D-CM12 audit)
+                                   would consume.
   provenance             json string: the fiducial parameters, noise,
                          beam, fsky, the NG flag, the stencil step
                          study, and the exact camb extra_args —
@@ -148,7 +159,9 @@ C_ARCMIN_TO_RAD = math.pi / (180.0 * 60.0)
 # FIXED value. Extension-model names are rejected loudly.
 LCDM_ALLOWED = ("As", "logA", "ns", "H0", "thetastar", "cosmomc_theta",
                 "omegabh2", "omegach2", "tau", "mnu", "omk", "w", "wa")
-LCDM_FIXED_ONLY = {"omk": 0.0, "w": -1.0, "wa": 0.0}
+LCDM_FIXED_ONLY = {"omk": 0.0,
+                   "w": -1.0,
+                   "wa": 0.0}
 
 
 def noise_spectrum(ell, delta_arcmin, beam_fwhm_arcmin):
@@ -270,6 +283,46 @@ def band_windows(lmin, lmax, band_width):
   return bands
 
 
+def assemble_lensing_blocks(deriv, S):
+  """Eq 6 assembly for EVERY spectrum pair, from the band derivatives.
+
+  N^(phi)^{XY,WZ}_{ll'} = sum_b  dC^XY_l/dA_b * S_b * dC^WZ_l'/dA_b
+
+  where A_b is the fractional amplitude of C^phiphi inside band b and
+  S_b the band-summed phi Gaussian variance (the caller builds both).
+  A pure matrix product on already-computed derivatives, so this
+  function is Mac-verifiable against the closed form (the probe leg):
+  the same-spectrum blocks are symmetric by construction, and the
+  cross blocks obey cov_xy_wz == cov_wz_xy^T.
+
+  Arguments:
+    deriv = dict tt/te/ee of (n_bands, n_ell) band-derivative
+            matrices dC^s_l/dA_b (the smallest-step stencil
+            estimates).
+    S     = (n_bands,) band-summed phi Gaussian variances.
+
+  Returns:
+    dict of dense (n_ell, n_ell) arrays: cov_tt, cov_te, cov_ee (the
+    same-spectrum blocks) and cov_tt_te, cov_tt_ee, cov_te_ee (the
+    cross-spectrum blocks, rows = the first spectrum's l, columns =
+    the second's l').
+  """
+  pairs = (("tt", "tt"),
+           ("te", "te"),
+           ("ee", "ee"),
+           ("tt", "te"),
+           ("tt", "ee"),
+           ("te", "ee"))
+  out = {}
+  for a, b in pairs:
+    if a == b:
+      key = "cov_" + a
+    else:
+      key = "cov_" + a + "_" + b
+    out[key] = (deriv[a] * S[:, None]).T @ deriv[b]
+  return out
+
+
 def validate_lcdm_params(params):
   """Loud check: the params block is plain flat LCDM, every value fixed.
 
@@ -348,7 +401,9 @@ def fiducial_spectra(info, lmax):
   model_info["likelihood"] = {"one": {"external": "lambda: 0.0"}}
   model = get_model(model_info)
   model.add_requirements({
-    "Cl": {"tt": int(lmax), "te": int(lmax), "ee": int(lmax),
+    "Cl": {"tt": int(lmax),
+           "te": int(lmax),
+           "ee": int(lmax),
            "pp": int(lmax)},
     "CAMBdata": None,
   })
@@ -431,10 +486,12 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
     log      = print-like callable for the step-study report.
 
   Returns:
-    (blocks, study): blocks = dict cov_tt/cov_te/cov_ee of dense
-    (n_ell, n_ell) arrays holding N^(phi) ONLY (the caller adds the
-    Gaussian diagonal); study = the convergence record (per-band
-    relative spreads and the step list) for the provenance.
+    (blocks, study): blocks = dict of dense (n_ell, n_ell) arrays
+    holding N^(phi) ONLY (the caller adds the Gaussian l-diagonals):
+    cov_tt/cov_te/cov_ee (same-spectrum) and cov_tt_te/cov_tt_ee/
+    cov_te_ee (the cross-spectrum off-pair blocks, eq 6 for X != W);
+    study = the convergence record (per-band relative spreads and the
+    step list) for the provenance.
   """
   lmax = int(ell[-1])
   lens_lmax = int(ng_cfg["lens_lmax"])
@@ -519,12 +576,12 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   for b, (b_lo, b_hi) in enumerate(bands):
     S[b] = var_pp_L[b_lo:b_hi + 1].sum()
 
-  # eq 6 assembly: N = D^T diag(S) D per spectrum pair (same-spectrum
-  # blocks only in V1: the training chi2 is per spectrum).
-  blocks = {}
-  for s in spectra:
-    D = deriv[s]                                      # (n_bands, n_ell)
-    blocks["cov_" + s] = (D * S[:, None]).T @ D       # (n_ell, n_ell)
+  # eq 6 assembly for every spectrum pair: the same-spectrum blocks
+  # (the per-spectrum training covariance) AND the cross-spectrum
+  # blocks (the off-pair terms of the paper's full matrix — together
+  # they tile the joint TT/TE/EE covariance the D-CM12 audit and any
+  # joint likelihood would consume).
+  blocks = assemble_lensing_blocks(deriv=deriv, S=S)
   study = {"bands": [[int(a), int(b)] for a, b in bands],
            "step_fracs": step_fracs,
            "band_width": band_width,
@@ -618,12 +675,20 @@ def main():
     blocks, study = nongaussian_blocks(cambdata=cambdata, cls=cls_full,
                                        ell=ell, ng_cfg=ng_cfg,
                                        fsky=fsky, log=print)
+    diag_idx = np.arange(len(ell))
     for s in ("tt", "te", "ee"):
       dense = blocks["cov_" + s]
       # the full covariance = Gaussian diagonal + N^(phi); persisted
       # dense only under the flag (the Gaussian-only file stays small).
-      dense[np.arange(len(ell)), np.arange(len(ell))] += g["var_" + s]
+      dense[diag_idx, diag_idx] += g["var_" + s]
       out["cov_" + s] = dense
+    for pair in ("tt_te", "tt_ee", "te_ee"):
+      dense = blocks["cov_" + pair]
+      # the cross-spectrum blocks: the eq 3 Gaussian cross-covariance
+      # is l-diagonal, so it lands on the dense block's diagonal; the
+      # eq 6 lens-induced part fills the off-diagonals.
+      dense[diag_idx, diag_idx] += g["gauss_" + pair]
+      out["cov_" + pair] = dense
 
   provenance = {
     "paper": "Motloch & Hu 1709.03599 eqs 1-7 (N^(E) recorded, skipped)",
@@ -647,8 +712,8 @@ def main():
   np.savez(out_path, **out)
   print("covariance written -> " + out_path)
   print("  Gaussian sigmas: tt/te/ee/pp over l = 2.." + str(lmax)
-        + ("  + dense NG blocks" if study is not None else
-           "  (non-Gaussian OFF)"))
+        + ("  + dense NG blocks (3 per-spectrum + 3 cross)"
+           if study is not None else "  (non-Gaussian OFF)"))
 
 
 if __name__ == "__main__":

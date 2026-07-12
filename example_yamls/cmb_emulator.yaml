@@ -51,6 +51,29 @@ data:
   # data.param_cuts is OPTIONAL on the CMB path (the omega windows
   # reference cosmic-shear parameter names a CMB dump may not carry).
 
+# OPTIONAL NPCE trunk (README section 12): fit a closed-form
+# sparse-Legendre base on the whitened C_ell rows at staging, then train
+# the model below as the refiner correcting it. A top-level block (a
+# sibling of data / train_args — structurally unsweepable, one base per
+# study). On this family the form is residual only, and the block needs
+# amplitude_law: none above — the imposed law and the base each replace
+# the target construction, one at a time. The fit knobs and their
+# defaults are annotated in example_yamls/cosmic_shear_train_emulator.yaml.
+# pce:
+#   form: residual
+
+# OPTIONAL frozen-base transfer (README section 13): freeze a saved CMB
+# emulator of the SAME spectrum and covariance file and train the model
+# below as a small parallel correction — the tool for a NEW physics
+# sector, where fine-tuning's same-capacity adaptation is not enough.
+# On this family the composition acts in the whitened space (form sum
+# recommended; gain prints a zero-crossing note), the block needs
+# amplitude_law: none above (base and run both), and refine: is not
+# offered here yet. Exclusive with pce: and train_args.finetune.
+# transfer:
+#   from: chains/my_lcdm_tt_base
+#   form: sum
+
 train_args:
   nepochs: 400
   bs:      256

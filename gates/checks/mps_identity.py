@@ -36,8 +36,12 @@ Legs:
     low-k blend pins boost -> 1 below k_t; P_nl = B * P_lin); the
     legacy state keys; get_Pk_grid / get_Pk_interpolator round-trip at
     the grid nodes; a non-positive spectrum rejects the point (False);
+  - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra bitwise under the diagonal metric,
+    the base alive, the state round-trip, save -> rebuild -> predict
+    composing base + net bitwise, the diagonal ratio-form rejection;
   - validate_grid2d legs (law-quantity pairing, base files both ways,
-    k_stride, transfer PERMANENT wording);
+    k_stride, transfer ACCEPTED since the 2026-07-12 symmetry ruling);
   - D-MP7 finetune: epoch-0 parity from a grid2d source; the
     wrong-kind and metadata-mismatch from_config errors.
 """
@@ -207,7 +211,8 @@ def check_staging(tmp):
                       gen=gen, ram_frac=0.7, with_means=True,
                       verbose=False)
     exp = EmulatorExperiment.__new__(EmulatorExperiment)
-    exp.grid2d = {"quantity": "pklin", "units": "Mpc3",
+    exp.grid2d = {"quantity": "pklin",
+                  "units": "Mpc3",
                   "law": "syren_linear",
                   "z_file": os.path.join(tmp, "st_z.npy"),
                   "k_file": os.path.join(tmp, "st_k.npy"),
@@ -252,10 +257,15 @@ def check_staging(tmp):
 
 
 def grid2d_recipe(width):
-    return {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-            "ia": None, "input_dim": N_IN, "output_dim": width,
-            "compile_mode": None, "needs_geom": False,
-            "kwargs": {"int_dim_res": 16, "n_blocks": 2,
+    return {"cls": "emulator.designs.plain.ResMLP",
+            "name": "resmlp",
+            "ia": None,
+            "input_dim": N_IN,
+            "output_dim": width,
+            "compile_mode": None,
+            "needs_geom": False,
+            "kwargs": {"int_dim_res": 16,
+                       "n_blocks": 2,
                        "block_opts": {"act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
 
@@ -277,17 +287,22 @@ def save_synthetic_grid2d(root, device, tmp, quantity="pklin",
     model = ResMLP(input_dim=N_IN, output_dim=z.size * k.size,
                    int_dim_res=16, n_blocks=2,
                    block_opts=block_opts).to(device)
-    config = {"data": {"grid2d": {"quantity": quantity, "units": units,
-                                  "law": law, "z_file": "z.npy",
+    config = {"data": {"grid2d": {"quantity": quantity,
+                                  "units": units,
+                                  "law": law,
+                                  "z_file": "z.npy",
                                   "k_file": "k.npy"},
-                       "train_dv": "t.npy", "val_dv": "v.npy",
-                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat)},
               "train_args": {"nepochs": 1}}
     if law != "none":
         config["data"]["grid2d"]["train_base"] = "tb.npy"
         config["data"]["grid2d"]["val_base"] = "vb.npy"
-    histories = {"train_losses": [0.1], "val_medians": [0.1],
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
@@ -332,13 +347,22 @@ def grid2d_head_recipe(width):
     """The model_recipe for the ResCNN head leg (D-CM13): needs_geom
     True (rebuild re-attaches the z-slice split via attach_head_coords),
     every constructor default materialized."""
-    return {"cls": "emulator.designs.plain.ResCNN", "name": "rescnn",
-            "ia": None, "input_dim": N_IN, "output_dim": width,
-            "compile_mode": None, "needs_geom": True,
-            "kwargs": {"int_dim_res": 16, "n_blocks": 2,
-                       "kernel_size": 3, "rescale_kernel": False,
-                       "groups": 1, "separable": False, "film": False,
-                       "n_blocks_cnn": 1, "gate_init": 0.1,
+    return {"cls": "emulator.designs.plain.ResCNN",
+            "name": "rescnn",
+            "ia": None,
+            "input_dim": N_IN,
+            "output_dim": width,
+            "compile_mode": None,
+            "needs_geom": True,
+            "kwargs": {"int_dim_res": 16,
+                       "n_blocks": 2,
+                       "kernel_size": 3,
+                       "rescale_kernel": False,
+                       "groups": 1,
+                       "separable": False,
+                       "film": False,
+                       "n_blocks_cnn": 1,
+                       "gate_init": 0.1,
                        "head_act": None,
                        "block_opts": {"act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
@@ -425,16 +449,21 @@ def check_head(tmp, device):
     # this leg fails unless _rebuild_model re-attaches before
     # constructing the head model.
     root = os.path.join(tmp, "emul_g2_head")
-    config = {"data": {"grid2d": {"quantity": "pklin", "units": "Mpc3",
+    config = {"data": {"grid2d": {"quantity": "pklin",
+                                  "units": "Mpc3",
                                   "law": "syren_linear",
-                                  "z_file": "z.npy", "k_file": "k.npy",
+                                  "z_file": "z.npy",
+                                  "k_file": "k.npy",
                                   "train_base": "tb.npy",
                                   "val_base": "vb.npy"},
-                       "train_dv": "t.npy", "val_dv": "v.npy",
-                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat)},
               "train_args": {"nepochs": 1}}
-    histories = {"train_losses": [0.1], "val_medians": [0.1],
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
@@ -455,6 +484,115 @@ def check_head(tmp, device):
            np.array_equal(got["pklin"].reshape(-1), ref),
            "max|d| = %.2e"
            % np.abs(got["pklin"].reshape(-1) - ref).max())
+
+
+def check_npce(tmp, device):
+    """NPCE on grid2d (the 2026-07-12 family-wide ruling): the residual
+    base + refiner algebra is exact under the diagonal metric, the
+    fitted base's state round-trips byte-identical, save -> rebuild ->
+    predict composes base + net bitwise (_build_diag_decoder), and the
+    ratio form is loudly rejected on a diagonal family (validate_pce)."""
+    from emulator.designs.pce import PCEEmulator
+    from emulator.losses.pce import PCEResidualDiagChi2
+    from emulator.experiment import validate_pce
+    covmat = os.path.join(tmp, "g2npce.covmat")
+    write_covmat(covmat, IN_NAMES, seed=51)
+    pgeom = ParamGeometry.from_covmat(
+        device=device, center=np.array([2.1, 67.0, 0.12]),
+        covmat_path=covmat)
+    g = np.random.default_rng(53)
+    C = np.column_stack([g.normal(2.1, 0.1, 400),
+                         g.normal(67.0, 2.0, 400),
+                         g.normal(0.12, 0.005, 400)]).astype("float32")
+    # rows with a REAL smooth parameter dependence (an H0-linear shift),
+    # so the LOO gate keeps a mode and the fitted base is alive — a leg
+    # a dead base could pass proves nothing (the smoke-gate rule).
+    Y = synth_rows(400, seed=52)
+    Y = Y + 0.3 * ((C[:, 1] - 67.0) / 2.0)[:, None]
+    geom = Grid2DGeometry.from_targets(device=device, targets=Y, z=Z4,
+                                       k=K6, quantity="pklin",
+                                       units="Mpc3", law="syren_linear")
+    tC = torch.from_numpy(C).to(device)
+    X_white = pgeom.encode(tC)
+    dv = torch.from_numpy(Y.astype("float32")).to(device)
+    pce = PCEEmulator.from_training(device, X_white, geom.encode(dv),
+                                    p_max=2, r_max=2, q=0.5, k_max=4,
+                                    loo_max=0.9, max_terms=8, silent=True)
+    chi2fn = PCEResidualDiagChi2(geom=geom, pce=pce)
+    report("NPCE wrapper: diagonal residual class + needs_params",
+           type(chi2fn).__name__ == "PCEResidualDiagChi2"
+           and chi2fn.needs_params, "")
+    with torch.no_grad():
+        base = pce(X_white[:8])
+    report("NPCE base is alive (the fit kept a real mode)",
+           base.abs().max().item() > 1e-4,
+           "max|base| = %.2e" % base.abs().max().item())
+    enc = chi2fn.encode(dv[:8], X_white[:8])
+    report("NPCE encode: whitened truth minus the base, bitwise",
+           torch.equal(enc, geom.encode(dv[:8]) - base), "")
+    y = torch.randn(8, int(Z4.size) * int(K6.size), device=device)
+    report("NPCE decode: geom.decode(net + base), bitwise",
+           torch.equal(chi2fn.decode(y, X_white[:8]),
+                       geom.decode(y + base)), "")
+    pce2 = PCEEmulator.from_state(pce.state(), device)
+    st_ok = True
+    for key, val in pce.state().items():
+        st_ok = st_ok and torch.equal(val, pce2.state()[key])
+    report("NPCE base state round-trip byte-identical", st_ok,
+           "%d buffers" % len(pce.state()))
+    # save -> rebuild -> predict: the pce h5 group + form attr must
+    # rebuild the base, and the family predictor must compose it
+    # (a bare geom.decode here would be silently wrong).
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    width = int(Z4.size) * int(K6.size)
+    model = ResMLP(input_dim=N_IN, output_dim=width, int_dim_res=16,
+                   n_blocks=2, block_opts=block_opts).to(device)
+    root = os.path.join(tmp, "emul_g2_npce")
+    config = {"data": {"grid2d": {"quantity": "pklin",
+                                  "units": "Mpc3",
+                                  "law": "syren_linear",
+                                  "z_file": "z.npy",
+                                  "k_file": "k.npy",
+                                  "train_base": "tb.npy",
+                                  "val_base": "vb.npy"},
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat)},
+              "pce": {"form": "residual"},
+              "train_args": {"nepochs": 1}}
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
+                  geometry=geom, config=config, histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=grid2d_recipe(width),
+                  pce=pce, pce_form="residual",
+                  attrs={"rescale": "none", "quantity": "pklin"})
+    theta = np.array([[2.15, 68.0, 0.121]])
+    x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        x1e = pgeom.encode(x1)
+        ref = geom.decode(model(x1e) + pce(x1e))[0].cpu().numpy()
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    report("NPCE save -> rebuild -> predict composes base + net bitwise",
+           np.array_equal(got["pklin"].reshape(-1), ref),
+           "max|d| = %.2e"
+           % np.abs(got["pklin"].reshape(-1) - ref).max())
+    try:
+        validate_pce({"form": "ratio"}, diagonal=True)
+        report("diagonal family rejects pce form ratio", False, "no raise")
+    except ValueError as e:
+        report("diagonal family rejects pce form ratio",
+               "residual" in str(e), "ValueError names the fix")
 
 
 def _load_emul_mps_stubbed():
@@ -530,8 +668,12 @@ def check_adapter(tmp, device):
                <= set(t.get_requirements()), "")
         t.log = types.SimpleNamespace(debug=lambda *a, **k: None)
         t.output_params = []
-        point = {"As": 2.1e-9, "ns": 0.965, "H0": 67.0, "omegab": 0.049,
-                 "omegam": 0.31, "omch2": 0.12}
+        point = {"As": 2.1e-9,
+                 "ns": 0.965,
+                 "H0": 67.0,
+                 "omegab": 0.049,
+                 "omegam": 0.31,
+                 "omch2": 0.12}
         state = {}
         ok_calc = t.calculate(state, want_derived=False, **point)
         # exact assembly against the stubs.
@@ -612,15 +754,24 @@ def check_adapter(tmp, device):
 
 def check_validate():
     def cfg(g2, extra=None):
-        data = {"grid2d": g2, "train_dv": "a", "val_dv": "b",
-                "train_params": "c", "val_params": "d",
+        data = {"grid2d": g2,
+                "train_dv": "a",
+                "val_dv": "b",
+                "train_params": "c",
+                "val_params": "d",
                 "train_covmat": "e"}
         if extra:
             data.update(extra)
-        return {"data": data, "pce": None, "transfer": None}
-    good = {"quantity": "boost", "units": "dimensionless",
-            "law": "syren_halofit", "z_file": "z.npy", "k_file": "k.npy",
-            "train_base": "tb.npy", "val_base": "vb.npy",
+        return {"data": data,
+                "pce": None,
+                "transfer": None}
+    good = {"quantity": "boost",
+            "units": "dimensionless",
+            "law": "syren_halofit",
+            "z_file": "z.npy",
+            "k_file": "k.npy",
+            "train_base": "tb.npy",
+            "val_base": "vb.npy",
             "k_stride": 10}
     out = validate_grid2d(cfg(good), train_args={}, rescale="none")
     ok = out["quantity"] == "boost"
@@ -639,13 +790,17 @@ def check_validate():
                   b.get("units"), b.get("k_stride"))
         except ValueError:
             pass
+    # transfer is ACCEPTED here since the 2026-07-12 symmetry ruling
+    # (the block itself is vetted by validate_transfer on the
+    # from_config branch); this leg pins the acceptance so a re-added
+    # family forbid would be loud.
     c = cfg(good)
     c["transfer"] = {"from": "x"}
     try:
         validate_grid2d(c, train_args={}, rescale="none")
-        ok = False
     except ValueError as e:
-        ok = ok and "PERMANENTLY" in str(e)
+        ok = False
+        print("  validate_grid2d rejected a transfer block:", str(e)[:70])
     report("validate_grid2d legs", ok, "")
 
 
@@ -661,7 +816,9 @@ def check_finetune(tmp, device):
     C = np.column_stack([g.normal(2.1, 0.1, 64),
                          g.normal(67.0, 2.0, 64),
                          g.normal(0.12, 0.005, 64)]).astype("float32")
-    train_set = {"C": C, "idx": np.arange(64), "C_mean": C.mean(axis=0)}
+    train_set = {"C": C,
+                 "idx": np.arange(64),
+                 "C_mean": C.mean(axis=0)}
     new_pgeom, extra = warmstart.extend_input_geometry(
         source=source, covmat_path=covmat,
         train_mean=train_set["C_mean"], device=device)
@@ -678,15 +835,24 @@ def check_finetune(tmp, device):
                False, str(e)[:80])
     def ft_cfg(g2, from_root):
         return {"data": {"grid2d": g2,
-                         "train_dv": "t.npy", "val_dv": "v.npy",
+                         "train_dv": "t.npy",
+                         "val_dv": "v.npy",
                          "train_params": "t.1.txt",
-                         "val_params": "v.1.txt", "train_covmat": covmat,
-                         "n_train": 10, "n_val": 5, "split_seed": 0},
-                "train_args": {"nepochs": 1, "bs": 8,
+                         "val_params": "v.1.txt",
+                         "train_covmat": covmat,
+                         "n_train": 10,
+                         "n_val": 5,
+                         "split_seed": 0},
+                "train_args": {"nepochs": 1,
+                               "bs": 8,
                                "finetune": {"from": from_root}}}
-    good = {"quantity": "pklin", "units": "Mpc3", "law": "syren_linear",
-            "z_file": "z.npy", "k_file": "k.npy",
-            "train_base": "tb.npy", "val_base": "vb.npy"}
+    good = {"quantity": "pklin",
+            "units": "Mpc3",
+            "law": "syren_linear",
+            "z_file": "z.npy",
+            "k_file": "k.npy",
+            "train_base": "tb.npy",
+            "val_base": "vb.npy"}
     bad = dict(good)
     bad["quantity"] = "boost"
     bad["units"] = "dimensionless"
@@ -710,6 +876,7 @@ def main():
         check_roundtrip(tmp, device, law="syren_linear")
         check_roundtrip(tmp, device, law="none")
         check_head(tmp, device)
+        check_npce(tmp, device)
         check_adapter(tmp, device)
         check_validate()
         check_finetune(tmp, device)

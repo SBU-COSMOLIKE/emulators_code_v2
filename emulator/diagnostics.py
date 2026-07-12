@@ -99,13 +99,15 @@ def coverage_diagnostic(model,
   # distance weights every direction by its prior spread.
   tr_rows = np.sort(np.unique(train_set["idx"]))
   va_rows = np.sort(val_set["idx"])
+  # stage the raw parameter rows as device tensors, whiten, and pull
+  # the whitened coordinates back as numpy (one step per line).
+  C_tr = np.asarray(train_set["C"][tr_rows], dtype="float64")
+  C_va = np.asarray(val_set["C"][va_rows], dtype="float64")
+  t_tr = torch.from_numpy(C_tr).float().to(device)
+  t_va = torch.from_numpy(C_va).float().to(device)
   with torch.no_grad():
-    Xtr = param_geometry.encode(torch.from_numpy(
-      np.asarray(train_set["C"][tr_rows], dtype="float64")
-    ).float().to(device)).cpu().numpy()
-    Xva = param_geometry.encode(torch.from_numpy(
-      np.asarray(val_set["C"][va_rows], dtype="float64")
-    ).float().to(device)).cpu().numpy()
+    Xtr = param_geometry.encode(t_tr).cpu().numpy()
+    Xva = param_geometry.encode(t_va).cpu().numpy()
 
   # mean distance from each val point to its k nearest training
   # points: a local sparsity measure (large = under-covered).
@@ -126,10 +128,14 @@ def coverage_diagnostic(model,
   frac_sparse = float(np.mean(dchi2[knn_dist >= q90] > 0.2))
   cov = (median_bad > median_good) and (rho > 0.1)
 
-  return {"knn_dist": knn_dist, "dchi2": dchi2, "k_nn": k_nn,
+  return {"knn_dist": knn_dist,
+          "dchi2": dchi2,
+          "k_nn": k_nn,
           "spearman": float(rho),
-          "median_good": median_good, "median_bad": median_bad,
-          "frac_dense": frac_dense, "frac_sparse": frac_sparse,
+          "median_good": median_good,
+          "median_bad": median_bad,
+          "frac_dense": frac_dense,
+          "frac_sparse": frac_sparse,
           "coverage_limited": bool(cov)}
 
 
@@ -183,15 +189,21 @@ def local_linear_floor(model,
 
   tr_rows = np.sort(np.unique(train_set["idx"]))
   va_rows = np.sort(val_set["idx"])
+  # stage the raw rows as device tensors, then whiten params and
+  # targets separately (one step per line).
+  C_tr  = np.asarray(train_set["C"][tr_rows], dtype="float64")
+  C_va  = np.asarray(val_set["C"][va_rows], dtype="float64")
+  dv_tr = np.asarray(train_set["dv"][tr_rows])
+  dv_va = np.asarray(val_set["dv"][va_rows])
+  tC_tr  = torch.from_numpy(C_tr).float().to(device)
+  tC_va  = torch.from_numpy(C_va).float().to(device)
+  tdv_tr = torch.from_numpy(dv_tr).float().to(device)
+  tdv_va = torch.from_numpy(dv_va).float().to(device)
   with torch.no_grad():
-    Xtr = param_geometry.encode(torch.from_numpy(np.asarray(
-      train_set["C"][tr_rows], "float64")).float().to(device))
-    Xva = param_geometry.encode(torch.from_numpy(np.asarray(
-      val_set["C"][va_rows], "float64")).float().to(device))
-    Ttr = chi2fn.encode(torch.from_numpy(
-      np.asarray(train_set["dv"][tr_rows])).float().to(device))
-    Tva = chi2fn.encode(torch.from_numpy(
-      np.asarray(val_set["dv"][va_rows])).float().to(device))
+    Xtr = param_geometry.encode(tC_tr)
+    Xva = param_geometry.encode(tC_va)
+    Ttr = chi2fn.encode(tdv_tr)
+    Tva = chi2fn.encode(tdv_va)
 
   # k nearest training neighbours of each val point (param space).
   tree = cKDTree(Xtr.cpu().numpy())
@@ -221,7 +233,8 @@ def local_linear_floor(model,
                                     device=device, bs=bs)
   # pure hardness: the floor in the densest (best-covered) decile.
   dense = knn_dist <= np.quantile(knn_dist, 0.1)
-  return {"dchi2_floor": dchi2_floor, "dchi2_model": dchi2_model,
+  return {"dchi2_floor": dchi2_floor,
+          "dchi2_model": dchi2_model,
           "f_floor": float(np.mean(dchi2_floor > 0.2)),
           "f_model": float(np.mean(dchi2_model > 0.2)),
           "f_hard": float(np.mean(dchi2_floor[dense] > 0.2)),
@@ -317,8 +330,11 @@ def hard_direction_regression(model,
   else:
     r2o = float("nan")
 
-  return {"labels": lab, "univariate": uni, "joint_coef": coef[1:],
-          "r2": float(r2), "r2_omega": float(r2o)}
+  return {"labels": lab,
+          "univariate": uni,
+          "joint_coef": coef[1:],
+          "r2": float(r2),
+          "r2_omega": float(r2o)}
 
 
 def cmb_residual_diagnostic(model,
@@ -406,8 +422,11 @@ def cmb_residual_diagnostic(model,
 
   def bands(r):
     q = np.percentile(r, [2.5, 16.0, 50.0, 84.0, 97.5], axis=0)
-    return {"lo95": q[0], "lo68": q[1], "med": q[2],
-            "hi68": q[3], "hi95": q[4]}
+    return {"lo95": q[0],
+            "lo68": q[1],
+            "med": q[2],
+            "hi68": q[3],
+            "hi95": q[4]}
 
   fb = bands(frac)
   sb = bands(sig)
@@ -442,14 +461,19 @@ def cmb_residual_diagnostic(model,
   return {"ell": geom.ell.detach().cpu().numpy(),
           "spectrum": geom.spectrum,
           "units": geom.units,
-          "frac_med": fb["med"], "frac_lo68": fb["lo68"],
-          "frac_hi68": fb["hi68"], "frac_lo95": fb["lo95"],
+          "frac_med": fb["med"],
+          "frac_lo68": fb["lo68"],
+          "frac_hi68": fb["hi68"],
+          "frac_lo95": fb["lo95"],
           "frac_hi95": fb["hi95"],
-          "sig_med": sb["med"], "sig_lo68": sb["lo68"],
-          "sig_hi68": sb["hi68"], "sig_lo95": sb["lo95"],
+          "sig_med": sb["med"],
+          "sig_lo68": sb["lo68"],
+          "sig_hi68": sb["hi68"],
+          "sig_lo95": sb["lo95"],
           "sig_hi95": sb["hi95"],
           "worst": {"dchi2": float(dchi2[worst]),
-                    "pred": pred[worst], "truth": truth[worst],
+                    "pred": pred[worst],
+                    "truth": truth[worst],
                     "params": worst_params},
           "highpass": {"median_abs_rem": median_abs_rem,
                        "period_cut": int(w)}}
@@ -494,6 +518,9 @@ def scalar_output_diagnostic(model,
   rows  = np.sort(val_set["idx"])
   C     = np.asarray(val_set["C"][rows], dtype="float64")
   truth = np.asarray(val_set["dv"][rows], dtype="float64")
+  # an NPCE run's loss is param-aware (needs_params: decode evaluates
+  # the frozen base from the whitened inputs) — the doctrine branch.
+  needs_p = getattr(chi2fn, "needs_params", False)
 
   preds = []
   model.eval()
@@ -503,7 +530,10 @@ def scalar_output_diagnostic(model,
       stop  = min(len(rows), start + bs)
       x     = torch.from_numpy(C[start:stop]).float().to(device)
       x_enc = param_geometry.encode(x)
-      out   = chi2fn.decode(model(x_enc))
+      if needs_p:
+        out = chi2fn.decode(model(x_enc), x_enc)
+      else:
+        out = chi2fn.decode(model(x_enc))
       preds.append(out.double().cpu().numpy())
       start = stop
   pred  = np.concatenate(preds)
@@ -564,6 +594,10 @@ def grid_residual_diagnostic(model,
   rows  = np.sort(val_set["idx"])
   C     = np.asarray(val_set["C"][rows], dtype="float64")
   truth = np.asarray(val_set["dv"][rows], dtype="float64")
+  # an NPCE run's loss is param-aware (needs_params: encode / decode
+  # evaluate the frozen base from the whitened inputs) — the doctrine
+  # branch.
+  needs_p = getattr(chi2fn, "needs_params", False)
 
   preds = []
   chi2s = []
@@ -576,8 +610,12 @@ def grid_residual_diagnostic(model,
       x_enc = param_geometry.encode(x)
       p     = model(x_enc)
       t     = torch.from_numpy(truth[start:stop]).float().to(device)
-      tw    = chi2fn.encode(t)
-      preds.append(chi2fn.decode(p).double().cpu().numpy())
+      if needs_p:
+        tw = chi2fn.encode(t, x_enc)
+        preds.append(chi2fn.decode(p, x_enc).double().cpu().numpy())
+      else:
+        tw = chi2fn.encode(t)
+        preds.append(chi2fn.decode(p).double().cpu().numpy())
       chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
       start = stop
   pred  = np.concatenate(preds)
@@ -608,16 +646,24 @@ def grid_residual_diagnostic(model,
     qa = np.percentile(da_fr, [16.0, 50.0, 84.0], axis=0)
     ql = np.percentile(dl_fr, [16.0, 50.0, 84.0], axis=0)
     derived = {"z_eval": z_eval,
-               "da_lo68": qa[0], "da_med": qa[1], "da_hi68": qa[2],
-               "dl_lo68": ql[0], "dl_med": ql[1], "dl_hi68": ql[2]}
+               "da_lo68": qa[0],
+               "da_med": qa[1],
+               "da_hi68": qa[2],
+               "dl_lo68": ql[0],
+               "dl_med": ql[1],
+               "dl_hi68": ql[2]}
 
   return {"z": geom.z.detach().cpu().numpy(),
           "quantity": geom.quantity,
           "units": geom.units,
-          "frac_med": q[2], "frac_lo68": q[1], "frac_hi68": q[3],
-          "frac_lo95": q[0], "frac_hi95": q[4],
+          "frac_med": q[2],
+          "frac_lo68": q[1],
+          "frac_hi68": q[3],
+          "frac_lo95": q[0],
+          "frac_hi95": q[4],
           "worst": {"dchi2": float(dchi2[worst]),
-                    "pred": pred[worst], "truth": truth[worst]},
+                    "pred": pred[worst],
+                    "truth": truth[worst]},
           "derived": derived}
 
 
@@ -673,6 +719,10 @@ def grid2d_residual_diagnostic(model,
   rows  = np.sort(val_set["idx"])
   C     = np.asarray(val_set["C"][rows], dtype="float64")
   truth = np.asarray(val_set["dv"][rows], dtype="float64")
+  # an NPCE run's loss is param-aware (needs_params: encode / decode
+  # evaluate the frozen base from the whitened inputs) — the doctrine
+  # branch.
+  needs_p = getattr(chi2fn, "needs_params", False)
 
   preds = []
   chi2s = []
@@ -685,8 +735,12 @@ def grid2d_residual_diagnostic(model,
       x_enc = param_geometry.encode(x)
       p     = model(x_enc)
       t     = torch.from_numpy(truth[start:stop]).float().to(device)
-      tw    = chi2fn.encode(t)
-      preds.append(chi2fn.decode(p).double().cpu().numpy())
+      if needs_p:
+        tw = chi2fn.encode(t, x_enc)
+        preds.append(chi2fn.decode(p, x_enc).double().cpu().numpy())
+      else:
+        tw = chi2fn.encode(t)
+        preds.append(chi2fn.decode(p).double().cpu().numpy())
       chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
       start = stop
   pred  = np.concatenate(preds)
@@ -711,9 +765,13 @@ def grid2d_residual_diagnostic(model,
   for iz in iz_cuts:
     band = np.percentile(res[:, iz, :],
                          [2.5, 16.0, 50.0, 84.0, 97.5], axis=0)
-    slices.append({"iz": iz, "z": float(z_grid[iz]),
-                   "lo95": band[0], "lo68": band[1], "med": band[2],
-                   "hi68": band[3], "hi95": band[4]})
+    slices.append({"iz": iz,
+                   "z": float(z_grid[iz]),
+                   "lo95": band[0],
+                   "lo68": band[1],
+                   "med": band[2],
+                   "hi68": band[3],
+                   "hi95": band[4]})
 
   worst = int(np.argmax(dchi2))
   return {"z": z_grid,

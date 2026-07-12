@@ -2,15 +2,20 @@
 
 The polynomial-chaos member of the emulator/losses/ family (the former
 emulator PCE subpackage), paired with the base in designs/pce.py.
-Both classes wrap a fitted, frozen PCEEmulator as the base prediction
-under a trainable refiner network, differing in how base and refiner
-combine: PCEResidualChi2 is additive in the whitened basis (the
-refiner learns truth minus base), PCERatioChi2 multiplicative in the
-physical basis (the refiner learns a fractional correction). Either
-way the chi2 stays the plain masked Mahalanobis distance, the base
-moves only the target's zero point or scale, never the metric.
+All classes wrap a fitted, frozen PCEEmulator as the base prediction
+under a trainable refiner network. On the cosmolike (dense-covariance)
+family the two combine forms are PCEResidualChi2, additive in the
+whitened basis (the refiner learns truth minus base), and PCERatioChi2,
+multiplicative in the physical basis (the refiner learns a fractional
+correction). On the elementwise-whitened families (cmb / grid / grid2d
+/ scalar) the residual form is PCEResidualDiagChi2, the same additive
+algebra under the diagonal metric (2026-07-12 ruling: the PCE trunk
+rides every family — arXiv 2404.12344 runs an NPCE on the MPS boost,
+and EuclidEmulator2 is a PCE). Either way the chi2 stays the family's
+own metric; the base moves only the target's zero point or scale,
+never the metric.
 
-Both declare needs_params = True (encode / decode evaluate the base
+All declare needs_params = True (encode / decode evaluate the base
 from the whitened parameters), the capability flag the loaders
 (batching.py), the training loop's compiled forward+loss and eval
 twins (training.py), and the diagnostics already branch on; the
@@ -30,6 +35,7 @@ device.
 
 import torch
 
+from .cmb import CmbDiagonalChi2
 from .core import CosmolikeChi2
 
 
@@ -322,3 +328,149 @@ class PCERatioChi2(CosmolikeChi2):
     """
     return CosmolikeChi2.loss(self, pred, target,
                               *args, **kwargs)
+
+
+class PCEResidualDiagChi2(CmbDiagonalChi2):
+  """
+  Residual NPCE under the diagonal metric: the family-wide form
+  (2026-07-12 ruling) for every elementwise-whitened geometry —
+  CmbDiagonalGeometry (law "none"), GridGeometry, Grid2DGeometry,
+  ScalarGeometry. The refiner model learns the residual of the
+  whitened target after a frozen PCE base, exactly as
+  PCEResidualChi2 does on the cosmolike family; only the metric
+  differs, and it is inherited: these families whiten per element,
+  so the per-sample chi2 is CmbDiagonalChi2's plain sum of squared
+  whitened residuals, no covariance to contract.
+
+  Encode (target construction, at load time):
+
+      dv  (B, n_out)             raw target row (C_ell / grid rows /
+         │  geom.encode           law-space rows / named outputs)
+         ▼
+      t  (B, n_out)              whitened truth
+         │  - PCE(theta)         the frozen base (no_grad)
+         ▼
+      target (B, n_out)          the refiner's residual target
+
+  Loss: the diagonal chi2 on (pred - target); the base cancels in
+  the residual, (base + pred) - truth == pred - target, so the
+  metric is exact. Decode inverts: geom.decode(y + PCE(theta)), so
+  a grid law (log space) or a D-MP9 constant pin applies to the
+  COMBINED prediction, one definition.
+
+      (legend: B = batch rows; n_out = the family's output length,
+       n_ell / nz / nz*nk / n_named; theta = the whitened
+       parameters, params_whitened; PCE = the frozen PCEEmulator,
+       fitted and evaluated in the whitened basis.)
+
+  Two deliberate boundaries of the family-wide form:
+    - Residual only. The ratio form is a dense-covariance concept
+      (a fractional correction where whitening mixes elements); on
+      an elementwise whitening the residual form already gives the
+      refiner per-element leverage, and on the log-law grids a
+      whitened residual IS a multiplicative correction in linear
+      space. validate_pce rejects form "ratio" for these families.
+    - CMB amplitude law "none" only. The as_exp2tau law's loss owns
+      the target construction (CmbFactoredChi2), the same
+      one-at-a-time exclusivity as pce vs rescale / model.ia;
+      validate_cmb rejects the combination.
+
+  The D-CM8 roughness penalty composes unchanged (inherited
+  configure_roughness / loss): pred - target here equals the FULL
+  whitened residual (base + net - truth), the exact quantity the
+  penalty is defined on.
+
+  needs_params = True: encode/decode take the whitened params
+  (the model inputs) to evaluate the frozen PCE base.
+  """
+  needs_params = True
+
+  def __init__(self, geom, pce):
+    """Hold the output geometry and the frozen PCE base.
+
+    Arguments:
+      geom = the family's elementwise-whitened output geometry
+             (encode / decode; the chi2 is the plain whitened L2).
+      pce  = the fitted, frozen PCEEmulator; evaluated in the
+             whitened basis as the base prediction.
+    """
+    super().__init__(geom)
+    self.pce = pce          # frozen PCE base (whitened target)
+
+  def _base(self, params_whitened):
+    """Evaluate the frozen PCE base under no_grad.
+
+    Arguments:
+      params_whitened = (B, n_param) whitened model inputs.
+
+    Returns:
+      (B, n_out) whitened base prediction; no grad flows into it.
+    """
+    with torch.no_grad():
+      return self.pce(params_whitened)
+
+  def encode(self, dv, params_whitened):
+    """Raw target row -> the refiner's residual target.
+
+    Arguments:
+      dv              = (B, n_out) raw target rows.
+      params_whitened = (B, n_param) whitened inputs (for the base).
+
+    Returns:
+      (B, n_out) whitened truth minus the PCE base = the residual
+      the refiner learns.
+    """
+    return self.geom.encode(dv) - self._base(params_whitened)
+
+  def decode(self, y, params_whitened):
+    """Refiner output -> physical target row (inverse of encode).
+
+    Arguments:
+      y               = (B, n_out) refiner output (the residual).
+      params_whitened = (B, n_param) whitened inputs (for the base).
+
+    Returns:
+      (B, n_out) physical row: geom.decode(y + base), so the
+      geometry's law inverse / constant pins act on the combined
+      prediction.
+    """
+    return self.geom.decode(y + self._base(params_whitened))
+
+  def chi2(self, pred, target, params_whitened=None,
+           full=False):
+    """Per-sample chi2 of a residual prediction against its target.
+
+    The base is baked into target at encode time, so pred - target
+    equals full_pred - truth and the diagonal chi2 is exact.
+
+    Arguments:
+      pred            = (B, n_out) refiner output.
+      target          = (B, n_out) residual target from encode.
+      params_whitened = accepted for the needs_params signature,
+                        unused here (the base is already in target).
+      full            = accepted for interface parity; ignored (no
+                        mask / covariance on the diagonal families).
+
+    Returns:
+      (B,) per-sample chi2.
+    """
+    return CmbDiagonalChi2.chi2(self, pred=pred, target=target)
+
+  def loss(self, pred, target, params_whitened,
+           *args, **kwargs):
+    """Training loss: the diagonal reduction (+ roughness when set).
+
+    Arguments:
+      pred            = (B, n_out) refiner output.
+      target          = (B, n_out) residual target.
+      params_whitened = the needs_params argument, unused (the
+                        diagonal chi2 needs no params).
+      *args, **kwargs = the mode / trim / focus reduction controls,
+                        forwarded positionally (never keyword pred /
+                        target before the *args forwarder).
+
+    Returns:
+      a scalar loss tensor.
+    """
+    return CmbDiagonalChi2.loss(
+      self, pred, target, *args, **kwargs)

@@ -78,7 +78,7 @@ from .activations import make_activation
 from .designs.blocks import make_norm
 from . import warmstart
 from .losses.transfer import (
-  TransferChi2, FORMS, SPACES, RECOMMENDED_SPACE)
+  TransferChi2, TransferDiagChi2, FORMS, SPACES, RECOMMENDED_SPACE)
 from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
   default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
@@ -507,7 +507,9 @@ def validate_scalar(cfg, train_args, rescale="none"):
     data-vector or cosmolike key is present (train_dv / val_dv /
     cosmolike_data_dir / cosmolike_dataset); if a required param file /
     covmat is missing; if a data-vector-only feature is requested
-    (rescale, model.ia, pce, transfer, finetune).
+    (rescale, model.ia, transfer, finetune). The pce: block is legal
+    here (the 2026-07-12 family-wide NPCE ruling); validate_pce vets it
+    with diagonal=True on the from_config scalar branch.
   """
   data = cfg["data"]
   outputs = data["outputs"]
@@ -552,10 +554,6 @@ def validate_scalar(cfg, train_args, rescale="none"):
     raise ValueError(
       f"train_args.model.ia {ia!r} is an intrinsic-alignment (data-vector) "
       "design; a scalar run has no ia (remove it)")
-  if cfg.get("pce") is not None:
-    raise ValueError(
-      "a top-level pce: block is a data-vector concept; a scalar run has no "
-      "PCE base (remove it)")
   if cfg.get("transfer") is not None:
     raise ValueError(
       "transfer learning is out of scope for scalar emulators (D-SP8); "
@@ -596,8 +594,12 @@ def validate_cmb(cfg, train_args, rescale="none"):
     tt/te/ee/pp; an amplitude law outside the registry; law-column
     names missing (as_exp2tau) or present (none); a cosmolike or
     scalar key beside data.cmb; a missing dv/params/covmat file key;
-    a data-vector-only feature (rescale, model.ia, pce, transfer) or
-    the not-yet-integrated finetune (D-CM10 interim).
+    a data-vector-only feature (rescale, model.ia); a pce: or
+    transfer: block beside an amplitude_law other than "none" (each
+    replaces the target construction — one at a time). The pce: and
+    transfer: blocks are otherwise legal (the 2026-07-12 family-wide
+    rulings); validate_pce / validate_transfer vet them with
+    diagonal=True on the from_config cmb branch.
   """
   # the amplitude-law registry lives with the CMB loss; imported here
   # (not at module top) so this validator stays importable in the same
@@ -677,14 +679,34 @@ def validate_cmb(cfg, train_args, rescale="none"):
     raise ValueError(
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a CMB run has no ia (remove it)")
-  if cfg.get("pce") is not None:
+  # NPCE rides the CMB family (the 2026-07-12 family-wide ruling), but
+  # only under amplitude_law "none": the as_exp2tau law's loss owns the
+  # target construction (CmbFactoredChi2), the same one-at-a-time
+  # exclusivity as pce vs rescale / model.ia. validate_pce vets the
+  # block itself (with diagonal=True) on the from_config cmb branch.
+  if (cfg.get("pce") is not None
+      and str(cmb.get("amplitude_law")) != "none"):
     raise ValueError(
-      "a top-level pce: block is a cosmic-shear concept; a CMB run has "
-      "no PCE base (remove it)")
-  if cfg.get("transfer") is not None:
+      "the pce: block and data.cmb.amplitude_law "
+      + repr(cmb.get("amplitude_law")) + " are exclusive: each replaces "
+      "the target construction (pce fits a closed-form base; the law "
+      "rescales the target per row). Use one at a time (the NPCE base "
+      "needs amplitude_law: none)")
+  # transfer learning IS in scope since the 2026-07-12 symmetry ruling
+  # (D-CM7's deferral closed: "it is weird to have a feature not
+  # symmetric to all cases") — but only under amplitude_law "none":
+  # the imposed law and the transfer target construction each own the
+  # target, one at a time (the same exclusivity as pce). The block
+  # itself is vetted by validate_transfer (diagonal=True) on the
+  # from_config cmb branch.
+  if (cfg.get("transfer") is not None
+      and str(cmb.get("amplitude_law")) != "none"):
     raise ValueError(
-      "transfer learning over CMB emulators is deferred (D-CM7: eligible "
-      "later, not V1); remove the transfer: block")
+      "the transfer: block and data.cmb.amplitude_law "
+      + repr(cmb.get("amplitude_law")) + " are exclusive: each replaces "
+      "the target construction (the transfer loss composes a frozen "
+      "base; the law rescales the target per row). Use one at a time "
+      "(a transfer run needs amplitude_law: none)")
   # fine-tuning IS in scope (D-CM10): the finetune block is validated by
   # warmstart.validate_finetune_config on the from_config cmb branch and
   # the source geometry is pinned in build_geometry (the D-FT4 analogue).
@@ -719,8 +741,11 @@ def validate_grid(cfg, train_args, rescale="none"):
     Hubble / D_M; a law outside the TARGET_LAWS registry; an offset
     missing (log_offset) or present (none); a cosmolike / scalar / cmb
     key beside data.grid; a missing dv/params/covmat file key; a
-    data-vector-only feature (rescale, model.ia, pce) or transfer (a
-    PERMANENT forbid for this family — the scope ruling).
+    data-vector-only feature (rescale, model.ia). The pce: and
+    transfer: blocks are legal (the 2026-07-12 family-wide rulings —
+    the transfer forbid was overturned by the user); validate_pce /
+    validate_transfer vet them with diagonal=True on the from_config
+    grid branch.
   """
   # the target-law registry lives with the grid geometry; imported here
   # (not at module top) so this validator stays importable in the same
@@ -794,16 +819,11 @@ def validate_grid(cfg, train_args, rescale="none"):
     raise ValueError(
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a grid run has no ia (remove it)")
-  if cfg.get("pce") is not None:
-    raise ValueError(
-      "a top-level pce: block is a cosmic-shear concept; a grid run has "
-      "no PCE base (remove it)")
-  if cfg.get("transfer") is not None:
-    raise ValueError(
-      "transfer learning is PERMANENTLY out of scope for the background "
-      "(BAOSN) family — the scope ruling: transfer is exclusive to the "
-      "cosmolike and CMB data-vector families (D-BSN9); remove the "
-      "transfer: block")
+  # transfer learning IS in scope since the 2026-07-12 symmetry ruling
+  # (the D-BSN9 permanent forbid overturned by the user: "I misspoke -
+  # ... it is easy to allow it to BAO/SN"); validate_transfer
+  # (diagonal=True) vets the block on the from_config grid branch, and
+  # build_geometry pins the base's grid/quantity/law loudly.
   # fine-tuning IS in scope (D-BSN9): validated on the from_config grid
   # branch; the source geometry is pinned in build_geometry.
   return dict(grid)
@@ -839,8 +859,11 @@ def validate_grid2d(cfg, train_args, rescale="none"):
     syren_halofit corrects boost); base files missing under a syren
     law or present under "none"; a bad k_stride; another family's key
     beside data.grid2d; a missing dv/params/covmat file key; rescale /
-    model.ia / pce; or transfer (a PERMANENT forbid for this family —
-    the scope ruling).
+    model.ia. The pce: and transfer: blocks are legal (the 2026-07-12
+    family-wide rulings — the transfer forbid was overturned by the
+    user, "this for sure should be allowed for MPS"); validate_pce /
+    validate_transfer vet them with diagonal=True on the from_config
+    grid2d branch.
   """
   from .geometries.grid2d import TARGET_LAWS_2D
 
@@ -939,16 +962,11 @@ def validate_grid2d(cfg, train_args, rescale="none"):
     raise ValueError(
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a grid2d run has no ia (remove it)")
-  if cfg.get("pce") is not None:
-    raise ValueError(
-      "a top-level pce: block is a cosmic-shear concept; a grid2d run "
-      "has no PCE base (remove it)")
-  if cfg.get("transfer") is not None:
-    raise ValueError(
-      "transfer learning is PERMANENTLY out of scope for the MPS "
-      "family — the scope ruling: transfer is exclusive to the "
-      "cosmolike and CMB data-vector families (D-MP7); remove the "
-      "transfer: block")
+  # transfer learning IS in scope since the 2026-07-12 symmetry ruling
+  # (the D-MP7 permanent forbid overturned by the user: "this for sure
+  # should be allowed for MPS"); validate_transfer (diagonal=True)
+  # vets the block on the from_config grid2d branch, and build_geometry
+  # pins the base's (z, k) axes / quantity / law loudly.
   # fine-tuning IS in scope (D-MP7): validated on the from_config
   # grid2d branch; the source geometry is pinned in build_geometry.
   return dict(g2)
@@ -1030,14 +1048,17 @@ def validate_sizes(data):
 PCE_KEYS = {
   "form", "p_max", "r_max", "q", "k_max", "loo_max", "max_terms", "max_fail",
 }
-_PCE_DEFAULTS = {
-  "p_max": 4, "r_max": 2, "q": 0.5, "k_max": 40, "loo_max": 0.05,
-  "max_terms": 30, "max_fail": 4,
-}
+_PCE_DEFAULTS = {"p_max": 4,
+                 "r_max": 2,
+                 "q": 0.5,
+                 "k_max": 40,
+                 "loo_max": 0.05,
+                 "max_terms": 30,
+                 "max_fail": 4}
 _PCE_INT_KEYS = ("p_max", "r_max", "k_max", "max_terms", "max_fail")
 
 
-def validate_pce(pce, rescale="none", ia=None):
+def validate_pce(pce, rescale="none", ia=None, diagonal=False):
   """
   Validate the top-level pce: block (the NPCE closed-form base).
 
@@ -1053,11 +1074,19 @@ def validate_pce(pce, rescale="none", ia=None):
   pce is rejected alongside --rescale or a model.ia design (one at a time).
 
   Arguments:
-    pce     = the parsed top-level "pce" block, or None (the block absent).
-    rescale = the analytic-R rescale mode (a driver flag), for the
-              exclusivity check; pce is exclusive with rescale != "none".
-    ia      = the resolved model.ia design (None | "nla" | "tatt"), for
-              the exclusivity check; pce is exclusive with an ia design.
+    pce      = the parsed top-level "pce" block, or None (the block absent).
+    rescale  = the analytic-R rescale mode (a driver flag), for the
+               exclusivity check; pce is exclusive with rescale != "none".
+    ia       = the resolved model.ia design (None | "nla" | "tatt"), for
+               the exclusivity check; pce is exclusive with an ia design.
+    diagonal = True on the elementwise-whitened families (cmb / grid /
+               grid2d / scalar), where only form "residual" exists: the
+               ratio form is a dense-covariance concept (a fractional
+               correction where whitening mixes elements); with a
+               per-element whitening the residual form already gives the
+               refiner per-element leverage, and on the log-law grids a
+               whitened residual IS a multiplicative correction in
+               linear space.
 
   Returns:
     None when pce is None (NPCE off, byte-identical everywhere), else the
@@ -1066,9 +1095,9 @@ def validate_pce(pce, rescale="none", ia=None):
   Raises:
     TypeError if pce is not a mapping.
     ValueError on: an unknown key; a missing / non-{residual, ratio} form;
-    a non-positive-int p_max / r_max / k_max / max_terms / max_fail; q
-    outside (0, 1]; loo_max <= 0; or pce set together with rescale != "none"
-    or a model.ia design.
+    form "ratio" on a diagonal family; a non-positive-int p_max / r_max /
+    k_max / max_terms / max_fail; q outside (0, 1]; loo_max <= 0; or pce
+    set together with rescale != "none" or a model.ia design.
   """
   if pce is None:
     return None
@@ -1087,6 +1116,13 @@ def validate_pce(pce, rescale="none", ia=None):
     raise ValueError(
       "pce.form is required and must be 'residual' (base + net) or "
       f"'ratio' (base * (1 + net)), got {form!r}")
+  if diagonal and form == "ratio":
+    raise ValueError(
+      "pce.form 'ratio' exists only on the cosmolike (dense-covariance) "
+      "family: with an elementwise whitening the residual form already "
+      "gives the refiner per-element leverage (and on a log-law grid a "
+      "whitened residual IS a multiplicative correction in linear space); "
+      "use form: residual")
   out = dict(_PCE_DEFAULTS)
   out.update({k: v for k, v in pce.items() if k != "form"})
   out["form"] = form
@@ -1128,7 +1164,7 @@ TRANSFER_KEYS = ("from", "form", "space", "refine")
 _REFINE_KEYS = ("epochs", "base_lr_scale", "anchor")
 
 
-def validate_transfer(cfg, train_args, rescale="none"):
+def validate_transfer(cfg, train_args, rescale="none", diagonal=False):
   """
   Validate the top-level transfer: block (the frozen-base parallel correction).
 
@@ -1145,6 +1181,15 @@ def validate_transfer(cfg, train_args, rescale="none"):
                  finetune / two-phase keys and the inherited model.ia).
     rescale    = the analytic-R rescale mode (a driver flag); transfer is
                  exclusive with rescale != "none".
+    diagonal   = True on the elementwise-whitened families (cmb / grid /
+                 grid2d — the 2026-07-12 symmetry ruling admits them).
+                 There the composition space is "whitened" ONLY (it is
+                 those families' chi2 metric basis; a physical composition
+                 is an elementwise scale away, or crosses a log-law domain
+                 edge), space defaults to it for BOTH forms, an explicit
+                 "physical" raises, form "gain" carries the zero-crossing
+                 notice (sum is the recommendation), and transfer.refine
+                 is rejected (frozen-base V1 on these families).
 
   Returns:
     (None, None) when transfer is absent; else (resolved, notice) where
@@ -1152,8 +1197,9 @@ def validate_transfer(cfg, train_args, rescale="none"):
     off-recommendation trade-off line (or None on the recommended pairing).
 
   Raises:
-    TypeError / ValueError / KeyError naming any violated rule; a refine: key
-    raises a not-yet-implemented error (D-TP10 / unit 2).
+    TypeError / ValueError / KeyError naming any violated rule. A refine:
+    key is validated and materialized on the cosmolike family (D-TP10) and
+    rejected on a diagonal family (frozen-base V1).
   """
   transfer = cfg.get("transfer")
   if transfer is None:
@@ -1213,11 +1259,27 @@ def validate_transfer(cfg, train_args, rescale="none"):
     raise KeyError(
       "a transfer run is single-phase (V1): remove train_args.freeze_trunk")
 
-  # resolve the space (materialized): absent -> the form's recommended pairing;
-  # an off-recommendation pairing is allowed (the user decides) and carries one
-  # quiet-gated trade-off notice.
+  # resolve the space (materialized). Diagonal families: whitened only
+  # (their metric basis), for both forms; an explicit physical is loud.
+  # Cosmolike: absent -> the form's recommended pairing; an
+  # off-recommendation pairing is allowed (the user decides) and carries
+  # one quiet-gated trade-off notice.
   notice = None
-  if space is None:
+  if diagonal:
+    if space == "physical":
+      raise ValueError(
+        "transfer.space 'physical' does not exist on the elementwise-"
+        "whitened families: the whitened space IS their chi2 metric "
+        "basis, so a physical composition is an elementwise scale away "
+        "(no new capability) or crosses a log-law domain edge (a NaN "
+        "risk). Drop the key or set space: whitened")
+    space = "whitened"
+    if form == "gain":
+      notice = ("notice: transfer gain on a diagonal family composes in "
+                "the whitened space, whose coordinates cross zero element "
+                "by element (no gain leverage at the crossings); form sum "
+                "is the recommendation here")
+  elif space is None:
     space = RECOMMENDED_SPACE[form]
   elif space != RECOMMENDED_SPACE[form]:
     if form == "gain":
@@ -1228,11 +1290,18 @@ def validate_transfer(cfg, train_args, rescale="none"):
       notice = ("notice: transfer sum/physical is off-recommendation (the "
                 "additive output spans the decades whitening exists to tame); "
                 "sum/whitened is advised")
-  resolved = {"from": transfer["from"], "form": form, "space": space}
+  resolved = {"from": transfer["from"],
+              "form": form,
+              "space": space}
 
   # the optional refine: stage (D-TP10): a second, joint training stage with
   # the base unfrozen. Validated + materialized here (persist-resolved-values).
   refine = transfer.get("refine")
+  if refine is not None and diagonal:
+    raise ValueError(
+      "transfer.refine is not offered on the cmb / grid / grid2d families "
+      "in V1 (frozen-base transfer only; the stage-2 drift/anchor plumbing "
+      "is audited per family before it unlocks). Remove the refine: block")
   if refine is not None:
     if not isinstance(refine, dict):
       raise TypeError(
@@ -1271,6 +1340,56 @@ def validate_transfer(cfg, train_args, rescale="none"):
                           "base_lr_scale": float(scale),
                           "anchor": float(anchor)}
   return resolved, notice
+
+
+def _load_diag_transfer(cfg, train_args, kwargs, geom_cls_name):
+  """Validate + load a diagonal-family transfer base (a from_config helper).
+
+  Shared by the cmb / grid / grid2d from_config branches (the 2026-07-12
+  symmetry ruling): runs validate_transfer with diagonal=True, resolves
+  the device (load_source rebuilds the base on it, so __init__ must get
+  the same one — kwargs is updated in place), loads the base artifact,
+  and checks its KIND — the base's output geometry class must be the
+  run's family's (a cosmolike or wrong-family base is a loud error here,
+  before any staging). The deep pins (grids / quantity / law equality)
+  happen in build_geometry, where the run's own grids exist.
+
+  Arguments:
+    cfg           = the full parsed config mapping.
+    train_args    = the resolved train_args (validate_transfer reads the
+                    exclusive finetune / two-phase keys).
+    kwargs        = the from_config **kwargs mapping; its "device" entry
+                    is resolved and written back.
+    geom_cls_name = the family's output-geometry class name
+                    ("CmbDiagonalGeometry" / "GridGeometry" /
+                    "Grid2DGeometry"), for the wrong-kind check.
+
+  Returns:
+    (resolved, notice, base, base_root), or (None, None, None, None)
+    when no transfer: block is present.
+
+  Raises:
+    everything validate_transfer raises; ValueError on a base whose
+    geometry class is not the family's.
+  """
+  if cfg.get("transfer") is None:
+    return None, None, None, None
+  resolved, notice = validate_transfer(
+    cfg=cfg, train_args=train_args,
+    rescale=kwargs.get("rescale", "none"), diagonal=True)
+  device = kwargs.get("device")
+  if device is None:
+    device = pick_device()
+  kwargs["device"] = device
+  base_root = warmstart.resolve_source_root(cfg["transfer"])
+  base = warmstart.load_source(root=base_root, device=device)
+  got_cls = type(base.geom).__name__
+  if got_cls != geom_cls_name:
+    raise ValueError(
+      "transfer.from points at a " + got_cls + " artifact but this run's "
+      "family needs a " + geom_cls_name + " base; a transfer never "
+      "crosses families (pick a base trained by this family's driver)")
+  return resolved, notice, base, base_root
 
 
 def resolve_phase_args(train_args, two_phase):
@@ -1896,7 +2015,12 @@ class EmulatorExperiment:
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
-      exp.pce_opts   = None
+      # NPCE (the 2026-07-12 family-wide ruling): the pce: block is legal
+      # on the scalar family; diagonal=True = residual-only (the ratio
+      # form is a dense-covariance concept). rescale / ia were already
+      # rejected by validate_scalar, so the exclusivity args are their
+      # known-clean values.
+      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -1917,6 +2041,13 @@ class EmulatorExperiment:
     if is_cmb:
       cmb = validate_cmb(cfg, train_args=ta,
                          rescale=kwargs.get("rescale", "none"))
+      # transfer learning (the 2026-07-12 symmetry ruling): validate +
+      # load the frozen base before the model construction below; the
+      # correction net keeps its own model: block, and the
+      # exp._transfer_* stash lands after the construction.
+      tr_resolved, tr_notice, tr_base, tr_root = _load_diag_transfer(
+        cfg=cfg, train_args=ta, kwargs=kwargs,
+        geom_cls_name="CmbDiagonalGeometry")
       # fine-tune warm start on the CMB path (D-CM10): the architecture,
       # activation, and loss form are inherited from a saved CMB source
       # emulator, exactly the cosmolike finetune flow; the CMB-specific
@@ -1988,7 +2119,10 @@ class EmulatorExperiment:
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
-      exp.pce_opts   = None
+      # NPCE (the 2026-07-12 family-wide ruling): legal here, residual
+      # only (diagonal=True); validate_cmb already rejected the block
+      # beside an amplitude_law other than "none".
+      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2007,6 +2141,13 @@ class EmulatorExperiment:
         flag_type=explicit_flag,
         head_block=head_block,
         head_pin=head_pin)
+      if tr_base is not None:
+        exp._transfer_base         = tr_base
+        exp._transfer_root         = tr_root
+        exp._transfer_refine       = None
+        exp._transfer_form         = tr_resolved["form"]
+        exp._transfer_space        = tr_resolved["space"]
+        exp._transfer_space_notice = tr_notice
       return exp
 
     # grid (background-function) run (D-BSN1): one background quantity's
@@ -2016,6 +2157,11 @@ class EmulatorExperiment:
     if is_grid:
       grid = validate_grid(cfg, train_args=ta,
                            rescale=kwargs.get("rescale", "none"))
+      # transfer learning (the 2026-07-12 symmetry ruling): validate +
+      # load the frozen base before the model construction below.
+      tr_resolved, tr_notice, tr_base, tr_root = _load_diag_transfer(
+        cfg=cfg, train_args=ta, kwargs=kwargs,
+        geom_cls_name="GridGeometry")
       # fine-tune warm start on the grid path (D-BSN9): architecture,
       # activation, and loss form inherited from a saved GRID source of
       # the SAME quantity/units/law/offset; the z-grid check (needs the
@@ -2095,7 +2241,9 @@ class EmulatorExperiment:
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
-      exp.pce_opts   = None
+      # NPCE (the 2026-07-12 family-wide ruling): legal here, residual
+      # only (diagonal=True); the base fits the law-space whitened rows.
+      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2113,6 +2261,13 @@ class EmulatorExperiment:
         flag_type=explicit_flag,
         head_block=head_block,
         head_pin=head_pin)
+      if tr_base is not None:
+        exp._transfer_base         = tr_base
+        exp._transfer_root         = tr_root
+        exp._transfer_refine       = None
+        exp._transfer_form         = tr_resolved["form"]
+        exp._transfer_space        = tr_resolved["space"]
+        exp._transfer_space_notice = tr_notice
       return exp
 
     # grid2d (matter-power-spectrum) run (D-MP1): one MPS quantity's
@@ -2122,6 +2277,11 @@ class EmulatorExperiment:
     if is_grid2d:
       grid2d = validate_grid2d(cfg, train_args=ta,
                                rescale=kwargs.get("rescale", "none"))
+      # transfer learning (the 2026-07-12 symmetry ruling): validate +
+      # load the frozen base before the model construction below.
+      tr_resolved, tr_notice, tr_base, tr_root = _load_diag_transfer(
+        cfg=cfg, train_args=ta, kwargs=kwargs,
+        geom_cls_name="Grid2DGeometry")
       # fine-tune warm start on the grid2d path (D-MP7): architecture,
       # activation, and loss form inherited from a saved grid2d source
       # of the SAME quantity/units/law; the (z, k) axes check and the
@@ -2203,7 +2363,10 @@ class EmulatorExperiment:
       exp = cls(data=cfg["data"], train_args=ta,
                 model_cls=model_cls,
                 raw_train_args=cfg["train_args"], **kwargs)
-      exp.pce_opts   = None
+      # NPCE (the 2026-07-12 family-wide ruling): legal here, residual
+      # only (diagonal=True); the base fits the staged law-space rows
+      # (arXiv 2404.12344 runs exactly this — an NPCE on the boost).
+      exp.pce_opts   = validate_pce(cfg.get("pce"), diagonal=True)
       exp.ia         = None
       exp.arch       = name
       exp.model_name = name
@@ -2221,6 +2384,13 @@ class EmulatorExperiment:
         flag_type=explicit_flag,
         head_block=head_block,
         head_pin=head_pin)
+      if tr_base is not None:
+        exp._transfer_base         = tr_base
+        exp._transfer_root         = tr_root
+        exp._transfer_refine       = None
+        exp._transfer_form         = tr_resolved["form"]
+        exp._transfer_space        = tr_resolved["space"]
+        exp._transfer_space_notice = tr_notice
       return exp
 
     # fine-tune warm start (train_args.finetune present): the architecture,
@@ -2884,6 +3054,42 @@ class EmulatorExperiment:
                            param_file=d["train_params"])
     return int(len(phys))
 
+  def _fit_diag_pce(self, train_set):
+    """Fit the NPCE base and wrap the diagonal residual refiner loss.
+
+    The family-wide NPCE hook (the 2026-07-12 ruling): shared by the
+    scalar / cmb / grid / grid2d build_geometry branches, each calling
+    it after self.pgeom and self.geom exist. Mirrors the cosmolike hook
+    in build_geometry: materialize the whitened fit inputs once — the
+    loaders' own tensor path, so the base sees exactly the rows the
+    refiner will train on (for grid2d those are the staged law-space
+    rows) — fit the closed-form sparse-Legendre base, and wrap the
+    residual refiner loss in place of the family's plain chi2.
+    validate_pce (diagonal=True) already pinned form "residual".
+
+    Arguments:
+      train_set = the staged training source dict ("C" / "dv" / "idx").
+
+    Returns:
+      the PCEResidualDiagChi2 chi2fn (the caller assigns self.chi2fn).
+    """
+    from .designs.pce import PCEEmulator
+    from .losses.pce import PCEResidualDiagChi2
+    idx = train_set["idx"]
+    # stage the training rows as device tensors, then whiten (one
+    # step per line).
+    C_rows  = np.asarray(train_set["C"][idx])
+    dv_rows = np.asarray(train_set["dv"][idx])
+    tC  = torch.from_numpy(C_rows).float().to(self.device)
+    tdv = torch.from_numpy(dv_rows).float().to(self.device)
+    X_white = self.pgeom.encode(tC)
+    Y_white = self.geom.encode(tdv)
+    fit_opts = {k: v for k, v in self.pce_opts.items() if k != "form"}
+    # quiet-gated fit report (beside the loading-sources lines).
+    pce = PCEEmulator.from_training(
+      self.device, X_white, Y_white, silent=self.quiet, **fit_opts)
+    return PCEResidualDiagChi2(geom=self.geom, pce=pce)
+
   def build_geometry(self, train_set=None):
     """
     Build the input + output geometries and the chi2 (cached as
@@ -2945,8 +3151,12 @@ class EmulatorExperiment:
     # geometry is the base geometry block-extended for the new parameters
     # (D-TP3; extend_input_geometry handles both a plain and a factored base),
     # and the output geometry is the base's, pinned (D-TP4). The chi2 is a
-    # TransferChi2 wrapping the frozen base network; no cosmolike.
-    if self._transfer_base is not None:
+    # TransferChi2 wrapping the frozen base network; no cosmolike. This is the
+    # COSMOLIKE branch only — the diagonal families (the 2026-07-12 symmetry
+    # ruling) pin and wrap inside their own build branches below.
+    if (self._transfer_base is not None
+        and not (self._scalar or self._cmb or self._grid
+                 or self._grid2d)):
       base = self._transfer_base
       self.pgeom, extra_names = warmstart.extend_input_geometry(
         source=base,
@@ -3021,6 +3231,12 @@ class EmulatorExperiment:
       targets = np.asarray(train_set["dv"])[idx]
       self.geom = ScalarGeometry.from_targets(
         device=self.device, targets=targets, names=self.outputs)
+      # NPCE (the 2026-07-12 family-wide ruling): fit the closed-form
+      # base on the standardized outputs and wrap the residual refiner
+      # loss in place of the plain scalar chi2 (_fit_diag_pce).
+      if self.pce_opts is not None:
+        self.chi2fn = self._fit_diag_pce(train_set=train_set)
+        return self.pgeom, self.geom, self.chi2fn
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
@@ -3125,6 +3341,62 @@ class EmulatorExperiment:
                                       as_name=as_name,
                                       tau_name=tau_name)
         return self.pgeom, self.geom, self.chi2fn
+      # transfer learning (the 2026-07-12 symmetry ruling): the input
+      # geometry is the base's block-extended for the new parameters
+      # (D-TP3) and the output geometry is the BASE's, pinned after the
+      # same whitening checks the finetune pin makes above (identical
+      # spectrum, law "none" both sides — validate_cmb forced the run's
+      # side — and identical ell grid + sigma: a frozen base under a
+      # different whitening could never reach epoch-0 parity). The chi2
+      # is TransferDiagChi2 wrapping the frozen base network.
+      if self._transfer_base is not None:
+        base  = self._transfer_base
+        bgeom = base.geom
+        if bgeom.spectrum != spectrum:
+          raise ValueError(
+            "transfer spectrum mismatch: the base emulates "
+            + repr(bgeom.spectrum) + " but data.cmb.spectrum is "
+            + repr(spectrum) + "; a transfer never crosses spectra")
+        if bgeom.law != "none":
+          raise ValueError(
+            "the transfer base carries amplitude_law " + repr(bgeom.law)
+            + "; a CMB transfer needs a law-none base (the transfer "
+            "loss owns the target construction — train or pick a base "
+            "with amplitude_law: none)")
+        src_ell = bgeom.ell.detach().cpu().numpy()
+        if not np.array_equal(ell, src_ell):
+          raise ValueError(
+            "transfer ell-grid mismatch: the covariance file covers l = "
+            + str(int(ell[0])) + ".." + str(int(ell[-1])) + " ("
+            + str(int(ell.size)) + " multipoles) but the base geometry "
+            "was whitened on l = " + str(int(src_ell[0])) + ".."
+            + str(int(src_ell[-1])) + " (" + str(int(src_ell.size))
+            + "); point data.cmb.covariance at the file the base "
+            "trained with")
+        src_sigma = bgeom.sigma.detach().cpu().numpy()
+        if not np.array_equal(sigma.astype(np.float32), src_sigma):
+          raise ValueError(
+            "transfer covariance mismatch: sigma_" + spectrum + " in "
+            + repr(self.cmb["covariance"]) + " differs from the sigma "
+            "the base geometry whitens with; a transfer requires the "
+            "SAME experiment covariance file the base trained with "
+            "(epoch-0 parity is impossible under a different whitening)")
+        self.pgeom, extra_names = warmstart.extend_input_geometry(
+          source=base,
+          covmat_path=d["train_covmat"],
+          train_mean=train_set["C_mean"],
+          device=self.device)
+        self._transfer_extra_names = extra_names
+        self.geom = bgeom
+        if getattr(self.model_cls, "needs_bins", False):
+          self.geom.attach_head_coords()
+        self.chi2fn = TransferDiagChi2(
+          geom=self.geom,
+          base_net=base.model,
+          base_in_dim=len(base.pgeom.names),
+          form=self._transfer_form,
+          space=self._transfer_space)
+        return self.pgeom, self.geom, self.chi2fn
       # the per-row amplitude factor f (1 for the "none" law); the law
       # reads RAW parameter columns, located by the covmat-header names.
       if law == "as_exp2tau":
@@ -3166,6 +3438,13 @@ class EmulatorExperiment:
       # split — one bin, coordinate = ell (attach_head_coords).
       if getattr(self.model_cls, "needs_bins", False):
         self.geom.attach_head_coords()
+      # NPCE (the 2026-07-12 family-wide ruling): fit the closed-form
+      # base on the whitened C_ell rows and wrap the residual refiner
+      # loss (_fit_diag_pce). validate_cmb guaranteed amplitude_law
+      # "none" here, so geom.encode is the loss's whole encode.
+      if self.pce_opts is not None:
+        self.chi2fn = self._fit_diag_pce(train_set=train_set)
+        return self.pgeom, self.geom, self.chi2fn
       if law == "none":
         self.chi2fn = make_cmb_chi2(geom=self.geom, law=law)
       else:
@@ -3227,6 +3506,49 @@ class EmulatorExperiment:
           self.geom.attach_head_coords()
         self.chi2fn = make_scalar_chi2(self.geom)
         return self.pgeom, self.geom, self.chi2fn
+      # transfer learning (the 2026-07-12 symmetry ruling): the input
+      # geometry is the base's block-extended (D-TP3) and the output
+      # geometry is the BASE's, pinned after the same z-grid check the
+      # finetune pin makes above plus the metadata equality (quantity /
+      # units / law — the base's whitening must be the run's). The chi2
+      # is TransferDiagChi2 wrapping the frozen base network.
+      if self._transfer_base is not None:
+        base  = self._transfer_base
+        bgeom = base.geom
+        src_z = bgeom.z.detach().cpu().numpy()
+        if not np.array_equal(z, src_z):
+          raise ValueError(
+            "transfer z-grid mismatch: data.grid.z_file covers z = "
+            + repr([float(z[0]), float(z[-1])]) + " (" + str(int(z.size))
+            + " points) but the base geometry was standardized on z = "
+            + repr([float(src_z[0]), float(src_z[-1])]) + " ("
+            + str(int(src_z.size)) + "); point z_file at the grid the "
+            "base trained with")
+        if (bgeom.quantity, bgeom.units, bgeom.law) != (quantity, units,
+                                                        law):
+          raise ValueError(
+            "transfer grid-metadata mismatch: the base persisted "
+            "(quantity=" + repr(bgeom.quantity) + ", units="
+            + repr(bgeom.units) + ", law=" + repr(bgeom.law) + ") but "
+            "data.grid has (quantity=" + repr(quantity) + ", units="
+            + repr(units) + ", law=" + repr(law) + "); a transfer never "
+            "crosses quantities — restate the base's values")
+        self.pgeom, extra_names = warmstart.extend_input_geometry(
+          source=base,
+          covmat_path=d["train_covmat"],
+          train_mean=train_set["C_mean"],
+          device=self.device)
+        self._transfer_extra_names = extra_names
+        self.geom = bgeom
+        if getattr(self.model_cls, "needs_bins", False):
+          self.geom.attach_head_coords()
+        self.chi2fn = TransferDiagChi2(
+          geom=self.geom,
+          base_net=base.model,
+          base_in_dim=len(base.pgeom.names),
+          form=self._transfer_form,
+          space=self._transfer_space)
+        return self.pgeom, self.geom, self.chi2fn
       self.pgeom = ParamGeometry.from_covmat(
         device=self.device,
         center=train_set["C_mean"],
@@ -3239,6 +3561,12 @@ class EmulatorExperiment:
       # split — one bin, coordinate = z (attach_head_coords).
       if getattr(self.model_cls, "needs_bins", False):
         self.geom.attach_head_coords()
+      # NPCE (the 2026-07-12 family-wide ruling): fit the closed-form
+      # base on the law-space whitened rows and wrap the residual
+      # refiner loss (_fit_diag_pce).
+      if self.pce_opts is not None:
+        self.chi2fn = self._fit_diag_pce(train_set=train_set)
+        return self.pgeom, self.geom, self.chi2fn
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
@@ -3299,6 +3627,53 @@ class EmulatorExperiment:
           self.geom.attach_head_coords()
         self.chi2fn = make_scalar_chi2(self.geom)
         return self.pgeom, self.geom, self.chi2fn
+      # transfer learning (the 2026-07-12 symmetry ruling, "this for
+      # sure should be allowed for MPS"): the input geometry is the
+      # base's block-extended (D-TP3) and the output geometry is the
+      # BASE's, pinned after the same (z, k)-axes check the finetune
+      # pin makes above plus the metadata equality (quantity / units /
+      # law). The chi2 is TransferDiagChi2 wrapping the frozen base.
+      if self._transfer_base is not None:
+        base  = self._transfer_base
+        bgeom = base.geom
+        src_z = bgeom.z.detach().cpu().numpy()
+        src_k = bgeom.k.detach().cpu().numpy()
+        if not (np.array_equal(z2, src_z) and np.array_equal(k2, src_k)):
+          raise ValueError(
+            "transfer (z, k)-grid mismatch: the staged axes are z "
+            + repr([float(z2[0]), float(z2[-1]), int(z2.size)])
+            + " / k " + repr([float(k2[0]), float(k2[-1]),
+                              int(k2.size)])
+            + " but the base geometry was standardized on z "
+            + repr([float(src_z[0]), float(src_z[-1]), int(src_z.size)])
+            + " / k " + repr([float(src_k[0]), float(src_k[-1]),
+                              int(src_k.size)])
+            + "; use the base's generator grids and k_stride")
+        if (bgeom.quantity, bgeom.units, bgeom.law) != (quantity, units,
+                                                        law):
+          raise ValueError(
+            "transfer grid2d-metadata mismatch: the base persisted "
+            "(quantity=" + repr(bgeom.quantity) + ", units="
+            + repr(bgeom.units) + ", law=" + repr(bgeom.law) + ") but "
+            "data.grid2d has (quantity=" + repr(quantity) + ", units="
+            + repr(units) + ", law=" + repr(law) + "); a transfer never "
+            "crosses quantities — restate the base's values")
+        self.pgeom, extra_names = warmstart.extend_input_geometry(
+          source=base,
+          covmat_path=d["train_covmat"],
+          train_mean=train_set["C_mean"],
+          device=self.device)
+        self._transfer_extra_names = extra_names
+        self.geom = bgeom
+        if getattr(self.model_cls, "needs_bins", False):
+          self.geom.attach_head_coords()
+        self.chi2fn = TransferDiagChi2(
+          geom=self.geom,
+          base_net=base.model,
+          base_in_dim=len(base.pgeom.names),
+          form=self._transfer_form,
+          space=self._transfer_space)
+        return self.pgeom, self.geom, self.chi2fn
       self.pgeom = ParamGeometry.from_covmat(
         device=self.device,
         center=train_set["C_mean"],
@@ -3321,6 +3696,13 @@ class EmulatorExperiment:
       # (attach_head_coords; conv channels / TRF tokens = z slices).
       if getattr(self.model_cls, "needs_bins", False):
         self.geom.attach_head_coords()
+      # NPCE (the 2026-07-12 family-wide ruling): fit the closed-form
+      # base on the staged law-space rows and wrap the residual refiner
+      # loss (_fit_diag_pce); a D-MP9 constant pin composes in decode
+      # (the geometry pins the COMBINED base + net prediction).
+      if self.pce_opts is not None:
+        self.chi2fn = self._fit_diag_pce(train_set=train_set)
+        return self.pgeom, self.geom, self.chi2fn
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
@@ -3391,14 +3773,14 @@ class EmulatorExperiment:
       # materialize the whitened fit inputs once: X_white = pgeom.encode of
       # the raw params, Y_white = geom.encode of the raw dvs (from_training
       # converts to float64 numpy internally). Same tensor path the loaders
-      # use, torch.from_numpy(...).float().to(device).
+      # use, staged one step per line.
       idx = train_set["idx"]
-      X_white = self.pgeom.encode(
-        torch.from_numpy(np.asarray(train_set["C"][idx])).float().to(
-          self.device))
-      Y_white = self.geom.encode(
-        torch.from_numpy(np.asarray(train_set["dv"][idx])).float().to(
-          self.device))
+      C_rows  = np.asarray(train_set["C"][idx])
+      dv_rows = np.asarray(train_set["dv"][idx])
+      tC  = torch.from_numpy(C_rows).float().to(self.device)
+      tdv = torch.from_numpy(dv_rows).float().to(self.device)
+      X_white = self.pgeom.encode(tC)
+      Y_white = self.geom.encode(tdv)
       form     = self.pce_opts["form"]
       fit_opts = {k: v for k, v in self.pce_opts.items() if k != "form"}
       # quiet-gated fit report (beside the loading-sources lines).

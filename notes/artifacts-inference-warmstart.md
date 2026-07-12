@@ -122,13 +122,32 @@ TRUST ONLY it.
   term (Adam's moments would rescale it); weight_decay-0 recommended.
 - Provenance attrs: finetuned_from + finetune_extra_names.
 
-## Transfer learning (TPE; PERMANENTLY cosmolike + CMB dv families only)
+## Transfer learning (TPE; family-wide since 2026-07-12, scalar excepted)
 
+- Scope (RE-RULED 2026-07-12, overnight): the user overturned the
+  BAOSN/MPS permanent forbid and D-CM7's deferral — "I misspoke -
+  this for sure should be allowed for MPS. And it is easy to allow it
+  to BAO/SN - because it is weird to have a feature not symmetric to
+  all cases." Transfer now rides cosmolike + cmb + grid + grid2d.
+  The one family still out is SCALAR (D-SP8 stands — a recorded
+  ruling, not a structural bar; overturning it is the user's call).
 - Concept: the trained base is FROZEN WHOLE; a small parallel
   correction net sees the FULL new parameter space; composition
   `gain` = base*(1+r) or `sum` = base + r, in `space` physical or
   whitened (absent space resolves to the form's recommendation and is
   MATERIALIZED). The model: block describes the CORRECTION net.
+- The diagonal families use losses/transfer.py::TransferDiagChi2
+  (subclasses CmbDiagonalChi2): plain bases only, space WHITENED only
+  (their metric basis; explicit physical is loud — an elementwise
+  scale away, or a log-law domain edge), both forms with a gain
+  zero-crossing notice (sum recommended), transfer.refine rejected
+  (frozen-base V1), roughness+transfer refused loudly, and on cmb
+  only amplitude_law "none" both sides (one target construction at a
+  time). Base pins mirror the finetune pins (spectrum/ell/sigma; z;
+  z+k; + quantity/units/law equality); a cross-family base is a loud
+  from_config error. build_transfer_start (the D-TP7 parity gate)
+  rides unchanged — it duck-types on decode/base_decode. Legs:
+  check_diagonal in transfer-identity.
 - Why not FTW for new physics sectors: same-capacity adaptation is
   structurally insufficient; the metric is SAMPLE EFFICIENCY
   (accuracy per training cosmology — extended-model dumps are the

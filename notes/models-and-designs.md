@@ -125,6 +125,22 @@ amplitudes. NEVER emulate a parameter dependence you can write down.
   not a proven floor-lever. Fit lessons baked into the defaults: low
   degree (Runge), keep only well-predicted modes (loo_max ~0.05),
   early-stop, CPU-numpy LARS with closed-form LOO.
+- FAMILY-WIDE since 2026-07-12 (user ruling: "nothing should prevent
+  users from using PCE as the trunk and MLP as the head, on all
+  cases" — the user's arXiv 2404.12344 runs an NPCE on the boost;
+  EuclidEmulator2 is a PCE of pklin). scalar / cmb / grid / grid2d
+  wrap losses/pce.py::PCEResidualDiagChi2 (subclasses CmbDiagonalChi2
+  — the diagonal metric IS these families' chi2; roughness composes
+  because pred - target is the full whitened residual). Fit hook =
+  experiment._fit_diag_pce, shared by the four build_geometry
+  branches; predictor side = inference._build_diag_decoder on every
+  family branch (a bare geom.decode would be silently wrong with a
+  base in the file). Two deliberate boundaries: residual-only off
+  cosmolike (ratio is a dense-covariance concept — validate_pce
+  diagonal=True), and on CMB only amplitude_law "none" (the law loss
+  owns the target construction — validate_cmb). Note the cosmic-shear
+  verdict above does NOT transfer: on MPS the PCE fits the law-space
+  boost, exactly the 2404.12344 regime where it worked.
 
 ## Composition spine
 

@@ -21,12 +21,17 @@ its geometry, loss, dataset generator, cobaya adapter, thin drivers,
 and two acceptance gates, and with FULL capability symmetry: every
 family has the whole training surface (loss ladder + anneals,
 trim/focus, EMA, clip/rewind, fine-tuning, multi-GPU drivers, the
-conv/TRF correction heads everywhere a coordinate axis exists, and —
-since the 2026-07-12 ruling "any trunk-head design could benefit" —
-the two-phase trunk-then-head schedule with the trunk:/head: blocks
-and the per-head activation pin on every head model). Count
-gates by enumerating gates/board.py's registry, never note
-arithmetic. The user merges to main and pushes (only main is ever
+conv/TRF correction heads everywhere a coordinate axis exists, the
+two-phase trunk-then-head schedule on every head model with the
+trunk:/head: blocks and the per-head activation pin — the 2026-07-12
+ruling "any trunk-head design could benefit" — the NPCE closed-form
+base on every family (the same day's second ruling: pce: fits a
+sparse-Legendre trunk under any refiner, residual-only off cosmic
+shear, cmb only with amplitude_law none), and frozen-base transfer
+on every family but scalar (the overnight third ruling overturning
+the BAOSN/MPS permanent forbids and closing D-CM7; whitened space,
+sum recommended, refine cosmolike-only)). Count gates by enumerating
+gates/board.py's registry, never note arithmetic. The user merges to main and pushes (only main is ever
 pushed; the GPU workstation pulls main).
 
 ## Where the 2026-07-11/12 knowledge now lives (the redistribution map)
@@ -67,8 +72,10 @@ pushed; the GPU workstation pulls main).
 
 Everything through board run 9 is workstation-proven at HEAD 4c65331
 (2026-07-12). Still NEVER EXECUTED, by resume accounting: the D-CM13
-head legs inside cmb-identity / mps-identity and the D-MP9 legs in
-mps-identity (those gates' greens date from run 1, before the legs
+head legs inside cmb-identity / mps-identity, the D-MP9 legs in
+mps-identity, the two-phase phase-discipline legs in the same head
+checks, and the NPCE check_npce legs in all four family identity
+gates (those gates' greens date from run 1, before the legs
 existed). The `--force-rerun-all` regression pass is therefore both
 the cosmic-shear no-regression proof and those legs' first execution.
 
@@ -102,9 +109,12 @@ the cosmic-shear no-regression proof and those legs' first execution.
 
 ## Standing constraints that gate future work
 
-- Transfer learning is PERMANENTLY exclusive to the cosmolike + CMB
-  data-vector families; fine-tuning is universal; heads-on-scalar is
-  a permanent no (no coordinate axis between named outputs).
+- Transfer learning rides cosmolike + cmb + grid + grid2d since the
+  2026-07-12 overnight symmetry ruling (the user overturned the
+  BAOSN/MPS permanent forbid and closed D-CM7); SCALAR stays out
+  (D-SP8, a recorded ruling the user may overturn). Fine-tuning is
+  universal; heads-on-scalar is a permanent no (no coordinate axis
+  between named outputs).
 - The BSN family is flat-only V1 (the legacy curvature formula was
   dimensionally wrong and is deliberately not reproduced; a curvature
   branch would be a new spec).

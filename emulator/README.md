@@ -106,6 +106,11 @@ unchanged for all of them:
 | background (BAO/SN) | `grid` | `geometries/grid.py` | `losses/scalar.py` (reused) | `emul_baosn` |
 | matter power (EMUL2) | `grid2d` | `geometries/grid2d.py` | `losses/scalar.py` (reused) | `emul_mps` |
 
+The NPCE trunk (`pce:`) rides every row (the 2026-07-12 family-wide
+ruling): on the four diagonal families it wraps
+`losses/pce.py::PCEResidualDiagChi2` (residual only; on CMB only with
+amplitude law "none").
+
 Two physics modules sit beside the geometries, each with exactly one
 definition shared by its generator, its adapter, and its gates:
 `background.py` (the distances are KNOWN physics integrated from the emulated
@@ -145,7 +150,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `losses/core.py` | chi2 losses on the whitened residual: `CosmolikeChi2` (plain; the `sqrt` / pseudo-Huber / `berhu` / `berhu_capped` mode ladder), `RescaledChi2` / `ResidualBaseChi2` (analytic-R), `ElementWeightedChi2`; `anneal_value`; `make_chi2`. The `_reduce` here is THE shared reduction every family's loss routes through. |
 | `losses/scalar.py` | `ScalarChi2` + `make_scalar_chi2`: the standardized-residual chi2 (also wraps the grid and grid2d geometries — their laws live in the geometry, so the loss needs nothing new). |
 | `losses/cmb.py` | `AMPLITUDE_LAWS` (`none` / `as_exp2tau`), `CmbDiagonalChi2` / `CmbFactoredChi2` (the imposed-amplitude target), `ResidualRoughness` (the optional band-explicit penalty on short-period residual wiggles), `make_cmb_chi2`. |
-| `losses/transfer.py` | `TransferChi2`: a frozen base network under a parallel correction (gain / sum, physical / whitened space). |
+| `losses/transfer.py` | `TransferChi2`: a frozen base network under a parallel correction (gain / sum, physical / whitened space, the cosmolike form). `TransferDiagChi2`: the same design on the elementwise-whitened families — cmb law-none / grid / grid2d, whitened space only (the 2026-07-12 symmetry ruling). |
 | `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. |
 | `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the config validators (`validate_phase_block` / `validate_loss` — now with the `roughness:` sub-block — / `validate_berhu` / `validate_ema`), the per-epoch loop, and `run_emulator`. |
 
@@ -248,7 +253,7 @@ loss.
 |---|---|---|
 | NPCE | `designs/pce.py` + `losses/pce.py` | a sparse-Legendre polynomial-chaos base plus a neural refiner. |
 | Factored IA | `designs/ia.py` + `losses/ia.py` | emulate cosmology-only templates and apply the IA-amplitude polynomial in closed form (the amplitudes never enter the network). |
-| Transfer | `warmstart.py` + `losses/transfer.py` | a frozen trained base under a parallel correction net (cosmolike + CMB data-vector families ONLY — the scope ruling; scalar / grid / grid2d have a permanent forbid). |
+| Transfer | `warmstart.py` + `losses/transfer.py` | a frozen trained base under a parallel correction net. Family-wide since the 2026-07-12 symmetry ruling (cosmolike + cmb + grid + grid2d; frozen-base only off cosmolike); SCALAR is the one family out (D-SP8). |
 | Fine-tuning | `warmstart.py` (`train_args.finetune`) | warm-start from a saved source of the SAME family and geometry; epoch 0 reproduces the source exactly. Supported by EVERY family. |
 
 Removed: the per-bin CNN (its own folder, deleted) — tested; the grouped conv
@@ -363,10 +368,10 @@ shared `_reduce`.
 
 - `losses/core.py` — `anneal_value`; `CosmolikeChi2` (the plain chi2 + the `chi2`/`sqrt`/`sqrt_dchi2`/`berhu`/`berhu_capped` transform ladder); `RescaledChi2` / `ResidualBaseChi2` (analytic-R); `ElementWeightedChi2`; `make_chi2`.
 - `losses/ia.py` — `nla_coeffs`, `tatt_coeffs`; `NLAAmpFactoredChi2`, `TemplateFactoredChi2`.
-- `losses/pce.py` — `PCEResidualChi2`, `PCERatioChi2`.
+- `losses/pce.py` — `PCEResidualChi2`, `PCERatioChi2` (the cosmolike forms); `PCEResidualDiagChi2` (the family-wide residual form over the elementwise-whitened geometries — cmb law-none / grid / grid2d / scalar; roughness composes).
 - `losses/scalar.py` — `ScalarChi2` + `make_scalar_chi2` (the standardized-residual chi2; also wraps `GridGeometry` and `Grid2DGeometry` — their laws live in the geometry).
 - `losses/cmb.py` — `AMPLITUDE_LAWS`; `CmbDiagonalChi2` (plain per-multipole chi2) / `CmbFactoredChi2` (the imposed `C_ell e^{2tau}/A_s` target, reading named columns); `ResidualRoughness` + `configure_roughness` (the optional short-period residual penalty, byte-identical when absent); `make_cmb_chi2`.
-- `losses/transfer.py` — `TransferChi2` (a frozen base + a parallel correction; gain/sum, physical/whitened).
+- `losses/transfer.py` — `TransferChi2` (a frozen base + a parallel correction; gain/sum, physical/whitened; cosmolike); `TransferDiagChi2` (the diagonal-family form: whitened space only, plain bases, refine/roughness refused loudly).
 
 ### `emulator/batching.py` <a name="apx-batching"></a>
 
@@ -428,7 +433,7 @@ routes through).
 
 ### `emulator/inference.py` <a name="apx-inference"></a>
 
-- `EmulatorPredictor` — rebuild + predict for every artifact kind. `__init__` branches on the rebuilt family (scalar → output names; cmb → spectrum/ell/units + the law-dispatched decoder; grid → quantity/z; grid2d → quantity/z/k; else the dv path with the ia/pce/transfer decoder). `predict(params)` returns the family's natural object (see the class docstring's table); `_build_decoder` / `_build_cmb_decoder` reuse the exact training `chi2fn.decode`.
+- `EmulatorPredictor` — rebuild + predict for every artifact kind. `__init__` branches on the rebuilt family (scalar → output names; cmb → spectrum/ell/units + the law-dispatched decoder; grid → quantity/z; grid2d → quantity/z/k; else the dv path with the ia/pce/transfer decoder). Every family branch builds its decoder at init: `_build_diag_decoder` composes an NPCE base when the artifact carries a `pce` group (plain `geom.decode` otherwise, byte-identical). `predict(params)` returns the family's natural object (see the class docstring's table); `_build_decoder` / `_build_cmb_decoder` / `_build_diag_decoder` reuse the exact training `chi2fn.decode`.
 
 ### `emulator/plotting.py` <a name="apx-plotting"></a>
 

@@ -222,9 +222,10 @@ def main():
                "val_fracs":    fracs,
                "thresholds":   exp.thresholds},
     train_args=exp.train_args,
-    # scalar runs have no NPCE base and no transfer base.
-    pce=None,
-    pce_form=None,
+    # the NPCE base rides every family (the 2026-07-12 ruling); a scalar
+    # run still has no transfer base (D-SP8).
+    pce=(exp.chi2fn.pce if exp.pce_opts is not None else None),
+    pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
     # schema v2: the resolved recipes (consumed view), so the saved run
     # rebuilds bit-exactly even if code defaults later drift.
     resolved_train=exp.resolved_train,

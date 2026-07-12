@@ -27,6 +27,13 @@ How it works, in order:
   4. The loud errors fire: a non-superset parameter set, and the config
      exclusivities (pce / rescale / finetune / model.ia / unknown form /
      the not-yet-implemented refine block).
+  5. check_diagonal (the 2026-07-12 family symmetry ruling): transfer on
+     the diagonal families — TransferDiagChi2 epoch-0 identity bitwise
+     for both forms through a log-law GridGeometry, the packed-target
+     discipline, the whitened-only rejections, the family validators'
+     acceptance matrix (cmb law-conditioned), a grid transfer artifact
+     rebuilding + predicting the composition bitwise, and the
+     cross-family-base loud from_config error.
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
@@ -46,11 +53,14 @@ from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
 from emulator.designs.ia import TemplateMLP
-from emulator.experiment import validate_transfer
+from emulator.experiment import (validate_transfer, validate_cmb,
+                                 validate_grid, validate_grid2d)
+from emulator.geometries.grid import GridGeometry
 from emulator.geometries.output import DataVectorGeometry
 from emulator.geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
 from emulator.losses.ia import nla_coeffs
-from emulator.losses.transfer import TransferChi2, FORMS, SPACES
+from emulator.losses.transfer import (TransferChi2, TransferDiagChi2,
+                                      FORMS, SPACES)
 from emulator.results import save_emulator, rebuild_emulator
 from emulator.inference import EmulatorPredictor
 from emulator.training import make_model
@@ -106,12 +116,15 @@ def base_config():
   """The data block a saved base records (a fine-tune / transfer run matches)."""
   return {"data": {"cosmolike_data_dir": "lsst_y1",
                    "cosmolike_dataset": "lsst_y1_M1_GGL0.05.dataset",
-                   "train_dv": "b.npy", "val_dv": "bv.npy"},
+                   "train_dv": "b.npy",
+                   "val_dv": "bv.npy"},
           "train_args": {"nepochs": 1}}
 
 
 def histories():
-  return {"train_losses": [0.1], "val_medians": [0.1], "val_means": [0.1],
+  return {"train_losses": [0.1],
+          "val_medians": [0.1],
+          "val_means": [0.1],
           "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
           "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
 
@@ -125,10 +138,15 @@ def save_plain_base(root, device):
                 "norm": make_norm("affine")}
   model = ResMLP(input_dim=len(names), output_dim=OUT_DIM, int_dim_res=32,
                  n_blocks=2, block_opts=block_opts).to(device)
-  recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-            "ia": None, "input_dim": len(names), "output_dim": OUT_DIM,
-            "compile_mode": None, "needs_geom": False,
-            "kwargs": {"int_dim_res": 32, "n_blocks": 2,
+  recipe = {"cls": "emulator.designs.plain.ResMLP",
+            "name": "resmlp",
+            "ia": None,
+            "input_dim": len(names),
+            "output_dim": OUT_DIM,
+            "compile_mode": None,
+            "needs_geom": False,
+            "kwargs": {"int_dim_res": 32,
+                       "n_blocks": 2,
                        "block_opts": {"act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
   save_emulator(path_root=str(root), model=model, param_geometry=pg,
@@ -153,10 +171,16 @@ def save_factored_base(root, device):
   model = TemplateMLP(input_dim=len(names), output_dim=OUT_DIM, n_amps=1,
                       n_templates=3, int_dim_res=32, n_blocks=2,
                       block_opts=block_opts).to(device)
-  recipe = {"cls": "emulator.designs.ia.TemplateMLP", "name": "resmlp",
-            "ia": "nla", "input_dim": len(names), "output_dim": OUT_DIM,
-            "compile_mode": None, "needs_geom": False,
-            "kwargs": {"n_amps": 1, "n_templates": 3, "int_dim_res": 32,
+  recipe = {"cls": "emulator.designs.ia.TemplateMLP",
+            "name": "resmlp",
+            "ia": "nla",
+            "input_dim": len(names),
+            "output_dim": OUT_DIM,
+            "compile_mode": None,
+            "needs_geom": False,
+            "kwargs": {"n_amps": 1,
+                       "n_templates": 3,
+                       "int_dim_res": 32,
                        "n_blocks": 2,
                        "block_opts": {"act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
@@ -246,8 +270,8 @@ def check_base(tag, root, device, tmp, factored):
       def _hook(_m, _i, _o, _c=calls):
         _c["n"] += 1
       handle = base.model.register_forward_hook(_hook)
-      dv = torch.from_numpy(
-        np.random.default_rng(33).standard_normal((64, TOTAL))).float().to(device)
+      dv_rows = np.random.default_rng(33).standard_normal((64, TOTAL))
+      dv = torch.from_numpy(dv_rows).float().to(device)
       with torch.no_grad():
         target = chi2fn.encode(dv, enc)
         zero = torch.zeros(64, 3, nk, device=device) if factored \
@@ -275,10 +299,17 @@ def _correction_opts(base, geom):
   block_opts = {"act": make_activation("H", n_gates=3),
                 "norm": make_norm("affine")}
   if base.ia is None:
-    return {"cls": ResMLP, "compile_mode": None, "int_dim_res": 16,
-            "n_blocks": 1, "block_opts": block_opts}
-  return {"cls": TemplateMLP, "compile_mode": None, "int_dim_res": 16,
-          "n_blocks": 1, "block_opts": block_opts, "n_amps": 1,
+    return {"cls": ResMLP,
+            "compile_mode": None,
+            "int_dim_res": 16,
+            "n_blocks": 1,
+            "block_opts": block_opts}
+  return {"cls": TemplateMLP,
+          "compile_mode": None,
+          "int_dim_res": 16,
+          "n_blocks": 1,
+          "block_opts": block_opts,
+          "n_amps": 1,
           "n_templates": 3}
 
 
@@ -360,7 +391,8 @@ def check_errors(device, plain_root):
   # rejection when TPE-2 landed refine.)
   raised = False
   try:
-    validate_transfer(cfg={"transfer": {"from": "x", "form": "gain",
+    validate_transfer(cfg={"transfer": {"from": "x",
+                                        "form": "gain",
                                         "refine": {"epochs": 1}}},
                       train_args={"model": {}}, rescale="none")
   except ValueError:
@@ -418,22 +450,30 @@ def check_lifecycle(device, tmp):
                                       compile_mode=None),
                       input_dim=in_dim, output_dim=OUT_DIM, device=device)
   corr.eval()
-  theta = torch.from_numpy(
-    np.random.default_rng(73).standard_normal((8, len(names)))).float().to(device)
+  theta_rows = np.random.default_rng(73).standard_normal((8, len(names)))
+  theta = torch.from_numpy(theta_rows).float().to(device)
   with torch.no_grad():
     enc      = new_pgeom.encode(theta)
     composed = chi2fn.decode(corr(enc), enc)          # in-memory (8, n_keep)
 
   # save the transfer artifact exactly as the driver assembles it.
-  corr_recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-                 "ia": None, "input_dim": int(in_dim), "output_dim": OUT_DIM,
-                 "compile_mode": None, "needs_geom": False,
-                 "kwargs": {"int_dim_res": 16, "n_blocks": 1,
+  corr_recipe = {"cls": "emulator.designs.plain.ResMLP",
+                 "name": "resmlp",
+                 "ia": None,
+                 "input_dim": int(in_dim),
+                 "output_dim": OUT_DIM,
+                 "compile_mode": None,
+                 "needs_geom": False,
+                 "kwargs": {"int_dim_res": 16,
+                            "n_blocks": 1,
                             "block_opts": {"act": {"type": "H", "n_gates": 3},
                                            "norm": "affine"}}}
-  transfer_base = {"recipe": base.recipe, "state": base.model.state_dict(),
-                   "param_geometry": base.pgeom, "dv_geometry": base.geom,
-                   "form": "gain", "space": "physical"}
+  transfer_base = {"recipe": base.recipe,
+                   "state": base.model.state_dict(),
+                   "param_geometry": base.pgeom,
+                   "dv_geometry": base.geom,
+                   "form": "gain",
+                   "space": "physical"}
   saved = Path(tmp) / "life_transfer"
   save_emulator(path_root=str(saved), model=corr, param_geometry=new_pgeom,
                 geometry=geom, config=base_config(), histories=histories(),
@@ -521,21 +561,30 @@ def check_refined_lifecycle(device, tmp):
                                       compile_mode=None),
                       input_dim=in_dim, output_dim=OUT_DIM, device=device)
   corr.eval()
-  theta = torch.from_numpy(
-    np.random.default_rng(82).standard_normal((8, len(names)))).float().to(device)
+  theta_rows = np.random.default_rng(82).standard_normal((8, len(names)))
+  theta = torch.from_numpy(theta_rows).float().to(device)
   with torch.no_grad():
     enc      = new_pgeom.encode(theta)
     composed = chi2fn.decode(corr(enc), enc)          # in-memory, drifted base
 
-  corr_recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-                 "ia": None, "input_dim": int(in_dim), "output_dim": OUT_DIM,
-                 "compile_mode": None, "needs_geom": False,
-                 "kwargs": {"int_dim_res": 16, "n_blocks": 1,
+  corr_recipe = {"cls": "emulator.designs.plain.ResMLP",
+                 "name": "resmlp",
+                 "ia": None,
+                 "input_dim": int(in_dim),
+                 "output_dim": OUT_DIM,
+                 "compile_mode": None,
+                 "needs_geom": False,
+                 "kwargs": {"int_dim_res": 16,
+                            "n_blocks": 1,
                             "block_opts": {"act": {"type": "H", "n_gates": 3},
                                            "norm": "affine"}}}
-  transfer_base = {"recipe": base.recipe, "state": pretrained,
-                   "drifted_state": drifted, "param_geometry": base.pgeom,
-                   "dv_geometry": base.geom, "form": "gain", "space": "physical"}
+  transfer_base = {"recipe": base.recipe,
+                   "state": pretrained,
+                   "drifted_state": drifted,
+                   "param_geometry": base.pgeom,
+                   "dv_geometry": base.geom,
+                   "form": "gain",
+                   "space": "physical"}
   saved = Path(tmp) / "ref_transfer"
   save_emulator(path_root=str(saved), model=corr, param_geometry=new_pgeom,
                 geometry=geom, config=base_config(), histories=histories(),
@@ -571,6 +620,231 @@ def check_refined_lifecycle(device, tmp):
          raised, "a refined artifact must carry both halves")
 
 
+def grid_base_recipe(names, nz):
+  """The model_recipe a schema-v2 save stores for a grid-family ResMLP."""
+  return {"cls": "emulator.designs.plain.ResMLP",
+          "name": "resmlp",
+          "ia": None,
+          "input_dim": len(names),
+          "output_dim": nz,
+          "compile_mode": None,
+          "needs_geom": False,
+          "kwargs": {"int_dim_res": 16,
+                     "n_blocks": 2,
+                     "block_opts": {"act": {"type": "H", "n_gates": 3},
+                                    "norm": "affine"}}}
+
+
+def check_diagonal(device, tmp):
+  """The 2026-07-12 symmetry ruling: transfer on the diagonal families.
+
+  TransferDiagChi2 on a GridGeometry (log-offset law): the epoch-0
+  identity is bitwise for BOTH forms (zero correction = the frozen
+  base, through the law), the packed target caches the base, the
+  physical space is loudly refused, validate_transfer(diagonal=True)
+  resolves/rejects as ruled, the family validators accept the block
+  (cmb only under amplitude_law none), a transfer artifact rebuilds
+  and predicts the composition bitwise, and a cross-family base is a
+  loud from_config error.
+  """
+  from emulator.experiment import EmulatorExperiment
+  names = ["p0", "p1", "p2"]
+  pg = param_geometry(names, device, seed=90)
+  z = np.linspace(0.001, 3.0, 32)
+  g = np.random.default_rng(91)
+  rows = 70.0 * (1.0 + 0.05 * g.standard_normal((300, z.size)))
+  geom = GridGeometry.from_targets(device=device, targets=rows, z=z,
+                                   quantity="Hubble", units="km/s/Mpc",
+                                   law="log_offset", offset=1.0)
+  block_opts = {"act": make_activation("H", n_gates=3),
+                "norm": make_norm("affine")}
+  base = ResMLP(input_dim=len(names), output_dim=z.size, int_dim_res=16,
+                n_blocks=2, block_opts=block_opts).to(device)
+  base.eval()
+  theta_rows = np.random.default_rng(92).standard_normal((8, len(names)))
+  theta = torch.from_numpy(theta_rows).float().to(device)
+  dv = torch.from_numpy(rows[:8].astype("float32")).to(device)
+  with torch.no_grad():
+    enc = pg.encode(theta)
+  for form in FORMS:
+    chi2fn = TransferDiagChi2(geom=geom, base_net=base,
+                              base_in_dim=len(names), form=form,
+                              space="whitened")
+    zero = torch.zeros(8, z.size, device=device)
+    with torch.no_grad():
+      composed = chi2fn.decode(zero, enc)
+      base_dec = chi2fn.base_decode(enc)
+      target = chi2fn.encode(dv, enc)
+      c_zero = chi2fn.chi2(pred=zero, target=target,
+                           params_whitened=enc)
+      base_w = chi2fn._base(enc)
+      want_c = ((base_w - geom.encode(dv)) ** 2).sum(dim=1)
+    report("diag %s: epoch-0 identity bitwise through the law" % form,
+           torch.equal(composed, base_dec),
+           "max|d| %.1e" % (composed - base_dec).abs().max().item())
+    report("diag %s: packed target + zero-correction chi2 exact" % form,
+           target.shape == (8, 2 * z.size) and torch.equal(c_zero, want_c),
+           "target %s" % (tuple(target.shape),))
+  try:
+    TransferDiagChi2(geom=geom, base_net=base, base_in_dim=len(names),
+                     form="sum", space="physical")
+    report("diag: physical space refused", False, "no raise")
+  except ValueError as e:
+    report("diag: physical space refused", "metric basis" in str(e),
+           "ValueError names the basis")
+  # validate_transfer(diagonal=True): whitened resolution for both
+  # forms, the explicit-physical rejection, the gain notice, and the
+  # refine rejection.
+  def tr_cfg(block):
+    return {"transfer": block, "data": {}}
+  res, note = validate_transfer(tr_cfg({"from": "x", "form": "sum"}),
+                                train_args={}, diagonal=True)
+  ok = res["space"] == "whitened" and note is None
+  res, note = validate_transfer(tr_cfg({"from": "x", "form": "gain"}),
+                                train_args={}, diagonal=True)
+  ok = ok and res["space"] == "whitened" and note is not None
+  report("diag validate: whitened resolution + the gain notice", ok,
+         "gain notice: %s" % ("present" if note else "MISSING"))
+  try:
+    validate_transfer(tr_cfg({"from": "x",
+                              "form": "sum",
+                              "space": "physical"}),
+                      train_args={}, diagonal=True)
+    report("diag validate: explicit physical raises", False, "no raise")
+  except ValueError:
+    report("diag validate: explicit physical raises", True, "")
+  try:
+    validate_transfer(tr_cfg({"from": "x",
+                              "form": "sum",
+                              "refine": {"epochs": 5,
+                                         "base_lr_scale": 0.1,
+                                         "anchor": 0.0}}),
+                      train_args={}, diagonal=True)
+    report("diag validate: refine rejected (frozen-base V1)", False,
+           "no raise")
+  except ValueError:
+    report("diag validate: refine rejected (frozen-base V1)", True, "")
+  # the family validators accept the block now (cmb only law-none).
+  grid_data = {"grid": {"quantity": "Hubble",
+                        "units": "km/s/Mpc",
+                        "law": "log_offset",
+                        "offset": 1.0,
+                        "z_file": "z.npy"},
+               "train_dv": "a",
+               "val_dv": "b",
+               "train_params": "c",
+               "val_params": "d",
+               "train_covmat": "e"}
+  cfg = {"data": grid_data,
+         "pce": None,
+         "transfer": {"from": "x", "form": "sum"}}
+  try:
+    validate_grid(cfg, train_args={}, rescale="none")
+    report("validate_grid accepts a transfer block", True, "")
+  except ValueError as e:
+    report("validate_grid accepts a transfer block", False, str(e)[:70])
+  cmb_data = {"cmb": {"spectrum": "tt",
+                      "covariance": "c.npz",
+                      "amplitude_law": "none"},
+              "train_dv": "a",
+              "val_dv": "b",
+              "train_params": "c",
+              "val_params": "d",
+              "train_covmat": "e"}
+  cfg = {"data": cmb_data,
+         "pce": None,
+         "transfer": {"from": "x", "form": "sum"}}
+  try:
+    validate_cmb(cfg, train_args={}, rescale="none")
+    report("validate_cmb accepts transfer under law none", True, "")
+  except ValueError as e:
+    report("validate_cmb accepts transfer under law none", False,
+           str(e)[:70])
+  cfg["data"]["cmb"] = {"spectrum": "tt",
+                        "covariance": "c.npz",
+                        "amplitude_law": "as_exp2tau",
+                        "as_name": "As",
+                        "tau_name": "tau"}
+  try:
+    validate_cmb(cfg, train_args={}, rescale="none")
+    report("validate_cmb: transfer x amplitude-law raises", False,
+           "no raise")
+  except ValueError as e:
+    report("validate_cmb: transfer x amplitude-law raises",
+           "amplitude_law: none" in str(e), "names the fix")
+  # save -> rebuild -> predict: a grid transfer artifact (zero-init
+  # correction + the embedded base) must predict the composition
+  # bitwise, i.e. exactly the frozen base at epoch 0.
+  corr = ResMLP(input_dim=len(names), output_dim=z.size, int_dim_res=8,
+                n_blocks=1, block_opts=dict(block_opts)).to(device)
+  warmstart._zero_final_linear(corr)
+  corr.eval()
+  corr_recipe = grid_base_recipe(names, int(z.size))
+  corr_recipe["kwargs"]["int_dim_res"] = 8
+  corr_recipe["kwargs"]["n_blocks"] = 1
+  root = Path(tmp) / "diag_transfer"
+  config = {"data": {"grid": {"quantity": "Hubble",
+                              "units": "km/s/Mpc",
+                              "law": "log_offset",
+                              "offset": 1.0,
+                              "z_file": "z.npy"},
+                     "train_dv": "t.npy",
+                     "val_dv": "v.npy",
+                     "train_params": "t.1.txt",
+                     "val_params": "v.1.txt",
+                     "train_covmat": "c.covmat"},
+            "transfer": {"from": "grid_base", "form": "sum"},
+            "train_args": {"nepochs": 1}}
+  save_emulator(path_root=str(root), model=corr, param_geometry=pg,
+                geometry=geom, config=config, histories=histories(),
+                train_args=config["train_args"],
+                resolved_train={"nepochs": 1},
+                resolved_model=corr_recipe,
+                transfer_base={"recipe": grid_base_recipe(names,
+                                                          int(z.size)),
+                               "state": base.state_dict(),
+                               "param_geometry": pg,
+                               "dv_geometry": geom,
+                               "form": "sum",
+                               "space": "whitened"},
+                attrs={"rescale": "none", "quantity": "Hubble"})
+  chi2fn = TransferDiagChi2(geom=geom, base_net=base,
+                            base_in_dim=len(names), form="sum",
+                            space="whitened")
+  theta1 = np.array([[0.3, -0.2, 1.1]])
+  x1 = torch.as_tensor(theta1, dtype=pg.center.dtype, device=device)
+  with torch.no_grad():
+    ref = chi2fn.base_decode(pg.encode(x1))[0].cpu().numpy()
+  pred = EmulatorPredictor(str(root), device, compile_model=False)
+  got = pred.predict({nm: float(theta1[0, i])
+                      for i, nm in enumerate(names)})
+  report("diag transfer artifact predicts the composition bitwise",
+         np.array_equal(got["Hubble"], ref),
+         "max|d| %.1e" % np.abs(got["Hubble"] - ref).max())
+  # a cross-family base is a loud from_config error (before staging).
+  g2_cfg = {"data": {"grid2d": {"quantity": "pklin",
+                                "units": "Mpc3",
+                                "law": "syren_linear",
+                                "z_file": "z.npy",
+                                "k_file": "k.npy",
+                                "train_base": "tb.npy",
+                                "val_base": "vb.npy"},
+                     "train_dv": "t.npy",
+                     "val_dv": "v.npy",
+                     "train_params": "t.1.txt",
+                     "val_params": "v.1.txt",
+                     "train_covmat": "c.covmat"},
+            "transfer": {"from": str(root), "form": "sum"},
+            "train_args": {"nepochs": 1, "bs": 8}}
+  try:
+    EmulatorExperiment.from_config(g2_cfg, device=torch.device("cpu"))
+    report("cross-family transfer base raises", False, "no raise")
+  except ValueError as e:
+    report("cross-family transfer base raises",
+           "never" in str(e) and "families" in str(e),
+           "ValueError names the rule")
+
+
 def main():
   """Build synthetic plain + factored bases and run the transfer-identity checks.
 
@@ -597,6 +871,7 @@ def main():
   check_errors(device, plain_root)
   check_lifecycle(device, tmp)
   check_refined_lifecycle(device, tmp)
+  check_diagonal(device, tmp)
 
   print("")
   if len(FAILURES) == 0:

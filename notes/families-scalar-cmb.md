@@ -48,8 +48,9 @@ README sections 14 and 15.
 - Never re-propose: chaining scalar emulators; provides: as a source;
   the absolute zero-variance guard; porting joblib/GP or .pt legacy
   artifacts (replaced-not-ported: retrain); transfer over scalars
-  (PERMANENT — transfer is exclusive to the cosmolike + CMB
-  data-vector families; fine-tuning is universal).
+  (D-SP8 — the one family transfer does NOT ride after the 2026-07-12
+  symmetry lift; a recorded ruling the user may overturn, not a
+  structural bar; fine-tuning is universal).
 
 ## CME — CMB spectra emulators. ACCEPTED END TO END (board run 4, 2026-07-11); gates cmb-identity/cmb-smoke.
 
@@ -78,6 +79,20 @@ README sections 14 and 15.
   sigma_<s> always, cov_<s> dense when NG, cl_<s>, provenance json
   with the exact camb extra_args (the user's verbatim high-accuracy
   block). LCDM-only validation.
+- D-CM11 EXTENDED 2026-07-12 (user overnight ask "the nondiagonal
+  terms from Wayne and Pavel"): eq 6 now assembles EVERY spectrum
+  pair — the cross blocks cov_tt_te / cov_tt_ee / cov_te_ee join the
+  per-spectrum three (assemble_lensing_blocks, a pure function the
+  Mac probe checks against D_a^T diag(S) D_b), each carrying its
+  eq-3 Gaussian l-diagonal; together the six tile the full joint
+  TT/TE/EE covariance a D-CM12 dense whitening or a joint likelihood
+  consumes. The capability was already in the script behind the flag
+  (the Gaussian-first directive) — what was missing was the cross
+  pairs, gate execution, and visibility. cmb-smoke gained leg 2b
+  (check_cov_nondiagonal): the NG path runs END TO END at smoke
+  scale (16 re-lensings) and must produce symmetric, PSD, off-
+  diagonal-alive blocks with the step study in the provenance —
+  the first real execution of eq 6 anywhere.
 - Generation: dataset_generator_cmb.py on the shared core — ONE CAMB
   pass writes four spectra files (never re-run Boltzmann per
   spectrum); phiphi FILLED (legacy zeroed it); get_Cl(ell_factor=
@@ -102,8 +117,11 @@ README sections 14 and 15.
   sigma panel — + the high-pass wiggle content with the acoustic
   band marked).
 - Fine-tuning: four loud pin checks (spectrum, law + columns, ell
-  grid, covariance file). Transfer for CMB is DEFERRED (D-CM7), not
-  permanent — the one family besides cosmolike allowed to get it.
+  grid, covariance file). Transfer for CMB is IMPLEMENTED since
+  2026-07-12 (D-CM7's deferral closed by the symmetry ruling):
+  TransferDiagChi2, whitened space, amplitude_law "none" both sides,
+  the same four whitening pins as the finetune path; details in
+  artifacts-inference-warmstart.md, legs in transfer-identity.
 - First-run risks — ALL RESOLVED by the board saga (run 4 green):
   the get_model + add_requirements path and the generator's CAMB run
   worked as shipped; the ~400 serial CAMB calls cost ~10 min at
@@ -118,8 +136,10 @@ README sections 14 and 15.
 Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.
 
 **D-CM12 — dense-Cinv training from the non-Gaussian covariance.**
-The producing side is DONE (the npz already carries cov_tt/te/ee when
-NG is on); training reads only sigma today. Design: `data.cmb.dense:
+The producing side is DONE (the npz carries cov_tt/te/ee AND, since
+the 2026-07-12 extension, the cross blocks cov_tt_te/tt_ee/te_ee when
+NG is on — gate-executed by cmb-smoke leg 2b); training reads only
+sigma today. Design: `data.cmb.dense:
 true` (default false = byte-identical); the validator requires
 cov_<spectrum> loudly; build_geometry whitens by the dense block's
 eigen-decomposition — law FIRST, then rotation, persisted like the dv
@@ -184,6 +204,16 @@ What shipped (simpler than the spec — the identity insight):
   (ResCNN on z-slice channels + the n_tokens-on-real-bins rejection
   + the bitwise round-trip). The round-trip legs specifically prove
   the rebuild-side attach.
+- NPCE rides both families since the 2026-07-12 family-wide ruling
+  (scalar included — the PCE trunk needs no coordinate axis, so the
+  heads-on-scalar exclusion does NOT extend to it): residual-only,
+  and on cmb only with amplitude_law "none" (the imposed law and the
+  base each replace the target construction — validate_cmb is loud).
+  Roughness composes on a cmb NPCE run (the penalty sees the full
+  whitened residual). Legs: check_npce in scalar-identity and
+  cmb-identity (algebra bitwise + save->rebuild->predict composing
+  base + net + the exclusivity raises). Design facts:
+  models-and-designs.md (the NPCE FAMILY-WIDE bullet).
 - DISCOVERED IN PASSING and FIXED the same evening (the follow-up
   commit): the COSMIC-SHEAR head artifacts could not rebuild
   (build_shear_angle_map is never called on the rebuild path, and

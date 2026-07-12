@@ -415,8 +415,12 @@ def make_refine_optimizer(correction, base, opt_opts, lr, base_lr_scale,
         dec.append(p)
       else:
         nod.append(p)
-    groups.append({"params": dec, "weight_decay": wd,  "lr": mlr})
-    groups.append({"params": nod, "weight_decay": 0.0, "lr": mlr})
+    groups.append({"params": dec,
+                   "weight_decay": wd,
+                   "lr": mlr})
+    groups.append({"params": nod,
+                   "weight_decay": 0.0,
+                   "lr": mlr})
   return cls(groups, lr=lr, **extra)
 
 
@@ -1034,7 +1038,9 @@ def validate_loss(loss, which):
   qual = ("train_args.loss" if which == "train_args"
           else f"train_args.{which}.loss")
   if loss is None:
-    return {"mode": "sqrt", "berhu": None, "roughness": None}
+    return {"mode": "sqrt",
+            "berhu": None,
+            "roughness": None}
   if not isinstance(loss, dict):
     raise TypeError(
       f"{qual} must be a mapping {{mode, berhu}}, got "
@@ -1124,7 +1130,9 @@ def validate_loss(loss, which):
         f"{rough['period_cut']!r}")
     rough = {"lam": float(rough["lam"]),
              "period_cut": float(rough["period_cut"])}
-  return {"mode": mode, "berhu": berhu, "roughness": rough}
+  return {"mode": mode,
+          "berhu": berhu,
+          "roughness": rough}
 
 
 def _loss_migration_message(loss_mode, berhu, which):
@@ -2901,13 +2909,19 @@ def run_emulator(train_set,
     if sched_key != "cls":
       sched_kwargs[sched_key] = sched_val
   resolved_train = {
-    "bs": bs, "nepochs": nepochs, "seed": seed,
+    "bs": bs,
+    "nepochs": nepochs,
+    "seed": seed,
     "thresholds": [float(t) for t in thresholds],
-    "use_amp": bool(use_amp), "clip": clip, "rewind": bool(rewind),
+    "use_amp": bool(use_amp),
+    "clip": clip,
+    "rewind": bool(rewind),
     "trunk_epochs": trunk_epochs,
     "freeze_trunk": (freeze_trunk is not False),
-    "loss": loss, "ema": ema,
-    "lr": {"lr_base": lr_opts["lr_base"], "bs_base": lr_opts["bs_base"],
+    "loss": loss,
+    "ema": ema,
+    "lr": {"lr_base": lr_opts["lr_base"],
+           "bs_base": lr_opts["bs_base"],
            "warmup_epochs": lr_opts.get("warmup_epochs"),
            "lr": learning_rate},
     "optimizer": {"cls": _qual(opt_opts["cls"]),
@@ -2915,8 +2929,10 @@ def run_emulator(train_set,
                   "extras": opt_extras},
     "scheduler": {"cls": _qual(sched_opts["cls"]),
                   "kwargs": sched_kwargs},
-    "trim": trim_opts, "focus": focus_opts,
-    "trunk": trunk_opts, "head": head_opts,
+    "trim": trim_opts,
+    "focus": focus_opts,
+    "trunk": trunk_opts,
+    "head": head_opts,
     "eval_bs": (data.get("eval_bs") if isinstance(data, dict) else None),
     "device": str(device),
   }

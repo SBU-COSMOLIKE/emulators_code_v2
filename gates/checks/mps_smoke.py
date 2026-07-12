@@ -171,12 +171,22 @@ def build_cfg(paths, quantity):
                       "mlp": {"width": 64, "n_blocks": 2}},
             "loss": {"mode": "sqrt"},
             "optimizer": {"weight_decay": 0.0},
-            "lr": {"lr_base": 0.01, "bs_base": 64.0, "warmup_epochs": 0},
-            "scheduler": {"mode": "min", "patience": 10, "factor": 0.8},
-            "trim": {"start": 0.0, "end": 0.0, "hold_epochs": 0,
-                     "anneal_epochs": 1, "shape": "cosine"},
-            "focus": {"start": 0.0, "end": 0.0, "hold_epochs": 0,
-                      "anneal_epochs": 1, "shape": "linear",
+            "lr": {"lr_base": 0.01,
+                   "bs_base": 64.0,
+                   "warmup_epochs": 0},
+            "scheduler": {"mode": "min",
+                          "patience": 10,
+                          "factor": 0.8},
+            "trim": {"start": 0.0,
+                     "end": 0.0,
+                     "hold_epochs": 0,
+                     "anneal_epochs": 1,
+                     "shape": "cosine"},
+            "focus": {"start": 0.0,
+                      "end": 0.0,
+                      "hold_epochs": 0,
+                      "anneal_epochs": 1,
+                      "shape": "linear",
                       "kappa": 0.15},
         },
     }
@@ -204,7 +214,8 @@ def check_train(paths, tmp, device, quantity):
     save_emulator(path_root=root, model=model, param_geometry=exp.pgeom,
                   geometry=exp.geom, config=cfg,
                   histories={"train_losses": train_losses,
-                             "val_medians": medians, "val_means": means,
+                             "val_medians": medians,
+                             "val_means": means,
                              "val_fracs": fracs,
                              "thresholds": exp.thresholds},
                   train_args=exp.train_args, pce=None, pce_form=None,
@@ -252,7 +263,8 @@ def check_diagnostics(exp, model, tmp):
                          fracs=[0.5 * torch.ones(int(exp.thresholds.numel()))],
                          thresholds=exp.thresholds,
                          coverage={"knn_dist": np.ones(4),
-                                   "dchi2": np.ones(4), "k_nn": 2},
+                                   "dchi2": np.ones(4),
+                                   "k_nn": 2},
                          grid2d=g2, savepath=pdf)
         ok = (shape_ok and n_pages == 2 and os.path.isfile(pdf)
               and os.path.getsize(pdf) > 10000)
@@ -310,11 +322,12 @@ def camb_truth(point, z_probe, k_probe):
     # error) plus padding across the range.
     z_req = np.unique(np.concatenate([z_probe,
                                       np.linspace(0.0, 4.0, 9)]))
-    model.add_requirements({"Pk_interpolator": {
-        "z": z_req, "k_max": 20.0,
-        "nonlinear": (True, False),
-        "vars_pairs": ([("delta_tot", "delta_tot")])},
-        "Cl": {"tt": 0}})
+    model.add_requirements(
+        {"Pk_interpolator": {"z": z_req,
+                             "k_max": 20.0,
+                             "nonlinear": (True, False),
+                             "vars_pairs": ([("delta_tot", "delta_tot")])},
+         "Cl": {"tt": 0}})
     model.logposterior({})
     lin = model.provider.get_Pk_interpolator(
         ("delta_tot", "delta_tot"), nonlinear=False, extrap_kmax=200.0)
@@ -330,7 +343,9 @@ def check_cobaya(root_p, root_b, tmp):
         report("cobaya lifecycle through emul_mps", False,
                "cobaya not importable: " + str(e))
         return
-    point = {"As": 2.05e-9, "H0": 69.5, "omch2": 0.125}
+    point = {"As": 2.05e-9,
+             "H0": 69.5,
+             "omch2": 0.125}
     z_probe = np.array([0.25, 1.25, 3.0])
     k_probe = np.array([0.01, 0.1, 1.0, 5.0])
     info = {
@@ -341,19 +356,23 @@ def check_cobaya(root_p, root_b, tmp):
                            "emulators": [root_p, root_b]}}},
         "params": {
             "As":    {"prior": {"min": 1.8e-9, "max": 2.4e-9},
-                      "ref": 2.1e-9, "proposal": 1e-11},
+                      "ref": 2.1e-9,
+                      "proposal": 1e-11},
             "H0":    {"prior": {"min": 60.0, "max": 75.0},
-                      "ref": 67.36, "proposal": 0.5},
+                      "ref": 67.36,
+                      "proposal": 0.5},
             "omch2": {"prior": {"min": 0.10, "max": 0.14},
-                      "ref": 0.12, "proposal": 0.001},
+                      "ref": 0.12,
+                      "proposal": 0.001},
         },
     }
     try:
         model = get_model(info)
-        model.add_requirements({"Pk_grid": {
-            "z": z_probe, "k_max": 5.0,
-            "nonlinear": (True, False),
-            "vars_pairs": ([("delta_tot", "delta_tot")])}})
+        model.add_requirements(
+            {"Pk_grid": {"z": z_probe,
+                         "k_max": 5.0,
+                         "nonlinear": (True, False),
+                         "vars_pairs": ([("delta_tot", "delta_tot")])}})
         model.logposterior(point)
         theory = list(model.theory.values())[0]
         lin = theory.get_Pk_interpolator(nonlinear=False)

@@ -202,6 +202,14 @@ def validate_finetune_config(cfg, train_args, rescale, activation_flag):
     raise KeyError(
       "a finetune run does not compose with a pce: block (warm-starting a "
       "PCE refiner across bases needs its own design; D-FT10); remove it")
+  # transfer x finetune: two different reuse tools, one at a time (the
+  # same rule validate_transfer states from its side; checked here too so
+  # neither branch order can silently ignore the other block).
+  if cfg.get("transfer") is not None:
+    raise ValueError(
+      "train_args.finetune and a transfer: block are exclusive (a warm "
+      "start adapts every weight; a transfer freezes the base under a "
+      "parallel correction); use one at a time")
   # the loss form is inherited too; a rescale would restate the target.
   if rescale != "none":
     raise ValueError(
@@ -840,8 +848,8 @@ def build_warm_start(source,
   idx  = train_set["idx"]
   take = min(_PARITY_ROWS, int(len(idx)))
   rows = idx[:take]
-  theta = torch.from_numpy(
-    np.asarray(train_set["C"][rows])).float().to(device)   # (R, n_n)
+  C_rows = np.asarray(train_set["C"][rows])                # (R, n_n)
+  theta  = torch.from_numpy(C_rows).float().to(device)
 
   shared_cols, extra_cols = _shared_columns(
     source_pgeom=source.pgeom, new_pgeom=new_pgeom, device=device)
@@ -990,8 +998,8 @@ def build_transfer_start(chi2fn,
   idx  = train_set["idx"]
   take = min(_PARITY_ROWS, int(len(idx)))
   rows = idx[:take]
-  theta = torch.from_numpy(
-    np.asarray(train_set["C"][rows])).float().to(device)
+  C_rows = np.asarray(train_set["C"][rows])
+  theta  = torch.from_numpy(C_rows).float().to(device)
 
   names_n = list(new_pgeom.names)
   extra_cols = []
