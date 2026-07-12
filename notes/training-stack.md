@@ -815,3 +815,32 @@ tuned, and persisted as 1.0 everywhere; empty/nonfinite/bool/
 wrong-rank inputs fail before baseline evaluation; epoch-0 and
 multi-phase/refinement selection keep threshold identity; a mutation
 restoring the hard-coded best_frac02 path fails artifact readback.
+
+### 45M-29 amendment to unit 24 (fine-tune anchor truth): EMA records the pre-anchor weights (2026-07-12, Architect-VERIFIED on HEAD; BINDING before the anchor door reopens)
+
+The post-step order in the training loop is optimizer.step() ->
+EMA observation (torch._foreach_lerp_ at HEAD :1988) -> anchor pull
+(anchor.apply(optimizer) at :1995), while the comment at :1992-1993
+claims the opposite ("After the ema update so the average sees the
+anchored weights") — an average cannot see a mutation that happens
+afterward. The live network continues from the ANCHORED point, but
+validation, best-model selection, and the shipped EMA model sample
+the trajectory immediately BEFORE each anchor pull; the gap is
+largest exactly when the anchor is strongest or the EMA horizon
+short, and at beta = 0 the EMA is the fully unanchored optimizer
+result. Amendment to unit 24's contract: one canonical completed
+step, optimizer update -> anchor pull -> EMA observation
+(anchor.apply moved before the lerp; clipping stays before the
+optimizer); the EMA averages the same post-anchor state the next
+batch starts from; anchor-absent behavior byte-identical. Red legs
+(torch gate, board-listed, workstation): one scalar parameter with a
+known optimizer step, nonzero anchor, beta = 0 — the EMA equals the
+analytically anchored value; 0 < beta < 1 matches the hand-computed
+recurrence over several steps; masked anchor — anchored elements
+enter the EMA post-pull, free elements keep the optimizer result;
+per-group learning rates — each anchor coefficient uses its group lr
+before the single EMA observation; anchor None — fixed-seed result
+and update order unchanged; selection/readback — the persisted EMA
+model equals a replay of optimizer -> anchor -> EMA. This lands
+INSIDE unit 24 before the anchor configuration refusal is lifted,
+not as a parallel unit.

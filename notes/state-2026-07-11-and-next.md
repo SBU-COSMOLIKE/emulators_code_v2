@@ -875,6 +875,39 @@ files were created. Priority follows user-visible risk:
     by must_provide and every getter; startup and runtime verdicts
     identical. Spec amendment: families-background-mps.md, "45M-26
     amendment to unit 15".
+46. **NPCE domain policy** (45M-28, 2026-07-12; joins the
+    inference-boundary campaign, unit 21, with explicit NPCE legs).
+    PCEEmulator.forward clamps unconditionally to the Legendre box
+    (pce.py:505-506) — one rounding unit outside and an arbitrarily
+    distant cosmology collapse to the same boundary coordinate,
+    finite and plausible, invisible to the finite guard; the refiner
+    was trained around a base whose hidden saturation is part of its
+    target. Named persisted domain policy (default: refusal with a
+    documented tolerance; clamp is never the validator), identical
+    policy at training/validation/inference, lo/hi schema,
+    boundary-hit counts in the resolved record. DISTINCT from the
+    LOO-selection unit (accepted as argued). Spec:
+    models-and-designs.md, "NPCE maps arbitrarily out-of-domain
+    cosmologies to the same boundary".
+    UNIT 24 AMENDED (45M-29, BINDING before the anchor door
+    reopens): the post-step order on HEAD is optimizer -> EMA
+    (:1988) -> anchor (:1995) while the comment claims the opposite
+    — the shipped/selected EMA samples the trajectory BEFORE each
+    anchor pull (at beta = 0 it is the fully unanchored result).
+    Canonical order optimizer -> anchor -> EMA; anchor-absent
+    byte-identical; six red legs incl. the beta = 0 analytic leg and
+    selection/readback replay. Spec: training-stack.md, "45M-29
+    amendment to unit 24".
+    UNIT 26 AMENDED (45M-27): CMB lmax validation proves only a
+    stored MAXIMUM (emul_cmb.py:195-209) while calculate scatters
+    into a zero array at stored ells (:247-249) — a gapped or
+    late-start ell axis serves zeros indistinguishable from
+    predictions. The axis-identity contract extends to the CMB
+    read/rebuild boundary: ell must equal np.arange(2, ell[-1]+1)
+    exactly, widths must match, the adapter validates before
+    _ell_arrays, only l = 0,1 assembly-zero-filled; mutation leg on
+    a same-shaped h5. Spec: families-scalar-cmb.md, "45M-27
+    amendment".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches

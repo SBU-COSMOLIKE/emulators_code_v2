@@ -840,3 +840,35 @@ finite documented scale; physical known answers stay correct; an old
 unnormalized-law artifact is REFUSED under the new implementation; a
 mutation using raw exp(2 tau)/A_s fails the fiducial-unity and
 target-scale legs.
+
+### 45M-27 amendment: lmax validation does not prove multipole coverage (2026-07-12, Architect-VERIFIED; extends unit 26's axis-identity contract to the CMB read/rebuild boundary)
+
+emul_cmb.must_provide (:195-209) validates a requested lmax only
+against the artifact's stored MAXIMUM ("an lmax beyond the artifact's
+stored range" — its own docstring), and calculate zero-fills a full
+array and scatters predictions at the stored ell values only
+(:247-249, row[self._ell_arrays[spec]] = predict). Nothing on the
+read side proves the stored ell axis is the complete integer sequence
+2..lmax: an artifact with ell = [2, 4, 6] passes a request to 6 and
+serves zeros at 3 and 5, indistinguishable from predictions; an axis
+starting at 10 silently serves zeros for 2-9. The covariance producer
+writes the complete grid, so this is guard-only for valid shipped
+artifacts — but artifacts are authoritative and weight shape cannot
+authenticate coordinate completeness, so the guard is required at
+both the training/read boundaries.
+
+Contract: CMB geometry construction AND h5 rebuild require a 1-D
+nonempty exact-integer ell axis equal to np.arange(2, ell[-1] + 1) —
+no duplicates, gaps, reordering, fractional values, or alternate
+start; center/sigma/fiducial_cl/model-output width equal that axis
+length; the adapter validates the invariant before building
+_ell_arrays so must_provide's lmax check becomes a real coverage
+proof; only multipoles 0 and 1 are assembly-zero-filled (the
+different-spectra-maxima rule stays as enforced); error text names
+the first offending multipole and the artifact root. Red legs: gapped
+[2,4]; start-at-3; duplicate; descending; fractional ell in a
+hand-built state; axis/data-width mismatch; valid 2..L control; two
+spectra with different complete maxima and valid independent
+requests; the mutation leg — a same-shaped h5 edit that strict weight
+loading accepts but the coordinate guard catches (board-listed,
+torch/h5, workstation).

@@ -327,3 +327,41 @@ derivative 1 including exactly zero; a zero preactivation inside a
 small residual block transmits a nonzero gradient; float64 gradcheck
 over several learned p; a mutation restoring sign(x) * f(|x|) fails
 specifically at the zero-Jacobian assertion.
+
+## NPCE maps arbitrarily out-of-domain cosmologies to the same boundary (red-team 45M-28, 2026-07-12, Architect-VERIFIED; queue 46 — joins the inference-boundary campaign, unit 21, with explicit NPCE legs)
+
+PCEEmulator.forward maps whitened inputs to the fitted Legendre box
+and applies an unconditional clamp (designs/pce.py:505-506,
+Xm = 2(X - lo)/(hi - lo) - 1; Xm.clamp(-1, 1)); the comment (:503-504)
+says a point "just outside" stays in range, but there is no
+definition of "just": one rounding unit outside and an arbitrarily
+distant cosmology collapse to the identical boundary coordinate, the
+output stays finite and plausible, and the finite guard cannot see
+that the base evaluated a DIFFERENT cosmology. Both residual NPCE
+forms are affected — the refiner sees the real X but was trained
+around a base whose hidden saturation is part of its target; nothing
+guarantees it repairs an arbitrarily clipped base outside the
+calibration box. lo/hi are already persisted: the missing piece is a
+policy, not data.
+
+Contract: (1) a NAMED, persisted PCE domain policy — scientific
+serving defaults to refusal outside the calibrated whitened box with
+only a documented floating-point tolerance; (2) if exact-boundary
+clipping is kept for roundoff, a scale-aware tolerance with rejection
+beyond it — an unconditional clamp is never the validator; (3) errors
+name the stored parameter coordinate, whitened value, allowed
+[lo, hi], and overshoot, mapped back to the input-geometry record
+where available; (4) training/validation evaluation and inference use
+the IDENTICAL policy (a validation set outside the fitted box cannot
+be silently scored as inside); (5) persisted lo/hi validated: finite,
+1-D, aligned with the PCE input dimension, strictly lo < hi;
+(6) boundary-hit / near-tolerance counts recorded in the resolved
+fit/evaluation record. Distinctness ruling accepted as argued: this
+is NOT the LOO-selection unit (LOO judges the polynomial inside its
+domain; this defines whether a query belongs to the domain at all).
+Red legs (torch, board-listed): two far-out same-side inputs that
+currently collide must refuse; below-low and above-high per
+dimension; NaN/Inf bounds; lo == hi; shape mismatch; exact endpoints;
+one-ULP/tolerance control; training and rebuilt-artifact inference
+agree; residual NPCE on a diagonal family AND a dense-covariance
+family.
