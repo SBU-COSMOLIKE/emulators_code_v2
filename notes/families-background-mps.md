@@ -306,6 +306,39 @@ Contract (Implementer):
    grid nodes. USER-VISIBLE: served BAOSN numbers change; flagged in
    the landing report.
 
+#### Odd-node Simpson resume (2026-07-12, Opus) — landed, self-committed (batch grant)
+
+Unit 36 implemented and self-committed on the branch (batch grant, pending
+Architect audit).
+
+- `emulator/background.py` `cumulative_simpson`: the odd node is now the
+  correct one-interval integral `dz/12 * (5*y[i-1] + 8*y[i] - y[i+1])`;
+  even nodes unchanged (composite Simpson). The docstring is rewritten —
+  the O(dz^3) / bug-for-bug acceptance superseded, the reopen recorded,
+  the original mislabel kept in quotes as history.
+- Docs corrected (the "verbatim legacy / half-chunk approximation" labels
+  replaced with the one-interval-exact-on-quadratics description): the
+  module flow diagram, the bsn-identity gate docstring (both `board.py` and
+  `bsn_identity.py`), and `emulator/README.md` (two rows).
+- bsn-identity `check_simpson` revised: known-answer integrals at EVERY node
+  for constant / linear / quadratic (even AND odd machine precision) and
+  cubic (even exact, odd bounded); a mutation control (`_old_odd_simpson`,
+  the retired (1,4,1)/6 form) that must be wide of machine precision on the
+  linear and quadratic legs; the `e_odd < 1e-3` acceptance retired; the
+  even-point-count guard kept.
+- Mac gate (the REAL function, numpy): py_compile OK (background.py,
+  board.py, bsn_identity.py); probe_simpson.py 9/9 — the new form is
+  machine-precision on constant/linear/quadratic (~1e-14) and the cubic odd
+  node bounded (3.1e-10); the old (1,4,1)/6 form is wide on linear
+  (1.25e-5) and quadratic (7.5e-5); the guard raises; the spec known-answers
+  reproduce (new C[1] = 5e-3 exact; old error exactly h^2/2).
+- USER-VISIBLE (item 6): served BAOSN distance numbers change between the
+  original grid nodes (the contaminated odd values are corrected); the
+  BAOSN served-value comparison must be RERUN on the workstation.
+
+Files (unit 36): emulator/background.py, gates/checks/bsn_identity.py,
+gates/board.py, emulator/README.md, notes/families-background-mps.md.
+
 ## Syren silently reflects out-of-domain physics (red-team 45M-14, 2026-07-12, Architect-VERIFIED by live reproduction; queue 38)
 
 The vendored production path contains local "prevent NaN" edits that

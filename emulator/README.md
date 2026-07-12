@@ -132,7 +132,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `geometries/cmb.py` | `CmbDiagonalGeometry`: per-multipole whitening by the cosmic-variance error bar (sigma from the covariance script's .npz), the spectrum / units / amplitude-law facts persisted. |
 | `geometries/grid.py` | `GridGeometry` + `TARGET_LAWS`: a function on a stored z grid, the law (`log_offset` / `none`) inside encode/decode. |
 | `geometries/grid2d.py` | `Grid2DGeometry` + `TARGET_LAWS_2D`: a flattened (z, k) surface standardized in LAW space (the syren division happens at staging; see `syren_base.py`). |
-| `background.py` | The BAOSN imposed physics: the legacy cumulative Simpson (verbatim), c/H on the doubled grid, the flat distance conversions, `distance_interpolators`. |
+| `background.py` | The BAOSN imposed physics: the cumulative Simpson (composite even + the correct one-interval odd node, 45M-12), c/H on the doubled grid, the flat distance conversions, `distance_interpolators`. |
 | `syren_base.py` | The syren base surface the MPS emulators correct (`base_pklin`, `base_boost`) + `syren_params_from` (the ONE rule mapping resolved parameters to the base's arguments — generator and adapter cannot disagree). The formulas themselves are vendored in `syren/` (numpy-only), so the imports are unconditional. |
 | `analytics.py` | Closed-form analytic xi (Eisenstein-Hu) to divide out broadband cosmology dependence — the optional rescaling `R`. |
 
@@ -334,7 +334,7 @@ covariance. The only file importing cosmolike.
 
 The BAOSN imposed physics (one definition for the adapter AND direct scripts).
 
-- `cumulative_simpson(z, y)` — the legacy rule verbatim (even doubled-grid points exact; the odd half-chunk step is a recorded legacy approximation).
+- `cumulative_simpson(z, y)` — even doubled-grid points exact on cubics; each odd node is the correct one-interval integral `h/12*(5,8,-1)`, exact on quadratics (45M-12, superseding the old half-chunk approximation).
 - `comoving_distance_grid(z_grid, h_grid)` — c/H cubic onto the doubled grid, Simpson.
 - `distance_interpolators(z_grid, h_grid)` — the H / chi / D_A / D_L cubics + the window edge.
 

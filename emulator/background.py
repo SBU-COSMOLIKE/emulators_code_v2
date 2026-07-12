@@ -10,8 +10,8 @@ so the integration convention can never fork between the two doors.
        │  c/H cubic-interpolated onto the DOUBLED grid
        │  z_step = linspace(0, z_max, 2*NZ + 1)   (odd point count)
        ▼
-    chi(z) = integral_0^z c/H dz'      cumulative Simpson (verbatim
-       │                               legacy rule, odd-point guard)
+    chi(z) = integral_0^z c/H dz'      cumulative Simpson (composite
+       │                               even + one-interval odd; 45M-12)
        ▼
     flat conversions:  D_C = chi           comoving distance
                        D_A = chi / (1+z)   angular diameter
@@ -44,12 +44,20 @@ C_KMS = 2.99792458e5
 
 
 def cumulative_simpson(z, y):
-  """Cumulative Simpson integral of y over the uniform grid z (verbatim).
+  """Cumulative Simpson integral of y over the uniform grid z.
 
-  The legacy emulbaosn rule, moved unchanged (the porting discipline):
-  composite Simpson on each pair of intervals for the even points, one
-  half-chunk Simpson step for the odd points, so C[i] approximates
-  integral_{z[0]}^{z[i]} y dz at every grid point.
+  Composite Simpson on each pair of intervals for the even points; for each
+  odd point, the ONE-interval integral of the quadratic through the three
+  surrounding samples, h/12 * (5*y[i-1] + 8*y[i] - y[i+1]). C[i] then
+  approximates integral_{z[0]}^{z[i]} y dz at every grid point: exact on
+  cubics at the even nodes and on quadratics at the odd nodes.
+
+  REOPENED 2026-07-12 (45M-12): the original port computed the odd node as
+  dz/6 * (y[i-1] + 4*y[i] + y[i+1]) -- HALF the two-interval Simpson total
+  (the integral over the whole [z[i-1], z[i+1]] chunk), not the one-interval
+  integral, a first-order h^2/2 error that the earlier "O(dz^3),
+  bug-for-bug" acceptance mislabeled. It is superseded here by the correct
+  one-interval rule; see families-background-mps.md.
 
   Arguments:
     z = (n,) UNIFORM ascending grid; n must be odd (an even number of
@@ -81,8 +89,14 @@ def cumulative_simpson(z, y):
   C = np.empty_like(y)
   C[0] = 0.0
   C[2::2] = cum_even[1:]               # at z[2], z[4], …
+  # odd node i: the ONE-interval integral integral_{z[i-1]}^{z[i]} of the
+  # quadratic through the three samples (y[i-1], y[i], y[i+1]) — exact on
+  # quadratics. h/12 * (5*y[i-1] + 8*y[i] - y[i+1]). NOT dz/6 * (1,4,1),
+  # which is HALF the two-interval Simpson total (integral over the whole
+  # [z[i-1], z[i+1]] chunk) and a first-order h^2/2 error (45M-12 reopen;
+  # see families-background-mps.md).
   for i in range(1, n, 2):
-    C[i] = C[i - 1] + dz / 6 * (y[i - 1] + 4 * y[i] + y[i + 1])
+    C[i] = C[i - 1] + dz / 12 * (5 * y[i - 1] + 8 * y[i] - y[i + 1])
   return C
 
 

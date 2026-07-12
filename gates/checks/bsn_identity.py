@@ -6,8 +6,10 @@ and every grid-path loud error — torch + scipy, no CAMB.
 
 Legs:
   - cumulative_simpson: EVEN doubled-grid points exact on cubics (the
-    original z grid sits there), the odd half-chunk step bounded (the
-    recorded legacy approximation), the even-point-count guard;
+    original z grid sits there), the odd node the correct one-interval
+    integral (exact on quadratics, 45M-12; the old half-chunk form is the
+    mutation control that must fail the linear / quadratic legs), the
+    even-point-count guard;
   - the distance pipeline (real scipy cubic) against a closed-form flat
     LCDM reference at 1e-6 across the window;
   - GridGeometry: the log_offset law exact both ways (encode(decode) to
@@ -78,21 +80,65 @@ def lcdm_h(z, H0=67.36, om=0.315):
     return H0 * np.sqrt(om * (1 + z) ** 3 + (1 - om))
 
 
+def _old_odd_simpson(z, y):
+    """The pre-45M-12 odd-node rule (dz/6 * (y[i-1] + 4*y[i] + y[i+1])).
+
+    A mutation control: this is HALF the two-interval Simpson total, so it
+    must fail the linear / quadratic known-answer legs by a wide margin (a
+    first-order h^2/2 error). Even nodes are the same composite Simpson.
+    """
+    n = len(z)
+    dz = z[1] - z[0]
+    f0, f1, f2 = y[:-2:2], y[1:-1:2], y[2::2]
+    cum_even = np.concatenate(([0.0], np.cumsum(dz / 3 * (f0 + 4 * f1 + f2))))
+    C = np.empty_like(y)
+    C[0] = 0.0
+    C[2::2] = cum_even[1:]
+    for i in range(1, n, 2):
+        C[i] = C[i - 1] + dz / 6 * (y[i - 1] + 4 * y[i] + y[i + 1])
+    return C
+
+
 def check_simpson():
+    # 45M-12: known-answer integrals at EVERY node. The one-interval odd
+    # rule h/12*(5,8,-1) is exact on quadratics, so even AND odd nodes hit
+    # machine precision on constant / linear / quadratic; the cubic keeps
+    # even exact (composite Simpson) with a small bounded odd error. The
+    # retired e_odd < 1e-3 tolerance encoded the old first-order bug.
     z = np.linspace(0.0, 3.0, 601)
-    y = 2.0 * z ** 3 - z ** 2 + 4.0 * z + 1.0
-    truth = 0.5 * z ** 4 - z ** 3 / 3.0 + 2.0 * z ** 2 + z
-    got = cumulative_simpson(z, y)
-    e_even = np.abs(got[::2] - truth[::2]).max()
-    e_odd = np.abs(got[1::2] - truth[1::2]).max()
-    ok = e_even < 1e-9 and e_odd < 1e-3 and got[0] == 0.0
+    cases = [
+        ("constant", np.ones_like(z), z),
+        ("linear",   z,               0.5 * z ** 2),
+        ("quadratic", z ** 2,         z ** 3 / 3.0),
+        ("cubic",     2.0 * z ** 3 - z ** 2 + 4.0 * z + 1.0,
+         0.5 * z ** 4 - z ** 3 / 3.0 + 2.0 * z ** 2 + z),
+    ]
+    for label, y, truth in cases:
+        got = cumulative_simpson(z, y)
+        e_even = np.abs(got[::2] - truth[::2]).max()
+        e_odd = np.abs(got[1::2] - truth[1::2]).max()
+        odd_bar = 1e-4 if label == "cubic" else 1e-9   # cubic: bounded, not exact
+        report("Simpson: " + label + " -- even exact, odd "
+               + ("bounded" if label == "cubic" else "exact"),
+               e_even < 1e-9 and e_odd < odd_bar and got[0] == 0.0,
+               "even %.1e odd %.1e" % (e_even, e_odd))
+
+    # mutation catch-power: the OLD (1,4,1)/6 odd form must be wide of the
+    # machine-precision answer on the linear and quadratic legs.
+    for label, y, truth in cases[1:3]:
+        e_odd_old = np.abs(_old_odd_simpson(z, y)[1::2] - truth[1::2]).max()
+        report("Simpson: the OLD (1,4,1)/6 odd form FAILS " + label
+               + " (mutation catch)", e_odd_old > 1e-6,
+               "old odd error %.1e (wide of machine precision)" % e_odd_old)
+
+    # odd-point guard: an even point count raises.
+    guarded = False
     try:
-        cumulative_simpson(z[:-1], y[:-1])
-        ok = False
+        cumulative_simpson(z[:-1], (z ** 2)[:-1])
     except ValueError:
-        pass
-    report("Simpson: even points exact on cubics, odd bounded, guard",
-           ok, "even %.1e odd %.1e" % (e_even, e_odd))
+        guarded = True
+    report("Simpson: even point count raises (odd-point guard)",
+           guarded, "guarded")
 
 
 def check_pipeline():

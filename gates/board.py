@@ -1069,9 +1069,10 @@ def gate_cme_b(ctx):
 def gate_bsn_a(ctx):
   """bsn-identity: the grid emulator + the imposed-physics pipeline.
 
-  WHAT: the verbatim legacy Simpson (even doubled-grid points exact on
-  cubics, the odd half-chunk step bounded — a recorded legacy
-  approximation) and the H(z)->distances pipeline against a closed-form
+  WHAT: the cumulative Simpson (even doubled-grid points exact on cubics,
+  the odd node the correct one-interval integral, exact on quadratics —
+  45M-12, superseding the old half-chunk form; the old form is the gate's
+  mutation control) and the H(z)->distances pipeline against a closed-form
   flat LCDM at 1e-6; the GridGeometry log_offset law both ways + the
   state round-trip byte-identical + the un-standardizable /
   log-positivity / unknown-law guards; save -> rebuild -> predict
