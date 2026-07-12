@@ -968,6 +968,21 @@ files were created. Priority follows user-visible risk:
     (trunk frozen) — presence and trainability are separate
     requirements. Spec: models-and-designs.md, "45M-35 amendment to
     unit 29".
+    UNIT 29 AMENDED AGAIN (45M-36, CRITICAL): the identity-at-init
+    license ("every activation maps 0 -> 0") was incomplete — waking
+    a zero-initialized final layer also requires representably
+    nonzero a'(0). ReLU (derivative 0 at 0, torch convention) makes
+    ResCNN/TemplateResCNN heads exact permanent dead branches and
+    TRF blocks a PARTIAL demotion (attention wakes through the
+    zeroed wo, the MLP half never does); the code comments claiming
+    real first-step gradients are false for ReLU. Rule: a(0) = 0
+    AND finite representably-nonzero a'(0) for zero-init-head
+    activations; ReLU rejected in heads, legal in trunks (Architect
+    ruling; no head-safe variant in V1); power/gated_power fold into
+    unit 40's repair — pre-repair they fail the same check; the
+    four misleading explanations corrected (the note's own claim
+    already superseded in place). Spec: models-and-designs.md,
+    "45M-36 amendment to unit 29".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches

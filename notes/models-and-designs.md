@@ -52,9 +52,16 @@ emulator/activations.py.
   rebuild.
 - Identity-at-init discipline: the LAST layer of every head branch is
   zero-initialized so model == trunk EXACTLY at init and at the
-  two-phase handoff; every activation family maps 0 -> 0 (which
-  licenses per-head activations). gate_init 0.1 = soft-start brake,
-  1.0 for short head phases, 0 = deadlock.
+  two-phase handoff. SUPERSEDED CLAIM (45M-36, 2026-07-12): "every
+  activation family maps 0 -> 0, which licenses per-head activations"
+  was INCOMPLETE — a(0) = 0 preserves the identity, but waking a
+  zero-initialized final layer ALSO requires a finite, representably
+  nonzero a'(0); ReLU (a'(0) = 0) makes the branch an exact permanent
+  dead end, and the pre-repair power/gated_power share the exact-zero
+  Jacobian (unit 40). The full compatibility rule and rejection
+  contract: "45M-36 amendment to unit 29" below. gate_init 0.1 =
+  soft-start brake, 1.0 for short head phases, 0 = deadlock (now
+  REJECTED by schema — the 45M-35 amendment).
 - Two-phase is a HEAD capability, not an IA privilege (2026-07-12
   user ruling): plain ResCNN/ResTRF define set_train_phase with the
   template contract (joint/trunk/head; trunk phase = head bypassed
@@ -399,3 +406,54 @@ ResTRF, and at least one factored-template head off the identity
 start; a mutation bypassing validation with gate 0 proves every
 head/gate gradient exactly zero while the trunk still reduces loss.
 Torch, board-listed, workstation.
+
+### 45M-36 amendment to unit 29: an allowed ReLU head is an exact, permanently dead residual branch (2026-07-12, Architect-VERIFIED; CRITICAL, interlocks with unit 40)
+
+The identity-at-init license was incomplete. make_activation permits
+"relu" (activations.py:243); every head zero-initializes its final
+mixing layer (plain.py:536-541, ia.py:492-498, blocks.py:634-640) and
+applies the selected activation AFTER it. a(0) = 0 preserves the
+identity, but the gradient reaching the zeroed layer is
+upstream * a'(0) * input — and torch assigns ReLU derivative 0 at 0,
+so the zeroed conv/linear never moves, the correction stays zero, the
+gate's gradient (proportional to that zero correction) stays zero,
+and every earlier head layer is blocked THROUGH the zeroed layer:
+an exact absorbing state, not slow learning. ResCNN and
+TemplateResCNN die whole; TRFBlock is a PARTIAL demotion — the
+attention branch wakes (no activation follows the zeroed wo) while
+the MLP half of every transformer block is permanently absent, so the
+model trains and improves while silently lacking half its advertised
+architecture. The code comments claim the opposite (plain.py:538-541
+"the zeroed layer gets real gradients through the nonzero gate";
+ia.py:496 "d corr/d w depends on its input, not its weights") — true
+for H (a'(0) = 0.5) and tanh (a'(0) = 1), false for ReLU. Related to
+unit 40 but distinct: ReLU's zero derivative is intentional, so
+"stabilize it numerically" is not a fix.
+
+Amendment to unit 29's schema: the compatibility rule for any
+activation placed after a zero-output-initialized head layer is
+a(0) = 0 AND finite representably-nonzero a'(0), applied to CNN and
+TRF head pins in both plain and template designs through the one
+active-model validator. Architect ruling within the offered
+alternatives: ReLU is REJECTED as a zero-init-head activation (it
+stays fully legal in trunks); no separately-named head-safe
+construction in V1 — that is a future design ruling if science wants
+ReLU heads. Exact identity-at-init is preserved — no random
+perturbation repairs. power/gated_power fold into unit 40's repair
+and census: pre-repair they fail this same check (exact-zero
+Jacobian); post-repair (analytic limit 1 at 0) they pass and must
+wake. The four misleading explanations (plain.py:538-541, ia.py:496,
+blocks.py:634-636, and this note's claim — corrected above) are
+rewritten by the unit. Complementarity: the 45M-35 behavioral
+one-step trainability leg CATCHES a dead head at gate level; this
+schema check REFUSES it before construction — validator and gate,
+both required. Red legs (torch, board-listed, workstation): current
+ResCNN+ReLU mutation with trunk frozen/bypassed and a nonzero
+residual target — every CNN-head parameter AND the gate have exactly
+zero gradient/change; TemplateResCNN+ReLU reproduces it; ResTRF+ReLU
+proves wo wakes while mlp_lins[-1] does not (the partial-demotion
+catch); H and tanh controls keep exact identity at init and move the
+zeroed layer after one step; repaired power/gated_power controls
+wake; the schema rejects a ReLU head before construction while
+accepting a ReLU trunk; a mutation validating only a(0) == 0 fails
+the gate.
