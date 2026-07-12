@@ -1041,6 +1041,17 @@ files were created. Priority follows user-visible risk:
     families proven unchanged; pre-map artifacts refused; docs
     corrected. Spec: models-and-designs.md, "Head padding loses the
     coordinate map and fabricates hidden state".
+    45M-41 (documentation-only, 2026-07-12) FOLDED THREE WAYS, no
+    new unit: the shape-based weight-decay explanations
+    (blocks.py:51/:95 teach the abandoned ndim rule; the real rule
+    is the role allowlist) -> unit 49; the encode/decode direction
+    reversals in the scalar and CMB geometry error rationales
+    (scalar.py:127, cmb.py:186 — encode divides, decode multiplies)
+    -> the documentation batch (31 + 34, beside 45M-17; "geometry
+    totality" as addressed does not exist — recorded deviation); the
+    universal-bfloat16 AMP claim -> already in unit 51. Completion
+    condition: untruncated zero-stale-hits search. Record:
+    conventions-and-workflow.md, "45M-41 fold-ins".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches

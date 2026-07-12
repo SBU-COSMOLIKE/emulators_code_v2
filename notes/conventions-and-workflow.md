@@ -373,3 +373,42 @@ the false shape; keep the diagonal-family wording separate — their
 n_keep == total_size coincidence must not redefine the generic
 contract. No new note file, no new gate: the existing inference shape
 gate is the runtime evidence.
+
+### 45M-41 fold-ins: three didactic comments teach false mechanics (2026-07-12, Architect-VERIFIED; documentation-only, each clause folded into its owning unit)
+
+1. WEIGHT-DECAY SELECTION IS ROLE-BASED, NOT SHAPE-BASED. Affine
+   (blocks.py:51) and FeatureAffine (:95) both teach "make_optimizer
+   decays only ndim >= 2 weight matrices" — the abandoned rule.
+   make_optimizer's own docstring states the real mechanism: the
+   .weight of every nn.Linear / nn.Conv1d / BinLinear, "by module
+   role, not tensor shape". Consequences worth teaching correctly: a
+   future 2-D activation parameter stays UNdecayed, and a future
+   weight module missing from the allowlist stays UNdecayed too (the
+   safe default). FOLDED INTO UNIT 49 (optimizer execution protocol):
+   both explanations replaced with the exact owner allowlist +
+   safe-default statement.
+2. TWO GEOMETRY ERRORS REVERSE ENCODE AND DECODE.
+   ScalarGeometry.from_targets' zero-variance error says a tiny scale
+   "would make decode divide by near-zero" (scalar.py:127) — but
+   decode MULTIPLIES by scale; ENCODE divides ((y - center) / scale,
+   :178). CmbDiagonalGeometry repeats the reversal for sigma
+   (cmb.py:186 "decode would divide by it") — whiten/encode divide,
+   unwhiten/decode multiply. The guards are correct; the taught
+   direction is backwards. FOLDED INTO THE DOCUMENTATION BATCH
+   (units 31 + 34, beside the 45M-17 decode-shape fold-in — the same
+   API-docstring-truth class). NB: the red team addressed this to "a
+   geometry totality unit"; no unit carries that name, and the docs
+   batch is the honest owner — recorded as a deviation from their
+   addressing, not from their contract.
+3. THE AMP DOC CLAIMS BFLOAT16 UNIVERSALLY (training.py:1560 vs the
+   float16-on-MPS selection at :1702). ALREADY IN UNIT 51's contract
+   ("documentation corrected to name float16-on-MPS /
+   bfloat16-on-CUDA-CPU") — cross-referenced, no double work.
+
+Shared completion condition, all three clauses: after editing, an
+UNTRUNCATED repo-wide search for the old phrases ("ndim >= 2",
+"decode divide", "decode would divide", the bfloat16 use_amp claim)
+returns zero stale hits — a clipped result may not feed the claim.
+Replacements stay formal and definitional (owner role, tensor
+operation, direction), never vague "normalization failed" prose. No
+new gates: the parent units carry the executable evidence.
