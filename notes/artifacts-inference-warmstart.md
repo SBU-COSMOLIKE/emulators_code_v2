@@ -325,6 +325,17 @@ changes; the chaining refusal keeps its own dedicated green leg
 run 12): a loud-error leg's fixture must be invalid ONLY in the way
 under test.
 
+The same Implementer unit carries the gate METADATA truth-up the red
+team tied to the five-leg close (their 2026-07-12 acceptance): the
+gates/board.py cmb-identity registry entry (its `maps` field and the
+gate docstring) must name all five covariance legs — the exact
+contraction, the old-weight miss, raw-vs-scaled fixture integrity, the
+width-3 band projection, the exact zero-band weight — in plain
+language ("independent known-answer check", never "oracle" in prose;
+the `check_covariance_oracle` identifier itself stays). The three
+READMEs were already trued up by the Architect (run-12 status +
+five-leg rows).
+
 ## Follow-the-IDs (git archaeology)
 
 FTW: D-FT1..10, D-FTW-1/2. TPE: D-TP1..10, D-TPE-1, D-TPE2-1..3,

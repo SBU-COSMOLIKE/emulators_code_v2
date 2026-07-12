@@ -1912,13 +1912,16 @@ training consumes; the optional non-Gaussian lensing terms (eq 6) sit
 behind a flag, off by default. What you state in its YAML is the
 experiment: the noise level, the beam, the sky fraction.
 
-The optional non-Gaussian normalization fix is now in the code and has
-passed an independent known-answer calculation on the Mac (maximum relative
-error about 8.1e-14). It is not closed for science yet: the shipped gate fixture
-still needs to distinguish raw lens-potential power from CAMB's scaled array,
-then the CMB identity/smoke gates must pass on the PyTorch/CAMB workstation.
-The Gaussian `sigma_*` path was structurally unchanged. Current evidence and
-the remaining command are in `notes/families-scalar-cmb.md`.
+The optional non-Gaussian normalization fix is in the code and proven on
+the PyTorch/CAMB workstation (board run 12): the identity gate matched an
+independent known-answer calculation at maximum relative error about
+6e-14, and the smoke gate executed the eq-6 path end to end on real CAMB
+with the normalization recorded in the output's provenance. The gate
+fixture that distinguishes raw lens-potential power from CAMB's scaled
+array has also landed; its extended check still awaits one final
+workstation rerun. The Gaussian `sigma_*` path was structurally
+unchanged. Current evidence and the remaining command are in
+`notes/families-scalar-cmb.md`.
 
 ### The imposed amplitude law
 

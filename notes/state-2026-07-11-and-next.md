@@ -275,15 +275,19 @@ files were created. Priority follows user-visible risk:
     to zero and divides by them, and saved geometry states are rebuilt without
     finite/shape/invertibility validation. Spec:
     artifacts-inference-warmstart.md.
-    VERIFIED (Fable, 2026-07-12) with one mechanism correction: no clip
-    exists anywhere in emulator/geometries (no clamp/maximum) — the
-    shipped behavior is WORSE than the recorded wording. output.py
-    from_cosmolike runs eigh then np.sqrt(lam) unchecked, so a
-    numerically negative eigenvalue becomes NaN silently and an exact
-    zero gives sqrt_ev = 0; whiten then divides by sqrt_ev with no
-    floor; from_state is `cls(device, **state)` with no finite/shape/
-    invertibility validation on anything it loads. The fix contract
-    stands unchanged.
+    VERIFIED (Fable, 2026-07-12); the Fable "no clip exists anywhere"
+    correction was RETRACTED the same day (a truncated verification
+    grep — `head -20` cut the hits; the red team re-checked and was
+    right). TWO mechanisms coexist in emulator/geometries/output.py
+    and BOTH are recorded: (a) from_cosmolike runs eigh then
+    np.sqrt(lam) UNCHECKED — a numerically negative eigenvalue becomes
+    NaN silently, an exact zero gives sqrt_ev = 0, and whiten divides
+    with no floor; (b) BlockDiagonalGeometry._build_block runs
+    np.sqrt(np.clip(lam, 0.0, None)) — a negative eigenvalue is
+    clipped to a ZERO divisor for its whiten, exactly the original
+    red-team wording. from_state is `cls(device, **state)` with no
+    finite/shape/invertibility validation on anything it loads. The
+    fix contract stands unchanged.
 12. **Optimized-mode validation parity.** Seventeen runtime guards across
     batching, model designs, geometry, and loss code are `assert` statements
     and disappear under `python -O`. Spec: conventions-and-workflow.md.
@@ -291,7 +295,9 @@ files were created. Priority follows user-visible risk:
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
     designs/plain 6, designs/blocks 1, losses/core 1,
     geometries/output 2, geometries/parameter 1), all config/geometry/
-    user-data guards. The count in the recorded claim is one low.
+    user-data guards. The red team concurs (2026-07-12): seventeen was
+    a counting error on their side; eighteen stands at 4f4dab3 and at
+    the reviewed HEAD.
 
 ## Standing constraints that gate future work
 

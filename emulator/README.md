@@ -213,7 +213,7 @@ other kinds' artifacts loudly, naming the right adapter)
 | `dataset_generator_cmb.py` | CMB spectra: four per-spectrum 2D files (tt / te / ee / pp) from one CAMB pass, phi-phi filled. |
 | `dataset_generator_background.py` | H(z) on the SN grid + D_M on the recombination window, one background-only CAMB evaluation per sample, grid sidecars beside the dumps. |
 | `dataset_generator_mps.py` | linear P + boost on the (z, k) grids (+ the syren base files when `write_syren_base`), through the Pk_interpolator requirement (the wants-Cl quirk kept verbatim). |
-| `compute_cmb_covariance.py` | The Motloch & Hu CMB covariance (eqs 1-7): the Gaussian part always, the lens-induced non-Gaussian terms behind a default-off flag with a 5-point-stencil convergence study; writes the `.npz` the CMB training consumes. The non-Gaussian normalization fix is Mac-audited against an independent known-answer calculation, but the raw-vs-CAMB-scaled fixture delta and workstation identity/smoke rerun remain before science close; the Gaussian path is unchanged (notes/families-scalar-cmb.md). |
+| `compute_cmb_covariance.py` | The Motloch & Hu CMB covariance (eqs 1-7): the Gaussian part always, the lens-induced non-Gaussian terms behind a default-off flag with a 5-point-stencil convergence study; writes the `.npz` the CMB training consumes. The non-Gaussian normalization is workstation-proven (board run 12: the identity gate matched an independent known-answer calculation, and the smoke gate ran the path end to end on real CAMB); the raw-vs-CAMB-scaled fixture has landed and awaits one final identity-gate rerun; the Gaussian path is unchanged (notes/families-scalar-cmb.md). |
 
 ---
 

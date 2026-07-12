@@ -120,6 +120,16 @@ code-leak grep must include the bare unit names too:
 `\b(FTW|TPE|GRF|GBC|POL|SPE|CME)\b` (minus Optuna's TPE sampler in
 the tune driver).
 
+Second verification-grep lesson (2026-07-12, the geometry-clip
+retraction): a grep whose output feeds a NEGATIVE claim ("no X exists
+anywhere") must never be truncated — the Architect piped a clip search
+through `head -20` and the two real `np.clip` hits sat past the cut,
+producing a false "no clip exists" correction the red team had to
+reverse. Rules: (a) count first (`grep -c`) or read the whole output
+before asserting absence; (b) sweep the synonym set in one pattern
+(`clip|clamp|maximum|where`); (c) a negative claim carries the exact
+pattern + scope it was checked with, so the reader can re-run it.
+
 ## README / didactics
 
 Two-README split (user philosophy: first learn to RUN and configure,
