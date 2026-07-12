@@ -73,5 +73,8 @@ flow; every change reported as a paste-ready block), plots
 (colorblind-safe, never red+green), terminal output (essential-only;
 full streams to log files, a debug switch restores them), machines
 (Mac M2/MPS for dev — numpy-only python3; NVIDIA for training), and
-the ROOTDIR environment. The `notes/` ritual: every milestone gets a
-note plus a `MEMORY.md` index line, unprompted.
+the ROOTDIR environment. Its voice-and-why companion is
+`notes/user-didactics-and-python-voice.md` — who the reader is and
+the register code and docs are written in; read it BEFORE writing
+either. The `notes/` ritual: every milestone gets a note plus a
+`MEMORY.md` index line, unprompted.

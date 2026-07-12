@@ -51,3 +51,8 @@ the topic file your task touches.
   — the Python/docs/README/plots/terminal/YAML house rules, the
   dual-agent workflow, git discipline, the Mac evidence pattern,
   machines and ROOTDIR.
+- [User didactics + Python voice](user-didactics-and-python-voice.md)
+  — who the reader is (C coder; cosmologist audience), how he likes
+  to be taught (show-never-describe, define-or-drop, run-first), and
+  the code register with his own quotes and before/after shapes; the
+  Implementer reads it before writing code or docs.
