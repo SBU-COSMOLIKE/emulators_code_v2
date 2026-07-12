@@ -62,8 +62,14 @@ name their own path.
   `cls` rejected; `ema: null` = key-present-None disables an
   inherited ema, key-absent inherits).
 - Capability probe everywhere: `hasattr(model_cls, "set_train_phase")`
-  on the CLASS, never the model name (every resmlp incl. ia: is
-  single-phase; two-phase = rescnn/restrf with an ia).
+  on the CLASS, never the model name. Two-phase = EVERY design with a
+  correction head: plain rescnn/restrf on every family they ride
+  (the 2026-07-12 user ruling — "any trunk-head design could benefit
+  from the two-phase training"; the plain heads mirror the template
+  contract exactly: joint/trunk/head requires_grad groups, the trunk
+  phase bypasses the zero-init head at pure-ResMLP cost, the head
+  phase runs the frozen trunk under no_grad) and the factored-IA
+  templates. Single-phase = resmlp, incl. its ia variants.
 - Single-phase demotion (`resolve_phase_args`, pure, the single choke
   point at the top of experiment.train()): drops head/trunk_epochs/
   freeze_trunk, merges trunk.X to the top by pure prefix-strip, on a

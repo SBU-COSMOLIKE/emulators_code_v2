@@ -55,6 +55,13 @@ emulator/activations.py.
   two-phase handoff; every activation family maps 0 -> 0 (which
   licenses per-head activations). gate_init 0.1 = soft-start brake,
   1.0 for short head phases, 0 = deadlock.
+- Two-phase is a HEAD capability, not an IA privilege (2026-07-12
+  user ruling): plain ResCNN/ResTRF define set_train_phase with the
+  template contract (joint/trunk/head; trunk phase = head bypassed
+  at pure-trunk cost; head phase = frozen trunk under no_grad), so
+  trunk-then-head scheduling + the trunk:/head: blocks + the head
+  activation pin work on cosmic shear AND cmb/grid/grid2d alike.
+  Single-phase = resmlp only.
 - Conv head (bins-as-channels): pad_idx scatter into (n_bins, max_bin)
   -> Conv1d(n_bins->n_bins, k) blocks -> gather -> gate; knobs
   kernel_size, n_blocks_cnn, groups (probe-block cuts, validated),

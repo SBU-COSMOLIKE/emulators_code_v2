@@ -20,8 +20,11 @@ derived parameters), CMB spectra (TT/TE/EE/phi-phi), background
 its geometry, loss, dataset generator, cobaya adapter, thin drivers,
 and two acceptance gates, and with FULL capability symmetry: every
 family has the whole training surface (loss ladder + anneals,
-trim/focus, EMA, clip/rewind, fine-tuning, multi-GPU drivers, and the
-conv/TRF correction heads everywhere a coordinate axis exists). Count
+trim/focus, EMA, clip/rewind, fine-tuning, multi-GPU drivers, the
+conv/TRF correction heads everywhere a coordinate axis exists, and —
+since the 2026-07-12 ruling "any trunk-head design could benefit" —
+the two-phase trunk-then-head schedule with the trunk:/head: blocks
+and the per-head activation pin on every head model). Count
 gates by enumerating gates/board.py's registry, never note
 arithmetic. The user merges to main and pushes (only main is ever
 pushed; the GPU workstation pulls main).

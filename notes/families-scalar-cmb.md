@@ -168,12 +168,16 @@ What shipped (simpler than the spec — the identity insight):
 - The from_config guards lifted for cmb / grid / grid2d with the
   cs-style head-pin notice resolution; SCALAR stays trunk-only
   (named outputs have no coordinate axis) with the reworded error.
-- Two-phase stays as on cosmic shear: plain ResCNN/ResTRF define no
-  set_train_phase (only the factored-IA templates do), so
-  trunk_epochs demotes identically for every family — symmetric.
-  The per-head activation pin licensing (needs a frozen-trunk phase)
-  is therefore equally out of reach on both sides; model.activation
-  governs.
+- Two-phase (SUPERSEDED 2026-07-12, user ruling "any trunk-head
+  design could benefit"): plain ResCNN/ResTRF now define
+  set_train_phase, mirroring the IA-template contract exactly
+  (joint/trunk/head requires_grad groups; the trunk phase bypasses
+  the zero-init head at pure-ResMLP cost; the head phase runs the
+  frozen trunk under no_grad) — trunk_epochs / freeze_trunk / the
+  trunk:/head: phase blocks now work on every family the heads
+  ride, and the per-head activation pin (model.cnn/.trf.activation,
+  licensed by a frozen-trunk head phase) is reachable everywhere.
+  Phase-discipline legs ride the cmb/mps-identity head checks.
 - Gate legs (no board-count change): cmb-identity check_head (ResTRF
   + n_tokens: attach, identity basis, epoch-0 identity, range error,
   save->rebuild->predict bitwise) and mps-identity check_head

@@ -2296,7 +2296,9 @@ def run_emulator(train_set,
                    training_loop_batched. Bounds any excursion
                    into a bad basin to `patience` epochs.
     trunk_epochs = if > 0, two-phase training (the model must
-                   define set_train_phase, e.g. TemplateResCNN):
+                   define set_train_phase — every design with a
+                   correction head does: plain ResCNN / ResTRF on
+                   any family, and the factored-IA templates):
                    the first trunk_epochs epochs train the trunk
                    alone with the head bypassed (pure-trunk cost),
                    then the loop restores that phase's best
@@ -2575,9 +2577,11 @@ def run_emulator(train_set,
               f"transformations)")
 
   # two-phase capability check, now that the model exists.
-  # set_train_phase is a duck-typed model capability (TemplateResCNN);
-  # hasattr reaches through a torch.compile wrapper, which forwards
-  # attribute lookups to the wrapped module.
+  # set_train_phase is a duck-typed model capability — every design
+  # with a correction head defines it (plain ResCNN / ResTRF on any
+  # family, and the factored-IA templates); hasattr reaches through a
+  # torch.compile wrapper, which forwards attribute lookups to the
+  # wrapped module.
   if trunk_epochs > 0 and not hasattr(model, "set_train_phase"):
     # name the real class, not the torch.compile wrapper: a compiled model
     # is an OptimizedModule forwarding attribute lookups to model._orig_mod,
@@ -2585,7 +2589,8 @@ def run_emulator(train_set,
     real_cls = type(getattr(model, "_orig_mod", model)).__name__
     raise ValueError(
       "trunk_epochs needs a two-phase model (one defining "
-      "set_train_phase, e.g. name: rescnn + ia: nla); this model is "
+      "set_train_phase — any design with a correction head, name: "
+      "rescnn or restrf); this model is "
       f"{real_cls}")
 
   if device.type == "cuda":

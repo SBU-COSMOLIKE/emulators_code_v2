@@ -54,7 +54,9 @@ train_args:
   # along the function directly: rescnn slides an odd-width conv kernel
   # along z; restrf re-segments the z grid into model.trf.n_tokens
   # contiguous windows and attends across them. Uncomment ONE head
-  # block together with its name.
+  # block together with its name. With a head, the two-phase schedule
+  # applies here exactly as on cosmic shear (trunk_epochs /
+  # freeze_trunk + the trunk: / head: blocks — README section 11).
   model:
     name: resmlp
     mlp:

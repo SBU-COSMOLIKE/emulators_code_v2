@@ -23,9 +23,12 @@ Legs:
     reshaped (nz, nk)); rebuild info flags class-guarded;
   - the D-CM13 head leg: attach_head_coords (one bin per z slice),
     the identity basis (W_fd / W_df None), the ResCNN epoch-0
-    identity start, the n_tokens rejection on real physical bins,
-    and the head save -> rebuild -> predict bitwise round-trip
-    (the rebuild-side attach in results._rebuild_model);
+    identity start, the two-phase discipline (set_train_phase
+    freezes the right groups per phase, the trunk phase bypasses
+    the head bitwise, unknown phases raise — the 2026-07-12 ruling),
+    the n_tokens rejection on real physical bins, and the head
+    save -> rebuild -> predict bitwise round-trip (the rebuild-side
+    attach in results._rebuild_model);
   - emul_mps (cobaya.theory stubbed, syren_base MONKEYPATCHED with
     synthetic closed forms): pair validation (missing quantity /
     duplicate / wrong-kind / grid mismatch loud); the calculate
@@ -380,6 +383,36 @@ def check_head(tmp, device):
     report("epoch-0 identity: the head model equals its trunk bitwise",
            torch.equal(full, trunk),
            "max|d| = %.2e" % (full - trunk).abs().max().item())
+    # two-phase on the plain heads (user ruling 2026-07-12): the phase
+    # switch freezes the right parameter groups, the trunk phase
+    # bypasses the head (forward == the bare trunk), and an unknown
+    # phase is loud. At the zero init every phase's output equals the
+    # trunk, so the flags are the discriminating assertions.
+    model.set_train_phase("trunk")
+    trunk_on = all(p.requires_grad for p in model.mlp.parameters())
+    head_off = (all(not p.requires_grad for p in model.convs.parameters())
+                and all(not p.requires_grad
+                        for p in model.acts.parameters()))
+    with torch.no_grad():
+        bypass = model(x)
+    model.set_train_phase("head")
+    trunk_off = all(not p.requires_grad for p in model.mlp.parameters())
+    head_on = (all(p.requires_grad for p in model.convs.parameters())
+               and model.gate.requires_grad)
+    with torch.no_grad():
+        head_out = model(x)
+    model.set_train_phase("joint")
+    joint_on = all(p.requires_grad for p in model.parameters())
+    report("two-phase: freezes per phase + trunk-phase head bypass",
+           trunk_on and head_off and trunk_off and head_on and joint_on
+           and torch.equal(bypass, trunk)
+           and torch.equal(head_out, trunk),
+           "trunk/head/joint flags + bypass == trunk bitwise")
+    try:
+        model.set_train_phase("nope")
+        report("unknown train phase raises", False, "no raise")
+    except ValueError:
+        report("unknown train phase raises", True, "ValueError")
     try:
         ResTRF(input_dim=N_IN, output_dim=width, int_dim_res=8,
                geom=geom, n_tokens=3, block_opts=block_opts)

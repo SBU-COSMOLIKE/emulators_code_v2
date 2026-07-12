@@ -63,7 +63,9 @@ train_args:
   # neighboring multipoles); restrf re-segments the spectrum into
   # model.trf.n_tokens contiguous windows and attends across them (the
   # attention-emulator tokenization, arXiv 2505.22574). Uncomment ONE
-  # head block together with its name.
+  # head block together with its name. With a head, the two-phase
+  # schedule applies here exactly as on cosmic shear (trunk_epochs /
+  # freeze_trunk + the trunk: / head: blocks — README section 11).
   model:
     name: resmlp
     mlp:
