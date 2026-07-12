@@ -1106,3 +1106,47 @@ float16-scaler-only branch; clipping observes the unscaled norm;
 nonfinite unscaled gradient raises before optimizer/anchor/EMA; a
 skipped step advances neither; resolved metadata names device,
 autocast dtype, scaler policy.
+
+## The Optuna journal has no experiment identity (red-team 45M-42, 2026-07-12, Architect-VERIFIED; queue 53 — tuner truth, distinct from the old-COMPLETE-trial liveness unit)
+
+(journal path, study_name) is the tuner's entire study identity:
+study_name is the constant family tag (cosmic_shear_tune_emulator.py
+:290), the journal defaults to tune_journal.log with resume
+documented (:62, :265-269), create_study(load_if_exists=True) reopens
+it comparing NO scientific fact (:407-413), the only persisted user
+attribute is the per-trial median (:192/:370 — no identity attribute
+or digest exists repo-wide), done = len(study.trials) (:414)
+suppresses the new configuration's default warm-start, and workers
+build from the CURRENT cfg/rescale/activation while the TPE sampler
+learns from every old trial (:464). Changing the YAML and reusing the
+default journal therefore lets old objective values from a different
+dataset / loss / bounds / amplitude law / code version compete as the
+same experiment — study.best_value can crown an old incomparable
+trial. A scientifically invalid ranking, not a liveness defect.
+
+Contract (adopted whole): ONE canonical study manifest materialized
+before spawning — family/probe + objective metric (thresholds +
+selection rule), the fully resolved fixed config + exact search-space
+schema, CLI-fixed rescale/activation, identity digests for every
+training/validation input + scientific sidecars, implementation
+identity under the unit-37 doctrine; operational facts (worker count,
+RAM share, n_trials, timeout, quiet, GPU count) EXCLUDED. Stored with
+its digest as study-level attributes at creation; on resume the
+current manifest is compared BEFORE enqueueing/spawning — any
+difference raises a teaching error naming the fields and the
+new-journal/migration choice; a legacy no-manifest journal is REFUSED,
+never blessed from the current YAML; the default trial is enqueued
+from the manifest's recorded state, not len(study.trials) (a
+failed/abandoned pre-default attempt must not erase the known-default
+control); the final report names the manifest digest beside the
+winner. Red legs (CPU-only, temporary journals, no training):
+byte-identical manifest resume accepted; one fixed loss/training
+value changed -> refusal before any worker; a range bound/kind change
+-> refusal naming the search-space difference; a data file rewritten
+at the same path -> digest refusal; rescale/activation/family/
+objective changes each refused; legacy journal refused with the
+instruction; the operational-only control resumes; the catch-power
+mutation (identity = (path, name) as today, a better old COMPLETE
+trial under manifest A reported as manifest B's winner); the
+default-control leg (a failed-only study still enqueues the default
+once).

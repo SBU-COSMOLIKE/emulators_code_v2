@@ -1063,7 +1063,12 @@ publication clause (see artifacts-inference-warmstart.md). 45M-09
 the index but its full block arrived only later the same day —
 RESOLVED: verified whole and folded into unit 16 as the "45M-09
 amendment" (families-background-mps.md); the 45M index is now fully
-adjudicated. 45M-20 amends unit 22
+adjudicated. LATE ADDITION 45M-42 = queue 53 (Optuna journal
+experiment identity: no manifest/digest, resume mixes incomparable
+science; spec training-stack.md "The Optuna journal has no experiment
+identity"; slots in the campaign phase before the docs batch,
+interlocks unit 37's implementation identity + the digest machinery).
+45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
