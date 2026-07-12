@@ -1916,6 +1916,14 @@ class EmulatorExperiment:
     # thinned surface whole. None until the train law-transform runs.
     self._grid2d_center = None
     self._grid2d_scale  = None
+    # disk-backed staging ownership: when a low-RAM law transform lands a
+    # temp memmap on disk, its path lives HERE (path or None), one slot
+    # for train and one for val so their lifetimes stay independent (a
+    # sweep lane keeps its val staging across points). stage_train /
+    # stage_val release the slot supersede-on-restage; release_train_staging
+    # / release_val_staging free it explicitly; atexit is the last resort.
+    self._grid2d_train_tmp = None
+    self._grid2d_val_tmp   = None
     # fine-tune warm start (emulator/warmstart.py): the loaded source bundle,
     # its resolved absolute path root, and the extra parameter names, all set
     # by from_config / build_geometry. None on an ordinary run, which every
@@ -2909,6 +2917,13 @@ class EmulatorExperiment:
                    moments (self._grid2d_center / _scale); if False
                    (val), only the thinned rows are formed.
 
+    Returns:
+      the disk-backed temp-file path when the thinned result did not fit
+      ram_frac (the caller stores it in its train / val slot and
+      releases it supersede-on-restage); None when the result is
+      resident. On any exception after the temp file exists, the partial
+      file is unlinked before the error propagates.
+
     Raises:
       ValueError on a raw/base width mismatch against the sidecars, a
       base dump too short to hold the staged disk rows, or non-positive
@@ -2966,11 +2981,14 @@ class EmulatorExperiment:
           "disk row " + str(int(dump_rows.max())) + "; the base is not "
           "the raw dump's row-aligned *_base sibling")
     # the thinned result: RAM if it fits ram_frac of free memory, else a
-    # disk-backed temp memmap (unlinked at process exit); the training
-    # loop reads it either way.
+    # disk-backed temp memmap. Its path is RETURNED (None when resident)
+    # so the caller (stage_train / stage_val) owns the lifetime and can
+    # release it supersede-on-restage; atexit unlinks only as a
+    # last-resort fallback (SIGKILL / OOM / MPI.Abort).
     ram_frac  = float(self.data.get("ram_frac", 0.7))
     out_bytes = n_used * width * 4
     resident  = out_bytes < ram_frac * psutil.virtual_memory().available
+    tmp_path = None
     if resident:
       law_rows = np.empty((n_used, width), dtype="float32")
     else:
@@ -2989,37 +3007,47 @@ class EmulatorExperiment:
       m_count = 0
       m_mean  = np.zeros(width, dtype="float64")
       m2      = np.zeros(width, dtype="float64")
-    for a in range(0, n_used, chunk):
-      b = min(a + chunk, n_used)
-      r_rows = read_rows[a:b]
-      raw_chunk = np.asarray(raw[r_rows[:, None], cols[None, :]],
-                             dtype="float64")
-      if base is None:
-        law_chunk = raw_chunk
-      else:
-        d_rows = dump_rows[a:b]
-        base_chunk = np.asarray(base[d_rows[:, None], cols[None, :]],
-                                dtype="float64")
-        bad = int((~(raw_chunk > 0)).sum() + (~(base_chunk > 0)).sum())
-        if bad > 0:
-          raise ValueError(
-            "the " + law + " law takes log(quantity / base) and needs "
-            "both strictly positive; found " + str(bad) + " non-positive "
-            "entries across the staged rows (a failed generator sample "
-            "left zero rows — drop it from the dump, the failfile names "
-            "it)")
-        law_chunk = np.log(raw_chunk / base_chunk)
-      law_rows[a:b] = law_chunk.astype("float32")
-      if with_means:
-        # merge the EXACT stored float32 rows (read back, promoted to
-        # float64), so the geometry stats match the materialized-float32
-        # path the standardization used to take (from_targets promoted
-        # the stored float32 targets); the pre-cast law_chunk would drift.
-        stored = np.asarray(law_rows[a:b], dtype="float64")
-        m_count, m_mean, m2 = _merge_chunk_moments(
-          count=m_count, mean=m_mean, m2=m2, chunk=stored)
-    if not resident:
-      law_rows.flush()
+    # failure hygiene: once the temp file exists, ANY exception in the
+    # transform (positivity, an unexpected error) must not orphan a
+    # partial file — drop the mapping and unlink before re-raising. The
+    # read / merge order inside is unchanged; only the try wrapper is new.
+    try:
+      for a in range(0, n_used, chunk):
+        b = min(a + chunk, n_used)
+        r_rows = read_rows[a:b]
+        raw_chunk = np.asarray(raw[r_rows[:, None], cols[None, :]],
+                               dtype="float64")
+        if base is None:
+          law_chunk = raw_chunk
+        else:
+          d_rows = dump_rows[a:b]
+          base_chunk = np.asarray(base[d_rows[:, None], cols[None, :]],
+                                  dtype="float64")
+          bad = int((~(raw_chunk > 0)).sum() + (~(base_chunk > 0)).sum())
+          if bad > 0:
+            raise ValueError(
+              "the " + law + " law takes log(quantity / base) and needs "
+              "both strictly positive; found " + str(bad) + " non-positive "
+              "entries across the staged rows (a failed generator sample "
+              "left zero rows — drop it from the dump, the failfile names "
+              "it)")
+          law_chunk = np.log(raw_chunk / base_chunk)
+        law_rows[a:b] = law_chunk.astype("float32")
+        if with_means:
+          # merge the EXACT stored float32 rows (read back, promoted to
+          # float64), so the geometry stats match the materialized-float32
+          # path the standardization used to take (from_targets promoted
+          # the stored float32 targets); the pre-cast law_chunk would drift.
+          stored = np.asarray(law_rows[a:b], dtype="float64")
+          m_count, m_mean, m2 = _merge_chunk_moments(
+            count=m_count, mean=m_mean, m2=m2, chunk=stored)
+      if not resident:
+        law_rows.flush()
+    except BaseException:
+      if tmp_path is not None:
+        del law_rows            # close the mapping so the file can go
+        _unlink_quietly(tmp_path)
+      raise
     src["C"]   = np.asarray(src["C"][read_rows])
     src["dv"]  = law_rows
     src["idx"] = np.arange(n_used)
@@ -3037,6 +3065,9 @@ class EmulatorExperiment:
              + " law-space rows (" + ("RAM" if resident else "disk memmap")
              + "), " + str(chunk) + "-row chunks over " + str(width)
              + " kept columns")
+    # the disk-backed temp path (None when the result is resident) — the
+    # caller owns its lifetime (stage_train / stage_val's slot).
+    return tmp_path
 
   def stage_train(self, n_train=None):
     """
@@ -3116,9 +3147,16 @@ class EmulatorExperiment:
     # _grid2d_law_rows reads only the kept columns in bounded row chunks
     # and streams the geometry moments (with_means True on train).
     if self._grid2d:
-      self._grid2d_law_rows(src=self.train_set,
-                            base_path=self.grid2d.get("train_base"),
-                            with_means=True)
+      # supersede-on-restage: release THIS experiment's previous train
+      # staging (a disk-backed temp file from a prior sweep point) before
+      # forming the replacement, then own the new slot. The prior mapping
+      # is only released here, at the next staging call — never while a
+      # point's loaders still run.
+      self.release_train_staging()
+      self._grid2d_train_tmp = self._grid2d_law_rows(
+        src=self.train_set,
+        base_path=self.grid2d.get("train_base"),
+        with_means=True)
     return self.train_set
 
   def stage_val(self, n_val=None):
@@ -3193,10 +3231,47 @@ class EmulatorExperiment:
     # val file's own base sidecar). with_means False — val borrows the
     # training centers, so no geometry moments are streamed here.
     if self._grid2d:
-      self._grid2d_law_rows(src=self.val_set,
-                            base_path=self.grid2d.get("val_base"),
-                            with_means=False)
+      # supersede-on-restage on the INDEPENDENT val slot (a sweep lane
+      # keeps its val staging across points, so this is released on its
+      # own schedule, not with the train slot).
+      self.release_val_staging()
+      self._grid2d_val_tmp = self._grid2d_law_rows(
+        src=self.val_set,
+        base_path=self.grid2d.get("val_base"),
+        with_means=False)
     return self.val_set
+
+  def release_train_staging(self):
+    """Release this experiment's disk-backed TRAIN staging temp file.
+
+    A low-RAM grid2d train staging lands its thinned law-space rows in a
+    temp memmap on disk; this unlinks that file and clears the slot. A
+    resident staging owns no file, so it is a no-op then. Idempotent: a
+    second call, or a file already gone (atexit ran, or it was unlinked
+    while still mapped), is fine — _unlink_quietly swallows the miss. The
+    shared N-train sweep lane calls this where it drops train_set, so a
+    finished or a failed point never orphans its (production ~4.57 GiB)
+    file. Path-only unlink: the mapping is closed by the caller dropping
+    train_set (POSIX frees the space when the last handle closes; the
+    name is gone immediately, which is what the gate's absence leg
+    checks).
+    """
+    path = self._grid2d_train_tmp
+    if path is not None:
+      self._grid2d_train_tmp = None
+      _unlink_quietly(path)
+
+  def release_val_staging(self):
+    """Release this experiment's disk-backed VAL staging temp file.
+
+    The val counterpart of release_train_staging on the independent val
+    slot, so a sweep lane can keep its val staging while train restages
+    point to point. Same idempotent, path-only-unlink semantics.
+    """
+    path = self._grid2d_val_tmp
+    if path is not None:
+      self._grid2d_val_tmp = None
+      _unlink_quietly(path)
 
   def pool_size(self):
     """

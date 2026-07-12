@@ -33,6 +33,13 @@ Legs:
     ~3.97 and can flip a varying column to a false constant pin), a
     constant column still pins, and the from_stats encode matches the
     materialized standardization;
+  - the disk-backed staging LIFECYCLE (check_staging_lifecycle): the
+    experiment owns its train / val temp file, supersedes it on restage
+    (first file absent, second readable), keeps a three-point sweep's
+    live temp count / bytes bounded to one point, unlinks a partial file
+    on a mid-transform failure, releases a failed point's file through
+    the lane-style cleanup, and the resident-RAM control makes no temp
+    file and stays byte-identical;
   - save -> rebuild -> predict bitwise on the syren_linear and none
     laws (the predictor's grid2d branch returns {"z", "k", quantity}
     reshaped (nz, nk)); rebuild info flags class-guarded;
@@ -663,6 +670,168 @@ def check_stable_moments(tmp, device):
            "max|d| %.1e" % float(np.abs(enc - want_enc).max()))
 
 
+def _g2law_live(baseline):
+    """The .g2law.dat temp files created since the `baseline` snapshot
+    (a set of paths), and their total bytes — the live disk-backed
+    staging footprint the sweep must keep bounded."""
+    import glob
+    now = set(glob.glob(os.path.join(tempfile.gettempdir(), "*.g2law.dat")))
+    new = now - baseline
+    total = 0
+    for p in new:
+        try:
+            total += os.path.getsize(p)
+        except OSError:
+            pass
+    return new, total
+
+
+def _lifecycle_files(tmp, law):
+    """Write synthetic grid2d files (law 'none' or 'syren_linear') and
+    return (data-block, grid2d-block, raw array) for a minimal
+    experiment; a syren law also writes a positive base sibling."""
+    nz, nk = 1, 4
+    tag = "lc_" + law
+    np.save(os.path.join(tmp, tag + "_z.npy"), np.array([0.5]))
+    np.save(os.path.join(tmp, tag + "_k.npy"), np.logspace(-3.0, 0.0, nk))
+    g = np.random.default_rng(303)
+    n = 50
+    raw = np.exp(g.normal(0.0, 1.0, (n, nz * nk))).astype("float32")
+    np.save(os.path.join(tmp, tag + "_dv.npy"), raw)
+    txt = np.column_stack([np.ones(n), np.zeros(n),
+                           g.normal(2.1, 0.1, n), g.normal(67.0, 2.0, n),
+                           g.normal(0.12, 0.005, n), np.zeros(n)])
+    np.savetxt(os.path.join(tmp, tag + "_params.1.txt"), txt)
+    g2 = {"quantity": "pklin", "units": "Mpc3", "law": law,
+          "z_file": os.path.join(tmp, tag + "_z.npy"),
+          "k_file": os.path.join(tmp, tag + "_k.npy"), "k_stride": 1}
+    if law != "none":
+        base = np.exp(g.normal(0.0, 1.0, (n, nz * nk))).astype("float32")
+        np.save(os.path.join(tmp, tag + "_base.npy"), base)
+        g2["train_base"] = os.path.join(tmp, tag + "_base.npy")
+        g2["val_base"] = os.path.join(tmp, tag + "_base.npy")
+    data = {"split_seed": 0, "n_train": 30, "n_val": 20,
+            "train_params": os.path.join(tmp, tag + "_params.1.txt"),
+            "train_dv": os.path.join(tmp, tag + "_dv.npy"),
+            "val_params": os.path.join(tmp, tag + "_params.1.txt"),
+            "val_dv": os.path.join(tmp, tag + "_dv.npy")}
+    return data, g2, raw
+
+
+def _lifecycle_exp(data, g2, ram_frac):
+    """A minimal grid2d experiment whose stage_train / release_* paths
+    run for real (no from_config, no GPU)."""
+    exp = EmulatorExperiment.__new__(EmulatorExperiment)
+    exp._scalar = exp._cmb = exp._grid = False
+    exp._grid2d = True
+    exp.names = IN_NAMES
+    exp.quiet = True
+    exp.log = lambda *a, **k: None
+    exp._grid2d_z = exp._grid2d_k = None
+    exp._grid2d_center = exp._grid2d_scale = None
+    exp._grid2d_train_tmp = exp._grid2d_val_tmp = None
+    exp.grid2d = dict(g2)
+    d = dict(data)
+    d["ram_frac"] = ram_frac
+    exp.data = d
+    return exp
+
+
+def check_staging_lifecycle(tmp):
+    """The disk-backed staging temp-file lifecycle (the reopened c03a084
+    close): the experiment OWNS its train / val temp file, supersedes it
+    on restage, releases it explicitly for the sweep lane, and never
+    orphans a partial file on a failed transform. Runs the REAL
+    stage_train / release_train_staging / _grid2d_law_rows paths."""
+    import glob
+    base0 = set(glob.glob(os.path.join(tempfile.gettempdir(),
+                                       "*.g2law.dat")))
+    data, g2, raw = _lifecycle_files(tmp, "none")
+
+    # (a) low-RAM staging twice on one experiment: the second staging
+    # supersedes the first, so the first temp file is unlinked and the
+    # second is live and readable.
+    exp = _lifecycle_exp(data, g2, 1e-12)
+    exp.stage_train(n_train=30)
+    p1 = exp._grid2d_train_tmp
+    exp.stage_train(n_train=30)
+    p2 = exp._grid2d_train_tmp
+    report("lifecycle: restage supersedes (1st file absent, 2nd readable)",
+           p1 is not None and p2 is not None and p1 != p2
+           and not os.path.exists(p1) and os.path.exists(p2)
+           and isinstance(exp.train_set["dv"], np.memmap),
+           "p1 gone=%s p2 live=%s" % (not os.path.exists(p1),
+                                      os.path.exists(p2)))
+    exp.release_train_staging()
+
+    # (b) three N-train sweep points with the lane-style cleanup between
+    # them: the live temp count + bytes stay bounded to ONE point, never
+    # cumulative.
+    exp = _lifecycle_exp(data, g2, 1e-12)
+    peak = 0
+    for N in (20, 25, 30):
+        exp.stage_train(n_train=N)
+        live, _ = _g2law_live(base0)
+        peak = max(peak, len(live))
+        exp.train_set = None
+        exp.release_train_staging()          # the sweep lane's cleanup
+    live_end, bytes_end = _g2law_live(base0)
+    report("lifecycle: 3-point sweep bounded (<=1 live temp, 0 at end)",
+           peak <= 1 and len(live_end) == 0 and bytes_end == 0,
+           "peak %d live, end %d file(s)" % (peak, len(live_end)))
+
+    # (c) a mid-transform failure (a non-positive value under a syren
+    # law, caught inside the chunk loop) leaves NO temp file.
+    datab, g2b, rawb = _lifecycle_files(tmp, "syren_linear")
+    rawb[:, 2] = 0.0                          # positivity failure
+    np.save(datab["train_dv"], rawb)
+    exp = _lifecycle_exp(datab, g2b, 1e-12)
+    before, _ = _g2law_live(base0)
+    raised = False
+    try:
+        exp.stage_train(n_train=30)
+    except ValueError:
+        raised = True
+    after, _ = _g2law_live(base0)
+    report("lifecycle: mid-transform failure leaves no temp file",
+           raised and len(after) == len(before)
+           and exp._grid2d_train_tmp is None,
+           "raised=%s new files=%d" % (raised, len(after) - len(before)))
+
+    # (d) a failed TRAINING after a successful staging releases that
+    # point's train file through the lane-style cleanup (the except path
+    # reaches the same block).
+    exp = _lifecycle_exp(data, g2, 1e-12)
+    exp.stage_train(n_train=30)
+    pth = exp._grid2d_train_tmp
+    ok_setup = pth is not None and os.path.exists(pth)
+    exp.train_set = None
+    exp.release_train_staging()
+    report("lifecycle: failed-point cleanup releases the train file",
+           ok_setup and not os.path.exists(pth)
+           and exp._grid2d_train_tmp is None,
+           "staged=%s file gone=%s" % (ok_setup, not os.path.exists(pth)))
+
+    # (e) resident-RAM control: no temp file, and the staged values are
+    # byte-identical to the direct known answer (law none = raw
+    # passthrough over the kept columns).
+    exp = _lifecycle_exp(data, g2, 0.9)
+    before_e, _ = _g2law_live(base0)
+    exp.stage_train(n_train=30)
+    after_e, _ = _g2law_live(base0)
+    dump_rows = np.array(exp.train_set["dump_rows"])
+    want = raw[dump_rows].astype("float32")     # stride 1 -> all columns
+    report("lifecycle: resident control makes no temp file, byte-identical",
+           exp._grid2d_train_tmp is None
+           and len(after_e) == len(before_e)
+           and not isinstance(exp.train_set["dv"], np.memmap)
+           and np.array_equal(np.asarray(exp.train_set["dv"]), want),
+           "no temp=%s bitwise=%s"
+           % (exp._grid2d_train_tmp is None,
+              np.array_equal(np.asarray(exp.train_set["dv"]), want)))
+    exp.release_train_staging()
+
+
 def grid2d_recipe(width):
     return {"cls": "emulator.designs.plain.ResMLP",
             "name": "resmlp",
@@ -1285,6 +1454,7 @@ def main():
         check_staging(tmp)
         check_bounded_staging(tmp)
         check_stable_moments(tmp, device)
+        check_staging_lifecycle(tmp)
         check_roundtrip(tmp, device, law="syren_linear")
         check_roundtrip(tmp, device, law="none")
         check_head(tmp, device)

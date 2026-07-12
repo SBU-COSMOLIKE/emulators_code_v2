@@ -588,6 +588,20 @@ files were created. Priority follows user-visible risk:
     release_train/val_staging for the sweep lane, failure-path
     unlink, five red legs) must land BEFORE the three-gate rerun is
     spent. Spec: data-generation-and-cuts.md, "Close REOPENED".
+    MICRO-REVISION LANDED (2026-07-12, Implementer;
+    Architect-audited ACCEPTED): ownership slots + returned temp
+    path + supersede-on-restage + public release_train/val_staging +
+    sweep-lane release (:174, after the try/except) + failure-path
+    unlink + check_staging_lifecycle (five legs, mps-identity).
+    Independent probe green over the exec-extracted shipped bodies;
+    AST fan-out proves the gate fake cannot AttributeError on the
+    workstation. One rider (not a hold): the board.py mps-identity
+    `maps` string still omits the lifecycle leg — fold into the next
+    Implementer commit touching gates/. The amended close is now
+    SPENDABLE: the three-gate rerun (mps-identity, cmb-identity,
+    transfer-identity; 32/32) is user-run on the workstation. Audit
+    record: data-generation-and-cuts.md, "Audit (2026-07-12, Fable):
+    ACCEPTED".
 28. **Validation leakage + data-control totality** (tenth wave,
     CRITICAL first clause, folded into the 8+17+25+26 file-set
     authenticity cluster per the red team's recommendation).

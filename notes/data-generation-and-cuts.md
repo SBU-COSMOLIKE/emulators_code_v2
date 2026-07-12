@@ -573,6 +573,101 @@ Amended close (user-run, workstation, after THIS lands): the same
 transfer-identity`; 32/32 expected. Do not spend the rerun before the
 micro-revision.
 
+##### Lifecycle micro-revision resume (2026-07-12, Opus) — awaiting Architect audit
+
+Built; numerics frozen (`_merge_chunk_moments`, the chunk read/merge
+order, and the geometry path untouched — the 4 numeric Mac probes rerun
+green). Files:
+
+- `emulator/experiment.py`: two ownership slots in `__init__`
+  (`self._grid2d_train_tmp` / `self._grid2d_val_tmp`, path or None).
+  `_grid2d_law_rows` now RETURNS the created temp path (None when
+  resident) and wraps the chunk-loop transform in `try/except
+  BaseException` that drops the mapping and `_unlink_quietly`s the
+  partial file before re-raising (failure hygiene; atexit stays as
+  last-resort fallback only). `stage_train` / `stage_val` call
+  `release_train_staging` / `release_val_staging` (supersede) before
+  staging and store the returned path in their own slot. New public
+  `release_train_staging()` / `release_val_staging()` — path-only unlink,
+  clear the slot, idempotent; independent train / val lifetimes (POSIX
+  unlink-while-mapped frees space on close, the name goes immediately).
+- `cosmic_shear_sweep_ntrain_emulator.py`: the per-point cleanup calls
+  `exp.release_train_staging()` where it drops `exp.train_set` (reached
+  on both the success and the `except` paths); val staging is kept across
+  points, so it is NOT released there.
+- `gates/checks/mps_identity.py`: `check_staging_lifecycle` — the five
+  red legs on the REAL stage_train / release paths: (a) double low-RAM
+  staging (first file absent, second readable); (b) three sweep points,
+  live temp count/bytes bounded to one point, 0 at end; (c) a
+  mid-transform positivity failure leaves no temp file; (d) failed-point
+  lane cleanup releases the train file; (e) resident control makes no
+  temp file and is byte-identical. Wired into main(); module docstring
+  bullet added.
+
+Design note (resolved while coding): `release_*_staging` only unlinks the
+tracked PATH and never touches `train_set["dv"]` — mid-`stage_train`,
+`train_set["dv"]` is the fresh RAW-dump memmap, not the old temp file, so
+dropping it would corrupt the in-progress transform. The mapping is
+closed by `train_set` reassignment / None-ing (sweep) before release.
+
+Mac gate: `probe_grid2d_lifecycle.py` 5/5 (disk-backed returns a live
+path / resident returns None; mid-transform failure unlinks the partial
+with 0 orphans; release unlinks + clears + idempotent; train/val slots
+independent). The stage_train supersede wiring and the sweep-lane cleanup
+are torch (load_source) — the gate's `check_staging_lifecycle` runs them
+for real on the workstation. `probe_grid2d` / `_moments` / `_geom` /
+`probe_cm11a` rerun green (numerics unchanged); `py_compile` clean on
+experiment.py, the sweep driver, and mps_identity.py. Held for audit.
+
+Note: the finite training/evaluation contract (unit 14) is HELD in the
+same worktree on separate files (training.py + training-stack.md) — no
+overlap with this micro-revision's files.
+
+##### Audit (2026-07-12, Fable): ACCEPTED — unit committed; the amended close is spendable
+
+- Independent probe (exec-extracted shipped bodies, stubbed psutil, no
+  torch): all sub-checks green over five legs — resident returns None
+  with bitwise passthrough and np.mean / np.std(ddof 0) moments;
+  disk-backed returns a live path whose contents are bitwise the
+  resident answer; the real release unlinks + clears + is idempotent; a
+  disk-backed positivity failure propagates ValueError with zero
+  orphans; a resident failure makes no file; train / val slots
+  independent through the real release methods.
+- Wiring read-verified: stage_train / stage_val supersede-on-restage
+  (release before staging, slot assigned from the return); the sweep
+  lane's release sits AFTER the try/except
+  (cosmic_shear_sweep_ntrain_emulator.py:174) so success and failed
+  points both reach it; a failed stage_train leaves the slot None, so
+  the lane release is a no-op, never a double unlink.
+- Gate crash-risk check (the amendment-1 class from the parent unit):
+  an AST fan-out over stage_train -> _grid2d_law_rows ->
+  release_train_staging shows the only self attributes read beyond the
+  gate fake's set are `outputs` (scalar branch only; the fake sets
+  _scalar False) and `train_set` (stored before every read) — so
+  check_staging_lifecycle cannot AttributeError on the workstation. The
+  fixture's params layout matches the file's established IN_NAMES
+  pattern, and train_set["dump_rows"] survives the transform (read-only
+  there), so leg (e)'s known answer is well-formed.
+- Numerics frozen confirmed: the chunk-loop diff is indentation-only
+  (the try wrapper plus the return); merge order and the geometry path
+  untouched.
+- Design-note ruling: the path-only unlink (release never touches
+  train_set["dv"]) is ACCEPTED with the Implementer's reasoning —
+  recorded as the unit's semantics, not a deviation.
+- One rider, NOT a hold: gates/board.py:1427-1431 (the mps-identity
+  `maps` string) still names only the bounded-staging + stable-moments
+  legs; add the staging-lifecycle leg to that string on the next
+  Implementer commit touching gates/ (docs parity, the parent unit's
+  own convention).
+- The mkstemp -> np.memmap window (an allocation failure between file
+  creation and the try wrapper) is covered by the atexit fallback only;
+  reviewed and accepted — the realistic failure (positivity, mid-loop)
+  is inside the wrapper and gate-checked.
+
+The amended close is now SPENDABLE (user-run, workstation):
+`python gates/run_board.py --force-rerun mps-identity cmb-identity
+transfer-identity`; 32/32 expected.
+
 ### File names and row counts do not prove dataset identity
 
 `load_source` checks only that parameter and dv row counts match. A

@@ -166,6 +166,12 @@ def _sweep_job(gpu_id, exp, N, extra):
     print(f"[gpu {gpu_id}] N_train {int(N)} failed: {err}")
   exp.model     = None
   exp.train_set = None
+  # free THIS point's disk-backed grid2d train staging (a low-RAM MPS
+  # sweep lands a ~4.57 GiB temp memmap per point). Reached on both the
+  # success and the except paths, so a failed point releases its file
+  # too; the val staging is set up once per lane and kept across points,
+  # so it is NOT released here.
+  exp.release_train_staging()
   exp.geom      = None
   exp.pgeom     = None
   exp.chi2fn    = None
