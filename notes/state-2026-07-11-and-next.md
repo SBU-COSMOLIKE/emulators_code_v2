@@ -441,6 +441,37 @@ files were created. Priority follows user-visible risk:
     (whitelisted key), ~86/271 (source rebuilt eager);
     training.py ~306-311 (the silent skip build_anchor inherits);
     README ~1683 advertised anchor: 1.0e-2 (now corrected).
+25. **Nested data paths never resolve** (ninth wave).
+    resolve_cocoa_config rewrites only the flat data keys; the
+    nested cmb.covariance / grid.z_file / grid2d file leaves stay
+    cwd-relative, splitting every shipped CMB/background/MPS
+    example across two path bases; the docstring's "every
+    data-block file path" is false. Spec:
+    data-generation-and-cuts.md, "Nested data paths never resolve".
+    VERIFIED (Fable, 2026-07-12): cocoa.py ~135-139 (the flat-keys
+    loop), docstring ~81-82.
+26. **Validation grid axes are never identified** (ninth wave).
+    One shared z_file/k_file interprets both train and val dumps
+    ("val borrows the" training axes, experiment.py ~3145); a
+    same-width val dump or base from another run scores silently
+    on the wrong grid. Spec: data-generation-and-cuts.md,
+    "Validation grid axes are never identified". CLUSTER RULING
+    (red-team, adopted): 8 + 17 + 25 + 26 = one file-set
+    authenticity boundary, taken together.
+    VERIFIED (Fable, 2026-07-12): single-axis config schema, the
+    staging comment, width-only checks.
+27. **Bounded grid2d staging: audit outcome.** The Implementer's
+    unit (8 files, uncommitted at cb4f1f1) is STRUCTURE ACCEPTED,
+    REVISION REQUIRED before landing: the streamed variance is the
+    naive (s2 - s1*s1/n)/n with a zero-clamp — order-dependent
+    (Architect probe 3.9659 vs red-team probe 4.1279 vs true 4.0 on
+    the 1-ULP fixture) and able to false-pin varying columns; the
+    revision replaces it with per-chunk mean/M2 Chan/Welford in
+    float64 + red legs that FAIL the s1/s2 form. The from_stats
+    scope deviation is CONFIRMED in scope; the folded-in
+    transfer-fixture fix is ACCEPTED verbatim; the human-facing
+    "oracle" prose rider joins the revision. Full verdict:
+    data-generation-and-cuts.md, "Bounded-staging Architect audit".
     VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
     designs/plain 6, designs/blocks 1, losses/core 1,

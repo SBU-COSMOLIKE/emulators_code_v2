@@ -187,6 +187,131 @@ production-sized MPS PCE until a separate streamed/randomized low-rank
 fit contract and accuracy calculation are designed; do not smuggle that
 research change into the bounded-staging unit.
 
+#### Bounded staging resume (2026-07-12, Opus) — awaiting Architect audit
+
+Built. Five surfaces:
+
+- `emulator/experiment.py` `_grid2d_law_rows` rewritten: it builds the
+  kept `(z, k)` columns FIRST (k_stride, top edge always kept), then
+  reads only those columns in bounded row chunks (`_GRID2D_CHUNK_BYTES`,
+  256 MiB of float64 per read -> derived chunk height) from the raw and
+  base memmaps as a single `raw[rows[:,None], cols[None,:]]` gather (never
+  a whole row block), takes `log(raw / base)` per chunk (raw itself under
+  law "none"), checks positivity per chunk with the original error text,
+  and writes the thinned float32 rows into a result that is resident if
+  it fits `ram_frac` else a disk-backed temp memmap (unlinked at exit).
+  The per-point law-space moments (mean + population std) are STREAMED
+  over the same chunks. New signature adds `with_means` (train streams
+  the moments + `dv_mean`; val only forms the rows). Handles both a
+  memmap source (read by `dump_rows`) and a RAM-staged compact source
+  (read by local arange).
+- `emulator/data_staging.py` `load_source` gains `stage_dv=True`; the
+  grid2d path (`stage_train` / `stage_val`) passes `stage_dv=not
+  self._grid2d`, keeping the raw dump a memmap (no unthinned 45 GiB
+  float32 selection) and skipping the discarded raw `dv_mean`.
+- `emulator/geometries/grid2d.py`: `from_stats(center, scale, ...)` added
+  as the SINGLE home of the constant-pin / dead-dump rules; `from_targets`
+  now computes the two moments and delegates to it. `from_config`'s plain
+  grid2d branch builds the geometry from the streamed
+  `self._grid2d_center` / `_scale` via `from_stats`, so the thinned
+  surface is never read whole (the disk-backed result is never
+  materialized). Finetune / transfer branches unchanged (they pin the
+  source geometry).
+- `gates/checks/mps_identity.py`: `check_bounded_staging` — 122 x 2,000,
+  stride 10, tiny budget, a `_GuardProxy` that fails a whole-block /
+  over-tall / unthinned read. Asserts the 122 x 201 result, values +
+  streamed mean vs an independent known answer, disk-backed low-RAM
+  result, and that the guard trips on the old `mm[rows]` pattern (so the
+  leg fails against the pre-fix code). Part two runs the real
+  `load_source(stage_dv=False)` memmap branch (resident vs disk by
+  `ram_frac`). Existing `check_staging` updated for the new signature.
+- `gates/board.py`: the cmb-identity maps rider (eq-6 now five legs).
+
+Scope note for the audit: the boundary excludes the "geometry" queue
+unit, which is item 11 in state-2026-07-11-and-next.md (covariance SPD /
+block-whitening / rebuild validation). `from_stats` is not that unit —
+it is this unit's clause 3 ("constant pins computed streaming, never via
+a materialized unthinned selection") and the note's "compute scale /
+constant pins with the same bounded statistics". Without it the
+disk-backed result would be re-materialized at geometry build, defeating
+the ram_frac honoring. Flagged for the Architect to confirm the read.
+
+Known limitation (flagged, not fixed): the disk-backed temp memmap is
+unlinked at process exit; a learning-curve sweep that re-stages many
+times ON A BOX TOO SMALL to hold the 4.568 GiB thinned result would
+accumulate temp files until exit. That path is the tiny-RAM edge (any
+real MPS training box holds the thinned result resident); a per-restage
+unlink is a small follow-on if it ever matters.
+
+Mac gate (numpy exec-probes of the shipped bodies, no torch):
+`probe_grid2d.py` 10/10 PASS (bounded transform bitwise vs the known
+answer, reads chunked + thinned, disk-backed under tiny budget /
+resident under ample, streamed moments = center + population std of the
+answer, law-none passthrough, guard trips on the old read);
+`probe_grid2d_geom.py` 6/6 PASS (from_stats pin / dead-dump / length
+rules, from_targets delegates the two moments). `py_compile` +
+`compileall` clean on all five files.
+
+Close (user-run, workstation): `python gates/run_board.py --force-rerun
+mps-identity` — the bounded-staging legs ride mps-identity; return the
+raw log, close requires green. (transfer-identity remains the standing
+open red from the prior unit, unrelated.)
+
+### Bounded-staging Architect audit (2026-07-12, Fable): STRUCTURE ACCEPTED, REVISION REQUIRED before landing
+
+Audited against the raw diff (eight files; the handoff said six — the
+transfer-fixture fix and its resume rode along, see below). Verdict:
+
+- Clauses 1, 2, 4, 5 VERIFIED in the diff: kept columns built from the
+  sidecars + k_stride before any read; every read
+  `raw[rows[:, None], cols[None, :]]`; chunk height from
+  _GRID2D_CHUNK_BYTES / thinned width; stage_dv=False keeps the raw
+  dump a memmap; per-chunk width/rows/positivity with the original
+  error texts; tempfile memmap + atexit unlink. The gate leg's
+  _GuardProxy + the must-fail-on-old sub-check match the acceptance
+  contract.
+- **Clause 3 is the blocker (the red team's in-flight audit,
+  Architect-CONFIRMED by independent reproduction):** the streamed
+  moments use the naive one-pass `(s2 - s1*s1/n)/n` with a
+  clamp-to-zero. On a high-offset small-spread column (float32 1e8
+  alternating with 1e8+8, true population std exactly 4.0) the naive
+  form returns 3.9659 in the Architect's single-sum probe and 4.1279
+  in the red team's chunked probe — the answer DEPENDS ON SUMMATION
+  ORDER, proving non-equivalence to the former Y.std(0) contract, and
+  under other orderings goes negative so the clamp converts a
+  genuinely varying column into a FALSE constant pin (worst under law
+  none, where physical spectra carry large offsets). REVISION: replace
+  s1/s2 with per-chunk mean/M2 merged pairwise (Chan/Welford),
+  float64 accumulation; reproduce float64 np.std(ddof=0) within a
+  stated tight tolerance; the clamp may cover only the bounded
+  round-off residue of the STABLE accumulator. Red legs (must FAIL
+  the s1/s2 form): the 50k-row 1-ULP fixture; uneven chunk sizes and
+  orderings; a constant column; the ordinary log-ratio fixture;
+  streamed center/scale + the resulting encode vs the materialized
+  known answer.
+- Deviation 1 (Grid2DGeometry.from_stats + the from_targets
+  delegation): SCOPE READ CONFIRMED — the excluded geometry unit is
+  the covariance-SPD / block-whitening / from_state-validation item;
+  the pin/scale construction is this unit's clause 3. Single-sourcing
+  the pin and dead-dump rules through from_stats is accepted.
+- Deviation 2 (temp files accumulate across re-stagings on a
+  too-small box until process exit): accepted as flagged; the
+  per-restage unlink is a recorded follow-on, not a blocker.
+- The folded-in transfer-fixture fix (gates/checks/transfer_identity.py):
+  matches the Architect's spec verbatim (a plain grid base saved
+  without transfer_base; the chaining refusal keeps its own leg) —
+  ACCEPTED as-is; it lands with this unit's revision in one commit.
+- Prose rider joining the revision (the red team's terminology
+  handoff): every HUMAN-FACING "oracle" in gates/board.py (maps,
+  docstrings, log labels — including the five-leg maps line this unit
+  edits) and gates/checks/cmb_identity.py (module docstring, comments,
+  report text) becomes "independent known-answer calculation/check";
+  callable identifiers (check_covariance_oracle, _oracle_truth) stay.
+- Close after revision: ONE commit (staging revision + fixture fix +
+  prose rider), then the user runs
+  `python gates/run_board.py --force-rerun mps-identity cmb-identity transfer-identity`
+  — three raw logs; 32/32 expected.
+
 ### File names and row counts do not prove dataset identity
 
 `load_source` checks only that parameter and dv row counts match. A
@@ -220,6 +345,60 @@ leg for each optional-cut family to its existing identity gate, plus a
 thin-wrapper invocation that reaches `pool_size` without a GPU training
 step. This is a small driver-truth unit, separate from bounded grid2d
 staging.
+
+## Nested data paths never resolve (red-team 2026-07-12, Architect-VERIFIED, open; the file-set authenticity cluster)
+
+resolve_cocoa_config (emulator/cocoa.py ~135-139) rewrites ONLY the
+flat _DATA_PATH_KEYS under data:; the nested file leaves —
+data.cmb.covariance, data.grid.z_file, data.grid2d.{z_file, k_file,
+train_base, val_base} — are never touched, and the family builders
+np.load those strings directly. The shipped examples use bare
+filenames + the documented run-from-$ROOTDIR workflow, so the
+advertised CMB/background/MPS examples are internally split across
+two path bases and fail unless launched from chains/ (the gates hide
+it by writing absolute nested paths). The function's own docstring
+claims it "rewrites every data-block file path" — false until this
+lands.
+
+Contract (the red-team block of record adopted whole): one dotted
+path registry resolves EVERY file-valued schema leaf against the
+correct project base; absolute paths pass through; errors name full
+dotted paths; covariance + sidecars/base dumps live with the chain
+products unless an explicit documented base says otherwise; persist
+the resolved absolute consumed paths (or a clear portable-root form)
+consistently. Red legs: each shipped CMB/background/MPS example under
+a temp ROOTDIR with placeholder files in project/chains resolves
+whole and loads from a different cwd; absolute nested paths pass
+unchanged; missing files name the dotted key; a negative leg proves
+the old cwd-relative location is not consulted. The resolver
+docstring/README promise is corrected in the same unit.
+
+## Validation grid axes are never identified (red-team 2026-07-12, Architect-VERIFIED, open; the file-set authenticity cluster)
+
+Background has one z_file, grid2d one z_file/k_file — the TRAINING
+axes interpret BOTH train and val dumps (the staging comment says it
+outright: "val borrows the" training axes; experiment.py ~3145).
+There are no validation-axis keys and no manifest digest, so a val
+dump produced on different coordinates with the same column count
+passes every width check and is silently scored on the wrong grid;
+the val base can likewise come from a different same-shaped run; CMB
+val rows are interpreted on the covariance ell grid with width-only
+identity.
+
+Contract (adopted whole): train and val dumps each carry/point to
+their own axis identity, startup requires exact train/val equality
+before staging. The PREFERRED home is the already-queued committed
+dataset manifest (bind every raw/base dump to axis bytes, parameter
+order, generation settings, fail mask; configs reference manifest
+members); until it exists, explicit val sidecars + exact array_equal.
+Red legs: same-width shifted/reversed/permuted val z; altered k;
+swapped val base from another run; CMB same-width shifted ell; all
+fail before geometry/training; byte-identical separately-written axes
+pass; train/val raw/base/axis members share one manifest generation
+id. SEQUENCING (red-team ruling, adopted): this unit + the checkpoint
+manifest + generator ingress + the nested-path resolver are ONE
+file-set authenticity boundary — the Implementer takes them as one
+cluster.
 
 ## Generator ingress identity (red-team 2026-07-12 fourth wave, Architect-VERIFIED, open)
 

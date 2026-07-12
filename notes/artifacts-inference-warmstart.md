@@ -407,6 +407,48 @@ the `check_covariance_oracle` identifier itself stays). The three
 READMEs were already trued up by the Architect (run-12 status +
 five-leg rows).
 
+#### Fixture-fix resume (2026-07-12, Opus) — awaiting Architect audit
+
+Built, gate files only (`emulator/` frozen). Two parts:
+
+- Part 1, `gates/checks/transfer_identity.py` `check_diagonal`: the
+  cross-family leg now saves a PLAIN grid base — this leg's own `base`
+  net + `geom` (a `GridGeometry`) through the same `save_emulator` call,
+  no `transfer_base=`, same `rescale="none"` / `quantity="Hubble"`
+  attrs, `resolved_model=grid_base_recipe(names, int(z.size))` — at its
+  own root `plain_grid_base`, and points the grid2d config's
+  `transfer.from` there (was the `diag_transfer` root, which embeds a
+  transfer_base group). Static trace of the frozen library path
+  (`_load_diag_transfer`, experiment.py:1410-1426): `transfer` present ->
+  `validate_transfer(diagonal=True)` accepts `form: sum` ->
+  `warmstart.load_source(plain_root)` SUCCEEDS (no transfer_base group,
+  so the chaining refusal at warmstart.py:340 never fires) ->
+  `got_cls = "GridGeometry"` != the grid2d branch's
+  `geom_cls_name="Grid2DGeometry"` (experiment.py:2327) -> raises
+  "a transfer never crosses families", so both needles (`"never"`,
+  `"families"`) pass. The chaining refusal keeps its own dedicated leg in
+  `check_lifecycle` ("chaining refused"). The leg needs torch
+  (save_emulator / from_config), so this is a static trace, not a Mac
+  exec run.
+- Part 2, `gates/board.py` cmb-identity entry: the `maps` field, the
+  `gate_cme_a` docstring, and the board `label` now name all five
+  covariance legs in plain language — the exact contraction, the
+  old-weight miss, the raw-vs-scaled fixture integrity, the width-3 band
+  projection, and the exact zero-band weight — as an "independent
+  known-answer" check; "oracle" no longer appears in prose (the
+  `check_covariance_oracle` identifier reference stays).
+
+Mac gate: `py_compile` clean on both files (`transfer_identity.py`,
+`board.py`); the fixed leg's correctness is the static trace above (no
+torch on this box). No `emulator/` change (library frozen); cmb-smoke
+needs no rerun (gate-file-only, producer unchanged).
+
+Close (user-run, workstation, after the merge): `python
+gates/run_board.py --force-rerun cmb-identity transfer-identity` —
+transfer-identity proves the fixture fix, cmb-identity re-executes the
+five-leg delta and its board text must match the five executed legs;
+both green closes the run-12 red.
+
 ## Follow-the-IDs (git archaeology)
 
 FTW: D-FT1..10, D-FTW-1/2. TPE: D-TP1..10, D-TPE-1, D-TPE2-1..3,
