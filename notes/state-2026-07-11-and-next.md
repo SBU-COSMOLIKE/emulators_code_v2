@@ -166,6 +166,16 @@ In order, with the commit that carries each:
    the set_train_phase docstring corrected in both experiment.py
    spots (two-phase = the factored-IA templates ONLY; plain
    rescnn/restrf are single-phase on every family).
+15. **Board run 3 (first run at the fixed code, HEAD 86577ff)**:
+   scalar-smoke GREEN — the fracs-width fix proven on the
+   workstation. cmb-smoke advanced past the {value: X} error into
+   the covariance script's SECOND validator: the gate's cov_yaml
+   used CAMB's ombh2/omch2 names where the script's whitelist wants
+   its own omegabh2/omegach2 — fixed to mirror
+   example_yamls/cmb_covariance_lcdm.yaml exactly (the sharpened
+   lesson: a gate fixture MIRRORS the shipped example, never
+   re-types its keys from memory). bsn-smoke/mps-smoke results were
+   pending when the logs were exported.
 
 ## Evidence status: what is PROVEN vs what is PENDING
 

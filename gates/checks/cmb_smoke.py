@@ -112,11 +112,12 @@ def gen_yaml():
 def cov_yaml():
     """The D-CM11 covariance YAML: fixed fiducial LCDM, zero noise.
 
-    The params block is PLAIN NUMBERS, never cobaya {value: X}
-    mappings: compute_cmb_covariance.py evaluates ONE fiducial
-    cosmology and rejects anything else loudly (the first board run
-    caught this gate writing the cobaya spelling). The canonical form
-    is example_yamls/cmb_covariance_lcdm.yaml's.
+    The params block follows example_yamls/cmb_covariance_lcdm.yaml
+    EXACTLY in both conventions the script validates loudly: PLAIN
+    NUMBERS (never cobaya {value: X} mappings — board run 1 caught
+    that) and the script's OWN parameter names, omegabh2 / omegach2,
+    not CAMB's ombh2 / omch2 (board run 3 caught that). The lesson:
+    mirror the shipped example, never re-type its keys from memory.
     """
     return (
         "theory:\n"
@@ -127,13 +128,13 @@ def cov_yaml():
         "      AccuracyBoost: 0.7\n"
         "      lens_potential_accuracy: 1\n"
         "params:\n"
-        "  As:    2.1e-9\n"
-        "  ns:    0.965\n"
-        "  H0:    67.36\n"
-        "  ombh2: 0.02237\n"
-        "  omch2: 0.12\n"
-        "  tau:   0.055\n"
-        "  mnu:   0.06\n"
+        "  As:       2.1e-9\n"
+        "  ns:       0.965\n"
+        "  H0:       67.36\n"
+        "  omegabh2: 0.02237\n"
+        "  omegach2: 0.12\n"
+        "  tau:      0.055\n"
+        "  mnu:      0.06\n"
         "cov_args:\n"
         "  lmax: " + str(LMAX) + "\n"
         "  fsky: 1.0\n"
