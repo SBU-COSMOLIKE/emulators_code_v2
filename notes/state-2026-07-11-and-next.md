@@ -211,7 +211,27 @@ files were created. Priority follows user-visible risk:
 3. **Artifact-pair integrity.** Direct two-file overwrite plus no digest
    lets same-shaped wrong weights load strictly against an unrelated h5.
    Syren-law artifacts also do not bind the inference formula version.
-   Spec: artifacts-inference-warmstart.md.
+   EXTENDED (twelfth wave, folded in per the red team's sequencing):
+   output identity — the shared family driver's run tag
+   (`<model>[_t<T>]_ntrain<N>`) is not an artifact identity, so CMB
+   TT/EE, BAOSN Hubble/D_M, MPS pklin/boost, and same-temperature cs
+   probes all collide on the documented default path and save_emulator
+   silently destroys the older valid pair; identity must come from
+   resolved scientific facts + a config/dataset digest, with
+   preexistence refusal; must land WITH the transactional publication
+   clause (atomicity alone makes the wrong replacement atomic) and
+   BEFORE the five-artifact production step. Spec:
+   artifacts-inference-warmstart.md (+ its twelfth-wave extension).
+   VERIFIED (Fable, 2026-07-12, twelfth wave): run_tag =
+   cosmic_shear_train_emulator.py:193-217 (t<T> from
+   `re.search(r"_cs_(\d+)")` on the train-dv FILENAME), save root
+   :365 with --save default "emulator", diag same tag :464; thin
+   drivers share main (cmb :44, baosn :45, mps :47) and their example
+   commands pass no --save; scalar tag scalar_train_emulator.py:95-114;
+   overwrite silent at results.py:232 (torch.save) + :259
+   (h5py.File "w"); the "so runs do not overwrite each other"
+   docstrings at cs :202 and scalar :15/:103 are false across
+   products.
 4. **Parallel truth and cleanup.** Parallel Optuna ignores worker exit
    codes and accepts any historical COMPLETE trial; the shared GPU pool
    can orphan children or wait forever on invalid token plans. Spec:
@@ -485,6 +505,20 @@ files were created. Priority follows user-visible risk:
     human-facing "oracle" prose rider joins the revision. Full
     verdict + adjudicated amendment:
     data-generation-and-cuts.md, "Bounded-staging Architect audit".
+    RE-AUDITED (Fable, 2026-07-12): the revision's NUMERICS are
+    ACCEPTED — independent probe 23/24 (Chan merge == np.std(ddof 0)
+    across chunkings at rtol 1e-9; the old form reproduces the false
+    pin, column-0 std exactly 0.0 at chunk height 7; the
+    float32-payload clause discriminated at a 12% stored-vs-precast
+    gap). TWO AMENDMENTS before the commit: (1) check_stable_moments
+    leg 2 CRASHES the gate — its 1-ULP column sits below the shipped
+    RELATIVE pin threshold (8*eps32*|center| ~ 95 at 1e8), both
+    columns classify constant, and the whole-surface dead-dump
+    ValueError fires (reproduced with the leg's exact numbers); the
+    fixture needs an above-threshold varying column (e.g. +-1024).
+    (2) The _grid2d_law_rows shape-flow diagram + legend still name
+    the deleted s1/s2 accumulator. Commit stays HELD. Full verdict:
+    data-generation-and-cuts.md, "Revision re-audit".
 28. **Validation leakage + data-control totality** (tenth wave,
     CRITICAL first clause, folded into the 8+17+25+26 file-set
     authenticity cluster per the red team's recommendation).

@@ -109,6 +109,73 @@ serving. The gate changes one formula-source byte (or its declared test
 digest) and proves an old artifact dies loudly; law `none` remains
 unaffected.
 
+#### Twelfth-wave extension (Architect-VERIFIED, folded into this unit): output identity — default roots collide across scientific products
+
+Red-team finding, every load-bearing claim re-derived against code. The
+run tag is not an artifact identity:
+
+- `cosmic_shear_train_emulator.py` `run_tag` (lines 193-217) =
+  `<model>[_t<T>]_ntrain<N>`: the resolved model name, an OPTIONAL
+  temperature from `re.search(r"_cs_(\d+)", basename(data.train_dv))`
+  (skipped when the filename has no such tag), and the staged row
+  count. The save root is `cocoa_output(chains,
+  f"{args.save}_{run_tag(cfg, exp)}")` (line 365) with `--save`
+  defaulting to `"emulator"`; the diagnostics PDF uses the same tag
+  (line 464).
+- The thin family drivers all import this shared `main`
+  (cmb_train_emulator.py:44, baosn_train_emulator.py:45,
+  mps_train_emulator.py:47), and their example commands pass no
+  `--save` — so the collisions live on the DOCUMENTED default path:
+  CMB TT vs EE, BAOSN Hubble vs D_M, MPS pklin vs boost all map to
+  `emulator_resmlp_ntrain<N>` (no `_cs_` tag in those filenames), and
+  cosmic-shear xi vs gammat at one temperature to
+  `emulator_resmlp_t<T>_ntrain<N>`. The scalar driver
+  (scalar_train_emulator.py:95-114, `<model>_ntrain<N>`) collides
+  across output sets the same way. Activation, model hyperparameters,
+  dataset identity, split seed, NPCE, plain/fine-tune/transfer mode,
+  and the source artifact are all absent from every tag.
+- The overwrite is silent and total: `save_emulator` runs
+  `torch.save(sd, emul_path)` (results.py:232) and
+  `h5py.File(h5_path, "w")` (results.py:259) — no existence check on
+  either file. A later valid run destroys a different valid emulator.
+- Both run-tag docstrings state the tag exists "so runs do not
+  overwrite each other" (cosmic_shear_train_emulator.py:202,
+  scalar_train_emulator.py:15 and :103) — directly false across
+  products; true only within one product at fixed model and N.
+- The temperature tag is itself a filename regex inferring a
+  scientific fact — the exact pattern the resolved-values rule (the
+  standing save/load rule at the top of this note) forbids.
+
+Adopted contract (theirs, whole): derive output identity from RESOLVED
+scientific facts, never filename regexes — a readable family/product
+prefix (probe, scalar output set, CMB spectrum, grid quantity, grid2d
+quantity) plus a stable short digest binding the consumed
+model/training configuration and the dataset-manifest identity. The
+identity must distinguish plain, NPCE, fine-tune, and transfer runs,
+including their source binding. Save and diagnostic products of one
+run share the identity. A destination that already exists is REFUSED
+before either artifact file changes, absent an explicit
+overwrite/versioning action — so exact reruns cannot erase prior
+evidence accidentally, and differing runs cannot alias even with
+default CLI arguments. Interlock with this unit's original clauses:
+the transactional two-file publication above must land WITH the
+identity contract — transactionality alone would only make the wrong
+replacement atomic.
+
+Red legs (adopted): TT vs EE; Hubble vs D_M; pklin vs boost; xi vs
+gammat at one temperature; two scalar output sets; two activations;
+plain vs NPCE; plain vs fine-tune; two transfer sources; differing
+split/dataset manifests — each pair must produce distinct roots or
+fail before publication; plus an exact-root preexistence leg proving
+both old files survive without an explicit overwrite.
+
+Queue ruling (Fable): folded into THIS unit per the red team's
+sequencing recommendation — pair authentication and atomic publication
+are incomplete while two scientifically different runs resolve to the
+same root. Priority sharpened: this unit now must land BEFORE the
+five-artifact production step (the first campaign trains multiple
+products of one family back to back — the exact collision path).
+
 ## Inference: EmulatorPredictor + the five cobaya adapters
 
 - Three layers: EmulatorPredictor (inference.py) owns ALL prediction
