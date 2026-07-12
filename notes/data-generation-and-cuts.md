@@ -468,6 +468,49 @@ manifest + generator ingress + the nested-path resolver are ONE
 file-set authenticity boundary — the Implementer takes them as one
 cluster.
 
+## Tenth wave: validation leakage + data-control totality (red-team, Architect-VERIFIED; CRITICAL first clause; folded into the file-set authenticity cluster)
+
+Four clauses, all confirmed, all joining the 8 + 17 + 25 + 26 cluster:
+
+1. **Validation can BE the training set (CRITICAL).** stage_train and
+   stage_val both recreate torch.Generator().manual_seed(the SAME
+   split_seed) — experiment.py ~3086 / ~3142 / ~3169 — and the
+   stage_val docstring states the unenforced premise verbatim ("the
+   val file differs, so the same seed gives an independent
+   selection"). No samefile/realpath/duplicate-payload check exists.
+   Aliased or row-overlapping train/val paths make the same shuffled
+   prefix the "validation" set: reported validation performance is
+   then training performance, silently. Contract: reject train/val
+   path aliases before staging; the manifest cluster binds stable
+   row/sample identities and PROVES train/val disjointness (not just
+   distinct filenames + matching axes); same-pool splitting is
+   unsupported today and must be REFUSED (if ever supported, one
+   explicit partition operation with a proven empty intersection).
+   Red legs: identical paths; symlink/hardlink aliases; separately
+   named duplicate payloads; partial row overlap; a valid disjoint
+   pair.
+2. **One-row contract contradiction.** validate_sizes permits
+   n_train/n_val = 1, but load_source (data_staging.py ~536:
+   `np.loadtxt(...)[:, param_cols]`), load_scalar_source (~779), and
+   pool_size index loadtxt output as 2-D; NumPy returns (n_columns,)
+   for one row -> IndexError (generator_core.py ~610 already uses
+   np.atleast_2d — the idiom exists in-repo). Contract: normalize
+   text tables to exact 2-D + validate column counts; a one-row val
+   file stages normally; one-row training reaches the INTENTIONAL
+   geometry/standardization verdict, never an incidental parse crash.
+3. **Data controls whitelisted, not validated.** split_seed consumed
+   through bare int() (fractional truncates, bool becomes int), never
+   required/type-checked; ram_frac unchecked (`float(get(...))` —
+   NaN/negative silently force streaming, > 1 or inf can force unsafe
+   full materialization); param_cuts validates keys only (NaN bounds
+   reject every row silently, inf erases the cut, bools act numeric,
+   quoted values fail late).
+4. **Contract:** one pure data-control validator in from_config
+   before any staging — split_seed required, exact non-bool int in a
+   stated range; ram_frac (when present) finite non-bool real in
+   [0, 1]; every active cut bound finite non-bool real with lo < hi
+   on paired bounds; NO coercion; shipped valid configs unchanged.
+
 ## Generator ingress identity (red-team 2026-07-12 fourth wave, Architect-VERIFIED, open)
 
 train_args.ord is validated by SET equality only

@@ -477,6 +477,22 @@ files were created. Priority follows user-visible risk:
     human-facing "oracle" prose rider joins the revision. Full
     verdict + adjudicated amendment:
     data-generation-and-cuts.md, "Bounded-staging Architect audit".
+28. **Validation leakage + data-control totality** (tenth wave,
+    CRITICAL first clause, folded into the 8+17+25+26 file-set
+    authenticity cluster per the red team's recommendation).
+    stage_train/stage_val share one split_seed with NO train/val
+    alias or disjointness check — the stage_val docstring states the
+    unenforced premise verbatim; aliased paths make validation BE
+    training. Plus: one-row files crash in parsing (raw loadtxt,
+    no atleast_2d) though validate_sizes permits n = 1; split_seed /
+    ram_frac / param_cuts bounds are coerced or key-checked only.
+    Spec: data-generation-and-cuts.md, "Tenth wave: validation
+    leakage + data-control totality".
+    VERIFIED (Fable, 2026-07-12): experiment.py ~3086/~3142/~3169
+    (same seed), ~3126-3127 (the docstring premise), no
+    samefile/duplicate check anywhere; data_staging.py ~536/~779
+    (raw loadtxt 2-D indexing vs generator_core ~610's atleast_2d);
+    bare int()/float() control reads.
     VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
     designs/plain 6, designs/blocks 1, losses/core 1,
