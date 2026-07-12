@@ -170,7 +170,12 @@ backticked repo path exists).
   Architect sign-off on RAW evidence (never summaries — repeated
   over-claims proved summaries unreliable); the Architect verifies
   its own harnesses against a known-good case first; audit failures
-  return as delta re-handoffs (D-XX-N IDs).
+  return as delta re-handoffs (D-XX-N IDs). Authorship discipline
+  (red-team rule, 2026-07-12): Implementer records say "awaiting
+  Architect audit" — an Implementer never pre-writes an Architect
+  verdict, invents an Architect probe, or claims Architect
+  co-authorship; audit text is written only by the Architect, after
+  the audit.
 - Propose-don't-guess for design-sensitive layouts (a checkpoint
   proposal in the note for ruling); partial units are an approved
   shape (coherent gated sub-increment + honest remainder); interface
