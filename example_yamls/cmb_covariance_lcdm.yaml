@@ -49,14 +49,22 @@ cov_args:
     delta_te:  0.0
     beam_fwhm: 1.0
 
-  # the lens-induced non-Gaussian covariance (eq 6), OFF by default.
-  # When on: the lensing potential is perturbed band by band, the
-  # spectra re-lensed, and dC_l/dC^phiphi_L taken by the 5-point
-  # stencil at EVERY step size below; the per-band spread across steps
-  # must sit under converge_rtol or the run fails loudly (the step
-  # study is persisted in the .npz provenance either way).
+  # THE NON-DIAGONAL TERMS (Motloch & Hu eq 6): the lens-induced
+  # covariance between different multipoles. enabled: true writes the
+  # DENSE blocks into the .npz — cov_tt / cov_te / cov_ee (each
+  # spectrum against itself) AND cov_tt_te / cov_tt_ee / cov_te_ee
+  # (the cross-spectrum blocks); together they tile the full joint
+  # TT/TE/EE covariance. How it is computed: the lensing potential is
+  # perturbed band by band, the spectra re-lensed (one Boltzmann
+  # solve total), and dC_l/dC^phiphi_L taken by the 5-point stencil
+  # at EVERY step size below; the per-band spread across steps must
+  # sit under converge_rtol or the run fails loudly (the step study
+  # is persisted in the .npz provenance either way). Cost note: the
+  # re-lensing count is (bands x steps x 4), so lens_lmax 3000 at
+  # band_width 20 with 3 steps is ~1800 re-lensings — hours, not
+  # minutes; widen band_width for a faster, coarser matrix.
   nongaussian:
-    enabled: false
+    enabled: false        # flip to true for the dense blocks
     lens_lmax: 3000
     band_width: 20        # multipoles per perturbed band (1 = exact)
     step_fracs:

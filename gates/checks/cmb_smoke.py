@@ -28,6 +28,7 @@ two tiny dumps are ~400 serial CAMB calls at low accuracy):
      build without exception and the PDF lands non-trivially sized.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -211,7 +212,74 @@ def check_generate(rootdir, rel_root):
         detail = "ell 2..%d, sigma_tt > 0" % LMAX
     report("D-CM11 covariance .npz (Gaussian, zero noise)", ok, detail)
     out["cov"] = npz
+
+    check_cov_nondiagonal(rootdir, rel_root, emul_dir, chains)
     return out
+
+
+def check_cov_nondiagonal(rootdir, rel_root, emul_dir, chains):
+    """Leg 2b: the Motloch & Hu NON-DIAGONAL terms (eq 6) end to end.
+
+    Runs the covariance script with the nongaussian flag ON at smoke
+    scale (2 bands x 2 steps x 4 offsets = 16 re-lensings of the one
+    Boltzmann solve) and asserts the dense output: all six blocks
+    present (3 per-spectrum + 3 cross), symmetric same-spectrum
+    blocks, diagonals at least the Gaussian variance (the lens term
+    only ADDS variance), genuinely nonzero off-diagonals (the point
+    of the leg — a diagonal-only matrix must fail it), a
+    non-negative spectrum for cov_tt (a covariance is PSD), and the
+    stencil step study recorded in the provenance.
+    """
+    ng_block = ("  nongaussian:\n"
+                "    enabled: true\n"
+                "    lens_lmax: " + str(LMAX) + "\n"
+                "    band_width: " + str(LMAX // 2) + "\n"
+                "    step_fracs:\n"
+                "      - 0.02\n"
+                "      - 0.04\n"
+                "    converge_rtol: 0.5\n")
+    with open(os.path.join(emul_dir, "cov_ng.yaml"), "w") as f:
+        f.write(cov_yaml() + ng_block)
+    proc = run_tool(
+        "compute_cmb_covariance.py",
+        ["--root", rel_root, "--fileroot", "emul", "--yaml",
+         "cov_ng.yaml", "--output", "cmbcov_ng"], rootdir)
+    npz = os.path.join(chains, "cmbcov_ng.npz")
+    if proc.returncode != 0 or not os.path.isfile(npz):
+        report("eq-6 non-diagonal covariance runs",
+               False, "rc=%d stderr tail: %s"
+               % (proc.returncode, proc.stderr.strip()[-300:]))
+        return
+    cov = np.load(npz, allow_pickle=False)
+    n_ell = LMAX - 1
+    keys = ("cov_tt", "cov_te", "cov_ee",
+            "cov_tt_te", "cov_tt_ee", "cov_te_ee")
+    have = all(k in cov.files and cov[k].shape == (n_ell, n_ell)
+               for k in keys)
+    report("eq-6 blocks: 3 per-spectrum + 3 cross, dense shape",
+           have, "n_ell %d" % n_ell)
+    if not have:
+        return
+    ctt = cov["cov_tt"]
+    diag = np.diag(ctt)
+    off = ctt - np.diag(diag)
+    var_tt = cov["sigma_tt"] ** 2
+    eigmin = float(np.linalg.eigvalsh(ctt).min())
+    eigmax = float(np.linalg.eigvalsh(ctt).max())
+    report("cov_tt: symmetric, diag >= Gaussian, off-diag alive, PSD",
+           np.allclose(ctt, ctt.T, rtol=1e-10)
+           and (diag >= var_tt * (1.0 - 1e-10)).all()
+           and float(np.abs(off).max()) > 0.0
+           and eigmin > -1e-10 * eigmax,
+           "|off|max %.2e, eigmin/eigmax %.1e"
+           % (np.abs(off).max(), eigmin / eigmax))
+    prov = json.loads(str(cov["provenance"]))
+    study = prov.get("stencil_study")
+    report("eq-6 provenance carries the stencil step study",
+           isinstance(study, dict)
+           and len(study.get("per_band_relative_spread", [])) >= 2,
+           "bands %d" % len(study.get("bands", []))
+           if isinstance(study, dict) else "absent")
 
 
 def build_cfg(paths):

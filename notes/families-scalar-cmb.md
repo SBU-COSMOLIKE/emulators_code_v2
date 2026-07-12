@@ -78,6 +78,20 @@ README sections 14 and 15.
   sigma_<s> always, cov_<s> dense when NG, cl_<s>, provenance json
   with the exact camb extra_args (the user's verbatim high-accuracy
   block). LCDM-only validation.
+- D-CM11 EXTENDED 2026-07-12 (user overnight ask "the nondiagonal
+  terms from Wayne and Pavel"): eq 6 now assembles EVERY spectrum
+  pair — the cross blocks cov_tt_te / cov_tt_ee / cov_te_ee join the
+  per-spectrum three (assemble_lensing_blocks, a pure function the
+  Mac probe checks against D_a^T diag(S) D_b), each carrying its
+  eq-3 Gaussian l-diagonal; together the six tile the full joint
+  TT/TE/EE covariance a D-CM12 dense whitening or a joint likelihood
+  consumes. The capability was already in the script behind the flag
+  (the Gaussian-first directive) — what was missing was the cross
+  pairs, gate execution, and visibility. cmb-smoke gained leg 2b
+  (check_cov_nondiagonal): the NG path runs END TO END at smoke
+  scale (16 re-lensings) and must produce symmetric, PSD, off-
+  diagonal-alive blocks with the step study in the provenance —
+  the first real execution of eq 6 anywhere.
 - Generation: dataset_generator_cmb.py on the shared core — ONE CAMB
   pass writes four spectra files (never re-run Boltzmann per
   spectrum); phiphi FILLED (legacy zeroed it); get_Cl(ell_factor=
@@ -118,8 +132,10 @@ README sections 14 and 15.
 Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.
 
 **D-CM12 — dense-Cinv training from the non-Gaussian covariance.**
-The producing side is DONE (the npz already carries cov_tt/te/ee when
-NG is on); training reads only sigma today. Design: `data.cmb.dense:
+The producing side is DONE (the npz carries cov_tt/te/ee AND, since
+the 2026-07-12 extension, the cross blocks cov_tt_te/tt_ee/te_ee when
+NG is on — gate-executed by cmb-smoke leg 2b); training reads only
+sigma today. Design: `data.cmb.dense:
 true` (default false = byte-identical); the validator requires
 cov_<spectrum> loudly; build_geometry whitens by the dense block's
 eigen-decomposition — law FIRST, then rotation, persisted like the dv
