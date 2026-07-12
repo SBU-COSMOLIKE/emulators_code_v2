@@ -1065,3 +1065,44 @@ EMA steps_per_epoch + warmup/scheduler counts + the reported
 effective-row count agree with executed steps; a mutation restoring
 arbitrary resident load fails; a divisible control uses every row
 exactly once per epoch modulo the shuffle.
+
+## MPS float16 AMP has no gradient scaling (red-team 45M-39, 2026-07-12, Architect-VERIFIED; queue 51)
+
+The loop selects float16 — not bfloat16 — for MPS autocast
+(training.py ~1702, `amp_dtype = float16 if device.type == "mps"`),
+then runs a plain loss.backward() / optimizer.step(); a repo-wide
+UNTRUNCATED grep finds zero GradScaler / scaler / unscale matches.
+Computing the loss outside autocast does not help: backward traverses
+the float16 ops autocast executed, and sufficiently small
+intermediate gradients underflow to EXACT ZERO before accumulating
+into float32 parameters — the run stays finite, raises nothing, and
+silently trains a partial or dead network. This bites hardest exactly
+where the program deliberately makes early gradients small:
+zero-initialized heads and soft-start gates. The public docstring is
+also false on MPS (~1560: "run the forward in bfloat16 autocast").
+CUDA bfloat16 and use_amp False are not implicated.
+
+Contract (Implementer): float16 AMP and bfloat16 AMP are DIFFERENT
+numerical protocols. On MPS float16, use a supported gradient-scaling
+path; if the pinned torch cannot provide a correct MPS scaler, REJECT
+use_amp true on MPS before training with a teaching error — never a
+silent unscaled float16 backward. The canonical step order extends
+unit 24's 45M-29 order: scale loss -> backward -> unscale optimizer
+gradients -> finite-gradient contract (unit 14 — a nonfinite UNSCALED
+gradient raises before any mutation) -> clip UNSCALED gradients ->
+optimizer step -> anchor -> EMA; scaled gradients are never clipped;
+a scaler-skipped step advances neither anchor nor EMA. The resolved
+AMP dtype and scaler policy are persisted (unit 41's record), not
+only use_amp true. Documentation corrected to name float16-on-MPS /
+bfloat16-on-CUDA-CPU. use_amp False and CUDA bfloat16 byte-identical.
+Gate legs: the MPS acceptance (tiny-gradient model — the repaired
+scaled path moves the weight while the old unscaled mutation shows an
+exact-zero gradient/update; full-precision control moves it) runs on
+Apple hardware — the Mac dev box's torch environment; if the pinned
+torch lacks MPS scaling, the gate instead expects the early teaching
+error, which is testable anywhere by device-type faking. CUDA
+workstation legs prove the shared ordering: bfloat16 never enters a
+float16-scaler-only branch; clipping observes the unscaled norm;
+nonfinite unscaled gradient raises before optimizer/anchor/EMA; a
+skipped step advances neither; resolved metadata names device,
+autocast dtype, scaler policy.

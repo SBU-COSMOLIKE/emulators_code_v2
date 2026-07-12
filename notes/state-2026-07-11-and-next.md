@@ -1011,6 +1011,21 @@ files were created. Priority follows user-visible risk:
     in every regime, reported and recorded; docstring corrected.
     Spec: training-stack.md, "VRAM chunk boundaries silently change
     the rows used per epoch".
+51. **MPS float16 AMP scaling** (45M-39, 2026-07-12; HIGH on the
+    Apple/MPS dev path, CUDA bfloat16 unaffected). MPS autocast
+    selects float16 (~1702) with a plain backward/step and ZERO
+    scaler code repo-wide (untruncated grep) — small gradients
+    underflow to exact zero, silently training partial/dead networks
+    exactly where zero-init heads and soft-start gates make early
+    gradients small; the docstring falsely says bfloat16 (~1560).
+    Scaler-or-refuse on MPS; canonical order scale -> backward ->
+    unscale -> finite contract -> clip unscaled -> step -> anchor ->
+    EMA (extends the 45M-29 order; interlocks units 14/24/41);
+    skipped steps advance nothing; resolved dtype + policy
+    persisted; docs corrected. MPS acceptance leg on Apple hardware
+    (or the teaching-error branch, testable anywhere); CUDA legs
+    prove the shared ordering. Spec: training-stack.md, "MPS float16
+    AMP has no gradient scaling".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches
