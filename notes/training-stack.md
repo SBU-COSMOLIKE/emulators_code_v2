@@ -453,6 +453,25 @@ unchanged. Natural bundle: this unit + "Schedule validation" +
 cluster the Implementer takes as consecutive units (shared
 validator plumbing, one gate suite).
 
+**Root-level clause (seventh wave, Architect-VERIFIED, folded into
+this unit per the red team's own sequencing):** from_config requires
+data/train_args and strictly validates data, but never whitelists the
+ROOT mapping — every optional feature is a cfg.get() read (verified:
+experiment.py ~589/721/736/1239), so `pcee:` or `transferr:` is
+accepted as inert extra data and the run silently trains a PLAIN
+emulator while the user believes the base/transfer science is on.
+The root-level analogue of the `clipp` defect. Addition to the
+contract: validate the training-config root BEFORE resolving any
+feature — the exact allowed set for the invoked driver (data,
+train_args, plus the explicitly supported pce, transfer, and the
+driver-owned sweep block where applicable); driver-only blocks are
+validated/removed by their driver, never tolerated everywhere; the
+error names the unknown key and the nearest valid spellings. Red
+legs: pcee / transferr / an arbitrary extra root key fail before
+staging; valid PCE, transfer, and sweep configs pass through their
+owners; feature-on startup banners/artifact records provably differ
+from feature-off after a misspelling.
+
 ## Where the deltas live (IDs preserved for git archaeology)
 
 D-B1 (deleted by the loss-block nesting — the structural fix beat the

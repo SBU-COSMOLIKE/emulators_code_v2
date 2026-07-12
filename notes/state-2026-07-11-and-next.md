@@ -404,13 +404,19 @@ files were created. Priority follows user-visible risk:
     whitelist validates names, not values ({"clip": NaN},
     {"rewind": "false"} pass); `if clip > 0.0` silently disables
     clipping on NaN/negatives; a quoted "false" enables rewind;
-    bs/nepochs totality still unguarded. Spec: training-stack.md,
-    "Run-control schema totality" — bundles with units 18 + 20 as
-    one train_args-totality cluster.
+    bs/nepochs totality still unguarded. EXTENDED (seventh wave,
+    folded in per the red team's sequencing): the config ROOT is
+    also unwhitelisted — pcee:/transferr: typos are inert extra
+    data and the run silently trains a plain emulator (all feature
+    reads are cfg.get(): experiment.py ~589/721/736/1239). Spec:
+    training-stack.md, "Run-control schema totality" (including
+    the root-level clause) — bundles with units 18 + 20 as one
+    train_args-totality cluster.
     VERIFIED (Fable, 2026-07-12): validate_phase_block ~492-522
     (eight-key whitelist, structural checks only), loop ~1977
     (clip > 0.0), ~1866 (if rewind:), signature defaults
-    ~1513-1514.
+    ~1513-1514; root reads all cfg.get(), no root whitelist
+    anywhere in experiment.py.
     VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
     designs/plain 6, designs/blocks 1, losses/core 1,
