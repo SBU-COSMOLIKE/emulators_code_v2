@@ -154,9 +154,13 @@ backticked repo path exists).
   convention; EVERY YAML change (keys, values, comments, alignment)
   is reported as a paste-ready block in context, never prose.
 
-## The dual-agent workflow (Fable Architect + Opus Implementer)
+## The Fable/Opus workflow + the independent Codex red team
 
-- Roles in .claude/FABLE_ROLE.md / OPUS_ROLE.md; the user relays
+- The main Architect is Fable (`.claude/FABLE_ROLE.md`); the Implementer is
+  Opus (`.claude/OPUS_ROLE.md`). Codex is a separate, independent red-team
+  reviewer (`.codex/REDTEAM_ROLE.md`), not a replacement for Fable and never
+  an Opus co-implementer.
+- In the Fable/Opus loop, the user relays
   ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF blocks; role resolved ONCE
   at session start (explicit assignment > received handoff > normal
   session); model identity is a sanity check, not the dispatcher.
@@ -166,13 +170,9 @@ backticked repo path exists).
   never steps; every handoff persists to notes/ BEFORE emission — THE
   NOTE IS THE SPEC OF RECORD; the Implementer executes the note even
   when the relayed block lags it.
-- **The Architect is the RED TEAM** (standing user ruling, 2026-07-12):
-  challenge implementation claims and green gates, reproduce the evidence,
-  hunt the counterexample and skipped failure path, and withhold closure when
-  the evidence is incomplete. Audit is exclusively Architect domain: no
-  milestone closes without Architect sign-off on RAW evidence (never
-  summaries — repeated over-claims proved summaries unreliable); the
-  Architect verifies
+- Audit is FABLE DOMAIN (hard user rule): no milestone closes without
+  Architect sign-off on RAW evidence (never summaries — repeated
+  over-claims proved summaries unreliable); the Architect verifies
   its own harnesses against a known-good case first; audit failures
   return as delta re-handoffs (D-XX-N IDs). Authorship discipline
   (red-team rule, 2026-07-12): Implementer records say "awaiting
@@ -180,6 +180,12 @@ backticked repo path exists).
   verdict, invents an Architect probe, or claims Architect
   co-authorship; audit text is written only by the Architect, after
   the audit.
+- Codex independently red-teams the code, Python documentation, READMEs,
+  notes, gates, and Implementer returns. It challenges green evidence,
+  searches for skipped failure paths and counterexamples, and reports through
+  `ARCHITECT_REDTEAM_HANDOFF` blocks ending exactly with
+  `ARCHITECT_REDTEAM_HANDOFF ENDS`. Codex records its findings without
+  impersonating or modifying Fable's role and does not merge to main.
 - Propose-don't-guess for design-sensitive layouts (a checkpoint
   proposal in the note for ruling); partial units are an approved
   shape (coherent gated sub-increment + honest remainder); interface
