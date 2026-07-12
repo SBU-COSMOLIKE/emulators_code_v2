@@ -34,9 +34,11 @@ TRUST ONLY it.
   class's from_state; a missing marker is a loud KeyError naming a
   re-save, never a base-class fallback. The file records WHAT it is,
   not just its numbers.
-- `rebuild_emulator(path_root, device)` (results.py): h5-only; v1
-  files refused loudly; returns (model, pgeom, geom, info) with info
-  carrying ia / pce / transfer / family facts.
+- `rebuild_emulator(path_root, device)` (results.py): h5-driven recipe
+  plus the paired `.emul` weights; v1 files refused loudly; returns
+  (model, pgeom, geom, info) with info carrying ia / pce / transfer /
+  family facts. "H5-only" in older prose meant "no code defaults or
+  external training files", not that the weights file was optional.
 - Head artifacts rebuild from files alone (2026-07-11): the family
   geometries re-derive their split (attach_head_coords, inside
   _rebuild_model); the cosmolike DataVectorGeometry PERSISTS it —
@@ -61,6 +63,51 @@ TRUST ONLY it.
   flat paths now die loudly (ModuleNotFoundError naming the path), the
   geo-paths gate pins new-save markers + dead old paths + a tree
   census. Fresh saves write folder paths via type().__module__.
+
+## Red-team artifact-integrity gaps (verified 2026-07-12, open)
+
+The resolved-recipe contract is strong, but the two physical files are
+not yet one authenticated commit:
+
+- `save_emulator` writes `<root>.emul` directly first, then opens
+  `<root>.h5` directly with mode `"w"`. A history-stack, YAML, h5, disk,
+  or process failure after the first write can therefore leave new
+  weights beside an old, truncated, or absent record. There are no
+  temporary-file commits, shared artifact id, or weights digest.
+- `rebuild_emulator` validates state-dict keys and shapes only. Swapping
+  two same-architecture `.emul` files loads strictly and silently uses
+  the wrong weights with the surviving geometry/config. This falsifies
+  any claim that a path-root pair is self-authenticating.
+- Required contract: finish both temporary files before publishing;
+  make the h5 the commit record for the exact weights bytes (SHA-256 +
+  shared artifact id); validate that binding before `torch.load`; load
+  state dicts with `weights_only=True`; and make any interrupted
+  two-file publication loud rather than a mixed silent success. A
+  normal Python exception before publication must leave the previous
+  good pair untouched.
+- Required gates: (1) swap same-shaped `.emul` files between two valid
+  artifacts and require a pre-load digest failure; (2) inject an h5
+  write failure after the weights temporary file exists and prove the
+  old pair still rebuilds; (3) interrupt between the two final renames
+  and prove the root is rejected as an incomplete commit, never loaded
+  as a hybrid.
+
+The save docstring is also incomplete: its `Arguments:` block stops at
+`attrs` and omits `pce`, `pce_form`, `resolved_train`, `resolved_model`,
+and `transfer_base`. The read-side `Raises:` block does not name a
+missing/mismatched weights binding because none exists yet.
+
+MPS artifacts have a second provenance gap. A grid2d h5 persists the
+law name and a best-effort repository commit, but inference recomputes
+the analytic Syren base from the currently checked-out source without
+verifying that it is the formula used to generate the training base
+dump. Vendoring prevents a package-manager upgrade from changing the
+formula; it does not prevent a later repository edit from changing an
+old artifact's prediction. A Syren-law artifact must persist a stable
+formula digest/version and the MPS adapter must reject a mismatch before
+serving. The gate changes one formula-source byte (or its declared test
+digest) and proves an old artifact dies loudly; law `none` remains
+unaffected.
 
 ## Inference: EmulatorPredictor + the five cobaya adapters
 

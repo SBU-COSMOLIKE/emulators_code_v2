@@ -145,7 +145,11 @@ pair: the `.emul` holds the best-epoch weights, and the `.h5` carries both
 whitening geometries, the per-epoch histories, and the fully-resolved config
 (schema v2) — so a saved emulator rebuilds bit-exactly even if code defaults
 later change (`rebuild_emulator` in `emulator/results.py` reads the file
-alone).
+instead of current defaults). Known integrity gap (fix queued): the `.h5`
+does not yet carry a digest of its `.emul`, and saving the pair is not a
+two-file transaction. Do not mix files from different path roots or overwrite
+a trusted artifact in place until the binding lands; the exact contract is in
+`notes/artifacts-inference-warmstart.md`.
 
 ### Run the saved emulator in a Cobaya MCMC
 
@@ -399,6 +403,10 @@ the sharing arithmetic live in `scheduling.py`
 **Parallel Optuna (`cosmic_shear_tune_emulator.py --n-gpus N`)** shares a single study through a
 journal file (`--journal`): the parent enqueues the warm-start, `--n-trials`
 splits across workers, and reusing the journal resumes it (serial on 1 GPU/MPS).
+Known accounting gap (fix queued): the parent does not yet check worker exit
+codes and can report an old completed trial after every current worker fails;
+treat the worker logs and the number of new completed trials as part of the
+verdict. See `notes/training-stack.md`.
 
 ### The drivers, family by family <a name="drivers-table"></a>
 
@@ -431,6 +439,12 @@ engine. Tune and sweep wrappers are thin for all four families.
 | cosmic_shear_bakeoff_activation_emulator.py | cosmic shear | activation bake-off learning curves |
 | cosmic_shear_sweep_hyperparam_emulator.py | cosmic shear | one-axis hyperparameter sweeps, multi-GPU |
 | {scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py | each family | thin wrappers over the cosmic-shear driver: same one-knob sweep, multi-GPU + `--gpu-pack` |
+
+Known learning-curve gap (fix queued): the scalar/CMB/background/MPS
+`*_sweep_ntrain_emulator.py` wrappers currently call a pool counter that indexes
+`omegabh2_hi` even when their documented optional `param_cuts` block is absent,
+so the shipped no-cut examples can fail before the first point. See
+`notes/data-generation-and-cuts.md`.
 
 The four cosmic-shear drivers still carry their original names; renaming
 them into the namespace is a recorded polish item that lands after the
@@ -506,6 +520,13 @@ holds fewer rows the run raises rather than training on less than you asked.
 may fill before it streams from the disk memmap instead. Where these dumps
 come from — how the training parameters are sampled, whitened, and named — is
 [section 18](#18-generating-the-training-set).
+
+Known naming gap (fix queued): the generator writes `X.1.txt` beside
+`X.paramnames`, while the ordinary data-vector loader currently looks only for
+`X.1.paramnames`; on that standard name it skips the parameter-order
+cross-check. Keep each params/covmat/dv set together and verify its sidecar
+manually until the shared resolver lands. See
+`notes/data-generation-and-cuts.md`.
 
 ```
 dv/params dump ─▶ seeded shuffle ─▶ param_cuts ─▶ first n_train (+ n_val)
@@ -2099,6 +2120,20 @@ signal under any law — the geometry pins them (the served value is
 exactly the training constant: the analytic base under a syren law,
 the constant itself under law `none`) instead of failing on an
 unlearnable column, and reports how many it pinned at startup.
+
+Known production blocker (fix queued): the current grid2d staging path
+materializes the selected raw and Syren-base matrices in float64 before it
+applies `k_stride`, and therefore does not honor the documented memmap /
+`ram_frac` ladder. The shipped 50,000-row, 122 x 2,000 setup can require well
+over 180 GiB during this step. Do not start the production MPS trainings until
+the bounded, column-first staging gate lands; see
+`notes/data-generation-and-cuts.md`.
+
+The optional PCE block is currently a smoke-scale/research path on this
+family: it materializes the full thinned target on the GPU and performs a dense
+float64 SVD on the CPU. The documented 50,000-row grid exceeds the 12 GiB test
+cards before SVD workspace, so production MPS PCE needs a separate scalable
+low-rank-fit design; the bounded-staging fix does not claim to solve it.
 
 ```yaml
 data:

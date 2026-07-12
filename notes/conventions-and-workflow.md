@@ -56,6 +56,34 @@ with the LSST-Y1 concrete example. Enumeration rot is a named defect
 change). Doc-only passes are PROVEN by the AST-minus-docstrings hash
 census, never asserted.
 
+Red-team documentation census at HEAD 32f7545 (2026-07-12): 92 Python
+files; 6 lack a module docstring, 175 function/method definitions lack
+a docstring, and 6 small gate-stub classes lack one. Those raw numbers
+include the deliberately verbatim lensing generator, the vendored
+Syren files, nested callbacks, and test doubles, so they are a census,
+not permission for a 175-block context dump. The actionable first
+slice is:
+
+- add concise module contracts to the three new generator siblings
+  (CMB, background, MPS); keep the verbatim lensing and vendored Syren
+  exceptions explicitly recorded rather than silently normalized;
+- document public/runtime boundaries first, including the five missing
+  `save_emulator` arguments and every multiprocessing callback contract;
+- keep trivial private callbacks/test doubles to one-line purpose
+  docstrings where formal blocks would repeat the signature; a useful
+  small contract beats bulk prose that hides the code;
+- remove the six remaining unambiguous internal-ledger leaks from
+  Python prose: `emulator/geometries/__init__.py` and
+  `gates/checks/geo_paths.py` say "GEO unit";
+  `emulator/losses/cmb.py` says "CME resume" and exposes "CME registry"
+  in a user error; the scalar/transfer identity checks retain "FTW" in
+  comments. Replace each with the plain-language fact and note-file
+  pointer where a pointer is useful.
+
+The documentation cleanup is a separate doc-only commit. Prove it with
+the AST-minus-docstrings hash, rerun the exact internal-code scan, and
+report the new census; do not mix it into a numerical or lifecycle fix.
+
 **Internal tracking codes stay in notes/ (user ruling 2026-07-12).**
 The design-decision codes (D-CM9, D-MP2-A, TPE-2, MPS-DIAG, board
 ledger keys like GB-C...) are Architect bookkeeping — the user hit

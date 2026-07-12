@@ -12,8 +12,9 @@ the topic file your task touches.
 - [State + what comes next](state-2026-07-11-and-next.md) — first
   full 32/32 green at run 9; current standing run 11 at 30/32 (one
   red fixed awaiting rerun, one open); the redistribution map to the
-  topic notes; the queue: the two-red rerun -> the five artifacts
-  -> EMUL2 -> the D-CM12 audit -> science.
+  topic notes; plus the verified static-audit queue headed by bounded
+  production grid2d staging, dataset/artifact identity, and parallel
+  worker truth before the five artifacts -> EMUL2 -> science.
 - [Project + history](project-and-history.md) — the goal, the
   development arc by phase, the family-pattern recipe (what a new
   output family adds), the program-level lessons.

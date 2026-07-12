@@ -158,6 +158,47 @@ and copying the float pattern into compiled-side schedules.
   build_loaders train-then-val VRAM fix). Finish resource accounting
   in BOTH directions — "it's conservative" must not close an analysis.
 
+### Red-team resource and process gaps (verified 2026-07-12, open)
+
+- The loader planner still calls `build_loaders` without the live
+  output width, leaving `dv_len=3000`. The same number estimates a
+  dense float64 Cinv and per-batch chi2 scratch even for diagonal
+  families that own no dense Cinv. This is neither a safe upper bound
+  nor the right family model: a legal grid2d run can be 122 x 2,000
+  outputs before thinning. Resource accounting must use the actual
+  geometry/loss buffers, output width, target width (including PCE /
+  transfer packed targets), and dtypes. Gates cover one cosmolike
+  dense-Cinv loss and one wide diagonal grid2d loss and require the
+  estimate not to understate measured peak allocation beyond a stated
+  tolerance.
+- Parallel Optuna joins workers but never reads `Process.exitcode`.
+  After reloading a persistent journal it asks only whether any trial
+  in the entire study is COMPLETE. Therefore a journal with one old
+  success can report "search complete" and the old best when every
+  worker in the current invocation crashes; partial worker loss also
+  silently reduces the requested budget. Record the before/after trial
+  set, inspect every worker exit, and distinguish a deliberately
+  timeout-limited run from a failed current budget. The red gate seeds
+  one old COMPLETE trial, crashes every current worker, and requires a
+  nonzero parent exit.
+- `run_gpu_pool` has no enclosing cleanup on its early error paths. A
+  setup-failure marker can make the parent raise while other spawned
+  GPU processes keep running. Token counts, lane counts, and required
+  callbacks are not validated before spawning; a token count above
+  `GPU_TOKENS` can leave a live worker blocked forever, defeating the
+  liveness check. Validate the complete plan first; terminate/join all
+  children and close queues in `finally`; inspect exit codes after the
+  drain; and add an overall progress watchdog rather than treating
+  "one process is alive" as proof of progress.
+
+The table writers have a smaller truth leak: `save_sweep_table` uses
+`zip(values, fracs)`, so unequal inputs silently truncate; the
+categorical branch can also emit more fraction rows than labels.
+`save_learning_curves` fails incidentally by indexing only when a curve
+is short. Both public writers should validate all column lengths before
+opening the destination, so an existing result file is not replaced by
+a partial/mislabeled table.
+
 ## The loud no-alias migration pattern
 
 Every schema break raises a ValueError whose body IS a paste-ready
