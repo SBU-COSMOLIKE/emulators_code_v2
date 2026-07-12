@@ -128,7 +128,9 @@ by the Architect (2026-07-12) — every audit claim reproduced; the
 evidence line under each unit is the anchor a spec starts from:
 
 1. D-CM11-A, the eq-6 normalization (spec of record:
-   families-scalar-cmb.md "D-CM11-A") — HANDED OFF 2026-07-12.
+   families-scalar-cmb.md "D-CM11-A") — IMPLEMENTED (Opus) and
+   Architect-audited ACCEPTED 2026-07-12 (the audit record sits under
+   the resume in the family note); closes on the workstation pass.
 2. Dataset readiness + MPS sigma8. VERIFIED: run_generator ends
    MPI.Finalize(); exit(0) unconditionally (generator_core.py tail)
    while per-sample failures zero the dv row and mark the failfile;
