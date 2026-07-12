@@ -467,10 +467,15 @@ files were created. Priority follows user-visible risk:
     (Architect probe 3.9659 vs red-team probe 4.1279 vs true 4.0 on
     the 1-ULP fixture) and able to false-pin varying columns; the
     revision replaces it with per-chunk mean/M2 Chan/Welford in
-    float64 + red legs that FAIL the s1/s2 form. The from_stats
-    scope deviation is CONFIRMED in scope; the folded-in
-    transfer-fixture fix is ACCEPTED verbatim; the human-facing
-    "oracle" prose rider joins the revision. Full verdict:
+    float64 + red legs that FAIL the s1/s2 form. AMENDED at the
+    codex merge with the red team's float32-payload clause (binding):
+    the accumulator is fed the exact float32 rows written to the
+    result, promoted to float64 — never the pre-cast float64 chunk —
+    and the gate reference is the former materialized-float32 path.
+    The from_stats scope deviation is CONFIRMED in scope; the
+    folded-in transfer-fixture fix is ACCEPTED verbatim; the
+    human-facing "oracle" prose rider joins the revision. Full
+    verdict + adjudicated amendment:
     data-generation-and-cuts.md, "Bounded-staging Architect audit".
     VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
@@ -479,6 +484,48 @@ files were created. Priority follows user-visible risk:
     user-data guards. The red team concurs (2026-07-12): seventeen was
     a counting error on their side; eighteen stands at 4f4dab3 and at
     the reviewed HEAD.
+
+### Continued red-team findings — ADJUDICATED (Fable, at the merge)
+
+Every item below is verified and placed; none opens a new queue
+number: sweep completion truth MERGED with unit 10 (one
+sweep-worker-truth unit; anchors spot-confirmed); generator
+finiteness FOLDED into unit 17 (the ingress validator's finiteness
+extension; int()/bool() coercion + the isinf(NaN) prior hole both
+confirmed); nested path + validation axes were ALREADY units 25 + 26
+(same findings, adjudicated from the direct handoffs before this
+recording merged); the bounded-grid2d amendment is BINDING on the
+in-flight revision (both halves — the cancellation was independently
+confirmed, the float32-payload clause is new and accepted); the
+terminology cleanup rides the same revision as its prose rider. The
+red-team index below stands as their record.
+
+These are evidenced contracts, not numbered/accepted queue units yet;
+their detailed specs are in the existing topic notes (no new files):
+
+- **Sweep completion truth** (`training-stack.md`): serial and parallel
+  turn identical point failures into different final outcomes; NaN rows
+  can be published as a normal successful sweep.
+- **Generator scalar/grid finiteness** (`data-generation-and-cuts.md`):
+  lossy int/bool coercions change requested grids and switches; NaN
+  extrapolation and NaN prior results evade comparison-only guards.
+- **Nested path + validation-axis identity**
+  (`data-generation-and-cuts.md`): Cocoa resolves primary dumps but not
+  family covariance/grid/base sidecars; validation axes are inferred
+  from training axes and same-width swaps are undetectable.
+- **Bounded-grid2d amendment** (`data-generation-and-cuts.md`): the
+  in-flight memory fix must use stable Chan/Welford moments over the
+  exact stored float32 rows; its reviewed sum/sum-of-squares draft can
+  mis-scale or falsely pin a varying column.
+- **Gate terminology cleanup**: human-facing board/check comments,
+  docstrings, maps, and report labels say "independent known-answer
+  calculation/check"; only existing identifiers may retain `oracle`.
+
+Role/sequencing: Fable decides queue numbers and priority. The grid2d
+numeric amendment is blocking feedback on the already in-flight unit,
+not a later cleanup. The other findings should fold into the existing
+train-argument, generator-ingress/file-set, and documentation contracts
+where their roots already live.
 
 ## Standing constraints that gate future work
 
