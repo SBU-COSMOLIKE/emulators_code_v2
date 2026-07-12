@@ -88,6 +88,37 @@ set" — the four-generator table + the shared-core walkthrough).
 
 ## Red-team staging gaps (verified 2026-07-12, open)
 
+### A checkpoint is not yet one committed dataset
+
+The checkpoint census and publication order do not describe one atomic
+generation of the dataset:
+
+- `__load_chk` requires the parameter chain, ranges, covmat, fail file,
+  and the family's data-vector members, but omits `.paramnames` and the
+  background/MPS grid sidecars. A resumed MPS or background job can thus
+  accept a checkpoint whose axis files are missing or stale; the trainer
+  later reads those files as the column coordinates.
+- Multi-member families replace/flush each `.npy` independently. Append
+  first extends the parameter text, then the fail file, then each data
+  member in sequence. A process death can expose a mixture of old and new
+  generations; row counts catch some interruptions but same-shaped stale
+  members and old sidecars remain admissible.
+- Most seriously, `__run_mcmc` catches ANY checkpoint-load exception,
+  prints it, sets `loadedfromchk = False`, and continues down the fresh-run
+  path using the SAME output roots. With `--loadchk 1 --append 1`, a
+  partial append or missing member can therefore turn an intended resume
+  into a from-scratch replacement of the old chain and dump set.
+
+Required contract: a manifest binds every member (params, paramnames,
+ranges, covmat, fail flags, all quantity arrays, every axis sidecar) to a
+shared dataset id, config/order digest, dimensions, and per-file digest.
+Publish a new manifest last after all temporary members are durable; load
+only the manifest's exact generation. A requested load/append that cannot
+validate must stop nonzero without modifying the prior files. Gates inject
+failure after each append/publication boundary, remove or swap an axis
+sidecar, permute same-width parameter order, and prove both loud refusal
+and survival of the previous good generation.
+
 ### The ordinary `.1.txt` naming check is bypassed
 
 The generator writes `X.1.txt` and `X.paramnames`. Ordinary
@@ -141,7 +172,8 @@ Add this as a leg of `mps-identity`, not a new board item: a synthetic
 122 x 2,000 grid with stride 10, a deliberately tiny memory budget, and
 guarded memmap reads must prove that every read is row-chunked and
 column-thinned, the result has 122 x 201 columns, its values/mean equal
-a small direct oracle, and the low-RAM result remains disk-backed. The
+a small direct known-answer calculation, and the low-RAM result remains
+disk-backed. The
 test must fail on the current whole-selection implementation.
 
 This unit closes ordinary grid2d training, fine-tuning, and frozen-base
@@ -152,7 +184,7 @@ production shape the target alone is about 4.568 GiB float32 / 9.135 GiB
 float64, before SVD workspace, and cannot fit the 12 GiB test cards.
 The identity gate proves only smoke-scale algebra. Do not claim
 production-sized MPS PCE until a separate streamed/randomized low-rank
-fit contract and accuracy oracle are designed; do not smuggle that
+fit contract and accuracy calculation are designed; do not smuggle that
 research change into the bounded-staging unit.
 
 ### File names and row counts do not prove dataset identity

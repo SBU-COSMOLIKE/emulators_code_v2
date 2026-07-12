@@ -190,6 +190,18 @@ and copying the float pattern into compiled-side schedules.
   children and close queues in `finally`; inspect exit codes after the
   drain; and add an overall progress watchdog rather than treating
   "one process is alive" as proof of progress.
+- The activation bake-off has a separate, older multiprocessing loop and
+  does not use `run_gpu_pool`. Its worker catches only failures inside the
+  individual `exp.train` call. A failure during device selection,
+  `EmulatorExperiment.from_config`, validation/train staging, or geometry
+  construction exits the worker without putting the fixed number of result
+  tuples the parent expects. The parent performs blocking `result_q.get()`
+  calls with no timeout or liveness check before it joins or inspects a
+  child, so one setup failure hangs the command permanently. Give every
+  worker a top-level failure envelope, drain with bounded waits plus child
+  liveness/exit-code checks, and terminate/join siblings in `finally`. The
+  red gate raises in `stage_val` in one worker and requires a prompt nonzero
+  parent exit with every child reaped and no result file published.
 
 The table writers have a smaller truth leak: `save_sweep_table` uses
 `zip(values, fracs)`, so unequal inputs silently truncate; the
@@ -198,6 +210,57 @@ categorical branch can also emit more fraction rows than labels.
 is short. Both public writers should validate all column lengths before
 opening the destination, so an existing result file is not replaced by
 a partial/mislabeled table.
+
+### The validation loader computes a safe chunk and then ignores it
+
+`build_loaders` independently sizes train and validation and stores
+`data["val"]["load"]`, correctly using the reduced budget after resident
+training tensors. `training_loop_batched` reads only
+`data["train"]["load"]` and passes that number to every `eval_val` call,
+including the epoch-0 baseline; the validation chunk is otherwise dead.
+When train fits resident but validation falls to RAM/disk streaming, eval
+can therefore request more rows than the validation sizing proved safe
+and OOM despite the memory ladder. `derive_eval_bs` is also capped against
+the wrong chunk. The gate must force different train/val regimes and safe
+chunk sizes, record loader request sizes, and prove validation never
+exceeds its own `load` while all rows are still scored.
+
+The same boundary needs basic totality guards. A configured batch size
+larger than the staged training set makes every ragged chunk drop all its
+rows, leaves `run_n == 0`, and divides by zero after doing no optimizer
+step. Reject `bs > n_train` (and non-positive `bs`/`nepochs`) before model
+or loader setup, with a sweep leg at the smallest N.
+
+### The generic diagnostics are not wide-output safe
+
+The optional diagnostic runs the local-linear floor before the grid2d
+family pages whenever the loss is not parameter-aware. That calculation
+materializes all train/val targets on the accelerator and then constructs
+`Yn = Ttr[nbr]`, shape approximately
+`N_val x k_nn x output_width`. At the production thinned MPS width
+(122 x 201 = 24,522) and the default 40 neighbours, this is tens of
+gigabytes even before the batched least-squares solution. A normal
+Syren-law MPS loss is not parameter-aware, so `mps_train_emulator.py
+--diagnostic ...` takes this path and cannot deliver the promised PDF at
+production scale.
+
+`eval_source_chi2` likewise moves the complete validation target to the
+accelerator, and `grid2d_residual_diagnostic` retains full float64 truth,
+prediction, and residual matrices on the host. These are cold paths but
+still part of the public production command. Make the chi2 scoring
+streaming; define a bounded wide-output floor (coordinate chunks, a fixed
+validation subsample, or an explicit family-specific skip with truthful
+PDF text); and compute grid2d bands without three simultaneous full-width
+float64 copies. Acceptance sets a deliberately small memory ceiling on a
+wide synthetic shape and requires the diagnostic artifact to finish.
+
+The same diagnostic pair is not total on small datasets. `coverage_diagnostic`
+accepts any `k_nn` even when it exceeds the number of distinct training rows
+(the tree returns infinite sentinel neighbours), while `local_linear_floor`
+uses those sentinel indices to index a tensor and fails. Validate positive
+row counts and require enough distinct anchors for the requested fit
+(`k_nn > n_param + 1` and `k_nn <= n_train`), naming the effective counts;
+the small-data gate covers one row below each boundary.
 
 ## The loud no-alias migration pattern
 

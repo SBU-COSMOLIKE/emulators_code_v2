@@ -84,6 +84,20 @@ The documentation cleanup is a separate doc-only commit. Prove it with
 the AST-minus-docstrings hash, rerun the exact internal-code scan, and
 report the new census; do not mix it into a numerical or lifecycle fix.
 
+The same AST pass found runtime validation expressed as `assert` in 17
+places across `batching.py`, `designs/blocks.py`, `designs/plain.py`,
+`designs/ia.py`, `geometries/output.py`, `geometries/parameter.py`, and
+`losses/core.py`. These are not developer-only impossibilities: they guard
+user data widths and positivity, model dimensions/groups/kernel parity,
+required geometry metadata, and a probe/layout assumption. `python -O`
+removes every one and lets invalid state reach division, reshape, indexing,
+or model construction. The hardening unit replaces public/config/data
+guards with explicit typed exceptions before mutation or accelerator setup;
+an optimized-mode subprocess must reject the same negative fixtures with the
+same messages as ordinary Python. Keep true internal invariants as explicit
+exceptions too when continuing would produce scientific output rather than
+an immediate harmless crash.
+
 **Internal tracking codes stay in notes/ (user ruling 2026-07-12).**
 The design-decision codes (D-CM9, D-MP2-A, TPE-2, MPS-DIAG, board
 ledger keys like GB-C...) are Architect bookkeeping — the user hit

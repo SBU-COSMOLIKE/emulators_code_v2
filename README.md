@@ -140,6 +140,13 @@ python $D/cosmic_shear_train_emulator.py \
   --yaml cosmic_shear_train_emulator.yaml --diagnostic diagnostic
 ```
 
+For the production matter-power width, omit `--diagnostic` for now. The
+generic local-linear page expands one array as validation rows x 40 neighbours
+x output width before the matter-power pages run; at the shipped thinned grid
+this is tens of gigabytes. Training has a separate staging blocker described in
+section 17. The bounded diagnostic contract is in
+`notes/training-stack.md`.
+
 This writes the trained emulator under `--root/chains` as a `.emul` / `.h5`
 pair: the `.emul` holds the best-epoch weights, and the `.h5` carries both
 whitening geometries, the per-epoch histories, and the fully-resolved config
@@ -291,6 +298,13 @@ python $D/cosmic_shear_bakeoff_activation_emulator.py \
   --root projects/lsst_y1/ --fileroot emulators/training_scripts/ \
   --yaml cosmic_shear_train_emulator.yaml --out bakeoff
 ```
+
+The multi-GPU bake-off currently has a process-liveness gap: if a worker
+fails while selecting its device, loading/staging data, or building the
+geometry, the parent can wait forever for a result that worker never sends.
+Until the bounded failure contract in `notes/training-stack.md` lands, run it
+under an external job timeout and treat missing worker progress as a failed
+run; no output table from that invocation is an acceptance result.
 
 ### Packing runs on one big card
 
@@ -1898,14 +1912,13 @@ training consumes; the optional non-Gaussian lensing terms (eq 6) sit
 behind a flag, off by default. What you state in its YAML is the
 experiment: the noise level, the beam, the sky fraction.
 
-Known defect (2026-07-12, fix in progress): the optional non-Gaussian
-path currently mis-normalizes its output — it differentiates a
-fractional band amplitude but weights the result with the variance of
-C_L itself, so the dense lensing blocks are not a valid eq-6
-covariance. The Gaussian `sigma_*` outputs are unaffected and remain
-the production training input. Do not enable the flag for science
-until the normalization fix recorded in
-`notes/families-scalar-cmb.md` lands.
+The optional non-Gaussian normalization fix is now in the code and has
+passed an independent known-answer calculation on the Mac (maximum relative
+error about 8.1e-14). It is not closed for science yet: the shipped gate fixture
+still needs to distinguish raw lens-potential power from CAMB's scaled array,
+then the CMB identity/smoke gates must pass on the PyTorch/CAMB workstation.
+The Gaussian `sigma_*` path was structurally unchanged. Current evidence and
+the remaining command are in `notes/families-scalar-cmb.md`.
 
 ### The imposed amplitude law
 
@@ -2190,6 +2203,14 @@ sigma8 helper integrates k in 1/Mpc with a radius of 8 Mpc, not
 is unaffected. Do not request sigma8 from this adapter until the fix
 queued in `notes/state-2026-07-11-and-next.md` lands.
 
+There is also an open Cobaya-registration defect: this adapter currently
+advertises its products through Cobaya's input-support hook, and its Syren
+requirement always asks for `As` even when the artifact and shared reader use
+`As_1e9`. The shipped evaluate YAML hides the latter by defining both names.
+Do not treat the stubbed adapter identity check as the EMUL2 verdict; the real
+Cobaya dependency-resolution gate in `notes/artifacts-inference-warmstart.md`
+must land first.
+
 ---
 
 ## 18. Generating the training set
@@ -2277,7 +2298,12 @@ failfile — before pointing any trainer at a dump, inspect the failfile
 and require every flag to be zero, otherwise the zeroed rows train as
 if they were physics. Also pass only `0 < --boundary < 1`: a value
 outside that range is currently rewritten to 1 silently instead of
-rejected.
+rejected. A checkpoint is not yet one committed file set either: the
+resume census omits `.paramnames` and the background/MPS axis sidecars,
+multi-file append publishes members sequentially, and any load exception
+falls through to fresh generation on the same roots. Until the manifest fix
+lands, keep an external copy before `--append` and stop if checkpoint loading
+prints any exception; do not let that invocation continue as a replacement.
 
 **The output contract** (this is where every loop closes; `<T>` is the
 temperature, or `unifs` for a uniform run):
