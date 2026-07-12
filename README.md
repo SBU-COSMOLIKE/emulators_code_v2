@@ -402,15 +402,18 @@ splits across workers, and reusing the journal resumes it (serial on 1 GPU/MPS).
 
 ### The drivers, family by family <a name="drivers-table"></a>
 
-The driver namespace is `<verb>_<family>_emulator.py`. Every family trains
+The driver namespace is `<family>_<verb>_emulator.py`. Every family trains
 through the same config dispatch — the `data` block names the family
 (`data.outputs` -> scalar, `data.cmb` -> CMB, `data.grid` -> background,
 `data.grid2d` -> matter power; a cosmolike block -> cosmic shear) — so the
-per-family drivers differ only in their prog names and defaults.
+training stack is shared. The scalar train driver owns its own filename
+and provenance path (a scalar run has no data-vector file); the CMB,
+BAOSN, and MPS train drivers are thin wrappers over the cosmic-shear
+engine. Tune and sweep wrappers are thin for all four families.
 
 | Driver | Family | What it does |
 |---|---|---|
-| cosmic_shear_train_emulator.py | cosmic shear (any data-block family) | train one emulator from a YAML — the family comes from the data block; also the shared engine the three family train drivers wrap; `--diagnostic` writes the multipage PDF |
+| cosmic_shear_train_emulator.py | cosmic shear (cosmolike data vector) | train one cosmic-shear emulator from a YAML; also the shared engine the CMB/BAOSN/MPS train drivers wrap; use `scalar_train_emulator.py` for `data.outputs` (this driver's file naming reads `data.train_dv`, which a scalar config does not carry); `--diagnostic` writes the multipage PDF |
 | scalar_train_emulator.py | scalar | train one derived-parameter emulator; `--diagnostic` |
 | cmb_train_emulator.py | cmb | train one CMB-spectrum emulator (requires a data.cmb block, wrong-family YAMLs name the right driver); `--diagnostic` adds the CMB pages |
 | baosn_train_emulator.py | baosn | train one background emulator (requires data.grid); `--diagnostic` adds the redshift + derived-distance pages |
@@ -1874,6 +1877,15 @@ training consumes; the optional non-Gaussian lensing terms (eq 6) sit
 behind a flag, off by default. What you state in its YAML is the
 experiment: the noise level, the beam, the sky fraction.
 
+Known defect (2026-07-12, fix in progress): the optional non-Gaussian
+path currently mis-normalizes its output — it differentiates a
+fractional band amplitude but weights the result with the variance of
+C_L itself, so the dense lensing blocks are not a valid eq-6
+covariance. The Gaussian `sigma_*` outputs are unaffected and remain
+the production training input. Do not enable the flag for science
+until the normalization fix recorded in
+`notes/families-scalar-cmb.md` lands.
+
 ### The imposed amplitude law
 
 The primary CMB spectra scale almost exactly as A_s e^(-2 tau) (the
@@ -2132,8 +2144,16 @@ with all three theories; the ready-to-fill config ships as
 `cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml` (the legacy
 EXAMPLE_EMUL2_EVALUATE1.yaml pattern with the v2 adapters).
 Fine-tuning works per artifact (same quantity, law, and grids).
-Transfer learning is exclusive to the cosmolike and CMB data-vector
-families and is permanently out here. Gates: mps-identity / mps-smoke.
+Transfer learning is implemented here too: a grid2d correction composes
+with the frozen base in whitened space (`sum` is the recommended form);
+the joint refine stage remains cosmolike-only. Gates: mps-identity /
+mps-smoke.
+
+Known defect (2026-07-12, fix in progress): the adapter's derived
+sigma8 helper integrates k in 1/Mpc with a radius of 8 Mpc, not
+8/h Mpc, so the served sigma8 is really sigma(8 Mpc). P(k, z) serving
+is unaffected. Do not request sigma8 from this adapter until the fix
+queued in `notes/state-2026-07-11-and-next.md` lands.
 
 ---
 
@@ -2215,6 +2235,14 @@ cobaya model (CAMB + cosmolike, per the generator YAML). The run is
 checkpointed (`--freqchk` / `--loadchk` / `--append`): a failed evaluation is
 zeroed and flagged in the failfile, and recomputed by rerunning with
 `--loadchk 1`.
+
+Known gaps (2026-07-12, fixes in progress): the generator can exit 0
+while failure flags remain, and trainer staging does not read the
+failfile — before pointing any trainer at a dump, inspect the failfile
+and require every flag to be zero, otherwise the zeroed rows train as
+if they were physics. Also pass only `0 < --boundary < 1`: a value
+outside that range is currently rewritten to 1 silently instead of
+rejected.
 
 **The output contract** (this is where every loop closes; `<T>` is the
 temperature, or `unifs` for a uniform run):

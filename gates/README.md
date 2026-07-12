@@ -80,8 +80,14 @@ git -C $G/.. push
 The harness finds its own files from its location, so it can be run
 from any directory; `$ROOTDIR` is just the natural cocoa working spot.
 
-Preflight aborts before any GPU time on a stale git tip, a dirty tree, a
-missing cocoa import, or a missing data path, and prints the remedy.
+Preflight aborts before any GPU time on a stale git tip, a dirty watched
+tree, a missing cocoa import, or a missing data path, and prints the
+remedy. Known gaps (2026-07-12, fixes in progress): the dirty-tree watch
+covers `emulator/`, `gates/`, and the root drivers only — keep
+`compute_data_vectors/`, `cobaya_theory/`, and `syren/` clean yourself
+for now; and an unknown `--gate` / `--from` name warns but proceeds
+(exit 0 with no tests run), and a bad `--force-rerun` id is silently
+ignored — automation must validate ids against `--list`.
 Selectors: `--gate <name> [...]`, `--tier backlog|new-features|save-and-sample`,
 `--from <name>`, `--dry-run`. A rerun skips tests already marked PASS
 (`--force-rerun <name>` overrides for named gates; `--force-rerun-all`
@@ -119,7 +125,7 @@ resume map); a crash loses only the in-flight test.
 | scalar-identity | scalar save/rebuild/predict bitwise, ScalarGeometry state, auto-provides, the trunk-only head guard, every loud error leg, scalar finetune parity |
 | scalar-smoke | a real scalar train on the analytic omegamh2 fixture: collapse, off-center predict, the cobaya evaluate readback, the scalar diagnostics pages |
 | cmb-identity | the ruled sigma_l constants, the amplitude law both ways, save/rebuild bitwise, the roughness legs, CMB finetune parity, the ResTRF correction-head leg (identity basis, n_tokens, the head rebuild round-trip) |
-| cmb-smoke | the CMB pipeline end to end on real CAMB: generator, the covariance script, training with the relative collapse bar, the cobaya Cl lifecycle, the CMB pages |
+| cmb-smoke | the CMB pipeline end to end on real CAMB: generator, covariance-script execution and structure, training with the relative collapse bar, the cobaya Cl lifecycle, the CMB pages. It does not validate the non-Gaussian normalization — that oracle rides cmb-identity, landing with the covariance fix (notes/families-scalar-cmb.md) |
 | bsn-identity | the background pipeline vs closed-form flat LCDM, the log_offset law, the piecewise windows + the loud desert, save/rebuild bitwise, BSN finetune parity |
 | bsn-smoke | the BAOSN pipeline end to end vs CAMB's OWN background (truth available): generator + the stale-cache tripwire, two trainings, the cobaya getters within 2%, the grid pages |
 | mps-identity | grid2d geometry + the staging law + the constant-column pinning + emul_mps assembly math on stub bases + MPS finetune parity + the ResCNN correction-head leg |

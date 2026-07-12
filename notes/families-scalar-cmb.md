@@ -97,7 +97,9 @@ README sections 14 and 15.
   lens_lmax while CAMB demands Params.max_l length — fixed by taking
   the fiducial array whole from get_lens_potential_cls (which also
   stopped a silent delensing above lens_lmax); rerun pending
-  (gates-and-board.md run 11).
+  (gates-and-board.md run 11). The red-team static audit then caught
+  a normalization defect in the contraction itself — D-CM11-A below,
+  the next Implementer unit.
 - Generation: dataset_generator_cmb.py on the shared core — ONE CAMB
   pass writes four spectra files (never re-run Boltzmann per
   spectrum); phiphi FILLED (legacy zeroed it); get_Cl(ell_factor=
@@ -136,7 +138,70 @@ README sections 14 and 15.
   the fixture now mirrors example_yamls/cmb_covariance_lcdm.yaml
   exactly, and the lesson is recorded in conventions-and-workflow.md.
 
-## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented)
+## D-CM11-A — the eq-6 contraction is mis-normalized (red-team catch, 2026-07-12; THE NEXT IMPLEMENTER UNIT)
+
+- The defect (independently re-derived by the Architect from eq 6 and
+  the code — the red team is right): nongaussian_blocks perturbs a
+  band by a dimensionless FRACTIONAL amplitude (clpp *= 1 + eps), so
+  the stencil returns, at band_width 1,
+  D_lL = dC_l/dA_L = C^pp_L * (dC_l/dC^pp_L). Substituting into eq 6
+  cancels the C_L^2 inside Cov^pp_LL = 2 C_L^2/((2L+1) fsky):
+
+      N_ll' = sum_L  D_lL * [2/((2L+1) fsky)] * D_l'L
+
+  i.e. the correct weight is the Gaussian variance of the FRACTIONAL
+  amplitude, Var(A_L) = Var(C_L)/C_L^2 = 2/((2L+1) fsky). The shipped
+  code contracts with S_b = sum_L 2 C_L^2/((2L+1) fsky) — an extra
+  C_L^2 factor: wrong dimensions, wrong scale (tens of orders low at
+  CMB C^pp values). Convention-invariant: scaling the
+  [L(L+1)]^2/2pi-scaled array by (1+eps) scales raw C^pp by the same
+  factor, so A_L and the fix are the same in either convention.
+- Why every existing check missed it: the smoke leg proves symmetry /
+  PSD / off-diagonal liveness / stencil convergence — ALL invariant
+  under any positive diagonal reweighting — and the Mac probe
+  validated assemble_lensing_blocks against the Architect's own
+  D^T diag(S) D spec, i.e. against the same wrong algebra. Only an
+  oracle INDEPENDENT of the spec author's contraction can catch a
+  normalization error (lesson also in conventions-and-workflow.md).
+- Containment: the eq-6 path has NEVER completed a run (board run 11
+  crashed on the clpp length before writing output). No .npz with
+  cov_* blocks exists anywhere; training reads only sigma_<s>. Zero
+  science impact — a pre-first-light fix.
+- RULING (wide bands): band_width stays as the cost knob, as a
+  DOCUMENTED approximation with the projected weight
+
+      w_b = [sum_{L in b} 2 C_L^2/((2L+1) fsky)] / [sum_{L in b} C_L]^2
+
+  valid when dC_l/dC^pp_L is close to constant across the band (the
+  smooth-response assumption; at band_width 1 this degenerates to the
+  exact 2/((2L+1) fsky) — eq 6 verbatim). A band with
+  sum_{L in b} C_L = 0 contributes nothing (its fractional derivative
+  is identically zero): w_b = 0 with a comment, never a division.
+- Implementer contract: (1) contract deriv with w_b as above;
+  (2) the Gaussian outputs stay BITWISE (the fix touches only the NG
+  weights); (3) provenance gains the derivative coordinate
+  ("fractional_band_amplitude"), the band policy ("exact eq 6" at
+  width 1, "smooth-response band projection" wider), and the per-band
+  weights, persisted; (4) nothing produced by the old normalization
+  is ever labeled an eq-6 covariance (none exists; the provenance
+  keys are the forward guard).
+- The oracle gate (new legs in cmb-identity — torch-only, no CAMB): a
+  fake CAMBdata whose get_lensed_cls_with_spectrum is an AFFINE map,
+  lensed_s = base_s + M_s @ clpp (seeded fixed M per spectrum, tiny
+  lens_lmax ~ 12), so dC_l/dclpp_L = M_s[l, L] exactly and the
+  5-point stencil is exact to roundoff. Three legs: (a) TRUTH — eq 6
+  computed directly from M and Var(C_L), never through the pipeline's
+  contraction; the REAL nongaussian_blocks on the fake must match at
+  rtol ~1e-9; (b) DISCRIMINATION — the old extra-C_L^2 weights
+  applied to the same derivatives must miss that truth by orders of
+  magnitude (an oracle the old code passes is a defective oracle);
+  (c) BAND — band_width 3 with M built constant across each band must
+  match truth exactly (w_b proven on its domain of validity).
+  cmb-smoke leg 2b keeps the structural checks (symmetry, PSD,
+  liveness, convergence, the provenance study) on real CAMB, plus
+  asserts the new provenance keys.
+
+## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented; the PRODUCING side is BLOCKED ON D-CM11-A)
 
 Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.
 
