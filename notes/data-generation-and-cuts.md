@@ -1075,3 +1075,66 @@ never guessing from covariance width. Relation to 45M-27 (unit 26
 amendment) adopted as argued: validating the covariance's ell
 sequence is necessary but insufficient — the dump must declare and
 match its OWN sequence.
+
+## UNIT 56 (45M-48): generators mark non-finite science payloads successful
+
+Sixth 45M batch (2026-07-12), Architect-verified on HEAD. The shared
+generator validates SAMPLING inputs, but no common boundary
+validates the computed science payload before writing it and setting
+failed[i] = False. Joins the file-set/ingress campaign — cluster now
+8+17+25+26+28+33+56. Distinct from unit 17 (parameter/covariance/
+config ingress) and unit 33 (component-execution truth): this unit
+owns the payload boundary between the producer and the store. It is
+NOT a separate publication system.
+
+Verified chain: serial success path generator_core.py:908-921 sets
+failed[i] = False inside the try and calls _dv_write OUTSIDE it, so
+a broadcast-compatible wrong shape writes silently after the flag is
+already cleared; MPI main receive :990-999 and drain :1048-1057 both
+run kind != "err" -> blind _dv_write + failed = False. The default
+store write :588-590 assigns blindly, as do the family overrides
+(cmb :276-279, background :295-298, mps :333-336 — all per-quantity
+`store[i] = dvs[q]`, numpy-broadcastable). Only the allocator's
+FIRST payload receives family shape checks (cmb :247,
+background :266). Producers close nothing: lensing casts to float32
+with no finite check (dataset_generator_lensing.py:118-120); CMB
+fills four spectra unchecked; background casts h/dm unchecked; MPS
+checks only PRE-CAST pk_lin (dataset_generator_mps.py:390) — pk_nl,
+boost, and both syren bases are unchecked, and a finite float64 can
+overflow to Inf in the float32 cast AFTER the existing check.
+Untruncated grep: the only payload-side isfinite in
+compute_data_vectors/ is that mps :390 line.
+
+Reproduction (numpy, Mac): float64 source [1, NaN, Inf, 1e100]
+stores as float32 [1, nan, inf, inf] under the current success path
+with failed = False. The 1e100 element is finite before conversion
+and non-finite in the actual dump — validation must describe the
+STORED payload, not the producer's pre-cast result. A scalar payload
+broadcasts silently into a full row.
+
+Contract:
+
+1. One shared payload-validation boundary runs on the first payload
+   and every subsequent serial/MPI result BEFORE _dv_write and
+   BEFORE clearing the failure flag.
+2. Validation happens after conversion to the exact storage dtype.
+3. Exact family structure and shape: lensing one exact-width vector;
+   CMB exact (4, nell); background exact keys h and dm, each
+   matching its grid; MPS exact configured quantity keys, each
+   matching nz*nk.
+4. Every stored value finite. Legal signed quantities (CMB TE) are
+   preserved; positivity rules remain family-specific.
+5. MPS additionally requires finite, positive pk_lin, pk_nl, and
+   boost, plus finite configured syren bases.
+6. A bad payload follows the existing failed-row mechanism and can
+   never be marked successful or published as usable training data.
+   Final dataset closure (failed-row exclusion at staging + a
+   nonzero exit) remains the wave-1 dataset-readiness unit's
+   responsibility.
+
+Gate legs (CPU-only; no torch or GPU): finite control; second-row
+NaN and +-Inf; a finite float64 value overflowing to float32 Inf;
+a wrong but broadcast-compatible later-row shape; a missing and an
+extra mapping key; MPS finite pk_lin with NaN pk_nl or boost; a
+legal negative-TE control; and the serial and MPI-result handlers
+proven to invoke the IDENTICAL validator.

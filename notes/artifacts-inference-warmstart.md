@@ -772,3 +772,67 @@ remains accepted. The resolver/base probes are numpy-only
 (Mac-runnable); the adapter/generator integration legs use the
 torch-backed fixtures under gates/checks/, LISTED on the board,
 workstation-run.
+
+## UNIT 11 AMENDED (45M-49): the float32-resolution guard can itself store a zero divisor
+
+Sixth 45M batch (2026-07-12), Architect-verified and reproduced on
+Mac before placement. The un-standardizable-column guard is a
+float64 RELATIVE test, but the constructor stores float32: the guard
+can accept a column whose stored scale is exactly zero.
+
+Verified sites (current HEAD): ScalarGeometry.from_targets computes
+center/scale in float64 and refuses only on
+scale <= 8 * eps32 * |center| (scalar.py:145-146); the constructor
+then casts both to float32 unconditionally (scalar.py:85-90) while
+its own docstring promises a strictly positive scale.
+GridGeometry.from_targets repeats the sequence (grid.py:189-192).
+Grid2DGeometry.from_stats likewise (grid2d.py:196-197), and grid2d's
+const_mask is decided by the SAME float64 relative rule — a column
+that underflows on storage is not entered in const_mask, so it is
+neither pinned nor refused (grid2d.py:198-223): the stored scale is
+0.0 and the point is unusable.
+
+Reproduction (numpy, Mac): f = nextafter(float32(0), float32(1)) =
+1.401298464324817e-45, the smallest float32 subnormal — representable
+in the float32 dumps from_targets reads. targets [0, 0, f]: float64
+center 4.670995e-46, population std 6.605784e-46, guard threshold
+4.454608e-52 -> ACCEPTED; stored float32 center 0.0, stored float32
+scale 0.0; encode divides by exact zero (probe returns inf).
+targets [0, f, f]: accepted; stored center nonzero (f survives as
+the smallest subnormal) with stored scale 0.0 — the same zero
+divisor behind a nonzero center. The relative rule cannot see
+absolute underflow: both float64 moments sit below float32's
+subnormal floor while their ratio looks healthy.
+
+Contract (amends unit 11; the from_state read-side clause and both
+covariance sqrt mechanisms recorded above stand unchanged):
+
+1. Validate the values that will actually be STORED, never only the
+   pre-cast estimates: cast every produced center/scale pair through
+   the declared artifact/model dtype (float32 today) first.
+2. Require a finite stored center and a finite, STRICTLY POSITIVE
+   stored scale for every pair; refusal names the column or grid
+   coordinate exactly as the current errors do.
+3. Apply the relative-resolution rule IN that same storage
+   representation, so the two tests compose: absolute underflow and
+   relative collapse are both refused.
+4. Grid2d classifies a post-cast-zero scale as CONSTANT before the
+   partial-pin vs whole-surface-refusal decision — the pin and
+   dead-dump policies operate on stored-representation facts.
+5. The same representability rule applies to this unit's covariance
+   square-root scales (mechanisms (a) and (b) above): a positive
+   float64 eigenvalue is not sufficient if its stored float32 square
+   root is zero; refusal names the smallest stored scale.
+
+Red legs: scalar [0, 0, f] is refused before construction; scalar
+[0, f, f] is refused; one grid column with that payload is refused
+naming its coordinate; one grid2d column with that payload is pinned
+consistently while an all-such surface is refused as dead; an
+otherwise valid scale just above the stated stored-dtype boundary
+survives and round-trips (state -> from_state bitwise); a covariance
+eigen-scale that underflows on storage is refused naming the
+smallest stored scale. The constructor/encode legs are torch legs:
+they join the existing geometry identity checks under gates/checks/
+(scalar-identity, bsn-identity, mps-identity own their geometries),
+LISTED on the board, run on the torch workstation. The arithmetic
+discrimination above stays a numpy-only companion leg (Mac-runnable).

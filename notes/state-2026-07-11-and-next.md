@@ -350,6 +350,14 @@ files were created. Priority follows user-visible risk:
     red-team wording. from_state is `cls(device, **state)` with no
     finite/shape/invertibility validation on anything it loads. The
     fix contract stands unchanged.
+    AMENDED (45M-49, sixth batch): the float32-resolution guard is a
+    float64 RELATIVE test while the constructor stores float32 —
+    it accepts columns whose STORED scale is exactly zero
+    (reproduced: targets [0, 0, 1.4e-45] pass the guard and store
+    center 0.0 / scale 0.0; encode divides by zero). Stored-
+    representation validation of every center/scale pair, the
+    grid2d const-mask decision, and the covariance sqrt scales;
+    spec appended in artifacts-inference-warmstart.md.
 12. **Optimized-mode validation parity.** Seventeen runtime guards across
     batching, model designs, geometry, and loss code are `assert` statements
     and disappear under `python -O`. Spec: conventions-and-workflow.md.
@@ -1126,6 +1134,29 @@ epoch reduction overflows float32 before the accumulator: a finite
 per-batch loss publishes an Inf epoch loss; host-float64 accumulation
 + an epoch-level finite check; extends the finite-contract gate).
 Unit 14 now closes on a+b+c+d + gate.
+
+SIXTH 45M BATCH (2026-07-12, both Architect-verified and
+numerically reproduced before placement): 45M-48 = NEW UNIT 56
+(generators mark non-finite science payloads successful: no
+boundary validates the computed payload before _dv_write and the
+failed[i] = False clear — serial :908-921, MPI :990-999/:1048-1057,
+all _dv_write overrides blind, only the allocator's first payload
+shape-checked, producers close nothing (mps :390 checks only
+pre-cast pk_lin); reproduced: float64 [1, NaN, Inf, 1e100] stores
+as float32 [1, nan, inf, inf] with failed = False, the 1e100
+element finite pre-cast and non-finite in the dump; spec
+data-generation-and-cuts.md; joins the file-set/ingress campaign,
+cluster now 8+17+25+26+28+33+56; final dataset closure stays with
+the wave-1 dataset-readiness unit). 45M-49 = unit 11 AMENDED (the
+float32-resolution guard can itself store a zero divisor: the
+float64 relative test scale <= 8*eps32*|center| at scalar.py:145 /
+grid.py:191 / grid2d.py:196 cannot see absolute underflow —
+reproduced: targets [0, 0, nextafter32(0,1)] are accepted and store
+float32 center 0.0 / scale 0.0, encode divides by exact zero, and
+on grid2d the missed column is neither pinned nor refused;
+stored-representation validation contract + covariance sqrt-scale
+representability; spec artifacts-inference-warmstart.md; torch
+legs join the family geometry identity gates, board-listed).
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
