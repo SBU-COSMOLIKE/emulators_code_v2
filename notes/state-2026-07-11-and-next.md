@@ -291,6 +291,26 @@ files were created. Priority follows user-visible risk:
 12. **Optimized-mode validation parity.** Seventeen runtime guards across
     batching, model designs, geometry, and loss code are `assert` statements
     and disappear under `python -O`. Spec: conventions-and-workflow.md.
+13. **Covariance-input validation** (red-team, 2026-07-12 third wave).
+    cov_args has no schema/range boundary: band_width <= 0 hangs
+    band_windows; step_fracs order silently changes the kept
+    derivative (the code keeps stack[0], the docs promise the
+    smallest step); lens_lmax beyond the supplied raw power is
+    silently zero-padded and the zero-band guard then deletes real
+    eq-6 contributions; fsky is unvalidated (0 -> inf, negative ->
+    NaN) and silently defaults; no key whitelist and a quoted
+    "false" enables the non-Gaussian path. Spec (with the required
+    contract + gate legs): families-scalar-cmb.md,
+    "Covariance-input validation unit".
+    VERIFIED (Fable, 2026-07-12): all six failure paths re-derived
+    against the code — band_windows ~279-285 (start never advances at
+    width 0), stack[0] at ~580 vs the ~545 comment, the zero-pad at
+    ~529-531 interacting with the D-CM11-A zero-band guard (data
+    absence masquerades as physical zero; the width-1 arithmetic
+    [0.4, 2/7, 2/9] confirms the deleted weights), the pp request
+    capped at lmax (~415), fsky/.get defaults (~686, ~517-519,
+    ~706), and bool(str) truthiness at ~728/759. Queued AFTER the
+    in-flight transfer-fixture unit and the grid2d staging unit.
     VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
     designs/plain 6, designs/blocks 1, losses/core 1,

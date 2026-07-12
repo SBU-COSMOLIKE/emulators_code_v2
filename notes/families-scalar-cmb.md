@@ -536,6 +536,73 @@ the transfer-identity fixture fix:
 (cmb-smoke needs no rerun: the delta touches only the gate file, and
 smoke is green at the unchanged producer).
 
+## Covariance-input validation unit (red-team finding 2026-07-12, Architect-VERIFIED; queued after grid2d staging)
+
+The covariance script trusts cov_args without a schema/range boundary.
+Every red-team failure path re-derived against the code:
+
+- band_windows (compute_cmb_covariance.py ~279-285): band_width = 0
+  never advances `start` (stop = start - 1, start = stop + 1 = start);
+  negative walks BACKWARD — both non-terminating, before any CAMB cost.
+- The kept derivative is `stack[0]` (~580), i.e. the FIRST-listed step,
+  while the comment (~545) and docstring promise "the smallest step's
+  estimate": reordering step_fracs silently changes the science answer
+  on any nonlinear (i.e. real) response. Fix by VALIDATION, not
+  behavior change: require step_fracs strictly increasing, so element
+  zero really is the smallest; the shipped configs already comply and
+  stay byte-identical.
+- Silent zero-pad (~529-531): pp_raw is zeros(lens_lmax+1) filled only
+  to len(cls["pp"]); a lens_lmax beyond the supplied raw power gets
+  zero bands, and the D-CM11-A zero-band no-divide guard — correct for
+  PHYSICAL zeros — then silently deletes those eq-6 contributions
+  (verified arithmetic: live derivatives at L=2,3,4 with power only
+  through L=2 give weights [0.4, 0, 0] where [0.4, 2/7, 2/9] belong).
+  Data absence must be loud; only physical zeros may be quiet. main()
+  also requests pp only to lmax (~415), so lens_lmax > lmax ALWAYS
+  under-fills.
+- fsky = float(cov.get("fsky", 1.0)) (~686): unvalidated — 0 gives
+  infinite variance, negative gives negative variance then NaN under
+  the square root; ALSO a silent code default on a science-critical
+  value.
+- No key whitelist at any of the three levels (cov_args / noise /
+  nongaussian) — mistyped keys are ignored (contrast: the script's own
+  params whitelist, and emul_mps._check_extra_args); and
+  bool(ng_cfg.get("enabled", False)) makes the quoted YAML string
+  "false" ENABLE the non-Gaussian path.
+
+**The contract (Implementer; producer + pure gate legs, no unrelated
+refactor, band policy unchanged):**
+
+1. One pure `validate_cov_args` boundary, called in main() before the
+   CAMB solve (and unit-callable without CAMB). Unknown keys at all
+   three levels raise naming the key and the allowed set.
+2. Required keys and ranges — and, per the house never-trust-defaults
+   doctrine, ALL keys explicit in the YAML, no code defaults (the
+   Architect sharpening; delta_te / fsky / band_width / converge_rtol
+   currently default silently): lmax non-bool int >= 2; fsky finite,
+   0 < fsky <= 1; delta_tt / delta_ee / delta_te finite >= 0;
+   beam_fwhm finite > 0; enabled a REAL bool (isinstance, rejecting
+   strings); when enabled: lens_lmax non-bool int >= 2, band_width
+   non-bool int >= 1, step_fracs >= 2 finite, strictly positive,
+   strictly increasing values, converge_rtol finite > 0.
+3. Range completeness: main() requests pp through
+   max(lmax, lens_lmax); both the raw cls["pp"] and the scaled
+   re-lensing array must cover every requested L — a short array
+   raises naming the needed and available maxima; the zero-pad is
+   REMOVED.
+4. The shipped example YAML + any gate config gain the newly-required
+   keys (config fix, never a code default); every YAML change is shown
+   as a paste-ready block in the resume.
+5. Gate legs (pure numpy, no CAMB, riding cmb-identity): zero/negative
+   band_width raise before band_windows; unordered / duplicate / zero
+   / NaN / infinite step_fracs raise; zero / negative / nonfinite
+   fsky, negative / nonfinite noise, nonpositive beam raise;
+   unknown-key and quoted-"false" cases raise; short raw/scaled
+   lensing arrays raise instead of zero weights; and a valid fixture
+   reproduces the currently-accepted numbers (the five known-answer
+   legs stay green unchanged).
+6. README prose in plain language; ledger codes stay in notes/.
+
 ## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented; the PRODUCING side is BLOCKED ON D-CM11-A)
 
 Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.
