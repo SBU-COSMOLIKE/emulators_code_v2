@@ -294,6 +294,48 @@ deleted when parity landed (2026-07-11, commit 2fcd367). Each wrapper
 carries provenance comments naming where its main lives and what the
 wrapper pins.
 
+## NaN scores as a perfect emulator (red-team 2026-07-12 fourth wave, Architect-VERIFIED; the queue-jumping unit)
+
+The board's primary selection metric silently rewards numerical
+failure. Verified against the code:
+
+- eval_val (training.py ~1427-1433): `median = c.median()` propagates
+  NaN; `frac = (c > thresholds).float().mean(0)` — a NaN chi2 compares
+  False to every threshold, so NaN rows count as BELOW threshold. A
+  [NaN, 0, NaN, 0] validation set returns frac 0.0: "perfect".
+- The best-epoch rule (~2047): `f0 < best_frac` — a NaN-poisoned
+  f0 = 0.0 beats every honest epoch and SNAPSHOTS the corrupted
+  weights as best (the median tiebreak is NaN-safe by accident; the
+  primary comparison is the hole). The driver then saves and reports
+  that model.
+- The train step (~1971-1980): loss.backward() with no finite check;
+  clip_grad_norm_ (default error_if_nonfinite=False) scales NaN grads
+  by NaN; optimizer.step() unconditional.
+- eval_source_chi2 / diagnostic scoring: same pattern — zero
+  isfinite/isnan calls exist in training.py.
+- SEVERITY SHARPENING (Architect): this defeats the dead-network gate
+  discipline itself — every smoke gate's collapse bar asserts
+  best < bar, and a NaN run reports best frac 0.0, so the gates built
+  to fail a dead network PASS a NaN one.
+
+**Contract (Implementer unit; the red-team block of record adopted
+whole):** (1) eval_val requires every per-sample chi2 finite before
+mean/median/fractions — raise with the nonfinite count and the first
+few validation row positions; (2) the scalar training loss must be
+finite before backward; (3) gradients (or the computed norm) must be
+finite before optimizer.step — clipping disabled does not mean
+unchecked; (4) mean/median/fractions must be finite before the
+best-epoch comparison/snapshot; (5) the same finite-output rule on
+eval_source_chi2 / diagnostic scoring so no saved diagnostic carries a
+silent NaN metric; (6) never replace NaN/Inf with a sentinel, never
+count it below threshold — abort loudly, the error naming train vs
+validation and the affected batch/row positions.
+Gate legs (self-diagnosing): all-finite control byte-identical; one
+NaN among good rows raises; +/-Inf raises; a finite forward loss with
+a nonfinite gradient raises BEFORE the optimizer mutates weights; a
+NaN scalar loss raises before backward; the error text names the side
+and positions. Independent of the bs > n_train / run_n == 0 unit.
+
 ## Where the deltas live (IDs preserved for git archaeology)
 
 D-B1 (deleted by the loss-block nesting — the structural fix beat the

@@ -311,6 +311,46 @@ files were created. Priority follows user-visible risk:
     capped at lmax (~415), fsky/.get defaults (~686, ~517-519,
     ~706), and bool(str) truthiness at ~728/759. Queued AFTER the
     in-flight transfer-fixture unit and the grid2d staging unit.
+14. **Finite training/evaluation contract** (red-team fourth wave,
+    2026-07-12, CRITICAL — JUMPS THE QUEUE to right after the
+    in-flight fixture unit: it protects every production training,
+    and the five artifacts are next). NaN chi2 scores as a perfect
+    emulator: frac counts NaN below every threshold, the best-epoch
+    rule snapshots NaN weights, no finite guard on loss/grad/step,
+    and the dead-network smoke bars PASS a NaN run. Spec:
+    training-stack.md, "NaN scores as a perfect emulator".
+    VERIFIED (Fable, 2026-07-12): training.py ~1427-1433 (median
+    propagates NaN, (c > t) counts NaN below), ~2047 (f0 = 0.0 wins),
+    ~1971-1980 (backward/clip/step unguarded), zero isfinite/isnan
+    in the file.
+15. **BAOSN physical-domain + pair-shape guards** (fourth wave).
+    Zero/negative H accepted (NaN/negative distances served);
+    z-pairs unvalidated (reversed pair -> negative D_A, silent
+    3-col, IndexError 1-col). Spec: families-background-mps.md.
+    Land BEFORE the EMUL2 acceptance.
+    VERIFIED (Fable, 2026-07-12): background.py has no finite/
+    positivity/monotonicity guard; emul_baosn ~356-368 documents
+    z1 <= z2 but enforces nothing.
+16. **MPS query/composition totality** (fourth wave). check_ranges
+    passes NaN (comparisons only) and empty queries hit builtin
+    min(); NaN extrap bounds stored then defeat the range check;
+    pk_nl = boost * pk_lin never validated (finite factors can
+    overflow to a cached Inf). Spec: families-background-mps.md.
+    Land BEFORE the EMUL2 acceptance.
+    VERIFIED (Fable, 2026-07-12): emul_mps ~144-164 (guards are
+    </> only), ~94-114 (NaN bound kept when the extend-check branch
+    is skipped).
+17. **Generator ingress identity** (fourth wave). ord validated by
+    set equality only — duplicates pass and the two reorder helpers
+    collapse them DIFFERENTLY (sampler dim 4 vs model dim 3 in the
+    counterexample); covmat-header pidx keeps the last duplicate;
+    thin/unique shortfall publishes a smaller dataset with a
+    warning; unparsed CLI args accepted. Spec:
+    data-generation-and-cuts.md, "Generator ingress identity".
+    Land before any new production dataset generation.
+    VERIFIED (Fable, 2026-07-12): generator_core ~337 (set
+    equality), ~458-466 (the two helpers collapse differently by
+    inspection), ~326 (last-dup pidx).
     VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
     designs/plain 6, designs/blocks 1, losses/core 1,

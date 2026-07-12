@@ -221,6 +221,35 @@ thin-wrapper invocation that reaches `pool_size` without a GPU training
 step. This is a small driver-truth unit, separate from bounded grid2d
 staging.
 
+## Generator ingress identity (red-team 2026-07-12 fourth wave, Architect-VERIFIED, open)
+
+train_args.ord is validated by SET equality only
+(generator_core.py ~337), so duplicate names pass whenever the set
+matches — and the two reorder helpers (~458-466) collapse the
+duplicate DIFFERENTLY: yaml_to_ord maps the duplicated name twice
+([0, 1, 2, 1] for ord [As, H0, omch2, H0]), ord_to_yaml's dict
+comprehension keeps the LAST occurrence ([0, 3, 2]); the sampler runs
+at dimension 4 against a model of dimension 3, and the chain/header/
+sidecars can carry duplicate columns. The covariance-header pidx
+(~326) has the same last-duplicate-wins defect.
+
+Contract (Implementer unit; the red-team block of record adopted
+whole): validate ord structurally (the one-list form, nonempty unique
+string names); compare cardinality AND membership against cobaya's
+sampled set, reporting missing/extra/duplicate separately; the covmat
+header nonempty + unique before pidx; the loaded covariance finite,
+2-D, square, aligned with the header length before subsetting (SPD
+handling unchanged); fiducials finite numeric non-bool before
+sampling; an MCMC thin/unique shortfall FAILS instead of warning and
+publishing a smaller dataset under the requested identity;
+run_generator rejects unparsed CLI arguments. Pure gates (no
+CAMB/MPI): valid unique reorders preserve today's index maps;
+duplicate/missing/extra/wrong-nesting/non-string ord raise with
+separate diagnostics; duplicate header + header/matrix mismatch
+raise; NaN/Inf covariance or fiducial raise before sampling;
+insufficient unique rows cannot publish; an unknown optional flag is
+rejected. The verbatim lensing physics loop is untouched.
+
 ## The physical cuts (data.param_cuts)
 
 - Schema: nested `data.param_cuts:` block, whitelist of 8 keys;

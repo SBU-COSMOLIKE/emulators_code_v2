@@ -94,6 +94,68 @@ models-and-designs.md (the NPCE FAMILY-WIDE bullet).
   whitened space, sum recommended; details in
   artifacts-inference-warmstart.md.)
 
+## BAOSN physical-domain + pair-shape guards (red-team 2026-07-12 fourth wave, Architect-VERIFIED, open; land before the EMUL2 acceptance)
+
+The inference boundary validates redshift WINDOWS but not physical
+values or pair geometry. Verified: emulator/background.py carries no
+finite/positivity/monotonicity guard anywhere (distance_interpolators
+accepts H = 0 -> all-NaN chi, all-negative H -> negative distances);
+emul_baosn.get_angular_diameter_distance_2 (~356-368) documents
+z1 <= z2 but enforces nothing — atleast_2d + column reads silently
+accept a reversed pair (negative D_A served), ignore a third column,
+and die on a one-column row with a bare IndexError.
+
+Contract (Implementer unit; the red-team block of record adopted
+whole; guard-only, the ruled cubic/Simpson algorithm untouched):
+validate z_grid/h_grid before interpolation (1-D, equal length,
+enough points for cubic, finite, strictly increasing nonnegative z,
+finite strictly positive H); after the doubled-grid integration
+require finite strictly positive integrand and finite nondecreasing
+chi(z) with chi(0) = 0; emul_baosn.calculate validates every
+predictor row before caching (Hubble row matches its grid + finite
+strictly positive; recombination D_M matches its grid + finite
+nonnegative increasing; derived products finite); must_provide and
+get_angular_diameter_distance_2 require an exact (N, 2) finite pair
+array with z1 <= z2 (equal endpoints return zero; never flatten
+malformed input before validation); query-point values finite and
+physically nonnegative; the desert/window refusals stay. Gate legs:
+valid control byte-identical; zero/negative/NaN/Inf Hubble raise
+before division; malformed shapes + nonmonotonic grids raise;
+nonfinite/decreasing D_M raises; reversed/1-col/3-col pairs raise
+naming the (N, 2), z1 <= z2 rule; a same-redshift pair returns
+exactly zero. No interpolation-law redesign.
+
+## MPS query/composition totality (red-team 2026-07-12 fourth wave, Architect-VERIFIED, open; land before the EMUL2 acceptance)
+
+PowerSpectrumInterpolator.check_ranges (cobaya_theory/emul_mps.py
+~144-164) guards only by </> comparisons: NaN z or k compares False
+everywhere and returns NaN instead of raising; an empty query reaches
+builtin min() ("min() iterable argument is empty", a non-contract
+error). The constructor (~94-114) stores extrap bounds unvalidated:
+`if extrap_kmax and extrap_kmax > input_kmax` on a NaN is skipped but
+the NaN boundary is KEPT, so a later range check against NaN accepts
+any k (verified mechanism: k = 1e6 on a grid ending at 1 is
+spline-extrapolated). calculate() checks pk_lin and boost separately
+but never their product — two finite positive factors can overflow to
+Inf and be cached as the served nonlinear spectrum.
+
+Contract (Implementer unit; the red-team block of record adopted
+whole): construction requires nonempty 1-D finite z/k, strictly
+positive unique k, a surface of exact (len(z), len(k)) finite values;
+extrap limits validated before any log (finite, strictly positive,
+kmin strictly below the input minimum, kmax strictly above the
+maximum, NaN/Inf/contradictory bounds loud); check_ranges rejects
+empty/nonfinite/nonpositive-k queries before min/max/log; pk_nl
+requires exact shape + finite strictly positive values before caching
+(keep the point-rejection semantics; never cache a partial state);
+the logged surface finite before the spline. Gate legs: valid
+in-range + valid finite extrapolation controls byte-identical;
+NaN/Inf/empty queries raise the PUBLIC range error; zero/negative k
+raises before np.log; bad extrap bounds raise at construction;
+malformed/duplicate axes + wrong surface shape raise; an overflowing
+finite product is rejected leaving NO Pk state keys. Independent of
+the queued sigma8 and Cobaya-registration units.
+
 ## MPS — the matter power spectrum. ACCEPTED END TO END (board run 9, 2026-07-12: rel 0.93% vs CAMB against the 5% bar); gates mps-identity/mps-smoke.
 
 - Headline (D-MP2): the network learns the CORRECTION to an analytic
