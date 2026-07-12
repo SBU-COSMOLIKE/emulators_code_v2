@@ -37,6 +37,15 @@ TRUST ONLY it.
 - `rebuild_emulator(path_root, device)` (results.py): h5-only; v1
   files refused loudly; returns (model, pgeom, geom, info) with info
   carrying ia / pce / transfer / family facts.
+- Head artifacts rebuild from files alone (2026-07-11): the family
+  geometries re-derive their split (attach_head_coords, inside
+  _rebuild_model); the cosmolike DataVectorGeometry PERSISTS it —
+  state() writes bin_sizes (+ pm_kept) when build_shear_angle_map
+  attached them (schema-additive, the section_sizes/probe pattern;
+  __init__ kwargs attribute-UNSET when None so the hasattr guards
+  survive). A pre-persistence head file is refused loudly
+  ("bin-split persistence"); rebuild never re-derives the cosmolike
+  split — that would need ROOTDIR data files at inference.
 - Acceptance currency: save -> rebuild -> BITWISE-equal prediction,
   plus the DRIFT TEST — monkeypatch a sharp code default
   (make_activation n_gates 3->7) and rebuild unchanged. The GSV-A

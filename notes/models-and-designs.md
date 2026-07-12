@@ -45,8 +45,11 @@ emulator/activations.py.
   contiguous attention windows (rejected on multi-bin geometries).
   Scalar stays trunk-only: named outputs have no coordinate axis.
   Rebuild-side attach lives in results._rebuild_model; the COSMIC-
-  SHEAR head-artifact rebuild gap (bin_sizes never persisted) is a
-  flagged, separate task.
+  SHEAR head-artifact rebuild gap was fixed the same evening:
+  bin_sizes (+ pm_kept) now PERSIST in DataVectorGeometry.state()
+  (schema-additive; attribute-unset when None so the hasattr guards
+  survive), and a pre-persistence head file is refused loudly at
+  rebuild.
 - Identity-at-init discipline: the LAST layer of every head branch is
   zero-initialized so model == trunk EXACTLY at init and at the
   two-phase handoff; every activation family maps 0 -> 0 (which

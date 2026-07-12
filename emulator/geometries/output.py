@@ -102,7 +102,9 @@ class DataVectorGeometry:
                center,
                dtype = torch.float32,
                section_sizes = None,
-               probe = None):
+               probe = None,
+               bin_sizes = None,
+               pm_kept = None):
     """Place the geometry tensors on the device.
 
     Plain constructor: stores fields only; the two
@@ -141,6 +143,22 @@ class DataVectorGeometry:
                    was built for (xi / gammat / wtheta /
                    3x2pt); names which blocks the section is.
                    None on an older v2 file.
+      bin_sizes  = the conv/TRF heads' per-bin kept-element
+                   counts (build_shear_angle_map's attach,
+                   persisted by state() when present so a head
+                   artifact rebuilds without the dataset ini).
+                   None (the default, and every trunk-only or
+                   older file): the ATTRIBUTE stays unset —
+                   hasattr(geom, "bin_sizes") is the guard the
+                   head constructors and BlockDiagonalGeometry
+                   check, so a None-valued attribute would
+                   defeat it. Normalized to a python int list.
+      pm_kept    = the per-element xi+/xi- branch flags
+                   (0 = xi+, 1 = xi-) the ResCNN groups=2
+                   validation reads; persisted / restored with
+                   bin_sizes under the same unset-when-None
+                   rule. Normalized to a numpy int array (the
+                   form build_shear_angle_map attaches).
     """
     self.dtype = dtype
     self.total_size = int(total_size)
@@ -182,6 +200,28 @@ class DataVectorGeometry:
         sizes_int.append(int(s))
       self.section_sizes = sizes_int
 
+    # the heads' bin split, restored from a saved head artifact (the
+    # training path attaches it later, via build_shear_angle_map).
+    # Deliberately attribute-absent when None: hasattr(geom,
+    # "bin_sizes") is the loud gate in ResCNN / ResTRF /
+    # BlockDiagonalGeometry, and a None-valued attribute would slip
+    # past it into a confusing crash. Normalized to the exact forms
+    # build_shear_angle_map attaches (int list / numpy int array), so
+    # a rebuilt geometry is indistinguishable from a freshly-attached
+    # one.
+    if bin_sizes is not None:
+      bins_int = []
+      for s in bin_sizes:
+        bins_int.append(int(s))
+      self.bin_sizes = bins_int
+    if pm_kept is not None:
+      # from_state hands a device tensor (the h5 reader moves every
+      # numeric dataset to the run device); numpy cannot read a CUDA
+      # tensor directly, so hop through cpu for that form.
+      if isinstance(pm_kept, torch.Tensor):
+        pm_kept = pm_kept.detach().cpu().numpy()
+      self.pm_kept = np.asarray(pm_kept, dtype="int64")
+
   @classmethod
   def from_state(cls, device, state):
     """Rebuild from a saved state dict (inference path).
@@ -189,16 +229,19 @@ class DataVectorGeometry:
     state's keys match __init__, so cls(device, **state)
     reconstructs the geometry with no cosmolike read. cls
     (not the class name) keeps a subclass's type correct. A
-    newer file also carries section_sizes / probe; an older
-    one omits them, so __init__ leaves both None (loud at
-    inference, never a fabricated default).
+    newer file also carries section_sizes / probe (and, on a
+    head-model artifact, bin_sizes / pm_kept — the
+    build_shear_angle_map attach, persisted so the conv/TRF
+    constructors rebuild without the dataset ini); an older
+    one omits them, so __init__ leaves each unset/None (loud
+    at inference, never a fabricated default).
 
     Arguments:
       device = device to place the rebuilt tensors on.
       state  = dict from state() (total_size, dest_idx, evecs,
                sqrt_ev, Cinv, center, dtype, and section_sizes
-               / probe when the file records them), splatted
-               into __init__.
+               / probe / bin_sizes / pm_kept when the file
+               records them), splatted into __init__.
 
     Returns:
       a DataVectorGeometry (or subclass, via cls).
@@ -346,6 +389,18 @@ class DataVectorGeometry:
                                          dtype=torch.long)
     if self.probe is not None:
       st["probe"] = self.probe
+    # the heads' bin split, present only after build_shear_angle_map
+    # attached it (a needs_bins training run). Persisted so a saved
+    # head artifact rebuilds from the files alone — rebuild_emulator
+    # must never need ROOTDIR data files (the dataset ini / n(z) the
+    # attach reads). A trunk-only run never has the attributes, so its
+    # state() is byte-identical to before this key existed; an older
+    # head file lacks the keys and _rebuild_model refuses it loudly.
+    if hasattr(self, "bin_sizes"):
+      st["bin_sizes"] = torch.tensor(self.bin_sizes, dtype=torch.long)
+    if hasattr(self, "pm_kept"):
+      st["pm_kept"] = torch.tensor(np.asarray(self.pm_kept),
+                                   dtype=torch.long)
     return st
 
   # --- low-level transforms ---

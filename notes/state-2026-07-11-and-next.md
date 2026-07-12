@@ -104,10 +104,22 @@ In order, with the commit that carries each:
    focus / berhu ladder + anneals / EMA / clip / rewind / optimizer-
    lr-scheduler blocks were ALREADY family-universal (the shared
    loop; the family example YAMLs now advertise the optional guards
-   as commented blocks). Discovered in passing, flagged as its own
-   task, NOT fixed: cosmic-shear head artifacts cannot rebuild
-   (bin_sizes never persisted nor re-attached on the rebuild path).
-   Full record: families-scalar-cmb.md (the D-CM13 section).
+   as commented blocks). Discovered in passing: cosmic-shear head
+   artifacts could not rebuild (bin_sizes never persisted nor
+   re-attached on the rebuild path) — fixed in item 12. Full record:
+   families-scalar-cmb.md (the D-CM13 section).
+12. **The cosmic-shear head-artifact rebuild fix** (same evening):
+   DataVectorGeometry.state() now persists bin_sizes (+ pm_kept)
+   when build_shear_angle_map attached them — schema-additive, the
+   section_sizes/probe pattern; __init__ gained the optional kwargs
+   with the attribute-UNSET-when-None rule (the hasattr guards in
+   ResCNN / ResTRF / BlockDiagonalGeometry keep working); a
+   pre-persistence head file is refused loudly at rebuild ("bin-split
+   persistence"), never re-derived (rebuild must not need ROOTDIR
+   data files). save-rebuild-drift gained a rescnn head variant
+   (real training path, bitwise round-trip proving the whole
+   attach -> save -> rebuild chain) + a deleted-split refusal leg.
+   Trunk-only artifacts' state is byte-identical to before.
 
 ## Evidence status: what is PROVEN vs what is PENDING
 
@@ -134,9 +146,12 @@ PENDING — nothing torch-side has run since the board was 25/25:
    (SLOW: ~400 serial CAMB calls), bsn-identity, bsn-smoke,
    mps-identity (now incl. the D-CM13 ResCNN head leg), mps-smoke
    (includes the MPS-DIAG pages leg), geo-paths (inverted: old paths
-   must be DEAD), plus `--force-rerun scalar-identity scalar-smoke`.
-   Full green is simultaneously GEO's acceptance and the board
-   baseline for everything after.
+   must be DEAD), plus `--force-rerun scalar-identity scalar-smoke
+   save-rebuild-drift` (all three were green on the 25/25 board and
+   gained legs since — save-rebuild-drift now carries the rescnn
+   head round-trip + the pre-persistence refusal). Full green is
+   simultaneously GEO's acceptance and the board baseline for
+   everything after.
 3. **Train the five production artifacts** via the family drivers:
    rdrag (scalar), hubble + dm (baosn), pklin + boost (mps).
 4. **The EMUL2 acceptance**: cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml

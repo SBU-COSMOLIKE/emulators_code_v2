@@ -176,12 +176,19 @@ What shipped (simpler than the spec — the identity insight):
   (ResCNN on z-slice channels + the n_tokens-on-real-bins rejection
   + the bitwise round-trip). The round-trip legs specifically prove
   the rebuild-side attach.
-- DISCOVERED IN PASSING, not fixed here: the COSMIC-SHEAR head
-  artifacts cannot rebuild (build_shear_angle_map is never called on
-  the rebuild path, and DataVectorGeometry.state() does not persist
-  bin_sizes, so rebuild_emulator dies in the constructor's assert).
-  Flagged as its own task; fix = persist bin_sizes (+ pm_kept) in
-  the dv state, schema-additive.
+- DISCOVERED IN PASSING and FIXED the same evening (the follow-up
+  commit): the COSMIC-SHEAR head artifacts could not rebuild
+  (build_shear_angle_map is never called on the rebuild path, and
+  DataVectorGeometry.state() did not persist bin_sizes). Fix =
+  schema-additive persistence, the section_sizes/probe pattern:
+  state() writes bin_sizes (+ pm_kept) when the attach ran; __init__
+  gained the optional kwargs, attribute-UNSET when None so the
+  hasattr guards survive; results._rebuild_model refuses a
+  pre-persistence head file loudly ("bin-split persistence"), never
+  re-derives (that would need ROOTDIR data files at inference).
+  Gate: save-rebuild-drift gained a rescnn head variant (real
+  training path, bitwise round-trip) + a deleted-split refusal leg
+  — it was GREEN on the 25/25 board, so it needs --force-rerun.
 
 Never re-propose (CME): the two dead covinv forms; per-spectrum
 Boltzmann re-runs; prediction-side smoothness; bare second-difference

@@ -124,7 +124,11 @@ green); cmb-identity and mps-identity carry the D-CM13 head legs
 (ResTRF + n_tokens on the CMB fixture, ResCNN on the grid2d fixture:
 attach, identity basis, epoch-0 identity, and the head
 save->rebuild->predict bitwise round-trip — first run after the lift,
-never yet green).
+never yet green); save-rebuild-drift gained the cosmic-shear rescnn
+head variant (the bin-split persistence: real training path, bitwise
+round-trip) + the pre-persistence refusal leg — it WAS green on the
+25/25 board, so add it to the `--force-rerun` list (scalar-identity
+scalar-smoke save-rebuild-drift).
 
 ## Run history (compressed; the full ledger is in git history)
 

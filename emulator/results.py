@@ -582,10 +582,22 @@ def rebuild_emulator(path_root, device, compile_model=True):
       # family geometry (cmb / grid / grid2d; D-CM13) derives the split
       # from its own saved grid — attach it here so a head artifact
       # rebuilds from the files alone. The cosmolike DataVectorGeometry
-      # has no such method (its split needs the dataset ini via
-      # build_shear_angle_map — the recorded cosmic-shear rebuild gap).
+      # instead PERSISTS the split (bin_sizes / pm_kept in its state,
+      # attached at training by build_shear_angle_map, which needs the
+      # dataset ini — files rebuild must never require); from_state has
+      # already restored it, so only its absence is checked: an older
+      # head artifact that predates the persistence is refused loudly,
+      # never guessed at.
       if hasattr(geom_for_needs, "attach_head_coords"):
         geom_for_needs.attach_head_coords()
+      elif not hasattr(geom_for_needs, "bin_sizes"):
+        raise KeyError(
+          f"{path_root}.h5 dv_geometry has no bin_sizes, but the model "
+          "recipe needs the geometry (a conv/TRF head): this artifact "
+          "predates the bin-split persistence (the split was attached "
+          "only at training time and never saved). Retrain, or re-run "
+          "save_emulator on a live run, to write it -- rebuild_emulator "
+          "never re-derives it (that would need ROOTDIR data files).")
       kwargs["geom"] = geom_for_needs
     m = cls(input_dim=_need(rc, "input_dim", "model_recipe"),
             output_dim=_need(rc, "output_dim", "model_recipe"),
