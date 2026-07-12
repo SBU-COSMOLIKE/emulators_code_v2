@@ -171,6 +171,54 @@ fork by defining an extra derived `As` bridge. Requirement construction
 must follow the artifact names and the shared reader's alternative-name
 rule, so an `As_1e9` artifact does not require a redundant `As` parameter.
 
+#### Eleventh-wave extension (Architect-VERIFIED, folded into this unit): adapter value-schema + multi-emulator assembly + the CMB request boundary
+
+All five adapters whitelist extra-args KEYS but validate no VALUES —
+confirmed anchors: `bool(extra_args.get("compile", False))` in every
+adapter (quoted "false" enables compilation);
+`os.environ.get("ROOTDIR", "")` (a missing ROOTDIR silently makes the
+documented ROOTDIR-relative roots cwd-relative); `emulators` never
+type-checked (a string iterates character-by-character, and a
+two-character string satisfies the BAOSN/MPS len == 2 check);
+`dv_return = str(get(...))` coerced not validated; the unknown-device
+cpu fallback already recorded in the wave-2 entry; fast_params /
+provides accept malformed iterable shapes. Contract: ONE shared
+adapter-value validator used by all five classes — compile exact
+bool; device an exact registered string with invalid names
+distinguished from the documented unavailable-accelerator fallback;
+emulators an exact nonempty sequence of unique nonempty path strings
+(exactly two for BAOSN/MPS); relative paths require a defined valid
+ROOTDIR; canonical roots never duplicate; provides / fast_params /
+dv_return validated against their documented exact shapes BEFORE any
+artifact loads.
+
+SEPARATE composition defect (emul_cosmic_shear ~188-192, the
+docstring advertises it): multi-emulator mode blindly
+np.concatenate's predictions — under dv_return "3x2pt" two full
+vectors become one length-2N vector; in section mode duplicate or
+overlapping probe artifacts are concatenated without checking their
+stored probe/section_sizes, so one likelihood block can be served
+twice. Required: refuse multiple predictors in full-vector mode OR
+assemble one global vector only after proving compatible layouts and
+disjoint blocks; section mode requires compatible stored layouts +
+unique non-overlapping probe blocks; duplicate roots/probes and a
+3x2pt artifact combined with any constituent probe fail before
+prediction; a valid disjoint multi-probe case keeps its defined
+ordering.
+
+CMB request boundary: must_provide applies int(lmax)
+(emul_cmb ~221-224) — fractional requests truncate silently,
+booleans/quoted integers accepted. Require the Cl request to be a
+mapping and every lmax an exact non-bool integer in range; no
+coercion.
+
+Red legs (the red-team list adopted whole): quoted-false compile;
+unknown device; missing ROOTDIR + relative root; string `emulators`
+for one-root and exactly-two-root adapters; duplicate canonical
+roots; malformed fast_params/provides; two full vectors; duplicate
+and overlapping sections; one valid disjoint section pair;
+fractional/boolean/quoted/malformed CMB lmax.
+
 The pair validator also checks only quantity presence and exact grid
 equality. It does not enforce the serve-time tuple
 `pklin/Mpc3/(none|syren_linear)` plus

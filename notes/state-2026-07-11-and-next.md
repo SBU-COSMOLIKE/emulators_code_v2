@@ -227,8 +227,16 @@ files were created. Priority follows user-visible risk:
    through the input-support hook; scalar calculate does not create the
    required derived-state mapping; the MPS amplitude alternative is
    narrowed to `As` despite the shared reader accepting `As_1e9`.
-   Stubbed identity gates miss all three. Spec:
-   artifacts-inference-warmstart.md.
+   Stubbed identity gates miss all three. EXTENDED (eleventh wave,
+   folded in per the red team's sequencing): value-schema totality
+   across all five adapters (quoted-"false" compile, the ROOTDIR ""
+   default, untyped `emulators` — a string iterates per character —
+   coerced dv_return/lmax), the multi-emulator composition defect
+   (blind np.concatenate: two full vectors serve as one 2N vector;
+   section mode never checks probe/section disjointness), and the
+   CMB must_provide int() coercion. Spec:
+   artifacts-inference-warmstart.md (the wave-2 section + its
+   eleventh-wave extension).
    VERIFIED (Fable, 2026-07-12): emul_mps.py get_can_support_params
    returns ['Pk_grid', 'Pk_interpolator', 'sigma8'] (the input-param
    hook; products belong in get_can_provide / must_provide);
