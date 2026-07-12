@@ -605,6 +605,9 @@ def main():
     """Run the scalar-identity checks in a tempdir and exit non-zero on any
     failure."""
     print("scalar-identity (SPE-A): save/rebuild/predict + loud errors")
+    # seed the GLOBAL torch RNG so the synthetic nets are the same
+    # every run (a red must reproduce — the run-10 bsn lesson).
+    torch.manual_seed(0)
     device = torch.device("cpu")
     with tempfile.TemporaryDirectory() as tmp:
         root = os.path.join(tmp, "emul")

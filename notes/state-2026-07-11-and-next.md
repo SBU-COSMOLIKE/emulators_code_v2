@@ -71,13 +71,17 @@ pushed; the GPU workstation pulls main).
 ## Evidence status
 
 Everything through board run 9 is workstation-proven at HEAD 4c65331
-(2026-07-12). Still NEVER EXECUTED, by resume accounting: the D-CM13
-head legs inside cmb-identity / mps-identity, the D-MP9 legs in
-mps-identity, the two-phase phase-discipline legs in the same head
-checks, and the NPCE check_npce legs in all four family identity
-gates (those gates' greens date from run 1, before the legs
-existed). The `--force-rerun-all` regression pass is therefore both
-the cosmic-shear no-regression proof and those legs' first execution.
+(2026-07-12), and run 10 — the `--force-rerun-all` regression pass,
+executed at that same HEAD before the overnight merge — re-proved the
+cosmic-shear era, all four smokes, the D-CM13 head legs, and the
+D-MP9 pins at 29/32. Its three reds were harness classes, all fixed
+on the branch (the stale pre-amendment mps leg deleted; the bsn
+piecewise flake made like-for-like + seeded; the golden legs'
+legacy-driver-name resolution). Still NEVER EXECUTED: the two-phase
+phase-discipline legs, the NPCE check_npce legs in all four family
+identity gates, cmb-smoke's eq-6 leg 2b, and transfer-identity's
+check_diagonal — all landed after 4c65331. The post-merge targeted
+pass in gates-and-board.md's NEXT row first-executes them.
 
 ## The runs the user still owes the code (in this order)
 

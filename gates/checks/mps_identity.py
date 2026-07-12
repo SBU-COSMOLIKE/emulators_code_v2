@@ -8,12 +8,13 @@ D-MP7 finetune parity — torch + scipy, no CAMB.
 Legs:
   - Grid2DGeometry: standardize round-trip to float32 round-off; state
     round-trip byte-identical (seven keys incl. quantity/units/law);
-    the width / un-standardizable / unknown-law guards (errors name
-    (z, k) points); the D-MP9 pinning (a constant law-space column
-    that is not the whole surface is physics under ANY law — the
-    boost's low-k B = 1 region: scale 1, decode returns the training
-    constant, const_mask persists; a wholly constant surface still
-    raises, that is the dead-dump signature);
+    the width / unknown-law guards; the D-MP9 pinning (a constant
+    law-space column that is not the whole surface is physics under
+    ANY law — the boost's low-k B = 1 region: scale 1, decode returns
+    the training constant, const_mask persists; a WHOLLY constant
+    surface still raises, the dead-dump signature — the run-10 pass
+    deleted the pre-amendment partial-constant raise leg this section
+    used to carry);
   - the STAGING law transform through the REAL load_source +
     _grid2d_law_rows: law rows == log(raw / base) with the base dump
     aligned by dump_rows through a real shuffled staging; the k_stride
@@ -127,16 +128,13 @@ def check_geometry(device):
         report("width guard raises", False, "no raise")
     except ValueError:
         report("width guard raises", True, "ValueError")
-    try:
-        Yc = Y.copy()
-        Yc[:, 3] = 7.0
-        Grid2DGeometry.from_targets(device=device, targets=Yc, z=Z4,
-                                    k=K6, quantity="pklin",
-                                    units="Mpc3", law="none")
-        report("un-standardizable guard raises", False, "no raise")
-    except ValueError as e:
-        report("un-standardizable guard raises", "(z, k)" in str(e),
-               "names (z, k) points")
+    # (run-10 regression-pass catch: the old "un-standardizable guard
+    # raises" leg lived here, feeding ONE constant column under law
+    # "none" and expecting the pre-amendment raise. D-MP9 went
+    # law-agnostic in board runs 7-8 — a partial-constant column is
+    # PINNED under any law, asserted by the D-MP9 legs below, and the
+    # dead-dump raise now needs a WHOLLY constant surface, asserted by
+    # the last leg. The stale expectation is deleted, not reworded.)
     try:
         Grid2DGeometry.from_targets(device=device, targets=Y, z=Z4,
                                     k=K6, quantity="pklin",
@@ -869,6 +867,9 @@ def check_finetune(tmp, device):
 def main():
     print("mps-identity (MPS-A): geometry + staging law + round-trip + "
           "assembly + finetune legs")
+    # seed the GLOBAL torch RNG so the synthetic nets are the same
+    # every run (a red must reproduce — the run-10 bsn lesson).
+    torch.manual_seed(0)
     device = torch.device("cpu")
     with tempfile.TemporaryDirectory() as tmp:
         check_geometry(device)
