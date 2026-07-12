@@ -435,6 +435,19 @@ files were created. Priority follows user-visible risk:
     propagates NaN, (c > t) counts NaN below), ~2047 (f0 = 0.0 wins),
     ~1971-1980 (backward/clip/step unguarded), zero isfinite/isnan
     in the file.
+    REOPENED (45M-53 + addendum, eighth batch): the increment-(c)
+    guard is training-only — eval_val (training.py:1490) and
+    eval_source_chi2 (:1572) accept a finite NEGATIVE chi2, which
+    counts as a PERFECT row in the threshold fractions and can
+    crown the corrupted epoch; the gate's compiled arm greens on
+    ANY compile exception (finite_contract.py:703-712) while the
+    board advertises eager/compile agreement. Increment (e): one
+    shared chi2-domain predicate at all three boundaries + eval
+    raise + ADJUDICATED scale-aware band max(1e-6, 32*eps*n_terms)
+    superseding the absolute constant + compiled-leg capability
+    truth (CUDA lane red-on-exception, non-green skip only).
+    Fifth-sqrt-site flag CONFIRMED. (e) runs before 42+43.
+    Spec: training-stack.md, "UNIT 14 REOPENED (45M-53)".
 15. **BAOSN physical-domain + pair-shape guards** (fourth wave).
     Zero/negative H accepted (NaN/negative distances served);
     z-pairs unvalidated (reversed pair -> negative D_A, silent
@@ -1126,7 +1139,7 @@ number. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
-14(a+b+c+d) -> 36 -> 42+43 -> 50 -> 52 -> 55 -> 22(+20) -> 13(+01) order
+14(a+b+c+d+e) -> 36 -> 42+43 -> 50 -> 52 -> 55 -> 22(+20) -> 13(+01) order
 define the active pipeline (updated with the third 45M batch: the CMB
 amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
 unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15
@@ -1203,6 +1216,18 @@ declared-fatal solver string can be buffered past the guard and
 the row marked successful; flush-or-isolate contract, status-API
 route satisfies it via unit 33's harmonization; spec
 data-generation-and-cuts.md; cluster now 8+17+25+26+28+33+56+57).
+
+EIGHTH 45M BATCH (2026-07-12): 45M-53 + addendum = unit 14
+REOPENED, increment (e) — the training-only guard asymmetry (eval
+accepts the finite negative chi2 training rejects; a corrupted row
+scores perfect and can win best-epoch) plus the compiled gate arm
+that greens on any exception. Architect rulings recorded with the
+spec: the Implementer's fifth sqrt site CONFIRMED; the absolute
+_CHI2_NEG_TOL = 1e-6 SUPERSEDED by the scale-aware band
+max(1e-6, 32*eps*n_terms) (per-run constant: compile-safe, not
+batch-poisonable); (e) slots BEFORE 42+43. Also this batch:
+Implementer closures 14(c) 97963b8, 14(d) 63880d1, 36 387c650 all
+recorded, pending batch audit; 14 reopens on (e) only.
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

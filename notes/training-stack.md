@@ -1501,3 +1501,100 @@ the actual capability rule. The integration leg (torch: real
 predictor/loss path) joins the existing board-listed scalar-smoke or
 diagnostics check under gates/checks/, workstation-run; the
 eligibility helper itself gets a pure CPU no-torch unit leg.
+
+## UNIT 14 REOPENED (45M-53 + addendum): a finite negative chi2 ranks better than perfect — increment (e)
+
+Eighth 45M batch (2026-07-12), Architect-verified on HEAD (post
+63880d1). The increment-(c) producer guard is TRAINING-ONLY:
+_validate_chi2 runs once at the top of _reduce
+(losses/core.py:408); the validation and diagnostic paths never
+call _reduce — eval_val guards torch.isfinite only
+(training.py:1490) and eval_source_chi2 likewise (:1572). A finite
+negative per-sample chi2 therefore passes both: it enters mean and
+median as-is (:1497-1498), compares FALSE to every positive
+threshold in the (Nval, T) grid (:1504), so the corrupted row
+counts as PERFECT, lowers frac>0.2, and can crown the corrupted
+epoch in the best-epoch selection. eval_source_chi2 publishes the
+negative as a diagnostic delta-chi2. Training rejects the same
+producer that scoring accepts — the contract is internally
+inconsistent, and this is a wrong SELECTION result, not a message
+defect. Reachable today: the geometry-SPD work (units 11/13) is
+queued, not landed, so a non-PSD precision reaches chi2 unchecked
+(unit 11: from_state validates nothing), and increment (c)'s own
+rationale concedes roundoff negatives in the rescaled/transfer
+contractions. The one-output example: precision [-1], residual 2
+-> chi2 = -4, finite.
+
+Gate gap (the addendum, verified): the board advertises "eager and
+torch.compile agree" (gates/board.py:1243-1248), but
+finite_contract.py wraps the WHOLE compiled arm — construction,
+execution, backward, assertion setup — in one broad
+`except Exception` that reports a soft-skip (:703-712). On the CUDA
+workstation an Inductor regression, device mismatch, or broken
+backward becomes a green skip: the exact failure class the leg
+exists to catch.
+
+ARCHITECT RULINGS (the two Implementer flags + the red team's
+tolerance escalation, adjudicated here so the committed constant
+does not become the contract by default):
+
+1. Fifth sqrt site: CONFIRMED. The increment-(c) contract is every
+   sqrt site whose argument can be zero under valid input; the
+   berhu_capped region-3 where-mask leak is squarely in contract.
+   Approved as implemented, no rework.
+2. Tolerance: the absolute _CHI2_NEG_TOL = 1e-6 is SUPERSEDED (the
+   recorded requirement said scale-aware; the flagged deviation is
+   adjudicated against the constant). The band becomes
+   band = max(1.0e-6, _CHI2_NEG_KAPPA * eps(compute dtype) * n_terms)
+   with _CHI2_NEG_KAPPA = 32 documented, and n_terms = the per-row
+   count of summed products in the active contraction (n_dv for the
+   plain whitened form; the documented equivalent for the
+   rescaled/transfer forms). n_terms is a PER-RUN constant known at
+   build time, so the band stays elementwise with no data-dependent
+   branch (compile/CUDA-graph safe) and no batch statistic — which
+   answers the Implementer's poisoning objection (a NaN cannot
+   poison a constant) while being scale-aware in exactly the
+   quantity roundoff grows with. The old 1e-6 survives only as the
+   band's floor.
+
+Contract, increment (e) — adopted from the handoff:
+
+1. ONE shared chi2-domain predicate (finite first, then nonnegative
+   within the band above) used by the training reduction, eval_val,
+   and eval_source_chi2. The helper returns the normalized c and the
+   bad mask; training folds bad entries to NaN (the landed per-step
+   refusal, compile-safe); the eval/diagnostic boundaries RAISE
+   before any median/mean/fraction computation and before any
+   best-record comparison, naming side, count, first source rows,
+   minimum value, and the allowed band.
+2. Within-band negatives normalize to EXACT 0 through the same
+   helper everywhere — training may never call a row exact while
+   evaluation reports it negative.
+3. The queued geometry-SPD unit does NOT substitute for this runtime
+   defense (artifacts, contractions, and test doubles can all
+   violate the producer invariant).
+4. Every valid nonnegative score is preserved byte-for-byte.
+
+Gate amendment (finite-contract, board-listed, torch, workstation):
+real one-output r^T[-1]r = -4 driven through the REAL eval_val must
+raise before fractions; the same through eval_source_chi2 must
+raise; a negative through the compiled validation callable must
+raise; a valid exact zero stays accepted; a positive control is
+byte-identical; the finite-only predicate is the mutation arm and
+must falsely crown the negative row (the best-epoch flip shown);
+band-edge legs on BOTH sides of the adjudicated tolerance at a
+documented n_terms (just inside -> exact 0; just outside ->
+refusal). Compiled-leg truth (the addendum): capability detection is
+explicit and runs BEFORE the test; on the workstation/CUDA lane,
+compile construction + execution + backward are MANDATORY and any
+exception is RED with the traceback; a genuinely compiler-less dev
+box may emit only the board's explicit non-green skip status (the
+SKIP-DEP class already exists in run_board.py) which can never count
+toward closure — 33/33 on the workstation means zero skips; plus a
+mutation control that forces the compiled callable to raise and
+proves the gate cannot report green.
+
+Unit 14 state: increments a+b+c+d landed (a0d03f5, 97963b8,
+63880d1) and REOPENED for (e) + the gate truth amendment; (e) runs
+FIRST in the work order, before 42+43 (same freshly-touched code,
+one gate revision).
