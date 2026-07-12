@@ -226,6 +226,15 @@ In order, with the commit that carries each:
    protection is the WHOLLY-constant-surface guard alone (loud for
    every law — the bsn stale-generator signature). mps-identity's
    D-MP9 legs now exercise BOTH laws + the dead-dump refusal.
+20. **Board run 8 — D-MP9 proven live; one leg left**: the boost
+   trained through the pinned low-k region (collapse 13.7 vs 319),
+   pklin green, the MPS-DIAG pages landed. camb_truth then hit the
+   RECORDED Pk_interpolator first-run risk verbatim: the request
+   carried only 3 probe redshifts and cobaya's spline demands >= 4.
+   Fixed (the request now carries a support containing the probes
+   as nodes + range padding across [0, 4]). The remaining unexecuted
+   legs of the whole board: mps-smoke's 5% CAMB comparison + the
+   interpolator range guard.
 
 ## Evidence status: what is PROVEN vs what is PENDING
 

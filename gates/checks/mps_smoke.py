@@ -301,8 +301,17 @@ def camb_truth(point, z_probe, k_probe):
     # training data are computed with the SAME transfer support, so
     # the comparison tests the emulator pipeline, never halofit's
     # convergence difference between two k_max choices.
+    #
+    # cobaya's PowerSpectrumInterpolator needs AT LEAST FOUR redshifts
+    # for its 2D spline (board run 8 caught the bare 3-probe request —
+    # the exact Pk_interpolator first-run risk the family notes
+    # recorded). Request a support that CONTAINS the probe redshifts
+    # as nodes (so the probe evaluations carry no z-interpolation
+    # error) plus padding across the range.
+    z_req = np.unique(np.concatenate([z_probe,
+                                      np.linspace(0.0, 4.0, 9)]))
     model.add_requirements({"Pk_interpolator": {
-        "z": z_probe, "k_max": 20.0,
+        "z": z_req, "k_max": 20.0,
         "nonlinear": (True, False),
         "vars_pairs": ([("delta_tot", "delta_tot")])},
         "Cl": {"tt": 0}})
