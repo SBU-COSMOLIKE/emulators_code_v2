@@ -120,7 +120,11 @@ paths are dead (D-GEO5) — a pre-GEO test artifact fails rebuild loudly
 by design; mps-smoke includes the MPS-DIAG pages leg; cmb-smoke is the
 slow one (~400 serial CAMB calls); scalar-identity/scalar-smoke need a
 `--force-rerun` on the next run (they gained legs after their last
-green).
+green); cmb-identity and mps-identity carry the D-CM13 head legs
+(ResTRF + n_tokens on the CMB fixture, ResCNN on the grid2d fixture:
+attach, identity basis, epoch-0 identity, and the head
+save->rebuild->predict bitwise round-trip — first run after the lift,
+never yet green).
 
 ## Run history (compressed; the full ledger is in git history)
 

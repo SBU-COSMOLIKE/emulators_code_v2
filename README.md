@@ -1314,6 +1314,7 @@ head's graph, applied to a transformer.
 | `n_heads` | attention runs `n_heads` times in parallel on slices of the token — the graph below; must divide the token width, so 26 allows 1, 2, or 13 |
 | `n_blocks` | stacked transformer blocks |
 | `n_mlp_blocks` | depth of each bin's private dense stack; every layer at the token width, so there is no width knob — depth only |
+| `n_tokens` | family runs only (CMB / BAOSN): re-segment the single spectrum into this many contiguous windows so attention has tokens to attend across (the token width becomes `ceil(n / n_tokens)`, which `n_heads` must divide). Rejected where physical bins already exist — cosmic shear's tomographic bins and the matter-power z slices ARE the tokens |
 | `shared_mlp` | one shared stack for all bins — the textbook block, kept as an ablation |
 | `film` | cosmology-aware per-bin scale and shift, exactly as `cnn.film` |
 | `gate_init` | the correction gate's starting value — small, never 0 |
@@ -1731,8 +1732,10 @@ data:
 ```
 
 The model is a plain trunk (`name: resmlp`); the conv and transformer heads
-correct along an angular axis a scalar output does not have, so `rescnn` /
-`restrf` are a loud error here. Everything else — the loss ladder, trimming,
+correct along an output coordinate axis (theta / ell / z / k — every other
+family has one), and a scalar output is a set of named values with no axis
+between them, so `rescnn` / `restrf` are a loud error here. Everything
+else — the loss ladder, trimming,
 focus, EMA, the L2-SP anchor — works unchanged, since they act on a
 per-sample error. A scalar map is cheap, so small widths and a few hundred
 epochs are plenty. The physical-window `param_cuts` are optional on this
@@ -1775,9 +1778,15 @@ values — the angular power spectrum of the cosmic microwave background
 polarization, phi-phi = the lensing potential), on a fixed multipole
 grid l = 2..lmax. One emulator learns ONE spectrum; a full set is four
 artifacts. Everything rides the same training stack as the data-vector
-emulators — the losses, trimming, focal weighting, EMA, fine-tuning all
-compose unchanged — because the loss exposes the same per-sample chi2
-interface.
+emulators — the losses, trimming, focal weighting, EMA, clip / rewind,
+fine-tuning all compose unchanged — because the loss exposes the same
+per-sample chi2 interface. The correction heads apply too ([section
+10](#10-model)): the CMB whitening keeps the multipole order, so
+`rescnn` slides its kernel along ell directly, and `restrf` re-segments
+the spectrum into `model.trf.n_tokens` contiguous windows and attends
+across them — the tokenization of the attention-based CMB emulators
+(arXiv 2505.22574, which finds attention cuts the outlier count vs a
+plain MLP at this exact task).
 
 The pipeline, end to end:
 
@@ -1792,7 +1801,8 @@ The pipeline, end to end:
     |  cmb_train_emulator.py                              |
     |  (a data.cmb block): whiten each multipole by       |
     |  its error bar sigma_ell, impose the amplitude      |
-    |  law, train the ResMLP trunk                        |
+    |  law, train the model (a ResMLP trunk, or the       |
+    |  rescnn / restrf correction heads, section 10)      |
     +---------------------------------------------------+
           |
           |  emulator_tt_*.h5 + .emul   (the artifact)
@@ -1930,6 +1940,11 @@ persisted in the artifact); D_M trains raw (`none`). Dumps come from
 `compute_data_vectors/dataset_generator_background.py`: one
 background-only CAMB evaluation per sampled cosmology yields BOTH
 quantities and the grids ride beside the dumps as `_z.npy` sidecars.
+The full training surface applies here unchanged — the loss ladder,
+trimming, focal weighting, EMA, clip / rewind, fine-tuning, and the
+correction heads ([section 10](#10-model)): the standardization keeps
+the z order, so `rescnn` slides its kernel along z and `restrf`
+re-segments the grid into `model.trf.n_tokens` attention windows.
 
 ```yaml
 data:
@@ -2001,7 +2016,11 @@ and never recomputes it — together with the vendored `syren/` the
 base is pinned twice). The (z, k)
 grids ride as `_z.npy` / `_k.npy` sidecars and persist into the
 artifact; V1 trains on a thinned k grid (`k_stride`, top edge always
-kept) and the served interpolator fills between kept points.
+kept) and the served interpolator fills between kept points. The full
+training surface applies here unchanged, correction heads included
+([section 10](#10-model)): the flattening is z-outer, so `rescnn` gets
+the z slices as conv channels and slides along k (mixing redshifts at
+like k), and `restrf` gets one attention token per z slice.
 
 ```yaml
 data:

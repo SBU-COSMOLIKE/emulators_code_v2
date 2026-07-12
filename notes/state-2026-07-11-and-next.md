@@ -86,6 +86,28 @@ In order, with the commit that carries each:
 10. **The notes consolidation**: ~85 notes rewritten into
    ~11; the old files are retired but survive in git history — for any
    forensic question, `git log --follow` the old path.
+11. **D-CM13 IMPLEMENTED, generalized (late evening, user order:
+   "I want that for CMB and MPS minimum — I prefer that they all
+   have", citing arXiv 2505.22574)**: the conv/TRF correction heads
+   now ride cmb / grid / grid2d. The key simplification over the
+   spec: the diagonal family geometries whiten IN physical order, so
+   the heads' basis change degenerates to the identity (W_fd / W_df
+   stay None; cosmic shear untouched — its geometry has evecs). The
+   split is the new attach_head_coords() (cmb: one bin over ell;
+   grid: one bin over z; grid2d: one bin per z slice), called at
+   build_geometry AND inside results._rebuild_model so head
+   artifacts rebuild from files alone. New knob model.trf.n_tokens
+   re-segments a single-bin spectrum into attention windows (the
+   paper's tokenization). Scalar stays trunk-only (no coordinate
+   axis). Head legs added inside cmb-identity + mps-identity (board
+   count unchanged at 32). Also proven the same evening: trim /
+   focus / berhu ladder + anneals / EMA / clip / rewind / optimizer-
+   lr-scheduler blocks were ALREADY family-universal (the shared
+   loop; the family example YAMLs now advertise the optional guards
+   as commented blocks). Discovered in passing, flagged as its own
+   task, NOT fixed: cosmic-shear head artifacts cannot rebuild
+   (bin_sizes never persisted nor re-attached on the rebuild path).
+   Full record: families-scalar-cmb.md (the D-CM13 section).
 
 ## Evidence status: what is PROVEN vs what is PENDING
 
@@ -108,12 +130,13 @@ PENDING — nothing torch-side has run since the board was 25/25:
    local board-config override (`git checkout --
    gates/board_config.json` — the golden config name changed in the
    rename), then the full board. New/changed since the last green:
-   cmb-identity, cmb-smoke (SLOW: ~400 serial CAMB calls),
-   bsn-identity, bsn-smoke, mps-identity, mps-smoke (now includes the
-   MPS-DIAG pages leg), geo-paths (inverted: old paths must be DEAD),
-   plus `--force-rerun scalar-identity scalar-smoke`. Full green is
-   simultaneously GEO's acceptance and the board baseline for
-   everything after.
+   cmb-identity (now incl. the D-CM13 ResTRF head leg), cmb-smoke
+   (SLOW: ~400 serial CAMB calls), bsn-identity, bsn-smoke,
+   mps-identity (now incl. the D-CM13 ResCNN head leg), mps-smoke
+   (includes the MPS-DIAG pages leg), geo-paths (inverted: old paths
+   must be DEAD), plus `--force-rerun scalar-identity scalar-smoke`.
+   Full green is simultaneously GEO's acceptance and the board
+   baseline for everything after.
 3. **Train the five production artifacts** via the family drivers:
    rdrag (scalar), hubble + dm (baosn), pklin + boost (mps).
 4. **The EMUL2 acceptance**: cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml

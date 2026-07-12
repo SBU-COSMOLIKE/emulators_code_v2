@@ -109,11 +109,9 @@ README sections 14 and 15.
   ~400 CAMB calls (lower LMAX/NROWS if slow);
   get_lensed_cls_with_spectrum's call signature.
 
-## SPECS AWAITING AUDIT (written 2026-07-11, deliberately NOT implemented)
+## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented)
 
-Sequencing: both AFTER the first full 32-gate green + the EMUL2
-acceptance; D-CM12 first (science value), D-CM13 an optimization
-experiment.
+Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.
 
 **D-CM12 — dense-Cinv training from the non-Gaussian covariance.**
 The producing side is DONE (the npz already carries cov_tt/te/ee when
@@ -128,20 +126,64 @@ law basis, or forbid roughness+dense in V1, loudly). Deltas:
 D-CM12-1 validator+geometry, D-CM12-2 the roughness ruling, D-CM12-3
 gate legs (dense round-trip byte-parity + diagonal-vs-dense
 OFF-identity). Risk: NG-block eigenvalue conditioning — clip loudly.
+NB: a D-CM12 dense CMB geometry would carry an eigenbasis — the heads
+would then need the REAL basis change, exactly the cosmolike path;
+revisit the D-CM13 identity shortcut when auditing this.
 
-**D-CM13 — conv/TRF heads on the CMB path.** The guard exists because
-the heads consume the dv geometry's theta machinery. Design: a
-geometry `head_coords()` interface {order permutation, bin coordinate
-array, bin sizes} — DataVectorGeometry = the existing theta machinery
-byte-identical; CmbDiagonalGeometry = identity permutation,
-coordinate = ell, one bin; the guard lifts only when the geometry
-implements the interface (errors name geometries, not families).
-Deltas D-CM13-1/2/3. Risks: rescale_kernel_size must see n_ell; the
-head's zero-init gate must preserve epoch-0 finetune parity. The
-physics bet: C_ell is smooth with acoustic structure — the conv
-locality prior plausibly fits better than for xi.
+## D-CM13 — IMPLEMENTED 2026-07-11 (user order, generalized past CMB)
+
+The user ordered the capability symmetry the same evening the spec was
+written ("I want that for CMB and MPS minimum — I prefer that they all
+have"), citing arXiv 2505.22574 (attention-based CMB-spectrum
+emulators, Part III of the multi-probe series: dot-product attention
+cuts the outlier count vs plain MLPs), which made D-CM13
+science-motivated rather than an optimization experiment. This
+supersedes the "after board + EMUL2" sequencing for this one item.
+
+What shipped (simpler than the spec — the identity insight):
+- The spec's head_coords() interface collapsed: the diagonal family
+  geometries whiten per element IN physical order, so the trunk
+  already predicts in the head's local basis — no permutation, no
+  basis change. ResCNN / ResTRF keep W_fd / W_df as None when the
+  geometry has no eigenbasis (hasattr evecs) and skip both matmuls
+  (never build n_keep x n_keep identities). Cosmic shear byte-safe:
+  its geometry has evecs, the old path is untouched.
+- The split attach is `attach_head_coords()` on the geometry (pure,
+  idempotent, no files): cmb = one bin, coordinate ell; grid = one
+  bin, coordinate z; grid2d = one bin PER Z SLICE of length nk
+  (z-outer flattening: conv channels / TRF tokens = z slices — the
+  physically right mapping). Called in build_geometry (fresh AND
+  finetune-pin paths) and in results._rebuild_model (rebuild works
+  from the files alone; the split is derived, never persisted).
+- `model.trf.n_tokens` (MODEL_BLOCK_KEYS + ResTRF kwarg, recipe-
+  recorded): re-segments a SINGLE-bin geometry into contiguous
+  near-equal windows so attention has tokens (the paper's
+  tokenization, minus embeddings); loud errors on multi-bin
+  geometries (physical bins ARE the tokens) and out-of-range T.
+  n_heads must divide ceil(n / n_tokens) (TRFBlock's assert).
+- The from_config guards lifted for cmb / grid / grid2d with the
+  cs-style head-pin notice resolution; SCALAR stays trunk-only
+  (named outputs have no coordinate axis) with the reworded error.
+- Two-phase stays as on cosmic shear: plain ResCNN/ResTRF define no
+  set_train_phase (only the factored-IA templates do), so
+  trunk_epochs demotes identically for every family — symmetric.
+  The per-head activation pin licensing (needs a frozen-trunk phase)
+  is therefore equally out of reach on both sides; model.activation
+  governs.
+- Gate legs (no board-count change): cmb-identity check_head (ResTRF
+  + n_tokens: attach, identity basis, epoch-0 identity, range error,
+  save->rebuild->predict bitwise) and mps-identity check_head
+  (ResCNN on z-slice channels + the n_tokens-on-real-bins rejection
+  + the bitwise round-trip). The round-trip legs specifically prove
+  the rebuild-side attach.
+- DISCOVERED IN PASSING, not fixed here: the COSMIC-SHEAR head
+  artifacts cannot rebuild (build_shear_angle_map is never called on
+  the rebuild path, and DataVectorGeometry.state() does not persist
+  bin_sizes, so rebuild_emulator dies in the constructor's assert).
+  Flagged as its own task; fix = persist bin_sizes (+ pm_kept) in
+  the dv state, schema-additive.
 
 Never re-propose (CME): the two dead covinv forms; per-spectrum
 Boltzmann re-runs; prediction-side smoothness; bare second-difference
-roughness; heads-as-is without D-CM13; the legacy ord/file/extra/
-extrapar pattern.
+roughness; the legacy ord/file/extra/extrapar pattern; heads on the
+SCALAR family (no coordinate axis).

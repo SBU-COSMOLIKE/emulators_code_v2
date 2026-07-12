@@ -38,6 +38,18 @@ tomographic bins (ResTRF), and a learnable gate adds the correction
 back, so swapping the architecture changes only the model. Per-bin
 conv variants were tried and removed (see git history).
 
+The heads ride the diagonal family geometries too (cmb / grid /
+grid2d; the D-CM13 lift, user-ordered 2026-07-11 on the strength of
+arXiv 2505.22574's attention-vs-MLP outlier result for CMB spectra).
+Those geometries whiten per element IN physical order (ell / z /
+z-slices x k), so the trunk's prediction is already in the head's
+local basis: the basis-change maps degenerate to the identity (the
+W_fd / W_df buffers stay None and forward skips both matmuls), and
+the channel/token split comes from the geometry's
+attach_head_coords() instead of build_shear_angle_map. A scalar
+output has no coordinate axis between its named values, so the
+scalar family stays trunk-only (its guard in experiment.py).
+
 Each class mixes in DesignSpec: a head_block class attribute (None /
 "cnn" / "trf") plus a shared describe_spec classmethod make the class the
 single source of its own head-knowledge, read alike by build_specs,
@@ -304,13 +316,29 @@ class ResCNN(DesignSpec, nn.Module):
   standalone ResMLP, so swapping ResMLP -> ResCNN changes the model
   only, not the whitening (no confound).
 
+  On a diagonal family geometry (cmb / grid / grid2d; the D-CM13
+  lift) the same head applies unchanged, minus the basis change:
+  those geometries whiten per element in physical order, so the
+  trunk already predicts in the head's local basis and W_fd / W_df
+  stay None (forward skips both matmuls — no n_keep x n_keep
+  identity buffers). The channel split is the geometry's
+  attach_head_coords(): cmb and grid expose ONE channel (the kernel
+  slides along ell / z), grid2d one channel per z slice (the kernel
+  slides along k; channel mixing couples z slices at like k).
+  groups=2 stays cosmic-shear-only — the xi+/xi- cut is the one
+  physical channel boundary this head knows.
+
   Arguments:
     input_dim    = number of cosmological parameters.
     output_dim   = data-vector length to emulate (= n_keep).
     int_dim_res  = internal width of the residual trunk.
-    geom         = full-whitening DataVectorGeometry carrying
-                   bin_sizes; its evecs / sqrt_ev define the basis
-                   buffers.
+    geom         = the output geometry carrying bin_sizes (attached
+                   by build_shear_angle_map on the cosmolike
+                   geometry, by attach_head_coords() on a diagonal
+                   family geometry). With an eigenbasis (evecs /
+                   sqrt_ev) it also defines the basis buffers;
+                   without one the head works in the geometry's own
+                   physical order (see the class docstring).
     kernel_size  = conv kernel width (odd, same-padded), tuned as
                    if the head had one block. With rescale_kernel
                    it states the target receptive field; without,
@@ -385,9 +413,10 @@ class ResCNN(DesignSpec, nn.Module):
     assert kernel_size % 2 == 1, (
       "kernel_size must be odd so same-padding keeps the length")
     assert hasattr(geom, "bin_sizes"), (
-      "ResCNN needs geom.bin_sizes: run build_shear_angle_map"
-      "(geom) first (EmulatorExperiment does this for models with "
-      "the needs_bins flag)")
+      "ResCNN needs geom.bin_sizes: run build_shear_angle_map(geom) "
+      "on the cosmolike geometry, or attach_head_coords() on a "
+      "diagonal family geometry (EmulatorExperiment does this for "
+      "models with the needs_bins flag)")
 
     # ResMLP main path: standalone ResMLP layer stack, output in the
     # full-whitened basis (well conditioned).
@@ -540,21 +569,32 @@ class ResCNN(DesignSpec, nn.Module):
     #     W_fd = diag(sqrt_ev) evecs.T diag(1/sigma)
     #   theta-order correction -> physical -> full-whitened:
     #     W_df = diag(sigma) evecs diag(1/sqrt_ev)  (= W_fd^{-1})
-    evecs   = geom.evecs.detach()
-    sqrt_ev = geom.sqrt_ev.detach()
-    sigma   = torch.sqrt(((evecs * sqrt_ev) ** 2).sum(1))
-    self.register_buffer(
-      "W_fd", (sqrt_ev[:, None] * evecs.t()) / sigma[None, :])
-    self.register_buffer(
-      "W_df", (sigma[:, None] * evecs) / sqrt_ev[None, :])
+    # A diagonal family geometry (cmb / grid / grid2d; D-CM13) has
+    # no eigenbasis: it whitens per element in physical order, so
+    # the trunk already predicts in the head's local basis and the
+    # basis change IS the identity — both maps stay None and forward
+    # skips the matmuls (never build n_keep x n_keep identities).
+    if hasattr(geom, "evecs"):
+      evecs   = geom.evecs.detach()
+      sqrt_ev = geom.sqrt_ev.detach()
+      sigma   = torch.sqrt(((evecs * sqrt_ev) ** 2).sum(1))
+      self.register_buffer(
+        "W_fd", (sqrt_ev[:, None] * evecs.t()) / sigma[None, :])
+      self.register_buffer(
+        "W_df", (sigma[:, None] * evecs) / sqrt_ev[None, :])
+    else:
+      self.W_fd = None
+      self.W_df = None
 
   def forward(self, x):
     # trunk prediction in the full-whitened basis (the bulk map).
     y = self.mlp(x)                   # (B, n_keep)
     # (reminder: W_fd = f -> d, full-whitened -> diagonal theta
     # order; W_df = d -> f, its inverse. The subscripts read in
-    # multiply order: x @ W_fd starts in f and lands in d.)
-    h = y @ self.W_fd                 # f -> d, theta order
+    # multiply order: x @ W_fd starts in f and lands in d. On an
+    # identity-basis family geometry both are None: y is already in
+    # the head's local order, see __init__.)
+    h = y if self.W_fd is None else y @ self.W_fd
     # scatter into the padded per-bin layout: each bin one channel.
     padded = h.new_zeros(h.shape[0], self.n_bins * self.max_bin)
     padded[:, self.pad_idx] = h
@@ -571,10 +611,12 @@ class ResCNN(DesignSpec, nn.Module):
         c = gamma.unsqueeze(-1) * c + beta.unsqueeze(-1)
       c = self.acts[i](c)
     # gather the real entries back out of the padding, return to the
-    # full-whitened basis (reminder: @ W_df goes d -> f), add
-    # through the gate.
+    # full-whitened basis when one exists (reminder: @ W_df goes
+    # d -> f; None = identity), add through the gate.
     corr = c.reshape(-1, self.n_bins * self.max_bin)[:, self.pad_idx]
-    return y + self.gate * (corr @ self.W_df)
+    if self.W_df is not None:
+      corr = corr @ self.W_df
+    return y + self.gate * corr
 
 
 class ResTRF(DesignSpec, nn.Module):
@@ -645,17 +687,44 @@ class ResTRF(DesignSpec, nn.Module):
   defaulted to "default", and build_shear_angle_map run on the data
   geometry before the model is built.
 
+  On a diagonal family geometry (cmb / grid / grid2d; the D-CM13
+  lift) the same head applies, minus the basis change: those
+  geometries whiten per element in physical order, so W_fd / W_df
+  stay None and forward skips both matmuls. The token split is the
+  geometry's attach_head_coords(): grid2d exposes one token per z
+  slice (attention shares information across redshifts, each
+  slice's private MLP specializes along k); cmb and grid expose ONE
+  physical bin, which is where n_tokens comes in — attention over a
+  single token has nothing to attend across, so n_tokens
+  re-segments the spectrum into contiguous near-equal ell / z
+  windows, the tokenization of the attention CMB emulators
+  (arXiv 2505.22574), minus the embedding layers this head
+  deliberately omits.
+
   Arguments:
     input_dim    = number of cosmological parameters.
     output_dim   = data-vector length to emulate (= n_keep).
     int_dim_res  = internal width of the residual trunk.
-    geom         = full-whitening DataVectorGeometry carrying
-                   bin_sizes; its evecs / sqrt_ev define the basis
-                   buffers.
+    geom         = the output geometry carrying bin_sizes (attached
+                   by build_shear_angle_map on the cosmolike
+                   geometry, by attach_head_coords() on a diagonal
+                   family geometry). With an eigenbasis (evecs /
+                   sqrt_ev) it also defines the basis buffers;
+                   without one the head works in the geometry's own
+                   physical order (see the class docstring).
     n_heads      = attention heads per TRFBlock; must divide the
                    token width max_bin (the LSST-Y1 cosmic-shear
                    run keeps max_bin = 26 theta points per bin,
-                   allowing n_heads = 1, 2, or 13; default 2).
+                   allowing n_heads = 1, 2, or 13; default 2. With
+                   n_tokens set, max_bin = ceil(n / n_tokens) — pick
+                   the pair so it divides).
+    n_tokens     = None (default): the geometry's bins are the
+                   tokens, unchanged. An int (>= 2) re-segments a
+                   SINGLE-bin geometry (cmb / grid) into that many
+                   contiguous near-equal windows; loud error on a
+                   geometry with real physical bins (cosmic shear,
+                   grid2d) — those bins carry physical meaning a
+                   re-segmentation would slice through.
     n_blocks     = residual blocks in the trunk.
     n_blocks_trf = stacked transformer blocks.
     n_mlp_blocks = depth of each bin's private MLP stack inside
@@ -695,15 +764,17 @@ class ResTRF(DesignSpec, nn.Module):
 
   def __init__(self, input_dim, output_dim, int_dim_res, geom,
                n_heads=2, n_blocks=4, n_blocks_trf=1,
-               n_mlp_blocks=2, gate_init=0.1, shared_mlp=False,
-               film=False, head_act=None, block_opts=None):
+               n_mlp_blocks=2, n_tokens=None, gate_init=0.1,
+               shared_mlp=False, film=False, head_act=None,
+               block_opts=None):
     super().__init__()
     if block_opts is None:
       block_opts = {}
     assert hasattr(geom, "bin_sizes"), (
-      "ResTRF needs geom.bin_sizes: run build_shear_angle_map"
-      "(geom) first (EmulatorExperiment does this for models with "
-      "the needs_bins flag)")
+      "ResTRF needs geom.bin_sizes: run build_shear_angle_map(geom) "
+      "on the cosmolike geometry, or attach_head_coords() on a "
+      "diagonal family geometry (EmulatorExperiment does this for "
+      "models with the needs_bins flag)")
 
     # ResMLP main path: standalone ResMLP layer stack, output in the
     # full-whitened basis (well conditioned).
@@ -718,6 +789,33 @@ class ResTRF(DesignSpec, nn.Module):
     sizes = []
     for s in geom.bin_sizes:
       sizes.append(int(s))
+    # n_tokens (D-CM13): re-segment a SINGLE-bin geometry (a spectrum
+    # on one axis: cmb's ell, grid's z) into contiguous near-equal
+    # windows so attention has tokens to attend across — the first
+    # n % T windows get one extra element, the ragged pad machinery
+    # below absorbs the remainder. A geometry with real physical
+    # bins already defines the tokens; re-cutting them would slice
+    # through physical structure, so that is a loud error.
+    if n_tokens is not None:
+      if len(sizes) != 1:
+        raise ValueError(
+          "model.trf.n_tokens re-segments a single-bin geometry "
+          "(cmb / grid), but this geometry defines "
+          + str(len(sizes)) + " physical bins (tomographic bins / "
+          "z slices) — those ARE the tokens; drop n_tokens")
+      total = sizes[0]
+      T     = int(n_tokens)
+      if T < 2 or T > total:
+        raise ValueError(
+          "model.trf.n_tokens must be in 2.." + str(total)
+          + " (the spectrum's length); got " + str(T))
+      q, r  = divmod(total, T)
+      sizes = []
+      for t in range(T):
+        if t < r:
+          sizes.append(q + 1)
+        else:
+          sizes.append(q)
     self.n_bins  = len(sizes)
     self.max_bin = max(sizes)
     # pad_idx maps each kept theta-order position to its slot in the
@@ -767,22 +865,30 @@ class ResTRF(DesignSpec, nn.Module):
 
     # Frozen basis-change buffers, exactly ResCNN's (reminder:
     # W_fd = f -> d, full-whitened -> diagonal theta order /sigma;
-    # W_df = d -> f, its inverse, subscripts in multiply order).
-    evecs   = geom.evecs.detach()
-    sqrt_ev = geom.sqrt_ev.detach()
-    sigma   = torch.sqrt(((evecs * sqrt_ev) ** 2).sum(1))
-    self.register_buffer(
-      "W_fd", (sqrt_ev[:, None] * evecs.t()) / sigma[None, :])
-    self.register_buffer(
-      "W_df", (sigma[:, None] * evecs) / sqrt_ev[None, :])
+    # W_df = d -> f, its inverse, subscripts in multiply order). A
+    # diagonal family geometry (no eigenbasis) keeps both None: the
+    # trunk already predicts in the head's local order (D-CM13).
+    if hasattr(geom, "evecs"):
+      evecs   = geom.evecs.detach()
+      sqrt_ev = geom.sqrt_ev.detach()
+      sigma   = torch.sqrt(((evecs * sqrt_ev) ** 2).sum(1))
+      self.register_buffer(
+        "W_fd", (sqrt_ev[:, None] * evecs.t()) / sigma[None, :])
+      self.register_buffer(
+        "W_df", (sigma[:, None] * evecs) / sqrt_ev[None, :])
+    else:
+      self.W_fd = None
+      self.W_df = None
 
   def forward(self, x):
     # trunk prediction in the full-whitened basis (the bulk map).
     y = self.mlp(x)                   # (B, n_keep)
     # (reminder: W_fd = f -> d, full-whitened -> diagonal theta
     # order; W_df = d -> f, its inverse. The subscripts read in
-    # multiply order: x @ W_fd starts in f and lands in d.)
-    h = y @ self.W_fd                 # f -> d, theta order
+    # multiply order: x @ W_fd starts in f and lands in d. On an
+    # identity-basis family geometry both are None: y is already in
+    # the head's local order, see __init__.)
+    h = y if self.W_fd is None else y @ self.W_fd
     # scatter into the padded per-bin layout: new_zeros makes the
     # (B, n_bins*max_bin) canvas (pad slots stay 0), the pad_idx
     # assignment places the n_keep real entries.
@@ -807,7 +913,10 @@ class ResTRF(DesignSpec, nn.Module):
     # identity start, with no output projection needed to host it).
     # Gather the real entries back out of the padded layout
     # (dropping the pad slots), then return to the full-whitened
-    # basis (reminder: @ W_df goes d -> f) and add through the gate.
+    # basis when one exists (reminder: @ W_df goes d -> f; None =
+    # identity) and add through the gate.
     corr = (t - t0).reshape(
       -1, self.n_bins * self.max_bin)[:, self.pad_idx]
-    return y + self.gate * (corr @ self.W_df)
+    if self.W_df is not None:
+      corr = corr @ self.W_df
+    return y + self.gate * corr

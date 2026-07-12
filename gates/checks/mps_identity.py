@@ -17,6 +17,11 @@ Legs:
   - save -> rebuild -> predict bitwise on the syren_linear and none
     laws (the predictor's grid2d branch returns {"z", "k", quantity}
     reshaped (nz, nk)); rebuild info flags class-guarded;
+  - the D-CM13 head leg: attach_head_coords (one bin per z slice),
+    the identity basis (W_fd / W_df None), the ResCNN epoch-0
+    identity start, the n_tokens rejection on real physical bins,
+    and the head save -> rebuild -> predict bitwise round-trip
+    (the rebuild-side attach in results._rebuild_model);
   - emul_mps (cobaya.theory stubbed, syren_base MONKEYPATCHED with
     synthetic closed forms): pair validation (missing quantity /
     duplicate / wrong-kind / grid mismatch loud); the calculate
@@ -277,6 +282,105 @@ def check_roundtrip(tmp, device, law):
     return root
 
 
+def grid2d_head_recipe(width):
+    """The model_recipe for the ResCNN head leg (D-CM13): needs_geom
+    True (rebuild re-attaches the z-slice split via attach_head_coords),
+    every constructor default materialized."""
+    return {"cls": "emulator.designs.plain.ResCNN", "name": "rescnn",
+            "ia": None, "input_dim": N_IN, "output_dim": width,
+            "compile_mode": None, "needs_geom": True,
+            "kwargs": {"int_dim_res": 16, "n_blocks": 2,
+                       "kernel_size": 3, "rescale_kernel": False,
+                       "groups": 1, "separable": False, "film": False,
+                       "n_blocks_cnn": 1, "gate_init": 0.1,
+                       "head_act": None,
+                       "block_opts": {"act": {"type": "H", "n_gates": 3},
+                                      "norm": "affine"}}}
+
+
+def check_head(tmp, device):
+    """D-CM13: the conv head on the grid2d geometry — z slices as
+    channels, the identity basis, the epoch-0 identity start, the
+    n_tokens rejection on real physical bins, and save -> rebuild ->
+    predict bitwise (proving the rebuild-side attach_head_coords in
+    results._rebuild_model)."""
+    from emulator.designs.plain import ResCNN, ResTRF
+    covmat = os.path.join(tmp, "g2h.covmat")
+    write_covmat(covmat, IN_NAMES, seed=41)
+    pgeom = ParamGeometry.from_covmat(
+        device=device, center=np.array([2.1, 67.0, 0.12]),
+        covmat_path=covmat)
+    Y = synth_rows(400, seed=42)
+    geom = Grid2DGeometry.from_targets(device=device, targets=Y, z=Z4,
+                                       k=K6, quantity="pklin",
+                                       units="Mpc3", law="syren_linear")
+    geom.attach_head_coords()
+    want_sizes = []
+    for _ in range(Z4.size):
+        want_sizes.append(int(K6.size))
+    report("attach_head_coords: one bin per z slice, length nk",
+           geom.bin_sizes == want_sizes,
+           "bin_sizes %s" % (geom.bin_sizes,))
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    width = Z4.size * K6.size
+    model = ResCNN(input_dim=N_IN, output_dim=width, int_dim_res=16,
+                   geom=geom, kernel_size=3, n_blocks=2,
+                   n_blocks_cnn=1, block_opts=block_opts).to(device)
+    report("identity basis: W_fd / W_df stay None on the grid2d geometry",
+           model.W_fd is None and model.W_df is None,
+           "n_bins %d, max_bin %d" % (model.n_bins, model.max_bin))
+    x = torch.randn(4, N_IN, device=device)
+    with torch.no_grad():
+        full = model(x)
+        trunk = model.mlp(x)
+    report("epoch-0 identity: the head model equals its trunk bitwise",
+           torch.equal(full, trunk),
+           "max|d| = %.2e" % (full - trunk).abs().max().item())
+    try:
+        ResTRF(input_dim=N_IN, output_dim=width, int_dim_res=8,
+               geom=geom, n_tokens=3, block_opts=block_opts)
+        report("n_tokens on real physical bins raises", False, "no raise")
+    except ValueError as e:
+        report("n_tokens on real physical bins raises",
+               "physical bins" in str(e), "ValueError names the bins")
+    # save -> rebuild -> predict bitwise: the rebuilt Grid2DGeometry
+    # carries no bin_sizes in its state (derived, never persisted), so
+    # this leg fails unless _rebuild_model re-attaches before
+    # constructing the head model.
+    root = os.path.join(tmp, "emul_g2_head")
+    config = {"data": {"grid2d": {"quantity": "pklin", "units": "Mpc3",
+                                  "law": "syren_linear",
+                                  "z_file": "z.npy", "k_file": "k.npy",
+                                  "train_base": "tb.npy",
+                                  "val_base": "vb.npy"},
+                       "train_dv": "t.npy", "val_dv": "v.npy",
+                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat)},
+              "train_args": {"nepochs": 1}}
+    histories = {"train_losses": [0.1], "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
+                  geometry=geom, config=config, histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=grid2d_head_recipe(width),
+                  attrs={"rescale": "none", "quantity": "pklin"})
+    theta = np.array([[2.15, 68.0, 0.121]])
+    x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        ref = geom.decode(model(pgeom.encode(x1)))[0].cpu().numpy()
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    report("head save -> rebuild -> predict bitwise (rebuild attach)",
+           np.array_equal(got["pklin"].reshape(-1), ref),
+           "max|d| = %.2e"
+           % np.abs(got["pklin"].reshape(-1) - ref).max())
+
+
 def _load_emul_mps_stubbed():
     if "cobaya" not in sys.modules:
         sys.modules["cobaya"] = types.ModuleType("cobaya")
@@ -529,6 +633,7 @@ def main():
         check_staging(tmp)
         check_roundtrip(tmp, device, law="syren_linear")
         check_roundtrip(tmp, device, law="none")
+        check_head(tmp, device)
         check_adapter(tmp, device)
         check_validate()
         check_finetune(tmp, device)

@@ -578,6 +578,14 @@ def rebuild_emulator(path_root, device, compile_model=True):
         _need(ha, "type", "head_act"),
         n_gates=_need(ha, "n_gates", "head_act"))
     if _need(rc, "needs_geom", "model_recipe"):
+      # conv/TRF heads read geom.bin_sizes at construction. A diagonal
+      # family geometry (cmb / grid / grid2d; D-CM13) derives the split
+      # from its own saved grid — attach it here so a head artifact
+      # rebuilds from the files alone. The cosmolike DataVectorGeometry
+      # has no such method (its split needs the dataset ini via
+      # build_shear_angle_map — the recorded cosmic-shear rebuild gap).
+      if hasattr(geom_for_needs, "attach_head_coords"):
+        geom_for_needs.attach_head_coords()
       kwargs["geom"] = geom_for_needs
     m = cls(input_dim=_need(rc, "input_dim", "model_recipe"),
             output_dim=_need(rc, "output_dim", "model_recipe"),

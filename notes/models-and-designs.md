@@ -34,6 +34,19 @@ emulator/activations.py.
   reduction on the OUTPUT side (published CMB precedent 0.2 -> 0.06).
   Heads act in theta order via FIXED W_fd/W_df buffers (live geometry
   calls in forward() break CUDA graphs).
+- D-CM13 family lift (2026-07-11, user order + arXiv 2505.22574): the
+  heads ride cmb / grid / grid2d too. The diagonal family geometries
+  whiten IN physical order (ell / z / z-slices x k), so the basis
+  change is the IDENTITY — W_fd/W_df stay None (hasattr(geom,
+  "evecs") branches; never build n_keep^2 identity buffers) and the
+  split comes from geometry.attach_head_coords() (cmb/grid: one bin;
+  grid2d: one bin per z slice = conv channels / TRF tokens). New knob
+  model.trf.n_tokens re-segments a single-bin spectrum into
+  contiguous attention windows (rejected on multi-bin geometries).
+  Scalar stays trunk-only: named outputs have no coordinate axis.
+  Rebuild-side attach lives in results._rebuild_model; the COSMIC-
+  SHEAR head-artifact rebuild gap (bin_sizes never persisted) is a
+  flagged, separate task.
 - Identity-at-init discipline: the LAST layer of every head branch is
   zero-initialized so model == trunk EXACTLY at init and at the
   two-phase handoff; every activation family maps 0 -> 0 (which

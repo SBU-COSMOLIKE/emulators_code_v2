@@ -212,6 +212,21 @@ class GridGeometry:
             "center":   self.center.cpu(),
             "scale":    self.scale.cpu()}
 
+  def attach_head_coords(self):
+    """Attach the conv/TRF heads' channel/token split (D-CM13).
+
+    The correction heads (designs/plain.py ResCNN / ResTRF) read
+    geom.bin_sizes for their channel/token layout; here it is a pure
+    derivation from the geometry's own z grid: ONE bin covering the
+    whole function, coordinate = z (the conv slides along z; the TRF
+    re-segments via model.trf.n_tokens so attention has windows to
+    attend across). No permutation, no basis change: the whitening
+    is per grid point IN z order, so the heads' W_fd / W_df maps
+    stay None. Idempotent; no files, no torch build — safe at
+    training (build_geometry) and at rebuild (rebuild_emulator).
+    """
+    self.bin_sizes = [int(self.z.numel())]
+
   def encode(self, y):
     """Raw quantity rows -> standardized law-space target.
 

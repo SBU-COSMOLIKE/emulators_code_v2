@@ -1,6 +1,6 @@
 # BAOSN grid emulator config (the SN-range H(z) artifact) for
-# cosmic_shear_train_emulator.py (see notes/families-background-mps.md and
-# emulator/geometries_grid.py).
+# baosn_train_emulator.py (see notes/families-background-mps.md and
+# emulator/geometries/grid.py).
 #
 # The BAOSN family serves the expansion history from TWO artifacts (the
 # two-regime design): this one emulates H(z) on the SN range (distances
@@ -48,8 +48,13 @@ train_args:
   nepochs: 300
   bs:      256
 
-  # a plain trunk design (the conv / trf heads assume an eigenbasis
-  # data-vector geometry the grid geometry does not carry).
+  # the model. name picks the architecture: resmlp (the plain trunk) or
+  # the correction heads rescnn / restrf (the D-CM13 family lift). The
+  # diagonal grid geometry keeps the z order, so the heads correct
+  # along the function directly: rescnn slides an odd-width conv kernel
+  # along z; restrf re-segments the z grid into model.trf.n_tokens
+  # contiguous windows and attends across them. Uncomment ONE head
+  # block together with its name.
   model:
     name: resmlp
     mlp:
@@ -58,7 +63,19 @@ train_args:
     activation:
       type:    H
       n_gates: 3
+    # cnn:                   # with name: rescnn
+    #   kernel_size: 5       # odd conv width, slides along z
+    #   n_blocks:    1
+    # trf:                   # with name: restrf
+    #   n_heads:      2      # must divide ceil(nz / n_tokens)
+    #   n_blocks:     1
+    #   n_mlp_blocks: 2
+    #   n_tokens:     8      # attention windows over the z grid
 
+  # sqrt is the usual default; the FULL shared mode ladder applies here
+  # exactly as on cosmic shear (chi2 / sqrt / sqrt_dchi2 / berhu /
+  # berhu_capped, with the berhu: knot / cap / anneal sub-block — see
+  # the annotated ladder in cosmic_shear_train_emulator.yaml).
   loss:
     mode: sqrt
 
@@ -74,6 +91,16 @@ train_args:
     mode:     min
     patience: 25
     factor:   0.8
+
+  # OPTIONAL training guards — the SAME shared loop as cosmic shear
+  # (off when absent): clip = per-step gradient-norm ceiling; rewind =
+  # reload the best weights + optimizer snapshot on every plateau lr
+  # cut; ema = a Polyak weight average {horizon_epochs, anneal}. The
+  # annotated versions live in cosmic_shear_train_emulator.yaml.
+  # clip:   1.0
+  # rewind: true
+  # ema:
+  #   horizon_epochs: 20
 
   trim:
     start:         0.0
