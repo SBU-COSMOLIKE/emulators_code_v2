@@ -1329,10 +1329,13 @@ BOARD = [
             "(build_warm_start + build_transfer_start), the 45M-24 "
             "safe-sqrt producer clause (exact-fit finite gradients per "
             "mode, positives analytic, negative/NaN chi2 refused, eager + "
-            "compiled), and the 45M-47 epoch-reduction clause (host "
-            "float64 accumulation; a finite epoch mean where the old "
-            "float32 loss*bs product overflowed); the red legs plus the "
-            "finite controls",
+            "compiled), the 45M-47 epoch-reduction clause (host float64 "
+            "accumulation; a finite epoch mean where the old float32 "
+            "loss*bs product overflowed), and the 45M-53 chi2-domain "
+            "clause (eval_val / eval_source_chi2 raise on a finite "
+            "negative chi2 that training folds; the scale-aware band; the "
+            "finite-only false-crowning mutation; the capability-gated "
+            "compile arm); the red legs plus the finite controls",
        run=gate_finite_contract,
        needs=("torch",)),
   Gate(id="berhu-loss",

@@ -1598,3 +1598,52 @@ Unit 14 state: increments a+b+c+d landed (a0d03f5, 97963b8,
 63880d1) and REOPENED for (e) + the gate truth amendment; (e) runs
 FIRST in the work order, before 42+43 (same freshly-touched code,
 one gate revision).
+
+#### Finite-contract resume (2026-07-12, Opus) — increment (e) 45M-53 in; unit 14 closes on a+b+c+d+e+gate
+
+Increment (e) implemented and self-committed on the branch (batch grant,
+pending Architect audit). Both flags were ruled (fifth sqrt site confirmed;
+the absolute tolerance superseded); this adopts the adjudicated band.
+
+- ONE shared chi2-domain predicate (losses/core.py): `_chi2_domain(c, band)`
+  returns (c_norm, bad) -- finite first, then nonnegative within the band;
+  within-band roundoff negatives normalize to EXACT 0, `bad` marks
+  non-finite OR materially-negative (< -band). Elementwise, no sync. The
+  scale-aware band is `_chi2_neg_band(dtype, n_terms) = max(1e-6,
+  _CHI2_NEG_KAPPA(32) * eps(dtype) * n_terms)`; `_chi2_n_terms()` is the
+  per-row summed-product count -- w^2 on the DENSE base CosmolikeChi2
+  (covers rescaled/transfer via inheritance), w on the DIAGONAL override
+  CmbDiagonalChi2. The old absolute `_CHI2_NEG_TOL`/`_validate_chi2` are
+  replaced.
+- Three call sites, one predicate (training.py): `_reduce` folds bad -> NaN
+  (the landed per-step refusal, compile-safe); `eval_val` and
+  `eval_source_chi2` now RAISE (via `_report_chi2_domain`, naming side,
+  count, first source rows, minimum value, and the band) before any
+  mean/median/fraction or best-record comparison; within-band -> exact 0
+  everywhere. A production loss always declares `_chi2_n_terms`; a bare test
+  double defaults to the band floor (documented). Valid nonnegative scores
+  byte-identical.
+- Gate: Part H (finite_contract.py) -- eval_val -4 raises; eval_source_chi2
+  -4 raises (side diagnostic); exact-zero accepted; all-positive control
+  byte-identical; the finite-only false-crowning mutation (the -4 row lowers
+  frac>0.2); band-edge both sides; a negative through the COMPILED reduce ->
+  non-finite. The Part F compile arm is fixed per the addendum:
+  `_can_compile()` capability detection FIRST, then the leg is MANDATORY-red
+  on a compile-capable box (exception -> FAIL + traceback), with a
+  raising-callable mutation control; a compiler-less box prints an explicit
+  `[SKIP-DEP]` that never counts toward 33/33. Board maps + gate docstring
+  name the 45M-53 clause.
+- Mac gate (raw): py_compile OK (core.py, cmb.py, training.py,
+  finite_contract.py, board.py); probe_chi2_domain.py 9/9 on the REAL
+  `_chi2_neg_band` + `_chi2_domain` + `_safe_sqrt` -- the scale-aware band
+  (floor + dense scaling), valid unchanged, within-band -> 0 (not bad),
+  materially-negative (-4) and non-finite -> bad, band-edge both sides, the
+  _safe_sqrt regression clean. The torch eval/compiled legs ride the
+  workstation finite-contract gate (33/33, zero skips = compile mandatory).
+
+Unit 14 closes on a + b (a0d03f5) + c (97963b8, 45M-24) + d (63880d1,
+45M-47) + e (this, 45M-53) + the extended finite-contract gate (Parts A-H).
+Files (e): emulator/losses/core.py, emulator/losses/cmb.py,
+emulator/training.py, gates/checks/finite_contract.py, gates/board.py,
+notes/training-stack.md. Next: 42 landed (5661c08); 43 proposed; then
+50 -> 52 -> 55 -> 22 -> 13.

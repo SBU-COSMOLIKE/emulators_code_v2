@@ -81,40 +81,72 @@ def anneal_value(epoch, opts):
   return float(val)
 
 
-# 45M-24: a chi2 is a sum of whitened squares, so it is >= 0 in exact
-# arithmetic; float roundoff in a non-PSD-adjacent precision contraction
-# (the rescaled / transfer forms) can nudge a near-zero value slightly
-# negative. A value within this band of 0 is an exact fit (clamped to 0);
-# anything more negative is corruption and is rejected (see _validate_chi2).
-_CHI2_NEG_TOL = 1.0e-6
+# 45M-24 + 45M-53: a chi2 is a sum of (possibly matrix-contracted) whitened
+# products, mathematically >= 0; float roundoff in a non-PSD-adjacent
+# precision contraction (the dense / rescaled / transfer forms) can nudge a
+# near-zero value slightly negative. The allowed band is scale-aware in the
+# quantity roundoff grows with -- the per-row summed-product count of the
+# active contraction (n_terms) -- with a fixed floor, so it stays a per-run
+# build-time constant (elementwise, compile-safe, no batch statistic that a
+# NaN could poison). A value within the band is roundoff (normalized to an
+# exact 0); anything more negative, or non-finite, is corruption. ONE shared
+# predicate (_chi2_domain) serves the training reduction (folds bad to NaN,
+# the landed per-step refusal) AND the eval / diagnostic boundaries (which
+# raise), so training can never call a row exact that scoring reports
+# negative.
+_CHI2_NEG_KAPPA = 32   # the roundoff-band multiple of eps * n_terms (45M-53)
 
 
-def _validate_chi2(c):
-  """Fold a corrupted per-sample chi2 to NaN before the loss transform.
+def _chi2_neg_band(dtype, n_terms):
+  """The largest a chi2 may go negative from roundoff before it is corruption.
 
-  A chi2 is a sum of whitened squares, so it is >= 0 up to roundoff. This
-  is the producer's "reject before the transform" step, run once at the top
-  of _reduce for every mode: a non-finite c, or a materially negative one
-  (< -_CHI2_NEG_TOL: a corrupted non-PSD precision or a diverged model,
-  not roundoff), is folded to NaN so the finite contract's per-step guard
-  refuses the run -- never silently mapped to a perfect 0 by the safe-sqrt
-  below, and never trained on as a negative loss under mode "chi2". A tiny
-  roundoff negative within the band is the exact-fit case and is clamped to
-  0. Elementwise (an isfinite test, a compare, a clamp, a select): no host
-  sync and no data-dependent branch, so the compiled loss and its CUDA-graph
-  replay are undisturbed, and a well-formed c >= 0 is returned bit-identical.
+  band = max(1e-6, _CHI2_NEG_KAPPA * eps(dtype) * n_terms). n_terms is the
+  per-row count of summed products in the contraction (n_dv for a diagonal
+  sum of squares, n_dv^2 for a dense r^T Cinv r), a per-run constant, so the
+  band is a plain Python float -- elementwise and compile / CUDA-graph safe,
+  scale-aware in exactly the quantity roundoff accumulates in. The 1e-6 floor
+  survives from the first cut for tiny contractions.
 
   Arguments:
-    c = the raw per-sample chi2 tensor, (B,).
+    dtype   = the compute dtype of the chi2 (its eps sets the roundoff unit).
+    n_terms = the per-row summed-product count (see _chi2_n_terms).
 
   Returns:
-    c with within-band roundoff negatives clamped to 0 and every corrupted
-    (materially negative / non-finite) entry replaced by NaN; a valid
-    non-negative c is unchanged.
+    the band, a positive Python float.
   """
-  valid = torch.isfinite(c) & (c >= -_CHI2_NEG_TOL)
-  return torch.where(valid, torch.clamp(c, min=0.0),
-                     torch.full_like(c, float("nan")))
+  eps = float(torch.finfo(dtype).eps)
+  return max(1.0e-6, _CHI2_NEG_KAPPA * eps * float(n_terms))
+
+
+def _chi2_domain(c, band):
+  """The shared chi2-domain predicate: finite first, then non-negative in band.
+
+  Returns (c_norm, bad):
+    c_norm = c with a within-band roundoff negative normalized to EXACT 0 and
+             a valid c left unchanged (a bad entry keeps c, the caller folds
+             or raises);
+    bad    = a boolean mask, True where c is non-finite OR materially negative
+             (< -band).
+  Elementwise (isfinite, a compare, a clamp, two selects): no host sync and no
+  data-dependent branch. The training reduction folds bad to NaN (compile-safe,
+  the per-step finite guard then refuses the run); the eval / diagnostic
+  boundaries raise on bad. Within-band negatives normalize to 0 the SAME way
+  everywhere, so a row is never exact in training and negative in evaluation.
+
+  Arguments:
+    c    = the per-sample chi2 tensor, (B,).
+    band = the allowed roundoff band (see _chi2_neg_band).
+
+  Returns:
+    (c_norm, bad) as above.
+  """
+  finite = torch.isfinite(c)
+  nonneg = c >= -band
+  bad    = torch.logical_or(torch.logical_not(finite),
+                            torch.logical_not(nonneg))
+  c_norm = torch.where(torch.logical_and(finite, nonneg),
+                       torch.clamp(c, min=0.0), c)
+  return c_norm, bad
 
 
 def _safe_sqrt(c):
@@ -133,9 +165,10 @@ def _safe_sqrt(c):
   the berhu family is preserved -- unlike sqrt(c + eps), which shifts the
   value everywhere and is NOT contract-equivalent. Only the GRADIENT
   changes: 0 at c == 0 instead of NaN. c is already validated
-  non-negative-or-NaN by _validate_chi2, so a NaN propagates (c - c is NaN)
-  and torch.sqrt never sees a negative input. No host sync, no data-dependent
-  branch: the compiled loss and its CUDA-graph replay are undisturbed.
+  non-negative-or-NaN by _chi2_domain (the top of _reduce), so a NaN
+  propagates (c - c is NaN) and torch.sqrt never sees a negative input. No
+  host sync, no data-dependent branch: the compiled loss and its CUDA-graph
+  replay are undisturbed.
 
   The two where()s keep 0 (and NaN) out of sqrt's own backward: torch.sqrt
   only ever sees a strictly positive input, so its finite gradient is then
@@ -144,7 +177,7 @@ def _safe_sqrt(c):
 
   Arguments:
     c = the validated per-sample chi2 tensor (>= 0, or NaN for a corrupted
-        entry _validate_chi2 already flagged).
+        entry _chi2_domain already flagged).
 
   Returns:
     a tensor shaped like c: sqrt(c) for c > 0, 0 (gradient 0) at c == 0, and
@@ -217,6 +250,21 @@ class CosmolikeChi2:
   def total_size(self):
     """The geometry's full 3x2pt dv length (Returns: an int)."""
     return self.geom.total_size
+
+  def _chi2_n_terms(self):
+    """Per-row summed-product count of this chi2's contraction (45M-53).
+
+    The chi2-domain band scales with the roundoff of the chi2 sum, which
+    grows with the number of summed products. The base metric is the DENSE
+    r^T Cinv r over the kept width w, i.e. w^2 products; the diagonal
+    families (a plain sum of w squares) override to w. A per-run constant,
+    read once at the top of _reduce and by the eval / diagnostic boundaries.
+
+    Returns:
+      an int, the per-row summed-product count (w^2 here).
+    """
+    w = int(self.dest_idx.numel())
+    return w * w
 
   def encode(self, dv):
     """Forward to geom.encode.
@@ -400,12 +448,17 @@ class CosmolikeChi2:
     Returns:
       a scalar loss tensor.
     """
-    # 45M-24 producer contract: reject a corrupted (materially negative or
-    # non-finite) chi2 BEFORE the transform, folding it to NaN so the finite
-    # contract's per-step guard refuses the run; a within-band roundoff
-    # negative is clamped to an exact-fit 0. Mode-independent (chi2 and
-    # sqrt_dchi2 must reject too), elementwise, no host sync.
-    c = _validate_chi2(c)
+    # 45M-24 + 45M-53 producer contract: reject a corrupted (materially
+    # negative or non-finite) chi2 BEFORE the transform, folding it to NaN so
+    # the finite contract's per-step guard refuses the run; a within-band
+    # roundoff negative is normalized to an exact-fit 0. The SAME predicate
+    # and band serve eval_val / eval_source_chi2 (which raise instead of
+    # folding), so training never calls a row exact that scoring reports
+    # negative. Mode-independent (chi2 and sqrt_dchi2 must reject too),
+    # elementwise, no host sync.
+    band = _chi2_neg_band(c.dtype, self._chi2_n_terms())
+    c_norm, bad = _chi2_domain(c, band)
+    c = torch.where(bad, torch.full_like(c, float("nan")), c_norm)
     B = c.numel()
     # ascending sort: the kept (smallest-chi2) samples come first,
     # so the keep mask is a prefix. Sorting when trim = 0 changes

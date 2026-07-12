@@ -43,6 +43,13 @@ The parts, in order:
      float32 max yields a finite epoch mean (accumulated on the host in
      float64), where the old device-float32 loss*bs product would overflow to
      Inf and publish it.
+  H. the chi2-domain boundary (45M-53) — eval_val and eval_source_chi2 RAISE
+     on a finite negative chi2 (which training folds), so a corrupted row can
+     never rank as "perfect": the finite-only check would crown it; an exact
+     zero is accepted; the scale-aware band tolerates roundoff and refuses
+     corruption on both edges; the same fold is compile-safe. The Part F
+     compile arm is now capability-gated (mandatory-red on a compile-capable
+     box, an explicit SKIP-DEP otherwise, plus a raising-callable control).
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
@@ -663,6 +670,23 @@ def _exact_fit_grad(obj, mode, berhu_s=None):
   return loss, r.grad
 
 
+def _can_compile():
+  """True iff this box can build AND run a torch.compile'd backward.
+
+  The 45M-53 capability probe: compile a trivial function and run its
+  backward. A compiler-less dev box fails here, so the mandatory compile legs
+  are gated on a real capability -- never on a broad except that would green a
+  genuine Inductor / backward regression.
+  """
+  try:
+    f = torch.compile(lambda t: (t * t).sum())
+    x = torch.ones(3, requires_grad=True)
+    f(x).backward()
+    return bool(torch.isfinite(x.grad).all())
+  except Exception:
+    return False
+
+
 def check_safe_sqrt():
   """Part F: the sqrt sites are grad-safe at an exact fit, in every mode."""
   obj = _reduce_obj()
@@ -700,20 +724,44 @@ def check_safe_sqrt():
            not bool(torch.isfinite(loss)), "loss = " + repr(loss.item()))
 
   # eager + compiled: the exact-fit gradient stays finite under torch.compile.
-  try:
-    compiled = torch.compile(lambda cc: _reduce_loss(obj, cc, "sqrt"))
-    rows = torch.zeros(4, 3)
-    rows[1:] = torch.linspace(0.3, 2.0, 9).reshape(3, 3)
-    r = rows.clone().requires_grad_(True)
-    compiled((r ** 2).sum(dim=1)).backward()
-    report("safe-sqrt: exact-fit gradient finite under torch.compile",
-           bool(torch.isfinite(r.grad).all()) and bool((r.grad[0] == 0).all()),
-           "compiled backward finite, row0 == 0")
-  except Exception as e:                       # a backend without a compiler
-    # the eager legs above prove the math; the production workstation
-    # compiles, so a compiler-less box soft-skips rather than fails.
-    report("safe-sqrt: torch.compile leg (compile unavailable here)", True,
-           "skipped: " + _short(str(e)))
+  # 45M-53 addendum: capability detection FIRST. A broad except that greened
+  # on ANY exception turned a real Inductor / backward regression into a green
+  # skip -- the exact failure class the leg exists to catch. On a
+  # compile-capable box the leg is MANDATORY (an exception is RED, with the
+  # traceback); a genuinely compiler-less box emits an explicit non-green
+  # SKIP-DEP that can never count toward closure.
+  if _can_compile():
+    import traceback
+    try:
+      compiled = torch.compile(lambda cc: _reduce_loss(obj, cc, "sqrt"))
+      rows = torch.zeros(4, 3)
+      rows[1:] = torch.linspace(0.3, 2.0, 9).reshape(3, 3)
+      r = rows.clone().requires_grad_(True)
+      compiled((r ** 2).sum(dim=1)).backward()
+      report("safe-sqrt: exact-fit gradient finite under torch.compile "
+             "(MANDATORY on the compile lane)",
+             bool(torch.isfinite(r.grad).all())
+             and bool((r.grad[0] == 0).all()),
+             "compiled backward finite, row0 == 0")
+    except Exception:
+      report("safe-sqrt: exact-fit gradient finite under torch.compile "
+             "(MANDATORY on the compile lane)", False,
+             "compiled leg raised: " + traceback.format_exc().splitlines()[-1])
+    # mutation control: a compiled callable that RAISES must be detected, so
+    # the arm can never green on a real compile / backward failure.
+    raised = False
+    try:
+      broken = torch.compile(lambda x: x + _does_not_exist_ce)   # NameError
+      broken(torch.ones(2))
+    except Exception:
+      raised = True
+    report("safe-sqrt: a raising compiled callable is detected (the arm "
+           "cannot green on a compile failure)", raised,
+           "compile failure surfaces as an exception, not a green skip")
+  else:
+    print("  [SKIP-DEP] safe-sqrt: torch.compile unavailable on this box "
+          "(no compiler) — the compile lane is workstation-owed and never "
+          "counts toward 33/33 closure.")
 
 
 # ==========================================================================
@@ -774,6 +822,122 @@ def check_epoch_reduction():
 
 
 # ==========================================================================
+# Part H: the chi2-domain boundary (45M-53) -- eval / diagnostic reject a
+#         finite NEGATIVE chi2 that training folds; no false "perfect" row.
+# ==========================================================================
+
+class _NegSrcChi2:
+  """A diagnostic chi2 (encode identity) with a settable negative injection."""
+
+  needs_params = False
+
+  def __init__(self):
+    self.neg_row = None
+
+  def encode(self, dv):
+    return dv
+
+  def chi2(self, pred, target):
+    c = ((pred - target) ** 2).sum(dim=1)
+    if self.neg_row is not None:
+      c = c.clone()
+      c[self.neg_row] = -4.0
+    return c
+
+
+def check_chi2_domain():
+  """Part H: eval_val and eval_source_chi2 raise on a finite NEGATIVE chi2."""
+  torch.manual_seed(7)
+  C = torch.randn(N_VAL, N_IN)
+  DV = torch.randn(N_VAL, N_OUT)
+  model = nn.Linear(N_IN, N_OUT).eval()
+  thresholds = torch.tensor([0.2, 0.5, 1.0])
+
+  # eval_val: a real one-output r^T[-1]r = -4 (row 17) must RAISE before the
+  # fractions -- a negative counts False against every positive threshold and
+  # would crown the corrupted row as perfect.
+  loss = PoisonChi2()
+  loss.bad = {17: -4.0}
+  raised, msg = _expect_valueerror(
+    lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
+                     load=N_VAL, bs=N_VAL, thresholds=thresholds))
+  report("chi2 domain: eval_val raises on a finite negative chi2",
+         raised and "chi2 domain contract [validation]" in msg and "17" in msg,
+         _short(msg))
+
+  # an exact-zero chi2 is accepted (within-band -> 0), not raised.
+  loss = PoisonChi2()
+  loss.bad = {5: 0.0}
+  raised, _ = _expect_valueerror(
+    lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
+                     load=N_VAL, bs=N_VAL, thresholds=thresholds))
+  report("chi2 domain: an exact-zero chi2 is accepted (not raised)",
+         not raised, "0.0 kept as a valid perfect row")
+
+  # positive control: the domain check is inert on all-positive scores.
+  with torch.no_grad():
+    ref_c = ((model(C) - DV) ** 2).sum(dim=1)
+  ref_med = ref_c.median().item()
+  med, _, _ = eval_val(model=model, lossfn=PoisonChi2(),
+                       data=_val_data(C, DV), load=N_VAL, bs=N_VAL,
+                       thresholds=thresholds)
+  report("chi2 domain: all-positive control byte-identical (guard inert)",
+         abs(med - ref_med) <= 1e-6 * abs(ref_med) + 1e-9, "median unchanged")
+
+  # eval_source_chi2: a negative per-row chi2 raises (side diagnostic).
+  params = np.random.default_rng(0).standard_normal((N_SRC, N_IN))
+  dv = np.random.default_rng(1).standard_normal((N_SRC, N_OUT))
+  source = {"C": params, "dv": dv, "idx": np.arange(N_SRC)}
+  neg = _NegSrcChi2()
+  neg.neg_row = 9
+  raised, msg = _expect_valueerror(
+    lambda: eval_source_chi2(model=nn.Linear(N_IN, N_OUT),
+                             param_geometry=_IdGeom(), chi2fn=neg,
+                             source=source, device=DEV, bs=N_SRC))
+  report("chi2 domain: eval_source_chi2 raises on a negative per-row chi2",
+         raised and "chi2 domain contract [diagnostic]" in msg and "9" in msg,
+         _short(msg))
+
+  # finite-only mutation (the false crowning): the retired finite-only check
+  # ranks the -4 row BELOW every threshold, lowering frac>0.2 so the corrupted
+  # epoch would win selection. Shown as a known answer.
+  poisoned = ref_c.clone()
+  poisoned[17] = -4.0
+  f_honest = (ref_c[:, None] > thresholds[None, :]).float().mean(0)[0]
+  f_poison = (poisoned[:, None] > thresholds[None, :]).float().mean(0)[0]
+  report("chi2 domain: the finite-only check would crown the negative row "
+         "(mutation)", float(f_poison) < float(f_honest),
+         "frac>0.2 %.4f -> %.4f (a lower, 'better' score)"
+         % (float(f_honest), float(f_poison)))
+
+  # band-edge: a within-band roundoff negative is accepted, a just-outside one
+  # raises (PoisonChi2 has no _chi2_n_terms, so eval_val uses the ~1e-6 floor).
+  loss = PoisonChi2()
+  loss.bad = {3: -5.0e-7}
+  raised_in, _ = _expect_valueerror(
+    lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
+                     load=N_VAL, bs=N_VAL, thresholds=thresholds))
+  loss = PoisonChi2()
+  loss.bad = {3: -1.0e-2}
+  raised_out, _ = _expect_valueerror(
+    lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
+                     load=N_VAL, bs=N_VAL, thresholds=thresholds))
+  report("chi2 domain: band-edge -- within-band accepted, outside raises",
+         (not raised_in) and raised_out,
+         "roundoff tolerated, corruption refused")
+
+  # a negative through the COMPILED training reduce folds to NaN (the same
+  # predicate, compile-safe), so the per-step guard refuses it.
+  if _can_compile():
+    obj = _reduce_obj()
+    compiled = torch.compile(lambda cc: _reduce_loss(obj, cc, "sqrt"))
+    lo = compiled(torch.tensor([1.0, -4.0, 2.0]))
+    report("chi2 domain: a negative chi2 through the COMPILED reduce -> "
+           "non-finite loss", not bool(torch.isfinite(lo)),
+           "compiled fold to NaN")
+
+
+# ==========================================================================
 # helpers + main
 # ==========================================================================
 
@@ -819,6 +983,8 @@ def main():
   check_safe_sqrt()
   print("\n-- Part G: epoch-reduction finite truth (45M-47) --")
   check_epoch_reduction()
+  print("\n-- Part H: the chi2-domain boundary (45M-53) --")
+  check_chi2_domain()
 
   print("")
   if len(FAILURES) == 0:
