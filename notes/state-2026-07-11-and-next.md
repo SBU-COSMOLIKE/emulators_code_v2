@@ -138,7 +138,9 @@ evidence line under each unit is the anchor a spec starts from:
    sigma8's 8 Mpc/h; its own docstring flags the legacy convention.
    CAVEAT for the handoff: the sigma8 fix changes legacy-served
    values — needs the user's ruling (the BSN-curvature precedent:
-   dimensionally wrong legacy math is not reproduced).
+   dimensionally wrong legacy math is not reproduced). Also verified
+   for this unit: --boundary values outside (0, 1) are silently
+   rewritten to 1 (generator_core.py ~231) instead of rejected.
 3. Best-record truth. VERIFIED: training.py seeds best-tracking with
    the epoch-0 baseline and restores those weights, but the driver
    (cosmic_shear_train_emulator.py ~350: "fracs[i][0] is frac>0.2 at
@@ -150,7 +152,10 @@ evidence line under each unit is the anchor a spec starts from:
    unknown gate id" and PROCEEDS (exit 0); --force-rerun ids are
    never validated (a typo is silently ignored while the resume
    prints a green summary); the generator CLI parse_known_args
-   discards unknown flags (the shared drivers repeat the pattern).
+   discards unknown flags (the shared drivers repeat the pattern);
+   and the preflight dirty-tree watch covers emulator/, gates/, and
+   the root *.py only (run_board.py ~615) — compute_data_vectors/,
+   cobaya_theory/, and syren/ are unwatched.
 5. Small contracts. VERIFIED: (a) the shared driver reads
    cfg["data"]["train_dv"] unconditionally (~214 run_tag, ~379
    attrs) while the scalar data block documents that key as

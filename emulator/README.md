@@ -54,8 +54,9 @@ emulator/                              the library (torch; cosmolike only in geo
   plotting.py                          history / curves / coverage / the diagnostics PDF
   diagnostics.py                       coverage, floor, hard directions + per-family pages
   family_drivers.py                    the shared sweep-block helpers (the
-                                       family drivers are thin wrappers over
-                                       the cosmic-shear drivers' main())
+                                       family tune/sweep drivers and the
+                                       CMB/BAOSN/MPS trainers are wrappers;
+                                       scalar_train is standalone — no dv)
   cocoa.py                             the cocoa project layout (paths, YAML resolution)
 
 *_train_emulator.py                    CLI: one training run (+ optional diagnostics
@@ -165,7 +166,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `inference.py` | `EmulatorPredictor`: rebuild a saved emulator and predict — one `predict(params)` for every artifact kind: the dv section, the scalar `{name: value}` dict, the physical C_ell row, the background `{"z", quantity}` function, or the (z, k) law-space surface. Reuses the exact training decode per family. |
 | `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves, and the multipage diagnostics PDF with the per-family pages (`cmb=` / `scalar=` / `grid=` / `grid2d=`). |
 | `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`, `grid2d_residual_diagnostic`). |
-| `family_drivers.py` | The shared sweep-block helpers (`read_sweep_block`, `set_by_path`, `SWEEPABLE_TOP_KEYS`, `ACTIVATION_PATHS`) — one definition of the YAML `sweep:` block, imported by the cosmic-shear one-knob driver; every per-family driver is a thin wrapper over the cosmic-shear drivers' `main(prog, family)`, so the multi-GPU pool, `--gpu-pack`, and the Optuna journal study carry over to all of them. |
+| `family_drivers.py` | The shared sweep-block helpers (`read_sweep_block`, `set_by_path`, `SWEEPABLE_TOP_KEYS`, `ACTIVATION_PATHS`) — one definition of the YAML `sweep:` block, imported by the cosmic-shear one-knob driver. Every per-family tune/sweep driver is a thin wrapper over `main(prog, family)`, and the CMB/BAOSN/MPS trainers are wrappers too, so the multi-GPU pool, `--gpu-pack`, and the Optuna journal study carry over. `scalar_train_emulator.py` is standalone: its file naming and provenance have no data-vector file. |
 | `cocoa.py` | The cocoa project layout: `--root` / `--fileroot` / `--yaml` resolution, output paths. |
 
 **Drivers** (beside `emulator/`; each reads `--root` / `--fileroot` / `--yaml`)
@@ -196,18 +197,18 @@ other kinds' artifacts loudly, naming the right adapter)
 | `emul_scalars.py` | scalar artifacts → named derived parameters (provides read FROM the artifacts). |
 | `emul_cmb.py` | CMB artifacts → the cobaya Cl dict (spectra / lmax / units are artifact facts; `must_provide` refuses beyond-training requests). |
 | `emul_baosn.py` | the H(z) + recombination-D_M pair → Hubble + distances, served PIECEWISE by redshift window (the desert between the windows is a loud error, never a bridge); flat-only V1. |
-| `emul_mps.py` | the pklin + boost pair → `get_Pk_grid` / `get_Pk_interpolator` (linear + nonlinear) for cosmolike's hybrid mode (`use_emulator: 2`); multiplies the syren base back per the artifacts' stored laws. |
+| `emul_mps.py` | the pklin + boost pair → `get_Pk_grid` / `get_Pk_interpolator` (linear + nonlinear) for cosmolike's hybrid mode (`use_emulator: 2`); multiplies the syren base back per the artifacts' stored laws. Known defect (fix in progress): the derived-sigma8 helper uses a radius of 8 Mpc against k in 1/Mpc, not 8 Mpc/h — do not trust served sigma8 until the queued fix lands (notes/state-2026-07-11-and-next.md). |
 
 **compute_data_vectors/** (the training-set generators)
 
 | File | Role |
 |---|---|
-| `generator_core.py` | The shared machinery: the CLI (identical flags for every driver), emcee/uniform sampling, the chain + `.paramnames` + `.ranges` + `.covmat` writers, checkpoint save/load/append, the RAM-aware dv store, the MPI master/worker farm. Drivers subclass `GeneratorCore` and override only the probe whitelist, their train_args keys, the dv store hooks, and `_compute_dvs_from_sample`. |
+| `generator_core.py` | The shared machinery: the CLI (identical flags for every driver), emcee/uniform sampling, the chain + `.paramnames` + `.ranges` + `.covmat` writers, checkpoint save/load/append, the RAM-aware dv store, the MPI master/worker farm. Drivers subclass `GeneratorCore` and override only the probe whitelist, their train_args keys, the dv store hooks, and `_compute_dvs_from_sample`. Known gap (fix in progress): failed samples stay as zeroed dv rows, the exit code stays 0, and staging never reads the failfile — a dump with any failure flag is not training-ready. |
 | `dataset_generator_lensing.py` | cosmolike data vectors (cs / ggl / gc); the core's default single-2D store. |
 | `dataset_generator_cmb.py` | CMB spectra: four per-spectrum 2D files (tt / te / ee / pp) from one CAMB pass, phi-phi filled. |
 | `dataset_generator_background.py` | H(z) on the SN grid + D_M on the recombination window, one background-only CAMB evaluation per sample, grid sidecars beside the dumps. |
 | `dataset_generator_mps.py` | linear P + boost on the (z, k) grids (+ the syren base files when `write_syren_base`), through the Pk_interpolator requirement (the wants-Cl quirk kept verbatim). |
-| `compute_cmb_covariance.py` | The Motloch & Hu CMB covariance (eqs 1-7): the Gaussian part always, the lens-induced non-Gaussian terms behind a default-off flag with a 5-point-stencil convergence study; writes the `.npz` the CMB training consumes. |
+| `compute_cmb_covariance.py` | The Motloch & Hu CMB covariance (eqs 1-7): the Gaussian part always, the lens-induced non-Gaussian terms behind a default-off flag with a 5-point-stencil convergence study; writes the `.npz` the CMB training consumes. Known defect (fix in progress): the non-Gaussian contraction currently keeps a C_L^2 the fractional-amplitude derivative already carries, so its dense blocks are not a valid eq-6 covariance — the Gaussian sigmas are unaffected; details in notes/families-scalar-cmb.md. |
 
 ---
 
@@ -231,7 +232,7 @@ other kinds' artifacts loudly, naming the right adapter)
 | fine-tuning / transfer mechanics | `warmstart.py` (+ the family pin in `experiment.build_geometry`) |
 | what an artifact stores | `results.py` save + rebuild TOGETHER (+ the geometry's `state()`) |
 | how a saved emulator is served | the predictor branch in `inference.py`, then the thin adapter in `cobaya_theory/` |
-| a CLI driver (add/modify) | the `<family>_<verb>_emulator.py` beside `emulator/` (family versions are thin wrappers over the cosmic-shear drivers' `main(prog, family)`) |
+| a CLI driver (add/modify) | the `<family>_<verb>_emulator.py` beside `emulator/` (tune/sweep family versions and the CMB/BAOSN/MPS trainers are thin wrappers over the cosmic-shear mains; scalar train is the standalone, data-vector-free exception) |
 | which hyperparameters are searched | the driver YAML (`[default, min, max, kind]`) + resolvers in `training.py` |
 | multi-GPU balancing | `scheduling.py` |
 | the training-set sampling / checkpoints / MPI farm | `compute_data_vectors/generator_core.py` (all four generators inherit) |

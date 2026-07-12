@@ -2,9 +2,14 @@
 
 ## What this is
 
-Cosmic-shear data-vector emulator (PyTorch): the `emulator/` package plus the
-five CLI drivers beside it, trained against the full-3x2pt chi2 from
-cosmolike. This repo is one arm of the wider Cocoa program; the other two
+Multi-family Cocoa emulator program (PyTorch): the `emulator/` package,
+the family train/tune/sweep drivers at the root, the dataset generators
+under `compute_data_vectors/`, the Cobaya adapters under `cobaya_theory/`,
+the vendored syren formulas, and the executable acceptance board under
+`gates/`. Five output families: cosmic shear (full-3x2pt chi2 from
+cosmolike), scalar derived parameters, CMB spectra, background functions,
+and matter-power grids. This repo is one arm of the wider Cocoa program;
+the other two
 arms — CAMB Fortran ports and CosmoLike C — live under
 `$ROOTDIR/external_modules/code/` (see `notes/conventions-and-workflow.md`), and the
 dual-agent protocol below covers all three.
