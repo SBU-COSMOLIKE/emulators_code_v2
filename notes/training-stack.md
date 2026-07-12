@@ -844,3 +844,50 @@ and update order unchanged; selection/readback — the persisted EMA
 model equals a replay of optimizer -> anchor -> EMA. This lands
 INSIDE unit 24 before the anchor configuration refusal is lifted,
 not as a parallel unit.
+
+## Comparison-only validators accept NaN (red-team 45M-31 + 45M-32, 2026-07-12, Architect-VERIFIED; queue 48 — joins the train_args-totality cluster, now 18+20+23+29+45+48)
+
+One defect shape at five confirmed sites: the validators check
+`isinstance(val, bool) or not isinstance(val, (int, float))` and then
+ordered comparisons only — IEEE NaN is a float and answers False to
+every ordered comparison, so it passes. Verified on HEAD:
+ema.horizon_epochs (training.py ~1271, h <= 0); berhu knot/cap
+(~968, val <= 0 AND the knot >= cap order check); roughness
+lam/period_cut (~1119, lam <= 0, period_cut < 5 — NaN then dies later
+in an incidental int(round(NaN)) instead of the promised schema
+error); and the transfer boundary (45M-32):
+transfer.refine.base_lr_scale (experiment.py ~1392, scale <= 0.0) and
+transfer.refine.anchor (anchor < 0.0). None are harmless: a NaN EMA
+horizon gives NaN beta and the FIRST _foreach_lerp_ poisons every
+averaged parameter (the raw net stays finite while the shipped EMA is
+destroyed); NaN knot/cap makes every sample's transformed loss NaN;
+NaN lam turns c_chi2 + lam*c_rough NaN with both parts finite; NaN
+base_lr_scale materializes NaN learning rates in
+make_refine_optimizer; NaN anchor makes coef = group_lr * lam NaN and
+the in-place p.add_(delta, alpha=-coef) corrupts every anchored base
+tensor ON STEP ONE — "anchor is required explicitly" does not yet
+mean the recorded anchor was numerically meaningful.
+
+Contract (Implementer): ONE shared predicate applied in order — real
+scalar, not bool, FINITE, then domain/range relations — at every
+numeric training-control leaf: the five named sites plus a mechanical
+census sweep of the remaining loss/LR/scheduler numeric leaves for
+the same comparison-only pattern; phase-local trunk/head blocks use
+the same helper and name their block; persist only validated values;
+the unit-14 runtime guard stays as defense in depth, never a
+substitute for config rejection before model/data setup. Red legs:
+NaN and +/-Inf at each site raise with the exact dotted path (never
+via round()/int()); valid current defaults and a fractional positive
+horizon stay accepted byte-identically; every applicable case
+repeated inside trunk.loss / head.loss / trunk.ema / head.ema; the
+census is mechanical — every finite-real-domain validator gains
+nonfinite tests, not only the named sites; finite 0.0 anchor remains
+the explicit free-refinement control; a valid scale/anchor preserves
+the resolved mapping exactly. Torch integration legs (board-listed,
+workstation): a mutation proves a NaN EMA horizon can no longer reach
+theta_bar while the valid EMA recurrence is unchanged; the one-step
+analytic refine control (correction lr, scaled base lr, finite anchor
+update) and the no-nonfinite-reaches-optimizer/Anchor.apply mutation
+arms FOLD INTO unit 24's anchor gate — no second anchor
+implementation; artifact metadata cannot record transfer.refine
+unless the values passed validation.

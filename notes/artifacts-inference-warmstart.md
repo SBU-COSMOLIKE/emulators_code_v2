@@ -674,3 +674,31 @@ preexistence-refusal contract extended to the covariance producer;
 adopted as a clause of unit 3 (the twelfth-wave extension above), not
 a new unit. Gate leg: rerun-with-existing-output refuses; kill-mid-
 publication leaves the prior artifact intact.
+
+### 45M-33 amendment to unit 41 (transfer-refine artifact truth): the drift metric is buffer-diluted and lies at zero reference (2026-07-12, Architect-VERIFIED)
+
+The refined-transfer driver advertises relative WEIGHT drift but
+iterates state_dict() (cosmic_shear_train_emulator.py:421) —
+persistent non-trainable buffers (ResCNN/ResTRF pad_idx layout
+indices; PCE fixed buffers) contribute zero numerator but their
+squared values inflate sq_den, so the advertised total is diluted by
+layout metadata that cannot drift. Second false report at :427:
+`rel = sqrt(dn/d0) if d0 > 0.0 else 0.0` — a pretrained tensor that
+is exactly zero and MOVES records drift 0.0 (zero reference norm
+makes relative drift undefined, not zero). Both full states are
+retained so prediction is unaffected; the defect is a reassuring
+false summary in root metadata. Amendment: the metric is defined over
+TRAINABLE parameters only via an explicit canonical key set
+(buffers/layout/state excluded); numerator and reference norms (or
+absolute drift + status) persisted beside any relative value;
+||W0|| == 0 reports exact zero ONLY when the drift norm is also zero,
+else a named zero-reference/nonzero-absolute-drift status — never
+relative 0.0; parameter-key equality between the two states verified
+before publication; the stored summary exactly recomputable from the
+persisted states + declared key set; prose/attrs renamed if the
+chosen metric is state drift. Red legs (torch, board-listed): a huge
+fixed integer buffer + one moved parameter — total equals the hand
+calculation, invariant to buffer magnitude; zero-reference unchanged
+-> exact zero; zero-reference moved -> absolute drift + status, never
+0; missing/extra key raises before publication; multi-parameter known
+answer; readback recomputes the summary.

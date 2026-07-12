@@ -925,6 +925,27 @@ files were created. Priority follows user-visible risk:
     axis as dump-verified; never infer coordinates from filename or
     width. Spec: data-generation-and-cuts.md, "A CMB dump has no
     multipole identity".
+48. **Finite-real validator predicate** (45M-31 + 45M-32,
+    2026-07-12; joins the train_args-totality cluster — now
+    18+20+23+29+45+48). Comparison-only validators pass NaN at five
+    confirmed sites (EMA horizon ~1271, berhu knot/cap ~968,
+    roughness lam/period ~1119, transfer.refine base_lr_scale
+    ~1392 + anchor) — a NaN horizon poisons theta_bar on the first
+    lerp, a NaN anchor corrupts every anchored base tensor on step
+    one. ONE shared predicate (real, non-bool, finite, then domain)
+    + a mechanical census of all comparison-only numeric leaves +
+    trunk/head phase parity; runtime unit-14 guard stays defense in
+    depth; the anchor integration legs fold into unit 24's gate.
+    Spec: training-stack.md, "Comparison-only validators accept
+    NaN".
+    UNIT 41 AMENDED (45M-33): the transfer-refine drift metric
+    iterates state_dict() so non-trainable buffers dilute the
+    denominator, and a moved zero-reference tensor records relative
+    drift 0.0 (undefined, not zero). Metric over trainable
+    parameters via a canonical key set; norms + status persisted;
+    key equality verified; summary recomputable; honest naming.
+    Spec: artifacts-inference-warmstart.md, "45M-33 amendment to
+    unit 41".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches
