@@ -262,6 +262,71 @@ row counts and require enough distinct anchors for the requested fit
 (`k_nn > n_param + 1` and `k_nn <= n_train`), naming the effective counts;
 the small-data gate covers one row below each boundary.
 
+#### Thirteenth-wave extension (Architect-VERIFIED, folded into this unit): finite inputs publish undefined diagnostic statistics
+
+Red-team finding, every claim re-derived. The diagnostics CREATE
+non-finite values from entirely finite, valid inputs and publish them
+as computed results — which is why this lives here and NOT in the
+finite-training unit: finite model outputs are the control condition.
+
+- `coverage_diagnostic` (diagnostics.py:123-126): `bad = dchi2 > 0.2`,
+  then unconditional medians of both classes — an all-good run makes
+  `knn_dist[bad]` empty and `median_bad` NaN; an all-bad run makes
+  `median_good` NaN. Line 129's verdict
+  `cov = (median_bad > median_good) and (rho > 0.1)` evaluates a NaN
+  comparison as False, and the driver
+  (cosmic_shear_train_emulator.py:483, :487-488) then formats the NaN
+  medians into the log and prints "not clearly coverage: failures not
+  sparser" — conflating "comparison impossible" with a negative
+  scientific finding. A PERFECT run is reported as ambiguous-coverage.
+- `hard_direction_regression`: line 293 floors every dchi2 <= 1e-4, so
+  a sufficiently accurate emulator makes y constant and line 315's
+  `r2 = 1 - var(y - Z@coef)/var(y)` is 0/0 = NaN; line 310's
+  `np.corrcoef` NaNs on a constant feature or constant y; line 302
+  guards the feature std (`+ 1e-30`) but line 326's omega-baryon
+  direction divides by `g.std()` UNGUARDED — the asymmetry is the
+  tell. Lines 320-331 already use numeric NaN as a deliberate
+  documented sentinel for r2_omega — the exact pattern this contract
+  removes from published surfaces.
+- `cmb_residual_diagnostic`: line 420 `frac = (pred - truth) / truth`
+  with no validity mask; a legal zero-crossing spectrum (TE) yields
+  NaN/Inf in that column and line 424's percentiles make ALL FIVE
+  fractional bands NaN at that multipole. The docstring (:354-355)
+  acknowledges "spiky where te crosses zero" and points at the
+  error-bar panel, but ships no mask and no definedness record.
+- No gate executes the real functions on adversarial outcomes: grep
+  for coverage_diagnostic / hard_direction over gates/ is empty, and
+  all four family smokes hand-build finite coverage dicts
+  (bsn_smoke.py:341, cmb_smoke.py:484, scalar_smoke.py:203,
+  mps_smoke.py:265) for the plotting layer only.
+- The artifact pair is saved before diagnostics run — deliberate
+  (driver :358 "Persist the trained emulator first, before any
+  diagnostics can fail"), and it STAYS: losing a trained model to a
+  plotting crash is worse. The consequence is the contract below —
+  the published diagnostic products must be truthful about
+  unavailability, because they accompany an already-published
+  artifact.
+
+Adopted contract (theirs, whole): undefined statistics are represented
+explicitly with a status/reason and counts — never numeric NaN
+sentinels. Coverage records n_good and n_bad; all-good reports "no
+failures", all-bad reports "comparison unavailable"; neither may
+masquerade as "not coverage-limited". Hard-direction analysis detects
+zero response variance, zero feature variance, invalid log domains,
+and insufficient rows BEFORE regressing; unavailable coefficients/R^2
+are omitted with a reason. Fractional residuals get a spectrum-aware
+validity mask — for TE either omit the fractional panel or mask
+denominators by a documented physical threshold and carry
+per-multipole valid counts; the error-bar panel remains authoritative.
+Logs and PDFs label unavailable analyses plainly: no formatted nan
+statistics, no unexplained blank panels.
+
+Red legs (adopted): all-good, all-bad, all-hardness-floored, constant
+feature, constant omega-baryon direction, and an exact/near-zero TE
+crossing — each executing the REAL diagnostic functions and verifying
+the resulting PDF and log semantics. These join this unit's existing
+small-data and memory legs; one unit, one audit cycle.
+
 ## The loud no-alias migration pattern
 
 Every schema break raises a ValueError whose body IS a paste-ready

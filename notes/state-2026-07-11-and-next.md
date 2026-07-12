@@ -288,6 +288,32 @@ files were created. Priority follows user-visible risk:
    every eval_val call; data["val"]["load"] is never read anywhere.
    local_linear_floor (diagnostics.py) stages both whole sources on
    the device and materializes Ttr[nbr] = (N_val, k_nn=40, out_dim).
+   EXTENDED (thirteenth wave, folded in per the red team's
+   sequencing — distinct from unit 14 because finite model outputs
+   are the control condition): the diagnostics CREATE NaN from finite
+   inputs and publish it — coverage_diagnostic medians empty classes
+   (all-good -> median_bad NaN; the NaN verdict comparison then
+   prints "not clearly coverage", a PERFECT run reported as
+   ambiguous); hard_direction_regression 0/0 R^2 when every dchi2 is
+   floored, corrcoef NaN on constants, the omega-baryon g.std()
+   unguarded (the generic features ARE guarded — the asymmetry);
+   cmb_residual_diagnostic divides by truth unmasked, a TE zero
+   crossing NaNs all five fractional bands. No gate runs the real
+   functions (the four smokes hand-build finite coverage dicts).
+   Contract: explicit status/reason + counts, never numeric NaN
+   sentinels; spectrum-aware validity mask; save-first order STAYS.
+   VERIFIED (Fable, 2026-07-12, thirteenth wave): diagnostics.py
+   :123-129 (empty-class medians + NaN-False verdict), driver
+   :483/:487-488 (formats NaN, prints the negative finding), :293/
+   :315 (0/0 R^2), :310 (corrcoef), :302-vs-:326 (guard asymmetry),
+   :320-331 (NaN already a documented sentinel for r2_omega), :420/
+   :424 (unmasked frac + all-NaN bands), :354-355 (TE crossing
+   acknowledged, no mask), driver :358 (save-first deliberate),
+   bsn_smoke.py:341 / cmb_smoke.py:484 / scalar_smoke.py:203 /
+   mps_smoke.py:265 (hand-built coverage dicts); grep
+   coverage_diagnostic|hard_direction over gates/ = zero hits.
+   Spec: training-stack.md (the generic-diagnostics section + its
+   thirteenth-wave extension).
 10. **Activation-bakeoff liveness.** Its bespoke parent blocks on a fixed
     count of un-timed queue reads before joining children; worker failures
     during setup/staging/geometry emit no result and hang the command. Spec:
