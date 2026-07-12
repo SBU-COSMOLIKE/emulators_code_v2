@@ -203,6 +203,15 @@ class CmbDiagonalChi2(CosmolikeChi2):
     r = pred - target
     return (r * r).sum(dim=1)
 
+  def _penalty_residual(self, pred, target):
+    """The residual the roughness penalty is measured on.
+
+    The plain diagonal residual pred - target is already physical, so this
+    returns it unchanged. The imposed-amplitude subclass overrides it to
+    divide the per-row factor out, keeping the penalty law-neutral (45M-21).
+    """
+    return pred - target
+
   def loss(self, pred, target, mode="sqrt", trim=0.05,
            focus=0.0, focus_scale=1.0, berhu_knot=None, berhu_cap=None,
            berhu_s=None):
@@ -229,7 +238,8 @@ class CmbDiagonalChi2(CosmolikeChi2):
                           berhu_knot=berhu_knot, berhu_cap=berhu_cap,
                           berhu_s=berhu_s)
     c = self.chi2(pred=pred, target=target)
-    c = c + self._rough_lam * self._rough.per_sample(pred - target)
+    c = c + self._rough_lam * self._rough.per_sample(
+      self._penalty_residual(pred, target))
     return self._reduce(c=c, mode=mode, trim=trim, focus=focus,
                         focus_scale=focus_scale, berhu_knot=berhu_knot,
                         berhu_cap=berhu_cap, berhu_s=berhu_s)
@@ -248,15 +258,16 @@ class CmbFactoredChi2(CmbDiagonalChi2):
   multipole (A_s and tau are the same for all l of one cosmology). encode
   bakes f into the target before the geometry centers and whitens it;
   decode divides f back out, so the emulator returns physical C_ell. The
-  chi2 stays the plain sum of squared whitened residuals (the factor is
-  already in both pred and target, so it does not enter the metric),
-  exactly as the legacy trainer computes the loss in the rescaled-target
-  space with a fixed cosmic-variance weight.
+  chi2 also DIVIDES the per-row factor back out of the whitened residual
+  before summing, so the reported metric is the physical cosmic-variance
+  chi2 -- pred and target of one row share the same f, so a plain sum
+  would carry f^2 (not cancel) and bias delta-chi2, the threshold
+  fractions, and selection by cosmology (45M-21).
 
   This mirrors RescaledChi2 (losses/core.py) with a per-row scalar factor
-  in place of the per-element analytic R, and inheriting the plain chi2
-  (like ResidualBaseChi2) rather than dividing the factor back out of the
-  loss. needs_params = True, so the training loop hands encode / decode /
+  in place of the per-element analytic R, and, like RescaledChi2, divides
+  that factor out of the metric -- it is NOT neutral in the residual.
+  needs_params = True, so the training loop hands encode / decode /
   chi2 / loss the whitened input params; _factor decodes them to physical
   through the param geometry and reads A_s / tau by column. Build by
   wrapping a geometry, CmbFactoredChi2(geom), then configure_law(...) to
@@ -369,39 +380,70 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     return (geo.unwhiten(pred) + geo.center) / f
 
   def chi2(self, pred, target, params_whitened=None, full=False):
-    """Plain sum-of-squares chi2: the factor is already in the target.
+    """Per-sample chi2 in the PHYSICAL (factor-corrected) metric.
 
-    Accepts params_whitened (the loop passes it for a needs_params loss)
-    but ignores it: the amplitude factor is baked into both pred and
-    target by encode, so it cancels in the residual and does not enter
-    the metric. Delegates to CmbDiagonalChi2.chi2.
+    encode multiplies the spectrum by the per-row amplitude factor f before
+    whitening, so the whitened residual pred - target is f * (the physical
+    whitened residual). A plain sum of its squares would therefore report
+    f^2 * chi2_physical -- and since f = f(A_s, tau) varies by cosmology,
+    that biases delta-chi2, every threshold fraction, and best-epoch
+    selection toward small-f cosmologies at a FIXED physical error (45M-21;
+    the old "cancels in the residual" claim was false -- pred and target of
+    one row share the same f, so it does not cancel, it squares). This
+    DIVIDES the factor back out of the residual before summing, so the
+    metric is the cosmic-variance chi2 of the physical spectra, independent
+    of (A_s, tau) at a fixed physical error.
 
     Arguments:
       pred            = (B, n_ell) network output, whitened space.
       target          = (B, n_ell) whitened target (holds the factor).
-      params_whitened = accepted for the needs_params call convention;
-                        ignored here.
+      params_whitened = (B, n_param) whitened inputs; the amplitude factor
+                        is read from them (REQUIRED -- the metric cannot be
+                        computed without it). The eval path passes it
+                        explicitly; the loss reduction, which calls chi2
+                        without params, reads the value loss stashed.
       full            = accepted for interface parity; ignored.
 
     Returns:
-      (B,) per-sample chi2.
+      (B,) per-sample physical chi2.
     """
-    return CmbDiagonalChi2.chi2(self, pred=pred, target=target, full=full)
+    p = params_whitened if params_whitened is not None else self._params
+    if p is None:
+      raise ValueError(
+        "CmbFactoredChi2.chi2 requires params_whitened: the amplitude "
+        "factor f divides the whitened residual to recover the physical "
+        "metric (a plain sum would report f^2 * chi2_physical), so the chi2 "
+        "cannot be computed without the parameters -- pass params_whitened, "
+        "or call through loss(), which stashes them.")
+    r = (pred - target) / self._factor(p)
+    return (r * r).sum(dim=1)
+
+  def _penalty_residual(self, pred, target):
+    """The factor-corrected whitened residual (pred - target) / f.
+
+    The roughness penalty must see the PHYSICAL residual, not the
+    f-scaled one -- without the division the penalty would carry f^2 like
+    the uncorrected chi2 did, so it would depend on (A_s, tau) at a fixed
+    physical roughness (45M-21). Reads the parameters loss stashed (the
+    roughness term runs only inside loss, after the stash).
+    """
+    return (pred - target) / self._factor(self._params)
 
   def loss(self, pred, target, params_whitened, *args, **kwargs):
-    """Training loss: the inherited reduction, params accepted and dropped.
+    """Training loss: the inherited reduction, params stashed for the metric.
 
-    The amplitude factor is already baked into the encoded target, so the
-    chi2 (and hence the reduction) needs no params; loss accepts
-    params_whitened only to match the needs_params loop call, stashes it
-    for interface parity with RescaledChi2, and forwards the reduction
+    The amplitude factor is NOT neutral in the metric (45M-21): the chi2
+    divides it back out of the residual, and the roughness penalty (when
+    present) measures the same factor-corrected residual. loss stashes
+    params_whitened so both -- the chi2 the reduction calls without params,
+    and _penalty_residual -- can read it, then forwards the reduction
     controls positionally.
 
     Arguments:
       pred            = (B, n_ell) network output.
       target          = (B, n_ell) whitened target.
-      params_whitened = whitened inputs (stashed; not used by the plain
-                        chi2).
+      params_whitened = whitened inputs; stashed so the chi2 and the
+                        roughness penalty read the amplitude factor.
       *args, **kwargs = mode / trim / focus reduction controls, forwarded
                         to CmbDiagonalChi2.loss unchanged.
 

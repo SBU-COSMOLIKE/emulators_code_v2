@@ -14,7 +14,11 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     the law strings included);
   - the as_exp2tau law is exact: _factor equals exp(2 tau)/A_s computed the
     same way (bitwise) and encode(decode(x)) returns x to float32 tolerance;
-    the registry / configure_law loud errors fire;
+    the metric divides the factor back out (45M-21) so the physical chi2 is
+    invariant under (A_s, tau) at a fixed physical residual, the uncorrected
+    plain sum misses by f^2, the roughness residual is factor-corrected, and
+    chi2 without params raises; the registry / configure_law loud errors
+    fire;
   - save -> rebuild -> EmulatorPredictor.predict is bitwise vs the pre-save
     decode, on BOTH laws; the predictor takes the CMB branch and exposes
     spectrum / ell / units / amplitude_law;
@@ -303,6 +307,40 @@ def check_law(tmp, device):
            / pred.abs().max()).item()
     report("encode(decode(x)) round-trips to float32 round-off",
            rel < 1e-4, "max rel %.2e" % rel)
+
+    # 45M-21: the metric divides the per-row factor back out, so the physical
+    # chi2 is invariant under (A_s, tau) at a FIXED physical residual, where a
+    # plain sum of the whitened residual would carry f^2. Build pred/target
+    # whose whitened residual is f * phys_r for one shared physical residual;
+    # the corrected chi2 must be identical across the (varying-f) rows.
+    phys_r = torch.randn(len(ell), device=device).reshape(1, -1).expand(
+        8, -1).contiguous()
+    target0 = torch.zeros(8, len(ell), device=device)
+    pred0 = f * phys_r                              # whitened residual = f*phys_r
+    phys_chi2 = (phys_r ** 2).sum(dim=1)
+    c_corr = chi2fn.chi2(pred0, target0, params_whitened=x_enc)
+    spread = (c_corr.max() - c_corr.min()).item()
+    report("factored chi2 == physical chi2, invariant under (A_s, tau)",
+           torch.allclose(c_corr, phys_chi2, rtol=1e-4, atol=1e-6)
+           and spread < 1e-3 * float(c_corr.mean()),
+           "row spread %.2e over f in [%.2e, %.2e]"
+           % (spread, f.min().item(), f.max().item()))
+    c_unc = ((pred0 - target0) ** 2).sum(dim=1)      # the uncorrected metric
+    report("the uncorrected metric misses by exactly f^2 (catch-power)",
+           torch.allclose(c_unc, (f.reshape(-1) ** 2) * phys_chi2, rtol=1e-4),
+           "old / corrected == f^2")
+    chi2fn._params = x_enc                            # roughness runs after loss stashes
+    pr = chi2fn._penalty_residual(pred0, target0)
+    report("roughness residual is factor-corrected (law-neutral)",
+           torch.allclose(pr, phys_r, rtol=1e-4, atol=1e-6),
+           "penalty residual == physical residual")
+    chi2fn._params = None
+    try:
+        chi2fn.chi2(pred0, target0)
+        report("factored chi2 without params raises", False, "no raise")
+    except ValueError:
+        report("factored chi2 without params raises", True, "ValueError")
+
     try:
         make_cmb_chi2(geom=geom, law="not_a_law")
         report("unknown law raises", False, "did not raise")

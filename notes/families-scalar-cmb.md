@@ -841,6 +841,70 @@ unnormalized-law artifact is REFUSED under the new implementation; a
 mutation using raw exp(2 tau)/A_s fails the fiducial-unity and
 target-scale legs.
 
+#### CMB amplitude-law resume (2026-07-12, Opus) — queue 42 (metric) LANDED; queue 43 PROPOSED, owed
+
+Queue 42 (45M-21, the f^2 metric) is implemented and self-committed on the
+branch (batch grant, pending Architect audit). Queue 43 (45M-22, the
+dimensionless order-one factor + new law version) is design-sensitive and
+requires a retrain, so its layout is PROPOSED below for audit before I
+finalize it, and it lands as a second increment.
+
+QUEUE 42 (landed):
+- `CmbFactoredChi2.chi2` now DIVIDES the per-row factor out of the whitened
+  residual before summing: `r = (pred - target) / f`, `chi2 = sum(r^2)`. It
+  REQUIRES params_whitened (explicit from eval, or the value `loss` stashed);
+  a plain sum reported `f^2 * chi2_physical` (the old "cancels" claim was
+  false -- pred and target of one row share f).
+- Roughness law-neutrality: a shared hook `_penalty_residual` (pred - target)
+  on CmbDiagonalChi2, overridden on CmbFactoredChi2 to `(pred - target)/f`,
+  so the roughness penalty measures the physical residual. `loss` stashes the
+  params for both the chi2 and the penalty.
+- encode/decode untouched (the defect is the metric, not the invertible
+  transform); every "cancels / does not enter the metric" docstring
+  corrected (class, chi2, loss).
+- cmb-identity `check_law` gains the metric legs: physical-chi2 invariance
+  under (A_s, tau) at a fixed physical residual; the uncorrected form's f^2
+  catch-power; the factor-corrected roughness residual; chi2-without-params
+  raises. Module docstring + board maps updated. (Nonfinite / nonpositive-
+  factor legs ride the finite-contract unit.)
+- Mac gate: py_compile OK (cmb.py, cmb_identity.py, board.py);
+  probe_cmb_factored.py 4/4 on the REAL chi2 + _factor -- corrected chi2 ==
+  physical exactly (max|d| 0), old == f^2 * physical, old / corrected == f^2
+  exactly, chi2 without params raises. The torch save->rebuild->predict
+  round-trip + roughness-in-loss ride the workstation cmb-identity + cmb-smoke
+  reruns.
+- USER-VISIBLE: delta-chi2, threshold fractions, and best-epoch selection
+  change for as_exp2tau CMB runs (the metric is now physical); cmb-identity
+  and cmb-smoke RERUN on the workstation.
+
+QUEUE 43 PROPOSAL (45M-22, owed -- Architect confirm before I finalize):
+The dimensionless factor f = (A_s_ref / A_s) * exp(2 (tau - tau_ref)), f = 1
+at the persisted fiducial. Open design points I want confirmed:
+1. NEW law name/version -- a registry entry distinct from "as_exp2tau" (a
+   new key and/or a stored law-version string) so an old artifact is never
+   silently reinterpreted, with unit 37's manifest carrying the version;
+   loading an old as_exp2tau artifact under the new code is REFUSED with a
+   named error (the retrain instruction).
+2. as_ref / tau_ref PERSISTENCE -- resolved artifact facts, sourced from the
+   covariance fiducial or an explicit validated config, never a code default
+   (house doctrine). configure_law gains as_ref / tau_ref (required for the
+   new law); the geometry persists them (state()/rebuild); _factor reads
+   them. CONFIRM the source (covariance fiducial file vs a config block) and
+   the exact persistence keys.
+3. STAGING report -- the target-center and encoded-target scale printed at
+   staging, so a future unit mismatch is visible before training.
+4. RETRAIN -- affected CMB artifacts retrain (the constant changes the
+   learned target/weights though decode inverts it); workstation, user-run.
+5. The queue-42 metric division (landed) applies unchanged.
+Red legs (workstation): fiducial (A_s, tau) -> f == 1; amplitude scaling
+leaves the law-space spectrum invariant; encoded targets have a finite
+documented scale; physical known answers stay correct; an old
+unnormalized-law artifact is REFUSED; a mutation using raw exp(2 tau)/A_s
+fails the fiducial-unity and target-scale legs.
+
+Files (queue 42): emulator/losses/cmb.py, gates/checks/cmb_identity.py,
+gates/board.py, notes/families-scalar-cmb.md.
+
 ### 45M-27 amendment: lmax validation does not prove multipole coverage (2026-07-12, Architect-VERIFIED; extends unit 26's axis-identity contract to the CMB read/rebuild boundary)
 
 emul_cmb.must_provide (:195-209) validates a requested lmax only

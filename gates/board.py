@@ -1460,11 +1460,15 @@ BOARD = [
        title="CMB emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-scalar-cmb",
-       maps="110-117 (identity legs); 517-530 (roughness gate legs); "
-            "582-591 (finetune legs); 141-203 (the eq-6 covariance "
-            "known-answer legs: the exact contraction, the old-weight "
-            "miss, the raw-vs-scaled fixture integrity, the width-3 band "
-            "projection, and the exact zero-band weight)",
+       maps="110-117 (identity legs) + the 45M-21 amplitude-metric legs "
+            "(the factored chi2 divides f out: physical-chi2 invariance "
+            "under (A_s, tau), the uncorrected f^2 catch-power, the "
+            "factor-corrected roughness residual, params-required); "
+            "517-530 (roughness gate legs); 582-591 (finetune legs); "
+            "141-203 (the eq-6 covariance known-answer legs: the exact "
+            "contraction, the old-weight miss, the raw-vs-scaled fixture "
+            "integrity, the width-3 band projection, and the exact "
+            "zero-band weight)",
        run=gate_cme_a,
        needs=("torch",)),
   Gate(id="bsn-identity",
