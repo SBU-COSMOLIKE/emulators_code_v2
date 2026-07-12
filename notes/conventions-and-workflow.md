@@ -70,7 +70,13 @@ notes/families-scalar-cmb.md") remain the crosswalk. The 2026-07-12
 sweep translated ~470 hits across ~55 files; the recurring phrases
 live in the glossary inside that sweep's commit message. New code must
 be written this way from the start: state the fact, cite the note
-file, never the code.
+file, never the code. Verification lesson (red-team catch, same day):
+the sweep's grep required a hyphen/digit after the unit prefixes
+(FTW-1, TPE-2...) and missed BARE codenames ("the FTW machinery",
+"the CME registry" — four instances, one in an exception string). A
+code-leak grep must include the bare unit names too:
+`\b(FTW|TPE|GRF|GBC|POL|SPE|CME)\b` (minus Optuna's TPE sampler in
+the tune driver).
 
 ## README / didactics
 
