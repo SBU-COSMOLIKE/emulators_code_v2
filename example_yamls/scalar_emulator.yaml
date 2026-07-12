@@ -54,7 +54,7 @@ train_args:
 
   # the model: a trunk-only design (resmlp). The conv / trf heads correct
   # along an output COORDINATE axis (theta / ell / z / k — every other
-  # family has one, D-CM13), and a scalar output is a set of named values
+  # family has one), and a scalar output is a set of named values
   # with no axis between them, so name: rescnn / restrf stay a loud error
   # here. Small widths are plenty.
   model:

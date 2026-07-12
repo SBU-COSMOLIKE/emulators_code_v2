@@ -34,7 +34,7 @@ once per row at encode (load) time and packed beside the truth into a wider
 staged target (target_dim, read by batching.py), so the hot chi2 never re-runs
 the base, it only unpacks and composes; backward passes touch only the small
 correction net. The base's input is a column slice of the run's own encoding
-(the block-extension invariant, warmstart.py D-TP3), so no second geometry
+(the block-extension invariant, warmstart.py), so no second geometry
 evaluation and no raw-parameter plumbing into the loss are needed.
 
 PS: frozen = evaluated under no_grad, never trained; base = the pretrained full
@@ -151,7 +151,7 @@ class TransferChi2(CosmolikeChi2):
     self.n_amps      = int(n_amps)
     self.coeff_fn    = coeff_fn
     self.factored    = coeff_fn is not None
-    # live-base mode (the transfer refine stage, D-TP10): when True the base is
+    # live-base mode (the transfer refine stage): when True the base is
     # re-evaluated WITH grad each step (it is unfrozen and training) instead of
     # unpacked from the staged target; the truth half of the packed target is
     # still used, so no re-staging is needed. False (default) = the frozen
@@ -174,7 +174,7 @@ class TransferChi2(CosmolikeChi2):
   def _base_input(self, enc):
     """The frozen base's own encoding, sliced from the run's encoding.
 
-    The block-extension invariant (warmstart.py D-TP3) makes the shared
+    The block-extension invariant (warmstart.py) makes the shared
     columns of the run's encoding bit-identical to the base's own encoding, so
     the base input is a column slice, no second geometry evaluation.
 
@@ -202,7 +202,7 @@ class TransferChi2(CosmolikeChi2):
     self.live = bool(flag)
 
   def _base(self, enc):
-    """Run the base on the D-TP3 slice.
+    """Run the base on its column slice of the run's encoding.
 
     Frozen (the default): under no_grad, so no gradient flows into the base and
     it is the packed reference. Live (the refine stage): with grad, so the
@@ -297,9 +297,9 @@ class TransferChi2(CosmolikeChi2):
   def encode(self, dv, params_whitened):
     """Raw dv -> the packed [base ; truth] target (once per row at load).
 
-    Runs the frozen base on the D-TP3 slice, converts it and the truth to the
-    chosen space, and packs them into the wider target so the hot chi2 never
-    re-runs the base.
+    Runs the frozen base on its column slice, converts it and the truth
+    to the chosen space, and packs them into the wider target so the hot
+    chi2 never re-runs the base.
 
     Arguments:
       dv              = (B, total_size) raw data vectors.
@@ -551,7 +551,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
     encode (at load, once per row)
       dv, enc                    enc = the run's whitened parameters
         │  base_w = base_net(enc[:, :base_in_dim])   (no_grad; the
-        │                        D-TP3 block-extension column slice)
+        │                        block-extension column slice)
         ▼
       target = [base_w ; geom.encode(dv)]   (B, 2 n_out)
 
@@ -567,7 +567,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
   (legend: B = batch rows; n_out = the family's output length, n_ell /
   nz / nz*nk; enc = the run's encoded parameters, the model input;
   base_in_dim = the base's whitened-input width, its columns a
-  bit-identical slice of the run's encoding per D-TP3.)
+  bit-identical slice of the run's encoding.)
 
   needs_params = True: encode / chi2 / decode take the run's whitened
   parameters (to slice the base input).
@@ -591,7 +591,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
                     no_grad): outputs the (B, n_out) whitened row.
       base_in_dim = the base network's whitened-input width; the base
                     input is the first base_in_dim columns of the run's
-                    encoding (the D-TP3 block-extension invariant).
+                    encoding (the block-extension invariant).
       form        = "gain" (base * (1 + r)) or "sum" (base + r).
       space       = accepted for signature parity with TransferChi2 and
                     must be "whitened": the diagonal families compose in
@@ -641,7 +641,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
     self.live = bool(flag)
 
   def _base(self, enc):
-    """Run the frozen base on the D-TP3 column slice.
+    """Run the frozen base on its column slice of the run's encoding.
 
     Arguments:
       enc = (B, encoded_dim) the run's whitened parameters.
@@ -740,7 +740,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
   def base_decode(self, params_whitened):
     """The frozen base's own physical decode (the parity reference).
 
-    Equal to decode() with the correction identically zero; the D-TP7
+    Equal to decode() with the correction identically zero; the pre-train
     parity gate compares the epoch-0 composed prediction to this.
 
     Arguments:
@@ -752,7 +752,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
     return self.geom.decode(self._base(params_whitened))
 
   def configure_roughness(self, lam, period_cut):
-    """Reject the D-CM8 roughness term on a transfer run, loudly.
+    """Reject the residual-roughness term on a transfer run, loudly.
 
     The inherited penalty acts on pred - target, which for a transfer
     loss is a correction against a PACKED target, not a whitened

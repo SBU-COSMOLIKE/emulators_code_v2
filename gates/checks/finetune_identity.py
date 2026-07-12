@@ -33,7 +33,7 @@ How it works, in order:
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
-Spec code FTW-A. Home note: artifacts-inference-warmstart.md (design rules D-FT1..D-FT8;
+Home note: artifacts-inference-warmstart.md (the fine-tune design rules;
 this check is the finetune-identity gate the note's validation section names).
 """
 
@@ -301,8 +301,8 @@ def check_parity(source, pgeom_new, extra_names, device):
   model_opts = warmstart.recipe_to_model_opts(
     recipe=source.recipe, geom=None, compile_mode=None)
   # build_warm_start returns (init_state, verdict, padded_keys) since
-  # TPE-2 (the anchor mask rides on padded_keys); this check needs the
-  # first two.
+  # the refine + anchor unit (the anchor mask rides on padded_keys);
+  # this check needs the first two.
   init_state, verdict, _padded = warmstart.build_warm_start(
     source=source,
     new_pgeom=pgeom_new,
@@ -412,7 +412,7 @@ def check_errors(source, tmp, device):
 
 
 def check_anchor(source, pgeom_new, device):
-  """(finetune.anchor, TPE-2) the mask excludes the padded extra columns, and
+  """(finetune.anchor) the mask excludes the padded extra columns, and
   the decoupled anchor pins the source columns while leaving the extras free."""
   import torch.optim as optim
   from emulator.training import build_anchor
@@ -483,7 +483,7 @@ def main():
   pin the output geometry; and confirm the three loud errors fire. Each check
   prints a PASS/FAIL line; main returns 1 if any failed, else 0.
   """
-  print("== finetune-identity (spec code FTW-A) ==")
+  print("== finetune-identity ==")
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
   print("device " + str(device) + " (torch only, no cosmolike)")
   torch.manual_seed(0)

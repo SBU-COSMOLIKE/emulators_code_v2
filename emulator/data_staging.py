@@ -529,7 +529,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   n     = C.shape[0]
   order = torch.randperm(n, generator=gen).numpy()
   # physical-window cuts are opt-in on the CMB path exactly as on the
-  # scalar path (D-SPE2 / D-CM4): a CMB chain need not carry the
+  # scalar path: a CMB chain need not carry the
   # omegab / H0 / omegam / ns columns the windows read, so
   # omegabh2_hi = None skips the cuts entirely. The cosmolike path
   # always passes a value (validate_param_cuts requires it there), so
@@ -579,7 +579,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   # idx_src))] walks on either staging path (stage_source's RAM copy is
   # built over np.sort(np.unique(idx)); the memmap path keeps global
   # indices). Consumers that must align a SIBLING dump file row-for-row
-  # (the grid2d base files, D-MP2-A) read this; everything else ignores
+  # (the grid2d base files) read this; everything else ignores
   # the extra key.
   src = {"C": C_src,
          "dv": dv_src,
@@ -626,7 +626,7 @@ def _scalar_columns(sidecar_path, in_names, out_names):
 
   Raises:
     ValueError if a sidecar name is duplicated (the by-name lookup would
-    be ambiguous, D-SPE2-1) or if any requested name is absent.
+    be ambiguous) or if any requested name is absent.
   """
   # the full column-name list in .txt order; getdist marks derived
   # params with a trailing '*' (a scalar output is usually derived), so
@@ -640,7 +640,7 @@ def _scalar_columns(sidecar_path, in_names, out_names):
       first = line.split()[0]
       full.append(first[:-1] if first.endswith("*") else first)
 
-  # D-SPE2-1: a duplicated sidecar name makes .index() below silently
+  # a duplicated sidecar name makes .index() below silently
   # take the first occurrence, pairing a name with the wrong column.
   # Refuse it, naming the duplicates.
   counts = {}
@@ -723,7 +723,7 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
     raise ValueError("load_scalar_source needs a torch.Generator (gen=)")
   # the sidecar is required on the scalar path: it locates the output
   # columns by name and pins the input block to the whitening order.
-  # Resolution follows getdist's own pairing (D-SPE2-6): a generator dump
+  # Resolution follows getdist's own pairing: a generator dump
   # pairs X.txt with X.paramnames (the exact stem), while a cobaya chain
   # pairs X.1.txt with X.paramnames — ONE sidecar shared by every chain
   # number, so the pure-integer suffix must be stripped to find it. Try
@@ -746,7 +746,7 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
       "pairs with X.paramnames, a generator dump X.txt with "
       "X.paramnames). The sidecar names the .txt columns so the output "
       "parameters can be found by name")
-  # D-SPE2-1(b): the non-derived sidecar names must equal in_names (order
+  # the non-derived sidecar names must equal in_names (order
   # included), pinning the sampled block to the covmat / whitening order
   # before the by-name lookups. check_paramnames raises on a mismatch.
   check_paramnames(sidecar, in_names)

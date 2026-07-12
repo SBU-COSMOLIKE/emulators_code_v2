@@ -141,7 +141,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 |---|---|
 | `activations.py` | Learnable activations: the paper's `H` plus Power / Gated / GatedPower variants; `make_activation` maps a name → factory. |
 | `designs/blocks.py` | The small `nn.Module`s models are built from: `Affine`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, plus `rescale_kernel_size`. |
-| `designs/plain.py` | The full networks: `ResMLP` (baseline; the only design the SCALAR family accepts — named outputs have no coordinate axis), `ResCNN`, `ResTRF` (the correction heads; since the D-CM13 lift they ride cmb / grid / grid2d too — the diagonal geometries keep physical order, so the basis change degenerates to the identity and the split comes from `attach_head_coords()`; `model.trf.n_tokens` re-segments a single-bin spectrum into attention windows). The factored-IA and NPCE variants are `designs/ia.py` / `designs/pce.py`. |
+| `designs/plain.py` | The full networks: `ResMLP` (baseline; the only design the SCALAR family accepts — named outputs have no coordinate axis), `ResCNN`, `ResTRF` (the correction heads; they now ride cmb / grid / grid2d too — the diagonal geometries keep physical order, so the basis change degenerates to the identity and the split comes from `attach_head_coords()`; `model.trf.n_tokens` re-segments a single-bin spectrum into attention windows). The factored-IA and NPCE variants are `designs/ia.py` / `designs/pce.py`. |
 
 **Loss & training**
 
@@ -253,7 +253,7 @@ loss.
 |---|---|---|
 | NPCE | `designs/pce.py` + `losses/pce.py` | a sparse-Legendre polynomial-chaos base plus a neural refiner. |
 | Factored IA | `designs/ia.py` + `losses/ia.py` | emulate cosmology-only templates and apply the IA-amplitude polynomial in closed form (the amplitudes never enter the network). |
-| Transfer | `warmstart.py` + `losses/transfer.py` | a frozen trained base under a parallel correction net. Family-wide since the 2026-07-12 symmetry ruling (cosmolike + cmb + grid + grid2d; frozen-base only off cosmolike); SCALAR is the one family out (D-SP8). |
+| Transfer | `warmstart.py` + `losses/transfer.py` | a frozen trained base under a parallel correction net. Family-wide since the 2026-07-12 symmetry ruling (cosmolike + cmb + grid + grid2d; frozen-base only off cosmolike); SCALAR is the one family out (a recorded ruling; see notes/families-scalar-cmb.md). |
 | Fine-tuning | `warmstart.py` (`train_args.finetune`) | warm-start from a saved source of the SAME family and geometry; epoch 0 reproduces the source exactly. Supported by EVERY family. |
 
 Removed: the per-bin CNN (its own folder, deleted) — tested; the grouped conv
@@ -304,19 +304,19 @@ covariance. The only file importing cosmolike.
 ### `emulator/geometries/cmb.py` <a name="apx-geometries_cmb"></a>
 
 - `CmbDiagonalGeometry` — per-multipole whitening by the cosmic-variance error bar; persists spectrum / ell / units / the amplitude-law facts (`from_fiducial` for synthetic fixtures — the ruled `sigma_l = C_fid sqrt(2/(2l+1))`; the training path feeds sigma from the covariance `.npz` through `__init__`).
-- `attach_head_coords()` — the conv/TRF heads' channel/token split (D-CM13): one bin covering the spectrum, coordinate = ell; pure, idempotent, run at training and at rebuild.
+- `attach_head_coords()` — the conv/TRF heads' channel/token split: one bin covering the spectrum, coordinate = ell; pure, idempotent, run at training and at rebuild.
 
 ### `emulator/geometries/grid.py` <a name="apx-geometries_grid"></a>
 
 - `TARGET_LAWS` — `{none, log_offset}`; the law lives INSIDE encode/decode here.
 - `GridGeometry` — a function on a stored z grid (`from_targets` applies the law first; persists quantity / units / law / offset / z).
-- `attach_head_coords()` — the heads' split (D-CM13): one bin, coordinate = z.
+- `attach_head_coords()` — the heads' split: one bin, coordinate = z.
 
 ### `emulator/geometries/grid2d.py` <a name="apx-geometries_grid2d"></a>
 
 - `TARGET_LAWS_2D` — `{none, syren_linear, syren_halofit}` (names only: the cosmology-dependent base is the consumer's multiply, through `syren_base.py`).
-- `Grid2DGeometry` — a flattened (z-outer) surface standardized in LAW space; persists quantity / units / law / z / k (the stored k IS the thinned grid) + the D-MP9 `const_mask` when pins exist (law-space columns constant across cosmologies — the boost's low-k B = 1 tail, under ANY law: scale 1, decode returns the training constant; a wholly constant surface stays a loud error — the dead-dump signature).
-- `attach_head_coords()` — the heads' split (D-CM13): one bin PER Z SLICE, length nk (conv channels / TRF tokens = z slices).
+- `Grid2DGeometry` — a flattened (z-outer) surface standardized in LAW space; persists quantity / units / law / z / k (the stored k IS the thinned grid) + the `const_mask` when pins exist (law-space columns constant across cosmologies — the boost's low-k B = 1 tail, under ANY law: scale 1, decode returns the training constant; a wholly constant surface stays a loud error — the dead-dump signature).
+- `attach_head_coords()` — the heads' split: one bin PER Z SLICE, length nk (conv channels / TRF tokens = z slices).
 
 ### `emulator/background.py` <a name="apx-background"></a>
 
@@ -357,7 +357,7 @@ variants in `ia.py` / `pce.py`. The class flags the config layer reads:
 amplitudes appended raw), `needs_bins` (wants the shear-angle map).
 
 - `designs/blocks.py` — `Affine`, `FeatureAffine`, `make_norm`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, `rescale_kernel_size`.
-- `designs/plain.py` — `ResMLP` (input projection → residual blocks → output projection → Affine), `ResCNN` (gated bins-as-channels 1D-CNN correction in theta order), `ResTRF` (bin-token transformer correction). The head knobs live under YAML `model.cnn` / `model.trf`; see each class docstring for the full knob table and the shape-flow diagrams.
+- `designs/plain.py` — `ResMLP` (input projection → residual blocks → output projection → Affine), `ResCNN` (gated bins-as-channels 1D CNN correction in theta order), `ResTRF` (bin-token transformer correction). The head knobs live under YAML `model.cnn` / `model.trf`; see each class docstring for the full knob table and the shape-flow diagrams.
 - `designs/ia.py` — `TemplateMLP`, `TemplateResCNN`, `TemplateResTRF` (cosmology-only templates; the amplitudes never enter the network).
 - `designs/pce.py` — `PCEEmulator` (the closed-form sparse-Legendre base; loss-owned, not an SGD architecture) + `pce_multi_index`, `pce_design`, `select_lars_loo`.
 

@@ -29,7 +29,7 @@ transfer:
   # The off-recommendation pairing is allowed (you decide per study) and
   # prints one notice naming the conditioning trade-off.
   space: physical
-  # Optional stage-2 joint refinement (D-TP10): after the correction trains
+  # Optional stage-2 joint refinement: after the correction trains
   # with the base frozen, unfreeze the base once and train jointly. Absent =
   # frozen-only (the default). anchor is required when refine: is present (an
   # explicit 0.0 states free fine-tuning deliberately; no silent default).

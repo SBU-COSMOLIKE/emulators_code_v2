@@ -1,4 +1,4 @@
-# cobaya-adapter, evaluate leg (spec code GCT-C; artifacts-inference-warmstart.md).
+# cobaya-adapter, evaluate leg (spec: notes/artifacts-inference-warmstart.md).
 # A board-owned copy of cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml that reads the
 # tiny emulator save-rebuild-drift persists on every board run. It proves the
 # cobaya plumbing (the schema-v2 emulator loads and one evaluate step runs);

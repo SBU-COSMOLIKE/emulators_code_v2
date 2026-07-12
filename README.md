@@ -1682,7 +1682,7 @@ transfer needs `amplitude_law: none` on both the base and the run (the
 law and the transfer each replace the target construction — one at a
 time). The base must be the same family, quantity, and grids as the
 run — every mismatch is a loud error naming the fix. A `transfer:`
-block on a scalar config remains a loud error (the D-SP8 ruling);
+block on a scalar config remains a loud error (a recorded ruling);
 scalar maps [fine-tune](#fine-tuning-train_argsfinetune) instead.
 
 ```yaml

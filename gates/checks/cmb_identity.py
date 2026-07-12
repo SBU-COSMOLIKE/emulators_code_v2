@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""cmb-identity gate (CME-A): the CMB-emulator save/rebuild/predict identity,
+"""cmb-identity gate: the CMB-emulator save/rebuild/predict identity,
 the ruled cosmic-variance constants, the imposed amplitude law both ways, the
-D-CM8 roughness legs, the D-CM10 finetune parity, and every CMB-path loud
+roughness legs, the finetune parity, and every CMB-path loud
 error — torch only (no cobaya lifecycle, no CAMB).
 
 It builds tiny synthetic CMB emulators by hand (a ParamGeometry over a
@@ -18,7 +18,7 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
   - save -> rebuild -> EmulatorPredictor.predict is bitwise vs the pre-save
     decode, on BOTH laws; the predictor takes the CMB branch and exposes
     spectrum / ell / units / amplitude_law;
-  - the D-CM13 head leg: attach_head_coords (one bin, coordinate = ell),
+  - the correction-head leg: attach_head_coords (one bin, coordinate = ell),
     the identity basis (W_fd / W_df None), the n_tokens segmentation
     (10 windows of 20 multipoles) and its loud range error, the ResTRF
     epoch-0 identity start, the two-phase discipline (set_train_phase
@@ -29,7 +29,7 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     results._rebuild_model);
   - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
     residual base + refiner algebra bitwise under the diagonal metric,
-    the D-CM8 roughness composing on the full whitened residual,
+    the roughness penalty composing on the full whitened residual,
     save -> rebuild -> predict composing base + net bitwise, and the
     pce x amplitude-law exclusivity loud;
   - the cobaya adapter emul_cmb assembles the Cl dict from two synthetic
@@ -37,13 +37,13 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     artifact's range) and raises on: a duplicate spectrum, a wrong-kind
     artifact, an unknown-spectrum or beyond-lmax must_provide, and both
     get_Cl convention violations;
-  - D-CM8: the roughness band ratio (period 30 vs 300 at period_cut 50)
+  - the roughness band ratio (period 30 vs 300 at period_cut 50)
     exceeds 100; a zero residual scores exactly zero; the OFF identity (no
     roughness block -> loss bitwise-equal to the plain path); the
     composition (loss == the shared reduction of c_chi2 + lam * c_rough);
     the lensing guard (an acoustic-period residual is penalized at < 3% of
     its own plain chi2 at lam 0.1);
-  - D-CM10: a warm start from a CMB artifact reproduces the source function
+  - a warm start from a CMB artifact reproduces the source function
     at epoch 0 (build_warm_start's own parity check passes and the
     transferred model matches the source bitwise on shared inputs); the
     cosmolike pin refuses a CMB source loudly (wrong-kind); validate_cmb
@@ -435,7 +435,8 @@ def check_adapter(tmp, device):
 
 
 def check_roughness(device):
-    """D-CM8: band ratio, zero, OFF identity, composition, lensing guard."""
+    """Roughness: band ratio, zero, OFF identity, composition, and the
+    lensing guard."""
     n_ell = 3000
     ell = torch.arange(n_ell, dtype=torch.float32, device=device)
     r30 = torch.sin(2 * np.pi * ell / 30.0).reshape(1, -1)
@@ -493,8 +494,8 @@ def check_roughness(device):
 
 
 def cmb_head_recipe(n_ell):
-    """The model_recipe a schema-v2 save stores for the CMB ResTRF leg
-    (D-CM13): needs_geom True (rebuild re-injects the geometry after
+    """The model_recipe a schema-v2 save stores for the CMB ResTRF leg:
+    needs_geom True (rebuild re-injects the geometry after
     attach_head_coords), every constructor default materialized, the
     n_tokens segmentation recorded."""
     return {
@@ -523,10 +524,11 @@ def cmb_head_recipe(n_ell):
 
 
 def check_head(tmp, device):
-    """D-CM13: the TRF head on the CMB geometry — the attach, the
-    identity basis, the epoch-0 identity start, the n_tokens loud
-    error, and save -> rebuild -> predict bitwise (proving the
-    rebuild-side attach_head_coords in results._rebuild_model)."""
+    """The correction-head leg: the TRF head on the CMB geometry — the
+    attach, the identity basis, the epoch-0 identity start, the
+    n_tokens loud error, and save -> rebuild -> predict bitwise
+    (proving the rebuild-side attach_head_coords in
+    results._rebuild_model)."""
     from emulator.designs.plain import ResTRF
     n_ell = 200
     pgeom, covmat_path = make_pgeom(tmp, device, seed=140)
@@ -636,7 +638,7 @@ def check_head(tmp, device):
 
 
 def check_finetune(tmp, device):
-    """D-CM10: warm-start parity from a CMB source + the wrong-kind guard."""
+    """Warm-start parity from a CMB source + the wrong-kind guard."""
     root = os.path.join(tmp, "emul_ft_src")
     pgeom, geom, model, chi2fn = save_synthetic_cmb(
         root, device, tmp, spectrum="tt", law="as_exp2tau", seed=120)
@@ -679,7 +681,7 @@ def check_finetune(tmp, device):
     except ValueError as e:
         report("cosmolike pin refuses a CMB source",
                "CmbDiagonalGeometry" in str(e), "ValueError names the kind")
-    # validate_cmb accepts a finetune block (the D-CM10 interim error died).
+    # validate_cmb accepts a finetune block (the interim error died).
     cfg = {"data": {"cmb": {"spectrum": "tt",
                             "covariance": "c.npz",
                             "amplitude_law": "none"},
@@ -701,7 +703,7 @@ def check_finetune(tmp, device):
 def check_npce(tmp, device):
     """NPCE on the CMB family (the 2026-07-12 family-wide ruling): the
     residual base + refiner algebra is exact under the diagonal metric,
-    the D-CM8 roughness penalty composes on the FULL whitened residual,
+    the roughness penalty composes on the FULL whitened residual,
     save -> rebuild -> predict composes base + net bitwise, and the
     pce x amplitude-law exclusivity is loud (validate_cmb)."""
     from emulator.designs.pce import PCEEmulator
@@ -740,7 +742,7 @@ def check_npce(tmp, device):
     report("NPCE decode: geom.decode(net + base), bitwise",
            torch.equal(chi2fn.decode(y, X_white[:8]),
                        geom.decode(y + base)), "")
-    # D-CM8 roughness composes: the penalty acts on pred - target, which
+    # Roughness composes: the penalty acts on pred - target, which
     # under the residual construction IS the full whitened residual
     # (base + net - truth); with lam > 0 the loss must move.
     plain = chi2fn.loss(y, enc, X_white[:8]).item()
@@ -814,7 +816,7 @@ def check_npce(tmp, device):
 
 def main():
     """Run the cmb-identity checks in a tempdir; exit non-zero on failure."""
-    print("cmb-identity (CME-A): geometry + law + round-trip + roughness "
+    print("cmb-identity: geometry + law + round-trip + roughness "
           "+ finetune + adapter legs")
     device = torch.device("cpu")
     with tempfile.TemporaryDirectory() as tmp:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bsn-smoke gate (BSN-B): the BAOSN emulators end to end on real CAMB.
+"""bsn-smoke gate: the BAOSN emulators end to end on real CAMB.
 
 The strongest smoke of the program — TRUTH IS AVAILABLE: CAMB's own
 background at the test point is exact, so the served H / D_A / D_M are
@@ -12,13 +12,13 @@ checked against it, not against a proxy.
   2  two data.grid training runs (the "Hubble" artifact, log_offset
      law; the "D_M" artifact, none law), each with the
      dead-network-RELATIVE collapse bar (best val median < 0.5x the
-     staged mean predictor, the D-SPE2-5 rule).
+     staged mean predictor, the dead-network rule).
   3  the real cobaya lifecycle through emul_baosn (get_model +
      add_requirements + the getters) at an off-center point, checked
      against CAMB's OWN background at that point: H and D_A in the SN
      window, D_M in the recombination window, each within 2%.
   4  the desert query is loud through the real lifecycle.
-  5  the D-BSN8 diagnostics leg: the grid pages build (2 pages for the
+  5  the diagnostics leg: the grid pages build (2 pages for the
      Hubble artifact — bands + derived distances) and the PDF lands.
 """
 
@@ -344,12 +344,12 @@ def check_diagnostics(exp, model, tmp):
                          grid=gd, savepath=pdf)
         ok = (n_pages == 2 and os.path.isfile(pdf)
               and os.path.getsize(pdf) > 10000)
-        report("D-BSN8 diagnostics: 2 grid pages + the PDF lands", ok,
+        report("diagnostics: 2 grid pages + the PDF lands", ok,
                "%d pages, %d bytes" % (n_pages,
                                        os.path.getsize(pdf)
                                        if os.path.isfile(pdf) else 0))
     except Exception as e:
-        report("D-BSN8 diagnostics: 2 grid pages + the PDF lands", False,
+        report("diagnostics: 2 grid pages + the PDF lands", False,
                type(e).__name__ + ": " + str(e)[:200])
 
 
@@ -381,7 +381,7 @@ def check_dump_variance(paths):
 
 
 def main():
-    print("bsn-smoke (BSN-B): generator + two trainings + cobaya vs CAMB "
+    print("bsn-smoke: generator + two trainings + cobaya vs CAMB "
           "truth + diagnostics")
     rootdir = os.environ.get("ROOTDIR")
     if not rootdir:

@@ -883,8 +883,9 @@ def _log_header(ctx, gate):
   The full multi-line header block and the config dump are log-only: they
   land in the gate log for reproducibility and reach the terminal only in
   debug mode. The runner prints the one-line terminal gate header
-  separately. Byte-compatible with the pre-quiet-mode log format (the same
-  text lands in the log, just no longer echoed to the terminal by default).
+  separately. The header names the home note so a log traces back to its
+  spec; the registry's internal ledger keys are not printed (user ruling
+  2026-07-12: tracking codes stay in notes/).
 
   Arguments:
     ctx  = the gate's RunContext (routes to its log; quiet-aware).
@@ -894,7 +895,6 @@ def _log_header(ctx, gate):
   lines = []
   lines.append("=" * 72)
   lines.append("GATE " + gate.id + "  [" + gate.tier + "]")
-  lines.append("spec code: " + gate.spec_code)
   lines.append("home note: notes/" + gate.home + ".md")
   lines.append("maps (assertion -> home-note line): " + gate.maps)
   lines.append("needs: " + ", ".join(gate.needs))

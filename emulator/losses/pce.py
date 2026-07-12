@@ -355,7 +355,7 @@ class PCEResidualDiagChi2(CmbDiagonalChi2):
   Loss: the diagonal chi2 on (pred - target); the base cancels in
   the residual, (base + pred) - truth == pred - target, so the
   metric is exact. Decode inverts: geom.decode(y + PCE(theta)), so
-  a grid law (log space) or a D-MP9 constant pin applies to the
+  a grid law (log space) or a constant-column pin applies to the
   COMBINED prediction, one definition.
 
       (legend: B = batch rows; n_out = the family's output length,
@@ -375,7 +375,7 @@ class PCEResidualDiagChi2(CmbDiagonalChi2):
       one-at-a-time exclusivity as pce vs rescale / model.ia;
       validate_cmb rejects the combination.
 
-  The D-CM8 roughness penalty composes unchanged (inherited
+  The residual-roughness penalty composes unchanged (inherited
   configure_roughness / loss): pred - target here equals the FULL
   whitened residual (base + net - truth), the exact quantity the
   penalty is defined on.

@@ -1,5 +1,5 @@
 """
-Shared machinery for the dataset-generator drivers (D-CM3-A).
+Shared machinery for the dataset-generator drivers.
 
 Every training-set generator in this package does the same job: draw
 cosmological parameter samples, farm one expensive Boltzmann/cosmolike

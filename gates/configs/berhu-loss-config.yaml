@@ -1,4 +1,4 @@
-# berhu-loss, training leg (spec code GB-C; training-stack.md:290-314): head-berhu under the
+# berhu-loss, training leg (spec: notes/training-stack.md:290-314): head-berhu under the
 # nested loss schema. Trunk banner 'loss_mode sqrt'; head banner
 # 'loss_mode berhu_capped (knot 0.2, cap 10)'.
 #

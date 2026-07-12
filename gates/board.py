@@ -79,8 +79,10 @@ class Gate:
     worktree_commit = a commit the test pins a temporary worktree at (the
               EMA identity test's pre-EMA build); None for tests that
               never leave the current tree.
-    spec_code = the internal short code that keys this test's audit
-              history in its home note; printed once in the log header.
+    spec_code = the key of this test's audit-history entry inside its home
+              note's ledger tables. Registry data for the notes only: it is
+              never printed or documented outside notes/ (user ruling
+              2026-07-12 — internal tracking codes stay in notes).
     title   = a one-line human name for the test (for the README table).
   """
   id: str
@@ -247,7 +249,7 @@ def gate_diag(ctx):
   Specs: the five home notes in this test's maps.
   """
   ctx.require_caps("cosmolike")
-  ctx.log("G1: dead-class census (NLATemplateMLP / NLAInputGeometry) "
+  ctx.log("dead-class census (NLATemplateMLP / NLAInputGeometry) "
           "+ clean package import.")
   # exclude gates/ (this harness's own gate_diag holds the literal
   # search pattern) and .git/ (packed objects) so the census counts only
@@ -276,23 +278,23 @@ def gate_diag(ctx):
   if ctx.dry:
     return
 
-  # G1 (grep 0 hits: grep exits 1 when it finds nothing).
-  ctx.expect(label="G1 dead-class census -> 0 hits",
+  # the dead-class census (grep 0 hits: grep exits 1 when it finds nothing).
+  ctx.expect(label="dead-class census -> 0 hits",
              ok=(rc_grep == 1 and out_grep.strip() == ""),
              detail="grep rc " + str(rc_grep) + ", output: "
                     + repr(out_grep.strip()[:200]))
-  ctx.expect(label="G1 clean package import",
+  ctx.expect(label="clean package import",
              ok=(rc_imp == 0),
              detail="import rc " + str(rc_imp))
-  # G-F / GN-F / GS-D banners (home lines named in `maps`).
+  # the window-cut / row-count / sizes banners (home lines named in `maps`).
   ctx.expect(label="production-diagnostic production run completes",
              ok=(rc_run == 0),
              detail="driver exit code " + str(rc_run))
-  ctx.expect(label="GS-D sizes line ('used N of P cut rows')",
+  ctx.expect(label="sizes line ('used N of P cut rows')",
              ok=logscan.search(text=out_run,
                                pattern=r"used\s+\d+\s+of\s+\d+\s+cut rows"),
              detail="the sizes line must report used N of P cut rows")
-  ctx.log("GT-C: the diagnostics PDF is a VISUAL check (the omh2 marginal "
+  ctx.log("shaded triangle: the diagnostics PDF is a VISUAL check (the omh2 marginal "
           "at 0.20 and the (ns, omh2) diagonal corner at 0.17 must show "
           "adjoining grey); the harness confirms the run produced it, the "
           "Architect confirms the shading from the committed PDF/log.")
@@ -916,7 +918,7 @@ def gate_tpe_b(ctx):
     label="transfer-smoke banner names the base and form",
     ok=logscan.search(text=out, pattern=r"transfer: from "),
     detail="print_design must announce the base + form/space")
-  # TPE-1b: the artifact lifecycle now lands, so the run SAVES a self-contained
+  # The transfer artifact lifecycle: the run SAVES a self-contained
   # transfer artifact (the correction net + the embedded frozen base). Assert
   # the save completed and its two output paths printed.
   ctx.expect(
@@ -924,7 +926,7 @@ def gate_tpe_b(ctx):
     ok=logscan.search(text=out, pattern=r"saved emulator ->")
        and logscan.search(text=out, pattern=r"saved run record ->"),
     detail="the composed run persists a reloadable artifact "
-           "(the transfer_base embed landed in TPE-1b)")
+           "(the saved file embeds its frozen base)")
   ctx.log("transfer-smoke artifact provenance + round-trip: the saved .h5 "
           "carries the transfer_from root attr + the embedded transfer_base "
           "group, and rebuild_emulator -> composed predict reproduces the "
@@ -943,9 +945,10 @@ def gate_spe_a(ctx):
   WHAT: a tiny synthetic scalar emulator (a ParamGeometry over a written
   covmat + a ScalarGeometry over synthetic targets + a small ResMLP), saved
   and rebuilt, reproduces predict bitwise; its ScalarGeometry state round-trips
-  byte-identical; and every scalar-path loud error fires (D-SPE1-1 both
-  directions, D-SPE2-1, D-SPE2-3, plus the emul_scalars provides / duplicate /
-  overlap / subset / wrong-kind D-SPE2-4 legs, the adapter loaded torch-only
+  byte-identical; and every scalar-path loud error fires (the constant-column
+  guard both directions, the duplicate-sidecar-name guard, the trunk-only
+  guard, plus the emul_scalars provides / duplicate / overlap / subset /
+  wrong-kind legs, the adapter loaded torch-only
   through a cobaya.theory stub). Added 2026-07-12: the NPCE check_npce
   leg (residual algebra bitwise, base + net {name: value} prediction
   exact). torch only, no cosmolike (spec:
@@ -966,7 +969,8 @@ def gate_spe_b(ctx):
 
   WHAT: a fixture parameter chain whose only output is
   omegamh2 = omegam*(H0/100)^2, trained two epochs; the validation error
-  collapses below the mean-predictor baseline (D-SPE2-5), predict reproduces
+  collapses below the mean-predictor baseline (so a network that learned
+  nothing fails), predict reproduces
   the analytic value at an off-center point within 5%, and a cobaya evaluate
   through emul_scalars returns the same derived value. torch + cobaya, no
   cosmolike (the scalar path is cosmolike-free); the check writes its own
@@ -995,17 +999,17 @@ def gate_cme_a(ctx):
   rebuild -> predict bitwise on BOTH laws (the predictor's CMB branch); the
   emul_cmb adapter's Cl assembly + every loud error (duplicate spectrum,
   wrong-kind, unknown-spectrum / beyond-lmax must_provide, both get_Cl
-  convention guards; cobaya.theory stubbed, torch-only); the D-CM8
+  convention guards; cobaya.theory stubbed, torch-only); the
   roughness legs (band ratio > 100, zero -> exactly 0, OFF identity
   bitwise, one-reduction composition, the lensing guard < 3%); and the
-  D-CM10 finetune legs (epoch-0 parity from a CMB source, the cosmolike
+  finetune legs (epoch-0 parity from a CMB source, the cosmolike
   pin's wrong-kind refusal, validate_cmb accepting finetune). Added
-  2026-07-11/12: the D-CM13 head leg (ResTRF + n_tokens: attach,
+  2026-07-11/12: the correction-head leg (ResTRF + n_tokens: attach,
   identity basis, epoch-0 identity, the two-phase discipline, save ->
   rebuild -> predict bitwise) and the NPCE check_npce leg (residual
   algebra bitwise, roughness composition, base + net prediction
   bitwise, the pce x amplitude-law exclusivity). torch only,
-  no CAMB (spec: families-scalar-cmb.md, D-CM6/8/10/13).
+  no CAMB (spec: notes/families-scalar-cmb.md).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/cmb_identity.py")
@@ -1023,20 +1027,20 @@ def gate_cme_b(ctx):
 
   WHAT: dataset_generator_cmb.py writes two tiny dumps (200 rows each,
   l = 2..350, cmblensed, As sampled linearly) — four per-spectrum dv files
-  + sidecars, phiphi actually filled (D-CM3-A); compute_cmb_covariance.py
-  writes the Gaussian .npz on the fixture LCDM (D-CM11, first real run);
+  + sidecars, phiphi actually filled; compute_cmb_covariance.py
+  writes the Gaussian .npz on the fixture LCDM (its first real run);
   a data.cmb / as_exp2tau training run collapses the val median below
-  0.5x the staged mean predictor (the dead-network-relative bar,
-  D-SPE2-5); the saved artifact serves Cl through the real cobaya
+  0.5x the staged mean predictor (the bar a dead network cannot pass);
+  the saved artifact serves Cl through the real cobaya
   lifecycle (get_model + add_requirements + provider.get_Cl equals the
-  predictor's own output); and the D-CM9 diagnostics pages build. Added
+  predictor's own output); and the family diagnostics pages build. Added
   2026-07-12, leg 2b (check_cov_nondiagonal): the Motloch & Hu eq-6
   NON-DIAGONAL covariance runs end to end at smoke scale (16
   re-lensings) — all six dense blocks (3 per-spectrum + 3 cross),
   symmetric + PSD + off-diagonals alive, the stencil step study in the
   provenance. torch + cobaya + a compiled CAMB under $ROOTDIR; budget
   several minutes (~400 serial low-accuracy CAMB calls) (spec:
-  families-scalar-cmb.md, D-CM6/9/11).
+  notes/families-scalar-cmb.md).
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("gates/checks/cmb_smoke.py")
@@ -1061,11 +1065,11 @@ def gate_bsn_a(ctx):
   adapter legs (pair validation, window layout, the DESERT loud at
   must_provide AND the getters, the piecewise chi vs the pipeline / the
   D_M artifact, get_Hubble units + window guards, D_A_2); and the
-  D-BSN9 finetune legs (epoch-0 parity from a grid source; the
+  finetune legs (epoch-0 parity from a grid source; the
   metadata-mismatch and cross-quantity from_config errors). Added
   2026-07-12: the NPCE check_npce leg (residual algebra bitwise
   through the log law, base + net prediction bitwise). torch +
-  scipy, no CAMB (spec: families-background-mps.md, D-BSN1/3/3-A/4/6/9).
+  scipy, no CAMB (spec: notes/families-background-mps.md).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/bsn_identity.py")
@@ -1083,15 +1087,16 @@ def gate_bsn_b(ctx):
 
   WHAT: dataset_generator_background.py writes two tiny dumps (200
   rows, one background-only CAMB evaluation per sample — fast) carrying
-  BOTH quantities + their _z.npy grid sidecars (D-BSN2/3-A(5)); two
+  BOTH quantities + their _z.npy grid sidecars (one CAMB pass fills
+  both — the one-pass rule); two
   data.grid training runs (Hubble/log_offset + D_M/none) each collapse
   below 0.5x the staged mean predictor (the dead-network-relative bar);
   the real cobaya lifecycle through emul_baosn serves H / D_A (SN
   window) and D_M (recombination window) within 2% of CAMB's OWN
   background at an off-center point — truth is available here, the
   strongest smoke of the program; the desert stays loud through the
-  real lifecycle; the D-BSN8 diagnostics pages build. torch + cobaya +
-  a compiled CAMB under $ROOTDIR (spec: families-background-mps.md, D-BSN6/8).
+  real lifecycle; the grid-family diagnostics pages build. torch + cobaya +
+  a compiled CAMB under $ROOTDIR (spec: notes/families-background-mps.md).
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("gates/checks/bsn_smoke.py")
@@ -1108,8 +1113,8 @@ def gate_mps_a(ctx):
   """mps-identity: the grid2d emulator + the syren-law assembly math.
 
   WHAT: the Grid2DGeometry standardize/state round-trips + its width /
-  unknown-law guards (the partial-constant raise leg died with the
-  law-agnostic D-MP9 amendment — the run-10 catch); the STAGING
+  unknown-law guards (the partial-constant raise leg died when the
+  constant-column pin was made law-agnostic — the run-10 catch); the STAGING
   law transform through the REAL load_source (law rows = log(raw/base)
   with the base dump aligned by dump_rows through a real shuffled
   staging; k_stride keeps the top edge; positivity loud); save ->
@@ -1121,14 +1126,14 @@ def gate_mps_a(ctx):
   guards, the legacy state keys + interpolator node round-trip, and
   the reject-on-bad-spectrum semantics; validate_grid2d's pairing /
   base-file / k_stride legs (transfer ACCEPTED since the 2026-07-12
-  symmetry ruling); the D-MP7 finetune parity + metadata-mismatch
-  legs. Added 2026-07-11/12: the D-CM13 head leg (ResCNN on z-slice
+  symmetry ruling); the finetune parity + metadata-mismatch
+  legs. Added 2026-07-11/12: the correction-head leg (ResCNN on z-slice
   channels, the two-phase discipline, the n_tokens-on-real-bins
-  rejection, the bitwise round-trip), the D-MP9 constant-pin legs,
+  rejection, the bitwise round-trip), the constant-pin legs,
   and the NPCE check_npce leg (residual algebra + base + net
   prediction bitwise, the diagonal ratio rejection). torch + scipy,
   no CAMB, no symbolic_pofk (the real syren formulas ride the EMUL2
-  acceptance) (spec: families-background-mps.md, D-MP1/2/2-A/6/7/9).
+  acceptance) (spec: notes/families-background-mps.md).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/mps_identity.py")
@@ -1148,7 +1153,7 @@ def gate_mps_b(ctx):
   16 z x 40 k) through the real Pk_interpolator requirement (incl. the
   verbatim wants-Cl quirk): pklin + boost + the grid sidecars; two
   data.grid2d trainings (law none) each collapse below 0.5x the staged
-  mean predictor (the boost training also proves the MPS-DIAG grid2d
+  mean predictor (the boost training also proves the grid2d diagnostics
   pages: the two (z, k) figures build and the plot_diagnostics PDF
   lands); the real cobaya lifecycle through emul_mps serves
   P_lin and P_nl (grid + interpolator) within 5% of CAMB's OWN
@@ -1158,7 +1163,7 @@ def gate_mps_b(ctx):
   EMUL2 hybrid run is the unit's recorded acceptance experiment
   (cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml, user-run on the
   workstation). torch + cobaya + a compiled CAMB under $ROOTDIR
-  (spec: families-background-mps.md, D-MP3/4/6).
+  (spec: notes/families-background-mps.md).
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("gates/checks/mps_smoke.py")
@@ -1182,10 +1187,10 @@ def gate_geo_a(ctx):
   partial load); and the tree-wide census proves nothing references
   the old flat names. The shims that originally rode the move were
   retired by user ruling 2026-07-11 (no science artifact predates the
-  move; D-GEO5). Acceptance beyond this gate = the full board green
+  move). Acceptance beyond this gate = the full board green
   (every gate touches geometries) with ema-off-identity pinning
-  byte-identity, the GRF precedent (spec: artifacts-inference-warmstart.md,
-  D-GEO1..5).
+  byte-identity — the same acceptance pattern the family-folders move
+  used (spec: notes/artifacts-inference-warmstart.md).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/geo_paths.py")
@@ -1221,10 +1226,11 @@ BOARD = [
        title="Production diagnostic run",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="G1 conventions-and-workflow.md:232-234; G-F "
-            "data-generation-and-cuts.md:125-126; GN-F "
-            "data-generation-and-cuts.md:94-95; GS-D "
-            "training-stack.md:110-112; GT-C "
+       maps="dead-class census conventions-and-workflow.md:232-234; "
+            "density-window cut data-generation-and-cuts.md:125-126; "
+            "nested cuts + absolute row counts "
+            "data-generation-and-cuts.md:94-95; sizes line "
+            "training-stack.md:110-112; shaded triangle "
             "data-generation-and-cuts.md:76-79",
        run=gate_diag,
        needs=("torch", "cosmolike", "gpu")),
@@ -1368,7 +1374,8 @@ BOARD = [
        tier=TIER_NEW_FEATURES,
        home="families-scalar-cmb",
        maps="123-127 (round-trip + state + auto-provides + subset/dup + "
-            "D-SPE1-1/2-1/2-3/2-4 error legs)",
+            "the constant-column / duplicate-name / trunk-only / "
+            "wrong-kind error legs)",
        run=gate_spe_a,
        needs=("torch",)),
   Gate(id="cmb-identity",
@@ -1376,8 +1383,8 @@ BOARD = [
        title="CMB emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-scalar-cmb",
-       maps="110-117 (D-CM6 identity legs); 517-530 (D-CM8 gate legs); "
-            "582-591 (D-CM10 finetune legs)",
+       maps="110-117 (identity legs); 517-530 (roughness gate legs); "
+            "582-591 (finetune legs)",
        run=gate_cme_a,
        needs=("torch",)),
   Gate(id="bsn-identity",
@@ -1385,8 +1392,8 @@ BOARD = [
        title="BAOSN grid emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-background-mps",
-       maps="118-127 (D-BSN6 identity legs); 138-176 (the D-BSN3-A "
-            "two-regime + desert legs); 217-231 (D-BSN9 finetune legs)",
+       maps="118-127 (identity legs); 138-176 (the "
+            "two-regime + desert legs); 217-231 (finetune legs)",
        run=gate_bsn_a,
        needs=("torch",)),
   Gate(id="mps-identity",
@@ -1394,8 +1401,8 @@ BOARD = [
        title="MPS grid2d emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-background-mps",
-       maps="D-MP1/2 (geometry + laws); D-MP2-A (the base placement + "
-            "staging transform); D-MP6 (identity legs); D-MP7 (finetune)",
+       maps="the note's matter-power sections: geometry + laws; the base "
+            "placement + staging transform; identity legs; finetune",
        run=gate_mps_a,
        needs=("torch",)),
   Gate(id="geo-paths",
@@ -1403,9 +1410,9 @@ BOARD = [
        title="Geometry folder is the only geometry home",
        tier=TIER_NEW_FEATURES,
        home="artifacts-inference-warmstart",
-       maps="D-GEO3 (import rewrite census); D-GEO4 (new-save markers "
-            "+ full-board acceptance); D-GEO5 (shims retired: legacy "
-            "flat paths dead, loudly)",
+       maps="the note's geometry-folder section: import rewrite census; "
+            "new-save markers + full-board acceptance; shims retired "
+            "(legacy flat paths dead, loudly)",
        run=gate_geo_a,
        needs=("torch",)),
 
@@ -1461,8 +1468,8 @@ BOARD = [
        title="CMB emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
        home="families-scalar-cmb",
-       maps="118-124 (D-CM6 end-to-end: generator + covariance + train + "
-            "cobaya lifecycle); 575-578 (the D-CM9 diagnostics leg)",
+       maps="118-124 (end-to-end: generator + covariance + train + "
+            "cobaya lifecycle); 575-578 (the family diagnostics leg)",
        run=gate_cme_b,
        needs=("torch", "cobaya")),
   Gate(id="bsn-smoke",
@@ -1470,8 +1477,8 @@ BOARD = [
        title="BAOSN emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
        home="families-background-mps",
-       maps="128-136 (D-BSN6 end-to-end vs CAMB's own background); "
-            "178-194 (the D-BSN8 diagnostics leg)",
+       maps="128-136 (end-to-end vs CAMB's own background); "
+            "178-194 (the grid diagnostics leg)",
        run=gate_bsn_b,
        needs=("torch", "cobaya")),
   Gate(id="mps-smoke",
@@ -1479,8 +1486,8 @@ BOARD = [
        title="MPS emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
        home="families-background-mps",
-       maps="D-MP3 (the generator incl. the wants-Cl quirk); D-MP4/6 "
-            "(the emul_mps lifecycle vs CAMB's own P(k, z))",
+       maps="the note's matter-power sections: the generator incl. the "
+            "wants-Cl quirk; the emul_mps lifecycle vs CAMB's own P(k, z)",
        run=gate_mps_b,
        needs=("torch", "cobaya")),
 ]

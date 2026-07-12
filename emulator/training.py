@@ -342,7 +342,7 @@ def build_anchor(model, optimizer, reference_state, lam, masks=None):
 
 class TransferComposite(nn.Module):
   """Wraps the correction net and the unfrozen base for the transfer refine
-  stage (D-TP10). The forward returns the correction's output (the base is
+  stage. The forward returns the correction's output (the base is
   evaluated by the loss, TransferChi2 in live mode); holding both as submodules
   lets one optimizer, one gradient clip, and one train/eval toggle cover both,
   and lets make_refine_optimizer split them into discriminative-lr groups. The
@@ -391,7 +391,7 @@ def make_refine_optimizer(correction, base, opt_opts, lr, base_lr_scale,
     base          = the base network (the scaled-lr group; unfrozen for refine).
     opt_opts      = the optimizer spec dict ("cls" + "weight_decay" + extras).
     lr            = the run's resolved (sqrt-batch) learning rate.
-    base_lr_scale = the base group's lr as a multiple of lr (D-TP10).
+    base_lr_scale = the base group's lr as a multiple of lr.
     device        = the device (fused Adam on CUDA).
 
   Returns:
@@ -997,7 +997,7 @@ _LOSS_MODES = ("chi2", "sqrt", "sqrt_dchi2", "berhu", "berhu_capped")
 
 # the keys a train_args.loss block accepts: the mode string, the berhu
 # knot sub-block (valid only beside a berhu mode; see validate_loss), and
-# the CMB residual-roughness sub-block (D-CM8; top-level loss only).
+# the CMB residual-roughness sub-block (top-level loss only).
 _LOSS_KEYS = ("mode", "berhu", "roughness")
 
 
@@ -1079,14 +1079,14 @@ def validate_loss(loss, which):
     raise ValueError(
       f"unknown {qual}.mode {mode!r}; one of {list(_LOSS_MODES)}")
   # the berhu sub-block is validated against this block's mode (the local
-  # check that replaces the deleted cross-pass D-B1 machinery). validate_berhu
+  # check that replaces the deleted cross-pass machinery). validate_berhu
   # names it train_args.{which_berhu}.berhu, so pass "loss" / "trunk.loss".
   which_berhu = "loss" if which == "train_args" else f"{which}.loss"
   resolved = validate_berhu(loss.get("berhu"), mode, which_berhu)
   # a non-berhu mode carries no knots (None -> the training loop's unused
   # defaults); a berhu mode keeps the resolved pair for its knot tensors.
   berhu = resolved if mode in ("berhu", "berhu_capped") else None
-  # the CMB residual-roughness sub-block (D-CM8): a per-sample penalty on
+  # the CMB residual-roughness sub-block: a per-sample penalty on
   # short-period residual oscillations, added to the per-sample chi2
   # before the shared reduction. Absent = the term does not exist (the
   # off-identity rule; lam 0 is rejected — delete the block instead).
@@ -2442,7 +2442,7 @@ def run_emulator(train_set,
   # re-resolves it below (a phase loss: full-replaces the top-level one).
   loss_top = validate_loss(loss, "train_args")
 
-  # the CMB residual-roughness term (D-CM8): configured once on the run's
+  # the CMB residual-roughness term: configured once on the run's
   # loss object (the term is per-sample state on the chi2fn, not a per-pass
   # knob; validate_loss already restricted the block to the top level). A
   # loss object without configure_roughness is not a CMB loss — loud, so a
@@ -2451,8 +2451,8 @@ def run_emulator(train_set,
   if loss_top["roughness"] is not None:
     if not hasattr(chi2fn, "configure_roughness"):
       raise ValueError(
-        "train_args.loss.roughness is the CMB residual-roughness term "
-        "(D-CM8); this run's loss (" + type(chi2fn).__name__ + ") does "
+        "train_args.loss.roughness is the CMB residual-roughness term; "
+        "this run's loss (" + type(chi2fn).__name__ + ") does "
         "not support it — remove the block (it applies to data.cmb runs "
         "only)")
     chi2fn.configure_roughness(lam=loss_top["roughness"]["lam"],
@@ -2785,7 +2785,7 @@ def run_emulator(train_set,
     # input columns masked out. Built here so it reads this pass's optimizer
     # groups (their lr); None on an ordinary run (byte-identical). The
     # transfer refine stage's base-group anchor is a separate pass with its own
-    # spec (D-TP10).
+    # spec.
     anchor_obj = None
     if anchor is not None:
       anchor_obj = build_anchor(model=model,
@@ -2823,7 +2823,7 @@ def run_emulator(train_set,
     means        += mn
     fracs        += fr
 
-  # transfer refine stage (D-TP10): after the correction is trained (base
+  # transfer refine stage: after the correction is trained (base
   # frozen, above), optionally unfreeze the base ONCE and train jointly for
   # refine["epochs"] more, with the base at a scaled lr and pulled back toward
   # its pretrained weights by the decoupled anchor. The loss switches to live

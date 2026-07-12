@@ -1,4 +1,4 @@
-# transfer-smoke (TPE-B): a names-equal gain-form transfer over the board's
+# transfer-smoke: a names-equal gain-form transfer over the board's
 # own plain base (the tiny emulator save-rebuild-drift persists at
 # <driver_root>/chains/gates_emul_evaluate). No extra parameters, so the
 # frozen base is evaluated on the full run encoding; epoch 0 must be the base,

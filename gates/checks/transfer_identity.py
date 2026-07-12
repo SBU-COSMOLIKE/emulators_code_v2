@@ -17,7 +17,7 @@ How it works, in order:
      load each through load_source(allow_factored=True).
   2. Extend the input geometry for a run with two extra parameters and check
      the base's own encoding is a bit-identical column slice of the run's
-     encoding (the D-TP3 invariant that makes the base a slice, not a second
+     encoding (the invariant that makes the base a slice, not a second
      evaluation).
   3. For all four form x space combinations, check the epoch-0 composed
      prediction (zero correction) is bitwise the frozen base's decode, and
@@ -37,8 +37,8 @@ How it works, in order:
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
-Spec code TPE-A. Home note: artifacts-inference-warmstart.md (design rules
-D-TP1..D-TP8; this check is the transfer-identity validation gate).
+Home note: artifacts-inference-warmstart.md (the transfer design rules;
+this check is the transfer-identity validation gate).
 """
 
 import sys
@@ -388,7 +388,7 @@ def check_errors(device, plain_root):
   # refine knobs are explicit (no silent defaults): a refine block missing
   # base_lr_scale / anchor is a loud error, the same required-explicit rule
   # the anchor itself follows. (This leg replaced the V1 not-yet-implemented
-  # rejection when TPE-2 landed refine.)
+  # rejection when the refine unit landed.)
   raised = False
   try:
     validate_transfer(cfg={"transfer": {"from": "x",
@@ -416,7 +416,7 @@ def check_errors(device, plain_root):
 
 
 def check_lifecycle(device, tmp):
-  """(the artifact lifecycle, TPE-1b) save a transfer, rebuild, compose again.
+  """(the artifact lifecycle) save a transfer, rebuild, compose again.
 
   Saves a transfer artifact (the correction net as the main model plus the
   frozen base embedded whole), rebuilds it, and checks the composed prediction
@@ -518,7 +518,7 @@ def check_lifecycle(device, tmp):
          bool(np.abs(got - want).max() <= 1.0e-6),
          "max|d| = " + format(float(np.abs(got - want).max()), ".2e"))
 
-  # chaining refused: the saved transfer cannot be loaded as a new base (D-TP2).
+  # chaining refused: the saved transfer cannot be loaded as a new base.
   raised = False
   try:
     warmstart.load_source(root=str(saved), device=device, allow_factored=True)
@@ -529,7 +529,7 @@ def check_lifecycle(device, tmp):
 
 
 def check_refined_lifecycle(device, tmp):
-  """(refine artifact, TPE-2) a refined transfer saves the drifted base to a
+  """(refine artifact) a refined transfer saves the drifted base to a
   drifted_state group; rebuild composes with the DRIFTED base bitwise, and the
   transfer_refined attr is two-way consistent with the group (either half alone
   is a corrupt file)."""
@@ -854,7 +854,7 @@ def main():
   the packed target width; then the zero-init surgery and the loud config
   errors. Each check prints a PASS/FAIL line; main returns 1 if any failed.
   """
-  print("== transfer-identity (spec code TPE-A) ==")
+  print("== transfer-identity ==")
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
   print("device " + str(device) + " (torch only, no cosmolike)")
   torch.manual_seed(0)

@@ -1,4 +1,4 @@
-# npce-training, ratio form (spec code GPC-C; models-and-designs.md:117-122).
+# npce-training, ratio form (spec: notes/models-and-designs.md:117-122).
 # pce form ratio (base * (1 + net)); resmlp refiner.
 #
 data:

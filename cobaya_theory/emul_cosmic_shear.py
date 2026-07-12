@@ -99,7 +99,7 @@ class emul_cosmic_shear(Theory):
             # wrong-kind guard: this theory serves data-vector emulators
             # only; a scalar or CMB artifact has its own adapter, and
             # letting it through would return the wrong object shape
-            # silently (the D-SPE2-4 failure class).
+            # silently (the wrong-kind-artifact failure class).
             if predictor._scalar:
                 raise ValueError(
                     "emul_cosmic_shear: " + repr(root) + " is a scalar "

@@ -56,6 +56,22 @@ with the LSST-Y1 concrete example. Enumeration rot is a named defect
 change). Doc-only passes are PROVEN by the AST-minus-docstrings hash
 census, never asserted.
 
+**Internal tracking codes stay in notes/ (user ruling 2026-07-12).**
+The design-decision codes (D-CM9, D-MP2-A, TPE-2, MPS-DIAG, board
+ledger keys like GB-C...) are Architect bookkeeping — the user hit
+"the D-CM9 dispatch" in a docstring and could not parse it. They may
+appear ONLY in notes/ (and as the registry's `spec_code` data field in
+gates/board.py, documented as a notes-ledger key and never rendered).
+Everywhere else — READMEs, docstrings, comments, exception/print
+strings, gate report labels, YAML comments — the code is replaced by
+the plain-language fact it stood for, or dropped when the sentence
+already says it; pointers to note FILES ("spec:
+notes/families-scalar-cmb.md") remain the crosswalk. The 2026-07-12
+sweep translated ~470 hits across ~55 files; the recurring phrases
+live in the glossary inside that sweep's commit message. New code must
+be written this way from the start: state the fact, cite the note
+file, never the code.
+
 ## README / didactics
 
 Two-README split (user philosophy: first learn to RUN and configure,

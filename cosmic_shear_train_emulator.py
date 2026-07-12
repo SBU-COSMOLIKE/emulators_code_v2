@@ -20,7 +20,7 @@ is never loaded whole.
 # Example how to run this program
 #-------------------------------------------------------------------------------
 # This driver trains one cosmic-shear (xi) emulator, chosen in the YAML from
-# resmlp (plain residual MLP), rescnn (ResMLP trunk + 1D-CNN correction head),
+# resmlp (plain residual MLP), rescnn (ResMLP trunk + 1D CNN correction head),
 # or restrf (ResMLP trunk + bin-token transformer head), mapping cosmological
 # parameters to the whitened, masked xi data vector. Loss = full-3x2pt chi2
 # (cosmolike's masked inverse covariance). With a data.cmb / data.grid /
@@ -378,14 +378,14 @@ def main(prog="cosmic_shear_train_emulator", family=None):
            "device":      str(exp.device),
            "train_dv":    os.path.basename(cfg["data"]["train_dv"]),
            "val_dv":      os.path.basename(cfg["data"]["val_dv"])}
-  # fine-tune warm start (D-FT8): stamp the resolved source path root and the
+  # fine-tune warm start: stamp the resolved source path root and the
   # extra parameter names (space-joined, "" when the new space adds none) as
   # root attrs, so the saved artifact records what it was fine-tuned from. A
   # plain run adds neither (its artifact stays byte-identical).
   if exp._finetune is not None:
     attrs["finetuned_from"] = exp._finetune.root
     attrs["finetune_extra_names"] = " ".join(exp._finetune_extra_names)
-  # transfer learning (D-TP6): the saved main model is the correction net, so
+  # transfer learning: the saved main model is the correction net, so
   # the frozen base is embedded whole (recipe + weights + both geometries +
   # form / space) as a transfer_base group, and the provenance root attrs
   # record where it came from + how it composes. A plain run adds neither.
@@ -402,7 +402,7 @@ def main(prog="cosmic_shear_train_emulator", family=None):
                      "dv_geometry":    tb.geom,
                      "form":           exp._transfer_form,
                      "space":          exp._transfer_space}
-    # refined run (transfer.refine, D-TP10): the base drifted in stage 2.
+    # refined run (transfer.refine): the base drifted in stage 2.
     # transfer_base/state stays the pretrained base (the clone stashed before
     # the drift), and the DRIFTED weights ride a drifted_state group; the
     # predictor composes with the drifted base. Provenance root attrs: the
@@ -510,8 +510,8 @@ def main(prog="cosmic_shear_train_emulator", family=None):
     else:
       log("floor: skipped (local-linear floor needs a plain chi2fn; "
           "this loss is param-aware: rescaled or factored-IA)")
-    # (4) the CMB family pages (D-CM9): per-multipole residual bands, the
-    # worst-cosmology overlay, and the D-CM8 high-pass wiggle content;
+    # (4) the CMB family pages: per-multipole residual bands, the
+    # worst-cosmology overlay, and the high-pass wiggle content;
     # None on every other family, so the cosmic-shear PDF is unchanged.
     cmb_diag = None
     if getattr(exp, "_cmb", False):
@@ -523,7 +523,7 @@ def main(prog="cosmic_shear_train_emulator", family=None):
                                          device=exp.device)
       log(f"cmb pages: spectrum {cmb_diag['spectrum']}  |  worst val "
           f"chi2 {cmb_diag['worst']['dchi2']:.1f}")
-    # (5) the grid (background) family pages (D-BSN8): per-redshift
+    # (5) the grid (background) family pages: per-redshift
     # residual bands, the worst overlay, and (Hubble) the derived
     # distances through the real integration pipeline.
     grid_diag = None
@@ -536,7 +536,7 @@ def main(prog="cosmic_shear_train_emulator", family=None):
                                            device=exp.device)
       log(f"grid pages: quantity {grid_diag['quantity']}  |  worst val "
           f"chi2 {grid_diag['worst']['dchi2']:.1f}")
-    # (6) the grid2d (matter-power) family pages (MPS-DIAG): the (z, k)
+    # (6) the grid2d (matter-power) family pages: the (z, k)
     # |residual| surfaces (median + worst cosmology) and per-k bands at
     # three redshifts; under a syren law the residual reads directly as
     # ln(P_pred / P_truth) — the base cancels in law space.

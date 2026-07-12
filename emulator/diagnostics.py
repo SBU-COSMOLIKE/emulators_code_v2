@@ -13,9 +13,9 @@ data-only floor; plain chi2 only); hard_direction_regression fits log10
 delta-chi2 against the (log) parameters to find which combination
 predicts the per-point hardness.
 
-The PHYSICAL-units analyses are per family (the D-CM9 dispatch):
-cmb_residual_diagnostic (per-multipole residual statistics + the
-high-pass wiggle content the D-CM8 roughness term targets) and
+The PHYSICAL-units analyses are per family, dispatched on the run's
+geometry: cmb_residual_diagnostic (per-multipole residual statistics +
+the high-pass wiggle content the roughness penalty targets) and
 scalar_output_diagnostic (per-output truth/prediction/residual tables).
 The plotting side (plot_diagnostics) turns each family dict into its
 pages; a run passes only the dict its family produces, so the
@@ -345,7 +345,7 @@ def cmb_residual_diagnostic(model,
                             bs=256,
                             period_cut=None):
   """
-  Per-multipole residual statistics for a CMB spectrum run (D-CM9).
+  Per-multipole residual statistics for a CMB spectrum run.
 
   Decodes every validation prediction back to PHYSICAL C_ell (the
   training chi2fn.decode, so the imposed amplitude law is multiplied
@@ -355,8 +355,8 @@ def cmb_residual_diagnostic(model,
   ((pred - truth) / sigma_ell; always well-defined — for te read this
   one). Also finds the worst validation cosmology (highest per-sample
   chi2) for a pred-vs-truth overlay, and measures the residual's
-  HIGH-PASS content — the short-period wiggle spectrum the D-CM8
-  roughness term penalizes, computed with the same double-boxcar
+  HIGH-PASS content — the short-period wiggle spectrum the roughness
+  term penalizes, computed with the same double-boxcar
   remainder — so over-smoothing or ringing is visible at a glance.
 
   Arguments:
@@ -370,7 +370,7 @@ def cmb_residual_diagnostic(model,
     bs             = forward batch size.
     period_cut     = the high-pass band edge in multipoles; None reads
                      the run's configured roughness term (chi2fn._rough)
-                     and falls back to 50 (the D-CM8 default band) when
+                     and falls back to 50 (the default roughness band) when
                      the run trained without one.
 
   Returns:
@@ -437,9 +437,10 @@ def cmb_residual_diagnostic(model,
   for j, nm in enumerate(names):
     worst_params[nm] = float(C[worst, j])
 
-  # the D-CM8 companion: the whitened residual's short-period remainder
-  # (the same double-boxcar high-pass the roughness term uses), so the
-  # page shows exactly what the penalty would see.
+  # the roughness penalty's companion: the whitened residual's
+  # short-period remainder (the same double-boxcar high-pass the
+  # roughness term uses), so the page shows exactly what the penalty
+  # would see.
   if period_cut is None:
     rough = getattr(chi2fn, "_rough", None)
     period_cut = rough.width if rough is not None else 50
@@ -487,7 +488,8 @@ def scalar_output_diagnostic(model,
                              bs=256):
   """
   Per-output truth / prediction / residual tables for a scalar run
-  (D-CM9's second family — the factoring must prove itself on two).
+  (the diagnostics dispatch's second family — the factoring must prove
+  itself on two).
 
   Decodes every validation prediction back to PHYSICAL units
   (chi2fn.decode = the geometry's destandardization) and returns, per
@@ -555,7 +557,7 @@ def grid_residual_diagnostic(model,
                              bs=256,
                              n_derived=64):
   """
-  Per-redshift residual statistics for a grid (background) run (D-BSN8).
+  Per-redshift residual statistics for a grid (background) run.
 
   Decodes every validation prediction back to the PHYSICAL function
   (the geometry's decode inverts the target law) and summarizes the
@@ -674,8 +676,7 @@ def grid2d_residual_diagnostic(model,
                                device,
                                bs=256):
   """
-  Per-(z, k) residual statistics for a grid2d (matter-power) run
-  (MPS-DIAG).
+  Per-(z, k) residual statistics for a grid2d (matter-power) run.
 
   Decodes every validation prediction back to LAW space — what the
   network learns; the geometry's decode un-standardizes but never

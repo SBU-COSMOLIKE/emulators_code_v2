@@ -71,27 +71,31 @@ pushed; the GPU workstation pulls main).
 ## Evidence status
 
 Everything through board run 9 is workstation-proven at HEAD 4c65331
-(2026-07-12), and run 10 — the `--force-rerun-all` regression pass,
-executed at that same HEAD before the overnight merge — re-proved the
-cosmic-shear era, all four smokes, the D-CM13 head legs, and the
-D-MP9 pins at 29/32. Its three reds were harness classes, all fixed
-on the branch (the stale pre-amendment mps leg deleted; the bsn
-piecewise flake made like-for-like + seeded; the golden legs'
-legacy-driver-name resolution). Still NEVER EXECUTED: the two-phase
-phase-discipline legs, the NPCE check_npce legs in all four family
-identity gates, cmb-smoke's eq-6 leg 2b, and transfer-identity's
-check_diagonal — all landed after 4c65331. The post-merge targeted
-pass in gates-and-board.md's NEXT row first-executes them.
+(2026-07-12); run 10 (the `--force-rerun-all` regression pass at that
+same HEAD) re-proved the cosmic-shear era, all four smokes, the head
+legs, and the constant pins at 29/32, its three harness reds fixed and
+then PROVEN green by run 11 — the post-merge pass at merged HEAD
+4e783fa (30/32), which also first-executed the NPCE check_npce legs
+GREEN in all four family identity gates and the two-phase
+phase-discipline legs GREEN. Run 11's two reds are both
+first-executions of overnight legs: cmb-smoke's eq-6 leg (the clpp
+re-lensing array was truncated below CAMB's required Params.max_l
+length — root-caused from CAMB's own source, fixed on the branch, and
+the leg's failure detail now carries the stdout tail cobaya's
+exception hook logs to) and transfer-identity's check_diagonal (OPEN —
+awaiting gates/logs/transfer-identity.log; the diagonal-transfer
+algebra is Mac-probe-proven, so the suspect surface is the real-torch
+save -> rebuild -> predict roundtrip). The full run-by-run record:
+gates-and-board.md.
 
 ## The runs the user still owes the code (in this order)
 
-1. **The full regression pass** (workstation):
-   `python gates/run_board.py --force-rerun-all` — re-executes every
-   gate including the twelve cosmic-shear-era ones (with
-   ema-off-identity's golden byte-identity leg vs the pre-EMA
-   commit) AND first-executes the head/D-MP9 identity legs. Budget
-   ~1 h (cmb-smoke's ~400 CAMB calls dominate; mps-smoke is ~12 min
-   since the k_max derivation).
+1. **The two-red rerun** (workstation; runs 10 + 11 retired the full
+   passes): merge the pending branch commit(s), paste
+   gates/logs/transfer-identity.log for the open red, then
+   `python gates/run_board.py --force-rerun cmb-smoke transfer-identity`
+   (~10 min; the eq-6 fix reruns, and any new failure now names its
+   own cause via the stdout tail).
 2. **Train the five production artifacts** via the family drivers:
    rdrag (scalar), hubble + dm (baosn), pklin + boost (mps).
 3. **The EMUL2 acceptance**: cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml

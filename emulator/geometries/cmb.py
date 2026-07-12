@@ -75,7 +75,7 @@ class CmbDiagonalGeometry:
       cobaya adapter when it assembles the C_ell dict.
     - law / as_name / tau_name: the imposed amplitude law by NAME plus
       the two parameter columns it reads (empty strings for "none") —
-      persisted HERE because the artifact records its law (D-CM1); the
+      persisted HERE because the artifact records its law; the
       chi2 wrapper in losses/cmb.py executes it.
 
   Build from an analytic fiducial C_ell + the training-mean target at
@@ -125,7 +125,7 @@ class CmbDiagonalGeometry:
       law         = the imposed amplitude-law name (a key of
                     losses/cmb.py's AMPLITUDE_LAWS registry:
                     "none" or "as_exp2tau"), persisted here because
-                    D-CM1 makes the LAW an artifact fact; the chi2
+                    the LAW is an artifact fact; the chi2
                     wrapper (losses/cmb.py) is its executor.
       as_name     = the raw linear amplitude column name the law
                     reads ("" for the "none" law).
@@ -231,9 +231,9 @@ class CmbDiagonalGeometry:
     # per-l error bar, DECREASING with l as more modes average down.
     # (The earlier spec transcription and the legacy emultraincmb line
     # were both superseded by the ruling; the real training path takes
-    # sigma from the D-CM11 covariance .npz — WITH the eq-4 noise —
-    # through __init__ directly, so this classmethod is the noise-free
-    # fixture / synthetic-gate form.)
+    # sigma from the compute_cmb_covariance.py .npz — WITH the eq-4
+    # noise — through __init__ directly, so this classmethod is the
+    # noise-free fixture / synthetic-gate form.)
     cinv  = (2.0 * ell_f + 1.0) / (2.0 * cl ** 2)
     sigma = 1.0 / np.sqrt(cinv)
     return cls(device=device,
@@ -280,7 +280,7 @@ class CmbDiagonalGeometry:
             "tau_name":    self.tau_name}
 
   def attach_head_coords(self):
-    """Attach the conv/TRF heads' channel/token split (D-CM13).
+    """Attach the conv/TRF heads' channel/token split.
 
     The correction heads (designs/plain.py ResCNN / ResTRF) read
     geom.bin_sizes for their channel/token layout — the cosmolike

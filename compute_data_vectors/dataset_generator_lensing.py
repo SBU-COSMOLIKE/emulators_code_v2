@@ -62,7 +62,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #      - Case 2 (`--loadchk 1` and `--append 0`): the code loads the params.
 #
 # The sampling, checkpointing, output-file, and MPI machinery all live in
-# generator_core.py (shared with the other dataset generators, D-CM3-A);
+# generator_core.py (shared with the other dataset generators);
 # this file keeps only what is cosmolike-specific: the probe whitelist and
 # the per-sample data-vector computation.
 #-------------------------------------------------------------------------------

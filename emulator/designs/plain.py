@@ -39,7 +39,7 @@ back, so swapping the architecture changes only the model. Per-bin
 conv variants were tried and removed (see git history).
 
 The heads ride the diagonal family geometries too (cmb / grid /
-grid2d; the D-CM13 lift, user-ordered 2026-07-11 on the strength of
+grid2d; user-ordered 2026-07-11 on the strength of
 arXiv 2505.22574's attention-vs-MLP outlier result for CMB spectra).
 Those geometries whiten per element IN physical order (ell / z /
 z-slices x k), so the trunk's prediction is already in the head's
@@ -193,7 +193,7 @@ class ResMLP(DesignSpec, nn.Module):
 
 class ResCNN(DesignSpec, nn.Module):
   """
-  ResMLP trunk + a bins-as-channels 1D-CNN correction appendix. The
+  ResMLP trunk + a bins-as-channels 1D CNN correction appendix. The
   trunk is identical to the standalone ResMLP and predicts in the
   full (cov-eigenbasis) whitened basis, so its loss stays the
   well-conditioned chi2 = ||pred - target||^2 (identity Hessian).
@@ -316,8 +316,8 @@ class ResCNN(DesignSpec, nn.Module):
   standalone ResMLP, so swapping ResMLP -> ResCNN changes the model
   only, not the whitening (no confound).
 
-  On a diagonal family geometry (cmb / grid / grid2d; the D-CM13
-  lift) the same head applies unchanged, minus the basis change:
+  On a diagonal family geometry (cmb / grid / grid2d) the same head
+  applies unchanged, minus the basis change:
   those geometries whiten per element in physical order, so the
   trunk already predicts in the head's local basis and W_fd / W_df
   stay None (forward skips both matmuls — no n_keep x n_keep
@@ -577,7 +577,7 @@ class ResCNN(DesignSpec, nn.Module):
     #     W_fd = diag(sqrt_ev) evecs.T diag(1/sigma)
     #   theta-order correction -> physical -> full-whitened:
     #     W_df = diag(sigma) evecs diag(1/sqrt_ev)  (= W_fd^{-1})
-    # A diagonal family geometry (cmb / grid / grid2d; D-CM13) has
+    # A diagonal family geometry (cmb / grid / grid2d) has
     # no eigenbasis: it whitens per element in physical order, so
     # the trunk already predicts in the head's local basis and the
     # basis change IS the identity — both maps stay None and forward
@@ -746,8 +746,8 @@ class ResTRF(DesignSpec, nn.Module):
   defaulted to "default", and build_shear_angle_map run on the data
   geometry before the model is built.
 
-  On a diagonal family geometry (cmb / grid / grid2d; the D-CM13
-  lift) the same head applies, minus the basis change: those
+  On a diagonal family geometry (cmb / grid / grid2d) the same
+  head applies, minus the basis change: those
   geometries whiten per element in physical order, so W_fd / W_df
   stay None and forward skips both matmuls. The token split is the
   geometry's attach_head_coords(): grid2d exposes one token per z
@@ -848,7 +848,7 @@ class ResTRF(DesignSpec, nn.Module):
     sizes = []
     for s in geom.bin_sizes:
       sizes.append(int(s))
-    # n_tokens (D-CM13): re-segment a SINGLE-bin geometry (a spectrum
+    # n_tokens: re-segment a SINGLE-bin geometry (a spectrum
     # on one axis: cmb's ell, grid's z) into contiguous near-equal
     # windows so attention has tokens to attend across — the first
     # n % T windows get one extra element, the ragged pad machinery
@@ -934,7 +934,7 @@ class ResTRF(DesignSpec, nn.Module):
     # W_fd = f -> d, full-whitened -> diagonal theta order /sigma;
     # W_df = d -> f, its inverse, subscripts in multiply order). A
     # diagonal family geometry (no eigenbasis) keeps both None: the
-    # trunk already predicts in the head's local order (D-CM13).
+    # trunk already predicts in the head's local order.
     if hasattr(geom, "evecs"):
       evecs   = geom.evecs.detach()
       sqrt_ev = geom.sqrt_ev.detach()

@@ -1,4 +1,4 @@
-"""Imposed background physics: H(z) -> the cosmological distances (D-BSN3).
+"""Imposed background physics: H(z) -> the cosmological distances.
 
 The BSN design keeps the legacy emulbaosn insight: only H(z) is a
 network; every distance is KNOWN physics computed from it. This module
@@ -24,8 +24,9 @@ in km/s/Mpc.)
 The pipeline is valid STRICTLY inside the grid window [0, z_max]. The
 legacy analytic z->1200 extension (H_ext = H0*sqrt(om(1+z)^3 +
 omegar(1+z)^4), self-labeled "this is an approximation") is NOT ported
-(D-BSN3-A: the recombination window has its own trained D_M emulator,
-so no bridging integration through the query desert exists anywhere).
+(the two-regime design: the recombination window has its own trained
+D_M emulator, so no bridging integration through the query desert
+exists anywhere).
 Curvature is V1 flat-only — the legacy curvature branch is dimensionally
 wrong (sinh(chi*K)/K where the correct form needs sqrt(K); it agreed
 with flat only because sinh(x) ~ x) and the corrected form is a recorded

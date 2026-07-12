@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""geo-paths gate (GEO-A): the geometry folder is the ONLY geometry home.
+"""geo-paths gate: the geometry folder is the ONLY geometry home.
 
 The GEO unit moved the geometry modules into emulator/geometries/. The
 move originally shipped with flat legacy shims (emulator/geometries_
@@ -7,7 +7,7 @@ move originally shipped with flat legacy shims (emulator/geometries_
 their geometry classes as FULL module paths and rebuild by importing
 exactly the stored string — would keep loading. On 2026-07-11 the user
 ruled that no real (science) artifact predates the move, so the shims
-were retired (D-GEO5) and the contract inverted. This gate now proves:
+were retired and the contract inverted. This gate now proves:
 
   1  NEW-SAVE MARKERS: a fresh save writes the folder paths
      (emulator.geometries.<name>.<Class>) — the resolved-values rule
@@ -134,7 +134,7 @@ def geometry_cls_attrs(h5_path):
 
 
 def main():
-    print("geo-paths (GEO-A): new-save markers + dead legacy paths + "
+    print("geo-paths: new-save markers + dead legacy paths + "
           "census")
     device = torch.device("cpu")
 

@@ -1,4 +1,4 @@
-# joint-training (spec code GFT-C; training-stack.md:115-120). restrf + nla,
+# joint-training (spec: notes/training-stack.md:115-120). restrf + nla,
 # SMALL trunk_epochs (the note orders small), freeze_trunk false; the banner
 # regex 'two-phase: \d+ trunk' and phase 'joint' (the trunk count is not pinned).
 #

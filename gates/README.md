@@ -118,19 +118,18 @@ resume map); a crash loses only the in-flight test.
 | transfer-smoke | a real frozen-base + correction run end to end with the collapse bar |
 | scalar-identity | scalar save/rebuild/predict bitwise, ScalarGeometry state, auto-provides, the trunk-only head guard, every loud error leg, scalar finetune parity |
 | scalar-smoke | a real scalar train on the analytic omegamh2 fixture: collapse, off-center predict, the cobaya evaluate readback, the scalar diagnostics pages |
-| cmb-identity | the ruled sigma_l constants, the amplitude law both ways, save/rebuild bitwise, the roughness legs, CMB finetune parity, the D-CM13 ResTRF head leg (identity basis, n_tokens, the head rebuild round-trip) |
+| cmb-identity | the ruled sigma_l constants, the amplitude law both ways, save/rebuild bitwise, the roughness legs, CMB finetune parity, the ResTRF correction-head leg (identity basis, n_tokens, the head rebuild round-trip) |
 | cmb-smoke | the CMB pipeline end to end on real CAMB: generator, the covariance script, training with the relative collapse bar, the cobaya Cl lifecycle, the CMB pages |
 | bsn-identity | the background pipeline vs closed-form flat LCDM, the log_offset law, the piecewise windows + the loud desert, save/rebuild bitwise, BSN finetune parity |
 | bsn-smoke | the BAOSN pipeline end to end vs CAMB's OWN background (truth available): generator + the stale-cache tripwire, two trainings, the cobaya getters within 2%, the grid pages |
-| mps-identity | grid2d geometry + the staging law + the D-MP9 pinning + emul_mps assembly math on stub bases + MPS finetune parity + the D-CM13 ResCNN head leg |
+| mps-identity | grid2d geometry + the staging law + the constant-column pinning + emul_mps assembly math on stub bases + MPS finetune parity + the ResCNN correction-head leg |
 | mps-smoke | the MPS pipeline end to end on real CAMB (law-none path): generator, two trainings, the get_Pk round-trips, the matter-power pages |
 | geo-paths | fresh saves write the geometries/ folder class paths, the legacy flat paths are DEAD (loud), and the tree census is clean |
 
 ## How to read a log
 
 Each `logs/<test>.log` opens with a header naming the test, its home
-note, the `spec code` (the internal code that keys the home note's audit
-history), and the git HEAD. Then it streams every command's full output
+note, and the git HEAD. Then it streams every command's full output
 live. Each check writes a line
 
 ```

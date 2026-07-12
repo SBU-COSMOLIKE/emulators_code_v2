@@ -32,7 +32,7 @@ printed; any mismatch exits non-zero.
 _reduce is a method but reads no instance state (only the tensor and the
 knots passed in), so it is called unbound with self = None.
 
-Spec code GB-C. Home note: training-stack.md:148-153.
+Home note: training-stack.md:148-153.
 """
 
 import sys
@@ -267,7 +267,7 @@ def main():
   tolerance. check_knots prints a PASS/FAIL line per probe; main returns 1 if
   any check failed, else 0.
   """
-  print("== berhu-loss numerics (spec code GB-C) ==")
+  print("== berhu-loss numerics ==")
   # default knots (train_args.loss.berhu defaults: knot 0.2, cap 10.0).
   check_knots(t1=0.2, t2=10.0, tol=1.0e-9, dtol=1.0e-6)
   # non-default knots (the same shape must hold).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""triangle-shading (spec code GT-B, optional): the corner plot is honest.
+"""triangle-shading (optional): the corner plot is honest.
 
 WHAT: the grey cut-window shading on the diagnostics corner plot. WHY:
 the shading tells a reader which parameter regions the density cuts
@@ -101,7 +101,7 @@ def close_to_grey(rgba):
 
 def main():
   """Render the four-window triangle and assert its shading artists."""
-  print("== triangle-shading (spec code GT-B) ==")
+  print("== triangle-shading ==")
   source, names, dchi2 = synthetic_source(n_rows=4000)
 
   # all four windows active, bounds that straddle the synthetic scatter.

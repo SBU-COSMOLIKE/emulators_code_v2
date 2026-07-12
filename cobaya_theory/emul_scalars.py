@@ -53,7 +53,7 @@ class emul_scalars(Theory):
       provides  = optional list of derived-parameter names, a CHECK ONLY:
                   it must be a subset of the union the artifacts provide, and
                   a mismatch is a loud error naming both lists. Never a source
-                  (the provided set comes from the artifacts, D-SP4).
+                  (the provided set comes from the artifacts).
       compile   = optional bool, torch.compile each module on CUDA (default
                   False; batch-1 MCMC latency rarely pays off the compile).
     """
@@ -87,9 +87,9 @@ class emul_scalars(Theory):
             path = root if os.path.isabs(root) else os.path.join(rootdir, root)
             predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model)
-            # D-SPE2-4: a data-vector artifact rebuilds without output_names,
-            # so reject it loudly here rather than dying on the attribute
-            # access below (the D-SPE2-3 failure class, one layer up).
+            # wrong-kind guard: a data-vector artifact rebuilds without
+            # output_names, so reject it loudly here rather than dying
+            # on the attribute access below.
             if not predictor._scalar:
                 if predictor._cmb:
                     kind, where = "CMB spectrum", "emul_cmb"
@@ -105,7 +105,7 @@ class emul_scalars(Theory):
                     "this theory serves scalar artifacts only; that "
                     "emulator belongs in " + where + "'s emulators list")
             self.predictors.append(predictor)
-            # duplicate output across two artifacts = loud (D-SP4): a derived
+            # duplicate output across two artifacts = loud: a derived
             # parameter must be produced by exactly one emulator.
             for name in predictor.output_names:
                 if name in provided_by:
@@ -119,9 +119,9 @@ class emul_scalars(Theory):
             for name in predictor.names:
                 req[name] = None
 
-        # D-SP4 forbid-overlap (ruled): a name that is both a required input of
+        # forbid-overlap (ruled): a name that is both a required input of
         # one emulator and a provided output of another would need a chained
-        # calculate order (out of scope, D-SP8), so refuse it loudly rather
+        # calculate order (out of scope), so refuse it loudly rather
         # than silently mis-order.
         overlap = []
         for name in req:
@@ -196,7 +196,7 @@ class emul_scalars(Theory):
         """The derived parameters this theory provides (the artifact union).
 
         Read from the predictors' stored output names, so cobaya learns the
-        provided set from the files, not a hand-typed YAML list (D-SP4).
+        provided set from the files, not a hand-typed YAML list.
 
         Returns:
           the list of provided derived-parameter names.

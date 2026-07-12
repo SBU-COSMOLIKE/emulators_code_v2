@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""mps-identity gate (MPS-A): the grid2d-emulator save/rebuild/predict
+"""mps-identity gate: the grid2d-emulator save/rebuild/predict
 identity, the staging law transform, the emul_mps assembly math (base
 stubbed: closed-form stub bases pin the assembly EXACTLY, independent
 of the vendored syren/ formulas), the config loud errors, and the
-D-MP7 finetune parity — torch + scipy, no CAMB.
+finetune parity — torch + scipy, no CAMB.
 
 Legs:
   - Grid2DGeometry: standardize round-trip to float32 round-off; state
     round-trip byte-identical (seven keys incl. quantity/units/law);
-    the width / unknown-law guards; the D-MP9 pinning (a constant
-    law-space column that is not the whole surface is physics under
-    ANY law — the boost's low-k B = 1 region: scale 1, decode returns
-    the training constant, const_mask persists; a WHOLLY constant
-    surface still raises, the dead-dump signature — the run-10 pass
-    deleted the pre-amendment partial-constant raise leg this section
-    used to carry);
+    the width / unknown-law guards; the constant-column pinning (a
+    constant law-space column that is not the whole surface is physics
+    under ANY law — the boost's low-k B = 1 region: scale 1, decode
+    returns the training constant, const_mask persists; a WHOLLY
+    constant surface still raises, the dead-dump signature — the run-10
+    pass deleted the pre-amendment partial-constant raise leg this
+    section used to carry);
   - the STAGING law transform through the REAL load_source +
     _grid2d_law_rows: law rows == log(raw / base) with the base dump
     aligned by dump_rows through a real shuffled staging; the k_stride
@@ -22,7 +22,7 @@ Legs:
   - save -> rebuild -> predict bitwise on the syren_linear and none
     laws (the predictor's grid2d branch returns {"z", "k", quantity}
     reshaped (nz, nk)); rebuild info flags class-guarded;
-  - the D-CM13 head leg: attach_head_coords (one bin per z slice),
+  - the correction-head leg: attach_head_coords (one bin per z slice),
     the identity basis (W_fd / W_df None), the ResCNN epoch-0
     identity start, the two-phase discipline (set_train_phase
     freezes the right groups per phase, the trunk phase bypasses
@@ -43,7 +43,7 @@ Legs:
     composing base + net bitwise, the diagonal ratio-form rejection;
   - validate_grid2d legs (law-quantity pairing, base files both ways,
     k_stride, transfer ACCEPTED since the 2026-07-12 symmetry ruling);
-  - D-MP7 finetune: epoch-0 parity from a grid2d source; the
+  - finetune: epoch-0 parity from a grid2d source; the
     wrong-kind and metadata-mismatch from_config errors.
 """
 
@@ -130,11 +130,12 @@ def check_geometry(device):
         report("width guard raises", True, "ValueError")
     # (run-10 regression-pass catch: the old "un-standardizable guard
     # raises" leg lived here, feeding ONE constant column under law
-    # "none" and expecting the pre-amendment raise. D-MP9 went
-    # law-agnostic in board runs 7-8 — a partial-constant column is
-    # PINNED under any law, asserted by the D-MP9 legs below, and the
-    # dead-dump raise now needs a WHOLLY constant surface, asserted by
-    # the last leg. The stale expectation is deleted, not reworded.)
+    # "none" and expecting the pre-amendment raise. The constant-column
+    # pin went law-agnostic in board runs 7-8 — a partial-constant
+    # column is PINNED under any law, asserted by the pin legs below,
+    # and the dead-dump raise now needs a WHOLLY constant surface,
+    # asserted by the last leg. The stale expectation is deleted, not
+    # reworded.)
     try:
         Grid2DGeometry.from_targets(device=device, targets=Y, z=Z4,
                                     k=K6, quantity="pklin",
@@ -142,12 +143,13 @@ def check_geometry(device):
         report("unknown law raises", False, "no raise")
     except ValueError:
         report("unknown law raises", True, "ValueError")
-    # D-MP9 (amended law-agnostic after the gate's law-none boost
-    # training hit it): a constant law-space column that is not the
-    # whole surface is PHYSICS (boost = 1 below the nonlinear scale
-    # for every cosmology, under ANY law) — pinned (scale 1, decode
-    # returns the training constant, mask persisted), never rejected;
-    # a WHOLLY constant surface still dies loudly for every law.
+    # The constant-column pin (amended law-agnostic after the gate's
+    # law-none boost training hit it): a constant law-space column that
+    # is not the whole surface is PHYSICS (boost = 1 below the
+    # nonlinear scale for every cosmology, under ANY law) — pinned
+    # (scale 1, decode returns the training constant, mask persisted),
+    # never rejected; a WHOLLY constant surface still dies loudly for
+    # every law.
     for law_c in ("syren_halofit", "none"):
         Yc = Y.copy()
         Yc[:, 3] = 7.0
@@ -168,7 +170,7 @@ def check_geometry(device):
               and bool((dec[:, 3] == geom_c.center[3]).all())
               and "const_mask" in st_c
               and torch.equal(dec, dec2))
-        report("D-MP9: constant column pinned + round-trip (%s)" % law_c,
+        report("constant column pinned + round-trip (%s)" % law_c,
                ok, "1 pin, scale 1.0, decode = the constant, state rides")
     try:
         Yall = np.tile(Y[:1], (Y.shape[0], 1))
@@ -176,10 +178,10 @@ def check_geometry(device):
                                     k=K6, quantity="boost",
                                     units="dimensionless",
                                     law="none")
-        report("D-MP9: wholly constant surface still raises", False,
+        report("wholly constant surface still raises", False,
                "no raise")
     except ValueError as e:
-        report("D-MP9: wholly constant surface still raises",
+        report("wholly constant surface still raises",
                "EVERY grid point" in str(e), "names the dead dump")
 
 
@@ -342,7 +344,7 @@ def check_roundtrip(tmp, device, law):
 
 
 def grid2d_head_recipe(width):
-    """The model_recipe for the ResCNN head leg (D-CM13): needs_geom
+    """The model_recipe for the ResCNN head leg: needs_geom
     True (rebuild re-attaches the z-slice split via attach_head_coords),
     every constructor default materialized."""
     return {"cls": "emulator.designs.plain.ResCNN",
@@ -367,11 +369,11 @@ def grid2d_head_recipe(width):
 
 
 def check_head(tmp, device):
-    """D-CM13: the conv head on the grid2d geometry — z slices as
-    channels, the identity basis, the epoch-0 identity start, the
-    n_tokens rejection on real physical bins, and save -> rebuild ->
-    predict bitwise (proving the rebuild-side attach_head_coords in
-    results._rebuild_model)."""
+    """The correction-head leg: the conv head on the grid2d geometry —
+    z slices as channels, the identity basis, the epoch-0 identity
+    start, the n_tokens rejection on real physical bins, and save ->
+    rebuild -> predict bitwise (proving the rebuild-side
+    attach_head_coords in results._rebuild_model)."""
     from emulator.designs.plain import ResCNN, ResTRF
     covmat = os.path.join(tmp, "g2h.covmat")
     write_covmat(covmat, IN_NAMES, seed=41)
@@ -858,14 +860,14 @@ def check_finetune(tmp, device):
     try:
         EmulatorExperiment.from_config(ft_cfg(bad, root),
                                        device=torch.device("cpu"))
-        report("D-MP7 metadata mismatch raises", False, "no raise")
+        report("metadata mismatch raises", False, "no raise")
     except ValueError as e:
-        report("D-MP7 metadata mismatch raises",
+        report("metadata mismatch raises",
                "grid2d-metadata mismatch" in str(e), "ValueError")
 
 
 def main():
-    print("mps-identity (MPS-A): geometry + staging law + round-trip + "
+    print("mps-identity: geometry + staging law + round-trip + "
           "assembly + finetune legs")
     # seed the GLOBAL torch RNG so the synthetic nets are the same
     # every run (a red must reproduce — the run-10 bsn lesson).

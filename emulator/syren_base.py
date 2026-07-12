@@ -1,4 +1,4 @@
-"""One home for the syren analytic P(k) base (D-MP2-A(3)).
+"""One home for the syren analytic P(k) base.
 
 The MPS emulators CORRECT an approximate formula: the network target is
 log(P / P_base), where P_base comes from the syren (symbolic_pofk)
