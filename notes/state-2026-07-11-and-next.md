@@ -983,6 +983,20 @@ files were created. Priority follows user-visible risk:
     four misleading explanations corrected (the note's own claim
     already superseded in place). Spec: models-and-designs.md,
     "45M-36 amendment to unit 29".
+49. **Optimizer execution protocol** (45M-37, 2026-07-12; joins the
+    run-control campaign beside unit 45). make_optimizer and
+    make_refine_optimizer advertise {cls, **kwargs} generality but
+    unconditionally inject fused=True on CUDA for every class —
+    overwriting an explicit fused: false (the spec is not forwarded
+    as documented) — and the closure-free step() protocol is never
+    validated (LBFGS constructs, then dies at step one). Ruling: the
+    BOUNDED surface — closure-free Adam/AdamW-family; fused injected
+    only where supported, user value preserved; closure-required
+    rejected before construction; one shared capability decision for
+    both factories; resolved class + fused state persisted (rides
+    unit 41's record); shipped AdamW byte-identical. Spec:
+    training-stack.md, "The optimizer factory is CUDA-Adam-specific
+    behind a general contract".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches

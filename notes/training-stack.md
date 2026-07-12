@@ -491,6 +491,62 @@ message). `py_compile emulator/training.py` clean. Held.
    revisit, and the revisit direction is a device-side deferred abort,
    never an off-knob.
 
+#### Finite-contract resume (2026-07-12, Opus) — increment 2 + gate in; unit REQUESTING REVIEW
+
+Second increment (warmstart.py parity) and the dedicated gate landed, so
+both increments plus the gate are now in and unit 14 is up for audit.
+
+- Increment 2, the pre-train parity finite guard (warmstart.py). One
+  shared helper `_require_parity_finite(side, quantity, values, rows)`
+  imports the SINGLE-SOURCE `_report_nonfinite` from training.py (so the
+  message is identical tree-wide) and checks an (R, ...) surface per row,
+  naming the offending staged rows. build_warm_start: the encodes are
+  hoisted to enc_new / enc_src, and the guard fires on the encoded inputs
+  and BOTH outputs BEFORE the extras-independence torch.equal and the
+  tolerance compare — so a diverged epoch 0 can never print
+  "[ok] ... max|dv| = nan" or the misleading "extras leaked". Their
+  difference and the scalar max are then finite by construction (stated in
+  a comment; no unreachable scalar guard). build_transfer_start: the same
+  guard on enc / composed / base before the bitwise torch.equal (never the
+  misleading "not the frozen base bitwise"). Both `Raises:` docstrings
+  updated.
+- The gate, gates/checks/finite_contract.py, CPU torch-only (it forces
+  CPU; needs=("torch",)), five parts on the REAL functions: (A) eval_val —
+  a finite control reproduces the reference median/mean/fractions, one NaN
+  and +/-Inf raise naming the validation row; (B) training_loop_batched —
+  a NaN loss raises before backward, a non-finite gradient (an
+  autograd.Function with a NaN backward) before optimizer.step, the
+  weights bitwise unchanged in both, a finite control completes, and
+  _global_grad_norm is read-only; (C) eval_source_chi2 — a diverged model
+  raises side "diagnostic" naming the source row; (D) build_warm_start —
+  no-extra both-arms NaN (poisoned weight), one-arm NaN + Inf (a source
+  forward shadow), extras-present NaN (the guard beats the extras
+  torch.equal), and a clean [ok] control; (E) build_transfer_start — a
+  non-finite epoch-0 surface raises (not "frozen base"), a clean [ok]
+  control. Reuses the finetune-identity / transfer-identity synthetic
+  source + TransferChi2 harness patterns (self-contained, house
+  convention).
+- board.py: registered the finite-contract Gate (spec_code FIN-A proposed;
+  Architect to canonicalize — tier BACKLOG, home training-stack,
+  needs=("torch",)), taking the board 32 -> 33. The lifecycle rider is in
+  too: the staging-lifecycle leg is added to the mps-identity maps string
+  (board.py, the a6a99a8 close asked for it in the next gates/ commit).
+- Mac gate (raw):
+  - py_compile OK (training.py, warmstart.py, board.py, finite_contract.py)
+  - board AST: 33 gates, finite-contract unique, run -> gate_finite_contract
+  - probe_warmstart_finite.py 6/6 (exec-extracted _require_parity_finite +
+    _report_nonfinite under a numpy tensor fake: finite no-raise; NaN/Inf
+    rows raise naming the MAPPED staged row; a factored (R,T,W) surface;
+    the "2 of 5" bad-row count)
+  - probe_finite_contract.py 5/5 (increment 1 core, unchanged)
+  - The torch wiring (real models, training_loop_batched, TransferChi2)
+    rides the workstation gate: run_board.py --gate finite-contract.
+- Per-step host-sync epoch cost (Architect ruling 3): to be measured on
+  the workstation and recorded here.
+- Commit HELD for the Architect audit + commit. Files this unit:
+  emulator/training.py (incr 1), emulator/warmstart.py (incr 2),
+  gates/checks/finite_contract.py, gates/board.py, notes/training-stack.md.
+
 ## Schedule validation + direction-correct step (red-team 2026-07-12 fifth wave, Architect-VERIFIED, open)
 
 trim/focus schedules reach anneal_value with NO validator (the
@@ -928,3 +984,39 @@ reaches 1 only at its endpoint; catch-power — the old const config
 is proven to leave berhu == sqrt and EMA absent. Schedule arithmetic
 legs pure; the EMA-live and loss-equivalence integration legs are
 torch, board-listed, workstation.
+
+## The optimizer factory is CUDA-Adam-specific behind a general contract (red-team 45M-37, 2026-07-12, Architect-VERIFIED; queue 49 — joins the run-control campaign beside unit 45)
+
+make_optimizer documents the general {cls, **kwargs} first-class-class
+contract ("the optimizer class is a value in the dict, its settings
+the other keys"), and then unconditionally injects
+`extra["fused"] = True` on CUDA for EVERY class; make_refine_optimizer
+repeats the identical pattern. Because `extra` is built from the
+user's own spec dict, an explicit `fused: false` is copied in and then
+OVERWRITTEN — the spec is not forwarded as documented. Two
+false-generalization paths: a class whose constructor lacks `fused`
+works on CPU and dies at CUDA construction with a raw
+unexpected-keyword error; and the loop calls optimizer.step() with no
+closure, so a closure-required class (LBFGS) passes the factory and
+fails at the first step. The optimizer analogue of unit 45:
+constructible is not executable.
+
+Contract (Implementer; Architect ruling on the either/or — the
+BOUNDED surface): the supported protocol is closure-free
+Adam/AdamW-family stepping; `fused` is injected only for classes that
+explicitly support it, an explicit user value is preserved when legal,
+and closure-required optimizers are rejected BEFORE construction with
+a teaching error; one shared capability decision serves both
+make_optimizer and make_refine_optimizer (ordinary training and
+transfer refinement may not disagree); the resolved optimizer class
+and resolved fused state are persisted truthfully (the unit-41
+resolved-pass record carries them), never the pre-injection spec;
+shipped AdamW behavior byte-identical. Gate legs (torch/CUDA,
+board-listed, workstation): the AdamW CUDA control constructs and
+steps with the resolved fused state; a closure-free optimizer without
+a fused parameter is supported without injection or whitelist-rejected
+— never a raw keyword crash; a closure-required optimizer is rejected
+before the loop; transfer-refine exercises both decisions; CPU/CUDA
+acceptance does not fork except for a documented accelerator
+capability; a mutation restoring the unconditional injection fails;
+the saved resolved record matches the optimizer actually constructed.
