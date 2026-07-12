@@ -713,7 +713,103 @@ files were created. Priority follows user-visible risk:
     prose diff + a complete untruncated scan. Spec:
     conventions-and-workflow.md, "Public prose states the current
     state". Batches naturally with unit 31 (one documentation
-    handoff), AFTER 33.
+    handoff), AFTER 33. EXTENDED with the 45M-17 fold-in (the
+    CosmolikeChi2.decode docstring claims a scattered
+    (B, total_size) return but the geometry decode returns the KEPT
+    width; verified losses/core.py:165 vs geometries/output.py:506;
+    docs-only + subclass/caller audit; spec fold-in in
+    conventions-and-workflow.md).
+35. **Memory probe truth** (45M-11, 2026-07-12). The sizing forward
+    mutates model state (BatchNorm buffers, RNG) in the model's
+    current mode with a DEFAULT-dtype zeros batch;
+    compute_model_size_bytes multiplies total numel by the FIRST
+    param's element_size, counts no buffers, sees no loss-owned
+    resident state — and the number picks the placement regime.
+    Contract + torch gate: training-stack.md, "The memory probe is
+    not observational". VERIFIED: batching.py:90 (zeros, default
+    dtype), :121 (live forward, no state save), :140-169 (first-dtype
+    multiply, params only).
+36. **BAOSN odd-node quadrature REOPEN** (45M-12, 2026-07-12,
+    CRITICAL — the red team's top priority; FIRST code unit after
+    the finite contract completes). The odd-node "cumulative
+    Simpson" increment dz/6*(1,4,1) (background.py:85) is HALF the
+    two-interval Simpson total, not the one-interval integral —
+    Architect-reproduced: y=z error EXACTLY h^2/2 at every h
+    (first order; the recorded O(dz^3) claim is FALSE); y=z^2 gives
+    4h^3/3 vs h^3/3; the (5,8,-1)/12 replacement is exact on both;
+    interpolators fit through the wrong odd nodes so arbitrary-z
+    queries are contaminated; bsn_identity.py:87-88 encodes the bug
+    as acceptance (e_odd < 1e-3). The prior bug-for-bug porting
+    acceptance is REOPENED (it rested on the false error order).
+    USER-VISIBLE: served BAOSN values change between grid nodes;
+    the served-value comparison reruns. Spec:
+    families-background-mps.md, "REOPENED: the odd-node cumulative
+    Simpson".
+37. **Implementation-identity manifest** (45M-13, 2026-07-12; joins
+    the artifact-integrity campaign beside unit 3 — implementation
+    identity distinct from pair identity). git_commit is written
+    (results.py:398) and documented as validated (:192 "rebuild
+    refuses one without") but rebuild never reads it; the recipe
+    imports CURRENT code under stored names; the syren-law MPS
+    artifact serves P * (base_new / base_old) if the vendored base
+    changes. Compatibility manifest + versioned registry + refuse-
+    or-migrate on rebuild + the MPS/syren base binding + honest
+    git_commit docs. Spec: artifacts-inference-warmstart.md,
+    "Artifacts are not bound to the code".
+38. **Syren fit-domain validation** (45M-14, 2026-07-12).
+    log(abs+eps) (linear.py:31/:186/:226/:232/:373-375) and
+    sqrt(abs) (syrenhalofit.py:317) reflect out-of-domain physics
+    into valid-looking numbers; Architect-reproduced LIVE: the
+    -0.04754964 radicand at sigma8 1.2/Om 0.1/h 0.5/ns 0.8/a 0.1
+    returns 0.11591803 on the vectorized path while the scalar
+    sibling NaNs — the two disagree at the boundary. Domain
+    documented + validated before evaluation, abs/eps continuation
+    removed from production, scalar/vector agreement, prior+grid
+    pre-launch validation, base variant recorded in unit 37's
+    manifest. Spec: families-background-mps.md, "Syren silently
+    reflects out-of-domain physics".
+39. **make_chi2 total dispatch** (45M-15, 2026-07-12). "residual"
+    works only as the catch-all else (losses/core.py:839-847) —
+    every typo/None/object selects ResidualBaseChi2, and
+    build_shear_angle_map (filesystem) runs BEFORE mode validation.
+    Three equality branches + ValueError + arg validation before
+    the angle-map + real-bool include_amp + byte-identical valid
+    modes. Spec: training-stack.md, "make_chi2 turns every unknown
+    rescale mode into the residual algorithm".
+40. **Power-activation zero Jacobian** (45M-16, 2026-07-12; red-team
+    priority 3). psi = sign(x)*((1+|x|)^p - 1)/p
+    (activations.py:147/:220) has autograd derivative 0 at exactly
+    x=0 (documented: 1; full default activation: 0 vs H's 0.5) — a
+    gradient-absorbing point exactly where the identity-start
+    doctrine places zeros; invisible to forward checks. Reimplement
+    as x * even-ratio with analytic limit 1, stable near-zero,
+    p-schema, derivative legs + float64 gradcheck + zero-Jacobian
+    mutation assert. Spec: models-and-designs.md, "The power
+    activations have a zero derivative at exactly zero".
+41. **Resolved-pass record** (45M-19, 2026-07-12). resolved_train
+    stores RAW inputs on the flagship never-trust-defaults surface
+    (training.py:3028 "loss": loss — null when the run consumed the
+    default sqrt mode; per-phase effective passes and refinement
+    inheritance unrecorded; nepochs pre-refinement while histories
+    include it). Persist the passes sequence in execution order +
+    refinement pass + total_epochs == history rows + raw YAML kept
+    separately + readers read the record. Spec:
+    artifacts-inference-warmstart.md, "config_resolved_yaml does not
+    record what the run consumed".
+
+45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
+(ordinary conversion chains accepted; no source-style gate — matches
+the standing user ruling). 45M-08 was index-only; Architect verified
+it directly (np.savez overwrite, compute_cmb_covariance.py:766-768)
+and folded it into unit 3 as the covariance-producer transactional-
+publication clause (see artifacts-inference-warmstart.md). 45M-09
+(MPS interpolator parse/spline-contract documentation) was named in
+the index but its full block was NEVER RELAYED — pending; request a
+re-send before adjudication. 45M-20 amends unit 22
+(training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
+carry the red team's priority order and 36 is scheduled first among
+them. The three-gate rerun and the 14 -> 36 -> 22(+20) -> 13(+01)
+order define the active pipeline.
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

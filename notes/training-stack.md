@@ -726,3 +726,92 @@ Contract (Implementer):
    multi-panel arm proving one curve keeps its marker / line style
    across panels; length / NaN / constant-parameter failure legs; a
    valid no-param control.
+
+## The memory probe is not observational (red-team 45M-11, 2026-07-12, Architect-VERIFIED; queue 35)
+
+batching.py::compute_batch_size_bytes runs a REAL dummy forward
+through the live model in its current training mode (:121 model(x)
+under saved-tensor hooks) with `torch.zeros(bs, *sample_dims)` in the
+DEFAULT dtype (:90), preserving neither registered buffers nor RNG
+state — a BatchNorm1d increments num_batches_tracked and drags its
+running stats toward an all-zero fake batch; a stochastic layer
+advances the random stream before real training; a float64 model
+receives float32 and can fail before sizing.
+compute_model_size_bytes (:140) sums numel over parameters then
+multiplies the TOTAL by the FIRST parameter's element_size (mixed
+dtypes miscounted), counts no registered buffers, and cannot see
+loss-owned resident state (an NPCE base held by chi2fn competes with
+staged rows on the same device). The number picks the placement
+regime and chunk size: an underestimate is an avoidable OOM, and the
+probe itself can perturb the state the subsequent training and parity
+checks assume.
+
+Contract (Implementer): (1) a sizing call leaves parameters,
+registered buffers, every submodule's train/eval flag, and CPU +
+device RNG states byte-identical; (2) the dummy input uses the
+declared model-input dtype and device (if the stack supports exactly
+one input dtype, validate and name it); (3) per-tensor byte sums —
+numel() * element_size() per tensor, registered buffers counted
+exactly once; (4) loss/geometry/PCE resident ownership explicit in
+the planner (not all non-model state as one dv_len budget);
+(5) currently-allocated immutable state separated from projected
+gradient/optimizer state, each multiplier documented, the actual
+optimizer spec injected where its state count matters; (6) the
+shipped plain-float32 placement result preserved when the corrected
+accounting proves it fits. Gate (torch, board-registered):
+BatchNorm1d state + mode identical before/after sizing; dropout
+leaves CPU and CUDA RNG unchanged; mixed float32/float64 params +
+buffers match a direct byte sum; a float64 probe receives float64;
+an NPCE/loss-resident fixture flips the placement decision at a
+deliberately tight budget; mutation controls prove the first-dtype
+multiplication and the buffer omission fail.
+
+## make_chi2 turns every unknown rescale mode into the residual algorithm (red-team 45M-15, 2026-07-12, Architect-VERIFIED; queue 39)
+
+losses/core.py:839-847: `if rescale == "none"` returns CosmolikeChi2;
+everything else runs build_shear_angle_map (filesystem/dataset access
+BEFORE mode validation) and then
+`cls = RescaledChi2 if rescale == "rescaled" else ResidualBaseChi2` —
+"residual" works only because it shares the else with every typo,
+empty string, None, and arbitrary object. The driver validator may
+protect YAML calls, but this is the documented public factory and the
+mathematical ownership boundary; it must be total on its own.
+Contract: three explicit equality branches; ValueError for everything
+else listing none/rescaled/residual; param_geometry and cosmo_mid
+validated before any angle-map import or dataset read for the
+non-plain modes; include_amp validated as a real bool (no
+truthiness); valid-mode outputs byte-identical. Red legs (small torch
+import gate riding an existing identity gate): the factory called
+DIRECTLY — each typo fails before build_shear_angle_map or any
+filesystem access; a mutation restoring the catch-all else fails.
+
+## Selection-record amendment: the threshold is configurable but everything reports 0.2 (red-team 45M-20, 2026-07-12, Architect-VERIFIED; amends queue unit 22)
+
+The training loop selects on frac[0] of the constructor thresholds —
+whatever it is — but the whole reporting chain hard-codes the claim:
+training.py prints "frac>0.2" (:1953/:2228/:2261), comments and
+return docs call the restored model the best frac>0.2 epoch
+(:2149-2150/:2321/:2335/:2504), and BOTH train drivers persist
+best_frac02 (scalar_train_emulator.py:206,
+cosmic_shear_train_emulator.py:376) into artifact attributes; tuning
+text says frac>0.2. With thresholds=[1.0, 10.0] the model is selected
+on frac>1.0 and labelled frac>0.2 — scientific metadata error, not
+wording. The constructor also has no threshold schema (empty vector
+reaches b_frac[0]; a plain list breaks tensor indexing; NaN/Inf/bool/
+repeated/unordered pass).
+Amendment to unit 22's contract: normalize thresholds once to a
+nonempty 1-D finite real tensor (bools rejected, ordering rule
+documented); persist the exact selection threshold value + index in
+the selection record; console, drivers, artifact attrs, and tuner
+output all READ that record; best_frac02 replaced by a
+threshold-neutral structured field (or kept only when the selected
+threshold is exactly 0.2, alongside the general record); Optuna
+minimizes the selected record metric, never a separate hard-coded 0.2
+computation; diagnostics that intentionally use the scientific 0.2
+goal stay explicit and independent of the training-selection
+threshold. Torch gate legs: default threshold keeps the existing 0.2
+label/value; thresholds starting at 1.0 are selected, reported,
+tuned, and persisted as 1.0 everywhere; empty/nonfinite/bool/
+wrong-rank inputs fail before baseline evaluation; epoch-0 and
+multi-phase/refinement selection keep threshold identity; a mutation
+restoring the hard-coded best_frac02 path fails artifact readback.

@@ -261,3 +261,82 @@ the queued sigma8 and Cobaya-registration units.
   PERMANENT until the 2026-07-12 symmetry ruling overturned it —
   the same overturn recorded in the BSN list above; MPS now carries
   frozen-base transfer via TransferDiagChi2.)
+
+## REOPENED: the odd-node "cumulative Simpson" is mathematically wrong (red-team 45M-12, 2026-07-12, Architect-VERIFIED by direct arithmetic; queue 36 — CRITICAL, first code unit after the finite contract)
+
+The recorded legacy acceptance above ("kept bug-for-bug, only shades
+interpolation", with an O(dz^3) error claim) is REOPENED and its error
+claim is FALSIFIED. emulator/background.py::cumulative_simpson
+computes each odd node as
+`C[i] = C[i-1] + dz/6 * (y[i-1] + 4*y[i] + y[i+1])` (:85) — that is
+HALF the two-interval Simpson total, not the one-interval integral.
+Architect reproduction on the exec-extracted shipped function: for
+y = z the odd-node error is EXACTLY h^2/2 at every h tested
+(5.000e-3, 1.250e-3, 3.125e-4 at h = 0.1, 0.05, 0.025) — first
+order, not O(h^3); for y = z^2 the shipped value is 4h^3/3 vs truth
+h^3/3. The correct one-interval integral through the same three
+samples, h/12 * (5*y[i-1] + 8*y[i] - y[i+1]), reproduces both
+exactly. Even nodes are exact on cubics (composite Simpson, correct).
+The damage is served: distance_interpolators fits a cubic through the
+WHOLE doubled grid including the wrong odd values, so arbitrary-z
+queries interpolate a contaminated distance curve. The prior
+acceptance rested on the false error-order label and on a gate
+(bsn_identity.py:87-88, e_odd < 1e-3) that encodes the bug as
+tolerance; "legacy" is provenance, not a scientific justification —
+the reopen is adopted whole.
+
+Contract (Implementer):
+1. Replace the odd-node increment with h/12 * (5*y[i-1] + 8*y[i]
+   - y[i+1]) (one authoritative implementation, convention pinned in
+   the docstring).
+2. Even-node values preserved (already composite Simpson).
+3. Module docstring, READMEs, gate description, and this note's
+   recorded-finding paragraph corrected: the O(dz^3) claim removed,
+   the reopening recorded, history kept (do not erase the original
+   acceptance — supersede it).
+4. Known-answer legs at EVERY node (constant, linear, quadratic,
+   cubic): even nodes exact, odd nodes near machine precision on
+   constants/linears/quadratics.
+5. bsn-identity revised: the current dz/6 (1,4,1) odd form must FAIL
+   the linear and quadratic legs by a wide margin (mutation
+   catch-power); the (5,8,-1)/12 form passes near machine precision;
+   the e_odd < 1e-3 acceptance is retired.
+6. The BAOSN served-value comparison is RERUN on the workstation —
+   this deliberately changes valid predictions between the original
+   grid nodes. USER-VISIBLE: served BAOSN numbers change; flagged in
+   the landing report.
+
+## Syren silently reflects out-of-domain physics (red-team 45M-14, 2026-07-12, Architect-VERIFIED by live reproduction; queue 38)
+
+The vendored production path contains local "prevent NaN" edits that
+change the fitted mathematics instead of validating its domain:
+linear.py:31 log(abs(arg) + 1e-10) (and :186/:226/:232/:373-375),
+syrenhalofit.py:317 sqrt(abs(radicand)). abs is not a guard — it maps
+the invalid side of a fit onto the valid side, and the epsilon turns
+an exact domain boundary into a finite number instead of a refusal.
+Architect reproduction on the REAL vendored code (Mac, numpy): at
+sigma8 1.2, Om 0.1, Ob 0.05, h 0.5, ns 0.8, a 0.1 the vectorized
+C_emulated_vec radicand is -0.04754964, reflected to a plausible
+finite output 0.11591803 — while the scalar sibling C_emulated hits
+"invalid value in sqrt" (NaN) at the same point. The two
+implementations disagree exactly where the domain boundary matters.
+
+Contract (Implementer): (1) document the calibrated domain of every
+active syren fit argument (cosmology ranges + required signs of
+log/sqrt expressions); (2) validate BEFORE evaluating — a nonpositive
+log argument or negative radicand fails naming the expression,
+cosmology, redshift, and allowed range; (3) remove silent abs/epsilon
+continuation from the production path unless a primary formula source
+defines it — an extended formula, if wanted, gets its own persisted
+base-version name; (4) scalar and vectorized paths agree throughout
+the accepted domain; (5) generator setup validates its whole
+configured prior + z grid inside the domain BEFORE MPI launch;
+inference validates each requested point; (6) the chosen base variant
+is recorded in the 45M-13 implementation manifest (queue 37).
+Acceptance legs (numpy-pure gate; the full MPS confirmation stays on
+the workstation board): scalar/vector agreement on a valid-domain
+grid; each log boundary and the -0.04755 radicand example fails
+before returning a spectrum; a mutation restoring the abs form fails
+the negative-domain leg; no accepted base value NaN/Inf; the shipped
+production prior/grid proven wholly inside the domain or rejected
+with the exact offending corner.

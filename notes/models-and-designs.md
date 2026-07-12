@@ -296,3 +296,34 @@ geometry calls in forward(); 0-dim device tensors for compiled-loop
 scalars; warmup lr at the TOP of the epoch; epoch-0 baseline eval
 seeds best-tracking; diagnostics branch on needs_params; benchmark
 conclusions do not transfer across devices.
+
+## The power activations have a zero derivative at exactly zero (red-team 45M-16, 2026-07-12, Architect-VERIFIED; queue 40)
+
+Both PowerGatedActivation and GatedPowerActivation implement the
+signed power as `psi = torch.sign(x) * ((1.0 + ax) ** p - 1.0) / p`
+(activations.py:147, :220) and document slope 1 at the origin with
+p = 1 recovering psi = x (:115, :162) — the claimed identity /
+H-recovery start. The VALUES agree, but the Jacobian does not:
+torch's sign has zero derivative, |x| has zero derivative at the
+origin, and the inner magnitude is zero there, so autograd returns
+d psi / dx = 0 at exactly x = 0 (documented claim: 1; full default
+activation: 0 instead of H's 0.5). This is a gradient-absorbing
+point exactly where the identity-start doctrine deliberately places
+zeros (corrections, padding, fresh channels), and no forward
+identity check can see it — the defect is Jacobian-only.
+
+Contract (Implementer): (1) reimplement as x times an even magnitude
+ratio, psi_p(x) = x * ((1+|x|)^p - 1) / (p |x|), with the analytic
+limit 1 at zero built in; (2) the near-zero ratio computed stably
+(log1p/expm1 or a justified series), no unguarded 0/0 branch;
+(3) constructor requires finite positive p_min < p_max (the /p
+denominator can never approach zero through a malformed direct
+call); (4) forward values preserved away from the near-zero
+neighborhood; (5) documentation corrected only AFTER the derivative
+is proven. Gate legs (torch, workstation, riding an activation/model
+identity gate): H vs power vs gated_power values AND input gradients
+at x = [-eps, 0, +eps] at default init; p = 1 equals x with
+derivative 1 including exactly zero; a zero preactivation inside a
+small residual block transmits a nonzero gradient; float64 gradcheck
+over several learned p; a mutation restoring sign(x) * f(|x|) fails
+specifically at the zero-Jacobian assertion.

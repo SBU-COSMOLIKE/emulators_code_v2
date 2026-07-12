@@ -588,3 +588,89 @@ Ruling 1 (reassociation). Schema: D-SV1/2, D-CT1..3, GCT-D
 policy). GEO: D-GEO1..5. Board homes here: save-rebuild-drift,
 cobaya-adapter, finetune-identity/smoke, transfer-identity/smoke,
 geo-paths.
+
+## Artifacts are not bound to the code that gives their weights meaning (red-team 45M-13, 2026-07-12, Architect-VERIFIED; queue 37 — folds into the artifact-integrity campaign beside unit 3, implementation identity distinct from pair identity)
+
+save_emulator writes git_commit as best-effort provenance
+(results.py:398, "unknown" fallback :403) and its documentation
+claims it "marks a v2 file (rebuild refuses one without)" (:192) —
+but rebuild_emulator never reads or validates git_commit (full grep:
+three hits, none in rebuild; the only v2 test is schema_version == 2
+plus the recipe). The recipe stores class NAMES and constructor
+values, then imports the CURRENT class/activation/normalization/
+geometry/decoder/transfer/PCE implementation — a later code change
+under the same names is silently accepted. Sharpest consequence, the
+syren-law MPS path: training learns r = log(P / P_base_old) but
+inference recomputes the base from the current syren/ source, so a
+base change serves P * (P_base_new / P_base_old) with every weight
+loading strictly — vendoring stops a pip upgrade, it does not bind an
+old artifact to the vendored implementation that generated its
+targets.
+
+Contract (Implementer): (1) a compatibility manifest persisted for
+every implementation whose behavior interprets the weights
+(model/design, activation, normalization, parameter/output geometry,
+decoder/loss composition, any analytic base such as syren);
+(2) explicit semantic implementation identifiers or content hashes
+backed by a versioned registry — a raw git commit stays provenance,
+never the compatibility mechanism; (3) rebuild compares every
+required identifier BEFORE importing/serving; a mismatch selects a
+retained versioned implementation or refuses with the artifact value,
+runtime value, and migration/retraining action; (4) the MPS artifact
+bound to the exact syren base variant that generated its law-space
+targets (with 45M-14's base-variant naming, queue 38); (5) the
+results.py git_commit documentation corrected — enforce the claim or
+describe it as unvalidated provenance; (6) folded into the
+artifact-integrity campaign, but pair identity does NOT substitute
+for implementation identity. Gate (torch/HDF5, board): save under id
+A rebuilds under A; changing only the syren/base id refuses before
+prediction; changing only a model/geometry semantic id refuses; an
+unrelated repo commit with unchanged semantic ids still rebuilds; a
+registered migration selects the old implementation and reproduces a
+stored known-answer prediction; a deleted manifest key fails loudly.
+
+## config_resolved_yaml does not record what the run consumed (red-team 45M-19, 2026-07-12, Architect-VERIFIED; queue 41)
+
+run_emulator's resolved_train labels itself "defaults materialized"
+but stores raw inputs: training.py:3028 records `"loss": loss` (the
+user's block — null when absent, though training consumed the default
+sqrt mode; omitted BerHu knots absent though materialized values were
+consumed); each phase computes effective loss/berhu/ema/trim/focus/
+clip/rewind/lr/wmupe/sched passes but the artifact stores raw
+trunk/head overlays and only the top-level scheduler; transfer
+refinement reuses the final pass's effective settings but persists
+only {epochs, base_lr_scale, anchor}; histories include refinement
+epochs while nepochs stays pre-refinement. Reconstruction therefore
+depends on TODAY'S default-resolution code — the exact drift channel
+the resolved record exists to remove (the house never-trust-defaults
+doctrine, violated on its own flagship surface).
+
+Contract (Implementer): (1) persist a `passes` sequence in execution
+order — phase name, model train phase, epoch count, computed lr,
+warmup, scheduler class + resolved kwargs, fully resolved loss, trim,
+focus, clipping, rewind, EMA; (2) transfer refinement gets its own
+pass entry with every inherited effective value; (3) run-level
+roughness persisted separately if it configures the loss object once;
+(4) total_epochs persisted and required to equal every history
+dataset's row count; (5) the raw YAML kept separately as provenance,
+never overwritten by the resolved form; (6) loading/reporting reads
+the resolved pass record, never re-runs inheritance logic. Acceptance
+(short torch training/artifact gate; config-only probes pure): absent
+loss block records the consumed sqrt mode, not null; omitted BerHu
+knots appear with consumed numerics; trunk/head overrides produce two
+complete pass records; ema null in one phase recorded as disabled
+there; refinement is a third complete record; history lengths
+inconsistent with total_epochs fail before publication.
+
+### 45M-08 amendment to the unit-3 campaign (index-received; Architect-verified directly)
+
+The full 45M-08 block was not relayed, but its finding is verified
+from the code already in evidence: compute_cmb_covariance.py:766-768
+publishes with an unconditional `np.savez(out_path, **out)` — no
+preexistence refusal, no temp-file + rename, so a rerun overwrites a
+prior covariance artifact and a mid-write death leaves a partial
+file. This is exactly unit 3's transactional-publication +
+preexistence-refusal contract extended to the covariance producer;
+adopted as a clause of unit 3 (the twelfth-wave extension above), not
+a new unit. Gate leg: rerun-with-existing-output refuses; kill-mid-
+publication leaves the prior artifact intact.

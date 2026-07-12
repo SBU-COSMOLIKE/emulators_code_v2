@@ -351,3 +351,25 @@ Contract (Implementer; documentation-only):
    an untruncated grep is the evidence; a clipped head result may not
    feed the zero-matches claim. No torch, workstation, or board gate
    needed.
+
+### 45M-17 fold-in: the loss decode docstring lies about its shape (2026-07-12, Architect-VERIFIED; rides the documentation batch, units 31 + 34)
+
+CosmolikeChi2.decode documents "(B, total_size) physical dv scattered
+to full length" (losses/core.py:165) but returns
+self.geom.decode(whitened_sq), and DataVectorGeometry.decode
+(geometries/output.py:506-512) explicitly takes and returns the KEPT
+width — unwhiten + center, no scatter; the scatter is the separate
+geom.unsqueeze(...) call, as EmulatorPredictor.predict correctly
+performs. A consumer following the docstring hands a shortened vector
+to a full-vector likelihood, or scatters twice. Correction (docs-only
+unless the audit below finds a caller relying on the false shape):
+the return contract becomes (B, n_keep); state that decode inverts
+the numerical transform ONLY and does not restore masked positions;
+show the full-vector chain (kept = chi2fn.decode(...), then
+full = geom.unsqueeze(kept)); audit every loss subclass's decode
+documentation (RescaledChi2 :544, ResidualBaseChi2 :661) for the same
+kept-vs-full distinction and every decode caller for a reliance on
+the false shape; keep the diagonal-family wording separate — their
+n_keep == total_size coincidence must not redefine the generic
+contract. No new note file, no new gate: the existing inference shape
+gate is the runtime evidence.
