@@ -796,6 +796,85 @@ files were created. Priority follows user-visible risk:
     separately + readers read the record. Spec:
     artifacts-inference-warmstart.md, "config_resolved_yaml does not
     record what the run consumed".
+42. **CMB amplitude-law metric REOPEN** (45M-21, 2026-07-12,
+    CRITICAL). CmbFactoredChi2.chi2 (losses/cmb.py:371-380) ignores
+    params_whitened and delegates to the diagonal sum-of-squares;
+    the docstring's "the factor cancels in the residual" is FALSE —
+    the residual is f*(C_pred - C_truth)/sigma, so the reported chi2
+    is f^2 * chi2_physical with f = exp(2 tau)/A_s (:334): selection
+    biased toward small-f cosmologies, the 0.2 threshold detached
+    from the covariance metric, roughness's law-neutral claim false
+    too. The identity gate only round-trips; it never checks a
+    physical known answer. Fix: divide the whitened residual by f in
+    chi2; rerun cmb-identity + cmb-smoke. Spec:
+    families-scalar-cmb.md, "REOPENED: the CMB amplitude law",
+    queue-42 half.
+43. **CMB amplitude-factor normalization REOPEN** (45M-22,
+    2026-07-12, CRITICAL, coupled to 42). Raw Cobaya A_s ~ 2.1e-9
+    makes f ~ 5e8 at fiducial — a 1e9-scale network target with a
+    float32 center subtracting nearly equal values (a unit-porting
+    defect: legacy 1e9*A_s replaced by raw A_s without the reference
+    normalization). Fix: dimensionless f = (A_s_ref/A_s) *
+    exp(2(tau - tau_ref)), f = 1 at the persisted fiducial;
+    as_ref/tau_ref resolved artifact facts; a NEW semantic law
+    version (unit 37's manifest distinguishes; old artifacts
+    REFUSED; affected CMB artifacts retrain). Spec: same section,
+    queue-43 half.
+44. **stream_stats Chan unification** (45M-23, 2026-07-12; amends
+    the stable-moments standard — one numerical-statistics design
+    repo-wide). data_staging.py:113-129 still ships the prohibited
+    s1/s2 variance; Architect-REPRODUCED: offset 1e8 gives std
+    1.8103 vs true 1.0017 silently, offset 1e10 gives NaN. Latent in
+    the ordinary path (load_source keeps only dv_mean — the red
+    team's own scope note), but a public normalization function
+    returns false/NaN scales. Chan/Welford + full input schema +
+    catch-power leg. Spec: data-generation-and-cuts.md, "The old
+    unstable variance survived".
+45. **Scheduler execution protocol** (45M-25, 2026-07-12; joins the
+    run-control/train_args-totality campaign, DISTINCT from the
+    schedule-VALUE unit). make_scheduler advertises any class
+    (training.py:438-441) but the loop implements exactly two
+    per-epoch protocols (:2082 step(median) for ReduceLROnPlateau,
+    :2124 bare step() for everything else) — a OneCycleLR spec
+    constructs and then runs the wrong schedule by orders of
+    magnitude; per-phase/refine construction adds the step-horizon
+    problem. Contract: restrict-and-refuse before model/loader
+    setup, OR make cadence + argument protocol resolved scheduler
+    facts stepped at the right place with true per-pass horizons
+    (actual optimizer updates, chunk-tail rule included) and
+    unambiguous warmup ownership; either way the resolved artifact
+    records class, cadence, metric source, effective step count.
+    Torch gate: counting schedulers (per-update / per-epoch), the
+    plateau median argument, a tiny OneCycleLR known-LR sequence or
+    startup refusal, no double warmup.
+    UNIT 14 AMENDED (45M-24, CRITICAL producer clause): the DEFAULT
+    "sqrt" loss (losses/core.py:349; berhu lower branches :363/:381;
+    the anneal's sqrt arm) has d sqrt(sum r^2)/dr = 0/0 -> NaN at an
+    exact fit — identity-start heads, pinned grid2d columns, tiny
+    fixtures, and zero corrections deliberately create exact zeros,
+    and one such sample poisons the batch gradient. The finite guard
+    (increment a) DETECTS this; the objective must stop PRODUCING
+    it: one shared safe-sqrt transform (forward 0 AND gradient
+    exactly 0 at c == 0, matching sqrt(c) for normal positives —
+    sqrt(c+eps) is NOT contract-equivalent), used at all four sqrt
+    sites; materially negative / nonfinite chi2 rejected before the
+    transform (a scale-aware roundoff tolerance stated and tested if
+    tolerated); C1 knot matching preserved. Unit 14 is now THREE
+    increments: (a) training.py guards [landed, checkpoint],
+    (b) warmstart parity, (c) safe-sqrt producer fix — and the
+    dedicated finite-contract gate gains the 45M-24 red legs
+    (exact-zero row per mode; mixed batch; pinned-column fixture;
+    finite-and-zero gradients on the exact-fit row; analytic
+    agreement on positives; negative/NaN chi2 refusal; eager +
+    compiled).
+    UNIT 15 AMENDED (45M-26): must_provide accepts
+    Hubble={"z": [1090]} through the uniform union-window check
+    (emul_baosn.py:214-236) while get_Hubble serves the SN grid only
+    — accepted at startup, refused at runtime, invisible to the
+    gate's uncrossed arms. One product-specific domain helper shared
+    by must_provide and every getter; startup and runtime verdicts
+    identical. Spec amendment: families-background-mps.md, "45M-26
+    amendment to unit 15".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches
@@ -808,8 +887,13 @@ the index but its full block was NEVER RELAYED — pending; request a
 re-send before adjudication. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
-them. The three-gate rerun and the 14 -> 36 -> 22(+20) -> 13(+01)
-order define the active pipeline.
+them. The three-gate rerun and the
+14(a+b+c) -> 36 -> 42+43 -> 22(+20) -> 13(+01) order define the
+active pipeline (updated with the third 45M batch: the CMB
+amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
+unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15
+gained the 45M-26 domain-helper amendment; 44 and 45 queue with
+their campaigns).
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

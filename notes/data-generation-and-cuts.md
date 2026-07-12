@@ -994,3 +994,34 @@ Gates:
   smoke legs gain two distinct cosmologies; the generator payload is
   compared against the corresponding public-provider result for each,
   and the two payloads are asserted non-stale / non-identical.
+
+## The old unstable variance survived beside the Chan accumulator (red-team 45M-23, 2026-07-12, Architect-REPRODUCED; queue 44 — amends the stable-moments standard, one numerical-statistics design repo-wide)
+
+data_staging.py::stream_stats(method=1) (:113-129) still ships the
+exact s1/s2 algorithm the grid2d revision prohibited: sum(x) and
+sum(x^2) accumulators (:117-123) subtracted as
+(s2 - s1*s1/n)/(n-1) (:128), with comments claiming float64 "avoid[s]
+overflow" — the real hazard is catastrophic cancellation, not
+overflow. Architect reproduction on the exec-extracted shipped body:
+10,000 rows at offset 1e8 give std 1.8103 vs true 1.0017 (silently
+wrong); offset 1e10 gives NaN (negative variance under the sqrt).
+Scope, per the red team's own honest note: load_source keeps only
+dv_mean and discards this std, so today's ordinary target centering
+is NOT corrupted — the defect is a documented public normalization
+function returning false or NaN scales, and two contradictory
+numerical standards now living side by side.
+
+Contract: method 1 reimplemented with the SAME float64 per-chunk
+mean/M2 + Chan merge accepted for bounded grid2d staging (ddof=1
+preserved); method validated exactly in {1, 2}; CHUNK a positive
+non-bool integer; 2-D input; nonempty unique in-range indices;
+method 1 needs >= 2 rows; nonfinite selected payloads and nonfinite
+outputs rejected naming the column; the zero-scale policy explicit
+(no division poison); docstring/comments corrected to name
+Chan/Welford and the sample-variance convention. Red legs (torch
+return -> an existing identity gate or a small board-listed staging
+gate on the workstation): high-offset/small-spread truth vs
+np.std(ddof=1); multiple chunk sizes and index orders; a fixture that
+FAILS the s1/s2 formula (catch-power); empty/one-row/duplicate/
+out-of-range indices; invalid method/chunk; nonfinite input; constant
+column.

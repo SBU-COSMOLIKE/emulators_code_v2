@@ -773,3 +773,70 @@ Never re-propose (CME): the two dead covinv forms; per-spectrum
 Boltzmann re-runs; prediction-side smoothness; bare second-difference
 roughness; the legacy ord/file/extra/extrapar pattern; heads on the
 SCALAR family (no coordinate axis).
+
+## REOPENED: the CMB amplitude law — the metric carries f^2 and the factor is 1e9-scale (red-team 45M-21 + 45M-22, 2026-07-12, Architect-VERIFIED; queue 42 + 43, CRITICAL — sequenced right after the BAOSN quadrature unit)
+
+The CMB amplitude-law acceptance is REOPENED on two coupled defects.
+
+### Queue 42 (45M-21): the reported chi2 is f^2 times the physical chi2
+
+CmbFactoredChi2 (losses/cmb.py:238) encodes
+t = whiten(squeeze(C_ell) * f - center) with the per-row factor
+f = exp(2 tau) / A_s (:334), decodes by dividing f back out — but
+chi2 (:371-380) IGNORES params_whitened and delegates to
+CmbDiagonalChi2.chi2 on the whitened residual. Its docstring claims
+the factor "cancels in the residual": FALSE — pred and target of one
+row share the same f, so the residual is f * (C_pred - C_truth) /
+sigma and the reported chi2 is f^2 * chi2_physical. Consequences,
+adopted as stated: delta-chi2 and every threshold fraction depend on
+A_s and tau at fixed physical error; best-epoch selection is biased
+toward small-f cosmologies; the 0.2 acceptance threshold stops
+representing the covariance metric; the roughness "law-neutral" claim
+is false (it acts on pred - target, so it carries f^2 too); the
+existing identity gate proves factor arithmetic and the encode/decode
+round-trip only — it never compares factored chi2 against a direct
+physical known answer.
+
+Contract: chi2 REQUIRES params_whitened, computes f, divides the
+whitened residual by f, then sums the square; loss stashes/passes the
+parameters instead of documenting them as unused; roughness (when
+enabled) is defined on the factor-corrected whitened residual if the
+intended penalty is law-neutral; encode/decode preserved (the defect
+is the metric, not the invertible transform); every "cancels" claim
+corrected; cmb-identity AND cmb-smoke rerun after the fix.
+Workstation legs: factored chi2 vs a direct physical-spectrum
+reference; fixed physical residual under varying (A_s, tau) leaves
+physical chi2 invariant; the uncorrected form misses by exactly f^2
+(catch-power); round-trip stays green; roughness invariant under the
+factor; nonfinite/nonpositive-factor legs ride the finite contract.
+
+### Queue 43 (45M-22): raw A_s makes the encoded target ~1e9-scale
+
+The shipped configuration uses Cobaya's physical A_s ~ 2.1e-9, so
+f = exp(2 tau) / A_s ~ 5e8 at fiducial: the network target carries an
+arbitrary 1e9-scale normalization, and the float32 training center
+subtracts nearly equal values at that inflated scale. This reads as a
+unit-porting defect (a legacy 1e9*A_s ~ 2.1 variable replaced by raw
+A_s without the reference normalization). The existing gate only
+round-trips the huge factor; it never tests conditioning or the
+encoded scale.
+
+Contract: a dimensionless order-one factor
+f = (A_s_ref / A_s) * exp(2 (tau - tau_ref)) with f = 1 at the
+persisted fiducial; as_ref/tau_ref persisted as RESOLVED
+geometry/artifact facts sourced from the covariance fiducial or an
+explicit validated configuration (never a code default — the house
+doctrine); the corrected convention gets a NEW semantic law version —
+an old as_exp2tau artifact is never silently reinterpreted (unit 37's
+implementation manifest distinguishes them); affected CMB artifacts
+RETRAIN (the constant changes the learned target and weights even
+though decode inverts it); the 45M-21 residual division applies
+independently — an order-one factor does not excuse the metric fix;
+staging reports the target-center and encoded-target scale so a
+future unit mismatch is visible before training. Workstation legs:
+fiducial (A_s, tau) gives exactly f = 1; primary-amplitude scaling
+leaves the law-space spectrum invariant; encoded targets have a
+finite documented scale; physical known answers stay correct; an old
+unnormalized-law artifact is REFUSED under the new implementation; a
+mutation using raw exp(2 tau)/A_s fails the fiducial-unity and
+target-scale legs.

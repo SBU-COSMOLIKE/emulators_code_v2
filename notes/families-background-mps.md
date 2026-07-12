@@ -340,3 +340,27 @@ before returning a spectrum; a mutation restoring the abs form fails
 the negative-domain leg; no accepted base value NaN/Inf; the shipped
 production prior/grid proven wholly inside the domain or rejected
 with the exact offending corner.
+
+### 45M-26 amendment to unit 15 (BAOSN physical-domain + pair-shape guards): startup accepts a Hubble request the getter refuses (2026-07-12, Architect-VERIFIED)
+
+must_provide (emul_baosn.py:214-236) sends EVERY product — including
+Hubble — through the uniform _check_windows union rule (SN window OR
+recombination window), while get_Hubble serves the SN grid only and
+loudly refuses beyond it (its docstring says so; the getter enforces
+it). So must_provide(Hubble={"z": [1090]}) succeeds at Cobaya startup
+and get_Hubble([1090]) later raises — a deterministic late failure
+the identity gate cannot see (it tests valid low-z Hubble at startup
+and high-z refusal only through the getter, never crossing the arms).
+Amendment to unit 15's contract: ONE product-specific domain helper
+used by BOTH must_provide and the getters — Hubble: finite query
+wholly inside the SN/H grid; the three distance products: each query
+inside the union of the two windows; angular_diameter_distance_2
+keeps the already-queued exact (N,2)/finite/ordered contract with
+both endpoints individually serviceable; startup and runtime return
+the SAME verdict and the SAME domain explanation for an identical
+request — no accepted-now-refused-later path; the loud desert rule
+and current valid numerics preserved. Red legs: Hubble at
+recombination refused by BOTH arms; Hubble in the desert and above
+both windows; each distance product valid in each window; desert
+refusal; mixed valid/invalid; exact boundary equality at z = _sn_max;
+the malformed-pair cases from the existing unit.
