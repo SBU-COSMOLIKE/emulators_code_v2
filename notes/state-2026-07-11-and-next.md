@@ -1026,6 +1026,21 @@ files were created. Priority follows user-visible risk:
     (or the teaching-error branch, testable anywhere); CUDA legs
     prove the shared ordering. Spec: training-stack.md, "MPS float16
     AMP has no gradient scaling".
+52. **Head padding coordinate truth** (45M-40, 2026-07-12,
+    CRITICAL for masked cosmic-shear CNN/TRF heads — fifth in the
+    critical sequence). pad_idx substitutes RANK for coordinate
+    (counts only; equal-count different-mask bins indistinguishable,
+    plain.py:430/ia.py:374) and padding is zero only at the initial
+    scatter — conv bias/activation/FiLM write invalid slots and the
+    next kernel routes fabricated values into valid positions (the
+    two-block adversarial composition); TRF updates the whole token
+    rectangle unmasked (ia.py:925); ragged n_tokens included.
+    Contract: real coordinate-slot scatter + persisted boolean
+    validity mask, reapplied after every block/FiLM; layout-aware
+    attention masking; bitwise no-mask preservation; rectangular
+    families proven unchanged; pre-map artifacts refused; docs
+    corrected. Spec: models-and-designs.md, "Head padding loses the
+    coordinate map and fabricates hidden state".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches
@@ -1039,8 +1054,8 @@ re-send before adjudication. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
-14(a+b+c) -> 36 -> 42+43 -> 50 -> 22(+20) -> 13(+01) order define the
-active pipeline (updated with the third 45M batch: the CMB
+14(a+b+c) -> 36 -> 42+43 -> 50 -> 52 -> 22(+20) -> 13(+01) order
+define the active pipeline (updated with the third 45M batch: the CMB
 amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
 unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15
 gained the 45M-26 domain-helper amendment; 44 and 45 queue with

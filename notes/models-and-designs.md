@@ -457,3 +457,60 @@ zeroed layer after one step; repaired power/gated_power controls
 wake; the schema rejects a ReLU head before construction while
 accepting a ReLU trunk; a mutation validating only a(0) == 0 fails
 the gate.
+
+## Head padding loses the coordinate map and fabricates hidden state (red-team 45M-40, 2026-07-12, Architect-VERIFIED; queue 52 — CRITICAL for masked cosmic-shear CNN/TRF heads, fifth in the critical sequence)
+
+Two independent defects in the padded head layout, both confirmed in
+plain AND template designs:
+
+1. RANK SUBSTITUTED FOR COORDINATE. pad_idx is built from
+   geom.bin_sizes counts only — "bin g's j-th entry at
+   g*max_bin + j" (plain.py:430-434; ia.py:374-377 identical): the
+   j-th SURVIVING value, not the physical theta slot. Two
+   tomographic bins keeping the same COUNT at different theta
+   locations get identical layouts, so the cross-bin channel mixing
+   the docs call "like angular scales" mixes physically different
+   angles at every padded column. Counts cannot distinguish two
+   valid mask geometries; the persisted artifact cannot either.
+2. PADDING DOES NOT STAY ZERO. The docs claim pad slots stay zero
+   (~:294), but zeros exist only at the initial scatter
+   (:658-660 new_zeros + scatter); the conv loop then applies
+   convolution (with bias), activation, and FiLM to the WHOLE
+   rectangle with no validity mask reapplied (:662+), and the TRF
+   path updates the full token rectangle every block (ia.py:925+).
+   Adversarial composition (sound by construction): block 1's
+   cross-bin mixing writes a longer bin's value into a shorter
+   bin's INVALID column; bias/activation make invalid slots
+   generically nonzero; block 2's spatial kernel shifts that into
+   the shorter bin's VALID columns; the gather returns a correction
+   that depends on a nonexistent datum. The ragged single-bin
+   n_tokens segmentation has the same final-partial-token exposure.
+
+Contract (Implementer, adopted whole): persist the REAL
+coordinate-slot identity (each kept value scattered into its
+original theta-bin slot — equal-count different-mask patterns stay
+distinguishable); build and persist a boolean validity mask aligned
+with the padded tensor; REAPPLY the mask after every conv/TRF block
+and after FiLM so invalid positions are exactly inert at arbitrary
+depth; attention/MLP must not use invalid coordinates as keys,
+values, or latent channels — the masking mechanism must fit this
+theta-positions-as-feature-dimensions layout (a conventional
+sequence-token attention mask alone is insufficient); the same
+representation in plain/template CNN and TRF; equal-length no-mask
+behavior BITWISE preserved; CMB/grid/grid2d rectangular cases proven
+unchanged; the ragged n_tokens final token masked; every "pad slots
+stay zero" / "like angular scales" explanation corrected to the
+executed invariant; save/rebuild preserves the coordinate map +
+validity mask exactly, and a pre-map head artifact is REFUSED loudly
+(schema-additive, the bin_sizes/pm_kept persistence precedent), never
+reconstructed from counts. Gate legs (torch, board-listed,
+workstation): equal-count different-mask bins produce different
+persisted maps (the count-only form fails); known-answer one-block
+CNN mixes only intended theta neighbors; the adversarial two-block
+routing leg — repaired output exactly zero where the current form is
+nonzero — on ResCNN AND TemplateResCNN; multi-block ResTRF/
+TemplateResTRF keep invalid coordinates exactly zero and valid
+outputs invariant to an injected invalid-slot sentinel; ragged
+n_tokens final-token inertness; equal-width/no-mask controls bitwise
+unchanged with exact identity-at-init; save/rebuild round-trip +
+pre-map artifact refusal.
