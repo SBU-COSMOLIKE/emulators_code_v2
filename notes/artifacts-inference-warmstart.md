@@ -836,3 +836,47 @@ they join the existing geometry identity checks under gates/checks/
 (scalar-identity, bsn-identity, mps-identity own their geometries),
 LISTED on the board, run on the torch workstation. The arithmetic
 discrimination above stays a numpy-only companion leg (Mac-runnable).
+
+## UNIT 24 AMENDED (45M-50): scalar fine-tuning erases its source provenance at save
+
+Seventh 45M batch (2026-07-12), Architect-verified on HEAD. Public
+reachability confirmed: validate_scalar states "fine-tuning IS
+supported"; the from_config scalar fine-tune branch loads the
+source, pins outputs, and sets _scalar/_finetune/_finetune_root
+(experiment.py ~2055-2069). This note's universal fine-tune contract
+(the "Provenance attrs: finetuned_from + finetune_extra_names" line)
+claims every family. The shared family driver honors it
+(cosmic_shear_train_emulator.py:385-387); the scalar driver's own
+save path does not — its attrs mapping (scalar_train_emulator.py
+:201-211) records model/data/best metrics only and never inspects
+exp._finetune. Untruncated grep: `finetuned_from` is written by the
+shared driver ALONE (the only other hits are the finetune-smoke gate
+asserting it — a gate the scalar path never crosses). A scalar
+fine-tuned artifact is therefore valid and inference-loadable with
+no declaration that its initialization and architecture came from
+another artifact; cold and fine-tuned runs produce the same
+provenance key set.
+
+Contract (amends unit 24 — the anchor-truth clauses stand):
+
+1. One shared artifact-provenance assembler owns the common attrs
+   for EVERY training driver; scalar adds its family facts (outputs,
+   train/val parameter filenames) but never forks
+   fine-tune/anchor/provenance logic.
+2. Cold run: no fine-tune attrs. Fine-tune run: canonical resolved
+   source identity plus ordered extra names.
+3. The recorded source identity is the resolved root/digest actually
+   loaded, never the raw YAML spelling.
+4. Once unit 24 opens anchors, the executed-anchor record shares
+   this same path — not added to only the shared cosmic driver.
+
+Red legs: scalar cold save omits fine-tune attrs; scalar
+names-equal fine-tune saves finetuned_from and an explicit EMPTY
+extra-name list; scalar extended-input fine-tune preserves ordered
+extra names; scalar and one shared-driver family produce the same
+common provenance schema; mutation arm — delete the scalar
+provenance branch / shared-assembler call and the artifact readback
+gate must fail. Save/readback legs use torch to build the synthetic
+artifacts: they live under the existing board-listed
+finetune-identity check in gates/checks/, run by the user on the
+torch workstation.

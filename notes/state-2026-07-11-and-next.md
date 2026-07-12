@@ -322,6 +322,16 @@ files were created. Priority follows user-visible risk:
    coverage_diagnostic|hard_direction over gates/ = zero hits.
    Spec: training-stack.md (the generic-diagnostics section + its
    thirteenth-wave extension).
+   AMENDED (45M-51, seventh batch): the scalar driver re-declares
+   eligibility from its family name — scalar NPCE is legal but
+   scalar_train_emulator.py:267 calls local_linear_floor
+   unconditionally behind ':251 the scalar loss is a plain chi2'
+   prose while diagnostics.py:185 refuses needs_params losses, so
+   every scalar NPCE --diagnostic run trains, SAVES, then raises
+   instead of producing the PDF; the shared driver's :500
+   capability branch is the correct rule. Capability-owned
+   eligibility + structured availability record; spec appended in
+   training-stack.md.
 10. **Activation-bakeoff liveness.** Its bespoke parent blocks on a fixed
     count of un-timed queue reads before joining children; worker failures
     during setup/staging/geometry emit no result and hang the command. Spec:
@@ -538,6 +548,16 @@ files were created. Priority follows user-visible risk:
     (whitelisted key), ~86/271 (source rebuilt eager);
     training.py ~306-311 (the silent skip build_anchor inherits);
     README ~1683 advertised anchor: 1.0e-2 (now corrected).
+    AMENDED (45M-50, seventh batch): scalar fine-tuning executes,
+    then erases its source provenance at save — validate_scalar
+    permits it, the scalar from_config branch sets
+    _finetune/_finetune_root, but scalar_train_emulator.py's own
+    attrs (:201-211) never inspect exp._finetune while the shared
+    driver writes finetuned_from/finetune_extra_names (:385-387;
+    untruncated grep: the shared driver is the ONLY writer). One
+    shared artifact-provenance assembler for every driver;
+    executed-anchor record shares the path once anchors open;
+    spec appended in artifacts-inference-warmstart.md.
 25. **Nested data paths never resolve** (ninth wave).
     resolve_cocoa_config rewrites only the flat data keys; the
     nested cmb.covariance / grid.z_file / grid2d file leaves stay
@@ -1157,6 +1177,32 @@ on grid2d the missed column is neither pinned nor refused;
 stored-representation validation contract + covariance sqrt-scale
 representability; spec artifacts-inference-warmstart.md; torch
 legs join the family geometry identity gates, board-listed).
+
+SEVENTH 45M BATCH (2026-07-12, all four Architect-verified; the
+capture mechanism reproduced with the exec'd real function body):
+45M-48 ADDENDUM = unit 56 AMENDED (numpy broadcast relabeling:
+exact key set + exact predeclared shape, no scalar/length-one
+broadcast, cast -> finite -> write once -> read back -> only then
+clear the failed bit; family _dv_write never validates; the
+duplicate-write rider REJECTED as factually absent — one
+assignment at generator_core.py:588-590 on both main and branch).
+45M-50 = unit 24 AMENDED (scalar fine-tune saves an artifact with
+no finetuned_from/finetune_extra_names though the universal
+contract claims every family; one shared provenance assembler;
+spec artifacts-inference-warmstart.md). 45M-51 = unit 9 AMENDED
+(scalar --diagnostic calls the plain-only local_linear_floor
+unconditionally on a legal NPCE run — train, save, then a
+deterministic ValueError; capability-owned eligibility; spec
+training-stack.md). 45M-52 = NEW UNIT 57 (the generator reads
+tmp.read() inside the capture block with no flush of Python/C/
+Fortran buffers — reproduced: print() and libc.printf captured
+EMPTY with the real body, the C text leaking to the RESTORED
+stream, and one block's un-flushed error text landing INSIDE THE
+NEXT capture — cross-sample misattribution both directions; a
+declared-fatal solver string can be buffered past the guard and
+the row marked successful; flush-or-isolate contract, status-API
+route satisfies it via unit 33's harmonization; spec
+data-generation-and-cuts.md; cluster now 8+17+25+26+28+33+56+57).
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

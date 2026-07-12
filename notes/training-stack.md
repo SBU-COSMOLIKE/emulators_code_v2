@@ -1461,3 +1461,43 @@ the workstation leg. Placement: beside sweep-worker truth and the
 unit-53 manifest; MUST land before any transfer-refine tune,
 hyperparameter sweep, activation bakeoff, or N-train science curve is
 trusted. Pipeline slot: after unit 52, before 22(+20).
+
+## UNIT 9 AMENDED (45M-51): the scalar driver re-declares diagnostic eligibility from its family name
+
+Seventh 45M batch (2026-07-12), Architect-verified on HEAD; joins
+this note's generic-diagnostics section (unit 9) beside the
+thirteenth-wave extension. Scalar NPCE is explicitly legal
+(validate_scalar permits the top-level pce: block; every PCE loss
+declares needs_params = True, losses/pce.py :79/:216/:386), yet
+scalar_train_emulator.py --diagnostic asserts in prose that "the
+scalar loss is a plain chi2, so the local-linear floor applies too"
+(:251-252) and calls local_linear_floor UNCONDITIONALLY (:267);
+local_linear_floor refuses any needs_params loss with a ValueError
+(diagnostics.py:185-188). The save happens BEFORE the diagnostic
+(:212 vs :237), so every valid scalar NPCE diagnostic command
+trains, saves the artifact, then raises instead of producing the
+promised PDF — a deterministic failed command. The shared family
+driver already contains the correct capability branch
+(cosmic_shear_train_emulator.py:500: floor only when NOT
+needs_params, else a truthful logged skip); the scalar fork omitted
+that rule.
+
+Contract: diagnostic eligibility is owned by the
+diagnostic/capability layer, never re-declared by a driver from its
+family name. One shared diagnostic orchestrator decides which
+analyses run and emits a structured availability record (available,
+or unavailable with a reason) consumed by both logging and plotting.
+Scalar NPCE skips only the local-linear floor and still produces its
+coverage, hardness, and scalar residual pages plus the PDF; plain
+scalar behavior is unchanged.
+
+Red legs: plain scalar diagnostic executes the floor; NPCE scalar
+diagnostic marks the floor unavailable and COMPLETES the PDF;
+mutation arm — restore the unconditional scalar call and the gate
+must fail; the scalar and shared-family drivers produce identical
+availability semantics for synthetic losses with needs_params
+true/false; the "scalar loss is plain" prose disappears, replaced by
+the actual capability rule. The integration leg (torch: real
+predictor/loss path) joins the existing board-listed scalar-smoke or
+diagnostics check under gates/checks/, workstation-run; the
+eligibility helper itself gets a pure CPU no-torch unit leg.

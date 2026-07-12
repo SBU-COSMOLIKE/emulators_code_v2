@@ -1138,3 +1138,97 @@ a wrong but broadcast-compatible later-row shape; a missing and an
 extra mapping key; MPS finite pk_lin with NaN pk_nl or boost; a
 legal negative-TE control; and the serial and MPI-result handlers
 proven to invoke the IDENTICAL validator.
+
+## UNIT 56 AMENDED (45M-48 addendum): broadcast relabeling + write-once/read-back
+
+Seventh 45M batch (2026-07-12). The addendum's mechanism was already
+reproduced during the unit's adjudication (a scalar payload
+broadcasts silently into a full stored row); numpy row assignment is
+not an exact-shape check, and the allocator's first-payload contract
+protects nothing after row 0. Amendment to the contract:
+
+1. The shared payload boundary requires, for every sample and every
+   named family component, an EXACT key set and an EXACT predeclared
+   shape before storage; scalar and length-one broadcasting are
+   forbidden.
+2. After the shape gate: cast to the real storage dtype, require
+   every stored value finite, write ONCE, then read back (or
+   validate the exact cast payload) before clearing the failed bit.
+3. The family _dv_write methods are writers only — never independent
+   validators.
+
+Added red legs: first payload right-width, second payload length-one
+-> the second sample is failed, never broadcast-successful; a
+background/MPS dict omitting or adding one quantity key -> exact-key
+refusal; a CMB later payload with a broadcast-compatible non-(4,
+n_ell) shape -> refusal; serial and MPI result paths produce the
+same failed/status verdict with no science row marked successful.
+
+Rider REJECTED as factually absent (recorded so it is not
+re-proposed): the claimed duplicate `self.datavectors[i] = dvs` in
+the generic _dv_write does not exist on main or on the branch HEAD —
+generator_core.py:588-590 contains exactly one assignment (verified
+on both checkouts, 2026-07-12). No code change owed.
+
+## UNIT 57 (45M-52): the generator reads its error capture before buffered writers publish
+
+Seventh 45M batch (2026-07-12), Architect-verified and REPRODUCED
+with the real repository function body. Joins the file-set/ingress
+campaign — cluster now 8+17+25+26+28+33+56+57. Complementary to
+unit 56, not subsumed by it: post-cast finiteness/shape validation
+cannot catch a finite payload the solver itself declared invalid or
+unconverged in text. Interlocks unit 33: if 33's preferred-path
+harmonization replaces terminal parsing with a solver
+status/exception API, that route satisfies this contract too.
+
+Verified chain: capture_native_output (generator_core.py:163-185)
+dup2-redirects fds 1/2 to a TemporaryFile with NO flush of Python,
+C, or Fortran user-space buffers on entry; every family reads
+tmp.read() INSIDE the with block (lensing :101-116, cmb :305-320,
+background :333-341, mps :362-377) with no flush before the read;
+the error-keyword scan then decides success and failed[i] is
+cleared. MPI does not repair it — the worker makes the same
+premature decision and sends "ok".
+
+Reproduction (Mac, the exec'd real body, stdout block-buffered as in
+a batch job): os.write(1, b"OS ERROR") IS captured; print("PYTHON
+ERROR") captures EMPTY; libc.printf(b"C ERROR") captures EMPTY and
+the text leaks to the RESTORED stdout after a later fflush; and the
+un-flushed PYTHON ERROR text from one capture block appeared INSIDE
+THE NEXT capture block together with pre-entry text — cross-sample
+misattribution in BOTH directions (a clean sample can inherit its
+predecessor's error text, and a failing sample's text can vanish
+into a later row's verdict). A native component can therefore print
+a declared-fatal string, return a finite-looking payload, and be
+marked successful.
+
+Contract (adopted):
+
+1. Native-output synchronization is part of the correctness
+   boundary, not a logging convenience. Flush Python streams before
+   redirection (no earlier text misattributed); after the theory
+   call, flush every supported writer before reading.
+2. No generic Fortran/C capture claim unless the implementation
+   proves the actual CAMB writer is synchronized. If in-process
+   flushing cannot be proven reliable, isolate the solver behind a
+   process boundary whose exit closes/flushes streams, or replace
+   terminal parsing with a solver status/exception API carrying the
+   same failure semantics.
+3. Read the capture only after synchronization, scan once under a
+   named documented case policy, and include the captured text in
+   the raised error.
+4. Restoration and temp-file cleanup stay exception-safe; a
+   flush/read failure FAILS the sample, never silently downgrades
+   the guard.
+5. Serial and worker paths use the identical helper and verdict.
+
+Red legs (pure CPU generator-core gate): immediate os.write caught;
+buffered Python output caught without leaking to the restored
+stream; buffered C printf caught; text emitted before entry not
+attributed to the sample; an exception restores both descriptors; an
+"ERROR"-emitting finite-payload fake is failed/zeroed in serial and
+reported "err" by the worker decision helper. The C/Fortran leg must
+exercise a genuinely buffered native writer — the current unflushed
+body must FAIL it. If CAMB-specific flushing is the chosen design,
+one small real-runtime leg, or an explicit refusal of unsupported
+native runtimes rather than an advertised universal capture.
