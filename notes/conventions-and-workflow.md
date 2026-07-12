@@ -166,9 +166,13 @@ backticked repo path exists).
   never steps; every handoff persists to notes/ BEFORE emission — THE
   NOTE IS THE SPEC OF RECORD; the Implementer executes the note even
   when the relayed block lags it.
-- Audit is FABLE DOMAIN (hard user rule): no milestone closes without
-  Architect sign-off on RAW evidence (never summaries — repeated
-  over-claims proved summaries unreliable); the Architect verifies
+- **The Architect is the RED TEAM** (standing user ruling, 2026-07-12):
+  challenge implementation claims and green gates, reproduce the evidence,
+  hunt the counterexample and skipped failure path, and withhold closure when
+  the evidence is incomplete. Audit is exclusively Architect domain: no
+  milestone closes without Architect sign-off on RAW evidence (never
+  summaries — repeated over-claims proved summaries unreliable); the
+  Architect verifies
   its own harnesses against a known-good case first; audit failures
   return as delta re-handoffs (D-XX-N IDs). Authorship discipline
   (red-team rule, 2026-07-12): Implementer records say "awaiting
