@@ -840,8 +840,8 @@ def build_warm_start(source,
   idx  = train_set["idx"]
   take = min(_PARITY_ROWS, int(len(idx)))
   rows = idx[:take]
-  theta = torch.from_numpy(
-    np.asarray(train_set["C"][rows])).float().to(device)   # (R, n_n)
+  C_rows = np.asarray(train_set["C"][rows])                # (R, n_n)
+  theta  = torch.from_numpy(C_rows).float().to(device)
 
   shared_cols, extra_cols = _shared_columns(
     source_pgeom=source.pgeom, new_pgeom=new_pgeom, device=device)
@@ -990,8 +990,8 @@ def build_transfer_start(chi2fn,
   idx  = train_set["idx"]
   take = min(_PARITY_ROWS, int(len(idx)))
   rows = idx[:take]
-  theta = torch.from_numpy(
-    np.asarray(train_set["C"][rows])).float().to(device)
+  C_rows = np.asarray(train_set["C"][rows])
+  theta  = torch.from_numpy(C_rows).float().to(device)
 
   names_n = list(new_pgeom.names)
   extra_cols = []

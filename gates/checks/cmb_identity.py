@@ -176,8 +176,10 @@ def save_synthetic_cmb(root, device, tmp, spectrum="tt", law="as_exp2tau",
     config = {"data": {"cmb": {"spectrum": spectrum,
                                "covariance": "cov.npz",
                                "amplitude_law": law},
-                       "train_dv": "t.npy", "val_dv": "v.npy",
-                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat_path)},
               "train_args": {"nepochs": 1}}
     if law == "as_exp2tau":
@@ -593,8 +595,10 @@ def check_head(tmp, device):
     config = {"data": {"cmb": {"spectrum": "tt",
                                "covariance": "cov.npz",
                                "amplitude_law": "none"},
-                       "train_dv": "t.npy", "val_dv": "v.npy",
-                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat_path)},
               "train_args": {"nepochs": 1}}
     histories = {"train_losses": [0.1],
@@ -643,7 +647,8 @@ def check_finetune(tmp, device):
     C = np.column_stack([g.normal(2.1e-9, 1e-10, 64),
                          g.normal(0.055, 0.005, 64),
                          g.normal(0.31, 0.01, 64)]).astype("float32")
-    train_set = {"C": C, "idx": np.arange(64),
+    train_set = {"C": C,
+                 "idx": np.arange(64),
                  "C_mean": C.mean(axis=0)}
     new_pgeom, extra = warmstart.extend_input_geometry(
         source=source, covmat_path=covmat_path,
@@ -670,11 +675,16 @@ def check_finetune(tmp, device):
         report("cosmolike pin refuses a CMB source",
                "CmbDiagonalGeometry" in str(e), "ValueError names the kind")
     # validate_cmb accepts a finetune block (the D-CM10 interim error died).
-    cfg = {"data": {"cmb": {"spectrum": "tt", "covariance": "c.npz",
+    cfg = {"data": {"cmb": {"spectrum": "tt",
+                            "covariance": "c.npz",
                             "amplitude_law": "none"},
-                    "train_dv": "a", "val_dv": "b", "train_params": "c",
-                    "val_params": "d", "train_covmat": "e"},
-           "pce": None, "transfer": None}
+                    "train_dv": "a",
+                    "val_dv": "b",
+                    "train_params": "c",
+                    "val_params": "d",
+                    "train_covmat": "e"},
+           "pce": None,
+           "transfer": None}
     try:
         validate_cmb(cfg, train_args={"finetune": {"from": "x"}},
                      rescale="none")
@@ -741,14 +751,18 @@ def check_npce(tmp, device):
     model = ResMLP(input_dim=N_IN, output_dim=n_ell, int_dim_res=16,
                    n_blocks=2, block_opts=block_opts).to(device)
     root = os.path.join(tmp, "emul_cmb_npce")
-    config = {"data": {"cmb": {"spectrum": "tt", "covariance": "cov.npz",
+    config = {"data": {"cmb": {"spectrum": "tt",
+                               "covariance": "cov.npz",
                                "amplitude_law": "none"},
-                       "train_dv": "t.npy", "val_dv": "v.npy",
-                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat_path)},
               "pce": {"form": "residual"},
               "train_args": {"nepochs": 1}}
-    histories = {"train_losses": [0.1], "val_medians": [0.1],
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
@@ -772,12 +786,18 @@ def check_npce(tmp, device):
            "max|d| = %.2e" % np.abs(got - ref).max())
     # the pce x amplitude-law exclusivity (one target construction at a
     # time): validate_cmb must be loud.
-    cfg = {"data": {"cmb": {"spectrum": "tt", "covariance": "c.npz",
+    cfg = {"data": {"cmb": {"spectrum": "tt",
+                            "covariance": "c.npz",
                             "amplitude_law": "as_exp2tau",
-                            "as_name": "As", "tau_name": "tau"},
-                    "train_dv": "a", "val_dv": "b", "train_params": "c",
-                    "val_params": "d", "train_covmat": "e"},
-           "pce": {"form": "residual"}, "transfer": None}
+                            "as_name": "As",
+                            "tau_name": "tau"},
+                    "train_dv": "a",
+                    "val_dv": "b",
+                    "train_params": "c",
+                    "val_params": "d",
+                    "train_covmat": "e"},
+           "pce": {"form": "residual"},
+           "transfer": None}
     try:
         validate_cmb(cfg, train_args={}, rescale="none")
         report("pce + amplitude_law exclusivity raises", False, "no raise")

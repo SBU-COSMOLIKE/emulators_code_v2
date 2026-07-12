@@ -242,12 +242,22 @@ def build_cfg(paths):
             "loss": {"mode": "sqrt",
                      "roughness": {"lam": 0.1, "period_cut": 50}},
             "optimizer": {"weight_decay": 0.0},
-            "lr": {"lr_base": 0.01, "bs_base": 64.0, "warmup_epochs": 0},
-            "scheduler": {"mode": "min", "patience": 10, "factor": 0.8},
-            "trim": {"start": 0.0, "end": 0.0, "hold_epochs": 0,
-                     "anneal_epochs": 1, "shape": "cosine"},
-            "focus": {"start": 0.0, "end": 0.0, "hold_epochs": 0,
-                      "anneal_epochs": 1, "shape": "linear",
+            "lr": {"lr_base": 0.01,
+                   "bs_base": 64.0,
+                   "warmup_epochs": 0},
+            "scheduler": {"mode": "min",
+                          "patience": 10,
+                          "factor": 0.8},
+            "trim": {"start": 0.0,
+                     "end": 0.0,
+                     "hold_epochs": 0,
+                     "anneal_epochs": 1,
+                     "shape": "cosine"},
+            "focus": {"start": 0.0,
+                      "end": 0.0,
+                      "hold_epochs": 0,
+                      "anneal_epochs": 1,
+                      "shape": "linear",
                       "kappa": 0.15},
         },
     }
@@ -263,11 +273,11 @@ def check_train(paths, tmp, device):
     # pred = 0 (the geometry's center IS the training-mean target), so a
     # network that learned nothing beyond the mean scores this. The bar
     # is relative: a real 40-epoch train must at least halve it.
-    idx = exp.val_set["idx"]
-    dv = torch.from_numpy(
-        np.asarray(exp.val_set["dv"][np.sort(idx)])).float().to(device)
-    C = torch.from_numpy(
-        np.asarray(exp.val_set["C"][np.sort(idx)])).float().to(device)
+    idx = np.sort(exp.val_set["idx"])
+    dv_rows = np.asarray(exp.val_set["dv"][idx])
+    C_rows  = np.asarray(exp.val_set["C"][idx])
+    dv = torch.from_numpy(dv_rows).float().to(device)
+    C  = torch.from_numpy(C_rows).float().to(device)
     x_enc = exp.pgeom.encode(C)
     if getattr(exp.chi2fn, "needs_params", False):
         tw = exp.chi2fn.encode(dv, x_enc)
@@ -284,7 +294,8 @@ def check_train(paths, tmp, device):
     save_emulator(path_root=root, model=model,
                   param_geometry=exp.pgeom, geometry=exp.geom, config=cfg,
                   histories={"train_losses": train_losses,
-                             "val_medians": medians, "val_means": means,
+                             "val_medians": medians,
+                             "val_means": means,
                              "val_fracs": fracs,
                              "thresholds": exp.thresholds},
                   train_args=exp.train_args, pce=None, pce_form=None,
@@ -309,17 +320,22 @@ def check_cobaya(root, device):
             "extra_args": {"device": "cpu", "emulators": [root]}}},
         "params": {
             "As":    {"prior": {"min": 1.8e-9, "max": 2.4e-9},
-                      "ref": 2.1e-9, "proposal": 1e-11},
+                      "ref": 2.1e-9,
+                      "proposal": 1e-11},
             "tau":   {"prior": {"min": 0.03, "max": 0.09},
-                      "ref": 0.055, "proposal": 0.002},
+                      "ref": 0.055,
+                      "proposal": 0.002},
             "omch2": {"prior": {"min": 0.11, "max": 0.13},
-                      "ref": 0.12, "proposal": 0.001},
+                      "ref": 0.12,
+                      "proposal": 0.001},
         },
     }
     try:
         model = get_model(info)
         model.add_requirements({"Cl": {"tt": LMAX}})
-        point = {"As": 2.05e-9, "tau": 0.06, "omch2": 0.121}
+        point = {"As": 2.05e-9,
+                 "tau": 0.06,
+                 "omch2": 0.121}
         model.logposterior(point)
         cl = model.provider.get_Cl(ell_factor=False, units="muK2")
     except Exception as e:
@@ -364,7 +380,8 @@ def check_diagnostics(exp, model, tmp):
                          fracs=[0.5 * torch.ones(int(exp.thresholds.numel()))],
                          thresholds=exp.thresholds,
                          coverage={"knn_dist": np.ones(4),
-                                   "dchi2": np.ones(4), "k_nn": 2},
+                                   "dchi2": np.ones(4),
+                                   "k_nn": 2},
                          cmb=cmb, savepath=pdf)
         ok = (n_pages == 2 and os.path.isfile(pdf)
               and os.path.getsize(pdf) > 10000)

@@ -396,7 +396,9 @@ class emul_mps(Theory):
         state[("Pk_grid", True, "delta_tot", "delta_tot")] = (k, z, pk_nl)
         state[("Pk_grid", False, "delta_tot", "delta_tot")] = (k, z,
                                                                pk_lin)
-        state["Pk_grid"] = {"k": k, "z": z, "Pk": pk_lin}
+        state["Pk_grid"] = {"k": k,
+                            "z": z,
+                            "Pk": pk_lin}
 
         if want_derived:
             derived = {}

@@ -246,10 +246,16 @@ def check_head_architecture():
     """D-SPE2-3: from_config raises on a head architecture (scalar is
     trunk-only). The head_block guard fires before the experiment is built,
     so dummy file names in the data block are enough."""
-    cfg = {"data": {"train_params": "t.1.txt", "val_params": "v.1.txt",
-                    "train_covmat": "t.covmat", "outputs": ["H0"],
-                    "n_train": 10, "n_val": 5, "split_seed": 0},
-           "train_args": {"nepochs": 1, "bs": 8, "model": {"name": "rescnn"}}}
+    cfg = {"data": {"train_params": "t.1.txt",
+                    "val_params": "v.1.txt",
+                    "train_covmat": "t.covmat",
+                    "outputs": ["H0"],
+                    "n_train": 10,
+                    "n_val": 5,
+                    "split_seed": 0},
+           "train_args": {"nepochs": 1,
+                          "bs": 8,
+                          "model": {"name": "rescnn"}}}
     try:
         EmulatorExperiment.from_config(cfg, device=torch.device("cpu"))
         report("D-SPE2-3 rescnn scalar run raises", False, "did not raise")
@@ -385,19 +391,26 @@ def _save_tiny_dv(root, device):
                   "norm": make_norm("affine")}
     model = ResMLP(input_dim=n_in, output_dim=out_dim, int_dim_res=16,
                    n_blocks=2, block_opts=block_opts).to(device)
-    recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-              "ia": None, "input_dim": n_in, "output_dim": out_dim,
-              "compile_mode": None, "needs_geom": False,
-              "kwargs": {"int_dim_res": 16, "n_blocks": 2,
+    recipe = {"cls": "emulator.designs.plain.ResMLP",
+              "name": "resmlp",
+              "ia": None,
+              "input_dim": n_in,
+              "output_dim": out_dim,
+              "compile_mode": None,
+              "needs_geom": False,
+              "kwargs": {"int_dim_res": 16,
+                         "n_blocks": 2,
                          "block_opts": {"act": {"type": "H", "n_gates": 3},
                                         "norm": "affine"}}}
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom,
                   config={"data": {"cosmolike_data_dir": "lsst_y1",
                                    "cosmolike_dataset": "d.dataset",
-                                   "train_dv": "t.npy", "val_dv": "v.npy"},
+                                   "train_dv": "t.npy",
+                                   "val_dv": "v.npy"},
                           "train_args": {"nepochs": 1}},
-                  histories={"train_losses": [0.1], "val_medians": [0.1],
+                  histories={"train_losses": [0.1],
+                             "val_medians": [0.1],
                              "val_means": [0.1],
                              "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                              "thresholds": torch.tensor([0.2, 1.0, 10.0])},
@@ -425,7 +438,9 @@ def check_finetune(tmp, device):
     # parity violation, so returning is the pass; assert bitwise anyway.
     g = np.random.default_rng(210)
     C2 = g.standard_normal((64, 2)).astype("float32")
-    train_set = {"C": C2, "idx": np.arange(64), "C_mean": C2.mean(axis=0)}
+    train_set = {"C": C2,
+                 "idx": np.arange(64),
+                 "C_mean": C2.mean(axis=0)}
     new_pgeom, extra = warmstart.extend_input_geometry(
         source=source, covmat_path=src_cov,
         train_mean=train_set["C_mean"], device=device)
@@ -446,7 +461,9 @@ def check_finetune(tmp, device):
     ext_cov = os.path.join(tmp, "ft_ext.covmat")
     write_covmat(ext_cov, ["omegabh2", "omegach2", "thetastar"], seed=220)
     C3 = g.standard_normal((64, 3)).astype("float32")
-    train_set3 = {"C": C3, "idx": np.arange(64), "C_mean": C3.mean(axis=0)}
+    train_set3 = {"C": C3,
+                  "idx": np.arange(64),
+                  "C_mean": C3.mean(axis=0)}
     new_pgeom3, extra3 = warmstart.extend_input_geometry(
         source=source, covmat_path=ext_cov,
         train_mean=train_set3["C_mean"], device=device)
@@ -467,10 +484,15 @@ def check_finetune(tmp, device):
     # loud BEFORE any staging (dummy data file names suffice), and the
     # finetune YAML carries no model: block (the FTW model-block lesson).
     def ft_cfg(outputs, from_root):
-        return {"data": {"train_params": "t.1.txt", "val_params": "v.1.txt",
-                         "train_covmat": ext_cov, "outputs": list(outputs),
-                         "n_train": 10, "n_val": 5, "split_seed": 0},
-                "train_args": {"nepochs": 1, "bs": 8,
+        return {"data": {"train_params": "t.1.txt",
+                         "val_params": "v.1.txt",
+                         "train_covmat": ext_cov,
+                         "outputs": list(outputs),
+                         "n_train": 10,
+                         "n_val": 5,
+                         "split_seed": 0},
+                "train_args": {"nepochs": 1,
+                               "bs": 8,
                                "finetune": {"from": from_root}}}
     try:
         EmulatorExperiment.from_config(ft_cfg(["H0"], root),
@@ -516,7 +538,8 @@ def check_npce(tmp, device):
         + 0.001 * g.standard_normal(400)]).astype("float32")
     geom = ScalarGeometry.from_targets(device=device, targets=Y,
                                        names=OUT_NAMES)
-    X_white = pgeom.encode(torch.from_numpy(C).to(device))
+    tC = torch.from_numpy(C).to(device)
+    X_white = pgeom.encode(tC)
     dv = torch.from_numpy(Y).to(device)
     pce = PCEEmulator.from_training(device, X_white, geom.encode(dv),
                                     p_max=2, r_max=2, q=0.5, k_max=2,
@@ -539,12 +562,14 @@ def check_npce(tmp, device):
     model = ResMLP(input_dim=N_IN, output_dim=N_OUT, int_dim_res=16,
                    n_blocks=2, block_opts=block_opts).to(device)
     root = os.path.join(tmp, "emul_npce")
-    config = {"data": {"train_params": "t.1.txt", "val_params": "v.1.txt",
+    config = {"data": {"train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat_path),
                        "outputs": list(OUT_NAMES)},
               "pce": {"form": "residual"},
               "train_args": {"nepochs": 1}}
-    histories = {"train_losses": [0.1], "val_medians": [0.1],
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}

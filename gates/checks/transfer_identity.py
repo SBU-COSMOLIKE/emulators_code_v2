@@ -106,12 +106,15 @@ def base_config():
   """The data block a saved base records (a fine-tune / transfer run matches)."""
   return {"data": {"cosmolike_data_dir": "lsst_y1",
                    "cosmolike_dataset": "lsst_y1_M1_GGL0.05.dataset",
-                   "train_dv": "b.npy", "val_dv": "bv.npy"},
+                   "train_dv": "b.npy",
+                   "val_dv": "bv.npy"},
           "train_args": {"nepochs": 1}}
 
 
 def histories():
-  return {"train_losses": [0.1], "val_medians": [0.1], "val_means": [0.1],
+  return {"train_losses": [0.1],
+          "val_medians": [0.1],
+          "val_means": [0.1],
           "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
           "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
 
@@ -125,10 +128,15 @@ def save_plain_base(root, device):
                 "norm": make_norm("affine")}
   model = ResMLP(input_dim=len(names), output_dim=OUT_DIM, int_dim_res=32,
                  n_blocks=2, block_opts=block_opts).to(device)
-  recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-            "ia": None, "input_dim": len(names), "output_dim": OUT_DIM,
-            "compile_mode": None, "needs_geom": False,
-            "kwargs": {"int_dim_res": 32, "n_blocks": 2,
+  recipe = {"cls": "emulator.designs.plain.ResMLP",
+            "name": "resmlp",
+            "ia": None,
+            "input_dim": len(names),
+            "output_dim": OUT_DIM,
+            "compile_mode": None,
+            "needs_geom": False,
+            "kwargs": {"int_dim_res": 32,
+                       "n_blocks": 2,
                        "block_opts": {"act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
   save_emulator(path_root=str(root), model=model, param_geometry=pg,
@@ -153,10 +161,16 @@ def save_factored_base(root, device):
   model = TemplateMLP(input_dim=len(names), output_dim=OUT_DIM, n_amps=1,
                       n_templates=3, int_dim_res=32, n_blocks=2,
                       block_opts=block_opts).to(device)
-  recipe = {"cls": "emulator.designs.ia.TemplateMLP", "name": "resmlp",
-            "ia": "nla", "input_dim": len(names), "output_dim": OUT_DIM,
-            "compile_mode": None, "needs_geom": False,
-            "kwargs": {"n_amps": 1, "n_templates": 3, "int_dim_res": 32,
+  recipe = {"cls": "emulator.designs.ia.TemplateMLP",
+            "name": "resmlp",
+            "ia": "nla",
+            "input_dim": len(names),
+            "output_dim": OUT_DIM,
+            "compile_mode": None,
+            "needs_geom": False,
+            "kwargs": {"n_amps": 1,
+                       "n_templates": 3,
+                       "int_dim_res": 32,
                        "n_blocks": 2,
                        "block_opts": {"act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
@@ -246,8 +260,8 @@ def check_base(tag, root, device, tmp, factored):
       def _hook(_m, _i, _o, _c=calls):
         _c["n"] += 1
       handle = base.model.register_forward_hook(_hook)
-      dv = torch.from_numpy(
-        np.random.default_rng(33).standard_normal((64, TOTAL))).float().to(device)
+      dv_rows = np.random.default_rng(33).standard_normal((64, TOTAL))
+      dv = torch.from_numpy(dv_rows).float().to(device)
       with torch.no_grad():
         target = chi2fn.encode(dv, enc)
         zero = torch.zeros(64, 3, nk, device=device) if factored \
@@ -275,10 +289,17 @@ def _correction_opts(base, geom):
   block_opts = {"act": make_activation("H", n_gates=3),
                 "norm": make_norm("affine")}
   if base.ia is None:
-    return {"cls": ResMLP, "compile_mode": None, "int_dim_res": 16,
-            "n_blocks": 1, "block_opts": block_opts}
-  return {"cls": TemplateMLP, "compile_mode": None, "int_dim_res": 16,
-          "n_blocks": 1, "block_opts": block_opts, "n_amps": 1,
+    return {"cls": ResMLP,
+            "compile_mode": None,
+            "int_dim_res": 16,
+            "n_blocks": 1,
+            "block_opts": block_opts}
+  return {"cls": TemplateMLP,
+          "compile_mode": None,
+          "int_dim_res": 16,
+          "n_blocks": 1,
+          "block_opts": block_opts,
+          "n_amps": 1,
           "n_templates": 3}
 
 
@@ -360,7 +381,8 @@ def check_errors(device, plain_root):
   # rejection when TPE-2 landed refine.)
   raised = False
   try:
-    validate_transfer(cfg={"transfer": {"from": "x", "form": "gain",
+    validate_transfer(cfg={"transfer": {"from": "x",
+                                        "form": "gain",
                                         "refine": {"epochs": 1}}},
                       train_args={"model": {}}, rescale="none")
   except ValueError:
@@ -418,22 +440,30 @@ def check_lifecycle(device, tmp):
                                       compile_mode=None),
                       input_dim=in_dim, output_dim=OUT_DIM, device=device)
   corr.eval()
-  theta = torch.from_numpy(
-    np.random.default_rng(73).standard_normal((8, len(names)))).float().to(device)
+  theta_rows = np.random.default_rng(73).standard_normal((8, len(names)))
+  theta = torch.from_numpy(theta_rows).float().to(device)
   with torch.no_grad():
     enc      = new_pgeom.encode(theta)
     composed = chi2fn.decode(corr(enc), enc)          # in-memory (8, n_keep)
 
   # save the transfer artifact exactly as the driver assembles it.
-  corr_recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-                 "ia": None, "input_dim": int(in_dim), "output_dim": OUT_DIM,
-                 "compile_mode": None, "needs_geom": False,
-                 "kwargs": {"int_dim_res": 16, "n_blocks": 1,
+  corr_recipe = {"cls": "emulator.designs.plain.ResMLP",
+                 "name": "resmlp",
+                 "ia": None,
+                 "input_dim": int(in_dim),
+                 "output_dim": OUT_DIM,
+                 "compile_mode": None,
+                 "needs_geom": False,
+                 "kwargs": {"int_dim_res": 16,
+                            "n_blocks": 1,
                             "block_opts": {"act": {"type": "H", "n_gates": 3},
                                            "norm": "affine"}}}
-  transfer_base = {"recipe": base.recipe, "state": base.model.state_dict(),
-                   "param_geometry": base.pgeom, "dv_geometry": base.geom,
-                   "form": "gain", "space": "physical"}
+  transfer_base = {"recipe": base.recipe,
+                   "state": base.model.state_dict(),
+                   "param_geometry": base.pgeom,
+                   "dv_geometry": base.geom,
+                   "form": "gain",
+                   "space": "physical"}
   saved = Path(tmp) / "life_transfer"
   save_emulator(path_root=str(saved), model=corr, param_geometry=new_pgeom,
                 geometry=geom, config=base_config(), histories=histories(),
@@ -521,21 +551,30 @@ def check_refined_lifecycle(device, tmp):
                                       compile_mode=None),
                       input_dim=in_dim, output_dim=OUT_DIM, device=device)
   corr.eval()
-  theta = torch.from_numpy(
-    np.random.default_rng(82).standard_normal((8, len(names)))).float().to(device)
+  theta_rows = np.random.default_rng(82).standard_normal((8, len(names)))
+  theta = torch.from_numpy(theta_rows).float().to(device)
   with torch.no_grad():
     enc      = new_pgeom.encode(theta)
     composed = chi2fn.decode(corr(enc), enc)          # in-memory, drifted base
 
-  corr_recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-                 "ia": None, "input_dim": int(in_dim), "output_dim": OUT_DIM,
-                 "compile_mode": None, "needs_geom": False,
-                 "kwargs": {"int_dim_res": 16, "n_blocks": 1,
+  corr_recipe = {"cls": "emulator.designs.plain.ResMLP",
+                 "name": "resmlp",
+                 "ia": None,
+                 "input_dim": int(in_dim),
+                 "output_dim": OUT_DIM,
+                 "compile_mode": None,
+                 "needs_geom": False,
+                 "kwargs": {"int_dim_res": 16,
+                            "n_blocks": 1,
                             "block_opts": {"act": {"type": "H", "n_gates": 3},
                                            "norm": "affine"}}}
-  transfer_base = {"recipe": base.recipe, "state": pretrained,
-                   "drifted_state": drifted, "param_geometry": base.pgeom,
-                   "dv_geometry": base.geom, "form": "gain", "space": "physical"}
+  transfer_base = {"recipe": base.recipe,
+                   "state": pretrained,
+                   "drifted_state": drifted,
+                   "param_geometry": base.pgeom,
+                   "dv_geometry": base.geom,
+                   "form": "gain",
+                   "space": "physical"}
   saved = Path(tmp) / "ref_transfer"
   save_emulator(path_root=str(saved), model=corr, param_geometry=new_pgeom,
                 geometry=geom, config=base_config(), histories=histories(),

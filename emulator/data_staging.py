@@ -581,7 +581,9 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   # indices). Consumers that must align a SIBLING dump file row-for-row
   # (the grid2d base files, D-MP2-A) read this; everything else ignores
   # the extra key.
-  src = {"C": C_src, "dv": dv_src, "idx": idx_src,
+  src = {"C": C_src,
+         "dv": dv_src,
+         "idx": idx_src,
          "dump_rows": np.sort(np.unique(np.asarray(idx)))}
   if with_means:
     # the per-column std (2nd return) is unused: whitening comes
@@ -788,7 +790,9 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
   # just compacts to the subset). dv = the output targets Y.
   C_src, Y_src, idx_src = stage_source(
     C=C, dv=Y, idx=idx, ram_frac=ram_frac)
-  src = {"C": C_src, "dv": Y_src, "idx": idx_src}
+  src = {"C": C_src,
+         "dv": Y_src,
+         "idx": idx_src}
   if with_means:
     c_mean, _ = param_stats(arr=C_src, idx=idx_src, method=1)
     y_mean, _ = param_stats(arr=Y_src, idx=idx_src, method=1)

@@ -82,18 +82,25 @@ def save_fixture(root, device, tmp):
                   "norm": make_norm("affine")}
     model = ResMLP(input_dim=2, output_dim=2, int_dim_res=16,
                    n_blocks=2, block_opts=block_opts).to(device)
-    recipe = {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-              "ia": None, "input_dim": 2, "output_dim": 2,
-              "compile_mode": None, "needs_geom": False,
-              "kwargs": {"int_dim_res": 16, "n_blocks": 2,
+    recipe = {"cls": "emulator.designs.plain.ResMLP",
+              "name": "resmlp",
+              "ia": None,
+              "input_dim": 2,
+              "output_dim": 2,
+              "compile_mode": None,
+              "needs_geom": False,
+              "kwargs": {"int_dim_res": 16,
+                         "n_blocks": 2,
                          "block_opts": {"act": {"type": "H",
                                                 "n_gates": 3},
                                         "norm": "affine"}}}
-    config = {"data": {"train_params": "t.1.txt", "val_params": "v.1.txt",
+    config = {"data": {"train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat),
                        "outputs": list(OUT_NAMES)},
               "train_args": {"nepochs": 1}}
-    histories = {"train_losses": [0.1], "val_medians": [0.1],
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}

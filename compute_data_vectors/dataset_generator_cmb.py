@@ -116,12 +116,17 @@ class dataset(GeneratorCore):
     lmax = int(self.lrange[1])
     if self.probe == "cmblensed":
       self.model.add_requirements(
-        {"Cl": {"tt": lmax, "te": lmax, "ee": lmax, "pp": lmax}})
+        {"Cl": {"tt": lmax,
+                "te": lmax,
+                "ee": lmax,
+                "pp": lmax}})
     else:
       # unlensed TT/TE/EE; phi-phi is not a lensed/unlensed quantity and
       # rides the plain Cl requirement on either probe.
       self.model.add_requirements(
-        {"unlensed_Cl": {"tt": lmax, "te": lmax, "ee": lmax},
+        {"unlensed_Cl": {"tt": lmax,
+                         "te": lmax,
+                         "ee": lmax},
          "Cl": {"pp": lmax}})
 
   #-----------------------------------------------------------------------------

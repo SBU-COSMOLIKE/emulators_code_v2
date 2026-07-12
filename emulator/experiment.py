@@ -1038,10 +1038,13 @@ def validate_sizes(data):
 PCE_KEYS = {
   "form", "p_max", "r_max", "q", "k_max", "loo_max", "max_terms", "max_fail",
 }
-_PCE_DEFAULTS = {
-  "p_max": 4, "r_max": 2, "q": 0.5, "k_max": 40, "loo_max": 0.05,
-  "max_terms": 30, "max_fail": 4,
-}
+_PCE_DEFAULTS = {"p_max": 4,
+                 "r_max": 2,
+                 "q": 0.5,
+                 "k_max": 40,
+                 "loo_max": 0.05,
+                 "max_terms": 30,
+                 "max_fail": 4}
 _PCE_INT_KEYS = ("p_max", "r_max", "k_max", "max_terms", "max_fail")
 
 
@@ -1251,7 +1254,9 @@ def validate_transfer(cfg, train_args, rescale="none"):
       notice = ("notice: transfer sum/physical is off-recommendation (the "
                 "additive output spans the decades whitening exists to tame); "
                 "sum/whitened is advised")
-  resolved = {"from": transfer["from"], "form": form, "space": space}
+  resolved = {"from": transfer["from"],
+              "form": form,
+              "space": space}
 
   # the optional refine: stage (D-TP10): a second, joint training stage with
   # the base unfrozen. Validated + materialized here (persist-resolved-values).
@@ -2942,12 +2947,14 @@ class EmulatorExperiment:
     from .designs.pce import PCEEmulator
     from .losses.pce import PCEResidualDiagChi2
     idx = train_set["idx"]
-    X_white = self.pgeom.encode(
-      torch.from_numpy(np.asarray(train_set["C"][idx])).float().to(
-        self.device))
-    Y_white = self.geom.encode(
-      torch.from_numpy(np.asarray(train_set["dv"][idx])).float().to(
-        self.device))
+    # stage the training rows as device tensors, then whiten (one
+    # step per line).
+    C_rows  = np.asarray(train_set["C"][idx])
+    dv_rows = np.asarray(train_set["dv"][idx])
+    tC  = torch.from_numpy(C_rows).float().to(self.device)
+    tdv = torch.from_numpy(dv_rows).float().to(self.device)
+    X_white = self.pgeom.encode(tC)
+    Y_white = self.geom.encode(tdv)
     fit_opts = {k: v for k, v in self.pce_opts.items() if k != "form"}
     # quiet-gated fit report (beside the loading-sources lines).
     pce = PCEEmulator.from_training(
@@ -3487,14 +3494,14 @@ class EmulatorExperiment:
       # materialize the whitened fit inputs once: X_white = pgeom.encode of
       # the raw params, Y_white = geom.encode of the raw dvs (from_training
       # converts to float64 numpy internally). Same tensor path the loaders
-      # use, torch.from_numpy(...).float().to(device).
+      # use, staged one step per line.
       idx = train_set["idx"]
-      X_white = self.pgeom.encode(
-        torch.from_numpy(np.asarray(train_set["C"][idx])).float().to(
-          self.device))
-      Y_white = self.geom.encode(
-        torch.from_numpy(np.asarray(train_set["dv"][idx])).float().to(
-          self.device))
+      C_rows  = np.asarray(train_set["C"][idx])
+      dv_rows = np.asarray(train_set["dv"][idx])
+      tC  = torch.from_numpy(C_rows).float().to(self.device)
+      tdv = torch.from_numpy(dv_rows).float().to(self.device)
+      X_white = self.pgeom.encode(tC)
+      Y_white = self.geom.encode(tdv)
       form     = self.pce_opts["form"]
       fit_opts = {k: v for k, v in self.pce_opts.items() if k != "form"}
       # quiet-gated fit report (beside the loading-sources lines).

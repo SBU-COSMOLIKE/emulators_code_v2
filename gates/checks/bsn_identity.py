@@ -156,10 +156,15 @@ def check_geometry(device):
 
 
 def grid_recipe(nz):
-    return {"cls": "emulator.designs.plain.ResMLP", "name": "resmlp",
-            "ia": None, "input_dim": N_IN, "output_dim": nz,
-            "compile_mode": None, "needs_geom": False,
-            "kwargs": {"int_dim_res": 16, "n_blocks": 2,
+    return {"cls": "emulator.designs.plain.ResMLP",
+            "name": "resmlp",
+            "ia": None,
+            "input_dim": N_IN,
+            "output_dim": nz,
+            "compile_mode": None,
+            "needs_geom": False,
+            "kwargs": {"int_dim_res": 16,
+                       "n_blocks": 2,
                        "block_opts": {"act": {"type": "H", "n_gates": 3},
                                       "norm": "affine"}}}
 
@@ -184,15 +189,20 @@ def save_synthetic_grid(root, device, tmp, quantity="Hubble",
                   "norm": make_norm("affine")}
     model = ResMLP(input_dim=N_IN, output_dim=len(z), int_dim_res=16,
                    n_blocks=2, block_opts=block_opts).to(device)
-    config = {"data": {"grid": {"quantity": quantity, "units": units,
-                                "law": law, "z_file": "z.npy"},
-                       "train_dv": "t.npy", "val_dv": "v.npy",
-                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+    config = {"data": {"grid": {"quantity": quantity,
+                                "units": units,
+                                "law": law,
+                                "z_file": "z.npy"},
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat)},
               "train_args": {"nepochs": 1}}
     if law == "log_offset":
         config["data"]["grid"]["offset"] = offset
-    histories = {"train_losses": [0.1], "val_medians": [0.1],
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
@@ -257,7 +267,8 @@ def check_npce(tmp, device):
     geom = GridGeometry.from_targets(device=device, targets=Y, z=z,
                                      quantity="Hubble", units="km/s/Mpc",
                                      law="log_offset", offset=1.0)
-    X_white = pgeom.encode(torch.from_numpy(C).to(device))
+    tC = torch.from_numpy(C).to(device)
+    X_white = pgeom.encode(tC)
     dv = torch.from_numpy(Y.astype("float32")).to(device)
     pce = PCEEmulator.from_training(device, X_white, geom.encode(dv),
                                     p_max=2, r_max=2, q=0.5, k_max=4,
@@ -282,14 +293,18 @@ def check_npce(tmp, device):
     root = os.path.join(tmp, "emul_grid_npce")
     config = {"data": {"grid": {"quantity": "Hubble",
                                 "units": "km/s/Mpc",
-                                "law": "log_offset", "offset": 1.0,
+                                "law": "log_offset",
+                                "offset": 1.0,
                                 "z_file": "z.npy"},
-                       "train_dv": "t.npy", "val_dv": "v.npy",
-                       "train_params": "t.1.txt", "val_params": "v.1.txt",
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat)},
               "pce": {"form": "residual"},
               "train_args": {"nepochs": 1}}
-    histories = {"train_losses": [0.1], "val_medians": [0.1],
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
@@ -369,7 +384,9 @@ def check_adapter(tmp, device):
                "never emulated" in str(e), "ValueError names the desert")
 
     # calculate + the piecewise getters vs the pipeline / the artifact
-    point = {"omegam": 0.31, "H0": 67.0, "w": -1.0}
+    point = {"omegam": 0.31,
+             "H0": 67.0,
+             "w": -1.0}
     state = {}
     t.calculate(state, want_derived=True, **point)
     t.current_state = state
@@ -443,7 +460,9 @@ def check_finetune(tmp, device):
     C = np.column_stack([g.normal(0.31, 0.01, 64),
                          g.normal(67.0, 2.0, 64),
                          g.normal(-1.0, 0.05, 64)]).astype("float32")
-    train_set = {"C": C, "idx": np.arange(64), "C_mean": C.mean(axis=0)}
+    train_set = {"C": C,
+                 "idx": np.arange(64),
+                 "C_mean": C.mean(axis=0)}
     new_pgeom, extra = warmstart.extend_input_geometry(
         source=source, covmat_path=covmat,
         train_mean=train_set["C_mean"], device=device)
@@ -461,15 +480,22 @@ def check_finetune(tmp, device):
     # from_config legs: wrong-kind + metadata mismatch (before staging).
     def ft_cfg(grid_block, from_root):
         return {"data": {"grid": grid_block,
-                         "train_dv": "t.npy", "val_dv": "v.npy",
+                         "train_dv": "t.npy",
+                         "val_dv": "v.npy",
                          "train_params": "t.1.txt",
                          "val_params": "v.1.txt",
                          "train_covmat": covmat,
-                         "n_train": 10, "n_val": 5, "split_seed": 0},
-                "train_args": {"nepochs": 1, "bs": 8,
+                         "n_train": 10,
+                         "n_val": 5,
+                         "split_seed": 0},
+                "train_args": {"nepochs": 1,
+                               "bs": 8,
                                "finetune": {"from": from_root}}}
-    good = {"quantity": "Hubble", "units": "km/s/Mpc",
-            "law": "log_offset", "offset": 1.0, "z_file": "z.npy"}
+    good = {"quantity": "Hubble",
+            "units": "km/s/Mpc",
+            "law": "log_offset",
+            "offset": 1.0,
+            "z_file": "z.npy"}
     bad = dict(good)
     bad["offset"] = 2.0
     try:

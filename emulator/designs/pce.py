@@ -457,9 +457,12 @@ class PCEEmulator(nn.Module):
       dict with lo / hi / multi_index / C / Vk / Ybar (the six frozen
       buffers, as tensors).
     """
-    return {"lo": self.lo, "hi": self.hi,
+    return {"lo": self.lo,
+            "hi": self.hi,
             "multi_index": self.multi_index,
-            "C": self.C, "Vk": self.Vk, "Ybar": self.Ybar}
+            "C": self.C,
+            "Vk": self.Vk,
+            "Ybar": self.Ybar}
 
   @classmethod
   def from_state(cls, state, device):

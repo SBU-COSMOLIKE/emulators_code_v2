@@ -148,7 +148,9 @@ C_ARCMIN_TO_RAD = math.pi / (180.0 * 60.0)
 # FIXED value. Extension-model names are rejected loudly.
 LCDM_ALLOWED = ("As", "logA", "ns", "H0", "thetastar", "cosmomc_theta",
                 "omegabh2", "omegach2", "tau", "mnu", "omk", "w", "wa")
-LCDM_FIXED_ONLY = {"omk": 0.0, "w": -1.0, "wa": 0.0}
+LCDM_FIXED_ONLY = {"omk": 0.0,
+                   "w": -1.0,
+                   "wa": 0.0}
 
 
 def noise_spectrum(ell, delta_arcmin, beam_fwhm_arcmin):
@@ -348,7 +350,9 @@ def fiducial_spectra(info, lmax):
   model_info["likelihood"] = {"one": {"external": "lambda: 0.0"}}
   model = get_model(model_info)
   model.add_requirements({
-    "Cl": {"tt": int(lmax), "te": int(lmax), "ee": int(lmax),
+    "Cl": {"tt": int(lmax),
+           "te": int(lmax),
+           "ee": int(lmax),
            "pp": int(lmax)},
     "CAMBdata": None,
   })

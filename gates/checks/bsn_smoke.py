@@ -161,12 +161,22 @@ def build_cfg(paths, quantity):
                       "mlp": {"width": 32, "n_blocks": 2}},
             "loss": {"mode": "sqrt"},
             "optimizer": {"weight_decay": 0.0},
-            "lr": {"lr_base": 0.01, "bs_base": 64.0, "warmup_epochs": 0},
-            "scheduler": {"mode": "min", "patience": 10, "factor": 0.8},
-            "trim": {"start": 0.0, "end": 0.0, "hold_epochs": 0,
-                     "anneal_epochs": 1, "shape": "cosine"},
-            "focus": {"start": 0.0, "end": 0.0, "hold_epochs": 0,
-                      "anneal_epochs": 1, "shape": "linear",
+            "lr": {"lr_base": 0.01,
+                   "bs_base": 64.0,
+                   "warmup_epochs": 0},
+            "scheduler": {"mode": "min",
+                          "patience": 10,
+                          "factor": 0.8},
+            "trim": {"start": 0.0,
+                     "end": 0.0,
+                     "hold_epochs": 0,
+                     "anneal_epochs": 1,
+                     "shape": "cosine"},
+            "focus": {"start": 0.0,
+                      "end": 0.0,
+                      "hold_epochs": 0,
+                      "anneal_epochs": 1,
+                      "shape": "linear",
                       "kappa": 0.15},
         },
     }
@@ -189,7 +199,8 @@ def check_train(paths, tmp, device, quantity):
     save_emulator(path_root=root, model=model, param_geometry=exp.pgeom,
                   geometry=exp.geom, config=cfg,
                   histories={"train_losses": train_losses,
-                             "val_medians": medians, "val_means": means,
+                             "val_medians": medians,
+                             "val_means": means,
                              "val_fracs": fracs,
                              "thresholds": exp.thresholds},
                   train_args=exp.train_args, pce=None, pce_form=None,
@@ -248,7 +259,9 @@ def check_cobaya(root_h, root_dm, tmp):
         report("cobaya lifecycle through emul_baosn", False,
                "cobaya not importable: " + str(e))
         return
-    point = {"omegam": 0.33, "H0": 69.5, "w": -0.95}
+    point = {"omegam": 0.33,
+             "H0": 69.5,
+             "w": -0.95}
     z_sn = np.array([0.2, 0.8, 1.5, 2.5])
     z_rec = np.array([1060.0, 1090.0, 1150.0])
     info = {
@@ -259,11 +272,14 @@ def check_cobaya(root_h, root_dm, tmp):
                            "emulators": [root_h, root_dm]}}},
         "params": {
             "omegam": {"prior": {"min": 0.24, "max": 0.40},
-                       "ref": 0.31, "proposal": 0.01},
+                       "ref": 0.31,
+                       "proposal": 0.01},
             "H0":     {"prior": {"min": 60.0, "max": 75.0},
-                       "ref": 67.36, "proposal": 0.5},
+                       "ref": 67.36,
+                       "proposal": 0.5},
             "w":      {"prior": {"min": -1.3, "max": -0.7},
-                       "ref": -1.0, "proposal": 0.02},
+                       "ref": -1.0,
+                       "proposal": 0.02},
         },
     }
     try:
@@ -323,7 +339,8 @@ def check_diagnostics(exp, model, tmp):
                          fracs=[0.5 * torch.ones(int(exp.thresholds.numel()))],
                          thresholds=exp.thresholds,
                          coverage={"knn_dist": np.ones(4),
-                                   "dchi2": np.ones(4), "k_nn": 2},
+                                   "dchi2": np.ones(4),
+                                   "k_nn": 2},
                          grid=gd, savepath=pdf)
         ok = (n_pages == 2 and os.path.isfile(pdf)
               and os.path.getsize(pdf) > 10000)
