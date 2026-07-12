@@ -997,6 +997,20 @@ files were created. Priority follows user-visible risk:
     unit 41's record); shipped AdamW byte-identical. Spec:
     training-stack.md, "The optimizer factory is CUDA-Adam-specific
     behind a general contract".
+50. **Epoch-truth under chunking** (45M-38, 2026-07-12, CRITICAL —
+    fourth in the critical-code sequence, after the CMB reopen).
+    The loop drops the ragged batch of EVERY loader chunk while the
+    resident-encoded branch sizes chunks from bytes with no bs
+    rounding (batching.py:359) — load = 2*bs - 1 discards bs - 1
+    rows per chunk (near half the epoch), epoch semantics become
+    memory-dependent (two GPUs, same seed, different meaning of
+    "epoch"), and the EMA accounting proves it executed
+    (chunk // bs summed). Contract: placement changes I/O grouping
+    never batch count; non-final chunks exact bs multiples; only the
+    global n_train % bs tail dropped; steps_per_epoch == n_train//bs
+    in every regime, reported and recorded; docstring corrected.
+    Spec: training-stack.md, "VRAM chunk boundaries silently change
+    the rows used per epoch".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches
@@ -1010,7 +1024,7 @@ re-send before adjudication. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
-14(a+b+c) -> 36 -> 42+43 -> 22(+20) -> 13(+01) order define the
+14(a+b+c) -> 36 -> 42+43 -> 50 -> 22(+20) -> 13(+01) order define the
 active pipeline (updated with the third 45M batch: the CMB
 amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
 unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15

@@ -1020,3 +1020,48 @@ before the loop; transfer-refine exercises both decisions; CPU/CUDA
 acceptance does not fork except for a documented accelerator
 capability; a mutation restoring the unconditional injection fails;
 the saved resolved record matches the optimizer actually constructed.
+
+## VRAM chunk boundaries silently change the rows used per epoch (red-team 45M-38, 2026-07-12, Architect-VERIFIED; queue 50 — CRITICAL, fourth in the critical-code sequence)
+
+The loop drops the ragged last minibatch of EVERY loader chunk
+(training.py ~1960-1966, "Drop the ragged last batch so every batch
+is one size... dropped tail rows rotate, no data is permanently
+lost"), and the device-resident-encoded branch of the loader
+computes its chunk size from remaining bytes with NO rounding to a
+batch multiple (batching.py:359-360,
+fit_rows = max(bs, vram_left // bytes_per_row); load = min(...)).
+So with load = 2*bs - 1, every chunk loads 2*bs - 1 rows, trains on
+bs, and discards bs - 1 — nearly half the dataset omitted from every
+nominal epoch. The comment's rotation argument is refuted as the
+finding states: rotating WHICH rows are dropped does not restore the
+missing optimizer steps, scheduler exposure, or trim/focus cadence,
+and two GPUs at the same seed/config disagree on what "epoch" means
+purely through resident capacity. The code's own EMA accounting
+(steps_per_epoch = whole batches per chunk summed over chunks,
+~1645-1648) confirms the truncation is executed behavior, not a
+theoretical path. Distinct from the bs > n_train zero-step defect:
+here bs is legal and every chunk steps — the run just discards a
+memory-dependent fraction of its training exposure.
+
+Contract (Implementer, adopted whole): memory placement may change
+I/O grouping, NEVER the number of full optimizer batches in an
+epoch; every non-final chunk an exact multiple of bs (rounding the
+safe maximum DOWN is memory-safe); at most the single unavoidable
+global tail of n_train % bs rows dropped, independent of regime and
+budget (carrying leftovers across chunks is the alternative — never
+padding duplicated rows into the objective);
+steps_per_epoch == n_train // bs derived and reported for every
+regime; fixed-shape compiled batches kept; the effective rows/steps
+per epoch recorded (a nominal n_train must not conceal a smaller
+memory-dependent sample count — rides unit 41's resolved record);
+the loader docstring's unconditional multiple-of-bs claim corrected
+(false in the resident-encoded branch today). Gate legs (torch,
+board-listed, workstation): same dataset + seed under resident,
+RAM-stream, and memmap-stream controls execute exactly
+n_train // bs steps on exactly that many rows; the adversarial
+2*bs - 1 capacity no longer loses bs - 1 per chunk; only the one
+global tail omitted; loader requests never exceed the safe maximum;
+EMA steps_per_epoch + warmup/scheduler counts + the reported
+effective-row count agree with executed steps; a mutation restoring
+arbitrary resident load fails; a divisible control uses every row
+exactly once per epoch modulo the shuffle.
