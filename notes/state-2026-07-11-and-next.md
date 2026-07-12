@@ -145,6 +145,27 @@ In order, with the commit that carries each:
    line at build), while law-none constants and a WHOLLY constant
    surface (the stale-dump signature) still raise. mps-identity
    gained the D-MP9 legs. Probes 11/11 on the real bodies.
+14. **Board run 2b + the regression-pass flag (night)**: the user
+   re-ran at HEAD 08cfc41 (still without the run-13 triage fixes).
+   Two proofs landed: save-rebuild-drift ALL PASS on CUDA including
+   the NEW head variant (the bin-split persistence proven end to end
+   through the real training path) and the pre-persistence refusal;
+   scalar-identity re-passed with the reworded trunk-only guard. One
+   new red: scalar-smoke's diagnostics leg (its FIRST execution — it
+   was on the force-rerun list precisely because it was added after
+   the last green) hit an IndexError: the hand-built fracs row was
+   4-wide but DEFAULT_THRESHOLDS has FIVE entries, so the history
+   panel indexed column 4 out of bounds. The same landmine sat in
+   ALL FOUR smoke gates' diagnostics legs (scalar/cmb/bsn/mps) —
+   fixed uniformly (fracs sized to exp.thresholds.numel()). Also
+   added, on the user's ask ("force to redo ALL tests"):
+   run_board.py --force-rerun-all — reruns every SELECTED gate,
+   composes with --gate/--tier/--from, never deletes the resume map.
+   Doc sweep: gates/README (the 32-test table completed — it
+   listed 19 — + the new flag), board.py/README count-free wording,
+   the set_train_phase docstring corrected in both experiment.py
+   spots (two-phase = the factored-IA templates ONLY; plain
+   rescnn/restrf are single-phase on every family).
 
 ## Evidence status: what is PROVEN vs what is PENDING
 
