@@ -72,7 +72,10 @@ train_args:
   # per z slice (attention shares information across redshifts, each
   # slice's private MLP specializes along k; n_tokens is rejected here —
   # the z slices ARE the tokens, and restrf's n_heads must divide nk
-  # after the k_stride thinning). Uncomment ONE head block with its name.
+  # after the k_stride thinning). Uncomment ONE head block with its
+  # name. With a head, the two-phase schedule applies here exactly as
+  # on cosmic shear (trunk_epochs / freeze_trunk + the trunk: / head:
+  # blocks — README section 11).
   model:
     name: resmlp
     mlp:

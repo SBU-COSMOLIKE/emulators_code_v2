@@ -51,7 +51,7 @@ README sections 14 and 15.
   (PERMANENT — transfer is exclusive to the cosmolike + CMB
   data-vector families; fine-tuning is universal).
 
-## CME — CMB spectra emulators. CODE COMPLETE; gates cmb-identity/cmb-smoke.
+## CME — CMB spectra emulators. ACCEPTED END TO END (board run 4, 2026-07-11); gates cmb-identity/cmb-smoke.
 
 - One emulator learns ONE spectrum (tt/te/ee/pp) on l = 2..lmax
   (l = 0,1 are zero-variance whitening poison). CmbDiagonalGeometry:
@@ -104,10 +104,14 @@ README sections 14 and 15.
 - Fine-tuning: four loud pin checks (spectrum, law + columns, ell
   grid, covariance file). Transfer for CMB is DEFERRED (D-CM7), not
   permanent — the one family besides cosmolike allowed to get it.
-- First-run risks (recorded for the board): the get_model +
-  add_requirements path; the generator's first CAMB-only run; serial
-  ~400 CAMB calls (lower LMAX/NROWS if slow);
-  get_lensed_cls_with_spectrum's call signature.
+- First-run risks — ALL RESOLVED by the board saga (run 4 green):
+  the get_model + add_requirements path and the generator's CAMB run
+  worked as shipped; the ~400 serial CAMB calls cost ~10 min at
+  AccuracyBoost 0.7. The two failures the first runs DID hit were
+  gate-fixture conventions of the covariance script (plain-number
+  params, run 1; the script's OWN omegabh2/omegach2 names, run 3) —
+  the fixture now mirrors example_yamls/cmb_covariance_lcdm.yaml
+  exactly, and the lesson is recorded in conventions-and-workflow.md.
 
 ## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented)
 
@@ -164,12 +168,16 @@ What shipped (simpler than the spec — the identity insight):
 - The from_config guards lifted for cmb / grid / grid2d with the
   cs-style head-pin notice resolution; SCALAR stays trunk-only
   (named outputs have no coordinate axis) with the reworded error.
-- Two-phase stays as on cosmic shear: plain ResCNN/ResTRF define no
-  set_train_phase (only the factored-IA templates do), so
-  trunk_epochs demotes identically for every family — symmetric.
-  The per-head activation pin licensing (needs a frozen-trunk phase)
-  is therefore equally out of reach on both sides; model.activation
-  governs.
+- Two-phase (SUPERSEDED 2026-07-12, user ruling "any trunk-head
+  design could benefit"): plain ResCNN/ResTRF now define
+  set_train_phase, mirroring the IA-template contract exactly
+  (joint/trunk/head requires_grad groups; the trunk phase bypasses
+  the zero-init head at pure-ResMLP cost; the head phase runs the
+  frozen trunk under no_grad) — trunk_epochs / freeze_trunk / the
+  trunk:/head: phase blocks now work on every family the heads
+  ride, and the per-head activation pin (model.cnn/.trf.activation,
+  licensed by a frozen-trunk head phase) is reachable everywhere.
+  Phase-discipline legs ride the cmb/mps-identity head checks.
 - Gate legs (no board-count change): cmb-identity check_head (ResTRF
   + n_tokens: attach, identity basis, epoch-0 identity, range error,
   save->rebuild->predict bitwise) and mps-identity check_head

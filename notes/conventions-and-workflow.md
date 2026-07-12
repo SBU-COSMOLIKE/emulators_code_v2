@@ -157,3 +157,30 @@ measured, three times); verify every harness on a known-good case
 true positives, head -5 truncating a census); fixing layer N unmasks
 layer N+1; sequential commits when units share files; the terminal is
 a dashboard, the log file is the archive.
+
+Added by the 32/32 board saga (2026-07-11/12; the run-by-run table is
+in gates-and-board.md):
+
+- READ `HEAD at run:` in a gate log BEFORE reading its failure —
+  three runs in one night re-tested old code and their reds were
+  already fixed (the pull/merge race is the default failure mode of
+  a two-machine loop).
+- A gate fixture MIRRORS the shipped example YAML, never re-types
+  its keys from memory (the covariance fixture re-invented two of
+  the example's conventions wrong, one board run each).
+- A hand-built fixture value that mirrors a REAL run value must
+  DERIVE every coupled width from it, never hardcode (the 4-wide
+  fracs row vs the 5-entry DEFAULT_THRESHOLDS, in all four smoke
+  gates at once).
+- The "$ROOTDIR for cobaya-run" rule extends to IN-PROCESS get_model
+  with cocoa's relative theory paths — check scripts resolve
+  `external_modules/...` paths absolutely from $ROOTDIR (subprocess
+  legs with cwd=rootdir never hit it, which is why it hid).
+- When a guard needs a carve-out, carve on the PHYSICS axis, not a
+  config axis the physics does not respect (D-MP9: partial-constant
+  = flat physics under ANY law; whole-constant = dead dump).
+- When a mechanism hypothesis about third-party internals fails once
+  on the real machine, stop patching around it and switch to the
+  documented API path (the wants-Cl quirk vs
+  logposterior(cached=False)) — and build the tripwire that can
+  falsify the hypothesis BEFORE trusting the fix.

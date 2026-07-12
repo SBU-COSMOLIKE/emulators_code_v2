@@ -145,10 +145,12 @@ train_args:
   # pass; ema: null (the key with an empty value) disables an inherited
   # top-level ema for that phase.
 
-  # Two-phase schedule (a factored correction head: name rescnn |
-  # restrf + ia: nla; omit or 0 = joint training).
+  # Two-phase schedule (ANY correction head: name rescnn | restrf,
+  # plain or with ia:, on every family the heads ride; omit or 0 =
+  # joint training).
   # Phase 1 (epochs 1..trunk_epochs): the correction head is bypassed,
-  # so the model trains as pure nla at nla cost per epoch. Phase 2 (the
+  # so the model trains as its pure trunk at trunk cost per epoch.
+  # Phase 2 (the
   # remaining nepochs - trunk_epochs): by default the trunk freezes at
   # phase 1's best epoch and runs under no_grad (no trunk backward); only
   # the head + gates train, from a zero-init identity start, so the loss is
@@ -175,10 +177,11 @@ train_args:
   # the phase's own epoch 1; loss (the nested {mode, berhu} block), ema
   # (the {horizon_epochs, anneal} block; ema: null disables an inherited
   # one), clip, and rewind replace their value.
-  # On a single-phase model (any name: resmlp, including ia nla / tatt;
-  # rescnn / restrf are the two-phase models) train() ignores head: and
-  # trunk_epochs and merges trunk: into the top level, printing a one-line
-  # notice, so this same YAML also drives a plain baseline with no edits.
+  # On a single-phase model (resmlp, including ia nla / tatt — the one
+  # design with no head; every rescnn / restrf is two-phase) train()
+  # ignores head: and trunk_epochs and merges trunk: into the top level,
+  # printing a one-line notice, so this same YAML also drives a plain
+  # baseline with no edits.
   # trunk:                   # phase 1 (pure-trunk training)
   #   lr:
   #     lr_base:   0.0025    # phase-1 base lr (same sqrt-batch rule)

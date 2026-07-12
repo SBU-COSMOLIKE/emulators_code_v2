@@ -1361,8 +1361,9 @@ defaults are precedence
 
 ## 11. Two-phase schedule + the `trunk:` / `head:` blocks
 
-A factored head (`rescnn` / `restrf`) can train in two phases: the trunk
-alone, then the head:
+Any model with a correction head (`rescnn` / `restrf`, plain or
+factored, on every family the heads ride) can train in two phases: the
+trunk alone, then the head:
 
 ```
 phase "trunk"  (epochs 1 .. trunk_epochs)   head bypassed, trunk trains alone
@@ -1393,11 +1394,12 @@ pins the head's own activation family. The same key inside `trunk:` is an
 error; that rule is precedence
 [A](#22-appendix-precedence--who-wins-when-settings-collide).
 
-Single-phase models never break on a two-phase YAML. On any `resmlp`,
-`train()` demotes the phase keys: `trunk:` merges into the top level, and
-`head:`, `trunk_epochs`, and `freeze_trunk` are dropped. The same YAML
-therefore drives both model families — what is in the trunk block is just
-the global.
+Single-phase models never break on a two-phase YAML. On any `resmlp`
+(the one design with no head, on any family), `train()` demotes the
+phase keys: `trunk:` merges into the top level, and `head:`,
+`trunk_epochs`, and `freeze_trunk` are dropped. The same YAML therefore
+drives both model families — what is in the trunk block is just the
+global.
 
 ```yaml
   trunk_epochs:  1500

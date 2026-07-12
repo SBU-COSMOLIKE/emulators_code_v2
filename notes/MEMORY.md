@@ -9,9 +9,10 @@ Read in this order for a cold start: (1) this index,
 (2) state-2026-07-11-and-next.md, (3) project-and-history.md, then
 the topic file your task touches.
 
-- [State + what must still be tested](state-2026-07-11-and-next.md) —
-  where the code stands, what landed 2026-07-11, the ordered
-  user-run test queue (board, artifacts, EMUL2, spec audits).
+- [State + what comes next](state-2026-07-11-and-next.md) — the
+  board is 32/32 GREEN (run 9, 2026-07-12); the redistribution map
+  to the topic notes; the queue: regression pass (--force-rerun-all)
+  -> the five artifacts -> EMUL2 -> the D-CM12 audit -> science.
 - [Project + history](project-and-history.md) — the goal, the
   development arc by phase, the family-pattern recipe (what a new
   output family adds), the program-level lessons.
@@ -44,7 +45,8 @@ the topic file your task touches.
   param_cuts windows and the coverage-cut lesson.
 - [Gates + the board](gates-and-board.md) — the harness the user
   runs, the 32 gates, identity/smoke philosophy, dead-network rule,
-  the run-history table and its lessons.
+  --force-rerun-all, and the run-history table through the first
+  full 32/32 green (nine runs, every red root-caused).
 - [Conventions + workflow + environment](conventions-and-workflow.md)
   — the Python/docs/README/plots/terminal/YAML house rules, the
   dual-agent workflow, git discipline, the Mac evidence pattern,

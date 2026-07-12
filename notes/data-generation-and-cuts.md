@@ -19,7 +19,30 @@ set" — the four-generator table + the shared-core walkthrough).
   syren _base files when write_syren_base + _z/_k sidecars; the
   wants-Cl CAMB quirk kept verbatim). Fifth tool:
   compute_cmb_covariance.py (the analytic per-multipole covariance;
-  families-scalar-cmb.md has its physics).
+  families-scalar-cmb.md has its physics; its params block is PLAIN
+  NUMBERS with the script's OWN names omegabh2/omegach2 — mirror
+  example_yamls/cmb_covariance_lcdm.yaml, both conventions are
+  validated loudly and each was re-invented wrong once by a gate
+  fixture).
+- TWO evaluation idioms, deliberately unharmonized (board runs 1-5,
+  2026-07-11): lensing/cmb/mps evaluate each sample through the
+  legacy hand-rolled check_cache_and_compute(cached=True) component
+  loop — proven by their gates (dumps vary, trainings collapse). The
+  BACKGROUND generator instead uses the standard
+  model.logposterior(point, cached=False) lifecycle: with its
+  background-only requirement set the legacy loop served a STALE
+  first-sample CAMBdata (every dump row one cosmology, bitwise), and
+  the wants-Cl quirk did NOT cure it (the bsn-smoke dump-variance
+  tripwire falsified that hypothesis at spread exactly 0.0). Do not
+  harmonize either direction without gate evidence; the full saga is
+  in families-background-mps.md.
+- The MPS Pk requirement's k_max is DERIVED, not the legacy constant:
+  max(2 x k grid top, 20) — equal to the verbatim 200 on the
+  production grid (k top 100), ~10x cheaper for a small-grid smoke
+  (the first full mps-smoke run burned ~1 h computing k = 200
+  transfers against a grid topping at 10). Every dumped k stays
+  computed, never extrapolated; extrap_kmax remains the served
+  interpolator's tail edge.
 - The lensing generator was imported VERBATIM from the user's
   production copy (byte-identical except one header path) —
   battle-tested production code gets NO house-style retrofit; the

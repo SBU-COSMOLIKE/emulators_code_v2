@@ -62,8 +62,14 @@ name their own path.
   `cls` rejected; `ema: null` = key-present-None disables an
   inherited ema, key-absent inherits).
 - Capability probe everywhere: `hasattr(model_cls, "set_train_phase")`
-  on the CLASS, never the model name (every resmlp incl. ia: is
-  single-phase; two-phase = rescnn/restrf with an ia).
+  on the CLASS, never the model name. Two-phase = EVERY design with a
+  correction head: plain rescnn/restrf on every family they ride
+  (the 2026-07-12 user ruling — "any trunk-head design could benefit
+  from the two-phase training"; the plain heads mirror the template
+  contract exactly: joint/trunk/head requires_grad groups, the trunk
+  phase bypasses the zero-init head at pure-ResMLP cost, the head
+  phase runs the frozen trunk under no_grad) and the factored-IA
+  templates. Single-phase = resmlp, incl. its ia variants.
 - Single-phase demotion (`resolve_phase_args`, pure, the single choke
   point at the top of experiment.train()): drops head/trunk_epochs/
   freeze_trunk, merges trunk.X to the top by pure prefix-strip, on a
@@ -158,6 +164,25 @@ message and escapes the newlines). Companions: a block no pass can
 consume is a loud config error; when a "natural mistake" is
 self-consistent, accept it by canonicalization (D-L1v3) — a trap with
 a good apology is still a trap.
+
+## The driver surface (family-first names, thin wrappers, one code path)
+
+Every driver is `<family>_<verb>_emulator.py` (user ruling: "what you
+are emulating comes first always"). The cosmic-shear drivers are the
+ENGINES — their mains take (prog, family[, out_default]) — and every
+per-family driver (train / tune / sweep_ntrain / sweep_hyperparam,
+for scalar / cmb / baosn / mps) is a thin wrapper that pins the
+family: a wrong-family YAML fails at startup NAMING the right driver
+(require_family_block), the Optuna study name becomes the wrapper's
+prog (per-family studies never mix in a shared journal), and EVERY
+capability rides through — the multi-GPU pool, --gpu-pack (with the
+scalar dv-less VRAM fallback), LPT balancing, the journal study. The
+sweep-block helpers (read_sweep_block, set_by_path,
+SWEEPABLE_TOP_KEYS, ACTIVATION_PATHS) live ONCE in
+emulator/family_drivers.py; the earlier serial per-family loops were
+deleted when parity landed (2026-07-11, commit 2fcd367). Each wrapper
+carries provenance comments naming where its main lives and what the
+wrapper pins.
 
 ## Where the deltas live (IDs preserved for git archaeology)
 

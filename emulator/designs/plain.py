@@ -562,6 +562,14 @@ class ResCNN(DesignSpec, nn.Module):
     # learnable scalar gate on the correction (small init, not 0).
     self.gate = nn.Parameter(torch.tensor(float(gate_init)))
 
+    # training phase, set by set_train_phase: "joint" (default,
+    # everything trains), "trunk" (head frozen and bypassed, the
+    # model runs as a pure ResMLP at ResMLP cost), "head" (trunk
+    # frozen and run under no_grad, backward touches the head only).
+    # A plain Python attribute: torch.compile guards on it and
+    # recompiles once per phase switch.
+    self._phase = "joint"
+
     # Frozen basis-change buffers (move with .to(device), not
     # trained). x @ W_fd maps f -> d, x @ W_df maps d -> f. sigma =
     # per-element scale sqrt(diag cov); evecs/sqrt_ev the full basis.
@@ -586,9 +594,60 @@ class ResCNN(DesignSpec, nn.Module):
       self.W_fd = None
       self.W_df = None
 
+  def set_train_phase(self, phase):
+    """Switch the two-phase training mode (run_emulator calls this).
+
+    Identical contract to TemplateResCNN.set_train_phase — the plain
+    heads gained it when two-phase stopped being an IA-template
+    privilege (user ruling 2026-07-12: ANY trunk+head design may
+    train in two phases, on every family the heads ride):
+      "joint" = everything trains, head active (the default).
+      "trunk" = head frozen and bypassed: forward returns the bare
+                trunk, so phase-1 epochs cost exactly a ResMLP (no
+                head compute, no head gradients). With the zero-init
+                head this changes nothing numerically, corr was
+                already 0.
+      "head"  = trunk frozen and run under no_grad: backward touches
+                only the conv head + gate, so phase-2 epochs skip
+                the whole trunk backward. The head starts from its
+                zero-init identity, so the loss is continuous across
+                the switch.
+
+    Arguments:
+      phase = "joint" | "trunk" | "head".
+    """
+    if phase not in ("joint", "trunk", "head"):
+      raise ValueError(f"unknown train phase {phase!r}; "
+                       "use 'joint', 'trunk', or 'head'")
+    self._phase = phase
+    trunk_on = phase in ("joint", "trunk")
+    head_on  = phase in ("joint", "head")
+    for p in self.mlp.parameters():
+      p.requires_grad_(trunk_on)
+    for p in self.convs.parameters():
+      p.requires_grad_(head_on)
+    for p in self.acts.parameters():
+      p.requires_grad_(head_on)
+    if self.film_gens is not None:
+      # the FiLM generators are head parameters: frozen with the
+      # head in the trunk phase, trained with it in the head phase.
+      for p in self.film_gens.parameters():
+        p.requires_grad_(head_on)
+    self.gate.requires_grad_(head_on)
+
   def forward(self, x):
-    # trunk prediction in the full-whitened basis (the bulk map).
-    y = self.mlp(x)                   # (B, n_keep)
+    # trunk prediction in the full-whitened basis (the bulk map). In
+    # the "head" phase the trunk is frozen, so skip building its
+    # autograd graph: no trunk activations stored, no trunk backward.
+    if self._phase == "head":
+      with torch.no_grad():
+        y = self.mlp(x)               # (B, n_keep)
+    else:
+      y = self.mlp(x)                 # (B, n_keep)
+    # "trunk" phase: the head is frozen at its zero-init identity, so
+    # its output is known to be y — skip the compute entirely.
+    if self._phase == "trunk":
+      return y
     # (reminder: W_fd = f -> d, full-whitened -> diagonal theta
     # order; W_df = d -> f, its inverse. The subscripts read in
     # multiply order: x @ W_fd starts in f and lands in d. On an
@@ -863,6 +922,14 @@ class ResTRF(DesignSpec, nn.Module):
     # learnable scalar gate on the correction (small init, not 0).
     self.gate = nn.Parameter(torch.tensor(float(gate_init)))
 
+    # training phase, set by set_train_phase: "joint" (default,
+    # everything trains), "trunk" (head frozen and bypassed, the
+    # model runs as a pure ResMLP at ResMLP cost), "head" (trunk
+    # frozen and run under no_grad, backward touches the head only).
+    # A plain Python attribute: torch.compile guards on it and
+    # recompiles once per phase switch.
+    self._phase = "joint"
+
     # Frozen basis-change buffers, exactly ResCNN's (reminder:
     # W_fd = f -> d, full-whitened -> diagonal theta order /sigma;
     # W_df = d -> f, its inverse, subscripts in multiply order). A
@@ -880,9 +947,58 @@ class ResTRF(DesignSpec, nn.Module):
       self.W_fd = None
       self.W_df = None
 
+  def set_train_phase(self, phase):
+    """Switch the two-phase training mode (run_emulator calls this).
+
+    Identical contract to TemplateResTRF.set_train_phase — the plain
+    heads gained it when two-phase stopped being an IA-template
+    privilege (user ruling 2026-07-12: ANY trunk+head design may
+    train in two phases, on every family the heads ride):
+      "joint" = everything trains, head active (the default).
+      "trunk" = head frozen and bypassed: forward returns the bare
+                trunk, so phase-1 epochs cost exactly a ResMLP (no
+                head compute, no head gradients). With the
+                identity-at-init blocks this changes nothing
+                numerically, corr was already 0.
+      "head"  = trunk frozen and run under no_grad: backward touches
+                only the transformer head + gate, so phase-2 epochs
+                skip the whole trunk backward. The blocks start from
+                their identity init, so the loss is continuous
+                across the switch.
+
+    Arguments:
+      phase = "joint" | "trunk" | "head".
+    """
+    if phase not in ("joint", "trunk", "head"):
+      raise ValueError(f"unknown train phase {phase!r}; "
+                       "use 'joint', 'trunk', or 'head'")
+    self._phase = phase
+    trunk_on = phase in ("joint", "trunk")
+    head_on  = phase in ("joint", "head")
+    for p in self.mlp.parameters():
+      p.requires_grad_(trunk_on)
+    for p in self.trf.parameters():
+      p.requires_grad_(head_on)
+    if self.film_gens is not None:
+      # the FiLM generators are head parameters: frozen with the
+      # head in the trunk phase, trained with it in the head phase.
+      for p in self.film_gens.parameters():
+        p.requires_grad_(head_on)
+    self.gate.requires_grad_(head_on)
+
   def forward(self, x):
-    # trunk prediction in the full-whitened basis (the bulk map).
-    y = self.mlp(x)                   # (B, n_keep)
+    # trunk prediction in the full-whitened basis (the bulk map). In
+    # the "head" phase the trunk is frozen, so skip building its
+    # autograd graph: no trunk activations stored, no trunk backward.
+    if self._phase == "head":
+      with torch.no_grad():
+        y = self.mlp(x)               # (B, n_keep)
+    else:
+      y = self.mlp(x)                 # (B, n_keep)
+    # "trunk" phase: the head is frozen at its identity init, so its
+    # output is known to be y — skip the compute entirely.
+    if self._phase == "trunk":
+      return y
     # (reminder: W_fd = f -> d, full-whitened -> diagonal theta
     # order; W_df = d -> f, its inverse. The subscripts read in
     # multiply order: x @ W_fd starts in f and lands in d. On an
