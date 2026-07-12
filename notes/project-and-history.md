@@ -69,6 +69,26 @@ gates the user runs on a GPU workstation.
    vendored in-repo; per-family train drivers + the family-first
    rename (<family>_<verb>_emulator.py, user ruling); README section
    18; MPS-DIAG; the D-CM12/D-CM13 specs; this notes consolidation.
+10. **Capability symmetry + the board saga (2026-07-11 evening ->
+   07-12 00:12).** Two user directives closed the symmetry gap:
+   family driver PARITY (all twelve family sweep/tune drivers became
+   thin wrappers over the cosmic-shear mains' (prog, family) — one
+   code path, so multi-GPU / --gpu-pack / journal studies reach
+   every family) and D-CM13 IMPLEMENTED generalized (conv/TRF heads
+   on cmb/grid/grid2d via attach_head_coords() + the identity-basis
+   insight; model.trf.n_tokens; scalar trunk-only permanently),
+   which surfaced and fixed the cosmic-shear head-artifact rebuild
+   gap (bin_sizes/pm_kept now persist). Then NINE board runs in one
+   night took the board from 25 greens to THE FIRST FULL 32/32
+   (2026-07-12 00:12) — every red root-caused: two gate-fixture
+   format bugs, ONE real generator bug (stale cached background ->
+   the logposterior(cached=False) lifecycle, the quirk hypothesis
+   falsified by the tripwire built to test it), D-MP9 born then
+   amended law-agnostic, the $ROOTDIR-relative-path class, cobaya's
+   >= 4 spline redshifts, the fracs-width fixture landmine, and a
+   ~10-20x mps-smoke speedup (the grid-derived k_max). Final leg:
+   smoke emulators vs CAMB's own P(k, z) at rel 0.93% against the
+   5% bar. The run-by-run table: gates-and-board.md.
 
 ## The family-pattern recipe (what a NEW output family adds)
 
@@ -88,8 +108,11 @@ trim/focus/berhu/EMA/anchor compose; (6) staging by NAME through the
 CLASS-GUARDED metadata reads (the two-registry law collision);
 (8) a predictor branch with a family-shaped return; (9) a cobaya
 adapter on the emul_scalars template with wrong-kind guards BOTH ways;
-(10) a thin <family>_train_emulator.py wrapper + the serial
-sweep/tune pair on family_drivers; (11) TWO board gates —
+(10) thin <family>_<verb>_emulator.py wrappers over the cosmic-shear
+drivers' main(prog, family) — train, tune, sweep_ntrain,
+sweep_hyperparam — inheriting the full multi-GPU surface (the parity
+ruling; the sweep-block helpers live once in family_drivers.py);
+(11) TWO board gates —
 <family>-identity (bitwise round-trips; every closed delta gets a leg
 forever) and <family>-smoke (real generator -> train -> real cobaya
 lifecycle; dead-network-RELATIVE bars) + registry registration;

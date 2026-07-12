@@ -51,7 +51,7 @@ README sections 14 and 15.
   (PERMANENT — transfer is exclusive to the cosmolike + CMB
   data-vector families; fine-tuning is universal).
 
-## CME — CMB spectra emulators. CODE COMPLETE; gates cmb-identity/cmb-smoke.
+## CME — CMB spectra emulators. ACCEPTED END TO END (board run 4, 2026-07-11); gates cmb-identity/cmb-smoke.
 
 - One emulator learns ONE spectrum (tt/te/ee/pp) on l = 2..lmax
   (l = 0,1 are zero-variance whitening poison). CmbDiagonalGeometry:
@@ -104,10 +104,14 @@ README sections 14 and 15.
 - Fine-tuning: four loud pin checks (spectrum, law + columns, ell
   grid, covariance file). Transfer for CMB is DEFERRED (D-CM7), not
   permanent — the one family besides cosmolike allowed to get it.
-- First-run risks (recorded for the board): the get_model +
-  add_requirements path; the generator's first CAMB-only run; serial
-  ~400 CAMB calls (lower LMAX/NROWS if slow);
-  get_lensed_cls_with_spectrum's call signature.
+- First-run risks — ALL RESOLVED by the board saga (run 4 green):
+  the get_model + add_requirements path and the generator's CAMB run
+  worked as shipped; the ~400 serial CAMB calls cost ~10 min at
+  AccuracyBoost 0.7. The two failures the first runs DID hit were
+  gate-fixture conventions of the covariance script (plain-number
+  params, run 1; the script's OWN omegabh2/omegach2 names, run 3) —
+  the fixture now mirrors example_yamls/cmb_covariance_lcdm.yaml
+  exactly, and the lesson is recorded in conventions-and-workflow.md.
 
 ## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented)
 

@@ -14,7 +14,7 @@ n_tokens rejected, n_heads must divide the post-stride nk). The
 identity-basis details live in families-scalar-cmb.md (D-CM13) and
 models-and-designs.md.
 
-## BSN — the expansion history. CODE COMPLETE; gates bsn-identity/bsn-smoke.
+## BSN — the expansion history. ACCEPTED END TO END (board run 6, 2026-07-11); gates bsn-identity/bsn-smoke.
 
 - THE STALE-BACKGROUND SAGA (board runs 1 + 3, 2026-07-11; the full
   hypothesis-falsified arc, recorded so nobody re-walks it): with
@@ -82,7 +82,7 @@ models-and-designs.md.
   formula; PCA/TMAT compression in V1; transfer over BSN (PERMANENT);
   porting legacy .pt artifacts (retrain); a silent desert bridge.
 
-## MPS — the matter power spectrum. CODE COMPLETE; gates mps-identity/mps-smoke.
+## MPS — the matter power spectrum. ACCEPTED END TO END (board run 9, 2026-07-12: rel 0.93% vs CAMB against the 5% bar); gates mps-identity/mps-smoke.
 
 - Headline (D-MP2): the network learns the CORRECTION to an analytic
   formula — target = log(P / P_base); two artifacts: pklin (base =
@@ -174,9 +174,12 @@ models-and-designs.md.
   (5%); the syren assembly is gated by mps-identity's closed-form
   STUB bases — deliberate, so a formula update can never mask an
   assembly bug.
-- First-run risks: Pk_grid requirement resolution onto a non-CAMB
-  theory; the generator's Pk_interpolator requirement vs the
-  workstation cobaya version.
+- First-run risks — RESOLVED by the board saga: the Pk_grid
+  requirement resolved onto emul_mps cleanly (run 9 green), and the
+  Pk_interpolator constraint materialized exactly as recorded —
+  cobaya demands >= 4 redshifts for its 2D spline (run 8; the gate's
+  truth request now carries an 11-node support containing the
+  probes). Both are known quantities for the EMUL2 acceptance.
 - Never re-propose: the base inside encode/decode; a torch port of
   the syren formulas; recomputing the base at staging or serving; the
   w0/wa padding block; porting .keras weights (retrain); transfer

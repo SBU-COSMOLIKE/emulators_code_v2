@@ -159,6 +159,25 @@ consume is a loud config error; when a "natural mistake" is
 self-consistent, accept it by canonicalization (D-L1v3) — a trap with
 a good apology is still a trap.
 
+## The driver surface (family-first names, thin wrappers, one code path)
+
+Every driver is `<family>_<verb>_emulator.py` (user ruling: "what you
+are emulating comes first always"). The cosmic-shear drivers are the
+ENGINES — their mains take (prog, family[, out_default]) — and every
+per-family driver (train / tune / sweep_ntrain / sweep_hyperparam,
+for scalar / cmb / baosn / mps) is a thin wrapper that pins the
+family: a wrong-family YAML fails at startup NAMING the right driver
+(require_family_block), the Optuna study name becomes the wrapper's
+prog (per-family studies never mix in a shared journal), and EVERY
+capability rides through — the multi-GPU pool, --gpu-pack (with the
+scalar dv-less VRAM fallback), LPT balancing, the journal study. The
+sweep-block helpers (read_sweep_block, set_by_path,
+SWEEPABLE_TOP_KEYS, ACTIVATION_PATHS) live ONCE in
+emulator/family_drivers.py; the earlier serial per-family loops were
+deleted when parity landed (2026-07-11, commit 2fcd367). Each wrapper
+carries provenance comments naming where its main lives and what the
+wrapper pins.
+
 ## Where the deltas live (IDs preserved for git archaeology)
 
 D-B1 (deleted by the loss-block nesting — the structural fix beat the
