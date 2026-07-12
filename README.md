@@ -1680,15 +1680,19 @@ warmup epochs.
 train_args:
   finetune:
     from: projects/lsst_y1/chains/my_lcdm_run   # <root>.h5 + <root>.emul
-    anchor: 1.0e-2      # optional: pull weights back toward the saved
-                        # emulator (0.0 or absent = no pull). Columns for
-                        # NEW parameters are never pulled. With an anchor,
-                        # set optimizer weight_decay to 0.0.
   lr:
     lr_base:       5.0e-4
     bs_base:       64.0
     warmup_epochs: 5
 ```
+
+An `anchor:` key (a pull back toward the saved weights) is planned for
+this block but is currently REFUSED by the config validator — a config
+carrying it stops with an error rather than fine-tuning. The restoring
+unit is queued (`notes/artifacts-inference-warmstart.md`, "Fine-tune
+anchor truth"); until it lands and passes its gate, fine-tuning runs
+free (no pull), and the `transfer:` path's `refine.anchor` is the only
+anchored mode.
 
 Full example: `example_yamls/cosmic_shear_finetune_emulator.yaml`. Design
 record: `notes/artifacts-inference-warmstart.md`.

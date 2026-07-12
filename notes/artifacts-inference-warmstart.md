@@ -273,6 +273,49 @@ grid, grid2d, data-vector).
   term (Adam's moments would rescale it); weight_decay-0 recommended.
 - Provenance attrs: finetuned_from + finetune_extra_names.
 
+## Fine-tune anchor truth (red-team 2026-07-12 eighth wave, Architect-VERIFIED, open; a training-truth unit — with or immediately after the finite/selection pair, before any anchored production fine-tune)
+
+Two stacked defects and one live documentation lie, all verified:
+
+1. **Config-blocked**: warmstart.py ~159-163 raises NotImplementedError
+   on ANY train_args.finetune.anchor ("not implemented in V1; it lands
+   as unit 2") — a STALE guard: the shared anchor facility it waited
+   for exists (training.py build_anchor ~306, the decoupled anchor
+   step ~288, warmstart.py anchor_masks ~887), the key is in
+   _FINETUNE_KEYS (~58), and a `>= 0` validator at ~182-186 sits
+   UNREACHABLE behind the rejection. README section on fine-tuning
+   ADVERTISED `anchor: 1.0e-2` as available — the Architect corrected
+   the README + example-YAML comment the day of the finding (docs now
+   say "currently refused, restoring unit queued"); the unit restores
+   the published contract.
+2. **Compile no-op behind it**: once the stale guard is removed, the
+   reference state and masks carry EAGER names (the source is rebuilt
+   "never torch.compile'd", warmstart.py ~86/271) while the live model
+   is compiled and exposes `_orig_mod.`-prefixed names; build_anchor
+   silently skips any parameter absent from the reference (by design
+   for frozen params, ~309-311), so on the production CUDA default the
+   anchor matches ZERO parameters, Anchor.entries is empty, and the
+   artifact records an anchor value that never ran. Transfer-refine's
+   base anchor appears eager (not automatically the same failure) but
+   must be gate-tested.
+
+Contract (the two red-team blocks of record adopted whole): remove
+the obsolete rejection; the finite nonnegative anchor validator
+becomes live (NaN/Inf lambda raises — NaN passes >= 0 today);
+canonicalize compile prefixes at ONE boundary (or anchor the
+underlying eager module) with exact one-to-one coverage; a positive
+anchor with zero matched trainable parameters FAILS; report/validate
+matched, masked, frozen, and unexpected names; masks go through the
+identical canonical mapping; persist an EXECUTED anchor record
+(matched count + effective lambda), never configuration alone. Gates:
+a real from_config leg proving a positive anchor reaches training
+(not just helper tests); the same one-step known-answer update eager
+vs compiled, both moving by the exact anchor formula and matching;
+padded masks proving extra columns stay free; missing/extra reference
+names; lambda-zero identity; transfer-refine eager coverage; nonzero
+matched count asserted for a positive anchor; the resolved artifact
+record inspected.
+
 ## Transfer learning (TPE; family-wide since 2026-07-12, scalar excepted)
 
 - Scope (RE-RULED 2026-07-12, overnight): the user overturned the

@@ -336,6 +336,24 @@ a nonfinite gradient raises BEFORE the optimizer mutates weights; a
 NaN scalar loss raises before backward; the error text names the side
 and positions. Independent of the bs > n_train / run_n == 0 unit.
 
+**Pre-training parity clause (eighth wave, Architect-VERIFIED, folded
+in per the red team's sequencing):** build_warm_start's parity verdict
+has the same NaN hole — warmstart.py ~863 computes
+`max_dv = (out_new - out_src).abs().max().item()` and raises only on
+`max_dv > _PARITY_TOL`; NaN compares False, so NaN outputs print
+"[ok] finetune parity: max|dv| = nan". The extras torch.equal leg
+(~867) happens to catch NaN incidentally but is SKIPPED when
+n_extra == 0, so the verdict depends on the parameter-extension
+shape. Addition to the contract: the finite guard covers pre-training
+parity — finite encoded inputs, BOTH model outputs, their difference,
+and the scalar max before any tolerance comparison; the [ok] verdict
+must be impossible unless the compared tensors are finite; transfer
+parity gets the same explicit guard (never rely on torch.equal's
+incidental NaN behavior). Red legs: no-extra both-arms NaN, one-arm
+NaN, Inf, extras-present NaN, transfer NaN — all fail with the
+finite-contract message; valid exact/tolerance fixtures keep their
+verdicts.
+
 ## Schedule validation + direction-correct step (red-team 2026-07-12 fifth wave, Architect-VERIFIED, open)
 
 trim/focus schedules reach anneal_value with NO validator (the

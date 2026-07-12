@@ -317,8 +317,14 @@ files were created. Priority follows user-visible risk:
     and the five artifacts are next). NaN chi2 scores as a perfect
     emulator: frac counts NaN below every threshold, the best-epoch
     rule snapshots NaN weights, no finite guard on loss/grad/step,
-    and the dead-network smoke bars PASS a NaN run. Spec:
-    training-stack.md, "NaN scores as a perfect emulator".
+    and the dead-network smoke bars PASS a NaN run. EXTENDED
+    (eighth wave, folded in per the red team's sequencing): the
+    pre-training PARITY verdict has the same hole — build_warm_start
+    prints "[ok] ... max|dv| = nan" (NaN > tol is False;
+    warmstart.py ~863), and the incidental torch.equal catch is
+    skipped when n_extra == 0. Spec:
+    training-stack.md, "NaN scores as a perfect emulator"
+    (including the pre-training parity clause).
     VERIFIED (Fable, 2026-07-12): training.py ~1427-1433 (median
     propagates NaN, (c > t) counts NaN below), ~2047 (f0 = 0.0 wins),
     ~1971-1980 (backward/clip/step unguarded), zero isfinite/isnan
@@ -417,6 +423,24 @@ files were created. Priority follows user-visible risk:
     (clip > 0.0), ~1866 (if rewind:), signature defaults
     ~1513-1514; root reads all cfg.get(), no root whitelist
     anywhere in experiment.py.
+24. **Fine-tune anchor truth** (eighth wave, a training-truth unit —
+    with or immediately after the 14+22 pair, before any anchored
+    production fine-tune). The documented finetune.anchor is
+    config-BLOCKED by a stale "not implemented in V1"
+    NotImplementedError while the downstream facility exists and a
+    `>= 0` validator sits unreachable behind it; once unblocked, the
+    compiled-CUDA `_orig_mod.` name prefix makes build_anchor match
+    ZERO parameters silently (the artifact then records an anchor
+    that never ran). The README/example advertised the key as
+    available — CORRECTED by the Architect the same day (docs now
+    say "currently refused"); the unit restores the published
+    contract. Spec: artifacts-inference-warmstart.md, "Fine-tune
+    anchor truth".
+    VERIFIED (Fable, 2026-07-12): warmstart.py ~159-163 (the
+    unconditional raise), ~182-186 (unreachable validator), ~58
+    (whitelisted key), ~86/271 (source rebuilt eager);
+    training.py ~306-311 (the silent skip build_anchor inherits);
+    README ~1683 advertised anchor: 1.0e-2 (now corrected).
     VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
     designs/plain 6, designs/blocks 1, losses/core 1,
