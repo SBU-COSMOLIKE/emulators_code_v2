@@ -91,12 +91,14 @@ gates-and-board.md.
 
 ## The runs the user still owes the code (in this order)
 
-1. **The two-red rerun** (workstation; runs 10 + 11 retired the full
-   passes): merge the pending branch commit(s), paste
-   gates/logs/transfer-identity.log for the open red, then
-   `python gates/run_board.py --force-rerun cmb-smoke transfer-identity`
-   (~10 min; the eq-6 fix reruns, and any new failure now names its
-   own cause via the stdout tail).
+1. **The D-CM11-A unit, then one rerun** (runs 10 + 11 retired the
+   full passes): the Implementer lands the eq-6 normalization fix
+   (the unit queue below), the user pastes
+   gates/logs/transfer-identity.log for the open red, then one
+   workstation pass:
+   `python gates/run_board.py --force-rerun cmb-identity cmb-smoke transfer-identity`
+   (~12 min; any covariance failure now names its own cause via the
+   stdout tail).
 2. **Train the five production artifacts** via the family drivers:
    rdrag (scalar), hubble + dm (baosn), pklin + boost (mps).
 3. **The EMUL2 acceptance**: cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml
@@ -115,6 +117,31 @@ gates-and-board.md.
    CMB is arXiv 2505.22574's headline case); the EDE + w(z)-PCA
    transfer program and the first real LCDM -> w0waCDM fine-tune
    wait on real extended-model training dumps.
+
+## The implementer unit queue (red-team static audit, 2026-07-12)
+
+The audit record is commit 1fc90c8 on codex/architect-docs-static-audit
+(NEVER merge that branch — its notes conflict with the consolidated
+ones; cite it by SHA). One unit per handoff, each with its own green
+evidence and notes update. The Architect verifies and specs each unit
+at its own handoff time — unit 1 is verified and specced; 2-5 are
+accepted audit CLAIMS awaiting their own verification:
+
+1. D-CM11-A, the eq-6 normalization (spec of record:
+   families-scalar-cmb.md "D-CM11-A") — HANDED OFF 2026-07-12.
+2. Dataset readiness (a failed generator row must fail the
+   generation, and staging must reject flagged rows), then the MPS
+   sigma8 h-unit consistency.
+3. Best-record truth: one authoritative best record including epoch
+   0, agreed by trainer, drivers, tuner objective, and artifact
+   attrs.
+4. Harness/CLI truth: bad selectors and unknown flags exit nonzero
+   before any work; preflight covers the executed surface.
+5. Small contracts: the scalar-trainer contract; NPCE zero-kept-mode
+   honesty; then the lower-priority hardening ledger (asserts ->
+   typed errors on config surfaces, covariance/axis validation,
+   device-string strictness, the torch.load trust boundary, plot
+   color mapping) in separate commits.
 
 ## Standing constraints that gate future work
 
