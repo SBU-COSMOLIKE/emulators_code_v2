@@ -27,6 +27,11 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     trunk+head design trains in two phases), and the head save ->
     rebuild -> predict bitwise round-trip (the rebuild-side attach in
     results._rebuild_model);
+  - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra bitwise under the diagonal metric,
+    the D-CM8 roughness composing on the full whitened residual,
+    save -> rebuild -> predict composing base + net bitwise, and the
+    pce x amplitude-law exclusivity loud;
   - the cobaya adapter emul_cmb assembles the Cl dict from two synthetic
     artifacts (shared ell axis, zero-padded below l=2 and outside each
     artifact's range) and raises on: a duplicate spectrum, a wrong-kind

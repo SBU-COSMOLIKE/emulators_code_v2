@@ -1197,9 +1197,9 @@ def validate_transfer(cfg, train_args, rescale="none", diagonal=False):
     off-recommendation trade-off line (or None on the recommended pairing).
 
   Raises:
-    TypeError / ValueError / KeyError naming any violated rule; a refine: key
-    raises a not-yet-implemented error (D-TP10 / unit 2) on a diagonal
-    family.
+    TypeError / ValueError / KeyError naming any violated rule. A refine:
+    key is validated and materialized on the cosmolike family (D-TP10) and
+    rejected on a diagonal family (frozen-base V1).
   """
   transfer = cfg.get("transfer")
   if transfer is None:

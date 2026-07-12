@@ -24,11 +24,13 @@ trim/focus, EMA, clip/rewind, fine-tuning, multi-GPU drivers, the
 conv/TRF correction heads everywhere a coordinate axis exists, the
 two-phase trunk-then-head schedule on every head model with the
 trunk:/head: blocks and the per-head activation pin — the 2026-07-12
-ruling "any trunk-head design could benefit" — and, since the same
-day's second ruling ("nothing should prevent PCE as the trunk"), the
-NPCE closed-form base on every family: pce: fits a sparse-Legendre
-trunk under any refiner, residual-only off cosmic shear, cmb only
-with amplitude_law none). Count gates by enumerating
+ruling "any trunk-head design could benefit" — the NPCE closed-form
+base on every family (the same day's second ruling: pce: fits a
+sparse-Legendre trunk under any refiner, residual-only off cosmic
+shear, cmb only with amplitude_law none), and frozen-base transfer
+on every family but scalar (the overnight third ruling overturning
+the BAOSN/MPS permanent forbids and closing D-CM7; whitened space,
+sum recommended, refine cosmolike-only)). Count gates by enumerating
 gates/board.py's registry, never note arithmetic. The user merges to main and pushes (only main is ever
 pushed; the GPU workstation pulls main).
 

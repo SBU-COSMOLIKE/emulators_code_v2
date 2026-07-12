@@ -27,6 +27,13 @@ How it works, in order:
   4. The loud errors fire: a non-superset parameter set, and the config
      exclusivities (pce / rescale / finetune / model.ia / unknown form /
      the not-yet-implemented refine block).
+  5. check_diagonal (the 2026-07-12 family symmetry ruling): transfer on
+     the diagonal families — TransferDiagChi2 epoch-0 identity bitwise
+     for both forms through a log-law GridGeometry, the packed-target
+     discipline, the whitened-only rejections, the family validators'
+     acceptance matrix (cmb law-conditioned), a grid transfer artifact
+     rebuilding + predicting the composition bitwise, and the
+     cross-family-base loud from_config error.
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
@@ -699,14 +706,16 @@ def check_diagonal(device, tmp):
   report("diag validate: whitened resolution + the gain notice", ok,
          "gain notice: %s" % ("present" if note else "MISSING"))
   try:
-    validate_transfer(tr_cfg({"from": "x", "form": "sum",
+    validate_transfer(tr_cfg({"from": "x",
+                              "form": "sum",
                               "space": "physical"}),
                       train_args={}, diagonal=True)
     report("diag validate: explicit physical raises", False, "no raise")
   except ValueError:
     report("diag validate: explicit physical raises", True, "")
   try:
-    validate_transfer(tr_cfg({"from": "x", "form": "sum",
+    validate_transfer(tr_cfg({"from": "x",
+                              "form": "sum",
                               "refine": {"epochs": 5,
                                          "base_lr_scale": 0.1,
                                          "anchor": 0.0}}),
@@ -716,11 +725,16 @@ def check_diagonal(device, tmp):
   except ValueError:
     report("diag validate: refine rejected (frozen-base V1)", True, "")
   # the family validators accept the block now (cmb only law-none).
-  grid_data = {"grid": {"quantity": "Hubble", "units": "km/s/Mpc",
-                        "law": "log_offset", "offset": 1.0,
+  grid_data = {"grid": {"quantity": "Hubble",
+                        "units": "km/s/Mpc",
+                        "law": "log_offset",
+                        "offset": 1.0,
                         "z_file": "z.npy"},
-               "train_dv": "a", "val_dv": "b", "train_params": "c",
-               "val_params": "d", "train_covmat": "e"}
+               "train_dv": "a",
+               "val_dv": "b",
+               "train_params": "c",
+               "val_params": "d",
+               "train_covmat": "e"}
   cfg = {"data": grid_data,
          "pce": None,
          "transfer": {"from": "x", "form": "sum"}}
@@ -729,10 +743,14 @@ def check_diagonal(device, tmp):
     report("validate_grid accepts a transfer block", True, "")
   except ValueError as e:
     report("validate_grid accepts a transfer block", False, str(e)[:70])
-  cmb_data = {"cmb": {"spectrum": "tt", "covariance": "c.npz",
+  cmb_data = {"cmb": {"spectrum": "tt",
+                      "covariance": "c.npz",
                       "amplitude_law": "none"},
-              "train_dv": "a", "val_dv": "b", "train_params": "c",
-              "val_params": "d", "train_covmat": "e"}
+              "train_dv": "a",
+              "val_dv": "b",
+              "train_params": "c",
+              "val_params": "d",
+              "train_covmat": "e"}
   cfg = {"data": cmb_data,
          "pce": None,
          "transfer": {"from": "x", "form": "sum"}}
@@ -742,9 +760,11 @@ def check_diagonal(device, tmp):
   except ValueError as e:
     report("validate_cmb accepts transfer under law none", False,
            str(e)[:70])
-  cfg["data"]["cmb"] = {"spectrum": "tt", "covariance": "c.npz",
+  cfg["data"]["cmb"] = {"spectrum": "tt",
+                        "covariance": "c.npz",
                         "amplitude_law": "as_exp2tau",
-                        "as_name": "As", "tau_name": "tau"}
+                        "as_name": "As",
+                        "tau_name": "tau"}
   try:
     validate_cmb(cfg, train_args={}, rescale="none")
     report("validate_cmb: transfer x amplitude-law raises", False,
@@ -802,9 +822,11 @@ def check_diagonal(device, tmp):
          np.array_equal(got["Hubble"], ref),
          "max|d| %.1e" % np.abs(got["Hubble"] - ref).max())
   # a cross-family base is a loud from_config error (before staging).
-  g2_cfg = {"data": {"grid2d": {"quantity": "pklin", "units": "Mpc3",
+  g2_cfg = {"data": {"grid2d": {"quantity": "pklin",
+                                "units": "Mpc3",
                                 "law": "syren_linear",
-                                "z_file": "z.npy", "k_file": "k.npy",
+                                "z_file": "z.npy",
+                                "k_file": "k.npy",
                                 "train_base": "tb.npy",
                                 "val_base": "vb.npy"},
                      "train_dv": "t.npy",

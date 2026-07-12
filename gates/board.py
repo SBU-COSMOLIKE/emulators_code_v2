@@ -868,7 +868,12 @@ def gate_tpe_a(ctx):
   whitened) combination, for a plain base and a factored (three-template) base.
   The check builds two tiny synthetic bases (no cosmolike), saves and reloads
   them, and asserts the base-encoding slice, the epoch-0 identity, the base
-  caching, the zero-init surgery, and the config error paths (spec:
+  caching, the zero-init surgery, and the config error paths. Added
+  2026-07-12 (the family symmetry ruling), check_diagonal: TransferDiagChi2
+  on a GridGeometry — epoch-0 identity bitwise through the log law for both
+  forms, the packed-target discipline, the whitened-only rejections, the
+  family validators' acceptance matrix, a grid transfer artifact predicting
+  the composition bitwise, and the cross-family-base loud error (spec:
   artifacts-inference-warmstart.md, the transfer-identity validation gate). torch
   only, no cosmolike.
   """
@@ -941,7 +946,9 @@ def gate_spe_a(ctx):
   byte-identical; and every scalar-path loud error fires (D-SPE1-1 both
   directions, D-SPE2-1, D-SPE2-3, plus the emul_scalars provides / duplicate /
   overlap / subset / wrong-kind D-SPE2-4 legs, the adapter loaded torch-only
-  through a cobaya.theory stub). torch only, no cosmolike (spec:
+  through a cobaya.theory stub). Added 2026-07-12: the NPCE check_npce
+  leg (residual algebra bitwise, base + net {name: value} prediction
+  exact). torch only, no cosmolike (spec:
   families-scalar-cmb.md, the scalar-identity gate).
   """
   ctx.require_caps("torch")
@@ -992,8 +999,13 @@ def gate_cme_a(ctx):
   roughness legs (band ratio > 100, zero -> exactly 0, OFF identity
   bitwise, one-reduction composition, the lensing guard < 3%); and the
   D-CM10 finetune legs (epoch-0 parity from a CMB source, the cosmolike
-  pin's wrong-kind refusal, validate_cmb accepting finetune). torch only,
-  no CAMB (spec: families-scalar-cmb.md, D-CM6/8/10).
+  pin's wrong-kind refusal, validate_cmb accepting finetune). Added
+  2026-07-11/12: the D-CM13 head leg (ResTRF + n_tokens: attach,
+  identity basis, epoch-0 identity, the two-phase discipline, save ->
+  rebuild -> predict bitwise) and the NPCE check_npce leg (residual
+  algebra bitwise, roughness composition, base + net prediction
+  bitwise, the pce x amplitude-law exclusivity). torch only,
+  no CAMB (spec: families-scalar-cmb.md, D-CM6/8/10/13).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/cmb_identity.py")
@@ -1017,10 +1029,14 @@ def gate_cme_b(ctx):
   0.5x the staged mean predictor (the dead-network-relative bar,
   D-SPE2-5); the saved artifact serves Cl through the real cobaya
   lifecycle (get_model + add_requirements + provider.get_Cl equals the
-  predictor's own output); and the D-CM9 diagnostics pages build. torch +
-  cobaya + a compiled CAMB under $ROOTDIR; budget several minutes (~400
-  serial low-accuracy CAMB calls) (spec: families-scalar-cmb.md,
-  D-CM6/9/11).
+  predictor's own output); and the D-CM9 diagnostics pages build. Added
+  2026-07-12, leg 2b (check_cov_nondiagonal): the Motloch & Hu eq-6
+  NON-DIAGONAL covariance runs end to end at smoke scale (16
+  re-lensings) — all six dense blocks (3 per-spectrum + 3 cross),
+  symmetric + PSD + off-diagonals alive, the stencil step study in the
+  provenance. torch + cobaya + a compiled CAMB under $ROOTDIR; budget
+  several minutes (~400 serial low-accuracy CAMB calls) (spec:
+  families-scalar-cmb.md, D-CM6/9/11).
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("gates/checks/cmb_smoke.py")
@@ -1046,7 +1062,9 @@ def gate_bsn_a(ctx):
   must_provide AND the getters, the piecewise chi vs the pipeline / the
   D_M artifact, get_Hubble units + window guards, D_A_2); and the
   D-BSN9 finetune legs (epoch-0 parity from a grid source; the
-  metadata-mismatch and cross-quantity from_config errors). torch +
+  metadata-mismatch and cross-quantity from_config errors). Added
+  2026-07-12: the NPCE check_npce leg (residual algebra bitwise
+  through the log law, base + net prediction bitwise). torch +
   scipy, no CAMB (spec: families-background-mps.md, D-BSN1/3/3-A/4/6/9).
   """
   ctx.require_caps("torch")
@@ -1101,10 +1119,15 @@ def gate_mps_a(ctx):
   the EMULATED P_lin — the legacy flow), its pair/grid/wrong-kind
   guards, the legacy state keys + interpolator node round-trip, and
   the reject-on-bad-spectrum semantics; validate_grid2d's pairing /
-  base-file / k_stride / transfer-PERMANENT legs; the D-MP7 finetune
-  parity + metadata-mismatch legs. torch + scipy, no CAMB, no
-  symbolic_pofk (the real syren formulas ride the EMUL2 acceptance)
-  (spec: families-background-mps.md, D-MP1/2/2-A/6/7).
+  base-file / k_stride legs (transfer ACCEPTED since the 2026-07-12
+  symmetry ruling); the D-MP7 finetune parity + metadata-mismatch
+  legs. Added 2026-07-11/12: the D-CM13 head leg (ResCNN on z-slice
+  channels, the two-phase discipline, the n_tokens-on-real-bins
+  rejection, the bitwise round-trip), the D-MP9 constant-pin legs,
+  and the NPCE check_npce leg (residual algebra + base + net
+  prediction bitwise, the diagonal ratio rejection). torch + scipy,
+  no CAMB, no symbolic_pofk (the real syren formulas ride the EMUL2
+  acceptance) (spec: families-background-mps.md, D-MP1/2/2-A/6/7/9).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/mps_identity.py")

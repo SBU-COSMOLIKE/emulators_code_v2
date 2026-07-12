@@ -23,7 +23,10 @@ Legs:
     piecewise chi equal to the pipeline / the D_M artifact in their own
     windows, D_A_2 = (chi2 - chi1)/(1+z2);
   - D-BSN9: warm-start epoch-0 parity from a grid source; the
-    wrong-kind and grid-metadata-mismatch from_config legs.
+    wrong-kind and grid-metadata-mismatch from_config legs;
+  - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra bitwise, decode composing base +
+    net THROUGH the log law, save -> rebuild -> predict bitwise.
 """
 
 import importlib.util

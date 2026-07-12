@@ -14,6 +14,11 @@ two tiny dumps are ~400 serial CAMB calls at low accuracy):
   2  compute_cmb_covariance.py (D-CM11) writes the Gaussian covariance
      .npz on the same fiducial LCDM (zero noise, fsky 1) — the training
      path consumes a REAL script-produced file, never from_fiducial.
+  2b the Motloch & Hu NON-DIAGONAL terms (eq 6) end to end at smoke
+     scale (check_cov_nondiagonal, added 2026-07-12): the nongaussian
+     flag on, 2 bands x 2 steps x 4 offsets = 16 re-lensings; all six
+     dense blocks land (3 per-spectrum + 3 cross), symmetric + PSD +
+     off-diagonals alive, the stencil step study in the provenance.
   3  a data.cmb training run (spectrum tt, amplitude_law as_exp2tau)
      trains a small ResMLP; the collapse bar is RELATIVE to the staged
      mean predictor (best val median < 0.5x its median chi2), so a dead

@@ -89,6 +89,24 @@ gates the user runs on a GPU workstation.
    ~10-20x mps-smoke speedup (the grid-derived k_max). Final leg:
    smoke emulators vs CAMB's own P(k, z) at rel 0.93% against the
    5% bar. The run-by-run table: gates-and-board.md.
+11. **The symmetry night (2026-07-12, the user asleep, autonomous
+   authorization).** Four user rulings landed in one overnight batch:
+   (a) two-phase trunk-then-head on the PLAIN heads ("any trunk-head
+   design could benefit") — set_train_phase on ResCNN/ResTRF, the
+   whole phase surface unlocked by the existing duck-typing;
+   (b) NPCE on every family ("nothing should prevent PCE as the
+   trunk", arXiv 2404.12344) — PCEResidualDiagChi2 + the family
+   hooks/predictor/gate legs; (c) frozen-base transfer on every
+   family but scalar ("weird to have a feature not symmetric to all
+   cases" — the BAOSN/MPS permanent forbids overturned, D-CM7
+   closed) — TransferDiagChi2 + the pins/predictor/check_diagonal;
+   (d) the Motloch & Hu eq-6 covariance completed to all six dense
+   blocks and gate-executed for the first time (cmb-smoke leg 2b).
+   Plus the alien-Python sweep (143 packed dicts reflowed one pair
+   per line, every staged tensor chain split into named temps) and
+   the empty PCE/IA/parallel folder cleanup in the main checkout.
+   Details: the family notes + artifacts-inference-warmstart.md;
+   the new legs first-execute on the queued --force-rerun-all pass.
 
 ## The family-pattern recipe (what a NEW output family adds)
 

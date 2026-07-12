@@ -36,8 +36,12 @@ Legs:
     low-k blend pins boost -> 1 below k_t; P_nl = B * P_lin); the
     legacy state keys; get_Pk_grid / get_Pk_interpolator round-trip at
     the grid nodes; a non-positive spectrum rejects the point (False);
+  - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra bitwise under the diagonal metric,
+    the base alive, the state round-trip, save -> rebuild -> predict
+    composing base + net bitwise, the diagonal ratio-form rejection;
   - validate_grid2d legs (law-quantity pairing, base files both ways,
-    k_stride, transfer PERMANENT wording);
+    k_stride, transfer ACCEPTED since the 2026-07-12 symmetry ruling);
   - D-MP7 finetune: epoch-0 parity from a grid2d source; the
     wrong-kind and metadata-mismatch from_config errors.
 """
@@ -786,13 +790,17 @@ def check_validate():
                   b.get("units"), b.get("k_stride"))
         except ValueError:
             pass
+    # transfer is ACCEPTED here since the 2026-07-12 symmetry ruling
+    # (the block itself is vetted by validate_transfer on the
+    # from_config branch); this leg pins the acceptance so a re-added
+    # family forbid would be loud.
     c = cfg(good)
     c["transfer"] = {"from": "x"}
     try:
         validate_grid2d(c, train_args={}, rescale="none")
-        ok = False
     except ValueError as e:
-        ok = ok and "PERMANENTLY" in str(e)
+        ok = False
+        print("  validate_grid2d rejected a transfer block:", str(e)[:70])
     report("validate_grid2d legs", ok, "")
 
 

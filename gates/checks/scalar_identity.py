@@ -13,7 +13,11 @@ saves it with save_emulator, rebuilds it, and asserts:
     on a scalar run);
   - the cobaya adapter emul_scalars derives its provides from the artifacts
     and raises on a duplicate output, an input/provide overlap, a bad
-    `provides` subset, and a wrong-kind (data-vector) artifact (D-SPE2-4).
+    `provides` subset, and a wrong-kind (data-vector) artifact (D-SPE2-4);
+  - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra bitwise under the standardized
+    metric, save -> rebuild -> predict composing base + net exactly in
+    the {name: value} dict.
 
 The adapter legs stub cobaya.theory before loading the shipped
 emul_scalars.py (this gate is torch-only; the real cobaya lifecycle is the
