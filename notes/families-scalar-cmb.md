@@ -287,6 +287,63 @@ dense-covariance audit fixes production band widths. The unit CLOSES
 only on the workstation pass (the three oracle legs under torch +
 eq 6 on real CAMB).
 
+### D-CM11-A oracle delta (red-team review, 2026-07-12): convention-honest fake — SPEC
+
+The red team accepted the production math, the zero-band behavior, the
+provenance payload, and the Gaussian containment, and demanded ONE
+oracle hardening before close (the Architect agrees; the accepted
+raw == scaled fixture was a blind spot): compute_cmb_covariance.py is
+FROZEN for this delta; only gates/checks/cmb_identity.py changes.
+
+The defect the delta removes: the fake set the raw C^phiphi equal to
+the scaled [L(L+1)]^2 C^phiphi/2pi array, so a convention-mixing bug
+(raw used where scaled belongs or vice versa) is invisible — and the
+wide-band weight w_b is NOT invariant under an L-dependent rescaling,
+so that is exactly where such a bug would bite.
+
+The delta, precisely:
+- FakeCAMBData holds the RAW clpp_raw; get_lens_potential_cls
+  (raw_cl=False) returns the SCALED array, scaled_L =
+  (L(L+1))^2 clpp_raw_L / (2 pi) (zero at L < 2); a raw_cl=True call
+  raises loudly (the pipeline never makes it — stay honest).
+- The affine response keeps its truth in RAW coordinates: the fake
+  receives CAMB's scaled clpp argument, converts internally
+  (raw_vec_L = scaled_L * 2 pi/(L(L+1))^2, zero at L < 2), and returns
+  base_s + M_raw_s @ raw_vec — so dC_l/dC^raw_L = M_raw[l, L] exactly
+  and _oracle_truth keeps contracting M_raw with the RAW Gaussian
+  variance, unchanged.
+- The pipeline is fed cls["pp"] = clpp_raw (as real runs do) while the
+  perturbation array it takes from get_lens_potential_cls is the
+  SCALED one — the convention boundary is now exercised for real.
+- A fixture-integrity assertion (a report leg): the scaled and raw
+  arrays genuinely differ for L >= 2 AND their ratio is L-DEPENDENT
+  (a constant ratio would keep w_b invariant and weaken the leg the
+  same way equality did). Without this the fixture can silently
+  regress to the weak form.
+- A zero-band assertion joins the width-3 leg: zero out the last
+  band's clpp_raw values; that band's persisted per_band_weight must
+  be exactly 0 (no divide, no warning) and the truth comparison still
+  holds (a zero band contributes nothing on both sides).
+- The truth, discrimination, and width-3 projection legs are
+  PRESERVED (same assertions, now under the honest convention split);
+  expected magnitudes stay round-off (~1e-13) since the conversion is
+  exact in float64 up to reassociation.
+
+Process rule adopted from the same review (recorded in
+conventions-and-workflow.md): Implementer records say "awaiting
+Architect audit" — an Implementer never pre-writes an Architect
+verdict, invents an Architect probe, or claims Architect
+co-authorship; audit text is written only by the Architect, after the
+audit.
+
+Close condition (unchanged plus the delta): py_compile on the three
+files; the workstation pass
+`python gates/run_board.py --force-rerun cmb-identity cmb-smoke
+transfer-identity` with the RAW three gate logs returned; all three
+green at the reported HEAD. The adjacent covariance-input guards
+(invalid band widths, unordered/non-positive stencil steps,
+lens_lmax > lmax) are a SEPARATE hardening unit — not in this delta.
+
 ## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented; the PRODUCING side is BLOCKED ON D-CM11-A)
 
 Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.
