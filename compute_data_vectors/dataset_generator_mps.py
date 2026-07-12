@@ -144,12 +144,26 @@ class dataset(GeneratorCore):
       from emulator.syren_base import base_pklin, base_boost  # noqa: F401
 
     # explicit requirements on the model itself (the YAML likelihood
-    # may be the dummy `one`). k_max 200 on the requirement and the
-    # Cl quirk are the legacy conventions, kept verbatim.
+    # may be the dummy `one`). The Cl quirk is the legacy convention,
+    # kept verbatim.
+    #
+    # The requirement's k_max is DERIVED from the resolved k grid:
+    # 2 x the grid's top, floored at 20 (halofit's sigma integrals
+    # need support past the grid edge). The legacy convention was the
+    # verbatim constant 200 — which IS this formula on the legacy
+    # production grid (k top 100 -> 200, byte-identical requirement),
+    # so production behavior is unchanged; a small-grid smoke run
+    # stops paying for transfers at k = 200 it never reads (the first
+    # full mps-smoke run spent ~1 hour there: 400 CAMB calls at
+    # k_max 200 against a k grid topping at 10). Every requested k is
+    # still COMPUTED, never extrapolated: the dump only evaluates on
+    # the grid itself (top < k_max); extrap_kmax governs the served
+    # interpolator's power-law tail beyond that, as before.
+    k_max_req = max(2.0 * float(self.k_mps[-1]), 20.0)
     self.model.add_requirements({
       "Pk_interpolator": {
         "z": self.z_mps,
-        "k_max": 200,
+        "k_max": k_max_req,
         "nonlinear": (True, False),
         "vars_pairs": ([("delta_tot", "delta_tot")]),
       }, "Cl": {  # DONT REMOVE THIS - SOME WEIRD BEHAVIOR IN CAMB WITHOUT WANTS_CL

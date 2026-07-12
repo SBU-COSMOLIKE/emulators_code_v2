@@ -132,7 +132,13 @@ models-and-designs.md.
 - Generation: dataset_generator_mps.py — the verbatim CAMB quirk
   `"Cl": {"tt": 0}` ("DONT REMOVE THIS - SOME WEIRD BEHAVIOR IN CAMB
   WITHOUT WANTS_CL") kept; write_syren_base fails AT SETUP when the
-  base cannot be formed.
+  base cannot be formed. The Pk requirement's k_max is DERIVED
+  (2026-07-11): max(2 x k grid top, 20) — the legacy verbatim 200
+  IS this formula on the production grid (k top 100), byte-identical
+  there, while a small-grid smoke stops paying for k = 200 transfers
+  it never reads (the first mps-smoke run burned ~1 h on exactly
+  that; the gate's camb_truth mirrors the derived value +
+  AccuracyBoost so truth and training data share one convention).
 - emul_mps (the EMUL2 provider): PowerSpectrumInterpolator ported
   VERBATIM from the legacy (adapted from CAMB by Antony Lewis,
   attribution kept; proven line-for-line); P_lin = exp(net)*base; the

@@ -63,6 +63,7 @@ def gen_yaml():
         "    extra_args:\n"
         "      halofit_version: takahashi\n"
         "      kmax: 20.0\n"
+        "      AccuracyBoost: 0.7\n"
         "params:\n"
         "  As:\n"
         "    prior:\n"
@@ -282,7 +283,8 @@ def camb_truth(point, z_probe, k_probe):
         "theory": {"camb": {"path": camb_path,
                             "extra_args": {
                               "halofit_version": "takahashi",
-                              "kmax": 20.0}}},
+                              "kmax": 20.0,
+                              "AccuracyBoost": 0.7}}},
         "params": {
             "As":    {"value": point["As"]},
             "H0":    {"value": point["H0"]},
@@ -294,8 +296,13 @@ def camb_truth(point, z_probe, k_probe):
         },
     }
     model = get_model(info)
+    # k_max 20 mirrors the generator's grid-derived requirement
+    # (max(2 * k_top, 20) with this gate's k top of 10): truth and
+    # training data are computed with the SAME transfer support, so
+    # the comparison tests the emulator pipeline, never halofit's
+    # convergence difference between two k_max choices.
     model.add_requirements({"Pk_interpolator": {
-        "z": z_probe, "k_max": 200,
+        "z": z_probe, "k_max": 20.0,
         "nonlinear": (True, False),
         "vars_pairs": ([("delta_tot", "delta_tot")])},
         "Cl": {"tt": 0}})
