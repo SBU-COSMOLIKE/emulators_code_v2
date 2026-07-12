@@ -200,11 +200,21 @@ def check_train(paths, tmp, device, quantity):
 
 
 def camb_truth(point, z_sn, z_rec):
-    """CAMB's own background at the test point (the exact reference)."""
+    """CAMB's own background at the test point (the exact reference).
+
+    The CAMB path is resolved ABSOLUTELY from $ROOTDIR: cocoa's
+    conventional "./external_modules/code/CAMB" only works when the
+    process runs from $ROOTDIR, and this check runs in-process from
+    the repo directory (board run 5 caught the relative form failing
+    with "camblib.so not found"). The generator legs never hit this —
+    their subprocesses run with cwd=rootdir.
+    """
     from cobaya.model import get_model
+    camb_path = os.path.join(os.environ["ROOTDIR"],
+                             "external_modules/code/CAMB")
     info = {
         "likelihood": {"one": None},
-        "theory": {"camb": {"path": "./external_modules/code/CAMB"}},
+        "theory": {"camb": {"path": camb_path}},
         "params": {
             "omegam": {"value": point["omegam"], "drop": True},
             "H0":     {"value": point["H0"]},

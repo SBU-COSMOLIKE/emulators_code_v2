@@ -190,6 +190,16 @@ In order, with the commit that carries each:
    was cleared on the Mac side first (bitwise-constant NONZERO rows
    = stale provider, not a write bug). mps-smoke (with D-MP9) was
    still running at export.
+17. **Board run 5 — the lifecycle fix PROVEN**: the bsn tripwire
+   passed at spread 6.67e-2 (the predicted healthy value from the
+   H0 prior width) and both BSN trainings collapsed below their
+   mean predictors. The next leg exposed the last landmine class:
+   the in-process camb_truth reference used cocoa's relative
+   "./external_modules/code/CAMB" (resolves only from $ROOTDIR;
+   the check runs from the repo dir). Fixed in both smoke twins
+   (absolute path from $ROOTDIR) — the recorded "cobaya-run from
+   $ROOTDIR" rule extends to in-process get_model with relative
+   theory paths.
 
 ## Evidence status: what is PROVEN vs what is PENDING
 
