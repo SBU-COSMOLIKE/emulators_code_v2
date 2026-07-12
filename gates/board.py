@@ -1108,7 +1108,8 @@ def gate_mps_a(ctx):
   """mps-identity: the grid2d emulator + the syren-law assembly math.
 
   WHAT: the Grid2DGeometry standardize/state round-trips + its width /
-  un-standardizable ((z, k)-naming) / unknown-law guards; the STAGING
+  unknown-law guards (the partial-constant raise leg died with the
+  law-agnostic D-MP9 amendment — the run-10 catch); the STAGING
   law transform through the REAL load_source (law rows = log(raw/base)
   with the base dump aligned by dump_rows through a real shuffled
   staging; k_stride keeps the top edge; positivity loud); save ->

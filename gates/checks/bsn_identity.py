@@ -38,6 +38,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from scipy import interpolate
 
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
@@ -386,7 +387,15 @@ def check_adapter(tmp, device):
         report("desert must_provide raises",
                "never emulated" in str(e), "ValueError names the desert")
 
-    # calculate + the piecewise getters vs the pipeline / the artifact
+    # calculate + the piecewise getters vs the pipeline / the artifact.
+    # Every comparison is LIKE FOR LIKE (the run-10 lesson): the check
+    # rebuilds the SAME interpolators the adapter builds — the pipeline
+    # splines for the SN window and the adapter's own cubic interp1d
+    # for the recombination-window D_M artifact (the old leg compared
+    # the adapter's cubic against a LINEAR np.interp at rtol 1e-3,
+    # which flakes on the curvature of an unseeded synthetic net).
+    # Same-computation comparisons stay exact; each assertion reports
+    # on its own line so a red names its sub-leg.
     point = {"omegam": 0.31,
              "H0": 67.0,
              "w": -1.0}
@@ -396,22 +405,36 @@ def check_adapter(tmp, device):
     out_h = t.p_h.predict(point)
     itp = distance_interpolators(z_grid=out_h["z"], h_grid=out_h["Hubble"])
     zq = np.array([0.3, 1.5])
-    ok = np.allclose(t.get_comoving_radial_distance(zq), itp["chi"](zq),
-                     rtol=0, atol=0)
-    ok = ok and np.allclose(t.get_angular_diameter_distance(zq),
-                            itp["chi"](zq) / (1 + zq))
-    ok = ok and np.allclose(t.get_luminosity_distance(zq),
-                            itp["chi"](zq) * (1 + zq))
+    got_chi = t.get_comoving_radial_distance(zq)
+    report("piecewise chi == the pipeline (SN window, exact)",
+           np.allclose(got_chi, itp["chi"](zq), rtol=0, atol=0),
+           "max|d| %.1e" % np.abs(got_chi - itp["chi"](zq)).max())
+    got_da = t.get_angular_diameter_distance(zq)
+    report("piecewise D_A == chi/(1+z) (SN window)",
+           np.allclose(got_da, itp["chi"](zq) / (1 + zq)),
+           "max|d| %.1e"
+           % np.abs(got_da - itp["chi"](zq) / (1 + zq)).max())
+    got_dl = t.get_luminosity_distance(zq)
+    report("piecewise D_L == chi*(1+z) (SN window)",
+           np.allclose(got_dl, itp["chi"](zq) * (1 + zq)),
+           "max|d| %.1e"
+           % np.abs(got_dl - itp["chi"](zq) * (1 + zq)).max())
     out_dm = t.p_dm.predict(point)
+    dm_itp = interpolate.interp1d(out_dm["z"], out_dm["D_M"],
+                                  kind='cubic',
+                                  assume_sorted=True,
+                                  fill_value="extrapolate")
     zr = np.array([1090.0])
-    want_dm = np.interp(zr, out_dm["z"], out_dm["D_M"])
+    want_dm = dm_itp(zr)
     got_dm = t.get_comoving_radial_distance(zr)
-    ok = ok and np.allclose(got_dm, want_dm, rtol=1e-3)
+    report("piecewise chi == the D_M artifact (rec window, same cubic)",
+           np.allclose(got_dm, want_dm),
+           "max|d| %.1e" % np.abs(got_dm - want_dm).max())
     pair = t.get_angular_diameter_distance_2([[0.3, 1.5]])
     want_pair = (itp["chi"](1.5) - itp["chi"](0.3)) / 2.5
-    ok = ok and np.allclose(pair, [want_pair])
-    report("piecewise getters match the pipeline / artifact", ok,
-           "chi/da/dl + rec D_M + D_A2")
+    report("D_A_2 == (chi2 - chi1)/(1 + z2)",
+           np.allclose(pair, [want_pair]),
+           "max|d| %.1e" % np.abs(np.asarray(pair) - want_pair).max())
     # H units + the H-outside-SN loud error
     h1 = t.get_Hubble(np.array([1.0]))
     h2 = t.get_Hubble(np.array([1.0]), units="1/Mpc")
@@ -524,6 +547,10 @@ def check_finetune(tmp, device):
 def main():
     print("bsn-identity (BSN-A): pipeline + law + round-trip + adapter "
           "+ finetune legs")
+    # seed the GLOBAL torch RNG: the synthetic ResMLPs' weights come
+    # from it, and an unseeded net makes any tolerance-adjacent leg
+    # unreproducible run to run (the run-10 flake).
+    torch.manual_seed(0)
     device = torch.device("cpu")
     with tempfile.TemporaryDirectory() as tmp:
         check_simpson()

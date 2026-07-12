@@ -73,6 +73,26 @@ _CONFIG_FILE = _GATES_DIR / "board_config.json"
 # The training driver every run-shaped gate invokes.
 _DRIVER = "cosmic_shear_train_emulator.py"
 
+# Pre-rename driver filenames (verb-first), for the pinned golden legs:
+# a golden worktree built at a commit BEFORE the family-first rename
+# carries these names, so run_driver resolves by existence instead of
+# assuming today's name (the run-10 ema-off-identity catch: the pinned
+# pre-EMA build had no cosmic_shear_train_emulator.py and the golden
+# leg failed on a missing file, not on the byte identity it exists to
+# check).
+_LEGACY_DRIVERS = {
+  "cosmic_shear_train_emulator.py":
+    "train_single_emulator_cosmic_shear.py",
+  "cosmic_shear_tune_emulator.py":
+    "tune_single_emulator_cosmic_shear.py",
+  "cosmic_shear_sweep_ntrain_emulator.py":
+    "sweep_ntrain_emulator_cosmic_shear.py",
+  "cosmic_shear_sweep_hyperparam_emulator.py":
+    "sweep_hyperparam_emulator_cosmic_shear.py",
+  "cosmic_shear_bakeoff_activation_emulator.py":
+    "bakeoff_activation_emulator_cosmic_shear.py",
+}
+
 
 # --------------------------------------------------------------------------
 # The per-test helper each test function receives.
@@ -394,7 +414,24 @@ class RunContext:
       raise GateFailure("board_config.json driver_root / driver_fileroot "
                         "are unset; set the deploy --root and --fileroot")
     where = self.repo if cwd is None else Path(cwd)
-    cmd = [self.python, str(where / driver),
+    driver_path = where / driver
+    # a pinned golden worktree may predate the family-first driver
+    # rename, so resolve the filename by existence: today's name first,
+    # then the legacy verb-first name; neither existing is a loud error
+    # naming both candidates (the run-10 ema-off-identity catch — the
+    # golden leg must fail on the byte identity, never on a filename).
+    if not self.dry and not driver_path.exists():
+      legacy = _LEGACY_DRIVERS.get(driver)
+      if legacy is not None and (where / legacy).exists():
+        driver_path = where / legacy
+      else:
+        raise GateFailure(
+          "driver " + driver + " not found in " + str(where)
+          + ("" if legacy is None
+             else " (legacy candidate " + legacy + " also missing)")
+          + "; a pinned golden build must carry one of the known driver "
+          "names")
+    cmd = [self.python, str(driver_path),
            "--root=" + ("<UNSET:driver_root>" if root is None else root),
            "--fileroot=" + ("<UNSET:driver_fileroot>" if fileroot is None
                             else fileroot),
