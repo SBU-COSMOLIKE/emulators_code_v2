@@ -123,25 +123,47 @@ gates-and-board.md.
 The audit record is commit 1fc90c8 on codex/architect-docs-static-audit
 (NEVER merge that branch — its notes conflict with the consolidated
 ones; cite it by SHA). One unit per handoff, each with its own green
-evidence and notes update. The Architect verifies and specs each unit
-at its own handoff time — unit 1 is verified and specced; 2-5 are
-accepted audit CLAIMS awaiting their own verification:
+evidence and notes update. ALL FIVE UNITS VERIFIED against the code
+by the Architect (2026-07-12) — every audit claim reproduced; the
+evidence line under each unit is the anchor a spec starts from:
 
 1. D-CM11-A, the eq-6 normalization (spec of record:
    families-scalar-cmb.md "D-CM11-A") — HANDED OFF 2026-07-12.
-2. Dataset readiness (a failed generator row must fail the
-   generation, and staging must reject flagged rows), then the MPS
-   sigma8 h-unit consistency.
-3. Best-record truth: one authoritative best record including epoch
-   0, agreed by trainer, drivers, tuner objective, and artifact
-   attrs.
-4. Harness/CLI truth: bad selectors and unknown flags exit nonzero
-   before any work; preflight covers the executed surface.
-5. Small contracts: the scalar-trainer contract; NPCE zero-kept-mode
-   honesty; then the lower-priority hardening ledger (asserts ->
-   typed errors on config surfaces, covariance/axis validation,
-   device-string strictness, the torch.load trust boundary, plot
-   color mapping) in separate commits.
+2. Dataset readiness + MPS sigma8. VERIFIED: run_generator ends
+   MPI.Finalize(); exit(0) unconditionally (generator_core.py tail)
+   while per-sample failures zero the dv row and mark the failfile;
+   emulator/data_staging.py contains ZERO failfile references — the
+   trainer can stage fabricated rows. _compute_sigma8 (emul_mps.py)
+   integrates k [1/Mpc] with R = 8.0 — that is sigma(8 Mpc), not
+   sigma8's 8 Mpc/h; its own docstring flags the legacy convention.
+   CAVEAT for the handoff: the sigma8 fix changes legacy-served
+   values — needs the user's ruling (the BSN-curvature precedent:
+   dimensionally wrong legacy math is not reproduced).
+3. Best-record truth. VERIFIED: training.py seeds best-tracking with
+   the epoch-0 baseline and restores those weights, but the driver
+   (cosmic_shear_train_emulator.py ~350: "fracs[i][0] is frac>0.2 at
+   epoch i+1") and the tuner objective both recompute "best" over a
+   history that STARTS AT EPOCH 1 — on a no-improvement warm start
+   the restored model, console line, h5 attrs, and Optuna objective
+   disagree.
+4. Harness/CLI truth. VERIFIED: run_board.py prints "warning:
+   unknown gate id" and PROCEEDS (exit 0); --force-rerun ids are
+   never validated (a typo is silently ignored while the resume
+   prints a green summary); the generator CLI parse_known_args
+   discards unknown flags (the shared drivers repeat the pattern).
+5. Small contracts. VERIFIED: (a) the shared driver reads
+   cfg["data"]["train_dv"] unconditionally (~214 run_tag, ~379
+   attrs) while the scalar data block documents that key as
+   forbidden — the scalar DRIVER path has never executed end to end
+   and blocks the queued rdrag artifact training (SEQUENCING: this
+   fix must land before the five-artifacts step); (b)
+   designs/pce.py:414 "if not cols: # always keep mode 0" —
+   verbatim the audit's zero-kept dishonesty (a mode that failed the
+   LOO gate is kept silently); (c) hardening-ledger instances
+   confirmed: parameter.py:256 validates user samples via assert
+   (python -O strips it), results.py:614 torch.load without
+   weights_only, _pick_device returns cpu for an unrecognized
+   device string, plot_xi carries mutable list defaults.
 
 ## Standing constraints that gate future work
 
