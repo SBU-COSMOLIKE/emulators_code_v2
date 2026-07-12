@@ -266,6 +266,14 @@ files were created. Priority follows user-visible risk:
    req["As"] while syren_params_from (syren_base.py) accepts
    As_1e9 | As, and the training dumps themselves sample As_1e9
    (analytics.py reads that column by name).
+   AMENDED (45M-45, fifth batch): the alias-consistency boundary —
+   dual As_1e9/As must satisfy As_1e9 == 1e9*As, dual w/w0 must agree
+   numerically, else the shared reader raises naming both;
+   canonicalize only after the proof; the adapter fails clean (no Pk
+   state), the generator rejects pre-write. Reproduced live on the
+   Mac (amplitude conflict 0.7667 max rel, dark-energy 0.2449, all
+   spectra finite+positive — downstream guards blind). Spec:
+   artifacts-inference-warmstart.md.
 8. **Checkpoint-set integrity.** Axis sidecars and `.paramnames` are not
    in the resume census, multi-file append is not one transaction, and a
    load error falls through to fresh generation on the same roots — an
@@ -847,6 +855,17 @@ files were created. Priority follows user-visible risk:
     Torch gate: counting schedulers (per-update / per-epoch), the
     plateau median argument, a tiny OneCycleLR known-LR sequence or
     startup refusal, no double warmup.
+    UNIT 14 AMENDED (45M-47, fifth batch, increment d): finite batch
+    losses publish an Inf epoch loss — loss.detach()*bs multiplies in
+    float32 BEFORE the accumulator (training.py:2103; acc_dtype is
+    float32 on MPS, :1781), so a finite 1e38 loss with bs=8 goes Inf
+    and is appended/printed/persisted unguarded. RULING: host
+    python-float (float64) accumulation reusing the per-step sync the
+    finite contract already pays, + a required finite check on the
+    completed epoch train_loss; extends the finite-contract gate
+    (mutation arm restores the old ordering, must go Inf). Reproduced:
+    np.float32(1e38)*8 -> Inf. Spec: training-stack.md. Unit 14 now
+    closes on a+b+c+d + the extended gate.
     UNIT 14 AMENDED (45M-24, CRITICAL producer clause): the DEFAULT
     "sqrt" loss (losses/core.py:349; berhu lower branches :363/:381;
     the anneal's sqrt arm) has d sqrt(sum r^2)/dr = 0/0 -> NaN at an
@@ -1079,12 +1098,34 @@ number. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
-14(a+b+c) -> 36 -> 42+43 -> 50 -> 52 -> 22(+20) -> 13(+01) order
+14(a+b+c+d) -> 36 -> 42+43 -> 50 -> 52 -> 55 -> 22(+20) -> 13(+01) order
 define the active pipeline (updated with the third 45M batch: the CMB
 amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
 unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15
 gained the 45M-26 domain-helper amendment; 44 and 45 queue with
 their campaigns).
+
+FIFTH 45M BATCH (2026-07-12, post-retraction, all three
+Architect-verified before placement): 45M-45 = unit 7 AMENDED (the
+syren alias-consistency boundary: syren_params_from silently prefers
+As_1e9 over As and w over w0 with the discarded name unchecked; both
+public callers pass complete mappings and the shipped evaluate YAML
+defines both amplitude names — reproduced live, conflicts 0.7667 /
+0.2449 max rel with every spectrum finite; spec
+artifacts-inference-warmstart.md). 45M-46 = NEW UNIT 55
+(repeated-training state isolation: transfer.refine mutates the
+shared _transfer_base in place — set_live(True) never reset, no
+weight/flag restore — and all four repeated-training drivers reuse
+one experiment, so sweep/tune/bakeoff/N-train results are order- and
+worker-dependent and each point's "pretrained" anchor drifts to the
+predecessor's W; REACHABILITY VERIFIED FIRST: validate_transfer
+supports refine on cosmic shear (:1368-1410) — the standard the
+45M-43 retraction set is satisfied; spec training-stack.md; slots
+after 52, before 22). 45M-47 = unit 14 AMENDED, increment (d) (the
+epoch reduction overflows float32 before the accumulator: a finite
+per-batch loss publishes an Inf epoch loss; host-float64 accumulation
++ an epoch-level finite check; extends the finite-contract gate).
+Unit 14 now closes on a+b+c+d + gate.
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

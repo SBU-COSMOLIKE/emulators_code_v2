@@ -424,3 +424,12 @@ grid=False paired results with scalar behavior named and tested;
 invalid/NaN limits and empty/nonfinite queries exercise the adopted
 totality contract; a leftover scan proves the generator expression,
 the magic 0.1/0.9 pair, and the incomplete parameter docs are gone.
+
+## Pointer: syren alias-consistency amendment (45M-45)
+
+The syren_params_from precedence documented above (As_1e9 over As, w
+over w0) is AMENDED by unit 7's 45M-45 alias-consistency boundary:
+dual names must agree (As_1e9 == 1e9 * As; w == w0) or the reader
+raises naming both — silent preference is retired as a correctness
+policy. Spec + red legs: artifacts-inference-warmstart.md ("UNIT 7
+AMENDED (45M-45)").

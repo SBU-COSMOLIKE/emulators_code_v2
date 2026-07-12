@@ -702,3 +702,73 @@ calculation, invariant to buffer magnitude; zero-reference unchanged
 -> exact zero; zero-reference moved -> absolute drift + status, never
 0; missing/extra key raises before publication; multi-parameter known
 answer; readback recomputes the summary.
+
+## UNIT 7 AMENDED (45M-45): syren parameter aliases can disagree silently — the alias-consistency boundary
+
+Adjudicated + reproduced LIVE (Fable, 2026-07-12; the vendored syren
+runs on the Mac). syren_params_from (emulator/syren_base.py) silently
+prefers As_1e9 over As (:67-70) and w over w0 (:82-87); the discarded
+name is never compared against the chosen one. Reachable through BOTH
+public callers, each of which passes a complete resolved mapping: the
+generator hands the full Cobaya to_input dict to the reader
+(dataset_generator_mps.py, the write_base block), and the adapter
+hands its full calculate(**params) mapping (emul_mps.py). The shipped
+EMUL2 evaluate YAML DEFINES BOTH amplitude names to bridge the
+requirement fork (README ~:2214-2216), so "both aliases present" is
+an exercised shipped shape, not an invented internal call.
+Reproduced: {As_1e9: 2.1, As: 9e-9} -> the resolver takes 2.1 and
+exactly ignores As; base_pklin max relative difference 0.7667 against
+the As value's base. {w: -1.0, w0: -0.7} -> takes -1.0; max rel
+0.2449 (the red team's grid gave 0.2403 — same mechanism, the
+magnitude is grid-dependent). ALL probe spectra finite and positive,
+so the downstream MPS positivity/finiteness guards cannot catch the
+conflict. Worst case is the law-correction artifact: the network half
+evaluates from the artifact's stored parameter names while the
+analytic base follows this independent precedence rule — the two
+halves can describe different cosmologies with no exception raised.
+
+Contract (folds into THIS unit's adapter/ingress campaign — no second
+syren implementation):
+1. syren_params_from remains the ONE shared generator/adapter
+   authority; alias pairs become an explicit consistency boundary.
+2. Amplitude: As_1e9 alone or As alone is accepted. BOTH present =>
+   require As_1e9 == 1e9 * As within a documented
+   float-representation tolerance; otherwise raise naming both values
+   and the conversion.
+3. Dark energy: w alone or w0 alone. BOTH present => numerical
+   equality within the same stated representation policy; otherwise
+   raise naming both.
+4. Canonicalize only AFTER the consistency proof — never silently
+   prefer one conflicting value.
+5. LCDM rule preserved: neither w nor w0 present => canonical
+   w0 = -1 (a model fact, not a config default); absent wa likewise.
+6. No duplication of the queued value-schema work: finite non-bool
+   real validation stays with generator ingress / adapter value
+   validation; THIS amendment owns only the cross-alias equality that
+   individual-value validation cannot establish.
+7. Requirement construction (this unit's existing As/As_1e9 routing
+   clause) must not REQUIRE a redundant amplitude alias; a second
+   alias supplied deliberately for another component is verified, not
+   ignored.
+8. On failure: emul_mps.calculate leaves NO Pk_grid, interpolator, or
+   derived state keys; the generator rejects the sample BEFORE
+   writing any raw/base payload row.
+9. Documentation defines the aliases definitionally (As_1e9 = 10^9
+   As; w and w0 are two names for one present-day equation-of-state
+   value); "prefers" wording is removed as a correctness policy.
+
+Red legs: As_1e9-only and As-only controls resolve to the same
+canonical amplitude and reproduce current base values; consistent
+dual amplitude names pass; inconsistent dual amplitude names raise
+BEFORE base_pklin or base_boost; w-only and w0-only controls
+reproduce current values; consistent dual dark-energy names pass,
+inconsistent names raise; mutation arm — restore the current
+first-alias-wins branch; both conflict legs must fail the gate;
+adapter state-integrity leg — an inconsistent dual alias leaves no
+partial Pk state; generator leg — the same inconsistency is rejected
+before _dv_write, no base/raw quantity published for the row;
+shipped-bridge control — the actual As_1e9 -> As bridge configuration
+remains accepted. The resolver/base probes are numpy-only
+(Mac-runnable); the adapter/generator integration legs use the
+torch-backed fixtures under gates/checks/, LISTED on the board,
+workstation-run.

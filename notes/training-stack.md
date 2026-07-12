@@ -546,6 +546,77 @@ both increments plus the gate are now in and unit 14 is up for audit.
 - Commit HELD for the Architect audit + commit. Files this unit:
   emulator/training.py (incr 1), emulator/warmstart.py (incr 2),
   gates/checks/finite_contract.py, gates/board.py, notes/training-stack.md.
+  (Superseded by the increment (c) resume below: the batched work order's
+  branch-commit grant means unit 14 is now self-committed, not held.)
+
+#### Finite-contract resume (2026-07-12, Opus) — increment (c) 45M-24 in; unit 14 COMPLETE (self-committed, batch grant)
+
+All three increments and the gate are in. Under the batched work order's
+branch-commit grant ("you can commit on your branch them all, I do the
+merge"), unit 14 is self-committed on the branch, committed pending batch
+Architect audit.
+
+Increment (c) — the 45M-24 safe-sqrt producer (losses/core.py `_reduce`):
+
+- `_safe_sqrt(c)` (module-level): forward bit-identical to torch.sqrt for
+  every c (including sqrt(0) = 0, so the loss VALUE and the berhu C1 knot
+  matching are unchanged — sqrt(c + eps) would shift them and is not
+  contract-equivalent); the GRADIENT is 0 (not the 0/0 = NaN) at c == 0.
+  The double-where keeps 0 out of sqrt's own backward; the c <= 0 branch
+  differentiates c - c to 0. Elementwise, no host sync, so the compiled
+  loss and its CUDA-graph replay are undisturbed.
+- `_validate_chi2(c)` at the TOP of `_reduce` (before the transform,
+  mode-independent so chi2 / sqrt_dchi2 reject too): folds a materially
+  negative (< -`_CHI2_NEG_TOL`) or non-finite chi2 to NaN — the per-step
+  finite guard then refuses the run, never a silent perfect 0 — and clamps
+  a within-band roundoff negative to an exact-fit 0. A valid c >= 0 is
+  returned bit-identical, so a normal all-positive run is byte-identical in
+  forward AND gradient (the golden identity gates stay green).
+- Swapped at all sqrt-of-vanishing sites: sqrt mode, both berhu lower
+  branches, both anneal arms, AND the berhu_capped region-3 sqrt(t2*c)
+  (FLAG 1). The knot sqrts (sqrt(t1), sqrt(t2)) stay torch.sqrt (positive
+  constants); sqrt_dchi2 stays torch.sqrt (argument 1 + 2c >= 1, gradient
+  finite).
+- Gate Part F (finite_contract.py): exact-fit row finite-and-zero gradient
+  per mode (including berhu_capped, which exercises the branch-C leak); a
+  mixed batch; analytic agreement on positives (mean of sqrt = 2.0);
+  negative / NaN / Inf chi2 refusal; eager and torch.compile agree. Board
+  maps + the gate docstring name the 45M-24 clause.
+
+FLAG 1 (spec-completeness, Architect confirm): the spec named "four sqrt
+sites"; there is a FIFTH. In berhu_capped the region-3 term 2*sqrt(t2*c) is
+evaluated by where() for EVERY row; at an exact fit c == 0 its plain-sqrt
+infinite gradient times the branch's masked-off 0 upstream gradient is
+0 * inf = NaN, poisoning the exact-fit row even though it selects the lower
+branch. So sqrt(t2*c) is ALSO `_safe_sqrt` — necessary for the
+berhu_capped exact-fit gradient leg to pass. Implemented and flagged, not
+silently deviated.
+
+FLAG 2 (tolerance, Architect confirm): the spec asked for a "scale-aware
+roundoff tolerance." A plain sum-of-squares chi2 is >= 0 in IEEE (no
+cancellation); a negative arises only from a non-PSD-adjacent contraction
+(the rescaled / transfer forms). I chose a STATED ABSOLUTE band,
+`_CHI2_NEG_TOL = 1e-6` (whitened chi2 units): tolerated (clamped to 0)
+within it, rejected beyond. Rationale: a batch-derived relative scale can
+be poisoned by the very NaN it must catch (max over a NaN row is NaN),
+whereas an absolute floor is corruption-proof. A relative band is a
+one-line change if preferred; flagged.
+
+Mac gate (raw):
+- py_compile OK (losses/core.py, gates/checks/finite_contract.py, board.py)
+- probe_safe_sqrt.py 8/8 (exec-extracted `_validate_chi2` + `_safe_sqrt`
+  under a numpy tensor fake: sqrt-equivalence on positives, sqrt(0) = 0,
+  NaN propagation; validate leaves a good c, clamps roundoff, folds
+  materially-negative / non-finite to NaN; the validate -> safe_sqrt chain)
+- board AST: 33 gates, finite-contract intact
+- The autograd contract (gradient 0 at c == 0, the branch-C leak fixed,
+  eager + compiled) rides the workstation: run_board.py --gate
+  finite-contract.
+
+Unit 14 files (self-committed this batch): emulator/training.py (a),
+emulator/warmstart.py (b), emulator/losses/core.py (c),
+gates/checks/finite_contract.py, gates/board.py, notes/training-stack.md.
+Per-step host-sync epoch cost still to be measured on the workstation.
 
 ## Schedule validation + direction-correct step (red-team 2026-07-12 fifth wave, Architect-VERIFIED, open)
 
@@ -1216,3 +1287,141 @@ unchanged; resolved-record readback equals the tensors that received
 gradients; anchor interaction — a nonzero base anchor touches only
 the intended base keys, and enabling the correction trunk must not
 accidentally anchor it.
+
+## UNIT 14 AMENDED (45M-47): a finite per-batch loss can publish an Inf epoch loss — increment (d)
+
+Adjudicated + reproduced (Fable, 2026-07-12). The per-step finite
+contract (training.py:2058) accepts a finite float32 loss, but the
+epoch reduction overflows independently: the loop accumulates
+`run_sum += loss.detach() * bs` (:2103) — the product is computed in
+FLOAT32 before it reaches the accumulator, so a finite loss of 1e38
+with bs=8 becomes Inf (float32 max 3.4028e38) even though run_sum is
+float64 on CPU/CUDA (acc_dtype, :1781). On MPS the accumulator itself
+is float32 (:1781). train_loss = (run_sum / run_n).item() (:2105)
+publishes it: appended unguarded (:2139), printed (~:2246), persisted
+in train_losses by the save path. Reproduced: np.float32(1e38)*8 ->
+Inf; the float64-first mean is 9.999999680285692e37 (representable).
+
+Contract (increment d of the finite unit):
+1. The epoch mean must not overflow a float32 weighted sum. RULING:
+   accumulate on the HOST in a python float (float64 on every
+   backend): run_sum += float(loss.detach()) * bs. The finite
+   contract already pays one host sync per step at :2058, so the host
+   read adds no new sync — and this fixes MPS, whose device
+   accumulator cannot be float64.
+2. The completed epoch train_loss is REQUIRED finite before it is
+   appended, reported, or persisted (_report_nonfinite, the shared
+   message shape, naming the epoch).
+3. General rule, recorded: a reduction's result must be checked;
+   finite operands do not prove a finite reduction.
+4. Ordinary finite-run numerics: the accumulator is diagnostic-only
+   (selection reads the val metrics), so the float32-vs-float64
+   product difference is within the existing tolerance; the training
+   path itself is untouched.
+
+Gate: EXTENDS the board-listed finite-contract check (not a new
+gate). Drive the REAL training_loop_batched with >=2 full batches
+whose differentiable scalar loss is finite 1e38 (finite gradients,
+ordinary validation); the repaired loop returns a finite epoch loss
+near 1e38. Mutation arm: restore the `loss.detach() * bs` ordering —
+it must produce Inf and fail the leg. Workstation board run.
+
+Unit 14 now closes on increments a+b (landed, a0d03f5) + c
+(safe-sqrt, 45M-24, owed) + d (this amendment) + the extended gate.
+
+## UNIT 55 (45M-46): repeated-training state isolation — transfer-refine sweeps are order- and worker-dependent
+
+Adjudicated + chain-verified on HEAD (Fable, 2026-07-12),
+reachability FIRST per the standard: validate_transfer SUPPORTS
+transfer.refine on the cosmic-shear family (experiment.py:1368-1410;
+only the cmb/grid/grid2d families refuse it, :1371-1375) — a
+validated V1 feature. Nothing like the retracted 45M-43: no forbidden
+key is needed to reach this state. The mutation chain, every link
+confirmed on HEAD:
+- from_config loads ONE transfer source into exp._transfer_base
+  (:2232 / :2352 / :2475 / :2576); every exp.train() hands the SAME
+  object to run_emulator.
+- The refine stage (training.py:2941-2996) takes base_net =
+  chi2fn.base_net (the same module), unfreezes it IN PLACE, sets
+  chi2fn.set_live(True) (:2951 — the only set_live call in the file;
+  never reset to False), and trains it jointly. No restore of the
+  weights, the requires_grad flags, or the live mode afterward —
+  neither run_emulator nor exp.train restores anything.
+- Each exp.train() snapshots the base AS IT CURRENTLY STANDS
+  (experiment.py:4461-4463) into _transfer_pretrained_base — after
+  point 1 drifts the base, point 2's "pretrained" anchor/artifact
+  reference is W_1, not the source artifact's W_0. The in-stage
+  anchor clone (training.py:2945) drifts identically.
+- All four repeated-training drivers reuse one EmulatorExperiment
+  across points and never restore the base: tune (one staged exp
+  closed over by objective — serial :364-366, and each parallel
+  worker likewise), hyperparameter sweep (:131-171 worker,
+  :271-327 serial), activation bakeoff (:138-156, :356-412), N-train
+  sweep (:127-162, :411-464).
+
+Consequences (verified plausible on the confirmed chain): sweep
+results depend on point ORDER and on n_gpus / lane packing; a failed
+point can leave a half-refined base for the next; Optuna trials are
+history-dependent while the unit-53 manifest matches perfectly; an
+N-train learning curve no longer compares sizes against one common
+pretrained emulator. Every value stays finite and plausible — no
+existing check can see it. In fixed-geometry loops chi2fn.live also
+REMAINS True, so the next point's nominal frozen-correction stage is
+not even in stage-1 mode; the N-train sweep rebuilds the loss (live
+resets) but wraps the already-drifted base.
+
+Contract:
+1. Every repeated training point/trial starts from one immutable
+   source state W_0 — independent of execution order, worker count,
+   and prior failures/successes.
+2. Capture pristine W_0 (parameters AND buffers) once per
+   experiment/lane immediately after artifact load. Restore IN PLACE
+   before every point so every existing chi2fn.base_net reference
+   still points at the restored object — never rebuild a detached
+   base without rewiring the loss (in-place restoration or complete
+   experiment reconstruction are the only safe forms).
+3. Restore the complete stage-1 runtime state at point entry:
+   chi2fn.live False, base eval mode, cleared gradients, the original
+   requires_grad flags; reset _transfer_pretrained_base so the point
+   records/clones W_0, never a predecessor's drift.
+4. N-train / activation-size loops restore before build_geometry;
+   fixed-geometry hyperparameter/tune loops restore before loader
+   construction and training.
+5. A point failure passes through the same reset discipline in
+   finally; the next point cannot inherit a partially updated base.
+6. A point's refinement anchor reference must hash identical to the
+   pristine source state; post-point drift belongs to that point
+   only.
+7. Persist the common source-state digest in the study/sweep identity
+   record (reuse the artifact-manifest digest machinery — interlocks
+   units 37 + 53); per-point/trial diagnostics can assert entry
+   digest == the common digest.
+8. Runs without transfer.refine stay byte-identical; frozen-only
+   transfer, ordinary, NPCE, and finetune runs pay no semantic
+   change.
+
+Distinct from sweep-worker truth (unit 10) and study identity (unit
+53): those prove the intended jobs completed under the intended
+configuration; THIS unit proves each job began from the intended
+model state.
+
+Red legs: (1) two-point deterministic refine sweep — point-entry base
+digest is W_0 at both points; current code must show W_0 then W_1
+(the mutation witness); (2) reverse order [A,B] vs [B,A] with fixed
+seeds — identical per-point final weights/metrics; (3) one lane vs
+two lanes — identical per-point entry digests and results; (4) every
+point's anchor reference == W_0, never the predecessor's final base;
+(5) every point enters its correction stage with chi2fn.live False;
+only refinement flips it; (6) failure leg — point A performs at least
+one base update then raises; point B still begins at W_0; (7) one
+fixed-geometry (hyperparam/tune-style) AND one rebuild-geometry
+(N-train-style) leg; (8) mutation arm — omit the reset between two
+points; the gate must observe point 2 entering with point 1's drifted
+digest; (9) frozen-only / no-transfer controls unchanged.
+
+Torch gate under gates/checks/, LISTED on the board, driving the real
+repeated-driver paths (not a standalone reset helper); Vivian runs
+the workstation leg. Placement: beside sweep-worker truth and the
+unit-53 manifest; MUST land before any transfer-refine tune,
+hyperparameter sweep, activation bakeoff, or N-train science curve is
+trusted. Pipeline slot: after unit 52, before 22(+20).
