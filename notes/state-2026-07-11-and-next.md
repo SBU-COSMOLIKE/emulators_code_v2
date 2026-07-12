@@ -1060,8 +1060,10 @@ it directly (np.savez overwrite, compute_cmb_covariance.py:766-768)
 and folded it into unit 3 as the covariance-producer transactional-
 publication clause (see artifacts-inference-warmstart.md). 45M-09
 (MPS interpolator parse/spline-contract documentation) was named in
-the index but its full block was NEVER RELAYED — pending; request a
-re-send before adjudication. 45M-20 amends unit 22
+the index but its full block arrived only later the same day —
+RESOLVED: verified whole and folded into unit 16 as the "45M-09
+amendment" (families-background-mps.md); the 45M index is now fully
+adjudicated. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the

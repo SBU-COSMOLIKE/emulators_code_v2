@@ -364,3 +364,63 @@ recombination refused by BOTH arms; Hubble in the desert and above
 both windows; each distance product valid in each window; desert
 refusal; mixed valid/invalid; exact boundary equality at z = _sn_max;
 the malformed-pair cases from the existing unit.
+
+### 45M-09 amendment to unit 16 (MPS query/composition totality): the spline boundary is under-validated and alien-Python; teach the power-law extension (2026-07-12, Architect-VERIFIED; one implementation, one gate suite — no duplicate unit)
+
+cobaya_theory/emul_mps.py::PowerSpectrumInterpolator (vendored from
+cobaya's boltzmannbase, Antony Lewis attribution — KEEP it, and note
+the divergence) opens with the lazy-generator tuple unpack
+`z, k = (np.atleast_1d(x) for x in [z, k])` and packs validation,
+sorting, permutation, log conversion, two-sided extrapolation, and
+the SciPy call into one body. Verified gaps: len(z) >= 4 is checked
+but len(k) is NOT (the bicubic RectBivariateSpline default needs
+four points on BOTH axes — a short k dies inside FITPACK);
+P_or_logP's (n_z, n_k) shape is never required before the chained
+advanced indexes P[i_z, :][:, i_k]; axes are silently sorted but
+duplicate / nonfinite / nonpositive k are never rejected (duplicates
+reach FITPACK, zero/negative reach np.log); z/k/surface never
+required finite; logP/logsign carry no value schema; extrap_kmin is
+missing from the class parameter docs though it changes the served
+domain; the truthiness extrapolation guards are the NaN hole this
+unit already records; the 0.1/0.9 pair (:99/:112 — node placement
+log(edge)*0.1 + log(extrap)*0.9 AND the tail value delta*0.9) is an
+unexplained algorithmic control; super().__init__ leans on SciPy's
+hidden default degrees; grid=True (Cartesian product) vs grid=False
+(paired coordinates) is never stated though it changes output shape.
+
+Amendment (rides unit 16 whole — validation + didactics in ONE
+implementation): (1) all numerical checks join the totality
+contract — nonempty 1-D finite axes, >= 4 UNIQUE points on BOTH
+axes, finite surface exactly (n_z, n_k), strictly positive k,
+duplicate rejection, typed logP, valid logsign, fully validated
+finite extrapolation bounds before any log or SciPy call;
+(2) unsorted valid axes stay supported — explicit named sort
+indexes, surface permuted along the matching axes, stated to return
+copies never mutating caller arrays; (3) the generator expression
+becomes named eager steps (z_values = np.atleast_1d(z), ...);
+(4) the two tail extensions are extracted/separated with every
+quantity named: the two edge samples estimating the log-space
+slope, the requested endpoint, the artificial interior node, the
+fraction locating it, the extended surface;
+(5) EXTRAPOLATION_INTERIOR_FRACTION = 0.9 named once, the 0.1
+DERIVED as its complement; (6) the algorithm taught correctly: a
+straight-line continuation of log P vs log k — a power law in
+ordinary P and k — never "adding two points"; (7) grid semantics,
+logP/logsign, input_kmin/max vs served kmin/max, and why self.k
+stays the original grid while the internal log-k axis extends, all
+stated; (8) the SciPy API and its default cubic-degree requirement
+named before the call; (9) valid-input numerics PRESERVED — a
+didactic and validation rewrite, never a replacement of the
+inherited algorithm. CPU/SciPy gate legs (no torch), riding unit
+16's suite: valid sorted grid reproduces the current interpolator at
+nodes and interior queries; valid unsorted grid matches after paired
+permutation with caller arrays untouched; four-point boundary
+controls on both axes with three-z and three-k raising the PUBLIC
+error before FITPACK; wrong rank/shape, duplicates, NaN/Inf,
+zero/negative k raise diagnostically; both extrapolation fixtures
+match an independent analytic log-linear continuation at both
+artificial nodes and the endpoint; grid=True Cartesian shape vs
+grid=False paired results with scalar behavior named and tested;
+invalid/NaN limits and empty/nonfinite queries exercise the adopted
+totality contract; a leftover scan proves the generator expression,
+the magic 0.1/0.9 pair, and the incomplete parameter docs are gone.
