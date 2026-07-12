@@ -1,4 +1,4 @@
-# npce-training, rescale-exclusivity leg (spec code GPC-C; models-and-designs.md:117-122).
+# npce-training, rescale-exclusivity leg (spec: notes/models-and-designs.md:117-122).
 # A pce residual config that, run WITH --rescale=residual (the test passes the
 # flag), must error: pce and --rescale each replace the chi2 loss. The test
 # expects a nonzero exit + the 'exclusive' message.

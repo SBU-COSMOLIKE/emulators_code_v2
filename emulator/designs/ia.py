@@ -128,7 +128,7 @@ class TemplateMLP(DesignSpec, nn.Module):
 
 class TemplateResCNN(DesignSpec, nn.Module):
   """
-  Factored IA emulator with a bins-as-channels 1D-CNN correction
+  Factored IA emulator with a bins-as-channels 1D CNN correction
   head: the TemplateMLP trunk emits n_templates whitened templates,
   then a single-kernel conv stack corrects them before the loss
   combines them. The amplitude polynomial is untouched (the loss

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mps-smoke gate (MPS-B): the MPS emulators end to end on real CAMB.
+"""mps-smoke gate: the MPS emulators end to end on real CAMB.
 
 Truth is available (CAMB's own P(k, z) at the test point), so the served
 spectra are checked against it directly. This smoke runs the LAW-NONE
@@ -16,14 +16,14 @@ workstation).
      through the real Pk_interpolator requirement (incl. the verbatim
      wants-Cl quirk).
   2  two data.grid2d trainings (pklin + boost, law none), each with the
-     dead-network-RELATIVE collapse bar (the D-SPE2-5 rule); the boost
-     training also runs the MPS-DIAG leg (the two grid2d pages build
+     dead-network-RELATIVE collapse bar (the dead-network rule); the boost
+     training also runs the diagnostics leg (the two grid2d pages build
      and the plot_diagnostics PDF lands through the grid2d dispatch).
   3  the real cobaya lifecycle through emul_mps: get_model +
      add_requirements(Pk_grid) + logposterior; the served P_lin and
      P_nl (grid + interpolator) within 5% of CAMB's OWN P(k, z) at an
      off-center point.
-  4  the D-MP6 sanity legs: the interpolator's extrapolation guard and
+  4  the sanity legs: the interpolator's extrapolation guard and
      the nonlinear/linear state keys.
 """
 
@@ -207,7 +207,7 @@ def check_train(paths, tmp, device, quantity):
            "best %.3g vs mean-predictor %.3g" % (best_median,
                                                  mean_median))
     if quantity == "boost":
-        # the MPS-DIAG leg rides ONE of the two trainings (the pages
+        # the diagnostics leg rides ONE of the two trainings (the pages
         # are quantity-agnostic; once is the evidence, twice is time).
         check_diagnostics(exp, model, tmp)
     root = os.path.join(tmp, "emul_mps_" + quantity)
@@ -226,10 +226,10 @@ def check_train(paths, tmp, device, quantity):
 
 
 def check_diagnostics(exp, model, tmp):
-    """The MPS-DIAG leg: 2 grid2d pages build + the PDF lands.
+    """The diagnostics leg: 2 grid2d pages build + the PDF lands.
 
-    Mirrors scalar_smoke's D-CM9 leg: run the family diagnostic on the
-    freshly trained model, build the pages, and write a full
+    Mirrors scalar_smoke's diagnostics leg: run the family diagnostic
+    on the freshly trained model, build the pages, and write a full
     plot_diagnostics PDF with the grid2d dispatch — so the exact path
     the train driver's --diagnostic takes is the path proven here.
     """
@@ -268,12 +268,12 @@ def check_diagnostics(exp, model, tmp):
                          grid2d=g2, savepath=pdf)
         ok = (shape_ok and n_pages == 2 and os.path.isfile(pdf)
               and os.path.getsize(pdf) > 10000)
-        report("MPS-DIAG: 2 grid2d pages + the PDF lands", ok,
+        report("diagnostics: 2 grid2d pages + the PDF lands", ok,
                "%d pages, shapes %s, %d bytes"
                % (n_pages, "ok" if shape_ok else "WRONG",
                   os.path.getsize(pdf) if os.path.isfile(pdf) else 0))
     except Exception as e:
-        report("MPS-DIAG: 2 grid2d pages + the PDF lands", False,
+        report("diagnostics: 2 grid2d pages + the PDF lands", False,
                type(e).__name__ + ": " + str(e)[:200])
 
 
@@ -399,7 +399,7 @@ def check_cobaya(root_p, root_b, tmp):
 
 
 def main():
-    print("mps-smoke (MPS-B): generator + two trainings + cobaya vs "
+    print("mps-smoke: generator + two trainings + cobaya vs "
           "CAMB truth (law-none path; syren rides mps-identity + the "
           "EMUL2 acceptance)")
     rootdir = os.environ.get("ROOTDIR")

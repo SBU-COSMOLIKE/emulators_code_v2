@@ -1,4 +1,4 @@
-# npce-training, residual form (spec code GPC-C; models-and-designs.md:117-122). A top-level
+# npce-training, residual form (spec: notes/models-and-designs.md:117-122). A top-level
 # pce block (form residual) fits the sparse-Legendre base; resmlp is the refiner;
 # the fit report prints the kept modes.
 #

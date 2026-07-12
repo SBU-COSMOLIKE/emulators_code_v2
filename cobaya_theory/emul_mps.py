@@ -1,5 +1,5 @@
 """Thin cobaya Theory adapter: matter power spectra from saved grid2d
-emulators (the MPS family, D-MP4 — the EMUL2 hybrid-inference provider).
+emulators (the MPS family — the EMUL2 hybrid-inference provider).
 
 This is a shell over emulator.inference.EmulatorPredictor and
 emulator.syren_base — it defines no nn.Module and re-derives no physics.
@@ -11,7 +11,7 @@ mode (use_emulator: 2) consumes:
     stored (z, k) grid                grid; B = P_nl / P_lin
        │                                 │
        │  x syren base (emulator/        │  x syren-halofit base (needs
-       ▼  syren_base.py, D-MP2-A)        ▼  the emulated P_lin) + the
+       ▼  syren_base.py)                 ▼  the emulated P_lin) + the
     P_lin(k, z)  [Mpc^3]             low-k blend -> B(k, z)
                         \\               /
                          P_nl = B * P_lin
@@ -228,7 +228,7 @@ class emul_mps(Theory):
                                                                  root)
             predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model)
-            # wrong-kind guard (the D-SPE2-4 lesson): grid2d only.
+            # wrong-kind guard: grid2d only.
             if not predictor._grid2d:
                 if predictor._scalar:
                     kind, where = "scalar", "emul_scalars"
@@ -338,11 +338,11 @@ class emul_mps(Theory):
         """Assemble P_lin and P_nl on the stored grid for this point.
 
         The two artifacts decode to LAW SPACE; each base is multiplied
-        back per its own stored law (D-MP2-A(4)): the syren linear base
-        for pklin, syren-halofit (fed the emulated P_lin, the legacy
-        flow) + the low-k blend for boost. Non-finite or non-positive
-        spectra reject the point (return False, the legacy semantics)
-        rather than crash the chain.
+        back per its own stored law (the consumer's one multiply-back
+        step): the syren linear base for pklin, syren-halofit (fed the
+        emulated P_lin, the legacy flow) + the low-k blend for boost.
+        Non-finite or non-positive spectra reject the point (return
+        False, the legacy semantics) rather than crash the chain.
 
         Arguments:
           state  = the cobaya state dict to populate.

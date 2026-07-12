@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""bsn-identity gate (BSN-A): the grid-emulator save/rebuild/predict
+"""bsn-identity gate: the grid-emulator save/rebuild/predict
 identity, the imposed-physics distance pipeline, the target law both
-ways, the emul_baosn window/piecewise legs, the D-BSN9 finetune parity,
+ways, the emul_baosn window/piecewise legs, the finetune parity,
 and every grid-path loud error — torch + scipy, no CAMB.
 
 Legs:
@@ -22,7 +22,7 @@ Legs:
     get_Hubble outside the SN window loud + the 1/Mpc convention, the
     piecewise chi equal to the pipeline / the D_M artifact in their own
     windows, D_A_2 = (chi2 - chi1)/(1+z2);
-  - D-BSN9: warm-start epoch-0 parity from a grid source; the
+  - finetune: warm-start epoch-0 parity from a grid source; the
     wrong-kind and grid-metadata-mismatch from_config legs;
   - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
     residual base + refiner algebra bitwise, decode composing base +
@@ -527,9 +527,9 @@ def check_finetune(tmp, device):
     try:
         EmulatorExperiment.from_config(ft_cfg(bad, root),
                                        device=torch.device("cpu"))
-        report("D-BSN9 metadata mismatch raises", False, "no raise")
+        report("metadata mismatch raises", False, "no raise")
     except ValueError as e:
-        report("D-BSN9 metadata mismatch raises",
+        report("metadata mismatch raises",
                "grid-metadata mismatch" in str(e), "ValueError")
     dm_root = os.path.join(tmp, "ft_dm_src")
     save_synthetic_grid(dm_root, device, tmp, quantity="D_M",
@@ -538,14 +538,14 @@ def check_finetune(tmp, device):
     try:
         EmulatorExperiment.from_config(ft_cfg(good, dm_root),
                                        device=torch.device("cpu"))
-        report("D-BSN9 cross-quantity source raises", False, "no raise")
+        report("cross-quantity source raises", False, "no raise")
     except ValueError as e:
-        report("D-BSN9 cross-quantity source raises",
+        report("cross-quantity source raises",
                "grid-metadata mismatch" in str(e), "ValueError")
 
 
 def main():
-    print("bsn-identity (BSN-A): pipeline + law + round-trip + adapter "
+    print("bsn-identity: pipeline + law + round-trip + adapter "
           "+ finetune legs")
     # seed the GLOBAL torch RNG: the synthetic ResMLPs' weights come
     # from it, and an unseeded net makes any tolerance-adjacent leg

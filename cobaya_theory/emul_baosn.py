@@ -1,10 +1,9 @@
 """Thin cobaya Theory adapter: background H(z) + distances from saved
-grid emulators (the BAOSN family, D-BSN4).
+grid emulators (the BAOSN family).
 
 This is a shell over emulator.inference.EmulatorPredictor and
 emulator.background — it defines no nn.Module and re-derives no physics.
-Two saved grid artifacts serve everything (the two-regime design,
-D-BSN3-A):
+Two saved grid artifacts serve everything (the two-regime design):
 
     the "Hubble" artifact          H(z) on the SN-range grid [~0, 3]
        │  emulator/background.py   c/H cubic onto the doubled grid,
@@ -24,8 +23,8 @@ from H; the recombination window interpolates the D_M artifact; a query
 in the desert between them is a LOUD error naming both covered windows
 (never a silent bridge — the legacy analytic z->1200 extension is not
 ported). Flat-only in V1: an omk among the sampled inputs is a loud
-error citing D-BSN3 (the legacy curvature formula was dimensionally
-wrong and is not reproduced).
+error (the legacy curvature formula was dimensionally wrong and is
+not reproduced).
 
 PS: path root = a saved emulator's path without extension, resolving to
 <root>.h5 + <root>.emul; window = a closed redshift interval an
@@ -101,7 +100,7 @@ class emul_baosn(Theory):
                                                                  root)
             predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model)
-            # wrong-kind guard (the D-SPE2-4 lesson): grid artifacts only.
+            # wrong-kind guard: grid artifacts only.
             if not predictor._grid:
                 if predictor._scalar:
                     kind, where = "scalar", "emul_scalars"
@@ -157,12 +156,13 @@ class emul_baosn(Theory):
         self._rec_min = float(z_rec[0])
         self._rec_max = float(z_rec[-1])
 
-        # flat-only (D-BSN3): a sampled curvature would silently be
+        # flat-only: a sampled curvature would silently be
         # ignored by the flat conversions, so it is refused loudly.
         if "omk" in req:
             raise ValueError(
                 "emul_baosn: 'omk' is among the emulator inputs; V1 is "
-                "FLAT-ONLY (D-BSN3 — the corrected curvature branch is a "
+                "FLAT-ONLY (a ruled restriction — the corrected "
+                "curvature branch is a "
                 "recorded future item, and the legacy formula was "
                 "dimensionally wrong, so it is not reproduced)")
 
@@ -257,8 +257,9 @@ class emul_baosn(Theory):
                 "range, integrated from H) and [" + repr(self._rec_min)
                 + ", " + repr(self._rec_max) + "] (recombination D_M); "
                 "the desert between them is never emulated and never "
-                "bridged (D-BSN3-A). Retrain with wider grids if the "
-                "likelihood really needs those redshifts.")
+                "bridged — the two-window design leaves the gap loud. "
+                "Retrain with wider grids if the likelihood really needs "
+                "those redshifts.")
 
     def calculate(self, state, want_derived=True, **params):
         """Run both predictors and cache the piecewise pipeline.

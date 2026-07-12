@@ -69,7 +69,7 @@ train_args:
   bs:      256
 
   # the model. name picks the architecture: resmlp (the plain trunk) or
-  # the correction heads rescnn / restrf (the D-CM13 family lift). The
+  # the correction heads rescnn / restrf. The
   # diagonal grid geometry keeps the z order, so the heads correct
   # along the function directly: rescnn slides an odd-width conv kernel
   # along z; restrf re-segments the z grid into model.trf.n_tokens
@@ -139,7 +139,7 @@ train_args:
     shape:         linear
     kappa:         0.15
 
-  # OPTIONAL fine-tuning (D-BSN9): warm-start from a saved grid emulator
+  # OPTIONAL fine-tuning: warm-start from a saved grid emulator
   # of the SAME quantity, units, law, offset, and z grid. Delete the
   # model: block when using it — the architecture is inherited.
   # finetune:

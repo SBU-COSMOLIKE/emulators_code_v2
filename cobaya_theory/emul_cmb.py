@@ -12,8 +12,8 @@ served spectra are physical C_ell).
 WHICH spectra exist and each one's multipole range are artifact facts: the
 saved CmbDiagonalGeometry stores its spectrum name ("tt" / "te" / "ee" /
 "pp"), its multipole grid, and its units, so the YAML lists only path
-roots (D-CM5 -- the legacy eval: mask, ord, file, extra, extrapar all
-die). Two artifacts claiming the same spectrum is a loud error; a
+roots (the legacy eval: mask, ord, file, extra, extrapar all die).
+Two artifacts claiming the same spectrum is a loud error; a
 likelihood requesting a spectrum no artifact provides, or multipoles
 beyond an artifact's stored range, is a loud error at must_provide naming
 what IS loaded.
@@ -87,8 +87,8 @@ class emul_cmb(Theory):
             path = root if os.path.isabs(root) else os.path.join(rootdir, root)
             predictor = EmulatorPredictor(path, self.device,
                                           compile_model=compile_model)
-            # wrong-kind guard (the D-SPE2-4 failure class, one layer up):
-            # this theory serves CMB spectrum artifacts only.
+            # wrong-kind guard (caught one layer up): this theory
+            # serves CMB spectrum artifacts only.
             if not predictor._cmb:
                 if predictor._scalar:
                     kind, where = "scalar", "emul_scalars"

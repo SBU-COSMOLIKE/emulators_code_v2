@@ -1,4 +1,4 @@
-# relu-tanh-norm, leg 1 (spec code GAN-C; models-and-designs.md:99-101):
+# relu-tanh-norm, leg 1 (spec: notes/models-and-designs.md:99-101):
 # tanh + per_feature norm. The banner names the norm; the loss descends.
 #
 data:

@@ -1,6 +1,6 @@
-# berhu-anneal smoke (spec code GBA-C; training-stack.md:199-221).
+# berhu-anneal smoke (spec: notes/training-stack.md:199-221).
 # TWO-PHASE (trunk sqrt, head berhu_capped): the anneal banner
-# '(knot 0.2, cap 10; anneal: hold 5 + 10 cosine)' is a HEAD-PHASE line (a
+# '(knot 0.2, cap 10; anneal: hold 5 + 10 cosine)' is a head-phase line (a
 # single-phase run prints only the loss dict). Loss continuous at the hold
 # boundary, s=1 by head epoch 15.
 #

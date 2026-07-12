@@ -88,7 +88,7 @@ from .training import (
 
 # (architecture, ia) -> model class. Two orthogonal YAML choices:
 # train_args.model.name picks the architecture (resmlp = residual MLP;
-# rescnn = + a theta-order 1D-CNN correction head; restrf = + a
+# rescnn = + a theta-order 1D CNN correction head; restrf = + a
 # bin-token transformer correction head, attention across the
 # tomographic bins with per-bin unique MLPs), and the separate
 # train_args.model.ia key layers a factored intrinsic-alignment design
@@ -103,8 +103,8 @@ from .training import (
 # needs_geom (geom injected for the fixed full<->theta basis buffers;
 # compile_mode defaulted to "default"), and needs_bins
 # (build_shear_angle_map run on the cosmolike data geometry — or
-# attach_head_coords() on a diagonal family geometry, the D-CM13
-# lift — attaching the per-bin split the heads need).
+# attach_head_coords() on a diagonal family geometry — attaching the
+# per-bin split the heads need).
 MODELS = {("resmlp", None):   ResMLP,
           ("rescnn", None):   ResCNN,
           ("restrf", None):   ResTRF,
@@ -362,17 +362,18 @@ DATA_KEYS = {
   # scalar (derived-parameter) run: the emulated output names. Its presence
   # switches from_config to the scalar path (validate_scalar), where the
   # dv / cosmolike keys are forbidden and param_cuts is optional.
-  # CMB-spectrum run (D-CM4): the data.cmb sub-block {spectrum, covariance,
+  # CMB-spectrum run: the data.cmb sub-block {spectrum, covariance,
   # amplitude_law, as_name, tau_name}. Its presence switches from_config to
   # the CMB path (validate_cmb): dv files required, cosmolike keys
-  # forbidden, param_cuts optional, the covariance from the D-CM11 script.
+  # forbidden, param_cuts optional, the covariance from the
+  # compute_cmb_covariance.py script.
   "cmb",
-  # grid (background-function) run (D-BSN1): the data.grid sub-block
+  # grid (background-function) run: the data.grid sub-block
   # {quantity, units, law, offset, z_file}. Its presence switches
   # from_config to the grid path (validate_grid): dv files required (rows
   # over the stored z grid), cosmolike keys forbidden, param_cuts optional.
   "grid",
-  # grid2d (matter-power-spectrum) run (D-MP1): the data.grid2d sub-block
+  # grid2d (matter-power-spectrum) run: the data.grid2d sub-block
   # {quantity, units, law, z_file, k_file, k_stride, train_base,
   # val_base}. Its presence switches from_config to the grid2d path
   # (validate_grid2d): dv files required (flattened (z, k) rows), the
@@ -488,7 +489,7 @@ def validate_scalar(cfg, train_args, rescale="none"):
 
   A scalar run is signalled by a data.outputs list: inputs and outputs are
   both named columns of one parameter .txt, with no data vector and no
-  cosmolike (D-SP2). This enforces that exclusivity and forbids the
+  cosmolike. This enforces that exclusivity and forbids the
   data-vector-only features, then returns the validated output names. A
   standalone pure function (no torch), unit-testable in isolation.
 
@@ -556,12 +557,12 @@ def validate_scalar(cfg, train_args, rescale="none"):
       "design; a scalar run has no ia (remove it)")
   if cfg.get("transfer") is not None:
     raise ValueError(
-      "transfer learning is out of scope for scalar emulators (D-SP8); "
-      "remove the transfer: block")
-  # fine-tuning IS supported (SPE-FT, D-SF3): the finetune block is
-  # validated by warmstart.validate_finetune_config on the from_config
-  # scalar branch, and the source ScalarGeometry is pinned in
-  # build_geometry after the D-SF1 outputs-equal check.
+      "transfer learning is out of scope for scalar emulators (a "
+      "recorded ruling); remove the transfer: block")
+  # fine-tuning IS supported: the finetune block is validated by
+  # warmstart.validate_finetune_config on the from_config scalar
+  # branch, and the source ScalarGeometry is pinned in build_geometry
+  # after the outputs-equal admissibility check.
   return outputs
 
 
@@ -571,8 +572,9 @@ def validate_cmb(cfg, train_args, rescale="none"):
 
   A CMB run is signalled by the data.cmb sub-block: one spectrum's C_ell
   rows are the data vector (train_dv / val_dv .npy dumps), the loss
-  covariance comes from the D-CM11 covariance script's .npz, and the
-  primary amplitude may be imposed by a law instead of learned (D-CM2).
+  covariance comes from the compute_cmb_covariance.py script's .npz,
+  and the primary amplitude may be imposed by a law instead of learned
+  (a registry name persisted in the artifact).
   This enforces the exclusivity and the forbidden features, then returns
   the validated block. A standalone pure function (no torch),
   unit-testable in isolation.
@@ -623,8 +625,9 @@ def validate_cmb(cfg, train_args, rescale="none"):
     if key not in cmb:
       raise ValueError(
         "data.cmb needs the " + repr(key) + " key (spectrum = which C_ell "
-        "to emulate; covariance = the D-CM11 script's .npz; amplitude_law "
-        "= the imposed-amplitude registry name); it is missing")
+        "to emulate; covariance = the compute_cmb_covariance.py script's "
+        ".npz; amplitude_law = the imposed-amplitude registry name); it "
+        "is missing")
   spectrum = str(cmb["spectrum"]).lower()
   if spectrum not in ("tt", "te", "ee", "pp"):
     raise ValueError(
@@ -693,7 +696,7 @@ def validate_cmb(cfg, train_args, rescale="none"):
       "rescales the target per row). Use one at a time (the NPCE base "
       "needs amplitude_law: none)")
   # transfer learning IS in scope since the 2026-07-12 symmetry ruling
-  # (D-CM7's deferral closed: "it is weird to have a feature not
+  # (an earlier deferral, closed: "it is weird to have a feature not
   # symmetric to all cases") — but only under amplitude_law "none":
   # the imposed law and the transfer target construction each own the
   # target, one at a time (the same exclusivity as pce). The block
@@ -707,9 +710,10 @@ def validate_cmb(cfg, train_args, rescale="none"):
       "the target construction (the transfer loss composes a frozen "
       "base; the law rescales the target per row). Use one at a time "
       "(a transfer run needs amplitude_law: none)")
-  # fine-tuning IS in scope (D-CM10): the finetune block is validated by
-  # warmstart.validate_finetune_config on the from_config cmb branch and
-  # the source geometry is pinned in build_geometry (the D-FT4 analogue).
+  # fine-tuning IS in scope: the finetune block is validated by
+  # warmstart.validate_finetune_config on the from_config cmb branch
+  # and the source geometry is pinned in build_geometry (the same
+  # source-geometry pin as the cosmolike warm start).
   return dict(cmb)
 
 
@@ -720,7 +724,7 @@ def validate_grid(cfg, train_args, rescale="none"):
   A grid run is signalled by the data.grid sub-block: the data vector is
   a function of redshift on a stored grid — H(z) on the SN range or the
   comoving distance D_M(z) on the recombination window (the BSN
-  two-regime design, D-BSN3-A) — standardized through a GridGeometry
+  two-regime design) — standardized through a GridGeometry
   whose target law (e.g. log(H + offset)) is persisted in the artifact.
   This enforces the exclusivity and the forbidden features, then returns
   the validated block. A standalone pure function (no torch).
@@ -820,11 +824,11 @@ def validate_grid(cfg, train_args, rescale="none"):
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a grid run has no ia (remove it)")
   # transfer learning IS in scope since the 2026-07-12 symmetry ruling
-  # (the D-BSN9 permanent forbid overturned by the user: "I misspoke -
+  # (an earlier permanent forbid overturned by the user: "I misspoke -
   # ... it is easy to allow it to BAO/SN"); validate_transfer
   # (diagonal=True) vets the block on the from_config grid branch, and
   # build_geometry pins the base's grid/quantity/law loudly.
-  # fine-tuning IS in scope (D-BSN9): validated on the from_config grid
+  # fine-tuning IS in scope: validated on the from_config grid
   # branch; the source geometry is pinned in build_geometry.
   return dict(grid)
 
@@ -837,9 +841,9 @@ def validate_grid2d(cfg, train_args, rescale="none"):
   vector is one MPS quantity's flattened (z, k) surface — the linear
   P(k, z) ("pklin") or the nonlinear boost ("boost") — standardized in
   LAW SPACE. Under a syren law the target is log(quantity / base) where
-  the base is the analytic syren formula the emulator corrects
-  (D-MP2); the base rows come from the generator's *_base dump files
-  (train_base / val_base), never recomputed at training (D-MP2-A). A
+  the base is the analytic syren formula the emulator corrects; the
+  base rows come from the generator's *_base dump files
+  (train_base / val_base), never recomputed at training. A
   standalone pure function (no torch).
 
   Arguments:
@@ -917,7 +921,7 @@ def validate_grid2d(cfg, train_args, rescale="none"):
         raise ValueError(
           "a syren law needs data.grid2d." + key + " (the generator's "
           "*_base dump beside the raw one — the analytic base the "
-          "emulator corrects, read from disk per D-MP2-A); it is "
+          "emulator corrects, read from disk); it is "
           "missing")
   else:
     extra = []
@@ -963,11 +967,11 @@ def validate_grid2d(cfg, train_args, rescale="none"):
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a grid2d run has no ia (remove it)")
   # transfer learning IS in scope since the 2026-07-12 symmetry ruling
-  # (the D-MP7 permanent forbid overturned by the user: "this for sure
+  # (an earlier permanent forbid overturned by the user: "this for sure
   # should be allowed for MPS"); validate_transfer (diagonal=True)
   # vets the block on the from_config grid2d branch, and build_geometry
   # pins the base's (z, k) axes / quantity / law loudly.
-  # fine-tuning IS in scope (D-MP7): validated on the from_config
+  # fine-tuning IS in scope: validated on the from_config
   # grid2d branch; the source geometry is pinned in build_geometry.
   return dict(g2)
 
@@ -1157,7 +1161,7 @@ def validate_pce(pce, rescale="none", ia=None, diagonal=False):
 
 
 # the top-level transfer: block keys. "refine" is the optional joint-refinement
-# stage (D-TP10): unfreeze the base for a second training stage.
+# stage: unfreeze the base for a second training stage.
 TRANSFER_KEYS = ("from", "form", "space", "refine")
 # the refine: sub-block keys. anchor is REQUIRED when refine: is present (an
 # explicit 0.0 states free fine-tuning deliberately, never a silent default).
@@ -1198,7 +1202,7 @@ def validate_transfer(cfg, train_args, rescale="none", diagonal=False):
 
   Raises:
     TypeError / ValueError / KeyError naming any violated rule. A refine:
-    key is validated and materialized on the cosmolike family (D-TP10) and
+    key is validated and materialized on the cosmolike family and
     rejected on a diagonal family (frozen-base V1).
   """
   transfer = cfg.get("transfer")
@@ -1294,7 +1298,7 @@ def validate_transfer(cfg, train_args, rescale="none", diagonal=False):
               "form": form,
               "space": space}
 
-  # the optional refine: stage (D-TP10): a second, joint training stage with
+  # the optional refine: stage — a second, joint training stage with
   # the base unfrozen. Validated + materialized here (persist-resolved-values).
   refine = transfer.get("refine")
   if refine is not None and diagonal:
@@ -1717,7 +1721,7 @@ class EmulatorExperiment:
                        layers run at that width too, n_mlp_blocks is
                        depth only; n_tokens re-segments a single-bin
                        family geometry — cmb's ell / grid's z — into
-                       that many attention windows, D-CM13, and is
+                       that many attention windows, and is
                        rejected where physical bins exist). The
                        head's activation ({type,
                        n_gates} or a bare string) pins its own family
@@ -1822,7 +1826,7 @@ class EmulatorExperiment:
     # and stored by train(). None until those run.
     self.resolved_model = None
     self.resolved_train = None
-    # scalar (derived-parameter) emulator (D-SP2): the emulated output names
+    # scalar (derived-parameter) emulator: the emulated output names
     # and the run-mode flag, set by from_config. None / False on a data-vector
     # run, which every scalar branch below guards on (absent = byte-identical).
     self._scalar = False
@@ -1890,7 +1894,7 @@ class EmulatorExperiment:
     # a scalar (derived-parameter) run is signalled by data.outputs; on it
     # param_cuts is optional (a scalar chain is already the target
     # distribution, and the omega-windows reference params a scalar input set
-    # may not carry, D-SPE2), while on a data-vector run it stays required.
+    # may not carry), while on a data-vector run it stays required.
     is_scalar = "outputs" in cfg["data"]
     is_cmb    = "cmb" in cfg["data"]
     is_grid   = "grid" in cfg["data"]
@@ -1924,15 +1928,15 @@ class EmulatorExperiment:
     ta = default_train_args(cfg["train_args"])
 
     # scalar (derived-parameter) run (data.outputs present): inputs and
-    # outputs are named columns of one parameter .txt, no cosmolike (D-SP2).
+    # outputs are named columns of one parameter .txt, no cosmolike.
     # validate_scalar enforces the exclusivity + forbidden features and
     # returns the output names; the model is a plain design (ia None).
     if is_scalar:
       outputs = validate_scalar(cfg, train_args=ta,
                                 rescale=kwargs.get("rescale", "none"))
-      # fine-tune warm start on the scalar path (SPE-FT): architecture,
+      # fine-tune warm start on the scalar path: architecture,
       # activation, and loss form inherited from a saved SCALAR source;
-      # the D-SF1 admissibility runs here (wrong-kind + outputs-equal,
+      # the admissibility checks run here (wrong-kind + outputs-equal,
       # both loud before any staging), the geometry pin in
       # build_geometry.
       if ta.get("finetune") is not None:
@@ -1955,7 +1959,7 @@ class EmulatorExperiment:
             "a " + type(source.geom).__name__ + " output geometry (a "
             "cosmolike / CMB artifact fine-tunes on its own family's "
             "path)")
-        # D-SF1: the emulated outputs must match EXACTLY (names and
+        # admissibility: the emulated outputs must match EXACTLY (names and
         # order) — the pinned standardization is per output column, so a
         # different list is a different map, not a warm-startable one.
         if list(source.geom.names) != list(outputs):
@@ -1987,10 +1991,11 @@ class EmulatorExperiment:
         raise ValueError(
           "no scalar model for architecture " + repr(name) + " (a scalar "
           "run is a plain design, ia=None; pick a name that has it)")
-      # D-SPE2-3 (still standing after the D-CM13 family lift): the conv /
-      # TRF heads correct along an output COORDINATE axis (theta / ell /
-      # z / k), and a scalar output is a set of NAMED values with no axis
-      # between them — no locality for a conv, no windows for attention.
+      # scalar is trunk-only (still standing after the correction-head
+      # family lift): the conv / TRF heads correct along an output
+      # COORDINATE axis (theta / ell / z / k), and a scalar output is a
+      # set of NAMED values with no axis between them — no locality for
+      # a conv, no windows for attention.
       # Keyed on the class's declared head_block, not the name, so a
       # future trunk-only design composes automatically.
       model_cls = models[(name, None)]
@@ -2034,10 +2039,11 @@ class EmulatorExperiment:
         head_pin=None)
       return exp
 
-    # CMB-spectrum run (D-CM4): one spectrum's C_ell rows as the data
-    # vector, the covariance from the D-CM11 .npz, the amplitude law
-    # imposed by the chi2 wrapper (losses/cmb.py). validate_cmb enforced
-    # the exclusivity + forbidden features above the model choice.
+    # CMB-spectrum run: one spectrum's C_ell rows as the data vector,
+    # the covariance from the compute_cmb_covariance.py .npz, the
+    # amplitude law imposed by the chi2 wrapper (losses/cmb.py).
+    # validate_cmb enforced the exclusivity + forbidden features above
+    # the model choice.
     if is_cmb:
       cmb = validate_cmb(cfg, train_args=ta,
                          rescale=kwargs.get("rescale", "none"))
@@ -2048,7 +2054,7 @@ class EmulatorExperiment:
       tr_resolved, tr_notice, tr_base, tr_root = _load_diag_transfer(
         cfg=cfg, train_args=ta, kwargs=kwargs,
         geom_cls_name="CmbDiagonalGeometry")
-      # fine-tune warm start on the CMB path (D-CM10): the architecture,
+      # fine-tune warm start on the CMB path: the architecture,
       # activation, and loss form are inherited from a saved CMB source
       # emulator, exactly the cosmolike finetune flow; the CMB-specific
       # geometry pin happens in build_geometry. The source must itself be
@@ -2097,9 +2103,9 @@ class EmulatorExperiment:
           "no plain model for architecture " + repr(name) + " (a CMB run "
           "uses the plain designs, ia=None; pick a name that has one)")
       model_cls = models[(name, None)]
-      # D-CM13 (user order 2026-07-11; arXiv 2505.22574's attention-vs-MLP
-      # outlier result for CMB spectra): the conv/TRF heads ride this
-      # family. The diagonal CMB whitening keeps the multipole order, so
+      # the conv/TRF heads ride this family (user order 2026-07-11;
+      # arXiv 2505.22574's attention-vs-MLP outlier result for CMB
+      # spectra). The diagonal CMB whitening keeps the multipole order, so
       # the heads' basis change degenerates to the identity (the models
       # keep W_fd / W_df as None) and the channel/token split is
       # CmbDiagonalGeometry.attach_head_coords() in build_geometry — one
@@ -2150,7 +2156,7 @@ class EmulatorExperiment:
         exp._transfer_space_notice = tr_notice
       return exp
 
-    # grid (background-function) run (D-BSN1): one background quantity's
+    # grid (background-function) run: one background quantity's
     # rows over a stored z grid as the data vector, standardized through
     # a GridGeometry whose target law is persisted in the artifact.
     # validate_grid enforced the exclusivity + forbidden features.
@@ -2162,7 +2168,7 @@ class EmulatorExperiment:
       tr_resolved, tr_notice, tr_base, tr_root = _load_diag_transfer(
         cfg=cfg, train_args=ta, kwargs=kwargs,
         geom_cls_name="GridGeometry")
-      # fine-tune warm start on the grid path (D-BSN9): architecture,
+      # fine-tune warm start on the grid path: architecture,
       # activation, and loss form inherited from a saved GRID source of
       # the SAME quantity/units/law/offset; the z-grid check (needs the
       # z_file) and the geometry pin live in build_geometry.
@@ -2196,7 +2202,7 @@ class EmulatorExperiment:
             "finetune grid-metadata mismatch: the source persisted "
             "(quantity, units, law, offset) = " + repr(have) + " but "
             "data.grid states " + repr(want) + "; a grid warm start "
-            "needs the same quantity, units, law, and offset (D-BSN9)")
+            "needs the same quantity, units, law, and offset")
         block_opts = source.recipe.get("kwargs", {}).get("block_opts", {})
         act_spec   = block_opts.get("act", {}) if isinstance(block_opts,
                                                              dict) else {}
@@ -2222,8 +2228,8 @@ class EmulatorExperiment:
           "run uses the plain designs, ia=None; pick a name that has "
           "one)")
       model_cls = models[(name, None)]
-      # D-CM13 family lift (user order 2026-07-11): the conv/TRF heads
-      # ride the grid family too. The diagonal standardization keeps the
+      # the conv/TRF heads ride the grid family too (user order
+      # 2026-07-11). The diagonal standardization keeps the
       # z order, so the basis change is the identity (W_fd / W_df stay
       # None) and the split is GridGeometry.attach_head_coords() in
       # build_geometry — one bin, coordinate = z; model.trf.n_tokens
@@ -2270,9 +2276,9 @@ class EmulatorExperiment:
         exp._transfer_space_notice = tr_notice
       return exp
 
-    # grid2d (matter-power-spectrum) run (D-MP1): one MPS quantity's
+    # grid2d (matter-power-spectrum) run: one MPS quantity's
     # flattened (z, k) surface as the data vector, law-transformed at
-    # staging (D-MP2-A) and standardized through a Grid2DGeometry.
+    # staging and standardized through a Grid2DGeometry.
     # validate_grid2d enforced the exclusivity + forbidden features.
     if is_grid2d:
       grid2d = validate_grid2d(cfg, train_args=ta,
@@ -2282,7 +2288,7 @@ class EmulatorExperiment:
       tr_resolved, tr_notice, tr_base, tr_root = _load_diag_transfer(
         cfg=cfg, train_args=ta, kwargs=kwargs,
         geom_cls_name="Grid2DGeometry")
-      # fine-tune warm start on the grid2d path (D-MP7): architecture,
+      # fine-tune warm start on the grid2d path: architecture,
       # activation, and loss form inherited from a saved grid2d source
       # of the SAME quantity/units/law; the (z, k) axes check and the
       # geometry pin live in build_geometry (the axes exist only after
@@ -2316,7 +2322,7 @@ class EmulatorExperiment:
             "finetune grid2d-metadata mismatch: the source persisted "
             "(quantity, units, law) = " + repr(have) + " but "
             "data.grid2d states " + repr(want) + "; a grid2d warm "
-            "start needs the same quantity, units, and law (D-MP7)")
+            "start needs the same quantity, units, and law")
         block_opts = source.recipe.get("kwargs", {}).get("block_opts", {})
         act_spec   = block_opts.get("act", {}) if isinstance(block_opts,
                                                              dict) else {}
@@ -2342,8 +2348,8 @@ class EmulatorExperiment:
           "run uses the plain designs, ia=None; pick a name that has "
           "one)")
       model_cls = models[(name, None)]
-      # D-CM13 family lift (user order 2026-07-11): the conv/TRF heads
-      # ride the grid2d family too. The flattening is z-outer and the
+      # the conv/TRF heads ride the grid2d family too (user order
+      # 2026-07-11). The flattening is z-outer and the
       # standardization keeps the grid order, so the basis change is the
       # identity (W_fd / W_df stay None) and the split is
       # Grid2DGeometry.attach_head_coords() in build_geometry — one bin
@@ -2438,7 +2444,7 @@ class EmulatorExperiment:
     # transfer learning (a top-level transfer: block): a frozen base under a
     # parallel correction net (emulator/losses/transfer.py). The correction
     # keeps its own model: block (capacity is the user's knob here), but its
-    # intrinsic-alignment family is inherited from the base (D-TP2); a YAML
+    # intrinsic-alignment family is inherited from the base; a YAML
     # model.ia was already rejected by validate_transfer.
     if cfg.get("transfer") is not None:
       resolved_tr, space_notice = validate_transfer(
@@ -2706,7 +2712,7 @@ class EmulatorExperiment:
       self.log(f"transfer: from {self._transfer_base.root}  |  "
                f"form {self._transfer_form}/{self._transfer_space}  |  "
                f"extras: {extra_str}")
-      # refine stage (D-TP10): the stage-2 joint pass, when present.
+      # refine stage: the stage-2 joint pass, when present.
       rf = self._transfer_refine
       if rf is not None:
         self.log(f"transfer refine: {rf['epochs']} epochs, base unfrozen "
@@ -2784,7 +2790,7 @@ class EmulatorExperiment:
 
   # --- staging + geometry (the expensive, cached pieces) ---
   def _grid2d_law_rows(self, src, base_path):
-    """Materialize a grid2d source's law-space rows in place (D-MP2-A(2)).
+    """Materialize a grid2d source's law-space rows in place.
 
     Reads the (z, k) sidecars named in data.grid2d, forms the law-space
     target — log(quantity / base) under a syren law, with the base rows
@@ -2873,7 +2879,7 @@ class EmulatorExperiment:
     """
     d   = self.data
     # scalar run: inputs + outputs are named columns of one params .txt; no
-    # dv .npy, no cosmolike, param_cuts optional (load_scalar_source, D-SP2).
+    # dv .npy, no cosmolike, param_cuts optional (load_scalar_source).
     if self._scalar:
       pc  = d.get("param_cuts", {})
       gen = torch.Generator().manual_seed(int(d["split_seed"]))
@@ -2895,8 +2901,8 @@ class EmulatorExperiment:
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
         omegamh2ns_hi=pc.get("omegamh2ns_hi"))
       return self.train_set
-    # cmb / grid run: the physical windows are opt-in (D-CM4 / D-BSN1,
-    # the D-SPE2 pattern) — an absent block means no cuts; the cosmolike
+    # cmb / grid run: the physical windows are opt-in (the scalar-path
+    # pattern) — an absent block means no cuts; the cosmolike
     # path requires the block (validate_param_cuts), so .get never
     # changes it.
     if self._cmb or self._grid or self._grid2d:
@@ -2926,7 +2932,7 @@ class EmulatorExperiment:
       ram_frac=d.get("ram_frac", 0.7),
       with_means=True,
       verbose=not self.quiet)
-    # grid2d run: materialize the law-space rows now (D-MP2-A(2)) — the
+    # grid2d run: materialize the law-space rows now — the
     # training loop consumes train_set["dv"] directly, so the syren-law
     # transform (and the optional k-stride thinning) must happen at
     # staging, once, on the CPU cold path.
@@ -2974,8 +2980,8 @@ class EmulatorExperiment:
         omegamh2ns_lo=pc.get("omegamh2ns_lo"),
         omegamh2ns_hi=pc.get("omegamh2ns_hi"))
       return self.val_set
-    # cmb / grid run: the physical windows are opt-in (D-CM4 / D-BSN1,
-    # the D-SPE2 pattern) — an absent block means no cuts; the cosmolike
+    # cmb / grid run: the physical windows are opt-in (the scalar-path
+    # pattern) — an absent block means no cuts; the cosmolike
     # path requires the block (validate_param_cuts), so .get never
     # changes it.
     if self._cmb or self._grid or self._grid2d:
@@ -3110,12 +3116,12 @@ class EmulatorExperiment:
     d = self.data
 
     # fine-tune warm start (emulator/warmstart.py): the input geometry is the
-    # source geometry block-extended for the new parameters (D-FT3), and the
+    # source geometry block-extended for the new parameters, and the
     # output geometry is the source's, pinned after the dataset / probe / width
-    # checks (D-FT4). No from_covmat, no from_cosmolike, no cosmolike import.
+    # checks. No from_covmat, no from_cosmolike, no cosmolike import.
     # rescale is "none" (validated), so make_chi2 wraps the pinned geometry in
-    # a plain CosmolikeChi2 with no cosmolike calls. A CMB (D-CM10) or scalar
-    # (SPE-FT) finetune run skips this branch: its pin lives inside its own
+    # a plain CosmolikeChi2 with no cosmolike calls. A CMB or scalar
+    # finetune run skips this branch: its pin lives inside its own
     # family branch below (the checks are family-specific), while the
     # input-geometry extension is shared.
     if (self._finetune is not None and not self._cmb
@@ -3149,8 +3155,8 @@ class EmulatorExperiment:
 
     # transfer learning (a frozen base under a parallel correction): the input
     # geometry is the base geometry block-extended for the new parameters
-    # (D-TP3; extend_input_geometry handles both a plain and a factored base),
-    # and the output geometry is the base's, pinned (D-TP4). The chi2 is a
+    # (extend_input_geometry handles both a plain and a factored base),
+    # and the output geometry is the base's, pinned. The chi2 is a
     # TransferChi2 wrapping the frozen base network; no cosmolike. This is the
     # COSMOLIKE branch only — the diagonal families (the 2026-07-12 symmetry
     # ruling) pin and wrap inside their own build branches below.
@@ -3197,19 +3203,20 @@ class EmulatorExperiment:
         coeff_fn=coeff_fn)
       return self.pgeom, self.geom, self.chi2fn
 
-    # scalar (derived-parameter) run (D-SP2): the input geometry is the plain
+    # scalar (derived-parameter) run: the input geometry is the plain
     # ParamGeometry over the covmat; the output geometry is a ScalarGeometry
     # standardizing the staged output columns; the loss is a ScalarChi2. No
     # cosmolike, no mask; returns before the cosmolike import below.
     if self._scalar:
       from .geometries.scalar import ScalarGeometry
       from .losses.scalar import make_scalar_chi2
-      # fine-tune warm start (SPE-FT, the D-FT4 analogue): the input
-      # geometry is the source's block-extended (D-SF2 = D-FT3
-      # unchanged), and the output geometry is the SOURCE ScalarGeometry
-      # pinned wholesale — its center/scale are the source's training
-      # standardization, so epoch 0 reproduces the source bitwise
-      # (from_config already enforced the D-SF1 outputs-equal check).
+      # fine-tune warm start: the input geometry is the source's
+      # block-extended (the same block extension the cosmolike
+      # fine-tune uses), and the output geometry is the SOURCE
+      # ScalarGeometry pinned wholesale — its center/scale are the
+      # source's training standardization, so epoch 0 reproduces the
+      # source bitwise (from_config already enforced the outputs-equal
+      # check).
       if self._finetune is not None:
         self.pgeom, extra_names = warmstart.extend_input_geometry(
           source=self._finetune,
@@ -3240,18 +3247,19 @@ class EmulatorExperiment:
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
-    # CMB-spectrum run (D-CM4): the input geometry is the plain
+    # CMB-spectrum run: the input geometry is the plain
     # ParamGeometry over the covmat; the output geometry is the diagonal
-    # CmbDiagonalGeometry whose whitening sigma comes from the D-CM11
-    # covariance .npz (WITH the experiment's noise — eq 4); the loss is
+    # CmbDiagonalGeometry whose whitening sigma comes from the
+    # compute_cmb_covariance.py .npz (WITH the experiment's noise —
+    # eq 4); the loss is
     # the law-dispatched CMB chi2. No cosmolike; returns before the
     # cosmolike import below.
     if self._cmb:
       from .geometries.cmb import CmbDiagonalGeometry
       from .losses.cmb import make_cmb_chi2
       # input geometry: fresh ParamGeometry on a plain run; on a finetune
-      # run (D-CM10) the source input geometry block-extended for any new
-      # parameters (D-FT3, the shared warm-start machinery).
+      # run the source input geometry block-extended for any new
+      # parameters (the shared warm-start machinery).
       if self._finetune is not None:
         self.pgeom, extra_names = warmstart.extend_input_geometry(
           source=self._finetune,
@@ -3274,7 +3282,7 @@ class EmulatorExperiment:
           raise ValueError(
             "covariance file " + repr(self.cmb["covariance"]) + " lacks "
             + repr(key) + "; it must come from compute_cmb_covariance.py "
-            "(the D-CM11 interface: ell + sigma_<s> + cl_<s> at least)")
+            "(its interface: ell + sigma_<s> + cl_<s> at least)")
       ell   = np.asarray(cov["ell"], dtype="int64")
       sigma = np.asarray(cov["sigma_" + spectrum], dtype="float64")
       fid   = np.asarray(cov["cl_" + spectrum], dtype="float64")
@@ -3286,7 +3294,7 @@ class EmulatorExperiment:
           "the covariance file covers " + str(int(ell.size)) + " "
           "multipoles (l = " + str(int(ell[0])) + ".." + str(int(ell[-1]))
           + "); the dump and the covariance must share one ell grid")
-      # fine-tune warm start (D-CM10, the D-FT4 analogue): pin the SOURCE
+      # fine-tune warm start: pin the SOURCE
       # output geometry wholesale — its center is the source's training
       # mean, so the warm-started network reproduces the source bitwise at
       # epoch 0. Pinning is only honest when the new run really shares the
@@ -3328,7 +3336,7 @@ class EmulatorExperiment:
             "SAME experiment covariance file the source trained with "
             "(epoch-0 parity is impossible under a different whitening)")
         self.geom = sgeom
-        # conv/TRF heads (needs_bins; D-CM13): attach the channel/token
+        # conv/TRF heads (needs_bins): attach the channel/token
         # split — a pure derivation from the pinned geometry's own ell
         # grid, so a head-model source rebuilds and fine-tunes exactly.
         if getattr(self.model_cls, "needs_bins", False):
@@ -3343,7 +3351,7 @@ class EmulatorExperiment:
         return self.pgeom, self.geom, self.chi2fn
       # transfer learning (the 2026-07-12 symmetry ruling): the input
       # geometry is the base's block-extended for the new parameters
-      # (D-TP3) and the output geometry is the BASE's, pinned after the
+      # and the output geometry is the BASE's, pinned after the
       # same whitening checks the finetune pin makes above (identical
       # spectrum, law "none" both sides — validate_cmb forced the run's
       # side — and identical ell grid + sigma: a frozen base under a
@@ -3434,7 +3442,7 @@ class EmulatorExperiment:
                                       law=law,
                                       as_name=as_name,
                                       tau_name=tau_name)
-      # conv/TRF heads (needs_bins; D-CM13): attach the channel/token
+      # conv/TRF heads (needs_bins): attach the channel/token
       # split — one bin, coordinate = ell (attach_head_coords).
       if getattr(self.model_cls, "needs_bins", False):
         self.geom.attach_head_coords()
@@ -3454,7 +3462,7 @@ class EmulatorExperiment:
                                     tau_name=tau_name)
       return self.pgeom, self.geom, self.chi2fn
 
-    # grid (background-function) run (D-BSN1): the input geometry is the
+    # grid (background-function) run: the input geometry is the
     # plain ParamGeometry over the covmat; the output geometry is a
     # GridGeometry over the generator's persisted z grid (read from the
     # _z.npy sidecar file — resolved values); the loss is ScalarChi2
@@ -3477,7 +3485,7 @@ class EmulatorExperiment:
           "but data.grid.z_file covers " + str(int(z.size)) + " grid "
           "points; the dump and its _z.npy sidecar must come from the "
           "same generator run")
-      # fine-tune warm start (D-BSN9, the D-FT4 analogue): pin the
+      # fine-tune warm start: pin the
       # SOURCE GridGeometry wholesale (its center/scale are the source
       # standardization -> epoch-0 parity). The metadata was checked at
       # from_config; the GRID itself is checked here, where the z_file
@@ -3500,14 +3508,14 @@ class EmulatorExperiment:
           device=self.device)
         self._finetune_extra_names = extra_names
         self.geom = sgeom
-        # conv/TRF heads (needs_bins; D-CM13): the split derives from
+        # conv/TRF heads (needs_bins): the split derives from
         # the pinned geometry's own z grid (attach_head_coords).
         if getattr(self.model_cls, "needs_bins", False):
           self.geom.attach_head_coords()
         self.chi2fn = make_scalar_chi2(self.geom)
         return self.pgeom, self.geom, self.chi2fn
       # transfer learning (the 2026-07-12 symmetry ruling): the input
-      # geometry is the base's block-extended (D-TP3) and the output
+      # geometry is the base's block-extended and the output
       # geometry is the BASE's, pinned after the same z-grid check the
       # finetune pin makes above plus the metadata equality (quantity /
       # units / law — the base's whitening must be the run's). The chi2
@@ -3557,7 +3565,7 @@ class EmulatorExperiment:
       self.geom = GridGeometry.from_targets(
         device=self.device, targets=targets, z=z,
         quantity=quantity, units=units, law=law, offset=offset)
-      # conv/TRF heads (needs_bins; D-CM13): attach the channel/token
+      # conv/TRF heads (needs_bins): attach the channel/token
       # split — one bin, coordinate = z (attach_head_coords).
       if getattr(self.model_cls, "needs_bins", False):
         self.geom.attach_head_coords()
@@ -3570,7 +3578,7 @@ class EmulatorExperiment:
       self.chi2fn = make_scalar_chi2(self.geom)
       return self.pgeom, self.geom, self.chi2fn
 
-    # grid2d (matter-power-spectrum) run (D-MP1): the input geometry is
+    # grid2d (matter-power-spectrum) run: the input geometry is
     # the plain ParamGeometry over the covmat; the output geometry is a
     # Grid2DGeometry over the post-staging (z, k) axes (the staging
     # hook already formed the LAW-SPACE rows and applied any k_stride,
@@ -3596,7 +3604,7 @@ class EmulatorExperiment:
           + " columns but the post-thinning grid is "
           + str(int(z2.size)) + " x " + str(int(k2.size))
           + "; staging and geometry disagree (internal ordering bug)")
-      # fine-tune warm start (D-MP7, the D-FT4 analogue): pin the
+      # fine-tune warm start: pin the
       # SOURCE Grid2DGeometry wholesale after the axes check (the
       # metadata was checked at from_config; the AXES exist only now).
       if self._finetune is not None:
@@ -3621,7 +3629,7 @@ class EmulatorExperiment:
           device=self.device)
         self._finetune_extra_names = extra_names
         self.geom = sgeom
-        # conv/TRF heads (needs_bins; D-CM13): the split derives from
+        # conv/TRF heads (needs_bins): the split derives from
         # the pinned geometry's own (z, k) axes (attach_head_coords).
         if getattr(self.model_cls, "needs_bins", False):
           self.geom.attach_head_coords()
@@ -3629,7 +3637,7 @@ class EmulatorExperiment:
         return self.pgeom, self.geom, self.chi2fn
       # transfer learning (the 2026-07-12 symmetry ruling, "this for
       # sure should be allowed for MPS"): the input geometry is the
-      # base's block-extended (D-TP3) and the output geometry is the
+      # base's block-extended and the output geometry is the
       # BASE's, pinned after the same (z, k)-axes check the finetune
       # pin makes above plus the metadata equality (quantity / units /
       # law). The chi2 is TransferDiagChi2 wrapping the frozen base.
@@ -3682,23 +3690,23 @@ class EmulatorExperiment:
       self.geom = Grid2DGeometry.from_targets(
         device=self.device, targets=targets, z=z2, k=k2,
         quantity=quantity, units=units, law=law)
-      # D-MP9 (law-agnostic): law-space columns constant across the
-      # training cosmologies (the boost's low-k tail, under any law)
-      # are pinned by the geometry, reported here once (quiet-gated),
-      # never silent.
+      # constant-column pin (law-agnostic): law-space columns constant
+      # across the training cosmologies (the boost's low-k tail, under
+      # any law) are pinned by the geometry, reported here once
+      # (quiet-gated), never silent.
       if self.geom.const_mask is not None:
         n_pin = int(self.geom.const_mask.sum())
         self.log("grid2d: " + str(n_pin) + " constant law-space grid "
                  "point(s) pinned (decode returns the training "
-                 "constant — the physics is flat there, D-MP9)")
-      # conv/TRF heads (needs_bins; D-CM13): attach the channel/token
+                 "constant — the physics is flat there)")
+      # conv/TRF heads (needs_bins): attach the channel/token
       # split — one bin per z slice, each of length nk
       # (attach_head_coords; conv channels / TRF tokens = z slices).
       if getattr(self.model_cls, "needs_bins", False):
         self.geom.attach_head_coords()
       # NPCE (the 2026-07-12 family-wide ruling): fit the closed-form
       # base on the staged law-space rows and wrap the residual refiner
-      # loss (_fit_diag_pce); a D-MP9 constant pin composes in decode
+      # loss (_fit_diag_pce); a constant-column pin composes in decode
       # (the geometry pins the COMBINED base + net prediction).
       if self.pce_opts is not None:
         self.chi2fn = self._fit_diag_pce(train_set=train_set)
@@ -3840,7 +3848,7 @@ class EmulatorExperiment:
     train_args = self.train_args if train_args is None else train_args
 
     # fine-tune warm start: the model spec is inherited from the source recipe
-    # (D-FT2, the architecture is never restated in YAML), not translated from
+    # (the architecture is never restated in YAML), not translated from
     # a model: block. The other five specs (optimizer / lr / scheduler / trim /
     # focus) still come from train_args as usual; the lower learning rate is
     # just a smaller lr_base in the lr: block. resolved_model records the
@@ -3850,7 +3858,7 @@ class EmulatorExperiment:
       source = self._finetune
       ft = train_args.get("finetune", {})
       # compile mode: the finetune block may override the source's for this
-      # machine (D-FT1); absent -> the mode the source recipe stored.
+      # machine; absent -> the mode the source recipe stored.
       if "compile_mode" in ft:
         compile_mode = ft["compile_mode"]
       else:
@@ -4167,7 +4175,7 @@ class EmulatorExperiment:
     elif self._transfer_base is not None:
       # transfer: zero-init the correction's final layer and run the bitwise
       # parity gate (epoch 0 == the frozen base), then hand run_emulator the
-      # zero-init state as init_state (D-TP5 / D-TP7).
+      # zero-init state as init_state.
       init_state, verdict = warmstart.build_transfer_start(
         chi2fn=self.chi2fn,
         model_opts=specs["model_opts"],
@@ -4176,7 +4184,7 @@ class EmulatorExperiment:
         extra_names=self._transfer_extra_names,
         device=self.device)
       self.log(verdict)
-      # transfer refine (D-TP10): keep a clone of the PRETRAINED base weights
+      # transfer refine: keep a clone of the PRETRAINED base weights
       # before stage 2 unfreezes and drifts them. The saved artifact's
       # transfer_base group stays the pretrained base (provenance + the anchor
       # reference); the driver reads this clone for it. None on a frozen-only
@@ -4233,15 +4241,15 @@ class EmulatorExperiment:
       # couples the average to its snapshot/rewind (see training.py).
       ema=train_args.get("ema"),
       # fine-tune warm start: the transferred source weights (None on a plain
-      # run). make_model loads them strict into the eager module before compile
-      # (D-FT6); everything else in the loop stays fresh.
+      # run). make_model loads them strict into the eager module before
+      # compile; everything else in the loop stays fresh.
       init_state=init_state,
       # finetune.anchor: the decoupled L2-SP pull toward the transferred
       # weights (None on a plain / un-anchored run; the shared anchor facility,
       # training.build_anchor). The transfer refine stage's base anchor is a
-      # separate spec (D-TP10).
+      # separate spec.
       anchor=anchor_spec,
-      # transfer refine (D-TP10): the resolved {epochs, base_lr_scale, anchor}
+      # transfer refine: the resolved {epochs, base_lr_scale, anchor}
       # for the optional stage-2 joint pass (None = a frozen-only run). Its own
       # base-group anchor is built inside run_emulator.
       refine=self._transfer_refine,

@@ -32,7 +32,7 @@ EmulatorExperiment.from_config -> run -> save_emulator -> rebuild_emulator.
 The dumps and the save locations come from gates/board_config.json; the
 dump directory follows the driver's <root>/chains convention.
 
-Spec code GSV-C. Home notes: artifacts-inference-warmstart.md:86-93 and
+Home notes: artifacts-inference-warmstart.md:86-93 and
 gates-and-board.md:66-71 (the factored and neural-PCE saves are
 there so the saved geometry type and the PCE data both survive a reload).
 """
@@ -234,7 +234,7 @@ def train_save(cfg, device, save_root, persist_root=None):
     resolved_model=exp.resolved_model,
     # rescale is the resolved run value (never a literal): a fine-tune run
     # warm-starting from this artifact reads the attr and refuses a source
-    # that does not record it (emulator/warmstart.py load_source, D-FT2).
+    # that does not record it (emulator/warmstart.py load_source).
     attrs={"n_train": cfg["data"]["n_train"],
            "rescale": exp.rescale})
   save_emulator(path_root=str(save_root), **save_kwargs)
@@ -297,7 +297,7 @@ def main():
   artifact) — each must raise loudly. Any failed step prints a FAIL
   line; main returns 1 if any failed, else 0.
   """
-  print("== save-rebuild-drift (spec code GSV-C) ==")
+  print("== save-rebuild-drift ==")
   device, data_dir = load_deploy()
   print("device " + str(device) + ", dumps " + str(data_dir))
 

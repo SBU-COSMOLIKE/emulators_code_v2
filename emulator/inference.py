@@ -117,7 +117,7 @@ class EmulatorPredictor:
                               compile_model=compile_model)
 
     self.names      = list(self.pgeom.names)
-    # scalar (derived-parameter) emulator (D-SP5): predict returns a
+    # scalar (derived-parameter) emulator: predict returns a
     # {name: value} dict, not a data vector, so skip the dv-geometry
     # accounting (section_sizes / probe) and the physical-dv decoder that a
     # ScalarGeometry does not have. The emulated output names come off the
@@ -136,7 +136,7 @@ class EmulatorPredictor:
         transfer_form=info["transfer_form"],
         transfer_space=info["transfer_space"])
       return
-    # grid (background-function) emulator (D-BSN5): predict returns
+    # grid (background-function) emulator: predict returns
     # {"z": grid, quantity: row} — the raw physical function on the
     # stored grid (the target law already decoded by the geometry);
     # the distance pipeline (emulator/background.py) is applied by the
@@ -154,11 +154,11 @@ class EmulatorPredictor:
         transfer_form=info["transfer_form"],
         transfer_space=info["transfer_space"])
       return
-    # grid2d (matter-power-spectrum) emulator (D-MP1): predict returns
+    # grid2d (matter-power-spectrum) emulator: predict returns
     # the LAW-SPACE surface on the stored (z, k) axes — log(P/P_base)
     # under a syren law, the raw surface under "none" — keyed by the
     # quantity tag; the consumer multiplies the base back through
-    # emulator/syren_base.py (D-MP2-A(4)), exactly as emul_mps does.
+    # emulator/syren_base.py, exactly as emul_mps does.
     if self._grid2d:
       self.quantity = self.geom.quantity
       self.units    = self.geom.units
@@ -173,7 +173,7 @@ class EmulatorPredictor:
         transfer_form=info["transfer_form"],
         transfer_space=info["transfer_space"])
       return
-    # CMB spectrum emulator (D-CM5): predict returns the physical C_ell
+    # CMB spectrum emulator: predict returns the physical C_ell
     # row on the stored multipole grid (a 1-D numpy array over .ell), so
     # skip the 3x2pt mask/section accounting a CmbDiagonalGeometry does
     # not have. The decoder is law-dispatched: the training chi2's decode
@@ -380,11 +380,12 @@ class EmulatorPredictor:
     """
     geom = self.geom
     if transfer_base is not None:
-      # the transfer decoder composes the frozen base with the correction on
-      # the D-TP3 slice contract, exactly as training did (TransferChi2.decode
-      # single-sourced). The base family (plain vs factored) is read off the
-      # embedded base geometry; a factored base's coeff_fn / template count
-      # come from the correction's inherited design (ia).
+      # the transfer decoder composes the frozen base with the correction
+      # on the base's own column slice, exactly as training did
+      # (TransferChi2.decode single-sourced). The base family (plain vs
+      # factored) is read off the embedded base geometry; a factored
+      # base's coeff_fn / template count come from the correction's
+      # inherited design (ia).
       from .losses.transfer import TransferChi2
       base_pg = transfer_base["pgeom"]
       if type(base_pg).__name__ == "AmplitudeFactorGeometry":
@@ -479,9 +480,9 @@ class EmulatorPredictor:
 
     Returns:
       For a scalar (derived-parameter) emulator: a {name: value} dict, one
-      entry per emulated output (D-SP5); the dv_return / section machinery
+      entry per emulated output; the dv_return / section machinery
       does not apply. For a CMB spectrum emulator: a 1-D numpy array of
-      physical C_ell on the stored multipole grid .ell (D-CM5; the
+      physical C_ell on the stored multipole grid .ell (the
       imposed amplitude law already multiplied back); dv_return does not
       apply. For a data-vector emulator: a 1-D numpy array.
       dv_return 'section' (the default): this emulator's own probe block(s),
@@ -494,7 +495,7 @@ class EmulatorPredictor:
     x_enc = self.pgeom.encode(x)
     with torch.no_grad():
       pred = self.model(x_enc)
-    # scalar (derived-parameter) emulator (D-SP5): destandardize the outputs
+    # scalar (derived-parameter) emulator: destandardize the outputs
     # (the decoder built at init: geom.decode alone, or the NPCE base + net
     # recombine) and return a {name: value} dict, not a data vector; there
     # is no mask to unsqueeze through and no section to slice.
@@ -504,15 +505,15 @@ class EmulatorPredictor:
       for i, nm in enumerate(self.output_names):
         result[nm] = float(out[i])
       return result
-    # grid (background-function) emulator (D-BSN5): decode inverts the
+    # grid (background-function) emulator: decode inverts the
     # target law (e.g. exp(y) - offset) and returns the physical
     # function keyed by its quantity tag, with the stored grid beside it.
     if self._grid:
       row = self._decode(pred, x_enc)[0].detach().cpu().numpy()
       return {"z": self.z.detach().cpu().numpy(),
               self.quantity: row}
-    # grid2d emulator (D-MP1): decode destandardizes to LAW SPACE (the
-    # base multiply-back is the consumer's one step, D-MP2-A(4)); the
+    # grid2d emulator: decode destandardizes to LAW SPACE (the
+    # base multiply-back is the consumer's one step); the
     # flattened row is reshaped back to the (nz, nk) surface.
     if self._grid2d:
       nz = int(self.z.numel())
@@ -521,7 +522,7 @@ class EmulatorPredictor:
       return {"z": self.z.detach().cpu().numpy(),
               "k": self.k.detach().cpu().numpy(),
               self.quantity: surface.reshape(nz, nk)}
-    # CMB spectrum emulator (D-CM5): decode multiplies the amplitude law
+    # CMB spectrum emulator: decode multiplies the amplitude law
     # back (law-dispatched at build time), returning the physical C_ell on
     # the stored multipole grid .ell; no mask to unsqueeze through and no
     # section to slice.

@@ -27,7 +27,7 @@ data:
   # MUST match the source run exactly: fine-tuning pins the source's output
   # geometry (same dataset + mask + scale cut), so a different dataset here is
   # a loud error (a different scale cut changes the dv length entirely, a
-  # separate unit of work, D-FT10).
+  # separate unit of work).
   cosmolike_data_dir: lsst_y1
   cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
 
@@ -57,7 +57,7 @@ train_args:
     #                          # torch.compile mode for this machine
     #                          # (reduce-overhead / default / null = eager).
     #                          # Absent = the mode the source was saved with.
-    # anchor:        1.0e-3    # optional L2-SP strength (TPE-2): a decoupled
+    # anchor:        1.0e-3    # optional L2-SP strength: a decoupled
     #                          # pull back toward the transferred weights (the
     #                          # continuous dial between frozen and free; the
     #                          # padded extra columns are excluded). Absent =

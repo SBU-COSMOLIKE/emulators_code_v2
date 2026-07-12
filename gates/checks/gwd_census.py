@@ -25,7 +25,7 @@ undecayed = the group left at weight decay 0. Membership is decided by
 module role (the allowlist), not by tensor shape, so a many-parameter
 activation is never decayed.
 
-Spec code GWD-C. Home note: training-stack.md:143-147.
+Home note: training-stack.md:143-147.
 """
 
 import sys
@@ -86,7 +86,7 @@ def main():
   weight decay 0 and check every group is inert. Each check prints a
   PASS/FAIL line; main returns 1 if any failed, else 0.
   """
-  print("== weight-decay-census (spec code GWD-C) ==")
+  print("== weight-decay-census ==")
   torch.manual_seed(0)
   device = torch.device("cpu")
   model = ToyTree()

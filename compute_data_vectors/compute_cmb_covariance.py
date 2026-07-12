@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Compute the CMB power-spectrum covariance (Motloch & Hu 1709.03599).
 
-This is the D-CM11 script: the CMB training loss needs a covariance the
-way the lensing path gets one from cosmolike, and here it must be
-COMPUTED. The model is eqs 1-7 of Motloch & Hu (user-supplied paper,
-read 2026-07-10):
+This is the CMB covariance script: the CMB training loss needs a
+covariance the way the lensing path gets one from cosmolike, and here
+it must be COMPUTED. The model is eqs 1-7 of Motloch & Hu
+(user-supplied paper, read 2026-07-10):
 
   Cov = G + N                                                    (eq 2)
 
@@ -40,8 +40,8 @@ unlensed spectra with a perturbed lensing potential through the CAMB
 results object (provider.get_CAMBdata() ->
 get_lensed_cls_with_spectrum), so the Boltzmann solve runs ONCE.
 
-The OUTPUT is the interface the training stack consumes (the D-CM11
-ruling in notes/families-scalar-cmb.md): one .npz holding
+The OUTPUT is the interface the training stack consumes (the ruling
+in notes/families-scalar-cmb.md): one .npz holding
 
   ell                    (n_ell,)  l = 2..lmax
   sigma_tt/te/ee/pp      (n_ell,)  sqrt of the Gaussian diagonal —
@@ -64,8 +64,10 @@ ruling in notes/families-scalar-cmb.md): one .npz holding
                                    per-spectrum blocks these tile the
                                    full (3 n_ell, 3 n_ell) TT/TE/EE
                                    covariance a joint likelihood or a
-                                   dense whitening (the D-CM12 audit)
-                                   would consume.
+                                   dense whitening (the planned
+                                   dense-covariance training; see
+                                   notes/families-scalar-cmb.md) would
+                                   consume.
   provenance             json string: the fiducial parameters, noise,
                          beam, fsky, the NG flag, the stencil step
                          study, and the exact camb extra_args —
@@ -397,7 +399,7 @@ def fiducial_spectra(info, lmax):
   model_info["params"] = info["params"]
   # a likelihood must exist for cobaya to build a model; the one-liner
   # requests nothing and scores 0, exactly the dummy-likelihood trick
-  # the D-CM3 generator uses.
+  # the dataset generator uses.
   model_info["likelihood"] = {"one": {"external": "lambda: 0.0"}}
   model = get_model(model_info)
   model.add_requirements({
@@ -432,9 +434,10 @@ def lensed_cls_with_clpp(cambdata, clpp, lmax):
 
   Arguments:
     cambdata = the CAMBdata results object (fiducial, high accuracy).
-    clpp     = (lmax_phi+1,) the [L(L+1)]^2/2pi-convention lensing
-               array CAMB expects (see the caller: it converts from raw
-               C^phiphi once, then scales bands).
+    clpp     = the [L(L+1)]^2/2pi-convention lensing array over
+               L = 0..Params.max_l — CAMB refuses anything shorter.
+               The caller takes it whole from get_lens_potential_cls
+               and perturbs one band.
     lmax     = top multipole of the returned lensed spectra.
 
   Returns:
@@ -504,12 +507,21 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
       "convergence of the 5-point stencil vs step size is the point of "
       "the study, one step proves nothing.")
 
-  # CAMB's lensing-array convention: [L(L+1)]^2 C^phiphi_L / 2pi.
-  L_all = np.arange(0, lens_lmax + 1, dtype="float64")
+  # The phi Gaussian variance below needs the RAW C^phiphi_L over the
+  # banded range; the re-lensing call needs CAMB's own scaled
+  # convention at FULL length.
   pp_raw = np.zeros(lens_lmax + 1, dtype="float64")
   n_have = min(len(cls["pp"]), lens_lmax + 1)
   pp_raw[:n_have] = cls["pp"][:n_have]
-  clpp_fid = (L_all * (L_all + 1.0)) ** 2 * pp_raw / (2.0 * math.pi)
+  # get_lens_potential_cls(raw_cl=False) column 0 is
+  # [L(L+1)]^2 C^phiphi_L / 2pi over L = 0..Params.max_l — the exact
+  # array get_lensed_cls_with_spectrum demands ("clpp must go to at
+  # least Params.max_l"; a shorter array raises — the 2026-07-12
+  # first-execution red). Building it by hand truncated at lens_lmax
+  # would also silently DELENS every L above lens_lmax at the
+  # fiducial; only the band [b_lo, b_hi] may differ from fiducial.
+  clpp_fid = np.asarray(
+    cambdata.get_lens_potential_cls(raw_cl=False)[:, 0], dtype="float64")
 
   bands = band_windows(lmin=2, lmax=lens_lmax, band_width=band_width)
   spectra = ("tt", "te", "ee")
@@ -579,7 +591,8 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   # eq 6 assembly for every spectrum pair: the same-spectrum blocks
   # (the per-spectrum training covariance) AND the cross-spectrum
   # blocks (the off-pair terms of the paper's full matrix — together
-  # they tile the joint TT/TE/EE covariance the D-CM12 audit and any
+  # they tile the joint TT/TE/EE covariance the planned
+  # dense-covariance training (notes/families-scalar-cmb.md) and any
   # joint likelihood would consume).
   blocks = assemble_lensing_blocks(deriv=deriv, S=S)
   study = {"bands": [[int(a), int(b)] for a, b in bands],

@@ -1,4 +1,4 @@
-# npce-training, sweep leg (spec code GPC-C; models-and-designs.md:117-122). A pce residual
+# npce-training, sweep leg (spec: notes/models-and-designs.md:117-122). A pce residual
 # config the sweep-over-n_train driver runs once per grid point; the 2-point grid
 # comes from the driver flags (--n-min 1000 --n-max 2000 --n-points 2, passed by
 # the test); the base refits per point.

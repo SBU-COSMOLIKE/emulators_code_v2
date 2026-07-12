@@ -20,7 +20,7 @@ failure, printing every value it compared into the test's log:
   gct_parity.py         cobaya-adapter: the MCMC-time predictor
                         matches the training side (rtol 1e-6).
 
-The filenames keep the internal spec codes (gb_c, gsv, ...) that key
+The filename prefixes (gb_c, gsv, ...) are historical: they key
 each test's history in notes/; the board runs them by test name. No
 file here imports torch, cosmolike, or cobaya at package-import time,
 so board.py can use the text helpers on a machine without the heavy

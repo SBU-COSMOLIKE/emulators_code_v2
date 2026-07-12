@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scalar-identity gate (SPE-A): the scalar-emulator save/rebuild/predict
+"""scalar-identity gate: the scalar-emulator save/rebuild/predict
 identity and every scalar-path loud error, torch only (no cosmolike).
 
 It builds a tiny synthetic scalar emulator by hand (a ParamGeometry over a
@@ -8,12 +8,12 @@ saves it with save_emulator, rebuilds it, and asserts:
   - predict returns a {name: value} dict that reproduces the pre-save model
     bitwise (save/rebuild preserves the weights + the standardization);
   - ScalarGeometry.state() round-trips byte-identical;
-  - the scalar-path loud errors fire: D-SPE1-1 (a constant output column),
-    D-SPE2-1 (a duplicated .paramnames name), D-SPE2-3 (a head architecture
-    on a scalar run);
+  - the scalar-path loud errors fire: a constant (un-standardizable)
+    output column, a duplicated .paramnames name, a head architecture
+    on a scalar run;
   - the cobaya adapter emul_scalars derives its provides from the artifacts
     and raises on a duplicate output, an input/provide overlap, a bad
-    `provides` subset, and a wrong-kind (data-vector) artifact (D-SPE2-4);
+    `provides` subset, and a wrong-kind (data-vector) artifact;
   - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
     residual base + refiner algebra bitwise under the standardized
     metric, save -> rebuild -> predict composing base + net exactly in
@@ -207,16 +207,16 @@ def check_state(root, device, geom):
 
 
 def check_from_targets_errors(device):
-    """D-SPE1-1: from_targets raises on an un-standardizable output column,
-    and does NOT raise on a legitimate tiny-magnitude one."""
+    """from_targets raises on an un-standardizable output column, and
+    does NOT raise on a legitimate tiny-magnitude one."""
     try:
         ScalarGeometry.from_targets(
             device=device,
             targets=np.full((100, 1), 0.31, dtype="float32"),
             names=["const"])
-        report("D-SPE1-1 constant column raises", False, "did not raise")
+        report("constant column raises", False, "did not raise")
     except ValueError:
-        report("D-SPE1-1 constant column raises (0.31)", True, "ValueError")
+        report("constant column raises (0.31)", True, "ValueError")
     # must-NOT-raise: a real tiny-magnitude output (center 1e-9, 10% spread ->
     # std ~ 1e-10, threshold 8*eps32*|center| ~ 1e-15) builds and standardizes
     # to unit variance; the relative guard passes it with orders to spare.
@@ -226,28 +226,28 @@ def check_from_targets_errors(device):
         g = ScalarGeometry.from_targets(device=device, targets=tiny,
                                         names=["ok"])
         std = float(g.encode(torch.as_tensor(tiny, device=device)).std())
-        report("D-SPE1-1 tiny-magnitude column builds (std ~ 1)",
+        report("tiny-magnitude column builds (std ~ 1)",
                abs(std - 1.0) < 0.05,
                "did not raise; standardized std = %.4f" % std)
     except ValueError as e:
-        report("D-SPE1-1 tiny-magnitude column builds", False,
+        report("tiny-magnitude column builds", False,
                "unexpectedly raised: " + str(e))
 
 
 def check_sidecar_errors(tmp):
-    """D-SPE2-1: _scalar_columns raises on a duplicated .paramnames name."""
+    """_scalar_columns raises on a duplicated .paramnames name."""
     dup = os.path.join(tmp, "dup.paramnames")
     with open(dup, "w") as f:
         f.write("omegabh2 x\nH0* a\nH0* b\n")
     try:
         _scalar_columns(dup, ["omegabh2"], ["H0"])
-        report("D-SPE2-1 duplicate sidecar name raises", False, "no raise")
+        report("duplicate sidecar name raises", False, "no raise")
     except ValueError:
-        report("D-SPE2-1 duplicate sidecar name raises", True, "ValueError")
+        report("duplicate sidecar name raises", True, "ValueError")
 
 
 def check_head_architecture():
-    """D-SPE2-3: from_config raises on a head architecture (scalar is
+    """from_config raises on a head architecture (scalar is
     trunk-only). The head_block guard fires before the experiment is built,
     so dummy file names in the data block are enough."""
     cfg = {"data": {"train_params": "t.1.txt",
@@ -262,9 +262,9 @@ def check_head_architecture():
                           "model": {"name": "rescnn"}}}
     try:
         EmulatorExperiment.from_config(cfg, device=torch.device("cpu"))
-        report("D-SPE2-3 rescnn scalar run raises", False, "did not raise")
+        report("rescnn scalar run raises", False, "did not raise")
     except ValueError as e:
-        report("D-SPE2-3 rescnn scalar run raises", "trunk-only" in str(e),
+        report("rescnn scalar run raises", "trunk-only" in str(e),
                "ValueError names trunk-only")
 
 
@@ -308,7 +308,7 @@ def _build(cls, roots, provides=None):
 
 
 def check_adapter(tmp, device):
-    """emul_scalars: artifact-derived provides + every D-SP4 / D-SPE2-4 error."""
+    """emul_scalars: artifact-derived provides + every adapter loud error."""
     cls = _load_emul_scalars_stubbed()
     # two disjoint scalar emulators: A provides H0/omegam from one input set,
     # B provides rdrag from another.
@@ -365,14 +365,14 @@ def check_adapter(tmp, device):
     except ValueError:
         report("provides superset raises", True, "ValueError")
 
-    # D-SPE2-4 wrong-kind: a data-vector artifact -> loud.
+    # wrong-kind: a data-vector artifact -> loud.
     root_dv = os.path.join(tmp, "emul_dv")
     _save_tiny_dv(root_dv, device)
     try:
         _build(cls, [root_dv])
-        report("D-SPE2-4 wrong-kind (dv artifact) raises", False, "no raise")
+        report("wrong-kind (dv artifact) raises", False, "no raise")
     except ValueError as e:
-        report("D-SPE2-4 wrong-kind (dv artifact) raises",
+        report("wrong-kind (dv artifact) raises",
                "not a scalar" in str(e), "ValueError names non-scalar")
 
 
@@ -423,7 +423,7 @@ def _save_tiny_dv(root, device):
 
 
 def check_finetune(tmp, device):
-    """SPE-FT (D-SF1/2/4): epoch-0 parity, outputs/wrong-kind legs, the
+    """Scalar fine-tuning: epoch-0 parity, outputs/wrong-kind legs, the
     anchor mask over padded extra columns."""
     from emulator import warmstart
 
@@ -461,7 +461,8 @@ def check_finetune(tmp, device):
                False, "parity raised: " + str(e)[:80])
 
     # extended covmat (a third input): the padded keys' anchor mask zeros
-    # exactly the appended column (D-SF2 = D-FT3 unchanged).
+    # exactly the appended column (the shared block-extension rule,
+    # unchanged from the cosmolike fine-tune).
     ext_cov = os.path.join(tmp, "ft_ext.covmat")
     write_covmat(ext_cov, ["omegabh2", "omegach2", "thetastar"], seed=220)
     C3 = g.standard_normal((64, 3)).astype("float32")
@@ -501,9 +502,9 @@ def check_finetune(tmp, device):
     try:
         EmulatorExperiment.from_config(ft_cfg(["H0"], root),
                                        device=torch.device("cpu"))
-        report("D-SF1 outputs mismatch raises", False, "did not raise")
+        report("outputs mismatch raises", False, "did not raise")
     except ValueError as e:
-        report("D-SF1 outputs mismatch raises",
+        report("outputs mismatch raises",
                "H0" in str(e) and "omegam" in str(e),
                "ValueError names both lists")
     dv_root = os.path.join(tmp, "ft_dv")
@@ -511,9 +512,9 @@ def check_finetune(tmp, device):
     try:
         EmulatorExperiment.from_config(ft_cfg(["H0", "omegam"], dv_root),
                                        device=torch.device("cpu"))
-        report("D-SF1 wrong-kind source raises", False, "did not raise")
+        report("wrong-kind source raises", False, "did not raise")
     except ValueError as e:
-        report("D-SF1 wrong-kind source raises",
+        report("wrong-kind source raises",
                "scalar source" in str(e), "ValueError names the family")
 
 
@@ -604,7 +605,7 @@ def check_npce(tmp, device):
 def main():
     """Run the scalar-identity checks in a tempdir and exit non-zero on any
     failure."""
-    print("scalar-identity (SPE-A): save/rebuild/predict + loud errors")
+    print("scalar-identity: save/rebuild/predict + loud errors")
     # seed the GLOBAL torch RNG so the synthetic nets are the same
     # every run (a red must reproduce — the run-10 bsn lesson).
     torch.manual_seed(0)

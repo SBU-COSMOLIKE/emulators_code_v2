@@ -6,7 +6,7 @@ predicts, plus the chi2's covariance. DataVectorGeometry is the base
 (squeeze to the unmasked
 entries, center, whiten in the covariance eigenbasis, and invert each
 step). DiagonalGeometry whitens by the marginal sigma only (theta order
-kept, for a 1D-CNN head); BlockDiagonalGeometry whitens each tomographic
+kept, for a 1D CNN head); BlockDiagonalGeometry whitens each tomographic
 bin by its own sub-block. build_shear_angle_map attaches the per-element
 angle / tomography metadata (theta, source redshifts, xi+/- branch,
 per-bin sizes). The only module that imports cosmolike.

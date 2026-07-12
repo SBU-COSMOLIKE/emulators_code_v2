@@ -10,7 +10,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # The script below computes MATTER POWER SPECTRUM training dumps for the MPS
-# emulators (the fourth thin driver on generator_core, D-MP3): per sample,
+# emulators (the fourth thin driver on generator_core): per sample,
 # one CAMB call through cobaya's Pk_interpolator requirement yields BOTH
 # targets on the fixed (z, k) grids:
 #   - the linear P(k, z), Mpc^3
@@ -18,7 +18,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 # and, when train_args.write_syren_base is true, the syren analytic BASE for
 # each (emulator/syren_base.py — the formula the emulator corrects, written
 # beside the dump so the training's law transform reads resolved values from
-# disk, never a re-run of a possibly-drifted package; D-MP2-A).
+# disk, never a re-run of a possibly-drifted package).
 #
 #     mpirun -n 10 --report-bindings \
 #       python external_modules/code/emulators/emultrfv2/compute_data_vectors/dataset_generator_mps.py \
@@ -394,7 +394,7 @@ class dataset(GeneratorCore):
     out = {"pklin": np.asarray(pk_lin, dtype=self.dtype).reshape(-1),
            "boost": np.asarray(boost, dtype=self.dtype).reshape(-1)}
     if self.write_base:
-      # the syren analytic base (D-MP2-A): the formula this emulator
+      # the syren analytic base: the formula this emulator
       # family corrects, written beside the raw dump. One definition
       # (emulator/syren_base.py), the parameters read by one rule.
       from emulator.syren_base import (syren_params_from, base_pklin,

@@ -1,6 +1,6 @@
 """Grid geometry: a background function on a persisted redshift grid.
 
-The BSN output geometry (D-BSN1): the emulated quantity is a FUNCTION
+The BSN output geometry: the emulated quantity is a FUNCTION
 of redshift — H(z) on the SN-range grid, or the comoving distance
 D_M(z) on the recombination window — stored as a vector over a grid
 that lives IN the artifact (never a ZLIN sidecar, the
@@ -18,7 +18,7 @@ at grid width, applied AFTER the target law:
 
 decode inverts both steps (destandardize, then exp(y) - offset for the
 log_offset law — the legacy emulbaosn convention, its offset persisted
-here). TARGET_LAWS is the small registry (the D-CM2 pattern: persisted
+here). TARGET_LAWS is the small registry (persisted
 by name in the artifact, never a code default). The loss is ScalarChi2
 reused unchanged — it reads only encode / decode / dest_idx off the
 geometry, and with the law inside encode/decode the chi2 lives in the
@@ -213,7 +213,7 @@ class GridGeometry:
             "scale":    self.scale.cpu()}
 
   def attach_head_coords(self):
-    """Attach the conv/TRF heads' channel/token split (D-CM13).
+    """Attach the conv/TRF heads' channel/token split.
 
     The correction heads (designs/plain.py ResCNN / ResTRF) read
     geom.bin_sizes for their channel/token layout; here it is a pure

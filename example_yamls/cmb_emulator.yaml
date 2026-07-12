@@ -18,7 +18,7 @@ data:
     # files below must be that spectrum's dump.
     spectrum: tt
 
-    # the D-CM11 covariance .npz (compute_cmb_covariance.py). The
+    # the covariance .npz (compute_cmb_covariance.py). The
     # whitening sigma_ell, the fiducial C_ell, and the provenance all come
     # from this file; the dump and the file must share one ell grid.
     covariance: cmbcov_lcdm.npz
@@ -79,7 +79,7 @@ train_args:
   bs:      256
 
   # the model. name picks the architecture: resmlp (the plain trunk) or
-  # the correction heads rescnn / restrf (D-CM13) — the same heads the
+  # the correction heads rescnn / restrf — the same heads the
   # cosmic-shear path trains. The diagonal CMB geometry keeps the
   # multipole order, so the heads correct along the spectrum directly:
   # rescnn slides an odd-width conv kernel along ell (locality across
@@ -111,7 +111,7 @@ train_args:
   # as on cosmic shear (chi2 / sqrt / sqrt_dchi2 / berhu / berhu_capped,
   # with the berhu: knot / cap / anneal sub-block — see the annotated
   # ladder in example_yamls/cosmic_shear_train_emulator.yaml). The
-  # OPTIONAL roughness sub-block (D-CM8) penalizes short-period residual
+  # OPTIONAL roughness sub-block penalizes short-period residual
   # oscillations (periods below period_cut in ell) without touching the
   # acoustic band (~200-300, incl. lensing peak smoothing); absent
   # block = the term does not exist.
@@ -163,7 +163,7 @@ train_args:
     shape:         linear
     kappa:         0.15
 
-  # OPTIONAL fine-tuning (D-CM10): warm-start from a saved CMB emulator of
+  # OPTIONAL fine-tuning: warm-start from a saved CMB emulator of
   # the SAME spectrum, law, and covariance file (the source geometry is
   # pinned, so epoch 0 reproduces the source exactly). Delete the model:
   # block when using it — the architecture is inherited from the source.

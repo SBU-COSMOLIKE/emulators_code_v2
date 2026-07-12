@@ -175,7 +175,7 @@ def save_emulator(path_root,
                      dv_geometry/ states with cls markers, and form / space
                      attrs. The main model above is then the correction net and
                      the main geometries are the run's; rebuild composes the
-                     two (D-TP6). Self-contained: no reference to the base file.
+                     two. Self-contained: no reference to the base file.
     history/         per-epoch training curves: train_losses,
                      val_medians, val_means, val_fracs (one row per
                      epoch, one column per threshold), thresholds.
@@ -290,7 +290,7 @@ def save_emulator(path_root,
 
     # transfer_base (present only when the run used a transfer: block): the
     # frozen base emulator embedded whole, so the transfer artifact is
-    # self-contained and survives the base file moving (D-TP6, never a path
+    # self-contained and survives the base file moving (never a path
     # reference). Its own model_recipe + state_dict + both geometry states
     # (with cls markers) let rebuild reconstruct the base exactly, and the
     # form / space attrs tell the predictor how to compose. The main model /
@@ -323,7 +323,7 @@ def save_emulator(path_root,
       tb.attrs["space"] = transfer_base["space"]
       # a refined run (transfer.refine): the DRIFTED base weights, kept
       # separate from the pretrained state above (which stays the anchor
-      # reference + provenance, D-TP10 second-group layout). The predictor
+      # reference + provenance). The predictor
       # loads these; the transfer_refined root attr marks their presence,
       # two-way consistent with the group (rebuild refuses either half alone).
       drifted = transfer_base.get("drifted_state")
@@ -521,7 +521,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # transfer_base (a transfer artifact only): read the embedded frozen base's
     # recipe, weights, and both geometries; the model is reconstructed below,
     # after the main model, through the shared helper. form / space tell the
-    # predictor how to compose base + correction (D-TP6).
+    # predictor how to compose base + correction.
     tb_recipe = None
     tb_state  = None
     tb_pgeom  = None
@@ -579,7 +579,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
         n_gates=_need(ha, "n_gates", "head_act"))
     if _need(rc, "needs_geom", "model_recipe"):
       # conv/TRF heads read geom.bin_sizes at construction. A diagonal
-      # family geometry (cmb / grid / grid2d; D-CM13) derives the split
+      # family geometry (cmb / grid / grid2d) derives the split
       # from its own saved grid — attach it here so a head artifact
       # rebuilds from the files alone. The cosmolike DataVectorGeometry
       # instead PERSISTS the split (bin_sizes / pm_kept in its state,
@@ -632,14 +632,14 @@ def rebuild_emulator(path_root, device, compile_model=True):
     "transfer_form":  tb_form,
     "transfer_space": tb_space,
     # scalar (derived-parameter) emulator: the output geometry rebuilt as
-    # a ScalarGeometry, so the predictor takes the scalar branch (D-SP3 /
-    # D-SP5). Dispatched on the rebuilt class, not a stored attr, so an
+    # a ScalarGeometry, so the predictor takes the scalar branch.
+    # Dispatched on the rebuilt class, not a stored attr, so an
     # older non-scalar artifact simply reports False.
     "scalar":         isinstance(geom, ScalarGeometry),
-    # CMB-spectrum emulator (D-CM4): dispatched on the rebuilt class the
+    # CMB-spectrum emulator: dispatched on the rebuilt class the
     # same way; the amplitude law + its column names are ARTIFACT FACTS
-    # persisted in the geometry state (D-CM1), surfaced here so the
-    # predictor / cobaya adapter rebuild the law-aware decode (D-CM5)
+    # persisted in the geometry state, surfaced here so the
+    # predictor / cobaya adapter rebuild the law-aware decode
     # without rereading the config. None / absent on non-CMB artifacts.
     # the law keys are guarded by the class check (a GridGeometry also
     # carries a .law attr — its TARGET law, a different registry), so a
@@ -651,7 +651,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
                        if isinstance(geom, CmbDiagonalGeometry) else None),
     "tau_name":       (geom.tau_name
                        if isinstance(geom, CmbDiagonalGeometry) else None),
-    # grid (background-function) emulator (D-BSN1): dispatched on the
+    # grid (background-function) emulator: dispatched on the
     # rebuilt class; the quantity / units / law / offset are ARTIFACT
     # FACTS persisted in the geometry state, surfaced for the predictor
     # and the emul_baosn adapter. None / absent on non-grid artifacts.
@@ -664,9 +664,9 @@ def rebuild_emulator(path_root, device, compile_model=True):
                        if isinstance(geom, GridGeometry) else None),
     "grid_offset":    (geom.offset
                        if isinstance(geom, GridGeometry) else None),
-    # grid2d (matter-power-spectrum) emulator (D-MP1): the same
+    # grid2d (matter-power-spectrum) emulator: the same
     # class-guarded dispatch; the law names the syren base the artifact
-    # corrects (the consumer multiplies it back, D-MP2-A).
+    # corrects (the consumer multiplies it back).
     "grid2d":           isinstance(geom, Grid2DGeometry),
     "grid2d_quantity":  (geom.quantity
                          if isinstance(geom, Grid2DGeometry) else None),

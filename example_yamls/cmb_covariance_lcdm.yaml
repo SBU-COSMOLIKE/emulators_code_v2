@@ -1,5 +1,5 @@
-# CMB covariance configuration for compute_cmb_covariance.py (D-CM11;
-# Motloch & Hu 1709.03599 eqs 1-7, the file notes/families-scalar-cmb.md).
+# CMB covariance configuration for compute_cmb_covariance.py
+# (Motloch & Hu 1709.03599 eqs 1-7, the file notes/families-scalar-cmb.md).
 #
 # Three blocks. `theory` is the FIXED high-accuracy CAMB-within-cobaya
 # configuration (the user's settings, verbatim — the covariance is only as

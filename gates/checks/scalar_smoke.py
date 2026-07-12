@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scalar-smoke gate (SPE-B): a real scalar emulator end to end, on a fixture.
+"""scalar-smoke gate: a real scalar emulator end to end, on a fixture.
 
 It writes a tiny fixture parameter chain (a .txt + its getdist .paramnames
 sidecar) whose only output column is an EXACTLY-derivable target,
@@ -96,7 +96,7 @@ def build_cfg(tmp, n_train, n_val):
         },
         # the full block set build_run_specs requires (model / optimizer /
         # lr / scheduler / trim / focus are plain subscripts there, no
-        # code defaults — D-SPE2-7); the shape mirrors the proven-green
+        # code defaults); the shape mirrors the proven-green
         # transfer-smoke-config.yaml, trim / focus zeroed.
         "train_args": {
             "nepochs": 2,
@@ -139,9 +139,10 @@ def check_train_and_predict(tmp, device):
     exp = EmulatorExperiment.from_config(cfg, device=device, quiet=True)
     model, train_losses, medians, means, fracs = exp.run()
     # a deterministic smooth 2->1 map: the validation median chi2 must be
-    # small after 2 epochs (val collapses). D-SPE2-5: the bar is 0.3, below
-    # the mean-predictor's median standardized chi2 (0.455, the median of a
-    # chi-square-1), so a dead network that only learns the target mean fails.
+    # small after 2 epochs (val collapses). Dead-network rule: the bar is
+    # 0.3, below the mean-predictor's median standardized chi2 (0.455, the
+    # median of a chi-square-1), so a dead network that only learns the
+    # target mean fails.
     best_median = min(float(m) for m in medians)
     report("val collapses on the deterministic map (median chi2 small)",
            best_median < 0.3, "best val median = %.3g" % best_median)
@@ -161,9 +162,9 @@ def check_train_and_predict(tmp, device):
 
     # rebuild + predict at a test point; the emulated omegamh2 must track the
     # analytic value (the map is exact, so a trained emulator is close).
-    # D-SPE2-5: OFF the fixture mean (one sigma out in each input, still
-    # in-distribution), so a network that only learned the target mean is
-    # 13.7% off and fails the 5% bar, while a trained one passes.
+    # Dead-network rule: OFF the fixture mean (one sigma out in each input,
+    # still in-distribution), so a network that only learned the target mean
+    # is 13.7% off and fails the 5% bar, while a trained one passes.
     pred = EmulatorPredictor(root, device, compile_model=False)
     h0_t, om_t = 73.0, 0.32
     got = pred.predict({"H0": h0_t, "omegam": om_t})[OUT_NAME]
@@ -176,7 +177,7 @@ def check_train_and_predict(tmp, device):
 
 
 def check_diagnostics(exp, model, tmp):
-    """The D-CM9 scalar diagnostics leg: 3 pages build + the PDF lands."""
+    """The scalar diagnostics leg: 3 pages build + the PDF lands."""
     os.environ.setdefault("MPLBACKEND", "Agg")
     try:
         from emulator.diagnostics import scalar_output_diagnostic
@@ -205,12 +206,12 @@ def check_diagnostics(exp, model, tmp):
                          scalar=sc, savepath=pdf)
         ok = (n_pages == 3 and os.path.isfile(pdf)
               and os.path.getsize(pdf) > 10000)
-        report("D-CM9 diagnostics: 3 scalar pages + the PDF lands", ok,
+        report("diagnostics: 3 scalar pages + the PDF lands", ok,
                "%d pages, %d bytes" % (n_pages,
                                        os.path.getsize(pdf)
                                        if os.path.isfile(pdf) else 0))
     except Exception as e:
-        report("D-CM9 diagnostics: 3 scalar pages + the PDF lands", False,
+        report("diagnostics: 3 scalar pages + the PDF lands", False,
                type(e).__name__ + ": " + str(e)[:200])
 
 
@@ -232,11 +233,11 @@ def check_cobaya_evaluate(tmp, root):
     cobaya_dir = str(Path(__file__).resolve().parents[2] / "cobaya_theory")
     out_root = os.path.join(tmp, "evaluate", "scalar_eval")
     os.makedirs(os.path.dirname(out_root), exist_ok=True)
-    # D-SPE2-5: off the fixture mean (same point as the predict leg), so the
-    # evaluate leg also fails a mean-only network.
+    # Dead-network rule: off the fixture mean (same point as the predict
+    # leg), so the evaluate leg also fails a mean-only network.
     h0_t, om_t = 73.0, 0.32
     want = omegamh2(h0_t, om_t)
-    # D-SPE2-8: mirror the PROVEN cobaya-adapter-evaluate.yaml shape —
+    # Mirror the PROVEN cobaya-adapter-evaluate.yaml shape —
     # sampled params with priors, the point pinned by the evaluate
     # sampler's override (never value:-fixed params: with zero sampled
     # dimensions the run left no readable chain, board run 3's got-None).
@@ -253,7 +254,7 @@ def check_cobaya_evaluate(tmp, root):
         "        - " + root + "\n"
         # the lambda's argument name is how a cobaya external likelihood
         # declares its input params; omegamh2 then resolves from the
-        # theory's provides. No separate requires key (D-SPE2-6b): the
+        # theory's provides. No separate requires key: the
         # signature is the documented mechanism.
         "likelihood:\n"
         "  test_like:\n"
@@ -291,7 +292,7 @@ def check_cobaya_evaluate(tmp, root):
                "cobaya-run rc=%d: %s" % (proc.returncode,
                                          proc.stderr.strip()[-300:]))
         return
-    # D-SPE2-9: an evaluate run writes NO .paramnames sidecar (board run 4's
+    # An evaluate run writes NO .paramnames sidecar (board run 4's
     # diag: only the .1.txt + input/updated yamls land), so read the value
     # from what the run provably produces. Primary: the evaluate sampler's
     # own "Derived params:" stdout block (format in evidence from run 4).
@@ -317,7 +318,7 @@ def check_cobaya_evaluate(tmp, root):
     report("cobaya evaluate through emul_scalars returns omegamh2",
            okval, "got %s want %.5f" % (got, want))
     if got is None:
-        # self-diagnosis (D-SPE2-8): a got-None red must name its own cause
+        # self-diagnosis: a got-None red must name its own cause
         # in the log — which files cobaya wrote, which columns the chain
         # carries, and the run's stdout tail — so the next delta needs no
         # extra board round trip.
@@ -331,7 +332,7 @@ def check_cobaya_evaluate(tmp, root):
 
 def main():
     """Run the scalar-smoke checks and exit non-zero on any failure."""
-    print("scalar-smoke (SPE-B): fixture train + predict + cobaya evaluate")
+    print("scalar-smoke: fixture train + predict + cobaya evaluate")
     device = torch.device("cpu")
     with tempfile.TemporaryDirectory() as tmp:
         root = check_train_and_predict(tmp, device)

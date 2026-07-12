@@ -65,7 +65,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #  per-spectrum files (one emulator per spectrum, data.cmb.spectrum names it).
 #
 # Deviations from the legacy emultraining/dataset_generator_cmb.py, ruled in
-# D-CM3-A (notes/families-scalar-cmb.md):
+# the shared-generator design (notes/families-scalar-cmb.md):
 #   1. Four per-spectrum 2D .npy files replace the legacy 3D (N, ell, 5)
 #      array — the training stack stages 2D dv files.
 #   2. phi-phi is FILLED from get_Cl (the legacy file zeroed that column and
@@ -97,8 +97,9 @@ class dataset(GeneratorCore):
 
     lrange = [lmin, lmax], the multipole range every output row spans.
     lmin >= 2 is enforced: l = 0, 1 are not CMB observables (CAMB returns
-    zeros there), the D-CM11 covariance file starts at l = 2, and
-    all-zero columns would poison the training whitening.
+    zeros there), the covariance file from compute_cmb_covariance.py
+    starts at l = 2, and all-zero columns would poison the training
+    whitening.
 
     The Cl requirements are added HERE, to the model itself, so the
     training YAML's likelihood block can be the dummy `one` — the script

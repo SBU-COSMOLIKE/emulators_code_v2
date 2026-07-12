@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmb-smoke gate (CME-B): the CMB emulator end to end, on real CAMB.
+"""cmb-smoke gate: the CMB emulator end to end, on real CAMB.
 
 The full pipeline the unit ships, in one run (board only; needs torch,
 cobaya, and a compiled CAMB under $ROOTDIR — budget several minutes, the
@@ -9,9 +9,9 @@ two tiny dumps are ~400 serial CAMB calls at low accuracy):
      l = 2..350, probe cmblensed, uniform sampling over As / tau / omch2 —
      As sampled LINEARLY, so the as_exp2tau law reads a raw amplitude
      column) and a second dump for validation. This leg also gates the
-     generator itself (D-CM3-A): four per-spectrum dv files + the chain
+     generator itself: four per-spectrum dv files + the chain
      sidecars must land with the documented names.
-  2  compute_cmb_covariance.py (D-CM11) writes the Gaussian covariance
+  2  compute_cmb_covariance.py writes the Gaussian covariance
      .npz on the same fiducial LCDM (zero noise, fsky 1) — the training
      path consumes a REAL script-produced file, never from_fiducial.
   2b the Motloch & Hu NON-DIAGONAL terms (eq 6) end to end at smoke
@@ -23,13 +23,13 @@ two tiny dumps are ~400 serial CAMB calls at low accuracy):
      trains a small ResMLP; the collapse bar is RELATIVE to the staged
      mean predictor (best val median < 0.5x its median chi2), so a dead
      network that only learns the training mean fails the gate
-     (the D-SPE2-5 rule, applied off-fiducial by construction: uniform
+     (the dead-network rule, applied off-fiducial by construction: uniform
      sampling has no fiducial row).
   4  the saved artifact serves Cl through the REAL cobaya lifecycle:
      get_model over theory emul_cmb + a Cl-requiring add_requirements,
      logposterior at a test point, provider.get_Cl == the predictor's own
      output at that point (the adapter adds nothing to the physics).
-  5  the D-CM9 diagnostics leg: cmb_residual_diagnostic + the CMB pages
+  5  the diagnostics leg: cmb_residual_diagnostic + the CMB pages
      build without exception and the PDF lands non-trivially sized.
 """
 
@@ -116,7 +116,7 @@ def gen_yaml():
 
 
 def cov_yaml():
-    """The D-CM11 covariance YAML: fixed fiducial LCDM, zero noise.
+    """The covariance-script YAML: fixed fiducial LCDM, zero noise.
 
     The params block follows example_yamls/cmb_covariance_lcdm.yaml
     EXACTLY in both conventions the script validates loudly: PLAIN
@@ -188,8 +188,10 @@ def check_generate(rootdir, rel_root):
                         for s in ("tt", "te", "ee", "pp")))
         detail = "rc=%d" % proc.returncode
         if not files_ok:
-            detail += " missing outputs; stderr tail: " \
-                      + proc.stderr.strip()[-200:]
+            # cobaya's exception hook logs to STDOUT and exits 1 with an
+            # empty stderr, so a failure must carry both streams.
+            tail = (proc.stdout + "\n" + proc.stderr).strip()[-400:]
+            detail += " missing outputs; output tail: " + tail
         report("generator dump (%s): four dv files + sidecars" % tag,
                proc.returncode == 0 and files_ok, detail)
         if files_ok:
@@ -209,13 +211,15 @@ def check_generate(rootdir, rel_root):
     ok = proc.returncode == 0 and os.path.isfile(npz)
     detail = "rc=%d" % proc.returncode
     if not ok:
-        detail += " stderr tail: " + proc.stderr.strip()[-300:]
+        # both streams: cobaya's hook logs to stdout with an empty stderr.
+        detail += " output tail: " \
+                  + (proc.stdout + "\n" + proc.stderr).strip()[-400:]
     else:
         cov = np.load(npz, allow_pickle=False)
         ok = (np.array_equal(cov["ell"], np.arange(2, LMAX + 1))
               and (cov["sigma_tt"] > 0).all())
         detail = "ell 2..%d, sigma_tt > 0" % LMAX
-    report("D-CM11 covariance .npz (Gaussian, zero noise)", ok, detail)
+    report("covariance .npz (Gaussian, zero noise)", ok, detail)
     out["cov"] = npz
 
     check_cov_nondiagonal(rootdir, rel_root, emul_dir, chains)
@@ -251,9 +255,12 @@ def check_cov_nondiagonal(rootdir, rel_root, emul_dir, chains):
          "cov_ng.yaml", "--output", "cmbcov_ng"], rootdir)
     npz = os.path.join(chains, "cmbcov_ng.npz")
     if proc.returncode != 0 or not os.path.isfile(npz):
+        # both streams: cobaya's hook logs to stdout with an empty stderr
+        # (the 2026-07-12 first-execution red arrived blind because this
+        # detail carried stderr only).
+        tail = (proc.stdout + "\n" + proc.stderr).strip()[-500:]
         report("eq-6 non-diagonal covariance runs",
-               False, "rc=%d stderr tail: %s"
-               % (proc.returncode, proc.stderr.strip()[-300:]))
+               False, "rc=%d output tail: %s" % (proc.returncode, tail))
         return
     cov = np.load(npz, allow_pickle=False)
     n_ell = LMAX - 1
@@ -305,7 +312,7 @@ def build_cfg(paths):
             "n_val":        180,
             "split_seed":   0,
         },
-        # the full block set build_run_specs requires (the D-SPE2-7
+        # the full block set build_run_specs requires (the no-code-defaults
         # subscript census); shape mirrors the proven scalar-smoke config.
         "train_args": {
             "nepochs": 40,
@@ -428,7 +435,7 @@ def check_cobaya(root, device):
 
 
 def check_diagnostics(exp, model, tmp):
-    """Leg 5 (D-CM9): the CMB pages build and the PDF lands."""
+    """Leg 5, diagnostics: the CMB pages build and the PDF lands."""
     os.environ.setdefault("MPLBACKEND", "Agg")
     try:
         from emulator.diagnostics import cmb_residual_diagnostic
@@ -458,18 +465,18 @@ def check_diagnostics(exp, model, tmp):
                          cmb=cmb, savepath=pdf)
         ok = (n_pages == 2 and os.path.isfile(pdf)
               and os.path.getsize(pdf) > 10000)
-        report("D-CM9 diagnostics: 2 CMB pages + the PDF lands", ok,
+        report("diagnostics: 2 CMB pages + the PDF lands", ok,
                "%d pages, %d bytes" % (n_pages,
                                        os.path.getsize(pdf)
                                        if os.path.isfile(pdf) else 0))
     except Exception as e:
-        report("D-CM9 diagnostics: 2 CMB pages + the PDF lands", False,
+        report("diagnostics: 2 CMB pages + the PDF lands", False,
                type(e).__name__ + ": " + str(e)[:200])
 
 
 def main():
     """Run the cmb-smoke pipeline; exit non-zero on any failure."""
-    print("cmb-smoke (CME-B): generator + covariance + train + cobaya "
+    print("cmb-smoke: generator + covariance + train + cobaya "
           "+ diagnostics (real CAMB; several minutes)")
     rootdir = os.environ.get("ROOTDIR")
     if not rootdir:

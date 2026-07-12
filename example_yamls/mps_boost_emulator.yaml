@@ -89,7 +89,7 @@ train_args:
   bs:      256
 
   # the model. name picks the architecture: resmlp (the plain trunk) or
-  # the correction heads rescnn / restrf (the D-CM13 family lift). The
+  # the correction heads rescnn / restrf. The
   # flattened surface is z-outer, so the natural split is one bin per z
   # slice: rescnn gets the z slices as conv CHANNELS and slides along k
   # (channel mixing couples redshifts at like k); restrf gets one TOKEN
@@ -161,7 +161,7 @@ train_args:
     shape:         linear
     kappa:         0.15
 
-  # OPTIONAL fine-tuning (D-MP7): warm-start from a saved grid2d
+  # OPTIONAL fine-tuning: warm-start from a saved grid2d
   # emulator of the SAME quantity, units, law, (z, k) grids, and
   # k_stride. Delete the model: block when using it — the architecture
   # is inherited.

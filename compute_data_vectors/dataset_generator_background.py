@@ -11,7 +11,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #-------------------------------------------------------------------------------
 # The script below computes BACKGROUND training dumps for the BAOSN emulators:
 # per sample, one background-only CAMB evaluation (cheap — no perturbations)
-# yields BOTH targets of the two-regime design (D-BSN3-A):
+# yields BOTH targets of the two-regime design:
 #   - H(z) on the SN-range grid  (train_args.z_sn),   km/s/Mpc
 #   - the comoving distance D_M(z) on the recombination window
 #     (train_args.z_rec), Mpc (flat: D_M = chi)
@@ -76,7 +76,7 @@ class dataset(GeneratorCore):
   """
   Background generator: one background-only CAMB evaluation per sample
   yields H on the SN grid and D_M on the recombination window at once
-  (the one-pass rule, D-BSN3-A(5)). The store is two per-quantity 2D
+  (the one-pass rule). The store is two per-quantity 2D
   arrays ({dvsf}_h.npy / {dvsf}_dm.npy) with their grids beside them;
   the per-sample payload is a dict {"h": (nz,), "dm": (nz2,)} float32.
   """
@@ -90,7 +90,7 @@ class dataset(GeneratorCore):
     start above 0 (H(0) is fine but the training grid convention keeps
     z ascending and strictly positive at the low edge, matching the
     legacy ZLIN) and the two windows must not overlap (the desert
-    between them is the adapter's loud-error region, D-BSN3-A(4)).
+    between them is the adapter's loud-error region).
     """
     grids = {}
     for key in ("z_sn", "z_rec"):

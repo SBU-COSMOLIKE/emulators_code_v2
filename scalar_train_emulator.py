@@ -125,8 +125,7 @@ def main():
   epoch, and saves the two artifact files (<save>_<tag>.emul weights +
   .h5 record). With --diagnostic, also writes the multipage PDF: the
   shared chi2 pages (they consume only params + per-sample chi2, so
-  they apply to every family) plus the scalar truth/residual pages
-  (D-CM9).
+  they apply to every family) plus the scalar truth/residual pages.
   """
   parser = argparse.ArgumentParser(prog="scalar_train_emulator")
   # --root / --fileroot / --yaml: the cocoa project layout.
@@ -223,7 +222,7 @@ def main():
                "thresholds":   exp.thresholds},
     train_args=exp.train_args,
     # the NPCE base rides every family (the 2026-07-12 ruling); a scalar
-    # run still has no transfer base (D-SP8).
+    # run still has no transfer base (a recorded ruling).
     pce=(exp.chi2fn.pce if exp.pce_opts is not None else None),
     pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
     # schema v2: the resolved recipes (consumed view), so the saved run
@@ -273,7 +272,7 @@ def main():
                                device=exp.device)
     log(f"floor: f_model {floor['f_model']:.3f}  "
         f"f_floor {floor['f_floor']:.3f}")
-    # the scalar family pages (D-CM9): truth-vs-predicted, residual
+    # the scalar family pages: truth-vs-predicted, residual
     # histograms in physical + standardized units, residual vs input.
     sc = scalar_output_diagnostic(model=model,
                                   param_geometry=exp.pgeom,

@@ -1027,7 +1027,7 @@ def _lnparam_pca_fig(source, names, color, clabel, title,
 
 
 def _cmb_pages(cmb):
-  """Build the two CMB-family pages (D-CM9) from cmb_residual_diagnostic.
+  """Build the two CMB-family pages from cmb_residual_diagnostic.
 
   Page A (2x2): the per-multipole residual bands, fractionally (top
   left; readable for tt/ee/pp, spiky where te crosses zero) and in
@@ -1036,7 +1036,7 @@ def _cmb_pages(cmb):
   true C_ell (bottom left) and its per-multipole residual/sigma (bottom
   right).
 
-  Page B: the D-CM8 companion — the median absolute short-period
+  Page B: the roughness companion — the median absolute short-period
   remainder of the whitened residual vs multipole (the wiggle spectrum
   the roughness term penalizes), with the acoustic band (~200-300 in
   period) noted so over-smoothing or ringing reads at a glance.
@@ -1108,7 +1108,7 @@ def _cmb_pages(cmb):
   a.set_xlabel(r"$\ell$")
   a.set_ylabel("median |high-pass remainder|  (error-bar units)")
   a.set_title(
-    f"{spec}: short-period residual content (the D-CM8 band; "
+    f"{spec}: short-period residual content (the roughness band; "
     f"periods < ~{hp['period_cut']} in ell). The acoustic structure "
     "(period ~200-300, incl. lensing peak smoothing) is filtered "
     "out — content here is network wiggle, not physics.")
@@ -1118,7 +1118,7 @@ def _cmb_pages(cmb):
 
 
 def _scalar_pages(sc):
-  """Build the scalar-family pages (D-CM9) from scalar_output_diagnostic.
+  """Build the scalar-family pages from scalar_output_diagnostic.
 
   Page A: per-output truth-vs-predicted scatter with the identity line.
   Page B: per-output residual histograms, physical units (left) and
@@ -1195,7 +1195,7 @@ def _scalar_pages(sc):
 
 
 def _grid_pages(gd):
-  """Build the grid-family pages (D-BSN8) from grid_residual_diagnostic.
+  """Build the grid-family pages from grid_residual_diagnostic.
 
   Page A (1x2 or 2x2): the per-redshift fractional-residual bands for
   the emulated background function, plus the worst-cosmology overlay
@@ -1266,8 +1266,7 @@ def _grid_pages(gd):
 
 
 def _grid2d_pages(g2):
-  """Build the grid2d-family pages (MPS-DIAG) from
-  grid2d_residual_diagnostic.
+  """Build the grid2d-family pages from grid2d_residual_diagnostic.
 
   Page A (1x2): the median |residual| over the validation set as a
   (z, k) surface, beside the worst validation cosmology's |residual|
@@ -1372,10 +1371,10 @@ def plot_diagnostics(train_losses,
     annotated, names the combinations where training is thin,
     independent of the chi2; same condition.
 
-  Family pages (the D-CM9 dispatch), appended after the shared pages
-  when their dict is given:
+  Family pages, appended after the shared pages when their dict is
+  given:
     cmb    -> two CMB pages (per-multipole residual bands + the worst
-              overlay; the D-CM8 high-pass wiggle content).
+              overlay; the high-pass wiggle content).
     scalar -> three scalar pages (truth-vs-predicted; residual
               histograms physical + standardized; residual vs each
               input parameter).
@@ -1476,7 +1475,7 @@ def plot_diagnostics(train_losses,
     if f6 is not None:
       figs.append(f6)
 
-  # family pages (the D-CM9 dispatch): appended after the shared pages;
+  # family pages: appended after the shared pages;
   # None (the default) adds nothing, keeping the cosmic-shear PDF
   # byte-identical.
   if cmb is not None:

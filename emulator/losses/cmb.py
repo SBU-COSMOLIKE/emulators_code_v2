@@ -40,7 +40,7 @@ from .core import CosmolikeChi2
 
 class ResidualRoughness:
   """
-  Band-explicit high-pass penalty on the whitened residual (D-CM8).
+  Band-explicit high-pass penalty on the whitened residual.
 
   CMB spectra are smooth multipole by multipole, so an emulator residual
   that OSCILLATES on short periods (much shorter than the acoustic peak
@@ -61,7 +61,7 @@ class ResidualRoughness:
   in multipoles, period_cut rounded to the nearest odd integer; rem =
   the high-frequency remainder the term penalizes.)
 
-  Band behavior (why this satisfies both D-CM8 cautions): the double
+  Band behavior (why this satisfies the term's two cautions): the double
   boxcar's smoothing response is ~ sinc^2(w / P) for an oscillation of
   period P, so the REMAINDER carries full weight at P << w and nearly
   none at P >= ~4 w. With the default period_cut 50 that separates the
@@ -153,7 +153,7 @@ class CmbDiagonalChi2(CosmolikeChi2):
       focal reduction, so every knob applies to the CMB chi2 unchanged.
   """
 
-  # the optional residual-roughness term (D-CM8): absent (None, the class
+  # the optional residual-roughness term: absent (None, the class
   # default) = the loss path is byte-identical to the plain chi2 path;
   # configure_roughness attaches it. lam is a fixed per-run multiplier (a
   # constant in the compiled graph, unlike the per-epoch trim/focus
@@ -209,8 +209,8 @@ class CmbDiagonalChi2(CosmolikeChi2):
     """Training loss; adds the roughness penalty per sample when present.
 
     With no roughness term this delegates to CosmolikeChi2.loss unchanged
-    (byte-identical, the off-identity rule). With one, the composition is
-    the D-CM8 rule: c_total = c_chi2 + lam * c_rough per SAMPLE, before
+    (byte-identical, the off-identity rule). With one, the composition
+    is c_total = c_chi2 + lam * c_rough per SAMPLE, before
     the shared reduction — so trim / focus / berhu / the mode transform
     all act on one number per sample and compose with the penalty
     exactly as they compose with the plain chi2 (one reduction path, no

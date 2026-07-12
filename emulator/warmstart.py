@@ -62,7 +62,7 @@ _FINETUNE_KEYS = ("from", "compile_mode", "anchor")
 _COMPILE_MODES = ("reduce-overhead", "default", None)
 
 # the parity check scores the epoch-0 warm-started model against the source on
-# this many staged training rows (D-FT7). float32 whitened-dv units.
+# this many staged training rows. float32 whitened-dv units.
 _PARITY_ROWS = 256
 
 # the largest whitened-dv deviation the parity check tolerates between the
@@ -98,7 +98,7 @@ class FinetuneSource:
     compile_mode = the torch.compile mode the source recipe stored (the
                  finetune default when the YAML does not override it).
     data_dir   = the source run's cosmolike_data_dir (checked equal to the new
-                 run's, D-FT4).
+                 run's).
     dataset    = the source run's cosmolike_dataset (checked equal too).
   """
 
@@ -132,7 +132,7 @@ class FinetuneSource:
 def validate_finetune_config(cfg, train_args, rescale, activation_flag):
   """Check the finetune YAML surface, raising a loud error on any violation.
 
-  Runs the D-FT1 / D-FT2 config-time checks before anything is loaded: the
+  Runs the config-time checks before anything is loaded: the
   finetune block's own key whitelist, and the keys a warm start forbids
   because the architecture, loss form, and schedule are all inherited or out
   of scope. Every failure names what to remove.
@@ -154,7 +154,8 @@ def validate_finetune_config(cfg, train_args, rescale, activation_flag):
       "train_args.finetune must be a block with a 'from' key, got "
       + type(ft).__name__)
   # the L2-SP anchor facility is a separate unit (the shared anchor extension,
-  # lands with TPE D-TP10); reject it loudly rather than as an unknown key.
+  # lands with the transfer refine stage); reject it loudly rather than
+  # as an unknown key.
   if "anchor" in ft:
     raise NotImplementedError(
       "train_args.finetune.anchor (the L2-SP penalty toward the transferred "
@@ -197,11 +198,11 @@ def validate_finetune_config(cfg, train_args, rescale, activation_flag):
     raise ValueError(
       "a finetune run inherits its activation from the source artifact; "
       "drop the --activation flag")
-  # NPCE composition across bases is out of scope (D-FT10).
+  # NPCE composition across bases is out of scope.
   if cfg.get("pce") is not None:
     raise KeyError(
       "a finetune run does not compose with a pce: block (warm-starting a "
-      "PCE refiner across bases needs its own design; D-FT10); remove it")
+      "PCE refiner across bases needs its own design); remove it")
   # transfer x finetune: two different reuse tools, one at a time (the
   # same rule validate_transfer states from its side; checked here too so
   # neither branch order can silently ignore the other block).
@@ -279,11 +280,11 @@ def load_source(root, device, allow_factored=False):
     root           = resolved absolute source path root (from
                      resolve_source_root).
     device         = device to rebuild the source network and geometries on.
-    allow_factored = the transfer path (D-TP2) sets this to accept a factored
+    allow_factored = the transfer path sets this to accept a factored
                      NLA / TATT base (an AmplitudeFactorGeometry input, an
                      ia = nla / tatt): the factored base is its headline use.
                      The fine-tune path leaves it False, allowing only a plain
-                     source (D-FT2 / D-FT10). LogParamGeometry stays out either
+                     source. LogParamGeometry stays out either
                      way (V1).
 
   Returns:
@@ -324,11 +325,11 @@ def load_source(root, device, allow_factored=False):
   if info.get("pce_base") is not None:
     raise ValueError(
       "source carries an NPCE base; V1 warm start / transfer does not compose "
-      "with PCE (D-FT10 / D-TP2)")
+      "with PCE")
 
   # read the recipe, the source rescale, and the source data block from the
   # .h5 (rebuild consumes the recipe but does not return it). A transfer_base
-  # group marks the artifact as itself a transfer output: no chaining (D-TP2).
+  # group marks the artifact as itself a transfer output: no chaining.
   with h5py.File(root + ".h5", "r") as f:
     recipe   = yaml.safe_load(f["model_recipe"][()])
     src_resc = f.attrs.get("rescale")
@@ -337,7 +338,7 @@ def load_source(root, device, allow_factored=False):
       raise ValueError(
         "source " + root + ".h5 is itself a transfer artifact (it embeds a "
         "transfer_base group); chaining a transfer over a transfer is out of "
-        "scope (D-TP2, no chaining)")
+        "scope (no chaining)")
   if src_resc is None:
     # a missing attr is not the same failure as a wrong value: the training
     # drivers stamp rescale in the run-identity attrs, but an artifact saved
@@ -433,7 +434,7 @@ def recipe_to_model_opts(recipe, geom=None, compile_mode="__inherit__"):
 
 
 def _extend_param_geometry(src_pgeom, names_n, cov, train_mean, device):
-  """The D-FT3 block extension of one plain ParamGeometry (in memory).
+  """The block extension of one plain ParamGeometry (in memory).
 
   Given a source ParamGeometry and the new (superset) parameter names, the
   new covariance matrix, and the staged-train mean, build a plain
@@ -544,7 +545,7 @@ def _extend_param_geometry(src_pgeom, names_n, cov, train_mean, device):
 
 
 def extend_input_geometry(source, covmat_path, train_mean, device):
-  """Build the new run's input geometry by block extension (D-FT3 / D-TP3).
+  """Build the new run's input geometry by block extension.
 
   Dispatches on the source geometry: a plain ParamGeometry is block-extended
   directly (the fine-tune case); an AmplitudeFactorGeometry (a factored NLA /
@@ -625,7 +626,7 @@ def extend_input_geometry(source, covmat_path, train_mean, device):
 
 
 def pin_output_geometry(source, run_data, run_probe, new_dv_width):
-  """Reuse the source output geometry for the new run, after checks (D-FT4).
+  """Reuse the source output geometry for the new run, after checks.
 
   The output whitening basis and inverse covariance come from the dataset
   covariance and mask, which are cosmology-independent, so the source dv
@@ -680,7 +681,7 @@ def pin_output_geometry(source, run_data, run_probe, new_dv_width):
 
 
 def transfer_state_dict(source_state, template_state, n_extra):
-  """Transfer the source weights into the new model's shape (D-FT5).
+  """Transfer the source weights into the new model's shape.
 
   Generic and shape-driven, with no per-design enumeration: the new model's
   own state_dict is the shape template. For every key, a matching shape copies
@@ -791,7 +792,7 @@ def build_warm_start(source,
                      train_set,
                      extra_names,
                      device):
-  """Transfer the weights and run the pre-train parity check (D-FT5 + D-FT7).
+  """Transfer the weights and run the pre-train parity check.
 
   Builds a fresh eager model at the new input width from the inherited recipe,
   transfers the source weights into it (verbatim plus zero-padded extra input
@@ -843,7 +844,7 @@ def build_warm_start(source,
   model.load_state_dict(init_state, strict=True)
   model.eval()
 
-  # staged rows for the parity check (D-FT7 wants at least _PARITY_ROWS; use
+  # staged rows for the parity check (it wants at least _PARITY_ROWS; use
   # what is available if a tiny synthetic set has fewer).
   idx  = train_set["idx"]
   take = min(_PARITY_ROWS, int(len(idx)))
@@ -884,7 +885,7 @@ def build_warm_start(source,
 
 
 def anchor_masks(init_state, padded_keys, n_extra, device):
-  """Per-parameter anchor masks for the finetune warm start (D-FT anchor).
+  """Per-parameter anchor masks for the finetune warm start.
 
   Every anchored parameter is pulled toward the transferred init_state, EXCEPT
   the padded extra input columns: they are exact zeros by design and the
@@ -924,7 +925,7 @@ def _zero_final_linear(model):
   Linear makes the whole net output exactly zero at init, while the Affine
   passes gradients straight through, so the net still trains away from the
   zero start (its gain sees a nonzero input after the first step). Epoch 0 is
-  then exactly the frozen base (D-TP5). Every other tensor is untouched.
+  then exactly the frozen base. Every other tensor is untouched.
 
   Arguments:
     model = the correction network (eager module).
@@ -955,10 +956,10 @@ def build_transfer_start(chi2fn,
                          train_set,
                          extra_names,
                          device):
-  """Build the zero-init correction net and run the bitwise parity gate (D-TP7).
+  """Build the zero-init correction net and run the bitwise parity gate.
 
   Builds a fresh eager correction network at the run's input width, applies the
-  zero-init surgery (the final output Linear is zeroed, D-TP5), and checks, on
+  zero-init surgery (the final output Linear is zeroed), and checks, on
   staged rows, that epoch 0 reproduces the frozen base EXACTLY: the composed
   prediction (base plus a zero correction) is torch.equal the frozen base's own
   decode, and perturbing only the extra parameters leaves it bit-identical

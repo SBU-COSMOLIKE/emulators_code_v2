@@ -1,4 +1,4 @@
-"""2D grid geometry: a function on a persisted (z, k) grid (D-MP1).
+"""2D grid geometry: a function on a persisted (z, k) grid.
 
 The MPS output geometry: the emulated quantity is a function of BOTH
 redshift and wavenumber — the linear P(k, z) or the nonlinear boost
@@ -10,8 +10,8 @@ B(k, z) = P_nl/P_lin — stored as one flattened row per cosmology:
 Standardization is the GridGeometry math at width nz*nk, applied to the
 LAW-SPACE rows: for the syren laws the staging already formed
 log(P / P_base) (the base is cosmology-dependent, so it lives with the
-generator + emul_mps through emulator/syren_base.py — the D-MP2-A
-ruling; the geometry's encode/decode are pure standardize /
+generator + emul_mps through emulator/syren_base.py; the geometry's
+encode/decode are pure standardize /
 destandardize, torch-only). The law NAME persists here as the artifact
 fact that tells every consumer which base to multiply back; the stored
 k grid is the (possibly downsampled) grid the run actually trained on —
@@ -27,7 +27,7 @@ import numpy as np
 import torch
 
 
-# The 2D target-law registry (D-MP2): persisted by name in the artifact.
+# The 2D target-law registry: persisted by name in the artifact.
 # The syren laws' base functions live in emulator/syren_base.py; "none"
 # learns the raw rows. No extra state keys — the base is recomputed from
 # the sampled parameters by the consumer, never stored per-row here.
@@ -47,13 +47,13 @@ class Grid2DGeometry:
   "boost"), units ("Mpc3" / "dimensionless"), law (a TARGET_LAWS_2D
   key). center/scale are per flattened grid point over the law-space
   training rows. dest_idx / total_size are the identity over nz*nk.
-  const_mask (D-MP9, optional) marks the pinned points — law-space
+  const_mask (optional) marks the pinned points — law-space
   columns constant across the training cosmologies (the boost's
   low-k region, where B = 1 for every cosmology under ANY law):
   decode returns the training constant there, and the mask persists
-  with the artifact. None = no pins (every pre-D-MP9 file). A
-  WHOLLY constant surface is still a loud error — that is a dead
-  dump, never physics.
+  with the artifact. None = no pins (every pre-pin file, saved
+  before the constant pin existed). A WHOLLY constant surface is
+  still a loud error — that is a dead dump, never physics.
   """
 
   def __init__(self,
@@ -79,10 +79,10 @@ class Grid2DGeometry:
       center   = (nz*nk,) per-point training mean IN LAW SPACE.
       scale    = (nz*nk,) per-point training std IN LAW SPACE (1.0 at
                  the pinned points below).
-      const_mask = the D-MP9 pinned-point mask, or None (no pins —
+      const_mask = the pinned-point mask, or None (no pins —
                  every older artifact, and any run whose surface has
                  spread everywhere; state() then omits the key, so
-                 pre-D-MP9 files are byte-identical). (nz*nk,)
+                 pre-pin files are byte-identical). (nz*nk,)
                  booleans: True where the LAW-SPACE training column
                  was constant — the boost's low-k region (B = 1 for
                  every cosmology, under any law), so decode returns
@@ -114,7 +114,7 @@ class Grid2DGeometry:
         + "; the rows must be the flattened (z-outer) surface")
     self.total_size = n_out
     self.dest_idx   = torch.arange(n_out, device=device)
-    # the D-MP9 pinned-point mask (None = no pins, decode untouched).
+    # the pinned-point mask (None = no pins, decode untouched).
     # h5 round-trips it as a small integer tensor; normalize to bool.
     if const_mask is None:
       self.const_mask = None
@@ -151,7 +151,7 @@ class Grid2DGeometry:
     """Build the standardization from LAW-SPACE training rows.
 
     The rows arrive already law-transformed (the staging formed
-    log(P/P_base) from the generator's base files — D-MP2-A(2)), so
+    log(P/P_base) from the generator's base files), so
     this only standardizes: per-point mean/std (population, ddof 0)
     with the un-standardizable guard naming the first bad (z, k)
     points.
@@ -200,9 +200,9 @@ class Grid2DGeometry:
           "across the training rows — the dump is degenerate (a stale "
           "generator writing one cosmology everywhere); check the "
           "generator, this is never a physical surface.")
-      # D-MP9 (amended run 7: LAW-AGNOSTIC): a constant law-space
-      # column that is not the whole surface is PHYSICS, not a
-      # generator bug — the boost is 1 below the nonlinear scale for
+      # the constant pin (amended run 7: LAW-AGNOSTIC): a constant
+      # law-space column that is not the whole surface is PHYSICS, not
+      # a generator bug — the boost is 1 below the nonlinear scale for
       # every cosmology, so its low-k columns are constant under ANY
       # law: under a syren law log(B/B_base) = 0 identically (the
       # base is exact there); under law "none" the raw value 1 itself
@@ -226,8 +226,8 @@ class Grid2DGeometry:
   def state(self):
     """Tensors/strings to save; keys match __init__ (dest_idx /
     total_size are derived from the axes, so they are not persisted).
-    const_mask joins only when pins exist (D-MP9), so a pin-free
-    artifact is byte-identical to a pre-D-MP9 one; it rides as a small
+    const_mask joins only when pins exist, so a pin-free
+    artifact is byte-identical to a pre-pin one; it rides as a small
     integer tensor (h5 has no bool), normalized back by __init__."""
     st = {"quantity": self.quantity,
           "units":    self.units,
@@ -241,7 +241,7 @@ class Grid2DGeometry:
     return st
 
   def attach_head_coords(self):
-    """Attach the conv/TRF heads' channel/token split (D-CM13).
+    """Attach the conv/TRF heads' channel/token split.
 
     The correction heads (designs/plain.py ResCNN / ResTRF) read
     geom.bin_sizes for their channel/token layout; here it is a pure
@@ -276,9 +276,9 @@ class Grid2DGeometry:
 
   def decode(self, t):
     """Standardized output -> law-space rows (the consumer multiplies
-    the base back through emulator/syren_base.py, D-MP2-A(4)).
+    the base back through emulator/syren_base.py).
 
-    At the D-MP9 pinned points (law-space training columns constant
+    At the pinned points (law-space training columns constant
     across cosmologies — the boost's low-k region under any law) the
     network's output is REPLACED by the training constant: that
     constant IS the physics there (the base under a syren law, the
