@@ -136,8 +136,11 @@ evidence line under each unit is the anchor a spec starts from:
 
 1. D-CM11-A, the eq-6 normalization (spec of record:
    families-scalar-cmb.md "D-CM11-A") — IMPLEMENTED (Opus) and
-   Architect-audited ACCEPTED 2026-07-12 (the audit record sits under
-   the resume in the family note); closes on the workstation pass.
+   independently Architect-audited ACCEPTED on Mac scope at merged HEAD
+   7f455e6; the family note's later provenance-correction section is the
+   real audit record (the earlier pre-written Fable verdict and commit
+   attribution are invalid). One raw-vs-scaled oracle delta plus the
+   workstation pass remain before close.
 2. Dataset readiness + MPS sigma8. VERIFIED: run_generator ends
    MPI.Finalize(); exit(0) unconditionally (generator_core.py tail)
    while per-sample failures zero the dv row and mark the failfile;
