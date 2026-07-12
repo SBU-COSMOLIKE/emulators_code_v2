@@ -351,6 +351,53 @@ files were created. Priority follows user-visible risk:
     VERIFIED (Fable, 2026-07-12): generator_core ~337 (set
     equality), ~458-466 (the two helpers collapse differently by
     inspection), ~326 (last-dup pidx).
+18. **Schedule validation + direction-correct step** (fifth wave).
+    trim/focus schedules reach anneal_value unvalidated (only the
+    berhu/ema anneal sub-blocks pass _validate_anneal_block); an
+    unknown shape silently runs LINEAR; anneal_epochs 0 is silently
+    max(1,...)'d; the step arm is decreasing-only — an increasing
+    ramp jumps to end at the first ramp epoch. Spec:
+    training-stack.md, "Schedule validation".
+    VERIFIED (Fable, 2026-07-12): losses/core.py anneal_value
+    ~30-81 (fall-through to linear; max(end, floor) picks end on an
+    increasing ramp); no trim/focus range validation exists.
+19. **NPCE absolute LOO gate** (fifth wave, CRITICAL — the full
+    contract for wave-1 unit 5b's pce fallback). `if not cols:
+    always keep mode 0` persists a failed mode while the report
+    claims the predicate held; select_lars_loo's all-active score
+    vector is -1 everywhere so argmax duplicates column 0. Spec:
+    models-and-designs.md, "NPCE LOO gate must be absolute". Land
+    BEFORE any NPCE production training.
+    VERIFIED (Fable, 2026-07-12): pce.py ~414-419 and ~209-211,
+    both by direct read.
+20. **Hyperparameter-range validation** (fifth wave). The
+    [default, min, max, kind] machinery validates nothing:
+    out-of-bounds defaults train silently, int() truncates,
+    reversed bounds reach suggest_int, log accepts a zero lower
+    bound, a kind typo demotes the range to a fixed value. Spec:
+    training-stack.md, "Hyperparameter-range validation". Land
+    before production tuning sweeps.
+    VERIFIED (Fable, 2026-07-12): training.py _range_default
+    ~674-677 (int truncation, no bounds), _suggest_range ~680-692
+    (unvalidated lo/hi to Optuna).
+21. **Inference numerical boundary** (fifth wave). _as_row checks
+    names/counts only (NaN/Inf/bool enter the model; decoded
+    NaN/Inf served); the CMB amplitude law accepts As <= 0 and
+    NaN tau. Spec: artifacts-inference-warmstart.md, "Inference
+    numerical boundary". Land BEFORE the EMUL2 acceptance.
+    VERIFIED (Fable, 2026-07-12): inference.py ~442-457 (documented
+    raises are KeyError/length only), losses/cmb.py ~316 (no domain
+    check in _factor).
+22. **Selection-record truth** (fifth wave, CRITICAL — the full
+    contract for wave-1 unit 3). The loop restores the epoch-0
+    baseline but histories carry trained epochs only, so drivers /
+    artifact attrs / Optuna report a DIFFERENT model than the one
+    shipped; same at trunk->head and refine boundaries. Spec:
+    training-stack.md, "Selection-record truth". Pairs with unit 14
+    (its metrics ride the finite contract).
+    VERIFIED (Fable, 2026-07-12): histories start empty ~1694, the
+    baseline eval ~1844 seeds best_* without appending; the driver
+    argmin recompute was verified in wave 1.
     VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
     designs/plain 6, designs/blocks 1, losses/core 1,

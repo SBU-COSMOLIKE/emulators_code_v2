@@ -142,6 +142,39 @@ amplitudes. NEVER emulate a parameter dependence you can write down.
   verdict above does NOT transfer: on MPS the PCE fits the law-space
   boost, exactly the 2404.12344 regime where it worked.
 
+### NPCE LOO gate must be absolute (red-team 2026-07-12 fifth wave, Architect-VERIFIED, CRITICAL, open; the full contract for the wave-1 pce-fallback finding)
+
+Verified at designs/pce.py: line ~414 `if not cols:  # always keep
+mode 0` unconditionally refits and keeps mode 0 when NO mode passed
+loo < loo_max — the persisted base can carry a mode ~1e30 above the
+requested ceiling while the startup report prints "kept 1 (loo<T)"
+as if the predicate held. This defeats the "a wiggly base must not
+poison the refiner" rule: a requested NPCE run can be WORSE than a
+plain network. Second edge, also verified (~209-211): in
+select_lars_loo, once every candidate column is active the score
+vector is all -1 and argmax picks column 0 again — max_terms above
+the candidate count appends DUPLICATE support indices instead of
+stopping.
+
+Contract (Implementer; the red-team block of record adopted whole):
+delete the fallback; when no mode passes, FAIL the fit loudly naming
+the best attempted LOO, the threshold, and the modes tried (never a
+mean-only or failed-mode base — the "NPCE base is alive" rule is
+preserved by refusing, not by faking); every recorded/kept LOO
+finite; X_white/Y_white finite, 2-D, row-aligned, nonzero widths,
+enough rows; select_lars_loo stops when all candidates are active,
+never duplicates a support index, caps terms at the candidate count;
+best_beta/support must exist and be finite before returning;
+the fit report derives from actual kept-mode predicates (printing
+"kept K (loo<T)" with a violating persisted mode must be
+impossible); math.isfinite on pce.loo_max (NaN passes the <= 0 check
+today). Gates: predictable control keeps a real mode with every LOO
+below threshold; the strict-threshold fixture raises "no mode
+passed" and writes NO artifact; NaN/Inf input/target/LOO/loo_max
+raise; max_terms > n_candidates terminates with unique support; a
+one/two-column candidate set cannot duplicate index 0; valid PCE
+save/rebuild unchanged. Land BEFORE any NPCE production training.
+
 ## Composition spine
 
 CosmolikeChi2 HOLDS a geometry (composition, never inheritance);

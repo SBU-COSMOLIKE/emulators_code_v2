@@ -336,6 +336,87 @@ a nonfinite gradient raises BEFORE the optimizer mutates weights; a
 NaN scalar loss raises before backward; the error text names the side
 and positions. Independent of the bs > n_train / run_n == 0 unit.
 
+## Schedule validation + direction-correct step (red-team 2026-07-12 fifth wave, Architect-VERIFIED, open)
+
+trim/focus schedules reach anneal_value with NO validator (the
+berhu/ema anneal sub-blocks DO pass _validate_anneal_block, but its
+key set is {hold_epochs, anneal_epochs, shape} only, and trim/focus
+bypass it entirely). Verified in losses/core.py anneal_value (~30-81):
+an unknown shape falls through to LINEAR (no else-raise; "cosin" runs
+linear silently); `span = max(1, anneal_epochs)` silently rewrites 0;
+and the step arm `val = max(end, floor(val*100)/100)` is
+DECREASING-ONLY — an increasing ramp (start 0, end 1: the berhu/EMA
+step shape) returns end at the FIRST ramp epoch (max picks end), so
+the documented gradual step never happens. trim=-0.5 acts as
+no-trimming, trim=2.0 keeps one row (a zero-residual run then scores
+0.0), focus.kappa <= 0 or NaN makes e/(e+kappa) NaN — none validated.
+
+Contract (Implementer; the red-team block of record adopted whole):
+one shared schedule validator for trim + focus at top level AND
+inside trunk/head overrides, before staging — exact key sets (trim:
+start/end/hold_epochs/anneal_epochs/shape; focus: + kappa), unknown/
+missing keys loud, no bool-as-number, all values finite; int
+hold_epochs >= 0, int anneal_epochs >= 1, shape in
+const|linear|cosine|step; 0 <= trim.start,end < 1; focus start,end
+>= 0; focus.kappa finite > 0. anneal_value rejects unknown shapes
+defensively. step becomes DIRECTION-AWARE: the decreasing 0.01-grid
+behavior byte-identical, an increasing schedule advances on the grid
+and reaches end only at the end. ONE fixed helper serves trim, focus,
+berhu blend, and EMA horizon — no forks. Gates: shipped schedules
+unchanged; every malformed case raises before staging; decreasing
+0.05->0 reproduces current values exactly; increasing 0->1 has strict
+intermediate values; berhu + EMA ramps exercise the increasing arm;
+phase-local errors name trunk or head.
+
+## Hyperparameter-range validation (red-team fifth wave, Architect-VERIFIED, open)
+
+The [default, min, max, kind] machinery recognizes syntax, never
+ranges. Verified: training.py _range_default (~674-677) types the
+default with int()/float() — int(64.9) TRUNCATES, no bounds check, no
+default-within-bounds check (a default 100x above its own max trains
+silently); _suggest_range (~680-692) passes lo/hi to Optuna
+unvalidated (suggest_int(512, 64); log with lo = 0), and an unknown
+kind silently demotes the whole list to a FIXED value that fails
+later in an unrelated constructor. Contract (red-team block adopted
+whole): one recursive pure validator used by from_config,
+default_train_args, search_defaults, and suggest_train_args — kind
+exactly int|float|log (unknown kind = malformed range, loud);
+default/min/max numeric non-bool finite; min < max and
+min <= default <= max; int demands integral values (no truncation);
+log demands min > 0; normalize ONCE to typed values, all three
+consumers read the validated form; errors carry the dotted leaf path.
+Gates: valid list + string ranges keep current typed values; every
+malformed case raises at config load; no malformed range reaches
+suggest_*; ordinary-training and search_defaults defaults identical;
+nested paths report full dotted names.
+
+## Selection-record truth (red-team fifth wave — the FULL CONTRACT for the wave-1 best-record unit; Architect-VERIFIED, CRITICAL)
+
+The wave-1 finding (unit 3: the loop restores the epoch-0 baseline
+but drivers/Optuna recompute best over trained-epoch histories)
+now has its fix contract. Verified anchors: the history lists start
+empty (~1694) and the baseline eval (~1844) seeds best_* WITHOUT
+appending to histories, so "epoch 0 selected" is invisible to every
+consumer; the driver stamps best_epoch/best_frac02/best_median from
+history argmin while the artifact weights are the baseline; Optuna
+returns the wrong objective for the model actually shipped. Same
+mismatch at trunk->head and transfer-refine boundaries. Contract
+(red-team block adopted whole): training_loop_batched returns an
+explicit SELECTION RECORD (epoch/pass identity, fraction vector,
+mean, median, baseline/EMA flag) alongside histories; run_emulator
+composes records across trunk/head/joint/refine and returns the one
+belonging to the final restored model; drivers, artifact root attrs,
+console summaries, and Optuna objectives consume the record and
+NEVER re-derive from histories; per-epoch histories unchanged for
+plotting (epoch 0 never disguised as trained); phase baselines get
+an unambiguous label + a numeric global trained-epoch when one
+exists; selection metrics finite under the finite-contract unit.
+Gates: all-epochs-worse returns bitwise epoch-0 weights AND
+epoch-0 metrics everywhere; a real improvement matches current
+behavior; the median tiebreak; head-phase and refine degradation
+name their baselines; artifact readback describes the exact shipped
+state.
+
 ## Where the deltas live (IDs preserved for git archaeology)
 
 D-B1 (deleted by the loss-block nesting — the structural fix beat the

@@ -217,6 +217,34 @@ tiny negative eigenvalue, a zero scale in a same-shaped h5, duplicate
 `dest_idx`, and a valid ill-conditioned SPD matrix just above the stated
 tolerance.
 
+## Inference numerical boundary (red-team 2026-07-12 fifth wave, Architect-VERIFIED, open; land before the EMUL2 acceptance)
+
+EmulatorPredictor._as_row (inference.py ~442-457) checks names and
+counts ONLY — its documented raises are KeyError (missing name) and
+ValueError (wrong length); NaN/Inf/bool values enter the whitening
+and the model, and decoded NaN/Inf returns to the caller unguarded.
+CmbFactoredChi2._factor (losses/cmb.py ~316) computes exp(2 tau)/A_s
+with no domain check: As = 0 -> Inf, As < 0 -> a negative factor,
+tau = NaN -> NaN, none raising. Every cobaya adapter routes through
+EmulatorPredictor, so this is the public inference boundary.
+
+Contract (Implementer; the red-team block of record adopted whole):
+_as_row requires every supplied input to be a real finite scalar
+(bools/NaN/Inf/non-scalars rejected NAMING the stored parameter);
+after pgeom.encode all encoded values finite; after the model
+forward and after each branch decode, exact expected shape + finite
+values before NumPy/dict conversion or scatter. Sign rules stay
+family-specific: the CMB amplitude law requires finite tau, finite
+strictly positive A_s, and a finite strictly positive factor (naming
+the offending columns); BAOSN/MPS positivity lives in their own
+queued units; NO positivity imposed on TE or generic scalar outputs.
+Gates: finite control bitwise; mapping AND ordered-array NaN/Inf/
+bool inputs raise naming the parameter; nonfinite encoded/model/
+decoded values raise at the correct stage; As <= 0, nonfinite
+As/tau, overflowed factor raise; wrong output width raises before
+reshape/scatter; all five return branches covered (scalar, CMB,
+grid, grid2d, data-vector).
+
 ## Fine-tuning (FTW; universal across families)
 
 - `train_args.finetune: {from, compile_mode?}`; architecture inherited
