@@ -81,6 +81,80 @@ def anneal_value(epoch, opts):
   return float(val)
 
 
+# 45M-24: a chi2 is a sum of whitened squares, so it is >= 0 in exact
+# arithmetic; float roundoff in a non-PSD-adjacent precision contraction
+# (the rescaled / transfer forms) can nudge a near-zero value slightly
+# negative. A value within this band of 0 is an exact fit (clamped to 0);
+# anything more negative is corruption and is rejected (see _validate_chi2).
+_CHI2_NEG_TOL = 1.0e-6
+
+
+def _validate_chi2(c):
+  """Fold a corrupted per-sample chi2 to NaN before the loss transform.
+
+  A chi2 is a sum of whitened squares, so it is >= 0 up to roundoff. This
+  is the producer's "reject before the transform" step, run once at the top
+  of _reduce for every mode: a non-finite c, or a materially negative one
+  (< -_CHI2_NEG_TOL: a corrupted non-PSD precision or a diverged model,
+  not roundoff), is folded to NaN so the finite contract's per-step guard
+  refuses the run -- never silently mapped to a perfect 0 by the safe-sqrt
+  below, and never trained on as a negative loss under mode "chi2". A tiny
+  roundoff negative within the band is the exact-fit case and is clamped to
+  0. Elementwise (an isfinite test, a compare, a clamp, a select): no host
+  sync and no data-dependent branch, so the compiled loss and its CUDA-graph
+  replay are undisturbed, and a well-formed c >= 0 is returned bit-identical.
+
+  Arguments:
+    c = the raw per-sample chi2 tensor, (B,).
+
+  Returns:
+    c with within-band roundoff negatives clamped to 0 and every corrupted
+    (materially negative / non-finite) entry replaced by NaN; a valid
+    non-negative c is unchanged.
+  """
+  valid = torch.isfinite(c) & (c >= -_CHI2_NEG_TOL)
+  return torch.where(valid, torch.clamp(c, min=0.0),
+                     torch.full_like(c, float("nan")))
+
+
+def _safe_sqrt(c):
+  """sqrt(c) with a finite, zero gradient exactly at c == 0.
+
+  The default "sqrt" loss is sqrt(sum r^2); at an exact fit (r == 0, so
+  c == 0) plain torch.sqrt has d sqrt(c)/dc = 1 / (2 sqrt(c)) -> infinity,
+  and the chain rule 0 * infinity is NaN. One identity-start head, one
+  pinned grid2d column, or one zero correction deliberately produces c == 0,
+  and that single NaN gradient then poisons the whole batch's step. The
+  finite contract's guards DETECT that NaN; this stops the objective from
+  PRODUCING it.
+
+  Forward is bit-identical to torch.sqrt(c) for every c >= 0 (including
+  sqrt(0) = 0), so the loss VALUE is unchanged and the C1 knot matching of
+  the berhu family is preserved -- unlike sqrt(c + eps), which shifts the
+  value everywhere and is NOT contract-equivalent. Only the GRADIENT
+  changes: 0 at c == 0 instead of NaN. c is already validated
+  non-negative-or-NaN by _validate_chi2, so a NaN propagates (c - c is NaN)
+  and torch.sqrt never sees a negative input. No host sync, no data-dependent
+  branch: the compiled loss and its CUDA-graph replay are undisturbed.
+
+  The two where()s keep 0 (and NaN) out of sqrt's own backward: torch.sqrt
+  only ever sees a strictly positive input, so its finite gradient is then
+  discarded by the outer select; the non-positive branch differentiates
+  c - c to 1 - 1 = 0 (exactly 0 at an exact fit).
+
+  Arguments:
+    c = the validated per-sample chi2 tensor (>= 0, or NaN for a corrupted
+        entry _validate_chi2 already flagged).
+
+  Returns:
+    a tensor shaped like c: sqrt(c) for c > 0, 0 (gradient 0) at c == 0, and
+    NaN where c is NaN.
+  """
+  positive = c > 0
+  c_safe   = torch.where(positive, c, torch.ones_like(c))
+  return torch.where(positive, torch.sqrt(c_safe), c - c)
+
+
 class CosmolikeChi2:
   """
   Adds the chi2 and the training loss to a geometry.
@@ -326,6 +400,12 @@ class CosmolikeChi2:
     Returns:
       a scalar loss tensor.
     """
+    # 45M-24 producer contract: reject a corrupted (materially negative or
+    # non-finite) chi2 BEFORE the transform, folding it to NaN so the finite
+    # contract's per-step guard refuses the run; a within-band roundoff
+    # negative is clamped to an exact-fit 0. Mode-independent (chi2 and
+    # sqrt_dchi2 must reject too), elementwise, no host sync.
+    c = _validate_chi2(c)
     B = c.numel()
     # ascending sort: the kept (smallest-chi2) samples come first,
     # so the keep mask is a prefix. Sorting when trim = 0 changes
@@ -347,7 +427,7 @@ class CosmolikeChi2:
     if mode == "chi2":
       v = c
     elif mode == "sqrt":
-      v = torch.sqrt(c)
+      v = _safe_sqrt(c)
     elif mode == "sqrt_dchi2":
       v = torch.sqrt(1.0 + 2.0 * c) - 1.0
     elif mode == "berhu":
@@ -355,39 +435,47 @@ class CosmolikeChi2:
       # equal gradient vote, sqrt's virtue), chi2-like (c+t1)/(2 sqrt(t1))
       # above (a rising tail pressure). C1 at t1: both branches value
       # sqrt(t1), both slopes 1/(2 sqrt(t1)). where() evaluates both
-      # branches, so both must be finite for c >= 0 (they are).
+      # branches, so both must be finite for c >= 0 (they are); the lower
+      # branch is _safe_sqrt so an exact-fit c == 0 also has a finite (0)
+      # gradient, not the 0/0 = NaN a plain sqrt would leak here (45M-24).
       if berhu_knot is None:
         raise ValueError(
           "mode 'berhu' needs a berhu_knot (the C1 knot); the "
           "training loop passes train_args.loss.berhu.knot")
-      v = torch.where(c <= berhu_knot, torch.sqrt(c),
+      v = torch.where(c <= berhu_knot, _safe_sqrt(c),
                       (c + berhu_knot) / (2.0 * torch.sqrt(berhu_knot)))
       if berhu_s is not None:
         # anneal: blend from plain sqrt (s=0) into the berhu form (s=1);
         # C1 for every s (convex combo of two C1 functions).
-        v = (1.0 - berhu_s) * torch.sqrt(c) + berhu_s * v
+        v = (1.0 - berhu_s) * _safe_sqrt(c) + berhu_s * v
     elif mode == "berhu_capped":
       # berhu up to a second knot t2 = berhu_cap, then sqrt-shaped again:
       # region 3 is a*sqrt(c)+b (a = sqrt(t2/t1), b = (t1-t2)/(2 sqrt t1)),
       # C1-matched at t2, so the per-sample tail vote plateaus instead of
       # rising forever (a monster chi2 stays bounded, robustness baked
-      # into the loss shape). Reduces exactly to berhu for c <= t2.
+      # into the loss shape). Reduces exactly to berhu for c <= t2. The
+      # region-3 sqrt(t2*c) is ALSO _safe_sqrt: where() evaluates every
+      # branch, and at an exact-fit c == 0 that term's plain-sqrt gradient
+      # (infinite at 0) times the branch's masked-off 0 upstream gradient is
+      # 0 * inf = NaN, poisoning the exact-fit row even though it selects the
+      # lower branch (45M-24 -- the fifth sqrt site the four-site count of
+      # the spec did not name; see the note).
       if berhu_knot is None or berhu_cap is None:
         raise ValueError(
           "mode 'berhu_capped' needs both berhu_knot and berhu_cap "
           "(the two C1 knots); the training loop passes "
           "train_args.loss.berhu.knot and .cap")
       v = torch.where(
-        c <= berhu_knot, torch.sqrt(c),
+        c <= berhu_knot, _safe_sqrt(c),
         torch.where(
           c <= berhu_cap,
           (c + berhu_knot) / (2.0 * torch.sqrt(berhu_knot)),
-          (2.0 * torch.sqrt(berhu_cap * c) + berhu_knot - berhu_cap)
+          (2.0 * _safe_sqrt(berhu_cap * c) + berhu_knot - berhu_cap)
           / (2.0 * torch.sqrt(berhu_knot))))
       if berhu_s is not None:
         # anneal: blend from plain sqrt (s=0) into the capped form (s=1);
         # C1 for every s (convex combo of two C1 functions).
-        v = (1.0 - berhu_s) * torch.sqrt(c) + berhu_s * v
+        v = (1.0 - berhu_s) * _safe_sqrt(c) + berhu_s * v
     else:
       raise ValueError(f"unknown loss mode: {mode}")
 

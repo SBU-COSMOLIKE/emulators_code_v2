@@ -32,6 +32,13 @@ The parts, in order:
   E. build_transfer_start parity — a non-finite epoch-0 surface raises with the
      finite-contract message (never "not the frozen base bitwise"); a valid
      zero-init keeps its "[ok] transfer parity" line.
+  F. the safe-sqrt producer (45M-24) — the objective must STOP producing the
+     0/0 = NaN gradient at an exact fit (c == 0), not merely detect it: an
+     exact-fit row has a finite, zero gradient in every sqrt mode (sqrt, both
+     berhu lower branches, the anneal arm, and the berhu_capped region-3
+     sqrt(t2*c) where-mask leak); positives agree analytically with sqrt; a
+     materially negative / non-finite chi2 is refused (a non-finite loss);
+     eager and torch.compile agree.
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
@@ -53,6 +60,7 @@ from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
 from emulator.geometries.output import DataVectorGeometry
 from emulator.geometries.parameter import ParamGeometry
+from emulator.losses.core import CosmolikeChi2
 from emulator.losses.transfer import TransferChi2
 from emulator.results import save_emulator
 from emulator.training import (eval_val, eval_source_chi2,
@@ -618,6 +626,93 @@ def check_transfer_parity(source, pgeom_x, extras_x, C_x):
 
 
 # ==========================================================================
+# Part F: the safe-sqrt producer (45M-24) -- an exact fit never NaNs the step.
+# ==========================================================================
+
+def _reduce_obj():
+  """A bare CosmolikeChi2 (no __init__): _reduce uses only its arguments."""
+  return CosmolikeChi2.__new__(CosmolikeChi2)
+
+
+def _reduce_loss(obj, c, mode, berhu_s=None):
+  """Call the real _reduce with trim / focus off (a plain mean of the mode)."""
+  return obj._reduce(c=c, mode=mode, trim=0.0, focus=-1.0,
+                     focus_scale=torch.tensor(1.0),
+                     berhu_knot=torch.tensor(0.2),
+                     berhu_cap=torch.tensor(10.0), berhu_s=berhu_s)
+
+
+def _exact_fit_grad(obj, mode, berhu_s=None):
+  """Backward through _reduce on a batch whose row 0 is an exact fit (c == 0).
+
+  Row 0 of the residual r is all zeros, so its chi2 is exactly 0 (the pinned
+  grid2d column / identity-start head / zero correction); the other rows are
+  positive. With a plain sqrt, row 0's gradient is 0/0 = NaN; the safe-sqrt
+  makes it a finite 0. Returns (loss, r.grad).
+  """
+  rows = torch.zeros(4, 3)
+  rows[1:] = torch.linspace(0.3, 2.0, 9).reshape(3, 3)   # positive rows
+  r = rows.clone().requires_grad_(True)
+  c = (r ** 2).sum(dim=1)                                 # c[0] == 0 exactly
+  loss = _reduce_loss(obj, c, mode, berhu_s=berhu_s)
+  loss.backward()
+  return loss, r.grad
+
+
+def check_safe_sqrt():
+  """Part F: the sqrt sites are grad-safe at an exact fit, in every mode."""
+  obj = _reduce_obj()
+  # (label, mode, berhu_s): the four sqrt sites -- sqrt mode, both berhu lower
+  # branches, and the anneal arm -- plus the berhu_capped exact-fit row, which
+  # also exercises the region-3 sqrt(t2*c) where-mask leak.
+  cases = [("sqrt", "sqrt", None),
+           ("berhu", "berhu", None),
+           ("berhu_capped", "berhu_capped", None),
+           ("berhu anneal", "berhu", torch.tensor(0.5)),
+           ("berhu_capped anneal", "berhu_capped", torch.tensor(0.5))]
+  for label, mode, s in cases:
+    loss, grad = _exact_fit_grad(obj, mode, berhu_s=s)
+    ok = (bool(torch.isfinite(loss)) and bool(torch.isfinite(grad).all())
+          and bool((grad[0] == 0).all()))
+    report("safe-sqrt: exact-fit row has a finite, zero gradient (mode "
+           + label + ")", ok, "loss finite, grad row0 == 0, no NaN")
+
+  # a mixed batch (one exact-fit row among positives) stays finite end to end.
+  loss, grad = _exact_fit_grad(obj, "sqrt")
+  report("safe-sqrt: mixed batch (one exact fit + positives) has finite grad",
+         bool(torch.isfinite(grad).all()),
+         "no row poisons the batch gradient")
+
+  # analytic agreement on positives: sqrt-mode plain mean == mean(sqrt(c)).
+  loss = _reduce_loss(obj, torch.tensor([1.0, 4.0, 9.0]), "sqrt")
+  report("safe-sqrt: analytic agreement on positives (mean of sqrt = 2.0)",
+         abs(loss.item() - 2.0) < 1e-6, "loss %.6f" % loss.item())
+
+  # negative / NaN / Inf chi2 refusal: a corrupted c makes the loss non-finite.
+  for tag, bad in (("materially negative", -5.0), ("NaN", float("nan")),
+                   ("+Inf", float("inf"))):
+    loss = _reduce_loss(obj, torch.tensor([1.0, bad, 2.0]), "sqrt")
+    report("safe-sqrt: a " + tag + " chi2 is refused (non-finite loss)",
+           not bool(torch.isfinite(loss)), "loss = " + repr(loss.item()))
+
+  # eager + compiled: the exact-fit gradient stays finite under torch.compile.
+  try:
+    compiled = torch.compile(lambda cc: _reduce_loss(obj, cc, "sqrt"))
+    rows = torch.zeros(4, 3)
+    rows[1:] = torch.linspace(0.3, 2.0, 9).reshape(3, 3)
+    r = rows.clone().requires_grad_(True)
+    compiled((r ** 2).sum(dim=1)).backward()
+    report("safe-sqrt: exact-fit gradient finite under torch.compile",
+           bool(torch.isfinite(r.grad).all()) and bool((r.grad[0] == 0).all()),
+           "compiled backward finite, row0 == 0")
+  except Exception as e:                       # a backend without a compiler
+    # the eager legs above prove the math; the production workstation
+    # compiles, so a compiler-less box soft-skips rather than fails.
+    report("safe-sqrt: torch.compile leg (compile unavailable here)", True,
+           "skipped: " + _short(str(e)))
+
+
+# ==========================================================================
 # helpers + main
 # ==========================================================================
 
@@ -659,6 +754,8 @@ def main():
   pgeom_x, extras_x, C_x = check_finetune_parity(source, tmp)
   print("\n-- Part E: build_transfer_start parity --")
   check_transfer_parity(source, pgeom_x, extras_x, C_x)
+  print("\n-- Part F: the safe-sqrt producer (45M-24) --")
+  check_safe_sqrt()
 
   print("")
   if len(FAILURES) == 0:

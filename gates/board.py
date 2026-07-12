@@ -1236,19 +1236,23 @@ def gate_finite_contract(ctx):
   eval_val (a finite control reproduces the reference metrics; one NaN;
   +/-Inf), the real training_loop_batched step (a NaN loss raises before
   backward, a non-finite gradient before optimizer.step, the weights bitwise
-  unchanged), eval_source_chi2 (side diagnostic), and both warm-start parity
-  gates (no-extra both-arms NaN, one-arm NaN, Inf, extras-present NaN, and a
+  unchanged), eval_source_chi2 (side diagnostic), both warm-start parity gates
+  (no-extra both-arms NaN, one-arm NaN, Inf, extras-present NaN, and a
   non-finite transfer surface, each with the finite-contract message, never a
-  misleading "extras leaked" / "frozen base" / tolerance verdict); the valid
-  controls keep their metrics and their [ok] parity lines. torch only, no
-  cosmolike, no GPU (spec: training-stack.md, the "NaN scores as a perfect
-  emulator" section and its pre-training parity clause).
+  misleading "extras leaked" / "frozen base" / tolerance verdict), and the
+  45M-24 safe-sqrt producer (an exact-fit chi2 == 0 has a finite, zero
+  gradient in every sqrt mode instead of the 0/0 = NaN it used to produce;
+  positives agree with sqrt; a negative / NaN chi2 is refused; eager and
+  torch.compile agree); the valid controls keep their metrics and their [ok]
+  parity lines. torch only, no cosmolike, no GPU (spec: training-stack.md, the
+  "NaN scores as a perfect emulator" section and its pre-training parity +
+  45M-24 clauses).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/finite_contract.py")
   if not ctx.dry:
     ctx.expect(
-      label="finite-contract eval/train/diagnostic/parity legs",
+      label="finite-contract eval/train/diagnostic/parity/safe-sqrt legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
              + " (gates/checks/finite_contract.py)")
@@ -1317,9 +1321,11 @@ BOARD = [
        home="training-stack",
        maps="the training-stack finite contract: the 'NaN scores as a "
             "perfect emulator' section (the eval_val / train-step / "
-            "eval_source_chi2 guards) and its pre-training parity clause "
-            "(build_warm_start + build_transfer_start); the five red legs "
-            "plus the finite controls",
+            "eval_source_chi2 guards), its pre-training parity clause "
+            "(build_warm_start + build_transfer_start), and the 45M-24 "
+            "safe-sqrt producer clause (exact-fit finite gradients per "
+            "mode, positives analytic, negative/NaN chi2 refused, eager + "
+            "compiled); the red legs plus the finite controls",
        run=gate_finite_contract,
        needs=("torch",)),
   Gate(id="berhu-loss",
