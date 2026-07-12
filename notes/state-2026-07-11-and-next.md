@@ -908,6 +908,23 @@ files were created. Priority follows user-visible risk:
     _ell_arrays, only l = 0,1 assembly-zero-filled; mutation leg on
     a same-shaped h5. Spec: families-scalar-cmb.md, "45M-27
     amendment".
+47. **CMB dump multipole identity** (45M-30, 2026-07-12, CRITICAL;
+    joins the file-set-authenticity cluster — now
+    8+17+25+26+28+33+47 — and sharpens the 45M-27 amendment). The
+    CMB generator writes four ANONYMOUS spectrum stores with no axis
+    sidecar; training checks only dv.shape[1] == ell.size against
+    the covariance (experiment.py:3549) and labels dump column 0
+    with the covariance's first multipole — a same-width shifted
+    lrange (10..1008 vs 2..1000) trains silently against the wrong
+    covariance; the checkpoint loader compares no axis fact at all,
+    so resume can reuse a stale same-width dump. Contract: a
+    required ell sidecar in the generator file set; exact equality
+    lrange == sidecar == every spectrum width == covariance ell at
+    fresh/resume/append/training; np.arange(lmin, lmax+1) exact;
+    sidecar in the transactional manifest; the artifact records the
+    axis as dump-verified; never infer coordinates from filename or
+    width. Spec: data-generation-and-cuts.md, "A CMB dump has no
+    multipole identity".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches

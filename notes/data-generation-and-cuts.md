@@ -1025,3 +1025,53 @@ np.std(ddof=1); multiple chunk sizes and index orders; a fixture that
 FAILS the s1/s2 formula (catch-power); empty/one-row/duplicate/
 out-of-range indices; invalid method/chunk; nonfinite input; constant
 column.
+
+## A CMB dump has no multipole identity (red-team 45M-30, 2026-07-12, Architect-VERIFIED; queue 47 — CRITICAL, joins the file-set-authenticity cluster, now 8+17+25+26+28+33+47; sharpens the 45M-27 amendment to unit 26)
+
+The CMB generator slices all four spectra by train_args.lrange
+(dataset_generator_cmb.py:322-327, lsel) but writes only four
+ANONYMOUS 2-D stores (_tt/_te/_ee/_pp.npy) — unlike the background
+and MPS generators, no axis sidecar exists. Training checks ONLY
+width: experiment.py:3549 `dv.shape[1] != ell.size` against the
+covariance, then labels dump column 0 with the COVARIANCE's first
+multipole. A dump generated for lrange [10, 1008] has the same 999
+columns as a covariance for 2..1000: training accepts it and every
+row, center, sigma, roughness stencil, convolution coordinate,
+prediction, and saved artifact is consistently wrong with no shape
+error. The checkpoint path is weaker still: the cmb _dv_load_chk
+(:143-155) plus the core loader check 2-D shape/rows/RAM policy only
+— no axis fact exists to compare, so a resumed run reuses a stale
+same-width dump generated under a different multipole interval.
+
+Contract (Implementer):
+1. The generator publishes a CMB ell sidecar in the same file set —
+   the exact integer column axis used to slice all four spectra.
+2. Fresh allocation, checkpoint resume, append, and training all
+   require exact equality among generator lrange, sidecar ell, every
+   spectrum width, and covariance ell.
+3. The axis must be the exact consecutive observable grid
+   np.arange(lmin, lmax + 1), with the ruled production requirement
+   lmin == 2 where applicable.
+4. The sidecar is a REQUIRED member of the transactional checkpoint
+   manifest (the unit-25 contract): missing, stale, noninteger,
+   duplicated, gapped, shifted, or wrong-length axes fail before any
+   row is trained.
+5. The artifact persists the verified axis as today, but records
+   that it was verified against the DUMP-side axis, not inferred
+   from the covariance.
+6. Science coordinates are never inferred from a filename or a
+   width.
+
+Red legs: valid generator -> checkpoint reload -> training chain
+with one exact axis passes unchanged; same-width shifted dump vs
+covariance (10..1008 vs 2..1000) raises; gapped/permuted/duplicated/
+noninteger sidecar raises; missing sidecar on a checkpoint raises
+before trusting any spectrum store; one of TT/TE/EE/PP with a width
+inconsistent with the shared sidecar raises and leaves no accepted
+checkpoint; the YAML lrange changed over old same-width files —
+resume raises rather than relabeling columns; an anonymous legacy
+CMB .npy with no axis fact raises with a migration instruction,
+never guessing from covariance width. Relation to 45M-27 (unit 26
+amendment) adopted as argued: validating the covariance's ell
+sequence is necessary but insufficient — the dump must declare and
+match its OWN sequence.
