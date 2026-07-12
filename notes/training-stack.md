@@ -417,6 +417,42 @@ behavior; the median tiebreak; head-phase and refine degradation
 name their baselines; artifact readback describes the exact shipped
 state.
 
+## Run-control schema totality (red-team 2026-07-12 sixth wave, Architect-VERIFIED, open; bundles with the schedule + range units)
+
+train_args is half-guarded: the PHASE blocks carry an eight-key
+whitelist (validate_phase_block) but validate names and block shapes
+only — {"clip": NaN}, {"clip": -1.0}, {"rewind": "false"}, even
+{"clip": "none"} pass through — while the TOP level has no whitelist
+at all: a typo like `clipp` is retained by default_train_args,
+stored on the experiment, and ignored because every consumer reads
+by named .get()/signature default (the loop's clip=0.0/rewind=False
+at ~1513-1514 are exactly what the typo silently falls back to).
+Consequences verified in the loop: `if clip > 0.0` (~1977) is False
+for NaN and negatives — clipping silently OFF; `if rewind:` (~1866)
+— the quoted string "false" is truthy, rewind silently ON. The
+sweep helper protects only sweep paths (its own comment says so).
+The bs/nepochs totality gap (bs > n_train, run_n == 0) is already
+recorded; the guards still do not exist.
+
+Contract (Implementer; the red-team block of record adopted whole):
+ONE pure train-control validator used by the ordinary, tune, and
+sweep paths — an exact top-level whitelist (explicitly including the
+supported extension keys: finetune, the transfer-consumed blocks —
+never arbitrary extras); nepochs and bs strict positive ints (bool
+rejected), bs <= n_train enforced at the staged-data boundary; clip
+finite numeric >= 0; rewind/silent/other booleans exact bool; phase
+overrides route through the SAME leaf validators; unknown keys
+rejected before staging/model construction; search-range leaves
+re-validate after default/suggestion resolution. Red legs: the
+ordinary-config typo that currently no-ops; the four phase
+value cases above; NaN/negative clip; quoted-"false" rewind;
+zero/negative/fractional epochs and batch; bs > n_train; one valid
+top-level + one valid phase override proving consumed values
+unchanged. Natural bundle: this unit + "Schedule validation" +
+"Hyperparameter-range validation" form one train_args-totality
+cluster the Implementer takes as consecutive units (shared
+validator plumbing, one gate suite).
+
 ## Where the deltas live (IDs preserved for git archaeology)
 
 D-B1 (deleted by the loss-block nesting — the structural fix beat the

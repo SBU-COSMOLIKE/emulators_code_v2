@@ -398,6 +398,19 @@ files were created. Priority follows user-visible risk:
     VERIFIED (Fable, 2026-07-12): histories start empty ~1694, the
     baseline eval ~1844 seeds best_* without appending; the driver
     argmin recompute was verified in wave 1.
+23. **Run-control schema totality** (sixth wave). No top-level
+    train_args whitelist (a `clipp` typo silently changes training
+    via the consumers' .get()/signature defaults); the phase
+    whitelist validates names, not values ({"clip": NaN},
+    {"rewind": "false"} pass); `if clip > 0.0` silently disables
+    clipping on NaN/negatives; a quoted "false" enables rewind;
+    bs/nepochs totality still unguarded. Spec: training-stack.md,
+    "Run-control schema totality" — bundles with units 18 + 20 as
+    one train_args-totality cluster.
+    VERIFIED (Fable, 2026-07-12): validate_phase_block ~492-522
+    (eight-key whitelist, structural checks only), loop ~1977
+    (clip > 0.0), ~1866 (if rewind:), signature defaults
+    ~1513-1514.
     VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
     EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
     designs/plain 6, designs/blocks 1, losses/core 1,
