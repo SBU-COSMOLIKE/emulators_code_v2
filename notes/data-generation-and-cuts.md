@@ -510,6 +510,69 @@ restored. Close (user-run, workstation): `python gates/run_board.py
 --force-rerun mps-identity cmb-identity transfer-identity`; 32/32
 expected.
 
+#### Close REOPENED (2026-07-12, red team; Architect-ADJUDICATED): disk-backed staging files accumulate across sweep points
+
+Red-team reopen of the c03a084 close, verified whole and ACCEPTED. The
+numerical contract is untouched; this is lifecycle fallout of the new
+disk-backed result. The Architect's original deviation-2 acceptance
+("temp files accumulate for the process") is hereby CORRECTED: it was
+scoped to a single train run (at most one train + one val file per
+process) and is falsified in the sweep context — the shared N-train
+sweep reuses ONE experiment per lane, calls `stage_train(n_train=N)`
+per point, and cleans up with `exp.train_set = None`
+(cosmic_shear_sweep_ntrain_emulator.py:160 and :168, all thin family
+sweeps import this main), so every low-RAM point orphans its
+`.g2law.dat` until worker exit. At the production 50,000 x 24,522
+shape each file is 4,904,400,000 bytes (~4.57 GiB); a lane sweeping
+several sizes can exhaust temporary storage with RAM fully bounded.
+The lane's `except Exception` keeps workers alive across failures, so
+failed points accumulate files too. Verified mechanics: mkstemp +
+atexit-only at experiment.py:2977-2981; dropping the memmap reference
+closes the mapping but never unlinks; the gate's disk-backed leg
+asserts only `isinstance(np.memmap)` — no restage or absence
+assertion, so the leak stays green.
+
+Micro-revision spec (Architect; land BEFORE the three-gate rerun so
+the workstation run is spent once):
+
+- Ownership on the EXPERIMENT, not the source dict: two slots,
+  `self._grid2d_train_tmp` / `self._grid2d_val_tmp` (path or None) —
+  train and val lifetimes stay independent (the sweep lane keeps its
+  val staging across points). `_grid2d_law_rows` reports the created
+  temp path to its caller; stage_train / stage_val own the slots.
+- Supersede-on-restage: stage_train releases the train slot BEFORE
+  staging a replacement (close the mapping where we still hold it,
+  unlink the path; `_unlink_quietly` tolerates the already-gone);
+  stage_val likewise for the val slot. The current mapping is never
+  released while its point's loaders run — release happens only at
+  the NEXT staging call or an explicit release.
+- Public release for the drivers: `release_train_staging()` /
+  `release_val_staging()`; the shared sweep lane's cleanup block calls
+  `release_train_staging()` where it now sets `exp.train_set = None`
+  (both the success and the except paths reach it), so a failed
+  training releases that point's file and a finished lane holds at
+  most its val staging.
+- Failure hygiene inside the transform: wrap the chunk loop so any
+  exception after the temp file exists unlinks the partial file
+  before re-raising (transform, positivity, base-shape errors).
+  atexit stays registered as FALLBACK ONLY (it already tolerates
+  double-unlink); SIGKILL/OOM/MPI.Abort remain out of scope, as
+  before.
+- Red legs (adopted verbatim): (a) low-RAM staging twice on one
+  experiment — the first path is absent, the second readable;
+  (b) three N-train sweep points — live temp count and bytes bounded
+  to current sources, never cumulative; (c) injected mid-transform
+  failure leaves no file; (d) failed training after successful
+  staging releases that point's train file through the lane-style
+  cleanup; (e) resident-RAM control creates no temp file and stays
+  byte-identical. Then rerun the existing bounded-read,
+  stable-moments, cmb-identity, and transfer-identity legs.
+
+Amended close (user-run, workstation, after THIS lands): the same
+`python gates/run_board.py --force-rerun mps-identity cmb-identity
+transfer-identity`; 32/32 expected. Do not spend the rerun before the
+micro-revision.
+
 ### File names and row counts do not prove dataset identity
 
 `load_source` checks only that parameter and dv row counts match. A

@@ -549,10 +549,18 @@ files were created. Priority follows user-visible risk:
     is the three-column fixture ([True, True, False] verified through
     the shipped from_stats, no dead-dump crash), the diagram names
     (count, mean, M2), the other five files byte-identical to the
-    accepted delivery. The unit is CLOSED on the Mac; the workstation
-    owes ONE three-gate rerun (--force-rerun mps-identity
-    cmb-identity transfer-identity, 32/32 expected), which also
-    closes the run-12 transfer-identity red.
+    accepted delivery. Committed c03a084.
+    CLOSE REOPENED (red team, Architect-ADJUDICATED, same day): the
+    disk-backed staging files LEAK across sweep points — mkstemp +
+    atexit-only, no ownership; the shared N-train sweep reuses one
+    experiment per lane and orphans each point's ~4.57 GiB .g2law.dat
+    until worker exit; the gate's disk leg checks only
+    isinstance(memmap). My deviation-2 acceptance was scoped to a
+    single run and is CORRECTED. Numerics stand. Micro-revision
+    (slots on the experiment, supersede-on-restage, public
+    release_train/val_staging for the sweep lane, failure-path
+    unlink, five red legs) must land BEFORE the three-gate rerun is
+    spent. Spec: data-generation-and-cuts.md, "Close REOPENED".
 28. **Validation leakage + data-control totality** (tenth wave,
     CRITICAL first clause, folded into the 8+17+25+26 file-set
     authenticity cluster per the red team's recommendation).
