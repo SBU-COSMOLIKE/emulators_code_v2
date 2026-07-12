@@ -543,8 +543,16 @@ files were created. Priority follows user-visible risk:
     ValueError fires (reproduced with the leg's exact numbers); the
     fixture needs an above-threshold varying column (e.g. +-1024).
     (2) The _grid2d_law_rows shape-flow diagram + legend still name
-    the deleted s1/s2 accumulator. Commit stays HELD. Full verdict:
+    the deleted s1/s2 accumulator. Full verdict:
     data-generation-and-cuts.md, "Revision re-audit".
+    AMENDMENTS RE-CHECKED + UNIT COMMITTED (Fable, 2026-07-12): leg 2
+    is the three-column fixture ([True, True, False] verified through
+    the shipped from_stats, no dead-dump crash), the diagram names
+    (count, mean, M2), the other five files byte-identical to the
+    accepted delivery. The unit is CLOSED on the Mac; the workstation
+    owes ONE three-gate rerun (--force-rerun mps-identity
+    cmb-identity transfer-identity, 32/32 expected), which also
+    closes the run-12 transfer-identity red.
 28. **Validation leakage + data-control totality** (tenth wave,
     CRITICAL first clause, folded into the 8+17+25+26 file-set
     authenticity cluster per the red team's recommendation).

@@ -1131,7 +1131,13 @@ def gate_mps_a(ctx):
   constant-column pin was made law-agnostic — the run-10 catch); the STAGING
   law transform through the REAL load_source (law rows = log(raw/base)
   with the base dump aligned by dump_rows through a real shuffled
-  staging; k_stride keeps the top edge; positivity loud); save ->
+  staging; k_stride keeps the top edge; positivity loud); the BOUNDED
+  staging on the production 122 x 2,000 grid (guarded memmap reads prove
+  every raw + base read is row-chunked and column-thinned, an
+  independent known-answer match, a disk-backed low-RAM result, and the
+  guard trips on the old whole-selection access) and the STABLE streamed
+  moments (a 50,000-row 1e8/1-ULP column keeps its true std through the
+  Chan/Welford accumulator, never a false constant pin); save ->
   rebuild -> predict bitwise on both laws (the predictor's grid2d
   branch returns the reshaped (nz, nk) surface); the emul_mps assembly
   EXACT against synthetic base stubs (P_lin = exp(net)*base, the low-k
@@ -1419,7 +1425,10 @@ BOARD = [
        tier=TIER_NEW_FEATURES,
        home="families-background-mps",
        maps="the note's matter-power sections: geometry + laws; the base "
-            "placement + staging transform; identity legs; finetune",
+            "placement + staging transform; the bounded-staging + "
+            "stable-moments legs (Grid2d staging defeats its own memory "
+            "ladder, data-generation-and-cuts.md); identity legs; "
+            "finetune",
        run=gate_mps_a,
        needs=("torch",)),
   Gate(id="geo-paths",

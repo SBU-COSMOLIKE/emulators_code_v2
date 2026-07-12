@@ -346,6 +346,170 @@ float64 (the exact stored payload), and the gate's reference is the
 former materialized-float32 path, never an analytic pre-cast result.
 This clause is binding on the revision handoff.
 
+#### Revision resume (2026-07-12, Opus) — awaiting Architect re-audit
+
+Revised. `_grid2d_law_rows` now streams the geometry moments with a
+module-level `_merge_chunk_moments` (Chan's parallel form of Welford, all
+float64): per chunk it computes the block mean and the block M2 about
+that mean, then merges into the running `(count, mean, M2)` — no
+`sum(x^2)` to cancel against `sum(x)^2`. The final population variance is
+`M2 / count`, and the clamp is `np.maximum(var, 0.0)`, which now only
+absorbs the round-off residue of an exactly constant column (the stable
+M2 is accurately positive for a varying one). Per the binding
+float32-payload clause, the merge is fed the EXACT stored payload: after
+`law_rows[a:b] = law_chunk.astype("float32")` it reads `stored =
+np.asarray(law_rows[a:b], dtype="float64")` and merges THAT, so the
+moments match the former materialized-float32 `from_targets` path (which
+promoted the stored float32 targets), never the pre-cast float64 chunk.
+
+Gate: `gates/checks/mps_identity.py` gains `check_stable_moments` (+ the
+`_run_law_none` helper) — the red legs that fail the s1/s2 form and pass
+this one: (1) the 50,000-row float32 1e8/1-ULP column across several
+chunk heights, streamed scale = np.std(ddof 0) = 4.0 with no false pin,
+the chunkings agreeing; (2) a constant column pins while a varying
+large-mean column does not (through `from_stats`); (3) the ordinary
+log-ratio fixture, streamed scale = np.std and the `from_stats` encode
+matching the materialized standardization. Prose rider (this unit's half,
+board.py's was already landed in the fixture commit): every human-facing
+"oracle" in `gates/checks/cmb_identity.py` (module docstring, comments,
+report line) is now "known-answer" / "these legs"; `_oracle_truth` and
+`check_covariance_oracle` stay.
+
+State note: the transfer-fixture fix + board.py five-leg cmb metadata
+already landed as their own commit (6e9757f, Architect-audited), so this
+held commit is the whole bounded-staging unit (revised with the Chan
+moments), the cmb_identity.py "oracle" prose rider, and the mps-identity
+board registry prose for the new legs (gate_mps_a docstring + the
+mps-identity maps field) — seven files (experiment / data_staging /
+grid2d / mps_identity / cmb_identity / board / this note).
+
+Corrected queue order (Architect, at this revision): after the
+bounded-staging revision lands, the next units are finite training/
+evaluation contract (CRITICAL) -> selection-record truth (CRITICAL,
+depends on the finite contract) -> covariance-input validation. The
+training-truth pair protects every production run and precedes the
+covariance-input unit (my earlier order had them reversed).
+
+Mac gate (numpy exec-probes of the shipped bodies, no torch):
+`probe_grid2d.py` 10/10 and `probe_grid2d_geom.py` 6/6 still green;
+`probe_grid2d_moments.py` 8/8 PASS — 1e8/1-ULP stable std exactly 4.0
+(the old s1/s2 form gives 3.9659, matching the audit probe), uneven
+chunkings agree, constant -> 0 and varying-large-mean -> nonzero, and the
+real `_grid2d_law_rows` streamed scale + encode match the materialized
+answer bitwise. `probe_cm11a.py` 5/5 still green after the prose rider.
+`py_compile` clean on all five files.
+
+Close (user-run, workstation, one commit): `python gates/run_board.py
+--force-rerun mps-identity cmb-identity transfer-identity` — three raw
+logs; 32/32 expected.
+
+#### Revision re-audit (2026-07-12, Fable): NUMERICS ACCEPTED; TWO AMENDMENTS BEFORE COMMIT
+
+Independent probe (`audit_grid2d_revision.py`, exec-extraction of the
+shipped bodies, stub psutil — not a new dependency, data_staging.py
+already imports it): 23 of 24 legs pass, and the one failure is the
+deliberate reproduction of a gate-fixture defect, not a code defect.
+
+What the probe proved about the shipped code, all independently
+re-derived:
+
+- `_merge_chunk_moments` reproduces float64 `np.std(ddof 0)` of the
+  stored payload on the 1e8/1-ULP fixture at rtol 1e-9 across chunk
+  heights 7 / 337 / 4096 / whole, the chunkings mutually identical at
+  rtol 1e-12. The old s1/s2 form on the SAME fixture returns column-0
+  std 0.0 / 4.5795 / 13.7384 at those chunkings against true 4.0 — the
+  0.0 is the false constant pin reproduced verbatim, and the spread is
+  the order-dependence. Chan's M2 is non-negative by construction, so
+  the `np.maximum(var, 0.0)` clamp is provably a no-op — strictly
+  stronger than the contract asked.
+- The float32-payload clause holds and is DISCRIMINATED: on a fixture
+  whose stored-float32 std differs from the pre-cast float64 std by
+  12% (law values 100 + 1e-5 noise against ULP(100) = 7.6e-6), the
+  shipped scale matches the stored payload and fails against the
+  pre-cast reference.
+- `_grid2d_law_rows` end to end: values bitwise against the direct
+  known answer on both the memmap and RAM-staged-compact branches
+  across three chunkings; C compacted in dump_rows order with local
+  arange idx; dv_mean = float32(mean of stored payload); kept axes
+  stashed; tiny-ram_frac result a disk-backed memmap with bitwise
+  values; with_means False leaves the moments None; the positivity and
+  base-too-short guards raise.
+- `from_stats` / `from_targets` single-sourcing: identical center /
+  scale / mask through both routes; wholly-constant raises; length
+  mismatch raises.
+
+Amendment 1 (gate fixture, REQUIRED): `check_stable_moments` leg 2
+CRASHES the whole mps-identity gate on the workstation. The shipped pin
+threshold is RELATIVE — `tiny = 8 * eps32 * |center|`, which is ~95.4
+at center 1e8 — so the leg's 1-ULP column (streamed scale 4.0) is
+classified constant, and with the other column exactly constant,
+`zero.size == n_out` fires the dead-dump ValueError (reproduced in the
+probe with the leg's exact numbers). Note the Mac probe was green
+because it checked the STREAMED scale (nonzero, correct); the gate leg
+goes through `from_stats`, where the relative threshold rules. The
+pinning of a 1-ULP spread is CORRECT behavior — a column varying by one
+float32 ULP is numerically constant for standardization — so the fix is
+the fixture, not the rule: the varying column's spread must sit clearly
+above the relative threshold (e.g. alternate +-1024 at 1e8: std 1024 ~
+10.7x tiny). Binding requirements: (i) no dead-dump crash; (ii) an
+above-threshold varying large-mean column asserted NOT pinned; (iii)
+the relative-threshold rule documented in the leg — recommended shape
+is three columns [constant -> pins, 1-ULP at 1e8 -> pins BY THE
+RELATIVE RULE (assert it, with a comment saying why that is correct),
++-1024 at 1e8 -> must not pin], which turns the discovered behavior
+into a documented leg and keeps the whole-surface guard out of reach.
+
+Amendment 2 (docstring, REQUIRED): the `_grid2d_law_rows` shape-flow
+diagram still says "accumulate s1 / s2 (streamed mean / std)" and its
+legend still defines "s1 / s2 = running sum and sum-of-squares"
+(experiment.py:2888 and :2895 at this diff) — the accumulator the
+revision deleted. Update the diagram line and the legend to the Chan
+merge's (count, mean, M2); every symbol in the legend, per the house
+shape-flow rule.
+
+Everything else stands as delivered: the board registry prose
+(gate_mps_a docstring + maps), the cmb_identity.py prose rider (my full
+uncut sweep of `-i "oracle"` over gates/ + emulator/ finds only the
+identifiers `_oracle_truth` / `check_covariance_oracle` / the importlib
+tag `cmb_cov_oracle`, and board.py:1012 naming the function — exactly
+the rider's carve-out), and the corrected queue order. The commit stays
+HELD for the two amendments; on their delivery I re-check just those
+two spots and commit the whole seven-file unit myself.
+
+**Amendments applied (2026-07-12, Opus) — awaiting the two-spot re-check.**
+Amendment 1: `check_stable_moments` leg 2 is now a THREE-column fixture
+that keeps `zero.size < n_out` (no dead-dump crash) and documents the
+relative rule — col 0 exactly constant pins; col 1 a 1-ULP spread at 1e8
+(streamed std 4, ~4e-8 relative, below float32 precision) pins BY THE
+RELATIVE RULE, asserted with a comment on why that is correct
+standardization; col 2 a std-1024 spread at 1e8 (~10.7x tiny) is
+resolvable and must NOT pin. The leg asserts `const_mask == [True, True,
+False]`. Amendment 2: the `_grid2d_law_rows` shape-flow diagram + legend
+now read "merge (count, mean, M2) over the STORED float32 rows" and
+define count / mean / M2 as the Chan/Welford aggregate (the deleted
+s1 / s2 is gone from both the arrow line and the legend). Nothing else in
+the seven files touched. Mac re-verification: `probe_grid2d_geom.py` now
+9/9 — it reproduces the two-all-sub-threshold-column whole-surface raise
+(the pre-fix leg-2 crash) and proves the three-column
+`const_mask [True, True, False]`; `probe_grid2d.py` 10/10,
+`probe_grid2d_moments.py` 8/8, `probe_cm11a.py` 5/5 unchanged;
+`py_compile` clean on all seven files.
+
+**Amendments re-checked (2026-07-12, Fable): ACCEPTED, unit committed.**
+Two-spot re-check done with independent probes of the shipped bodies:
+the three-column fixture returns `const_mask [True, True, False]`
+through the real `from_stats` (pinned scales set to 1.0, column 2
+keeping 1024.0), and the full 23-leg audit probe stays green on the
+current `_grid2d_law_rows` / `_merge_chunk_moments` bodies, proving the
+amendment touched nothing else. The shape-flow diagram + legend now name
+the (count, mean, M2) Chan aggregate; `grep s1` over experiment.py = 0.
+The other five files' diffs are byte-identical to the accepted delivery
+(stat-verified). One collateral fix at this re-check: the append above
+had eaten the "File names and row counts" section header below —
+restored. Close (user-run, workstation): `python gates/run_board.py
+--force-rerun mps-identity cmb-identity transfer-identity`; 32/32
+expected.
+
 ### File names and row counts do not prove dataset identity
 
 `load_source` checks only that parameter and dv row counts match. A

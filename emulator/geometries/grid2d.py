@@ -147,14 +147,94 @@ class Grid2DGeometry:
     return cls(device, **kwargs)
 
   @classmethod
+  def from_stats(cls, device, center, scale, z, k, quantity, units,
+                 law):
+    """Build the standardization from PRECOMPUTED law-space moments.
+
+    from_targets standardizes a materialized (N, nz*nk) matrix; the
+    bounded MPS staging (experiment._grid2d_law_rows) instead STREAMS
+    the same two per-point moments over row chunks, because the
+    122 x 2,000 production surface is tens of GiB and never fits in
+    memory whole. Both routes end here: from_stats is the single home
+    of the constant-pin and dead-dump rules, so the pinning is
+    identical whether the moments were materialized or streamed.
+
+    Arguments:
+      device   = device for the built tensors.
+      center   = (nz*nk,) per-point law-space mean.
+      scale    = (nz*nk,) per-point law-space population std (ddof 0),
+                 BEFORE pinning (pinned points are set to 1 here).
+      z        = (nz,) the redshift axis.
+      k        = (nk,) the wavenumber axis (1/Mpc).
+      quantity = "pklin" / "boost".
+      units    = the raw quantity's units string.
+      law      = the target-law name (a TARGET_LAWS_2D key).
+
+    Returns:
+      a Grid2DGeometry whose encode standardizes the law-space rows.
+
+    Raises:
+      ValueError on an unknown law, a center/scale length that is not
+      nz*nk, or a WHOLLY constant surface (a dead dump under any law).
+    """
+    if law not in TARGET_LAWS_2D:
+      raise ValueError(
+        "Grid2DGeometry.from_stats: unknown target law " + repr(law)
+        + "; the registry has " + repr(sorted(TARGET_LAWS_2D)))
+    z = np.asarray(z, dtype="float64")
+    k = np.asarray(k, dtype="float64")
+    center = np.asarray(center, dtype="float64").reshape(-1)
+    scale  = np.asarray(scale,  dtype="float64").reshape(-1)
+    n_out  = int(z.shape[0]) * int(k.shape[0])
+    if center.shape[0] != n_out or scale.shape[0] != n_out:
+      raise ValueError(
+        "Grid2DGeometry.from_stats: center/scale must be length "
+        "nz*nk = " + str(int(n_out)) + "; got center "
+        + str(int(center.shape[0])) + ", scale "
+        + str(int(scale.shape[0])))
+    # the un-standardizable points: a law-space column with no spread.
+    tiny = 8.0 * np.finfo("float32").eps * np.abs(center)
+    zero = np.nonzero(scale <= tiny)[0]
+    const_mask = None
+    if zero.size > 0:
+      # a WHOLLY constant surface is a dead dump under any law (a
+      # stale generator writing one cosmology's rows everywhere — the
+      # bsn-smoke failure class), never a physical region.
+      if zero.size == n_out:
+        raise ValueError(
+          "Grid2DGeometry: EVERY grid point is constant across the "
+          "training rows — the dump is degenerate (a stale generator "
+          "writing one cosmology everywhere); check the generator, "
+          "this is never a physical surface.")
+      # the constant pin (LAW-AGNOSTIC): a constant law-space column
+      # that is not the whole surface is PHYSICS, not a generator bug —
+      # the boost is 1 below the nonlinear scale for every cosmology,
+      # so its low-k columns are constant under ANY law: under a syren
+      # law log(B/B_base) = 0 identically (the base is exact there);
+      # under law "none" the raw value 1 itself is the constant. PIN
+      # those points — scale 1 (nothing to whiten by), and decode
+      # returns the training constant exactly. The mask persists in
+      # the artifact (state), so serving matches training bit for bit.
+      # The dead-dump protection is the WHOLE-surface guard above,
+      # which fires for every law.
+      const_mask = np.zeros(n_out, dtype=bool)
+      const_mask[zero] = True
+      scale = scale.copy()
+      scale[zero] = 1.0
+    return cls(device=device, quantity=quantity, units=units, law=law,
+               z=z, k=k, center=center, scale=scale,
+               const_mask=const_mask)
+
+  @classmethod
   def from_targets(cls, device, targets, z, k, quantity, units, law):
     """Build the standardization from LAW-SPACE training rows.
 
     The rows arrive already law-transformed (the staging formed
-    log(P/P_base) from the generator's base files), so
-    this only standardizes: per-point mean/std (population, ddof 0)
-    with the un-standardizable guard naming the first bad (z, k)
-    points.
+    log(P/P_base) from the generator's base files), so this only
+    computes the two per-point moments (population mean/std, ddof 0)
+    and hands them to from_stats, which owns the pin / dead-dump rules
+    (the bounded staging streams the same two moments — one code path
+    standardizes both).
 
     Arguments:
       device   = device for the built tensors.
@@ -183,45 +263,9 @@ class Grid2DGeometry:
         "nz*nk = " + str(int(n_out)) + "; got " + repr(Y.shape))
     center = Y.mean(0)
     scale  = Y.std(0)                          # population std (ddof 0)
-    tiny = 8.0 * np.finfo("float32").eps * np.abs(center)
-    zero = np.nonzero(scale <= tiny)[0]
-    const_mask = None
-    if zero.size > 0:
-      show = []
-      for j in zero[:8].tolist():
-        show.append((float(z[j // k.shape[0]]),
-                     float(k[j % k.shape[0]])))
-      # a WHOLLY constant surface is a dead dump under any law (a
-      # stale generator writing one cosmology's rows everywhere — the
-      # bsn-smoke failure class), never a physical region.
-      if zero.size == n_out:
-        raise ValueError(
-          "Grid2DGeometry.from_targets: EVERY grid point is constant "
-          "across the training rows — the dump is degenerate (a stale "
-          "generator writing one cosmology everywhere); check the "
-          "generator, this is never a physical surface.")
-      # the constant pin (amended run 7: LAW-AGNOSTIC): a constant
-      # law-space column that is not the whole surface is PHYSICS, not
-      # a generator bug — the boost is 1 below the nonlinear scale for
-      # every cosmology, so its low-k columns are constant under ANY
-      # law: under a syren law log(B/B_base) = 0 identically (the
-      # base is exact there); under law "none" the raw value 1 itself
-      # is the constant (the gate's law-none boost training hit
-      # exactly this after the syren-only first ruling). PIN those
-      # points — scale 1 (nothing to whiten by), and decode returns
-      # the training constant exactly (under a syren law the consumer
-      # then serves the base, exact by construction; under law "none"
-      # the constant IS the served physical value). The mask persists
-      # in the artifact (state), so serving matches training bit for
-      # bit. The dead-dump protection is the WHOLE-surface guard
-      # above, which fires for every law.
-      const_mask = np.zeros(n_out, dtype=bool)
-      const_mask[zero] = True
-      scale = scale.copy()
-      scale[zero] = 1.0
-    return cls(device=device, quantity=quantity, units=units, law=law,
-               z=z, k=k, center=center, scale=scale,
-               const_mask=const_mask)
+    return cls.from_stats(device=device, center=center, scale=scale,
+                          z=z, k=k, quantity=quantity, units=units,
+                          law=law)
 
   def state(self):
     """Tensors/strings to save; keys match __init__ (dest_idx /

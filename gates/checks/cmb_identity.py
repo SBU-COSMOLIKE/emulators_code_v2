@@ -48,7 +48,8 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     transferred model matches the source bitwise on shared inputs); the
     cosmolike pin refuses a CMB source loudly (wrong-kind); validate_cmb
     accepts a finetune block (the interim error is gone);
-  - the eq-6 lens-induced covariance oracle (compute_cmb_covariance.py,
+  - the eq-6 lens-induced covariance known-answer legs
+    (compute_cmb_covariance.py,
     pure numpy): an affine fake CAMBdata makes the 5-point stencil exact,
     so the non-Gaussian contraction is checked against eq 6 built
     directly from the sensitivity matrix and the lensing-potential
@@ -58,7 +59,7 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     perturbation exactly as a real run does. The truth leg (the real
     contraction equals the direct eq 6 at round-off), the discrimination
     leg (the earlier band-summed-variance weights miss that truth by
-    orders of magnitude, so an oracle those weights pass would be
+    orders of magnitude, so a check those weights pass would be
     defective), a fixture-integrity leg (scaled and raw differ by an
     L-dependent factor; the raw_cl=True guard raises), and the band leg
     (a width-3 contraction with a response held constant across each band
@@ -831,7 +832,7 @@ def check_npce(tmp, device):
 
 
 # ---------------------------------------------------------------------------
-# The eq-6 covariance oracle (compute_cmb_covariance.py). These legs are pure
+# The eq-6 covariance known-answer legs (compute_cmb_covariance.py). Pure
 # numpy: they drive the non-Gaussian contraction against a truth built
 # independently of the pipeline's own algebra, so a normalization error in
 # the contraction cannot hide behind symmetry / positive-definiteness checks
@@ -1043,7 +1044,7 @@ def _worst_rel(blocks, truth):
 
 
 def check_covariance_oracle():
-    """The eq-6 oracle legs: truth, discrimination, fixture, band + zero band.
+    """The eq-6 known-answer legs: truth, discrimination, fixture, band + zero.
 
     The fake keeps the raw C^phiphi and CAMB's scaled
     [L(L+1)]^2 C^phiphi/(2 pi) genuinely distinct, so the pipeline reads
@@ -1071,7 +1072,7 @@ def check_covariance_oracle():
         # so a large unperturbed spectrum would swamp it and the stencil
         # would lose it to cancellation (~1e-7). With no baseline the
         # stencil of the affine map is exact to round-off, isolating the
-        # contraction weight the oracle tests.
+        # contraction weight these legs test.
         base[s] = np.zeros(lmax + 1, dtype="float64")
     fake = FakeCAMBData(clpp_raw=clpp_raw, M=M, base=base)
     # the pipeline reads the RAW spectrum for its weight (cls["pp"]) and
@@ -1172,7 +1173,7 @@ def check_covariance_oracle():
     # bit-identical re-lensings (its perturbation 0*(1+eps) is 0 for every
     # step) leaves a ~1e-22 rounding residue; that residue is the same at
     # both steps and the derivative scales as 1/h, so its relative spread
-    # is exactly 1 - h_min/h_next = 0.5. The oracle checks the contraction
+    # is exactly 1 - h_min/h_next = 0.5. These legs check the contraction
     # weight, not stencil convergence (the smoke gate covers that on real
     # CAMB), so it uses a loose convergence tolerance here; the real bands
     # still converge to ~3e-14 and the truth comparison below is what
@@ -1199,7 +1200,7 @@ def check_covariance_oracle():
 def main():
     """Run the cmb-identity checks in a tempdir; exit non-zero on failure."""
     print("cmb-identity: geometry + law + round-trip + roughness "
-          "+ finetune + adapter + covariance-oracle legs")
+          "+ finetune + adapter + covariance known-answer legs")
     device = torch.device("cpu")
     with tempfile.TemporaryDirectory() as tmp:
         check_ruled_constants(device)

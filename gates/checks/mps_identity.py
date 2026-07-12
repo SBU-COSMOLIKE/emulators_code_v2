@@ -19,6 +19,20 @@ Legs:
     _grid2d_law_rows: law rows == log(raw / base) with the base dump
     aligned by dump_rows through a real shuffled staging; the k_stride
     thinning keeps the top edge; the positivity and width guards;
+  - the BOUNDED staging on the production 122 x 2,000 grid (k_stride
+    10, tiny memory budget, guarded memmap reads): every raw + base
+    read is row-chunked and column-thinned (never the unthinned
+    selection), the values and streamed mean equal an independent
+    known-answer calculation, the low-RAM result is disk-backed, and
+    the guard trips on the old whole-selection access — so the leg
+    fails against the pre-fix implementation;
+  - the STABLE streamed moments (check_stable_moments): the streamed
+    geometry mean/std reproduce float64 np.std(ddof 0) of the
+    materialized rows across uneven chunkings — a 50,000-row 1e8/1-ULP
+    column keeps its true std 4.0 (the old one-pass form drifts to
+    ~3.97 and can flip a varying column to a false constant pin), a
+    constant column still pins, and the from_stats encode matches the
+    materialized standardization;
   - save -> rebuild -> predict bitwise on the syren_linear and none
     laws (the predictor's grid2d branch returns {"z", "k", quantity}
     reshaped (nz, nk)); rebuild info flags class-guarded;
@@ -217,11 +231,16 @@ def check_staging(tmp):
                   "z_file": os.path.join(tmp, "st_z.npy"),
                   "k_file": os.path.join(tmp, "st_k.npy"),
                   "k_stride": 2}
+    exp.data = {"ram_frac": 0.7}
+    exp.log = lambda *a, **k: None
     exp._grid2d_z = None
     exp._grid2d_k = None
+    exp._grid2d_center = None
+    exp._grid2d_scale = None
     dump_rows = np.array(src["dump_rows"])
     exp._grid2d_law_rows(src=src, base_path=os.path.join(tmp,
-                                                         "st_base.npy"))
+                                                         "st_base.npy"),
+                         with_means=True)
     kept_k = np.unique(np.concatenate([np.arange(0, nk, 2),
                                        np.array([nk - 1])]))
     cols_idx = (np.arange(nz)[:, None] * nk
@@ -250,10 +269,398 @@ def check_staging(tmp):
                        verbose=False)
     try:
         exp._grid2d_law_rows(src=src2,
-                             base_path=os.path.join(tmp, "st_base.npy"))
+                             base_path=os.path.join(tmp, "st_base.npy"),
+                             with_means=True)
         report("staging positivity guard raises", False, "no raise")
     except ValueError:
         report("staging positivity guard raises", True, "ValueError")
+
+
+class _GuardProxy:
+    """A memmap-like read instrument for the bounded grid2d staging.
+
+    Wraps a raw or base array and records every __getitem__, FAILING a
+    read that (a) is not a paired (rows, columns) advanced index — the
+    old whole-row-block access — (b) asks for more rows than the chunk
+    bound, or (c) touches a column outside the kept set. So the leg
+    fails against any implementation that materializes the unthinned
+    selection or reads a whole row block before thinning.
+
+    Arguments:
+      arr         = the wrapped raw / base array (ndarray or memmap).
+      kept_cols   = the flattened kept-column indices (the thinning).
+      chunk_bound = the maximum rows one read may request.
+      reads       = a list the proxy appends (n_rows, n_cols) to per
+                    read, so the leg can assert every read was bounded
+                    and thinned.
+    """
+
+    def __init__(self, arr, kept_cols, chunk_bound, reads):
+        self._arr   = arr
+        self._kept  = set(np.asarray(kept_cols).reshape(-1).tolist())
+        self._bound = int(chunk_bound)
+        self._reads = reads
+
+    @property
+    def shape(self):
+        return self._arr.shape
+
+    @property
+    def dtype(self):
+        return self._arr.dtype
+
+    def __getitem__(self, key):
+        if not (isinstance(key, tuple) and len(key) == 2):
+            raise AssertionError(
+                "guarded read: a whole-row-block access (key "
+                + type(key).__name__ + ") — the bounded staging must "
+                "index (rows, kept_cols) together, never a full-width "
+                "row block")
+        rows = np.asarray(key[0]).reshape(-1)
+        cols = np.asarray(key[1]).reshape(-1)
+        if int(rows.size) > self._bound:
+            raise AssertionError(
+                "guarded read: " + str(int(rows.size)) + " rows exceeds "
+                "the chunk bound " + str(self._bound))
+        touched = set(cols.tolist())
+        if not touched.issubset(self._kept):
+            raise AssertionError(
+                "guarded read: touched unthinned columns "
+                + str(sorted(touched - self._kept)[:6]))
+        self._reads.append((int(rows.size), int(cols.size)))
+        return np.asarray(self._arr[key])
+
+
+def _reads_ok(reads, bound, width):
+    """True when the recorded reads prove real chunking: more than one
+    read, each within the row bound and exactly the thinned width."""
+    if len(reads) < 2:
+        return False
+    for n_rows, n_cols in reads:
+        if n_rows > bound or n_cols != width:
+            return False
+    return True
+
+
+def check_bounded_staging(tmp):
+    """The bounded grid2d law transform, the production shape.
+
+    Runs _grid2d_law_rows on a 122 x 2,000 grid, k_stride 10, with a
+    tiny memory budget and GUARDED reads: it proves every raw and base
+    read is row-chunked and column-thinned (never the unthinned
+    50,000 x 244,000 selection the old code cast to float64 twice),
+    that the values and streamed mean equal an independent known-answer
+    calculation, and that the low-RAM result is genuinely disk-backed.
+    Part two runs the REAL load_source(stage_dv=False) so the genuine
+    np.memmap source branch and the ram_frac resident/disk toggle are
+    exercised end to end.
+    """
+    import emulator.experiment as expmod
+    nz, nk = 122, 2000
+    z = np.linspace(0.0, 3.0, nz)
+    k = np.logspace(-4.0, 1.0, nk)
+    np.save(os.path.join(tmp, "bs_z.npy"), z)
+    np.save(os.path.join(tmp, "bs_k.npy"), k)
+    stride = 10
+    kept_k = np.unique(np.concatenate([np.arange(0, nk, stride),
+                                       np.array([nk - 1])]))
+    cols  = (np.arange(nz)[:, None] * nk + kept_k[None, :]).reshape(-1)
+    width = int(cols.shape[0])
+
+    # --- part 1: guarded reads + known answer + disk-backed result ---
+    g = np.random.default_rng(707)
+    n_raw, n_used = 60, 48
+    raw_full = np.exp(
+        g.normal(0.0, 1.0, (n_raw, nz * nk))).astype("float32")
+    base_full = np.exp(
+        g.normal(0.0, 1.0, (n_raw, nz * nk))).astype("float32")
+    dump_rows = np.sort(g.choice(n_raw, size=n_used, replace=False))
+    raw_compact = raw_full[dump_rows]              # the resident-form raw
+    C_compact = g.normal(0.0, 1.0, (n_used, N_IN)).astype("float32")
+    base_path = os.path.join(tmp, "bs_base.npy")
+    np.save(base_path, base_full)
+
+    # the known answer, computed DIRECTLY from the inputs (never through
+    # the staging path): log(raw / base) over the kept columns only.
+    want = np.log(raw_compact[:, cols].astype("float64")
+                  / base_full[dump_rows][:, cols].astype("float64"))
+    want_mean = want.mean(axis=0)
+
+    # shrink the per-chunk budget so 48 rows split into several chunks,
+    # and size the guard bound to the code's derived chunk height.
+    saved_budget = expmod._GRID2D_CHUNK_BYTES
+    expmod._GRID2D_CHUNK_BYTES = width * 8 * 16
+    bound = max(1, expmod._GRID2D_CHUNK_BYTES // (width * 8))
+    raw_reads, base_reads = [], []
+    src = {"C": C_compact,
+           "dv": _GuardProxy(raw_compact, cols, bound, raw_reads),
+           "idx": np.arange(n_used),
+           "dump_rows": dump_rows}
+    exp = EmulatorExperiment.__new__(EmulatorExperiment)
+    exp.grid2d = {"quantity": "pklin", "units": "Mpc3",
+                  "law": "syren_linear",
+                  "z_file": os.path.join(tmp, "bs_z.npy"),
+                  "k_file": os.path.join(tmp, "bs_k.npy"),
+                  "k_stride": stride}
+    exp.data = {"ram_frac": 1e-12}                 # force disk-backed
+    exp.log = lambda *a, **k: None
+    exp._grid2d_z = None
+    exp._grid2d_k = None
+    exp._grid2d_center = None
+    exp._grid2d_scale = None
+
+    real_load = np.load
+
+    def guarded_load(path, *a, **kw):
+        arr = real_load(path, *a, **kw)
+        if os.path.abspath(path) == os.path.abspath(base_path):
+            return _GuardProxy(arr, cols, bound, base_reads)
+        return arr
+
+    np.load = guarded_load
+    try:
+        exp._grid2d_law_rows(src=src, base_path=base_path,
+                             with_means=True)
+    finally:
+        np.load = real_load
+        expmod._GRID2D_CHUNK_BYTES = saved_budget
+
+    got = np.asarray(src["dv"])
+    report("bounded staging: 122 x 201 kept columns (24522 wide)",
+           got.shape == (n_used, nz * kept_k.size) and kept_k.size == 201,
+           "shape %s" % (got.shape,))
+    report("bounded staging: values equal the direct known answer",
+           np.allclose(got, want.astype("float32"), rtol=0, atol=0),
+           "max|d| %.1e" % float(np.abs(got - want.astype("float32")).max()))
+    report("bounded staging: streamed mean equals the known answer",
+           np.allclose(src["dv_mean"], want_mean.astype("float32")), "")
+    report("bounded staging: every raw + base read chunked and thinned",
+           _reads_ok(raw_reads, bound, width)
+           and _reads_ok(base_reads, bound, width),
+           "raw %d reads, base %d reads, <= %d rows x %d cols"
+           % (len(raw_reads), len(base_reads), bound, width))
+    report("bounded staging: the tiny-budget result is disk-backed",
+           isinstance(src["dv"], np.memmap), type(src["dv"]).__name__)
+    tripped = False
+    probe = _GuardProxy(raw_compact, cols, bound, [])
+    try:
+        _ = probe[np.arange(n_used)]               # the old mm[rows] read
+    except AssertionError:
+        tripped = True
+    report("bounded staging: guard trips on a whole-selection read",
+           tripped, "old mm[rows] pattern rejected")
+
+    # --- part 2: the real load_source(stage_dv=False) memmap branch ---
+    nz2, nk2 = Z4.size, K6.size
+    np.save(os.path.join(tmp, "bs2_z.npy"), Z4)
+    np.save(os.path.join(tmp, "bs2_k.npy"), K6)
+    g2 = np.random.default_rng(808)
+    n2 = 50
+    raw2 = np.exp(g2.normal(0.0, 1.0, (n2, nz2 * nk2))).astype("float32")
+    base2 = np.exp(g2.normal(0.0, 1.0, (n2, nz2 * nk2))).astype("float32")
+    np.save(os.path.join(tmp, "bs2_dv.npy"), raw2)
+    np.save(os.path.join(tmp, "bs2_base.npy"), base2)
+    txt = np.column_stack([np.ones(n2), np.zeros(n2),
+                           g2.normal(2.1, 0.1, n2),
+                           g2.normal(67.0, 2.0, n2),
+                           g2.normal(0.12, 0.005, n2),
+                           np.zeros(n2)])
+    np.savetxt(os.path.join(tmp, "bs2_params.1.txt"), txt)
+
+    def stage_and_transform(ram_frac):
+        gen = torch.Generator().manual_seed(9)
+        s = load_source(dv_path=os.path.join(tmp, "bs2_dv.npy"),
+                        params_path=os.path.join(tmp, "bs2_params.1.txt"),
+                        names=IN_NAMES, omegabh2_hi=None, n_keep=40,
+                        gen=gen, ram_frac=ram_frac, with_means=True,
+                        stage_dv=False, verbose=False)
+        raw_is_memmap = isinstance(s["dv"], np.memmap)
+        e = EmulatorExperiment.__new__(EmulatorExperiment)
+        e.grid2d = {"quantity": "pklin", "units": "Mpc3",
+                    "law": "syren_linear",
+                    "z_file": os.path.join(tmp, "bs2_z.npy"),
+                    "k_file": os.path.join(tmp, "bs2_k.npy"),
+                    "k_stride": 1}
+        e.data = {"ram_frac": ram_frac}
+        e.log = lambda *a, **k: None
+        e._grid2d_z = None
+        e._grid2d_k = None
+        e._grid2d_center = None
+        e._grid2d_scale = None
+        dump2 = np.array(s["dump_rows"])
+        e._grid2d_law_rows(src=s,
+                           base_path=os.path.join(tmp, "bs2_base.npy"),
+                           with_means=True)
+        want2 = np.log(raw2[dump2].astype("float64")
+                       / base2[dump2].astype("float64"))
+        return s, raw_is_memmap, want2
+
+    src_lo, raw_mm, want2 = stage_and_transform(1e-12)
+    report("bounded staging: stage_dv keeps the raw dump a memmap",
+           raw_mm, "raw is np.memmap on load")
+    report("bounded staging: memmap branch, tiny budget stays disk-backed",
+           isinstance(src_lo["dv"], np.memmap)
+           and np.allclose(np.asarray(src_lo["dv"]),
+                           want2.astype("float32"), rtol=0, atol=0),
+           "result %s" % type(src_lo["dv"]).__name__)
+    src_hi, _, _ = stage_and_transform(0.7)
+    report("bounded staging: memmap branch, ample budget is resident",
+           isinstance(src_hi["dv"], np.ndarray)
+           and not isinstance(src_hi["dv"], np.memmap),
+           "result %s" % type(src_hi["dv"]).__name__)
+
+
+def _run_law_none(tmp, raw_compact, z, k, chunk_bytes=None):
+    """Stage a resident-form law-none source through the REAL
+    _grid2d_law_rows and return (exp, src) — the streamed moments land on
+    exp._grid2d_center / _scale. chunk_bytes overrides the derived chunk
+    height so uneven chunkings can be exercised."""
+    import emulator.experiment as expmod
+    n = int(raw_compact.shape[0])
+    np.save(os.path.join(tmp, "sm_z.npy"), z)
+    np.save(os.path.join(tmp, "sm_k.npy"), k)
+    exp = EmulatorExperiment.__new__(EmulatorExperiment)
+    exp.grid2d = {"quantity": "pklin", "units": "Mpc3", "law": "none",
+                  "z_file": os.path.join(tmp, "sm_z.npy"),
+                  "k_file": os.path.join(tmp, "sm_k.npy"), "k_stride": 1}
+    exp.data = {"ram_frac": 0.9}
+    exp.log = lambda *a, **k: None
+    exp._grid2d_z = None
+    exp._grid2d_k = None
+    exp._grid2d_center = None
+    exp._grid2d_scale = None
+    src = {"C": np.zeros((n, N_IN), dtype="float32"),
+           "dv": raw_compact.copy(),
+           "idx": np.arange(n),
+           "dump_rows": np.arange(n)}
+    saved = expmod._GRID2D_CHUNK_BYTES
+    if chunk_bytes is not None:
+        expmod._GRID2D_CHUNK_BYTES = int(chunk_bytes)
+    try:
+        exp._grid2d_law_rows(src=src, base_path=None, with_means=True)
+    finally:
+        expmod._GRID2D_CHUNK_BYTES = saved
+    return exp, src
+
+
+def check_stable_moments(tmp, device):
+    """The streamed geometry moments must reproduce float64
+    np.std(ddof 0) of the MATERIALIZED float32 rows. The old
+    (s2 - s1^2/n)/n one-pass form drifts by percent on a high-offset
+    small-spread column and, under some orderings, flips a genuinely
+    varying column to an exact-zero (false constant) pin. These legs fail
+    that form and pass the stable Chan/Welford accumulator."""
+    # 1) the headline: 50,000 float32 rows alternating 1e8 / 1e8+ULP,
+    # true population std exactly 4.0 per column, over several chunk
+    # heights. The naive form returns ~3.97 (order-dependent); the stable
+    # form returns 4.0 and never a false pin.
+    nz, nk = 1, 4
+    z = np.array([0.5])
+    k = np.logspace(-3.0, 0.0, nk)
+    n = 50000
+    raw = np.empty((n, nz * nk), dtype="float32")
+    for j in range(nz * nk):
+        lo = np.float32(1e8 * (j + 1))
+        hi = np.nextafter(lo, np.float32(2e8 * (j + 1)))
+        raw[0::2, j] = lo
+        raw[1::2, j] = hi
+    scales = []
+    for chunk_bytes in (None, nz * nk * 8 * 7, nz * nk * 8 * 337):
+        exp, src = _run_law_none(tmp, raw, z, k, chunk_bytes=chunk_bytes)
+        stored = np.asarray(src["dv"], dtype="float64")
+        want = stored.std(axis=0, ddof=0)
+        report("stable moments: 1e8/1-ULP scale = np.std(ddof 0), no "
+               "false pin (chunk %s)" % (chunk_bytes,),
+               np.allclose(exp._grid2d_scale, want, rtol=1e-9)
+               and bool(np.all(exp._grid2d_scale > 0.0)),
+               "scale %s" % np.round(exp._grid2d_scale, 3))
+        scales.append(exp._grid2d_scale)
+    report("stable moments: uneven chunkings agree (order-stable)",
+           np.allclose(scales[0], scales[1], rtol=1e-9)
+           and np.allclose(scales[0], scales[2], rtol=1e-9), "")
+
+    # 2) the from_stats pin threshold is RELATIVE: tiny = 8 * eps32 *
+    # |center|, about 95.4 at center 1e8. Three columns exercise it and
+    # keep zero.size < n_out so the whole-surface dead-dump guard stays
+    # out of reach: (col 0) exactly constant -> pins; (col 1) a 1-ULP
+    # spread at 1e8, std 4 -- about 4e-8 relative, BELOW float32
+    # precision -> pins BY THE RELATIVE RULE, which is correct
+    # standardization (the model cannot resolve that spread in float32,
+    # so decode should return the constant); (col 2) a std-1024 spread at
+    # 1e8, about 10.7x tiny -> resolvable, must NOT pin. The stable
+    # accumulator is what makes col 1 read 4 (not a cancellation
+    # artifact) and col 2 read 1024 rather than a false zero.
+    three = np.empty((4000, 3), dtype="float32")
+    three[:, 0] = np.float32(1e8)                      # exactly constant
+    lo1 = np.float32(1e8)
+    hi1 = np.nextafter(lo1, np.float32(2e8))           # 1-ULP, std 4
+    three[0::2, 1] = lo1
+    three[1::2, 1] = hi1
+    three[0::2, 2] = np.float32(1e8 - 1024.0)          # std 1024, above tiny
+    three[1::2, 2] = np.float32(1e8 + 1024.0)
+    exp2, _ = _run_law_none(tmp, three, np.array([0.5]),
+                            np.logspace(-3.0, 0.0, 3))
+    geom2 = Grid2DGeometry.from_stats(
+        device=device, center=exp2._grid2d_center,
+        scale=exp2._grid2d_scale, z=exp2._grid2d_z, k=exp2._grid2d_k,
+        quantity="pklin", units="Mpc3", law="none")
+    mask = (geom2.const_mask.cpu().numpy().tolist()
+            if geom2.const_mask is not None else None)
+    report("stable moments: relative pin threshold (constant + "
+           "sub-eps32 spread pin, resolvable spread does not, no "
+           "dead-dump crash)",
+           geom2.const_mask is not None
+           and bool(geom2.const_mask[0])
+           and bool(geom2.const_mask[1])
+           and not bool(geom2.const_mask[2]),
+           "const_mask %s (tiny ~ 95.4 at 1e8)" % (mask,))
+
+    # 3) the ordinary log-ratio fixture: streamed scale = np.std, and the
+    # from_stats encode reproduces the materialized standardization.
+    g = np.random.default_rng(21)
+    nz3, nk3, n3 = 3, 5, 400
+    z3 = np.linspace(0.0, 2.0, nz3)
+    k3 = np.logspace(-3.0, 0.0, nk3)
+    rawL = np.exp(g.normal(0.0, 1.0, (n3, nz3 * nk3))).astype("float32")
+    baseL = np.exp(g.normal(0.0, 1.0, (n3, nz3 * nk3))).astype("float32")
+    np.save(os.path.join(tmp, "sml_base.npy"), baseL)
+    np.save(os.path.join(tmp, "sml_z.npy"), z3)
+    np.save(os.path.join(tmp, "sml_k.npy"), k3)
+    expL = EmulatorExperiment.__new__(EmulatorExperiment)
+    expL.grid2d = {"quantity": "pklin", "units": "Mpc3",
+                   "law": "syren_linear",
+                   "z_file": os.path.join(tmp, "sml_z.npy"),
+                   "k_file": os.path.join(tmp, "sml_k.npy"),
+                   "k_stride": 1}
+    expL.data = {"ram_frac": 0.9}
+    expL.log = lambda *a, **k: None
+    expL._grid2d_z = None
+    expL._grid2d_k = None
+    expL._grid2d_center = None
+    expL._grid2d_scale = None
+    dumpL = np.arange(n3)
+    srcL = {"C": np.zeros((n3, N_IN), dtype="float32"),
+            "dv": rawL.copy(), "idx": dumpL, "dump_rows": dumpL}
+    expL._grid2d_law_rows(src=srcL,
+                          base_path=os.path.join(tmp, "sml_base.npy"),
+                          with_means=True)
+    storedL = np.asarray(srcL["dv"], dtype="float64")
+    wantL = storedL.std(axis=0, ddof=0)
+    report("stable moments: log-ratio scale = np.std(ddof 0)",
+           np.allclose(expL._grid2d_scale, wantL, rtol=1e-9),
+           "max rel %.1e"
+           % float(np.max(np.abs(expL._grid2d_scale - wantL) / wantL)))
+    geomL = Grid2DGeometry.from_stats(
+        device=device, center=expL._grid2d_center,
+        scale=expL._grid2d_scale, z=expL._grid2d_z, k=expL._grid2d_k,
+        quantity="pklin", units="Mpc3", law="syren_linear")
+    enc = geomL.encode(
+        torch.from_numpy(storedL.astype("float32")).to(device)).cpu().numpy()
+    want_enc = (storedL - expL._grid2d_center) / expL._grid2d_scale
+    report("stable moments: from_stats encode matches the materialized "
+           "standardization", np.allclose(enc, want_enc, rtol=1e-5,
+                                           atol=1e-5),
+           "max|d| %.1e" % float(np.abs(enc - want_enc).max()))
 
 
 def grid2d_recipe(width):
@@ -876,6 +1283,8 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         check_geometry(device)
         check_staging(tmp)
+        check_bounded_staging(tmp)
+        check_stable_moments(tmp, device)
         check_roundtrip(tmp, device, law="syren_linear")
         check_roundtrip(tmp, device, law="none")
         check_head(tmp, device)

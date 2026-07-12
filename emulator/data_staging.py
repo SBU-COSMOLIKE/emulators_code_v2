@@ -444,6 +444,7 @@ def check_paramnames(sidecar_path, covmat_names):
 
 def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                 gen=None, ram_frac=0.7, with_means=False,
+                stage_dv=True,
                 param_cols=slice(2, -1), verbose=True,
                 omegabh2_lo=None,
                 omegam2h2_lo=None, omegam2h2_hi=None,
@@ -483,7 +484,19 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
     ram_frac    = fraction of available RAM stage_source may fill
                   (default 0.7).
     with_means  = if True, also compute C_mean / dv_mean (train
-                  needs them; val does not).
+                  needs them; val does not). With stage_dv False the
+                  dv_mean is left out (see stage_dv).
+    stage_dv    = if True (default), stage the used dv rows in RAM
+                  when they fit (stage_source) and, with with_means,
+                  stream dv_mean over them. The grid2d MPS path passes
+                  False: it keeps the raw dump a MEMMAP (the unthinned
+                  50,000 x 244,000 selection would be tens of GiB) and
+                  computes no dv_mean here, because _grid2d_law_rows
+                  reads only the kept columns in bounded row chunks and
+                  takes the mean over the THINNED law-space rows. C is
+                  then left at full width with global idx too (the two
+                  must share one row numbering); _grid2d_law_rows
+                  compacts both after the transform.
     param_cols  = column selector for the loaded params (default
                   slice(2, -1): drop the leading weight / lnp and
                   the trailing chi2 column).
@@ -571,9 +584,16 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
       f"the dump")
   idx = phys[:keep]
 
-  # stage the cut rows in RAM if they fit, else keep the memmap.
-  C_src, dv_src, idx_src = stage_source(
-    C=C, dv=dv, idx=idx, ram_frac=ram_frac)
+  # stage the cut rows in RAM if they fit, else keep the memmap. The
+  # grid2d MPS path (stage_dv False) skips this: it keeps the raw dump
+  # a memmap and the params at full width with the global idx, so
+  # _grid2d_law_rows can read only the kept columns in bounded chunks
+  # instead of materializing the unthinned selection (tens of GiB).
+  if stage_dv:
+    C_src, dv_src, idx_src = stage_source(
+      C=C, dv=dv, idx=idx, ram_frac=ram_frac)
+  else:
+    C_src, dv_src, idx_src = C, dv, idx
   # dump_rows = the ON-DISK dump row indices of the staged rows, in
   # SORTED-unique order — exactly the order dv_src[np.sort(np.unique(
   # idx_src))] walks on either staging path (stage_source's RAM copy is
@@ -588,10 +608,14 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   if with_means:
     # the per-column std (2nd return) is unused: whitening comes
     # from the covmat, only the means center the targets.
-    dv_mean, _ = stream_stats(mm=dv_src, idx=idx_src, method=1)
-    c_mean,  _ = param_stats(arr=C_src, idx=idx_src, method=1)
-    src["C_mean"]  = c_mean
-    src["dv_mean"] = dv_mean
+    c_mean, _ = param_stats(arr=C_src, idx=idx_src, method=1)
+    src["C_mean"] = c_mean
+    # grid2d (stage_dv False) recomputes dv_mean over the THINNED
+    # law-space rows in _grid2d_law_rows, so streaming it here over the
+    # full unthinned dump would only be discarded — skip it.
+    if stage_dv:
+      dv_mean, _ = stream_stats(mm=dv_src, idx=idx_src, method=1)
+      src["dv_mean"] = dv_mean
 
   if verbose:
     in_ram = not isinstance(dv_src, np.memmap)

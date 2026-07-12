@@ -59,8 +59,13 @@ the .npy, the param dump the .txt); memmap = a NumPy array backed by
 that on-disk file, read in slices so it is never fully loaded.
 """
 
+import atexit
+import os
+import tempfile
+
 import yaml
 import numpy as np
+import psutil
 import torch
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -84,6 +89,68 @@ from .training import (
   default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
   validate_phase_block, _PHASE_BLOCK_KEYS,
   validate_loss, _loss_migration_message)
+
+
+# per-chunk read budget for the bounded grid2d law transform
+# (_grid2d_law_rows): each raw/base chunk read is at most this many
+# bytes of float64, so the row-chunk height is derived from the THINNED
+# width and never "the whole selection". 256 MiB keeps a comfortable
+# margin under the smallest training card while still reading in a few
+# large sequential blocks.
+_GRID2D_CHUNK_BYTES = 256 * 1024 * 1024
+
+
+def _unlink_quietly(path):
+  """Remove a temp file if it still exists, swallowing any error.
+
+  Registered with atexit for a disk-backed grid2d law-space result (a
+  temp memmap that lives for the process — staging writes it, the
+  training loop reads it, exit unlinks it); a missing file (already
+  cleaned, or the run never created one) is not an error.
+
+  Arguments:
+    path = the temp file path to unlink.
+  """
+  try:
+    os.remove(path)
+  except OSError:
+    pass
+
+
+def _merge_chunk_moments(count, mean, m2, chunk):
+  """Fold one row chunk into a running per-column (count, mean, M2).
+
+  Chan's parallel/pairwise form of Welford's algorithm, in float64: it
+  streams the population mean and the sum of squared deviations M2
+  without ever forming a large `sum(x^2)` that would cancel against
+  `sum(x)^2` — so a high-offset small-spread column (a physical spectrum
+  at 1e8 varying by one float32 ULP) keeps an accurate variance instead
+  of collapsing to zero. The final population variance is `M2 / count`.
+
+  Arguments:
+    count = rows merged so far (0 on the first chunk).
+    mean  = (width,) running per-column mean so far.
+    m2    = (width,) running per-column sum of squared deviations.
+    chunk = (n_b, width) the next block of rows, already float64.
+
+  Returns:
+    (count, mean, m2) updated for the merged block. An empty chunk is a
+    no-op (the caller never passes one, but count 0 on the first real
+    chunk yields exactly that chunk's own mean / M2).
+  """
+  n_b = int(chunk.shape[0])
+  if n_b == 0:
+    return count, mean, m2
+  mean_b = chunk.mean(axis=0)
+  # M2 of the chunk about ITS OWN mean: no large-value cancellation.
+  m2_b = ((chunk - mean_b) ** 2).sum(axis=0)
+  new_count = count + n_b
+  delta = mean_b - mean
+  new_mean = mean + delta * (n_b / new_count)
+  # the cross term carries the between-block mean gap; count * n_b /
+  # new_count is 0 on the first chunk (count 0), so new_m2 = m2_b there.
+  new_m2 = m2 + m2_b + delta * delta * (count * n_b / new_count)
+  return new_count, new_mean, new_m2
 
 
 # (architecture, ia) -> model class. Two orthogonal YAML choices:
@@ -1843,6 +1910,12 @@ class EmulatorExperiment:
     # staging law-transform hook; build_geometry reads them).
     self._grid2d_z = None
     self._grid2d_k = None
+    # the per-point law-space moments the bounded staging streams
+    # (center = mean, scale = population std) so build_geometry can
+    # standardize via Grid2DGeometry.from_stats without re-reading the
+    # thinned surface whole. None until the train law-transform runs.
+    self._grid2d_center = None
+    self._grid2d_scale  = None
     # fine-tune warm start (emulator/warmstart.py): the loaded source bundle,
     # its resolved absolute path root, and the extra parameter names, all set
     # by from_config / build_geometry. None on an ordinary run, which every
@@ -2789,28 +2862,57 @@ class EmulatorExperiment:
              f"n_val {d.get('n_val')} (enforced after param_cuts)")
 
   # --- staging + geometry (the expensive, cached pieces) ---
-  def _grid2d_law_rows(self, src, base_path):
-    """Materialize a grid2d source's law-space rows in place.
+  def _grid2d_law_rows(self, src, base_path, with_means):
+    """Form a grid2d source's law-space rows without ever holding the
+    unthinned selection.
 
-    Reads the (z, k) sidecars named in data.grid2d, forms the law-space
-    target — log(quantity / base) under a syren law, with the base rows
-    read from the generator's *_base dump aligned by src["dump_rows"];
-    the raw rows under "none" — then applies the optional k_stride
-    column thinning (every k_stride-th wavenumber, the top edge always
-    kept). REPLACES src["C"] / src["dv"] / src["idx"] with row-aligned
-    in-RAM arrays (the loop and every diagnostic then see law-space
-    rows and nothing else), recomputes dv_mean when present, and
-    stashes the post-thinning axes on the experiment
-    (self._grid2d_z / _k) for build_geometry.
+    The MPS grids are large: the production 122 x 2,000 surface at
+    50,000 rows is 45 GiB in float32, and log(raw / base) over two
+    same-width float64 copies would be ~180 GiB. So this reads only the
+    KEPT (z, k) columns (the k_stride thinning) in bounded ROW CHUNKS
+    from the raw and base memmaps, takes log(quantity / base) per chunk
+    (raw itself under law "none"), and writes the thinned law-space rows
+    into a result that lives in RAM only if it fits ram_frac (else a
+    disk-backed temp memmap). The per-point law-space moments (mean,
+    population std) are STREAMED over the same chunks, so build_geometry
+    standardizes through Grid2DGeometry.from_stats and never re-reads
+    the thinned surface whole either.
+
+        src["dv"]  (N, nz*nk) raw dump, a memmap (stage_dv False keeps
+        base       (N, nz*nk) *_base dump, a memmap        it on disk)
+           │  cols = the kept columns (nz x kept_k, k_stride, top edge
+           │         always kept), built BEFORE any read
+           ▼  for each row chunk [a:b] (chunk rows = budget / width):
+        raw_chunk / base_chunk  (<=chunk, width)  read ONLY cols
+           │  positivity guard, law_chunk = log(raw / base)
+           ▼  merge (count, mean, M2) over the STORED float32 rows
+        law_rows[a:b]  (<=chunk, width)  float32, RAM or temp memmap
+           ▼
+        src {C compacted, dv = law_rows, idx = arange, dv_mean}
+        self._grid2d_z / _k = the kept axes; _center / _scale = moments
+
+    (legend: N = staged rows; nz*nk = full grid width; width =
+     nz*kept_k = thinned width; chunk = rows read per block;
+     count / mean / M2 = the running Chan/Welford aggregate merged
+     per chunk (M2 = sum of squared deviations; the population variance
+     is M2 / count), read back from the stored float32 payload.)
 
     Arguments:
-      src       = the load_source dict to transform in place.
-      base_path = the *_base dump path (None under law "none").
+      src        = the load_source dict to transform in place (the
+                   grid2d path stages it with stage_dv False, so
+                   src["dv"] is the raw MEMMAP and src["C"] is the full
+                   params; src["dump_rows"] gives the disk rows). A
+                   RAM-staged source (resident compact dv, arange idx)
+                   is also accepted — the reads then index locally.
+      base_path  = the *_base dump path (None under law "none").
+      with_means = if True (train), stream dv_mean and the geometry
+                   moments (self._grid2d_center / _scale); if False
+                   (val), only the thinned rows are formed.
 
     Raises:
-      ValueError on a dump/sidecar width mismatch, a base dump whose
-      shape disagrees with the raw dump, or non-positive values where
-      the law takes a log.
+      ValueError on a raw/base width mismatch against the sidecars, a
+      base dump too short to hold the staged disk rows, or non-positive
+      values where the law takes a log (checked per chunk).
     """
     g2 = self.grid2d
     z = np.asarray(np.load(g2["z_file"], allow_pickle=False),
@@ -2818,49 +2920,123 @@ class EmulatorExperiment:
     k = np.asarray(np.load(g2["k_file"], allow_pickle=False),
                    dtype="float64").reshape(-1)
     nz, nk = int(z.size), int(k.size)
-    rows_sorted = np.sort(np.unique(src["idx"]))
-    if int(src["dv"].shape[1]) != nz * nk:
+    raw = src["dv"]
+    if int(raw.shape[1]) != nz * nk:
       raise ValueError(
-        "the MPS dump has " + str(int(src["dv"].shape[1])) + " columns "
+        "the MPS dump has " + str(int(raw.shape[1])) + " columns "
         "but the z_file/k_file sidecars name a " + str(nz) + " x "
         + str(nk) + " = " + str(nz * nk) + " grid; the dump and its "
         "sidecars must come from the same generator run")
-    dv_rows = np.asarray(src["dv"][rows_sorted], dtype="float64")
+    # the disk rows of the staged set (base alignment) and the matching
+    # read index into `raw` / src["C"]: a memmap source is indexed by
+    # those disk rows; a RAM-staged compact source already holds them in
+    # this order, so a local arange walks the same rows.
+    dump_rows = np.asarray(src["dump_rows"])
+    n_used    = int(dump_rows.shape[0])
+    if isinstance(raw, np.memmap):
+      read_rows = dump_rows
+    else:
+      read_rows = np.arange(n_used)
+    # the kept columns FIRST, before any data read: every k_stride-th
+    # wavenumber with the top edge always kept, flattened z-outer.
+    stride = int(g2.get("k_stride", 1))
+    if stride > 1:
+      kept_k = np.unique(np.concatenate(
+        [np.arange(0, nk, stride), np.array([nk - 1])]))
+    else:
+      kept_k = np.arange(nk)
+    cols  = (np.arange(nz)[:, None] * nk + kept_k[None, :]).reshape(-1)
+    width = int(cols.shape[0])
+    k_kept = k[kept_k]
     law = str(g2["law"])
     if law == "none":
-      law_rows = dv_rows
+      base = None
     else:
       base = np.load(base_path, mmap_mode="r", allow_pickle=False)
-      if base.shape[1] != nz * nk:
+      if int(base.shape[1]) != nz * nk:
         raise ValueError(
           "the base dump " + repr(base_path) + " has "
           + str(int(base.shape[1])) + " columns, the raw dump "
           + str(nz * nk) + "; they must come from the same generator "
           "run (the *_base sibling)")
-      base_rows = np.asarray(base[src["dump_rows"]], dtype="float64")
-      bad = int((~(dv_rows > 0)).sum() + (~(base_rows > 0)).sum())
-      if bad > 0:
+      if int(base.shape[0]) <= int(dump_rows.max()):
         raise ValueError(
-          "the " + law + " law takes log(quantity / base) and needs "
-          "both strictly positive; found " + str(bad) + " non-positive "
-          "entries across the staged rows (a failed generator sample "
-          "left zero rows — drop it from the dump, the failfile names "
-          "it)")
-      law_rows = np.log(dv_rows / base_rows)
-    stride = int(g2.get("k_stride", 1))
-    if stride > 1:
-      kept_k = np.unique(np.concatenate(
-        [np.arange(0, nk, stride), np.array([nk - 1])]))
-      cols = (np.arange(nz)[:, None] * nk + kept_k[None, :]).reshape(-1)
-      law_rows = law_rows[:, cols]
-      k = k[kept_k]
-    src["C"]   = np.asarray(src["C"][rows_sorted])
-    src["dv"]  = law_rows.astype("float32")
-    src["idx"] = np.arange(law_rows.shape[0])
-    if "dv_mean" in src:
-      src["dv_mean"] = law_rows.mean(axis=0).astype("float32")
+          "the base dump " + repr(base_path) + " has "
+          + str(int(base.shape[0])) + " rows but the staging needs "
+          "disk row " + str(int(dump_rows.max())) + "; the base is not "
+          "the raw dump's row-aligned *_base sibling")
+    # the thinned result: RAM if it fits ram_frac of free memory, else a
+    # disk-backed temp memmap (unlinked at process exit); the training
+    # loop reads it either way.
+    ram_frac  = float(self.data.get("ram_frac", 0.7))
+    out_bytes = n_used * width * 4
+    resident  = out_bytes < ram_frac * psutil.virtual_memory().available
+    if resident:
+      law_rows = np.empty((n_used, width), dtype="float32")
+    else:
+      fd, tmp_path = tempfile.mkstemp(suffix=".g2law.dat")
+      os.close(fd)
+      atexit.register(_unlink_quietly, tmp_path)
+      law_rows = np.memmap(tmp_path, dtype="float32", mode="w+",
+                           shape=(n_used, width))
+    # bounded row height: at most _GRID2D_CHUNK_BYTES of float64 per read.
+    chunk = max(1, int(_GRID2D_CHUNK_BYTES // (width * 8)))
+    if with_means:
+      # streamed per-point moments (Chan/Welford, float64) over the
+      # EXACT stored float32 payload — a stable population variance that
+      # reproduces np.std(ddof 0) of the materialized rows, so a
+      # high-offset small-spread column is never mistaken for constant.
+      m_count = 0
+      m_mean  = np.zeros(width, dtype="float64")
+      m2      = np.zeros(width, dtype="float64")
+    for a in range(0, n_used, chunk):
+      b = min(a + chunk, n_used)
+      r_rows = read_rows[a:b]
+      raw_chunk = np.asarray(raw[r_rows[:, None], cols[None, :]],
+                             dtype="float64")
+      if base is None:
+        law_chunk = raw_chunk
+      else:
+        d_rows = dump_rows[a:b]
+        base_chunk = np.asarray(base[d_rows[:, None], cols[None, :]],
+                                dtype="float64")
+        bad = int((~(raw_chunk > 0)).sum() + (~(base_chunk > 0)).sum())
+        if bad > 0:
+          raise ValueError(
+            "the " + law + " law takes log(quantity / base) and needs "
+            "both strictly positive; found " + str(bad) + " non-positive "
+            "entries across the staged rows (a failed generator sample "
+            "left zero rows — drop it from the dump, the failfile names "
+            "it)")
+        law_chunk = np.log(raw_chunk / base_chunk)
+      law_rows[a:b] = law_chunk.astype("float32")
+      if with_means:
+        # merge the EXACT stored float32 rows (read back, promoted to
+        # float64), so the geometry stats match the materialized-float32
+        # path the standardization used to take (from_targets promoted
+        # the stored float32 targets); the pre-cast law_chunk would drift.
+        stored = np.asarray(law_rows[a:b], dtype="float64")
+        m_count, m_mean, m2 = _merge_chunk_moments(
+          count=m_count, mean=m_mean, m2=m2, chunk=stored)
+    if not resident:
+      law_rows.flush()
+    src["C"]   = np.asarray(src["C"][read_rows])
+    src["dv"]  = law_rows
+    src["idx"] = np.arange(n_used)
+    if with_means:
+      # population variance (ddof 0) from the stable accumulator; the
+      # clamp only absorbs the bounded round-off residue of an exactly
+      # constant column, never turns a genuinely varying one to zero.
+      var = np.maximum(m2 / m_count, 0.0)
+      src["dv_mean"] = m_mean.astype("float32")
+      self._grid2d_center = m_mean
+      self._grid2d_scale  = np.sqrt(var)
     self._grid2d_z = z
-    self._grid2d_k = k
+    self._grid2d_k = k_kept
+    self.log("grid2d: staged " + str(n_used) + " x " + str(width)
+             + " law-space rows (" + ("RAM" if resident else "disk memmap")
+             + "), " + str(chunk) + "-row chunks over " + str(width)
+             + " kept columns")
 
   def stage_train(self, n_train=None):
     """
@@ -2931,14 +3107,18 @@ class EmulatorExperiment:
       gen=gen,
       ram_frac=d.get("ram_frac", 0.7),
       with_means=True,
+      stage_dv=not self._grid2d,
       verbose=not self.quiet)
-    # grid2d run: materialize the law-space rows now — the
-    # training loop consumes train_set["dv"] directly, so the syren-law
-    # transform (and the optional k-stride thinning) must happen at
-    # staging, once, on the CPU cold path.
+    # grid2d run: form the law-space rows now — the training loop
+    # consumes train_set["dv"] directly, so the syren-law transform and
+    # the optional k-stride thinning happen at staging, once, on the CPU
+    # cold path. stage_dv False above kept the raw dump a memmap, so
+    # _grid2d_law_rows reads only the kept columns in bounded row chunks
+    # and streams the geometry moments (with_means True on train).
     if self._grid2d:
       self._grid2d_law_rows(src=self.train_set,
-                            base_path=self.grid2d.get("train_base"))
+                            base_path=self.grid2d.get("train_base"),
+                            with_means=True)
     return self.train_set
 
   def stage_val(self, n_val=None):
@@ -3007,12 +3187,15 @@ class EmulatorExperiment:
       gen=gen,
       ram_frac=d.get("ram_frac", 0.7),
       with_means=False,
+      stage_dv=not self._grid2d,
       verbose=not self.quiet)
-    # grid2d run: the same law transform on the val rows (the val file's
-    # own base sidecar).
+    # grid2d run: the same bounded law transform on the val rows (the
+    # val file's own base sidecar). with_means False — val borrows the
+    # training centers, so no geometry moments are streamed here.
     if self._grid2d:
       self._grid2d_law_rows(src=self.val_set,
-                            base_path=self.grid2d.get("val_base"))
+                            base_path=self.grid2d.get("val_base"),
+                            with_means=False)
     return self.val_set
 
   def pool_size(self):
@@ -3596,8 +3779,7 @@ class EmulatorExperiment:
       quantity = str(self.grid2d["quantity"])
       units    = str(self.grid2d["units"])
       law      = str(self.grid2d["law"])
-      dv  = train_set["dv"]
-      idx = train_set["idx"]
+      dv = train_set["dv"]
       if int(dv.shape[1]) != int(z2.size) * int(k2.size):
         raise ValueError(
           "the staged law-space rows have " + str(int(dv.shape[1]))
@@ -3686,9 +3868,19 @@ class EmulatorExperiment:
         device=self.device,
         center=train_set["C_mean"],
         covmat_path=d["train_covmat"])
-      targets = np.asarray(dv[idx])
-      self.geom = Grid2DGeometry.from_targets(
-        device=self.device, targets=targets, z=z2, k=k2,
+      # standardize from the moments the bounded staging STREAMED (mean
+      # + population std), so the thinned law-space surface is never read
+      # whole — the disk-backed result is never materialized, and the
+      # resident result skips a second full-width float64 pass.
+      # from_stats applies the same pin / dead-dump rules as from_targets.
+      if self._grid2d_center is None or self._grid2d_scale is None:
+        raise RuntimeError(
+          "grid2d geometry requested before the law transform streamed "
+          "its moments (self._grid2d_center / _scale); call stage_train "
+          "first")
+      self.geom = Grid2DGeometry.from_stats(
+        device=self.device, center=self._grid2d_center,
+        scale=self._grid2d_scale, z=z2, k=k2,
         quantity=quantity, units=units, law=law)
       # constant-column pin (law-agnostic): law-space columns constant
       # across the training cosmologies (the boost's low-k tail, under
