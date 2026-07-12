@@ -321,6 +321,29 @@ def check_diagnostics(exp, model, tmp):
                type(e).__name__ + ": " + str(e)[:200])
 
 
+def check_dump_variance(paths):
+    """The stale-cache tripwire: the H dump must VARY across cosmologies.
+
+    The first board run caught the background generator writing the SAME
+    background for every sample (the missing wants-Cl quirk: with
+    background-only requirements the cached component loop in
+    _compute_dvs_from_sample reuses the first CAMBdata). The geometry
+    guard catches that too, but deep inside training with a message
+    blaming the dump; this leg fails AT THE DUMP, naming the generator
+    and the quirk. The bar is loose on purpose: the H0 prior width alone
+    gives a relative spread of ~6e-2 at low z, while the stale-cache
+    failure gives ~0 — anything within four decades of the healthy value
+    passes.
+    """
+    h = np.load(paths["train"]["dv"] + "_h.npy")
+    rel = h.std(axis=0) / np.abs(h.mean(axis=0))
+    worst = float(rel.min())
+    report("H dump varies across cosmologies (stale-cache tripwire)",
+           worst > 1e-5,
+           "min relative spread %.2e (~0 means the wants-Cl quirk in "
+           "dataset_generator_background.py regressed)" % worst)
+
+
 def main():
     print("bsn-smoke (BSN-B): generator + two trainings + cobaya vs CAMB "
           "truth + diagnostics")
@@ -334,6 +357,8 @@ def main():
     try:
         with tempfile.TemporaryDirectory() as tmp:
             paths = check_generate(rootdir, rel_root)
+            if not FAILURES:
+                check_dump_variance(paths)
             if not FAILURES:
                 exp_h, model_h, root_h = check_train(paths, tmp, device,
                                                      "Hubble")

@@ -145,7 +145,8 @@ scalar-smoke save-rebuild-drift).
 | triangle, 07-10 | first triangle-shading execution | D-GTB-1: classify plot layers by design contract (zorder 0), not rendering heuristics — first-execution risk of a gate authored blind |
 | 13, 07-10 | TPE gates | 24/24 green FIRST TRY |
 | SPE runs 1–5, 07-10 | scalar gates (25) | one REAL library bug caught (the getdist chain-root sidecar pairing); evaluate readback redesigned from stdout; 25/25 green |
-| NEXT | the 32-gate board | pending — the list above; full green = GEO's acceptance + the baseline for D-CM12/D-CM13 |
+| 32-gate run 1, 07-11 | the four family gate pairs + geo-paths (at the STALE HEAD 295d0fa, no --force-rerun) | 29/32: all four identity gates + geo-paths green FIRST TRY; three smoke reds, three REAL causes — (a) the cmb-smoke fixture wrote cobaya {value: X} params to the plain-numbers covariance script; (b) the background generator missed the wants-Cl quirk → stale cached CAMBdata → every dump row one cosmology (now a LOAD-BEARING comment + a dump-variance tripwire); (c) D-MP9: the boost's low-k law-space columns are PHYSICALLY constant (base exact) → pinned, not rejected. Lessons: a smoke's first execution tests the FIXTURE as much as the library; a cache loop with fixed input params serves stale physics silently; a guard built for "degenerate = bug" must carve out "degenerate = the base is exact here" |
+| NEXT | re-run after pull | the three smoke fixes + the D-CM13 head legs + the save-rebuild-drift head variant, all unproven; full green = GEO's acceptance + the baseline for D-CM12 |
 
 ## Check-script documentation rule (live)
 

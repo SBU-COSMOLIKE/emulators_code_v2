@@ -310,7 +310,7 @@ covariance. The only file importing cosmolike.
 ### `emulator/geometries/grid2d.py` <a name="apx-geometries_grid2d"></a>
 
 - `TARGET_LAWS_2D` — `{none, syren_linear, syren_halofit}` (names only: the cosmology-dependent base is the consumer's multiply, through `syren_base.py`).
-- `Grid2DGeometry` — a flattened (z-outer) surface standardized in LAW space; persists quantity / units / law / z / k (the stored k IS the thinned grid).
+- `Grid2DGeometry` — a flattened (z-outer) surface standardized in LAW space; persists quantity / units / law / z / k (the stored k IS the thinned grid) + the D-MP9 `const_mask` when pins exist (constant law-space columns under a syren law = the base-exact region, e.g. the boost's low-k tail: scale 1, decode returns the training constant; law-none constants and a wholly constant surface stay loud errors).
 - `attach_head_coords()` — the heads' split (D-CM13): one bin PER Z SLICE, length nk (conv channels / TRF tokens = z slices).
 
 ### `emulator/background.py` <a name="apx-background"></a>
