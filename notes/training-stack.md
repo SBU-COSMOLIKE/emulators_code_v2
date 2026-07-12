@@ -1150,3 +1150,47 @@ mutation (identity = (path, name) as today, a better old COMPLETE
 trial under manifest A reported as manifest B's winner); the
 default-control leg (a failed-only study still enqueues the default
 once).
+
+## Transfer refinement silently leaves the correction trunk frozen (red-team 45M-43, 2026-07-12, Architect-VERIFIED; queue 54 — executed-optimizer-graph truth, distinct from the anchor/EMA-order and resolved-record units)
+
+The default two-phase head path ends in "head" mode (training.py
+:2770 executes set_train_phase("head" if freeze_trunk else "joint");
+freeze_trunk defaults true), which sets every correction-trunk
+parameter requires_grad False. transfer.refine then re-enables ONLY
+the base (`for p in base_net.parameters(): p.requires_grad_(True)`,
+:2948-2949), wraps the still-partly-frozen correction in
+TransferComposite (:2952), and hands all parameters to
+make_refine_optimizer — but a frozen parameter in an optimizer gets a
+None gradient and AdamW skips it (the code says so itself). No
+set_train_phase("joint") exists anywhere on the refine path, and
+.train() changes only train/eval behavior, never gradients. So the
+advertised "unfreezes the base and trains both together"
+(README:1750-1751; "train jointly" :2934) holds for ResMLP and
+freeze_trunk false, and FAILS SILENTLY for the default two-phase
+ResCNN/ResTRF path: refinement trains base + correction head with an
+inert correction trunk.
+
+Architect ruling on the offered either/or: the PUBLISHED contract
+wins — refinement trains both together. Contract (Implementer):
+entering transfer.refine ESTABLISHES its complete trainability state,
+never inherits requires_grad from the correction pass — the whole
+correction model enters "joint" when it exposes set_train_phase, and
+every correction + intended base parameter is trainable BEFORE
+optimizer construction; the base keeps base_lr_scale, the correction
+its full refine lr; the refinement banner AND the resolved-pass
+record (unit 41) state trainable parameter counts SEPARATELY for
+correction trunk, correction head, and base — counts, not optimizer
+membership, are the truth; byte-identical when refine is absent;
+ResMLP and an already-joint freeze_trunk:false correction numerically
+unchanged apart from the assertions/record. Red legs (gate under
+gates/checks/, board-listed; state-transition legs CPU, the real
+compiled/head path on the workstation): ResCNN control proves the
+trunk frozen immediately before refinement; one analytic refine step
+moves ALL THREE sets; the ResTRF counterpart (separate ownership
+code); the MUTATION arm (no joint transition: base + head move, every
+trunk gradient None, trunk tensors bitwise unchanged — must fail the
+current implementation); freeze_trunk:false and ResMLP controls
+unchanged; resolved-record readback equals the tensors that received
+gradients; anchor interaction — a nonzero base anchor touches only
+the intended base keys, and enabling the correction trunk must not
+accidentally anchor it.
