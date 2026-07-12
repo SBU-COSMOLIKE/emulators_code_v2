@@ -511,7 +511,7 @@ def check_lifecycle(device, tmp):
   # NOT bitwise: the predictor runs batch-1 on the dict-input inference path
   # while the reference row is sliced from the batch-64 in-memory run --
   # different matmul shapes regroup the float reductions (~1 ulp; the same
-  # kernel-reassociation caveat pre-authorized in the FTW audit). Bitwise is
+  # kernel-reassociation caveat pre-authorized in the fine-tune audit). Bitwise is
   # only demanded where the path is literally the same computation (the
   # save -> rebuild -> composed-predict leg above).
   report("lifecycle: EmulatorPredictor.predict == in-memory unsqueeze (1e-6)",

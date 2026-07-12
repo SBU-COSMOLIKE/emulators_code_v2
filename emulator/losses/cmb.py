@@ -289,8 +289,8 @@ class CmbFactoredChi2(CmbDiagonalChi2):
                        "As"); the law divides the target by it. A run
                        that samples logA materializes a raw A_s column
                        in the generator, so the law always reads a
-                       linear amplitude (the simpler ruling; see the
-                       CME resume).
+                       linear amplitude (the simpler ruling; recorded
+                       in notes/families-scalar-cmb.md).
       tau_name       = the optical-depth column name (e.g. "tau"); the
                        law multiplies the target by exp(2 tau).
 
@@ -441,7 +441,7 @@ def make_cmb_chi2(geom, law, param_geometry=None, as_name=None,
   """
   if law not in AMPLITUDE_LAWS:
     raise ValueError(
-      "unknown amplitude law " + repr(law) + "; the CME registry has "
+      "unknown amplitude law " + repr(law) + "; the CMB law registry has "
       + repr(sorted(AMPLITUDE_LAWS)) + " (persisted by name in the "
       "artifact, never a default).")
   if law == "none":

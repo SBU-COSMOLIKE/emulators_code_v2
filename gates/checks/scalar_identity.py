@@ -487,7 +487,8 @@ def check_finetune(tmp, device):
 
     # the combined from_config path: outputs-mismatch and wrong-kind are
     # loud BEFORE any staging (dummy data file names suffice), and the
-    # finetune YAML carries no model: block (the FTW model-block lesson).
+    # finetune YAML carries no model: block (the fine-tune model-block
+    # lesson: the architecture always comes from the source recipe).
     def ft_cfg(outputs, from_root):
         return {"data": {"train_params": "t.1.txt",
                          "val_params": "v.1.txt",

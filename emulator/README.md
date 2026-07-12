@@ -412,8 +412,8 @@ The run layer that ties everything together.
 
 ### `emulator/warmstart.py` <a name="apx-warmstart"></a>
 
-Fine-tune / transfer sources (the FTW machinery every family's finetune
-routes through).
+Fine-tune / transfer sources (the warm-start machinery every family's
+finetune routes through).
 
 - `validate_finetune_config(...)` — the config-time whitelist (architecture / activation / loss form inherited; no model: block).
 - `resolve_source_root` / `load_source` — resolve + validate a saved source artifact (plain input geometry, rescale none, no chaining).
