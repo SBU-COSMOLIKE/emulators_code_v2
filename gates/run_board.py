@@ -24,6 +24,16 @@ env active; the harness finds its own files, so any directory works):
     python $G/run_board.py             # the whole board, in order
     git -C $G/.. add -f gates/logs
     git -C $G/.. commit -m "workstation board run: logs"
+
+The full REGRESSION pass (rerun everything, greens included — the
+no-regressions proof after a batch of library changes):
+
+    python $G/run_board.py --force-rerun-all
+
+It composes with --gate / --tier / --from (forces only the selected
+gates) and never deletes the resume map, so an interrupted regression
+pass re-run WITHOUT the flag resumes from whatever it already
+re-proved.
 """
 
 import argparse
@@ -1010,6 +1020,12 @@ def build_parser():
                       default=[],
                       metavar="ID",
                       help="rerun these gates even if already PASS")
+  parser.add_argument("--force-rerun-all",
+                      action="store_true",
+                      help="rerun EVERY selected gate even if already "
+                           "PASS (the full regression pass: ignores the "
+                           "resume map without deleting it, so an "
+                           "interrupted run still resumes within itself)")
   parser.add_argument("--debug",
                       action="store_true",
                       help="mirror the full command output + config dump to "
@@ -1049,10 +1065,20 @@ def main(argv=None):
     print("no gates selected")
     return 0
 
+  # --force-rerun-all = force every SELECTED gate (composes with
+  # --gate / --tier / --from). Built here as the forced-id set so
+  # run_selection needs no second code path; the resume map itself is
+  # untouched, so interrupting the regression pass and re-running
+  # WITHOUT the flag resumes from whatever it re-proved.
+  forced = set(args.force_rerun)
+  if args.force_rerun_all:
+    for gate in selection:
+      forced.add(gate.id)
+
   if args.dry_run:
     print("dry-run plan (" + str(len(selection)) + " gates, in order):")
     run_selection(selection=selection, cfg=cfg, env={}, status=status,
-                  force_rerun=set(args.force_rerun), dry=True, debug=debug)
+                  force_rerun=forced, dry=True, debug=debug)
     return 0
 
   ok, env = preflight(cfg)
@@ -1061,7 +1087,7 @@ def main(argv=None):
     return 1
 
   failures = run_selection(selection=selection, cfg=cfg, env=env,
-                           status=status, force_rerun=set(args.force_rerun),
+                           status=status, force_rerun=forced,
                            dry=False, debug=debug)
   print("\nboard run complete: " + str(failures) + " gate(s) FAILED; "
         "see gates/logs/BOARD.md")

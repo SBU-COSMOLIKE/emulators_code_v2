@@ -242,8 +242,13 @@ def check_diagnostics(exp, model, tmp):
         for f in figs:
             plt.close(f)
         pdf = os.path.join(tmp, "grid2d_diag.pdf")
+        # the hand-built fracs row must MATCH the run's threshold count
+        # (DEFAULT_THRESHOLDS has five entries; a fixed 4-wide row made
+        # the history panel index column 4 out of bounds — the first
+        # execution of scalar-smoke's leg caught it in all four smoke
+        # gates).
         plot_diagnostics(train_losses=[0.1], medians=[0.1], means=[0.1],
-                         fracs=[torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                         fracs=[0.5 * torch.ones(int(exp.thresholds.numel()))],
                          thresholds=exp.thresholds,
                          coverage={"knn_dist": np.ones(4),
                                    "dchi2": np.ones(4), "k_nn": 2},

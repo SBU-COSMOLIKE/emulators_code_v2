@@ -1547,9 +1547,11 @@ class EmulatorExperiment:
                        focus / clip / rewind / ema, the eight-key phase
                        whitelist) over the shared top-level
                        defaults; need trunk_epochs > 0,
-                       see run_emulator. On a single-phase model (any
-                       name: resmlp, including ia nla / tatt; no
-                       set_train_phase, unlike rescnn / restrf) train()
+                       see run_emulator. On a single-phase model (one
+                       with no set_train_phase method — every PLAIN
+                       design, resmlp / rescnn / restrf alike; only
+                       the factored-IA templates, rescnn / restrf
+                       WITH ia:, define it) train()
                        demotes these through resolve_phase_args: head:,
                        trunk_epochs, and freeze_trunk are dropped and
                        trunk: is merged into the top level (with a
@@ -3715,14 +3717,16 @@ class EmulatorExperiment:
     """
     train_args = self.train_args if train_args is None else train_args
     # resolve_phase_args (above): a shared YAML may carry the two-phase
-    # keys (trunk_epochs / trunk: / head:), but a single-phase model (any
-    # name: resmlp, including ia nla / tatt; no set_train_phase, unlike
-    # rescnn / restrf) would die in run_emulator's capability guard. For
-    # such a model demote the phase keys (drop head: / trunk_epochs, merge
-    # trunk: into the top level) here, once, at the choke point every
-    # driver funnels through; a two-phase model is an
-    # exact no-op. It never mutates train_args (a sweep reuses it across
-    # points); the notice is quiet-gated like the config banner.
+    # keys (trunk_epochs / trunk: / head:), but a single-phase model (one
+    # with no set_train_phase method — every PLAIN design, resmlp /
+    # rescnn / restrf alike, on every family; only the factored-IA
+    # templates, rescnn / restrf WITH ia:, define it) would die in
+    # run_emulator's capability guard. For such a model demote the phase
+    # keys (drop head: / trunk_epochs, merge trunk: into the top level)
+    # here, once, at the choke point every driver funnels through; a
+    # two-phase model is an exact no-op. It never mutates train_args (a
+    # sweep reuses it across points); the notice is quiet-gated like the
+    # config banner.
     two_phase = hasattr(self.model_cls, "set_train_phase")
     train_args, phase_notice = resolve_phase_args(train_args=train_args,
                                                   two_phase=two_phase)

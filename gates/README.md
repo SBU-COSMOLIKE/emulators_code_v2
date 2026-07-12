@@ -35,7 +35,7 @@ are grouped into three **tiers** (`backlog`, `new-features`,
 gates/
   run_board.py     the CLI + runner: preflight, order, per-test logs,
                    resume, and golden runs in a throwaway worktree
-  board.py         the list of tests: a small Gate class + the 19 tests, each
+  board.py         the list of tests: a small Gate class + the tests, each
                    with its home note, a maps line, and a run function
   board_config.json  deployment paths (root, dumps, yaml dir) + per-test
                    golden bases + the smoke-config paths
@@ -84,9 +84,12 @@ Preflight aborts before any GPU time on a stale git tip, a dirty tree, a
 missing cocoa import, or a missing data path, and prints the remedy.
 Selectors: `--gate <name> [...]`, `--tier backlog|new-features|save-and-sample`,
 `--from <name>`, `--dry-run`. A rerun skips tests already marked PASS
-(`--force-rerun <name>` overrides); a crash loses only the in-flight test.
+(`--force-rerun <name>` overrides for named gates; `--force-rerun-all`
+reruns EVERY selected gate — the full regression pass after a batch of
+library changes, composing with the selectors and never deleting the
+resume map); a crash loses only the in-flight test.
 
-## The 19 tests
+## The 32 tests
 
 | Test | What it confirms |
 |------|------------------|
@@ -107,8 +110,21 @@ Selectors: `--gate <name> [...]`, `--tier backlog|new-features|save-and-sample`,
 | relu-tanh-norm | tanh with the per_feature / affine norm knob; the banner names the norm and the loss descends |
 | weight-decay-census | weight decay touches exactly the Linear / Conv1d / BinLinear weight matrices |
 | npce-training | NPCE residual and ratio train, the exclusivity errors fire, a 2-point n_train sweep refits per point |
-| save-rebuild-drift | a saved emulator rebuilds bitwise-equal, survives a drifted code default, and refuses a v1 file |
+| save-rebuild-drift | a saved emulator rebuilds bitwise-equal (plain, factored, NPCE, and the conv-head save whose persisted bin split reconstructs the ResCNN), survives a drifted code default, refuses a v1 file and a pre-persistence head file |
 | cobaya-adapter | the inference predictor matches the training side to rtol 1e-6, including the factored round-trip |
+| finetune-identity | warm-start mechanics: source validation, input-geometry extension, the output pin, epoch-0 parity, anchor masks, the loud config errors |
+| finetune-smoke | a real fine-tune run: epoch 0 reproduces the source, then improves on the new data |
+| transfer-identity | frozen-base transfer mechanics: the base loads, the correction composes (gain / sum), epoch-0 parity, the family-scope guards |
+| transfer-smoke | a real frozen-base + correction run end to end with the collapse bar |
+| scalar-identity | scalar save/rebuild/predict bitwise, ScalarGeometry state, auto-provides, the trunk-only head guard, every loud error leg, scalar finetune parity |
+| scalar-smoke | a real scalar train on the analytic omegamh2 fixture: collapse, off-center predict, the cobaya evaluate readback, the scalar diagnostics pages |
+| cmb-identity | the ruled sigma_l constants, the amplitude law both ways, save/rebuild bitwise, the roughness legs, CMB finetune parity, the D-CM13 ResTRF head leg (identity basis, n_tokens, the head rebuild round-trip) |
+| cmb-smoke | the CMB pipeline end to end on real CAMB: generator, the covariance script, training with the relative collapse bar, the cobaya Cl lifecycle, the CMB pages |
+| bsn-identity | the background pipeline vs closed-form flat LCDM, the log_offset law, the piecewise windows + the loud desert, save/rebuild bitwise, BSN finetune parity |
+| bsn-smoke | the BAOSN pipeline end to end vs CAMB's OWN background (truth available): generator + the stale-cache tripwire, two trainings, the cobaya getters within 2%, the grid pages |
+| mps-identity | grid2d geometry + the staging law + the D-MP9 pinning + emul_mps assembly math on stub bases + MPS finetune parity + the D-CM13 ResCNN head leg |
+| mps-smoke | the MPS pipeline end to end on real CAMB (law-none path): generator, two trainings, the get_Pk round-trips, the matter-power pages |
+| geo-paths | fresh saves write the geometries/ folder class paths, the legacy flat paths are DEAD (loud), and the tree census is clean |
 
 ## How to read a log
 

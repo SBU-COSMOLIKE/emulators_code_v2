@@ -124,11 +124,13 @@ green); cmb-identity and mps-identity carry the D-CM13 head legs
 (ResTRF + n_tokens on the CMB fixture, ResCNN on the grid2d fixture:
 attach, identity basis, epoch-0 identity, and the head
 save->rebuild->predict bitwise round-trip — first run after the lift,
-never yet green); save-rebuild-drift gained the cosmic-shear rescnn
-head variant (the bin-split persistence: real training path, bitwise
-round-trip) + the pre-persistence refusal leg — it WAS green on the
-25/25 board, so add it to the `--force-rerun` list (scalar-identity
-scalar-smoke save-rebuild-drift).
+never yet green); save-rebuild-drift's cosmic-shear rescnn head
+variant + pre-persistence refusal went GREEN on run 2b (07-11 night,
+CUDA). The full regression pass is `python gates/run_board.py
+--force-rerun-all` (added 07-11: reruns every SELECTED gate, composes
+with --gate/--tier/--from, never deletes the resume map — an
+interrupted pass re-run WITHOUT the flag resumes from whatever it
+already re-proved).
 
 ## Run history (compressed; the full ledger is in git history)
 
@@ -146,7 +148,8 @@ scalar-smoke save-rebuild-drift).
 | 13, 07-10 | TPE gates | 24/24 green FIRST TRY |
 | SPE runs 1–5, 07-10 | scalar gates (25) | one REAL library bug caught (the getdist chain-root sidecar pairing); evaluate readback redesigned from stdout; 25/25 green |
 | 32-gate run 1, 07-11 | the four family gate pairs + geo-paths (at the STALE HEAD 295d0fa, no --force-rerun) | 29/32: all four identity gates + geo-paths green FIRST TRY; three smoke reds, three REAL causes — (a) the cmb-smoke fixture wrote cobaya {value: X} params to the plain-numbers covariance script; (b) the background generator missed the wants-Cl quirk → stale cached CAMBdata → every dump row one cosmology (now a LOAD-BEARING comment + a dump-variance tripwire); (c) D-MP9: the boost's low-k law-space columns are PHYSICALLY constant (base exact) → pinned, not rejected. Lessons: a smoke's first execution tests the FIXTURE as much as the library; a cache loop with fixed input params serves stale physics silently; a guard built for "degenerate = bug" must carve out "degenerate = the base is exact here" |
-| NEXT | re-run after pull | the three smoke fixes + the D-CM13 head legs + the save-rebuild-drift head variant, all unproven; full green = GEO's acceptance + the baseline for D-CM12 |
+| 2b, 07-11 night | the force-rerun trio, at HEAD 08cfc41 (pre-triage-fixes) | save-rebuild-drift ALL PASS on CUDA incl. the NEW head variant (bin-split persistence proven end to end) + the pre-persistence refusal; scalar-identity green with the reworded guard; scalar-smoke red on its FIRST diagnostics-leg execution — the hand-built fracs row (4-wide) vs DEFAULT_THRESHOLDS (5 entries) indexed out of bounds, the SAME landmine in all four smoke gates' legs, fixed by sizing fracs to exp.thresholds. Lesson: a hand-built fixture that mirrors a REAL run value (exp.thresholds) must derive every coupled width from it, not hardcode |
+| NEXT | re-run after pull | the smoke fixes (three root causes + the fracs width) + the D-CM13 head legs, all unproven; full green = GEO's acceptance + the baseline for D-CM12; then the user's full regression pass via `--force-rerun-all` |
 
 ## Check-script documentation rule (live)
 

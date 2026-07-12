@@ -1,7 +1,8 @@
 """The workstation board: the list of tests and what each one is.
 
-This file holds BOARD, a plain Python list of the 19 tests in run
-order, and a small class, Gate, that says what one test is: its name,
+This file holds BOARD, a plain Python list of the tests in run order
+(count them by enumerating this list, never from a doc's number), and
+a small class, Gate, that says what one test is: its name,
 tier, home note, and the function that runs it. run_board.py imports
 this list and runs the tests; nothing here runs on its own. Each test
 function issues commands through ``ctx`` (which streams output to the
