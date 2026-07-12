@@ -822,6 +822,32 @@ def check_diagonal(device, tmp):
          np.array_equal(got["Hubble"], ref),
          "max|d| %.1e" % np.abs(got["Hubble"] - ref).max())
   # a cross-family base is a loud from_config error (before staging).
+  # FIXTURE: the base must be invalid ONLY in the way under test
+  # (cross-family), so save a PLAIN grid base — this leg's base net +
+  # GridGeometry through the same save_emulator call, no transfer_base
+  # group — at its own root. Pointing at the diag_transfer artifact
+  # above would trip load_source's chaining refusal (it embeds a
+  # transfer_base) before the family-kind check, and the needle test
+  # would pass on the wrong message. The chaining refusal keeps its own
+  # dedicated leg in check_lifecycle.
+  plain_root = Path(tmp) / "plain_grid_base"
+  plain_cfg = {"data": {"grid": {"quantity": "Hubble",
+                                 "units": "km/s/Mpc",
+                                 "law": "log_offset",
+                                 "offset": 1.0,
+                                 "z_file": "z.npy"},
+                        "train_dv": "t.npy",
+                        "val_dv": "v.npy",
+                        "train_params": "t.1.txt",
+                        "val_params": "v.1.txt",
+                        "train_covmat": "c.covmat"},
+               "train_args": {"nepochs": 1}}
+  save_emulator(path_root=str(plain_root), model=base, param_geometry=pg,
+                geometry=geom, config=plain_cfg, histories=histories(),
+                train_args=plain_cfg["train_args"],
+                resolved_train={"nepochs": 1},
+                resolved_model=grid_base_recipe(names, int(z.size)),
+                attrs={"rescale": "none", "quantity": "Hubble"})
   g2_cfg = {"data": {"grid2d": {"quantity": "pklin",
                                 "units": "Mpc3",
                                 "law": "syren_linear",
@@ -834,7 +860,7 @@ def check_diagonal(device, tmp):
                      "train_params": "t.1.txt",
                      "val_params": "v.1.txt",
                      "train_covmat": "c.covmat"},
-            "transfer": {"from": str(root), "form": "sum"},
+            "transfer": {"from": str(plain_root), "form": "sum"},
             "train_args": {"nepochs": 1, "bs": 8}}
   try:
     EmulatorExperiment.from_config(g2_cfg, device=torch.device("cpu"))

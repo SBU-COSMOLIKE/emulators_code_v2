@@ -1009,22 +1009,26 @@ def gate_cme_a(ctx):
   rebuild -> predict bitwise) and the NPCE check_npce leg (residual
   algebra bitwise, roughness composition, base + net prediction
   bitwise, the pce x amplitude-law exclusivity). Also the eq-6
-  lens-induced covariance oracle (check_covariance_oracle): an affine
-  fake CAMBdata makes the 5-point stencil exact, so
-  compute_cmb_covariance's non-Gaussian contraction is checked against
-  eq 6 built directly from the sensitivity matrix and the
-  lensing-potential variance — a truth leg (the contraction equals the
-  direct eq 6), a discrimination leg (the earlier band-summed-variance
-  weights miss it by orders of magnitude), and a band leg (a width-3
-  constant-response contraction reproduces the per-multipole eq 6).
-  torch only, no CAMB (spec: notes/families-scalar-cmb.md).
+  lens-induced covariance legs (check_covariance_oracle): an affine fake
+  CAMBdata makes the 5-point stencil exact, so compute_cmb_covariance's
+  non-Gaussian contraction is checked against an independent known
+  answer for eq 6, built directly from the sensitivity matrix and the
+  lensing-potential variance. Five legs: the exact contraction (the
+  pipeline equals the direct eq 6); the old-weight miss (the earlier
+  band-summed-variance weights are wrong by orders of magnitude); the
+  raw-vs-scaled fixture integrity (the fake serves the scaled
+  [L(L+1)]^2 C potential and refuses the raw getter, the pipeline reads
+  raw for the weight); the width-3 band projection (a constant-response
+  band reproduces the per-multipole eq 6); and the exact zero-band
+  weight (a zeroed band's persisted weight is exactly 0). torch only, no
+  CAMB (spec: notes/families-scalar-cmb.md).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/cmb_identity.py")
   if not ctx.dry:
     ctx.expect(
       label="cmb-identity constants + law + round-trip + roughness + "
-            "finetune + adapter + covariance-oracle legs",
+            "finetune + adapter + covariance known-answer legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
              + " (gates/checks/cmb_identity.py)")
@@ -1395,7 +1399,9 @@ BOARD = [
        home="families-scalar-cmb",
        maps="110-117 (identity legs); 517-530 (roughness gate legs); "
             "582-591 (finetune legs); 141-203 (the eq-6 covariance "
-            "oracle: truth + discrimination + band)",
+            "known-answer legs: the exact contraction, the old-weight "
+            "miss, the raw-vs-scaled fixture integrity, the width-3 band "
+            "projection, and the exact zero-band weight)",
        run=gate_cme_a,
        needs=("torch",)),
   Gate(id="bsn-identity",

@@ -449,6 +449,22 @@ transfer-identity proves the fixture fix, cmb-identity re-executes the
 five-leg delta and its board text must match the five executed legs;
 both green closes the run-12 red.
 
+#### Fixture-fix Architect audit (2026-07-12, Fable): ACCEPTED, committed
+
+Audited against the raw diff of both files. Part 1 matches the spec
+verbatim (the plain grid base is invalid ONLY in the way under test;
+the chaining refusal keeps its dedicated leg); the static trace
+matches the Architect's own run-12 root-cause chain independently
+derived from the same code. Part 2 verified line by line: the
+docstring, `maps`, and expect label name the five legs plainly, the
+raw-vs-scaled boundary description is physically accurate, and the
+only "oracle" left in board.py is the kept identifier (grep-proven,
+untruncated). py_compile re-run by the Architect: OK. Committed on
+the branch by the Architect with Implementer attribution; the grid2d
+unit's files stay uncommitted pending its REVISION (the stable-moments
+amendment — see data-generation-and-cuts.md). Close = the two-gate
+force-rerun above.
+
 ## Follow-the-IDs (git archaeology)
 
 FTW: D-FT1..10, D-FTW-1/2. TPE: D-TP1..10, D-TPE-1, D-TPE2-1..3,
