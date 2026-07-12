@@ -197,6 +197,11 @@ files were created. Priority follows user-visible risk:
    "Grid2d staging defeats its own memory ladder". This closes the
    ordinary/finetune/frozen-transfer paths; production-scale grid2d PCE
    remains a separately recorded low-rank-fit design problem.
+   VERIFIED (Fable, 2026-07-12): experiment.py _grid2d_law_rows —
+   `dv_rows = np.asarray(src["dv"][rows_sorted], dtype="float64")` at
+   the full unthinned width, a same-width base_rows copy, the log
+   quotient as a third array, and only THEN the k_stride column cut;
+   all after load_source's RAM/memmap decision, which it defeats.
 2. **Data-selection truth.** The no-cut scalar/CMB/grid/grid2d
    learning-curve wrappers fail in `pool_size` by indexing an absent
    `omegabh2_hi`; ordinary `load_source` looks for
@@ -224,27 +229,69 @@ files were created. Priority follows user-visible risk:
    narrowed to `As` despite the shared reader accepting `As_1e9`.
    Stubbed identity gates miss all three. Spec:
    artifacts-inference-warmstart.md.
+   VERIFIED (Fable, 2026-07-12): emul_mps.py get_can_support_params
+   returns ['Pk_grid', 'Pk_interpolator', 'sigma8'] (the input-param
+   hook; products belong in get_can_provide / must_provide);
+   emul_scalars.py calculate writes derived only under
+   `if want_derived and "derived" in state` (real cobaya never
+   pre-creates the key — the theory must); emul_mps.py hard-codes
+   req["As"] while syren_params_from (syren_base.py) accepts
+   As_1e9 | As, and the training dumps themselves sample As_1e9
+   (analytics.py reads that column by name).
 8. **Checkpoint-set integrity.** Axis sidecars and `.paramnames` are not
    in the resume census, multi-file append is not one transaction, and a
    load error falls through to fresh generation on the same roots — an
    intended append can replace the prior set. Spec:
    data-generation-and-cuts.md.
+   VERIFIED (Fable, 2026-07-12): generator_core.py __load_chk census =
+   dv members + fail file + covmat + ranges + X.1.txt, no .paramnames
+   and no axis sidecars; __save_chk publishes per file (each tmp +
+   os.replace atomic, the SET sequential); __run_mcmc wraps __load_chk
+   in `except Exception` -> loadedfromchk = False -> the fresh-run
+   branch on the SAME roots — the very row-count ValueError that means
+   "this set is inconsistent, stop" is converted into a replacement.
 9. **Validation and diagnostic memory truth.** Validation ignores its own
    safe chunk and uses the train chunk; the generic local-linear floor
    expands as N_val x 40 x output width and is not runnable on production
    MPS. Spec: training-stack.md.
+   VERIFIED (Fable, 2026-07-12): build_loaders (batching.py) computes
+   and returns data["val"]["load"] planned against budget - used_tr;
+   training.py sets `load = data["train"]["load"]` and passes THAT to
+   every eval_val call; data["val"]["load"] is never read anywhere.
+   local_linear_floor (diagnostics.py) stages both whole sources on
+   the device and materializes Ttr[nbr] = (N_val, k_nn=40, out_dim).
 10. **Activation-bakeoff liveness.** Its bespoke parent blocks on a fixed
     count of un-timed queue reads before joining children; worker failures
     during setup/staging/geometry emit no result and hang the command. Spec:
     training-stack.md.
+    VERIFIED (Fable, 2026-07-12): the worker's try/except covers ONLY
+    the per-activation train/frac block; from_config, stage_val,
+    stage_train, and build_geometry sit outside it, and the parent
+    loops `for _ in range(total): result_q.get()` with no timeout
+    before any join. The worker docstring's "never deadlocks" promise
+    is false for every pre-training failure.
 11. **Geometry numerical and read-side integrity.** Covariance builders take
     square roots without an SPD check, block whitening clips singular modes
     to zero and divides by them, and saved geometry states are rebuilt without
     finite/shape/invertibility validation. Spec:
     artifacts-inference-warmstart.md.
+    VERIFIED (Fable, 2026-07-12) with one mechanism correction: no clip
+    exists anywhere in emulator/geometries (no clamp/maximum) — the
+    shipped behavior is WORSE than the recorded wording. output.py
+    from_cosmolike runs eigh then np.sqrt(lam) unchecked, so a
+    numerically negative eigenvalue becomes NaN silently and an exact
+    zero gives sqrt_ev = 0; whiten then divides by sqrt_ev with no
+    floor; from_state is `cls(device, **state)` with no finite/shape/
+    invertibility validation on anything it loads. The fix contract
+    stands unchanged.
 12. **Optimized-mode validation parity.** Seventeen runtime guards across
     batching, model designs, geometry, and loss code are `assert` statements
     and disappear under `python -O`. Spec: conventions-and-workflow.md.
+    VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
+    EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
+    designs/plain 6, designs/blocks 1, losses/core 1,
+    geometries/output 2, geometries/parameter 1), all config/geometry/
+    user-data guards. The count in the recorded claim is one low.
 
 ## Standing constraints that gate future work
 
