@@ -946,6 +946,28 @@ files were created. Priority follows user-visible risk:
     key equality verified; summary recomputable; honest naming.
     Spec: artifacts-inference-warmstart.md, "45M-33 amendment to
     unit 41".
+    UNIT 18 AMENDED (45M-34): the shared anneal whitelist permits
+    shape const for every owner, but BerHu/EMA anneal force
+    start=0,end=1 internally — const freezes s = 0 forever: berhu
+    silently runs plain sqrt every epoch, and theta_bar is never
+    allocated (the s > 0 activation guard) while the resolved record
+    says EMA is on. const stays legal for trim/focus (start IS the
+    constant); rejected for berhu/ema with an explanatory error;
+    owner-parameterized shapes in the shared validator; catch-power
+    leg proves the old const config demotes. Spec:
+    training-stack.md, "45M-34 amendment to unit 18".
+    UNIT 29 AMENDED (45M-35, BINDING, CRITICAL): "finite non-bool"
+    still admits gate_init 0 — an exact absorbing state (correction
+    is zero-init by design, so gate grad and every head-weight grad
+    are both zero forever; the head never trains while collapse bars
+    pass; ia.py:336-339 names the invariant unenforced). Rule:
+    representably NONZERO after parameter-dtype conversion
+    (float32-underflow rejected; positive-only deliberately NOT
+    imposed); one validator over plain + factored heads; the
+    demotion gate gains a behavioral one-step trainability leg
+    (trunk frozen) — presence and trainability are separate
+    requirements. Spec: models-and-designs.md, "45M-35 amendment to
+    unit 29".
 
 45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
 (ordinary conversion chains accepted; no source-style gate — matches

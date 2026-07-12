@@ -891,3 +891,40 @@ update) and the no-nonfinite-reaches-optimizer/Anchor.apply mutation
 arms FOLD INTO unit 24's anchor gate — no second anchor
 implementation; artifact metadata cannot record transfer.refine
 unless the values passed validation.
+
+### 45M-34 amendment to unit 18 (schedule validation): shape const silently turns off BerHu annealing and EMA (2026-07-12, Architect-VERIFIED)
+
+_ANNEAL_SHAPES = ("const", "linear", "cosine", "step") (training.py
+~856) is one whitelist for every owner. For trim/focus that is
+correct — the user's explicit start IS the constant (the shipped
+focus default demonstrates it: shape const + start -1 is the
+documented no-focus form). For BerHu and EMA anneal blocks it is a
+silent kill switch, because those owners internally force
+start=0, end=1: anneal_value(shape="const") returns start forever, so
+loss.berhu.anneal {shape: const} keeps s = 0 and the blend
+v = (1-s) sqrt + s berhu (losses/core.py:319-320, "s = 0 is exactly
+sqrt") runs plain sqrt for every epoch; ema.anneal {shape: const}
+keeps the horizon scale at 0 and the initialization guard ("the
+first epoch the horizon anneal leaves the hold (s > 0)") never
+allocates theta_bar — selection and persistence use the raw model
+while the resolved record says EMA is configured. Presence semantics
+violated twice: omission is the off form; a present block must never
+be an undisclosed no-op.
+
+Amendment to unit 18: const stays legal for trim/focus; REJECTED for
+BerHu anneal and EMA anneal (legal ramps: linear, cosine,
+direction-correct step), with the error explaining that omitting
+anneal runs the full feature from its normal activation point and
+const would freeze the internal 0->1 scale at zero;
+owner-parameterized legal shapes in the SHARED validator (no forked
+evaluator), validated before staging; resolved config and banners
+distinguish "feature on without anneal" from "feature on with a real
+ramp". Red legs: trim/focus const byte-identical; berhu +
+berhu_capped const raise at their exact paths; ema const raises
+top-level AND phase-local; omitted berhu anneal gives the full berhu
+mode, not sqrt; omitted ema anneal produces a live theta_bar; every
+legal increasing ramp has a strict interior 0 < s < 1 value and
+reaches 1 only at its endpoint; catch-power — the old const config
+is proven to leave berhu == sqrt and EMA absent. Schedule arithmetic
+legs pure; the EMA-live and loss-equivalence integration legs are
+torch, board-listed, workstation.

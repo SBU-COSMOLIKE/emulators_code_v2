@@ -365,3 +365,37 @@ dimension; NaN/Inf bounds; lo == hi; shape mismatch; exact endpoints;
 one-ULP/tolerance control; training and rebuilt-artifact inference
 agree; residual NPCE on a diagonal family AND a dense-covariance
 family.
+
+### 45M-35 amendment to unit 29 (model-block value schema): gate_init 0 is an exact absorbing dead head (2026-07-12, Architect-VERIFIED; BINDING)
+
+Unit 29's queued clause said "gate_init finite non-bool" — that still
+admits zero, and zero is not a slow start but an exact absorbing
+state: the head output is out = trunk + gate * correction, the
+correction branch is zero-initialized BY DESIGN (the last conv
+zero-init at ia.py:492 makes the identity start), so with gate == 0
+the gate's gradient is upstream * correction == 0 and every head
+weight's gradient is upstream * gate * d(correction) == 0 — nothing
+in the head can move on step one, so both factors stay zero forever
+and the requested CNN/TRF trains as its bare trunk while collapse
+bars pass. The code names the invariant with no enforcement
+(ia.py:336-339, "not 0, a 0 gate strands the CNN with no gradient").
+
+Amendment: gate_init must be finite, real, non-bool, and NONZERO
+AFTER CONVERSION TO THE PARAMETER DTYPE — a Python 1e-50 that
+underflows to float32 zero is a dead gate and is rejected. Architect
+ruling: representably-nonzero is the rule; positive-only is NOT
+imposed (a negative gate is mathematically equivalent up to the
+correction's sign) — the shipped 0.1 recipe is preserved
+byte-for-byte. One active-model validator covers plain AND factored
+CNN/TRF heads. The unit-29 demotion gate gains a BEHAVIORAL leg, not
+only a parameter census: after one nonzero-loss backward/step (trunk
+frozen so it cannot hide a dead head), at least one head parameter or
+its gate must show a finite nonzero update — structural presence and
+trainability are separate requirements, and a merely-present but
+untrainable head may not satisfy the gate. Red legs: gate_init 0,
+-0.0, and float32-underflowing nonzero raise before construction;
+the 0.1 recipe exact; one-step head-only training moves ResCNN,
+ResTRF, and at least one factored-template head off the identity
+start; a mutation bypassing validation with gate 0 proves every
+head/gate gradient exactly zero while the trunk still reduces loss.
+Torch, board-listed, workstation.
