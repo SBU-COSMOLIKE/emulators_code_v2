@@ -235,6 +235,18 @@ In order, with the commit that carries each:
    as nodes + range padding across [0, 4]). The remaining unexecuted
    legs of the whole board: mps-smoke's 5% CAMB comparison + the
    interpolator range guard.
+21. **BOARD RUN 9 (2026-07-12 00:12) — THE FIRST FULL 32/32 GREEN.**
+   mps-smoke ALL PASS: the smoke emulators matched CAMB's own
+   P(k, z) at rel 0.93% (lin) / 0.93% (nl) against the 5% bar, and
+   the range guard raised. This green IS GEO's acceptance and the
+   board baseline. Honest caveat carried into the next step: the
+   cmb-identity / mps-identity greens date from run 1 (17:56, the
+   stale HEAD) and PREDATE the D-CM13 head legs and the D-MP9
+   identity legs — the `--force-rerun-all` regression pass is
+   therefore both the no-regression proof the user asked for AND
+   the first execution of those legs. The queue after it: train the
+   five artifacts (rdrag, hubble, dm, pklin, boost), the EMUL2
+   acceptance, the D-CM12 audit, then the science thread.
 
 ## Evidence status: what is PROVEN vs what is PENDING
 
