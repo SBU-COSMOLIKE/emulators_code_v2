@@ -172,3 +172,47 @@ spec_code field stays as the notes-ledger key and is never rendered).
 Note-file pointers ("spec: notes/x.md:lines") are the crosswalk. The
 2026-07-08 sweep (zero logic change, AST-proven) set the standard;
 every new check is written under it from birth.
+
+## The eval-batch check must stop executing at import (red-team 45M-04, 2026-07-12, Architect-VERIFIED; queue 32)
+
+gates/checks/ge_c_eval_bs.py is the one production exception to the
+no-global-data rule (found by the red team's free-name scan over all
+92 Python files; verified by reading). C and DV (5000 x 780, CUDA when
+available), the model, the loss, and the thresholds all allocate at
+module scope (:33-:60); toy_data / per_row_chi2 / timed close over
+them; the complete test executes at import time and ends in sys.exit
+(:149). The module docstring says so itself (:4 "there is no main
+function") — that transcription waiver is now contrary to the standing
+house rule (functions take data/state as parameters; a rare
+unavoidable global read carries the visible warning marker), and these
+globals are avoidable. The board survives only because it runs the
+file as a subprocess script (board.py:369, ctx.run_check); importing
+the module from anywhere else allocates a device tensor, runs the
+whole test, and kills the importing process, and the helpers cannot be
+probed in isolation.
+
+Contract (Implementer):
+
+1. main() owns seeding, device selection, fixture allocation,
+   execution, printing, and the final status;
+   `raise SystemExit(main())` only beneath
+   `if __name__ == "__main__":`. Importing performs no allocation,
+   timing, output, or exit.
+2. toy_data takes the input and target tensors explicitly;
+   per_row_chi2 takes model, loss, tensors, row count, and batch size;
+   timed becomes a top-level helper with every dependency in its
+   signature.
+3. Numeric controls stay as named constants or main locals with
+   definitions: validation rows, input width, output width, tolerance,
+   warmup repetitions, timing repetitions.
+4. The tensor-mechanics prose states: slicing returns a view; expand
+   is a repeated view without copying; torch.cat allocates the padded
+   batch; clone detaches the saved per-row result from temporary batch
+   storage.
+5. Numbers preserved: the partition-invariance values and the CUDA
+   timing behavior are unchanged.
+
+Acceptance: importing the module is side-effect free; the free-name
+scan reports no data-global reads; direct script execution still
+returns nonzero on a forced partition mismatch; the board continues to
+execute the real check, not a helper-only substitute.

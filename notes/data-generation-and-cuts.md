@@ -936,3 +936,61 @@ carries a provenance comment naming phys_cut_idx's quantity-table
 helper (ONE source of truth). D-GTB-1 lesson: the gate classifies the
 shading layer by its design contract (zorder 0), never by rendering
 heuristics.
+
+## Generator physics execution: no silent zip truncation, no order-picked truth source (red-team 45M-06, 2026-07-12, Architect-VERIFIED; queue 33 — joins the file-set/ingress campaign, now 8+17+25+26+28+33)
+
+Verified anchors: dataset_generator_lensing.py:103,
+dataset_generator_cmb.py:307 AND :327 (two loops — the execute loop
+and the read-results loop), dataset_generator_mps.py:364 all run
+Cobaya components via
+`for (x, _), z in zip(self.model._component_order.items(),
+self.model._params_of_dependencies)` with z never used and
+cached=True. zip stops at the shorter input, and both structures are
+PRIVATE Cobaya internals (leading underscore, no stability promise) —
+a length mismatch silently skips the remaining physics components,
+with no count assertion anywhere. This exact hand-built lifecycle has
+already failed once in this repo: dataset_generator_background.py
+:321-335 records the bitwise-constant H(z) dump it produced and the
+switch to the public model.logposterior(sample, cached=False)
+lifecycle. The other three generators still run the failed pattern.
+Separately, dataset_generator_lensing.py:99 picks its truth object by
+YAML insertion order
+(`self.model.likelihood[list(self.model.likelihood.keys())[0]]`) — a
+dummy or auxiliary likelihood listed first silently changes the
+data-vector producer without changing the requested probe.
+
+Contract (Implementer):
+
+1. Component execution is never zipped against an unused private
+   list.
+2. PREFERRED: the public logposterior(cached=False) lifecycle in all
+   four generators — background is the worked reference. If a private
+   component loop must remain for a demonstrated reason, validate the
+   two structures' lengths and identities before iteration and fail
+   loudly on any mismatch; silent truncation is forbidden.
+3. Lensing selects the data-vector likelihood by an explicit unique
+   capability/identity rule, not mapping order; zero or multiple
+   candidates raise and list their names; the selected producer is
+   validated against the requested probe.
+4. The sampled-row reordering, name/value mapping, Cobaya input
+   transformation, provider update, and physics evaluation split into
+   named steps (the relevant alien-Python repair; ordinary tensor
+   method chains stay allowed per the user ruling).
+5. The producer that served each sample is recorded in generator
+   provenance or the manifest, so a dump's truth source is auditable.
+6. One physics evaluation per accepted sample; current output shapes
+   and units preserved.
+
+Gates:
+
+- Fake-Cobaya pure legs under gates/checks/, registered on the board:
+  a component/dependency length mismatch cannot skip a component;
+  reversing likelihood insertion order does not change the selected
+  producer; zero/multiple data-vector producers raise diagnostically;
+  every intended component executes exactly once; a mutation arm
+  reproduces the old truncated/private-loop form and proves the gate
+  catches it.
+- Workstation (Cobaya/CAMB): the lensing, CMB, and MPS generator
+  smoke legs gain two distinct cosmologies; the generator payload is
+  compared against the corresponding public-provider result for each,
+  and the two payloads are asserted non-stale / non-identical.

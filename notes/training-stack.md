@@ -419,6 +419,78 @@ NaN, Inf, extras-present NaN, transfer NaN — all fail with the
 finite-contract message; valid exact/tolerance fixtures keep their
 verdicts.
 
+#### Finite-contract resume (2026-07-12, Opus) — CHECKPOINT, training.py core landed; gate + two scope calls open
+
+training.py guards in place and Mac-verified (guard logic + message via
+exec-extraction; the torch wiring rides the workstation gate):
+
+- Two module-level helpers before eval_val: `_report_nonfinite(side,
+  quantity, n_bad, n_total, positions)` — the one uniform ValueError
+  ("finite contract [side]: N of M ... non-finite ... First offending
+  positions: [...] ... no sentinel, never counted below threshold"); and
+  `_global_grad_norm(params)` — a read-only global grad L2 norm for the
+  clipping-off finite check (byte-identical to the old no-clip path).
+- eval_val (clause 1 + 4): after `c = torch.cat(chi2s).cpu()`, before
+  mean/median/frac, `torch.isfinite(c).all()` or abort naming the
+  validation rows (an `order_rows` list now tracks the global val row per
+  c position). It is the SINGLE validation chokepoint — baseline, raw,
+  and ema evals all pass through it, so the best-epoch compare only ever
+  sees finite scores (clause 4 needs no separate guard; documented).
+- The train step (clauses 2 + 3): `torch.isfinite(loss)` before
+  backward; `grad_norm` from clip_grad_norm_ (clip>0) or
+  `_global_grad_norm` (clip==0) checked finite before optimizer.step,
+  naming the diverged batch (epoch / chunk / batch). One host sync per
+  step — the deliberate price of catching divergence at its source.
+- eval_source_chi2 (clause 5): dchi2 finite before return, naming the
+  source rows; side "diagnostic".
+
+Two scope calls flagged for the Architect (not guessed):
+1. GATE HOME. The self-diagnosing legs need torch. The natural existing
+   training gate is GE-C (eval-batch-invariance, home=training-stack) —
+   but it is `needs=("torch","gpu")` and thematically "eval-batch
+   invariance". The finite legs are CPU-runnable and CRITICAL (deserve
+   broad coverage). My default: extend GE-C; alternative: a dedicated
+   CPU-only `finite-contract` gate (`needs=("torch",)`). Confirm which.
+2. PARITY CLAUSE. The pre-training parity clause is warmstart.py's
+   build_warm_start, not training.py; the handoff scoped this unit to
+   "training.py's own finite contract". I did NOT touch warmstart.py.
+   Confirm whether the parity guard rides this unit or a separate rider.
+
+Hot-path note: clauses 2/3 add one host sync per training step (the
+contract's "before backward / before optimizer.step" is per-step).
+eval_val (clause 1) is the per-epoch backstop; clip==0 stays byte-
+identical. Flagged against the "hot paths never slowed" rule — the
+CRITICAL correctness contract wins, but the Architect may prefer a knob.
+
+Mac gate: `probe_finite_contract.py` 5/5 (all-finite control no-raise;
+NaN/Inf raise naming side + count + rows; diagnostic side; training-batch
+message). `py_compile emulator/training.py` clean. Held.
+
+#### Architect rulings on the two scope calls (2026-07-12, Fable)
+
+1. GATE HOME: a DEDICATED CPU-only `finite-contract` gate
+   (`needs=("torch",)`, home=training-stack) — not an extension of the
+   eval-batch gate. Three reasons: the legs are CRITICAL and
+   CPU-runnable, so they must not hide behind a "gpu" need; the
+   eval-batch check is thematically partition invariance, not finite
+   totality; and gates/checks/ge_c_eval_bs.py is itself queued for
+   restructuring (queue 32, red-team 45M-04 main-ification) — extending
+   it now would couple two in-flight units on one file.
+2. PARITY CLAUSE: the pre-training parity guard (warmstart.py ~863
+   max_dv NaN hole + transfer parity + its five red legs) STAYS part of
+   unit 14 — it was folded in by the red team's sequencing and may not
+   silently drop — but it lands as the unit's SECOND increment in the
+   next handoff (the training.py increment is a coherent gated
+   sub-increment per the propose-and-partial precedent). The unit
+   closes only when both increments and the gate are in.
+3. HOT-PATH FLAG (unprompted third ruling): the one host sync per
+   training step is ACCEPTED as the unconditional default — no off-knob
+   in V1 (an off-knob would create an unchecked training mode, exactly
+   the silent-hole class this unit kills). Record the measured epoch
+   cost in the workstation resume; only if it exceeds ~1-2 percent do we
+   revisit, and the revisit direction is a device-side deferred abort,
+   never an off-knob.
+
 ## Schedule validation + direction-correct step (red-team 2026-07-12 fifth wave, Architect-VERIFIED, open)
 
 trim/focus schedules reach anneal_value with NO validator (the
@@ -603,3 +675,54 @@ single-phase-demotion, head-scheduler-override, eval-batch-invariance,
 joint-training, weight-decay-census, production-diagnostic) all
 pointed here; their verdicts (all PASS, boards of 2026-07-08..10) are
 in git history under the retired per-topic notes.
+
+## plot_xi does not draw the colors its colorbar describes (red-team 45M-02, 2026-07-12, Architect-VERIFIED; queue 30)
+
+plot_xi (emulator/plotting.py:1564-1837) promises a param-colored curve
+set: the docstring says `param` "colors the curves through cmap", and
+the colorbar is built from Normalize(vmin=param[0], vmax=param[-1])
+(:1647-1648). But every curve is drawn with color = cm(x / len(xi))
+(:1755/:1761/:1770/:1776; marker edges use the same call) — the
+normalized parameter value is NEVER used. Verified consequences:
+unevenly spaced parameters render as evenly spaced colors; reordering
+the curves changes their colors; unsorted parameters make the colorbar
+endpoints unrelated to the true minimum and maximum; the last curve
+never reaches the top color ((n-1)/n < 1); the linestyle / linewidth /
+marker cyclers are created once (:1667-1677) and advanced globally
+across panels, so a cycle length different from the curve count changes
+a curve's appearance panel to panel. The param-length check runs AFTER
+the colorbar is drawn (:1662-1664), and malformed input prints
+"Bad Input" and returns int 0 (:1620/:1623). No gate calls plot_xi
+(full-repo grep: zero callers outside plotting.py), so no existing leg
+can catch any of this. The docstring's "ported byte-faithfully from the
+notebook" rider was a landing convenience, not a truth waiver — the
+plotting-truth contract supersedes it.
+
+Contract (Implementer):
+
+1. Validate before any figure is created: xi nonempty; param length
+   equal to len(xi) and every value finite; every curve's theta grid
+   and tensor shape checked against the first curve. Malformed input
+   raises a specific exception — the "Bad Input" prints and the
+   integer-zero returns go.
+2. With param: ONE normalization from the finite minimum and maximum,
+   one RGBA per parameter value from the SAME ScalarMappable the
+   colorbar uses; that exact color reused for the corresponding curve
+   in every panel and for its marker edge.
+3. The constant-parameter case defined explicitly: one stable color
+   plus a truthfully labelled constant colorbar, or no colorbar with a
+   stated reason — pick one and document it.
+4. Without param: index-based colors stay an allowed presentation
+   choice, but no parameter-valued colorbar may be drawn.
+5. Marker / linestyle / linewidth precomputed BY CURVE INDEX so a
+   curve's visual identity is stable across all panels.
+6. The hardening-ledger mutable-list defaults on this signature (ylim,
+   bintextpos, thetashow) are removed in the SAME repair (None
+   defaults, fresh lists inside) — no second unit.
+7. Gate: an Agg-backend plotting leg on the board (no torch, no GPU):
+   unsorted uneven parameters with the actual line RGBA values
+   inspected against the colorbar's ScalarMappable; a permutation arm
+   proving colors follow parameter values, not list positions; a
+   multi-panel arm proving one curve keeps its marker / line style
+   across panels; length / NaN / constant-parameter failure legs; a
+   valid no-param control.

@@ -646,6 +646,74 @@ files were created. Priority follows user-visible risk:
     float(gate_init) at ia.py:490; int(n_gates) at
     experiment.py:292/:4108/:4258/:4267; int(n_tokens) at
     plain.py:866.
+30. **plot_xi plotting truth** (45M-02, 2026-07-12). The colorbar is
+    built from Normalize(param[0], param[-1]) but every curve is
+    colored cm(index / n) — the parameter value is never used; marker
+    edges repeat the wrong mapping; the style cyclers advance
+    globally across panels; malformed input prints "Bad Input" and
+    returns int 0; no gate calls plot_xi (full grep: zero callers
+    outside plotting.py). Folds in the hardening-ledger mutable-list
+    defaults on the same signature (no second unit). Contract + the
+    Agg-backend board leg (permutation arm, multi-panel arm, RGBA
+    inspected against the colorbar's ScalarMappable): spec in
+    training-stack.md, "plot_xi does not draw the colors its colorbar
+    describes".
+    VERIFIED (Fable, 2026-07-12): plotting.py:1647-1648 (norm),
+    :1755/:1761/:1770/:1776 (index colors + marker edges),
+    :1667-1677 (global cyclers), :1620/:1623/:1663 ("Bad Input" -> 0;
+    the length check runs after the colorbar is drawn), mutable
+    defaults on the signature (:1566-1569).
+31. **Generator entry files self-teaching** (45M-03, 2026-07-12;
+    documentation repair, no new note file). All four
+    dataset_generator_* files have no module docstring
+    (AST-verified) and _compute_dvs_from_sample — the family physics
+    boundary — has no formal docstring in any of them; store hooks
+    uneven. Module docstrings with the flow diagram, the subclass
+    contract stated locally, formal blocks on every override hook,
+    banner walls replaced. SEQUENCE AFTER unit 33 (the component
+    loop it documents is being rewritten). Spec:
+    conventions-and-workflow.md, "Generator entry files must be
+    self-teaching".
+32. **Eval-batch gate stops executing at import** (45M-04,
+    2026-07-12). gates/checks/ge_c_eval_bs.py allocates C/DV/model/
+    loss/thresholds at module scope, closes helpers over them, runs
+    the whole test at import, and sys.exits (:149) — the one
+    production exception to the no-global-data rule; the board
+    survives only because board.py:369 runs it as a subprocess.
+    main-ification with explicit-parameter helpers, numbers
+    preserved, board still executing the real check. Spec:
+    gates-and-board.md, "The eval-batch check must stop executing at
+    import".
+    VERIFIED (Fable, 2026-07-12): module scope :33-:60, sys.exit
+    :149, "there is no main" docstring :4, board.py:369 run_check.
+33. **Generator physics-execution truth** (45M-06, 2026-07-12;
+    joins the file-set/ingress campaign — cluster now
+    8+17+25+26+28+33). lensing:103, cmb:307/:327, mps:364 zip
+    component execution against the unused private
+    _params_of_dependencies (silent truncation on any length
+    mismatch, cached=True); the same hand-built lifecycle already
+    produced the bitwise-constant H(z) dump (background switched to
+    logposterior(cached=False) at :335 — the worked reference);
+    lensing:99 picks the truth likelihood by YAML insertion order.
+    Contract (public lifecycle preferred, identity-selected
+    producer, provenance-recorded, fake-Cobaya pure legs + mutation
+    arm + two-cosmology workstation smoke): spec in
+    data-generation-and-cuts.md, "Generator physics execution".
+    NB: the existing "TWO evaluation idioms, deliberately
+    unharmonized" paragraph in that note is SUPERSEDED by this
+    contract's preferred path — harmonization now has its gate
+    evidence plan; the paragraph gets rewritten when 33 lands.
+34. **Public prose states the current state** (45M-07, 2026-07-12;
+    documentation-only). emulator/README.md:216 narrates board-run
+    history; warmstart.py:162 names "unit 2" in a user-facing error;
+    all-caps emphasis persists (README INPUT :24, ONE
+    :68/:136/:183/:347). History moves to gates-and-board.md; the
+    warmstart error becomes actionable current-state prose;
+    emphasis capitals become definitional wording; acceptance = the
+    prose diff + a complete untruncated scan. Spec:
+    conventions-and-workflow.md, "Public prose states the current
+    state". Batches naturally with unit 31 (one documentation
+    handoff), AFTER 33.
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

@@ -273,3 +273,81 @@ in gates-and-board.md):
   documented API path (the wants-Cl quirk vs
   logposterior(cached=False)) — and build the tripwire that can
   falsify the hypothesis BEFORE trusting the fix.
+
+## Generator entry files must be self-teaching (red-team 45M-03, 2026-07-12, Architect-VERIFIED; queue 31)
+
+The four production generator entry files
+(compute_data_vectors/dataset_generator_{lensing,cmb,background,mps}.py)
+have no module docstring (AST-verified on all four), open with imports
+and C-style separator banners, and their central override
+_compute_dvs_from_sample — the one family-specific physics boundary
+(one sampled row in, reordered, Cobaya provider populated, physics
+executed, payload returned to the shared core) — has no formal
+docstring in any of the four. Three of the four tell the reader the
+shared flags are documented in the lensing file. The family
+_read_train_args and multi-file store hooks are uneven: prose without
+Arguments:/Returns: contracts.
+
+Contract (Implementer; in-file documentation repair, no new note file,
+plus small corrections to the existing README tables if needed):
+
+1. A real module docstring before the imports in each file: what the
+   file produces and which physics engine computes it; a short flow
+   diagram — one sampled row -> reorder into YAML order -> Cobaya
+   provider -> physics call -> family payload -> GeneratorCore store
+   hooks — with every symbol defined and the statement that the
+   callback runs once per requested cosmology.
+2. The subclass contract stated locally: GeneratorCore owns sampling,
+   MPI, checkpoints, failure flags, and publication; the family class
+   owns VALID_PROBES, extra generator-YAML keys,
+   _compute_dvs_from_sample, and any multi-file store hooks.
+3. _compute_dvs_from_sample gets formal Arguments: / Returns: /
+   Raises: blocks with exact shapes, units, dtype, and
+   dictionary/spectrum ordering.
+4. The private Cobaya component loop explained step by step: what
+   _component_order contains, what _params_of_dependencies
+   contributes, why cached is passed, what terminal output is
+   captured. SEQUENCING: unit 33 (45M-06) rewrites that loop — land 33
+   first (or in the same handoff) so this documentation describes the
+   surviving form, not the retired one.
+5. Every store hook defines whether it allocates, writes in place,
+   appends, loads, or returns a copy/view, and names every file member
+   it owns.
+6. One compact runnable command per family, or a direct link to the
+   main README's exact family subsection, while still defining the
+   local flags a reader needs.
+7. All-caps emphasis and C-style separator walls replaced with
+   ordinary headings and formal sentences (MPI, CMB, CAMB, MPS stay
+   uppercase); internal decision codes stay in notes/.
+
+Acceptance is mechanical: all four modules have docstrings; every
+override hook has the formal blocks appropriate to its behavior; a
+generated API inventory lists no undocumented family callback; the
+four files remain syntax-clean.
+
+## Public prose states the current state (red-team 45M-07, 2026-07-12, Architect-VERIFIED; queue 34)
+
+Three verified classes of drift from current-state, reader-facing
+documentation: emulator/README.md:216 narrates audit history ("board
+run 12"; a fixture that "awaits one final identity-gate rerun");
+emulator/warmstart.py:162 raises a user-facing error naming internal
+scheduling ("it lands as unit 2" — a user cannot act on a queue
+number); and ordinary words used as all-caps emphasis persist in
+public prose (README examples: INPUT :24, ONE :68/:136/:183/:347).
+
+Contract (Implementer; documentation-only):
+
+1. Public READMEs state the current capability, the current
+   limitation, and the relevant notes/ pointer. Board-run history and
+   rerun bookkeeping move into gates-and-board.md (no new note file).
+2. The warm-start exception becomes a plain current-state explanation
+   with an actionable remedy; cross-reference the already-queued
+   fine-tune-anchor unit internally; no duplicate implementation unit.
+3. Prose emphasis capitals become formal, definitional wording.
+   Genuine names — CMB, CAMB, MPI, GPU, LCDM, configuration constants,
+   exact literals where case is part of the interface — keep their
+   case.
+4. Acceptance: the prose diff plus a COMPLETE repository-wide scan —
+   an untruncated grep is the evidence; a clipped head result may not
+   feed the zero-matches claim. No torch, workstation, or board gate
+   needed.
