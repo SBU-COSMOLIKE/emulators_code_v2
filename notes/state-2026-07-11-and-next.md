@@ -214,6 +214,18 @@ In order, with the commit that carries each:
    this same stretch (run 6: full gate incl. cobaya-vs-CAMB within
    2% and the derived-distance pages) — the board stands 31/32 with
    only mps-smoke pending.
+19. **D-MP9 amended LAW-AGNOSTIC (board run 7)**: the sped-up
+   mps-smoke (12 min at k_max 20) reached the BOOST training and hit
+   the first ruling's law-none error — the gate deliberately trains
+   boost under law "none" (CAMB-truth comparability), and the raw
+   boost at (z = 0, k <~ 8e-4) is 1 for every cosmology: the SAME
+   physical constant, no law involved. The syren-vs-none split in
+   the first D-MP9 ruling was wrong; the pin is now law-agnostic
+   (decode returns the training constant — the base under a syren
+   law, the physical value itself under none), and the dead-dump
+   protection is the WHOLLY-constant-surface guard alone (loud for
+   every law — the bsn stale-generator signature). mps-identity's
+   D-MP9 legs now exercise BOTH laws + the dead-dump refusal.
 
 ## Evidence status: what is PROVEN vs what is PENDING
 

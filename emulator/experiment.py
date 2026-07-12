@@ -3304,14 +3304,15 @@ class EmulatorExperiment:
       self.geom = Grid2DGeometry.from_targets(
         device=self.device, targets=targets, z=z2, k=k2,
         quantity=quantity, units=units, law=law)
-      # D-MP9: constant law-space columns under a syren law are the
-      # base-exact region (the boost's low-k tail) — pinned by the
-      # geometry, reported here once (quiet-gated), never silent.
+      # D-MP9 (law-agnostic): law-space columns constant across the
+      # training cosmologies (the boost's low-k tail, under any law)
+      # are pinned by the geometry, reported here once (quiet-gated),
+      # never silent.
       if self.geom.const_mask is not None:
         n_pin = int(self.geom.const_mask.sum())
         self.log("grid2d: " + str(n_pin) + " constant law-space grid "
-                 "point(s) pinned (the syren base is exact there; "
-                 "decode returns the training constant, D-MP9)")
+                 "point(s) pinned (decode returns the training "
+                 "constant — the physics is flat there, D-MP9)")
       # conv/TRF heads (needs_bins; D-CM13): attach the channel/token
       # split — one bin per z slice, each of length nk
       # (attach_head_coords; conv channels / TRF tokens = z slices).

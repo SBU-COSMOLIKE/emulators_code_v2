@@ -47,10 +47,13 @@ class Grid2DGeometry:
   "boost"), units ("Mpc3" / "dimensionless"), law (a TARGET_LAWS_2D
   key). center/scale are per flattened grid point over the law-space
   training rows. dest_idx / total_size are the identity over nz*nk.
-  const_mask (D-MP9, optional) marks the pinned base-exact points —
-  constant law-space columns under a syren law (the boost's low-k
-  region): decode returns the training constant there, and the mask
-  persists with the artifact. None = no pins (every pre-D-MP9 file).
+  const_mask (D-MP9, optional) marks the pinned points — law-space
+  columns constant across the training cosmologies (the boost's
+  low-k region, where B = 1 for every cosmology under ANY law):
+  decode returns the training constant there, and the mask persists
+  with the artifact. None = no pins (every pre-D-MP9 file). A
+  WHOLLY constant surface is still a loud error — that is a dead
+  dump, never physics.
   """
 
   def __init__(self,
@@ -81,10 +84,10 @@ class Grid2DGeometry:
                  spread everywhere; state() then omits the key, so
                  pre-D-MP9 files are byte-identical). (nz*nk,)
                  booleans: True where the LAW-SPACE training column
-                 was constant — under a syren law that is the
-                 base-exact region (boost = 1 below the nonlinear
-                 scale), so decode returns the training constant
-                 there exactly instead of scale-noise.
+                 was constant — the boost's low-k region (B = 1 for
+                 every cosmology, under any law), so decode returns
+                 the training constant there exactly instead of
+                 scale-noise.
     """
     if law not in TARGET_LAWS_2D:
       raise ValueError(
@@ -197,25 +200,21 @@ class Grid2DGeometry:
           "across the training rows — the dump is degenerate (a stale "
           "generator writing one cosmology everywhere); check the "
           "generator, this is never a physical surface.")
-      if law == "none":
-        raise ValueError(
-          "Grid2DGeometry.from_targets: un-standardizable grid "
-          "point(s) at (z, k) " + repr(show) + " (first 8): the "
-          "training spread there is below float32 resolution at its "
-          "magnitude. Under law 'none' there is no base to fall back "
-          "on, so a constant column is a degenerate dump — check the "
-          "generator.")
-      # D-MP9: under a SYREN law a constant LAW-SPACE column means the
-      # analytic base already equals the truth there for every
-      # training cosmology — for the boost that is the whole low-k
-      # region (B = 1 below the nonlinear scale, and syren-halofit's
-      # boost is 1 there too, so log(B/B_base) = 0 identically; the
-      # first mps-smoke board run hit exactly this). That is physics,
-      # not a generator bug: PIN those points — scale 1 (nothing to
-      # whiten by), and decode returns the training constant exactly
-      # (the consumer then serves base * e^const = the base, which is
-      # exact there by construction). The mask persists in the
-      # artifact (state), so serving matches training bit for bit.
+      # D-MP9 (amended run 7: LAW-AGNOSTIC): a constant law-space
+      # column that is not the whole surface is PHYSICS, not a
+      # generator bug — the boost is 1 below the nonlinear scale for
+      # every cosmology, so its low-k columns are constant under ANY
+      # law: under a syren law log(B/B_base) = 0 identically (the
+      # base is exact there); under law "none" the raw value 1 itself
+      # is the constant (the gate's law-none boost training hit
+      # exactly this after the syren-only first ruling). PIN those
+      # points — scale 1 (nothing to whiten by), and decode returns
+      # the training constant exactly (under a syren law the consumer
+      # then serves the base, exact by construction; under law "none"
+      # the constant IS the served physical value). The mask persists
+      # in the artifact (state), so serving matches training bit for
+      # bit. The dead-dump protection is the WHOLE-surface guard
+      # above, which fires for every law.
       const_mask = np.zeros(n_out, dtype=bool)
       const_mask[zero] = True
       scale = scale.copy()
@@ -279,11 +278,13 @@ class Grid2DGeometry:
     """Standardized output -> law-space rows (the consumer multiplies
     the base back through emulator/syren_base.py, D-MP2-A(4)).
 
-    At the D-MP9 pinned points (constant law-space training columns —
-    the base-exact region) the network's output is REPLACED by the
-    training constant: the base is exact there by construction, and
-    letting network noise through at scale 1.0 would leak a spurious
-    percent-level wiggle into the served spectrum's low-k tail.
+    At the D-MP9 pinned points (law-space training columns constant
+    across cosmologies — the boost's low-k region under any law) the
+    network's output is REPLACED by the training constant: that
+    constant IS the physics there (the base under a syren law, the
+    raw value itself under law "none"), and letting network noise
+    through at scale 1.0 would leak a spurious percent-level wiggle
+    into the served spectrum's low-k tail.
 
     Arguments:
       t = (B, nz*nk) network output.
