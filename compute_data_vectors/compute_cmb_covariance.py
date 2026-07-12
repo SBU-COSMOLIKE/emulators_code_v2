@@ -285,23 +285,29 @@ def band_windows(lmin, lmax, band_width):
   return bands
 
 
-def assemble_lensing_blocks(deriv, S):
+def assemble_lensing_blocks(deriv, w):
   """Eq 6 assembly for EVERY spectrum pair, from the band derivatives.
 
-  N^(phi)^{XY,WZ}_{ll'} = sum_b  dC^XY_l/dA_b * S_b * dC^WZ_l'/dA_b
+  N^(phi)^{XY,WZ}_{ll'} = sum_b  dC^XY_l/dA_b * w_b * dC^WZ_l'/dA_b
 
-  where A_b is the fractional amplitude of C^phiphi inside band b and
-  S_b the band-summed phi Gaussian variance (the caller builds both).
-  A pure matrix product on already-computed derivatives, so this
-  function is Mac-verifiable against the closed form (the probe leg):
-  the same-spectrum blocks are symmetric by construction, and the
-  cross blocks obey cov_xy_wz == cov_wz_xy^T.
+  where A_b is the FRACTIONAL amplitude of C^phiphi inside band b (the
+  band is perturbed by clpp *= 1 + eps) and w_b the eq-6 contraction
+  weight for that coordinate: the Gaussian variance of the fractional
+  amplitude, which at band width 1 is exactly 2/((2L+1) fsky) and for a
+  wider band is the smooth-response projection the caller builds (see
+  nongaussian_blocks and notes/families-scalar-cmb.md). A pure matrix
+  product on already-computed derivatives, so this function is
+  Mac-verifiable against the closed form (the probe leg): the
+  same-spectrum blocks are symmetric by construction, and the cross
+  blocks obey cov_xy_wz == cov_wz_xy^T.
 
   Arguments:
     deriv = dict tt/te/ee of (n_bands, n_ell) band-derivative
             matrices dC^s_l/dA_b (the smallest-step stencil
             estimates).
-    S     = (n_bands,) band-summed phi Gaussian variances.
+    w     = (n_bands,) per-band eq-6 contraction weights (the
+            fractional-amplitude variance; nongaussian_blocks builds
+            them).
 
   Returns:
     dict of dense (n_ell, n_ell) arrays: cov_tt, cov_te, cov_ee (the
@@ -321,7 +327,7 @@ def assemble_lensing_blocks(deriv, S):
       key = "cov_" + a
     else:
       key = "cov_" + a + "_" + b
-    out[key] = (deriv[a] * S[:, None]).T @ deriv[b]
+    out[key] = (deriv[a] * w[:, None]).T @ deriv[b]
   return out
 
 
@@ -469,14 +475,23 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
       convergence: the h-to-h relative spread per band must sit below
       converge_rtol (loud otherwise); the kept derivative is the
       smallest-h estimate.
-      N^(phi)XY,WZ_{ll'} = sum_b dCl^XY_l/dA_b * S_b * dCl^WZ_l'/dA_b
-      with S_b = sum_{L in b} Cov^phiphi_LL  (band width 1 = eq 6
-      verbatim).
+      N^(phi)XY,WZ_{ll'} = sum_b dCl^XY_l/dA_b * w_b * dCl^WZ_l'/dA_b
+      with the eq-6 contraction weight
+        w_b = [sum_{L in b} 2 C^phiphi_L^2/((2L+1) fsky)]
+              / [sum_{L in b} C^phiphi_L]^2
+      (band width 1 = 2/((2L+1) fsky), eq 6 verbatim; wider bands are
+      the smooth-response projection, valid when dCl/dC^phiphi_L is
+      nearly constant across the band; a band with sum C^phiphi_L = 0
+      contributes nothing, w_b = 0, never a division).
 
-  (legend: A_b = the fractional amplitude of C^phiphi inside band b,
-  so dCl/dA_b = sum_{L in b} C^phiphi_L dCl/dC^phiphi_L and the
-  band-summed S_b uses the same normalization; eps = the stencil
-  offsets of A_b around 0.)
+  (legend: A_b = the FRACTIONAL amplitude of C^phiphi inside band b
+  (clpp *= 1 + eps), so the stencil returns dCl/dA_b =
+  sum_{L in b} C^phiphi_L dCl/dC^phiphi_L, which already carries one
+  factor of C^phiphi; eq 6 in that coordinate contracts with the
+  variance of the FRACTIONAL amplitude, w_b above, not with C^phiphi's
+  own variance, so the C^phiphi_L^2 cancels at band width 1 and leaves
+  2/((2L+1) fsky); eps = the stencil offsets of A_b around 0.
+  Derivation in notes/families-scalar-cmb.md.)
 
   Arguments:
     cambdata = fiducial CAMBdata (re-lensing machine).
@@ -494,7 +509,8 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
     cov_tt/cov_te/cov_ee (same-spectrum) and cov_tt_te/cov_tt_ee/
     cov_te_ee (the cross-spectrum off-pair blocks, eq 6 for X != W);
     study = the convergence record (per-band relative spreads and the
-    step list) for the provenance.
+    step list) plus the derivative coordinate, the band-weight policy,
+    and the per-band eq-6 weights, all for the provenance.
   """
   lmax = int(ell[-1])
   lens_lmax = int(ng_cfg["lens_lmax"])
@@ -580,13 +596,31 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
           + str(b_lo) + "," + str(b_hi) + "]  spread "
           + f"{worst:.2e}")
 
-  # the phi Gaussian variance, band-summed: S_b = sum_L Cov^phiphi_LL.
+  # the eq-6 contraction weight per band. The band is perturbed by a
+  # FRACTIONAL amplitude A_b (clpp *= 1 + eps), so the stencil already
+  # returns dCl/dA_b, which carries one factor of C^phiphi inside the
+  # band; eq 6 in that coordinate contracts with the Gaussian variance
+  # of the FRACTIONAL amplitude, not of C^phiphi itself. At band width 1
+  # that is exactly Var(A_L) = Var(C^phiphi_L)/C^phiphi_L^2 =
+  # 2/((2L+1) fsky). For a wider band it is the smooth-response
+  # projection
+  #   w_b = [sum_L 2 C^phiphi_L^2/((2L+1) fsky)] / [sum_L C^phiphi_L]^2,
+  # exact when dCl/dC^phiphi_L is nearly constant across the band. See
+  # notes/families-scalar-cmb.md.
   L = np.arange(0, lens_lmax + 1, dtype="float64")
   var_pp_L = np.zeros(lens_lmax + 1, dtype="float64")
   var_pp_L[2:] = 2.0 * pp_raw[2:] ** 2 / ((2.0 * L[2:] + 1.0) * fsky)
-  S = np.zeros(len(bands), dtype="float64")
+  w = np.zeros(len(bands), dtype="float64")
   for b, (b_lo, b_hi) in enumerate(bands):
-    S[b] = var_pp_L[b_lo:b_hi + 1].sum()
+    band_var_sum = var_pp_L[b_lo:b_hi + 1].sum()
+    band_cl_sum  = pp_raw[b_lo:b_hi + 1].sum()
+    # an all-zero band carries no signal: its fractional derivative is
+    # identically zero, so it contributes nothing. w_b = 0, never a
+    # divide by zero.
+    if band_cl_sum == 0.0:
+      w[b] = 0.0
+    else:
+      w[b] = band_var_sum / (band_cl_sum ** 2)
 
   # eq 6 assembly for every spectrum pair: the same-spectrum blocks
   # (the per-spectrum training covariance) AND the cross-spectrum
@@ -594,12 +628,21 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   # they tile the joint TT/TE/EE covariance the planned
   # dense-covariance training (notes/families-scalar-cmb.md) and any
   # joint likelihood would consume).
-  blocks = assemble_lensing_blocks(deriv=deriv, S=S)
+  blocks = assemble_lensing_blocks(deriv=deriv, w=w)
+  # the band policy is a resolved provenance fact: exact eq 6 at band
+  # width 1, the smooth-response projection when the band is wider.
+  if band_width == 1:
+    band_weight_policy = "exact eq 6"
+  else:
+    band_weight_policy = "smooth-response band projection"
   study = {"bands": [[int(a), int(b)] for a, b in bands],
            "step_fracs": step_fracs,
            "band_width": band_width,
            "per_band_relative_spread": spreads.tolist(),
-           "converge_rtol": rtol}
+           "converge_rtol": rtol,
+           "derivative_coordinate": "fractional_band_amplitude",
+           "band_weight_policy": band_weight_policy,
+           "per_band_weight": w.tolist()}
   return blocks, study
 
 

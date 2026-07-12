@@ -201,6 +201,92 @@ README sections 14 and 15.
   liveness, convergence, the provenance study) on real CAMB, plus
   asserts the new provenance keys.
 
+### D-CM11-A resume (2026-07-12, Opus): the fix + the oracle landed, Mac-gated
+
+**Base:** claude/amazing-keller-e798b6 @ da27cca. Four files touched,
+uncommitted; git status shows ONLY these four (an early diff snapshot
+caught transient linter churn on unrelated files that resolved to clean).
+
+**Landed:**
+- `compute_data_vectors/compute_cmb_covariance.py`: the contraction weight
+  is now `w_b = [sum_{L in b} 2 C^pp_L^2/((2L+1) fsky)] / [sum_{L in b}
+  C^pp_L]^2`, with `w_b = 0` (no divide) when the band's C^pp sum is 0.
+  `assemble_lensing_blocks(deriv, S)` -> `(deriv, w)`; docstrings + the
+  inline derivation rewritten (fractional-amplitude coordinate; the
+  C^pp_L^2 cancels at width 1 leaving 2/((2L+1) fsky)). Provenance study
+  gains `derivative_coordinate = "fractional_band_amplitude"`,
+  `band_weight_policy` ("exact eq 6" at width 1, "smooth-response band
+  projection" wider), and `per_band_weight` (resolved values). The
+  Gaussian path is BYTE-UNCHANGED (verified: the diff touches only the NG
+  weight block + docstrings; gaussian_blocks / noise_spectrum / the
+  sigma_* / gauss_* / cl_* outputs are untouched).
+- `gates/checks/cmb_identity.py`: three eq-6 oracle legs
+  (check_covariance_oracle) on an affine fake CAMBdata (lensed_s = base_s
+  + M_s @ clpp, base_s = 0 so the 5-point stencil is exact to round-off):
+  (a) truth (real nongaussian_blocks == eq 6 built from M and Var(C_L)),
+  (b) discrimination (the old band-summed-variance weights, applied to the
+  same derivatives via assemble_lensing_blocks, miss truth by ~16 orders),
+  (c) band (width-3 constant-response contraction reproduces the per-L eq 6).
+  The pre-existing structural / adapter / roughness / finetune legs are
+  untouched.
+- `gates/checks/cmb_smoke.py`: leg 2b (check_cov_nondiagonal) gains an
+  assertion of the three new provenance keys (coordinate, the
+  smooth-response policy at the smoke band width, one weight per band).
+- `gates/board.py`: the cmb-identity + cmb-smoke docstrings, the
+  cmb-identity ctx label, and both `maps` fields updated for the new legs.
+
+**One found-and-fixed subtlety (recorded):** the first oracle run FAILED at
+rel ~1e-7 (not 1e-9). Root cause: a random O(1) baseline base_s made the
+stencil extract an ~1e-9 derivative signal by subtracting O(1) values, so
+float64 rounding of the baseline capped precision at ~1e-7. The baseline
+cancels in the derivative, so zeroing it makes the affine stencil exact to
+round-off (~1e-14). This is the oracle design that isolates the contraction
+weight; it is not a change to the pipeline.
+
+**Mac gate (raw output pasted in the handoff):** compileall of the four
+touched files OK; the three oracle legs run GREEN via an exec-extract of the
+shipped check code against the real compute_cmb_covariance module (torch
+absent on this box, so the full torch-context gate rides the workstation) —
+truth max rel 6.27e-14, discrimination truth/old ~ 1e16, band max rel
+2.22e-14; a separate producer/consumer check confirms the study keys equal
+what smoke leg 2b asserts (and "exact eq 6" at band width 1).
+
+**Workstation (user-run):** `--force-rerun cmb-identity cmb-smoke
+transfer-identity`. cmb-identity adds the three oracle legs (torch, no
+CAMB); cmb-smoke re-executes eq 6 on real CAMB with the new weight +
+asserts the provenance keys; transfer-identity is in the rerun set per the
+handoff (a CMB-covariance-adjacent consumer). Awaiting the Architect audit
+of the fix + the oracle before the board.
+
+### D-CM11-A Architect audit (2026-07-12, Fable): ACCEPTED, Mac scope
+
+Audited against the raw diff, not the resume: the weight formula, the
+zero-band no-divide guard, the width-1 degeneracy, and the three
+resolved provenance keys all match the ruling; the complete 91-line
+producer diff touches only assemble_lensing_blocks and
+nongaussian_blocks, so the Gaussian outputs are structurally
+untouched; the oracle's truth builder never calls the pipeline's
+contraction; imports for the new legs are module-level (the
+exec-extraction probes would have masked a missing one); the board
+prose stays code-free. Independent verification (audit_dcm11a.py, the
+Architect's own extraction): the three shipped legs reproduce the
+Implementer's numbers exactly (6.27e-14 / ~1e16 / 2.22e-14), a THIRD
+truth route (an explicit per-L accumulation loop the shipped oracle
+does not use) matches the pipeline's cov_tt_ee at 2.56e-14, and the
+persisted width-1 weights equal 2/((2L+1) fsky) to 1 ulp (the
+Architect's first bitwise demand was the harness bug, not the code —
+square-and-divide reassociation). Deviations accepted: the zero
+baseline (numerically necessary for a round-off-exact stencil; the
+real-baseline path rides cmb-smoke on CAMB) and the untouched stale
+pre-existing maps line-refs (out of scope). One science-thread
+footnote, not a blocker: the wide-band projection is written in RAW
+C^phiphi coordinates, and its smooth-response assumption is
+coordinate-dependent; the persisted policy plus the convergence study
+cover it, the width-1 exact path is coordinate-free — revisit when the
+dense-covariance audit fixes production band widths. The unit CLOSES
+only on the workstation pass (the three oracle legs under torch +
+eq 6 on real CAMB).
+
 ## D-CM12 — SPEC AWAITING AUDIT (written 2026-07-11, NOT implemented; the PRODUCING side is BLOCKED ON D-CM11-A)
 
 Sequencing: AFTER the first full 32-gate green + the EMUL2 acceptance.

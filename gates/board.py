@@ -1008,15 +1008,23 @@ def gate_cme_a(ctx):
   identity basis, epoch-0 identity, the two-phase discipline, save ->
   rebuild -> predict bitwise) and the NPCE check_npce leg (residual
   algebra bitwise, roughness composition, base + net prediction
-  bitwise, the pce x amplitude-law exclusivity). torch only,
-  no CAMB (spec: notes/families-scalar-cmb.md).
+  bitwise, the pce x amplitude-law exclusivity). Also the eq-6
+  lens-induced covariance oracle (check_covariance_oracle): an affine
+  fake CAMBdata makes the 5-point stencil exact, so
+  compute_cmb_covariance's non-Gaussian contraction is checked against
+  eq 6 built directly from the sensitivity matrix and the
+  lensing-potential variance — a truth leg (the contraction equals the
+  direct eq 6), a discrimination leg (the earlier band-summed-variance
+  weights miss it by orders of magnitude), and a band leg (a width-3
+  constant-response contraction reproduces the per-multipole eq 6).
+  torch only, no CAMB (spec: notes/families-scalar-cmb.md).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/cmb_identity.py")
   if not ctx.dry:
     ctx.expect(
       label="cmb-identity constants + law + round-trip + roughness + "
-            "finetune + adapter legs",
+            "finetune + adapter + covariance-oracle legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
              + " (gates/checks/cmb_identity.py)")
@@ -1037,8 +1045,10 @@ def gate_cme_b(ctx):
   2026-07-12, leg 2b (check_cov_nondiagonal): the Motloch & Hu eq-6
   NON-DIAGONAL covariance runs end to end at smoke scale (16
   re-lensings) — all six dense blocks (3 per-spectrum + 3 cross),
-  symmetric + PSD + off-diagonals alive, the stencil step study in the
-  provenance. torch + cobaya + a compiled CAMB under $ROOTDIR; budget
+  symmetric + PSD + off-diagonals alive, the stencil step study and the
+  fractional-amplitude contraction keys in the provenance (the
+  normalization fix, notes/families-scalar-cmb.md). torch + cobaya + a
+  compiled CAMB under $ROOTDIR; budget
   several minutes (~400 serial low-accuracy CAMB calls) (spec:
   notes/families-scalar-cmb.md).
   """
@@ -1384,7 +1394,8 @@ BOARD = [
        tier=TIER_NEW_FEATURES,
        home="families-scalar-cmb",
        maps="110-117 (identity legs); 517-530 (roughness gate legs); "
-            "582-591 (finetune legs)",
+            "582-591 (finetune legs); 141-203 (the eq-6 covariance "
+            "oracle: truth + discrimination + band)",
        run=gate_cme_a,
        needs=("torch",)),
   Gate(id="bsn-identity",
@@ -1469,7 +1480,9 @@ BOARD = [
        tier=TIER_SAVE_AND_SAMPLE,
        home="families-scalar-cmb",
        maps="118-124 (end-to-end: generator + covariance + train + "
-            "cobaya lifecycle); 575-578 (the family diagnostics leg)",
+            "cobaya lifecycle); 575-578 (the family diagnostics leg); "
+            "141-203 (leg 2b: the eq-6 non-diagonal blocks + the "
+            "fractional-amplitude weight-key provenance)",
        run=gate_cme_b,
        needs=("torch", "cobaya")),
   Gate(id="bsn-smoke",

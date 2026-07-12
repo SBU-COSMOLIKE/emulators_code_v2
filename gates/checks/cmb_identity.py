@@ -47,7 +47,17 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     at epoch 0 (build_warm_start's own parity check passes and the
     transferred model matches the source bitwise on shared inputs); the
     cosmolike pin refuses a CMB source loudly (wrong-kind); validate_cmb
-    accepts a finetune block (the interim error is gone).
+    accepts a finetune block (the interim error is gone);
+  - the eq-6 lens-induced covariance oracle (compute_cmb_covariance.py,
+    pure numpy): an affine fake CAMBdata makes the 5-point stencil exact,
+    so the non-Gaussian contraction is checked against eq 6 built
+    directly from the sensitivity matrix and the lensing-potential
+    variance — the truth leg (the real contraction equals the direct
+    eq 6 at round-off), the discrimination leg (the earlier
+    band-summed-variance weights miss that truth by orders of magnitude,
+    so an oracle those weights pass would be defective), and the band
+    leg (a width-3 contraction with a response held constant across each
+    band reproduces the per-multipole eq 6).
 
 The adapter legs stub cobaya.theory before loading the shipped emul_cmb.py
 (this gate is torch-only; the real cobaya lifecycle is the cmb-smoke board
@@ -814,10 +824,268 @@ def check_npce(tmp, device):
                "ValueError names the fix")
 
 
+# ---------------------------------------------------------------------------
+# The eq-6 covariance oracle (compute_cmb_covariance.py). These legs are pure
+# numpy: they drive the non-Gaussian contraction against a truth built
+# independently of the pipeline's own algebra, so a normalization error in
+# the contraction cannot hide behind symmetry / positive-definiteness checks
+# (those are invariant under any positive diagonal reweighting). The
+# derivation of the fractional-amplitude weight is in
+# notes/families-scalar-cmb.md. No torch, no CAMB.
+# ---------------------------------------------------------------------------
+
+def _load_cov_module():
+    """Load compute_cmb_covariance.py by path (pure numpy; CAMB is lazy)."""
+    repo = Path(__file__).resolve().parents[2]
+    path = repo / "compute_data_vectors" / "compute_cmb_covariance.py"
+    spec = importlib.util.spec_from_file_location("cmb_cov_oracle", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class FakeCAMBData:
+    """A CAMB results stand-in whose re-lensing is an exact affine map.
+
+    get_lensed_cls_with_spectrum(clpp) returns base_s + M_s @ clpp per
+    spectrum, so dC_l/dclpp_L = M_s[l, L] exactly and the 5-point stencil
+    the covariance script runs is exact to round-off (an affine function
+    has no truncation error). That lets the gate compare the script's
+    eq-6 contraction against a truth built straight from M and the
+    lensing-potential variance, an oracle independent of the script's own
+    contraction algebra.
+
+    The oracle sets the raw C^phiphi equal to the array the script reads
+    through get_lens_potential_cls, so raw and scaled agree and no
+    convention factor enters (the amplitude is scaled fractionally, which
+    is convention-invariant; see notes/families-scalar-cmb.md).
+
+    Arguments (constructor):
+      clpp = (lens_lmax+1,) the fiducial lensing-potential array.
+      M    = dict tt/te/ee of (lmax+1, lens_lmax+1) sensitivity matrices.
+      base = dict tt/te/ee of (lmax+1,) unperturbed lensed spectra.
+    """
+
+    def __init__(self, clpp, M, base):
+        self._clpp = np.asarray(clpp, dtype="float64")
+        self._M = M
+        self._base = base
+
+    def get_lens_potential_cls(self, raw_cl=False):
+        """Column 0 = the lensing-potential spectrum the script perturbs.
+
+        CAMB returns at least four columns; the script reads only column
+        0, so a wide zero array carrying clpp there is enough.
+        """
+        arr = np.zeros((self._clpp.shape[0], 4), dtype="float64")
+        arr[:, 0] = self._clpp
+        return arr
+
+    def get_lensed_cls_with_spectrum(self, clpp, lmax, CMB_unit="muK",
+                                     raw_cl=True):
+        """The affine re-lensing: lensed_s = base_s + M_s @ clpp.
+
+        Columns follow CAMB order (0 = TT, 1 = EE, 2 = BB, 3 = TE), the
+        columns lensed_cls_with_clpp reads.
+        """
+        vec = np.asarray(clpp, dtype="float64")
+        n = int(lmax) + 1
+        out = np.zeros((n, 4), dtype="float64")
+        out[:, 0] = self._base["tt"][:n] + self._M["tt"][:n] @ vec
+        out[:, 1] = self._base["ee"][:n] + self._M["ee"][:n] @ vec
+        out[:, 3] = self._base["te"][:n] + self._M["te"][:n] @ vec
+        return out
+
+
+def _oracle_truth(M, clpp, fsky, ell, lens_lmax):
+    """Eq 6 straight from M and the lensing-potential variance.
+
+    N^{ab}_{ll'} = sum_{L=2}^{lens_lmax} M_a[l, L] Var_L M_b[l', L],
+    Var_L = 2 C^phiphi_L^2 / ((2L+1) fsky), the Gaussian variance of the
+    lensing potential (raw = scaled in the oracle, so this is dC_l/dclpp_L
+    contracted with Cov^phiphi_LL exactly as eq 6 reads). The l index runs
+    over the covariance grid `ell`, the rows sliced from M.
+
+    Arguments:
+      M         = dict tt/te/ee of (lmax+1, lens_lmax+1) sensitivities.
+      clpp      = (lens_lmax+1,) lensing-potential spectrum.
+      fsky      = sky fraction (rescales the variance).
+      ell       = (n_ell,) covariance multipole grid (l = 2..lmax).
+      lens_lmax = top L of the phi sum.
+
+    Returns:
+      dict of (n_ell, n_ell) arrays keyed like assemble_lensing_blocks
+      (cov_tt/cov_te/cov_ee and cov_tt_te/cov_tt_ee/cov_te_ee).
+    """
+    cl = np.asarray(clpp, dtype="float64")
+    big_l = np.arange(0, lens_lmax + 1, dtype="float64")
+    var_l = np.zeros(lens_lmax + 1, dtype="float64")
+    var_l[2:] = 2.0 * cl[2:lens_lmax + 1] ** 2 / ((2.0 * big_l[2:] + 1.0)
+                                                  * fsky)
+    lo = int(ell[0])
+    hi = int(ell[-1]) + 1
+    pairs = (("tt", "tt"), ("te", "te"), ("ee", "ee"),
+             ("tt", "te"), ("tt", "ee"), ("te", "ee"))
+    out = {}
+    for a, b in pairs:
+        m_a = M[a][lo:hi, :lens_lmax + 1]         # (n_ell, lens_lmax+1)
+        m_b = M[b][lo:hi, :lens_lmax + 1]
+        if a == b:
+            key = "cov_" + a
+        else:
+            key = "cov_" + a + "_" + b
+        out[key] = (m_a * var_l[None, :]) @ m_b.T
+    return out
+
+
+def _band_constant_M(rng, n_rows, lens_lmax, band_width):
+    """A sensitivity matrix constant across each L-band.
+
+    Columns L within one width-`band_width` band share a per-row value,
+    so dC_l/dC^phiphi_L is exactly constant across the band and the
+    smooth-response band projection is exact. Columns L < 2 stay zero
+    (the bands start at L = 2, so they never contribute).
+
+    Arguments:
+      rng        = numpy Generator.
+      n_rows     = lmax+1 (the covariance row count).
+      lens_lmax  = top L of the phi sum.
+      band_width = multipoles per band.
+
+    Returns:
+      (n_rows, lens_lmax+1) sensitivity matrix, constant within each band.
+    """
+    M = np.zeros((n_rows, lens_lmax + 1), dtype="float64")
+    start = 2
+    while start <= lens_lmax:
+        stop = min(lens_lmax, start + band_width - 1)
+        col = rng.standard_normal((n_rows, 1))
+        M[:, start:stop + 1] = col              # same value across the band
+        start = stop + 1
+    return M
+
+
+def _worst_rel(blocks, truth):
+    """Max relative block difference over all six spectrum pairs."""
+    worst = 0.0
+    for key in truth:
+        denom = np.abs(truth[key]).max() + 1e-300
+        rel = np.abs(blocks[key] - truth[key]).max() / denom
+        if rel > worst:
+            worst = rel
+    return worst
+
+
+def check_covariance_oracle():
+    """The three eq-6 oracle legs (truth, discrimination, band)."""
+    cov = _load_cov_module()
+    rng = np.random.default_rng(2024)
+
+    # ---- legs (a) + (b): band width 1, a general (per-L) sensitivity ----
+    lens_lmax = 12
+    lmax = 12
+    ell = np.arange(2, lmax + 1, dtype="int64")     # l = 2..12, n_ell = 11
+    fsky = 0.4
+    # a positive lensing-potential array, physically small so the old
+    # extra-C_L^2 weights land many orders of magnitude below the truth.
+    clpp = np.zeros(lens_lmax + 1, dtype="float64")
+    clpp[2:] = 1e-8 * (1.0 + 0.5 * rng.random(lens_lmax - 1))
+    M = {}
+    base = {}
+    for s in ("tt", "te", "ee"):
+        M[s] = rng.standard_normal((lmax + 1, lens_lmax + 1))
+        # a ZERO baseline: the derivative signal is O(M C^phiphi) ~ 1e-8,
+        # so a large unperturbed spectrum would swamp it and the stencil
+        # would lose it to cancellation (~1e-7). With no baseline the
+        # stencil of the affine map is exact to round-off, isolating the
+        # contraction weight the oracle tests.
+        base[s] = np.zeros(lmax + 1, dtype="float64")
+    fake = FakeCAMBData(clpp=clpp, M=M, base=base)
+    cls = {"pp": clpp.copy(),
+           "tt": np.zeros(lmax + 1, dtype="float64"),
+           "te": np.zeros(lmax + 1, dtype="float64"),
+           "ee": np.zeros(lmax + 1, dtype="float64")}
+    ng1 = {"enabled": True,
+           "lens_lmax": lens_lmax,
+           "band_width": 1,
+           "step_fracs": [0.01, 0.02],
+           "converge_rtol": 0.05}
+    blocks1, study1 = cov.nongaussian_blocks(cambdata=fake, cls=cls, ell=ell,
+                                             ng_cfg=ng1, fsky=fsky,
+                                             log=lambda *a: None)
+    truth1 = _oracle_truth(M=M, clpp=clpp, fsky=fsky, ell=ell,
+                           lens_lmax=lens_lmax)
+    worst1 = _worst_rel(blocks1, truth1)
+    report("eq-6 truth: real contraction matches eq 6 from M and Var(C_L)",
+           worst1 < 1e-9, "max rel over six blocks %.2e" % worst1)
+
+    # (b) discrimination: the OLD weights (band-summed C^phiphi variance,
+    # the extra C_L^2) on the same derivatives must miss the truth by
+    # orders of magnitude. deriv is the affine map's exact analytic
+    # derivative, dCl/dA_b = sum_{L in b} M[l, L] C^phiphi_L.
+    bands = cov.band_windows(lmin=2, lmax=lens_lmax, band_width=1)
+    big_l = np.arange(0, lens_lmax + 1, dtype="float64")
+    var_pp = np.zeros(lens_lmax + 1, dtype="float64")
+    var_pp[2:] = 2.0 * clpp[2:] ** 2 / ((2.0 * big_l[2:] + 1.0) * fsky)
+    lo = int(ell[0])
+    hi = int(ell[-1]) + 1
+    n_ell = len(ell)
+    deriv = {}
+    for s in ("tt", "te", "ee"):
+        deriv[s] = np.zeros((len(bands), n_ell), dtype="float64")
+    s_old = np.zeros(len(bands), dtype="float64")
+    for bi, (b_lo, b_hi) in enumerate(bands):
+        s_old[bi] = var_pp[b_lo:b_hi + 1].sum()
+        band_cl = clpp[b_lo:b_hi + 1]
+        for s in ("tt", "te", "ee"):
+            deriv[s][bi] = (M[s][lo:hi, b_lo:b_hi + 1] * band_cl).sum(axis=1)
+    old_blocks = cov.assemble_lensing_blocks(deriv=deriv, w=s_old)
+    truth_max = max(np.abs(truth1[k]).max() for k in truth1)
+    old_max = max(np.abs(old_blocks[k]).max() for k in old_blocks)
+    orders = np.log10(truth_max / (old_max + 1e-300))
+    report("eq-6 discrimination: the old extra-C_L^2 weights miss by orders",
+           orders > 6.0, "truth / old magnitude ~ 1e%.0f" % orders)
+
+    # ---- leg (c): band width 3, a sensitivity CONSTANT across each band ----
+    # the smooth-response projection is then exact, so the width-3
+    # contraction must reproduce the per-L eq 6 truth.
+    lens_lmax_c = 13
+    lmax_c = 13
+    ell_c = np.arange(2, lmax_c + 1, dtype="int64")   # l = 2..13
+    band_width_c = 3
+    clpp_c = np.zeros(lens_lmax_c + 1, dtype="float64")
+    clpp_c[2:] = 1e-8 * (1.0 + 0.5 * rng.random(lens_lmax_c - 1))
+    M_c = {}
+    base_c = {}
+    for s in ("tt", "te", "ee"):
+        M_c[s] = _band_constant_M(rng, lmax_c + 1, lens_lmax_c, band_width_c)
+        # zero baseline (see the width-1 leg): the stencil stays exact.
+        base_c[s] = np.zeros(lmax_c + 1, dtype="float64")
+    fake_c = FakeCAMBData(clpp=clpp_c, M=M_c, base=base_c)
+    cls_c = {"pp": clpp_c.copy(),
+             "tt": np.zeros(lmax_c + 1, dtype="float64"),
+             "te": np.zeros(lmax_c + 1, dtype="float64"),
+             "ee": np.zeros(lmax_c + 1, dtype="float64")}
+    ng3 = {"enabled": True,
+           "lens_lmax": lens_lmax_c,
+           "band_width": band_width_c,
+           "step_fracs": [0.01, 0.02],
+           "converge_rtol": 0.05}
+    blocks3, study3 = cov.nongaussian_blocks(cambdata=fake_c, cls=cls_c,
+                                             ell=ell_c, ng_cfg=ng3, fsky=fsky,
+                                             log=lambda *a: None)
+    truth3 = _oracle_truth(M=M_c, clpp=clpp_c, fsky=fsky, ell=ell_c,
+                           lens_lmax=lens_lmax_c)
+    worst3 = _worst_rel(blocks3, truth3)
+    report("eq-6 band projection: width-3 constant-response matches truth",
+           worst3 < 1e-9, "max rel %.2e (policy %s)"
+           % (worst3, study3["band_weight_policy"]))
+
+
 def main():
     """Run the cmb-identity checks in a tempdir; exit non-zero on failure."""
     print("cmb-identity: geometry + law + round-trip + roughness "
-          "+ finetune + adapter legs")
+          "+ finetune + adapter + covariance-oracle legs")
     device = torch.device("cpu")
     with tempfile.TemporaryDirectory() as tmp:
         check_ruled_constants(device)
@@ -830,6 +1098,7 @@ def main():
         check_adapter(tmp, device)
         check_roughness(device)
         check_finetune(tmp, device)
+        check_covariance_oracle()
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))

@@ -15,10 +15,11 @@ two tiny dumps are ~400 serial CAMB calls at low accuracy):
      .npz on the same fiducial LCDM (zero noise, fsky 1) — the training
      path consumes a REAL script-produced file, never from_fiducial.
   2b the Motloch & Hu NON-DIAGONAL terms (eq 6) end to end at smoke
-     scale (check_cov_nondiagonal, added 2026-07-12): the nongaussian
-     flag on, 2 bands x 2 steps x 4 offsets = 16 re-lensings; all six
-     dense blocks land (3 per-spectrum + 3 cross), symmetric + PSD +
-     off-diagonals alive, the stencil step study in the provenance.
+     scale (check_cov_nondiagonal): the nongaussian flag on, 2 bands x
+     2 steps x 4 offsets = 16 re-lensings; all six dense blocks land
+     (3 per-spectrum + 3 cross), symmetric + PSD + off-diagonals alive,
+     the stencil step study and the fractional-amplitude contraction
+     keys in the provenance (the weight fix, notes/families-scalar-cmb.md).
   3  a data.cmb training run (spectrum tt, amplitude_law as_exp2tau)
      trains a small ResMLP; the collapse bar is RELATIVE to the staged
      mean predictor (best val median < 0.5x its median chi2), so a dead
@@ -236,8 +237,10 @@ def check_cov_nondiagonal(rootdir, rel_root, emul_dir, chains):
     blocks, diagonals at least the Gaussian variance (the lens term
     only ADDS variance), genuinely nonzero off-diagonals (the point
     of the leg — a diagonal-only matrix must fail it), a
-    non-negative spectrum for cov_tt (a covariance is PSD), and the
-    stencil step study recorded in the provenance.
+    non-negative spectrum for cov_tt (a covariance is PSD), the
+    stencil step study recorded in the provenance, and the
+    fractional-amplitude contraction keys (the derivative coordinate,
+    the band policy, and the per-band weights the fix persists).
     """
     ng_block = ("  nongaussian:\n"
                 "    enabled: true\n"
@@ -292,6 +295,25 @@ def check_cov_nondiagonal(rootdir, rel_root, emul_dir, chains):
            and len(study.get("per_band_relative_spread", [])) >= 2,
            "bands %d" % len(study.get("bands", []))
            if isinstance(study, dict) else "absent")
+    # the fractional-amplitude contraction keys (see
+    # notes/families-scalar-cmb.md): the derivative coordinate, the band
+    # policy (this run is wider than one multipole, so the smooth-response
+    # projection), and one weight per band. Persisted resolved values, so
+    # a consumer re-derives nothing and no old-normalization file can be
+    # mistaken for an eq-6 covariance.
+    n_bands = len(study.get("bands", [])) if isinstance(study, dict) else 0
+    coord = study.get("derivative_coordinate") if isinstance(study, dict) \
+        else None
+    policy = study.get("band_weight_policy") if isinstance(study, dict) \
+        else None
+    n_weight = len(study.get("per_band_weight", [])) \
+        if isinstance(study, dict) else 0
+    report("eq-6 provenance carries the fractional-amplitude weight keys",
+           coord == "fractional_band_amplitude"
+           and policy == "smooth-response band projection"
+           and n_weight == n_bands and n_bands >= 2,
+           "coord %s, policy %s, %d weights over %d bands"
+           % (coord, policy, n_weight, n_bands))
 
 
 def build_cfg(paths):
