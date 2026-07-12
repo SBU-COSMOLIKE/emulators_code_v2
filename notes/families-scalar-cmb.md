@@ -92,7 +92,12 @@ README sections 14 and 15.
   (check_cov_nondiagonal): the NG path runs END TO END at smoke
   scale (16 re-lensings) and must produce symmetric, PSD, off-
   diagonal-alive blocks with the step study in the provenance —
-  the first real execution of eq 6 anywhere.
+  the first real execution of eq 6 anywhere. That first execution
+  (board run 11) was RED: the hand-built clpp array stopped at
+  lens_lmax while CAMB demands Params.max_l length — fixed by taking
+  the fiducial array whole from get_lens_potential_cls (which also
+  stopped a silent delensing above lens_lmax); rerun pending
+  (gates-and-board.md run 11).
 - Generation: dataset_generator_cmb.py on the shared core — ONE CAMB
   pass writes four spectra files (never re-run Boltzmann per
   spectrum); phiphi FILLED (legacy zeroed it); get_Cl(ell_factor=

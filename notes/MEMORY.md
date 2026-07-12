@@ -1,6 +1,6 @@
 # notes/ index
 
-Consolidated 2026-07-11: ~85 topic notes rewritten into the ten files
+Consolidated 2026-07-11: ~85 topic notes rewritten into the eleven files
 below so any model (or human) can orient fast. Every retired note
 survives in git history (`git log --follow notes/<old-name>.md`); the
 delta IDs preserved in these files are the search keys.
@@ -9,10 +9,11 @@ Read in this order for a cold start: (1) this index,
 (2) state-2026-07-11-and-next.md, (3) project-and-history.md, then
 the topic file your task touches.
 
-- [State + what comes next](state-2026-07-11-and-next.md) — the
-  board is 32/32 GREEN (run 9, 2026-07-12); the redistribution map
-  to the topic notes; the queue: regression pass (--force-rerun-all)
-  -> the five artifacts -> EMUL2 -> the D-CM12 audit -> science.
+- [State + what comes next](state-2026-07-11-and-next.md) — first
+  full 32/32 green at run 9; current standing run 11 at 30/32 (one
+  red fixed awaiting rerun, one open); the redistribution map to the
+  topic notes; the queue: the two-red rerun -> the five artifacts
+  -> EMUL2 -> the D-CM12 audit -> science.
 - [Project + history](project-and-history.md) — the goal, the
   development arc by phase, the family-pattern recipe (what a new
   output family adds), the program-level lessons.
@@ -45,9 +46,14 @@ the topic file your task touches.
   param_cuts windows and the coverage-cut lesson.
 - [Gates + the board](gates-and-board.md) — the harness the user
   runs, the 32 gates, identity/smoke philosophy, dead-network rule,
-  --force-rerun-all, and the run-history table through the first
-  full 32/32 green (nine runs, every red root-caused).
+  --force-rerun-all, and the run-history table (eleven runs, every
+  red root-caused; the first full 32/32 at run 9).
 - [Conventions + workflow + environment](conventions-and-workflow.md)
   — the Python/docs/README/plots/terminal/YAML house rules, the
   dual-agent workflow, git discipline, the Mac evidence pattern,
   machines and ROOTDIR.
+- [User didactics + Python voice](user-didactics-and-python-voice.md)
+  — who the reader is (C coder; cosmologist audience), how he likes
+  to be taught (show-never-describe, define-or-drop, run-first), and
+  the code register with his own quotes and before/after shapes; the
+  Implementer reads it before writing code or docs.
