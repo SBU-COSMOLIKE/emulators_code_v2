@@ -231,9 +231,11 @@ class RunContext:
       cwd        = the working directory (default the repo root).
       allow_fail = when False a nonzero exit raises GateFailure; when
                    True the caller inspects the returned code itself.
-      env        = extra environment variables merged over the current
-                   environment for the child (e.g. PYTHONPATH for a
-                   check script); None runs in the inherited env.
+      env        = extra environment variables merged over the child's
+                   environment (e.g. PYTHONPATH for a check script). The
+                   child always starts from the current environment with
+                   ROOTDIR forced to the board's resolved rootdir (queue 1d,
+                   the one owner); env is layered on top of that.
 
     Returns:
       (returncode, output) where output is the combined stdout+stderr
@@ -250,9 +252,23 @@ class RunContext:
                  + printable + env_note + "\n")
       return (0, "")
 
-    child_env = None
+    # ONE owner of the child environment (queue 1d): every child a gate
+    # launches -- driver, check script, golden-run git, and the Cobaya
+    # subprocess a driver spawns (a grandchild that inherits this) -- observes
+    # ROOTDIR = the board's resolved rootdir, NEVER whatever $ROOTDIR the
+    # launching shell happened to carry. A certification run must execute
+    # against the certified root; the recorded value (the log header) is this
+    # same value, never a restatement. If the root is unresolved, refuse before
+    # launching anything.
+    rootdir = self.cfg.get("rootdir")
+    if rootdir is None:
+      raise GateFailure(
+        "refusing to launch a child with an unresolved board rootdir: set "
+        "$ROOTDIR or board_config.json rootdir so the run executes against the "
+        "certified root, not an inherited one")
+    child_env = dict(os.environ)
+    child_env["ROOTDIR"] = str(rootdir)
     if env is not None:
-      child_env = dict(os.environ)
       child_env.update(env)
     # the command echo and its streamed output are log-only: the full
     # driver / check stream belongs in the gate log, not on the terminal
@@ -1766,6 +1782,10 @@ def _log_header(ctx, gate):
     lines.append("worktree pin: " + gate.worktree_commit)
   lines.append("base-notes commit: " + _BASE_NOTES_COMMIT)
   lines.append("HEAD at run: " + head)
+  # the ROOTDIR every child launch is given (queue 1d): recorded from the same
+  # cfg value sh() injects, so the recorded root IS the executed root.
+  lines.append("child ROOTDIR (injected into every child): "
+               + str(ctx.cfg.get("rootdir")))
   lines.append("started: " + _now())
   lines.append("=" * 72)
   text = "\n".join(lines) + "\n"

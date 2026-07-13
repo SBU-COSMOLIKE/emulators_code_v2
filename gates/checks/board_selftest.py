@@ -45,7 +45,9 @@ and (where relevant) the deliberately broken behavior it must reject.
 """
 import copy
 import hashlib
+import io
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -56,6 +58,7 @@ if str(_GATES) not in sys.path:
     sys.path.insert(0, str(_GATES))
 
 import run_board
+import board
 from board import BOARD, Assertion, Gate, GateFailure, Manifest, TIER_BACKLOG
 
 FAILURES = []
@@ -772,6 +775,116 @@ def check_manifest_persistence():
            "legacy dual-digest fallback intact")
 
 
+def check_child_env():
+    """1d: sh() is the one owner of the child environment -- every child a gate
+    launches observes ROOTDIR = the board's resolved rootdir, never the
+    inherited shell value, and an unresolved rootdir refuses before launch.
+
+    Drives the REAL RunContext.sh over a tiny child that echoes its ROOTDIR.
+    """
+    A = "/tmp/mf_shell_root_A"          # the value the launching shell carries
+    B = "/tmp/mf_board_root_B"          # the board's resolved (certified) rootdir
+    echo = [sys.executable, "-c",
+            "import os; print(os.environ.get('ROOTDIR', ''))"]
+    ctx = run_board.RunContext(cfg={"rootdir": B}, dry=False,
+                               log_fh=io.StringIO(), env={}, debug=False)
+    saved = os.environ.get("ROOTDIR")
+    try:
+        os.environ["ROOTDIR"] = A
+        _rc, out = ctx.sh(cmd=echo)
+        report("child observes the board rootdir B, not the inherited shell A",
+               out.strip() == B, "injected " + B + " over inherited " + A)
+        del os.environ["ROOTDIR"]
+        _rc, out = ctx.sh(cmd=echo)
+        report("child still observes B when $ROOTDIR is absent from the shell",
+               out.strip() == B, "injection does not depend on inheritance")
+        # mutation arm: the retired inherit-only environment (no injection) ->
+        # the child sees the shell A, not the board B -> the contract fails.
+        os.environ["ROOTDIR"] = A
+        proc = subprocess.run(echo, env=dict(os.environ),
+                              stdout=subprocess.PIPE, text=True)
+        report("mutation (inherit-only env) makes the child see A, not B",
+               proc.stdout.strip() == A and A != B,
+               "an uninjected child executes against the wrong root")
+        # refusal: an unresolved board rootdir refuses before any launch.
+        ctx_none = run_board.RunContext(cfg={"rootdir": None}, dry=False,
+                                        log_fh=io.StringIO(), env={}, debug=False)
+        raised = False
+        try:
+            ctx_none.sh(cmd=echo)
+        except run_board.GateFailure:
+            raised = True
+        report("unresolved board rootdir refuses before launch",
+               raised, "no child runs against an uncertified root")
+        # census: every gate child launch routes through sh()'s single Popen
+        # (run_check / run_driver / the golden-run git ops all call self.sh);
+        # _git and _probe_import use subprocess.run and are harness-internal,
+        # not gate children.
+        rb_src = Path(run_board.__file__).read_text()
+        report("one owner: exactly one subprocess.Popen (inside sh) in the runner",
+               rb_src.count("subprocess.Popen") == 1,
+               "all gate children route through sh()")
+    finally:
+        if saved is None:
+            os.environ.pop("ROOTDIR", None)
+        else:
+            os.environ["ROOTDIR"] = saved
+
+
+class _GhaFakeCtx:
+    """A fake ctx that drives the REAL gate_gha_f warning leg: run_driver
+    returns a chosen (rc, text) for the --activation flag run and a failing
+    frozen-trunk result for the license run, and captures ctx.expect verdicts.
+    """
+    def __init__(self, warn_rc):
+        self.dry = False
+        self._warn_rc = warn_rc
+        self.expects = {}
+
+    def require_caps(self, *a):
+        pass
+
+    def require_config(self, key):
+        return "y.yaml"
+
+    def run_driver(self, *, yaml_path, extra=(), allow_fail=False, **kw):
+        if extra:                        # the pin run WITH the --activation flag
+            return (self._warn_rc,
+                    "the head keeps its model.trf.activation pin (gated_power)")
+        return (1, "frozen")             # the invalid-license run (rc_l != 0)
+
+    def expect(self, *, label, ok, detail=""):
+        self.expects[label] = ok
+
+
+def check_gha_f_warning():
+    """RT-04: head-activation-pin's flag-vs-pin warning leg must require the
+    flag run to SUCCEED (rc_w == 0), not merely print the warning.
+
+    Drives the REAL board.gate_gha_f with a fake ctx; the golden and smoke
+    helpers are stubbed (they run on the box), so only the warning-leg logic
+    under test executes.
+    """
+    saved_g, saved_s = board._golden_leg, board._smoke_driver
+    try:
+        board._golden_leg = lambda **k: None
+        board._smoke_driver = lambda **k: None
+        label = "head-activation-pin flag-vs-pin warning"
+        # a warning printed but the flag run exited nonzero -> the leg must FAIL.
+        fc = _GhaFakeCtx(warn_rc=1)
+        board.gate_gha_f(fc)
+        report("RT-04: a warning on a FAILED flag run fails the warning leg",
+               fc.expects.get(label) is False,
+               "rc_w != 0 must not pass even with the warning present")
+        # warning printed AND the flag run succeeded -> the leg passes (control).
+        fc2 = _GhaFakeCtx(warn_rc=0)
+        board.gate_gha_f(fc2)
+        report("RT-04: a warning on a SUCCESSFUL flag run passes (control)",
+               fc2.expects.get(label) is True, "rc_w == 0 and the warning")
+    finally:
+        board._golden_leg, board._smoke_driver = saved_g, saved_s
+
+
 def main():
     print("board-selftest (pure Python, no torch)")
     print("\n-- exit-code truth --")
@@ -796,6 +909,10 @@ def main():
     check_manifest_riders()
     print("\n-- manifest persistence (resolved members, digest, pre-manifest) --")
     check_manifest_persistence()
+    print("\n-- child environment (sh injects the certified ROOTDIR) --")
+    check_child_env()
+    print("\n-- head-activation-pin warning leg (RT-04: rc_w == 0 required) --")
+    check_gha_f_warning()
     print("")
     if FAILURES:
         print("board-selftest: %d FAILURE(S): %s"

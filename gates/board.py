@@ -711,10 +711,12 @@ def gate_gha_f(ctx):
     return
   ctx.expect(
     label="head-activation-pin flag-vs-pin warning",
-    ok=logscan.contains(
+    ok=(rc_w == 0 and logscan.contains(
       text=out_w,
-      needle="the head keeps its model.trf.activation pin (gated_power)"),
-    detail="the startup warning must state the pin wins over --activation")
+      needle="the head keeps its model.trf.activation pin (gated_power)")),
+    detail="the flag-vs-pin run must succeed (rc " + str(rc_w) + ") AND print "
+           "the startup warning that the pin wins over --activation; a warning "
+           "printed on a failed run does not count")
   ctx.expect(
     label="head-activation-pin license error (freeze_trunk false + pin"
           " -> build_specs errors)",

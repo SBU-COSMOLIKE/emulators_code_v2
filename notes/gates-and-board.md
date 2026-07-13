@@ -1541,3 +1541,104 @@ recorded ROOTDIR, not an inherited ambiguous one. Queue 2 stays
 blocked until 1b fully lands (population complete). Guide gap
 handling verified: the phase-2 notes entry NAMES ~:4723's digest half
 (narrowed), no guide edit — custody honored.
+
+## Queue 1d + RT-04 DONE (Opus, 2026-07-13): the child environment equals the certified root
+
+`RunContext.sh` is now the ONE owner of the child environment: every child a
+gate launches (driver via `run_driver`, check script via `run_check`, the
+golden-run `git worktree` ops, and the Cobaya subprocess a driver spawns as a
+grandchild that inherits this) starts from the current environment with
+`ROOTDIR` forced to `str(self.cfg["rootdir"])` -- the board's resolved,
+certified root -- never the inherited shell value. If that rootdir is
+unresolved, `sh()` raises `GateFailure` BEFORE launching anything (defence in
+depth beside the preflight rootdir check). The per-run log header records
+`child ROOTDIR (injected into every child)` from the SAME `cfg["rootdir"]`
+value `sh()` injects, so the recorded root IS the executed root, not a
+restatement. Census: exactly one `subprocess.Popen` in `run_board.py` (inside
+`sh()`); `_git` / `_probe_import` use `subprocess.run` and are harness-internal
+(not gate children), so every gate child routes through the one owner.
+
+RT-04 rider (same landing): `gate_gha_f`'s flag-vs-pin warning leg is now
+`ok=(rc_w == 0 and <warning substring>)` -- a warning printed on a driver run
+that then exited nonzero no longer passes. The invalid-license leg's
+`rc_l != 0` stays the separate negative control.
+
+Selftest: 67 -> 74 legs. `check_child_env` (5, driving the REAL sh over a child
+that echoes its ROOTDIR): inherited A + board B -> child sees B; $ROOTDIR
+absent -> child still sees B; a mutation arm (inherit-only env) makes the child
+see A not B; an unresolved rootdir refuses before launch; the one-owner Popen
+census. `check_gha_f_warning` (2, driving the REAL `gate_gha_f` with a fake ctx,
+the golden/smoke helpers stubbed): a warning on a FAILED flag run fails the leg;
+a warning on a SUCCESSFUL flag run passes (control).
+
+Verification (Mac, cocoa-torch): `board-selftest` ALL PASS (74 legs, 0 fail);
+`run_board --list` rc 0; `cmb-identity` green (the regression control the 1d
+gate required); `compileall emulator gates` clean. Queue 5 now DEPENDS on 1d
+(the workstation certification run executes under the injected, recorded root).
+
+Guide custody: I checked the guide for a Current-gap paragraph describing the
+harness child-environment inheritance; the ROOTDIR discussion at
+`emulator_code_guide.tex` ~:351 is descriptive setup (what ROOTDIR is), not a
+labeled gap about the board injecting it, and none of the labeled Current-gap
+paragraphs covers the gates-harness env. So 1d narrows no guide Current-gap;
+none named. (If the red team judges one is owed, it is their edit.)
+
+## Queue 1b phase 3: per-gate manifest population -- PROPOSAL / analysis (Opus, 2026-07-13)
+
+Phase 3 populates each gate's `manifest=`; its VALUE (a populated gate's
+`pre-manifest`/stale record reruns with the closure digest) is realized only by
+the workstation reruns (queue 5, which now waits on 1d). It is also
+design-sensitive per gate. So this section records the analysis + a population
+plan for review rather than a piecemeal population -- a code-only manifest with
+`inputs=()` on a gate that has data inputs would RETIRE its whole-yaml_dir hash
+and hash no data, a regression worse than the fallback. Population is
+all-or-nothing per gate (code AND inputs together).
+
+Gate categories (from the closure/dynamic/driver scan over BOARD):
+
+- Pure-Python board-integrity checks, no external inputs, dynamic-clean:
+  board-selftest, stage-ram, generator-seed, family-first. These declare
+  `Manifest(code=(), inputs=())` -- the check auto-seed already closes over
+  their surface, and the closure digest is strictly broader than the legacy
+  gate-body digest. FULLY Mac-validatable now; the natural first increment.
+- Clean-closure checks that consume a config/data (eval-batch-invariance,
+  diagnostics-domain, weight-decay-census, triangle-shading): declare
+  `code=()` (+ any driver they run) and the SPECIFIC input keys -- needs the
+  board_config key per gate.
+- Dynamic-cover gates whose closure reaches the model-recipe (results.py /
+  warmstart.py): the family identity + smoke gates, save-rebuild-drift,
+  cobaya-adapter, artifact-readback, finetune/transfer-identity, geo-paths,
+  finite-contract. These MUST declare `emulator/designs` (+ `emulator/losses`)
+  to satisfy the dynamic-import census, plus their data/covmat/axis/artifact
+  input keys.
+- Driver-running gates with no check (ema-*, *-smoke, param-window-cuts,
+  joint-training, npce-training, head-activation-pin, relu-tanh-norm, ...):
+  the driver is launched through a shared `_smoke_leg`/`_golden_leg`/
+  `_smoke_driver` helper, so the literal-path census (over the gate body) does
+  not see it -- these declare the driver root explicitly (`_DRIVER`, or the
+  tune/sweep driver the gate's helper passes) + `emulator/designs`+`losses`
+  (the driver's closure reaches the model-recipe) + input keys. Identifying the
+  exact driver per gate is the per-gate design call.
+
+TWO BLOCKERS found in the scan, needing an Architect decision before those
+gates populate:
+
+- `cli-strict` and `geo-paths` have an `importlib`/`__import__` site in their
+  own CHECK SCRIPT (`gates/checks/cli_strict.py`, `gates/checks/geo_paths.py`),
+  not in production. The dynamic-import census would red them as unwaived. A
+  check-script dynamic import is a test-harness construct, not a production
+  model-recipe; options: (a) waive these two check-script sites in
+  `_DYNAMIC_IMPORT_WAIVERS` with a covering-root convention, or (b) exempt
+  `gates/checks/` sites from the census (a check script is already a hashed
+  seed; its dynamic import loads a test double, not a science module). Rec: (b),
+  a narrow "the census applies to the production closure, not the check-script
+  seeds themselves" carve-out -- but this is a contract call for the Architect.
+
+Recommended order: land the first increment (the four pure board-integrity
+gates, `Manifest(code=(), inputs=())`, Mac-validated) to prove the wiring
+end-to-end; then the dynamic-cover + driver gates in family batches, each
+needing its input keys (board_config) and, for driver gates, its driver -- best
+done with the board_config in hand and reruns on the box. Population is
+intertwined with queue 5 (each populated gate reruns there). Awaiting the
+Architect's call on the cli-strict/geo-paths census carve-out and the
+input-key/driver population approach before the non-trivial batches.
