@@ -56,7 +56,7 @@ if str(_GATES) not in sys.path:
     sys.path.insert(0, str(_GATES))
 
 import run_board
-from board import BOARD, Assertion, Gate, GateFailure
+from board import BOARD, Assertion, Gate, GateFailure, Manifest, TIER_BACKLOG
 
 FAILURES = []
 CALLS = {}                       # gate id -> how many times its body ran
@@ -543,6 +543,105 @@ def check_dirty_watch():
            owner_ok, "watched dirs + root *.py; exclude under the surface")
 
 
+# Fabricated gate bodies for the manifest census. These are never CALLED --
+# validate_manifests reads their SOURCE (inspect.getsource), so an undefined
+# name inside is fine; the source is the fixture.
+def _mf_body_undeclared_target(ctx):
+    """Launches a subprocess .py the manifest does not declare."""
+    ctx.run_check("gates/checks/board_selftest.py")   # a real check, auto-covered
+    _spawn("tools/mf_fabricated_driver.py")           # undeclared -> must red
+
+
+def _mf_body_launches_driver(ctx):
+    """Launches the default training driver (run_driver -> _DRIVER)."""
+    ctx.run_driver(yaml_path="x")
+
+
+def _mf_body_trivial(ctx):
+    """No subprocess targets; used to isolate the dynamic-import census."""
+    return None
+
+
+def _mf_gate(gid, body, code):
+    return Gate(id=gid, tier=TIER_BACKLOG, home="gates-and-board", maps="",
+                run=body, manifest=Manifest(code=tuple(code), inputs=()))
+
+
+def check_manifest_reconciliation():
+    """1b phase 1: validate_manifests catches the two under-declarations the
+    scan is blind to -- an uncovered subprocess target and an unwaived (or
+    uncovered) dynamic import -- and clears a fully-covered declaration.
+
+    Drives the REAL run_board.validate_manifests over fabricated gates whose
+    bodies are real source (so inspect.getsource reads them) and whose declared
+    roots are real repo modules (so the closure and the dynamic-import census
+    run against real files). A gate with no manifest is skipped, so the live
+    BOARD is a no-op.
+    """
+    # live board: every gate is still manifest-less, so validation is a no-op.
+    ok, errs = run_board.validate_manifests(BOARD)
+    report("live BOARD (all manifest-less) validates as a no-op", ok,
+           "no declared manifests yet; errors=" + str(len(errs)))
+
+    # (a) literal-path census: an undeclared subprocess target reds.
+    g = _mf_gate("mf-target", _mf_body_undeclared_target, code=())
+    ok, errs = run_board.validate_manifests([g])
+    report("uncovered subprocess target reds",
+           (not ok) and any("uncovered subprocess target 'tools/mf_fabricated"
+                            in e for e in errs),
+           "the undeclared .py the import graph never sees")
+    # declaring it clears the census (the real check script stays auto-covered).
+    g = _mf_gate("mf-target-ok", _mf_body_undeclared_target,
+                 code=("tools/mf_fabricated_driver.py",))
+    report("declaring the target clears the census",
+           run_board.validate_manifests([g])[0], "target now a declared root")
+    # the run_driver default driver is a target too.
+    g = _mf_gate("mf-driver", _mf_body_launches_driver, code=())
+    ok, errs = run_board.validate_manifests([g])
+    report("run_driver's default driver is an uncovered target when undeclared",
+           (not ok) and any(run_board._DRIVER in e for e in errs),
+           "run_driver -> " + run_board._DRIVER)
+    g = _mf_gate("mf-driver-ok", _mf_body_launches_driver,
+                 code=(run_board._DRIVER,))
+    _ok, errs = run_board.validate_manifests([g])
+    report("declaring the driver clears the literal census",
+           not any("uncovered subprocess target" in e for e in errs),
+           "no literal error once the driver is a declared root (its closure's "
+           "model-recipe imports still want a designs root, correctly)")
+
+    # (b) dynamic-import census over the derived closure. results.py is a
+    # waived file (the model-recipe pattern); its covering roots are the
+    # design / loss trees.
+    g = _mf_gate("mf-dyn", _mf_body_trivial, code=("emulator/results.py",))
+    ok, errs = run_board.validate_manifests([g])
+    report("waived dynamic import with NO covering root declared reds",
+           (not ok) and any("covering roots" in e for e in errs),
+           "declares results.py but not emulator/designs")
+    g = _mf_gate("mf-dyn-ok", _mf_body_trivial,
+                 code=("emulator/results.py", "emulator/designs/blocks.py"))
+    report("declaring a covering root clears the dynamic-import census",
+           run_board.validate_manifests([g])[0], "designs root now declared")
+
+    # mutation arm: empty the reviewed waiver table -> the same dynamic site is
+    # now unreviewed and must red (a NEW dynamic import cannot slip in unwaived).
+    saved = run_board._DYNAMIC_IMPORT_WAIVERS
+    try:
+        run_board._DYNAMIC_IMPORT_WAIVERS = {}
+        ok, errs = run_board.validate_manifests([g])
+        report("mutation (empty waiver table) reds the now-unwaived dynamic site",
+               (not ok) and any("unwaived dynamic-import" in e for e in errs),
+               "an unreviewed importlib site fails")
+    finally:
+        run_board._DYNAMIC_IMPORT_WAIVERS = saved
+
+    # determinism (delta 3): the derived closure is a set, independent of
+    # traversal order; the same seeds give the same members.
+    a = run_board._derive_closure({"emulator/experiment.py"})
+    b = run_board._derive_closure({"emulator/experiment.py"})
+    report("derived closure is deterministic (order-independent)",
+           a == b and len(a) > 1, str(len(a)) + " members, stable")
+
+
 def main():
     print("board-selftest (pure Python, no torch)")
     print("\n-- exit-code truth --")
@@ -561,6 +660,8 @@ def main():
     check_evidence_map()
     print("\n-- clean-tree watch (per-line porcelain, one owner) --")
     check_dirty_watch()
+    print("\n-- manifest reconciliation (subprocess + dynamic-import censuses) --")
+    check_manifest_reconciliation()
     print("")
     if FAILURES:
         print("board-selftest: %d FAILURE(S): %s"
