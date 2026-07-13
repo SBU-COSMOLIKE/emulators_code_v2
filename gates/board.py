@@ -1282,20 +1282,25 @@ def gate_board_selftest(ctx):
   """board-selftest: the runner reports the truth about what actually ran.
 
   WHAT: pure-Python self-tests of run_board's own control flow (no torch, no
-  cosmolike), over a small set of fake gates. WHY: three board-truth defects
-  let a run report success without testing what it claimed. A selected gate
-  whose prerequisite is absent runs no test code but was counted green; an
-  unknown --gate / --from / --force-rerun id printed a warning and then
-  exited 0 having run a smaller (or empty) surface; the finite-contract check
-  printed a compile-lane skip inside a process that still returned 0, so the
-  board certified a gate whose mandatory lane never ran. HOW: the check drives
-  the real run_board.main and select_gates over fake gates -- a
-  dependency-skipped selected gate exits nonzero and its body never runs; an
-  unknown id in any selector is a usage error with a suggestion and a nonzero
-  exit; the run selectors are mutually exclusive; and it asserts the
-  finite-contract check exposes a distinct non-green exit code for an
-  unavailable mandatory lane that the board wrapper maps to a non-PASS. No
-  torch, no cosmolike, no GPU.
+  cosmolike), over a small set of fake gates. WHY: several board-truth defects
+  let a run report success (or reuse a stale PASS) without testing what it
+  claimed. A dependency-skipped selected gate ran no test code but was counted
+  green; an unknown --gate / --from / --force-rerun id printed a warning and
+  then exited 0 on a smaller (or empty) surface; the finite-contract check
+  printed a compile-lane skip inside a process that still returned 0; a stored
+  PASS was trusted on status alone, so a configuration change or a mutated
+  referenced YAML reused it and an interrupted forced rerun preserved the prior
+  PASS while its cited log had already been truncated. HOW: the check drives the
+  real run_board.main / select_gates over fake gates -- a dependency-skipped
+  gate exits nonzero and runs no body; an unknown selector id is a usage error
+  with a suggestion; the selectors are mutually exclusive; the finite-contract
+  compile-lane code maps to a non-PASS; a stored PASS is trusted only when both
+  the executable-surface digest and the input digest are current (a config
+  change, a mutated YAML, and a mismatched digest all rerun); and a RUNNING
+  record is persisted before any gate code, so an interruption leaves an
+  interrupted attempt with its own immutable log (never the prior PASS), while
+  a successful run publishes a fresh log whose stored digest matches its bytes.
+  No torch, no cosmolike, no GPU.
   """
   rc, out = ctx.run_check("gates/checks/board_selftest.py")
   if not ctx.dry:
