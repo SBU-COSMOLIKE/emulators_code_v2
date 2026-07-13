@@ -6742,3 +6742,17 @@ VERDICT: GO. The four Torch-declared gates can now reach their
 first assertion on a cosmolike-less box; the drafted evidence
 blocks' eager-dependency lines update at the red team (bounded,
 announced).
+
+## Headline-anchor normalization audit (Fable, 2026-07-13): ab82b20 GO — the drafts follow-up is closed
+
+The ruled follow-up verified at the diff: EXACTLY eight
+one-line anchor swaps (bsn/mps-identity+smoke in
+families-background-mps.md, scalar/cmb-identity+smoke in
+families-scalar-cmb.md), each bare `<gate>` headline becoming
+`<gate>-evidence`; 8 insertions / 8 deletions, nothing else; an
+untruncated scan finds no reference to any retired bare anchor.
+The headline surface now carries ONE convention across all 27
+blocks; leg anchors were already uniform. Merged into this branch
+(no conflict — the register untouched this time). VERDICT: GO. The
+drafts package (8236417 + ab82b20) is fully closed; increment 3
+wires against it unchanged (code references leg anchors only).
