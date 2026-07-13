@@ -6017,3 +6017,82 @@ zero-executed guard + pinned display), validate_evidence invariant
 normalized, and the board-selftest mutation arms — Mac-verified
 (--list rc 0 + board-selftest green) before handoff; ##AID
 manifests and per-gate migration follow as separate increments.
+
+## D2 factual-increment audit (Fable, 2026-07-13): 9b59e0e — GO for merge
+
+The red team's first campaign landing (DIDACTICS D2, the factual
+bundle) on codex/architect-docs-static-audit, 29 files: four READMEs
+(root, emulator/, gates/, syren/), 22 Python doc surfaces under
+emulator/ + cobaya_theory/, and their register. Every evidence claim
+re-derived independently, not accepted:
+
+- AST (my own comparator, parent 238d774 vs 9b59e0e, all 24 .py):
+  20 files AST-identical with docstrings stripped; 4 files differ
+  ONLY in human-facing runtime strings (losses/cmb.py, results.py,
+  training.py, warmstart.py — voice/punctuation plus warmstart's
+  clearer anchor refusal "train_args.finetune.anchor is not
+  available. Remove the anchor key ..."); ZERO structural changes.
+  Matches the register's own four-file disclosure exactly.
+- compileall (emulator, cobaya_theory, syren, compute_data_vectors,
+  gates/checks) clean and board_selftest ALL PASS — MY runs, not
+  the filing's.
+- SONIC expands exactly to "Simulated Observables for Numerical
+  Inference in Cosmology" (README:21); an untruncated scan finds no
+  retired expansion.
+- Residual-block order: the rewritten docstring (final Linear ->
+  skip addition -> normalization -> activation) matches the executed
+  forward (blocks.py: the i == n-1 branch adds xskip after
+  layers[i], before acts[i](norms[i](out))). The shared-MLP
+  "textbook" overclaim is narrowed to the fixed-width dim->dim
+  truth.
+- losses/cmb.py rewrite VERIFIED as the 44/95-class corrections
+  with the teaching preserved: the amplitude-law transform (f =
+  (A_s_ref/A_s) * exp(2(tau - tau_ref))), encode/decode/score
+  directions, AMPLITUDE_LAWS registry all survive; "cosmic-variance
+  scale" is corrected to "the positive scale stored in the
+  covariance product", and "the amplitude generalizes for free" is
+  narrowed to "removes the dominant primary-CMB amplitude trend but
+  does not make the remaining target independent of all amplitude
+  information". The retired-law diary paragraph is gone per the
+  current-state ruling.
+- warmstart.py:20-33 now carries EXACTLY the 71 two-invariant
+  split (_PARITY_TOL numerical reproduction with the
+  reduction-order reason; torch.equal on the zero-connected-extras
+  arm), the 56 state_dict frozen-parameters fact, and the 69
+  whitening sentence; the 69 census is CLEAN (zero "equally
+  hard"/"equally easy" in emulator/ at the commit).
+- results.py teaches the executed CPU normalization (detach + CPU
+  before torch.save; map_location selects the destination) — the 70
+  prose fix.
+- The README CMB workflow now shows the independent
+  dataset_generator_cmb.py / compute_cmb_covariance.py branches.
+- gates/README.md's one row (bsn-identity) is an HONEST NARROWING
+  consistent with unit 90's confirmed finding: "vs closed-form flat
+  LCDM ... save/rebuild bitwise" becomes "numerical consistency of
+  the production distance integrator on analytic fixtures ...
+  save/rebuild identity" — the row now claims what is executed;
+  the independent-quadrature strengthening remains unit 90 (their
+  custody).
+- Ruling 4 restored BYTE-EXACT in the register (the withdrawn
+  brd-a.exit-truth clarification note removed) — closing my
+  retraction's loop.
+- DIDACTICS-79 HOLD ACCEPTED as filed: the false generator command
+  is removed, --unif/--seed requiredness was proven by executing
+  the parser in isolation, and NO replacement command was invented
+  because none can be executed in their environment — the
+  executed-before-printed rule applied correctly, the item stays
+  open with a durable-record explanation. The register also
+  explicitly refuses to bless the remaining history-vocabulary in
+  the READMEs (later current-state visits).
+- COLLISION CHECK: no gates/board.py, gates/run_board.py, or
+  gates/checks/*.py edits — the Implementer's exclusive surfaces
+  untouched while increment 1 is in flight (confirmed in flight as
+  UNCOMMITTED working-tree edits on amazing-keller; the branch tip
+  is still my audited dbc7f16, so the landing order below sweeps in
+  nothing unaudited).
+
+VERDICT: GO. Landing order: the codex branch first, then
+claude/amazing-keller-e798b6 (disjoint files, no conflict — the
+codex commit touches no note my branch touches). Units 41 + 53 may
+start at the red team on this landing, per their handoff's own
+sequencing. Unit 93 remains unclaimed and available.

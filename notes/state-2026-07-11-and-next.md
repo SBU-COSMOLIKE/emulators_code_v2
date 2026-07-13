@@ -2800,3 +2800,19 @@ red-team register-note request WITHDRAWN. Error recorded: I probed
 every proposal clause except the one I ruled from memory — the
 probe law binds my own premises too. Increment 1 CONFIRMED to
 build. Spec: gates-and-board.md "Aid-prefix RE-RULING".
+
+D2 FACTUAL-INCREMENT AUDIT (2026-07-13, Fable): the red team's
+first campaign landing (9b59e0e, 29 files) GO'd — my own AST
+comparator proves 20/24 .py doc-identical + 4 string-only (the
+register's exact four-file disclosure), my own compileall +
+board_selftest runs green; SONIC exact; the residual-block order
+docstring matches the executed forward; the losses/cmb.py rewrite
+lands the covariance-product-scale and amplitude-trend narrowings
+with the f-transform teaching preserved; warmstart carries the 71
+two-invariant headline and the 69 census is zero; ruling 4 restored
+byte-exact; the DIDACTICS-79 hold accepted (executed-before-printed
+honored, no invented command); collision check clean (board.py /
+run_board.py / checks untouched; increment 1 confirmed in flight
+uncommitted, branch tip still dbc7f16). Landing order: codex branch
+first, then amazing-keller. 41+53 start at the red team on this
+landing. Spec: gates-and-board.md "D2 factual-increment audit".
