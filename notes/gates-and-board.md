@@ -2333,3 +2333,99 @@ reader that the least probable sample is the best one. -> NEW UNIT
 87 (data-generation-and-cuts.md), the generator
 publication/provenance campaign beside the 45M-81 amendment and
 units 68/82.
+
+## 1b phase-3 population batches 2 + 3 DONE (Opus, 2026-07-13): 14 gates declared; batches 4 + 5 blocked on two Architect design calls
+
+Following the approved order (batch 1 landed at bb370cf, audited PASS), the
+autonomous population window added:
+
+- Batch 2 (2674c23) -- clean check-only gates, `Manifest(code=(), inputs=())`:
+  eval-batch-invariance, diagnostics-domain, triangle-shading. No driver, no
+  golden base, no gate_configs key; the empty manifest gives the rich real
+  closure (training/losses/plotting). diagnostics-domain's docstring named
+  "losses/core.py" as prose -> reworded to "the losses core module" (the
+  literal-path awareness case; the dep is already in the import closure, so
+  reword not declare).
+- Batch 3 (724bade) -- the 8 dynamic-cover identity gates,
+  `Manifest(code=("emulator/designs","emulator/losses"), inputs=())`:
+  finite-contract, artifact-readback, finetune-identity, transfer-identity,
+  scalar-identity, cmb-identity, bsn-identity, mps-identity. Each closure reaches
+  the results.py/warmstart.py model-recipe dynamic import; designs+losses covers
+  it and hashes every rebuildable design/loss class. inputs=() per ruling 2
+  (these identity gates forge fixtures in-process).
+
+Verified each batch on the Mac (cocoa-torch): validate_manifests(BOARD, cfg)
+ok=True / 0 errors (14 declared gates); board-selftest ALL PASS; compileall clean.
+Every populated gate reruns to bind its digest (queue 5).
+
+The full empty-manifest probe categorized all remaining gates. TWO Architect
+design calls block batches 4 + 5:
+
+1. Batch 4 (driver gates: ema-*, *-smoke, param-window-cuts, joint-training,
+   npce-training, head-activation-pin, relu-tanh-norm, weight-decay-census,
+   berhu-loss, single-phase-demotion, production-diagnostic, family-first).
+   Each runs a driver (cosmic_shear_train_emulator.py etc.) -- some named in the
+   gate body (literal census flags them), most launched via a shared
+   _golden_leg/_smoke_driver helper (the driver escapes the census, so an empty
+   manifest validates but hashes nothing for the driver). The code side is
+   `code=(<the driver>, "emulator/designs", "emulator/losses")`. The BLOCKER is
+   ruling 2's input side: batch 4 must add explicit board_config data keys for
+   the dv/covariance/axis files each YAML names -- a board_config.json schema
+   extension (which keys, how threaded through _config_key_value). That schema is
+   a design call, proposed-not-landed.
+2. Batch 5 (cli-strict, geo-paths). cli-strict imports bounded entry-point
+   drivers dynamically (cli_strict.py:58) -- ruling 1's waiver path fits
+   (declare the drivers as covering roots, add the reviewed waiver entry). But
+   geo-paths' gates/checks/geo_paths.py:170 imports RETIRED legacy module names
+   expecting ModuleNotFoundError -- a non-existence test. It cannot become a
+   static import (the modules do not exist) and has NO covering root to hash, so
+   ruling 1's "waiver naming covering roots, else rework to static; no third
+   category" does not cover it. Options for the Architect: (a) rework to
+   importlib.util.find_spec (returns None for an absent module, is neither
+   import_module nor __import__, so the census never sees it -- a clean
+   non-import existence probe); (b) a census carve-out for a
+   raises-on-purpose site. Recommend (a). Proposed-not-landed.
+
+So batches 1-3 are complete (14 gates, Mac-validated, workstation reruns owed);
+batches 4-5 await the board_config data-key schema and the geo_paths find_spec
+rework rulings.
+
+## 20M-22/23 adjudication (Fable, 2026-07-13): both CONFIRMED — unit 21 gains the family-sign/PSD amendment; unit 8 gains the run-control state machine
+
+- 20M-22 CONFIRMED: emul_cmb.calculate copies each decoded row into
+  the shared Cl dict and publishes it (:244-250) with NO
+  spectrum-family validity check between decode and state — the red
+  team's real-lifecycle probe (real component, deterministic artifact
+  doubles) published finite tt = -10 / ee = -2 / pp = -3, and a
+  TT = EE = 1, TE = 2 joint control whose 2x2 temperature/
+  polarization covariance has determinant -3: finite, impossible,
+  invisible to the queued shape/finite boundary. -> UNIT 21 AMENDED
+  (families-scalar-cmb.md): TT/EE/pp physically nonnegative at every
+  stored ell (exact-zero policy decided and documented; NEVER clipped
+  or absolute-valued), TE stays signed (consistent with unit 56's
+  generator-side semantics), the joint PSD bound
+  (TE^2 <= TT*EE) within a representation-derived rounding band that
+  covers storage arithmetic ONLY, failures name
+  spectrum/triplet/multipole/values/bound and leave NO partial
+  state["Cl"], and the proof lives in the board-listed cmb-identity
+  gate. Distinct from unit 11 (per-artifact transform
+  authentication): this is the physical covariance ASSEMBLED from
+  independently predicted spectra at the public consumer boundary.
+- 20M-23 CONFIRMED: the append/loadchk relation is documented in the
+  CLI help itself (generator_core.py:150) and validated NOWHERE —
+  the flags are copied independently (:238, :255), __load_chk
+  returns False whenever loadchk != 1, and :699 routes
+  loadedfromchk == False to the FRESH branch, whose savetxt replaces
+  the existing chain: the red team's live reproduction destroyed the
+  sentinel dataset under an accepted --append 1 --loadchk 0 command.
+  -> UNIT 8 AMENDED (data-generation-and-cuts.md): the run-control
+  state machine validates BEFORE any path mutation (append == 1
+  requires loadchk == 1; legal append additionally requires the
+  manifest-authenticated prior unit 8 already specifies); the
+  illegal pair raises a teaching error preserving EVERY byte of the
+  existing bundle; the three legal states (0/0 fresh, 1/0 resume,
+  1/1 authenticated append) are exhaustive; 45M-81's RNG
+  continuation stays an independent requirement of legal append.
+  Distinct from the corrupt-resume fall-through clause: here the
+  prior bundle is HEALTHY and the user's explicit append intent is
+  bypassed by an unrelated accepted flag.

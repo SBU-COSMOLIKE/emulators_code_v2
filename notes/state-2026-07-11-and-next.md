@@ -2036,6 +2036,21 @@ RNG amendment + 68 + 82); production Gaussian/MCMC generation
 blocked on the cluster. Spec: gates-and-board.md "20M-21
 adjudication".
 
+20M-22/23 BATCH (2026-07-13, Fable): both CONFIRMED. 20M-22 (the CMB
+adapter publishes finite but impossible spectra — negative TT/EE/pp
+and a non-PSD TT/TE/EE triplet pass the shape/finite boundary
+through the real lifecycle) -> UNIT 21 AMENDED: auto spectra
+nonnegative (never clipped), TE signed, the joint PSD bound within a
+storage-arithmetic-only rounding band, no partial state, proof in
+cmb-identity. 20M-23 (--append 1 --loadchk 0 is accepted and
+DESTROYS the prior dataset — the relation lives in the help text and
+is enforced nowhere; live sentinel destruction re-verified in code)
+-> UNIT 8 AMENDED: the run-control state machine (0/0, 1/0, 1/1
+exhaustive) validates before ANY path mutation, teaching error,
+byte-preserving rejection, RNG continuation independent; joins the
+generator publication cluster. Spec: gates-and-board.md "20M-22/23
+adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

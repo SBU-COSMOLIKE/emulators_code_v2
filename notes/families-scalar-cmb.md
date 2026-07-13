@@ -1237,3 +1237,28 @@ Added legs: swapped As/tau; two unrelated existing columns; a valid
 registered-alias control; canonical pair at the fiducial gives
 exactly f = 1; a mutation validating only presence + index
 distinctness must fail.
+
+## UNIT 21 AMENDED (20M-22, 2026-07-13): the published CMB spectra are physically possible — auto spectra nonnegative, the TT/TE/EE triplet positive semidefinite
+
+Finding (red team, CONFIRMED through the real Cobaya lifecycle):
+emul_cmb publishes decoded rows with no family-validity check
+(:244-250) — finite negative TT/EE/pp and a non-PSD TT/TE/EE triplet
+(det = -3) pass the shape/finite boundary and reach every consumer.
+
+Amendment (binding): (1) after decode/shape/finite and BEFORE any
+NumPy/state publication, every stored-ell value of TT, EE, and pp is
+physically nonnegative — the exact-zero policy for the trained
+ell >= 2 ranges is decided and documented; values are NEVER clipped
+or absolute-valued; (2) TE remains signed (matching unit 56's
+generator-side "signed TE" semantics); (3) where TT, TE, and EE are
+jointly present at a multipole, (TE)^2 <= TT * EE within ONE
+representation-derived rounding band — the tolerance covers storage
+arithmetic only and never blesses a materially impossible
+prediction; (4) a failure names the spectrum or triplet, the
+multipole, the offending values, and the bound, and leaves NO
+partial state["Cl"]; (5) the proof is board-listed in cmb-identity
+(Torch/predictor reconstruction). Legs (ratified): one negative arm
+per auto spectrum; the finite signed-TE control; joint
+equality/below-bound valid controls; the TT=EE=1, TE=2 rejection; a
+near-bound rounding control; the partial-state-absence leg; a
+mutation reducing the rule to isfinite must red.

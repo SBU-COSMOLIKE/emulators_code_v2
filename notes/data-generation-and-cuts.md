@@ -1783,3 +1783,38 @@ claims no measured posterior; legacy missing-convention and migrated
 chains covered. Placement: the generator publication/provenance
 campaign (with the 45M-81 RNG amendment and units 68 + 82);
 production Gaussian/MCMC generation blocked on it alongside them.
+
+## UNIT 8 AMENDED (20M-23, 2026-07-13): the run-control state machine validates before any path mutation — an illegal append pair cannot touch the prior dataset
+
+Finding (red team, CONFIRMED live; the constraint is in the CLI help
+text and enforced nowhere): --append 1 --loadchk 0 parses cleanly
+(generator_core.py:139-154), the flags are copied independently
+(:238, :255), __load_chk returns False whenever loadchk != 1, and
+:699 routes to the FRESH branch — np.savetxt replaces the existing
+chain and the family path allocates fresh storage: the sentinel
+dataset was destroyed by an accepted command.
+
+Amendment (binding; extends the unit-8 dataset-transaction/manifest
+campaign, no new mechanism): (1) the run-control state machine
+validates BEFORE any output directory or file is created:
+append == 1 requires loadchk == 1; (2) a legal append additionally
+requires the manifest-authenticated prior generation unit 8 already
+specifies; (3) the illegal pair raises a teaching error naming both
+values and explaining that append EXTENDS the validated prior
+dataset — it is not fresh generation at the same path; (4) rejection
+preserves every byte and timestamp of the existing chain, fail
+flags, data-vector members, axes, parameter-name sidecar,
+covariance, ranges, and manifest; (5) fresh 0/0, resume 1/0, and
+authenticated append 1/1 are the exhaustive legal states; any other
+programmatic non-bool/non-integer state refuses before path
+mutation; (6) 45M-81's RNG-state continuation stays an INDEPENDENT
+requirement of legal append (authenticate the old dataset AND
+continue the stochastic stream).
+
+Legs (ratified; CPU): seed a complete sentinel bundle, drive the
+REAL public CLI, assert the illegal pair raises with ALL member
+digests identical; controls for the three legal states; a mutation
+restoring independent flag handling must visibly destroy the
+sentinel and red. Placement: the generator publication/provenance
+cluster (with the 45M-81 amendment and units 68/82/87); production
+generation blocked on the cluster.
