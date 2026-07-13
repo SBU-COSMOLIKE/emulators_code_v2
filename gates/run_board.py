@@ -85,6 +85,17 @@ _STATUS_FILE = _LOGS_DIR / "board_status.json"
 _BOARD_MD = _LOGS_DIR / "BOARD.md"
 _CONFIG_FILE = _GATES_DIR / "board_config.json"
 
+# The repository's executable surface: the package + harness + generator,
+# adapter, and vendored-formula trees whose contents decide what a run
+# produces. Defined once so the dirty-tree preflight (a run must be
+# reproducible) watches exactly the code a gate can depend on. The root
+# drivers (top-level *.py) are added per-run in preflight, since they are
+# files, not a directory. (The per-gate code digest still hashes only the
+# gate body + the check scripts it names; folding this shared surface into a
+# reviewed per-gate manifest is the open queue-1 manifest item.)
+_EXECUTABLE_DIRS = ("emulator", "gates", "compute_data_vectors",
+                    "cobaya_theory", "syren")
+
 # The training driver every run-shaped gate invokes.
 _DRIVER = "cosmic_shear_train_emulator.py"
 
@@ -700,16 +711,18 @@ def preflight(cfg):
     print("         remedy: git pull -- the tip must be the harness "
           "commit (a descendant of the board + spec commit)")
 
-  # (b) clean tree in emulator/, gates/, and the root drivers, but NOT
-  # gates/board_config.json (portable; excluded so a local deploy override
-  # does not fail the clean-tree check).
-  watched = ["emulator", "gates"]
+  # (b) clean tree across the whole executable surface (emulator/, gates/,
+  # compute_data_vectors/, cobaya_theory/, syren/) and the root drivers, but
+  # NOT gates/board_config.json (portable; excluded so a local deploy override
+  # does not fail the clean-tree check). A dirty generator, adapter, or
+  # vendored formula changes what a run produces just as a dirty package does.
+  watched = list(_EXECUTABLE_DIRS)
   for entry in sorted(_REPO.glob("*.py")):
     watched.append(entry.name)
   rc_st, out_st = _git(["status", "--porcelain", "--"] + watched)
   offenders = _dirty_lines(out_st)
   if len(offenders) == 0:
-    print("  [ok] working tree clean in emulator/ + gates/ + drivers "
+    print("  [ok] working tree clean across the executable surface + drivers "
           "(board_config.json excluded)")
   else:
     ok = False

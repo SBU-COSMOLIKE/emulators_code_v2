@@ -503,9 +503,20 @@ Repair (commit pending, `gates/run_board.py` + `gates/checks/board_selftest.py`)
   materializes, so a seeded current PASS carries verifiable log evidence.
   Board-selftest 33/33 -> 39/39, ALL PASS on the Mac; `--list` still validates.
 
-STILL OPEN in queue 1 (not this commit): the reviewed executable/input
-**manifest** replacing the two coarse digests (a proposal, per the audit), and
-extending the preflight dirty-tree watch to `compute_data_vectors/`,
-`cobaya_theory/`, `syren/` with the executable surface defined once and shared.
-Queue items 2-6 (evidence rollout, staging seeded-order truth, optimizer/CMB
-coercion, workstation evidence, README + didactic campaign) remain.
+### Queue 1c DONE: preflight watches the whole executable surface
+
+The audit's preflight hole: the dirty-tree watch covered `emulator/`,
+`gates/`, and root drivers, but not `compute_data_vectors/`, `cobaya_theory/`,
+or `syren/`, so a dirty generator, adapter, or vendored formula could pass the
+reproducibility check. `run_board.py` now defines the executable surface once
+as `_EXECUTABLE_DIRS = (emulator, gates, compute_data_vectors, cobaya_theory,
+syren)`, and preflight (b) watches that plus the root drivers. Compile clean,
+`--list` rc 0, board-selftest 39/39 unchanged.
+
+STILL OPEN in queue 1: the reviewed executable/input **manifest** replacing the
+two coarse digests (`_gate_code_digest` omits shared helpers / runner / imported
+production modules; `_gate_input_digest` hashes every YAML in `yaml_dir`). Per
+the audit this is a proposal first; `_EXECUTABLE_DIRS` is the shared-surface
+seed it will build on. Queue items 2-6 (evidence rollout, staging seeded-order
+truth, optimizer/CMB coercion, workstation evidence, README + didactic
+campaign) remain.
