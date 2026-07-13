@@ -6902,3 +6902,34 @@ evidence field, never add both.
 VERDICT: GO. Serial-proof gate 2 (a pure in-process gate) proceeds;
 the 2-gate batch audit will be delta-only against this ratified
 pattern.
+
+## Queue 2 increment 3 — serial-proof gate 2: single-phase-demotion migrated (Opus, 2026-07-13)
+
+Second gate of the serial proof — a PURE IN-PROCESS (wrapper-asserted) gate,
+completing the two aid-shapes the fan-out will use. No objection: the drafted
+names fit the body's three ctx.expect calls 1:1.
+
+- board.py single-phase-demotion: `evidence=` = the three drafted Assertions
+  (`single-phase-exit-zero`, `demotion-text-present`, `two-phase-control-exit-zero`,
+  anchored in training-stack.md); `maps=` -> one taught-vocabulary sentence;
+  `home=` already `training-stack`.
+- gate_gp_d body: each of the three ctx.expect calls carries its drafted aid
+  (wrapper-emitted — there is no child ##AID here; the two driver subprocesses
+  are asserted BY the wrapper, per the draft's "asserted by the wrapper"). Leg 2's
+  detail narrowed from the stale "EXACT notice string to confirm" to the honest
+  broad-presence claim the draft ratified (matches the `demotion-text-present`
+  aid — DIDACTICS-62/63 banner-as-truth discipline).
+- All three legs are workstation-owed (needs torch+cosmolike+gpu); the gate is
+  capability-skipped on the Mac, so there is no per-leg ctx.unavailable (the
+  whole gate is skipped, not partially owed).
+
+Verified (Mac): compile clean; `--list` rc 0 (the three anchors resolve, satisfy
+the transform, board-unique); a static check confirms the three declared evidence
+aids EQUAL the three aids emitted in gate_gp_d; board-selftest 169 PASS. The live
+green rerun is workstation-owed (this gate needs cosmolike+gpu).
+
+**Serial-proof batch COMPLETE**: gate 1 geo-paths (7cbcd7a, child-emitted ##AID,
+GO'd) + gate 2 single-phase-demotion (wrapper-emitted ctx.expect(aid=)). The two
+aid-shapes for the fan-out are both demonstrated. Awaiting the delta audit; on GO,
+fan the remaining drafted gates to subagents (increment-sized self-commits;
+wrapper-family + foundation legs kept out of subagent hands).

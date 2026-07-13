@@ -469,15 +469,18 @@ def gate_gp_d(ctx):
   if ctx.dry:
     return
 
-  ctx.expect(label="single-phase-demotion single-phase resmlp trains (was a traceback)",
+  ctx.expect(aid="single-phase-demotion.single-phase-exit-zero",
+             label="single-phase-demotion single-phase resmlp trains (was a traceback)",
              ok=(rc_s == 0),
              detail="resmlp run exit code " + str(rc_s))
-  ctx.expect(label="single-phase-demotion demotion notice in the banner",
+  ctx.expect(aid="single-phase-demotion.demotion-text-present",
+             label="single-phase-demotion demotion notice in the banner",
              ok=logscan.search(text=out_s,
                                pattern=r"(single-phase|demot|resolve)"),
-             detail="EXACT notice string to confirm against "
-                    "training-stack.md:111")
-  ctx.expect(label="single-phase-demotion control rescnn+nla reproduces today (no-op)",
+             detail="stream matches single-phase|demot|resolve "
+                    "(broad presence, not an exact notice string)")
+  ctx.expect(aid="single-phase-demotion.two-phase-control-exit-zero",
+             label="single-phase-demotion control rescnn+nla reproduces today (no-op)",
              ok=(rc_c == 0),
              detail="control run exit code " + str(rc_c))
 
@@ -1687,7 +1690,14 @@ BOARD = [
        title="Single-phase phase-arg demotion",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="110-113 (single-phase demotion trains; two-phase control no-op)",
+       maps="the single-phase and two-phase-control drivers both exit zero, and "
+            "the single-phase stream carries demotion-related text",
+       evidence=(Assertion("single-phase-demotion.single-phase-exit-zero",
+                           "training-stack.md#single-phase-demotion-single-phase-exit-zero"),
+                 Assertion("single-phase-demotion.demotion-text-present",
+                           "training-stack.md#single-phase-demotion-demotion-text-present"),
+                 Assertion("single-phase-demotion.two-phase-control-exit-zero",
+                           "training-stack.md#single-phase-demotion-two-phase-control-exit-zero")),
        run=gate_gp_d,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.single-phase-demotion-single",
