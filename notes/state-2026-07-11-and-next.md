@@ -2889,3 +2889,15 @@ FAIL record with a named contradiction line + a real-runner arm
 self-commits the repaired layer under the grant; transfer triggers
 fire at that commit. New audit-checklist law: composition re-walks.
 Spec: gates-and-board.md "Queue-2 increment-2 audit".
+
+INCREMENT-2 RACE ADDENDUM (2026-07-13, Fable): the Implementer
+self-committed increment 2's code as e193097 two seconds AFTER the
+audit commit ab07a2e, without having seen the required repair — the
+first exercise of the fresh grant, landing concurrently with the
+audit that reds it. Resolution per the grant's own pre-agreed rule:
+a follow-up repair commit (never a rewrite), both shas recorded
+here. The defect is LATENT on the shipped board (no check script
+emits ##AID until increment 3, per e193097's own message), so a
+main merge of e193097 ships no reachable hole; still, the clean
+path is to land the repair first. Transfer triggers HOLD until the
+repair commit.
