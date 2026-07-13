@@ -286,3 +286,57 @@ control (the current owed rerun list already follows it).
 Placement: unit 4 (harness/CLI truth), where queued — no new
 number. USER-VISIBLE: BOARD.md gains STALE; a green board
 certifies the current tree only.
+
+## RED-TEAM BOARD-TRUTH + INTEGRITY BATCH — Opus IMPLEMENTED (2026-07-12, Architect asleep, user-authorized direct implement)
+
+Seven reproduced red-team defects implemented on the branch (batch grant;
+merge/push to main stays user-only). Each self-committed with a board-listed
+CPU gate; all green on the Mac (no torch for the harness ones, Cocoa torch for
+the module ones). Board gate count 33 -> 38 (+board-selftest, +artifact-readback,
++stage-ram, +family-first, and the earlier diagnostics-domain).
+
+- 45M-73 / 45M-77 / 45M-82 (commit d786975): the board runner reports the truth
+  about what ran. run_selection returns a categorized summary (passed / resume /
+  failed / skipped_dep) + "incomplete"; main exits nonzero unless EVERY selected
+  gate is current PASS (a dependency-skipped gate that ran no body no longer
+  exits 0). select_gates validates every --gate / --from id (SelectionError with
+  suggestions, not a warning-then-subset); main validates --force-rerun ids and
+  refuses an empty real-run selection; --gate/--tier/--from are mutually
+  exclusive; the resolved selection is printed. finite_contract returns exit
+  code 2 (LANE_UNAVAILABLE) when its mandatory torch.compile lane cannot run,
+  and the board wrapper maps any nonzero to non-PASS. Gate: board-selftest
+  (BRD-A) 17/17.
+- 45M-76 (commit 53334f0): results.py read transfer_refined with
+  bool(f.attrs.get(...)) -> the string "False" is truthy and would load drifted
+  weights. New _read_native_bool parses by type (native bool accepted, absent ->
+  default, string/int refused naming the file + native-boolean schema). Gate:
+  artifact-readback (ARB-A). Live save/forge/rebuild is workstation-owed.
+- 45M-84 (commit 0ec1879): stage_source counted only the dv[rows] bytes but
+  materializes BOTH C[rows] and dv[rows]; a narrow-output scalar dump chose RAM
+  when the two copies didn't fit. Now sums params + dv (each own dtype/width) +
+  the reindex array; prints the predicted bytes + branch. Gate: stage-ram
+  (SRM-A) 6/6 (mocked memory).
+- 45M-79 (commit 48aac94): scalar_train_emulator omitted the rescale attr, so
+  warmstart.load_source refused the scalar driver's own artifact as a fine-tune
+  source. Now stamps rescale="none" (resolved fact); load_source unchanged.
+  Census leg in artifact-readback. Fuller shared-provenance-assembler is the
+  unit-24 amendment.
+- 45M-80 (commit e9943bc): the direct cosmic_shear drivers passed family=None,
+  skipping require_family_block; a wrong-family YAML trained under the wrong
+  identity (a scalar YAML died later at run_tag KeyError). The cosmolike family
+  now has an explicit "cosmolike" validator identity (owns no data-block key,
+  rejects any other family's block naming its driver); the four cosmic_shear
+  drivers default family="cosmolike" and always check; dispatcher prose deleted.
+  Gate: family-first (FAM-A) 15/15.
+
+STILL OPEN from the red-team batch (queued, not yet implemented, each large):
+45M-71 (resume input-digest + atomic RUNNING), 45M-74 (atomic per-attempt log +
+temp-file status/BOARD.md publication) -- one board state-machine visit; 45M-72
+(structured assertion-ID -> note-anchor evidence map, only 2/33 spec_codes occur
+in their home notes); 45M-78 (strict parse_args across 8 CLI entry points); 45M-81
+(generator sampling seed + replayable RNG); the documentation batch 45M-85 (strip
+audit codes from Python prose -- note: the code committed this session ADDED some,
+so that sweep must include gates/checks/board_selftest.py, diagnostics_domain.py,
+etc.) + 45M-83 (row-coordinate glossary) + 45M-86..90 (lifecycle / warmstart /
+gates-teach / diagnostics / save-rebuild didactics). 45M-75 is a workstation
+confirmation-request (post-optimizer-step finite boundary; eps=0 AdamW).
