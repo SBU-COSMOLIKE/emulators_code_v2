@@ -1642,3 +1642,71 @@ done with the board_config in hand and reruns on the box. Population is
 intertwined with queue 5 (each populated gate reruns there). Awaiting the
 Architect's call on the cli-strict/geo-paths census carve-out and the
 input-key/driver population approach before the non-trivial batches.
+
+### Full population order + the first gate's complete declaration (for review)
+
+Population order (each batch a set of small design calls; each populated gate
+reruns on the box, so batches land as the workstation cycles through them):
+
+1. Pure board-integrity, `Manifest(code=(), inputs=())` (no roots, no external
+   inputs): board-selftest, stage-ram, generator-seed, family-first. Mac-fully
+   validatable; the wiring-proof first increment.
+2. Clean-closure checks with a config YAML (no dynamic sites, no model-recipe):
+   eval-batch-invariance, diagnostics-domain, weight-decay-census,
+   triangle-shading -- `code=()` (+ the driver root if the check runs one) and
+   `inputs=(gate_configs.<key>,)`.
+3. Dynamic-cover, no driver (the closure reaches the model-recipe): finite-
+   contract, artifact-readback, finetune-identity, transfer-identity,
+   scalar-identity, cmb-identity, bsn-identity, mps-identity, save-rebuild-drift,
+   cobaya-adapter -- `code=("emulator/designs", "emulator/losses")` + their
+   board_config-resolvable inputs.
+4. Driver gates (a helper launches the driver, invisible to the literal
+   census): ema-* / *-smoke / param-window-cuts / joint-training /
+   npce-training / head-activation-pin / relu-tanh-norm -- `code=(<the driver
+   .py the gate's helper runs>, "emulator/designs", "emulator/losses")` +
+   `inputs=(gate_configs.<key>, ...)`.
+5. AFTER the census carve-out ruling: cli-strict, geo-paths (their check
+   scripts carry the flagged dynamic import).
+
+The FIRST gate (board-selftest), complete declaration:
+
+    manifest=Manifest(code=(), inputs=())
+
+  - code is empty: board-selftest names its own check script
+    (gates/checks/board_selftest.py) in its gate body, so that check is an
+    automatic closure seed; its transitive repo-local closure (run_board.py +
+    board.py, the shared harness) is dynamic-clean and needs no declared root.
+    The resulting digest is strictly broader than the legacy gate-body digest
+    (it now covers run_board.py / board.py changes), which is the whole point.
+  - inputs is empty: board-selftest is pure Python and reads no data, covmat,
+    YAML, or artifact -- there is no board_config-resolvable file to name.
+
+A representative NON-TRIVIAL exemplar (save-rebuild-drift), validated by
+validate_manifests (30-member closure, 0 errors):
+
+    manifest=Manifest(code=("emulator/designs", "emulator/losses"), inputs=())
+
+  - emulator/designs is a root because the rebuild path resolves a saved
+    artifact's design class from its stored string via results.py's model-recipe
+    (getattr(importlib.import_module(mod), qual)); that dynamic import is
+    invisible to the static scan, so the designs tree is declared to cover it
+    (the dynamic-import census requires it) AND to hash every design class the
+    rebuild can instantiate.
+  - emulator/losses is a root for the same reason on the loss side: warmstart.py
+    and results.py rebuild the loss class from its stored string, so the losses
+    tree is declared to cover that dynamic import and hash the loss classes.
+  - inputs is empty: save-rebuild-drift FORGES its emulator artifacts in-process
+    and rebuilds them; it consumes no board_config-named external file (there is
+    no save-rebuild-drift config key).
+
+Input-side limitation to note at population: board_config exposes the smoke
+YAML (gate_configs.<key>), evaluate_yaml, and saved_emulator_root as resolvable
+keys, but a gate's raw data / covmat / axis dumps are named INSIDE its YAML, not
+as board_config keys -- so the input manifest hashes the YAML (catching a config
+edit) but not the dv file the YAML points at. The dirty-tree preflight does not
+watch the data trees either. If per-gate data-file currency is wanted, that is a
+board_config extension (explicit data keys per gate) -- flagged here as a
+decision, not silently dropped.
+
+Awaiting the Architect's approval of this order + the first-gate declaration,
+and the cli-strict/geo-paths census carve-out, before landing the increments.
