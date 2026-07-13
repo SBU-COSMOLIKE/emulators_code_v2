@@ -2181,6 +2181,74 @@ recipe and `.emul` weights together, never combine members from different path
 roots, and never replace only one member of a trusted pair.  It no longer
 describes the queued digest or publication implementation.  That engineering
 contract remains in its owner note rather than in the public introduction.
+
+## Red Team implementation record: root README current-state and figure reuse
+
+This increment applies the user's ruling that the public README presents the
+library as it exists.  It is not a diary of rejected designs, gate runs, queue
+positions, or future repairs.  It also applies the user's prose ruling that a
+full explanatory clause belongs in a sentence or a table, not inside
+parentheses or between em dashes.  Literal function calls, tensor shapes,
+mathematical grouping, coordinate pairs, and compact code labels remain
+parenthesized where the punctuation is part of the notation.
+
+The root README now:
+
+- introduces each path flag, data file, training control, model component,
+  warm-start mode, scientific family, and precedence rule in direct
+  current-state prose;
+- separates choices that had been compressed into parentheses into named
+  sentences or table columns, including the five data files, the `name` and
+  `ia` model axes, fine-tuning versus transfer, generator sampling modes, and
+  phase precedence;
+- retains warnings when they change what a user should do now, while removing
+  internal note paths, queue language, run-history evidence, and discussions
+  of implementations that are not part of the public interface;
+- defines the fixed-width residual block separately from the entry and exit
+  projections that change dimension;
+- replaces the activation ASCII sketch with the manuscript's three-panel
+  activation figure and preserves the forward-versus-backward warning at
+  exact zero;
+- reuses the manuscript ownership-chain figure and defines every table and
+  dimension symbol introduced by its first box, including NumPy's disk-backed
+  `memmap` mechanic;
+- reuses the two-parameter coverage figure, defines its axes as arbitrary
+  sampled cosmological parameters, and states explicitly that the validation
+  region is a rule described in prose rather than a third region drawn in the
+  figure; and
+- links every PNG preview to its vector PDF.  The vector sources remain owned
+  by `texnotes/make_figures.py`, while the new
+  `texnotes/render_readme_previews.py` deterministically renders the three
+  browser previews at 180 dpi without changing their aspect ratios.
+
+This increment touches public documentation, three derived image assets, and
+the preview-rendering script only.  It does not edit `emulator/` production
+code, the board, or gate checks.
+
+### Evidence collected before Architect audit
+
+- `python3 texnotes/render_readme_previews.py` regenerated all three requested
+  previews from their vector PDFs;
+- an immediate second render reproduced the same SHA-256 digest for every PNG;
+- `python3 -m py_compile texnotes/render_readme_previews.py` completed without
+  an error;
+- the regenerated dimensions are 1800 by 550 pixels for the ownership chain,
+  1800 by 525 for the coverage figure, and 1800 by 700 for the activation
+  figure, exactly preserving the three PDF aspect ratios;
+- visual inspection at original resolution found no cropped labels,
+  overlapping legends, or stretched axes;
+- a local-anchor scan reconciled all 62 unique fragment targets with their
+  headings or explicit stable anchors;
+- a relative-link scan outside code fences found no missing file, figure,
+  script, or anchor destination;
+- the 166 fenced-code delimiters form 83 complete pairs;
+- an untruncated scan finds no em-dash character and no remaining
+  clause-bearing parenthesis candidate outside the deliberately retained PCE
+  degree tuple; and
+- `git diff --check` reports no whitespace error.
+
+These checks are implementation evidence for the Architect's pre-merge audit.
+They are not Red Team self-certification.
 ## Queue-2 note-side evidence draft and new correctness finding
 
 The Red Team drafted the A1-ii home-note surface for the 27 gates outside the
@@ -2210,3 +2278,55 @@ type eagerly imports the compiled CosmoLike interface.  The fix belongs at
 the production `from_cosmolike` boundary so constructor/from-state artifact
 use is genuinely independent; adding four gate-local stubs would preserve the
 false public import contract.
+
+## Red Team implementation record: 25M-37 evidence readback and Torch probe
+
+The audited production repair at `3ba8588` defers the optional geometry
+dependencies to the two operations that use them.  `from_cosmolike` owns the
+compiled CosmoLike interface plus GetDist's `IniFile`, while
+`build_shear_angle_map` owns `IniFile` alone.  Importing
+`emulator.geometries.output` no longer loads either optional package.
+
+The two existing queue-2 evidence blocks affected by that repair now describe
+the landed code and direct execution:
+
+- `scalar-identity` reaches every declared assertion with the Cocoa Torch
+  2.6.0 CPU interpreter on a machine without the compiled CosmoLike interface
+  and ends `PASS: scalar-identity all checks green`;
+- `finite-contract` reaches its body, records the four known Parts A/C
+  message-prefix false reds, completes Parts B/D/E, then crashes in Part F
+  because the synthetic loss object has no `geom` from which
+  `_chi2_n_terms` can obtain a contraction width.
+
+The queue-2 draft deliberately excluded `finetune-identity` and
+`transfer-identity` with the other wrapper-family gates, so there are no
+six-field blocks for those two gates in the red-team-owned note surface yet.
+Their direct children now pass the repaired import boundary.  The fine-tune
+child ends `finetune-identity: ALL PASS`.  The transfer child executes all 59
+logical checks and retains its separate known red on the cross-family fixture,
+ending with one failure.  The Implementer's wrapper-family evidence rollout
+must record those current results when it creates the two excluded blocks.
+This bounded update does not take ownership of their leg names.
+
+The environment probe requested for the increment-2 seam also succeeds.  The
+interpreter at
+`/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python`
+imports Torch 2.6.0.  A real `torch.nn.Linear(2, 1, bias=False)` forward pass
+with weight `[3, 4]` and input `[1, 2]` prints
+`torch 2.6.0 device cpu forward [[11.0]]`.  This result answers the Architect's
+probe positively and makes the conditional D3 transfer executable in this
+environment.  It does not claim CUDA or workstation evidence.
+
+Evidence commands, run from the current worktree with `PYTHONPATH=.`:
+
+```text
+Cocoa/.local/bin/python gates/checks/scalar_identity.py
+Cocoa/.local/bin/python gates/checks/finetune_identity.py
+Cocoa/.local/bin/python gates/checks/transfer_identity.py
+Cocoa/.local/bin/python gates/checks/finite_contract.py
+```
+
+The first two return zero.  Transfer returns one for its independently known
+fixture red.  Finite-contract returns one at the Part F fixture crash after
+the import repair lets it reach the check body.  These are implementation
+readbacks for Architect audit, not self-certification.

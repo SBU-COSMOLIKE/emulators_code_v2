@@ -1708,27 +1708,21 @@ but its current execution is red before all declared checks can run.**
   `finite-contract.optimizer-schema`,
   `finite-contract.extreme-scale-validation-reduction`, and
   `finite-contract.optimizer-post-step-finiteness`.
-- evidence: on the advertised Torch-only lane, importing
-  `DataVectorGeometry` eagerly requires both
-  `cosmolike_lsst_y1_interface` and GetDist's `IniFile`. Missing either makes
-  the process red before its first report; neither undeclared dependency is a
-  capability-`UNAVAILABLE` disposition. With both present, Parts A and C
-  execute but record false-red failures because they still expect the retired
-  `finite contract[...]` prefix while production now raises
-  `chi2 domain contract[...]`. The intervening eager assertions and the epoch,
-  domain, and width clusters execute. The compute-dtype cluster emits its
-  first three-boundary report, then crashes at the missing `_chi2_domain`
-  name, so it has no completed terminal verdict and optimizer-schema is never
-  reached. Safe-sqrt's compiled lane is explicitly `UNAVAILABLE` when the
-  probe cannot compile; the separate compiled-negative subarm inside the
-  domain cluster is merely omitted on such a box, with no disposition. The
-  extreme-scale validation and post-step legs are absent and remain
-  `UNAVAILABLE`/owed. There is no current whole-gate PASS.
-- owed: defer both eager output-geometry dependencies, update Parts A/C to the
-  live domain-error prefix, import or qualify `_chi2_domain`, and execute the
-  optimizer schema. Add the extreme-scale published-reduction leg on CPU and
-  its mandatory CUDA lane, add the real optimizer post-step inspection, and
-  give the conditional compiled-negative sublane an explicit disposition.
+- evidence: `DataVectorGeometry` now imports without loading either optional
+  CosmoLike dependency. The compiled interface and GetDist's `IniFile` are
+  loaded only by `from_cosmolike` and `build_shear_angle_map`, respectively.
+  A direct Cocoa Torch 2.6.0 CPU run therefore reaches the check body. Parts A
+  and C record four false-red assertions because they still expect the retired
+  `finite contract[...]` prefix while production raises
+  `chi2 domain contract[...]`. Parts B, D, and E complete. Part F then crashes
+  before its first report because its synthetic `CosmolikeChi2` object has no
+  `geom` attribute for `_chi2_n_terms`. Later clusters do not execute, so the
+  gate has no terminal verdict and no current whole-gate PASS.
+- owed: update Parts A/C to the live domain-error prefix and give the Part F
+  fixture an explicit contraction width. Then execute every later cluster,
+  including optimizer schema, the extreme-scale published-reduction leg on
+  CPU and its mandatory CUDA lane, the real optimizer post-step inspection,
+  and an explicit disposition for the conditional compiled-negative sublane.
 
 <a id="finite-contract-validation-score-finiteness"></a>
 `finite-contract.validation-score-finiteness` requires finite `eval_val`
@@ -1798,16 +1792,15 @@ mutation, scalar-width declaration, subclass census, and ill-conditioned SPD
 control.
 
 <a id="finite-contract-chi2-compute-dtype-band"></a>
-`finite-contract.chi2-compute-dtype-band` is current-red after the child is
-given both eager output-geometry dependencies: its first three-boundary report
-emits, but execution stops at the missing `_chi2_domain` name before the
-upcast-mutation and float64-control reports. The aid therefore has no completed
-terminal verdict.
+`finite-contract.chi2-compute-dtype-band` has no current executed verdict.
+The earlier Part F fixture crashes while obtaining its contraction width, so
+none of this aid's three-boundary, upcast-mutation, or float64-control reports
+execute.
 
 <a id="finite-contract-optimizer-schema"></a>
 `finite-contract.optimizer-schema` has no current executed verdict: its
 finite-real, non-bool AdamW option assertions occur after the deterministic
-compute-dtype crash. This is a red declared-versus-executed mismatch, not a
+Part F fixture crash. This is a red declared-versus-executed mismatch, not a
 green schema result.
 
 <a id="finite-contract-extreme-scale-validation-reduction"></a>

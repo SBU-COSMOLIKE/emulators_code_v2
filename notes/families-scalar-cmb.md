@@ -26,19 +26,18 @@ saved predictor, adapter, NPCE residual model, and fine-tune boundary.**
   `scalar-identity.scalar-adapter-contract`,
   `scalar-identity.npce-composition`, and
   `scalar-identity.finetune-parity`.
-- evidence: the assertions below exist in the child, but the child currently
-  imports `DataVectorGeometry` before its first report. That module eagerly
-  imports both `cosmolike_lsst_y1_interface` and GetDist's `IniFile`, so a
-  CPU-PyTorch environment missing either dependency exits before any declared
-  leg executes even though the board and child both advertise a Torch-only
-  gate. The board wrapper currently reduces child assertions to the exit code;
-  no logged-only claim is promoted.
-- owed: repair both eager output-geometry dependencies at the boundary
-  described by `25M-37` and rerun the complete child. Until then there is no
-  whole-gate PASS on the declared Torch-only environment. Missing the compiled
-  interface or GetDist is a current pre-leg red failure, while missing the
-  registry's PyTorch capability skips the gate as `UNAVAILABLE`. The gate
-  claims neither GPU nor a real-Cobaya lifecycle.
+- evidence: `DataVectorGeometry` now imports without loading either optional
+  CosmoLike dependency. The compiled interface and GetDist's `IniFile` are
+  loaded only by `from_cosmolike` and `build_shear_angle_map`, respectively.
+  A direct run with the Cocoa Torch 2.6.0 interpreter on CPU and without the
+  compiled CosmoLike interface reached every declared assertion and ended
+  `PASS: scalar-identity all checks green`. The board wrapper still reduces
+  those child assertions to the process exit code; no logged-only claim is
+  promoted.
+- owed: wire and reconcile the per-leg assertion identifiers during the
+  queue-2 rollout, then rerun the board gate. Missing the registry's PyTorch
+  capability makes the gate `UNAVAILABLE`. The gate claims neither GPU nor a
+  real-Cobaya lifecycle.
 
 <a id="scalar-identity-artifact-round-trip"></a>
 `scalar-identity.artifact-round-trip` asserts exact named predictions before
