@@ -26,6 +26,37 @@ Glossary:
   preflight = the pre-GPU checks (git tip, clean tree, cocoa imports,
               data paths); all must pass before any test runs.
   resume    = a rerun skips tests already marked PASS.
+  assertion = one acceptance leg named by a stable id and paired with a
+              note anchor (the Assertion class); the id names the leg, the
+              anchor points at the note passage that proves it.
+  evidence  = a gate's structured evidence map (Gate.evidence): the tuple
+              of assertions the gate is built to prove. The runner checks,
+              before any test runs, that every anchor resolves in notes/
+              and no two assertions share an id.
+
+How a gate teaches its evidence.
+  A PASS is only worth trusting if a reviewer can re-derive it from what
+  the run recorded, without rerunning it. Four records make a gate's
+  verdict legible, and each answers a different question:
+
+    what the gate claims to prove -- the maps= line (prose) and the
+      structured evidence map (assertion id -> note anchor). The runner
+      validates the anchors, so the claim cannot drift from the note.
+    what the run actually observed -- every ctx.expect writes a CHECK line
+      carrying not a bare PASS/FAIL but the acceptance value behind it (a
+      number, a count, a byte-identity result), so the log shows the
+      measurement, not a memory of it.
+    what code produced it -- the immutable per-attempt log names the home
+      note, the base-notes commit, and HEAD at run; the resume record
+      stores the executable-surface digest and the input digest, so a
+      stored PASS is trusted only while both are unchanged.
+    whether it can be believed now -- --list reports each gate as current
+      PASS, stale-code, stale-input, or interrupted, so a PASS that no
+      longer matches the tree reads as stale rather than green.
+
+  Read together, these let a reviewer confirm the gate encodes its note
+  (not a memory of it), see the values it measured, and know the verdict
+  still describes the current tree.
 """
 
 from dataclasses import dataclass, field
