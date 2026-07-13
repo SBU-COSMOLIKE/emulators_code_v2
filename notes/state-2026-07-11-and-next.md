@@ -2216,6 +2216,77 @@ multiline/semantic-capable scans. All routed to the model/loss/
 geometry family batches; worked examples to unit 91. Spec:
 gates-and-board.md "DIDACTICS-34..41 adjudication".
 
+DIDACTICS-42..57 BATCH (2026-07-13, Fable): sixteen items. FIVE
+gate-truth defects (46 golden byte-identity greens on empty
+selections — live-reproduced by the Architect through the real
+helper; 47 mps-smoke's vacuous filtered .all() passes an all-zero
+dump; 48 production-diagnostic never checks the PDF exists; 52 the
+OR-joined absence census — the Architect's own deep-pass rider 3,
+deferral upgraded to NOW; 53 six-block claim, TT-only checks —
+RULING: extend, not narrow) become ONE gate-truth repair batch
+BEFORE queue 5. UNIT 92 born (device-audit totality: recursive
+traversal, raise-regardless-of-silent, CUDA lane workstation).
+Factual bundle grows (42 package intro, 43 set_device + interleave,
+49 the .h5/.emul REVERSAL + stage_train claim, 50 factored width).
+51's signature-vs-Arguments AST census joins the standing
+acceptance; 45 merged into DIDACTICS-11; the 40-addendum extends the
+direction census to exception strings. Spec: gates-and-board.md
+"DIDACTICS-42..57 adjudication".
+
+DIDACTICS-58 (2026-07-13, Fable): CONFIRMED (census exact: 24 files,
+both patterns, full intersection) — the canonical seven-mechanics
+harness-Python preamble rides the DIDACTICS-02 __init__ landing (one
+file, one edit); no clever framework, per the C-coder rule. Spec:
+gates-and-board.md "DIDACTICS-58 adjudication".
+
+DIDACTICS-62/63 (2026-07-13, Fable): CONFIRMED — the banner-as-truth
+class (five behavioral-claim gates checking only banners/exit codes;
+param-window-cuts accepting any "used n of m" line unparsed). Point
+7 adopted as doctrine beside ruling 6: reconciliation proves
+execution, never observation. RULINGS: prose narrowed NOW (factual
+bundle; queue-2 aids mint from narrowed claims); 63's independent-
+reference repair joins the gate-truth batch; 62's parse-and-assert
+strengthening = gate-truth increment 2 pre-queue-5, with
+joint-training's driver-side phase-boundary digest riding the
+training-truth trio if timing is tight. Spec: gates-and-board.md
+"DIDACTICS-62/63 adjudication".
+
+DIDACTICS-59/60 (2026-07-13, Fable): CONFIRMED — 59 the
+copied-reference gate (ge_c_eval_bs certifies its own chi2 loop, not
+the real eval_val; ruling: exercise the real entry point, reuse the
+existing production per-row diagnostics surface, no duplicated
+formula) and 60 the stale scalar-smoke baseline (0.455 removed with
+the causal smoothness claim; baseline recomputed from exact staged
+rows + dead-network mutation) — both join gate-truth increment 2,
+with 60 sequenced AFTER the unit-28 disjointness repair because its
+recomputed number was measured on the overlapping fixture. Spec:
+gates-and-board.md "DIDACTICS-59/60 adjudication".
+
+DIDACTICS-61 + 64..71 BATCH (2026-07-13, Fable): the red team's
+durable register (notes/red-team-audit-and-didactics-2026-07-13.md,
+42--71) adopted — 42-60/62-63 copies reconciled, MATCH. Nine new
+confirmations: 61 (a two-column fixture called one-wide; decreasing
+already enforces two points but its docstring says non-empty, and a
++Inf first value passes -> finiteness joins the gate-truth batch);
+64 (the compile-mode drift arm patches a global that rebuild
+provably never reads — arm removed in increment 2; persistence proof
+= NEW UNIT 93, CUDA instrumented lane, workstation-owed); 65 merges
+into 29 (exact panel-identity acceptance); 66 (self-defined
+masked-zero proof, vacuous when dest_idx covers all — gate-truth
+batch with 47); 67+68 = one warmstart visit (teach the double .h5
+open + define .ia; finite guards added to BOTH perturbed parity arms
+— a perturbation-born NaN is currently mislabeled "extras leaked");
+69 (exactly six "equally hard" sites -> one canonical
+no-equal-learnability sentence, multiline census); 70 (results.py
+contradicts its executed CPU normalization; CPU-residency leg added
+in increment 2); 71 (the "bit for bit" headline split into the two
+real invariants: _PARITY_TOL function reproduction vs bitwise
+extras-independence). The 46 golden-leg addendum absorbed (both rcs
+discarded at board.py's _golden_leg — rc==0 + nonempty count now
+required). Durable-record rule adopted both ways. Gauntlet
+unchanged. Spec: gates-and-board.md "DIDACTICS-61 + 64..71
+adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

@@ -3024,3 +3024,339 @@ Verdicts + Architect deltas:
   path Linear->norm->act->...->final Linear->ADD SKIP->final
   norm->final act; rectangular projections outside the block) with
   the named shape trace.
+
+## DIDACTICS-42..57 adjudication (Fable, 2026-07-13): five gate-truth defects become one repair batch before queue 5; unit 92 born; the doc items routed
+
+Architect verification: the vacuous-truth mechanisms are live —
+logscan.byte_identity('', '', pattern) and noise-vs-noise BOTH return
+(True, '') through the real helper (46); mps_smoke:144's
+(arr[arr.sum(axis=1) != 0] > 0).all() filters the rows the claim must
+reject (47); diagnostics_domain:304-305 joins its two absence
+predicates with OR (52) — the sharpened form of the Architect's own
+deep-pass ROLLOUT RIDER 3, whose when-next-touched deferral is hereby
+UPGRADED to now; experiment.py:88-89 states ".h5 weights + .emul
+recipe", the exact reversal (49).
+
+GATE-TRUTH REPAIR BATCH (46 + 47 + 48 + 52 + 53): five false-green /
+overclaim lanes in existing gates land as ONE repair increment
+BEFORE queue 5, beside the unit-28 fixture repair — the workstation
+evidence comes from repaired gates or it means less than it claims.
+- 46: selection success separated from selection equality; nonempty
+  both sides at minimum, caller-declared line classes preferred;
+  zero-match failures name side/pattern/count; the label becomes
+  "character equality of a declared subset", never byte identity;
+  the empty/one-sided/noise mutants red through the REAL _golden_leg
+  board path.
+- 47 (rider on the unit-56 payload contract): exact declared row
+  count asserted; the canonical publication predicate proves every
+  row; finiteness after the storage cast; strict positivity on every
+  stored P_lin element; NO pre-filtering of suspected failures
+  before a whole-dataset verdict; the empty-array.all() convention
+  taught.
+- 48: the diagnostics PDF is resolved from the producer's own path
+  helper, asserted to exist, nonempty, parseable, with the expected
+  pages; the visual claim stays explicitly manual; "produced /
+  opened / contains pages / looks correct" are four different
+  claims; the rc-zero-no-PDF fake is the load-bearing mutation.
+- 52: the OR verdict is replaced by the AST/data-flow census over
+  every diagnostic chi2 producer (compute-dtype score reaches the
+  screen before any float64 conversion), with single-mutation red
+  legs for each forbidden path alone; De Morgan taught in place.
+- 53 RULING: EXTEND, not narrow — the six-block covariance is
+  science-bearing (the Motloch-Hu off-diagonal work), so every block
+  gains finiteness, every same-spectrum block symmetry + PSD, every
+  cross block its placement/known-answer relation, per-block
+  evidence in the raw log; the corrupt-only-cov_ee and
+  corrupt-one-cross mutations must red.
+
+UNIT 92 (54, device-audit totality): audit_devices promises every
+tensor but walks only vars() one level deep and demotes mismatches to
+silent-gated performance prints. Contract ratified: cycle-safe
+recursive traversal (nested modules, containers, composed
+geometry/loss owners), alias deduplication by identity with ownership
+paths, a REAL mismatch raises regardless of silent (only formatting
+is quiet-gated), device type and index documented separately; CPU
+traversal legs + the workstation CUDA lane proving a nested CPU
+tensor cannot enter a CUDA loss silently; the shallow-vars mutation
+must red.
+
+Documentation routing: 42 (the package intro still calls the
+five-family library cosmic-shear-only), 43 (set_device does NOT
+retarget default-device ops; worker streams CAN interleave), 49 (the
+artifact reversal + the stage_train loader claim + the cosmic-shear
+headline on the five-family class), and 50 (factored encode does NOT
+increase width — the property computes n_param exactly) join the
+FACTUAL BUNDLE. 44, 55, 56, 57 join the family batches with their
+censuses (whitening names its random quantity and covariance
+assumption; association language replaces causal/optimal claims;
+state_dict membership = registered parameters incl. frozen + persistent
+buffers, one canonical definition reused; decode is the inverse on
+the kept subspace only, with the three precise identities). 51 is
+ratified and its AST census (public signature names vs Arguments:
+entries; declared returns vs the executed tuple/dict surface) JOINS
+THE STANDING ACCEPTANCE BATTERY. 45 duplicates the already-ruled
+DIDACTICS-11 (_analytic_R dtype contract — same anchors, same
+repair): MERGED, no second unit. The 40-ADDENDUM is accepted: the
+direction census covers docstrings, comments, AND exception strings
+(printed errors are user documentation), adding the cmb.py:207/:245
+and scalar.py:121-128 reversal sites to the multiline scan.
+
+## DIDACTICS-58 adjudication (Fable, 2026-07-13): the canonical harness-Python preamble — a rider on the DIDACTICS-02 __init__ landing
+
+CONFIRMED with a precise census: the Architect's own count finds
+EXACTLY 24 gate scripts carrying both the module-global FAILURES
+accumulator and the __main__ executable footer (full intersection of
+the two patterns). RATIFIED as filed, PLACED as a rider on the
+DIDACTICS-02 gates/checks/__init__.py landing — the file-by-file
+index and the canonical beginner preamble are one edit to one file.
+The preamble teaches all seven mechanics (module-load-time list
+creation; name lookup finding the module-level object; in-place
+.append needing no global; rebinding needing global; per-subprocess
+isolation via fresh module execution; __name__ semantics; main() ->
+sys.exit -> shell/board exit status), each standalone script points
+to it without team shorthand, per-file report docstrings stay
+descriptive, and — per the standing C-coder rule — the repeated
+pattern is NOT compressed into a clever framework to save lines.
+
+## DIDACTICS-62/63 adjudication (Fable, 2026-07-13): banner-as-truth — prose narrowed now, behavioral evidence in a second gate-truth increment
+
+Both CONFIRMED as the banner-as-truth class: five gates
+(head-scheduler-override, berhu-anneal, ema-anneal, joint-training,
+relu-tanh-norm) advertise behavioral proofs (lr cadence, exact
+hold/ramp values and continuity, trunk-parameter movement, loss
+descent) while their assertions check exit codes and banner
+substrings; param-window-cuts and production-diagnostic accept ANY
+"used <n> of <m> cut rows" line without parsing the integers or
+comparing against an independent reference — a driver hard-printing
+"used 1 of 1 cut rows" greens both legs. Point 7 is adopted as
+doctrine and recorded beside binding ruling 6: the evidence rollout
+proves an assertion EXECUTED; it can never supply an observation the
+assertion never made — reconciliation and observation are orthogonal
+axes of gate truth.
+
+RULINGS (narrow-now / strengthen-next):
+
+1. PROSE NARROWING is immediate (joins the queue-6 factual bundle):
+   each of the seven gates' titles/maps= describe exactly the
+   startup/schema/banner evidence executed today, with the
+   behavioral claims moved to explicitly-owed status — so the
+   queue-5 run's claims are honest even where power is still owed,
+   and the queue-2 aid minting uses the NARROWED claims.
+2. DIDACTICS-63 (independent-reference repair for param-window-cuts
+   + production-diagnostic's banner leg) JOINS THE GATE-TRUTH REPAIR
+   BATCH (same class as 46-53, small): the deterministic table with
+   an independently computed physical mask; used/total parsed as
+   integers and checked against the independent count, the requested
+   selection, AND the staged-index identities (identity comparison,
+   not count); 0 <= used <= total with nontrivial shrinkage; the
+   hardcoded-plausible-banner mutation must fail; the lesson
+   recorded — a banner is an observation to compare against an
+   independent reference, never its own evidence.
+3. DIDACTICS-62's behavioral strengthening is GATE-TRUTH INCREMENT
+   2: where the evidence already exists in driver output, parse and
+   assert it pre-queue-5 — scheduler: phase-tagged lr events at the
+   patience cadence (ignore-the-override mutation reds); anneals:
+   the real schedule evaluated before the hold, at the boundary,
+   during the ramp, at the endpoint, exact values + continuity
+   (constant-schedule mutation reds); activations: two finite loss
+   observations + an explicit descent criterion (dead/mean-only
+   nets red). Joint-training's trunk-movement proof needs evidence
+   the driver does not yet emit: the driver gains ONE
+   phase-boundary trunk-parameter digest line (essential-only
+   compatible — per phase, not per epoch), and the gate asserts a
+   finite nonzero change in the joint run and EXACT ZERO in the
+   frozen control; that half rides the training-truth trio
+   (79/88/89) if increment 2's timing is tight, with its narrowed
+   prose honest in the interim.
+4. Banner/schema evidence and numerical/optimization evidence are
+   reported separately in every repaired gate.
+
+## DIDACTICS-59/60 adjudication (Fable, 2026-07-13): the copied-reference gate and the stale baseline — both join gate-truth increment 2, with one sequencing trap caught
+
+(Filed twice in one relay; counted once.)
+
+59 CONFIRMED (the copied-reference problem): ge_c_eval_bs computes
+its own per-row chi2 array while production eval_val publishes only
+reductions — the gate can certify its local helper while the real
+aggregation, row association, or ragged-batch handling is wrong.
+Contract RATIFIED: the REAL eval_val entry point exercised across
+the three partitions (one batch / equal batches / ragged final);
+every published production value compared (mean, median, threshold
+fractions, ranking-history values) against an independent float64
+reference; the distinct-scores row-permutation fixture; the
+drop-or-reorder-a-batch mutation that leaves the copied helper
+unchanged and must red. On clause 7, the RULING is reuse-not-add:
+per-row scores are already produced on the production diagnostics
+path (the _screen_diag_chi2 producers) — the gate consumes that
+existing production-owned surface; no new boundary and no duplicated
+formula. The board prose names exactly which production outputs are
+compared.
+
+60 CONFIRMED (the stale baseline + the unsupported cause): the
+smoothness-causes-two-epoch-convergence claim and the stale 0.455
+are removed NOW (factual bundle); two epochs is described as the
+bounded runtime of a deterministic smoke fixture — a budget, not a
+scientific explanation. Contract RATIFIED: the mean-only baseline
+recomputed from the EXACT staged rows; the four evidence values
+printed (val-row count, mean-only median, trained median,
+threshold); the trained model beats BOTH the fixed threshold and the
+recomputed baseline; 0.3 retained only with recorded empirical
+margin; the mean-only/dead-network mutation arm (the dead-network
+law, formalized for scalar-smoke). SEQUENCING TRAP CAUGHT: the
+recomputed 0.4401868977 was measured on the CURRENT
+100%-overlapping fixture — the unit-28 disjointness repair changes
+the staged rows, so 60's baseline recomputation and margin recording
+land WITH OR AFTER that repair, never before; the number in this
+filing is evidence of staleness, not the new reference.
+
+Placement: both join GATE-TRUTH INCREMENT 2 (the behavioral-evidence
+batch, pre-queue-5), 60 ordered after the unit-28 fixture repair
+within it.
+
+## DIDACTICS-61 + 64..71 adjudication (Fable, 2026-07-13): the durable register adopted; nine confirmations; UNIT 93 minted; 65 merges into 29; the 46 golden-leg addendum absorbed
+
+THE REGISTER: the red team's findings now live durably in
+notes/red-team-audit-and-didactics-2026-07-13.md ("Durable DIDACTICS
+handoff register: 42--71", on main). The register copies of 42-58,
+59/60, and 62/63 were reconciled against the rulings already issued
+in this file — they MATCH; no reopened item. The register's 46 entry
+carries ONE addendum beyond my original filing, verified and
+absorbed below. The durable-record rule is ADOPTED both ways: every
+future red-team filing is appended to a topic/audit note before its
+chat copy, and adjudications cite the file, never the chat.
+
+Verification (Architect, worktree at 976c739; untruncated greps):
+
+- 61: stage_ram.py:139's evidence string says "the one-wide float32
+  target" while the fixture is dv = np.zeros((n, 2)) (:129) — the
+  byte arithmetic uses 2 correctly; only the prose is false.
+  logscan.decreasing already ENFORCES the two-point minimum
+  (len < 2 -> False, "need at least two points") while its Returns
+  block still says "non-empty" — a stale docstring, not a code hole.
+  The REAL behavioral hole: a +Inf first value with a finite last
+  gives drop = +Inf > tol and PASSES — a numerically exploded run
+  reads as a descent. (NaN endpoints already fail closed through the
+  comparison.)
+- 64: gsv_bitwise_drift.py:328-335 patches
+  training.DEFAULT_COMPILE_MODE around a rebuild that is called with
+  compile_model=False (:251 default) AND whose fixture recipe
+  persists "compile_mode": None (:148) — rebuild reads the persisted
+  recipe, so the patched global provably cannot reach the compared
+  output. The compile-mode drift arm asserts nothing.
+- 65: the global-count mechanism was verified at the 29
+  adjudication; the refile adds the exact acceptance (below).
+- 66: gct_parity.py:141-147 derives masked from the SAME rebuilt
+  geometry's dest_idx and accepts nonzero_masked == 0 — an
+  all-covering dest_idx makes the masked selection empty (vacuous
+  green), and a lost cut lets the object under test redefine its own
+  expected mask.
+- 67: warmstart.py:78 "loaded once", :80 "builds this once", :271
+  "Load and validate the source emulator once" — while load_source
+  executes rebuild_emulator (:309; opens the .h5 and torch.loads the
+  .emul) and then opens h5py.File(root + ".h5") AGAIN (:335) for the
+  recipe/resolved facts. The FinetuneSource attribute docstring ends
+  at dataset; the live .ia attribute (:131) is absent from it.
+- 68: _require_parity_finite guards exactly the four finetune
+  baseline tensors (:945-951) and three transfer tensors
+  (:1113-1117); BOTH perturbed arms (finetune :957-965, transfer
+  :1125-1134) feed torch.equal unguarded, so a NaN/Inf born only on
+  the perturbation is mislabeled "the extra parameters leaked" /
+  "moved the epoch-0 prediction" — the developer is sent hunting
+  zero-padding instead of the overflow.
+- 69: the untruncated grep finds EXACTLY the six claimed sites
+  (warmstart:34, diagnostics:88, losses/ia:16, designs/ia:18,
+  designs/plain:60, geometries/output:52) — no seventh.
+- 70: results.py:150 says "(a cuda-saved state needs the saving GPU
+  visible)" while the executed save runs detach().cpu() on every
+  persisted tensor (:292, :311, :370, :395) and rebuild loads with
+  map_location=device (:722). gsv_bitwise_drift has NO CPU-residency
+  assertion on the serialized tensors — the gate clause is
+  add-not-cite.
+- 71: warmstart.py:20-21's headline promises "the source emulator's
+  own function, bit for bit" while the function-reproduction
+  comparison is tolerance (_PARITY_TOL = 1.0e-5, :967); only the
+  extras-independence half is torch.equal (:961), and transfer's
+  epoch-0 bitwise base equality (:1119) is a separate invariant.
+- 46 ADDENDUM: _golden_leg discards BOTH child return codes
+  (board.py, "_, cur" / "_, pre") before byte_identity — combined
+  with the empty-selection green already live-reproduced, two
+  crashed children after their last matching lines, or a one-sided
+  crash, or a nothing-matching pattern all PASS.
+
+RULINGS:
+
+1. 61 splits: the stage_ram evidence string and the decreasing
+   docstring ("non-empty" -> the executed two-point strict rule) are
+   FACTUAL-BUNDLE fixes; the finiteness requirement is a small
+   BEHAVIORAL addition joining the GATE-TRUTH BATCH — both endpoints
+   must be finite, a nonfinite endpoint returns False with a named
+   detail (house finite-contract doctrine: a nonfinite loss is a
+   broken run, not a descent) — with the five named controls (empty,
+   one-value, NaN, equal, +Inf-first) as selftest legs.
+2. 64 splits: the vacuous compile-mode arm is REMOVED NOW (gate-truth
+   increment 2's honest-evidence class — a drift claim its own patch
+   cannot reach may not stand); compile-mode persistence becomes NEW
+   UNIT 93: a CUDA lane that rebuilds with compile_model=True,
+   instruments torch.compile to OBSERVE the persisted recipe mode,
+   and reds when rebuild ignores or loses that field. Board-listed
+   accelerator leg, workstation-owed (the queue-5 exhibit family
+   with 77/80's Torch legs). Never-trust-defaults: a persisted
+   recipe field must be provably honored by the consuming code.
+3. 65 MERGES INTO 29 — one home, the sharper acceptance adopted: the
+   exact expected (x_parameter, y_parameter, window) set constructed
+   independently, axis identities extracted from each Axes object,
+   the exact set/count compared, the omegamh2 marginal identified
+   specifically, _CUT_GREY checked on each expected artist, and the
+   move-a-correct-artist-to-a-wrong-axis mutation that leaves global
+   counts unchanged must red.
+4. 66 joins the GATE-TRUTH BATCH (the same vacuous-pass class as
+   47): the fixture declares an independent, NONEMPTY expected
+   masked-index set; the gate asserts observed mask identity and
+   count against it, exact zeros there, and compares kept
+   coordinates between section and full outputs; the all-kept and
+   deleted-expected-index mutations must fail.
+5. 67 + 68 land as ONE WARMSTART VISIT (same file, prose + guard
+   together, after the gauntlet with the family visits). 67 ruling:
+   TEACH, don't consolidate — the second metadata pass is stated
+   with its reason (rebuild_emulator owns network reconstruction;
+   the follow-up open reads recipe/resolved facts), object count is
+   distinguished from file-open count, and ia = nla / tatt / None is
+   defined; the instrumented h5py.File/torch.load open-count census
+   that pins the final prose is a UNIT 91 executable example. 68
+   ruling: the shared finite predicate is applied to the perturbed
+   encode and output tensors in BOTH arms (a production fix); board
+   legs mint NaN and Inf only on the perturbation and require the
+   finite-contract error naming quantity/side/row; removing either
+   perturbed-arm guard must red.
+6. 69: ONE canonical sentence — "decorrelated and unit variance
+   (equal numerical scale); this does not guarantee equal
+   learnability" — replaces all six sites, a FACTUAL-BUNDLE fix
+   whose completion evidence is a multiline repo scan leaving zero
+   "equally hard"/"equally easy" claims in emulator/ (the campaign's
+   multiline-census law; single-line grep insufficient).
+7. 70 splits: the results.py:150 correction (this library persists a
+   CPU-normalized checkpoint, distinct from a raw CUDA checkpoint;
+   map_location selects the load destination) is a FACTUAL-BUNDLE
+   fix; the CPU-residency leg (torch.load the .emul and assert every
+   tensor's device.type == "cpu") joins gate-truth increment 2
+   (verified absent today — add, not cite).
+8. 71: the headline is rewritten to the TWO invariants — the widened
+   network reproduces the source function within _PARITY_TOL
+   (different matrix widths change floating-point reduction order),
+   and perturbing only the zero-connected extras on the SAME widened
+   network is bit-identical (torch.equal) — with transfer's separate
+   bitwise base-composition requirement untouched. FACTUAL-BUNDLE
+   fix; the bit-for-bit census (every "bit for bit" / "bitwise" /
+   "bit-identical" occurrence mapped to the comparator actually
+   used) joins the quantifier-discipline battery.
+9. The 46 golden-leg addendum is ABSORBED into 46's gate-truth
+   repair: identity requires BOTH return codes zero AND a nonempty /
+   minimum selected-line count AND equality; both rcs and both
+   counts reported; the three mutations (empty selection; both
+   children rc 1 after matching lines; tip-only rc 1) must red.
+
+Sequencing: the gauntlet is UNCHANGED — batches 4/5b -> the unit-28
+fixture repair -> the gate-truth batch (46+addendum/47/48/52/53/63
++ 61-finiteness + 66) -> gate-truth increment 2 (62/59/60 +
+64-narrowing + 70-leg). Unit 93 is workstation-owed; 67+68 ride the
+family visits; the factual bundle grows by 61/69/70/71's prose.
