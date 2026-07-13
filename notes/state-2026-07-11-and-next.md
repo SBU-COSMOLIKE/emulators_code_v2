@@ -2405,6 +2405,23 @@ stays bit-identical; 7.5% vs the independent integral) + NEW
 ADVISORY: no cross-run Hubble/D_M pairs until the binding lands.
 Spec: gates-and-board.md "25M-07..13 adjudication".
 
+25M-14/15 BATCH + DIDACTICS-93 (2026-07-13, Fable): both CONFIRMED.
+14 = unit-29 amendment (n_tokens == n_out yields width-one tokens;
+LayerNorm(1) is identically zero pre-affine, so the ResTRF
+correction is input-independent for every trained weight set —
+refuse max token width < 2 before construction) + a commissioned
+five-leg Torch gate. 15 = live-resource-sizing amendment (the
+planner charges the packed target at model-output width — the
+comment itself asserts the false equality; both streaming calls
+drop the resolved tgt_dim; max(1,...) turns deficit into
+permission — three named byte terms, threaded width/dtype, loud
+refusal) + commissioned CPU boundary legs (the 84-byte witness) and
+a workstation packed-target streaming leg. DIDACTICS-93 RATIFIED:
+h reserved for H0/100 (the collision that caused 25M-07's
+retraction); step_frac/s_step rename = a bounded AST increment with
+byte-identical outputs + the Planck-LCDM control. Spec:
+gates-and-board.md "25M-14/15 + DIDACTICS-93 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

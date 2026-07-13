@@ -3919,3 +3919,69 @@ amendments ride its existing 45M-01 slot; 96 beside 76's landing;
 95 with the training/driver campaign; 75-BAOSN with the family
 visits). Nothing preempts population completion -> the gauntlet.
 The registry namespace: 25M-07 retired-tombstone, 08-13 live.
+
+## 25M-14/15 + DIDACTICS-93 adjudication (Fable, 2026-07-13): both defects confirmed, both Torch gates commissioned; the naming ruling ratified
+
+Durable register at efddf98 (latest main merged as 97e9acb).
+
+- 25M-14 CONFIRMED (the width-one transformer demotion):
+  plain.py:866-870 bounds n_tokens by 2..total, ADMITTING T == total
+  (one scalar per token); blocks.py:602-604's only constructor guard
+  is dim % n_heads == 0, which width 1 + n_heads 1 passes; both
+  TRFBlock branches are pre-norm LayerNorm(dim) (:609, :621) — at
+  dim = 1 the normalized value is identically zero before the
+  learned affine, so with film: false every branch output is a
+  learned constant and the ResTRF correction t - t0 is
+  input-independent FOR EVERY POSSIBLE TRAINED WEIGHT SET, while the
+  ResMLP trunk still learns and hides the demotion from aggregate
+  bars. -> AMENDMENT to unit 29 (model-block value schema,
+  models-and-designs.md): the active-model validator derives real
+  token widths (the padded max_bin) from the geometry BEFORE
+  construction and refuses max token width < 2 for BOTH plain and
+  factored TRF paths, naming output length, token count, resolved
+  width, and the LayerNorm degeneracy; no padding or artificial
+  embedding silently repairs a requested design. TORCH GATE
+  COMMISSIONED (board-listed, workstation): the five filed legs —
+  the N=4/n_tokens=4/n_heads=1/film-false refusal before
+  construction; the bypassed-validation behavioral witness
+  (deterministic nonzero head weights, identical corrections for
+  two distinct t0 rows, zero correction Jacobian w.r.t. t0);
+  adjacent n_tokens=3 constructs input-dependent; plain and
+  factored share the verdict; the divisibility-only mutation greens
+  construction but reds the behavioral witness.
+- 25M-15 CONFIRMED (the packed-target planner undercount):
+  batching.py:124-127's own comment asserts the target "matches the
+  output's shape/dtype, so another out_bytes" — false for
+  PCERatioChi2 / TransferDiagChi2 (2*n_keep per row) and factored
+  TransferChi2 ((n_templates+1)*n_keep); the resident path resolves
+  tgt_dim (:276-289) but BOTH streaming calls (:373, :387) invoke
+  batches_per_load without it, and :214's max(1, ...) converts a
+  resident-plus-one-batch deficit into permission. The 84-byte
+  witness arithmetic (3*(14-7)*4) is exact. Distinct from 45M-84
+  (permanent host copy vs transient device memory), as filed. ->
+  AMENDMENT to the live-resource-sizing unit (second-wave local
+  list 5, training-stack.md owner): ONE owner computes input +
+  model-output + ACTUAL-target bytes with width/dtype threaded from
+  the loader boundary that stages the target; ordinary
+  target_dim == out_dim stays byte-identical; the planner report
+  names each term; a deficit REFUSES with required/available/terms
+  — never max(1, ...). TORCH LEGS COMMISSIONED (board-listed):
+  the pure 84-byte and two-batches-vs-one boundary legs (CPU); one
+  real packed-target streaming integration leg + ordinary control
+  (workstation); both mutations (restore 2*out_bytes; restore
+  max(1, ...)) red.
+- DIDACTICS-93 RATIFIED (the user's naming ruling, recorded in
+  conventions-and-workflow.md as binding): cosmological h is
+  RESERVED for H0/100 program-wide; the covariance numerical step
+  becomes step_frac in Python and s_step in prose; the untruncated
+  census also disambiguates hidden-state, hardness, horizon, and
+  local-Hubble uses. This is an AST-CHANGING rename, not doc-only:
+  it lands as a bounded rename increment whose acceptance is
+  byte-identical outputs (the Planck-LCDM control among them) and
+  the untruncated census; arithmetic and persisted values
+  unchanged. The 25M-07 retraction was CAUSED by this collision —
+  the ruling closes the class, not just the instance.
+
+Both commissioned gates join the queue-5 workstation exhibit
+family. Sequencing unchanged: population completion -> the gauntlet
+first; the two amendments join their units' queue slots.
