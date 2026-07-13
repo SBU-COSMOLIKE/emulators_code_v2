@@ -2278,3 +2278,55 @@ type eagerly imports the compiled CosmoLike interface.  The fix belongs at
 the production `from_cosmolike` boundary so constructor/from-state artifact
 use is genuinely independent; adding four gate-local stubs would preserve the
 false public import contract.
+
+## Red Team implementation record: 25M-37 evidence readback and Torch probe
+
+The audited production repair at `3ba8588` defers the optional geometry
+dependencies to the two operations that use them.  `from_cosmolike` owns the
+compiled CosmoLike interface plus GetDist's `IniFile`, while
+`build_shear_angle_map` owns `IniFile` alone.  Importing
+`emulator.geometries.output` no longer loads either optional package.
+
+The two existing queue-2 evidence blocks affected by that repair now describe
+the landed code and direct execution:
+
+- `scalar-identity` reaches every declared assertion with the Cocoa Torch
+  2.6.0 CPU interpreter on a machine without the compiled CosmoLike interface
+  and ends `PASS: scalar-identity all checks green`;
+- `finite-contract` reaches its body, records the four known Parts A/C
+  message-prefix false reds, completes Parts B/D/E, then crashes in Part F
+  because the synthetic loss object has no `geom` from which
+  `_chi2_n_terms` can obtain a contraction width.
+
+The queue-2 draft deliberately excluded `finetune-identity` and
+`transfer-identity` with the other wrapper-family gates, so there are no
+six-field blocks for those two gates in the red-team-owned note surface yet.
+Their direct children now pass the repaired import boundary.  The fine-tune
+child ends `finetune-identity: ALL PASS`.  The transfer child executes all 59
+logical checks and retains its separate known red on the cross-family fixture,
+ending with one failure.  The Implementer's wrapper-family evidence rollout
+must record those current results when it creates the two excluded blocks.
+This bounded update does not take ownership of their leg names.
+
+The environment probe requested for the increment-2 seam also succeeds.  The
+interpreter at
+`/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python`
+imports Torch 2.6.0.  A real `torch.nn.Linear(2, 1, bias=False)` forward pass
+with weight `[3, 4]` and input `[1, 2]` prints
+`torch 2.6.0 device cpu forward [[11.0]]`.  This result answers the Architect's
+probe positively and makes the conditional D3 transfer executable in this
+environment.  It does not claim CUDA or workstation evidence.
+
+Evidence commands, run from the current worktree with `PYTHONPATH=.`:
+
+```text
+Cocoa/.local/bin/python gates/checks/scalar_identity.py
+Cocoa/.local/bin/python gates/checks/finetune_identity.py
+Cocoa/.local/bin/python gates/checks/transfer_identity.py
+Cocoa/.local/bin/python gates/checks/finite_contract.py
+```
+
+The first two return zero.  Transfer returns one for its independently known
+fixture red.  Finite-contract returns one at the Part F fixture crash after
+the import repair lets it reach the check body.  These are implementation
+readbacks for Architect audit, not self-certification.
