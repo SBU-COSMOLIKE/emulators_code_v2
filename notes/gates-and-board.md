@@ -5595,3 +5595,362 @@ Standing expectation: at each trigger the Implementer's handoff
 names the freed surface; my transfer handoff to the red team cites
 this section and the unit's contract; the ledger records each
 firing.
+
+## Queue 2 rollout plan — PROPOSAL for Architect review (Opus, 2026-07-13)
+
+Propose-don't-guess for a design-sensitive surface: this is the shape
+BEFORE any code lands. It builds on the 45M-72 foundation already on the
+branch — `Assertion(aid, anchor)`, `Gate.evidence`, and `validate_evidence`
+(run_board.py:707, runs on every invocation incl. `--list`, checks every
+anchor resolves to a real `<a id>` and no two aids collide) — and on the
+six binding evidence-map rulings + Fable's one-verdict constraint (the
+"Architect batch audit" section above; the red-team note's "Binding rulings
+for the structured evidence-map rollout"). Nothing here re-proposes the
+foundation; it specifies the four owed pieces (per-leg ids, executed-vs-
+declared reconciliation, external-script manifests, per-leg anchors) plus
+the three campaign riders the D9 handoff attached (DIDACTICS-20 stable
+sections, DIDACTICS-27 wrapper-child, ruling-6 UNAVAILABLE, 09 vocabulary).
+
+Substrate census (grounds the "~90 aids"): board.py carries 57 `ctx.expect`
+sites across 40 gates and calls 26 `gates/checks/*.py` scripts; 7 gates
+already carry one headline `Assertion` each. The ~90 acceptance legs =
+the 57 in-process expects + ~33 reviewed check-script legs (the numeric
+scripts each assert a handful; board_selftest's 142 internal `report()`
+calls are the HARNESS's self-proof, not board legs — brd-a mints ~7 legs,
+not 142). Minting is per-reviewed-leg; the landing enumerates the 90 names,
+this proposal fixes the RULE that generates them.
+
+### Deliverable A — the registry stable-section rewrite shape (all 40 entries)
+
+The drift DIDACTICS-20 names: today `maps=` is free-form prose — some entries
+carry note LINE NUMBERS ("148-153 (leg 1: ...)", which rot exactly as the
+"32 tests" count did, DIDACTICS-24's enumeration-rot lesson), some carry long
+descriptive sentences nothing checks. The rewrite kills the drift by moving
+the machine truth OUT of the prose and INTO the structured map, and demoting
+`maps=` to one checkable-by-a-human sentence.
+
+Proposed post-rewrite shape of every registry entry:
+
+- `title=` — one line, the README name (unchanged).
+- `maps=` — ONE sentence: the human promise (ruling 1 keeps it), in taught
+  vocabulary (Deliverable B), NO note line numbers, NO leg enumeration. It
+  says what the gate proves; the `evidence=` tuple says which legs prove it.
+- `evidence=` — the stable section: one `Assertion("<gate>.<leg>", "<home>.md#<gate>-<leg>")`
+  PER acceptance leg. THIS is the drift-proof surface — `validate_evidence`
+  already guarantees each anchor resolves and each aid is board-unique, so a
+  reworded note can never silently orphan a leg (ruling 3).
+- `home=` — reconciled to the ONE note that actually carries the anchors
+  (ruling 5 + item 4). Several red-team gates are written up in
+  gates-and-board.md while `home=` names a domain note; each such gate's
+  `home=` is corrected in this pass so its legs anchor where they live.
+
+Where the six wrapper-child dimensions live (the "required sections" of
+DIDACTICS-20, enumerated by DIDACTICS-27: required files, executed
+subprocesses, exact-vs-tolerant metric, check count/names, asserted-vs-logged
+evidence, owed work): in the home note, at the gate's headline anchor, as ONE
+labeled block per gate — not duplicated into board.py (prose in board.py is
+what drifts). Proposed block, carried once per gate in its home note:
+
+```
+<a id="<gate-id>-<headline>"></a>
+**<gate-id> — <one line: what the whole gate proves>.**
+- files:      <inputs read / outputs written, or "none (in-process)">
+- subprocess: <the driver/child executed, or "none — asserted in-process">
+- metric:     <exact-byte | stabilized-rel-error <= <bar> | set-equality | selected-text-equality | lexical-scan>
+- legs:       <count>, named <gate>.<leg> ...  (or, for a census leg: surface + pattern + blind-spots)
+- evidence:   asserted <X> ; logged-only <Y> -> UNAVAILABLE until reconciled (ruling 6)
+- owed:       <workstation / queue-5 legs, or "none">
+```
+
+DESIGN FORK A1 (for your ruling): anchor GRANULARITY. Item 4 says "each home
+note gains an `<a id>` marker per acceptance leg", and ruling 5 anchors each
+leg. Two readings:
+  (A1-i) one full six-field block PER LEG — ~90 six-field blocks across the
+    home notes. Maximum locality; heavy note surface; much of it repeats the
+    gate-level files/subprocess.
+  (A1-ii) [RECOMMENDED] one six-field block per GATE at its headline anchor,
+    plus a LIGHTWEIGHT per-leg anchor — `<a id="<gate>-<leg>"></a>` followed
+    by a one-line taught-vocabulary claim. Satisfies "anchor per leg" and
+    ruling 5 without exploding each leg into six fields; the wrapper-child
+    six dimensions are stated once per gate where they are actually uniform.
+I recommend A1-ii; the difference is ~90 one-line anchored claims + 40 six-
+field blocks (ii) vs ~90 six-field blocks (i). Your call fixes the note
+surface the landing writes.
+
+### Deliverable B — the aid-minting scheme (~90 aids)
+
+- NAME: `<gate-id>.<plain-leg-name>` (ruling 4) — no spec-code prefix, lower
+  kebab, taught vocabulary. The raw log must teach a reader; internal codes
+  (45M-*, DIDACTICS-*) stay in notes/.
+- ANCHOR MARKER = the aid with `.`->`-`: aid `cli-a.strict-parse` anchors at
+  `#cli-a-strict-parse`. This makes item-4 reconciliation a pure string
+  transform and lets `validate_evidence` check the 1:1 mechanically. NOTE:
+  the 7 existing foundation anchors were hand-picked and do NOT all follow
+  this (`brd-a.exit-truth` -> `#brd-a-board-truth`); this pass NORMALIZES the
+  7 so every aid maps to its anchor by the one transform. (Small, mechanical,
+  and it removes a second naming convention.)
+- ONE STRING, THREE PLACES: the aid appears verbatim in the board.py
+  `Assertion`, in the `ctx.expect(aid=...)` / check-script manifest line that
+  emits it, and (dot->dash) in the note anchor. The reconciliation is exactly
+  the check that these three agree.
+- MINT FROM THE NARROWED CLAIMS (DIDACTICS-62/63 point 1: "the queue-2 aid
+  minting uses the NARROWED claims"). Each aid names what is EXECUTED TODAY,
+  not the aspirational behavioral claim. A banner-only leg mints
+  `param-window-cuts.banner-present`, never `.rows-selected`, until the
+  independent-reference strengthening (DIDACTICS-63, red-team gate-truth
+  batch) lands. Behavioral claims not executed today are NOT minted green —
+  they mint UNAVAILABLE (Deliverable D) or wait for their strengthening.
+- TAUGHT VOCABULARY (09 + the reserved-term rulings): `.selected-text-equality`
+  not `.byte-identical` unless the leg compares raw undecoded bytes
+  (DIDACTICS-29); `.stabilized-rel-error` for the parity metric with its 1e-8
+  floor / 1e-6 bar (DIDACTICS-25); honest quantifiers — a leg named `.all-*`
+  or `.exactly-once` carries an adjacent assertion mechanically proving the
+  quantifier or it is renamed (DIDACTICS-23 quantifier discipline). `census`
+  in a leg name is reserved for a mechanically complete surface (DIDACTICS-24).
+
+### Deliverable C — wrapper-child reconciliation order
+
+DIDACTICS-27's rule: a wrapper (the board.py gate body) cannot upgrade a
+lexical scan into runtime proof, a logged instruction into an executed test,
+or `ctx.log` into PASS. Reconciling a gate = walking its six dimensions and
+classifying every claimed leg as one of:
+  - EXECUTED (a real comparison, in-process or in the child) -> aid mints PASS/FAIL;
+  - LEXICAL / LOGGED-ONLY / visual-or-Architect-confirmed -> aid mints
+    UNAVAILABLE (ruling 6) until a real assertion replaces it;
+  - OWED (workstation / queue-5) -> aid mints UNAVAILABLE with an owed reason.
+
+Proposed migration ORDER (each gate is one rerun, per the note's "gate by
+gate" pattern), simplest machinery first so the reconciliation is proven
+before the hardest gates use it:
+  1. The 7 already-migrated gates (brd-a, gen-a, cli-a, fam-a, srm-a, arb-a,
+     diag-a): expand each headline into per-leg aids; normalize the 7 anchors.
+  2. Pure in-process gates (no subprocess): reconciliation is only the expect
+     sites — the smallest surface, builds `expect(aid=)` + the executed-set
+     recorder.
+  3. Wrapper+child gates (board.py body + a `gates/checks/*.py`): adds the
+     check-script `##AID` manifest mechanism (Deliverable D).
+  4. Subprocess-driver gates LAST (gct, gsv, ftw, tpe): the ones carrying the
+     wrapper falsehoods DIDACTICS-27 named — gsv's "h5 alone" echo, the rtol
+     echo, the bitwise echo, tpe's dated prose, the gct MCMC instruction, the
+     ftw/tpe provenance echoes. Their PROSE narrowing is the red team's
+     factual bundle; the MACHINE disposition (minting those echo/instruction
+     legs at UNAVAILABLE so the wrapper cannot green a logged instruction) is
+     queue-2's. COORDINATION: the two must agree — I mint the aid non-green,
+     the red team narrows the prose; neither alone is sufficient.
+
+### Deliverable D — UNAVAILABLE labeling per binding ruling 6
+
+Ruling 6: exactly one terminal result per aid per run — PASS / FAIL /
+explicit non-green UNAVAILABLE; a missing, duplicate, unknown, check-script-
+crashed, or conditionally-omitted aid reds the gate. The dead-network rule
+turned on the harness itself. Mechanism:
+
+- EXECUTED-SET RECORDER. `RunContext` grows an ordered `self._executed`
+  (list of (aid, result)). `expect(*, aid, label, ok, detail="")` appends
+  (aid, PASS/FAIL) and keeps its current raise-on-FAIL. A NEW
+  `ctx.unavailable(*, aid, label, reason)` appends (aid, UNAVAILABLE) and
+  does NOT raise — it is an honest declared non-green leg, not a gate failure.
+- RECONCILIATION. After a gate body returns without GateFailure, the runner
+  compares `declared = {a.aid for a in gate.evidence}` against
+  `executed = {aid emitted in-process} | {aid folded from check-script
+  manifests}`. Any declared-not-executed, executed-not-declared, or duplicate
+  emission reds the gate via the pinned line (note ~1174, verbatim):
+  `[evidence] <gate>: declared {aids} but executed {aids}`.
+- CHECK-SCRIPT MANIFEST. Each `gates/checks/*.py` prints, per leg, a machine-
+  readable `##AID <aid> <PASS|FAIL|UNAVAILABLE>` line; `run_check` already
+  returns (rc, output), so the runner parses `##AID` lines from output and
+  folds them into the executed set. A script that CRASHES before its manifest
+  leaves its declared aids un-emitted -> reconciliation reds the gate (ruling
+  6's "crash before its manifest"). The per-script `report()` helper gains the
+  aid argument and prints the `##AID` line — one shared convention, 26 scripts.
+- ONE-VERDICT CONSTRAINT (Fable's addition): where a check script already
+  aggregates its own PASS/FAIL, the `##AID` lines ARE the verdict record and
+  the script exit code stays the single aggregate — no second parallel verdict
+  is manufactured from the same execution.
+
+DESIGN FORK D1 (for your ruling): does an UNAVAILABLE leg make the GATE
+non-green?
+  (D1-i) strictest: any UNAVAILABLE leg -> the gate reports a distinct
+    non-green "partial" state. Maximum honesty; but every gate with a
+    workstation-owed leg goes yellow on the Mac, changing the board's colour
+    meaning broadly.
+  (D1-ii) [RECOMMENDED] a gate PASSES on its environment-available legs;
+    UNAVAILABLE legs are recorded and displayed (the log + BOARD.md show
+    "N legs owed") but do not fail the gate. The case ruling 6 targets — a
+    leg DECLARED executable-here but SILENTLY dropped — still reds, because
+    silence != an explicit `ctx.unavailable`. UNAVAILABLE is the honest
+    "owed/lexical" terminal; a missing aid is the red case. This matches the
+    existing `needs=`/SKIPPED discipline (the Mac already can't run cosmolike
+    legs) without repainting the board.
+I recommend D1-ii. This is the one genuine judgment call in the plan; your
+ruling fixes whether the aggregate board colour changes.
+
+### Rollout sequencing + its own validation gate
+
+Build order (probe-the-machinery law — the mutation arms prove the
+reconciliation bites BEFORE any real gate is migrated):
+  1. `expect(aid=)` + `ctx.unavailable(aid=)` + the executed-set recorder +
+     the reconciliation predicate in run_board.py, gated by board-selftest
+     arms on a FABRICATED gate: declared-not-executed reds, double-emit reds,
+     unknown-emit reds, explicit-unavailable greens-on-executed, control green.
+  2. The `##AID` manifest helper + the runner's parse-and-fold, gated by a
+     board-selftest arm driving a fake check script whose manifest drops a leg
+     / crashes before the manifest -> red.
+  3. Per-gate migration in the Deliverable-C order, each a rerun: expand
+     evidence into per-leg aids from the narrowed claims, thread `aid=`, add
+     the home-note anchor block(s), classify owed/lexical legs UNAVAILABLE.
+  4. The Deliverable-A `maps=` one-sentence rewrite + `home=` reconciliation,
+     same visit per gate (DIDACTICS-20: "one pass over that surface").
+
+Validation gate (the handoff's "per the rollout plan once approved"):
+  - `validate_evidence` green on the shipped board on every invocation incl.
+    `--list`; every anchor resolves; all ~90 aids board-unique.
+  - board-selftest gains the six reconciliation mutation arms above; each
+    reds its fabricated gate, every control greens.
+  - every migrated gate reruns green (or honest-non-green with UNAVAILABLE
+    legs per D1) on the Mac where `needs=` allow; workstation-owed legs marked
+    UNAVAILABLE, never silently dropped.
+  - the pinned `[evidence]` line used verbatim.
+  - compileall clean; the taught-vocabulary scan over the new aid names +
+    `maps=` sentences (no `.byte-identical` outside raw-bytes legs; honest
+    quantifiers carry adjacent proof).
+
+### The second owed artifact — fixed-facts proposal sequencing
+
+Per the handoff ("sequence it where your context is freshest"): my context
+right now is the evidence-map machinery — board.py registry, run_board
+reconciliation, the check-script manifest. The fixed-facts proposal lives in
+a DIFFERENT surface (the canonical-representation / `.ranges` / units 71/74/82
+artifact-schema context). I therefore sequence the fixed-facts proposal at the
+HEAD of the production-units work — written when I open units 71/74/82, where
+its context is freshest — NOT interleaved with this rollout. It is deferred by
+sequencing, not dropped; flagging so it is not read as forgotten.
+
+### What is NOT in scope here (red-team owned)
+
+The wrapper-falsehood PROSE narrowing (gsv/gct/ftw/tpe echoes, tpe dated
+prose) and the DIDACTICS-20 stale/malformed board.py lines (:634, :1370) are
+FACTUAL-BUNDLE fixes, red-team custody. Queue 2 owns the MACHINE disposition
+(minting those legs at UNAVAILABLE); the prose and the disposition must agree,
+the coordination point in Deliverable C. `gates/checks/` stays exclusively the
+Implementer's through D4+D5, so the `##AID` helper edits and the red team's D1
+set-equality leg do not collide.
+
+AWAITING Architect review — no code lands until the two forks (A1 anchor
+granularity, D1 UNAVAILABLE-gate-colour) are ruled and the plan is approved.
+
+## Queue-2 rollout plan adjudication (Fable, 2026-07-13): APPROVED — A1-ii and D1-ii adopted with riders; the census corrected to 57/25; the 41+53 trigger fires
+
+The proposal above audited clause-by-clause against the six binding
+evidence-map rulings + the one-verdict constraint (the checklist
+law). Every clause either verifies or is corrected below; nothing
+re-opens the foundation.
+
+Verification (probe against the machinery, untruncated):
+
+- 57 `ctx.expect(` sites in board.py — CONFIRMED exactly.
+- Check-script census CORRECTED: 25, not the proposal's 26. There
+  are exactly 25 literal `ctx.run_check("gates/checks/*.py")`
+  sites, one per script, no constructed paths; gates/checks/ holds
+  27 files but `__init__.py` is the package marker and `logscan.py`
+  is an IMPORTED helper (`from checks import logscan`), never a
+  child. The older rollout-spec text's "58 expects + 27 scripts"
+  was the pre-hardening tree plus a directory count; current truth
+  is 57 + 25. The ~90-aid estimate stands (57 in-process + ~33
+  reviewed check-script legs); the landing enumerates the exact
+  names, per the proposal's own rule.
+- The 7 foundation aids all carry the SHORT BOARD ID prefix
+  (brd-a.exit-truth, gen-a.owned-rng, cli-a.strict-parse, ...) and
+  the 7 anchors are confirmed non-uniform (#brd-a-board-truth,
+  #gen-a-generator-seed, #cli-a-strict-cli) — the proposed
+  normalization is real work, not tidying.
+- validate_evidence today enforces resolvable + unique ONLY; the
+  aid->anchor dot-to-dash transform the proposal leans on ("a pure
+  string transform ... checked mechanically") is a convention until
+  the validator rider below lands.
+- The pinned `[evidence]` line is cited verbatim correctly (:1174).
+
+FORK A1 RULING: A1-ii ADOPTED — one six-field block per gate at its
+headline anchor, plus a lightweight `<a id="<gate>-<leg>">` per leg
+followed by a one-line taught-vocabulary claim. The six wrapper-child
+dimensions are gate-level facts; ~90 six-field copies would recreate
+the duplication drift this rollout exists to kill. RIDER (mixed
+metrics): the block's `metric:` field is a quantifier over legs and
+carries the quantifier discipline — where legs differ in metric it
+says "per-leg" and each leg one-liner names its own; a single metric
+may be stated at gate level only when every leg actually uses it.
+
+FORK D1 RULING: D1-ii ADOPTED — a gate PASSES on its
+environment-available legs; UNAVAILABLE legs are recorded and
+displayed; a DECLARED leg that is silently dropped (no expect, no
+explicit ctx.unavailable) still reds via reconciliation. TWO RIDERS:
+
+1. ZERO-EXECUTED GUARD: a gate whose executed set is EMPTY (every
+   declared leg UNAVAILABLE) may not PASS — it reports a distinct
+   non-green state. The dead-network doctrine applied to the harness
+   itself: a gate that executed nothing must not read as proof.
+   Board-selftest arm: a fabricated all-unavailable gate must not
+   report PASS.
+2. DISPLAY TRUTH: the per-gate result line is pinned —
+   `PASS (executed N/M; UNAVAILABLE K: <aid> <aid> ...)` — and
+   appears in the gate log, --list, and BOARD.md alike. A bare PASS
+   while the recorder holds UNAVAILABLE legs is forbidden and
+   selftest-armed. UNAVAILABLE reasons (owed-workstation / lexical /
+   environment) travel with the aid in the log.
+
+RULING-4 CLARIFICATION (aid prefix, flagged to the red team as
+register owners): the `<gate-id>` in an aid is the gate's BOARD ID —
+the exact string `--gate` accepts (brd-a, gsv, gct, ...) — not the
+README title. Ruling 4's example (`board-selftest.exit-truth`) was
+illustrative; its substance (no internal audit-code prefixes; plain
+leg names; the raw log must teach) is untouched. Rationale: a red
+aid line is directly actionable (`run_board.py --gate brd-a` reruns
+exactly the failing gate), and the short id is already the board's
+log-public primary key (BOARD.md rows, status keys, selectors). The
+landed foundation used this convention and was audited GO; this
+clarification records it as deliberate.
+
+VALIDATOR RIDER: validate_evidence gains invariant (3) — every
+Assertion's anchor fragment equals its aid with "." -> "-". The
+7 foundation anchors normalize in the AID->ANCHOR direction (the
+note markers are renamed to the transform; 5 notes touched,
+mechanical). Selftest mutation arm: a non-transform anchor exits 2
+on --list.
+
+APPROVED AS PROPOSED: the Deliverable-A entry shape (`maps=` one
+human sentence, `evidence=` per-leg, `home=` reconciled); the
+Deliverable-B minting rule (narrowed claims only; unexecuted
+behavior never mints green; the reserved-term vocabulary); the
+Deliverable-C order (7 migrated -> in-process -> wrapper+child ->
+subprocess-driver last) with its red-team coordination clause
+(machine disposition = queue 2, prose narrowing = the factual
+bundle, the two must agree); the Deliverable-D mechanism (recorder,
+ctx.unavailable, ##AID manifests, crash-before-manifest reds, the
+one-verdict constraint); the rollout sequencing (fabricated-gate
+mutation arms prove the reconciliation bites BEFORE any real gate
+migrates — the probe-the-machinery law, correctly internalized);
+the validation gate, EXTENDED by the two new arms from the D1
+riders and the transform arm; and the fixed-facts proposal
+sequenced at the head of the production-units work — ACCEPTED as
+flagged (deferred by sequencing, not dropped; unit 74 stays
+CRITICAL there).
+
+TRIGGER FIRES: this approval is the Wave-2 trigger for UNITS 41+53;
+the transfer handoff is issued this turn. Scope boundary made
+explicit: unit 41 transfers ONLY its 25M-05 sweep-products
+extension (metadata from ONE immutable resolved run record;
+activation-family sweeps record "swept" + ordered values; serial
+and pooled paths share the record; banner/artifact/table/figure
+agree). Unit 41's transfer-refine artifact core (the 45M-33
+drift-metric amendment) belongs to the fixed-facts/artifact chain —
+NOT pre-authorized, stays with the Implementer. Unit 53 transfers
+WHOLE (the 25M-04 study-name resolver amendment: one pure resolver,
+family identity -> stable study name, resolved name in the study
+manifest and final report, renames are explicit migrations; the
+false comment corrected in the same landing).
+
+The Implementer builds in the proposed order (machinery + mutation
+arms, then ##AID, then per-gate migration with the maps=/home=
+rewrite per visit), then D3 -> D4 -> D5. Every landing gets the
+standard pre-merge audit; the riders above are acceptance clauses,
+not suggestions.

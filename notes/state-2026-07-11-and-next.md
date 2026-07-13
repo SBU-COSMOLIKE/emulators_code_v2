@@ -2768,3 +2768,21 @@ re-confirmed), gates/checks teaching (at D4+D5). NOT
 pre-authorized: 96, the fixed-facts/artifact chain, unit 8,
 queue 2, the staging reopen. Each firing is recorded here. Spec:
 gates-and-board.md "PARALLELIZATION WAVE 2".
+
+QUEUE-2 ROLLOUT PLAN APPROVED (2026-07-13, Fable): the Opus
+proposal (delivered design-only, no code) adjudicated — fork A1 =
+A1-ii (per-gate six-field block + lightweight per-leg anchors;
+mixed-metric rider), fork D1 = D1-ii (PASS on available legs, owed
+legs displayed) with the zero-executed guard (an all-UNAVAILABLE
+gate may not PASS — the dead-network doctrine turned on the
+harness) and the pinned display line. Census corrected 26 -> 25
+check scripts (logscan.py is an imported helper; 57 expects
+confirmed); validate_evidence gains the aid->anchor transform
+invariant + selftest arm; the aid prefix clarified as the --gate
+board id (ruling 4's example was illustrative — flagged to the red
+team). Fixed-facts proposal accepted at the head of the
+production-units work. TRIGGER FIRED: units 41 (25M-05 sweep slice
+ONLY; the 45M-33 artifact core stays) + 53 (whole) transfer to the
+red team per the Wave-2 table. Build order: machinery + mutation
+arms -> ##AID -> per-gate migration -> D3 -> D4 -> D5. Spec:
+gates-and-board.md "Queue-2 rollout plan adjudication".
