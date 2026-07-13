@@ -833,3 +833,58 @@ spec in data-generation-and-cuts.md "UNIT 64". BLOAT-03 -> UNIT 65
 lands with the typed adapter contract the wave-4 adapter visits
 establish. Staging truth stays ahead of the evidence rollout
 (landed); 45M-89 retains exactly one in-code verdict (ratified).
+
+### Queue 1b: Architect constraints for the manifest proposal (2026-07-13)
+
+Queue 3 is closed (landing `2c26c34` AUDITED PASS). The 1b proposal is
+GO, and the Implementer's three open questions are pre-answered so the
+proposal can converge in one review round. Order of work: the 1c-bis +
+BLOAT-01 rider commit first (small, already contracted above), the 1b
+proposal note in the same session (design only), the rollout (queue 2)
+strictly after 1b review — both edit the same runner files, and the
+rollout must build on the final resume machinery, not race it.
+
+1. Declared, then checked — never walked into existence. The manifest
+   is a DECLARED set (inspectable, note-auditable). Reconciliation is
+   a STATIC repo-local import scan (AST-level over the executable
+   surface dirs), chosen because it must run on the Mac without
+   importing the modules — a cosmolike-importing check script cannot
+   be imported here, but its import lines can be read. A repo-local
+   import the scan finds missing from the declaration is a validation
+   error (exit 2, the evidence-map pattern). Third-party drift (torch,
+   numpy, cobaya) stays environment territory — preflight and the
+   queue-5 capability lanes — never a per-gate digest member.
+2. A NEW Gate field. evidence= is the note-anchor trust chain; needs=
+   is capability lanes; overloading either muddles two validators.
+   The new field defaults to None = the conservative fallback below.
+3. Composition with the rollout: the aid declared-vs-executed
+   reconciliation (queue 2) and the import declared-vs-found
+   reconciliation (1b) SHARE the reporting shape (one "declared vs
+   observed" error format a reader learns once); whether they share
+   code is the proposal's choice.
+4. Persisted inspectable membership: at PASS time the status record
+   stores the manifest as RESOLVED members, each with its own digest
+   (resolved paths, materialized facts — never re-derivable
+   declarations), so --list names WHICH member went stale, not just
+   that something did.
+5. The shared harness surface (run_board.py, board.py, every invoked
+   check script) is hashed for every gate — the audit's "a digest with
+   no inspectable membership is not evidence" requirement stands.
+6. Conservative fallback + honest legacy: an undeclared gate keeps
+   today's dual-digest behavior AND is displayed manifest-less; on 1b
+   landing, legacy PASS records become a non-green "pre-manifest"
+   resume state. The too-narrow digest surface is exactly the false
+   currency the audit proved, and the queue-5 full board rerun is
+   already owed, so the honest staleing costs nothing (consistent
+   with the digestless-is-STALE ruling of the unit-4 extension).
+7. Input side: a declared gate names its SPECIFIC files (its YAMLs
+   and data / covmat / axis / artifact inputs), resolved against
+   board_config at run time; the whole-yaml_dir hash retires for
+   declared gates and survives only inside the fallback.
+
+Texnotes PDF: a tracked build product beside its source is stale by
+construction (it is stale now, third time this cycle). Preferred
+repair, red-team's call in their build pipeline: stop tracking the
+PDF and build on demand (pdflatex exists on the dev Mac), or add a
+freshness check (PDF vs .tex digest) to the board's doc lane. Until
+one lands, the rebuild is owed whenever the .tex changes.
