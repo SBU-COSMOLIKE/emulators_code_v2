@@ -2285,8 +2285,21 @@ def _reconcile_evidence(gate, executed):
       parts.append("emitted-twice: " + ", ".join(sorted(duplicates)))
     return (False, None, line + " (" + "; ".join(parts) + ")")
 
-  # every declared leg emitted exactly one terminal (PASS or UNAVAILABLE; a
-  # FAIL raised GateFailure and never reaches this passing path).
+  # An in-process FAIL raises GateFailure, so this passing path never sees one
+  # FROM ctx.expect -- but the check-script fold channel (queue-2 increment 2)
+  # records a leg WITHOUT raising: a check that prints '##AID <aid> FAIL' yet
+  # exits 0 passes the wrapper's rc==0 expect and reaches here with a FAIL in
+  # its executed set. That FAIL must red the gate, not be quietly bucketed as
+  # UNAVAILABLE by the split below -- so scan for it first.
+  for aid in declared:
+    if seen[aid][0][0] == "FAIL":
+      return (False, None,
+              "[evidence] " + gate.id + ": leg " + aid + " recorded FAIL while "
+              "the gate body passed (the check's manifest contradicts its exit "
+              "code)")
+
+  # every declared leg now emitted exactly one non-FAIL terminal (PASS or an
+  # explicit UNAVAILABLE).
   n_pass = 0
   unavailable = []
   for aid in declared:

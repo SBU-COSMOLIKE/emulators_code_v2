@@ -944,6 +944,43 @@ def check_aid_manifest():
             report("a leg counted by both the script and the body reds (one-verdict)",
                    final.get("dvg", {}).get("status") == "FAIL",
                    repr(final.get("dvg", {}).get("status")))
+
+            # (f) the composition hole (increment-2 audit ab07a2e): a script that
+            # prints '##AID <aid> FAIL' but EXITS 0 passes the wrapper's rc==0
+            # expect, so the passing path sees a FOLDED FAIL -- it must red, not
+            # be relabeled UNAVAILABLE.
+            fail0_s = sd / "fail0.py"
+            fail0_s.write_text("print('##AID failg.a PASS')\n"
+                               "print('##AID failg.b FAIL')\n")
+
+            def _fl_run(ctx):
+                rc, out = ctx.run_check(str(fail0_s))
+                ctx.expect(label="ran (rc==0)", ok=(rc == 0), detail="rc=" + str(rc))
+            failg = Gate(id="failg", tier="backlog", home="selftest", maps="s",
+                         run=_fl_run,
+                         evidence=(Assertion("failg.a", "n.md#failg-a"),
+                                   Assertion("failg.b", "n.md#failg-b")))
+            rc, final, tmp = drive_main(["--gate", "failg"], [failg], {})
+            report("a folded FAIL while the wrapper rc==0 expect passes reds the gate",
+                   final.get("failg", {}).get("status") == "FAIL",
+                   repr(final.get("failg", {}).get("status")))
+
+            # (g) control: both legs PASS under the same wrapper rc==0 expect -> green.
+            pass0_s = sd / "pass0.py"
+            pass0_s.write_text("print('##AID passg.a PASS')\n"
+                               "print('##AID passg.b PASS')\n")
+
+            def _ps_run(ctx):
+                rc, out = ctx.run_check(str(pass0_s))
+                ctx.expect(label="ran (rc==0)", ok=(rc == 0), detail="rc=" + str(rc))
+            passg = Gate(id="passg", tier="backlog", home="selftest", maps="s",
+                         run=_ps_run,
+                         evidence=(Assertion("passg.a", "n.md#passg-a"),
+                                   Assertion("passg.b", "n.md#passg-b")))
+            rc, final, tmp = drive_main(["--gate", "passg"], [passg], {})
+            report("an all-PASS manifest under the wrapper expect stays green (control)",
+                   final.get("passg", {}).get("status") == "PASS",
+                   repr(final.get("passg", {}).get("status")))
         finally:
             run_board.validate_evidence = saved_ve
 

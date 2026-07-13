@@ -6459,3 +6459,21 @@ consistent; the hole lives in their composition (a comment in 1
 made an assumption 2 invalidated). Composition re-walks — re-reading
 the earlier increment's assumptions against the new one's channels —
 join the audit checklist alongside the clause walk.
+
+### Increment-2 follow-up repair — the folded-FAIL composition hole (Opus, 2026-07-13)
+
+Architect audit ab07a2e caught a composition hole in `e193097`: the `##AID` fold
+is a NON-raising channel, so a check that prints `##AID <aid> FAIL` while exiting
+0 passes the wrapper's `rc==0` expect and reaches `_reconcile_evidence`'s passing
+path with a FAIL in its executed set — where increment 1's PASS/UNAVAILABLE split
+silently relabeled it UNAVAILABLE (and the gate could PASS). Increment 1's "a FAIL
+always raised GateFailure" assumption is falsified by the fold channel.
+
+Repair (follow-up commit, per the self-commit grant): `_reconcile_evidence`'s
+passing path now scans every declared leg for a FAIL record BEFORE the
+PASS/UNAVAILABLE split and reds on any, with the named line
+`[evidence] <gate>: leg <aid> recorded FAIL while the gate body passed (the
+check's manifest contradicts its exit code)`. board-selftest `check_aid_manifest`
+gains the real-runner arm: a fabricated script emitting one PASS + one FAIL leg at
+exit 0 (wrapper expect passes) ends the gate FAIL; an all-PASS control stays green.
+**164 PASS / 0 FAIL** (was 162); `--list` rc 0; compile clean.
