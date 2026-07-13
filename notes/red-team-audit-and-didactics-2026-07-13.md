@@ -1471,6 +1471,259 @@ queued behavior without advertising it as live.  This is a documentation
 repair owned by the existing unit-24 anchor-truth campaign, not a second
 implementation unit.
 
+### DIDACTICS-95 -- the README set is still a development diary instead of a current library guide
+
+The user's current-state ruling applies to every README. A README may explain
+what the code does, how to invoke it, what its files mean, and a present
+restriction that changes a user's action. It must not narrate the sequence by
+which the implementation arrived there. The root README currently violates
+that boundary repeatedly. Representative examples include:
+
+- `README.md:1935-1936`, which inserts a paper's attention-versus-MLP result
+  into the CMB usage introduction;
+- `README.md:1979-1988`, which reports workstation, board-run, numerical-error,
+  fixture, rerun, and evidence-note status;
+- `README.md:2009-2014`, which describes a retired amplitude formula, its
+  conditioning failure, and its retraining response;
+- `README.md:184-203,346-351,470-473,507-516,591-596,1625-1650,
+  1748-1757,2225-2232,2279-2301`, which mix queued repairs, gate status,
+  rejected or legacy choices, and roadmap state into current usage prose.
+
+The Implementer must perform a README-set current-state pass. Move proof
+history, benchmark comparisons, rejected alternatives, retired-formula
+rationale, dated decisions, queue position, gate-run details, and repair plans
+to their existing note owners or the manuscript. Do not create a new note per
+README paragraph. A current limitation may remain only in this form:
+
+1. **Scope:** the precise configuration or interface affected.
+2. **Consequence:** what result is unavailable, unsafe, or different.
+3. **User action:** what the reader must do now.
+
+No date, discovery story, future landing plan, or acceptance status belongs in
+that limitation. Scientific citations may remain when they identify the
+source of an implemented equation or vendored scientific fit. A claim that
+another architecture performed better belongs in the paper, not in usage
+instructions.
+
+Acceptance is an untruncated scan across every tracked README for the complete
+history vocabulary, followed by human adjudication rather than blind deletion.
+The candidate family includes `board run`, `workstation-proven`, `maximum
+relative error`, `fixture`, `rerun`, `queued`, `in flight`, `landed`,
+`remaining command`, `ruling`, `adjudicat`, `hard-won`, `retired`, `earlier
+raw`, `design record`, and dated status language. Every retained hit needs a
+reviewed reason in the audit evidence showing that it describes a present
+user contract rather than development chronology; do not insert audit
+justifications into the README itself. Commands, paths, anchors, equations,
+and YAML examples retain the existing executable/path/anchor acceptance
+checks.
+
+### DIDACTICS-96 -- the CMB README section needs a conceptual and factual rewrite
+
+`README.md:1920-2089` is the strongest instance of the diary problem and is
+too compressed for a first-time machine-learning reader. It opens with nearly
+the entire shared training stack, correction-head mechanics, tokenization,
+NPCE restrictions, and a literature result before it has stated the four
+files in the workflow. Its covariance, amplitude-law, and roughness passages
+also contain claims broader than the implementation.
+
+Rewrite the section in this order:
+
+1. Define one artifact as one spectrum on one stored multipole grid; define
+   TT, TE, EE, `pp`, `C_ell`, and multipole `ell` before using them.
+2. Show the producer/consumer flow without falsely linearizing it.
+   `dataset_generator_cmb.py` writes the spectrum dumps, while the independent
+   `compute_cmb_covariance.py` writes the covariance `.npz`. Both products
+   feed `cmb_train_emulator.py`; its `.h5` plus `.emul` pair feeds
+   `emul_cmb.py`, which provides Cobaya `Cl`. The covariance script does not
+   consume the generated spectrum dumps.
+3. Explain the target transform and per-multipole scaling, with a minimal real
+   YAML block.
+4. Name the supported models and warm-start restrictions by pointing to their
+   main sections instead of restating the entire training stack.
+5. Explain the saved artifact and serving units.
+6. End with a short current-limitations list containing only user actions.
+
+Four factual corrections are binding:
+
+- The single formula now shown at `README.md:1965-1969` is the auto-spectrum
+  TT/EE form, not a generic variance for every supported spectrum.
+  `compute_data_vectors/compute_cmb_covariance.py:229-242` uses a different TE
+  expression and a lensing-potential expression without instrumental noise.
+  The README need not reproduce every derivation. It can state the executable
+  interface: the `.npz` supplies `ell`, `cl_<spectrum>`, and
+  `sigma_<spectrum>`, and the trainer divides the centered residual at each
+  multipole by the stored `sigma_<spectrum>`.
+- Optional non-Gaussian mode writes dense `cov_*` blocks
+  (`compute_cmb_covariance.py:732-748`), but the current trainer reads only
+  `ell`, `sigma_<spectrum>`, and `cl_<spectrum>`
+  (`emulator/experiment.py:3746-3753`). Enabling the dense calculation does
+  not presently change training whitening. The README must say so rather than
+  imply that every covariance product feeds the loss.
+- The `as_exp2tau_ref` target removes the dominant primary-spectrum amplitude
+  dependence; it is not “the SHAPE only.” `as_name` identifies a positive
+  linear-amplitude column present in the parameter dumps. The generic
+  generator writes whatever sampled column names its YAML declares, so the
+  README may say the shipped example uses `As`, not that the generator always
+  samples `As` directly. The retired `exp(2 tau)/A_s` history and `5e8`
+  conditioning story move to the manuscript/note. The law is physically
+  motivated for the primary TT/TE/EE spectra. The validator currently also
+  permits it for `pp`, so the README must not recommend that combination
+  without qualification.
+- The roughness term is not a sharp high-pass cutoff that proves physical
+  structure “passes untouched.” The implementation applies the same boxcar
+  moving average twice, subtracts that triangularly smoothed result from the
+  original residual, and penalizes the squared remainder. Define `lam` as the
+  added weight and `period_cut` as the smoothing-window scale. State that the
+  reported chi-square remains the ordinary residual metric; avoid absolute
+  claims about which physics it can never affect.
+
+The serving paragraph must state its convention directly: the adapter returns
+raw `C_ell`, not `ell(ell+1)C_ell/(2 pi)`. TT, TE, and EE use `muK2`; `pp` is
+dimensionless. Requests outside the stored multipole grid are refused.
+
+Remove the arXiv performance aside, board/run numbers, measured `6e-14`
+evidence, fixture/rerun status, gate names, “Epoch 0” proof language, and the
+evidence-note pointer from this user section. Those facts remain available in
+the manuscript and existing CMB/gate notes. Acceptance includes a code-to-
+README key census for `ell`, `cl_*`, `sigma_*`, and dense `cov_*`, plus a
+current-output inspection of the covariance script; a prose-only rewrite is
+not enough.
+
+### DIDACTICS-97 -- essential explanations are hidden inside parenthetical asides
+
+Parentheses are useful for a symbol, unit, acronym, or one short local
+definition. They become a parsing hazard when the reader must hold the main
+sentence open while learning an algorithm, exception, comparison, or second
+argument. The current root README has 72 prose paragraphs with at least two
+opening parentheses after fenced code and table rows are excluded.
+`emulator/README.md` has 177 of 482 source lines containing a parenthetical and
+79 lines longer than 160 characters. These counts are candidate baselines,
+not automatic failure thresholds.
+
+The worst root clusters are the loss and scheduler descriptions
+(`README.md:673-708,796-870`), model and phase explanations
+(`README.md:929-951,1086-1092,1133-1137,1456-1494`), warm-start discussion
+(`README.md:1714-1817`), CMB opening and amplitude law
+(`README.md:1920-1940,1992-2022`), pipeline/memory explanation
+(`README.md:2434-2673`), and scripting interface
+(`README.md:2977-2985`). `emulator/README.md:128,145,162,165,169,205,211,
+216,330,419,448` are representative nested-README candidates.
+
+For each candidate, read the sentence without the parenthetical. If the
+reader loses a required input, transformation, exception, limitation, or
+reason for the next step, promote that material to a complete sentence, a
+named table row, or a diagram label. A rewritten paragraph should normally
+have one subject and one job. Do not “fix” the count by deleting definitions
+or by compressing mechanics into denser Python vocabulary. Preserve short
+units, mathematical symbols, acronym expansions, links, and code-call
+signatures where parentheses are their natural syntax.
+
+Acceptance records both pre/post candidate counts and a reviewed sample from
+every README, but no numerical target substitutes for undergraduate read-
+through. A first-time ML reader must be able to identify the owner, input,
+operation, output, and next consumer without resolving a nested aside.
+
+### DIDACTICS-98 -- the current-state and novice-order defects extend beyond CMB
+
+The rest of the root README needs the same pass, section by section rather
+than one global find-and-replace. Preserve its useful YAML and diagrams. Apply
+one family template: (1) physical mapping and symbol definitions; (2)
+generator outputs; (3) target transform and scaling; (4) training command and
+minimal family YAML; (5) saved output and inference serving; (6) present
+limitations only.
+
+- **Scalar (`README.md:1833-1914`):** define the sampled inputs and named
+  scalar outputs before “fast” and “slow” jargon. Split the covariance-header,
+  output-column, and independent-standardization contract into separate
+  sentences. Replace the architecture/fine-tune/transfer/PCE/cuts paragraph
+  with an explicit support list: `resmlp` only; fine-tuning requires identical
+  output names in identical order; `finetune.anchor` is refused; transfer and
+  refinement are unsupported; optional PCE uses `form: residual`. Remove the
+  design-record pointer.
+- **Expansion history (`README.md:2095-2175`):** do not state a universal
+  training grid `z in [0,3]`. The generator requires `0 < z_min < z_max`, the
+  shipped example begins at `0.001`, and the adapter extrapolates its `H(z)`
+  interpolator down to zero before integrating. Teach the two artifacts and
+  their target laws first. Make the flat-universe warning exact: the artifact
+  named `D_M` currently stores radial comoving distance `chi`; flat formulas
+  then produce `D_A` and `D_L`; users must set `omk: 0`. The loader detects
+  curvature only when `omk` is an artifact input. State that present
+  scope/consequence/action contract without gate comparisons.
+- **Matter power (`README.md:2181-2301`):** define `z`, `k`, `P(k,z)`, the
+  linear spectrum, nonlinear boost, units, and the Syren base before the law
+  equations. Do not claim low-`k` boost is universally one and therefore
+  pinned. `Grid2DGeometry` pins a law-space column when its variation is
+  unresolved at the geometry's float32 threshold,
+  `scale <= 8 * eps32 * abs(center)`; this is a measured representation rule,
+  not a universal physical law. Remove gate closure, workstation evidence,
+  acceptance-experiment history, and future landing order. Retain three
+  direct current restrictions: MPS PCE is suitable only for small datasets;
+  the current `sigma8` helper uses the wrong radius convention; and Cobaya
+  product registration plus the `As`/`As_1e9` requirement still block
+  production EMUL2 serving.
+- **Shared mechanics (`README.md:184-212,346-351,470-516,591-596,
+  673-870,929-951,1167-1172,1234-1239,1393-1400,1456-1494,1625-1696,
+  1714-1817,2434-2673,2742-2821,2954-2971,3035-3078`):** remove queued
+  repairs, rejected alternatives, paper comparisons, internal design debate,
+  and migration narrative. Retain the present operation and the action a
+  user must take. Put implementation mechanics needed by maintainers in the
+  existing code-map README or topic note, not in a parenthetical in the run
+  guide.
+
+Every family rewrite must be checked against its validator, generator,
+geometry/loss owner, and adapter. A README statement is not accepted merely
+because another README already says the same thing.
+
+### DIDACTICS-99 -- the nested READMEs need the same boundary, with different jobs
+
+This is a rider on the existing DIDACTICS-86--92 file visits, not a second
+documentation campaign.
+
+- `emulator/README.md` currently combines a conceptual file map, a second
+  near-complete function inventory, and repair chronology. Keep one compact
+  map and add a novice reading order that follows execution:
+  driver/config -> experiment -> staging -> geometries/model/loss -> training
+  -> results -> inference -> adapter. `EmulatorExperiment` is the orchestrator
+  that invokes those later owners; do not place it after training. Each step
+  names its input, output, and why the next owner needs it. Remove “fix
+  queued,” “in progress,” dated rulings, superseded designs, gate adequacy,
+  and the CMB board-run paragraph at line 216. A present unsafe feature gets
+  one current-restrictions entry, not a queue diary.
+- `gates/README.md` legitimately explains evidence, but it must explain the
+  current acceptance mechanism rather than recount past bugs or runs. Replace
+  the nested selector paragraph with an option table. Replace the knowingly
+  stale “40 gates” list with generated/current categories and point to
+  `run_board.py --list` as authoritative. CMB rows name the high-level
+  contracts; exact legs, mutation arms, numerical errors, and workstation-run
+  history stay in the gate home note. Define internal terms before the table.
+- `syren/README.md` may retain scientific attribution and licensing. Replace
+  dated copying history and the unsupported “byte-verbatim (AST-verified)”
+  statement with the exact upstream snapshot, the present deviations, and an
+  honestly named comparison method. Add plain definitions for `P(k)`, linear
+  power, nonlinear boost, input/output shapes, units, and supported domain.
+
+There is currently no README under `compute_data_vectors/` or
+`cobaya_theory/`. Do not create two more files merely to make the tree
+symmetrical; teach those packages in the root workflow and code map unless a
+future standalone user task justifies its own guide. Completion runs the
+history-vocabulary and parenthetical candidate scans over every tracked
+README and records a reviewed allowlist.
+
+### DIDACTICS-100 -- SONIC has one exact public expansion
+
+The user-defined name is **S**imulated **O**bservables for **N**umerical
+**I**nference in **C**osmology. `README.md:6,21-22` and
+`texnotes/emulator_code_guide.tex:15,23-24` currently expand SONIC as
+“Surrogates and Operators for Numerical Inference in Cosmology.” The root
+README correction belongs in the Implementer's README visit. The TeX source
+is under Red Team custody and is corrected in this same Red Team landing.
+
+Acceptance is an untruncated, case-sensitive scan of public README and TeX
+sources: zero instances of the retired expansion; every spelled-out instance
+uses “Simulated Observables for Numerical Inference in Cosmology.” In Markdown
+the first letters are bold exactly as shown above. The acronym, filenames, and
+artwork path remain `SONIC`; no code or artifact schema changes.
+
 ### README audit exclusions and existing owners
 
 The loop re-observed, but did not duplicate, four existing contracts:
@@ -1793,3 +2046,22 @@ item cites an issued clause and the exact missing implementation or
 discriminating leg.  Current-correct producers are stated as such for 25M-34
 and 25M-35; their defect is the claimed acceptance evidence, not the runtime
 body.  No number in the series may be reused.
+
+Architect adjudication overlay for `25M-23` and `25M-27` through `25M-35`
+(received after commit `81183e7`): all ten findings were CONFIRMED.  The
+Architect's audit recovered `25M-23` from this durable register even though no
+chat relay had carried it; that is direct acceptance evidence for the rule
+that the file record, not chat, is authoritative.  The clause-reconciliation
+classification is adopted: issued clauses with missing or substituted
+acceptance evidence are defects even when the current producer is correct.
+In particular, the precise wording for `25M-34` and `25M-35`—correct
+producers, defective claimed evidence—is binding.
+
+`25M-32` is the batch's heaviest item and reopens queue 3.  Its repair and the
+gate assertion that currently blesses sorted `arange` order land atomically;
+the gate must be flipped in the same unit so it cannot continue to encode the
+defect as truth.  The machinery follow-up `25M-27`/`25M-28` queues behind the
+in-flight census-core remainder.  Queue 2 remains closed until the remainder
+and that follow-up are green.  At this adjudication the series stands at
+`25M-01` through `25M-35`, with the single retired tombstone `25M-07` and no
+unreconciled chat-only finding.

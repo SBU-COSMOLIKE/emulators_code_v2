@@ -2645,6 +2645,17 @@ gates-and-board.md, training-stack.md, and
 data-generation-and-cuts.md. No queue placements assigned by Red
 Team.
 
+25M-23 + 25M-27..35 ADJUDICATED (2026-07-13, Fable): all ten
+CONFIRMED. The durable register alone surfaced 25M-23, proving the
+file record—not chat—is authoritative. The clause-checklist framing
+is accepted, including the exact distinction for 34/35: producer
+correct, claimed evidence defective. 32 is a queue-3 reopen and its
+repair must flip the gate that currently asserts sorted `arange` as
+truth in the same landing. The census-core remainder stays first;
+machinery follow-up 27/28 follows it; queue 2 opens only after both
+are green. Series state: 01..35, tombstone 07, register and chat
+reconciled.
+
 25M-23 + 27..35 BATCH (2026-07-13, Fable): consolidation on main
 verified SOUND (proper merge, zero markers, my sections verbatim,
 notes-only). All ten adjudicated — five by my own conclusive probes
@@ -2676,6 +2687,28 @@ its scan enumerator (one shared function); set-equality +
 byte-edit-any-file fixture. Queue 2 at full 9/9. Spec:
 gates-and-board.md "Hardening 8.5/9 pre-merge audit + the 19
 narrowing and data-read rulings".
+
+README CURRENT-STATE PASS, DIDACTICS-95..100 (2026-07-13, Red Team;
+awaiting Fable adjudication): the user's “README is not a development
+diary” ruling is now explicit in conventions-and-workflow.md and the
+complete Implementer contract is durable in
+red-team-audit-and-didactics-2026-07-13.md. DIDACTICS-95 owns the
+README-set chronology boundary and reviewed history-vocabulary scan.
+DIDACTICS-96 requires a full CMB rewrite and corrects four factual
+overclaims: the spectrum-specific Gaussian variances, dense
+non-Gaussian blocks not consumed by the current trainer, the
+amplitude transform not making a shape-only target, and the actual
+moving-average roughness calculation. DIDACTICS-97 owns the
+parenthetical-aside pass without turning it into a punctuation quota.
+DIDACTICS-98 covers the other root chapters, including the positive
+background z_min and float32-unresolved-variation (not universal-
+physics) MPS pin. DIDACTICS-99 extends the same current-role contract to the
+emulator, gates, and Syren READMEs without creating gratuitous package
+READMEs. DIDACTICS-100 records the user's exact acronym: Simulated
+Observables for Numerical Inference in Cosmology. The TeX source was
+corrected by its Red Team custodian in this landing; the root README
+correction belongs to the Implementer visit. No README or library code
+was edited by the Red Team.
 
 DIDACTICS-95..100 (2026-07-13, Fable): the USER RULING (README =
 current library, not a diary; limitations = scope/consequence/user-
