@@ -1883,6 +1883,18 @@ artifacts-inference-warmstart.md "UNIT 77"/"UNIT 78";
 training-stack.md "UNIT 79"; gates-and-board.md "20M-10/11/12
 adjudication".
 
+20M-13 BATCH (2026-07-13, Fable): CONFIRMED — float64 output
+geometries (documented + recommended) crash both public
+physical-composition paths because PCERatioChi2 and TransferChi2
+force the physical truth to float32 and contract directly with the
+stored-dtype precision (pce.py:266/:310-311; transfer.py:291/:294);
+the whitened route is dtype-aware and fine. Fail-loud, not silent.
+NEW UNIT 80 (training-stack.md): one shared physical-contraction
+owner casting the residual to the precision tensor's dtype/device at
+the boundary; chi2 dtype follows Cinv; float32 byte-identical; lands
+in the transfer campaign WITH unit 77 as one algebra increment.
+Spec: gates-and-board.md "20M-13 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

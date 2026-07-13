@@ -2035,3 +2035,28 @@ completion/publication seams.
 EMUL2 blocklist grows by 78: now 67 + 69 + 71..76 + 78. Unit 77
 gates the factored-transfer science thread (D-TP9 side) rather than
 EMUL2. Unit 79 is a training-truth refusal, small, CPU legs.
+
+## 20M-13 adjudication (Fable, 2026-07-13): CONFIRMED — unit 80, the physical-contraction dtype boundary
+
+CONFIRMED at all four anchors: geometries/output.py documents AND
+recommends float64 for stiff 3x2pt directions (:76-79) and stores
+basis/Cinv in the geometry dtype (:264); PCERatioChi2 casts the
+packed physical truth to float32 (pce.py:266) and contracts the
+float32 residual directly against geo.Cinv / Cinv_sq
+(:310-311); TransferChi2's physical branch does the same
+(transfer.py:291, :294). A float64 geometry therefore crashes both
+public physical-composition paths (RuntimeError, reproduced by the
+red team through the shipped classes on kept AND full contractions,
+sum AND gain) while the whitened route — which passes through the
+dtype-aware unwhitening — works, proving the geometry itself valid.
+Fail-loud, not silent science, but a documented recommended
+configuration is unusable with two public training choices.
+-> NEW UNIT 80 (training-stack.md). Sequencing: lands in the
+transfer campaign WITH unit 77 — the shared physical-contraction
+owner unit 80 creates is exactly where unit 77's one-composition
+owner contracts, so the two one-owner clauses land as one algebra
+increment (pce.py + transfer.py together). Compatibility note: the
+unit-14 chi2 screen already carries compute-dtype provenance; a
+float64 contraction yields a float64 chi2 and the band follows the
+actual compute dtype — no double work, but the unit-80 legs assert
+the returned dtype so the provenance stays honest.

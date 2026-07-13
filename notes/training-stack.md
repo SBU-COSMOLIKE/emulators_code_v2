@@ -2383,3 +2383,37 @@ two-output scalar refuses at validation instead of crashing; a
 mutation restoring the hasattr decision must accept a non-CMB NPCE
 configuration and fail the gate. Sequencing: small standalone
 training-truth refusal; may ride any nearby training.py landing.
+
+## UNIT 80 (20M-13, 2026-07-13): one physical-contraction owner — the residual is cast to the precision tensor's dtype at the boundary, nowhere else
+
+Finding (red team, CONFIRMED): float64 output geometries are
+documented and recommended (output.py:76-79) and store Cinv in the
+geometry dtype, but the two physical-composition losses force the
+physical truth to float32 (pce.py:266; transfer.py:291, :294) and
+contract directly with the stored-dtype precision (pce.py:310-311)
+— every float64 PCE-ratio and physical-transfer configuration
+crashes (kept and full, sum and gain) before any chi2 exists; the
+whitened route is dtype-aware and fine.
+
+Contract (ratified): (1) network outputs and staged packed targets
+STAY float32; (2) immediately before every physical Mahalanobis
+contraction the physical residual is cast to the EXACT dtype and
+device of the precision tensor it contracts with — kept and full
+identically; (3) the returned chi2 dtype follows Cinv_sq / Cinv (a
+float64 geometry yields a float64 chi2, which the unit-14 screen's
+compute-dtype provenance already accommodates); (4) no wholesale
+model/batch float64 conversion — this is a narrow loss-boundary
+cast; (5) the float32 path is byte-identical; (6) ONE shared
+physical-contraction helper owns the cast + einsum, used by PCE
+ratio, transfer sum/gain, plain and factored transfer, and any
+future physical-space loss — no per-loss drift.
+
+Legs (ratified; CPU Torch, board-listed): float64 PCE-ratio kept +
+full contractions against direct known answers; float64 physical
+transfer sum + gain on a plain base; the same on a factored base;
+the whitened-space float64 control; float32 controls proving
+unchanged values AND dtypes; returned-dtype assertions for both
+precision choices; a mutation arm restoring the direct mixed-dtype
+einsum must reproduce the runtime failure. Sequencing: lands in the
+transfer campaign WITH unit 77 as one algebra increment — unit 80's
+contraction owner is where unit 77's composition owner contracts.
