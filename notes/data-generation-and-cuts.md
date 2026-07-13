@@ -1232,3 +1232,93 @@ exercise a genuinely buffered native writer — the current unflushed
 body must FAIL it. If CAMB-specific flushing is the chosen design,
 one small real-runtime leg, or an explicit refusal of unsupported
 native runtimes rather than an advertised universal capture.
+
+## UNIT 33 AMENDED (45M-64, fifteenth batch, 2026-07-12): the lifecycle verdict is the acceptance fact, not "the call returned"
+
+Finding (red team, CONFIRMED live): the background generator's
+repaired lifecycle is verdict-blind. _compute_dvs_from_sample
+calls self.model.logposterior(sample[idx], cached=False) and
+DISCARDS the returned object
+(dataset_generator_background.py:335); success is then the
+ABSENCE of {"ERROR", "error", "Did not converge"} in captured
+terminal text, after which the provider getters run
+unconditionally. Proven on REAL cobaya 3.6.2 (2026-07-12): a
+rejecting component returns LogPosterior(logpost=-inf) as a
+NORMAL return value — no raise, no keyword text — while the
+explicit prior precheck stays finite (it covers only the prior,
+not a theory/likelihood rejection). The reachable wrong result:
+a rejected point leaves the provider holding the PREVIOUS
+point's finite arrays; H and D_M are read and returned as a
+successful payload; the shared writer records a success. This is
+exactly the stale-physics class the cached=False repair was
+built to close — disabling the cache forces recomputation when
+computation HAPPENS, but does not validate that it succeeded.
+Unit 56's payload boundary cannot distinguish those finite stale
+values from new physics (its charter is the stored array, not
+the execution). Entry 33's own text called background:335 "the
+worked reference" for the three migrations — the worked
+reference is the patient; it becomes the FIRST PATIENT of the
+acceptance helper this amendment defines.
+
+Contract amendment (the red team's seven clauses adopted, one
+concretization):
+
+1. Every generator captures the lifecycle's returned LogPosterior
+   and requires a FINITE accepted logpost BEFORE reading any
+   provider output. The verdict is the acceptance fact.
+2. Acceptance uses cobaya's documented result API
+   (LogPosterior.logpost; fields verified on cobaya 3.6.2:
+   logpost/logpriors/loglikes/derived). Captured terminal text is
+   DEMOTED to supplementary diagnostic evidence attached to the
+   error report — never the verdict.
+3. A rejected result invalidates the sample even when the
+   provider contains finite values.
+4. This-call provenance, PRECISION CONCRETIZATION (Architect):
+   real cobaya exposes no provider generation token, so in the
+   real path provenance is established by the CONJUNCTION
+   (cached=False forced recomputation) AND (accepted finite
+   verdict, checked BEFORE the first getter call) — a recorded
+   derivation, not a new API; the fake-Cobaya gate proves the
+   ORDER mechanically (legs below). Acceptance never rests on "a
+   getter returned".
+5. Unit 56's payload validator remains defense in depth AFTER
+   lifecycle validation; a finite payload does not prove accepted
+   execution.
+6. ONE shared acceptance helper, executed identically by all four
+   generator drivers — background immediately, lensing/CMB/MPS at
+   their unit-33 migration — so the background omission is never
+   copied three times.
+7. Error reporting names the sample index, the parameter mapping,
+   and the lifecycle verdict (logpost, and the rejecting
+   component when cobaya reports one); no keyword scans as logic,
+   no secret dumping.
+8. Consequence, recorded: any background dump generated BEFORE
+   this amendment lands is suspect for SPARSE stale rows (the
+   bsn-smoke dump-variance tripwire catches only whole-dump
+   constancy); science-grade dumps are regenerated after landing.
+
+Red legs (in unit 33's fake-Cobaya, board-listed gate; no torch
+needed):
+
+- accepted finite lifecycle + fresh provider payload passes;
+- rejected/non-finite lifecycle + stale finite provider payload
+  fails BEFORE any getter or write — the instrumented fake
+  provider PROVES zero getter calls were made;
+- rejected lifecycle + fresh-looking finite payload still fails;
+- accepted lifecycle + non-finite payload reaches and fails unit
+  56's boundary (the defense-in-depth ordering leg);
+- generation-token leg IN THE FAKE: the fake provider tags its
+  arrays with the lifecycle call generation; the accepted leg
+  asserts the arrays read belong to THIS call — the
+  read-after-verdict discipline made mechanical;
+- mutation arm: restore the discard-the-return / scan-text form —
+  it must ACCEPT the stale payload, proving catch power;
+- census leg: all four generator drivers execute the IDENTICAL
+  acceptance helper once per sample.
+
+Distinct from unit 56 (it validates the stored science array;
+this amendment validates that the requested cosmology actually
+produced it). Placement: rides unit 33 in the ingress cluster
+(8+17+25+26+28+33), unchanged. USER-VISIBLE: rejected points now
+fail their sample loudly with the verdict named (previously they
+could write the previous cosmology's physics as a success).

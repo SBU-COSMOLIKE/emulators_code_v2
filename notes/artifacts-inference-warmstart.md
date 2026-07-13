@@ -880,3 +880,72 @@ gate must fail. Save/readback legs use torch to build the synthetic
 artifacts: they live under the existing board-listed
 finetune-identity check in gates/checks/, run by the user on the
 torch workstation.
+
+## UNIT 11 AMENDED (45M-65, fifteenth batch, 2026-07-12): parameter-side covariance ingestion joins the read-side integrity contract
+
+Finding (red team, CONFIRMED live): validate_scalar imposes no
+minimum parameter count (any nonempty input set is legal), and
+the ordinary scalar build then calls ParamGeometry.from_covmat
+(experiment.py:3488-3491), which is loadtxt -> eigh with ZERO
+validation (parameter.py:128-132). A scientifically valid
+one-parameter covariance file ("# x" then "4.0") loads as a
+0-DIMENSIONAL array — np.loadtxt returns shape (), not (1, 1) —
+and np.linalg.eigh deterministically raises
+LinAlgError("0-dimensional array given...") before training
+starts (proven through the REAL from_covmat, 2026-07-12). The
+same probe proved the multi-parameter path is a LIVE instance of
+this unit's mechanism (a) on the parameter side: a covmat with a
+negative variance flows loadtxt -> eigh -> np.sqrt silently to
+sqrt_ev = [nan, 1.0] — the NaN whitening scale built without a
+word. The dimensional collapse repeats on the sample-derived
+path (np.cov(one-feature, rowvar=False) is also 0-d,
+parameter.py:264) and the unvalidated loadtxt -> eigh shape
+repeats at AmplitudeFactorGeometry.from_covmat (:422-437 — a
+THIRD site, found in adjudication, which the finding did not
+cite; note np.ix_ on a 0-d cov breaks there before eigh would).
+Distinct from the queued one-ROW parameter-table fix: that is a
+dataset-shape defect; this is a valid one-PARAMETER geometry
+refused by dimensional accident.
+
+Contract (the red team's six clauses adopted; folded into this
+unit's single mechanism):
+
+1. Covariance input is normalized to an exact two-dimensional
+   square matrix before eigendecomposition (a valid scalar
+   covariance becomes (1, 1)); normalization NEVER blesses
+   malformed input — it feeds the same integrity checks.
+2. Header-name count, covariance width, and center width must
+   agree exactly; a mismatch is refused naming all three observed
+   dimensions.
+3. Finite, symmetric, strictly positive-definite values under
+   this unit's geometry-integrity policy at ALL parameter-side
+   sites — the nan-sqrt_ev probe result makes parameter.py a
+   proven instance of mechanism (a), not a precaution.
+4. The dimensional-totality rule applies wherever covariance is
+   derived from samples (np.cov, one feature) and at
+   AmplitudeFactorGeometry.from_covmat (in scope).
+5. All multi-parameter numerics byte-for-byte.
+6. No new mechanism: this amends unit 11; the validation home is
+   shared with the output.py covariance sites already recorded
+   here.
+
+Red legs (CPU numpy legs; the round-trip legs are torch and live
+in the board-listed scalar-identity gate — Architect placement,
+per the red team's request):
+
+- one header name + positive 1x1 covariance builds and
+  round-trips decode(encode(x)) == x;
+- the whitened displacement has the analytic value
+  (x - center)/sqrt(var);
+- zero, negative, NaN, and Inf scalar variances are refused
+  BEFORE eigh/sqrt;
+- header count, center width, and covariance dimension mismatches
+  are refused with the three observed dimensions named;
+- a normal multi-parameter control remains byte-identical;
+- the sample-derived one-feature constructor, while public API,
+  receives the same one-dimensional acceptance test.
+
+Placement: unit 11, where queued (no reshuffle). USER-VISIBLE:
+one-parameter emulators become buildable (today they crash before
+training); malformed covariances are refused loudly (today a
+negative variance trains with NaN whitening).

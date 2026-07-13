@@ -368,6 +368,14 @@ files were created. Priority follows user-visible risk:
     representation validation of every center/scale pair, the
     grid2d const-mask decision, and the covariance sqrt scales;
     spec appended in artifacts-inference-warmstart.md.
+    AMENDED (45M-65, fifteenth batch): parameter-side covariance
+    ingestion joins — from_covmat is loadtxt -> eigh with ZERO
+    validation (a valid 1x1 covmat loads 0-dimensional and eigh
+    raises before training; a NEGATIVE variance builds
+    sqrt_ev = [nan, 1.0] silently — both proven through the real
+    from_covmat); np.cov one-feature and
+    AmplitudeFactorGeometry.from_covmat share the class. Spec:
+    artifacts-inference-warmstart.md "UNIT 11 AMENDED (45M-65)".
 12. **Optimized-mode validation parity.** Seventeen runtime guards across
     batching, model designs, geometry, and loss code are `assert` statements
     and disappear under `python -O`. Spec: conventions-and-workflow.md.
@@ -760,6 +768,16 @@ files were created. Priority follows user-visible risk:
     unharmonized" paragraph in that note is SUPERSEDED by this
     contract's preferred path — harmonization now has its gate
     evidence plan; the paragraph gets rewritten when 33 lands.
+    AMENDED (45M-64, fifteenth batch): the worked reference is
+    itself verdict-blind — the returned LogPosterior is DISCARDED
+    at background:335 and success = absence of three keywords in
+    captured terminal text; a rejected point (logpost = -inf
+    returned without raising, proven on real cobaya 3.6.2) reads
+    the provider unconditionally and can serve the previous
+    point's finite physics as a success. Acceptance-helper
+    contract + fake-Cobaya order/token legs; background is the
+    FIRST PATIENT, not the template. Spec:
+    data-generation-and-cuts.md "UNIT 33 AMENDED (45M-64)".
 34. **Public prose states the current state** (45M-07, 2026-07-12;
     documentation-only). emulator/README.md:216 narrates board-run
     history; warmstart.py:162 names "unit 2" in a user-facing error;
@@ -1450,6 +1468,49 @@ wave-4 MPS visit beside 16. Distinct from unit 11
 critical-path change: 43 -> 14(g+h) -> 50(+60+14f) unchanged; both
 new units are wave-4 riders. Specs: families-background-mps.md
 "UNIT 62 (45M-62...)" and "UNIT 63 (45M-63...)".
+
+FIFTEENTH 45M BATCH (2026-07-12): 45M-64 = UNIT 33 AMENDED — the
+background generator's repaired lifecycle is verdict-blind: the
+returned LogPosterior is DISCARDED
+(dataset_generator_background.py:335), success = absence of three
+keywords in captured terminal text, and the provider getters run
+unconditionally. Proven on REAL cobaya 3.6.2: a rejecting
+component returns logpost = -inf with no raise and no keyword
+text while the prior precheck stays finite — a rejected point can
+serve the PREVIOUS point's finite H/D_M as a successful row, the
+exact stale-physics class cached=False was built to close, and
+entry 33's own "worked reference" is the patient. Amendment: the
+verdict (finite LogPosterior.logpost, the documented API) is the
+acceptance fact before ANY provider read; text scans demoted to
+diagnostics; ONE shared acceptance helper across all four
+drivers; PRECISION CONCRETIZATION: real cobaya has no provider
+generation token — provenance = cached=False + verdict-before-
+first-getter (recorded derivation), the fake-Cobaya gate proves
+the ORDER mechanically (instrumented fake provider: zero getter
+calls on rejection; generation-tagged arrays on acceptance);
+seven legs incl. the discard-and-scan mutation arm and the
+four-driver census; science dumps generated before the landing
+are regenerated after it. 45M-65 = UNIT 11 AMENDED — a valid
+one-parameter covariance kills training by dimensional accident:
+np.loadtxt returns a 0-d array for a 1x1 covmat and eigh raises
+LinAlgError before training (proven through the REAL
+from_covmat); np.cov shares the collapse for one feature; the
+same probe proved parameter.py is a LIVE instance of unit 11's
+mechanism (a) — a negative variance builds sqrt_ev = [nan, 1.0]
+silently. Amendment: exact 2-D-square normalization that never
+blesses malformed input, name/width/center agreement naming all
+three dimensions, finite/symmetric/strictly-PD at all THREE
+parameter-side sites (from_covmat :130, np.cov :264,
+AmplitudeFactorGeometry.from_covmat :422 — the third site found
+in adjudication), multi-param byte-identity; CPU legs + torch
+round-trip legs in the board-listed scalar-identity gate. Both
+are amendments to QUEUED units — no new numbers, no
+critical-path change; 33 stays in the ingress cluster, 11 where
+queued. Relay note: the red team's "62 through 64 awaiting"
+crossed my fourteenth-batch commit in relay — 62/63 were
+adjudicated at 8364598. Specs: data-generation-and-cuts.md
+"UNIT 33 AMENDED (45M-64)", artifacts-inference-warmstart.md
+"UNIT 11 AMENDED (45M-65)".
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
