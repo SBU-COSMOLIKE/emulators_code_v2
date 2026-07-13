@@ -81,8 +81,6 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 
 ## Contents
 
-- **Code map** (layout, file roles, change X → edit Y): [`emulator/README.md`](emulator/README.md)
-
 1. [Run it](#1-run-it)
     1. [Setup: where it runs, and the three path flags](#setup-where-it-runs-and-the-three-path-flags)
     2. [One training run](#one-training-run)

@@ -2160,3 +2160,17 @@ does not claim those surfaces.
 The remaining history-vocabulary candidates in the four READMEs are
 pre-existing and belong to the later current-state file visits.  They are not
 silently blessed by this increment.
+
+## Red Team implementation record: root README code-map deduplication
+
+The root README linked to `emulator/README.md` twice in immediate succession:
+first in a complete sentence explaining what the package code map contains,
+then again as the first item under `Contents`.  The second link added no new
+navigation or teaching value.  This bounded follow-up keeps the explanatory
+sentence and removes only the duplicate contents entry.  The numbered table
+of contents and the code-map destination are unchanged.
+
+Evidence before Architect audit: an untruncated scan finds one `code map`
+navigation reference in the root README, the retained relative link resolves
+to `emulator/README.md`, and `git diff --check` is clean.  This is
+implementation evidence, not Red Team self-certification.
