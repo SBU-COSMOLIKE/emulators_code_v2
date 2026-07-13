@@ -181,12 +181,13 @@ def stage_source(C, dv, idx, ram_frac=0.7):
 
   A run uses only the N_train subset of the dump, named by `idx`.
   That subset is far smaller than the dump and usually fits in
-  RAM even when the dump does not. If its bytes are below
-  ram_frac of available RAM, materialize the compact subset (C
-  and dv restricted to the used rows) and reindex locally;
-  otherwise return the inputs unchanged so the loaders stream dv
-  from the memmap by global index. Either way idx matches its own
-  C/dv, so the rest of the pipeline is identical.
+  RAM even when the dump does not. If the combined bytes of BOTH
+  compact copies (the parameter table C[idx] and the target dv[idx],
+  each at its own dtype and width) are below ram_frac of available
+  RAM, materialize them and reindex locally; otherwise return the
+  inputs unchanged so the loaders stream dv from the memmap by
+  global index. Either way idx matches its own C/dv, so the rest of
+  the pipeline is identical.
 
   Arguments:
     C        = full parameter dump, (N, Ncosmo).
@@ -200,16 +201,34 @@ def stage_source(C, dv, idx, ram_frac=0.7):
       = arange(n_used) when it fits; otherwise (C, dv, idx)
       unchanged (dv still the memmap, idx still global).
   """
-  rows   = np.sort(np.unique(idx))      # sorted -> sequential
-  nbytes = rows.size * dv.shape[1] * dv.dtype.itemsize
-  avail  = psutil.virtual_memory().available
-  if nbytes < ram_frac * avail:
+  rows = np.sort(np.unique(idx))        # sorted -> sequential
+  # advanced indexing (C[rows] and dv[rows]) materializes BOTH arrays as eager
+  # copies, so the budget must count BOTH, each at its own dtype and width, plus
+  # the reindex array. Counting only the dv copy underestimated by the whole
+  # parameter table: a narrow-output scalar dump (many input columns, one
+  # output column) then chose the resident branch even when the two copies
+  # together did not fit -- the parameter bytes can dwarf a one-wide target.
+  dv_bytes  = rows.size * dv.shape[1] * dv.dtype.itemsize
+  par_bytes = rows.size * C.shape[1] * C.dtype.itemsize
+  idx_bytes = rows.size * np.dtype(np.int64).itemsize
+  need = dv_bytes + par_bytes + idx_bytes
+  avail = psutil.virtual_memory().available
+  budget = ram_frac * avail
+  fits = need < budget
+  # one essential staging line: the predicted resident bytes and the branch,
+  # so an out-of-memory or a surprise disk-streaming run is visible up front.
+  print("stage_source: %d rows, params %.1f MB + dv %.1f MB = %.1f MB vs "
+        "budget %.1f MB -> %s"
+        % (rows.size, par_bytes / 1e6, dv_bytes / 1e6, need / 1e6,
+           budget / 1e6, "RAM (materialized)" if fits else "memmap (disk)"))
+  if fits:
     # materialize into RAM, reindex locally.
     return (np.asarray(C[rows]),
             np.asarray(dv[rows]),
             np.arange(rows.size))
   # too big for RAM: keep full arrays + global index, stream dv
-  # from disk.
+  # from disk (the parameter table was already loaded eagerly upstream; only
+  # the dv memmap stays disk-backed here).
   return C, dv, idx
 
 

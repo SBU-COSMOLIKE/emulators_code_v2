@@ -1331,6 +1331,32 @@ def gate_artifact_readback(ctx):
              + " (gates/checks/artifact_readback.py)")
 
 
+def gate_stage_ram(ctx):
+  """stage-ram: the host-RAM staging decision counts every array it copies.
+
+  WHAT: a CPU check of stage_source's resident-vs-disk branch decision with a
+  mocked available-memory value. WHY: the resident branch materializes BOTH
+  the compact parameter table C[idx] and the compact target dv[idx], but the
+  budget counted only the dv bytes, so a narrow-output dump (many input
+  columns, one output column) chose the resident branch even when the two
+  copies together exceeded the allowance -- an avoidable out-of-memory. HOW:
+  the check drives the real stage_source with available memory pinned between
+  "dv alone fits" and "dv plus C fits" (the corrected code keeps the
+  disk-backed branch there), with resident and disk controls, an unequal
+  dtype/width case, byte-identical selected rows across both regimes, and a
+  mutation arm showing the retired dv-only estimate would pick RAM. Importing
+  the module needs torch; the decision is pure NumPy on tiny arrays.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/stage_ram.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="stage-ram host-RAM accounting legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/stage_ram.py)")
+
+
 def gate_diagnostics_domain(ctx):
   """diagnostics-domain: a corrupted chi2 never crowns a diagnostic (45M-61).
 
@@ -1464,6 +1490,20 @@ BOARD = [
             "valid controls)",
        run=gate_board_selftest,
        needs=()),
+  Gate(id="stage-ram",
+       spec_code="SRM-A",
+       title="Host-RAM staging counts every materialized array",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="the host-RAM staging accounting: stage_source counts BOTH the "
+            "parameter and target compact copies (each at its own dtype and "
+            "width) plus the reindex array, so a narrow-output dump keeps the "
+            "disk-backed branch when the two copies together exceed the "
+            "budget; resident / disk controls, an unequal-dtype case, "
+            "byte-identical selected rows across both regimes, and the "
+            "dv-only-estimate mutation arm",
+       run=gate_stage_ram,
+       needs=("torch",)),
   Gate(id="artifact-readback",
        spec_code="ARB-A",
        title="Saved attributes parsed by type, not truthiness",
