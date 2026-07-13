@@ -4238,3 +4238,38 @@ direction + the all-quantified-coverage addendum, 25M-19 owner-specific
 resolvers, 25M-21 digest projection) — one machinery batch before queue 2, with
 the expected-and-correct side effect that the closure repair stales stored
 PASSes whose manifests omitted real dependencies. Then D3 and D4 per the specs.
+
+## 25M-20 pre-merge audit (Fable, 2026-07-13): GO — the 40/40 population is accepted GREEN; one topology rider joins the hardening increment
+
+cc85aa9 audited (run_board.py +29/-2, board_selftest.py +55). The
+implementation matches the ruling exactly: the resume predicate now
+requires own-PASS currency AND every dependency a current PASS AND
+no dependency in the this-run reran set; a current-PASS child with
+reran prerequisites prints the honest rerun line and executes; a
+gate joins reran only when its body actually runs (a SKIP-DEP'd
+gate never does, so skip cascades stay non-green). The reran set is
+TRANSITIVE by construction (A stale -> A reruns -> B reruns -> C
+reruns). An unselected stale prerequisite denies the child's resume
+and falls to the dependency-skip path: non-green, nonzero — the
+ruling's semantics precisely. Independent verification: the
+dependency-currency selftest legs rerun green on the cocoa
+interpreter (skip-cascade matrix, FAIL prerequisite, rc 1).
+
+ONE RIDER (Architect probe, non-blocking): the fix relies on BOARD
+listing dependencies before their children — TRUE today (probe: for
+every gate, each dep's BOARD index precedes the gate's; OK) but
+unenforced. The topological assertion becomes a permanent selftest
+leg in the 1b hardening increment: authoring order is now a
+correctness invariant of the resume machinery, so the board asserts
+it.
+
+VERDICT: GO. Per the binding timing, the 40/40 population landing
+is hereby ACCEPTED GREEN. The 1b hardening increment is GO as
+scoped WITH TWO SCOPE CORRECTIONS: (1) 25M-22's key removal + the
+every-key-has-a-reader config census leg belong to this increment
+(beside 21's projection — one digest transition), absent from the
+Implementer's scope list; (2) the topology-assertion leg above.
+Increment contents, final: 16 closure truth; 18 merged
+all-quantified coverage (three must-red fixtures); 19 owner
+resolvers; 21 digest projection; 22 removal + census leg; the
+topology leg. Queue 2 opens at that increment's merge.
