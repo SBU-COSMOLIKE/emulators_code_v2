@@ -2175,6 +2175,27 @@ prose (which survived the Architect's own fddf05f audit — gate
 audits now read module preambles against executed mechanisms).
 Spec: gates-and-board.md "DIDACTICS-20..26 adjudication".
 
+DIDACTICS-27..32 BATCH (2026-07-13, Fable): the headline is 31,
+CONFIRMED as a gate-fixture CORRECTNESS defect — all three
+real-generator smokes build train AND val with --seed 1234 +
+split_seed 0, so validation overlap is 100% and the smoke
+validation numbers measure memorization; the experiment.py
+"independent selection" comment is false. UNIT 28 AMENDED (distinct
+recorded seeds or proven disjoint partition, zero-overlap refusal
+before training, alignment proof, same-seed mutation arm); the
+fixture repair lands BEFORE queue 5. Others: 27 wrapper-child
+reconciliation extends the queue-2 registry rewrite (logged !=
+executed; UNAVAILABLE per ruling 6); 28 subprocess ten-field
+contract + both-stream failure tails + board_selftest's 4 mkdtemp
+sites join the 25 cleanup (nine sites, one landing); 29 triangle
+gate STRENGTHENED (panel-specific RGBA evidence + wrong-panel
+mutation) and logscan renamed to selected/normalized text equality
+("byte-identical" reserved for raw bytes); 30 weight-decay claim
+narrowed to decay-term inactivity + BerHu units corrected; 32
+RULING option 1 — full labeled child streams persisted into the
+gate log, explicit no-timeout statement with rationale. Spec:
+gates-and-board.md "DIDACTICS-27..32 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

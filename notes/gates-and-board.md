@@ -2854,3 +2854,81 @@ Routing: factual items -> the queue-6 factual bundle; executable
 tests -> unit 91; the bounds validation -> unit 40; the temp-dir
 cleanup -> the 25 batch; the registry rewrite -> queue 2; everything
 else -> the per-family lane-3 batches under the standing acceptance.
+
+## DIDACTICS-27..32 adjudication (Fable, 2026-07-13): the smoke-fixture disjointness defect is real and blocks queue 5's smoke evidence; five documentation/gate-strength rulings around it
+
+THE HEADLINE — DIDACTICS-31 CONFIRMED (a gate-fixture CORRECTNESS
+defect, not didactics): the Architect verified the full seed path —
+one --seed 1234 command shape generates BOTH the train and val files
+in bsn_smoke (:109), mps_smoke (:126), and cmb_smoke (:181);
+split_seed: 0 in all three configs; equal seed + equal inputs
+reproduce the same parameter table, and the same split seed selects
+the same 180 of 200 rows in the same order. Validation overlap is
+100% in all three real-generator smokes: their validation-collapse /
+best-epoch numbers measure MEMORIZATION of training cosmologies, not
+generalization. The production comment at experiment.py:3255-3256
+("the val file differs, so the same seed gives an independent
+selection") is FALSE for same-seed files. -> UNIT 28 AMENDED (the
+validation-leakage unit gains the smoke-fixture half): distinct
+explicit RECORDED generator seeds for train and val (or one table
+with a persisted, proven disjoint partition); a zero-overlap
+comparison on canonical physical parameter rows BEFORE training;
+independent parameter<->data-vector row-alignment proof in both
+files; printed generator seeds, split seed, row counts, and overlap
+count; the taught distinction (generator seed chooses cosmologies;
+split_seed permutes rows INSIDE a file and can never make two
+identical files independent); a mutation arm restoring the same
+generator seed must fail before training. The false experiment.py
+comment is a FACTUAL-BUNDLE fix. PRIORITY: the fixture repair lands
+BEFORE queue 5 — the workstation smoke evidence must mean
+generalization; until it lands, no prose may call the smoke
+validation numbers generalization evidence. (The dead-network bar
+still catches total non-learning; the identity gates are untouched.)
+
+The other five:
+
+- 27 (wrapper vs child): RATIFIED — the wrapper-child reconciliation
+  (required files, executed subprocesses, exact-vs-tolerant metric,
+  check count/names, asserted-vs-logged evidence, owed work) EXTENDS
+  the queue-2 registry rewrite; a wrapper cannot upgrade a lexical
+  scan into runtime proof, a logged instruction into an executed
+  test, or ctx.log into PASS — binding ruling 6's UNAVAILABLE label
+  covers the gct MCMC instruction and the ftw/tpe provenance echoes
+  until reconciliation executes them. The wrapper falsehoods (gsv's
+  "h5 alone" echo, the rtol echo, the bitwise echo, tpe's dated
+  prose) join the factual bundle.
+- 28 (subprocess semantics + diagnostics): RATIFIED — every
+  subprocess owner gains the ten-field contract; failure paths print
+  LABELED bounded tails of BOTH stdout and stderr plus cwd/argv/
+  expected files (Cobaya errors live on stdout); the scalar readback
+  prose distinguishes missing file / missing header / unusable
+  header; board_selftest's FOUR unmanaged mkdtemp sites join the
+  DIDACTICS-25 behavioral cleanup batch (one cleanup landing, all
+  nine sites).
+- 29 (triangle + logscan): gate-STRENGTHENING ruled, not narrowing —
+  the triangle gate identifies each intended panel's axis, checks
+  its actual filled collection, verifies grey RGBA within a stated
+  tolerance, and identifies the omegamh2 marginal specifically; the
+  wrong-panel + unrelated-patch mutation must fail (small
+  board-listed executable work in the 29 batch). logscan's
+  comparison is renamed to what it is — selected/normalized text
+  equality — and "byte-identical" is RESERVED for raw
+  bytes/undecoded tensors; registry prose inherits the honest term.
+- 30 (two false explanations): the weight-decay conclusion is
+  NARROWED to "the explicit decay term is disabled in every group"
+  (no trajectory-equality test ordered; adding one is optional
+  family-visit work); the BerHu dimensional prose is corrected
+  branch by branch with the t1 = 0.2 hand calculation; the
+  lazy-iteration / identity-set / reference-ownership / autograd /
+  unbound-method teaching is ratified. Both falsehoods join the
+  factual bundle.
+- 32 (raw-log authority): RULING = OPTION 1 — complete, separately
+  labeled child stdout and stderr are PERSISTED into the parent gate
+  log (the raw-log-authority promise is kept, not retracted), with
+  concise bounded tails in terminal failure details. Timeout policy:
+  NO timeout is added — a workstation CAMB/generator call has no
+  safe universal bound and interrupted attempts are already a
+  first-class resume state — but the documentation states explicitly
+  that subprocess.run waits indefinitely and captured mode shows no
+  live progress. The stream-marker acceptance (both markers land in
+  durable evidence) is ratified.
