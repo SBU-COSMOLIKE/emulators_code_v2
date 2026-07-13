@@ -1710,3 +1710,56 @@ decision, not silently dropped.
 
 Awaiting the Architect's approval of this order + the first-gate declaration,
 and the cli-strict/geo-paths census carve-out, before landing the increments.
+
+### Queue 1d + RT-04 — pre-merge Architect audit (Fable, 2026-07-13): PASS; phase-3 proposal APPROVED with two rulings
+
+Commit `28d4207` audited BEFORE merge (rhythm restored). Evidence,
+re-executed by the Architect from a clean detached checkout of the
+branch tip on the cocoa interpreter: board-selftest 74 legs ALL PASS
+(rc 0) including the five child-environment legs (fake roots A and B:
+injected B wins over inherited A; B holds with $ROOTDIR absent; the
+inherit-only mutation arm shows the child seeing A; unresolved root
+refuses BEFORE launch; the one-owner census is itself a leg — exactly
+one subprocess.Popen, inside sh()) and the two RT-04 legs
+(warning-on-failed-run fails; warning-on-clean-run passes);
+`run_board --list` rc 0.
+
+Contract conformance: sh() is the one owner (child_env built from
+os.environ with ROOTDIR forced to cfg["rootdir"]); the log header
+records the same cfg value the injection reads (recorded = executed);
+gate_gha_f's warning leg now requires rc_w == 0 AND the warning, with
+the honest detail naming rc_w. The out-of-owner subprocess calls
+(_git at :598 and the import-capability probe at :609) query the repo
+and the interpreter, not the certified root — legitimately outside
+the injection. MINOR (no rework, pin at the next harness touch):
+sh() layers the caller's env OVER the injected ROOTDIR, so a future
+caller passing env={"ROOTDIR": ...} could override the owner; no
+current caller does and the census leg pins the routing — add a
+refusal for a caller-supplied ROOTDIR when the file is next edited.
+
+Phase-3 population proposal (`5d1b065`): APPROVED — the batch order
+(wiring-proof empty manifests -> clean-closure + inputs ->
+dynamic-cover -> driver gates -> the flagged pair), the board-selftest
+first declaration (empty/empty, with the correct strictly-broader
+argument), and the save-rebuild-drift exemplar (designs + losses roots
+covering the model-recipe dynamic imports) are all contract-true. Two
+RULINGS close its open questions:
+
+1. Batch 5 is NOT a carve-out: cli-strict / geo-paths go through the
+   designed lane — their check scripts' dynamic-import sites enter
+   _DYNAMIC_IMPORT_WAIVERS as reviewed entries naming the covering
+   roots (which those gates then declare). A site whose targets are
+   genuinely unbounded at run time is reworked to static imports
+   instead. No third category exists.
+2. The flagged input-side limitation (data files named inside a
+   gate's YAML, not as board_config keys) is ACCEPTED for batches
+   1-3 and CLOSED at batch 4: each driver-gate population increment
+   adds explicit board_config data keys for the dv / covariance /
+   axis files its YAML names, so the gates whose science consumes
+   deploy data carry them as input members. The YAML member alone is
+   the fingerprint of intent, not of the data bytes.
+
+Sequencing unchanged: this landing carries 1d, so the
+1d-before-workstation-rerun dependency is satisfied at the merge;
+population batches follow the approved order; queue 2 after
+population completes.

@@ -4964,9 +4964,12 @@ For positive curvature parameter \(\Omega_k>0\), the open-geometry mapping is
       \sinh\!\left(\sqrt{\Omega_k}\frac{\chi}{D_H}\right),
  \qquad D_H=\frac{c}{H_0}.
 \end{equation*}
-An independent reproduction at $H_0=70\ {m km\,s^{-1}\,Mpc^{-1}}$,
+An independent reproduction at $H_0=70\ {
+m km\,s^{-1}\,Mpc^{-1}}$,
 $\Omega_k=0.1$, and $z=1100$ gives
-$\chi=13296.826\ {m Mpc}$ but $D_M=15538.408\ {m Mpc}$, a $16.858\%$
+$\chi=13296.826\ {
+m Mpc}$ but $D_M=15538.408\ {
+m Mpc}$, a $16.858\%$
 difference.  Both numbers are finite, positive, and smooth.  A check that asks
 only whether the returned distance looks numerical cannot detect the wrong
 physical label.
@@ -5796,12 +5799,15 @@ dirty generator or adapter is therefore refused just like a dirty training
 module.  This check establishes that the evidence can be tied to a committed
 tree; it does not decide which committed files belong to one particular gate.
 
-The per-gate code digest is not yet a reviewed transitive manifest of every
-production module, generator, adapter, analytic base, and input that one gate
-executes.  A committed production-only change can therefore leave a stored
-per-gate digest unchanged.  Force-rerun remains the manual safeguard after an
-affected production boundary changes until the queued executable/input
-manifest assigns exact owners.
+The per-gate code digest now has two regimes.  A gate that declares an
+executable manifest digests its resolved membership: the declared root
+modules, every repo-local file they import transitively, the check scripts
+its body names, and the shared runner, member by member.  A gate that
+declares nothing keeps the narrower legacy digest of its body and directly
+named check scripts.  Every live gate is currently in the second regime, so
+a committed production-only change can still leave its stored digest
+unchanged.  Force-rerun remains the manual safeguard for those gates until
+per-gate population assigns exact owners.
 
 Raw-log integrity no longer has that asymmetry.  The resume decision and the
 display use the same predicate.  A PASS whose cited log is absent, lacks a
@@ -6196,6 +6202,9 @@ Stale code & An executable member changed & Rerun; the old log remains
 historical evidence for its old executable surface. \\
 Stale input & A declared fixture or configuration input changed & Rerun with
 the new input identity. \\
+Pre-manifest & The gate now declares an executable manifest but its stored
+PASS predates it & Rerun; the old record's narrower digest cannot certify
+the declared surface. \\
 Stale log & The raw log is absent, truncated, edited, or fails its digest &
 Rerun; a database status cannot substitute for its evidence. \\
 Interrupted & The body began but did not write a terminal gate verdict &
@@ -6215,23 +6224,24 @@ support identity, while a mismatch proves that at least one byte changed.}
 \end{table*}
 
 \paragraph{Current gap.}
-The gate-code digest covers the gate function and check scripts named
-literally inside it, not the complete transitive imported production surface.
-A committed change only in an imported adapter or generator can therefore
-require an explicit force-rerun even when resume calls the stored gate current.
-Static import scanning must also document what it cannot discover, including
-dynamic imports assembled from strings, \code{importlib} calls, and imports
-inside functions whose target is chosen at run time.
+The manifest machinery is landed but no live gate declares one yet.  Until a
+gate is populated, its stored digest covers only the gate function and the
+check scripts named literally inside it, and a committed change in an
+imported adapter or generator leaves that digest unchanged.  Population is
+per gate, and a populated gate's earlier PASS reads as pre-manifest and
+reruns, so the migration is deliberately incremental rather than a flag
+day.
 
 \paragraph{Required closure.}
 One canonical executable-surface definition is shared by dirty preflight and
-resume identity.  It includes every imported production module, driver,
-adapter, generator, analytic base, fixture, and gate body that can affect the
-claim.  The exact membership is persisted beside the digest.  A missing,
-truncated, or digest-mismatched raw log becomes a stale-log state and causes a
-selected gate to run again.  The raw-log sentence is current behavior now;
-the remaining closure is the reviewed per-gate executable/input membership and
-an honest list of static-analysis blind spots.
+resume identity.  Most of it is current behavior now.  A declared gate's
+membership is derived from its roots, persisted beside the digest as
+per-file hashes, and revalidated on every invocation; a dynamic import
+assembled from a string must sit in a reviewed waiver table naming the roots
+that cover it; a subprocess target that no import graph shows must be a
+declared root; a missing, truncated, or digest-mismatched raw log is
+stale-log and reruns.  The remaining closure is population: each gate's
+declared roots and named input keys, reviewed one gate at a time.
 
 \begin{figure*}[t]
 \centering

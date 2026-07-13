@@ -1770,6 +1770,28 @@ before the first WORKSTATION rerun of any populated gate; queue 2
 blocked until 1b population completes. Spec: gates-and-board.md
 "1b phase 2 — post-merge Architect audit".
 
+GUIDE REVIEW (2026-07-13, user-authorized Architect edit):
+editorial pass against the user's private review standards (kept
+outside this repo) = no changes needed; currency pass = red team had
+already folded in everything through today's adjudications; the one stale
+area (the digest story, pre-1b) fixed in four passages incl. a
+pre-manifest resume-table row; PDF rebuilt clean from the repo root.
+Custody returns to the red team. Record:
+conventions-and-workflow.md "Guide review of 2026-07-13".
+
+QUEUE 1D + RT-04 AUDIT (2026-07-13, Fable): `28d4207` PASS pre-merge
+— 74-leg selftest + --list re-executed from a clean checkout of the
+branch tip; the five child-environment legs and both RT-04 legs
+verified against the queue-1d contract; one-owner census is itself a
+leg; minor pin noted (caller env can layer over the injected ROOTDIR
+— refuse a caller-supplied ROOTDIR at the next harness touch).
+PHASE-3 PROPOSAL (`5d1b065`) APPROVED with two rulings: the flagged
+pair goes through the reviewed waiver table (no carve-out lane), and
+the input-side limitation closes at batch 4 (driver gates add
+explicit board_config data keys). Also this date: the guide review
+landed. Spec: gates-and-board.md "Queue 1d + RT-04 —
+pre-merge Architect audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

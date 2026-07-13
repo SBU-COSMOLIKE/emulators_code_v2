@@ -638,3 +638,33 @@ preserves any uncommitted work in the shared tree, and fails harmlessly
 (`--ff-only`) if new branch commits landed meanwhile. With the branch
 resynced, every subsequent landing block fast-forwards. Landing blocks
 themselves stay the user's four lines, unchanged.
+
+### Guide review of 2026-07-13 (user-authorized Architect edit)
+
+The user ordered a direct Architect review-and-edit of the guide
+("you can edit") — an explicit one-off exception to the custody rule
+above; custody returns to the red team afterward. What the review
+found and did:
+
+- EDITORIAL PASS: a separate prose-quality review, run against the
+  user's private review standards (which live outside this repo and
+  are not restated here), required NO text changes — the guide's
+  register already meets them. An apparent "{m km}" TeX typo was a
+  terminal rendering artifact of {\rm ...}; the source is correct.
+- CURRENCY: the red team had already refreshed everything through
+  THIS MORNING's adjudications (stale-log first-class, the strip()
+  head-line story, the RT-02 ownership gap incl. the derived-cached-
+  tensor case, the RT-05 flat-only gap with the exact sinh
+  counterexample, the RT-06 latex gap, the sigma8 8/h Mpc ruling).
+  The ONE stale area was the digest story, written before 1b phases
+  1-2 landed: fixed in four passages — the two-regime digest
+  narrative, a pre-manifest row in the resume-state table, the
+  Current-gap paragraph narrowed to population, and the Required-
+  closure paragraph split into current-behavior vs the remaining
+  population work. All 22 other Current-gap paragraphs re-verified
+  still true against the unit map.
+- PDF: rebuilt clean (pdflatex from the REPO ROOT — the figure paths
+  are texnotes/-prefixed; two passes, zero errors, zero unresolved
+  references) so the tracked build product matches its source. The
+  red team's tracked-PDF policy ruling (untrack vs freshness check)
+  stays owed.
