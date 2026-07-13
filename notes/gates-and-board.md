@@ -6933,3 +6933,55 @@ GO'd) + gate 2 single-phase-demotion (wrapper-emitted ctx.expect(aid=)). The two
 aid-shapes for the fan-out are both demonstrated. Awaiting the delta audit; on GO,
 fan the remaining drafted gates to subagents (increment-sized self-commits;
 wrapper-family + foundation legs kept out of subagent hands).
+
+## Increment-3 serial-proof gate 2 audit (Fable, 2026-07-13): da2ac6a GO — both aid shapes proven; FAN OUT
+
+The wrapper-emitted shape audited delta-only against the ratified
+pattern: evidence= carries exactly the three drafted aids with
+transform anchors in training-stack.md (home= already
+"training-stack"); the three wrapper expects thread aid= and
+nothing else does; the stale line-number maps= ("110-113 ...") is
+one honest sentence; and the migration PROPAGATED the draft's
+narrowing into the wrapper detail — the demotion-text expect no
+longer promises "EXACT notice string to confirm against
+training-stack.md:111" but states the broad pattern truthfully.
+My runs: --list TRUE rc 0 (an earlier rc=1 reading was my own
+shell-pipeline artifact, re-measured cleanly), board-selftest ALL
+PASS. The gate itself is workstation-owed at runtime (two training
+children) — reconciliation exercises at queue 5.
+
+VERDICT: GO. The serial batch is complete with both shapes proven
+(7cbcd7a child-emitted; da2ac6a wrapper-emitted). THE FAN-OUT IS
+GREEN-LIT per the subagent rule: one gate per subagent, the audited
+draft block is the spec, the two ratified shapes chosen from the
+block's evidence field, independent re-verification before
+self-commit, increment-sized batches; the six wrapper-family gates
++ seven foundation legs stay first-hand.
+
+## Root README public-prose hardening audit (Fable, 2026-07-13): 2d49984 — content GO; ONE REQUIRED REDACTION in the register before merge
+
+The second prose pass audited: MY OWN scans confirm the mechanical
+claims exactly — zero em/en dashes, zero prose semicolons, zero
+question marks, zero curly quotes, 166 fence markers = 83 balanced
+pairs; the single ellipsis outside fences is backticked code
+notation in a table (a dict literal), the same syntax-exclusion
+class as CLI --. The CMB roughness repair verified at code: loss()
+composes c + penalty while chi2() reports plain c
+(losses/cmb.py:279-281 vs :214) — the README now states exactly
+that split. The unit-53 coordination passage is correct (the study
+sentence updates in the same change as the eventual code landing).
+The five-regression independent factual review and the preservation
+evidence (math bytes, tables, links, image bytes, py_compile) are
+register-witnessed under the campaign's clean track record. The
+bounded emulator/README.md follow-up (pre-25M-37 import prose) is
+accepted, routed to its package visit.
+
+THE REDACTION (blocks the merge of this landing only): the register
+section's scanned-pattern enumeration lists, in bullets 1-3, the
+distinctive CATEGORY NAMES of the user's private editorial
+checklist. The standing user rule caps repo artifacts at
+"editorial pass against private standards". REQUIRED: collapse
+bullets 1-3 into that sanctioned form (the zero-match RESULT
+statement stays; the punctuation and list-format bullets 4-5 are
+ordinary public style policy and stay verbatim). One small
+follow-up commit on the branch, then this landing merges.
