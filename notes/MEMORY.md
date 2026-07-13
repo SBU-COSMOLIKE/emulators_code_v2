@@ -65,3 +65,11 @@ the topic file your task touches.
   to be taught (show-never-describe, define-or-drop, run-first), and
   the code register with his own quotes and before/after shapes; the
   Implementer reads it before writing code or docs.
+- [Whole-package style audit (2026-07-05)](audit-package-style-2026-07-05.md)
+  — dated pre-consolidation Architect record: whole-tree audit of
+  emulator/ + the five drivers + README + example_yamls (structural
+  axes PASS; the fix list was handed off 2026-07-05 and largely
+  executed by the later doc/POL sweeps — read it as history + method,
+  not an open queue). Side-finding: the june2026/claude_skills copy of
+  pytorch-teaching-style was stale; the live skill lives in
+  ~/data/claude_skills/.
