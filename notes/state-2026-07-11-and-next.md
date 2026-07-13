@@ -2196,6 +2196,16 @@ RULING option 1 — full labeled child streams persisted into the
 gate log, explicit no-timeout statement with rationale. Spec:
 gates-and-board.md "DIDACTICS-27..32 adjudication".
 
+DIDACTICS-33 BATCH (2026-07-13, Fable): CONFIRMED and wider than
+filed (the universal global-row claim also at training.py:1788 and
+:1863) — a rider on the 08 correction, ONE landing for batching.py +
+training.py with the shared two-regime table. Ruling beyond the
+label: validation errors NAME THE ORIGINAL DUMP ROW in both regimes
+(resident staging already holds the mapping — zero new persistence);
+torch.cat allocation described separately from the conditional
+.cpu() transfer. 28..32 re-filed and already adjudicated. Spec:
+gates-and-board.md "DIDACTICS-33 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

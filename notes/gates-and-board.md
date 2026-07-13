@@ -2932,3 +2932,37 @@ The other five:
   that subprocess.run waits indefinitely and captured mode shows no
   live progress. The stream-marker acceptance (both markers land in
   durable evidence) is ratified.
+
+## DIDACTICS-33 adjudication (Fable, 2026-07-13): the row-coordinate correction extends into training.py — one landing with the 08 fix; errors name original dump rows in both regimes
+
+(DIDACTICS-28..32 were re-filed this relay; they are already
+adjudicated — see "DIDACTICS-27..32 adjudication" above.)
+
+33 CONFIRMED, and WIDER than filed: beyond the cited anchors
+(training.py:23-25 loader definition; eval_val ~:1570; order_rows
+~:1606), the Architect's grep finds the same false-universal
+"global rows" claim at :1788 ("global rows into the full dump") and
+:1863; the ".cpu() = the one D2H copy" line sits at :1634 and is
+conditional exactly as filed (a CPU tensor's .cpu() is normally a
+no-op; torch.cat allocates BEFORE the transfer).
+
+RULINGS (a rider on the DIDACTICS-08 factual correction — batching.py
+and training.py are ONE landing sharing the two-regime coordinate
+table): (1) "active source-array coordinate" replaces every
+universal global-row claim, with the two-regime table carried into
+eval_val; (2) the error-coordinate contract goes BEYOND the honest
+label: in the resident regime, staging already holds the
+original-row mapping (the sorted rows array), so a validation error
+message TRANSLATES the local compact position and names the ORIGINAL
+dump row — zero new persistence; the disk regime's coordinates are
+already original rows; therefore a bad-row report names the original
+dump row in BOTH regimes, and the prose says so; (3) torch.cat's
+allocation is described separately from the conditional .cpu()
+transfer, and every detach/clone/cpu/numpy chain states gradient,
+ownership, device, and copy/view behavior separately.
+
+Acceptance ratified: both regimes exercised with the [9,2,5]
+example; a deliberately bad row reported as its original dump row in
+both regimes; CPU and accelerator controls verify the transfer
+wording; no universal global-row or unconditional-D2H claim survives
+the scan.
