@@ -2299,6 +2299,19 @@ the didactics voice note read first). The spine is unchanged:
 4/5b -> D3 -> D4 -> D5 -> queue 5. Spec: gates-and-board.md "The
 consolidated DIDACTICS execution handoff".
 
+REGISTRY-PERSISTENCE AUDIT (2026-07-13, Fable): the red team's
+retroactive durable-record pass (codex/architect-docs-static-audit,
+57dfe26 notes-only) audited and GO'd — tombstones 45M-10/18 +
+20M-20 exist only as explicit not-issued lines (untruncated grep);
+retractions 45M-05/43/44 stay visible, not rewritten; the
+readiness contract's live-status claims (exit(0) tail, boundary
+rewrite, no fail-file consumer) re-verified at HEAD; MEMORY.md's
+deletions remove stale numeric snapshots per the DIDACTICS-02
+doctrine and demote this ledger to chronology-not-queue (current
+sequencing = the consolidated handoff). Landing order: codex branch
+(ff to 35f0137), then amazing-keller (2f25450), then resync. Spec:
+gates-and-board.md "Registry-persistence audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
