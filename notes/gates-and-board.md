@@ -1004,13 +1004,33 @@ script cannot be imported here, but its `import` lines CAN be read
    queue-5 capability lanes, never a per-gate digest member.
 3. Transitively close over the repo-local hits to a fixpoint. The closure
    is the "found" set.
-4. RECONCILE: every repo-local module in the found set must be covered by
-   (declared `code`) union (auto check scripts) union (shared harness). A
-   repo-local import the scan finds that the declaration does not cover is
-   an under-declaration -> validation error (exit 2). This is what forces
-   the declaration to be complete; the digest then hashes the full closure,
-   so a change to any transitively-reachable repo-local module staled the
-   gate.
+4. RECONCILE. Under the approved terse ruling (direct roots + derived
+   closure) the closure is derived from the declared roots, so ordinary
+   repo-local imports are covered by construction -- a plain "found vs
+   declared" check is vacuous for them (the deriver already swallowed every
+   import it could see, and it declared nothing separately to compare
+   against). The under-declaration that still bites is the dependency the
+   scan is blind to, and it is caught by two censuses instead:
+
+   (a) a literal repo-relative `.py`-path census over the gate body and its
+       check scripts -- the subprocess targets: the `run_driver` driver
+       names, the `_DRIVER` constant, and the sweep-driver constants. Every
+       such literal `.py` path must be covered by a declared root or an
+       auto-discovered check script; an uncovered one is a validation error
+       (exit 2). A covered driver then becomes a seed, so the closure walk
+       swallows its imports the same as any other seed.
+   (b) a dynamic-import census -- every `importlib` / `__import__` site
+       inside the derived closure is flagged. The gate must either declare
+       roots covering the dynamically-reachable modules (a rebuild-shaped
+       gate declares `emulator/designs/`, the directory the model-recipe
+       strings resolve into) or the site must appear in a reviewed waiver
+       table kept in this note. This is where "declared-then-checked" stays
+       meaningful: exactly where the scan is blind, the human declaration
+       (or a reviewed waiver) is what the census reconciles against.
+
+   The digest then hashes the full derived closure, so a change to any
+   transitively-reachable repo-local module -- including a driver pulled in
+   by census (a) -- staled the gate.
 
 Blind spots (what the scan cannot see, and the mitigation). A static scan
 reads `import` / `from ... import` nodes; it cannot resolve a module whose
@@ -1029,23 +1049,57 @@ name is a runtime value. It is blind to:
   recommends the whole-tree walk so the blind spot shrinks to the dynamic
   forms alone.
 
-Because the reconciliation cannot flag a dependency it cannot see, a gate
-whose checks reach a repo-local module ONLY through one of these forms must
-declare that module explicitly in `manifest.code`; that one case rests on
-the human declaration and the Architect's review, not the automated scan.
-The manifest never CLAIMS to have found every dependency automatically -- it
-claims to hash every declared-or-found repo-local module and to error on any
-FOUND import the declaration leaves out. A dynamic-import dependency is the
-one lane where a silent under-declaration is possible; the honest cost is
-named here rather than papered over.
+These forms are not hypothetical; the live in-repo instances (verified to
+exist) are the reason the scan is built the way it is:
 
-Open sub-choice for your ruling: whether `code` must name the FULL
-transitive closure (verbose, but the declaration is the whole truth) or
-only the DIRECT roots with the digester deriving the closure (terse, the
-scan owns transitivity). Recommendation: direct roots + derived closure --
-the note stays readable and the scan is the single source of the closure;
-the reconciliation error still fires on any direct repo-local import a
-root's checks make that no declared root covers.
+- The function-local `import importlib` at `emulator/results.py:546` is the
+  concrete motivator for walking the whole tree (`ast.walk`) rather than only
+  the module level -- it sits inside a function body, so a module-level-only
+  scan would miss it. Walking the whole tree sees it as an ordinary literal
+  import node.
+- The string-target dynamic imports at `emulator/results.py:602` and `:672`,
+  and `emulator/warmstart.py:368` and `:410`, are the "model-recipe" pattern:
+  `getattr(importlib.import_module(mod), qual)` resolving a design / loss
+  class from a string that a saved artifact recorded. The module name is a
+  runtime value read out of the recipe, so the scan cannot resolve it to a
+  repo-local path -- these are the true blind spots that survive the
+  whole-tree walk.
+
+There is a second blind spot the source-level import scan cannot cross at
+all: the subprocess boundary. A run-shaped gate does not `import` its work; it
+launches a driver in a child process through `ctx.run_driver` (the `_DRIVER`
+constant `"cosmic_shear_train_emulator.py"`, plus the sweep and legacy driver
+constants). That driver `.py` file, and everything it imports, appears in no
+check script's import graph -- the check script only spawns it -- so an import
+scan is structurally blind to the whole driver subtree. Its mitigation is not
+another import walk (there is nothing to walk from) but delta 2's literal-path
+census: the driver names written as literal `.py` strings in the gate body are
+enumerated and required to be covered, which makes each driver a scan seed in
+its own right. See the reconciliation below.
+
+Because the reconciliation cannot flag a dependency it cannot see, a gate
+whose checks reach a repo-local module only through one of these forms must
+either declare that module explicitly in `manifest.code` or (for the driver
+subtree) have the driver enumerated by the literal-path census so it becomes a
+seed; that resolution rests on the declaration and the Architect's review, not
+on the import scan alone. The manifest never claims to have found every
+dependency automatically -- it claims to hash every declared-or-found
+repo-local module and to error on any found import the declaration leaves out.
+A dynamic-import dependency is the one lane where a silent under-declaration is
+possible; the honest cost is named here rather than papered over
+(per the Architect review, d4d2136, and the crossing note, 416f821).
+
+Ruling (approved): direct roots + derived closure. `code` names only the
+direct roots; the digester derives the transitive closure from them. This was
+chosen over a full-closure declaration (which would be verbose and rot on
+every refactor) because the note stays readable and the scan is the single
+source of the closure. Never-trust-defaults is still satisfied: the closure is
+a derived value, but the persisted manifest (section C) materializes that
+resolved closure with per-member digests, so the artifact is the whole truth
+while the declaration is only intent / config. The two censuses above are how
+under-declaration is still caught once transitivity is delegated to the
+deriver -- the reconciliation bites exactly at the driver subtree and the
+dynamic-import sites the closure walk cannot reach on its own.
 
 ### (C) Persisted-manifest JSON shape (constraint 4)
 
@@ -1079,6 +1133,16 @@ comparison; the per-member list is the inspectable evidence behind them.
 differs, it walks the persisted members against the freshly-resolved ones
 and reports the first changed `path` (a `stale-code` / `stale-input` with a
 named member, not an opaque flip).
+
+Determinism. The members are sorted by their repo-relative path before the
+overall digest is taken, so the same set of members always produces the same
+digest regardless of the order the closure walk discovered them. The fixpoint
+closure result is likewise independent of traversal order -- it is the set of
+files reachable from the seeds, and a set has no order. A `(path, digest)`
+parse cache is an allowed optimization (it avoids re-hashing a file two seeds
+both reach), but the cache is never itself persisted as evidence: only the
+resolved, sorted member list is written to the status record, so nothing about
+the run's traversal or caching can leak into the stored truth.
 
 ### (D) Pre-manifest legacy transition (constraint 6)
 
