@@ -752,3 +752,84 @@ invariance legs.
 
 Queue items 2 (evidence rollout), the 1b manifest PROPOSAL, 5 (workstation
 evidence), and the rest of 6 (README + didactic campaign) remain.
+
+## RT-2026-07-13-01 adjudication (Fable, 2026-07-13)
+
+The queue-3 landing (`2c26c34`) is AUDITED PASS first: every pinned
+clause and every deep-pass rider is honored — searchsorted local
+coordinates in seeded selection order, the in-code duplicate refusal,
+the three-term banner naming the comparison that actually held, the
+below/equal/above budget legs, the texnotes passage and module example
+corrected in the SAME commit — and the rebuilt stage-ram gate reran
+ALL PASS under the Architect's own hands from a clean checkout of the
+merged main (order-recovery leg + the arange mutation arm included).
+
+### RT-IMPL-02 CONFIRMED — queue 1c REOPENED (1c-bis)
+
+The red team's claim is right, with a sharper mechanism than stated:
+the preflight pathspec is fine and `_dirty_lines` DOES carry the
+exclusion — but `_git` returns `proc.stdout.strip()`, so the FIRST
+porcelain line loses its leading status column and `line[3:]`
+misparses that line only. `gates/board_config.json` therefore escapes
+the exclusion exactly when it is the only (or alphabetically first)
+dirty entry — the documented local-deploy-override use case. Proved
+live in a clean worktree of merged main: a config-only edit returned
+`['M gates/board_config.json']` as an offender (the false red), while
+a config + board.py edit correctly excluded the config and reported
+only board.py (proving the filter works when the config is not the
+head line). The failure direction is false-red only; no false-green
+path exists (a garbled first-line path can never EQUAL the exclusion).
+
+Contract (1c-bis):
+
+- Per-line parsing immune to the transport: either `_dirty_lines`
+  parses each line without relying on column alignment a global strip
+  can break, or the porcelain consumer stops using the stripped
+  transport (`_git`'s strip stays for its other callers).
+- ONE owner for the executed watch: the pathspec
+  (`_EXECUTABLE_DIRS` + root drivers) and the exclusion path live
+  together, and the displayed surface text (the [ok]/[FAIL] lines and
+  the log-header note) derives from that owner, never restated by
+  hand.
+- Legs, driving the REAL preflight helpers: a config-ONLY edit stays
+  clean (the head-line case this reopen proves); a config + neighbor
+  edit reds ONLY the neighbor; a neighbor-only edit reds; the valid
+  clean-tree control; a mutation arm restoring the head-line misparse
+  must fail.
+
+Small and board-side; may ride the next board-harness commit, ahead
+of the evidence rollout.
+
+### BLOAT-01 CONFIRMED — queue-4 rider
+
+`_is_finite_real` is defined twice (training.py + experiment.py, both
+born in the queue-4 commit). One owner: `emulator/training.py` — the
+import direction is already pinned by the in-repo constraint that
+training must not import experiment, and experiment.py already
+imports from `.training`. The experiment copy is deleted, its call
+sites import the one definition, the explanatory docstring is kept,
+and the existing finite-contract Part J + cmb-identity schema legs
+rerun green unchanged.
+
+### BLOAT-04 CONFIRMED — queue-6 rider (binding completion evidence)
+
+The generator modules gain real module docstrings defining, in plain
+language at first use: MPI rank, worker, memmap, checkpoint, append,
+and sidecar. The Cobaya adapters gain module docstrings defining:
+construction, requirement negotiation, sample calculation, getter
+readback, and what Cobaya's state means to an adapter. Completion
+evidence for the whole queue-6 campaign is now BINDING as: an
+untruncated zero-hit scan over the Architect's full audit-pattern
+family (45M, unit N, increment, Architect/Implementer, red team,
+ruling, adjudicat-, D-*, POL-* — the 108-line baseline), against a
+REVIEWED identifier allowlist recorded in the gate output.
+
+### New units from this batch
+
+BLOAT-02 -> UNIT 64 (generator storage consolidation, proposal-first):
+spec in data-generation-and-cuts.md "UNIT 64". BLOAT-03 -> UNIT 65
+(adapter mechanics consolidation): spec in families-background-mps.md
+"UNIT 65". Sequencing: 64 AFTER the ingress cluster (same files); 65
+lands with the typed adapter contract the wave-4 adapter visits
+establish. Staging truth stays ahead of the evidence rollout
+(landed); 45M-89 retains exactly one in-code verdict (ratified).

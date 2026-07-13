@@ -954,3 +954,30 @@ the sigma8 code work naturally batches with the MPS family visit
 but the unit's number and order do not change. USER-VISIBLE:
 sigma8 refusals on unsupporting grids (today: silently biased or
 98%-wrong values); the radius ruling remains the user's.
+
+## UNIT 65 (BLOAT-03, RT-2026-07-13-01, 2026-07-13): one adapter mechanics owner — device, compile, options, and root expansion shared across the five Cobaya adapters
+
+Finding (red team, CONFIRMED): the five adapters duplicate their
+mechanics. _pick_device is verbatim-identical at least in
+emul_cmb.py (:167-185) and emul_scalars.py (:171-189), with variants
+in the others; torch.compile coercion, option handling, and
+ROOTDIR-relative root expansion repeat per file. A device- or
+compile-policy fix currently needs five edits.
+
+Contract:
+
+1. One shared mechanics module under cobaya_theory/ (importable by
+   all five adapters) owning: device resolution (the cuda/mps/cpu
+   fallback ladder), torch.compile coercion and policy, unknown /
+   mistyped option refusal, and ROOTDIR-relative path expansion.
+2. The five Theory classes REMAIN separate, explicit owners of their
+   family lifecycle (initialize / must_provide / calculate / getters).
+   NO parameterized adapter superclass (ratified from the handoff):
+   shared helpers, not shared inheritance.
+3. Sequencing: lands WITH the typed adapter contract — after the
+   wave-4 adapter visits (units 15 + 58 + 62 background; 16 + 63
+   MPS) establish what the typed boundary validates, so the shared
+   module is written once against the final contract, not twice.
+4. Acceptance: adapter behavior byte-identical on valid configs;
+   refusal messages may only gain precision; the board-listed adapter
+   identity gates rerun green.

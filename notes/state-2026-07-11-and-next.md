@@ -1662,6 +1662,28 @@ self-corrected (queue 1b); the (h)-then-43 flag is closed. Spec:
 gates-and-board.md "Architect batch audit of the overnight batch
 (2026-07-13, Fable)".
 
+RT-2026-07-13-01 BATCH (2026-07-13): queue-3 landing 2c26c34 AUDITED
+PASS (riders honored; stage-ram rerun by the Architect from clean
+merged main). RT-IMPL-02 CONFIRMED with a sharper mechanism — _git's
+global stdout.strip() breaks _dirty_lines' column parse on the FIRST
+porcelain line only, so board_config.json escapes its documented
+exclusion exactly when it is the only/first dirty entry (live-proved
+both directions); queue 1c REOPENED as 1c-bis (contract in
+gates-and-board.md), false-red only, no false-green path. BLOAT-01
+CONFIRMED -> queue-4 rider (one _is_finite_real owner = training.py,
+import direction already pinned). BLOAT-02 CONFIRMED (the seven _dv_*
+ops verbatim across background/cmb/mps; lensing censused) -> NEW
+UNIT 64, proposal-first storage engine in generator_core, byte-identity
+acceptance, sequenced after the ingress cluster. BLOAT-03 CONFIRMED
+(_pick_device verbatim in cmb+scalars, variants elsewhere) -> NEW
+UNIT 65, shared adapter mechanics module, no superclass, lands with
+the wave-4 typed adapter contract. BLOAT-04 CONFIRMED -> queue-6
+rider; completion evidence BINDING as the untruncated 108-line
+pattern-family scan + reviewed identifier allowlist. Specs:
+gates-and-board.md "RT-2026-07-13-01 adjudication";
+data-generation-and-cuts.md "UNIT 64"; families-background-mps.md
+"UNIT 65".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
