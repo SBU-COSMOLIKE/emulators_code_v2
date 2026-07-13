@@ -1299,6 +1299,161 @@ def check_cross_invocation_lineage():
             setattr(run_board, name, value)
 
 
+def check_watch_tracked_drivers():
+    """1b machinery follow-up (25M-27): the clean-tree watch derives its root
+    drivers from git-TRACKED identity (union current files), so a DELETED tracked
+    driver stays in the pathspec and reds -- it cannot be certified clean by a
+    glob built from the already-damaged filesystem; and a nonzero git status is a
+    failure, not an empty clean result. Pure-git legs in a temp repo with the
+    real _watched_paths / _git / _dirty_lines.
+    """
+    tmp = Path(tempfile.mkdtemp(prefix="watch-"))
+
+    def git(*a):
+        subprocess.run(["git"] + list(a), cwd=tmp,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    git("init")
+    git("config", "user.email", "x@x")
+    git("config", "user.name", "x")
+    (tmp / "driver.py").write_text("print(1)\n")
+    (tmp / "emulator").mkdir()
+    (tmp / "emulator" / "m.py").write_text("x = 1\n")
+    (tmp / "gates").mkdir()
+    (tmp / "gates" / "board_config.json").write_text("{}\n")
+    (tmp / "README.md").write_text("hi\n")
+    git("add", "-A")
+    git("commit", "-m", "init")
+
+    def offenders():
+        w = run_board._watched_paths()
+        rc, out = run_board._git(["status", "--porcelain", "--"] + w, strip=False)
+        return w, rc, run_board._dirty_lines(out)
+
+    saved = {name: getattr(run_board, name)
+             for name in ("_REPO", "_EXECUTABLE_DIRS", "_WATCH_EXCLUDE")}
+    try:
+        run_board._REPO = tmp
+        run_board._EXECUTABLE_DIRS = ("emulator", "gates")
+        run_board._WATCH_EXCLUDE = "gates/board_config.json"
+
+        w, rc, off = offenders()
+        report("25M-27 clean control: a committed tree has no offenders",
+               rc == 0 and off == [], repr(off))
+        report("25M-27 the tracked root driver is watched",
+               "driver.py" in w, "union includes tracked roots")
+
+        (tmp / "driver.py").write_text("print(2)\n")
+        w, rc, off = offenders()
+        report("25M-27 a modified tracked root driver reds",
+               any("driver.py" in o for o in off), repr(off))
+        git("checkout", "--", "driver.py")
+
+        os.remove(tmp / "driver.py")
+        w, rc, off = offenders()
+        report("25M-27 a DELETED tracked root driver reds and is named",
+               "driver.py" in w and any("driver.py" in o for o in off),
+               repr(off))
+        # mutation: the OLD existence-glob (current files only) misses the delete.
+        old_watch = list(run_board._EXECUTABLE_DIRS) + [
+            e.name for e in run_board._REPO.glob("*.py")]
+        _rc, old_out = run_board._git(["status", "--porcelain", "--"] + old_watch,
+                                      strip=False)
+        report("25M-27 mutation (existence glob) misses the deleted driver",
+               run_board._dirty_lines(old_out) == [],
+               "the glob-only watch certifies the damaged tree clean")
+        git("checkout", "--", "driver.py")
+
+        (tmp / "newdriver.py").write_text("print(3)\n")
+        w, rc, off = offenders()
+        report("25M-27 a NEWLY ADDED untracked root driver reds",
+               "newdriver.py" in w and any("newdriver.py" in o for o in off),
+               repr(off))
+        os.remove(tmp / "newdriver.py")
+
+        (tmp / "README.md").write_text("changed\n")
+        w, rc, off = offenders()
+        report("25M-27 an unrelated root text file stays outside the surface",
+               all("README.md" not in o for o in off), repr(off))
+        git("checkout", "--", "README.md")
+
+        (tmp / "gates" / "board_config.json").write_text('{"x": 1}\n')
+        w, rc, off = offenders()
+        report("25M-27 a config-only change stays clean (excluded)",
+               off == [], repr(off))
+    finally:
+        for name, value in saved.items():
+            setattr(run_board, name, value)
+
+
+def check_stale_member_surface():
+    """1b machinery follow-up (25M-28): --list and BOARD.md name the SAME first
+    stale member via one shared formatter, and an input is compared by its FULL
+    identity (key, path, sha256) so a byte-identical RELOCATION names the changed
+    path. Drives the real _stale_member / _state_detail / cmd_list.
+    """
+    import io
+    import contextlib
+
+    def _r(ctx):
+        pass
+    g = Gate(id="x", tier="backlog", home="h", maps="m", run=_r,
+             manifest=Manifest(code=(), inputs=("evaluate_yaml",)))
+    rec = {"status": "PASS",
+           "manifest": {"code": [],
+                        "inputs": [{"key": "evaluate_yaml",
+                                    "path": "/old/a.yaml", "sha256": "abc"}]}}
+    orig = run_board._gate_input_manifest
+    try:
+        # byte-identical relocation: same sha, new path -> names key + path change.
+        run_board._gate_input_manifest = lambda gg, c: [
+            {"key": "evaluate_yaml", "path": "/new/b.yaml", "sha256": "abc"}]
+        m = run_board._stale_member(rec, g, {})
+        report("25M-28 a byte-identical input relocation names key + old->new path",
+               "evaluate_yaml" in m and "->" in m and "/new/b.yaml" in m, repr(m))
+        # mutation: the OLD hash-only compare ({key: sha}) misses the relocation.
+        old_fresh = {mm["key"]: mm["sha256"]
+                     for mm in run_board._gate_input_manifest(g, {})}
+        old_named = any(old_fresh.get(mm.get("key")) != mm.get("sha256")
+                        for mm in rec["manifest"]["inputs"])
+        report("25M-28 mutation (hash-only compare) misses the relocation",
+               not old_named, "same sha -> old logic calls it unchanged")
+        # content-only change: different sha -> names just the key.
+        run_board._gate_input_manifest = lambda gg, c: [
+            {"key": "evaluate_yaml", "path": "/old/a.yaml", "sha256": "zzz"}]
+        report("25M-28 a content-only input change names the key",
+               run_board._stale_member(rec, g, {}) == "input:evaluate_yaml",
+               "sha differs")
+    finally:
+        run_board._gate_input_manifest = orig
+
+    # cmd_list uses the SAME shared _state_detail as BOARD.md, so --list names a
+    # stale code member (the operator surface the ruling requires can inspect it).
+    def _r2(ctx):
+        pass
+    cg = Gate(id="cg", tier="backlog", home="h", maps="m", run=_r2,
+              manifest=Manifest(code=("emulator/results.py",), inputs=()))
+    stale_rec = {"status": "PASS",
+                 "manifest": {"code": [{"path": "emulator/results.py",
+                                        "sha256": "STALE"}],
+                              "inputs": []}}
+    detail = run_board._state_detail("stale-code", stale_rec, cg, FAKE_CFG)
+    report("25M-28 the shared formatter names the stale code member",
+           "stale member" in detail and "emulator/results.py" in detail, detail)
+    saved_board = run_board.BOARD
+    try:
+        run_board.BOARD = [cg]
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run_board.cmd_list({"cg": stale_rec}, FAKE_CFG)
+        out = buf.getvalue()
+        report("25M-28 --list names the stale member (same formatter as BOARD.md)",
+               "emulator/results.py" in out and "stale member" in out,
+               "cmd_list carries the detail")
+    finally:
+        run_board.BOARD = saved_board
+
+
 def check_manifest_persistence():
     """1b phase 2: a declared gate persists its resolved manifest members, its
     digest IS the member digest, a changed member reads stale-code (named), a
@@ -1509,6 +1664,10 @@ def main():
     check_input_owner_resolution()
     print("\n-- cross-invocation lineage (a since-rerun dependency reruns its child) --")
     check_cross_invocation_lineage()
+    print("\n-- clean-tree watch on tracked drivers (a deleted driver still reds) --")
+    check_watch_tracked_drivers()
+    print("\n-- stale-member surface (--list + BOARD.md name the same member) --")
+    check_stale_member_surface()
     print("\n-- manifest persistence (resolved members, digest, pre-manifest) --")
     check_manifest_persistence()
     print("\n-- child environment (sh injects the certified ROOTDIR) --")

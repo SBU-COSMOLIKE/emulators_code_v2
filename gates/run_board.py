@@ -624,12 +624,29 @@ def _watched_paths():
   this function and that constant keeps the executed watch, the exclusion, and
   the printed surface text from ever disagreeing about what was checked.
 
+  The root drivers are the UNION of the git-TRACKED root ``*.py`` and the root
+  ``*.py`` that currently EXIST (25M-27): a DELETED tracked driver no longer
+  exists for a filesystem glob, so deriving the watch only from existing files
+  would omit it and let ``git status`` certify the damaged tree clean. Tracked
+  identity keeps a deletion in the pathspec; the current-file union keeps a
+  NEWLY ADDED untracked root driver watched too.
+
   Returns:
     the pathspec list to pass after ``git status --porcelain --``.
   """
   watched = list(_EXECUTABLE_DIRS)
-  for entry in sorted(_REPO.glob("*.py")):
-    watched.append(entry.name)
+  roots = set()
+  rc, out = _git(["ls-files", "--", "*.py"], strip=False)
+  if rc == 0:
+    for line in out.splitlines():
+      name = line.strip()
+      # git pathspec "*.py" matches at any depth; keep only ROOT-level drivers.
+      if name and "/" not in name and name.endswith(".py"):
+        roots.add(name)
+  for entry in _REPO.glob("*.py"):
+    roots.add(entry.name)
+  for name in sorted(roots):
+    watched.append(name)
   return watched
 
 
@@ -1449,7 +1466,14 @@ def preflight(cfg):
   watched = _watched_paths()
   rc_st, out_st = _git(["status", "--porcelain", "--"] + watched, strip=False)
   offenders = _dirty_lines(out_st)
-  if len(offenders) == 0:
+  if rc_st != 0:
+    # a nonzero git status is a FAILURE, never a clean result: the question could
+    # not be asked, so the tree cannot be certified clean (25M-27).
+    ok = False
+    print("  [FAIL] git status failed (rc " + str(rc_st) + ") over the watched "
+          "surface; a clean tree cannot be certified")
+    print("         remedy: run inside the git clone; resolve the git error")
+  elif len(offenders) == 0:
     print("  [ok] working tree clean across the executable surface + drivers "
           "(" + _WATCH_EXCLUDE + " excluded)")
   else:
@@ -2028,12 +2052,17 @@ def _resume_state(status, gate, cfg):
 
 
 def _stale_member(record, gate, cfg):
-  """The first persisted manifest member whose sha256 no longer matches, or "".
+  """The first persisted manifest member whose IDENTITY no longer matches, or "".
 
-  For a declared gate whose overall digest moved, this names WHICH resolved
-  code or input member changed (a path, or an input key), so --list and
-  BOARD.md report the cause, not just that something staled. Returns "" when
-  the record has no manifest block or nothing individually changed.
+  For a declared gate whose overall digest moved, this names WHICH resolved code
+  or input member changed, so --list and BOARD.md report the cause, not just that
+  something staled. An input member is compared by its FULL persisted identity
+  (key, path, sha256), not the hash alone (25M-28): repointing a key to a
+  byte-identical file at a NEW path stales the input digest, and the changed path
+  must be named -- a hash-only compare would call it unchanged. Returns "" when
+  the record has no manifest block or nothing individually changed (the phase-2
+  best-effort exception: a NEW member the old record never stored yields a
+  generic stale state, honestly, because the old record cannot name it).
   """
   block = record.get("manifest")
   if not isinstance(block, dict) or gate.manifest is None:
@@ -2042,11 +2071,38 @@ def _stale_member(record, gate, cfg):
   for m in block.get("code", []):
     if fresh_code.get(m.get("path")) != m.get("sha256"):
       return "code:" + str(m.get("path"))
-  fresh_in = {m["key"]: m["sha256"] for m in _gate_input_manifest(gate, cfg)}
+  fresh_in = {m["key"]: (m.get("path"), m.get("sha256"))
+              for m in _gate_input_manifest(gate, cfg)}
   for m in block.get("inputs", []):
-    if fresh_in.get(m.get("key")) != m.get("sha256"):
-      return "input:" + str(m.get("key"))
+    key = m.get("key")
+    stored = (m.get("path"), m.get("sha256"))
+    fresh = fresh_in.get(key)
+    if fresh == stored:
+      continue
+    # a byte-identical relocation (same sha, new path): name key + old -> new.
+    if fresh is not None and fresh[1] == stored[1] and fresh[0] != stored[0]:
+      return ("input:" + str(key) + " [" + str(stored[0]) + " -> "
+              + str(fresh[0]) + "]")
+    return "input:" + str(key)
   return ""
+
+
+def _state_detail(state, record, gate, cfg):
+  """The detail column for a gate's state, SHARED by --list and BOARD.md (25M-28).
+
+  The persisted verdict detail, plus a loud flag when the cited log's bytes no
+  longer match its digest, plus (for a stale code/input PASS) the FIRST stale
+  member named. One formatter, so cmd_list and _write_board_md can never
+  disagree about the cause the operator reads.
+  """
+  detail = record.get("detail", "")
+  if record.get("log") and _log_digest_mismatch(record):
+    detail = (detail + " [LOG DIGEST MISMATCH: cited evidence changed]").strip()
+  if cfg is not None and state in ("stale-code", "stale-input"):
+    member = _stale_member(record, gate, cfg)
+    if member:
+      detail = (detail + " [stale member: " + member + "]").strip()
+  return detail
 
 
 def _save_status(status):
@@ -2077,16 +2133,10 @@ def _write_board_md(status, cfg=None):
       state = _resume_state(status, gate, cfg)
     else:
       state = record.get("status", "not run")
-    detail = record.get("detail", "")
     log_name = record.get("log", "")
-    if log_name and _log_digest_mismatch(record):
-      detail = (detail + " [LOG DIGEST MISMATCH: cited evidence changed]").strip()
-    # name which persisted manifest member staled, so the table reports the
-    # cause and not just the state.
-    if cfg is not None and state in ("stale-code", "stale-input"):
-      member = _stale_member(record, gate, cfg)
-      if member:
-        detail = (detail + " [stale member: " + member + "]").strip()
+    # the shared state-detail formatter (25M-28): the same first stale member
+    # --list and BOARD.md both report, so the two surfaces cannot disagree.
+    detail = _state_detail(state, record, gate, cfg)
     log_cell = log_name if state in ("PASS", "FAIL", "stale-code",
                                      "stale-input", "stale-log",
                                      "stale-dependency", "pre-manifest") else ""
@@ -2520,8 +2570,15 @@ def cmd_list(status, cfg=None):
     if gate.worktree_commit is not None:
       flags.append("worktree@" + gate.worktree_commit)
     tail = "" if len(flags) == 0 else "  (" + "; ".join(flags) + ")"
+    # (25M-28) --list names the FIRST stale member too, via the SAME formatter
+    # BOARD.md uses, so the operator surface the ruling names can inspect the
+    # persisted evidence (a stale-code / stale-input cause), not only the state.
+    detail = ""
+    if cfg is not None:
+      detail = _state_detail(state, status.get(gate.id, {}), gate, cfg)
+    detail_tail = "" if detail == "" else "  " + detail
     print("  " + gate.id.ljust(26) + state.ljust(10)
-          + "home: " + gate.home + tail)
+          + "home: " + gate.home + tail + detail_tail)
 
 
 def build_parser():
