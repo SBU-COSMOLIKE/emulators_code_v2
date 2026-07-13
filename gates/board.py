@@ -1331,6 +1331,31 @@ def gate_artifact_readback(ctx):
              + " (gates/checks/artifact_readback.py)")
 
 
+def gate_family_first(ctx):
+  """family-first: every driver owns exactly one data-block family.
+
+  WHAT: a CPU check of require_family_block plus a census of the four
+  cosmic_shear drivers. WHY: the direct cosmic_shear drivers passed family=None,
+  which skipped the family check, so a CMB / grid / grid2d / scalar YAML
+  launched through cosmic_shear_train_emulator.py trained under the wrong public
+  identity (a scalar YAML died later at run_tag on a missing train_dv key). HOW:
+  a direct cosmic-shear run now owns the "cosmolike" data-vector family and
+  rejects any other family's block naming its driver, while a clean cosmic-shear
+  YAML trains; the per-family wrappers accept their own block; and the census
+  confirms the four cosmic_shear drivers default family=cosmolike, always call
+  the check, and drop the misleading dispatcher prose. Importing the driver
+  needs torch; the check is pure Python.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/family_first.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="family-first driver-identity legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/family_first.py)")
+
+
 def gate_stage_ram(ctx):
   """stage-ram: the host-RAM staging decision counts every array it copies.
 
@@ -1490,6 +1515,19 @@ BOARD = [
             "valid controls)",
        run=gate_board_selftest,
        needs=()),
+  Gate(id="family-first",
+       spec_code="FAM-A",
+       title="Every driver owns exactly one data-block family",
+       tier=TIER_BACKLOG,
+       home="conventions-and-workflow",
+       maps="the family-first driver contract: a direct cosmic_shear run owns "
+            "the cosmolike data-vector family and rejects a CMB / grid / "
+            "grid2d / scalar YAML naming its driver, a clean cosmic-shear YAML "
+            "trains, the per-family wrappers accept their own block; the "
+            "census confirms the four cosmic_shear drivers default "
+            "family=cosmolike, always check, and drop the dispatcher prose",
+       run=gate_family_first,
+       needs=("torch",)),
   Gate(id="stage-ram",
        spec_code="SRM-A",
        title="Host-RAM staging counts every materialized array",
