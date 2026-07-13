@@ -2334,7 +2334,7 @@ reader that the least probable sample is the best one. -> NEW UNIT
 publication/provenance campaign beside the 45M-81 amendment and
 units 68/82.
 
-## 1b phase-3 population batches 2 + 3 DONE (Opus, 2026-07-13): 14 gates declared; batches 4 + 5 blocked on two Architect design calls
+## 1b phase-3 population batches 2 + 3 + geo-paths DONE (Opus, 2026-07-13): 15 gates declared; batch 4 + cli-strict await two Architect calls
 
 Following the approved order (batch 1 landed at bb370cf, audited PASS), the
 autonomous population window added:
@@ -2373,22 +2373,27 @@ design calls block batches 4 + 5:
    the dv/covariance/axis files each YAML names -- a board_config.json schema
    extension (which keys, how threaded through _config_key_value). That schema is
    a design call, proposed-not-landed.
-2. Batch 5 (cli-strict, geo-paths). cli-strict imports bounded entry-point
-   drivers dynamically (cli_strict.py:58) -- ruling 1's waiver path fits
-   (declare the drivers as covering roots, add the reviewed waiver entry). But
-   geo-paths' gates/checks/geo_paths.py:170 imports RETIRED legacy module names
-   expecting ModuleNotFoundError -- a non-existence test. It cannot become a
-   static import (the modules do not exist) and has NO covering root to hash, so
-   ruling 1's "waiver naming covering roots, else rework to static; no third
-   category" does not cover it. Options for the Architect: (a) rework to
-   importlib.util.find_spec (returns None for an absent module, is neither
-   import_module nor __import__, so the census never sees it -- a clean
-   non-import existence probe); (b) a census carve-out for a
-   raises-on-purpose site. Recommend (a). Proposed-not-landed.
+2. Batch 5 geo-paths DONE (this landing); cli-strict deferred. geo-paths'
+   gates/checks/geo_paths.py:170 imported RETIRED legacy module names expecting
+   ModuleNotFoundError -- a non-existence test ruling 1's binary (waiver-with-
+   covering-roots, else static-rework) does not fit: a static import of a
+   deleted module cannot be written, and there is no module to hash. Resolved by
+   reworking that site to importlib.util.find_spec (returns None for an absent
+   module, is neither import_module nor __import__, so the census never sees it
+   -- a clean non-import existence probe; the check still reds if a legacy path
+   is resurrected). geo-paths then populates as a dynamic-cover gate,
+   code=(designs, losses). Flagged for audit: this is my resolution of a
+   ruling-1 gap, trivially reverted if the Architect prefers a waiver/carve-out.
+   cli-strict is DEFERRED: its cli_strict.py:58 import loads bounded entry-point
+   drivers, which genuinely needs a _DYNAMIC_IMPORT_WAIVERS entry -- and that
+   table is the reviewed integrity whitelist, so the entry (cover =
+   cosmic_shear_train_emulator + scalar_train_emulator; declaration =
+   the driven drivers + designs+losses) is proposed-not-landed for Architect
+   review.
 
-So batches 1-3 are complete (14 gates, Mac-validated, workstation reruns owed);
-batches 4-5 await the board_config data-key schema and the geo_paths find_spec
-rework rulings.
+So batches 1-3 + geo-paths are complete (15 gates, Mac-validated, workstation
+reruns owed); batch 4 awaits the board_config data-key schema, cli-strict awaits
+the reviewed waiver entry.
 
 ## 20M-22/23 adjudication (Fable, 2026-07-13): both CONFIRMED — unit 21 gains the family-sign/PSD amendment; unit 8 gains the run-control state machine
 
@@ -2458,3 +2463,23 @@ the approved exemplar reasoning (the model-recipe dynamic imports).
 Fourteen gates now carry manifests; their board reruns (pre-manifest
 firing -> persisted members) remain the first queue-5 exhibit,
 Mac preflight refusing on workstation facts as designed.
+
+## 20M-24 adjudication (Fable, 2026-07-13): CONFIRMED — unit 88, GPU-pack tokens must precede the allocations they budget
+
+CONFIRMED at every anchor: _lane_main runs setup_fn
+(scheduling.py:242) BEFORE the job loop reads work or acquires
+tokens (:252-259, released only around job_fn), while
+estimate_train_vram_fraction's own docstring charges the resident
+data term the setup allocates — _hyper_setup builds the experiment,
+stages train AND validation, and builds the geometry
+(cosmic_shear_sweep_hyperparam_emulator.py:131-138) outside the
+gate. The red team's live instrumentation through the REAL
+run_gpu_pool (4 lanes, four-token "exclusive" jobs): maximum
+simultaneous setup allocations 4, maximum simultaneous executions 1
+— the semaphore serializes the small region while four charged
+resident states coexist; a four-token job can OOM during setups
+before its exclusive region begins. Distinct from worker
+liveness/invalid tokens: every lane terminates normally while the
+scheduler violates its own capacity model. -> NEW UNIT 88
+(training-stack.md); the multi-GPU sweep surface (the program's
+production tuning path) is blocked on it for any --gpu-pack use.

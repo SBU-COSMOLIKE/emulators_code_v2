@@ -2061,6 +2061,18 @@ designs+losses roots per the approved exemplar. 14 gates populated;
 board reruns = queue-5 first exhibit. Spec: gates-and-board.md
 "1b phase-3 batches 2 + 3 — pre-merge Architect audit".
 
+20M-24 BATCH (2026-07-13, Fable): CONFIRMED — --gpu-pack lanes stage
+full train+validation data in setup_fn BEFORE any token acquisition
+(live instrumentation: 4 simultaneous charged setups vs 1 execution
+under four-token exclusive jobs; the estimator charges exactly the
+term setup allocates outside the gate). NEW UNIT 88
+(training-stack.md): tokens precede job-sized allocations, exact
+concurrency arithmetic (1/2/4 for 4/2/1 tokens, setup+execution
+combined), permanent-per-lane state accounted times lane count,
+honest banner, N-train path audited identically; CPU counter-fake +
+workstation tight-fixture legs; blocks --gpu-pack production sweeps.
+Spec: gates-and-board.md "20M-24 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

@@ -2442,3 +2442,43 @@ AND backward under a float64 output geometry; (7) a mutation
 retaining float64 W_fd/W_df beside a float32 trunk must red.
 "supported geometry precision" has ONE owner from model head through
 physical contraction.
+
+## UNIT 88 (20M-24, 2026-07-13): capacity tokens are acquired before any job-sized allocation — the budget gate contains what it budgets
+
+Finding (red team, CONFIRMED; live instrumentation through the real
+run_gpu_pool): lanes run setup_fn — which stages full train +
+validation data and builds the geometry (:131-138) — before any
+token is acquired (scheduling.py:242 vs :252-259), so four charged
+resident experiments coexist under a token model that promises
+exclusivity; the estimator explicitly charges the resident data term
+that setup allocates.
+
+Contract (ratified): (1) NO job-sized GPU allocation before that job
+owns its capacity tokens; (2) setup splits into genuinely small
+permanent lane setup + token-scoped per-job staging, OR tokens are
+held for the complete lifetime of one lane-local staged experiment —
+never four resident experiments preserved to preserve today's
+function split; (3) genuinely permanent per-lane CUDA
+context/model/geometry state is accounted separately and multiplied
+by the ACTUAL lane count before remaining token capacity is
+advertised; (4) the arithmetic is exact: a four-token job permits one
+charged resident allocation on the GPU, two-token at most two,
+one-token at most four — setup and execution COMBINED; (5) setup
+failure, acquisition failure, and job failure release exactly what
+they acquired, retaining the sibling-reaping/liveness contract; (6)
+the banner reports permanent-per-lane bytes, token-scoped bytes,
+lane count, and measured/derived concurrency — no "exclusive" or
+packing claims the quantities do not support; (7) the N-train path's
+validation staging receives the same ownership audit (the
+hyperparameter path is the decisive current counterexample because
+both stagings live in setup_fn).
+
+Legs (ratified): a board-listed CPU allocation-counter fake through
+the REAL run_gpu_pool proving maximum charged concurrency 1/2/4 for
+4/2/1-token plans, with a mutation moving acquisition back below
+setup (must red); a workstation CUDA leg with a deliberately tight
+resident fixture whose four pre-fix setups cannot coexist but whose
+token-scoped repaired execution completes, reporting raw peak
+allocated/reserved bytes. Placement: the scheduler/pool campaign
+(beside the bakeoff-liveness item and unit 55); blocks --gpu-pack
+production sweeps.
