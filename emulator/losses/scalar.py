@@ -46,6 +46,13 @@ class ScalarChi2(CosmolikeChi2):
   there is no covariance to contract and no mask to unsqueeze through: the
   full argument is accepted for interface parity but makes no difference
   (there are no masked-out entries).
+
+  The chi2-domain roundoff band (CosmolikeChi2._chi2_n_terms, 45M-60) is
+  inherited unchanged: a diagonal sum of n_out squares is a length-n_out
+  (= kept width) reduction, the same DEPTH the base returns, so ScalarChi2
+  needs no override -- and must not carry the retired dense w^2 rule, which
+  it silently inherited before 45M-60 (the metric census gate leg proves no
+  subclass reintroduces it).
   """
 
   def chi2(self, pred, target, full=False):

@@ -212,17 +212,12 @@ class CmbDiagonalChi2(CosmolikeChi2):
     """
     return pred - target
 
-  def _chi2_n_terms(self):
-    """Per-row summed-product count for the DIAGONAL metric (45M-53).
-
-    The CMB chi2 is a plain sum of n_ell squared whitened residuals, not the
-    dense r^T Cinv r of the base, so the roundoff band scales with n_ell
-    (= the kept width), not its square. Overrides CosmolikeChi2._chi2_n_terms.
-
-    Returns:
-      an int, the multipole count n_ell.
-    """
-    return int(self.dest_idx.numel())
+  # Executed metric: a plain sum of n_ell squared whitened residuals -- a
+  # length-n_ell (= kept width) diagonal reduction, the SAME depth as the
+  # base dense r^T Cinv r. So the chi2-domain band's per-row term count
+  # (_chi2_n_terms = the kept width w) is inherited from CosmolikeChi2
+  # unchanged; 45M-60 retired the redundant override that returned the same
+  # width.
 
   def loss(self, pred, target, mode="sqrt", trim=0.05,
            focus=0.0, focus_scale=1.0, berhu_knot=None, berhu_cap=None,

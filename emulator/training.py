@@ -1605,26 +1605,33 @@ def eval_source_chi2(model,
         c = chi2fn.chi2(pred=pred, target=T[s:s + bs])
       chunks.append(c.cpu())
 
-  dchi2_t = torch.cat(chunks).double()   # per-row chi2, host float64
-  # chi2-domain contract (45M-53): a diverged model's non-finite OR
-  # materially negative per-row chi2 must not be published as a diagnostic
-  # metric (a silent NaN, or a negative delta-chi2, in the parameter-space
-  # plots). The SAME predicate + band the training reduction uses run here,
-  # but raise instead of folding; within-band roundoff negatives normalize
-  # to exact 0. (The diagnostics' own NaN-from-finite-input is a separate
-  # unit; this guards the MODEL output that feeds them.)
-  # (see eval_val: production losses declare _chi2_n_terms; a bare double
-  # defaults to 1, the band floor.)
+  c_compute = torch.cat(chunks)          # per-row chi2 in the COMPUTE dtype
+  # chi2-domain contract (45M-53 / 45M-60 second addendum): a diverged model's
+  # non-finite OR materially negative per-row chi2 must not be published as a
+  # diagnostic metric (a silent NaN, or a negative delta-chi2, in the
+  # parameter-space plots). The SAME predicate + band the training reduction
+  # uses run here, but raise instead of folding; within-band roundoff negatives
+  # normalize to exact 0. The band derives from the dtype the chi2 was COMPUTED
+  # in (normally float32), NEVER a storage upcast: an earlier .double() here
+  # relabelled the dtype to float64 and floored the band to 1e-6, so this
+  # diagnostic scorer REFUSED a roundoff negative that _reduce / eval_val (the
+  # float32 band, ~3e-3 at w = 780) normalize to exact 0 -- one score, two
+  # verdicts. The upcast cannot undo float32 contraction roundoff, it only
+  # relabels the dtype. So: validate / normalize in the compute dtype; the
+  # ACCEPTED result is cast to float64 for reporting only. (The diagnostics' own
+  # NaN-from-finite-input is a separate unit; this guards the MODEL output that
+  # feeds them.) (see eval_val: production losses declare _chi2_n_terms; a bare
+  # double defaults to 1, the band floor.)
   n_terms = chi2fn._chi2_n_terms() if hasattr(chi2fn, "_chi2_n_terms") else 1
-  band = _chi2_neg_band(dchi2_t.dtype, n_terms)
-  c_norm, bad = _chi2_domain(dchi2_t, band)
+  band = _chi2_neg_band(c_compute.dtype, n_terms)
+  c_norm, bad = _chi2_domain(c_compute, band)
   if bool(bad.any()):
     idx = np.nonzero(bad.numpy())[0]
     _report_chi2_domain(side="diagnostic", n_bad=int(idx.size),
-                        n_total=int(dchi2_t.numel()),
+                        n_total=int(c_compute.numel()),
                         positions=rows[idx][:8].tolist(),
-                        min_value=float(dchi2_t.min()), band=band)
-  dchi2 = c_norm.numpy()
+                        min_value=float(c_compute.min()), band=band)
+  dchi2 = c_norm.double().numpy()        # accepted result -> float64 to report
   return params, dchi2
 
 

@@ -1247,10 +1247,16 @@ def gate_finite_contract(ctx):
   torch.compile agree), and the 45M-47 epoch reduction (a finite per-batch
   loss near the float32 max yields a finite epoch mean via host float64
   accumulation, where the old device float32 loss*bs product overflowed to
-  Inf); the valid controls keep their metrics and their [ok] parity lines.
-  torch only, no cosmolike, no GPU (spec: training-stack.md, the "NaN scores
-  as a perfect emulator" section and its pre-training parity + 45M-24 + 45M-47
-  clauses).
+  Inf), and the 45M-53 / 45M-60 chi2-domain boundary (eval_val and
+  eval_source_chi2 raise on a finite negative chi2 that training folds; the
+  scale-aware band scales with the per-row kept WIDTH, not w^2, so a
+  production-width leg refuses a chi2 = -2 the retired w^2 rule crowned as
+  perfect, a mutation arm restoring w^2 is caught, and an ill-conditioned SPD
+  control shows genuine roundoff near zero falls inside the band); the valid
+  controls keep their metrics and their [ok] parity lines. torch only, no
+  cosmolike, no GPU (spec: training-stack.md, the "NaN scores as a perfect
+  emulator" section and its pre-training parity + 45M-24 + 45M-47 + 45M-53 +
+  45M-60 clauses).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/finite_contract.py")
@@ -1331,11 +1337,16 @@ BOARD = [
             "mode, positives analytic, negative/NaN chi2 refused, eager + "
             "compiled), the 45M-47 epoch-reduction clause (host float64 "
             "accumulation; a finite epoch mean where the old float32 "
-            "loss*bs product overflowed), and the 45M-53 chi2-domain "
+            "loss*bs product overflowed), the 45M-53 chi2-domain "
             "clause (eval_val / eval_source_chi2 raise on a finite "
             "negative chi2 that training folds; the scale-aware band; the "
             "finite-only false-crowning mutation; the capability-gated "
-            "compile arm); the red legs plus the finite controls",
+            "compile arm), and the 45M-60 width-band clause (the band "
+            "scales with the kept WIDTH, not w^2: a production-width leg "
+            "refuses a chi2 = -2 the retired w^2 rule crowned perfect, a "
+            "w^2-restoring mutation arm, a scalar-width leg, a subclass "
+            "census, and an ill-conditioned SPD roundoff control); the red "
+            "legs plus the finite controls",
        run=gate_finite_contract,
        needs=("torch",)),
   Gate(id="berhu-loss",

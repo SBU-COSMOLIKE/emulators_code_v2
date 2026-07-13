@@ -81,35 +81,36 @@ def anneal_value(epoch, opts):
   return float(val)
 
 
-# 45M-24 + 45M-53: a chi2 is a sum of (possibly matrix-contracted) whitened
-# products, mathematically >= 0; float roundoff in a non-PSD-adjacent
+# 45M-24 + 45M-53 + 45M-60: a chi2 is a sum of (possibly matrix-contracted)
+# whitened products, mathematically >= 0; float roundoff in a non-PSD-adjacent
 # precision contraction (the dense / rescaled / transfer forms) can nudge a
 # near-zero value slightly negative. The allowed band is scale-aware in the
-# quantity roundoff grows with -- the per-row summed-product count of the
-# active contraction (n_terms) -- with a fixed floor, so it stays a per-run
-# build-time constant (elementwise, compile-safe, no batch statistic that a
-# NaN could poison). A value within the band is roundoff (normalized to an
-# exact 0); anything more negative, or non-finite, is corruption. ONE shared
-# predicate (_chi2_domain) serves the training reduction (folds bad to NaN,
-# the landed per-step refusal) AND the eval / diagnostic boundaries (which
-# raise), so training can never call a row exact that scoring reports
-# negative.
-_CHI2_NEG_KAPPA = 32   # the roundoff-band multiple of eps * n_terms (45M-53)
+# quantity roundoff grows with -- the per-row reduction DEPTH of the active
+# contraction (n_terms = the kept width w; see _chi2_n_terms) -- with a fixed
+# floor, so it stays a per-run build-time constant (elementwise, compile-safe,
+# no batch statistic that a NaN could poison). A value within the band is
+# roundoff (normalized to an exact 0); anything more negative, or non-finite,
+# is corruption. ONE shared predicate (_chi2_domain) serves the training
+# reduction (folds bad to NaN, the landed per-step refusal) AND the eval /
+# diagnostic boundaries (which raise), so training can never call a row exact
+# that scoring reports negative.
+_CHI2_NEG_KAPPA = 32   # the roundoff-band multiple of eps * width (45M-53/60)
 
 
 def _chi2_neg_band(dtype, n_terms):
   """The largest a chi2 may go negative from roundoff before it is corruption.
 
   band = max(1e-6, _CHI2_NEG_KAPPA * eps(dtype) * n_terms). n_terms is the
-  per-row count of summed products in the contraction (n_dv for a diagonal
-  sum of squares, n_dv^2 for a dense r^T Cinv r), a per-run constant, so the
-  band is a plain Python float -- elementwise and compile / CUDA-graph safe,
-  scale-aware in exactly the quantity roundoff accumulates in. The 1e-6 floor
-  survives from the first cut for tiny contractions.
+  per-row reduction DEPTH of the contraction -- the kept width w for every
+  family (a length-w reduction, whether the dense r^T Cinv r or a diagonal
+  sum of w squares; see _chi2_n_terms), a per-run constant, so the band is a
+  plain Python float -- elementwise and compile / CUDA-graph safe, scale-aware
+  in exactly the quantity roundoff accumulates in. The 1e-6 floor survives
+  from the first cut for tiny contractions.
 
   Arguments:
     dtype   = the compute dtype of the chi2 (its eps sets the roundoff unit).
-    n_terms = the per-row summed-product count (see _chi2_n_terms).
+    n_terms = the per-row reduction depth = kept width w (see _chi2_n_terms).
 
   Returns:
     the band, a positive Python float.
@@ -252,19 +253,31 @@ class CosmolikeChi2:
     return self.geom.total_size
 
   def _chi2_n_terms(self):
-    """Per-row summed-product count of this chi2's contraction (45M-53).
+    """Per-row reduction DEPTH of this chi2's contraction (45M-60).
 
-    The chi2-domain band scales with the roundoff of the chi2 sum, which
-    grows with the number of summed products. The base metric is the DENSE
-    r^T Cinv r over the kept width w, i.e. w^2 products; the diagonal
-    families (a plain sum of w squares) override to w. A per-run constant,
-    read once at the top of _reduce and by the eval / diagnostic boundaries.
+    The chi2-domain band scales with the roundoff of the chi2 sum. Near a
+    small chi2 that roundoff is bounded by (accumulation depth) * eps *
+    (term magnitudes), so the band tracks the DEPTH of the reduction, not
+    the count of products. The dense r^T Cinv r executes as a length-w
+    matvec (w independent length-w sums) followed by one length-w dot, so
+    the accumulated chain is ~w deep -- torch's pairwise / blocked
+    reductions make even w conservative; the diagonal families sum w
+    squares, also w deep. Both depths are the kept per-row width w, so this
+    is ONE definition on the base class for EVERY family. A flat w^2 product
+    count both overcounts the depth and ignores that the terms near zero are
+    themselves small; it made the band 34.3 at w = 3000, swallowing a
+    chi2 = -2.0 as a "perfect" row (the false-crowning hole increment (e)
+    closed). ScalarChi2 (a diagonal sum of n_out squares) inherits this
+    unchanged and is correct with no override. The value is a per-run
+    constant, read once at the top of _reduce and by the eval / diagnostic
+    boundaries. GROWTH CLAUSE (45M-60): the band may only ever WIDEN on
+    measured valid roundoff evidence (the gate's ill-conditioned SPD
+    control), never for convenience.
 
     Returns:
-      an int, the per-row summed-product count (w^2 here).
+      an int, the kept per-row width w (the reduction depth).
     """
-    w = int(self.dest_idx.numel())
-    return w * w
+    return int(self.dest_idx.numel())
 
   def encode(self, dv):
     """Forward to geom.encode.

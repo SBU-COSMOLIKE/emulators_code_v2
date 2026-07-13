@@ -43,13 +43,25 @@ The parts, in order:
      float32 max yields a finite epoch mean (accumulated on the host in
      float64), where the old device-float32 loss*bs product would overflow to
      Inf and publish it.
-  H. the chi2-domain boundary (45M-53) — eval_val and eval_source_chi2 RAISE
-     on a finite negative chi2 (which training folds), so a corrupted row can
-     never rank as "perfect": the finite-only check would crown it; an exact
-     zero is accepted; the scale-aware band tolerates roundoff and refuses
-     corruption on both edges; the same fold is compile-safe. The Part F
-     compile arm is now capability-gated (mandatory-red on a compile-capable
-     box, an explicit SKIP-DEP otherwise, plus a raising-callable control).
+  H. the chi2-domain boundary (45M-53 / 45M-60) — eval_val and eval_source_chi2
+     RAISE on a finite negative chi2 (which training folds), so a corrupted row
+     can never rank as "perfect": the finite-only check would crown it; an
+     exact zero is accepted; the scale-aware band tolerates roundoff and
+     refuses corruption on both edges; the same fold is compile-safe. The band
+     scales with the per-row reduction DEPTH = kept width w (45M-60), not w^2:
+     a production-width (>= 780) leg through a REAL CosmolikeChi2 subclass
+     refuses -2 / -4 and both sides of the actual float32 band; restoring the
+     retired w^2 rule (a mutation arm) lets -2 through; ScalarChi2 declares
+     n_out; a mechanical subclass census proves no family overrides the width
+     rule; and an ill-conditioned SPD control shows genuine roundoff near zero
+     falls inside the band. The band derives from the dtype the chi2 was
+     COMPUTED in, never a storage upcast (the 45M-60 second addendum): _reduce,
+     eval_val, and eval_source_chi2 give ONE verdict on a value between the
+     1e-6 floor and the float32 band, a restored .double() upcast would split
+     them, and a genuinely float64-computed loss still gets the tight float64
+     band. The Part F compile arm is now capability-gated (mandatory-red on a
+     compile-capable box, an explicit SKIP-DEP otherwise, plus a
+     raising-callable control).
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
@@ -59,6 +71,7 @@ and its pre-training parity clause: this is the finite-contract gate they name).
 
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 import numpy as np
@@ -71,7 +84,8 @@ from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
 from emulator.geometries.output import DataVectorGeometry
 from emulator.geometries.parameter import ParamGeometry
-from emulator.losses.core import CosmolikeChi2
+from emulator.losses.core import CosmolikeChi2, _chi2_neg_band
+from emulator.losses.scalar import ScalarChi2
 from emulator.losses.transfer import TransferChi2
 from emulator.results import save_emulator
 from emulator.training import (eval_val, eval_source_chi2,
@@ -938,6 +952,311 @@ def check_chi2_domain():
 
 
 # ==========================================================================
+# Part H (production band, 45M-60): the band scales with the kept WIDTH,
+#         not w^2 -- a realistic dense width refuses a chi2 = -2 the retired
+#         w^2 rule crowned as perfect (band 34.3 at w = 3000).
+# ==========================================================================
+
+class _WidthChi2(CosmolikeChi2):
+  """A REAL CosmolikeChi2 (inheriting the production _chi2_n_terms) with a
+  declared dense width and a settable per-row value, for the production-band
+  legs.
+
+  Only chi2 is stubbed, to inject a chosen per-row value; _chi2_n_terms, the
+  band, and _reduce are the SHIPPED code -- so the leg exercises the width the
+  fix installs (dest_idx.numel()), not a hand-set n_terms. A SimpleNamespace
+  geom supplies the dest_idx (the realistic dense width) the base reads.
+  needs_params is False, so eval_val reduces it exactly as a real loss.
+  """
+
+  needs_params = False
+
+  def __init__(self, width):
+    self.geom = types.SimpleNamespace(dest_idx=torch.arange(int(width)))
+    self.bad = {}
+
+  def chi2(self, pred, target, full=False):
+    c = ((pred - target) ** 2).sum(dim=1)              # per-row, (bs,)
+    if self.bad:
+      c = c.clone()
+      for row, value in self.bad.items():
+        c[row] = float(value)
+    return c
+
+
+class _WidthChi2Wsq(_WidthChi2):
+  """MUTATION control (45M-60): restore the retired w^2 rule. At width 780 the
+  float32 band balloons to 2.32 and SWALLOWS a chi2 = -2, so eval_val no longer
+  raises -- proving the width rule is load-bearing (a w^2 regression reopens the
+  false-crowning hole). Named so the subclass census can exclude it."""
+
+  def _chi2_n_terms(self):
+    w = int(self.dest_idx.numel())
+    return w * w
+
+
+class _WidthSrcChi2(CosmolikeChi2):
+  """A diagnostic (encode-identity) CosmolikeChi2 with a declared dense width, a
+  settable per-row value, and a chosen COMPUTE dtype -- for the (g) second-
+  addendum band-dtype-provenance legs (45M-60 second addendum).
+
+  chi2 emits its per-row values in _dtype, so eval_source_chi2 derives the band
+  from the dtype the chi2 was COMPUTED in; _chi2_n_terms (inherited) is the
+  width. needs_params is False, so eval_source reduces it as a real diagnostic.
+  """
+
+  needs_params = False
+
+  def __init__(self, width, dtype=torch.float32):
+    self.geom = types.SimpleNamespace(dest_idx=torch.arange(int(width)))
+    self._dtype = dtype
+    self.bad = {}
+
+  def encode(self, dv):
+    return dv
+
+  def chi2(self, pred, target, full=False):
+    c = ((pred - target) ** 2).sum(dim=1).to(self._dtype)     # per-row, _dtype
+    if self.bad:
+      c = c.clone()
+      for row, value in self.bad.items():
+        c[row] = float(value)
+    return c
+
+
+def _all_subclasses(cls):
+  """Every subclass of cls, transitively (the loss-family census, 45M-60)."""
+  found = []
+  for sub in cls.__subclasses__():
+    found.append(sub)
+    for deeper in _all_subclasses(sub):
+      found.append(deeper)
+  return found
+
+
+def _spd_roundoff_min(width, seed=0):
+  """The most-negative chi2 a genuine ill-conditioned SPD contraction yields.
+
+  Builds a width x width SPD precision M = Q^T diag(s^2) Q with s spanning
+  [1e-4, 1] (M's condition ~1e8), and a batch of residuals aimed at M's
+  smallest-eigenvalue direction, so the true quadratic form r^T M r sits just
+  above 0. Evaluated in float32 (eval_val's compute dtype), catastrophic
+  cancellation can push a near-zero row slightly negative -- a GENUINE roundoff
+  negative, the kind the width band must tolerate. Returns the batch minimum (a
+  float); the caller asserts it is >= -band (roundoff lands inside the band)
+  while a corrupt -2 does not.
+
+  Arguments:
+    width = the contraction width (matches the production band under test).
+    seed  = RNG seed for the orthogonal basis (reproducible).
+
+  Returns:
+    the minimum float32 chi2 over the batch, a Python float.
+  """
+  gen = torch.Generator().manual_seed(seed)
+  w = int(width)
+  # Q orthogonal (rows orthonormal); A = diag(s) @ Q so M = A^T A =
+  # Q^T diag(s^2) Q is a full dense SPD with eigenvalues s^2 and eigenvectors
+  # the rows of Q. s ascending -> s[0]^2 is the smallest eigenvalue, its
+  # eigenvector row Q[0] the near-null direction.
+  q, _ = torch.linalg.qr(torch.randn(w, w, generator=gen))
+  s = torch.logspace(-4.0, 0.0, w)
+  a = s.unsqueeze(1) * q                               # row i scaled by s[i]
+  m = (a.t() @ a).float()                              # dense SPD, float32
+  v_min = q[0, :]                                       # smallest-eigenvalue dir
+  scales = torch.linspace(0.05, 0.5, 32).unsqueeze(1)  # tiny norms
+  r = (scales * v_min.unsqueeze(0)).float()            # (32, w) near-null resid
+  chi2 = torch.einsum("bi,ij,bj->b", r, m, r)          # r^T M r, float32
+  return float(chi2.min())
+
+
+def check_chi2_band_production():
+  """Part H (45M-60): the chi2-domain band at realistic dense WIDTHS.
+
+  The shipped negative / band-edge legs above use PoisonChi2 (no
+  _chi2_n_terms), so eval_val falls back to n_terms = 1 and only the 1e-6 floor
+  is exercised. These legs use a REAL CosmolikeChi2 subclass whose declared
+  width is a realistic dense 780, so the band is the scale-aware production
+  value the width rule installs -- and the retired w^2 rule is caught by a
+  mutation arm. All legs route through eval_val, whose band is computed in the
+  model's float32; eval_source_chi2 casts to float64, where both width and w^2
+  floor to 1e-6 at 780 and could not discriminate.
+  """
+  torch.manual_seed(11)
+  C = torch.randn(N_VAL, N_IN)
+  DV = torch.randn(N_VAL, N_OUT)
+  model = nn.Linear(N_IN, N_OUT).eval()
+  thresholds = torch.tensor([0.2, 0.5, 1.0])
+
+  width = 780
+  band = _chi2_neg_band(torch.float32, width)          # the ACTUAL prod band
+
+  # -2 and -4 at a realistic dense width RAISE (before ranking / normalizing):
+  # |value| >> band, so the corrupted row is refused, not crowned perfect.
+  for value in (-2.0, -4.0):
+    loss = _WidthChi2(width)
+    loss.bad = {17: value}
+    raised, msg = _expect_valueerror(
+      lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
+                       load=N_VAL, bs=N_VAL, thresholds=thresholds))
+    report("chi2 band: a %.0f chi2 at width %d raises (band %.6g)"
+           % (value, width, band),
+           raised and "chi2 domain contract [validation]" in msg
+           and "17" in msg, _short(msg))
+
+  # both sides of the ACTUAL band (the scaling term, far above the 1e-6 floor):
+  # a half-band roundoff negative is accepted (normalized to 0), a double-band
+  # one raises.
+  loss = _WidthChi2(width)
+  loss.bad = {3: -0.5 * band}
+  raised_in, _ = _expect_valueerror(
+    lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
+                     load=N_VAL, bs=N_VAL, thresholds=thresholds))
+  loss = _WidthChi2(width)
+  loss.bad = {3: -2.0 * band}
+  raised_out, _ = _expect_valueerror(
+    lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
+                     load=N_VAL, bs=N_VAL, thresholds=thresholds))
+  report("chi2 band: width-%d band %.6g -- half-band accepted, double-band "
+         "raises" % (width, band), (not raised_in) and raised_out,
+         "roundoff tolerated at the production width, corruption refused")
+
+  # MUTATION arm: restore the retired w^2 rule. band(w^2) = 2.32 at width 780
+  # SWALLOWS -2, so eval_val does NOT raise -- the width rule is load-bearing.
+  band_wsq = _chi2_neg_band(torch.float32, width * width)
+  loss = _WidthChi2Wsq(width)
+  loss.bad = {17: -2.0}
+  raised_mut, _ = _expect_valueerror(
+    lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
+                     load=N_VAL, bs=N_VAL, thresholds=thresholds))
+  report("chi2 band: restoring w^2 (band %.4f) accepts -2 at width %d "
+         "(mutation -- width rule load-bearing)" % (band_wsq, width),
+         not raised_mut, "w^2 reopens the false-crowning hole")
+
+  # scalar-width leg: ScalarChi2 declares n_terms = n_out, not its square.
+  n_out_scalar = 96
+  scalar_loss = ScalarChi2(types.SimpleNamespace(
+    dest_idx=torch.arange(n_out_scalar)))
+  report("chi2 band: ScalarChi2 declares n_terms = n_out (%d), not its square"
+         % n_out_scalar, scalar_loss._chi2_n_terms() == n_out_scalar,
+         "diagonal width inherited from the base, no override")
+
+  # mechanical subclass census: every CosmolikeChi2 subclass returns the base
+  # width (no family redefines _chi2_n_terms), so a future diagonal family can
+  # not silently inherit a wrong rule. Import the family modules so their
+  # subclasses register; the gate's own mutation double is excluded by name.
+  import emulator.losses.cmb
+  import emulator.losses.scalar
+  import emulator.losses.ia
+  import emulator.losses.pce
+  import emulator.losses.transfer
+  overrides = []
+  for cls in _all_subclasses(CosmolikeChi2):
+    if cls.__name__ == "_WidthChi2Wsq":
+      continue                                          # deliberate mutation
+    if "_chi2_n_terms" in cls.__dict__:
+      overrides.append(cls.__name__)
+  report("chi2 band: no CosmolikeChi2 subclass overrides _chi2_n_terms "
+         "(one width rule)", overrides == [],
+         "census clean" if not overrides
+         else "OVERRIDES: " + ", ".join(overrides))
+
+  # ill-conditioned SPD valid control: the genuine roundoff of a near-null
+  # dense r^T M r (condition ~1e8) sits well inside the width band
+  # [-band, band] -- whichever sign it lands, |roundoff| << band << |a corrupt
+  # -2|, so the band admits real roundoff while refusing corruption. This is
+  # the growth clause's evidence base: the band may only ever widen on measured
+  # valid negatives like these, never for convenience.
+  min_chi2 = _spd_roundoff_min(width)
+  report("chi2 band: ill-conditioned SPD roundoff %.3e sits inside the width "
+         "band [-%.3e, .] (corruption -2 outside)" % (min_chi2, band),
+         (min_chi2 >= -band) and (band < 0.5),
+         "|genuine roundoff| << band << |corruption|")
+
+
+def check_chi2_band_dtype_provenance():
+  """Part H (45M-60 second addendum): the band derives from the COMPUTE dtype.
+
+  eval_source_chi2 formerly upcast the per-row chi2 to float64 before deriving
+  the band, flooring it to 1e-6 -- so it REFUSED a roundoff negative that
+  training's _reduce and eval_val (the float32 band, ~3e-3 at w = 780) normalize
+  to exact 0: one score, two verdicts. These legs pin the three boundaries to
+  ONE verdict on a value chosen between the 1e-6 floor and the float32 band,
+  show that restoring the .double() upcast would split them, and confirm a
+  genuinely float64-computed loss still receives the (tight) float64 band.
+  """
+  torch.manual_seed(13)
+  width = 780
+  band32 = _chi2_neg_band(torch.float32, width)          # ~0.002975
+  band64 = _chi2_neg_band(torch.float64, width)          # the 1e-6 floor
+  # V sits between the two bands: the compute-dtype (float32) band accepts it as
+  # roundoff; a float64 band (the upcast bug) would refuse it as corruption.
+  value = -5.0e-4
+
+  C = torch.randn(N_VAL, N_IN)
+  DV = torch.randn(N_VAL, N_OUT)
+  model = nn.Linear(N_IN, N_OUT).eval()
+  thresholds = torch.tensor([0.2, 0.5, 1.0])
+  params = np.random.default_rng(0).standard_normal((N_SRC, N_IN))
+  dv = np.random.default_rng(1).standard_normal((N_SRC, N_OUT))
+  source = {"C": params, "dv": dv, "idx": np.arange(N_SRC)}
+
+  # three boundaries, ONE verdict on `value` (accept + normalize to exact 0):
+  # (a) training _reduce -- within-band -> normalized, a FINITE loss (not NaN).
+  reduce_loss = _reduce_loss(_WidthChi2(width),
+                             torch.tensor([1.0, value, 2.0], dtype=torch.float32),
+                             "chi2")
+  reduce_ok = bool(torch.isfinite(reduce_loss))
+  # (b) eval_val -- accepts value (no raise).
+  lv = _WidthChi2(width)
+  lv.bad = {17: value}
+  raised_val, _ = _expect_valueerror(
+    lambda: eval_val(model=model, lossfn=lv, data=_val_data(C, DV),
+                     load=N_VAL, bs=N_VAL, thresholds=thresholds))
+  # (c) eval_source_chi2 -- accepts value (no raise): THE FIX. Pre-fix the
+  # float64 upcast floored the band to 1e-6 and this raised.
+  ls = _WidthSrcChi2(width, torch.float32)
+  ls.bad = {9: value}
+  raised_src, _ = _expect_valueerror(
+    lambda: eval_source_chi2(model=nn.Linear(N_IN, N_OUT),
+                             param_geometry=_IdGeom(), chi2fn=ls,
+                             source=source, device=DEV, bs=N_SRC))
+  report("chi2 band dtype: _reduce / eval_val / eval_source agree on %.0e at "
+         "width %d (one verdict: accept, band %.6g)" % (value, width, band32),
+         reduce_ok and (not raised_val) and (not raised_src),
+         "float32 compute-dtype band; all three normalize to 0")
+
+  # mutation: restoring the .double() upcast derives the band from float64 (the
+  # 1e-6 floor) and marks `value` bad -- eval_source would then raise on a value
+  # the compute-dtype band accepts, splitting the verdict.
+  _, bad64 = _chi2_domain(torch.tensor([value], dtype=torch.float64), band64)
+  report("chi2 band dtype: the .double() upcast (band %.1e) would refuse %.0e "
+         "that the float32 band (%.6g) accepts (mutation)"
+         % (band64, value, band32),
+         bool(bad64.any()) and (band64 < abs(value) < band32),
+         "upcast splits the verdict; the compute-dtype band keeps it")
+
+  # a genuinely float64-computed loss still receives the (tight) float64 band:
+  # `value` is material there (refused), a within-float64-band -5e-7 accepted.
+  lf = _WidthSrcChi2(width, torch.float64)
+  lf.bad = {9: value}
+  raised_f64_material, _ = _expect_valueerror(
+    lambda: eval_source_chi2(model=nn.Linear(N_IN, N_OUT),
+                             param_geometry=_IdGeom(), chi2fn=lf,
+                             source=source, device=DEV, bs=N_SRC))
+  lf = _WidthSrcChi2(width, torch.float64)
+  lf.bad = {9: -5.0e-7}
+  raised_f64_round, _ = _expect_valueerror(
+    lambda: eval_source_chi2(model=nn.Linear(N_IN, N_OUT),
+                             param_geometry=_IdGeom(), chi2fn=lf,
+                             source=source, device=DEV, bs=N_SRC))
+  report("chi2 band dtype: a float64-computed loss gets the float64 band "
+         "(-5e-4 refused, -5e-7 accepted)",
+         raised_f64_material and (not raised_f64_round),
+         "the band tracks the actual compute dtype")
+
+
+# ==========================================================================
 # helpers + main
 # ==========================================================================
 
@@ -959,7 +1278,7 @@ def _short(msg):
 
 
 def main():
-  """Run all five parts of the finite contract; return 1 if any leg failed."""
+  """Run every part of the finite contract; return 1 if any leg failed."""
   print("== finite-contract ==")
   print("device " + str(DEV) + " (torch only, no cosmolike, no GPU)")
   torch.manual_seed(0)
@@ -985,6 +1304,11 @@ def main():
   check_epoch_reduction()
   print("\n-- Part H: the chi2-domain boundary (45M-53) --")
   check_chi2_domain()
+  print("\n-- Part H: the chi2-domain band at production widths (45M-60) --")
+  check_chi2_band_production()
+  print("\n-- Part H: the chi2-domain band's compute-dtype provenance "
+        "(45M-60 second addendum) --")
+  check_chi2_band_dtype_provenance()
 
   print("")
   if len(FAILURES) == 0:
