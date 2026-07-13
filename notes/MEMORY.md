@@ -65,4 +65,4 @@ the topic file your task touches.
   to be taught (show-never-describe, define-or-drop, run-first), and
   the code register with his own quotes and before/after shapes; the
   Implementer reads it before writing code or docs.
-- [Red-team board-truth + integrity batch](gates-and-board.md) — 7 reproduced defects implemented 2026-07-12 (73/76/77/79/80/82/84); board 38 gates; 71/72/74/78/81/85/83/86-90 still open.
+- [Red-team board-truth + integrity batch](gates-and-board.md) — all reproduced defects implemented 2026-07-12 (71/73/74/75-schema/76/77/78/79/80/81/82/83/84/85 + the 86-90 didactic batch + the 45M-72 evidence-map foundation); board 40 gates, board-selftest 33/33. Only 45M-72's full rollout (per-leg ids across all gates + check manifests) is open, held for Architect audit; 45M-75's post-step-finite half is workstation-owed.
