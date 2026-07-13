@@ -57,6 +57,71 @@ from RAM, or read from a disk memmap); dump = the full on-disk array
 from the data-generation run, one row per cosmology (the dv dump is
 the .npy, the param dump the .txt); memmap = a NumPy array backed by
 that on-disk file, read in slices so it is never fully loaded.
+
+Lifecycle: the diagram above is cosmic-shear specific. Every family run,
+whatever it emulates, passes through the same six ordered stages, and the
+per-family choice is made once, at the validate stage:
+
+    read config              from_yaml reads the .yaml, then from_config;
+       │                     or from_config is called directly on an
+       │                     already-parsed mapping (one sweep point).
+       ▼
+    validate the family      from_config counts the family keys in the
+       │  block              data: block (they are mutually exclusive),
+       │                     dispatches to that family's validator, and
+       │                     resolves the model class. See the decision
+       │                     table below for which validator fires.
+       ▼
+    stage / pool the data    stage_train + stage_val load the dumps,
+       │                     apply the physics cuts, keep n_train / n_val
+       │                     rows, and build the on-device loaders.
+       ▼
+    build geometry + model   build_geometry builds the parameter geometry
+       │                     (whiten in), the output geometry (whiten
+       │                     out), and the chi2; the model class was
+       │                     already fixed at the validate stage.
+       ▼
+    train                    train calls build_run_specs -> run_emulator
+       │                     (model / optimizer / scheduler / loaders;
+       │                     one- or two-phase). run() ends here.
+       ▼
+    save                     the driver calls save_emulator after run()
+                             returns (the .h5 weights + the .emul recipe);
+                             run() itself leaves the model + histories on
+                             the instance.
+
+(legend: each box is one stage of the run, top to bottom; the text beside
+each box names the method or step that carries it out. The symbols: │ is a
+vertical line continuing one stage's arrow; ▼ is the arrowhead marking the
+move to the next stage down. to whiten in / whiten out = apply the
+whitening defined in the PS above, on the input parameters and on the
+output data vector respectively.)
+
+Decision table: at the validate stage, from_config sets a family flag from
+the presence of one distinguishing key in the data: block (the keys are
+mutually exclusive; a config carries at most one family key). The flag
+selects the validator and the model-class family (ia = the factored
+intrinsic-alignment design layered on the architecture; None = a plain
+design). The cosmolike cosmic-shear path is the fall-through: it fires when
+no family key is present.
+
+    | family                | data: key             | validator       | model family |
+    | scalar (derived)      | outputs               | validate_scalar | (name, None) |
+    | CMB spectrum          | cmb                   | validate_cmb    | (name, None) |
+    | background function   | grid                  | validate_grid   | (name, None) |
+    | matter power spectrum | grid2d                | validate_grid2d | (name, None) |
+    | cosmolike cosmic shear| cosmolike_data_dir /  | (fall-through)  | (name, ia)   |
+    |                       | cosmolike_dataset     |                 |              |
+
+Transfer and fine-tuning are run modes, not families: they ride whichever
+family the data: block selects. A top-level transfer: block (a frozen base
+under a parallel correction) is validated by validate_transfer, and a
+train_args.finetune block (a warm start from a saved source) is validated
+by warmstart.validate_finetune_config. On the four diagonal families above
+they are checked in that family's branch (transfer with diagonal=True); on
+the cosmolike path they are the two fall-through branches after the family
+dispatch. Both inherit the source's architecture and family, so neither
+adds a family row of its own.
 """
 
 import atexit
