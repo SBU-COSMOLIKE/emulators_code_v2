@@ -578,3 +578,126 @@ untruncated stale-pattern scan over the full pattern family (`unit \d`, `(f)`,
 
 Queue items 2 (evidence rollout), 3 (staging seeded-order truth), 5
 (workstation evidence), and the rest of 6 remain.
+
+## Architect batch audit of the overnight batch (2026-07-13, Fable)
+
+Scope: everything landed on main after `05d4937` (queue 43 `4a19a17`,
+14(h) `3f47d86`, 60+14(f) `4846fdd`, the red-team wave 45M-71..90,
+repair queue 1a `b6cfd87` + 1c `7f69c35`) plus the two then-unmerged
+commits on this branch (queue 4 `c9ace04`, queue 6a `dce3d69`).
+Evidence: the Architect's OWN gate reruns from this branch's tree on
+the cocoa-torch interpreter — `run_board --list` rc 0, board-selftest
+ALL PASS, diagnostics-domain, cmb-identity (incl. the queue-4 schema
+legs), stage-ram, artifact-readback, family-first, cli-strict,
+generator-seed all green, ge_c_eval_bs rc 0 (Part 2 timing stays
+workstation-owed) — plus independent code reads of every contract
+surface. Green claims were re-executed, not trusted.
+
+Verdicts:
+
+- Queue 43 / 14(h) / 60+14(f): PASS against the adjudicated contracts.
+  The order-one factor, its 0-d float64 persistence, the retired-law
+  and missing-ref refusals, the shared screen_chi2 consumer census,
+  and the float64 ordinary median are all contract-true.
+- Red-team wave 45M-71..90: implementations ACCEPTED post-hoc (they
+  landed without Architect adjudication while the Architect was
+  offline; the persisted handoff + honest OPEN lists + holding the
+  45M-72 rollout are the right mitigations, and this audit closes the
+  gap). The red-team audit's reopens are CONFIRMED independently:
+  - stage_source order defect CONFIRMED in the code: the resident
+    branch returns sorted-unique rows + arange while the disk branch
+    returns the original unsorted selection (duplicates included), so
+    the same seed trains different minibatches depending on host RAM;
+    the module's [9,2,9,5] example misstates the disk branch; the
+    stage-ram gate sorts before comparing, hiding exactly this. A
+    green stage-ram run is NOT evidence against the reopen.
+  - the resume digests are the narrow surfaces the audit described
+    (gate body + literal check paths; whole yaml_dir), honestly
+    framed as the seed of the queue-1b manifest (proposal-first).
+- Repair queue: 1a VERIFIED (stale-log is a first-class state of the
+  one `_resume_state` consumed by skip, display, and dependencies;
+  selftest arms rerun green); 1c VERIFIED (`_EXECUTABLE_DIRS` matches
+  the unit-4-EXTENDED scope ruling exactly); queue 4 and queue 6a
+  AUDITED PASS (typed non-bool non-string schema; README stale-claim
+  grep re-verified empty by the Architect) — both CLEARED TO MERGE.
+
+Evidence-map rulings, now BINDING (adjudication authority stays with
+the Architect; the red team's five answers are ratified on the merits,
+so there is no practical conflict — recorded so "binding" framing does
+not drift the role file):
+
+1. Keep BOTH `maps=` (human promise) and `evidence=` (machine legs);
+   the rollout makes them agree.
+2. Validate the evidence registry on EVERY invocation incl. `--list`
+   (listing an invalid registry is false advertisement; the failure
+   is loud and cheap to fix).
+3. Explicit `<a id>` anchors, stable under heading rewording.
+4. Assertion ids are `<gate-id>.<plain-leg-name>`
+   (e.g. `board-selftest.exit-truth`) — NO spec-code prefixes; the
+   raw log must teach a reader, internal codes stay in notes/.
+5. Each gate's executable legs anchor in its one declared `home=`
+   note; other links are prose only.
+6. ADOPTED as rollout clause: declared-vs-executed reconciliation
+   with exactly one terminal result per aid per run (PASS / FAIL /
+   explicit non-green UNAVAILABLE); external check scripts emit a
+   machine-readable per-leg manifest; a missing, duplicate, unknown,
+   or conditionally-omitted aid is a red gate. This is the
+   dead-network rule applied to the harness itself.
+
+The audited-rollout spec (45M-72 remainder, four items above) is
+APPROVED under these six rules.
+
+Sequencing ruling: queue 3 (staging seeded-order truth) runs FIRST —
+it is the one open science-affecting defect. Then the queue-1b
+manifest PROPOSAL (Opus proposes, Architect reviews before landing),
+then the evidence rollout (queue 2), then the pre-red-team tail
+50 -> 52 -> 55 -> 22(+20) -> 13(+01). Unit 50 (epoch chunking) must
+preserve queue 3's canonical order under chunking and reuses its
+invariance legs — another reason 3 lands first. Queue 6 didactics
+continue doc-only alongside; queue 5 workstation evidence rides the
+user's next workstation session.
+
+Queue-3 contract (pinned):
+
+- The canonical selected-row order is the ORIGINAL seeded selection
+  order. Compact storage may be sorted internally, but stage_source
+  then returns an explicit local-coordinate array mapping the original
+  selection order into that storage — never a bare arange.
+- Duplicate indices in the selection REFUSE loudly (the selection is
+  a unique permutation prefix; a duplicate reaching staging is
+  corruption). A caller census precedes the refusal clause.
+- The banner prints all three named byte terms (params, target,
+  reindex), their exact total, the budget, the comparison operator,
+  and the chosen branch — no arithmetic that does not sum.
+- The fit comparison's equality policy is explicit and gated with
+  below / equal / above legs (keep strict `<`: equal-to-budget
+  streams from disk, the conservative side).
+- The gate drives the REAL loader and epoch permutation in BOTH
+  storage regimes and proves parameters, targets, sibling-dump rows,
+  minibatch membership, AND minibatch order identical under the same
+  seeds; a mutation arm restoring arange must FAIL; no sorting or
+  dedup inside any assertion.
+- The module's row-coordinate example is corrected in the same
+  commit (the disk branch returns the original sequence).
+
+Didactics verdicts: 45M-87 (warmstart diagram) PASSES voice and
+accuracy (legend complete, rank-3 FiLM case correct). 45M-89: the
+red team is right and the handoff's "2 of 7" is wrong BY THE MODULE'S
+OWN TABLE — exactly one function (coverage_diagnostic) returns an
+in-code verdict; the "just two compute a verdict" prose contradicts
+the table it introduces; fix rides queue 6. The Architect's own
+untruncated residue scan over the FULL pattern family (45M, unit N,
+increment, Architect/Implementer, red team, ruling, adjudicat-, D-*,
+POL-*) counts 108 lines across ~25 Python files — larger than the
+audit's 48/16 `45M`-adjacent count; the queue-6 completion gate must
+record its pattern family + identifier allowlist and scan untruncated.
+
+Governance record: (1) the wave-without-adjudication gap is CLOSED by
+this audit — protocol resumes (all code changes via ARCHITECT_HANDOFF,
+red-team findings adjudicated before implementation now that the
+Architect is back); (2) the 45M-69 propose-first deviation (interim
+resume digests landed unproposed in `5947a05`) is noted, self-corrected
+by the audit into queue 1b, no rework — the interim is honest and
+strictly better than nothing; (3) the earlier (h)-then-43 resequencing
+flag is CLOSED — both landed green the same night, no interaction
+materialized.
