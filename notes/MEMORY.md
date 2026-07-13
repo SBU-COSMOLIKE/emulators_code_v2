@@ -1,21 +1,23 @@
 # notes/ index
 
-Consolidated 2026-07-11: ~85 topic notes rewritten into the eleven files
-below so any model (or human) can orient fast. Every retired note
+Consolidated 2026-07-11: ~85 topic notes rewritten into the compact topic and
+audit set below so any model (or human) can orient fast. Every retired note
 survives in git history (`git log --follow notes/<old-name>.md`); the
 delta IDs preserved in these files are the search keys.
 
 Read in this order for a cold start: (1) this index,
-(2) state-2026-07-11-and-next.md, (3) project-and-history.md, then
-the topic file your task touches.
+(2) the durable correctness registry in
+red-team-audit-and-didactics-2026-07-13.md, (3) project-and-history.md, then
+the topic file your task touches. Use state-2026-07-11-and-next.md for
+chronology and routing, not as a live queue: its opening snapshot is stale and
+its later blocks preserve decisions rather than one canonical current order.
+Current sequencing comes from the latest persisted Architect handoff and must
+be checked against the relevant topic note before implementation.
 
-- [State + what comes next](state-2026-07-11-and-next.md) — first
-  full 32/32 green at run 9; current standing run 11 at 30/32 (one
-  eq-6 path Mac-audited awaiting its fixture/workstation rerun, one
-  diagonal-transfer red open); the redistribution map to the
-  topic notes; plus the verified static-audit queue headed by bounded
-  production grid2d staging, dataset/artifact identity, and parallel
-  worker truth before the five artifacts -> EMUL2 -> science.
+- [State + chronological ledger](state-2026-07-11-and-next.md) — the
+  historical run trail, adjudication batches, queue changes, retractions, and
+  topic-note routing. Do not promote any one historical run snapshot or queue
+  paragraph to current state.
 - [Project + history](project-and-history.md) — the goal, the
   development arc by phase, the family-pattern recipe (what a new
   output family adds), the program-level lessons.
@@ -52,10 +54,10 @@ the topic file your task touches.
   param_cuts windows and the coverage-cut lesson; open checkpoint-set
   integrity covers manifest membership, append publication, and the
   destructive load-error fallback.
-- [Gates + the board](gates-and-board.md) — the harness the user
-  runs, the 32 gates, identity/smoke philosophy, dead-network rule,
-  --force-rerun-all, and the run-history table (eleven runs, every
-  red root-caused; the first full 32/32 at run 9).
+- [Gates + the board](gates-and-board.md) — the harness, identity/smoke
+  philosophy, dead-network rule, resume/evidence design, manifest population,
+  and run history. `gates/board.py` plus `python3 gates/run_board.py --list`
+  are authoritative for the current gate set; prose counts are snapshots.
 - [Conventions + workflow + environment](conventions-and-workflow.md)
   — the Python/docs/README/plots/terminal/YAML house rules, the
   dual-agent workflow, git discipline, the Mac evidence pattern,
@@ -73,6 +75,5 @@ the topic file your task touches.
   not an open queue). Side-finding: the june2026/claude_skills copy of
   pytorch-teaching-style was stale; the live skill lives in
   ~/data/claude_skills/.
-- [Red-team board-truth + integrity batch](gates-and-board.md) — all reproduced defects implemented 2026-07-12 (71/73/74/75-schema/76/77/78/79/80/81/82/83/84/85 + the 86-90 didactic batch + the 45M-72 evidence-map foundation); board 40 gates, board-selftest 33/33. Only 45M-72's full rollout (per-leg ids across all gates + check manifests) is open, held for Architect audit; 45M-75's post-step-finite half is workstation-owed.
 - [Red-team Implementer handoff (2026-07-13)](red-team-implementer-handoff-2026-07-13.md) — single-page 45M inventory + per-unit commits/files/gates + the "audit hardest here" guidance (86-90 vs the Architect specs now on main, and the five 45M-72 design decisions to rule on); the review brief for the Architect audit pass. Landed on origin/main via merge 8ce72a9.
-- [Red-team audit + didactic repair queue (2026-07-13)](red-team-audit-and-didactics-2026-07-13.md) — independent review of that landing: binding evidence-map rollout rulings; the reopened raw-log/resume, staging, and numeric-schema gaps; README contradictions; the ordered first-time-ML documentation campaign; and the durable DIDACTICS-42--71 Implementer handoff register. Future Red Team handoffs are appended here or to their existing topic note before their chat copy is sent.
+- [Red-team audit + durable handoff registries (2026-07-13)](red-team-audit-and-didactics-2026-07-13.md) — independent review of the Implementer landing; binding evidence-map rulings; the canonical pre-45M unit crosswalk; complete 45M/20M/RT/BLOAT routing with explicit unused-id tombstones; and the DIDACTICS-42--71 register. Future Red Team handoffs are appended here or to their existing topic note before their chat copy is sent.
