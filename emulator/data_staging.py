@@ -42,16 +42,44 @@ The staging pipeline, per source (load_source top to bottom):
      memmap); local reindex = idx becomes arange so the staged
      arrays and the loaders agree on row numbering.)
 
+Row coordinates (the same three names are used in stage_source,
+load_source, the loader closures in batching, and the grid2d base-row
+helper in experiment): three coordinate systems name a row, and a bug
+hides wherever they are confused.
+
+  disk row   = a row's position in the original parameter / data-vector
+               files (0 is the first row on disk).
+  compact row= its position after the selected rows are copied into a
+               fresh in-RAM array (0 is the first selected row).
+  loader row = the index later handed to a loader closure; it equals the
+               compact row after staging materialized, or the disk row
+               when staging stayed on the memmap.
+
+The load-bearing invariant: dump_rows[j] is the DISK row that supplied
+compact row j. A separate file storing another quantity for the same
+cosmologies in the same original row order (the grid2d "base" dump) is
+read at dump_rows to line up cosmology for cosmology.
+
+A tiny example. Say a run selects disk rows [9, 2, 9, 5]. The distinct
+rows in ascending order are [2, 5, 9], so dump_rows = [2, 5, 9]. If those
+rows are copied into RAM (the resident branch), compact rows [0, 1, 2]
+hold disk rows [2, 5, 9] and the loader index becomes arange(3); if
+staging stays on the memmap, the loader index stays [2, 5, 9] (the disk
+rows) and no compact copy exists. Only the resident branch renumbers.
+
 PS: a dump is the full on-disk array from the data-generation run, every
 simulated cosmology stored as one row (the data-vector dump is the .npy
 file, the parameter dump the .txt); a training run draws its N_train
 subset of rows from it. a memmap (memory-mapped array) is a NumPy array
 backed by the file on disk and read in slices, so an array larger than RAM
-is never loaded whole. a loader is a closure load(rows) -> a
-ready-to-train batch on the device, hiding where the data lives (resident
-on the GPU, streamed from RAM, or read from the memmap). to whiten is to
-rotate into the covariance eigenbasis and scale to unit variance, so
-correlated quantities become decorrelated and equally scaled.
+is never loaded whole (advanced indexing a memmap still materializes the
+requested rows; the pipeline stays disk-backed only because it reads
+bounded blocks on demand). a copy is a fresh array with its own storage;
+a view / memmap shares the file's storage. a loader is a closure
+load(rows) -> a ready-to-train batch on the device, hiding where the data
+lives (resident on the GPU, streamed from RAM, or read from the memmap).
+to whiten is to rotate into the covariance eigenbasis and scale to unit
+variance, so correlated quantities become decorrelated and equally scaled.
 """
 
 import os
@@ -613,25 +641,35 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
       C=C, dv=dv, idx=idx, ram_frac=ram_frac)
   else:
     C_src, dv_src, idx_src = C, dv, idx
-  # dump_rows = the ON-DISK dump row indices of the staged rows, in
-  # SORTED-unique order — exactly the order dv_src[np.sort(np.unique(
-  # idx_src))] walks on either staging path (stage_source's RAM copy is
-  # built over np.sort(np.unique(idx)); the memmap path keeps global
-  # indices). Consumers that must align a SIBLING dump file row-for-row
-  # (the grid2d base files) read this; everything else ignores
-  # the extra key.
+  # dump_rows = the disk rows that supplied the staged rows, in ascending
+  # distinct order (the invariant from the module docstring: dump_rows[j]
+  # is the disk row behind compact row j). np.asarray gets an eager numpy
+  # view of idx, np.unique returns its distinct values already ascending,
+  # and the outer np.sort is redundant under current numpy (unique already
+  # sorts) but states the intended order plainly. This is exactly the disk
+  # order the resident copy was built over (stage_source copies at
+  # np.sort(np.unique(idx))) and the order the memmap path keeps its global
+  # index in, so it aligns either staging path. A consumer that must line
+  # up a separate row-matched file cosmology for cosmology (the grid2d base
+  # dump) reads it; every other consumer ignores the extra key.
   src = {"C": C_src,
          "dv": dv_src,
          "idx": idx_src,
          "dump_rows": np.sort(np.unique(np.asarray(idx)))}
   if with_means:
-    # the per-column std (2nd return) is unused: whitening comes
-    # from the covmat, only the means center the targets.
+    # param_stats returns (offset, scale); the "_" discards the sample
+    # scale on purpose. Parameter CENTERING uses this returned mean, but
+    # parameter WHITENING takes its scale and rotation from the covariance
+    # geometry, not from this per-column sample standard deviation.
     c_mean, _ = param_stats(arr=C_src, idx=idx_src, method=1)
     src["C_mean"] = c_mean
-    # grid2d (stage_dv False) recomputes dv_mean over the THINNED
-    # law-space rows in _grid2d_law_rows, so streaming it here over the
-    # full unthinned dump would only be discarded — skip it.
+    # grid2d (stage_dv False) recomputes dv_mean over the thinned law-space
+    # rows in _grid2d_law_rows: it first selects the kept k columns, forms
+    # the stored target law such as log(raw / base), materializes the
+    # float32 training payload, and only then takes its mean. Computing a
+    # mean here over the raw, unthinned dump would summarize the wrong
+    # quantity (the pre-law surface over columns training never consumes),
+    # so it is skipped, not merely deferred.
     if stage_dv:
       dv_mean, _ = stream_stats(mm=dv_src, idx=idx_src, method=1)
       src["dv_mean"] = dv_mean
@@ -837,6 +875,10 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
          "dv": Y_src,
          "idx": idx_src}
   if with_means:
+    # param_stats returns (offset, scale); the "_" discards the sample scale
+    # both times. The scalar geometry standardizes its outputs from Y_mean
+    # here (center) and its own stored per-column scale; the input parameter
+    # scale still comes from the covariance geometry, not this sample std.
     c_mean, _ = param_stats(arr=C_src, idx=idx_src, method=1)
     y_mean, _ = param_stats(arr=Y_src, idx=idx_src, method=1)
     src["C_mean"]  = c_mean
