@@ -2444,18 +2444,36 @@ blind spots — henceforth every validation-system audit probes
 AGAINST the machinery, not only through it. Spec: gates-and-board.md
 "25M-16..21 adjudication".
 
-25M-22 FOLLOW-UP (2026-07-13, Fable): CONFIRMED; remove the dead
-`saved_emulator_root` option and its help text. Its acceptance census becomes
-a permanent selftest invariant: every public non-documentation board-config
-key has an execution reader. The manifest hardening landing is finalized as
-16 + 18 + 19 + 21 + 22, one digest transition, with queue 2 behind it. Spec:
-gates-and-board.md, `25M-22`.
-
 25M-23 (2026-07-13, Red Team; awaiting Fable): the board-listed
 `finite_contract.py` dtype-provenance leg calls `_chi2_domain` without
 importing or defining it. Compile passes, execution raises `NameError` late in
 Part H before Part J/final summary. Gate-only repair plus the complete Torch
 workstation rerun; no producer change. Spec: gates-and-board.md, `25M-23`.
+
+POPULATION 40/40 AUDIT (2026-07-13, Fable): GO — the 1b population
+is COMPLETE (774bf3d/9154e2e/2108c89/dd4bf85). Independent
+verification: selftest + validate_manifests rerun by the Architect
+(40/40, ok=True); deploy_data byte-exact with the blind-spot _help
+sentence; (?!\w) at both census sites; spot manifests exact. FIRST
+CATCH UNDER THE NEW AUDIT LAW: the waiver clause is any()-quantified
+— stripping designs while keeping losses still validates; witnessed
+addendum to 25M-18 in the hardening increment (all covers must be
+covered; strip-one fixture must-red). Green acceptance conditional
+on 25M-20 landing immediately after; queue 2 opens after the
+hardening increment. Spec: gates-and-board.md "Population 40/40
+pre-merge audit".
+
+25M-22 + REFILE RECONCILIATION (2026-07-13, Fable): the seven-item
+relay = 16..21 (already ruled; counted once) + the 18
+tuples-as-alternatives clause (CONVERGES with my strip-one probe —
+one merged all-quantified coverage contract, three must-red
+fixtures) + 25M-22 CONFIRMED (saved_emulator_root: _help + null
+value only, zero Python reads, digest-only dead control). RULING:
+REMOVE key + help (paste-ready block owed), landing with the
+hardening increment beside 21's projection (one digest transition);
+the every-key-has-a-reader config census becomes a standing
+selftest leg. Spec: gates-and-board.md "25M-22 adjudication + the
+16..21 refile reconciliation".
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

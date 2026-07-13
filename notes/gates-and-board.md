@@ -4448,3 +4448,79 @@ the touched helper (with explicit allowlisting of deliberate undefined-name
 mutation fixtures); `py_compile` remains necessary but is not sufficient.
 Deleting the repaired binding must reproduce the late `NameError` and red the
 gate. No production-code change is requested by 25M-23.
+
+## Population 40/40 pre-merge audit (Fable, 2026-07-13): GO — and the first audit under the new law catches an any-vs-all waiver hole
+
+The four commits (774bf3d / 9154e2e / 2108c89 / dd4bf85) audited;
+all code changes scoped to gates/ + notes. Independent verification
+on the cocoa interpreter (not a re-read of the Implementer's
+numbers): board-selftest ALL PASS rerun by the Architect;
+validate_manifests re-executed — 40 of 40 declared, ok=True, 0
+errors; deploy_data byte-matches the signed-off block (six distinct
+paths, role-named keys) with the dataset-pointer blind-spot
+sentence present in _help; the (?!\w) hardening present at BOTH
+unanchored census sites (:978, :1060) with the quoted driver= form
+untouched; spot-checked manifests exact (berhu-loss and
+production-diagnostic: one gate_configs key + the six deploy_data
+keys; production-diagnostic's code roots include the driver +
+designs + losses). The Implementer's report that the first pinned
+census leg caught a ctx.py phantom in its own fixture comment is
+credited — the leg earned its keep on day one.
+
+THE PROBE FINDING (the first audit run under "probe against the
+machinery"): stripping emulator/designs from cobaya-adapter's
+declaration IN MEMORY still validates ok=True. Cause: the waiver
+coverage clause is any()-quantified over (roots x covers) — ANY
+declared root matching ANY cover clears the whole waiver, so a
+multi-cover waiver (designs AND losses) is satisfied by either
+alone. This is the SECOND permissiveness direction in the clause
+25M-18 indicted (child-satisfies-parent was the first). NOT a
+landing blocker — every shipped declaration carries both roots — but
+it is now a witnessed ADDENDUM to the 25M-18 contract in the 1b
+hardening increment: every required cover must be covered by some
+declared root (all-quantified over covers); the strip-designs-keep-
+losses fixture becomes a must-red selftest leg beside the
+child-as-cover mutation.
+
+VERDICT: GO for the merge. The 1b population is COMPLETE. Standing
+conditions unchanged and restated: the 40/40 landing is accepted
+GREEN only with 25M-20's dependency-currency fix landing
+immediately after (acknowledged by the Implementer); queue 2 opens
+after the 1b hardening increment (16/18+addendum/19/21), not at
+this merge; the populated reruns remain the first queue-5 exhibit.
+D3/D4 prep noted and consistent with the spine (D4's full roster:
+46/47/48/52/53/63 + 61-finiteness + 66).
+
+## 25M-22 adjudication + the 16..21 refile reconciliation (Fable, 2026-07-13)
+
+The seven-finding relay is the 16..21 batch already adjudicated
+(rulings stand unchanged; counted once) plus ONE new finding and
+ONE new clause:
+
+- 25M-18's NEW CLAUSE (tuples-as-alternatives) CONVERGES with my
+  40/40-audit probe: the red team observed that cli_strict's waiver
+  lists eight entry points, ALL imported, while the any() quantifier
+  treats them as alternatives; my in-memory strip-designs-keep-
+  losses probe witnessed the same quantifier hole on the recipe
+  waiver. ONE merged contract in the 1b hardening increment:
+  coverage is all-quantified over required covers AND over
+  required-all tuple members; must-red fixtures = child-as-cover,
+  strip-one-of-two-covers, any-one-of-eight-entry-points.
+- 25M-22 CONFIRMED (verified by untruncated grep: the key exists
+  ONLY at board_config.json:8 (_help) and :20 (null value); zero
+  Python reads; gsv_bitwise_drift reads rootdir/driver_root and
+  unconditionally trains chains/gates_emul_evaluate at :305-307).
+  The board promises it tests a selected emulator while always
+  testing its internally trained one, and the dead value still
+  enters every input digest. RULING: REMOVE — the recommended
+  option. A documented control no code reads is a standing lie
+  (never-trust-defaults applied to config surfaces); the tiny
+  self-trained fixture is deliberate gate ownership; an
+  external-root mode adds no current evidence. Remove the key AND
+  its _help entry; the Implementer presents the resulting
+  board_config block paste-ready. LANDING: with the 1b hardening
+  increment beside 25M-21's digest projection, so the digest
+  transition happens ONCE. PERMANENT ACCEPTANCE (class, not
+  instance): the config census proving every non-documentation
+  public key has an execution reader becomes a standing selftest
+  leg — no future dead key can accumulate.
