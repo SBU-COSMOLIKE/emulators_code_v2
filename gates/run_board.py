@@ -1471,12 +1471,33 @@ def _config_yaml_bytes(cfg):
   return b"".join(parts)
 
 
+# The input digest's canonical projection of board_config (25M-21): every key
+# EXCEPT the logging flag (debug), the derived rootdir_source, and any
+# documentation namespace (an underscore-prefixed key such as _help). A prose
+# edit to _help must leave a stored PASS current; a VALUE edit to any
+# execution-relevant key still stales the consuming gates.
+_DIGEST_CONFIG_EXCLUDE = ("debug", "rootdir_source")
+
+
+def _config_execution_projection(cfg):
+  """board_config restricted to its execution-relevant keys (the digest input).
+
+  Drops the logging flag, the derived rootdir_source, and every documentation
+  namespace (an underscore-prefixed key: _help and any future sibling), so
+  editing prose never stales a stored PASS while a value edit still does.
+  """
+  return {k: v for k, v in cfg.items()
+          if k not in _DIGEST_CONFIG_EXCLUDE and not k.startswith("_")}
+
+
 def _gate_input_digest(gate, cfg):
   """Digest the effective inputs that can change a gate's execution / science.
 
-  Covers the resolved configuration (board_config.json minus logging-only keys
-  such as debug and the derived rootdir_source), the resolved rootdir, and the
-  gate's golden-worktree pin. For the file inputs it branches on the manifest:
+  Covers the execution-relevant projection of the resolved configuration (the
+  named _config_execution_projection: board_config minus the logging flag, the
+  derived rootdir_source, and any documentation namespace such as _help), the
+  resolved rootdir, and the gate's golden-worktree pin. For the file inputs it
+  branches on the manifest:
 
     - a gate that DECLARES a manifest digests only the SPECIFIC input files it
       names (its resolved input manifest), so an unrelated YAML edit no longer
@@ -1488,8 +1509,7 @@ def _gate_input_digest(gate, cfg):
   debug alone does not.
   """
   hasher = hashlib.sha256()
-  effective = {k: v for k, v in cfg.items()
-               if k not in ("debug", "rootdir_source")}
+  effective = _config_execution_projection(cfg)
   hasher.update(json.dumps(effective, sort_keys=True, default=str).encode())
   hasher.update(("\0worktree:" + str(gate.worktree_commit)).encode())
   if gate.manifest is not None:

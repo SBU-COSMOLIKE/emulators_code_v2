@@ -46,6 +46,7 @@ and (where relevant) the deliberately broken behavior it must reject.
 import copy
 import hashlib
 import io
+import json
 import os
 import subprocess
 import sys
@@ -332,6 +333,67 @@ def check_dependency_currency():
            and CALLS.get("child", 0) == 0 and rc != 0,
            "child status " + str(status.get("child", {}).get("status"))
            + ", calls " + str(CALLS.get("child", 0)) + ", rc " + str(rc))
+
+
+def check_config_readers():
+    """25M-22: every non-documentation board_config key has a Python reader.
+
+    A documented control no code reads is a standing lie -- saved_emulator_root
+    was one (removed). This census re-derives the public key set from the
+    shipped board_config.json and refuses any key that no repo .py source
+    mentions, so no future dead key can accumulate.
+    """
+    cfg = json.loads(run_board._CONFIG_FILE.read_text())
+    public = [k for k in cfg if not k.startswith("_")]
+    blob = []
+    for py in run_board._REPO.rglob("*.py"):
+        if "__pycache__" in str(py) or "/.git/" in str(py):
+            continue
+        try:
+            blob.append(py.read_text(errors="replace"))
+        except OSError:
+            pass
+    text = "\n".join(blob)
+    dead = [k for k in public if k not in text]
+    report("config census: every public board_config key has a Python reader",
+           not dead, "keys no .py mentions: " + repr(dead))
+
+
+def check_dependency_topology():
+    """25M-20 rider: BOARD lists every gate's dependencies BEFORE the gate.
+
+    The resume dependency-currency fix relies on prerequisites being processed
+    before their children (a reran prerequisite is in the reran set by the time
+    the child is reached). Authoring order is a correctness invariant of the
+    resume machinery, so the board asserts it.
+    """
+    order = {g.id: i for i, g in enumerate(BOARD)}
+    bad = []
+    for g in BOARD:
+        for dep in g.deps:
+            if dep not in order or order[dep] >= order[g.id]:
+                bad.append(g.id + " <- " + dep)
+    report("topology: every gate's dependencies precede it in BOARD",
+           not bad, "out-of-order or missing: " + repr(bad))
+
+
+def check_digest_projection():
+    """25M-21: a _help (documentation) edit leaves the input digest fixed; a
+    value edit to an execution-relevant key stales it.
+    """
+    g = _mf_gate("proj", _mf_body_trivial, code=())
+    cfg = json.loads(run_board._CONFIG_FILE.read_text())
+    base = run_board._gate_input_digest(g, cfg)
+    doc = copy.deepcopy(cfg)
+    doc["_help"]["driver_root"] = "EDITED DOCUMENTATION PROSE"
+    val = copy.deepcopy(cfg)
+    val["driver_root"] = "edited-value"
+    report("digest projection: a _help prose edit leaves the input digest fixed",
+           run_board._gate_input_digest(g, doc) == base,
+           "documentation (_help) is excluded from the execution projection")
+    report("digest projection: an execution-value edit stales the input digest",
+           run_board._gate_input_digest(g, val) != base,
+           "a driver_root value change reruns the consuming gates")
 
 
 def check_resume_identity():
@@ -984,6 +1046,9 @@ def main():
     print("\n-- resume identity (both digests) --")
     check_resume_identity()
     check_dependency_currency()
+    check_config_readers()
+    check_dependency_topology()
+    check_digest_projection()
     print("\n-- evidence atomicity (RUNNING + immutable logs) --")
     check_evidence_atomicity()
     print("\n-- raw-log trust (a PASS is only as good as its cited log) --")
