@@ -1424,6 +1424,30 @@ law `none`; neither alone proves numerical accuracy of the real Syren fit.
 State what is tested, what remains outside the gates, and when re-vendoring
 requires retraining.
 
+### DIDACTICS-93 -- a covariance loop calls its numerical step `h`, colliding with cosmological `h`
+
+`compute_data_vectors/compute_cmb_covariance.py:472,558-573` uses `h` for a
+finite-difference step fraction in prose, the loop variable, and the
+`stencil_derivative` call. In cosmology, `h` already means the dimensionless
+Hubble parameter `H0/100`; for the repository's Planck-LCDM fiducial it is
+`0.6736`. The collision caused a real audit misunderstanding and therefore is
+not merely cosmetic. Rename the numerical value to `step_frac` in Python and
+`s_step` in explanatory equations, including derivative helper parameters,
+diagnostics, and persisted labels. Do not change arithmetic or artifact
+schema values. The AST-minus-docstrings acceptance must show only identifier
+and documentation changes, and the Planck-LCDM covariance control remains
+byte-identical.
+
+The same completion pass must use an untruncated `h` census, not stop at the
+first file. Current additional collisions include EMA horizon
+(`training.py:1353`), neural hidden states (`designs/plain.py`,
+`designs/ia.py`, and `designs/blocks.py`), focal hardness
+(`losses/core.py:612-623`), and local Hubble-function arrays
+(`cobaya_theory/emul_baosn.py:333`, `gates/checks/bsn_smoke.py:374`). Use
+names such as `horizon_epochs`, `hidden`, `hardness`, and `hubble_values`.
+This is a readability rename, not permission to change equations or persisted
+field names.
+
 ### README audit exclusions and existing owners
 
 The loop re-observed, but did not duplicate, four existing contracts:
@@ -1581,9 +1605,11 @@ discriminating leg set in its scientific owner before any chat handoff:
   campaign; and
 - `25M-06`: `.ranges` serialization collapses float32-distinct legal bounds —
   `data-generation-and-cuts.md`, canonical-representation campaign;
-- `25M-07`: a large positive CMB stencil step evaluates negative lensing
-  power and can still converge — `families-scalar-cmb.md`, covariance-input
-  unit;
+- `25M-07`: **RETRACTED** after the ambiguous `h` notation was challenged;
+  the proposal assumed signed finite-difference arms were forbidden without
+  proving CAMB's contract. Here the code's local `h` meant a numerical step,
+  not cosmological `h=H0/100`; `families-scalar-cmb.md` retains the full
+  correction and the number is retired;
 - `25M-08`: tiny positive CMB stencil steps round to no perturbation and
   certify zero non-Gaussian covariance — `families-scalar-cmb.md`, same unit;
 - `25M-09`: deleting the optional `pce`/`transfer_base` group changes artifact
@@ -1598,8 +1624,23 @@ discriminating leg set in its scientific owner before any chat handoff:
   still publish — `families-scalar-cmb.md`, same unit; and
 - `25M-13`: BAOSN unions incompatible Hubble/D_M input domains and serves one
   stitched background from two cosmologies — `families-background-mps.md`,
-  unit-75/fixed-facts campaign.
+  unit-75/fixed-facts campaign; and
+- `25M-14`: a width-one transformer token makes the correction
+  input-independent while the trunk can hide the demotion —
+  `models-and-designs.md`, model-value-schema unit; and
+- `25M-15`: streaming memory planning charges a packed target as if it had
+  model-output width and can select an unsafe chunk — `training-stack.md`,
+  memory-accounting campaign.
 
 No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and
 original evidence.
+
+Architect adjudication overlay for the first batch (received after commit
+`fafc122`): all six were confirmed. `25M-01` mints unit 94 and couples
+generation-side support truth to unit 84's inference side; `25M-02` and
+`25M-03` amend unit 8, with `--chain` now an explicit mode axis; `25M-04`
+amends unit 53; `25M-05` extends unit 41 to sweep products; and `25M-06`
+extends unit 82 with unit 87's decimal-contract coupling. The Architect also
+adopted two process lessons: forward-walk the real signature after a repair,
+and file identity cannot substitute for representation truth.

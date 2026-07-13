@@ -650,34 +650,28 @@ refactor, band policy unchanged):**
    legs stay green unchanged).
 6. README prose in plain language; ledger codes stay in notes/.
 
-### 25M-07 amendment (Red Team CONFIRMED, awaiting Architect adjudication): an accepted stencil step can make lensing-potential power negative
+### 25M-07 RETRACTED by the Red Team (2026-07-13): the proposed step-size ceiling assumed a domain restriction that was not established
 
-The queued validator requires at least two finite, positive, strictly
-increasing `step_fracs`, but owns no upper physical-domain bound. In
-`compute_cmb_covariance.py:558-565`, the most negative five-point-stencil
-arm multiplies a positive band by `1 - 2h`. Thus any `h > 0.5` evaluates a
-negative lensing-potential power spectrum; `h == 0.5` evaluates an exactly
-zero band on the domain boundary rather than a centered interior derivative.
+The executed observation remains accurate: if the numerical step fraction is
+called `s_step`, the `-2 s_step` stencil arm uses factor `1 - 2 s_step`.
+For `s_step > 0.5`, that factor is negative. The filed conclusion did not
+follow. Vivian's statement that the cosmological reduced Hubble parameter is
+near `h = 0.7` exposed the dangerously ambiguous symbol; it was not evidence
+that the numerical step fraction should be near 0.7. Independently of that
+naming error, a centered finite-difference calculation may deliberately
+evaluate a formal signed extension even though that arm is not a standalone
+physical spectrum. The Red Team had not proved from CAMB's executed contract
+that signed arms are forbidden, and the affine fake proved only the
+arithmetic, not physical invalidity.
 
-The real `nongaussian_blocks` body was executed with a finite linear fake
-CAMBdata and `step_fracs=[0.1,0.6]`. It accepted the configuration, recorded a
-minimum perturbed `clpp` of `-0.2`, reported convergence at about
-`9.77e-15`, and returned all-finite covariance blocks. Finiteness and
-cross-step agreement can therefore certify an out-of-domain calculation.
-This is a missing scientific-domain clause in the covariance-input unit, not
-a new unit.
-
-Required contract: every step satisfies `0 < h < 0.5`, or a stricter named
-cap justified for the CAMB relensing API, before any CAMB construction/call.
-The provenance records the exact amplitude factors
-`{1-2h, 1-h, 1+h, 1+2h}`. No clamp, absolute value, or skipped arm is allowed:
-the requested centered stencil is either physical or refused.
-
-Pure gate legs: `h=0.499` is accepted with all factors positive; `0.5`,
-`0.5001`, and `1.0` refuse before a fake CAMB call; shipped
-`[0.01,0.02,0.04]` remains byte-identical; and a mutation retaining only the
-finite/positive/increasing validation executes the negative-`clpp` fake and
-must red.
+Therefore the proposed `0 < s_step < 0.5` validation, refusal legs, and
+unit-13 amendment are withdrawn. No code or gate change is owed from 25M-07.
+The identifier is retired and may not be reused. A future restriction needs
+an independent CAMB known-answer showing that the signed arm produces a wrong
+derivative, not the category assumption that every stencil evaluation must be
+a realizable cosmology. This correction was made immediately after the user
+identified the notation collision and before Architect adjudication of the
+second batch.
 
 ### 25M-08 amendment (Red Team CONFIRMED, awaiting Architect adjudication): positive steps can round to no perturbation and certify zero non-Gaussian covariance
 
@@ -690,11 +684,12 @@ Executed through the real `nongaussian_blocks` body with a finite linear fake:
 all 16 relensing inputs were byte-identical to the fiducial (one unique byte
 string), every derivative and covariance block was exactly zero, and every
 spread was `0.0`. The study therefore labels a no-op perturbation perfectly
-converged and silently deletes the non-Gaussian term. This is distinct from
-25M-07's upper physical-domain ceiling.
+converged and silently deletes the non-Gaussian term. This representability
+failure stands independently of the retracted 25M-07 domain claim.
 
-Required contract: before CAMB, each step has ordered representable float64
-factors `1-2h < 1-h < 1 < 1+h < 1+2h`. After multiplication, every nonzero
+Required contract: before CAMB, each `s_step` has ordered representable
+float64 factors
+`1-2*s_step < 1-s_step < 1 < 1+s_step < 1+2*s_step`. After multiplication, every nonzero
 band must actually change on both signs; genuinely zero physical bands retain
 their existing zero-band policy. Persist the factors and changed-value counts.
 Derive the boundary from representation (`nextafter`) rather than a magic
@@ -705,6 +700,26 @@ relensing; cases bracketing `nextafter(1, +/-inf)` prove the exact boundary;
 shipped steps remain unchanged; nonzero-band payloads differ on both signs;
 the physical-zero control stays legal; and a mutation retaining only
 positive/increasing checks returns zero blocks and must red.
+
+### User ruling for covariance reasonableness (2026-07-13)
+
+Scientific reasonableness is anchored to the repository's Planck-LCDM
+fiducial, not to arbitrary extreme synthetic cosmologies. The current
+reference is the explicit `example_yamls/cmb_covariance_lcdm.yaml` mapping:
+`H0=67.36` (therefore cosmological `h=0.6736`), `As=2.1e-9`,
+`ns=0.9660`, `omegabh2=0.02237`, `omegach2=0.1200`, `tau=0.0544`, and
+`mnu=0.06`, together with its declared experiment and numerical controls.
+Those values must remain a byte-identical known-answer control whenever the
+covariance validator changes.
+
+An extreme fake can still demonstrate that a schema accepts an undefined or
+unrepresentable input, or prove that a gate catches a mutation. It cannot by
+itself establish that the code gives a scientifically wrong covariance for a
+reasonable cosmology. Findings 25M-08, 25M-11, and 25M-12 are therefore
+schema-totality and catch-power claims; they are not claims that the shipped
+Planck-LCDM calculation is numerically wrong. Any future science-result claim
+must execute the Planck-LCDM control or a clearly justified neighboring
+cosmology and compare against an independent known answer.
 
 ### 25M-11 amendment (Red Team CONFIRMED, awaiting Architect adjudication): individually nonnegative T/E noise amplitudes can define an indefinite joint covariance
 

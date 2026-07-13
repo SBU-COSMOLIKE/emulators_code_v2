@@ -971,6 +971,49 @@ an NPCE/loss-resident fixture flips the placement decision at a
 deliberately tight budget; mutation controls prove the first-dtype
 multiplication and the buffer omission fail.
 
+## 25M-15 (Red Team CONFIRMED, awaiting Architect adjudication): the streaming planner charges a packed target as if it had model-output width
+
+`batching.py:121-128` computes transient batch I/O as the encoded input plus
+two copies of the model output: one output and an assumed same-width target.
+That equality is false for public packed-target losses. `_build_loaders_one`
+correctly resolves `tgt_dim = getattr(chi2fn, "target_dim", out_dim)` and uses
+it for resident encoded targets (`batching.py:276-289,346`), but both
+streaming regimes call `batches_per_load` without `tgt_dim`
+(`batching.py:380-407`). The helper consequently sizes the chunk with the
+ordinary target assumption (`batching.py:210-214`).
+
+The reachable counterexamples are not hypothetical: `PCERatioChi2` and
+`TransferDiagChi2` stage `2*n_keep` values per row, while factored
+`TransferChi2` stages `(n_templates+1)*n_keep`. For `out_dim=7`,
+`target_dim=14`, batch size 3, and float32 tensors, the existing formula omits
+`3 * (14-7) * 4 = 84` bytes from every batch. A budget near a whole-batch
+boundary can therefore select two streamed batches where only one fits. This
+is distinct from 45M-84: that finding concerns the permanent host parameter
+copy, while this one concerns transient device memory for a wider target.
+The same helper ends with `max(1, int(free // per))`, so it also claims one
+batch fits when the corrected available bytes are smaller than one batch (or
+even negative). That is a refusal condition, not permission to ignore the
+budget.
+
+Required contract: one owner computes
+`input_bytes + model_output_bytes + actual_target_bytes`, with the resolved
+target width and dtype threaded from the same loader boundary that stages the
+target. Ordinary `target_dim == out_dim` behavior remains byte-identical.
+The planner report names each term rather than hiding target width inside a
+multiplier. If the complete resident-plus-one-batch requirement exceeds the
+declared budget, refuse before staging and report required, available, and
+each owned byte term; never force the count to one.
+
+This needs Torch evidence, so the Architect must commission a board-listed
+`gates/checks/` leg for Vivian's workstation. Pure arithmetic legs use
+`out_dim=7`, `target_dim=14`, `bs=3`, float32 and assert the additional 84
+bytes; a crafted budget makes the old formula choose two batches and the
+repaired formula choose one. Integration legs exercise at least one real
+packed-target loss in a streaming regime, retain an ordinary-target control,
+and include a mutation that restores `2*out_bytes` and must red. A second
+boundary leg supplies less than one corrected batch and proves loud refusal;
+restoring the `max(1, ...)` fallback must red.
+
 ## make_chi2 turns every unknown rescale mode into the residual algorithm (red-team 45M-15, 2026-07-12, Architect-VERIFIED; queue 39)
 
 losses/core.py:839-847: `if rescale == "none"` returns CosmolikeChi2;

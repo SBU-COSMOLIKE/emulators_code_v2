@@ -660,6 +660,17 @@ means plain; legacy presence-only artifacts refuse with a migration/re-save
 instruction. Apply the same contract to `pce` and `transfer_base`, including
 mutual exclusion.
 
+Read-side addendum from the continuing audit: `config_yaml` already retains
+the top-level `pce:`/`transfer:` block, but rebuild never cross-checks it;
+`config_resolved_yaml` drops both. On transfer artifacts, deleting the parent
+`transfer_base` group while leaving root `transfer_refined=True` is also
+silently demoted: `_read_native_bool` is called only inside the
+`if "transfer_base" in f` branch (`results.py:635,652`). The existing two-way
+check therefore starts only after trusting parent presence. The gate must
+delete the parent while preserving the refined marker/config and require
+refusal. One authoritative consumed mode owns runtime validation; provenance
+YAML is corroborating evidence, not a second inference algorithm.
+
 Board-listed save/forge/rebuild legs: valid plain, NPCE, frozen transfer, and
 refined-transfer controls; delete `pce`; delete `transfer_base`; flip the enum
 without changing groups; add a forbidden second composition group; delete or

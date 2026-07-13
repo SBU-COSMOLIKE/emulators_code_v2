@@ -255,6 +255,45 @@ controls build under ordinary Python AND python -O; and the
 demotion-proof leg — a model requested as ResCNN/ResTRF must contain
 at least one corresponding head block.
 
+### 25M-14 amendment (Red Team CONFIRMED, awaiting Architect adjudication): token width one makes a requested transformer correction input-independent
+
+The public single-axis ResTRF path accepts `model.trf.n_tokens` from 2 through
+the full output length (`designs/plain.py:848-870`). Setting `n_tokens` equal
+to `n_out` produces one scalar coordinate per token, so
+`max_bin = token_width = 1`; `n_heads: 1` satisfies the only constructor guard
+(`designs/blocks.py:601-605`). This is reachable through the active model
+schema and `build_specs` (`experiment.py:294-316,4430-4452`).
+
+For feature width one, LayerNorm is algebraically input-independent: its mean
+is the scalar itself, its variance is zero, and every normalized value is
+zero before the learned affine bias. Both TRFBlock pre-normalized branches
+therefore discard the input (`blocks.py:609-677`). With `film: false`, all
+attention and MLP branch outputs are learned constants per token, independent
+of cosmology. For any trained weights, `TRFBlock(x)-x` is independent of `x`;
+stacking blocks preserves only an input-independent additive correction.
+ResTRF returns `t-t0` as the head correction (`plain.py:1010-1028`), so the
+requested transformer can never learn a sample-dependent correction while
+the ResMLP trunk can still train and pass aggregate collapse bars. This is a
+silent architecture demotion missed by unit 29's current geometry-dependent
+`n_tokens` bounds.
+
+Required contract: the active-model validator derives token widths from the
+real geometry before construction and refuses any TRF configuration whose
+maximum token width is below two, naming output length, token count, resolved
+width, and the LayerNorm degeneracy. The same invariant applies to plain and
+factored TRF constructors. Accepted adjacent configurations remain unchanged;
+no padding or artificial embedding silently repairs a requested design.
+
+This requires Torch evidence, so the Architect must commission a
+`gates/checks/` leg and list it on the board for Vivian's GPU workstation.
+Required legs: a single-bin `N=4, n_tokens=4, n_heads=1, film=false` config
+refuses before model construction; bypassing validation with deterministic
+nonzero head weights gives identical corrections for two distinct `t0` rows
+and a zero correction Jacobian with respect to `t0`; adjacent `n_tokens=3`
+constructs and has an input-dependent correction; plain and factored paths
+share the verdict; and a mutation restoring only the divisibility/range checks
+must green construction but red the behavioral witness.
+
 ## The science doctrine
 
 - The objective is SAMPLE EFFICIENCY: the position of the

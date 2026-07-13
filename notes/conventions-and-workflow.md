@@ -56,6 +56,18 @@ with the LSST-Y1 concrete example. Enumeration rot is a named defect
 change). Doc-only passes are PROVEN by the AST-minus-docstrings hash
 census, never asserted.
 
+Domain-symbol names must not collide with a different established cosmology
+quantity. In particular, reserve `h` for the dimensionless Hubble parameter
+`H0/100`; the covariance finite-difference control is `step_frac` in Python
+and `s_step` in prose/equations, never an unexplained local `h`. This applies
+to code, comments, diagnostics, notes, and handoffs: a reader must not have to
+infer which scientific quantity a one-letter name means from context.
+For covariance calculations, "reasonable cosmology" means the explicit
+Planck-LCDM fiducial recorded in `example_yamls/cmb_covariance_lcdm.yaml`, or
+a scientifically justified neighboring cosmology. An extreme synthetic fake
+can prove validator catch-power but cannot, on its own, prove the science
+answer wrong.
+
 Red-team documentation census at HEAD 32f7545 (2026-07-12): 92 Python
 files; 6 lack a module docstring, 175 function/method definitions lack
 a docstring, and 6 small gate-stub classes lack one. Those raw numbers
