@@ -1056,3 +1056,40 @@ Contract:
 5. Sequencing: standalone small unit — after the queue-2 evidence
    rollout, before queue 5 (the workstation run certifies the fixed
    surface).
+
+## UNIT 66 AMENDED (20M-07, 2026-07-13): the ownership surface is every public exit — predictor, diagnostics, AND the Cobaya getters; the census is alias-aware
+
+Finding (red team, CONFIRMED): the original unit-66 census
+(.numpy() sites in inference.py + diagnostics.py) misses the
+adapters' second alias path — getters that return live calculation
+state by reference with no .numpy() token: emul_cmb.get_Cl (:283),
+emul_cosmic_shear.get_cosmic_shear (:197), emul_mps.get_Pk_grid
+(:420-421, the whole (k, z, P) tuple). A destructive first consumer
+(unit conversion, calibration, masking, a user diagnostic) corrupts
+the provider cache for every later consumer at the same point.
+
+Amendment (binding, folds in before the unit lands):
+
+1. The ownership surface is every PUBLIC exit: EmulatorPredictor
+   returns, public diagnostic dictionaries, and every Cobaya getter
+   across the five adapters.
+2. The calculation state is the immutable cached scientific result;
+   each public return owns its arrays AND its mutable containers.
+   The copy happens at the getter boundary — never by duplicating
+   large arrays repeatedly inside calculate.
+3. Nested structures are handled deliberately: the CMB dict plus its
+   arrays; the MPS tuple plus all three arrays; the cosmic-shear
+   vector. Immutable scalar returns need no copy.
+4. The census detects `return self.current_state[...]` and
+   equivalent nested aliases — an AST/code census, not a .numpy()
+   grep alone.
+5. Docstrings state that "cache" means provider-owned and read-only
+   to consumers, even though NumPy cannot enforce constness.
+
+Added legs (with the original unit-66 legs): per affected getter —
+get once, mutate every returned array and container, get again; the
+second result AND current_state byte-identical to a pristine
+reference; two simulated likelihood consumers (destructive first,
+read-only second); MPS edits to each of k, z, P; CMB edits to ell
+and one spectrum; mutation arms restoring each direct return must
+red. CPU-only. Sequencing unchanged: after queue 2, before queue 5.

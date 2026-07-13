@@ -1900,3 +1900,35 @@ half). EMUL2 ACCEPTANCE IS FORMALLY BLOCKED on 67 + 69 + 71 + 72 +
 can pass startup and fail (or silently mis-serve) at evaluation.
 Population, 69+70, and queue 2 stay ahead of the cluster as
 sequenced.
+
+## 20M-07/08 adjudication (Fable, 2026-07-13): both CONFIRMED — unit 66 AMENDED, new unit 75
+
+20M-07 CONFIRMED in code: emul_cmb.get_Cl returns
+self.current_state["Cl"] directly (:283, read this session),
+emul_cosmic_shear.get_cosmic_shear returns
+self.current_state["cosmic_shear"] (:197), and emul_mps.get_Pk_grid
+returns the cached tuple (:420-421) — a destructive first consumer
+edits the product every later consumer at the same cosmology reads.
+This is exactly the derived-cached-array attack class the Architect
+flagged for unit 66, and the red team is right that a .numpy()-token
+census cannot see it (these getters leak NumPy objects through
+container returns). RULING: UNIT 66 AMENDED (spec updated in
+artifacts-inference-warmstart.md) — the ownership surface is every
+public exit (predictor, diagnostics, AND Cobaya getters), copies at
+the getter boundary, alias-aware census. Sequencing unchanged (after
+queue 2, before queue 5); the amendment folds in BEFORE the landing.
+
+20M-08 CONFIRMED in code: emul_mps.initialize accepts any
+pklin+boost pair with equal z,k axes, UNIONS both predictors'
+names into one requirement mapping (:231-232), and the comment
+claiming the axes prove "one generator run" (:267, :279) is a false
+implication — the red team's probe composed an LCDM pklin with a
+w-carrying identity boost, published w, and served the w=-1 surface
+at w=-0.5 (74.5% max deviation from the real base). Distinct from
+unit 74 (single-artifact fixed facts): this is CROSS-ARTIFACT domain
+identity. RULING: NEW UNIT 75 (families-background-mps.md),
+extending the artifact-pair integrity campaign and READING THE SAME
+fixed-facts block as units 71/74 — pair equality is proven on the
+persisted scientific-domain binding, never manufactured by a union.
+EMUL2 acceptance blocklist grows to 67 + 69 + 71 + 72 + 73 + 74 +
+75.

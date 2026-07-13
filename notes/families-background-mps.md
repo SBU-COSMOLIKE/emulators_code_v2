@@ -1160,3 +1160,43 @@ Torch/CAMB is needed). Sequencing: wave-4 MPS adapter visit;
 EMUL2-blocking; the producer clause lands with the generator-side
 schema work, coordinated so the consumer never reads a fact the
 producer does not yet write.
+
+## UNIT 75 (20M-08, 2026-07-13, HIGH): the MPS pair proves one scientific domain — axis equality is not provenance
+
+Finding (red team, CONFIRMED): emul_mps.initialize accepts any two
+grid2d artifacts labeled pklin + boost with equal stored z,k arrays
+(:215-280), unions their predictor.names into one requirement
+mapping (:231-232), and multiplies their outputs (:357-394); the
+in-code comment that matched axes prove "they come from one
+generator run" (:267, :279) is false. Probe: an LCDM pklin (no w)
+composed with a w-carrying identity boost initializes, publishes w
+to Cobaya, and serves the w = -1 linear surface at w = -0.5 — 74.5%
+maximum relative deviation from the real vendored base, finite and
+positive throughout.
+
+Contract (ratified; extends the artifact-pair integrity campaign —
+no new publication mechanism):
+
+1. Both MPS products persist a canonical generator / dataset /
+   scientific-domain binding (carried in the SAME fixed-facts block
+   as units 71/74), and equality is REQUIRED before Cobaya
+   requirements are published.
+2. Compatible input schemas are proven, not manufactured: same named
+   parameter coordinates under the canonical mapping, same domains,
+   same fixed cosmology facts. The requirement union NEVER creates
+   compatibility a pair does not have.
+3. Mismatches refuse before either predictor serves.
+4. Valid same-run pair numerics stay byte-identical; swapped
+   artifact list order is valid (quantity labels identify the pair,
+   not list position).
+
+Legs (ratified): same-run pklin+boost passes; equal axes with a
+different dataset digest refuses; w present in only one artifact
+refuses; differing parameter order proves canonical equivalence or
+refuses; differing fixed facts refuse; differing generator manifest
+refuses; swapped root order passes; an axes-only mutation (the
+current check) must FAIL the gate; a real valid-pair calculate
+control pins today's output. Schema legs CPU; the real-artifact
+lifecycle leg board-listed (workstation if Torch is needed).
+Sequencing: wave-4 MPS adapter visit with units 73 + 74;
+EMUL2-blocking.

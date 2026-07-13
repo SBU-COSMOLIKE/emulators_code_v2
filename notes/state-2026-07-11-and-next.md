@@ -1824,6 +1824,22 @@ join the wave-4 CMB/scalar visits, 73+74 the MPS visit; EMUL2
 ACCEPTANCE FORMALLY BLOCKED on 67+69+71+72+73+74. Spec:
 gates-and-board.md "20M-03..06 adjudication".
 
+20M-07/08 BATCH (2026-07-13, Fable): both CONFIRMED. 20M-07 (the
+Cobaya getters return the live calculation cache by alias — get_Cl,
+get_cosmic_shear, get_Pk_grid; a destructive first consumer corrupts
+every later one; invisible to a .numpy() census) -> UNIT 66 AMENDED:
+ownership surface = every public exit incl. the five adapters'
+getters, copies at the getter boundary, alias-aware census, folds in
+before the unit lands. 20M-08 (the MPS pair check proves axis
+equality only and unions names into manufactured compatibility — an
+LCDM pklin + w-carrying boost served the w=-1 surface at w=-0.5,
+74.5% off the real base; the "one generator run" comment is false)
+-> NEW UNIT 75: pair scientific-domain binding read from the shared
+fixed-facts block, refusal before serving, union never creates
+compatibility; wave-4 MPS visit. EMUL2 blocklist now
+67+69+71+72+73+74+75. Spec: gates-and-board.md "20M-07/08
+adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
