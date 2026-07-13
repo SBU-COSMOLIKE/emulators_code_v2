@@ -1429,7 +1429,7 @@ def _global_grad_norm(params):
 
 
 def ordinary_median(values):
-  """The ordinary 50th-percentile median (unit 60, 45M-57).
+  """The ordinary 50th-percentile median (unit 60).
 
   The center value for odd N, the arithmetic MEAN of the two center values
   for even N -- the standard estimator every prose, plot, history, and gate
@@ -1461,7 +1461,7 @@ def ordinary_median(values):
 
 
 def _validate_published_reductions(mean, median, frac):
-  """Refuse a non-finite PUBLISHED reduction (unit 14(f), 45M-58, clause 4).
+  """Refuse a non-finite PUBLISHED reduction (unit 14(f),, clause 4).
 
   eval_val's row guard validates the per-sample chi2, but the reductions it
   publishes (the mean, the median, the threshold fractions) are appended to
@@ -1615,17 +1615,17 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
   # selection only ever compares valid scores). The shared score-domain
   # boundary raises on a non-finite OR materially negative per-sample chi2
   # (a negative compares False to every positive threshold and would rank a
-  # corrupted model as PERFECT, 45M-53), naming the offending validation
+  # corrupted model as PERFECT), naming the offending validation
   # rows; within-band roundoff negatives normalize to exact 0, the same rule
   # the training reduction folds to NaN. c is already the compute-dtype tensor
   # (no .double() before this), so the band matches the accumulated roundoff.
   c = screen_chi2(c, loss=lossfn, label="validation",
                   positions=np.concatenate(order_rows))
-  # published reductions in float64 (unit 14(f), 45M-58): a float32 mean of
+  # published reductions in float64 (unit 14(f)): a float32 mean of
   # rows near the float32 max overflows to Inf AFTER the row guard passed
   # (the sum exceeds float32 range in any order), so the mean is formed in
   # float64. The median is the ordinary 50th-percentile estimator (unit 60,
-  # 45M-57) -- torch.median's lower-middle sample for even n_val biased the
+  #) -- torch.median's lower-middle sample for even n_val biased the
   # plateau-scheduler feed, the equal-fraction tie-break, and the persisted
   # history; ordinary_median (float64, torch.quantile 0.5) fixes all four at
   # once because they all consume this returned median.
@@ -1703,7 +1703,7 @@ def eval_source_chi2(model,
       chunks.append(c.cpu())
 
   c_compute = torch.cat(chunks)          # per-row chi2 in the COMPUTE dtype
-  # chi2-domain contract (45M-53 / 45M-60 second addendum): a diverged model's
+  # chi2-domain contract: a diverged model's
   # non-finite OR materially negative per-row chi2 must not be published as a
   # diagnostic metric (a silent NaN, or a negative delta-chi2, in the
   # parameter-space plots). The shared score-domain boundary raises here (it
@@ -2160,7 +2160,7 @@ def training_loop_batched(nepochs,
                              steps_per_epoch=steps_per_epoch)
 
     # epoch training loss, accumulated on-device
-    # 45M-47: accumulate the epoch loss on the HOST as a python float
+    # accumulate the epoch loss on the HOST as a python float
     # (float64 on every backend, MPS included), not a device float32 sum.
     # A finite per-batch loss near the float32 max, times bs, overflows a
     # float32 product to Inf before it reaches the accumulator (and on MPS
@@ -2242,13 +2242,13 @@ def training_loop_batched(nepochs,
         # weights (the shipped model).
         if anchor is not None:
           anchor.apply(optimizer)
-        # host float64 accumulation (45M-47): read the scalar loss to the
+        # host float64 accumulation: read the scalar loss to the
         # host and multiply by bs there, so the product cannot overflow a
         # float32 before the sum. loss is already finite (the guard above).
         run_sum += float(loss.detach()) * bs
         run_n   += bs
     train_loss = run_sum / run_n
-    # 45M-47: a reduction's result must be checked -- finite per-batch
+    # a reduction's result must be checked -- finite per-batch
     # operands do not prove a finite epoch mean. Refuse to publish (append,
     # print, persist) a non-finite epoch loss; name the epoch.
     if not np.isfinite(train_loss):

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """diagnostics-domain gate: the shared score-domain boundary at every chi2
-CONSUMER (45M-61) — torch only (no cobaya, no CAMB, no cosmolike).
+CONSUMER — torch only (no cobaya, no CAMB, no cosmolike).
 
 Increment (e) landed the finite-chi2 contract at the training reduction and
 the two evaluation boundaries; increment (h) extends it to the diagnostics

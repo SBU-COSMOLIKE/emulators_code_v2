@@ -3385,7 +3385,7 @@ class EmulatorExperiment:
 
   def _report_cmb_staging(self, law, spectrum, ell, center, sigma,
                           fiducial_cl, as_ref, tau_ref, f, covariance):
-    """Print the one-line CMB amplitude-law staging verdict (45M-22).
+    """Print the one-line CMB amplitude-law staging verdict.
 
     Called once per staging, after the CmbDiagonalGeometry is built, so a
     unit or fiducial mismatch is visible BEFORE the (expensive) training

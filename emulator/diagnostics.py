@@ -38,7 +38,7 @@ from .losses.core import screen_chi2
 
 def _screen_diag_chi2(chunks, chi2fn, label, positions):
   """Concatenate the per-chunk compute-dtype chi2 and pass it through the
-  shared score-domain boundary (45M-61).
+  shared score-domain boundary.
 
   The CMB / grid / grid2d residual functions each accumulate their
   per-sample chi2 in the COMPUTE dtype (the model's float32, never a
@@ -254,7 +254,7 @@ def local_linear_floor(model,
   # the model-independent interpolation floor is a PUBLISHED score
   # (f_floor / f_hard / median_floor read it directly), so it passes the
   # shared score-domain boundary BEFORE any interpretation -- and in its
-  # COMPUTE dtype, not a .double() upcast (45M-61): a geometry that strict
+  # COMPUTE dtype, not a.double() upcast: a geometry that strict
   # loading accepted but whose Cinv is not positive-definite can make this
   # floor negative, which the old dchi2_floor > 0.2 test read as a PERFECT
   # 0. screen_chi2 refuses it (or normalizes a within-band roundoff negative

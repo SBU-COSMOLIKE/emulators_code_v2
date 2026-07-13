@@ -81,7 +81,7 @@ def anneal_value(epoch, opts):
   return float(val)
 
 
-# 45M-24 + 45M-53 + 45M-60: a chi2 is a sum of (possibly matrix-contracted)
+# a chi2 is a sum of (possibly matrix-contracted)
 # whitened products, mathematically >= 0; float roundoff in a non-PSD-adjacent
 # precision contraction (the dense / rescaled / transfer forms) can nudge a
 # near-zero value slightly negative. The allowed band is scale-aware in the
@@ -94,7 +94,7 @@ def anneal_value(epoch, opts):
 # reduction (folds bad to NaN, the landed per-step refusal) AND the eval /
 # diagnostic boundaries (which raise), so training can never call a row exact
 # that scoring reports negative.
-_CHI2_NEG_KAPPA = 32   # the roundoff-band multiple of eps * width (45M-53/60)
+_CHI2_NEG_KAPPA = 32 # the roundoff-band multiple of eps * width (/60)
 
 
 def _chi2_neg_band(dtype, n_terms):
@@ -151,7 +151,7 @@ def _chi2_domain(c, band):
 
 
 def screen_chi2(chi2, loss, label, positions=None):
-  """The shared score-domain boundary for every chi2 CONSUMER (45M-61).
+  """The shared score-domain boundary for every chi2 CONSUMER.
 
   One public helper for every site that PUBLISHES or RANKS a per-sample chi2
   -- eval_val, eval_source_chi2, and the diagnostics producers (the local
@@ -317,7 +317,7 @@ class CosmolikeChi2:
     return self.geom.total_size
 
   def _chi2_n_terms(self):
-    """Per-row reduction DEPTH of this chi2's contraction (45M-60).
+    """Per-row reduction DEPTH of this chi2's contraction.
 
     The chi2-domain band scales with the roundoff of the chi2 sum. Near a
     small chi2 that roundoff is bounded by (accumulation depth) * eps *
@@ -334,7 +334,7 @@ class CosmolikeChi2:
     closed). ScalarChi2 (a diagonal sum of n_out squares) inherits this
     unchanged and is correct with no override. The value is a per-run
     constant, read once at the top of _reduce and by the eval / diagnostic
-    boundaries. GROWTH CLAUSE (45M-60): the band may only ever WIDEN on
+    boundaries. GROWTH CLAUSE: the band may only ever WIDEN on
     measured valid roundoff evidence (the gate's ill-conditioned SPD
     control), never for convenience.
 
@@ -525,7 +525,7 @@ class CosmolikeChi2:
     Returns:
       a scalar loss tensor.
     """
-    # 45M-24 + 45M-53 producer contract: reject a corrupted (materially
+    # producer contract: reject a corrupted (materially
     # negative or non-finite) chi2 BEFORE the transform, folding it to NaN so
     # the finite contract's per-step guard refuses the run; a within-band
     # roundoff negative is normalized to an exact-fit 0. The SAME predicate
@@ -567,7 +567,7 @@ class CosmolikeChi2:
       # sqrt(t1), both slopes 1/(2 sqrt(t1)). where() evaluates both
       # branches, so both must be finite for c >= 0 (they are); the lower
       # branch is _safe_sqrt so an exact-fit c == 0 also has a finite (0)
-      # gradient, not the 0/0 = NaN a plain sqrt would leak here (45M-24).
+      # gradient, not the 0/0 = NaN a plain sqrt would leak here.
       if berhu_knot is None:
         raise ValueError(
           "mode 'berhu' needs a berhu_knot (the C1 knot); the "
@@ -588,7 +588,7 @@ class CosmolikeChi2:
       # branch, and at an exact-fit c == 0 that term's plain-sqrt gradient
       # (infinite at 0) times the branch's masked-off 0 upstream gradient is
       # 0 * inf = NaN, poisoning the exact-fit row even though it selects the
-      # lower branch (45M-24 -- the fifth sqrt site the four-site count of
+      # lower branch (the fifth sqrt site the four-site count of
       # the spec did not name; see the note).
       if berhu_knot is None or berhu_cap is None:
         raise ValueError(

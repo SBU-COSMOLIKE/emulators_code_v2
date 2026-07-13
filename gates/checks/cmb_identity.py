@@ -16,12 +16,12 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     (A_s_ref/A_s) exp(2 (tau - tau_ref)) bitwise, is exactly 1 at the
     fiducial reference and order-one over the box, and encode(decode(x))
     returns x to float32 tolerance; the metric divides the factor back out
-    (45M-21) so the physical chi2 is invariant under (A_s, tau) at a fixed
+ so the physical chi2 is invariant under (A_s, tau) at a fixed
     physical residual, the uncorrected plain sum misses by f^2, the
     roughness residual is factor-corrected, and chi2 without params raises;
     the registry / configure_law loud errors fire, the retired as_exp2tau
     law and the missing-reference case are refused, and a raw-factor
-    mutation fails both the fiducial-unity and order-one legs (45M-22);
+    mutation fails both the fiducial-unity and order-one legs;
   - save -> rebuild -> EmulatorPredictor.predict is bitwise vs the pre-save
     decode, on BOTH laws; the predictor takes the CMB branch and exposes
     spectrum / ell / units / amplitude_law;
@@ -107,7 +107,7 @@ IN_NAMES = ["As", "tau", "omegam"]
 N_IN = len(IN_NAMES)
 
 # the fixture fiducial reference pair the order-one law measures against
-# (45M-22): the recommended values are the covariance's own fiducial, so
+#: the recommended values are the covariance's own fiducial, so
 # these mirror a plausible LCDM (A_s ~ 2.1e-9, tau ~ 0.0544). The factor
 # is exactly 1 at (As, tau) == (AS_REF_FIXTURE, TAU_REF_FIXTURE).
 AS_REF_FIXTURE  = 2.1e-9
@@ -332,7 +332,7 @@ def check_law(tmp, device):
            "bitwise (same decoded params)",
            torch.equal(f, want), "max|d| = %.2e"
            % (f - want).abs().max().item())
-    # 45M-22: the factor is exactly 1 at the fiducial reference and stays
+    # the factor is exactly 1 at the fiducial reference and stays
     # order-one over the sampled box (the retired raw exp(2 tau)/A_s is
     # ~5e8 there). Build a row whose DECODED params are exactly the
     # fiducial pair, then read the factor.
@@ -357,7 +357,7 @@ def check_law(tmp, device):
     report("encode(decode(x)) round-trips to float32 round-off",
            rel < 1e-4, "max rel %.2e" % rel)
 
-    # 45M-21: the metric divides the per-row factor back out, so the physical
+    # the metric divides the per-row factor back out, so the physical
     # chi2 is invariant under (A_s, tau) at a FIXED physical residual, where a
     # plain sum of the whitened residual would carry f^2. Build pred/target
     # whose whitened residual is f * phys_r for one shared physical residual;
@@ -396,7 +396,7 @@ def check_law(tmp, device):
     except ValueError:
         report("unknown law raises", True, "ValueError")
     # the retired raw-factor law is refused with its retrain instruction
-    # (45M-22): an old convention name is never silently reinterpreted.
+    #: an old convention name is never silently reinterpreted.
     try:
         make_cmb_chi2(geom=geom, law="as_exp2tau", param_geometry=pgeom,
                       as_name="As", tau_name="tau")
@@ -433,7 +433,7 @@ def check_law(tmp, device):
         report("configure_law non-positive as_ref raises",
                "positive" in str(e), "ValueError")
 
-    # --- the raw-factor mutation arm (45M-22): a loss whose _factor
+    # --- the raw-factor mutation arm: a loss whose _factor
     # restores the RETIRED raw exp(2 tau)/A_s must FAIL both the
     # fiducial-unity leg (f_fid ~ 5e8, not 1) and the order-one leg. This
     # proves the two red legs actually discriminate the fixed law from the

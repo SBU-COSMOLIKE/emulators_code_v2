@@ -133,14 +133,14 @@ class ResidualRoughness:
 # code default). "none" learns the raw C_ell shape and needs nothing;
 # "as_exp2tau_ref" imposes the DIMENSIONLESS order-one factor
 # f = (A_s_ref / A_s) * exp(2 (tau - tau_ref)), f == 1 at the persisted
-# fiducial (45M-22), and needs the two named input columns it reads A_s /
+# fiducial, and needs the two named input columns it reads A_s /
 # tau from PLUS the two reference values (as_ref, tau_ref).
 AMPLITUDE_LAWS = {
   "none":           (),
   "as_exp2tau_ref": ("as_name", "tau_name", "as_ref", "tau_ref"),
 }
 
-# The retired raw-factor law (45M-22): f = exp(2 tau) / A_s carried an
+# The retired raw-factor law: f = exp(2 tau) / A_s carried an
 # arbitrary ~1e9-scale normalization (raw A_s ~ 2.1e-9), so its encoded
 # target and float32 conditioning were unit-porting defects. A config or a
 # persisted artifact naming it is refused with the retrain instruction --
@@ -155,7 +155,7 @@ _RETIRED_AMPLITUDE_LAWS = {
 
 
 def reject_retired_amplitude_law(law):
-  """Refuse a retired amplitude law with its retrain instruction (45M-22).
+  """Refuse a retired amplitude law with its retrain instruction.
 
   The shared adjudicator, called wherever a law name is resolved: the config
   build (make_cmb_chi2 below), the geometry h5 rebuild
@@ -252,7 +252,7 @@ class CmbDiagonalChi2(CosmolikeChi2):
 
     The plain diagonal residual pred - target is already physical, so this
     returns it unchanged. The imposed-amplitude subclass overrides it to
-    divide the per-row factor out, keeping the penalty law-neutral (45M-21).
+    divide the per-row factor out, keeping the penalty law-neutral.
     """
     return pred - target
 
@@ -260,7 +260,7 @@ class CmbDiagonalChi2(CosmolikeChi2):
   # length-n_ell (= kept width) diagonal reduction, the SAME depth as the
   # base dense r^T Cinv r. So the chi2-domain band's per-row term count
   # (_chi2_n_terms = the kept width w) is inherited from CosmolikeChi2
-  # unchanged; 45M-60 retired the redundant override that returned the same
+  # unchanged; retired the redundant override that returned the same
   # width.
 
   def loss(self, pred, target, mode="sqrt", trim=0.05,
@@ -317,7 +317,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
   before summing, so the reported metric is the physical cosmic-variance
   chi2 -- pred and target of one row share the same f, so a plain sum
   would carry f^2 (not cancel) and bias delta-chi2, the threshold
-  fractions, and selection by cosmology (45M-21).
+  fractions, and selection by cosmology.
 
   This mirrors RescaledChi2 (losses/core.py) with a per-row scalar factor
   in place of the per-element analytic R, and, like RescaledChi2, divides
@@ -396,7 +396,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     return self
 
   def _factor(self, params_whitened):
-    """Per-row DIMENSIONLESS amplitude factor for whitened inputs (45M-22).
+    """Per-row DIMENSIONLESS amplitude factor for whitened inputs.
 
     Decodes the whitened params to physical, reads A_s and tau by their
     resolved column positions, and forms the order-one factor
@@ -463,7 +463,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     whitened residual). A plain sum of its squares would therefore report
     f^2 * chi2_physical -- and since f = f(A_s, tau) varies by cosmology,
     that biases delta-chi2, every threshold fraction, and best-epoch
-    selection toward small-f cosmologies at a FIXED physical error (45M-21;
+    selection toward small-f cosmologies at a FIXED physical error (
     the old "cancels in the residual" claim was false -- pred and target of
     one row share the same f, so it does not cancel, it squares). This
     DIVIDES the factor back out of the residual before summing, so the
@@ -500,7 +500,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     The roughness penalty must see the PHYSICAL residual, not the
     f-scaled one -- without the division the penalty would carry f^2 like
     the uncorrected chi2 did, so it would depend on (A_s, tau) at a fixed
-    physical roughness (45M-21). Reads the parameters loss stashed (the
+    physical roughness. Reads the parameters loss stashed (the
     roughness term runs only inside loss, after the stash).
     """
     return (pred - target) / self._factor(self._params)
@@ -508,7 +508,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
   def loss(self, pred, target, params_whitened, *args, **kwargs):
     """Training loss: the inherited reduction, params stashed for the metric.
 
-    The amplitude factor is NOT neutral in the metric (45M-21): the chi2
+    The amplitude factor is NOT neutral in the metric: the chi2
     divides it back out of the residual, and the roughness penalty (when
     present) measures the same factor-corrected residual. loss stashes
     params_whitened so both -- the chi2 the reduction calls without params,
@@ -541,7 +541,7 @@ def make_cmb_chi2(geom, law, param_geometry=None, as_name=None,
   geometry, the two named input columns it reads A_s / tau from, and the
   fiducial reference pair (as_ref, tau_ref) that makes the factor order-one.
   The retired raw-factor law "as_exp2tau" is refused with the retrain
-  instruction (45M-22).
+  instruction.
 
   Arguments:
     geom           = CmbDiagonalGeometry for the spectrum (its .state() is

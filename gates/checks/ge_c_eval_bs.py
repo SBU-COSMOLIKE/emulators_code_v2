@@ -98,7 +98,7 @@ print(f"device {DEV}, target {_EVAL_BS_TARGET}, derived bs "
 print("\n=== Part 1: partition invariance (rtol 1e-6) ===")
 ref_c = per_row_chi2(N_VAL)
 # the reference matches eval_val's published reductions: the ordinary median
-# (unit 60, 45M-57) and the float64 mean (unit 14(f), 45M-58).
+# (unit 60) and the float64 mean (unit 14(f)).
 ref_med, ref_mean = ordinary_median(ref_c), ref_c.to(torch.float64).mean().item()
 ref_frac = (ref_c[:, None] > thresholds.cpu()[None, :]).float().mean(0)
 ok = True
@@ -115,7 +115,7 @@ for bs in (32, 517, 1000, 2048):
 print("Part 1:", "PASS" if ok else "FAIL")
 
 
-print("\n=== Part 1b: ordinary median (unit 60, 45M-57) ===")
+print("\n=== Part 1b: ordinary median (unit 60) ===")
 
 
 class _ColChi2:

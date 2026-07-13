@@ -1073,7 +1073,7 @@ def gate_bsn_a(ctx):
 
   WHAT: the cumulative Simpson (even doubled-grid points exact on cubics,
   the odd node the correct one-interval integral, exact on quadratics —
-  45M-12, superseding the old half-chunk form; the old form is the gate's
+, superseding the old half-chunk form; the old form is the gate's
   mutation control) and the H(z)->distances pipeline against a closed-form
   flat LCDM at 1e-6; the GridGeometry log_offset law both ways + the
   state round-trip byte-identical + the un-standardizable /
@@ -1243,13 +1243,13 @@ def gate_finite_contract(ctx):
   (no-extra both-arms NaN, one-arm NaN, Inf, extras-present NaN, and a
   non-finite transfer surface, each with the finite-contract message, never a
   misleading "extras leaked" / "frozen base" / tolerance verdict), and the
-  45M-24 safe-sqrt producer (an exact-fit chi2 == 0 has a finite, zero
+ safe-sqrt producer (an exact-fit chi2 == 0 has a finite, zero
   gradient in every sqrt mode instead of the 0/0 = NaN it used to produce;
   positives agree with sqrt; a negative / NaN chi2 is refused; eager and
-  torch.compile agree), and the 45M-47 epoch reduction (a finite per-batch
+  torch.compile agree), and the epoch reduction (a finite per-batch
   loss near the float32 max yields a finite epoch mean via host float64
   accumulation, where the old device float32 loss*bs product overflowed to
-  Inf), and the 45M-53 / 45M-60 chi2-domain boundary (eval_val and
+  Inf), and the chi2-domain boundary (eval_val and
   eval_source_chi2 raise on a finite negative chi2 that training folds; the
   scale-aware band scales with the per-row kept WIDTH, not w^2, so a
   production-width leg refuses a chi2 = -2 the retired w^2 rule crowned as
@@ -1257,8 +1257,8 @@ def gate_finite_contract(ctx):
   control shows genuine roundoff near zero falls inside the band); the valid
   controls keep their metrics and their [ok] parity lines. torch only, no
   cosmolike, no GPU (spec: training-stack.md, the "NaN scores as a perfect
-  emulator" section and its pre-training parity + 45M-24 + 45M-47 + 45M-53 +
-  45M-60 clauses).
+  emulator" section and its pre-training parity + +
+ clauses).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/finite_contract.py")
@@ -1437,7 +1437,7 @@ def gate_stage_ram(ctx):
 
 
 def gate_diagnostics_domain(ctx):
-  """diagnostics-domain: a corrupted chi2 never crowns a diagnostic (45M-61).
+  """diagnostics-domain: a corrupted chi2 never crowns a diagnostic.
 
   WHAT: the shared score-domain boundary at every chi2 CONSUMER, not just the
   training reduction and the two evaluation boundaries (increment (e)).
@@ -1538,16 +1538,16 @@ BOARD = [
        maps="the training-stack finite contract: the 'NaN scores as a "
             "perfect emulator' section (the eval_val / train-step / "
             "eval_source_chi2 guards), its pre-training parity clause "
-            "(build_warm_start + build_transfer_start), the 45M-24 "
+            "(build_warm_start + build_transfer_start), the "
             "safe-sqrt producer clause (exact-fit finite gradients per "
             "mode, positives analytic, negative/NaN chi2 refused, eager + "
-            "compiled), the 45M-47 epoch-reduction clause (host float64 "
+            "compiled), the epoch-reduction clause (host float64 "
             "accumulation; a finite epoch mean where the old float32 "
-            "loss*bs product overflowed), the 45M-53 chi2-domain "
+            "loss*bs product overflowed), the chi2-domain "
             "clause (eval_val / eval_source_chi2 raise on a finite "
             "negative chi2 that training folds; the scale-aware band; the "
             "finite-only false-crowning mutation; the capability-gated "
-            "compile arm), and the 45M-60 width-band clause (the band "
+            "compile arm), and the width-band clause (the band "
             "scales with the kept WIDTH, not w^2: a production-width leg "
             "refuses a chi2 = -2 the retired w^2 rule crowned perfect, a "
             "w^2-restoring mutation arm, a scalar-width leg, a subclass "
@@ -1641,7 +1641,7 @@ BOARD = [
        tier=TIER_BACKLOG,
        home="training-stack",
        maps="the training-stack increment (h) diagnostic-score-boundary "
-            "section (45M-61): the shared screen_chi2 helper (valid "
+            "section: the shared screen_chi2 helper (valid "
             "byte-identical, within-band roundoff to exact 0, materially "
             "negative / NaN / +-Inf refused naming the boundary + rows + "
             "band, the fallback-1 floor, the width-scaled band), the REAL "
@@ -1778,7 +1778,7 @@ BOARD = [
        title="CMB emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-scalar-cmb",
-       maps="110-117 (identity legs) + the 45M-21 amplitude-metric legs "
+       maps="110-117 (identity legs) + the amplitude-metric legs "
             "(the factored chi2 divides f out: physical-chi2 invariance "
             "under (A_s, tau), the uncorrected f^2 catch-power, the "
             "factor-corrected roughness residual, params-required); "
