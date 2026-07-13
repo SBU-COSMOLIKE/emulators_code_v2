@@ -405,6 +405,43 @@ def save_emulator(path_root,
   return emul_path, h5_path
 
 
+def _read_native_bool(attrs, key, *, default, where):
+  """Read an HDF5 boolean attribute with NO truthiness coercion.
+
+  A native boolean is required. An absent key returns the default; a Python
+  or numpy boolean returns its value; anything else (a string, an integer)
+  raises. HDF5 attributes carry no strong type, so a mistyped or forged
+  attribute like the string "False" would be TRUE under Python truthiness
+  (every nonempty string is true) and silently flip a feature-selection bit.
+  For transfer_refined that would load a file's drifted prediction weights
+  even though its marker literally reads false. The value is parsed by TYPE
+  first, so any type check comparing it downstream sees a real boolean.
+
+  Arguments:
+    attrs   = an HDF5 attribute mapping (h5py AttributeManager or a dict).
+    key     = the attribute name.
+    default = the boolean returned when the key is absent (a native bool).
+    where   = a location string for the error message (the file identity).
+
+  Returns:
+    a Python bool.
+
+  Raises:
+    ValueError when the attribute is present but not a native boolean.
+  """
+  if key not in attrs:
+    return default
+  value = attrs[key]
+  if isinstance(value, (bool, np.bool_)):
+    return bool(value)
+  raise ValueError(
+    where + ": the attribute " + repr(key) + " must be a native boolean, "
+    "got " + repr(value) + " (type " + type(value).__name__ + "). HDF5 "
+    "attributes are weakly typed, so a string or integer is refused rather "
+    "than coerced by truthiness -- the string 'False' would read as True and "
+    "select the wrong branch. Re-save the artifact with a real boolean.")
+
+
 def rebuild_emulator(path_root, device, compile_model=True):
   """
   Reconstruct a saved emulator from <path_root>.h5 + .emul, using ONLY the
@@ -542,7 +579,11 @@ def rebuild_emulator(path_root, device, compile_model=True):
       # transfer_refined root attr are two-way consistent (either half alone is
       # a corrupt file). When present the predictor composes with the DRIFTED
       # base (silently, no flag); the pretrained tb_state stays the provenance.
-      refined  = bool(f.attrs.get("transfer_refined", False))
+      # The marker is read as a NATIVE boolean, never truthiness-coerced: a
+      # forged string "False" would otherwise read True and load the drifted
+      # weights from a file whose marker says false.
+      refined  = _read_native_bool(f.attrs, "transfer_refined",
+                                   default=False, where=path_root + ".h5")
       have_dr  = "drifted_state" in tb
       if refined != have_dr:
         raise KeyError(

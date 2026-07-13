@@ -1306,6 +1306,31 @@ def gate_board_selftest(ctx):
              + " (gates/checks/board_selftest.py)")
 
 
+def gate_artifact_readback(ctx):
+  """artifact-readback: saved attributes are parsed by type, not truthiness.
+
+  WHAT: a CPU check of the typed attribute reader (_read_native_bool) plus a
+  census that no artifact boolean attribute is still read with a bool()
+  truthiness coercion. WHY: HDF5 attributes are weakly typed, so a marker read
+  back with Python truthiness can flip a feature bit -- the string "False" is
+  truthy, so a transfer artifact whose transfer_refined marker literally reads
+  "False" would load its drifted prediction weights. HOW: the reader accepts a
+  native Python / numpy boolean, returns the default for an absent key, and
+  refuses every string ("False", "true", "0", ...) and integer, naming the
+  file and the required native-boolean schema; the source census confirms the
+  read boundary routes through it. The live save/forge/rebuild proof needs a
+  real HDF5 artifact and is owned by the workstation artifact-integrity gate.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/artifact_readback.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="artifact-readback typed-attribute legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/artifact_readback.py)")
+
+
 def gate_diagnostics_domain(ctx):
   """diagnostics-domain: a corrupted chi2 never crowns a diagnostic (45M-61).
 
@@ -1439,6 +1464,19 @@ BOARD = [
             "valid controls)",
        run=gate_board_selftest,
        needs=()),
+  Gate(id="artifact-readback",
+       spec_code="ARB-A",
+       title="Saved attributes parsed by type, not truthiness",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="artifacts-inference-warmstart",
+       maps="the artifact-readback type contract: the shared typed reader "
+            "accepts a native boolean, returns the default for an absent key, "
+            "and refuses every string / integer (the truthy 'False' that "
+            "would load drifted transfer weights) naming the file + schema; a "
+            "source census confirms no artifact boolean is truthiness-coerced. "
+            "The live save/forge/rebuild proof is workstation-owed",
+       run=gate_artifact_readback,
+       needs=("torch",)),
   Gate(id="diagnostics-domain",
        spec_code="DIAG-A",
        title="Diagnostic score-domain boundary",
