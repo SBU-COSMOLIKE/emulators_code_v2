@@ -2331,6 +2331,25 @@ duplicated literal paths; full derived block returns as a
 paste-ready proposal for sign-off. Spec: gates-and-board.md
 "Batch-4/5b checkpoint audit + the deploy_data shape ruling".
 
+DIDACTICS-72..92 BATCH (2026-07-13, Fable): the README wave (21
+findings, durable register e6256a1) ALL CONFIRMED on sampled
+anchors — the canonical generator command cannot run as printed
+(required --seed omitted; --boundary 1.0 violates the README's own
+rule); grid2d called both broken (:128) and landed (:419) in one
+file; the retired emultrfv2 path; the gate README's cosmic-shear/
+every-test/<test>.log trio; syren's universalized law and the
+"byte-verbatim (AST-verified)" citation of a vendoring probe that
+DOES NOT EXIST (ruling-6 class, in a README). Factual heads join
+the D2 bundle now; four file visits in queue 6 (gates/README merges
+with DIDACTICS-02's D1 landing — one visit per file); 88 extends
+the 02 set-equality leg + evidence ladder; 91's identity half rides
+implementation-identity; 92 lands with/after unit 75. NEW BINDING
+ALIASING RULE: DIDACTICS- prefix always written in full — bare
+numbers mean units (DIDACTICS-90/91/92 vs units 90/91/92 now
+collide). New acceptance: every printed command executed once on
+its machine before printing. Spec: gates-and-board.md
+"DIDACTICS-72..92 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
