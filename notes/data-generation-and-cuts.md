@@ -1891,3 +1891,144 @@ restoring independent flag handling must visibly destroy the
 sentinel and red. Placement: the generator publication/provenance
 cluster (with the 45M-81 amendment and units 68/82/87); production
 generation blocked on the cluster.
+
+## 25M-01 (Red Team CONFIRMED, awaiting Architect adjudication): uniform sampling shrinks absolute coordinates instead of the legal interval
+
+Public reachability is any generator invocation with `--unif 1` and a
+finite ordered sampled-parameter prior. In `generator_core.py:742-750`, the
+uniform branch copies the resolved bounds and moves each positive lower bound
+by multiplying the coordinate by `1.0001`; it moves each positive upper bound
+by multiplying by `0.9999` (with sign-dependent reversed factors for negative
+coordinates). The margin is therefore proportional to the coordinate's
+distance from zero, not to the interval width.
+
+The concrete wrong result is large and translation-dependent. A legal H0
+interval `[70.0, 70.02]` becomes `[70.007, 70.012998]`, retaining only
+`0.2999` of the requested width. The equally legal interval
+`[1000.0, 1000.01]` becomes `[1000.1, 999.909999]`; NumPy then raises
+`ValueError: high - low < 0`. Shifting an otherwise identical interval can
+therefore turn a successful public generation into either a different prior
+or a crash. Unit 17's ingress finiteness work does not own this defect: the
+input bounds can be finite and ordered before this branch corrupts them.
+
+Required contract: one named boundary-interior helper works in interval
+coordinates. Prefer nearest representable interior endpoints via
+`nextafter(low, high)` and `nextafter(high, low)`, or document a named
+width-relative margin; in either case validate a finite, ordered,
+representably nonempty interior before sampling. Persist requested and
+resolved per-name support in dataset identity. Any compatibility choice for
+broad shipped priors is explicit and numerically pinned; no policy depends on
+the coordinate origin.
+
+CPU red legs: same-width intervals at zero and at a large offset retain the
+same fractional width; the H0 witness reaches the intended near-boundary
+support rather than only its central 30%; the narrow offset interval either
+has a legal interior or refuses before output mutation; positive and negative
+translated controls agree; a float32-adjacent interval is handled
+representably; and a mutation restoring endpoint-times-constant reproduces
+the shrink/inversion and must red.
+
+## 25M-02 (Red Team CONFIRMED, awaiting Architect adjudication): temperature changes uniform support but is erased from output identity
+
+`dataset_generator_lensing.py:40` teaches that `--temp` is needed even for
+uniform sampling. The implementation confirms why: `generator_core.py:362-375`
+obtains finite confidence bounds and, for every infinite hard-prior endpoint,
+stretches the finite bound by `temp * width / 5`. Yet
+`generator_core.py:422-429` names every uniform parameter, failure, and
+data-vector bundle only `_<probe>_unifs`; temperature is absent from every
+path.
+
+The public wrong-result chain requires no interruption. With finite confidence
+bounds `[65,75]`, temperature 64 resolves the box to `[-63,203]`, while
+temperature 128 resolves it to `[-191,331]`. Two healthy invocations using
+the same YAML, stems, probe, and `--unif 1` therefore generate different
+scientific supports at identical paths. A fresh run can replace/mix the first
+bundle; `--loadchk 1` can accept its rows under the second temperature; append
+can combine both supports under a filename that says only `unifs`. This is a
+specific acceptance leg for the unit-8 manifest, not a second publication
+mechanism.
+
+Required contract: dataset identity includes sampling mode, requested
+temperature, actual resolved per-name bounds, boundary factor, seed/RNG
+policy, and every other row-affecting control. Resume and append require exact
+identity before mutation; a complete bundle with a different identity is
+refused or uses a digest-derived distinct path. Header/readback reports the
+resolved support. A hard-bounded-prior control may resolve to the same numeric
+bounds under two temperatures, but still records requested and resolved
+policy rather than inferring provenance from coincident values.
+
+CPU red legs: two temperatures on a Gaussian-prior fake produce distinct
+identities (or an early mismatch refusal); the first complete bundle remains
+byte-identical after refusal; same-identity resume/append remains legal;
+hard-bounded and infinite-endpoint controls separate requested from effective
+support; and a mutation dropping temperature/resolved bounds recreates the
+collision and must red.
+
+## 25M-03 (Red Team CONFIRMED, awaiting Architect adjudication): chain-only mode can silently relabel an existing full dataset
+
+The documented `--chain 1` mode generates parameters for visualization
+without computing data vectors (`dataset_generator_lensing.py:42`). The
+actual order is unsafe. `GeneratorCore.__init__`
+(`generator_core.py:214-224`) always calls `__run_mcmc` on rank zero; a fresh
+run replaces the parameter chain, `.paramnames`, `.ranges`, and `.covmat`
+inside `__run_mcmc` (`:780-825`). Only after those writes does the constructor
+test `chain == 1` and skip `__generate_datavectors`. Old data-vector and
+failure files at the same stems are neither removed nor rebound.
+
+Concrete reachable wrong result: first publish a complete `--chain 0`
+dataset; then run the same stems/probe/temperature and row count with
+`--chain 1 --loadchk 0` under a different seed. The command successfully
+replaces every parameter row while retaining old finite data-vector rows and
+the old all-success failure file. Shapes and row counts still agree, so
+staging pairs new cosmology row `i` with old physics row `i`. This is a
+successful two-command corruption, not merely interrupted publication; it
+violates unit 82's row-authenticity contract and unit 8's file-set identity.
+
+Required contract: chain-only output owns a distinct identity/location or
+refuses before mutation when any full-dataset member exists. Its transaction
+publishes a chain-only manifest and cannot borrow or leave data-vector,
+failure, or axis members. Conversely, full generation cannot silently adopt a
+colliding chain-only bundle. The manifest records mode, and no safety decision
+is inferred from coincident seeds, rows, or dimensions.
+
+CPU red legs use the real public control flow with an identity producer
+`dv=f(parameters)`: snapshot a complete bundle, run chain-only with a second
+seed and the same stems, and require either a separately valid chain-only
+bundle or loud refusal with every full-bundle digest unchanged. Repeat with
+the same seed (coincidence is not identity) and a different row count (no
+partial damage before a later shape error). The mutation restores shared chain
+writes followed by the `if chain` data-vector skip; it must expose mismatched
+parameter/payload rows and red.
+
+## 25M-06 (Red Team CONFIRMED, awaiting Architect adjudication): the ranges sidecar collapses distinct bounds below the generator's own parameter precision
+
+Fresh generation writes `.ranges` bounds with only `%.5e` precision
+(`generator_core.py:780-786`), while the same generator writes parameter rows
+with `%.9e` (`:797-801`) and owns float32 parameters with roughly seven
+significant decimal digits. The scientific support sidecar can therefore lose
+information that remains present in the rows it is supposed to describe.
+
+The CPU witness uses values that are distinct in float32. Bounds
+`70.00001` and `70.00002` serialize to the identical string `7.00000e+01`;
+`0.12345674` and `0.12345676` both serialize as `1.23457e-01`. The sidecar
+therefore declares a zero-width interval even though generation sampled an
+ordered nonzero interval and the chain preserves distinct endpoints. Legal
+published rows can also appear outside the rounded declared range. A manifest
+would faithfully digest this false sidecar, so file identity cannot substitute
+for representation truth. This is the `.ranges` extension of unit 82's
+canonical representation and unit 87's one-decimal-contract coupling, not a
+new serialization mechanism.
+
+Required contract: one canonical decimal representation is derived from the
+owned parameter dtype and shared by chain/header/ranges publication. Every
+persisted bound round-trips to the intended canonical value with order and
+containment preserved; an exact-enough shortest representation or hexadecimal
+form is acceptable if readers own it explicitly. Publication refuses before
+mutation if conversion collapses a valid interval. Existing broad shipped
+bounds remain numerically equivalent under the declared representation.
+
+CPU red legs: both float32-distinct witness pairs round-trip as distinct;
+boundary-adjacent canonical rows remain inside the read-back ranges; broad
+production-style bounds are unchanged in meaning; parameter and range readers
+agree on dtype/decimal policy; and a mutation restoring `%.5e` collapses the
+witness and must red.

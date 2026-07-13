@@ -1300,6 +1300,77 @@ trial under manifest A reported as manifest B's winner); the
 default-control leg (a failed-only study still enqueues the default
 once).
 
+### 25M-04 amendment (Red Team CONFIRMED, awaiting Architect adjudication): the direct cosmic-shear driver no longer selects its historic study name
+
+The family-identity repair changed the public `main` default from
+`family=None` to `family="cosmolike"` (commit `e9943bc`) but left the earlier
+selection expression unchanged:
+`study_name = STUDY_NAME if family is None else prog`
+(`cosmic_shear_tune_emulator.py:217,287-290`). Under the public defaults, the
+constant `STUDY_NAME="cosmic_shear_tune"` is unreachable and the command
+selects `cosmic_shear_tune_emulator`. The adjacent comment still promises
+that the cosmic-shear study keeps its historic name. An AST probe of the real
+signature and assignment gives exactly this mismatch.
+
+Concrete wrong result: before `e9943bc`, the documented direct command and
+default journal used the study `cosmic_shear_tune`; after the family validator
+fix, the same command, file, and scientific inputs open/create the different
+study `cosmic_shear_tune_emulator`. Optuna identity is `(journal path,
+study_name)`, so the advertised resume silently forks. Per-family wrappers
+legitimately use their pinned `prog`; the regression is the direct
+cosmic-shear special case. This amends unit 53: the manifest needs a stable,
+canonical family study name as well as scientific content identity.
+
+Required contract: one pure resolver maps explicit family identity to a
+stable study name. The direct `cosmolike` family maps to the retained historic
+constant; each thin family wrapper maps to its stable family tag. The resolved
+name is part of the study manifest and final report. Any intended rename is an
+explicit migration/refusal, never collateral of a validator change.
+
+CPU red legs: signature-default resolution returns the historic cosmic-shear
+name; every wrapper returns its unique stable name; existing-journal lookup
+resumes the expected study rather than creating a sibling; manifest and
+Optuna names agree; and a mutation restoring the `family is None` conditional
+reproduces the fork and must red.
+
+## 25M-05 (Red Team CONFIRMED, awaiting Architect adjudication): science-curve headers record the raw activation flag instead of the activation that ran
+
+Both sweep engines resolve activation through
+`EmulatorExperiment.from_config`: when `--activation` is absent, the family
+comes from `train_args.model.activation`, then defaults to `H`
+(`experiment.py:2181-2189` and the parallel family branches). The resolved
+value is stored in `exp.activation` and printed in the design banner. The
+result writers do not use it. The N-train sweep writes
+`"activation": args.activation`
+(`cosmic_shear_sweep_ntrain_emulator.py:413,490-496`); the ordinary
+hyperparameter sweep writes the same raw flag unless activation itself is the
+sweep axis (`cosmic_shear_sweep_hyperparam_emulator.py:273,441-447`).
+
+Concrete wrong result: with the shipped YAML/default path and no CLI flag,
+the trained model uses activation `H`, while the public table header is
+`# activation=None`. The dependency-free real `save_learning_curves` body was
+executed with the driver's actual metadata value and reproduced that line. A
+YAML selecting another family is mislabeled the same way. A reader cannot
+reconstruct which design produced the science curve even though the process
+already owns the resolved fact. Unit 41 owns resolved-run truth; this extends
+that doctrine to sweep products rather than creating another resolver.
+
+Required contract: metadata is assembled from one immutable resolved run
+record, never raw optional CLI fields. N-train and non-activation
+hyperparameter sweeps persist the actual shared activation and any head pin;
+an activation-family sweep records `swept` plus ordered values. Serial and
+worker paths use the same record, and banner, artifact, table, and figure
+labels agree. Raw CLI provenance may be separate but cannot masquerade as
+executed state.
+
+Red legs: YAML/default `H` with no flag records `H`; a YAML `power` selection
+records `power`; an explicit CLI override records the override; an activation
+sweep records `swept` plus values; serial and pooled metadata agree; table
+readback equals the experiment's resolved value; and a mutation using
+`args.activation` recreates `activation=None` and must red. Table assembly is
+pure CPU; one real sweep-path integration leg may be board-listed for Vivian's
+workstation.
+
 ## RETRACTED: transfer refinement frozen-trunk claim (45M-43, retracted by the red team 2026-07-12 with 45M-44; unit 54 WITHDRAWN)
 
 Both retractions Architect-verified: validate_transfer

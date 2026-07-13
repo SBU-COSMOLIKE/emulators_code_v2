@@ -1560,3 +1560,28 @@ of this file. `BLOAT-01` through `BLOAT-04` are also fully recorded here and
 in `gates-and-board.md`; BLOAT-02 and BLOAT-03 additionally have scientific
 topic owners. No correctness finding in these issued ranges depends solely on
 chat history after this registry.
+
+### 25M finding series (2026-07-13 continuation)
+
+The 25-minute continuation uses a fresh `25M-` namespace so it cannot be
+confused with the closed 45M or 20M series. Every issued identifier has a
+public-reachability proof, concrete wrong result, required contract, and
+discriminating leg set in its scientific owner before any chat handoff:
+
+- `25M-01`: uniform-prior interior is scaled by absolute coordinate and can
+  shrink or invert a legal interval — `data-generation-and-cuts.md`;
+- `25M-02`: temperature changes uniform support but is absent from output
+  identity — `data-generation-and-cuts.md`, unit-8 manifest amendment;
+- `25M-03`: chain-only mode can replace parameter rows while retaining a full
+  dataset's old data vectors — `data-generation-and-cuts.md`, units 8/82;
+- `25M-04`: the direct tune driver silently forks the historic Optuna study
+  name after the family-default repair — `training-stack.md`, unit 53; and
+- `25M-05`: sweep tables record the raw optional activation flag instead of
+  the resolved activation that trained — `training-stack.md`, resolved-record
+  campaign; and
+- `25M-06`: `.ranges` serialization collapses float32-distinct legal bounds —
+  `data-generation-and-cuts.md`, canonical-representation campaign.
+
+No number in this series may be reused. Architect adjudication may fold a
+finding into an existing unit, but the registry retains the Red Team label and
+original evidence.
