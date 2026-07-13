@@ -2702,3 +2702,74 @@ team's batches isolate them; unit 90 rides the BSN visit. All
 doc-only interleave except the two named executable exceptions (the
 04 table leg; unit 90); nothing preempts batches 4/5b, queue 2, or
 unit 79.
+
+## DIDACTICS-10..19 adjudication (Fable, 2026-07-13): the inference/adapter didactics wave — three lanes, one documentation-examples gate (unit 91)
+
+(DIDACTICS-12 was filed twice; counted once.) Factual verification
+by the Architect, all four confirmed: inference.py:4 says "the h5
+alone" and :31-33 "all come from the h5" while the trained weights
+live in <root>.emul (rebuild requires both); :3-6 frames the
+predictor as cosmic-shear while it executes five family branches;
+analytics.py promises the input's dtype while its NumPy branch
+coerces to float64 (:86-90); syren_base.py:40 says "the six
+syren-base arguments" and returns seven; emul_mps.py:4-5 and
+emul_baosn.py:4-5 claim the adapters "re-derive no physics" while
+they compose P_lin/boost/blends, sigma8, distance integrals, and
+flat-universe relations. All ten contracts are RATIFIED, organized
+into three lanes so prose is written once against final behavior:
+
+LANE 1 — FACTUAL CORRECTIONS (doc-only, land with the queue-6
+factual bundle beside 02/05a/08): 10a (the five-family return table
+mechanically matched to every executed predict branch; the two-file
+ownership truth — .emul = trained state_dict, .h5 = recipe +
+geometries + facts + histories, both required; the common
+prefix-then-branch lesson; the no_grad/detach/cpu/numpy definitions);
+11a (the TRUE dtype contract: NumPy float32 in -> float64 out, Torch
+preserves dtype/device — no same-dtype claim survives); 12 (seven
+arguments; the quantity/units table incl. kref = 1e-4 1/Mpc
+explained; the positional-call order mapped in comments; the h^3
+dimensional cancellation shown); 14 (the ownership tables replacing
+"re-derives no physics": EmulatorPredictor owns learned inference;
+emul_mps owns the deterministic composition P_lin = e^r Pbase,
+B = e^rB Bbase, P_nl = B P_lin + the low-k rule + sigma8; emul_baosn
+owns c/H, the distance integral, and the flat relations —
+"thin adapter" may describe code volume, never erase owned science).
+
+LANE 2 — UNIT 91, THE DOCUMENTATION-EXAMPLES GATE: the campaign's
+acceptance repeatedly demands small EXECUTABLE examples (11's dtype
+controls; 12's h != 1 unit-table check; 13's five-point Simpson
+walkthrough executed against the hand calculation; 15's instrumented
+real lifecycle order; 16's overlapping-requirement example; 17's
+three interpolator return-shape cases + the typed range error; 18's
+CMB scatter and BAOSN mixed-query fixtures). Rather than scattering
+named AST-equivalence exceptions through production files, ALL of
+them live in ONE new board-listed check module (the documentation-
+examples gate, docs lane, unit-83 neighborhood): production files
+stay strictly documentation-only under the stripped-AST census, and
+the gate proves every worked example in the prose actually computes
+what the prose says. DIDACTICS-04's coordinate-table leg moves under
+this gate too (superseding its stage-ram-leg placement — one home
+for executable documentation, not two).
+
+LANE 3 — FAMILY DIDACTICS RIDE THEIR PROTOCOL VISITS: the full
+adapter teaching (15's four-phase Cobaya lifecycle; 16's
+requirement/root/device mechanics with one shared canonical
+explanation; 17's PowerSpectrumInterpolator 100% public-method
+census; 18's running coordinate examples; 19's cosmic-shear/scalar
+outputs + the annotated example YAMLs) lands per family WITH or
+AFTER the wave-4 protocol units (71-75, 73's must_provide, 85's
+resolver), so the taught call order and state semantics describe the
+FINAL behavior, never a to-be-replaced one. 13 (cumulative_simpson
+walkthrough + history removal) rides the BSN visit with unit 90
+(same family, one visit). 10b (the returned-container ownership
+sentences) rides UNIT 66's landing — the prose states what 66
+implements, written once. Two deferral rules: 12's
+positional-to-keyword conversion is an AST change and rides unit 85
+(the same file's resolver landing); nothing in lane 3 starts before
+its protocol unit.
+
+The BLOAT-04 queue-6 rider (adapter/generator module docstrings) is
+SUBSUMED by 15/16 — one campaign, not two overlapping ones; the
+binding completion evidence (the 108-line pattern-family untruncated
+scan + reviewed allowlist) now covers emulator/ + cobaya_theory/ +
+gates/ didactics landings alike.

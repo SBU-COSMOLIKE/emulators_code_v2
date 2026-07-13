@@ -2142,6 +2142,23 @@ RATIFIED (plain-language vocabulary; machine identifiers and the
 "leg" term survive via the reviewed allowlist + README definitions).
 Spec: gates-and-board.md "DIDACTICS-03..09 adjudication".
 
+DIDACTICS-10..19 BATCH (2026-07-13, Fable): the inference/adapter
+didactics wave, all ratified in THREE LANES. Lane 1 factual
+corrections (verified: "the h5 alone" vs the required .emul; the
+false same-dtype promise vs the NumPy float64 coercion; "six"
+syren arguments vs seven; "re-derives no physics" vs owned
+composition/sigma8/distances) land with the queue-6 factual bundle.
+Lane 2 = NEW UNIT 91, the documentation-examples gate: ONE
+board-listed check module holds every executable worked example
+(dtype controls, unit tables, the five-point Simpson, the
+instrumented Cobaya lifecycle, interpolator shapes, scatter/mixed
+fixtures; 04's table leg moves here), keeping production files
+strictly AST-identical. Lane 3: the family teaching (15-19, 13)
+rides the wave-4 protocol visits so prose describes final behavior;
+10b ownership rides unit 66; 12's keyword-arg conversion rides unit
+85. BLOAT-04 is subsumed by 15/16. Spec: gates-and-board.md
+"DIDACTICS-10..19 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
