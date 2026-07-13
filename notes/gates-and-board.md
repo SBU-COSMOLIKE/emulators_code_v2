@@ -3117,3 +3117,56 @@ sys.exit -> shell/board exit status), each standalone script points
 to it without team shorthand, per-file report docstrings stay
 descriptive, and — per the standing C-coder rule — the repeated
 pattern is NOT compressed into a clever framework to save lines.
+
+## DIDACTICS-62/63 adjudication (Fable, 2026-07-13): banner-as-truth — prose narrowed now, behavioral evidence in a second gate-truth increment
+
+Both CONFIRMED as the banner-as-truth class: five gates
+(head-scheduler-override, berhu-anneal, ema-anneal, joint-training,
+relu-tanh-norm) advertise behavioral proofs (lr cadence, exact
+hold/ramp values and continuity, trunk-parameter movement, loss
+descent) while their assertions check exit codes and banner
+substrings; param-window-cuts and production-diagnostic accept ANY
+"used <n> of <m> cut rows" line without parsing the integers or
+comparing against an independent reference — a driver hard-printing
+"used 1 of 1 cut rows" greens both legs. Point 7 is adopted as
+doctrine and recorded beside binding ruling 6: the evidence rollout
+proves an assertion EXECUTED; it can never supply an observation the
+assertion never made — reconciliation and observation are orthogonal
+axes of gate truth.
+
+RULINGS (narrow-now / strengthen-next):
+
+1. PROSE NARROWING is immediate (joins the queue-6 factual bundle):
+   each of the seven gates' titles/maps= describe exactly the
+   startup/schema/banner evidence executed today, with the
+   behavioral claims moved to explicitly-owed status — so the
+   queue-5 run's claims are honest even where power is still owed,
+   and the queue-2 aid minting uses the NARROWED claims.
+2. DIDACTICS-63 (independent-reference repair for param-window-cuts
+   + production-diagnostic's banner leg) JOINS THE GATE-TRUTH REPAIR
+   BATCH (same class as 46-53, small): the deterministic table with
+   an independently computed physical mask; used/total parsed as
+   integers and checked against the independent count, the requested
+   selection, AND the staged-index identities (identity comparison,
+   not count); 0 <= used <= total with nontrivial shrinkage; the
+   hardcoded-plausible-banner mutation must fail; the lesson
+   recorded — a banner is an observation to compare against an
+   independent reference, never its own evidence.
+3. DIDACTICS-62's behavioral strengthening is GATE-TRUTH INCREMENT
+   2: where the evidence already exists in driver output, parse and
+   assert it pre-queue-5 — scheduler: phase-tagged lr events at the
+   patience cadence (ignore-the-override mutation reds); anneals:
+   the real schedule evaluated before the hold, at the boundary,
+   during the ramp, at the endpoint, exact values + continuity
+   (constant-schedule mutation reds); activations: two finite loss
+   observations + an explicit descent criterion (dead/mean-only
+   nets red). Joint-training's trunk-movement proof needs evidence
+   the driver does not yet emit: the driver gains ONE
+   phase-boundary trunk-parameter digest line (essential-only
+   compatible — per phase, not per epoch), and the gate asserts a
+   finite nonzero change in the joint run and EXACT ZERO in the
+   frozen control; that half rides the training-truth trio
+   (79/88/89) if increment 2's timing is tight, with its narrowed
+   prose honest in the interim.
+4. Banner/schema evidence and numerical/optimization evidence are
+   reported separately in every repaired gate.
