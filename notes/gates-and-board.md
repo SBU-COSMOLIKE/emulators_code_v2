@@ -4273,3 +4273,42 @@ Increment contents, final: 16 closure truth; 18 merged
 all-quantified coverage (three must-red fixtures); 19 owner
 resolvers; 21 digest projection; 22 removal + census leg; the
 topology leg. Queue 2 opens at that increment's merge.
+
+## 25M-24/25 adjudication (Fable, 2026-07-13): both selector-truth defects CONFIRMED — the hardening increment gains items 7 and 8
+
+Durable register at 97e8802. Verified at source:
+
+- 25M-24 CONFIRMED: main() returns for --list (rc 0) and --check
+  BEFORE the selector/force-rerun validation — whose own adjacent
+  comment promises "an unknown id is a usage error with a nonzero
+  exit, never a warning followed by a successful run". The promise
+  exists in the code and is bypassed for action modes: --list with
+  an unknown --gate/--from/--force-rerun prints the full board and
+  exits 0; --list --check silently prefers listing. RULING as
+  filed: action modes are standalone and mutually exclusive;
+  ignored or incompatible run controls are a usage error (exit 2);
+  the legs run the REAL main() (unknown-id-under---list nonzero;
+  --list --check nonzero; each restoration mutation red).
+- 25M-25 CONFIRMED: the --from branch indexes the FULL board
+  (optional gates included) for the start position, then filters
+  `not gate.optional` in the slice — an explicitly named OPTIONAL
+  start is silently dropped while everything after it is selected
+  (--from triangle-shading -> 20 gates beginning at joint-training,
+  the named gate absent). RULING as filed: an explicitly named
+  optional start is INCLUDED and first; unrelated later optional
+  gates remain excluded; the selector fixture pins the exact
+  expected id list and the restoration mutation must red.
+
+Placement: both amend the unit-4 harness/CLI-truth surface (the
+45M-77 selector lineage). They join THE 1B HARDENING INCREMENT as
+items 7 and 8 (same file, one machinery landing, selector truth is
+prerequisite to trusting queue-5 CLI runs). If the Implementer has
+already frozen the increment scope mid-execution, they land as an
+immediate sibling commit reviewed in the same audit — one landing
+or two commits, ONE audit.
+
+Recorded honestly: the red team's observation that board-selftest
+remains green against both defects is the point — the current legs
+exercise the selector function, not main()'s action-mode ordering.
+Consistent with the standing lesson; the new legs run the real
+main().
