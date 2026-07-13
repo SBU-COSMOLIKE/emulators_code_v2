@@ -3985,3 +3985,114 @@ Durable register at efddf98 (latest main merged as 97e9acb).
 Both commissioned gates join the queue-5 workstation exhibit
 family. Sequencing unchanged: population completion -> the gauntlet
 first; the two amendments join their units' queue slots.
+
+## 25M-16..21 adjudication (Fable, 2026-07-13): the board-machinery batch — unit-4 reopened NOW, a 1b hardening increment minted, queue 2 resequenced behind it; an Architect audit lesson
+
+Durable register at a3b19f4. The chat relay carried 16..20; the
+register additionally holds 25M-21 (complete, with an executed
+digest witness) — adjudicated with the batch, the register being
+the source of record. Scope note recorded: scientific correctness,
+MCMC reproducibility, and test truth only.
+
+ALL SIX CONFIRMED (anchors verified in code):
+
+- 25M-20, THE IMMEDIATE UNIT-4 REOPEN: run_selection's resume
+  early-continue on a current stored PASS runs BEFORE the
+  dependency loop, so _dep_current_pass is never consulted for a
+  resumed gate — the existing "dependencies accept only current
+  PASS" clause is bypassed by resume. Live witness: stale-code
+  prerequisite + current child -> "[skip] ... already PASS", zero
+  bodies, exit 0. RULING: dependency currency joins the
+  reusable-PASS predicate (check deps before the resume return or
+  make _resume_state dependency-aware); every stale/FAIL/SKIP/
+  RUNNING/pre-manifest prerequisite state makes the child
+  non-green; a rerun prerequisite reruns its artifact-consuming
+  children. The full state matrix + the resume-before-deps mutation
+  land as selftest legs. BINDING TIMING: this fix lands with or
+  immediately after the population-completing increment — the
+  40/40 handoff is not accepted green without it.
+- 25M-16 (closure truth): _dynamic_import_sites recognizes only
+  importlib.import_module/__import__; the four identity gates load
+  adapters via spec_from_file_location (scalar_identity.py:294,
+  cmb_identity.py:569 and :1043's cov oracle, bsn/mps siblings),
+  the four smokes load them via Cobaya python_path, and NONE of the
+  eight manifests contains a cobaya_theory member (red-team
+  executed counts: 31/31/32/31 and 34/36/34/37). artifact-readback,
+  family-first, generator-seed, board-selftest, and geo-paths read
+  executable source AS DATA that their manifests omit; the .py
+  census scans gate-body source only, not the check closure.
+  gct_parity.py:43's bare sibling import is dropped by
+  _module_to_repo_paths' _EXECUTABLE_DIRS filter (the sole such
+  import, per their repo-wide census). RULING: one whole-check
+  executable closure (runtime loaders, Cobaya python_path +
+  component names, subprocess targets, source-opened-as-data, bare
+  sibling imports); unresolvable runtime-named sites get reviewed
+  direct-root declarations reconciled against the site; the
+  acceptance battery as filed, including the two-call-scanner
+  restoration mutation and the geo-paths whole-scope fixture.
+- 25M-18 (waiver direction): run_board.py:1076-1077 accepts
+  r.startswith(cover + "/") — a CHILD satisfies a tree requirement,
+  and board_selftest.py:637-640 blesses the blocks.py-only fixture
+  as "designs root declared". Current populated gates happen to
+  declare full trees (which is why the population audits passed:
+  the declarations are sufficient, the VALIDATOR is permissive).
+  RULING: a declared root covers a waiver only when equal to or an
+  ANCESTOR of every required cover; the blessing fixture becomes a
+  must-red mutation; every waiver entry censused against its live
+  call site.
+- 25M-19 (resolution ownership): the evaluate_yaml consumer
+  resolves repo-relative (:412-420) while _resolve_config_path
+  tries Path(value) process-CWD-FIRST and never tries the repo
+  (:1355-1360); the same CWD-first generic reaches all 15 batch-4
+  gate_configs manifests. Live witness: from an unrelated cwd the
+  manifest records {path: None, sha256: None} and validates while
+  the gate executes the real file. RULING: one owner-specific
+  resolver per input namespace, shared by consumer and manifest
+  writer (evaluate_yaml -> repo; gate_configs.* -> yaml_dir;
+  gate_data.* -> its data owner; NO generic CWD candidate);
+  REPO-OWNED inputs must resolve and refuse None-sha — rider r3's
+  resolve-not-exist stays for deploy_data ONLY (machine-dependent
+  by design). Two-cwd identity, collision-ignored, executed-path ==
+  hashed-path legs as filed.
+- 25M-21 (register-only filing; input-digest scope):
+  _gate_input_digest hashes the effective config excluding only
+  debug/rootdir_source, so a _help prose edit stales EVERY declared
+  gate (witness: 471a30.. -> eed28b..) — a false-red contradicting
+  unit 4's documentation-currency requirement. RULING: one named
+  canonical projection of execution-relevant fields; _help and any
+  documentation namespace excluded; a projection-change leg proves
+  prose edits leave digests fixed while value edits stale.
+- 25M-17 (const_mask presence inference): grid2d state() omits the
+  mask when None, from_state treats absence as None (:119-120),
+  decode clamps only when non-None — deleting dv_geometry/
+  const_mask from a valid pinned artifact strict-loads and serves
+  1.25 where the intact artifact serves 1.00 (their executed
+  boost/none witness). REOPENS unit 63's "pre-pin absence stays
+  legal" precision clause: current saves ALWAYS persist the mask
+  (explicit all-false when unpinned); the required geometry-state
+  member set is validated before from_state; anonymous legacy
+  absence refuses with a migration instruction; no version integer
+  (the mask itself is the fact). Interlocks unit 96; lands with the
+  MPS visit beside 96's group-validation legs. The
+  PRESENCE-INFERENCE CENSUS I requested is CLOSED: beyond 96's
+  composition groups, const_mask was the only silent scientific
+  reinterpretation site.
+
+STRUCTURE: 16 + 18 + 19 + 21 form THE 1B HARDENING INCREMENT — one
+machinery batch landing AFTER population completes and BEFORE
+queue 2. SEQUENCING CHANGE (explicit): queue 2 (the evidence
+rollout) now opens after the hardening increment, not at population
+completion — the registry rewrite must mint aids from truthful
+machinery. Expected and correct side effect: the completed closure
+repair stales stored PASSes whose manifests omitted real
+dependencies; those reruns are the system working.
+
+ARCHITECT AUDIT LESSON (recorded against my own passes): the
+population audits verified declarations THROUGH the machinery now
+shown permissive — validate_manifests green plus my geo-paths
+closure re-derivation used the same scanner and so inherited its
+blind spots. Declarations-vs-machinery consistency is not machinery
+truth. Adopted: any audit of a validation system includes at least
+one adversarial probe AGAINST the machinery (a runtime-loader
+fixture, a wrong-direction waiver, a cwd flip) — audit the
+validator, not only through it.

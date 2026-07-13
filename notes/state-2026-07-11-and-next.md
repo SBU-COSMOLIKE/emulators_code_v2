@@ -2422,6 +2422,28 @@ retraction); step_frac/s_step rename = a bounded AST increment with
 byte-identical outputs + the Planck-LCDM control. Spec:
 gates-and-board.md "25M-14/15 + DIDACTICS-93 adjudication".
 
+25M-16..21 BATCH (2026-07-13, Fable): the board-machinery batch,
+ALL CONFIRMED (21 arrived register-only — the register is the
+record). 20 = IMMEDIATE unit-4 reopen (resume returns before the
+dependency loop; stale prerequisite + current child = exit 0 with
+zero bodies) — dependency currency joins the reusable-PASS
+predicate, landing with/immediately after population; 40/40 is not
+green without it. 16+18+19+21 = THE 1B HARDENING INCREMENT
+(whole-check executable closure incl. spec_from_file_location /
+Cobaya python_path / source-read-as-data / the gct_parity sibling
+import; waiver ancestor-direction fix with the blessing fixture
+made must-red; owner-specific per-namespace resolvers with no CWD
+candidate and None-sha refusal for repo-owned inputs; the
+input-digest canonical projection excluding _help). SEQUENCING
+CHANGE: queue 2 opens AFTER the hardening increment. 17 = unit-63
+precision-clause reopen (const_mask always persisted, all-false
+when unpinned; absence refuses) interlocking unit 96; the
+presence-inference census is CLOSED (const_mask was the only other
+site). AUDIT LESSON: my population audits inherited the machinery's
+blind spots — henceforth every validation-system audit probes
+AGAINST the machinery, not only through it. Spec: gates-and-board.md
+"25M-16..21 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
