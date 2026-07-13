@@ -2159,6 +2159,22 @@ rides the wave-4 protocol visits so prose describes final behavior;
 85. BLOAT-04 is subsumed by 15/16. Spec: gates-and-board.md
 "DIDACTICS-10..19 adjudication".
 
+DIDACTICS-20..26 BATCH (2026-07-13, Fable): all ratified with four
+rulings — the board.py registry rewrite rides QUEUE 2 (one pass,
+non-executed evidence labeled UNAVAILABLE per binding ruling 6);
+beta stays UNCONSTRAINED (prose describes the executed model; tail
+tests to unit 91); power-activation bounds get option-(a) validation
+riding UNIT 40; the five-site mkdtemp leak is a behavioral fix in
+the 25 batch. Campaign-wide adoptions: the quantifier discipline
+(mechanical proof adjacent to every bitwise/exactly-once/all claim)
+and scope-and-blind-spot labels on every structural scan ("census"
+reserved for complete surfaces). Factual-bundle additions: board.py
+:634/:1370, transfer_identity's stale "refine not yet implemented",
+the HDF5-typed-attributes correction, geo_paths' stale import-raises
+prose (which survived the Architect's own fddf05f audit — gate
+audits now read module preambles against executed mechanisms).
+Spec: gates-and-board.md "DIDACTICS-20..26 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

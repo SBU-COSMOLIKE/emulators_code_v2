@@ -2773,3 +2773,84 @@ SUBSUMED by 15/16 — one campaign, not two overlapping ones; the
 binding completion evidence (the 108-line pattern-family untruncated
 scan + reviewed allowlist) now covers emulator/ + cobaya_theory/ +
 gates/ didactics landings alike.
+
+## DIDACTICS-20..26 adjudication (Fable, 2026-07-13): registry prose rides queue 2; two activation design calls ruled; the temp-dir leak is a behavioral fix; quantifier discipline joins the acceptance battery
+
+Spot-verification (Architect): board.py:634 "This week's legs." and
+:1370's malformed "parity + +" exist; FIVE tempfile.mkdtemp sites
+across gsv_bitwise_drift/gct_parity/finetune_identity/
+transfer_identity with ZERO rmtree/TemporaryDirectory in gsv — the
+leak is real; geo_paths:16-20 still claims "importing ... raises
+ModuleNotFoundError" AFTER the approved find_spec rework — stale
+prose that survived the Architect's own fddf05f audit (code and legs
+were checked; the module docstring's mechanism claim was not —
+recorded as an audit-scope lesson: gate audits now read the module
+preamble against the executed mechanism); activations.py:27 states
+the gamma-to-1 gate limits unconditionally while sigmoid(beta x)
+reverses them for beta < 0 — the red team's tail mathematics is
+correct.
+
+RULINGS:
+
+- 20 (board.py registry prose): the stable-section rewrite of every
+  registry entry RIDES QUEUE 2 — the maps= prose is rewritten into
+  the required sections in the same visit that mints the structured
+  evidence maps, one pass over that surface, with the
+  non-executed-evidence rule aligned to binding ruling 6: a prose
+  claim resting on Architect/visual confirmation is labeled
+  non-green/UNAVAILABLE until reconciliation executes it. The
+  stale/malformed lines (:634, :1370) and their siblings are
+  FACTUAL-BUNDLE fixes now.
+- 21 (activation tail slopes): the documentation error is CONFIRMED;
+  the prose is rewritten to the EXECUTED unconstrained model with
+  the sign-conditional index sets and the p != 1 asymptotic form.
+  DESIGN CALL: beta is NOT constrained — a reversed or blended gate
+  orientation is learnable modeling freedom, not a defect; no
+  evidence motivates changing training dynamics. The analytic
+  positive/negative/zero-beta tail tests land in UNIT 91.
+- 22 (power-activation bounds): the midpoint formula and the p = 0
+  division hole are CONFIRMED. DESIGN CALL: option (a) — the
+  constructors VALIDATE finite, strictly ordered, zero-excluding
+  bounds (refusing non-default bounds would be a capability
+  regression; validation matches the config-totality philosophy);
+  the general midpoint initialization is documented, with p(0) = 1
+  scoped to centered bounds; "no NaN" survives only alongside that
+  domain validation. The validation code change RIDES UNIT 40 (the
+  power-activation unit, same class family); the constructor tests
+  (default, non-centered, reversed, nonfinite, zero-containing) land
+  with unit 40's legs and UNIT 91.
+- 23 (finetune/transfer preambles): RATIFIED — exact-copy vs
+  tolerance comparison separated; delegated evidence labeled
+  delegated; the overview mechanically compared with main's calls;
+  the stale "refine not yet implemented" is a FACTUAL-BUNDLE fix;
+  "runs once" becomes "cached after encode, not rerun by the
+  measured path" unless the assertion becomes == 1. The QUANTIFIER
+  DISCIPLINE is adopted campaign-wide: bitwise / exactly once /
+  strict-loadable / all / every / no-remaining survive in prose only
+  with an adjacent assertion mechanically proving the quantifier.
+- 24 (structural scans as proofs): RATIFIED — every structural-scan
+  label states file surface, pattern, and blind spots; "census" is
+  reserved for mechanically complete surfaces; the HDF5-attributes-
+  are-typed correction (the real risk is a wrong-typed legacy value
+  and Python truthiness on "False") is a FACTUAL-BUNDLE fix; the
+  emcee two-RNG handoff teaching coordinates with the 45M-81
+  amendment (same surface, one lesson).
+- 25 (parity label + temp leak): the metric is named by its actual
+  stabilized-relative-error formula with the 1e-8 floor and the
+  derived 1e-6 bar. The mkdtemp leak is a BEHAVIORAL gate-hygiene
+  fix — TemporaryDirectory / guaranteed finally cleanup at all five
+  sites, landing WITH the 25 didactics batch as a small executable
+  change (gates test code; the production doc-only rule is not
+  violated), with the injected-mid-gate-failure acceptance ratified:
+  no unowned directory survives failure or success.
+- 26 (lexical vs executed): geo_paths' prose is corrected to the
+  find_spec truth ("not discoverable"; no import is re-added — the
+  approved rework stands); cli_strict and family_first labels are
+  NARROWED to their lexical evidence by default (the live
+  boundary-ordering upgrades are board-listed options for the family
+  visits, not obligations now).
+
+Routing: factual items -> the queue-6 factual bundle; executable
+tests -> unit 91; the bounds validation -> unit 40; the temp-dir
+cleanup -> the 25 batch; the registry rewrite -> queue 2; everything
+else -> the per-family lane-3 batches under the standing acceptance.
