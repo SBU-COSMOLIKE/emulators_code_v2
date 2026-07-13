@@ -2262,6 +2262,31 @@ with 60 sequenced AFTER the unit-28 disjointness repair because its
 recomputed number was measured on the overlapping fixture. Spec:
 gates-and-board.md "DIDACTICS-59/60 adjudication".
 
+DIDACTICS-61 + 64..71 BATCH (2026-07-13, Fable): the red team's
+durable register (notes/red-team-audit-and-didactics-2026-07-13.md,
+42--71) adopted — 42-60/62-63 copies reconciled, MATCH. Nine new
+confirmations: 61 (a two-column fixture called one-wide; decreasing
+already enforces two points but its docstring says non-empty, and a
++Inf first value passes -> finiteness joins the gate-truth batch);
+64 (the compile-mode drift arm patches a global that rebuild
+provably never reads — arm removed in increment 2; persistence proof
+= NEW UNIT 93, CUDA instrumented lane, workstation-owed); 65 merges
+into 29 (exact panel-identity acceptance); 66 (self-defined
+masked-zero proof, vacuous when dest_idx covers all — gate-truth
+batch with 47); 67+68 = one warmstart visit (teach the double .h5
+open + define .ia; finite guards added to BOTH perturbed parity arms
+— a perturbation-born NaN is currently mislabeled "extras leaked");
+69 (exactly six "equally hard" sites -> one canonical
+no-equal-learnability sentence, multiline census); 70 (results.py
+contradicts its executed CPU normalization; CPU-residency leg added
+in increment 2); 71 (the "bit for bit" headline split into the two
+real invariants: _PARITY_TOL function reproduction vs bitwise
+extras-independence). The 46 golden-leg addendum absorbed (both rcs
+discarded at board.py's _golden_leg — rc==0 + nonempty count now
+required). Durable-record rule adopted both ways. Gauntlet
+unchanged. Spec: gates-and-board.md "DIDACTICS-61 + 64..71
+adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

@@ -3212,3 +3212,151 @@ filing is evidence of staleness, not the new reference.
 Placement: both join GATE-TRUTH INCREMENT 2 (the behavioral-evidence
 batch, pre-queue-5), 60 ordered after the unit-28 fixture repair
 within it.
+
+## DIDACTICS-61 + 64..71 adjudication (Fable, 2026-07-13): the durable register adopted; nine confirmations; UNIT 93 minted; 65 merges into 29; the 46 golden-leg addendum absorbed
+
+THE REGISTER: the red team's findings now live durably in
+notes/red-team-audit-and-didactics-2026-07-13.md ("Durable DIDACTICS
+handoff register: 42--71", on main). The register copies of 42-58,
+59/60, and 62/63 were reconciled against the rulings already issued
+in this file — they MATCH; no reopened item. The register's 46 entry
+carries ONE addendum beyond my original filing, verified and
+absorbed below. The durable-record rule is ADOPTED both ways: every
+future red-team filing is appended to a topic/audit note before its
+chat copy, and adjudications cite the file, never the chat.
+
+Verification (Architect, worktree at 976c739; untruncated greps):
+
+- 61: stage_ram.py:139's evidence string says "the one-wide float32
+  target" while the fixture is dv = np.zeros((n, 2)) (:129) — the
+  byte arithmetic uses 2 correctly; only the prose is false.
+  logscan.decreasing already ENFORCES the two-point minimum
+  (len < 2 -> False, "need at least two points") while its Returns
+  block still says "non-empty" — a stale docstring, not a code hole.
+  The REAL behavioral hole: a +Inf first value with a finite last
+  gives drop = +Inf > tol and PASSES — a numerically exploded run
+  reads as a descent. (NaN endpoints already fail closed through the
+  comparison.)
+- 64: gsv_bitwise_drift.py:328-335 patches
+  training.DEFAULT_COMPILE_MODE around a rebuild that is called with
+  compile_model=False (:251 default) AND whose fixture recipe
+  persists "compile_mode": None (:148) — rebuild reads the persisted
+  recipe, so the patched global provably cannot reach the compared
+  output. The compile-mode drift arm asserts nothing.
+- 65: the global-count mechanism was verified at the 29
+  adjudication; the refile adds the exact acceptance (below).
+- 66: gct_parity.py:141-147 derives masked from the SAME rebuilt
+  geometry's dest_idx and accepts nonzero_masked == 0 — an
+  all-covering dest_idx makes the masked selection empty (vacuous
+  green), and a lost cut lets the object under test redefine its own
+  expected mask.
+- 67: warmstart.py:78 "loaded once", :80 "builds this once", :271
+  "Load and validate the source emulator once" — while load_source
+  executes rebuild_emulator (:309; opens the .h5 and torch.loads the
+  .emul) and then opens h5py.File(root + ".h5") AGAIN (:335) for the
+  recipe/resolved facts. The FinetuneSource attribute docstring ends
+  at dataset; the live .ia attribute (:131) is absent from it.
+- 68: _require_parity_finite guards exactly the four finetune
+  baseline tensors (:945-951) and three transfer tensors
+  (:1113-1117); BOTH perturbed arms (finetune :957-965, transfer
+  :1125-1134) feed torch.equal unguarded, so a NaN/Inf born only on
+  the perturbation is mislabeled "the extra parameters leaked" /
+  "moved the epoch-0 prediction" — the developer is sent hunting
+  zero-padding instead of the overflow.
+- 69: the untruncated grep finds EXACTLY the six claimed sites
+  (warmstart:34, diagnostics:88, losses/ia:16, designs/ia:18,
+  designs/plain:60, geometries/output:52) — no seventh.
+- 70: results.py:150 says "(a cuda-saved state needs the saving GPU
+  visible)" while the executed save runs detach().cpu() on every
+  persisted tensor (:292, :311, :370, :395) and rebuild loads with
+  map_location=device (:722). gsv_bitwise_drift has NO CPU-residency
+  assertion on the serialized tensors — the gate clause is
+  add-not-cite.
+- 71: warmstart.py:20-21's headline promises "the source emulator's
+  own function, bit for bit" while the function-reproduction
+  comparison is tolerance (_PARITY_TOL = 1.0e-5, :967); only the
+  extras-independence half is torch.equal (:961), and transfer's
+  epoch-0 bitwise base equality (:1119) is a separate invariant.
+- 46 ADDENDUM: _golden_leg discards BOTH child return codes
+  (board.py, "_, cur" / "_, pre") before byte_identity — combined
+  with the empty-selection green already live-reproduced, two
+  crashed children after their last matching lines, or a one-sided
+  crash, or a nothing-matching pattern all PASS.
+
+RULINGS:
+
+1. 61 splits: the stage_ram evidence string and the decreasing
+   docstring ("non-empty" -> the executed two-point strict rule) are
+   FACTUAL-BUNDLE fixes; the finiteness requirement is a small
+   BEHAVIORAL addition joining the GATE-TRUTH BATCH — both endpoints
+   must be finite, a nonfinite endpoint returns False with a named
+   detail (house finite-contract doctrine: a nonfinite loss is a
+   broken run, not a descent) — with the five named controls (empty,
+   one-value, NaN, equal, +Inf-first) as selftest legs.
+2. 64 splits: the vacuous compile-mode arm is REMOVED NOW (gate-truth
+   increment 2's honest-evidence class — a drift claim its own patch
+   cannot reach may not stand); compile-mode persistence becomes NEW
+   UNIT 93: a CUDA lane that rebuilds with compile_model=True,
+   instruments torch.compile to OBSERVE the persisted recipe mode,
+   and reds when rebuild ignores or loses that field. Board-listed
+   accelerator leg, workstation-owed (the queue-5 exhibit family
+   with 77/80's Torch legs). Never-trust-defaults: a persisted
+   recipe field must be provably honored by the consuming code.
+3. 65 MERGES INTO 29 — one home, the sharper acceptance adopted: the
+   exact expected (x_parameter, y_parameter, window) set constructed
+   independently, axis identities extracted from each Axes object,
+   the exact set/count compared, the omegamh2 marginal identified
+   specifically, _CUT_GREY checked on each expected artist, and the
+   move-a-correct-artist-to-a-wrong-axis mutation that leaves global
+   counts unchanged must red.
+4. 66 joins the GATE-TRUTH BATCH (the same vacuous-pass class as
+   47): the fixture declares an independent, NONEMPTY expected
+   masked-index set; the gate asserts observed mask identity and
+   count against it, exact zeros there, and compares kept
+   coordinates between section and full outputs; the all-kept and
+   deleted-expected-index mutations must fail.
+5. 67 + 68 land as ONE WARMSTART VISIT (same file, prose + guard
+   together, after the gauntlet with the family visits). 67 ruling:
+   TEACH, don't consolidate — the second metadata pass is stated
+   with its reason (rebuild_emulator owns network reconstruction;
+   the follow-up open reads recipe/resolved facts), object count is
+   distinguished from file-open count, and ia = nla / tatt / None is
+   defined; the instrumented h5py.File/torch.load open-count census
+   that pins the final prose is a UNIT 91 executable example. 68
+   ruling: the shared finite predicate is applied to the perturbed
+   encode and output tensors in BOTH arms (a production fix); board
+   legs mint NaN and Inf only on the perturbation and require the
+   finite-contract error naming quantity/side/row; removing either
+   perturbed-arm guard must red.
+6. 69: ONE canonical sentence — "decorrelated and unit variance
+   (equal numerical scale); this does not guarantee equal
+   learnability" — replaces all six sites, a FACTUAL-BUNDLE fix
+   whose completion evidence is a multiline repo scan leaving zero
+   "equally hard"/"equally easy" claims in emulator/ (the campaign's
+   multiline-census law; single-line grep insufficient).
+7. 70 splits: the results.py:150 correction (this library persists a
+   CPU-normalized checkpoint, distinct from a raw CUDA checkpoint;
+   map_location selects the load destination) is a FACTUAL-BUNDLE
+   fix; the CPU-residency leg (torch.load the .emul and assert every
+   tensor's device.type == "cpu") joins gate-truth increment 2
+   (verified absent today — add, not cite).
+8. 71: the headline is rewritten to the TWO invariants — the widened
+   network reproduces the source function within _PARITY_TOL
+   (different matrix widths change floating-point reduction order),
+   and perturbing only the zero-connected extras on the SAME widened
+   network is bit-identical (torch.equal) — with transfer's separate
+   bitwise base-composition requirement untouched. FACTUAL-BUNDLE
+   fix; the bit-for-bit census (every "bit for bit" / "bitwise" /
+   "bit-identical" occurrence mapped to the comparator actually
+   used) joins the quantifier-discipline battery.
+9. The 46 golden-leg addendum is ABSORBED into 46's gate-truth
+   repair: identity requires BOTH return codes zero AND a nonempty /
+   minimum selected-line count AND equality; both rcs and both
+   counts reported; the three mutations (empty selection; both
+   children rc 1 after matching lines; tip-only rc 1) must red.
+
+Sequencing: the gauntlet is UNCHANGED — batches 4/5b -> the unit-28
+fixture repair -> the gate-truth batch (46+addendum/47/48/52/53/63
++ 61-finiteness + 66) -> gate-truth increment 2 (62/59/60 +
+64-narrowing + 70-leg). Unit 93 is workstation-owed; 67+68 ride the
+family visits; the factual bundle grows by 61/69/70/71's prose.
