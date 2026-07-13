@@ -2350,6 +2350,25 @@ collide). New acceptance: every printed command executed once on
 its machine before printing. Spec: gates-and-board.md
 "DIDACTICS-72..92 adjudication".
 
+25M-01..06 BATCH (2026-07-13, Fable): all six CONFIRMED in code.
+01 = NEW UNIT 94 boundary-interior owner (margins scale with the
+coordinate, not the width: [70.0,70.02] keeps 29.99%, [1000,
+1000.01] inverts and crashes; nextafter interior + refusal +
+requested/resolved support persisted — the generation-side half of
+unit 84's support story). 02 = unit-8 amendment (temp changes
+uniform support, filenames say only _unifs). 03 = unit-8 + 82 joint
+(chain-only rewrites params at shared stems THEN skips dv — a
+two-command corruption; --chain becomes a run-control mode axis).
+04 = unit-53 amendment (family="cosmolike" default made STUDY_NAME
+unreachable — the documented resume forks; a repair-caused
+regression, forward-walk law again). 05 = unit-41 extension (sweep
+headers persist raw args.activation=None while H runs). 06 =
+unit-82 canonical-representation extension (.ranges %.5e collapses
+float32-distinct bounds vs %.9e rows). TWO PRODUCTION ADVISORIES
+NOW: narrow/offset uniform intervals unsafe; --chain 1 on
+full-dataset stems unsafe. Spec: gates-and-board.md "25M-01..06
+adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

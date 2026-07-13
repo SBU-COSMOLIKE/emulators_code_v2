@@ -3682,3 +3682,90 @@ Sequencing: doc-only; nothing preempts the spine (4/5b -> D3 -> D4
 -> D5). The consolidated plan absorbs this wave without a new spine
 position: D1 gains 72 + the merged gates-README visit; D2 gains the
 factual heads; the four visits join the queue-6 lane.
+
+## 25M-01..06 adjudication (Fable, 2026-07-13): all six CONFIRMED — one new unit (94), four amendments, one extension; two immediate production advisories
+
+Durable register at fafc122 (entries carry contracts + red legs);
+every anchor independently verified in code:
+
+- 25M-01 CONFIRMED (generator_core.py:746-747): the uniform-branch
+  safety margin multiplies the ABSOLUTE endpoint (1.0001*lo /
+  0.9999*hi, sign-reversed for negatives) — proportional to the
+  coordinate's distance from zero, not the interval width. The
+  [70.0, 70.02] witness retains 29.99% of its width; [1000.0,
+  1000.01] inverts and rng.uniform raises. Translation-dependent
+  physics. -> NEW UNIT 94, the boundary-interior owner: ONE named
+  helper working in interval coordinates (nextafter(low,high) /
+  nextafter(high,low) preferred, or a named width-relative margin);
+  finite, ordered, representably nonempty interior validated BEFORE
+  sampling; requested AND resolved per-name support persisted in
+  dataset identity — the generation-side half of the support story
+  whose inference-side half is unit 84 (the artifact fact 84
+  consumes is the one 94 records). Red legs as filed, including the
+  endpoint-times-constant restoration mutation.
+- 25M-02 CONFIRMED (:369-375 stretch infinite hard-prior endpoints
+  by temp*width/5; :426-429 name all three uniform outputs only
+  _<probe>_unifs while the non-unif branch embeds _<temp>): two
+  healthy temperatures produce different supports at identical
+  paths. -> UNIT 8 AMENDMENT: dataset identity includes sampling
+  mode, requested temperature, resolved per-name bounds, the
+  boundary-interior policy (94's), and seed/RNG; resume/append
+  require exact identity before mutation; different identity =
+  refusal or a digest-derived distinct path.
+- 25M-03 CONFIRMED (:221-223: rank-0 __run_mcmc() runs
+  UNCONDITIONALLY, then chain==1 merely skips
+  __generate_datavectors): chain-only mode rewrites the parameter
+  chain + .paramnames/.ranges/.covmat at the same stems and leaves
+  old dv/failure files — a successful TWO-COMMAND corruption pairing
+  new cosmology row i with old physics row i, all row counts
+  agreeing. -> UNIT 8 + UNIT 82 JOINT AMENDMENT: chain-only owns a
+  distinct identity/location or refuses before mutation when any
+  full-dataset member exists; the manifest records mode; full
+  generation cannot adopt a colliding chain-only bundle. The
+  run-control state machine (unit 8) gains --chain as a mode axis
+  beside --append/--loadchk.
+- 25M-04 CONFIRMED (cosmic_shear_tune_emulator.py:217 family=
+  "cosmolike" default; :290 study_name = STUDY_NAME if family is
+  None else prog; the adjacent comment still promises the historic
+  name): STUDY_NAME is now UNREACHABLE — the documented direct
+  command forks its Optuna resume from cosmic_shear_tune to
+  cosmic_shear_tune_emulator. A REGRESSION INTRODUCED BY A REPAIR
+  (e9943bc) — the forward-walk law's second strike (FTW model-block
+  precedent). -> UNIT 53 AMENDMENT: one pure resolver maps family
+  identity to a stable study name (direct cosmolike -> the retained
+  historic constant; wrappers -> their pinned tags); resolved name
+  in the study manifest and final report; renames are explicit
+  migrations, never validator collateral. The false comment is
+  corrected in the SAME landing.
+- 25M-05 CONFIRMED (both sweep writers persist raw args.activation
+  — ntrain :493, hyperparam :444 outside the swept axis — while
+  from_config resolves None -> YAML -> "H" at experiment.py:
+  2181-2189): the shipped default runs H under "# activation=None".
+  -> UNIT 41 EXTENSION (resolved-record truth reaches sweep
+  products): metadata assembled from ONE immutable resolved run
+  record, never raw optional CLI fields; activation-family sweeps
+  record "swept" + ordered values; serial and pooled paths share the
+  record; banner/artifact/table/figure agree.
+- 25M-06 CONFIRMED (:786 .ranges writes {:.5e} while :799 chain rows
+  write %.9e): float32-distinct bounds 70.00001/70.00002 both
+  publish as 7.00000e+01 — a false zero-width support the manifest
+  would faithfully digest (file identity cannot substitute for
+  representation truth). -> UNIT 82 EXTENSION (canonical
+  representation, coupled with unit 87's one-decimal-contract): one
+  decimal policy derived from the owned dtype shared by
+  chain/header/ranges; publication refuses before mutation if
+  conversion collapses a valid interval; both witness pairs
+  round-trip distinct.
+
+TWO IMMEDIATE PRODUCTION ADVISORIES (effective now, until landings):
+(1) uniform generation with NARROW or LARGE-OFFSET intervals is
+unsafe (the margin eats width or inverts); shipped broad priors are
+negligibly affected (margin << width). (2) --chain 1 at stems
+holding a full dataset is the two-command corruption — do not run it
+there. These join the standing 45M-81 no-append advisory.
+
+Sequencing: production-code repairs in the unit queue (not the
+pre-queue-5 gate-truth gauntlet); 25M-02/03 land with unit 8's
+run-control machine; nothing preempts batches 4/5b -> D3 -> D4 ->
+D5. The 25M series joins the registry namespace with the
+durable-record rule honored (fafc122 landed before the chat copy).
