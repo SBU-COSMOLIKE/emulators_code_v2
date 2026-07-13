@@ -2124,6 +2124,24 @@ compileall + selftest, and documentation-only AST equivalence.
 Doc-only interleave; nothing preempted. Spec: gates-and-board.md
 "DIDACTICS-01/02 adjudication".
 
+DIDACTICS-03..09 BATCH (2026-07-13, Fable): the per-family teaching
+batches (03 family gates, 04 staging + memory mechanics, 06 harness
+mechanics, 07 torch/numerics) RATIFIED under the binding mechanical
+acceptance, with ONE named executable exception (04's coordinate
+table gains a stage-ram leg). 05 CONFIRMED + SHARPENED (the BSN
+"closed-form" reference IMPORTS the production cumulative_simpson —
+zero catch power against it): the honest narrowing + the README
+all-family rewording ride the first queue-6 landing; the
+independence upgrade = NEW UNIT 90 (independent quadrature reference
++ Simpson-weights mutation arm, board-listed, rides the BSN visit).
+08 CONFIRMED (batching.py claims universal global rows — true only
+disk-backed post-queue-3; separate filenames do not prove no
+leakage): immediate factual correction with the two-regime table +
+the assumption sentence until unit 28's disjointness check. 09
+RATIFIED (plain-language vocabulary; machine identifiers and the
+"leg" term survive via the reviewed allowlist + README definitions).
+Spec: gates-and-board.md "DIDACTICS-03..09 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

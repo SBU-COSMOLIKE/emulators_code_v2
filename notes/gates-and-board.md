@@ -2636,3 +2636,69 @@ Sequencing: doc-only, interleaves with the unit queue as
 review-blocked filler; does NOT preempt batches 4/5b, queue 2, or
 unit 79. The Implementer reads
 notes/user-didactics-and-python-voice.md BEFORE writing any of it.
+
+## DIDACTICS-03..09 adjudication (Fable, 2026-07-13): the per-family teaching batches ratified; two factual corrections jump the queue; one new gate unit
+
+03 (family identity/smoke gates as laboratory exercises), 04 (staging
+coordinate map + Python-memory mechanics, with the shared nine-term
+glossary), 06 (selftest/harness mechanics box + the four-state worked
+example + digest-is-byte-identity-not-correctness), and 07
+(finite-contract/diagnostics/eval_bs PyTorch + numerical-analysis
+teaching) are RATIFIED AS FILED — they are exactly the per-family
+DIDACTICS-01 batches the campaign anticipated, each landing under the
+binding mechanical acceptance already ruled (AST docstring census,
+untruncated history scan, compileall + selftest, documentation-only
+AST equivalence, the reviewed one-liner allowlist). ONE named
+exception to the doc-only rule: DIDACTICS-04's tiny coordinate table
+must be EXECUTABLE — the table lives in the documentation, and its
+mechanical check lands as one new named stage-ram leg reproducing
+both storage regimes' identical row/minibatch order; that single leg
+is the only executable-AST change the didactics campaign may make,
+recorded here so the AST-equivalence census can exempt it by name.
+
+05 (factual falsehoods) CONFIRMED, and SHARPENED by the Architect's
+verification: bsn_identity's "closed-form flat LCDM reference"
+(:13-14) does not merely share the Simpson ALGORITHM — it imports
+the production cumulative_simpson function itself (:50), so the
+reference has ZERO catch power against a defect in that function;
+it tests grid-resolution behavior only. RULINGS: (a) the honest
+narrowing (README all-family CoCoA SONIC wording, no agent/session
+history, the BSN comparison described exactly) is a FACTUAL
+correction that rides the first queue-6 landing with DIDACTICS-02;
+(b) the independence upgrade is accepted as gate work -> NEW UNIT 90
+(below). 08 (batching.py teaches the wrong row-coordinate system)
+CONFIRMED — the universal global-rows claim (:41-45 and siblings)
+is true only for disk-backed staging after the queue-3 landing, and
+the "no shared rows, no leakage" implication (:403-406) is not
+proven by separate filenames; the two-regime table, the four-concept
+glossary, the continued [9,2,5] example, and the
+assumption-not-yet-enforced leakage sentence (until the queued
+unit-28 disjointness check lands, then naming the real comparison)
+are RATIFIED as an immediate factual correction alongside 05a.
+
+09 (team shorthand census: ~149 leg / 89 parity / 157 identity /
+56 mutation / 58 pin ...) RATIFIED with the allowlist emphasized:
+gate ids and machine identifiers keep their names (cmb-identity
+stays cmb-identity; the queue-2 aid scheme keeps "leg" as its
+defined term); every retained technical term is defined once in
+gates/README.md and locally where sharper; the three plain-language
+questions accompany every deliberately broken comparison. The
+queue-2 rollout's log vocabulary must use the taught terms.
+
+UNIT 90 (from DIDACTICS-05b): the BSN distance gate gains an
+ALGORITHMICALLY INDEPENDENT reference — an adaptive-quadrature
+distance (scipy.integrate.quad at tight tolerance, which shares no
+code with cumulative_simpson) or an exact analytic form, compared at
+a documented tolerance derived from the quadrature's own error
+estimate — plus a mutation arm corrupting the Simpson WEIGHTS that
+the new leg must catch and the old fine-grid leg provably cannot.
+The fine-grid leg is retained under its honest narrowed description.
+Board-listed, small, rides the BSN family visit (with units 58/62);
+spec home families-background-mps.md via this entry.
+
+Sequencing: 05a + 08 join DIDACTICS-02's first landing (factual
+corrections first); 03/04/06/07/09 land per gate family as the red
+team's batches isolate them; unit 90 rides the BSN visit. All
+doc-only interleave except the two named executable exceptions (the
+04 table leg; unit 90); nothing preempts batches 4/5b, queue 2, or
+unit 79.
