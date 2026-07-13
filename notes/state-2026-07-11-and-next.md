@@ -2312,6 +2312,13 @@ sequencing = the consolidated handoff). Landing order: codex branch
 (ff to 35f0137), then amazing-keller (2f25450), then resync. Spec:
 gates-and-board.md "Registry-persistence audit".
 
+ALIAS CLOSURE (2026-07-13, Fable): d00358c GO'd — the 20M-15 /
+unit-56 checkpoint-ingress labels joined at both registry sites;
+MEMORY.md names the D1-D10 consolidated handoff as sequencing
+authority; the "main dirty" hold was stale (merge concluded as
+7743fc6); direct merge ruled safe (ancestor base, disjoint files).
+Spec: gates-and-board.md "Registry alias closure (d00358c)".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

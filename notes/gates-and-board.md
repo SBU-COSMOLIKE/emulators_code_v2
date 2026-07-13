@@ -3522,3 +3522,17 @@ fast-forwards to 35f0137), then claude/amazing-keller-e798b6
 (2f25450; disjoint file sets, clean merge), then both sessions run
 the resync ritual. The registry becomes the canonical identifier
 crosswalk; adjudications keep citing topic-note headings.
+
+## Registry alias closure (d00358c) — audited, GO (Fable, 2026-07-13)
+
+The red team's d00358c (notes-only, 3 files) closes the one aliasing
+seam from the registry audit: the crosswalk now reads "15 (the
+checkpoint-ingress amendment to unit 56)" and the dataset contract
+"the 20M-15 checkpoint-ingress amendment to that same unit 56 owns
+resumed-row revalidation" — both labels joined in place, verified at
+the anchors. MEMORY.md's cold-start order now names the consolidated
+D1-D10 handoff as sequencing authority. The handoff's "main dirty"
+hold was STALE at audit time: the user had concluded the vi-stuck
+merge as 7743fc6, MERGE_HEAD gone, status clean. d00358c's base
+83c8624 is an ancestor of main; file sets disjoint from 7743fc6's —
+the refresh-first step is unnecessary; merge directly.
