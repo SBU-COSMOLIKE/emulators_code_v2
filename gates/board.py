@@ -1149,9 +1149,9 @@ def gate_cme_a(ctx):
 def gate_cme_b(ctx):
   """cmb-smoke: the CMB emulator end to end on real CAMB.
 
-  WHAT: dataset_generator_cmb.py writes two tiny dumps (200 rows each,
+  WHAT: the CMB dataset generator writes two tiny dumps (200 rows each,
   l = 2..350, cmblensed, As sampled linearly) — four per-spectrum dv files
-  + sidecars, phiphi actually filled; compute_cmb_covariance.py
+  + sidecars, phiphi actually filled; the CMB covariance builder
   writes the Gaussian .npz on the fixture LCDM (its first real run);
   a data.cmb / as_exp2tau_ref training run collapses the val median below
   0.5x the staged mean predictor (the bar a dead network cannot pass);
@@ -1212,7 +1212,7 @@ def gate_bsn_a(ctx):
 def gate_bsn_b(ctx):
   """bsn-smoke: the BAOSN emulators end to end, checked against CAMB.
 
-  WHAT: dataset_generator_background.py writes two tiny dumps (200
+  WHAT: the background dataset generator writes two tiny dumps (200
   rows, one background-only CAMB evaluation per sample — fast) carrying
   BOTH quantities + their _z.npy grid sidecars (one CAMB pass fills
   both — the one-pass rule); two
@@ -1282,7 +1282,7 @@ def gate_mps_a(ctx):
 def gate_mps_b(ctx):
   """mps-smoke: the MPS emulators end to end on real CAMB (law none).
 
-  WHAT: dataset_generator_mps.py writes two tiny dumps (200 rows,
+  WHAT: the MPS dataset generator writes two tiny dumps (200 rows,
   16 z x 40 k) through the real Pk_interpolator requirement (incl. the
   verbatim wants-Cl quirk): pklin + boost + the grid sidecars; two
   data.grid2d trainings (law none) each collapse below 0.5x the staged
@@ -1728,6 +1728,18 @@ BOARD = [
        evidence=(Assertion("cli-a.strict-parse",
                            "conventions-and-workflow.md#cli-a-strict-cli"),),
        run=gate_cli_strict,
+       manifest=Manifest(
+           code=("cosmic_shear_train_emulator.py",
+                 "cosmic_shear_sweep_ntrain_emulator.py",
+                 "cosmic_shear_sweep_hyperparam_emulator.py",
+                 "cosmic_shear_bakeoff_activation_emulator.py",
+                 "cosmic_shear_tune_emulator.py",
+                 "scalar_train_emulator.py",
+                 "compute_data_vectors/generator_core.py",
+                 "compute_data_vectors/compute_cmb_covariance.py",
+                 "emulator/designs",
+                 "emulator/losses"),
+           inputs=()),
        needs=("torch",)),
   Gate(id="family-first",
        spec_code="FAM-A",
@@ -1743,6 +1755,9 @@ BOARD = [
        evidence=(Assertion("fam-a.family-owned",
                            "conventions-and-workflow.md#fam-a-family-first"),),
        run=gate_family_first,
+       manifest=Manifest(code=("cosmic_shear_train_emulator.py",
+                               "emulator/designs", "emulator/losses"),
+                         inputs=()),
        needs=("torch",)),
   Gate(id="stage-ram",
        spec_code="SRM-A",
@@ -1890,6 +1905,7 @@ BOARD = [
        home="training-stack",
        maps="143-147 (gated_power wd 1e-4 census + golden wd-0 byte-identity)",
        run=gate_gwd_c,
+       manifest=Manifest(code=(), inputs=()),
        needs=("torch", "gpu")),
   Gate(id="npce-training",
        spec_code="GPC-C",
@@ -2000,6 +2016,8 @@ BOARD = [
        maps="86-93 (bitwise + drift + v1 refusal); "
             "gates-and-board.md:66-71 (one factored + one NPCE save)",
        run=gate_gsv_c,
+       manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+                         inputs=()),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="cobaya-adapter",
        spec_code="GCT-C",
@@ -2008,6 +2026,8 @@ BOARD = [
        home="artifacts-inference-warmstart",
        maps="117-123 (parity rtol 1e-6 + evaluate + MCMC); 234-238 (round-trip)",
        run=gate_gct_c,
+       manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+                         inputs=("evaluate_yaml",)),
        deps=("save-rebuild-drift",),
        needs=("torch", "cosmolike", "cobaya", "gpu")),
   Gate(id="finetune-smoke",
@@ -2038,6 +2058,8 @@ BOARD = [
        maps="128-134 (fixture train + collapse + off-center predict + "
             "cobaya evaluate through emul_scalars)",
        run=gate_spe_b,
+       manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+                         inputs=()),
        needs=("torch", "cobaya")),
   Gate(id="cmb-smoke",
        spec_code="CME-B",
@@ -2049,6 +2071,11 @@ BOARD = [
             "141-203 (leg 2b: the eq-6 non-diagonal blocks + the "
             "fractional-amplitude weight-key provenance)",
        run=gate_cme_b,
+       manifest=Manifest(
+           code=("emulator/designs", "emulator/losses",
+                 "compute_data_vectors/dataset_generator_cmb.py",
+                 "compute_data_vectors/compute_cmb_covariance.py"),
+           inputs=()),
        needs=("torch", "cobaya")),
   Gate(id="bsn-smoke",
        spec_code="BSN-B",
@@ -2058,6 +2085,10 @@ BOARD = [
        maps="128-136 (end-to-end vs CAMB's own background); "
             "178-194 (the grid diagnostics leg)",
        run=gate_bsn_b,
+       manifest=Manifest(
+           code=("emulator/designs", "emulator/losses",
+                 "compute_data_vectors/dataset_generator_background.py"),
+           inputs=()),
        needs=("torch", "cobaya")),
   Gate(id="mps-smoke",
        spec_code="MPS-B",
@@ -2067,5 +2098,9 @@ BOARD = [
        maps="the note's matter-power sections: the generator incl. the "
             "wants-Cl quirk; the emul_mps lifecycle vs CAMB's own P(k, z)",
        run=gate_mps_b,
+       manifest=Manifest(
+           code=("emulator/designs", "emulator/losses",
+                 "compute_data_vectors/dataset_generator_mps.py"),
+           inputs=()),
        needs=("torch", "cobaya")),
 ]

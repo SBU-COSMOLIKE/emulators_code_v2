@@ -765,6 +765,20 @@ _SHARED_HARNESS = ("gates/run_board.py", "gates/board.py")
 _DYNAMIC_IMPORT_WAIVERS = {
   "emulator/results.py":   ("emulator/designs", "emulator/losses"),
   "emulator/warmstart.py": ("emulator/designs", "emulator/losses"),
+  # cli-strict's check script imports each bounded entry-point driver by name
+  # (importlib) to test its argparse; the reviewed cover is exactly those eight
+  # drivers. Their own closures reach the results / warmstart model-recipe sites
+  # already waived above, so the cli-strict gate additionally declares
+  # emulator/designs + emulator/losses (see its manifest in board.py).
+  "gates/checks/cli_strict.py": (
+      "cosmic_shear_train_emulator.py",
+      "cosmic_shear_sweep_ntrain_emulator.py",
+      "cosmic_shear_sweep_hyperparam_emulator.py",
+      "cosmic_shear_bakeoff_activation_emulator.py",
+      "cosmic_shear_tune_emulator.py",
+      "scalar_train_emulator.py",
+      "compute_data_vectors/generator_core.py",
+      "compute_data_vectors/compute_cmb_covariance.py"),
 }
 
 
