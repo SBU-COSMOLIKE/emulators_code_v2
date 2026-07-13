@@ -2710,14 +2710,43 @@ corrected by its Red Team custodian in this landing; the root README
 correction belongs to the Implementer visit. No README or library code
 was edited by the Red Team.
 
-DIDACTICS-95..100 ADJUDICATED (2026-07-13, Fable): all six
-CONFIRMED. The current-library/not-a-development-diary ruling is now
-the campaign-wide README standard. Acceptance is the candidate scan
-plus human adjudication, with retained-hit reasons in audit evidence
-rather than public prose. The CMB verification found three overclaims
-already contradicted by more accurate implementation-owned text, so
-README teaching now carries the same one-owner discipline as
+DIDACTICS-95..100 (2026-07-13, Fable): the USER RULING (README =
+current library, not a diary; limitations = scope/consequence/user-
+action) RATIFIED as campaign law — recorded in conventions,
+generalizing the queue-6 restructuring with user authority;
+acceptance = untruncated history-vocabulary scan + human
+adjudication of retained hits. 96's four CMB factual heads all
+verified (TT/EE-only formula; dense blocks written-not-consumed —
+the geometry preamble says so itself; as_exp2tau removes the
+dominant amplitude, not all non-shape content; roughness = boxcar
+twice + remainder penalty per the loss's own docstring) + the
+serving-units sentence — heads jump to D2, the rewrite rides the
+root visit. 97/98/99 fold into the four standing file visits; 100
+(SONIC = Simulated Observables for Numerical Inference in
+Cosmology; README says Surrogates and Operators) joins the factual
+bundle NOW. Spec: gates-and-board.md "DIDACTICS-95..100
+adjudication".
+
+DIDACTICS-95..100 ADJUDICATED (2026-07-13, Fable; Red Team receipt):
+all six CONFIRMED. The current-library/not-a-development-diary ruling
+is now the campaign-wide README standard. Acceptance is the candidate
+scan plus human adjudication, with retained-hit reasons in audit
+evidence rather than public prose. The CMB verification found three
+overclaims already contradicted by more accurate implementation-owned
+text, so README teaching now carries the same one-owner discipline as
 numerics. The wave folds into the existing root, emulator, gates, and
 Syren visits with no new queue slot. Custody on DIDACTICS-100 stands:
 TeX/PDF corrected by Red Team, root README assigned to Implementer.
 DIDACTICS register: 001--100.
+
+DIDACTICS CAMPAIGN REASSIGNED (2026-07-13, USER): implementation
+moves to the RED TEAM — the D2 factual bundle, D1's prose half
+(executable leg waits for 27/28), the four README visits, unit 91,
+the DIDACTICS-93 rename, and lane-3 prose after each protocol unit
+lands. STAYS with the Implementer: lane-3 AST pieces (10b/12/04
+legs), gate units 90/92/93, machinery, queue 2, the gauntlet,
+production units. Collision rules: red team off gates/checks
+teaching until D4+D5, off run_board/board/emulator production; all
+campaign landings Architect-audited pre-merge under the full
+battery; red team never self-certifies. Spec: gates-and-board.md
+"USER REASSIGNMENT: the didactics campaign moves to the red team".

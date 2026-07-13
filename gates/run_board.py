@@ -624,12 +624,29 @@ def _watched_paths():
   this function and that constant keeps the executed watch, the exclusion, and
   the printed surface text from ever disagreeing about what was checked.
 
+  The root drivers are the UNION of the git-TRACKED root ``*.py`` and the root
+  ``*.py`` that currently EXIST (25M-27): a DELETED tracked driver no longer
+  exists for a filesystem glob, so deriving the watch only from existing files
+  would omit it and let ``git status`` certify the damaged tree clean. Tracked
+  identity keeps a deletion in the pathspec; the current-file union keeps a
+  NEWLY ADDED untracked root driver watched too.
+
   Returns:
     the pathspec list to pass after ``git status --porcelain --``.
   """
   watched = list(_EXECUTABLE_DIRS)
-  for entry in sorted(_REPO.glob("*.py")):
-    watched.append(entry.name)
+  roots = set()
+  rc, out = _git(["ls-files", "--", "*.py"], strip=False)
+  if rc == 0:
+    for line in out.splitlines():
+      name = line.strip()
+      # git pathspec "*.py" matches at any depth; keep only ROOT-level drivers.
+      if name and "/" not in name and name.endswith(".py"):
+        roots.add(name)
+  for entry in _REPO.glob("*.py"):
+    roots.add(entry.name)
+  for name in sorted(roots):
+    watched.append(name)
   return watched
 
 
@@ -990,6 +1007,115 @@ def _runtime_loader_sites(rel_path):
   return sites
 
 
+# the whole-repo .py surface, excluded dirs, and the marker a whole-scope
+# data-reader declares. ONE enumerator (25M-16): the SAME function is the
+# gate's manifest surface AND the gate's own scan (geo_paths imports it), so
+# the hashed surface and the asserted surface can never disagree.
+_REPO_SCAN_EXCLUDE = ("__pycache__", "notes", ".git")
+_WHOLE_REPO = "*"
+
+
+def repo_py_files():
+  """Every repo-relative .py under the repository, minus the excluded trees.
+
+  The single shared enumerator behind a whole-scope data-reader: a gate whose
+  verdict quantifies over every repo .py (geo-paths' folder census,
+  board-selftest's config census) declares _WHOLE_REPO and hashes exactly this
+  set, and the gate's OWN scan iterates this same function -- so a byte edit to
+  any repo .py stales the gate, which for a cheap text scan is correct and
+  affordable. Excludes __pycache__, notes/, and .git (no executable source, or
+  red-team-owned prose).
+
+  Returns:
+    a sorted list of repo-relative ".py" paths.
+  """
+  found = []
+  for path in _REPO.rglob("*.py"):
+    rel = str(path.relative_to(_REPO))
+    parts = rel.split("/")
+    if any(seg in _REPO_SCAN_EXCLUDE for seg in parts):
+      continue
+    found.append(rel)
+  return sorted(found)
+
+
+# The reviewed data-read table (25M-16): a check that OPENS executable .py
+# source AS DATA -- reading or parsing its text without importing it -- depends
+# on those bytes, a hash-as-file dependency the import closure never sees (the
+# finite_contract leaf lesson). Each reader FILE names the .py it reads: a fixed
+# tuple, or _WHOLE_REPO for a whole-scope scanner. The digest folds these as
+# hash LEAVES (never closure-seeded); the _data_read_sites scanner is the
+# negative catch (an unwaived data-read site fails validation).
+_DATA_READ_COVERS = {
+  "gates/checks/geo_paths.py":        (_WHOLE_REPO,),
+  "gates/checks/board_selftest.py":   (_WHOLE_REPO,),
+  "gates/checks/artifact_readback.py": ("emulator/results.py",
+                                        "scalar_train_emulator.py"),
+  "gates/checks/family_first.py": ("cosmic_shear_train_emulator.py",
+                                   "cosmic_shear_sweep_hyperparam_emulator.py",
+                                   "cosmic_shear_sweep_ntrain_emulator.py",
+                                   "cosmic_shear_tune_emulator.py"),
+  "gates/checks/generator_seed.py": ("compute_data_vectors/generator_core.py",),
+  # diagnostics-domain reads emulator/diagnostics.py as data (ast-parses its
+  # text); the scanner flags it, so it is reviewed here. (cli-strict also reads
+  # its eight driver entry points as data, but it already DECLARES all eight as
+  # code roots, so they are digested by the closure -- no data cover needed.)
+  "gates/checks/diagnostics_domain.py": ("emulator/diagnostics.py",),
+}
+# the shared harness reads .py as its JOB (the census machinery) and is already
+# hashed in every gate's closure, so it is never a reviewed data-reader.
+_DATA_READ_HARNESS = _SHARED_HARNESS
+
+
+def _data_read_sites(rel_path):
+  """The .py-as-DATA read sites in one file (25M-16 negative catch).
+
+  A best-effort tripwire for a NEW check that reads executable source as data:
+  a whole-tree scan (os.walk, or an rglob/glob of a "*.py" pattern) and a fixed
+  read (open / read_text / read_bytes / ast.parse / inspect.getsource) whose
+  call carries a literal ".py" path. The reviewed _DATA_READ_COVERS table is the
+  source of digest truth; this scan only catches an unreviewed reader. The
+  harness is excluded (it reads .py as its job, already fully hashed).
+
+  Arguments:
+    rel_path = the repo-relative path of the file to scan.
+
+  Returns:
+    a list of (rel_path, lineno, kind) for each data-read site.
+  """
+  if rel_path in _DATA_READ_HARNESS:
+    return []
+  try:
+    tree = ast.parse((_REPO / rel_path).read_bytes())
+  except (OSError, SyntaxError, ValueError):
+    return []
+  sites = []
+  for node in ast.walk(tree):
+    if not isinstance(node, ast.Call):
+      continue
+    fn = node.func
+    if isinstance(fn, ast.Attribute):
+      name = fn.attr
+    elif isinstance(fn, ast.Name):
+      name = fn.id
+    else:
+      name = None
+    # os.walk over a tree (a whole-repo source scan) -- NOT ast.walk, which
+    # traverses an already-parsed tree and reads no file.
+    if (name == "walk" and isinstance(fn, ast.Attribute)
+        and isinstance(fn.value, ast.Name) and fn.value.id == "os"):
+      sites.append((rel_path, node.lineno, "os.walk source scan"))
+    elif name in ("rglob", "glob"):
+      if any(isinstance(a, ast.Constant) and isinstance(a.value, str)
+             and ".py" in a.value for a in node.args):
+        sites.append((rel_path, node.lineno, "glob of .py"))
+    elif name in ("open", "read_text", "read_bytes", "getsource"):
+      if any(isinstance(sub, ast.Constant) and isinstance(sub.value, str)
+             and sub.value.endswith(".py") for sub in ast.walk(node)):
+        sites.append((rel_path, node.lineno, "read .py source as data"))
+  return sites
+
+
 def _derive_closure(seeds):
   """The transitive repo-local import closure of a set of seed files.
 
@@ -1272,6 +1398,21 @@ def validate_manifests(gates, cfg):
                       "check " + member + " but declares no covering root for "
                       + repr(uncovered) + " -- declare each of " + repr(cover)
                       + " (the loaded adapter escapes the digest otherwise)")
+
+    # (d) data-read census (25M-16): a closure member (not the harness) that
+    # OPENS .py source AS DATA must be a reviewed key in _DATA_READ_COVERS, so
+    # its read surface is hashed as leaves in the digest; an unreviewed data-read
+    # site fails. The reviewed members already fold their covers into the
+    # digest (POSITIVE, via _data_read_targets); the scan here is the negative
+    # catch on a NEW, unlisted reader.
+    for member in sorted(closure):
+      if member in _DATA_READ_COVERS:
+        continue
+      for site_file, lineno, kind in _data_read_sites(member):
+        errors.append("gate '" + gate.id + "' manifest: unreviewed data-read "
+                      "site " + site_file + ":" + str(lineno) + " (" + kind
+                      + ") -- add it to _DATA_READ_COVERS with the .py path(s) "
+                      "it reads, or stop reading source as data")
   return (len(errors) == 0, errors)
 
 
@@ -1325,7 +1466,14 @@ def preflight(cfg):
   watched = _watched_paths()
   rc_st, out_st = _git(["status", "--porcelain", "--"] + watched, strip=False)
   offenders = _dirty_lines(out_st)
-  if len(offenders) == 0:
+  if rc_st != 0:
+    # a nonzero git status is a FAILURE, never a clean result: the question could
+    # not be asked, so the tree cannot be certified clean (25M-27).
+    ok = False
+    print("  [FAIL] git status failed (rc " + str(rc_st) + ") over the watched "
+          "surface; a clean tree cannot be certified")
+    print("         remedy: run inside the git clone; resolve the git error")
+  elif len(offenders) == 0:
     print("  [ok] working tree clean across the executable surface + drivers "
           "(" + _WATCH_EXCLUDE + " excluded)")
   else:
@@ -1522,20 +1670,56 @@ def _file_sha256(rel_path):
     return None
 
 
+def _data_read_targets(gate):
+  """The .py paths a gate's closure opens AS DATA (25M-16), as a set.
+
+  For each closure member that is a reviewed key in _DATA_READ_COVERS, the .py
+  it reads: a fixed cover, or the whole-repo surface (repo_py_files) for a
+  _WHOLE_REPO whole-scope reader. These are HASH LEAVES -- never seeded into the
+  import closure, since the reader parses their text and does not import them
+  (the finite_contract leaf lesson).
+  """
+  targets = set()
+  for member in _derive_closure(_manifest_seeds(gate)):
+    covers = _DATA_READ_COVERS.get(member)
+    if covers is None:
+      continue
+    for cover in covers:
+      if cover == _WHOLE_REPO:
+        targets.update(repo_py_files())
+      else:
+        targets.add(cover)
+  return targets
+
+
 def _gate_code_manifest(gate):
   """The resolved code members of a declared gate (queue 1b phase 2).
 
   The derived transitive repo-local closure of the gate's seeds, each member a
-  {path, sha256}, sorted by repo-relative path (determinism, delta 3). This is
-  the inspectable membership behind the code digest: --list can name WHICH
-  member went stale, not only that the overall digest moved.
+  {path, sha256}, sorted by repo-relative path (determinism, delta 3), PLUS the
+  .py a closure member opens as data (25M-16, hashed as leaves without being
+  seeded into the closure). This is the inspectable membership behind the code
+  digest: --list can name WHICH member went stale, not only that the overall
+  digest moved.
   """
   members = []
+  seen = set()
   for rel in sorted(_derive_closure(_manifest_seeds(gate))):
     digest = _file_sha256(rel)
     if digest is not None:
       members.append({"path": rel, "sha256": digest})
-  return members
+      seen.add(rel)
+  # (25M-16 data-read) fold the source-opened-as-data .py as hash leaves; a path
+  # already a code member is not duplicated. A whole-scope reader's leaves are
+  # the shared repo_py_files enumeration, so its digest is the whole repo.
+  for rel in sorted(_data_read_targets(gate)):
+    if rel in seen:
+      continue
+    digest = _file_sha256(rel)
+    if digest is not None:
+      members.append({"path": rel, "sha256": digest})
+      seen.add(rel)
+  return sorted(members, key=lambda member: member["path"])
 
 
 # The resolution owner of each board_config input namespace (25M-19): one owner
@@ -1868,12 +2052,17 @@ def _resume_state(status, gate, cfg):
 
 
 def _stale_member(record, gate, cfg):
-  """The first persisted manifest member whose sha256 no longer matches, or "".
+  """The first persisted manifest member whose IDENTITY no longer matches, or "".
 
-  For a declared gate whose overall digest moved, this names WHICH resolved
-  code or input member changed (a path, or an input key), so --list and
-  BOARD.md report the cause, not just that something staled. Returns "" when
-  the record has no manifest block or nothing individually changed.
+  For a declared gate whose overall digest moved, this names WHICH resolved code
+  or input member changed, so --list and BOARD.md report the cause, not just that
+  something staled. An input member is compared by its FULL persisted identity
+  (key, path, sha256), not the hash alone (25M-28): repointing a key to a
+  byte-identical file at a NEW path stales the input digest, and the changed path
+  must be named -- a hash-only compare would call it unchanged. Returns "" when
+  the record has no manifest block or nothing individually changed (the phase-2
+  best-effort exception: a NEW member the old record never stored yields a
+  generic stale state, honestly, because the old record cannot name it).
   """
   block = record.get("manifest")
   if not isinstance(block, dict) or gate.manifest is None:
@@ -1882,11 +2071,38 @@ def _stale_member(record, gate, cfg):
   for m in block.get("code", []):
     if fresh_code.get(m.get("path")) != m.get("sha256"):
       return "code:" + str(m.get("path"))
-  fresh_in = {m["key"]: m["sha256"] for m in _gate_input_manifest(gate, cfg)}
+  fresh_in = {m["key"]: (m.get("path"), m.get("sha256"))
+              for m in _gate_input_manifest(gate, cfg)}
   for m in block.get("inputs", []):
-    if fresh_in.get(m.get("key")) != m.get("sha256"):
-      return "input:" + str(m.get("key"))
+    key = m.get("key")
+    stored = (m.get("path"), m.get("sha256"))
+    fresh = fresh_in.get(key)
+    if fresh == stored:
+      continue
+    # a byte-identical relocation (same sha, new path): name key + old -> new.
+    if fresh is not None and fresh[1] == stored[1] and fresh[0] != stored[0]:
+      return ("input:" + str(key) + " [" + str(stored[0]) + " -> "
+              + str(fresh[0]) + "]")
+    return "input:" + str(key)
   return ""
+
+
+def _state_detail(state, record, gate, cfg):
+  """The detail column for a gate's state, SHARED by --list and BOARD.md (25M-28).
+
+  The persisted verdict detail, plus a loud flag when the cited log's bytes no
+  longer match its digest, plus (for a stale code/input PASS) the FIRST stale
+  member named. One formatter, so cmd_list and _write_board_md can never
+  disagree about the cause the operator reads.
+  """
+  detail = record.get("detail", "")
+  if record.get("log") and _log_digest_mismatch(record):
+    detail = (detail + " [LOG DIGEST MISMATCH: cited evidence changed]").strip()
+  if cfg is not None and state in ("stale-code", "stale-input"):
+    member = _stale_member(record, gate, cfg)
+    if member:
+      detail = (detail + " [stale member: " + member + "]").strip()
+  return detail
 
 
 def _save_status(status):
@@ -1917,16 +2133,10 @@ def _write_board_md(status, cfg=None):
       state = _resume_state(status, gate, cfg)
     else:
       state = record.get("status", "not run")
-    detail = record.get("detail", "")
     log_name = record.get("log", "")
-    if log_name and _log_digest_mismatch(record):
-      detail = (detail + " [LOG DIGEST MISMATCH: cited evidence changed]").strip()
-    # name which persisted manifest member staled, so the table reports the
-    # cause and not just the state.
-    if cfg is not None and state in ("stale-code", "stale-input"):
-      member = _stale_member(record, gate, cfg)
-      if member:
-        detail = (detail + " [stale member: " + member + "]").strip()
+    # the shared state-detail formatter (25M-28): the same first stale member
+    # --list and BOARD.md both report, so the two surfaces cannot disagree.
+    detail = _state_detail(state, record, gate, cfg)
     log_cell = log_name if state in ("PASS", "FAIL", "stale-code",
                                      "stale-input", "stale-log",
                                      "stale-dependency", "pre-manifest") else ""
@@ -2231,6 +2441,25 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
       _record(gate.id, "skipped_dep")
       continue
 
+    # (25M-19 run-time clause) a None input sha is a VALIDATION-time allowance (a
+    # dev box lacking a deploy tree), never a RUN-time one: at run time every
+    # declared input must resolve and hash, or the gate refuses BEFORE its body,
+    # so a workstation run never executes against a missing input.
+    if gate.manifest is not None:
+      unresolved = []
+      for member in _gate_input_manifest(gate, cfg):
+        if member["sha256"] is None:
+          unresolved.append(member["key"])
+      if unresolved:
+        detail = ("declared input(s) did not resolve/hash at run time: "
+                  + ", ".join(unresolved))
+        print("[refuse] " + gate.id + ": " + detail)
+        status[gate.id] = {"status": "FAIL", "detail": detail, "ts": _now()}
+        _save_status(status)
+        _write_board_md(status, cfg)
+        _record(gate.id, "failed")
+        continue
+
     # this gate executes its body now (it did not resume-skip and its deps are
     # met): record it as rerun so its artifact-consuming children rerun too.
     reran.add(gate.id)
@@ -2341,8 +2570,15 @@ def cmd_list(status, cfg=None):
     if gate.worktree_commit is not None:
       flags.append("worktree@" + gate.worktree_commit)
     tail = "" if len(flags) == 0 else "  (" + "; ".join(flags) + ")"
+    # (25M-28) --list names the FIRST stale member too, via the SAME formatter
+    # BOARD.md uses, so the operator surface the ruling names can inspect the
+    # persisted evidence (a stale-code / stale-input cause), not only the state.
+    detail = ""
+    if cfg is not None:
+      detail = _state_detail(state, status.get(gate.id, {}), gate, cfg)
+    detail_tail = "" if detail == "" else "  " + detail
     print("  " + gate.id.ljust(26) + state.ljust(10)
-          + "home: " + gate.home + tail)
+          + "home: " + gate.home + tail + detail_tail)
 
 
 def build_parser():

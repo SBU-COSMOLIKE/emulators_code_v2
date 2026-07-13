@@ -5296,3 +5296,159 @@ the 27/28 machinery follow-up lands right behind it, before
 queue 5. The deliberate stop-rather-than-guess on a digest-surface
 design question was correct and is credited — the whole-repo
 semantics needed an Architect ruling, and now it has one.
+
+## DIDACTICS-95..100 adjudication (Fable, 2026-07-13): the current-state ruling ratified as campaign law; the CMB rewrite's four factual heads verified; SONIC corrected
+
+Durable register at 9f00106. Verification: the standing user ruling
+is recorded verbatim in conventions-and-workflow.md (README =
+current library, never a development diary; limitations =
+scope/consequence/user-action only) — RATIFIED as binding campaign
+law, superseding and generalizing the queue-6 stable-map/
+current-limitations restructuring with user authority. The
+acceptance stands as filed: an untruncated history-vocabulary scan
+(board run / workstation-proven / fixture / rerun / queued / landed
+/ ruling / retired / dated status ...) with HUMAN adjudication of
+every retained hit, the reviewed reasons living in audit evidence,
+never in the README.
+
+- 96 CONFIRMED (the CMB rewrite): all four factual corrections
+  verified or physically ratified — (a) the displayed formula is
+  the TT/EE auto-spectrum form; the covariance code's TE expression
+  differs and pp carries no instrumental noise (the :229-242 region
+  read during 25M-11/12); the README states the executable
+  interface (.npz supplies ell / cl_<spectrum> / sigma_<spectrum>;
+  the trainer divides the centered residual by the stored sigma)
+  rather than reproducing derivations; (b) dense non-Gaussian
+  cov_* blocks are written but the trainer reads only
+  ell/sigma/cl — geometries/cmb.py's own preamble says "no
+  rotation and no dense matrix"; (c) as_exp2tau_ref removes the
+  DOMINANT primary amplitude dependence (As e^-2tau), not all
+  shape-independent content — "shape only" is an overclaim, and
+  the shipped example uses As without the generator always
+  sampling As directly; (d) roughness is a twice-applied boxcar
+  smoother penalizing the removed remainder — the LOSS CODE'S OWN
+  DOCSTRING (losses/cmb.py:52-62) is honest; the README overclaim
+  contradicts its own implementation's documentation. Plus the
+  serving-units sentence: raw C_ell; TT/TE/EE in muK^2; pp
+  dimensionless. The four heads + units jump the queue (D2); the
+  six-step rewrite rides the root README visit.
+- 95/97/98/99 RATIFIED and FOLDED: no new landing slots — 95's
+  diary sweep + 97's parenthetical rule (short
+  definitions/symbols/units/acronyms only) + 98's family chapters
+  ride the ROOT README visit (72-80); 99 rides the package/gates/
+  syren visits (81-86/87-89/90-92). One visit per file stands.
+- 100 CONFIRMED: README.md:21 expands SONIC as "Surrogates and
+  Operators ..." while the exact name is "Simulated Observables for
+  Numerical Inference in Cosmology" — the root README correction is
+  Implementer-assigned and joins the FACTUAL BUNDLE immediately
+  (the project's own name, line 21). The red team's TeX/PDF
+  correction stays in their custody — the texnotes rule honored
+  exactly as designed.
+
+## 1b hardening COMPLETE — 9/9 + item-7 + the 27/28 machinery follow-up (Opus, 2026-07-13)
+
+Executed the two READY-FOR-EXECUTION handoffs after the 8.5/9 audit GO.
+Two commits since the 8.5/9 batch, each Mac-validated (validate_manifests
+40/40 ok, board-selftest ALL PASS 129 -> 142, py_compile clean):
+
+- 9fec3fa (16 DATA-READ HALF -> 9/9): a check that OPENS .py source AS DATA
+  hashes it as a DIGEST LEAF, never closure-seeded (finite_contract leaf
+  lesson). `_DATA_READ_COVERS` reviewed table (the five named readers +
+  the scanner-forced diagnostics-domain; cli-strict dropped -- its eight
+  drivers are already code roots) drives the digest via `_data_read_targets`
+  (POSITIVE fold); `_data_read_sites` is the NEGATIVE catch (os.walk /
+  glob-of-.py / open|read_text|read_bytes|getsource with a .py literal;
+  ast.walk and ast.parse are NOT reads, excluded; the shared harness is
+  excluded). census (d) reds an unreviewed data-read site. geo-paths goes
+  WHOLE-SCOPE via ONE shared enumerator: `run_board.repo_py_files()` is BOTH
+  the gate's manifest data surface AND geo_paths.py's own folder-census scan
+  (geo_paths imports run_board the board_selftest way) -- proven by the
+  set-equality leg (101 == 101), so the scanned set and the hashed set are
+  one function, not two lists. board-selftest is likewise whole-scope.
+  family-first's data cover closes a real hole (its three sweep/tune drivers
+  were read as data but not code roots). 25M-19 BALANCING CLAUSE: a None
+  input sha is a VALIDATION-time allowance only -- at RUN time run_selection
+  refuses a declared input that does not resolve/hash BEFORE the body.
+  EXPECTED on the first workstation run and CORRECT (per the ruling):
+  geo-paths and board-selftest read stale-code and rerun ONCE, because their
+  whole-repo digest is now computed -- a cheap text scan, honest, affordable.
+- 1eb0e8d (27+28 machinery follow-up): 25M-27 -- the clean-tree watch's root
+  drivers are the UNION of git-TRACKED root *.py (git ls-files) and current
+  root *.py, so a DELETED tracked driver stays watched and reds instead of a
+  glob built from the damaged filesystem certifying it clean; preflight
+  treats a nonzero git status as FAILURE, not empty-clean. 25M-28 --
+  _stale_member compares an input by its FULL identity (key, path, sha256),
+  so a byte-identical RELOCATION names key + old->new path; a shared
+  `_state_detail` formatter now serves BOTH --list and BOARD.md, so the
+  operator surface the ruling names can inspect the stale member on --list.
+  board-selftest gains check_watch_tracked_drivers (pure-git temp-repo legs)
+  and check_stale_member_surface.
+
+DEFERRED to the D1 visit (per the 26 ruling): the gates/README resume-state
+list (DIDACTICS-87) and the state-machine prose gain "stale-dependency".
+
+QUEUE 2 now opens (9/9 + item-7 complete, 27/28 landed). Per the spine:
+queue 2's evidence rollout -> D3 -> D4 -> queue 5, whose first exhibit is the
+populated board's real reruns (including geo-paths / board-selftest staling
+once on the first workstation run, as expected).
+
+LANDING BLOCK (main is the user's; clean fast-forward):
+  cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+  git merge claude/amazing-keller-e798b6 && git push
+
+## USER REASSIGNMENT: the didactics campaign moves to the red team (Fable, 2026-07-13)
+
+The user reassigned the DIDACTICS campaign's implementation from the
+Implementer to the red team, to relieve the Implementer's ~30-40
+landing backlog. Precedent: the red team implemented the 2026-07-12
+defect batch (audited). The split, binding:
+
+RED TEAM NOW OWNS (implementation, not just filing):
+- The D2 FACTUAL BUNDLE (every accumulated head: the falsehoods,
+  contradictions, the SONIC expansion, 79's command repair, 96's
+  four CMB heads + units sentence, 61/69/70/71's prose, ...).
+- D1 NAVIGATION TRUTH's prose half now (the gates/checks __init__
+  index, README walkthrough, the 58 preamble); its EXECUTABLE
+  board-selftest set-equality leg WAITS for the 27/28 machinery
+  landing (board_selftest.py is Implementer-owned until then).
+- The FOUR README FILE VISITS under the current-state user ruling:
+  root (72-80 + 94-98), package map (81-86), gates (87-89 + 99,
+  merged with D1), syren (90-92 + 99).
+- UNIT 91, the documentation-examples gate (one NEW board-listed
+  module; ~15 fixtures, most from their own filings).
+- The DIDACTICS-93 rename increment (step_frac/s_step + the
+  ambiguous-name census; byte-identical outputs + the Planck-LCDM
+  control as acceptance).
+- Lane-3 family teaching PROSE — but only AFTER each protocol unit
+  lands (the wave-4 units stay with the Implementer); nothing
+  lane-3 starts before its unit, unchanged.
+
+STAYS WITH THE IMPLEMENTER: the lane-3 AST pieces inside protocol
+landings (10b with unit 66; 12's keyword-arg conversion with unit
+85; 04's stage-ram table leg); gate units 90/92/93 (minted from
+didactics findings but gate work, not campaign doc work); and
+everything else in the queue (machinery, queue 2, the gauntlet,
+production units).
+
+COLLISION RULES (binding): the red team's campaign surfaces are the
+four READMEs, the production docstring surfaces the campaign names,
+the NEW unit-91 module, and texnotes; they do NOT touch
+gates/checks/*.py teaching until D4 + D5 land on any file both
+would touch, and do NOT touch gates/run_board.py / board.py /
+emulator production code. The Implementer's surfaces are unchanged
+minus the campaign. Both continue landing on main with pre-merges;
+the both-append ledger conflict resolves as filing-first,
+adjudication-second, both retained.
+
+GOVERNANCE UNCHANGED: every campaign landing is Architect-audited
+pre-merge under the full binding battery (the voice note read
+BEFORE writing; AST docstring census + documentation-only AST
+equivalence with named exceptions; untruncated history-vocabulary
+scans with human-adjudicated retentions; quantifier discipline;
+commands executed before printed; the link check; no numeric
+counts; the DIDACTICS- prefix aliasing rule; the current-state
+ruling). The red team keeps filing rights, but campaign
+adjudications remain exclusively mine, and the Implementer may
+spot-review campaign landings (the role swap, for adversarial
+coverage). The anti-self-audit rule: the red team never certifies
+its own campaign work green — my audit is the acceptance.
