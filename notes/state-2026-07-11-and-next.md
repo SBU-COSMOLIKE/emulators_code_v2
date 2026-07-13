@@ -2761,3 +2761,40 @@ Examined-and-kept: 92/93/95/96, the .ranges fix (82's one-owner),
 the gauntlet, machinery, queue 2, queue-3 reopen, unit 21, wave-4,
 both proposals — each with its reason. Spec: gates-and-board.md
 "USER REASSIGNMENT, EXTENDED".
+
+1B COMPLETE (2026-07-13, Fable): 9fec3fa + 1eb0e8d GO — the
+data-read half (whole-scope geo-paths at a live 101==101 set
+equality through ONE shared enumerator; census-(d) reds an
+unreviewed reader, tamper-probed) and 27/28 (union pathspec
+exceeding the ruled minimum; full-identity stale members; shared
+_state_detail). Three refinements ratified. QUEUE 2 FORMALLY OPENS;
+D1's executable leg released to the red team. Spine: queue 2 -> D3
+-> D4 -> D5 -> queue 5. Spec: gates-and-board.md "1B COMPLETE: the
+9/9 + 27/28 pre-merge audit".
+
+WAVE 2 PRE-AUTHORIZED (2026-07-13, USER): further red-team
+transfers fire automatically at their triggers, no fresh ruling
+needed — 93 (anytime, on request), 92 (at D5), 21 (at D3+56),
+41+53 (at rollout-plan approval), 95 (at wave-4 completion, seam
+re-confirmed), gates/checks teaching (at D4+D5). NOT
+pre-authorized: 96, the fixed-facts/artifact chain, unit 8,
+queue 2, the staging reopen. Each firing is recorded here. Spec:
+gates-and-board.md "PARALLELIZATION WAVE 2".
+
+QUEUE-2 ROLLOUT PLAN APPROVED (2026-07-13, Fable): the Opus
+proposal (delivered design-only, no code) adjudicated — fork A1 =
+A1-ii (per-gate six-field block + lightweight per-leg anchors;
+mixed-metric rider), fork D1 = D1-ii (PASS on available legs, owed
+legs displayed) with the zero-executed guard (an all-UNAVAILABLE
+gate may not PASS — the dead-network doctrine turned on the
+harness) and the pinned display line. Census corrected 26 -> 25
+check scripts (logscan.py is an imported helper; 57 expects
+confirmed); validate_evidence gains the aid->anchor transform
+invariant + selftest arm; the aid prefix clarified as the --gate
+board id (ruling 4's example was illustrative — flagged to the red
+team). Fixed-facts proposal accepted at the head of the
+production-units work. TRIGGER FIRED: units 41 (25M-05 sweep slice
+ONLY; the 45M-33 artifact core stays) + 53 (whole) transfer to the
+red team per the Wave-2 table. Build order: machinery + mutation
+arms -> ##AID -> per-gate migration -> D3 -> D4 -> D5. Spec:
+gates-and-board.md "Queue-2 rollout plan adjudication".
