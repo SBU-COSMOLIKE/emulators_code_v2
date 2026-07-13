@@ -6659,3 +6659,49 @@ red/green as required. My runs: board-selftest ALL PASS, --list
 rc 0. The inline comment records the pre-46 vacuous-pass honestly.
 VERDICT: GO. D4's board.py half is closed; the check-script D4 legs
 remain with their claim-before-edit owners.
+
+## TEX-PROSE-01..08 adjudication (Fable, 2026-07-13): all eight CONFIRMED/ACCEPTED; the repair order approved with two riders
+
+The red team's independent manuscript pass (register on
+codex/tex-prose-audit, c9b6f64; no TeX/figure/PDF edits — filed,
+not fixed). My verification: 01 CONFIRMED AT SOURCE (the guide's
+:4969-4974 carries a broken \rm — literally "{ m km..." after a
+lost backslash-r — compiling but rendering stray m's); 05 SAMPLED
+(h_j half-width at :2815 beside cosmological h; kernel half-width q
+at :2697 beside q's other meaning); 03's census cross-checked (my
+single-line grep finds 48 Current gap / Required closure / Current
+deviation paragraphs vs their ~58 — their multiline census governs,
+non-material); 02's register framing verified publicly-stateable
+with correct exclusions (CLI -- syntax, mathematical negation,
+refusal rules) and exact line anchors. 04/06/07/08 are
+register-witnessed with the same line-anchor discipline that has
+run ~60-for-60 this campaign — ACCEPTED as filed.
+
+RULINGS (all repairs red-team custody; texnotes is theirs):
+
+1. 01 + 02 first, as they propose — mechanical hard failures.
+2. 03: the current-state doctrine EXTENDS from the README to the
+   guide — current behavior, consequence, safe user action. RIDER:
+   a still-open defect NEVER loses its user-facing warning; each
+   removed diary paragraph gets a register map entry (where its
+   warning now lives, or why none is needed). The standing
+   gap-closure route continues: an Implementer landing that closes
+   a gap names file+line, and the guide update routes to the red
+   team.
+3. 04: APPROVED with the SCHEMA-ALIGNMENT RIDER — the refactored
+   per-gate appendix uses the six-field evidence-block vocabulary
+   (files / subprocess / metric / legs / evidence / owed) and the
+   audited aid names where it names legs, so the manuscript and the
+   home notes teach ONE schema, not two.
+4. 05: APPROVED — rename the colliding half-width symbol,
+   disambiguate q, define epoch/composition/TATT symbols before
+   first use.
+5. 06: APPROVED — authoritative citations for external algorithm
+   claims, or the explicit "as implemented here" narrowing.
+6. 07: APPROVED — name the owning class/function/adapter/driver at
+   every state transition.
+7. 08: APPROVED — gate-claim verbs narrowed to what the executed
+   fixtures establish; the audited evidence blocks are the truth
+   source for what is executed TODAY.
+8. ACCEPTANCE per landing: recompile, render, visual inspection,
+   and the FULL prose census repeated — evidence in the register.
