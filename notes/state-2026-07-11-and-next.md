@@ -1909,6 +1909,21 @@ identity-computed staging banner). Rides the wave-4 CMB visit with
 unit 71; readback refusal binding before CMB production training.
 Spec: gates-and-board.md "20M-14 adjudication".
 
+UNIT 69 AUDIT + SEQUENCING (2026-07-13, Fable): `371b0bd` AUDITED
+PASS on Mac scope (all five legs re-executed green from a clean
+checkout; explicit branches untouched; leg 5 workstation-owed; the
+one red mps-identity leg — bounded-staging streamed mean — fails
+identically at the parent and is owned by the binding bounded-grid2d
+amendment, NOT unit 69). SEQUENCING RULING for the 20M backlog:
+70 next -> 79 -> the 77+80 algebra increment (one landing) -> the
+76+78 artifact-totality increment (Mac-clears two EMUL2 blockers) ->
+the FIXED-FACTS BLOCK PROPOSAL for Architect review (gates the
+adapter cluster 66-amended/71-75/81 inside the wave-4 visits);
+population batches 2-5 interleave as review-blocked filler; queue 2
+after population; queue 5 carries the accumulated workstation legs.
+Spec: gates-and-board.md "Unit 69 post-merge audit + the 20M-backlog
+sequencing ruling".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

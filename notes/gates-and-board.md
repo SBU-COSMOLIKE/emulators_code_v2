@@ -2020,3 +2020,56 @@ roles, which detects aliasing at the fiducial. -> NEW UNIT 81
 configuration is correct; the readback refusal protects serving),
 but the artifact-readback refusal clause is binding before any CMB
 production training.
+
+## Unit 69 post-merge audit + the 20M-backlog sequencing ruling (Fable, 2026-07-13)
+
+UNIT 69 (`371b0bd`): AUDITED PASS on Mac scope. The Architect reran
+gates/checks/mps_identity.py from a clean detached checkout on the
+cocoa interpreter: all five unit-69 legs PASS (omitted == explicit
+True != False on both getters; the interpolator three-arm at node +
+interior; the separated-sentinel catch-power leg; the
+branches-differ mutation control; the BoltzmannBase signature-pin
+protocol guard), and the diff satisfies clauses 1-4 (defaults
+flipped, refusal/serving branches untouched so the explicit paths
+are byte-identical, docstrings name the omitted-call behavior, the
+board maps= text updated). Leg 5 (the real-Cobaya provider-routed
+call on mps-smoke) is workstation-owed as declared and joins the
+queue-5 manifest. The check's ONE red leg ("bounded staging:
+streamed mean equals the known answer") fails IDENTICALLY at the
+parent commit — pre-existing, owned by the already-binding
+bounded-grid2d amendment (the confirmed cancellation /
+float32-payload finding), not unit 69; recorded here so the next
+reader does not re-attribute it.
+
+SEQUENCING RULING (answers the Implementer's two questions; the unit
+specs in the notes ARE the handoffs — no separate batched handoff is
+coming):
+
+1. UNIT 70 NEXT, immediately (69's pair; contract + legs already in
+   hand from the 20M-01/02 adjudication).
+2. Then UNIT 79 (small CPU training-truth refusal, independent).
+3. Then the 77 + 80 ALGEBRA INCREMENT as one landing — the
+   composition owner and the contraction owner are born together
+   with both mutation arms; CPU-implementable, its Torch legs are
+   board-listed and execute at queue 5. D-TP9 stays blocked until
+   this lands.
+4. Then the 76 + 78 ARTIFACT-TOTALITY INCREMENT (results.py
+   read-side: recipe schema totality + the rescale refusal) — fully
+   Mac-runnable, and it clears two EMUL2 blockers WITHOUT needing
+   the adapter contract.
+5. THEN the FIXED-FACTS BLOCK PROPOSAL (the shared persisted
+   scientific-facts schema serving 67 + 71 + 74 + 75) comes to the
+   Architect for review — propose-first, it spans the producer
+   schema and all five adapters. The adapter cluster (66-amended,
+   71-75, 81) implements ONLY after that approval, inside the wave-4
+   visits under the typed adapter contract. This is why
+   blocklist-first-strictly is WRONG: guess-implementing 71/74/75
+   now would build the block three times.
+6. Population batches 2-5 INTERLEAVE as filler while blocked on
+   Architect reviews: batch-2 Mac-validatable halves may land any
+   time; batch 4 waits for its board_config data-key additions;
+   reruns accumulate for queue 5.
+7. Queue 2 after population completes. Queue 5 (the user's
+   workstation session) now carries: the populated gates' real
+   reruns, unit 69 leg 5, the 77/80 Torch legs, the 45M-75
+   post-step half, Part J / Part 2 timing, and the full board.
