@@ -4026,13 +4026,21 @@ test certify an unsafe declaration. This is distinct from 25M-16: that
 finding discovers missing dependency mechanisms; this one accepts an
 insufficient declaration for a dependency mechanism it already found.
 
+The validator also treats the waiver's cover tuple as alternatives by using
+one `any(...)`. That is false for `gates/checks/cli_strict.py`: its reviewed
+tuple lists eight entry points, and the check loops over/imports all eight.
+Declaring any one driver satisfies the site even though the other seven are
+unhashed. The current populated gate declares them all only because manual
+population review caught it; validation does not enforce that truth.
+
 Required contract: a declared root covers a waiver requirement only when it
 is equal to or an ancestor of every required cover. For the current recipe
 waiver, require exact `emulator/designs` and `emulator/losses` unless the
 waiver schema explicitly enumerates a reviewed finite subset. A child of the
 cover never stands for its siblings. Census every waiver entry for a live
 call site and its exact required covers so an obsolete entry cannot retain a
-gratuitous tree.
+gratuitous tree. The waiver schema distinguishes required-all roots from true
+alternatives; no current tuple is silently interpreted as alternatives.
 
 Board-selftest legs: the full design/loss roots pass; the current
 `blocks.py`-only fixture moves to a must-red mutation; two artifacts selecting
@@ -4040,6 +4048,8 @@ classes in `plain.py` and `ia.py` prove edits to either member change the
 digest/stale the dependent gate; an ancestor-root control is accepted only
 when its expansion contains the full required covers; reversing the
 ancestor test restores today's false green and must fail.
+For `cli_strict`, delete each of the eight entry-point roots one at a time and
+require validation to red; an `any-cover` mutation must fail.
 
 ## 25M-19 (Red Team CONFIRMED, awaiting Architect adjudication): input manifests hash a different path than the gate executes
 
@@ -4120,3 +4130,62 @@ prerequisites do the same; a full sequence reruns the prerequisite and then
 the dependent child; an unchanged current pair still resumes; an independent
 gate remains resumable. The mutation restoring today's resume-before-deps
 ordering must reproduce return code 0 with zero calls and therefore red.
+
+## 25M-21 (Red Team CONFIRMED, awaiting Architect adjudication): documentation inside board_config invalidates every gate input digest
+
+`_gate_input_digest` hashes the complete effective config after excluding only
+`debug` and derived `rootdir_source` (`run_board.py:1471-1492`). It therefore
+includes top-level `_help`, whose nested strings are prose for humans and are
+never consumed by gate execution. A documentation-only change can mark every
+populated gate stale-input and cause expensive GPU reruns, contradicting
+unit 4's existing requirement that documentation-only changes leave evidence
+currency unchanged.
+
+Live digest reproduction on populated `stage-ram`: appending the words
+`prose only` to `_help.what` changes the input digest from prefix `471a30...`
+to `eed28b...`; changing `debug` correctly leaves it unchanged. This is an
+input-identity false red, not a security concern. It wastes workstation time
+and makes the board claim the scientific inputs changed when only explanatory
+text did.
+
+Required contract: one named canonical projection contains exactly the
+configuration fields that can affect execution or science. `_help` and any
+future documentation/annotation namespace are excluded; every consumed value
+remains included. The same projection drives the input digest and the logged
+resolved-execution record so the displayed facts and authenticated facts do
+not drift.
+
+CPU board-selftest legs: mutate every `_help` leaf independently and prove all
+gate input digests unchanged; mutate actual `driver_root`, `driver_fileroot`,
+`yaml_dir`, `evaluate_yaml`, golden-base, gate-config, and gate-data values and
+prove the relevant digest changes; `debug` remains excluded. A mutation that
+hashes the raw config must reproduce the prose-only stale-input and red.
+
+## 25M-22 (Red Team CONFIRMED, awaiting Architect adjudication): `saved_emulator_root` is a documented control that no code reads
+
+`board_config.json` promises that a non-null `saved_emulator_root` selects an
+already-saved schema-v2 artifact for `save-rebuild-drift` and
+`cobaya-adapter`, while null makes the gate train its own tiny emulator. An
+untruncated Python census finds zero reads of that key. `gsv_bitwise_drift`
+reads only `rootdir` and `driver_root` (`:73-104`) and then unconditionally
+trains/persists `chains/gates_emul_evaluate` (`:301-309`); the evaluate YAML
+loads that fixed product. A user can set a valid different artifact and the
+gate silently ignores it.
+
+The dead control is nevertheless included in every effective-config digest,
+so changing it makes gates stale-input while changing no execution. This is a
+research-workflow correctness defect, not a security issue: the board says it
+tested the selected emulator but always tests its internally trained one.
+
+Recommended contract: remove the unused key and its help text; the gate's tiny
+artifact is intentionally owned by `save-rebuild-drift`, and an external-root
+mode adds no current evidence. If the Architect instead keeps the capability,
+make it a typed, path-validated explicit mode, bind both `.h5` and `.emul` as
+input-manifest members, and route every consumer to that root. It may never
+remain an ignored digest-only value.
+
+CPU acceptance: a config census proves every non-documentation public key has
+an execution reader; after removal, changing no dead key can stale gates. If
+the keep-capability branch is chosen, valid and missing sentinel roots prove
+selection/refusal respectively, the executed root equals the hashed pair, and
+the old unconditional-training mutation must red.

@@ -1648,7 +1648,13 @@ discriminating leg set in its scientific owner before any chat handoff:
 - `25M-20`: resume skips a current downstream PASS before checking that its
   prerequisite is current, so a stale dependency can yield return code zero
   with no gate bodies executed — `gates-and-board.md`, immediate unit-4
-  board-truth reopen.
+  board-truth reopen; and
+- `25M-21`: prose-only `_help` edits in board_config change every populated
+  gate input digest and force false stale-input GPU reruns —
+  `gates-and-board.md`, unit-4 input-identity campaign; and
+- `25M-22`: `saved_emulator_root` is documented as selecting an artifact but
+  no code reads it; changing it affects only the digest — `gates-and-board.md`,
+  config-surface truth campaign.
 
 No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and
