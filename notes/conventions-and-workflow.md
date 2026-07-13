@@ -170,6 +170,30 @@ user-facing docs (notes/ exempt). Acceptance for README work: the
 anchor census (every #link resolves) + the path census (every
 backticked repo path exists).
 
+**Standing user ruling (2026-07-13): a README presents the current
+library; it is not a diary of how the library was developed.** The root
+README teaches what the library does, how to configure it, what it writes,
+and the restrictions a user must act on. `emulator/README.md` teaches the
+current ownership map and a novice reading order. `gates/README.md` teaches
+how to operate and interpret the acceptance system. Dates, board-run
+numbers, measured proof errors, fixture and rerun status, landing or queue
+state, rejected alternatives, retired formulas, and the reasons an abandoned
+design failed belong in `notes/` or the TeX manuscript, not in a README.
+Scientific source attribution may remain where it defines an implemented
+formula; benchmark comparisons and literature discussion belong in the
+paper. A present limitation may stay only as **scope, consequence, and user
+action**. It must not narrate when the limitation was found or how a future
+repair is sequenced.
+
+Parentheses carry only a short local definition, symbol, unit, or acronym.
+They do not carry an essential algorithm, qualification, or second argument.
+If removing a parenthetical would change what the reader must know, promote
+it to a complete sentence, table row, or diagram label. The documentation
+pass flags parentheticals longer than twelve words or containing more than
+one clause for human review; equations, links, and code examples are exempt
+from that candidate scan. This is a readability review, not a punctuation
+quota.
+
 ## Plots, terminal, YAML
 
 - Plots: never red+green; explicit color= from the colorblind-safe
