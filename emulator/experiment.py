@@ -698,6 +698,28 @@ def validate_scalar(cfg, train_args, rescale="none"):
   return outputs
 
 
+def _is_finite_real(value):
+  """True only for a finite, non-boolean real number (a plain int or float).
+
+  A public scientific control is validated by type, never made valid by
+  coercion. Two values would slip through a float()-then-finite check: bool is
+  a subclass of int (float(True) is 1.0), and a numeric string converts
+  (float("0.96") is 0.96). This admits only a genuine int or float that is not
+  a bool and whose value is finite, matching the same predicate the other
+  public numeric controls use, so True / False / "0.96" / NaN / inf are
+  rejected at the boundary.
+
+  Arguments:
+    value = the candidate configuration value.
+
+  Returns:
+    True when value is a finite int or float and not a bool.
+  """
+  if isinstance(value, bool) or not isinstance(value, (int, float)):
+    return False
+  return bool(np.isfinite(value))
+
+
 def validate_cmb(cfg, train_args, rescale="none"):
   """
   Validate a CMB-spectrum run and return its data.cmb block.
@@ -792,16 +814,11 @@ def validate_cmb(cfg, train_args, rescale="none"):
   # the config is authoritative for the numbers (RULING 43.2).
   if law == "as_exp2tau_ref":
     for key in ("as_ref", "tau_ref"):
-      try:
-        val = float(cmb[key])
-      except (TypeError, ValueError):
+      if not _is_finite_real(cmb[key]):
         raise ValueError(
-          "data.cmb." + key + " must be a real number; got "
-          + repr(cmb[key]))
-      if not np.isfinite(val):
-        raise ValueError(
-          "data.cmb." + key + " must be finite; got " + repr(cmb[key]))
-    if float(cmb["as_ref"]) <= 0.0:
+          "data.cmb." + key + " must be a finite real number (not a bool or "
+          "string); got " + repr(cmb[key]))
+    if cmb["as_ref"] <= 0.0:
       raise ValueError(
         "data.cmb.as_ref must be a strictly positive linear amplitude "
         "A_s_ref; got " + repr(cmb["as_ref"]) + " (the factor divides by "

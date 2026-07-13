@@ -517,6 +517,64 @@ STILL OPEN in queue 1: the reviewed executable/input **manifest** replacing the
 two coarse digests (`_gate_code_digest` omits shared helpers / runner / imported
 production modules; `_gate_input_digest` hashes every YAML in `yaml_dir`). Per
 the audit this is a proposal first; `_EXECUTABLE_DIRS` is the shared-surface
-seed it will build on. Queue items 2-6 (evidence rollout, staging seeded-order
-truth, optimizer/CMB coercion, workstation evidence, README + didactic
-campaign) remain.
+seed it will build on.
+
+### Queue 4 DONE: optimizer + CMB schemas validate by type, not coercion
+
+The audit's reopen: `_validate_optimizer_opts` and `validate_cmb` converted
+public numeric controls with `float(...)`, so a bool (a subclass of int,
+`float(True)` is 1.0) and a numeric string (`float("0.1")` is 0.1) were
+silently admitted as learning rate, eps, weight decay, betas, `as_ref`, or
+`tau_ref`.
+
+Repair: one shared predicate `_is_finite_real(value)` (a finite, non-boolean
+`int`/`float`) added to both `emulator/training.py` and `emulator/experiment.py`
+(the same predicate the other public scientific controls already use inline).
+`_validate_optimizer_opts` and `validate_cmb`'s `as_ref`/`tau_ref` now validate
+through it before any range check, keeping the documented domains (positive lr
+and eps, nonnegative weight decay, betas in [0,1), positive `as_ref`).
+
+Gates: finite-contract Part J gains the bool / string red legs (lr, eps, weight
+decay, betas) plus an int-lr control; `cmb-identity` gains `check_cmb_ref_schema`
+(a valid control + `as_ref`/`tau_ref` as True / False / numeric string / NaN /
+inf / zero / negative each refused). Verified on the cocoa-torch interpreter:
+the optimizer logic via a direct `_validate_optimizer_opts` import probe (18
+red legs reject, controls accept) and the CMB legs live in a full green
+`cmb-identity` run; the finite-contract Part J live run stays workstation-owed
+(that gate imports cosmolike). The post-optimizer-step finite check on the
+parameters and optimizer state each step remains the workstation companion.
+
+### Queue 6a DONE: README current-state factual repair (the false statements)
+
+The audit listed READMEs that contradict the landed tree. Corrected the
+unambiguous false statements:
+
+- `gates/README.md`: the "known gaps" paragraph claimed the dirty-tree watch
+  covered only `emulator/` + `gates/` + drivers and that an unknown selector
+  "warns but proceeds (exit 0)". Both are now false (queue 1c and the board's
+  45M-73/77). Rewritten to the current behavior: the watch covers the whole
+  executable surface, and an unknown `--gate` / `--from` / `--force-rerun` id
+  is a nonzero usage error rejected before any test runs.
+- `gates/README.md` "## The 32 tests" and `emulator/README.md` "the acceptance
+  board (32 gates)": de-hardcoded. `board.py` `BOARD` is named as the
+  authoritative registry (40 at this writing); the reader is pointed at
+  `run_board.py --list`, and the table is flagged as not yet listing the newest
+  gates (avoids re-introducing enumeration rot).
+- `emulator/README.md`: the two `45M-12` public-prose leaks (the Simpson rule)
+  replaced with the executed rule + a `notes/families-background-mps.md`
+  pointer; the stale grid2d "open production blocker because it materializes
+  unthinned float64 selections" replaced with the landed bounded-staging
+  behavior (its remaining review item is lifecycle/evidence).
+
+Verified: an untruncated grep for `45M-12`, `32 test`/`32 gate`, "warns but
+proceeds", and the retired grid2d claim returns nothing in either README.
+STILL OPEN in queue 6: the two-layer gate-mechanism description + the
+declared-vs-executed honesty in `gates/README.md`; the root/package README
+restructuring (stable role sentence + a separate dated "current limitations"
+table); and the broader in-file first-time-ML didactic campaign (the priority
+list in the audit spec), each doc-only with AST-identity + compile + an
+untruncated stale-pattern scan over the full pattern family (`unit \d`, `(f)`,
+"Architect", "ruling", not just `45M`).
+
+Queue items 2 (evidence rollout), 3 (staging seeded-order truth), 5
+(workstation evidence), and the rest of 6 remain.
