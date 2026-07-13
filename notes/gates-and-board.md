@@ -6644,3 +6644,18 @@ VERDICT: GO. INCREMENT 3 IS UNBLOCKED for the 27 drafted gates: the
 audited aid names are the spec; per-gate objections where migration
 disagrees; the six excluded wrapper-family gates + 7 foundation
 legs remain Implementer-named.
+
+## Unit 46 audit (Fable, 2026-07-13): b9835a2 GO — the golden leg is no longer vacuously green
+
+The D4 _golden_leg repair walked clause-by-clause against the 46
+ruling + addendum: both child return codes are now captured and
+required zero ("a golden run must complete"); the compared
+selection must be NON-EMPTY on both sides; equality still required;
+and the always-printed status reports both rcs and both selected
+counts beside the verdict. Selftest arms: the ruled three mutations
+(empty selection; both children rc 1 after matching lines; tip-only
+rc 1) plus a diverging-selection arm and the clean control — all
+red/green as required. My runs: board-selftest ALL PASS, --list
+rc 0. The inline comment records the pre-46 vacuous-pass honestly.
+VERDICT: GO. D4's board.py half is closed; the check-script D4 legs
+remain with their claim-before-edit owners.

@@ -2945,3 +2945,9 @@ at the production boundary, Implementer, before queue 5). Register
 both-append conflict resolved by merging their branch into this
 one. INCREMENT 3 UNBLOCKED. Spec: gates-and-board.md "Queue-2
 note-side evidence drafts audit".
+
+UNIT 46 AUDIT (2026-07-13, Fable): b9835a2 GO — both rcs required
+zero, nonempty selection both sides, equality, both rcs + counts
+always reported; the ruled three mutations + divergence arm +
+control all present; own runs green. D4's board.py half CLOSED.
+Spec: gates-and-board.md "Unit 46 audit".
