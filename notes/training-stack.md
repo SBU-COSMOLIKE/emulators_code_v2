@@ -1854,6 +1854,54 @@ Placement: (f) rides the SAME eval_val visit as unit 60, in the
 pipeline slot 50(+60+14f), after queue 43. Unit 14's closure claim
 (a-e) stands for its increments; the unit stays open on (f) only.
 
+#### Units 60 + 14(f) COMPLETE resume (2026-07-12, Opus) — committed 4846fdd, eval_val half of the 50-bundle
+
+Units 60 + 14(f) self-committed on the branch as 4846fdd (batch grant,
+pending audit) as ONE eval_val visit (the RULING's "same visit -- do not
+build two helpers").
+
+- Unit 60 (45M-57): `ordinary_median(values)` in training.py is the ONE
+  shared 50th-percentile reduction (torch.quantile(., 0.5) in float64 --
+  the mean of the two central values for even N, byte-identical to
+  torch.median for odd N, with the ~2^24 element cap documented). eval_val's
+  `median = c.median().item()` -> `ordinary_median(c)`; the scheduler feed,
+  the tie-break, and the histories consume this returned median, so the one
+  fix propagates to all four (no separate edits at those sites).
+- Unit 14(f) (45M-58): eval_val computes the mean in float64
+  (`c.to(torch.float64).mean()`) -- a float32 mean of rows near the float32
+  max overflowed to Inf AFTER the row guard -- and
+  `_validate_published_reductions` refuses any non-finite published mean /
+  median / fraction before return (clause 4). Row-level guards (a/b/e/h)
+  untouched.
+- The five gate reference sites migrated in this unit: ge_c_eval_bs.py (the
+  Part 1 reference + a NEW Part 1b with the unit-60 red legs), finite_contract.py
+  (two references + the float64 mean), cmb_smoke / bsn_smoke / mps_smoke (the
+  mean-predictor reference). `import math` added to training.py.
+
+Gate (unit 60 red legs, in ge_c_eval_bs.py Part 1b, board-run): helper parity
+(even ordinary=5 vs Tensor.median=1; odd=1), the REAL eval_val even-median 5 /
+odd-median 1, batch invariance across bs 1..4, the Tensor.median mutation
+caught. Part 1 (partition invariance) reference migrated so it still passes.
+
+Verified on Cocoa torch (CPU): probe_median_reductions.py 11/11 (helper
+parity, real eval_val even=5/odd=1, batch invariance, the float64 mean finite
+at 1e38 scale where float32 overflows, the post-reduction guard refusing an
+Inf mean / NaN median / non-finite fraction); ge_c_eval_bs Part 1 + Part 1b
+PASS on CPU.
+
+USER-VISIBLE, declared: even-n_val medians and means change (reported,
+persisted, plotted); plateau timing / tie-breaks can shift; odd-n_val medians
+exactly unchanged; ordinary-scale means differ at ~1e-7 rounding level.
+
+Workstation owed (user-run): finite-contract + the family smoke gate reruns
+(need cosmolike / real CAMB -- cannot import on Mac).
+
+REMAINING in the 50-bundle: unit 50 (45M-38, epoch truth under VRAM chunking,
+notes/training-stack.md:1131 -- CRITICAL, the training_loop_batched epoch
+reduction, a DISTINCT surface from eval_val) is NOT in this commit. Queue
+after 50: 52 (propose-first head-padding) -> 55 (45M-46) -> 22(+20) ->
+13(+01, label 45M-01).
+
 ## UNIT 14 REOPENED (45M-60 + addendum, twelfth batch): increment (g) — the chi2-domain band scales with the contraction WIDTH, not the product count
 
 Post-landing audit of 420bce2, CONFIRMED. Landed state:
