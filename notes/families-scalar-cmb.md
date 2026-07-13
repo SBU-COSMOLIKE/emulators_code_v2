@@ -8,7 +8,7 @@ README sections 14 and 15.
 
 ## SPE — scalar (derived-parameter) emulators. CLOSED, board 25/25.
 
-<a id="scalar-identity"></a>
+<a id="scalar-identity-evidence"></a>
 **scalar-identity — synthetic scalar artifacts exercise the scalar geometry,
 saved predictor, adapter, NPCE residual model, and fine-tune boundary.**
 
@@ -67,7 +67,7 @@ prediction by exact tensor or scalar equality.
 checks that the anchor mask excludes exactly an appended input column, and
 rejects output-name and source-family mismatches before staging.
 
-<a id="scalar-smoke"></a>
+<a id="scalar-smoke-evidence"></a>
 **scalar-smoke — a trained scalar emulator is checked against the analytic
 relation `omegamh2 = omegam*(H0/100)^2` and through a real Cobaya evaluate
 run.**
@@ -207,7 +207,7 @@ campaign.
 
 ## CME — CMB spectra emulators. ACCEPTED END TO END (board run 4, 2026-07-11); gates cmb-identity/cmb-smoke.
 
-<a id="cmb-identity"></a>
+<a id="cmb-identity-evidence"></a>
 **cmb-identity — synthetic CMB artifacts exercise the diagonal geometry,
 amplitude-dependent score, saved predictor and adapter, model variants,
 fine-tuning, and the non-Gaussian covariance contraction.**
@@ -283,7 +283,7 @@ raw and scaled lensing-potential fixtures distinct, checks a width-three
 constant-response projection, and requires an exactly zero weight for a
 zeroed band.
 
-<a id="cmb-smoke"></a>
+<a id="cmb-smoke-evidence"></a>
 **cmb-smoke — the generator, Gaussian and non-Gaussian covariance builders,
 training loop, Cobaya provider, and diagnostics execute on a small real-CAMB
 fixture.**
