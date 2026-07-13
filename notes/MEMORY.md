@@ -11,8 +11,9 @@ red-team-audit-and-didactics-2026-07-13.md, (3) project-and-history.md, then
 the topic file your task touches. Use state-2026-07-11-and-next.md for
 chronology and routing, not as a live queue: its opening snapshot is stale and
 its later blocks preserve decisions rather than one canonical current order.
-Current sequencing comes from the latest persisted Architect handoff and must
-be checked against the relevant topic note before implementation.
+Current sequencing comes from `gates-and-board.md`, "The consolidated
+DIDACTICS execution handoff" (D1--D10), and must be checked against the
+relevant topic note before implementation.
 
 - [State + chronological ledger](state-2026-07-11-and-next.md) — the
   historical run trail, adjudication batches, queue changes, retractions, and

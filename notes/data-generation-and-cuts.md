@@ -115,11 +115,12 @@ Required contract:
 
 This unit consumes the existing owners rather than cloning them: unit 33
 (45M-64/70) owns the provider-lifecycle verdict; unit 56 (45M-48) owns the
-post-cast payload predicate; the 20M-15 amendment owns checkpoint-ingress
-revalidation; unit 82 owns row authenticity; and the amended 45M-81 contract
-owns RNG continuation. Dataset readiness combines those exact verdicts into
-the final ready/non-ready state. An "almost equivalent" local predicate would
-recreate the drift this program is trying to remove.
+post-cast payload predicate; the 20M-15 checkpoint-ingress amendment to that
+same unit 56 owns resumed-row revalidation; unit 82 owns row authenticity;
+and the amended 45M-81 contract owns RNG continuation. Dataset readiness
+combines those exact verdicts into the final ready/non-ready state. An "almost
+equivalent" local predicate would recreate the drift this program is trying
+to remove.
 
 Required gates use a small deterministic dataset: one provider rejection that
 leaves a zero payload; a nonzero fail flag paired with an otherwise plausible

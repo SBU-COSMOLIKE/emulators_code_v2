@@ -1199,7 +1199,8 @@ content. Owners are:
 - scalar/CMB: 02, 03, 04, 14, 22;
 - artifacts/inference: 07, 09, 10, 11, 17;
 - training: 12, 13, 24, 25; and
-- generation/publication: 15, 16, 21, 23.
+- generation/publication: 15 (the checkpoint-ingress amendment to unit 56),
+  16, 21, 23.
 
 `RT-2026-07-13-01` is recorded in `gates-and-board.md`. The following
 canonical labels name the five findings already described in this file:
