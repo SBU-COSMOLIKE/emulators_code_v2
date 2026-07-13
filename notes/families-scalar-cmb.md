@@ -52,6 +52,53 @@ README sections 14 and 15.
   symmetry lift; a recorded ruling the user may overturn, not a
   structural bar; fine-tuning is universal).
 
+## Original unit 5(a): the scalar driver cannot require a data-vector path
+
+The first red-team queue found a contradiction in the advertised generic
+driver contract. The cosmic-shear driver reads
+`cfg["data"]["train_dv"]` while building its run tag and root attributes, but
+the scalar schema correctly forbids `train_dv`: its training source is a
+parameter-chain table and its targets are named derived columns. Therefore
+the cosmic-shear driver could not be the generic scalar/rdrag route the prose
+claimed.
+
+A dedicated scalar driver already existed before that audit: commit
+`7d024553` introduced it as `train_scalar_emulator.py`, and commit `3b6724c`
+later renamed it `scalar_train_emulator.py`. The audit repaired the routing
+and documentation claim; it did not create that driver. The later family-first
+unit (45M-80, commit `e9943bc`) made the wrong-driver refusal executable
+rather than merely documented. The current scalar driver's run tag uses the
+resolved architecture and staged row count, and its artifact attributes
+record `train_params`, `val_params`, and named outputs. It never reads scalar
+`train_dv` or `val_dv`.
+
+The enduring contract is family-owned metadata, not merely a special-case
+`if` statement:
+
+1. Every driver reads only keys legal in its validated family schema.
+2. The scalar run tag and artifact fields use only scalar-legal facts; they
+   are never inferred from a nonexistent data-vector filename.
+3. Scalar artifact provenance names both parameter tables, ordered input and
+   output names, and row counts. It does not emit placeholder data-vector
+   fields. Collision-resistant scientific identity and complete resolved-pass
+   provenance remain owned by the separate artifact-integrity campaign; this
+   historical closure does not claim those later units are complete.
+4. A scalar config containing `train_dv` remains a schema error; making the
+   driver tolerate the forbidden key would hide a wrong-family file.
+5. The ordinary rdrag example must run through config validation, staging,
+   geometry construction, training, save, rebuild, and named prediction. A
+   mutation that routes it through the cosmic-shear run-tag/attribute builder
+   must fail before training.
+
+This closes only the stale generic-driver/routing claim in unit 5(a). The
+original unit-5 bundle's other independent findings have their own durable
+owners: NPCE selection is global unit 19; covariance/geometry validation is
+global unit 11 plus MPS unit 16 where applicable; the BAOSN pair getter is
+unit 15; optimized-mode assertions are unit 12; artifact loading belongs to
+artifact integrity; adapter device values belong to the typed adapter
+contract; and plotting defaults belong to the plotting/documentation
+campaign.
+
 ## CME — CMB spectra emulators. ACCEPTED END TO END (board run 4, 2026-07-11); gates cmb-identity/cmb-smoke.
 
 - One emulator learns ONE spectrum (tt/te/ee/pp) on l = 2..lmax

@@ -1096,3 +1096,123 @@ Every future Red Team handoff is appended to an existing topic or audit note
 before, or in the same turn as, its chat copy.  The final handoff cites that
 file and commit.  Chat history is never the sole copy of an Implementer
 contract.
+
+## Durable correctness-handoff registry
+
+This registry applies the durable-record rule retroactively to the earlier
+bug hunts. It does not replace the detailed domain notes. It tells a cold
+reader which identifier series exist, where the complete contract lives, and
+which apparent number gaps were never issued. The census was repeated over
+all Markdown files and Git history at `cf95a15`.
+
+### The pre-45M queue: do not confuse three numbering scopes
+
+The historical state note used three scopes. They are made explicit here so
+"unit 3" cannot silently mean two different defects.
+
+| Scope | Identifier | Finding and durable owner |
+|---|---:|---|
+| Original queue | 1 | CMB equation-6 normalization — `families-scalar-cmb.md`. |
+| Original queue | 2 | Dataset readiness — `data-generation-and-cuts.md`, "Original unit 2"; MPS sigma8 half — `families-background-mps.md`. |
+| Original queue | 3 | Best-record/selected-model truth — superseded by the full selection-record contract in `training-stack.md`. |
+| Original queue | 4 | Harness and CLI truth — `gates-and-board.md`. |
+| Original queue | 5 | A historical bundle, now decomposed: scalar-driver key ownership — `families-scalar-cmb.md`, "Original unit 5(a)"; NPCE — global 19; optimized assertions — global 12; remaining clauses route to artifact, adapter, and plotting owners. |
+| Second-wave *local* list | 1 | Bounded grid2d staging; later canonical global unit 27 — `data-generation-and-cuts.md`. |
+| Second-wave *local* list | 2 | Data-selection truth; absorbed into the file-set authenticity work (global 8, 25, 26, and 28) — `data-generation-and-cuts.md`. |
+| Second-wave *local* list | 3 | Artifact-pair-integrity campaign alias — `artifacts-inference-warmstart.md`. This is **not** original/global unit 3. |
+| Second-wave *local* list | 4 | Parallel completion truth; merged into global unit 10 — `training-stack.md`. |
+| Second-wave *local* list | 5 | Live resource sizing and table-length truth — `training-stack.md`, sizing/resource gaps. |
+| Second-wave local list / later queue 6 | 6 | Python documentation truth — `conventions-and-workflow.md`. |
+| Global queue | 7 | Real Cobaya adapter contract — `artifacts-inference-warmstart.md`. |
+| Global queue | 8 | Checkpoint-set integrity — `data-generation-and-cuts.md`. |
+| Global queue | 9 | Validation/diagnostic memory and totality — `training-stack.md`. |
+| Global queue | 10 | Worker liveness plus completion truth — `training-stack.md`. |
+| Global queue | 11 | Geometry numerical/read-side integrity — `artifacts-inference-warmstart.md`. |
+| Global queue | 12 | Validation parity under `python -O` — `conventions-and-workflow.md`. |
+| Global queue | 13 | CMB covariance-input schema — `families-scalar-cmb.md`. |
+| Global queue | 14 | Finite training/evaluation contract — `training-stack.md`. |
+| Global queue | 15--16 | BAOSN and MPS domain totality — `families-background-mps.md`. |
+| Global queue | 17 | Generator ingress identity — `data-generation-and-cuts.md`. |
+| Global queue | 18, 20, 22--23 | Schedule, range, selection-record, and run-control truth — `training-stack.md`. |
+| Global queue | 19, 29 | NPCE LOO and model-block value schema — `models-and-designs.md`. |
+| Global queue | 21, 24 | Inference numerical boundary and fine-tune anchors — `artifacts-inference-warmstart.md`. |
+| Global queue | 25--28 | Nested paths, validation axes, bounded staging, and validation leakage — `data-generation-and-cuts.md`. |
+
+The word "unit" without one of these scopes is historical shorthand, not a
+safe identifier. New notes cite the finding name and owner heading as well as
+a number.
+
+### 45M finding series
+
+Every issued 45M finding through 90 has a durable record. The canonical
+ledger for 01--72 is `state-2026-07-11-and-next.md`; each live contract routes
+to its scientific topic note. Findings 73--90 are indexed in
+`red-team-implementer-handoff-2026-07-13.md`; their detailed records live in
+`gates-and-board.md` and, where applicable, the scientific topic note.
+
+- `45M-10` and `45M-18` were **not issued**. They have no note, repository,
+  or Git-history source. The gaps are intentional tombstones; no future
+  finding may reuse them.
+- `45M-05` was retracted by the Red Team. The surviving evidence says the
+  ordinary conversion chains were accepted and no source-style gate was
+  required. The original full handoff is not available and must not be
+  reconstructed as a live defect.
+- `45M-08` was received only as an index item. The independently verified
+  portion is complete in `artifacts-inference-warmstart.md`: unconditional
+  covariance overwrite plus non-transactional publication, with
+  preexistence-refusal and interrupted-write legs. If an original longer
+  handoff is recovered, append only genuinely additional clauses and retain
+  this provenance limitation.
+- `45M-43` and `45M-44` were retracted after validator reachability disproved
+  them. Unit 54 is withdrawn and its number retired; `training-stack.md`
+  retains the VOID analysis and audit lesson.
+- `45M-25` now has its missing domain-owner contract in
+  `training-stack.md`, "Scheduler execution protocol".
+
+Bundled implementation summaries are disaggregated as follows:
+
+- `45M-71` = resume input identity plus atomic `RUNNING` state;
+- `45M-74` = immutable per-attempt logs plus atomic status/board publication;
+- `45M-73` = a dependency-skipped gate executed no body but the command
+  returned success;
+- `45M-77` = unknown or mixed selectors silently changed or emptied the
+  selected gate surface; and
+- `45M-82` = an unavailable mandatory `torch.compile` lane returned success.
+
+Current-status qualifications remain part of the record: 72's foundation is
+landed but its full evidence rollout is open; 75's schema half is landed while
+post-optimizer finiteness is workstation-owed; 76 and 79 retain live-proof
+obligations; 81's seed landing was reopened by the demonstrated append/RNG
+restart and its current contract lives in `data-generation-and-cuts.md`; 85's
+broader residue scan remains; 86 and 90 were reviewed as partial didactic
+drafts; and 89's original "two of seven" statement was corrected to exactly
+one in-code verdict.
+
+### 20M, RT, and BLOAT series
+
+`20M-01` through `20M-19` and `20M-21` through `20M-25` each have an
+Architect adjudication in `gates-and-board.md` and a full domain-owner
+contract. `20M-20` was **not issued** and is a retired gap, not missing
+content. Owners are:
+
+- background/MPS: 01, 05, 06, 08, 18, 19;
+- scalar/CMB: 02, 03, 04, 14, 22;
+- artifacts/inference: 07, 09, 10, 11, 17;
+- training: 12, 13, 24, 25; and
+- generation/publication: 15 (the checkpoint-ingress amendment to unit 56),
+  16, 21, 23.
+
+`RT-2026-07-13-01` is recorded in `gates-and-board.md`. The following
+canonical labels name the five findings already described in this file:
+
+- `RT-2026-07-13-02`: returned-array ownership;
+- `RT-2026-07-13-03`: subprocess root identity;
+- `RT-2026-07-13-04`: warning-plus-crash false green;
+- `RT-2026-07-13-05`: curved-distance mislabel; and
+- `RT-2026-07-13-06`: optional Cobaya display label.
+
+`RT-IMPL-01` through `RT-IMPL-04` have dedicated sections near the beginning
+of this file. `BLOAT-01` through `BLOAT-04` are also fully recorded here and
+in `gates-and-board.md`; BLOAT-02 and BLOAT-03 additionally have scientific
+topic owners. No correctness finding in these issued ranges depends solely on
+chat history after this registry.
