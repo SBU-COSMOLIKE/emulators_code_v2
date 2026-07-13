@@ -89,7 +89,8 @@ from emulator.losses.scalar import ScalarChi2
 from emulator.losses.transfer import TransferChi2
 from emulator.results import save_emulator
 from emulator.training import (eval_val, eval_source_chi2,
-                               training_loop_batched, _global_grad_norm)
+                               training_loop_batched, _global_grad_norm,
+                               ordinary_median)
 
 FAILURES = []
 DEV = torch.device("cpu")            # CPU only: the contract legs need no GPU
@@ -155,8 +156,10 @@ def check_eval_val():
   # the reference reduction, computed straight (no batching, no guard).
   with torch.no_grad():
     ref_c = ((model(C) - DV) ** 2).sum(dim=1)
-  ref_med = ref_c.median().item()
-  ref_mean = ref_c.mean().item()
+  # the reference reduction matches eval_val's published reductions (unit 60
+  # ordinary median + unit 14(f) float64 mean), so the finite control agrees.
+  ref_med = ordinary_median(ref_c)
+  ref_mean = ref_c.to(torch.float64).mean().item()
   ref_frac = (ref_c[:, None] > thresholds[None, :]).float().mean(0)
 
   # control: the guard does not move the finite result.
@@ -891,7 +894,7 @@ def check_chi2_domain():
   # positive control: the domain check is inert on all-positive scores.
   with torch.no_grad():
     ref_c = ((model(C) - DV) ** 2).sum(dim=1)
-  ref_med = ref_c.median().item()
+  ref_med = ordinary_median(ref_c)
   med, _, _ = eval_val(model=model, lossfn=PoisonChi2(),
                        data=_val_data(C, DV), load=N_VAL, bs=N_VAL,
                        thresholds=thresholds)

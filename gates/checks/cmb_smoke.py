@@ -46,6 +46,7 @@ import numpy as np
 import torch
 
 from emulator.experiment import EmulatorExperiment
+from emulator.training import ordinary_median
 from emulator.results import save_emulator
 from emulator.inference import EmulatorPredictor
 
@@ -391,7 +392,7 @@ def check_train(paths, tmp, device):
     else:
         tw = exp.chi2fn.encode(dv)
     c_mean = exp.chi2fn.chi2(pred=torch.zeros_like(tw), target=tw)
-    mean_median = float(c_mean.median())
+    mean_median = ordinary_median(c_mean)  # unit 60: the ordinary median
     best_median = min(float(m) for m in medians)
     report("val collapses below the mean predictor (relative bar)",
            best_median < 0.5 * mean_median,

@@ -35,6 +35,7 @@ loaded whole.
 """
 
 import copy
+import math
 import time
 
 import numpy as np
@@ -1368,6 +1369,74 @@ def _global_grad_norm(params):
   return torch.linalg.vector_norm(torch.stack(parts))
 
 
+def ordinary_median(values):
+  """The ordinary 50th-percentile median (unit 60, 45M-57).
+
+  The center value for odd N, the arithmetic MEAN of the two center values
+  for even N -- the standard estimator every prose, plot, history, and gate
+  surface already names "median". torch.median returns the LOWER of the two
+  central ordered values for even N (a lower-median), which biases the
+  plateau-scheduler feed, the equal-fraction best-epoch tie-break, and the
+  persisted / plotted history low; torch.quantile(., 0.5) is the ordinary
+  median on both parities and is byte-identical to torch.median for odd N.
+  Computed in float64 so an extreme-scale even-N midpoint cannot overflow
+  (the reduction unit 14(f) hardens); the values already live on the CPU.
+
+  This is the ONE shared median reduction: eval_val, the scheduler feed, the
+  tie-break, the saved histories, and the five gate reference sites all use
+  it, so repaired production code and the gates cannot disagree.
+
+  torch.quantile caps its input at about 2^24 elements; every n_val here
+  (board runs 200, the shipped placeholder 5000) sits far below that, and a
+  larger validation set raises from torch.quantile loudly rather than
+  rounding silently.
+
+  Arguments:
+    values = a 1-D tensor of per-sample values (the validation chi2).
+
+  Returns:
+    a Python float: the ordinary median.
+  """
+  v = values.reshape(-1).to(torch.float64)
+  return float(torch.quantile(v, 0.5))
+
+
+def _validate_published_reductions(mean, median, frac):
+  """Refuse a non-finite PUBLISHED reduction (unit 14(f), 45M-58, clause 4).
+
+  eval_val's row guard validates the per-sample chi2, but the reductions it
+  publishes (the mean, the median, the threshold fractions) are appended to
+  histories, plotted, persisted, and stepped into the plateau scheduler. A
+  reduction that is non-finite (a mean that overflowed, a NaN that slipped in)
+  must be a REFUSED evaluation, not a sentinel or a big number that silently
+  ranks or reschedules. The mean is the vulnerable reduction (float32 overflow
+  before the float64 fix); the median (order statistic) and the fractions
+  (bounded by 1) cannot overflow, but the one-line check covers all three.
+
+  Arguments:
+    mean   = the published mean (a Python float).
+    median = the published median (a Python float).
+    frac   = the published per-threshold fractions (a tensor).
+
+  Raises:
+    ValueError naming the reduction, the side ("validation"), and the value
+    when any published reduction is non-finite.
+  """
+  for name, value in (("mean", mean), ("median", median)):
+    if not math.isfinite(value):
+      raise ValueError(
+        "published reduction [validation]: the " + name + " is "
+        + repr(value) + ", not finite. A reduction that overflowed or went "
+        "NaN must not rank, reschedule, or ship a model -- fix the run "
+        "(the per-sample rows passed the domain guard; the reduction "
+        "itself is out of range).")
+  if not bool(torch.isfinite(frac).all()):
+    raise ValueError(
+      "published reduction [validation]: a threshold fraction is not "
+      "finite (" + repr(frac.tolist()) + "); a fraction is bounded in "
+      "[0, 1], so a non-finite value signals a corrupted reduction.")
+
+
 def eval_val(model, lossfn, data, load, bs, thresholds,
              fwd_chi2=None):
   """
@@ -1493,14 +1562,26 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
   # (no .double() before this), so the band matches the accumulated roundoff.
   c = screen_chi2(c, loss=lossfn, label="validation",
                   positions=np.concatenate(order_rows))
-  mean   = c.mean().item()
-  median = c.median().item()
+  # published reductions in float64 (unit 14(f), 45M-58): a float32 mean of
+  # rows near the float32 max overflows to Inf AFTER the row guard passed
+  # (the sum exceeds float32 range in any order), so the mean is formed in
+  # float64. The median is the ordinary 50th-percentile estimator (unit 60,
+  # 45M-57) -- torch.median's lower-middle sample for even n_val biased the
+  # plateau-scheduler feed, the equal-fraction tie-break, and the persisted
+  # history; ordinary_median (float64, torch.quantile 0.5) fixes all four at
+  # once because they all consume this returned median.
+  mean   = c.to(torch.float64).mean().item()
+  median = ordinary_median(c)
 
   # c[:, None] (Nval, 1) and thresholds[None, :] (1, T) broadcast
   # into a (Nval, T) boolean grid: entry [i, j] = "is point i's
   # chi2 above threshold j?". mean(0) over samples -> the fraction
   # past each threshold. ([:, None] is the numpy/torch unsqueeze.)
   frac = (c[:, None] > thresholds[None, :]).float().mean(0)
+  # clause 4 (unit 14(f)): every PUBLISHED reduction must be finite before it
+  # is returned, appended to histories, plotted, and stepped into the
+  # scheduler -- an infinite mean is a REFUSED evaluation, never a sentinel.
+  _validate_published_reductions(mean=mean, median=median, frac=frac)
   return median, mean, frac
 
 

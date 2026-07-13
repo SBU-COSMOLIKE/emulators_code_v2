@@ -33,6 +33,7 @@ import numpy as np
 import torch
 
 from emulator.experiment import EmulatorExperiment
+from emulator.training import ordinary_median
 from emulator.results import save_emulator
 
 FAILURES = []
@@ -190,7 +191,7 @@ def check_train(paths, tmp, device, quantity):
     dv = torch.from_numpy(np.asarray(exp.val_set["dv"][idx])).float()
     tw = exp.chi2fn.encode(dv.to(device))
     c_mean = exp.chi2fn.chi2(pred=torch.zeros_like(tw), target=tw)
-    mean_median = float(c_mean.median())
+    mean_median = ordinary_median(c_mean)  # unit 60: the ordinary median
     best_median = min(float(m) for m in medians)
     report("val collapses below the mean predictor (%s)" % quantity,
            best_median < 0.5 * mean_median,
