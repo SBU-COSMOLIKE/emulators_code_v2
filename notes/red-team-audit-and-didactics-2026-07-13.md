@@ -1756,3 +1756,40 @@ clause list against the implementation diff and its discriminating gates.
 Reviewing only the coherent subset the implementation chose to deliver is not
 acceptance.  The hardening increment is closed to unrelated expansion; a new
 item joins only by reopening an already-issued clause.
+
+Clause-reconciliation batch after the 25M-26 audit law (all Red Team
+CONFIRMED, awaiting Architect adjudication):
+
+- `25M-27`: queue 1c builds its root-driver Git pathspec from currently
+  existing `*.py` files, so deleting a tracked driver makes it disappear from
+  the dirty-tree question and preflight reports clean — `gates-and-board.md`.
+- `25M-28`: 1b promised stale-member inspection in both `--list` and
+  `BOARD.md`; list omits it, and byte-identical input relocation loses the
+  name because `_stale_member` compares only hashes, not paths —
+  `gates-and-board.md`.
+- `25M-29`: unit 14(f)'s mandatory extreme-scale eval Part I was never
+  committed; the board cannot catch restoring the float32 mean overflow —
+  `training-stack.md`.
+- `25M-30`: unit 14(h) live-drives only CMB; grid and grid2d corrupt-score
+  refusals were replaced by an AST call-name census — `training-stack.md`.
+- `25M-31`: the finite-contract gate's Parts A/C assert retired error prefixes
+  and remain false-red even after the separate 25M-23 import repair —
+  `training-stack.md`.
+- `25M-32`: `_grid2d_law_rows` overwrites queue 3's canonical seeded loader
+  order with sorted compact `arange`; the MPS gate asserts the defect as truth
+  — `data-generation-and-cuts.md`.
+- `25M-33`: bounded staging checks only that a base covers the selected
+  maximum row, not exact raw/base row-count equality; shifted same-width files
+  produce finite wrong log-law targets — `data-generation-and-cuts.md`.
+- `25M-34`: stored-float32 moments are implemented correctly but the gate has
+  no payload where the forbidden pre-cast accumulator changes the pin mask —
+  `data-generation-and-cuts.md`.
+- `25M-35`: the failed-sweep lifecycle leg manually calls release and never
+  executes `_sweep_job`; deleting real driver cleanup stays green —
+  `data-generation-and-cuts.md`.
+
+This batch is the first direct application of the clause-checklist law.  Each
+item cites an issued clause and the exact missing implementation or
+discriminating leg.  Current-correct producers are stated as such for 25M-34
+and 25M-35; their defect is the claimed acceptance evidence, not the runtime
+body.  No number in the series may be reused.

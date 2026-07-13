@@ -4815,3 +4815,78 @@ must therefore carry a clause checklist with code and gate evidence for every
 item, or mark the item unimplemented.  The hardening increment is closed to
 unrelated new scope; only a finding that reopens one of its existing clauses
 may join it.  Other machinery findings wait for the next machinery window.
+
+## 25M-27 (Red Team CONFIRMED, awaiting Architect adjudication): deleting a tracked root driver escapes queue 1c's dirty-tree watch
+
+Queue 1c promises that preflight watches the five executable directories
+**plus the root drivers**.  `_watched_paths` derives the latter from
+`_REPO.glob("*.py")` (`gates/run_board.py:615-629`).  A deleted tracked driver
+no longer exists for that glob, so it is omitted from the pathspec handed to
+`git status` (`:1137-1142`).  The dirty tree can therefore be certified clean
+because the path used to ask Git the question was built from the already-
+damaged filesystem.
+
+Live isolated-clone witness against the real helpers: move the tracked root
+driver `cosmic_shear_train_emulator.py` out of the clone, then evaluate
+`git status --porcelain -- <_watched_paths()>`.  `_watched_paths()` does not
+contain the deleted filename, Git returns rc 0 with empty stdout, and
+`_dirty_lines` returns `[]`.  A second witness using the manifest-uncovered
+thin driver `cmb_tune_emulator.py` leaves `validate_manifests(BOARD, cfg)`
+green as well, so manifest validation does not happen to mask this preflight
+defect.  An unrelated selected gate may proceed while a tracked executable
+entry point is deleted.
+
+Required repair: derive the root-driver watch from tracked identity or a
+stable complete registry, not only from entries that currently exist.  It
+must also retain newly added/untracked root Python drivers, so the natural
+surface is the union of the tracked root-`*.py` set and current root-`*.py`
+entries (or an equivalent top-anchored Git pathspec).  Treat nonzero `git
+status` as preflight failure rather than an empty clean result.  Keep one
+owner for the watched surface and its printed description.
+
+Pure Git/selftest legs using a temporary repository and the real helpers:
+clean control; modified tracked root driver reds; deleted tracked root driver
+reds and is named; newly added root Python driver reds; unrelated root text
+file remains outside this code surface; config-only exclusion remains clean;
+an uncovered thin family driver proves the manifest cannot satisfy the test
+for preflight.  The mutation restoring the existence glob must reproduce an
+empty offender list after deletion.
+
+This reopens queue 1c's “root drivers” clause.  It is not permission to expand
+the closed nine-item hardening landing unless the Architect places the reopen
+there; otherwise it waits for the next machinery window.
+
+## 25M-28 (Red Team CONFIRMED, awaiting Architect adjudication): 1b's inspectable stale-member promise is absent from `--list`, and input relocation loses the member name
+
+The persisted-manifest contract says both `--list` and `BOARD.md` name which
+resolved member staled (`notes/gates-and-board.md`, section C), and the phase-2
+DONE record repeats that claim.  `_write_board_md` calls `_stale_member` and
+adds `[stale member: ...]` (`run_board.py:1621-1624`).  `cmd_list` only prints
+the state returned by `_resume_state` (`:1999-2026`); it never calls
+`_stale_member` and has no member-detail field.
+
+Live synthetic status using a real manifested gate: `_stale_member` returned
+`code:cosmic_shear_train_emulator.py`, while `cmd_list` printed only
+`ema-off-identity ... stale-code ...` with no filename.  Thus the operator
+surface named explicitly by the ruling cannot inspect the persisted evidence.
+
+There is a second omission in the same comparison owner.  Persisted input
+members are triples `{key, path, sha256}`, and the overall input digest changes
+when the resolved path changes.  `_stale_member` reduces fresh inputs to
+`{key: sha256}` (`:1580-1583`).  Repointing one key from `a.yaml` to a
+byte-identical `b.yaml` produces `stale-input`, but `_stale_member` returns the
+empty string because the hashes match; the changed path is never named.
+
+Required repair: one state-detail formatter is consumed by `cmd_list` and
+`BOARD.md`; it reports the same first stale member on both surfaces.  Compare
+the full persisted input identity `(key, path, sha256)`, not the hash alone,
+and name at least the input key plus old/new path when relocation is the
+cause.  Preserve the phase-2 audit's accepted best-effort exception for a
+newly introduced member absent from the old manifest: a generic stale state
+is honest there because the old record cannot name what it never stored.
+
+Selftest legs: real `main --list` names a changed code member; generated
+`BOARD.md` names the same member; byte-identical input relocation is
+`stale-input` and names `input:<key>` plus the path change; content-only input
+change names the key; unchanged members remain current.  Mutations removing
+the list detail and reducing inputs back to `{key: sha}` must each red.

@@ -2032,3 +2032,110 @@ boundary-adjacent canonical rows remain inside the read-back ranges; broad
 production-style bounds are unchanged in meaning; parameter and range readers
 agree on dtype/decimal policy; and a mutation restoring `%.5e` collapses the
 witness and must red.
+
+## 25M-32 (Red Team CONFIRMED, awaiting Architect adjudication): grid2d law staging erases queue 3's canonical seeded row order
+
+Queue 3 makes the original seeded selection order canonical across storage
+regimes.  Ordinary `stage_source` now returns the correct coordinate map, but
+every public grid2d training path subsequently calls `_grid2d_law_rows`.
+That method reads the sorted compact `dump_rows` sequence and then overwrites
+`src["idx"]` with `np.arange(n_used)` (`emulator/experiment.py:3034-3043,
+3140-3142`).  Grid2d uses `stage_dv=False`, so this second transformation is
+not exercised by `stage-ram`'s queue-3 loader proof.
+
+Executed real-body witness with seeded selection `[6, 1, 5, 2]`: the method
+executes parameter rows `[1, 2, 5, 6]` and leaves `idx=[0,1,2,3]`.  The seed
+still controls membership but no longer order; the training loop's shared
+epoch permutation therefore maps to a different cosmology sequence.  The
+current MPS gate explicitly blesses the defect by requiring
+`src["idx"] == np.arange(40)` (`gates/checks/mps_identity.py:258-273`).
+
+Required repair: keep `C`, transformed `dv`, and `dump_rows` in sorted compact
+storage order, but preserve the original selection sequence in loader
+coordinates.  For the public memmap path this is
+`searchsorted(dump_rows, original_global_idx)`; for a resident compact source,
+retain/map its existing local-coordinate sequence rather than replace it.
+Drive the real loader after `_grid2d_law_rows` in both resident-result and
+disk-result regimes.  Under one shared epoch permutation, parameters,
+transformed targets, base-row identity, minibatch membership, and minibatch
+order must match the original seeded anchor.  Restore-`arange` is the mutation
+arm.  Replace the current assertion that treats `arange` as correct.
+
+This reopens an explicit queue-3 clause and the audit statement that the
+defect was “solely” in `stage_source`; the ordinary staging fix remains
+correct, but the forward walk stopped before grid2d's second coordinate
+rewrite.
+
+## 25M-33 (Red Team CONFIRMED, awaiting Architect adjudication): bounded grid2d staging never implemented exact raw/base row-count equality
+
+The original bounded-staging contract above requires both row-count and width
+validation for every raw/base/grid member.  `_grid2d_law_rows` checks raw
+width, base width, and only that the base contains the maximum selected global
+row (`experiment.py:3027-3071`).  It never requires
+`base.shape[0] == raw.shape[0]`.
+
+Real-body reproduction: an 8-row raw dump paired with a same-width 9-row base
+having one extra leading row is accepted and produces a maximum
+`log(raw/base)` error of `0.6931472439` (approximately `log(2)`).  A shorter
+base also passes whenever the selected subset happens not to request its
+missing tail.  The result is finite and trains normally on row-shifted law
+targets; file manifests would only authenticate the wrong pair and cannot
+replace semantic row alignment.
+
+Required repair: before any chunk read, require exact base/raw row-count
+equality as well as exact width equality.  Gate base sizes `N-1`, `N`, and
+`N+1`; the `N-1` fixture deliberately selects early rows so today's
+max-selected-row test would accept it.  Include a shifted-row finite mutation
+whose known law answer differs by `log(2)`.  The valid `N` pair remains
+bitwise unchanged.  This is the already-issued row-count clause, not a new
+manifest mechanism.
+
+## 25M-34 (Red Team CONFIRMED, awaiting Architect adjudication): the stored-float32 moments implementation is correct, but its gate does not discriminate it from the forbidden pre-cast accumulator
+
+The producer correctly writes `law_chunk.astype("float32")` and merges moments
+from the stored payload read back as float64 (`experiment.py:3123-3132`).  The
+binding amendment requires a gate that fails if moments are instead
+accumulated from pre-cast float64 `law_chunk`.  `check_stable_moments` has no
+fixture where those two references change the geometry decision; its current
+log-ratio comparison is close enough that the `np.allclose` absolute default
+also masks the small difference.
+
+Discriminating finite fixture (independently reproduced): alternate raw
+float32 values `10000.0` and the value 158 float32 ULPs above it; use base
+float32 `3.0`.  The pre-cast log-space population standard deviation is
+`7.714784231893644e-6`; the stored-float32 standard deviation is
+`8.106231689453125e-6`; the geometry's relative pin threshold is
+`7.735954113741172e-6`.  The forbidden pre-cast reference pins the column,
+while the required stored-payload reference leaves it trainable—a 4.83%
+scale separation with a categorical mask difference.
+
+Add this fixture through the real `_grid2d_law_rows` plus
+`Grid2DGeometry.from_stats`.  Assert stored-payload center/scale/mask, and make
+an explicit pre-cast-accumulator mutation pin the column and red.  Set both
+`rtol` and `atol` explicitly; no default absolute tolerance may decide catch
+power.  Keep the existing Chan/Welford and chunk-order legs.  This reopens
+only the missing discrimination clause; current producer numerics are
+accepted.
+
+## 25M-35 (Red Team CONFIRMED, awaiting Architect adjudication): the failed-sweep lifecycle leg manually performs cleanup instead of executing the driver path it claims to prove
+
+The lifecycle contract requires a training failure after successful staging
+to release that sweep point's file because both success and exception paths
+reach the shared lane cleanup.  The actual driver currently calls
+`release_train_staging()` after its `try/except`
+(`cosmic_shear_sweep_ntrain_emulator.py:158-179`), which is correct.
+`mps_identity.check_staging_lifecycle` leg (d), however, never calls
+`_sweep_job` and never injects a training failure.  It stages directly, then
+manually executes `exp.train_set = None; exp.release_train_staging()`
+(`gates/checks/mps_identity.py:812-824`).  Deleting the driver's release line
+would leave the gate green.
+
+Repair the gate, not the currently-correct driver: execute the real
+`_sweep_job` with a fake/light experiment whose disk-backed staging succeeds
+and whose `train()` then raises.  Assert the returned point is the documented
+failure result, the staged path is absent, the train ownership slot is clear,
+and the validation staging slot remains live.  Add success-path control and a
+mutation that removes/bypasses the driver's release call; it must leak the
+path and red.  The direct release/idempotence legs remain useful helper tests,
+but may not substitute for the public driver call whose ordering is the
+claim.

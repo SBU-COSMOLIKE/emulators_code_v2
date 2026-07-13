@@ -2710,3 +2710,84 @@ red. Placement: with unit 55 in the repeated-training isolation
 class (their gates share the same home); blocks production
 hyperparameter sweeps over loss blocks; distinct from unit 79
 (eligibility) and unit 55 (transfer-source lifecycle).
+
+## 25M-29 (Red Team CONFIRMED, awaiting Architect adjudication): unit 14(f)'s required extreme-scale Part-I gate was never committed
+
+The binding increment-(f) contract above requires a board-listed
+finite-contract Part I that drives the real `eval_val` with eight finite
+float32 scores near `1e38`, proves the published mean equals the float64
+reference, checks the returned/history value, and fails a restored float32
+`c.mean()` on CPU and CUDA.  Commit `4846fdd` correctly implements float64
+published reductions, but its gates implement only unit 60's ordinary-median
+Part 1b.  There is no Part I and no extreme-scale validation fixture in
+`ge_c_eval_bs.py` or `finite_contract.py`.  The only `1e38` fixture in
+`finite_contract.py` is Part G's **training epoch accumulator**, the distinct
+45M-47 surface.
+
+The completion record cites an uncommitted `probe_median_reductions.py 11/11`
+as evidence and then declares units 60 + 14(f) complete.  That probe is not a
+board leg.  The current ordinary-scale finite control would remain green if
+`eval_val` regressed to float32 `c.mean()`, because its float32/float64
+rounding difference stays within the loose `1e-6` relative comparison.  The
+board therefore cannot catch restoration of the exact original wrong result:
+eight individually finite rows whose float32 sum overflows and publishes
+`Inf`.
+
+Required repair is the already-issued Part I, not a new numerical design:
+drive real `eval_val` on eight finite float32 scores near `1e38`; require a
+finite mean equal to the direct float64 reference and finite median/fractions;
+assert the same returned value reaches the real history-append consumer;
+include an ordinary-scale control; and make a restored `c.mean()` mutation
+overflow and red.  Run the small leg on CPU and on the mandatory CUDA
+workstation lane.  A backend that does not reproduce overflow is an explicitly
+reported control, never permission to omit the lane.  `gates/board.py` maps
+and the check docstring must name published-reduction truth.
+
+## 25M-30 (Red Team CONFIRMED, awaiting Architect adjudication): unit 14(h) replaced two required live family diagnostics with an AST call-name census
+
+The increment-(h) contract requires valid-output identity and corrupt-score
+refusal through **each** public CMB, grid, and grid2d residual diagnostic.
+`gates/checks/diagnostics_domain.py:259-276` live-drives
+`cmb_residual_diagnostic`.  For `grid_residual_diagnostic` and
+`grid2d_residual_diagnostic`, `:282-297` only parses the source and checks that
+the function contains a call named `_screen_diag_chi2`.  The completion record
+at this note's increment-(h) resume explicitly substitutes that AST census,
+and the later audit accepted the substitution despite the issued clause.
+
+A call-name census proves neither the tensor being screened nor the loss
+owner, compute dtype, row positions, ordering, or that the returned diagnostic
+uses the screened values.  A mutation can keep the call in the AST while
+passing the wrong tensor or interpreting the raw corrupt score afterward; the
+current gate remains green.
+
+Required repair: add small real `GridGeometry` and `Grid2DGeometry` fixtures
+beside the CMB fixture.  For each public function, a finite known answer must
+return the unchanged expected per-row/worst result, and a controlled negative
+producer score must raise before thresholding/plotting/persistence with the
+family producer named.  Per-family catch-power mutations preserve the
+`_screen_diag_chi2` call name but pass the wrong tensor, loss owner, or row
+positions; the AST census must be shown insufficient and the live leg must
+red.  Keep the census only as structural breadth after the three behavioral
+legs.
+
+## 25M-31 (Red Team CONFIRMED, awaiting Architect adjudication): the finite-contract gate still asserts retired error text and cannot reach ALL PASS
+
+Increment 14(h) consolidated validation and diagnostic chi2 interpretation
+through `losses.core.screen_chi2`, whose error prefix is now
+`chi2 domain contract [<side>]`.  Part H correctly expects that owner
+(`finite_contract.py:901-935`).  Earlier Parts A and C still require the
+retired substrings `finite contract [validation]` and
+`finite contract [diagnostic]` (`:191-208`, `:426-435`).  Their calls now
+reach `screen_chi2`, so they record FAIL even when the expected ValueError and
+row number are correct.
+
+Consequently, repairing 25M-23's missing `_chi2_domain` import is not enough:
+the complete board-listed check will still false-red before its final verdict.
+This is a gate-fixture/message-owner repair, not a second producer contract.
+Update A/C to assert the one current shared boundary (prefer a stable typed
+reason or structured helper over duplicating prose fragments), retain the row
+and side checks, and run the whole check through `finite-contract: ALL PASS`.
+Add a mutation that restores the obsolete prefix expectation and must red the
+selftest of the assertion owner.  Reconcile the check docstring/maps at the
+same time as 25M-23 and the missing Parts I/family legs so one full rerun proves
+the final executable gate rather than isolated helper probes.

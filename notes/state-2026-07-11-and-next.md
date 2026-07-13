@@ -2591,3 +2591,22 @@ where their roots already live.
   essential-only; artifacts self-describing (never-trust-defaults);
   C-readable Python on cold paths; smoke gates must fail on a dead
   network. The full rule set: conventions-and-workflow.md.
+
+25M-27..35 CLAUSE-RECONCILIATION BATCH (2026-07-13, Red Team;
+awaiting Fable adjudication): first direct use of the 25M-26 law.
+27 reopens queue 1c (deleted tracked root driver drops out of the
+existence-built Git pathspec, false clean). 28 reopens 1b member
+inspectability (`--list` omits the member; input path changes with
+identical bytes are unnamed). 29/30/31 reopen unit-14 acceptance:
+the required 14(f) extreme-scale Part I never landed; 14(h) replaced
+live grid/grid2d legs with an AST name census; Parts A/C assert the
+retired error prefix and false-red. 32/33 are current grid2d defects:
+the law transform erases queue-3 seeded order, and raw/base exact
+row-count equality was omitted (shifted pair gives finite log(2)
+error). 34/35 are acceptance holes with current-correct producers:
+the stable-moments fixture cannot distinguish stored-float32 from
+pre-cast accumulation, and the failed-sweep cleanup leg manually
+calls release without executing `_sweep_job`. Detailed contracts:
+gates-and-board.md, training-stack.md, and
+data-generation-and-cuts.md. No queue placements assigned by Red
+Team.
