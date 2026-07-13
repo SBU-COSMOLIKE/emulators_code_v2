@@ -2655,3 +2655,35 @@ truth in the same landing. The census-core remainder stays first;
 machinery follow-up 27/28 follows it; queue 2 opens only after both
 are green. Series state: 01..35, tombstone 07, register and chat
 reconciled.
+
+25M-23 + 27..35 BATCH (2026-07-13, Fable): consolidation on main
+verified SOUND (proper merge, zero markers, my sections verbatim,
+notes-only). All ten adjudicated — five by my own conclusive probes
+(23's undefined _chi2_domain NameError; 27's existing-file glob
+hole; 28's mechanism; 29's absence: eval_val driven 42x with zero
+extreme-scale legs; 35's manual release), five per register
+witnesses reproducing as first legs. PLACEMENTS: 23 -> gate-truth
+batch NOW (broken gate); 27+28 -> a board-machinery follow-up
+behind the census-core remainder (hardening stays closed at nine);
+29/30/31 -> gate-truth increment 2 (unit-14 acceptance
+completions); 32/33/34 -> the MPS/staging visit (32 = QUEUE-3
+REOPEN, the gate flips with the fix); 35 -> gate-truth
+(test-double honesty). 25M-23 surfaced from the register only —
+never relayed in chat; the record rule worked. Spec:
+gates-and-board.md "Consolidation check + 25M-23 and 25M-27..35
+adjudication".
+
+HARDENING 8.5/9 AUDIT + TWO RULINGS (2026-07-13, Fable): GO on all
+four commits — my strip-one witness now REDS, the adapter-root
+tamper REDS through the new runtime-loader census, both item-7
+clauses exit 2 live, selftest 120 ALL PASS independently. RULING:
+the 25M-19 narrowing APPROVED as per-owner semantics (repo-owned
+must resolve; yaml_dir/deploy resolve-not-exist) with the binding
+balancing clause — None-sha is validation-time only; run time
+refuses an unresolvable declared input before the body. RULING: the
+data-read half = reviewed _DATA_READ_COVERS + scanner-as-negative-
+catch; geo-paths goes WHOLE-SCOPE with its manifest enumerator ==
+its scan enumerator (one shared function); set-equality +
+byte-edit-any-file fixture. Queue 2 at full 9/9. Spec:
+gates-and-board.md "Hardening 8.5/9 pre-merge audit + the 19
+narrowing and data-read rulings".

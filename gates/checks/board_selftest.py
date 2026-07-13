@@ -105,6 +105,9 @@ def make_gate(gate_id, *, deps=(), behavior="pass", optional=False):
 # PASS must name a log whose bytes exist and match; drive_main materializes
 # this content into its temp log dir for every seeded PASS.
 SEED_LOG_BYTES = b"seeded current-pass log\n"
+# the attempt id every seeded PASS carries, so a seeded child's lineage snapshot
+# (25M-26) matches its seeded dependency's attempt and the child reads current.
+SEED_ATTEMPT = "seed-attempt"
 
 
 def pass_record(gate, cfg=None):
@@ -113,14 +116,24 @@ def pass_record(gate, cfg=None):
     Includes the raw-log evidence the runner now verifies: a seed log name and
     its digest over SEED_LOG_BYTES. drive_main writes that content into its temp
     log dir, so the record reads as a genuine current PASS (not one flagged
-    stale-log for a missing or unverifiable log).
+    stale-log for a missing or unverifiable log). A gate WITH dependencies also
+    carries a lineage snapshot (25M-26) whose stored attempt matches its seeded
+    dependency's SEED_ATTEMPT, so the child reads current rather than
+    stale-dependency.
     """
     use = FAKE_CFG if cfg is None else cfg
-    return {"status": "PASS",
-            "code_digest": run_board._gate_code_digest(gate),
-            "input_digest": run_board._gate_input_digest(gate, use),
-            "log": gate.id + ".seed.log",
-            "log_digest": hashlib.sha256(SEED_LOG_BYTES).hexdigest()}
+    log_digest = hashlib.sha256(SEED_LOG_BYTES).hexdigest()
+    record = {"status": "PASS",
+              "code_digest": run_board._gate_code_digest(gate),
+              "input_digest": run_board._gate_input_digest(gate, use),
+              "log": gate.id + ".seed.log",
+              "log_digest": log_digest,
+              "attempt": SEED_ATTEMPT}
+    if gate.deps:
+        record["deps"] = {dep: {"attempt": SEED_ATTEMPT,
+                                "log_digest": log_digest}
+                          for dep in gate.deps}
+    return record
 
 
 class _Args:
@@ -283,6 +296,32 @@ def check_selector_validation():
            rc == 0, "rc = " + str(rc))
     rc, _, _ = drive_main(["--check"], gates, {})
     report("a clean --check still exits 0 (regression guard)",
+           rc == 0, "rc = " + str(rc))
+
+    # item-7 completion (25M-24): an action mode ignores run controls, and a
+    # VALID ignored control fails just as an unknown one does (the pre-merge
+    # audit's gap 1). Real main(), red-capable against the un-fixed code (which
+    # returned 0); the clean --list / --check controls above pin the contrast.
+    rc, _, _ = drive_main(["--list", "--force-rerun", "beta"], gates, {})
+    report("--list with a VALID but ignored --force-rerun exits 2 (item 7)",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--check", "--gate", "beta"], gates, {})
+    report("--check with an ignored --gate selection exits 2 (item 7)",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list", "--dry-run"], gates, {})
+    report("--list with an ignored --dry-run exits 2 (item 7)",
+           rc == 2, "rc = " + str(rc))
+
+    # item-7 completion (25M-24 rider, bcf4ce2): an explicit --force-rerun id
+    # OUTSIDE the selected surface is a usage error, not a silent discard.
+    rc, _, _ = drive_main(["--gate", "alpha", "--force-rerun", "beta"], gates, {})
+    report("--force-rerun of a gate outside the selection exits 2 (item 7)",
+           rc == 2, "rc = " + str(rc))
+    # control: the SAME force-rerun id INSIDE the selection is accepted -- proof
+    # the rc-2 is caused by being outside, not by --force-rerun itself.
+    rc, _, _ = drive_main(["--gate", "beta", "--force-rerun", "beta",
+                           "--dry-run"], gates, {})
+    report("--force-rerun of a gate inside the selection is accepted (control)",
            rc == 0, "rc = " + str(rc))
 
     # 25M-25: --from an OPTIONAL start includes it FIRST; a later optional
@@ -823,12 +862,51 @@ def check_manifest_reconciliation():
     g = _mf_gate("mf-dyn", _mf_body_trivial, code=("emulator/results.py",))
     ok, errs = run_board.validate_manifests([g], _MF_CFG)
     report("waived dynamic import with NO covering root declared reds",
-           (not ok) and any("covering roots" in e for e in errs),
-           "declares results.py but not emulator/designs")
+           (not ok) and any("covering root" in e for e in errs),
+           "declares results.py but neither designs nor losses")
+
+    # (25M-18) coverage is ALL-quantified over the required covers, and a root
+    # covers a cover only by being that cover or an ANCESTOR of it. results.py's
+    # waiver requires BOTH emulator/designs AND emulator/losses.
+    # child-as-cover (the pre-25M-18 blessing fixture, now flipped to must-red):
+    # a file INSIDE the tree does not satisfy the tree waiver.
+    g = _mf_gate("mf-dyn-child", _mf_body_trivial,
+                 code=("emulator/results.py", "emulator/designs/blocks.py",
+                       "emulator/losses"))
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
+    report("25M-18 child-as-cover reds: a file inside the tree is not the tree",
+           (not ok) and any("emulator/designs" in e and "covering root" in e
+                            for e in errs),
+           "designs/blocks.py does not cover the emulator/designs waiver")
+    # strip-one-of-two: one satisfied cover does not clear a multi-cover waiver.
+    g = _mf_gate("mf-dyn-strip", _mf_body_trivial,
+                 code=("emulator/results.py", "emulator/designs"))
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
+    report("25M-18 strip-one-of-two reds: the second cover is still required",
+           (not ok) and any("emulator/losses" in e for e in errs),
+           "designs declared, losses missing -> losses uncovered")
+    # the green control: declaring BOTH full trees clears the census.
     g = _mf_gate("mf-dyn-ok", _mf_body_trivial,
-                 code=("emulator/results.py", "emulator/designs/blocks.py"))
-    report("declaring a covering root clears the dynamic-import census",
-           run_board.validate_manifests([g], _MF_CFG)[0], "designs root declared")
+                 code=("emulator/results.py", "emulator/designs",
+                       "emulator/losses"))
+    report("declaring every covering root (full trees) clears the census",
+           run_board.validate_manifests([g], _MF_CFG)[0],
+           "designs AND losses declared")
+
+    # any-one-of-eight (25M-18): cli-strict's cli_strict.py waiver lists eight
+    # driver entry points; dropping any ONE leaves that driver uncovered. Uses
+    # the LIVE gate + config (the real eight-cover waiver), the 40/40 audit probe.
+    live_probe_cfg = run_board._load_config()
+    cli = [g for g in BOARD if g.id == "cli-strict"][0]
+    kept = tuple(r for r in cli.manifest.code
+                 if r != "scalar_train_emulator.py")
+    probe = Gate(id="cli-strict-probe", tier=cli.tier, home=cli.home,
+                 maps=cli.maps, run=cli.run,
+                 manifest=Manifest(code=kept, inputs=cli.manifest.inputs))
+    ok, errs = run_board.validate_manifests([probe], live_probe_cfg)
+    report("25M-18 any-one-of-eight reds: dropping one waiver entry-point",
+           (not ok) and any("scalar_train_emulator.py" in e for e in errs),
+           "the cli_strict waiver's eight covers are all-required")
 
     # mutation arm: empty the reviewed waiver table -> the same dynamic site is
     # now unreviewed and must red (a NEW dynamic import cannot slip in unwaived).
@@ -850,6 +928,66 @@ def check_manifest_reconciliation():
            a == b and len(a) > 1, str(len(a)) + " members, stable")
 
 
+def check_runtime_loader_census():
+    """1b hardening (25M-16): the runtime-loader census (c). A gate that loads an
+    adapter by FILE PATH (importlib spec_from_file_location) or a Cobaya
+    python_path component must DECLARE the loaded .py, so an edit to the adapter
+    reruns the gate rather than escaping the digest. Drives the REAL
+    validate_manifests over live gates, a reviewed-table mutation, and the
+    bare-sibling resolver.
+    """
+    live_cfg = run_board._load_config()
+    si = [g for g in BOARD if g.id == "scalar-identity"][0]
+    # positive strip: scalar-identity minus its cobaya_theory/emul_scalars root
+    # still reaches the spec_from_file_location site but no longer covers it.
+    stripped = Gate(id=si.id, tier=si.tier, home=si.home, maps=si.maps,
+                    run=si.run,
+                    manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+                                      inputs=si.manifest.inputs))
+    ok, errs = run_board.validate_manifests([stripped], live_cfg)
+    report("25M-16 positive: an identity gate missing its adapter root reds",
+           (not ok) and any("emul_scalars" in e for e in errs),
+           "the loaded adapter must be a declared root")
+    report("25M-16 the populated identity gate clears census (c)",
+           run_board.validate_manifests([si], live_cfg)[0],
+           "emul_scalars declared -> covered")
+
+    # negative mutation: drop cmb_identity from the reviewed table -> its
+    # spec_from_file_location site is now unreviewed and reds (a NEW adapter
+    # loader in an unlisted file cannot slip in undeclared).
+    saved = run_board._RUNTIME_LOADER_COVERS
+    try:
+        table = dict(saved)
+        table.pop("gates/checks/cmb_identity.py")
+        run_board._RUNTIME_LOADER_COVERS = table
+        ci = [g for g in BOARD if g.id == "cmb-identity"][0]
+        ok, errs = run_board.validate_manifests([ci], live_cfg)
+        report("25M-16 negative: an UNLISTED runtime-loader site reds",
+               (not ok) and any("unreviewed runtime-loader" in e for e in errs),
+               "the spec_from_file_location site has no reviewed cover")
+    finally:
+        run_board._RUNTIME_LOADER_COVERS = saved
+
+    # the bare-sibling resolver (25M-16): `from gsv_bitwise_drift import ...` in
+    # gates/checks/gct_parity.py resolves against the importer's OWN directory,
+    # so the sibling enters the closure and is digested; a real third-party
+    # top-level still resolves to nothing (environment drift is preflight's job).
+    sib = run_board._module_to_repo_paths(
+        "gsv_bitwise_drift", 0, "gates/checks/gct_parity.py")
+    report("25M-16 bare-sibling import resolves against the importer's dir",
+           sib == ["gates/checks/gsv_bitwise_drift.py"], str(sib))
+    third = run_board._module_to_repo_paths(
+        "torch", 0, "gates/checks/gct_parity.py")
+    report("25M-16 a third-party top-level still resolves to nothing",
+           third == [], str(third))
+    # and the live cobaya-adapter really carries the sibling in its closure.
+    ca = [g for g in BOARD if g.id == "cobaya-adapter"][0]
+    ca_closure = run_board._derive_closure(run_board._manifest_seeds(ca))
+    report("25M-16 cobaya-adapter's closure includes the resolved sibling",
+           "gates/checks/gsv_bitwise_drift.py" in ca_closure,
+           "gct_parity's sibling import is digested")
+
+
 def check_manifest_riders():
     """1b phase-2 riders (kill the audit's P1/P2/P3 validation holes): root
     schema totality, directory-root expansion, and input-key resolution.
@@ -869,8 +1007,12 @@ def check_manifest_riders():
     report("r2: a directory root expands to its .py members",
            len(dir_seeds) >= 2 and all(p.endswith(".py") for p in dir_seeds),
            str(len(dir_seeds)) + " .py members under emulator/designs")
+    # both waiver covers are declared (results.py needs designs AND losses under
+    # 25M-18); the leg's point is that the designs DIRECTORY root expands into
+    # the closure, not the coverage rule itself.
     g = _mf_gate("mf-dir", _mf_body_trivial,
-                 code=("emulator/results.py", "emulator/designs"))
+                 code=("emulator/results.py", "emulator/designs",
+                       "emulator/losses"))
     ok, errs = run_board.validate_manifests([g], _MF_CFG)
     closure = run_board._derive_closure(run_board._manifest_seeds(g))
     report("r2: the directory root covers the dynamic import AND enters the closure",
@@ -903,6 +1045,168 @@ def check_manifest_riders():
     g = _mf_gate("mf-in-ok", _mf_body_trivial, code=(), inputs=("probe_input",))
     report("r3: a resolving input key clears",
            run_board.validate_manifests([g], cfg)[0], "the key names a real file")
+
+
+def check_input_owner_resolution():
+    """1b hardening (25M-19): one owner-specific resolver per input namespace,
+    NO process-CWD candidate, shared by the manifest writer and the gate
+    consumer -- so the hashed path is the executed path from any cwd, and a
+    repo-owned input that fails to resolve reds instead of hashing None.
+
+    Drives the REAL _resolve_config_path / RunContext.evaluate_yaml /
+    validate_manifests over the live board_config.
+    """
+    import os
+    import tempfile
+    cfg = run_board._load_config()
+
+    # owner dispatch: each namespace resolves under its reviewed owner.
+    report("25M-19 owner dispatch (evaluate_yaml=repo, gate_configs=yaml_dir, "
+           "deploy_data=machine)",
+           run_board._input_owner("evaluate_yaml") == "repo"
+           and run_board._input_owner("gate_configs.ema-smoke-config") == "yaml_dir"
+           and run_board._input_owner("deploy_data.lsst_y1_ggl_dataset") == "machine",
+           "one owner per namespace")
+
+    # two-cwd identity: resolution is a function of the owner, not the shell cwd.
+    here = os.getcwd()
+    p1 = run_board._resolve_config_path("evaluate_yaml", cfg)
+    tmp = tempfile.mkdtemp(prefix="owner-cwd-")
+    try:
+        os.chdir(tmp)
+        p2 = run_board._resolve_config_path("evaluate_yaml", cfg)
+    finally:
+        os.chdir(here)
+    report("25M-19 two-cwd identity: same resolved path from any cwd",
+           p1 == p2 and p1 is not None, str(p1))
+
+    # collision-ignored: a decoy of the same relative name in the cwd is NOT
+    # picked up -- proof there is no process-CWD candidate (the CWD-first
+    # mutation the old resolver carried is gone).
+    decoy_root = Path(tempfile.mkdtemp(prefix="owner-decoy-"))
+    (decoy_root / "gates" / "configs").mkdir(parents=True)
+    (decoy_root / "gates" / "configs"
+     / "cobaya-adapter-evaluate.yaml").write_text("DECOY\n")
+    try:
+        os.chdir(decoy_root)
+        p3 = run_board._resolve_config_path("evaluate_yaml", cfg)
+    finally:
+        os.chdir(here)
+    report("25M-19 collision-ignored: a cwd decoy is not chosen (no CWD candidate)",
+           p3 == p1 and "DECOY" not in Path(p3).read_text(),
+           "the owner base wins over a same-named file in the cwd")
+
+    # executed == hashed: the RunContext consumer resolves the SAME path the
+    # manifest writer hashes (the executed path is the hashed path).
+    ctx = run_board.RunContext(cfg=cfg, dry=False, log_fh=None, env={},
+                               debug=False)
+    report("25M-19 executed == hashed: consumer path == manifest-writer path",
+           ctx.evaluate_yaml() == run_board._resolve_config_path("evaluate_yaml",
+                                                                 cfg),
+           str(ctx.evaluate_yaml()))
+
+    # repo-owned refuse-None-sha: a repo input pointing at an absent repo file
+    # reds (a repo file must resolve, never hash None); the mutation restores an
+    # absent path and must red.
+    bad = dict(cfg)
+    bad["evaluate_yaml"] = "gates/configs/does-not-exist.yaml"
+    ca = [g for g in BOARD if g.id == "cobaya-adapter"][0]
+    ok, errs = run_board.validate_manifests([ca], bad)
+    report("25M-19 repo-owned input that fails to resolve reds (refuse None sha)",
+           (not ok) and any("does not resolve to a repo file" in e for e in errs),
+           "an absent repo file is a resolution bug, not a dev-box gap")
+    # control: the real evaluate_yaml resolves and the gate validates.
+    report("25M-19 the real repo-owned input resolves and clears (control)",
+           run_board.validate_manifests([ca], cfg)[0],
+           "evaluate_yaml resolves under _REPO on any machine")
+
+
+def check_cross_invocation_lineage():
+    """1b hardening (25M-26): cross-invocation dependency lineage. A child PASS
+    records the attempt id of each dependency result it consumed; a LATER,
+    SEPARATE invocation whose dependency has since been rerun reads
+    stale-dependency and reruns the child, instead of resuming it against a
+    superseded result. This is the cross-PROCESS half of 25M-20 the in-process
+    reran set cannot see, so the legs share ONE status file + log dir across
+    several real main() invocations.
+    """
+    import tempfile
+    prereq = make_gate("prereq")
+    child = make_gate("child", deps=("prereq",))
+    gates = [prereq, child]
+
+    tmp = Path(tempfile.mkdtemp(prefix="lineage-"))
+    saved = {name: getattr(run_board, name) for name in
+             ("BOARD", "_LOGS_DIR", "_STATUS_FILE", "_BOARD_MD",
+              "_load_config", "_load_status", "preflight", "_log_header")}
+    try:
+        run_board.BOARD = gates
+        run_board._LOGS_DIR = tmp
+        run_board._STATUS_FILE = tmp / "board_status.json"
+        run_board._BOARD_MD = tmp / "BOARD.md"
+        run_board._load_config = lambda: dict(FAKE_CFG)
+        run_board._load_status = lambda: (
+            json.loads(run_board._STATUS_FILE.read_text())
+            if run_board._STATUS_FILE.exists() else {})
+        run_board.preflight = lambda cfg: (True, {})
+        run_board._log_header = lambda ctx, gate: None
+
+        # invocation 1: run both -> child PASSes, snapshotting prereq's attempt.
+        CALLS.clear()
+        rc1 = run_board.main([])
+        st1 = run_board._load_status()
+        report("25M-26 inv1: both run; the child snapshots its dependency lineage",
+               rc1 == 0 and isinstance(st1["child"].get("deps"), dict),
+               "child.deps snapshot persisted")
+
+        # invocation 2 (separate process): force-rerun ONLY prereq -> new attempt.
+        a1 = st1["prereq"]["attempt"]
+        CALLS.clear()
+        rc2 = run_board.main(["--gate", "prereq", "--force-rerun", "prereq"])
+        st2 = run_board._load_status()
+        report("25M-26 inv2: force-rerunning the prerequisite advances its attempt",
+               rc2 == 0 and st2["prereq"]["attempt"] != a1, "new prereq attempt")
+
+        # the pure lineage predicate (no log entanglement): st1 matches, st2 stales.
+        report("25M-26 lineage predicate: a matching snapshot is current",
+               run_board._dependency_lineage_state(st1, child) is None,
+               "inv1 child snapshot matches inv1 prereq attempt")
+        report("25M-26 lineage predicate: a since-rerun dependency is stale-dependency",
+               run_board._dependency_lineage_state(st2, child) == "stale-dependency",
+               "child snapshot points at the superseded prereq attempt")
+
+        # invocation 3: the child's snapshot no longer matches -> it RERUNS (the
+        # exact two-invocation witness; without the fix it would resume, exit-0,
+        # zero bodies).
+        CALLS.clear()
+        rc3 = run_board.main(["--gate", "child"])
+        report("25M-26 two-invocation witness: a since-rerun dependency reruns the child",
+               CALLS.get("child", 0) == 1 and rc3 == 0,
+               "child ran once, not resumed against the superseded prereq")
+
+        # snapshot-refresh control: the re-passed child snapshots the new attempt,
+        # so a further invocation RESUMES it (no body).
+        CALLS.clear()
+        rc4 = run_board.main(["--gate", "child"])
+        report("25M-26 snapshot-refresh: the re-passed child then resumes (no body)",
+               CALLS.get("child", 0) == 0 and rc4 == 0,
+               "the refreshed snapshot matches -> resume")
+
+        # legacy / mutation: strip the child's lineage snapshot from the persisted
+        # record (a pre-25M-26 PASS). The snapshot-free record is non-green and
+        # reruns -- never retroactively blessed; without the lineage check it
+        # would resume (exit-0, zero bodies), so the mutation is red-capable.
+        rec = json.loads(run_board._STATUS_FILE.read_text())
+        del rec["child"]["deps"]
+        run_board._STATUS_FILE.write_text(json.dumps(rec))
+        CALLS.clear()
+        rc5 = run_board.main(["--gate", "child"])
+        report("25M-26 legacy/mutation: a snapshot-free dependent PASS reruns",
+               CALLS.get("child", 0) == 1,
+               "no lineage snapshot -> non-green, exit " + str(rc5))
+    finally:
+        for name, value in saved.items():
+            setattr(run_board, name, value)
 
 
 def check_manifest_persistence():
@@ -1105,8 +1409,14 @@ def main():
     check_dirty_watch()
     print("\n-- manifest reconciliation (subprocess + dynamic-import censuses) --")
     check_manifest_reconciliation()
+    print("\n-- runtime-loader census (adapters loaded by path / python_path) --")
+    check_runtime_loader_census()
     print("\n-- manifest riders (root schema, dir expansion, input keys) --")
     check_manifest_riders()
+    print("\n-- input owner resolution (owner base, no cwd, executed==hashed) --")
+    check_input_owner_resolution()
+    print("\n-- cross-invocation lineage (a since-rerun dependency reruns its child) --")
+    check_cross_invocation_lineage()
     print("\n-- manifest persistence (resolved members, digest, pre-manifest) --")
     check_manifest_persistence()
     print("\n-- child environment (sh injects the certified ROOTDIR) --")

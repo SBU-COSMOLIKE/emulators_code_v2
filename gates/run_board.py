@@ -410,14 +410,18 @@ class RunContext:
     return path
 
   def evaluate_yaml(self):
-    """The cobaya evaluate YAML for cobaya-adapter (repo-relative or absolute)."""
+    """The cobaya evaluate YAML for cobaya-adapter (repo-owned input).
+
+    Delegates to the module-level owner resolver (_resolve_config_path) -- the
+    SAME resolver the manifest writer hashes -- so the executed path is exactly
+    the hashed path, from any working directory (25M-19).
+    """
     value = self.cfg.get("evaluate_yaml")
     if value is None:
       if self.dry:
         return Path("<UNSET:evaluate_yaml>")
       raise GateFailure("board_config.json evaluate_yaml is unset")
-    path = Path(value)
-    return path if path.is_absolute() else self.repo / path
+    return _resolve_config_path("evaluate_yaml", self.cfg)
 
   def rootdir(self):
     """The cocoa $ROOTDIR (cwd for cobaya-run), or a dry placeholder.
@@ -782,6 +786,32 @@ _DYNAMIC_IMPORT_WAIVERS = {
 }
 
 
+# The reviewed runtime-loader table (25M-16): a check that loads EXECUTABLE code
+# by a route the static import graph cannot follow -- importlib
+# spec_from_file_location (a module loaded from a FILE PATH) or a Cobaya
+# `python_path` component (a class Cobaya imports by name from a directory) --
+# names, per loader-bearing FILE, the repo .py path(s) that route pulls in. The
+# gate must declare a root covering each (validate_manifests census (c)), so the
+# adapter whose bytes decide the verdict is seeded into the closure AND digested.
+# A loader site in a file NOT listed here is unreviewed and fails validation.
+# The four identity checks load their family adapter by spec_from_file_location
+# (cmb also loads the covariance oracle); the four smokes run the same adapters
+# through Cobaya's python_path. Verified against the sites (scalar_identity.py:294,
+# cmb_identity.py:569 + :1043, bsn_identity.py:396, mps_identity.py:1215; the
+# smokes' python_path blocks).
+_RUNTIME_LOADER_COVERS = {
+  "gates/checks/scalar_identity.py": ("cobaya_theory/emul_scalars.py",),
+  "gates/checks/cmb_identity.py":    ("cobaya_theory/emul_cmb.py",
+                                      "compute_data_vectors/compute_cmb_covariance.py"),
+  "gates/checks/bsn_identity.py":    ("cobaya_theory/emul_baosn.py",),
+  "gates/checks/mps_identity.py":    ("cobaya_theory/emul_mps.py",),
+  "gates/checks/scalar_smoke.py":    ("cobaya_theory/emul_scalars.py",),
+  "gates/checks/cmb_smoke.py":       ("cobaya_theory/emul_cmb.py",),
+  "gates/checks/bsn_smoke.py":       ("cobaya_theory/emul_baosn.py",),
+  "gates/checks/mps_smoke.py":       ("cobaya_theory/emul_mps.py",),
+}
+
+
 def _module_to_repo_paths(module, level, from_rel):
   """Resolve one import target to the repo-relative .py path(s) it names.
 
@@ -811,7 +841,21 @@ def _module_to_repo_paths(module, level, from_rel):
     if not module:
       return []
     parts = module.split(".")
-    if not parts or parts[0] not in _EXECUTABLE_DIRS:
+    if not parts:
+      return []
+    if parts[0] not in _EXECUTABLE_DIRS:
+      # a bare sibling import (25M-16): a check script launched as a standalone
+      # script (not as gates.checks.<name>) has its OWN directory on sys.path,
+      # so `from gsv_bitwise_drift import ...` in gates/checks/gct_parity.py
+      # names gates/checks/gsv_bitwise_drift.py. Resolve the name against the
+      # importer's directory; accept it only when the resolved path lands inside
+      # the executable surface and exists -- a real third-party top-level (torch,
+      # numpy) finds no such sibling and still returns [].
+      sibling = from_rel.split("/")[:-1] + parts
+      sib_rel = "/".join(sibling)
+      if (sibling and sibling[0] in _EXECUTABLE_DIRS
+          and (_REPO / (sib_rel + ".py")).is_file()):
+        return [sib_rel + ".py"]
       return []
   if not parts:
     return []
@@ -882,6 +926,67 @@ def _dynamic_import_sites(rel_path):
       kind = "__import__"
     if kind:
       sites.append((rel_path, node.lineno, kind))
+  return sites
+
+
+# the Cobaya theory-component key that names the directory Cobaya imports a
+# named component class from. Kept as a constant, never repeated as a bare
+# literal, so run_board.py's OWN source (which is in every gate closure as the
+# shared harness) carries no matchable "python_path" dict key or YAML line and
+# so is never mistaken for an adapter loader (the self-reference false positive).
+_COBAYA_PP = "python_path"
+
+
+def _runtime_loader_sites(rel_path):
+  """The runtime executable-loader sites in one file (25M-16).
+
+  Beyond importlib.import_module / __import__ (the dynamic-import census), a
+  file can run EXECUTABLE code the static import graph never resolves by two
+  routes the identity / smoke gates use:
+
+    - importlib.util.spec_from_file_location(name, PATH) (or a SourceFileLoader):
+      a module loaded from a FILE PATH computed at runtime -- the four *_identity
+      checks load their cobaya_theory adapter (cmb also the covariance oracle)
+      this way (a Call site);
+    - a Cobaya component declaration naming a `python_path` import directory --
+      the four *_smoke checks run the adapter this way. Detected STRUCTURALLY, so
+      the harness's own prose about python_path never matches: a dict KEY equal
+      to _COBAYA_PP (the three dict-form smokes), or a string whose first token
+      is the "python_path:" YAML assignment line (the one yaml-text smoke).
+
+  Arguments:
+    rel_path = the repo-relative path of the file to scan.
+
+  Returns:
+    a list of (rel_path, lineno, kind) for each runtime-loader site.
+  """
+  try:
+    tree = ast.parse((_REPO / rel_path).read_bytes())
+  except (OSError, SyntaxError, ValueError):
+    return []
+  yaml_line = _COBAYA_PP + ":"
+  sites = []
+  for node in ast.walk(tree):
+    if isinstance(node, ast.Call):
+      fn = node.func
+      if isinstance(fn, ast.Attribute):
+        name = fn.attr
+      elif isinstance(fn, ast.Name):
+        name = fn.id
+      else:
+        name = None
+      if name in ("spec_from_file_location", "SourceFileLoader"):
+        sites.append((rel_path, node.lineno, "spec_from_file_location"))
+    elif isinstance(node, ast.Dict):
+      # a Cobaya info block names the import directory under a python_path KEY.
+      for key in node.keys:
+        if (isinstance(key, ast.Constant) and isinstance(key.value, str)
+            and key.value == _COBAYA_PP):
+          sites.append((rel_path, key.lineno, "cobaya python_path"))
+    elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+      # a YAML-text component block: a "python_path: <dir>" assignment line.
+      if node.value.lstrip().startswith(yaml_line):
+        sites.append((rel_path, node.lineno, "cobaya python_path"))
   return sites
 
 
@@ -982,6 +1087,27 @@ def _manifest_seeds(gate):
   return checks | roots | set(_SHARED_HARNESS)
 
 
+def _root_is_ancestor(root, cover):
+  """True when a declared code root equals or is an ANCESTOR of a required cover.
+
+  The waiver-coverage direction (25M-18): a declared root covers a required
+  cover only by BEING that cover or a directory above it. A root that is a file
+  INSIDE the required tree (a child of the cover, e.g. emulator/designs/blocks.py
+  for the cover emulator/designs) does NOT satisfy a tree waiver -- it seeds and
+  digests one file, not the tree the runtime loader can reach. The old check
+  tested the reverse containment (root.startswith(cover + "/")) and so blessed a
+  single child as covering the whole tree.
+
+  Arguments:
+    root  = one declared manifest.code root (a .py file or a directory).
+    cover = one required cover from a _DYNAMIC_IMPORT_WAIVERS entry.
+
+  Returns:
+    True when root == cover, or root is a directory the cover lives under.
+  """
+  return cover == root or cover.startswith(root + "/")
+
+
 def validate_manifests(gates, cfg):
   """Reconcile every declared Gate.manifest against what the code really does.
 
@@ -999,7 +1125,13 @@ def validate_manifests(gates, cfg):
         declared root, an auto-discovered check script, or the shared harness.
     (b) dynamic-import census: every importlib / __import__ site inside the
         derived closure must sit in a file in _DYNAMIC_IMPORT_WAIVERS, and the
-        gate must declare at least one of that file's covering roots.
+        gate must declare a root covering EVERY one of that file's covers (an
+        ancestor-or-equal root per cover, 25M-18).
+    (c) runtime-loader census: every spec_from_file_location / Cobaya
+        python_path site inside the closure must sit in a file in
+        _RUNTIME_LOADER_COVERS, with a declared root covering each loaded .py
+        (25M-16), so an adapter loaded by file path or component name is
+        digested rather than silently escaping the surface.
     (r3) input side: every declared inputs= dotted key resolves against
         board_config to a string.
 
@@ -1039,11 +1171,23 @@ def validate_manifests(gates, cfg):
       errors.append("gate '" + gate.id + "' manifest: declared code root '"
                     + root + "' is not a repo .py file or a directory")
 
-    # (r3) every declared input key resolves against board_config.
+    # (r3) every declared input key resolves against board_config to a string;
+    # a REPO-owned input additionally must resolve to an existing repo file (a
+    # None sha would be the resolution bug 25M-19 witnessed, not a dev-box gap).
+    # Machine / yaml_dir inputs may be absent on a numpy-only box, so only a
+    # repo-owned input refuses a missing file.
     for key in sorted(man.inputs):
       if _config_key_value(key, cfg) is None:
         errors.append("gate '" + gate.id + "' manifest: input key '" + key
                       + "' does not resolve against board_config")
+        continue
+      if _input_owner(key) == "repo":
+        resolved = _resolve_config_path(key, cfg)
+        if resolved is None or not resolved.is_file():
+          errors.append("gate '" + gate.id + "' manifest: repo-owned input '"
+                        + key + "' does not resolve to a repo file ("
+                        + str(resolved) + ") -- a repo input must resolve and "
+                        "hash, never record a None sha")
 
     covered = _manifest_seeds(gate)     # expanded roots + check scripts + harness
 
@@ -1079,11 +1223,55 @@ def validate_manifests(gates, cfg):
                         "import site " + where + " -- add it to the reviewed "
                         "waiver table with its covering roots, or remove the "
                         "dynamic import")
-        elif not any(r == c or r.startswith(c + "/")
-                     for r in roots for c in cover):
+          continue
+        # (25M-18) coverage is ALL-quantified over the required covers: EVERY
+        # cover must be covered by SOME declared root, and a root covers a cover
+        # only by being that cover or an ANCESTOR of it (_root_is_ancestor). A
+        # file INSIDE the required tree (a child of the cover) does not satisfy
+        # a tree waiver, and one covered entry does not clear a multi-cover
+        # waiver -- the two permissiveness directions the audit witnessed.
+        uncovered = []
+        for need in cover:
+          if not any(_root_is_ancestor(root, need) for root in roots):
+            uncovered.append(need)
+        if uncovered:
           errors.append("gate '" + gate.id + "' manifest: reaches the waived "
-                        "dynamic import " + where + " but declares none of its "
-                        "covering roots " + repr(cover))
+                        "dynamic import " + where + " but declares no covering "
+                        "root for " + repr(uncovered) + " -- each required "
+                        "cover " + repr(cover) + " needs a declared root equal "
+                        "to or above it")
+
+    # (c) runtime-loader census over the derived closure (25M-16), two duties:
+    #   POSITIVE -- every closure member that is a KEY in _RUNTIME_LOADER_COVERS
+    #     (a reviewed check that loads an adapter by file path or Cobaya
+    #     python_path) must have EACH loaded .py covered by a declared root
+    #     (ancestor-or-equal, all-quantified), so the adapter whose bytes decide
+    #     the verdict is seeded AND digested rather than silently escaping;
+    #   NEGATIVE -- a runtime-loader site the scanner finds in a member that is
+    #     NOT a reviewed key is an unreviewed loader and fails, so a new adapter
+    #     load cannot slip in undeclared.
+    # The TABLE (not the scanner) drives coverage, so a reviewed check whose
+    # loader idiom the scanner does not itself match is still required to declare
+    # its adapter; the scanner's own duty is the negative catch on unlisted files.
+    closure = _derive_closure(covered)
+    for member in sorted(closure):
+      cover = _RUNTIME_LOADER_COVERS.get(member)
+      if cover is None:
+        for site_file, lineno, kind in _runtime_loader_sites(member):
+          errors.append("gate '" + gate.id + "' manifest: unreviewed runtime-"
+                        "loader site " + site_file + ":" + str(lineno) + " ("
+                        + kind + ") -- add it to _RUNTIME_LOADER_COVERS with "
+                        "the .py path(s) it loads, or remove the runtime load")
+        continue
+      uncovered = []
+      for need in cover:
+        if not any(_root_is_ancestor(root, need) for root in roots):
+          uncovered.append(need)
+      if uncovered:
+        errors.append("gate '" + gate.id + "' manifest: reaches runtime-loader "
+                      "check " + member + " but declares no covering root for "
+                      + repr(uncovered) + " -- declare each of " + repr(cover)
+                      + " (the loaded adapter escapes the digest otherwise)")
   return (len(errors) == 0, errors)
 
 
@@ -1350,30 +1538,75 @@ def _gate_code_manifest(gate):
   return members
 
 
+# The resolution owner of each board_config input namespace (25M-19): one owner
+# per namespace, shared by the manifest writer AND the gate consumer, so the
+# path the manifest hashes is exactly the path the gate runs. There is NO
+# generic process-CWD candidate -- resolution is a function of the reviewed
+# owner, never of the shell's working directory (the false currency the audit
+# witnessed: from an unrelated cwd the old resolver recorded a None sha while
+# the gate executed the real repo file).
+#   repo     -> a file the repo always ships, resolved against _REPO (the actual
+#               checkout, machine-independent); it MUST resolve, so a None sha is
+#               a resolution bug, not a dev-box gap (refuse it).
+#   yaml_dir -> a driver / smoke YAML under the configured yaml_dir.
+#   machine  -> a deploy-machine data file, resolved against rootdir; it may be
+#               absent on a numpy-only dev box (rider r3's resolve-not-exist).
+_INPUT_OWNERS = {"gate_configs": "yaml_dir",
+                 "deploy_data":  "machine",
+                 "gate_data":    "machine"}
+_REPO_OWNED_INPUTS = ("evaluate_yaml",)
+
+
+def _input_owner(key):
+  """The reviewed resolution owner of a board_config input key, or None.
+
+  A top-level repo input (evaluate_yaml) is repo-owned; a dotted key's owner is
+  keyed on its namespace head (gate_configs / deploy_data / gate_data).
+  """
+  if key in _REPO_OWNED_INPUTS:
+    return "repo"
+  return _INPUT_OWNERS.get(key.split(".")[0])
+
+
 def _resolve_config_path(key, cfg):
-  """Resolve a dotted board_config key to a file Path, or None.
+  """Resolve a board_config input key to a Path under its reviewed owner (25M-19).
 
   The key walks cfg (e.g. "gate_configs.stage_ram" -> cfg["gate_configs"]
-  ["stage_ram"]); the resolved string is tried absolute, then rootdir-relative,
-  then yaml_dir-relative, and the first that is a file wins. So a declared gate
-  names its specific input by a stable config key, never a machine path.
+  ["stage_ram"]); the resolved string is then placed by its OWNER, with no
+  process-CWD candidate, so the resolved path is the same from any working
+  directory and the manifest hashes exactly what the gate executes. Existence is
+  NOT checked here (the caller hashes the bytes and validate_manifests enforces
+  that a repo-owned input actually resolves); an absolute value is honored as-is.
+
+  Arguments:
+    key = the dotted board_config input key.
+    cfg = the resolved board_config.
+
+  Returns:
+    the Path the owner resolves the value to, or None when the key does not
+    resolve to a string or its namespace has no reviewed owner.
   """
   value = _config_key_value(key, cfg)
   if value is None:
     return None
-  tries = [Path(value)]
-  if not Path(value).is_absolute():
-    if cfg.get("rootdir"):
-      tries.append(Path(cfg["rootdir"]) / value)
+  path = Path(value)
+  if path.is_absolute():
+    return path
+  owner = _input_owner(key)
+  if owner == "repo":
+    return _REPO / value
+  if owner == "yaml_dir":
     ydir = cfg.get("yaml_dir")
-    if ydir:
-      base = Path(ydir)
-      if not base.is_absolute() and cfg.get("rootdir"):
-        base = Path(cfg["rootdir"]) / ydir
-      tries.append(base / value)
-  for cand in tries:
-    if cand.is_file():
-      return cand
+    if not ydir:
+      return None
+    base = Path(ydir)
+    if not base.is_absolute() and cfg.get("rootdir"):
+      base = Path(cfg["rootdir"]) / ydir
+    return base / value
+  if owner == "machine":
+    if cfg.get("rootdir"):
+      return Path(cfg["rootdir"]) / value
+    return path
   return None
 
 
@@ -1548,6 +1781,54 @@ def _log_stale(record):
   return hashlib.sha256(log_path.read_bytes()).hexdigest() != stored
 
 
+def _dep_snapshot(gate, status):
+  """The per-dependency lineage a child records at run time (25M-26).
+
+  For each DIRECT dependency, the identity of the successful result this child
+  consumed: the dependency's attempt id and its log digest. Persisted beside the
+  child's verdict so a LATER, separate invocation can tell whether a dependency
+  has been rerun (a new attempt id) since the child last passed -- the
+  cross-process half of the 25M-20 dependency-currency ruling, which the
+  in-process `reran` set cannot see.
+
+  Arguments:
+    gate   = the child gate being recorded.
+    status = the live resume map (its dependency records are current here).
+
+  Returns:
+    a dict {dep_id: {attempt, log_digest}} over gate.deps (empty for a gate
+    with no dependencies).
+  """
+  snap = {}
+  for dep in gate.deps:
+    rec = status.get(dep, {})
+    snap[dep] = {"attempt": rec.get("attempt"),
+                 "log_digest": rec.get("log_digest")}
+  return snap
+
+
+def _dependency_lineage_state(status, gate):
+  """"stale-dependency" when a child's persisted lineage no longer matches its
+  dependencies' current successful attempts, else None (25M-26).
+
+  A child that DECLARES dependencies but carries no lineage snapshot predates
+  this rule and is non-green (the pre-manifest precedent applied to lineage); a
+  child whose stored dependency attempt differs from the dependency's CURRENT
+  attempt consumed a superseded result and is non-green.
+  """
+  if not gate.deps:
+    return None
+  snapshot = status.get(gate.id, {}).get("deps")
+  if not isinstance(snapshot, dict):
+    return "stale-dependency"
+  for dep in gate.deps:
+    stored = snapshot.get(dep)
+    current = status.get(dep, {})
+    if stored is None or current.get("attempt") != stored.get("attempt"):
+      return "stale-dependency"
+  return None
+
+
 def _resume_state(status, gate, cfg):
   """The gate's resume category, for --list / BOARD.md and the runner.
 
@@ -1555,9 +1836,10 @@ def _resume_state(status, gate, cfg):
   log), "pre-manifest" (a gate that now DECLARES a manifest but whose stored
   PASS predates it, so its narrow legacy digest cannot be trusted), "stale-code",
   "stale-input", "stale-log" (the cited log is missing, undigested, or altered),
-  "interrupted" (an abandoned RUNNING attempt), "FAIL", "SKIP-DEP", or "not run".
-  Only "PASS" is green; every other state is non-green and (for a selected gate)
-  makes the gate rerun.
+  "stale-dependency" (a PASS taken against a dependency result since rerun, or a
+  dependent PASS with no lineage snapshot; 25M-26), "interrupted" (an abandoned
+  RUNNING attempt), "FAIL", "SKIP-DEP", or "not run". Only "PASS" is green; every
+  other state is non-green and (for a selected gate) makes the gate rerun.
   """
   record = status.get(gate.id, {})
   state = record.get("status")
@@ -1579,6 +1861,9 @@ def _resume_state(status, gate, cfg):
     return "stale-input"
   if _log_stale(record):
     return "stale-log"
+  lineage = _dependency_lineage_state(status, gate)
+  if lineage is not None:
+    return lineage
   return "PASS"
 
 
@@ -1644,7 +1929,7 @@ def _write_board_md(status, cfg=None):
         detail = (detail + " [stale member: " + member + "]").strip()
     log_cell = log_name if state in ("PASS", "FAIL", "stale-code",
                                      "stale-input", "stale-log",
-                                     "pre-manifest") else ""
+                                     "stale-dependency", "pre-manifest") else ""
     lines.append("| " + gate.id + " | " + gate.tier + " | " + state
                  + " | " + detail.replace("|", "/") + " | " + log_cell + " |")
   lines.append("")
@@ -1920,13 +2205,14 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
       print("[rerun] " + gate.id + ": prerequisite(s) reran this run ("
             + ", ".join(reran_deps) + ") -- rerunning to consume the fresh "
             "output rather than trust a PASS taken against the old one")
-    if (state in ("stale-code", "stale-input", "stale-log", "interrupted",
-                  "pre-manifest")
+    if (state in ("stale-code", "stale-input", "stale-log", "stale-dependency",
+                  "interrupted", "pre-manifest")
         and gate.id not in force_rerun):
       print("[rerun] " + gate.id + ": prior PASS is " + state
-            + " (the tree, the configuration, or the cited raw log changed, "
-            "the attempt was interrupted, or a newly-declared manifest "
-            "supersedes a pre-manifest record) -- rerunning")
+            + " (the tree, the configuration, or the cited raw log changed, a "
+            "dependency was rerun since, the attempt was interrupted, or a "
+            "newly-declared manifest supersedes a pre-manifest record) "
+            "-- rerunning")
 
     # dependency skip: an unmet prerequisite (not a CURRENT pass under both
     # digests) marks the gate skipped and runs no test code. It is not green.
@@ -1963,11 +2249,18 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
     man_block = _gate_manifest_block(gate, cfg)
     attempt = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     log_name = gate.id + "." + attempt + ".log"
+    # (25M-26) the per-dependency lineage this child consumes THIS run: the
+    # dependency attempt ids it is about to run against, persisted so a later
+    # separate invocation whose dependency was rerun reads stale-dependency
+    # instead of resuming the child against a superseded result.
+    dep_snap = _dep_snapshot(gate, status)
     running = {"status": "RUNNING", "ts": _now(),
                "code_digest": code_dig, "input_digest": input_dig,
                "log": log_name, "attempt": attempt}
     if man_block is not None:
       running["manifest"] = man_block
+    if gate.deps:
+      running["deps"] = dep_snap
     status[gate.id] = running
     _save_status(status)
     _write_board_md(status, cfg)
@@ -2006,6 +2299,8 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
                "attempt": attempt}
     if man_block is not None:
       verdict["manifest"] = man_block
+    if gate.deps:
+      verdict["deps"] = dep_snap
     status[gate.id] = verdict
     _save_status(status)
     _write_board_md(status, cfg)
@@ -2164,6 +2459,33 @@ def main(argv=None):
     print("error: " + str(bad))
     return 2
 
+  # (25M-24, item-7 completion) an action mode (--list / --check) is STANDALONE:
+  # it consumes no run control. A selection or force control paired with an
+  # action mode would be silently IGNORED, so naming one is a usage error (exit
+  # 2), never a warning-then-action -- the ruling requires "incompatible OR
+  # ignored run controls exit nonzero", and a valid ignored control must fail
+  # just as an unknown one does.
+  if args.list or args.check:
+    ignored = []
+    if args.gate:
+      ignored.append("--gate")
+    if args.tier:
+      ignored.append("--tier")
+    if getattr(args, "from_gate", None):
+      ignored.append("--from")
+    if args.force_rerun:
+      ignored.append("--force-rerun")
+    if args.force_rerun_all:
+      ignored.append("--force-rerun-all")
+    if args.dry_run:
+      ignored.append("--dry-run")
+    if ignored:
+      action = "--list" if args.list else "--check"
+      print("error: " + action + " is a standalone action and ignores the run "
+            "control(s) " + ", ".join(ignored) + "; run them without " + action
+            + ", or drop them")
+      return 2
+
   if args.list:
     cmd_list(status, cfg)
     return 0
@@ -2179,6 +2501,22 @@ def main(argv=None):
   if len(selection) == 0:
     print("error: the selection is empty; no gate matched the request "
           "(nothing was tested)")
+    return 2
+
+  # (25M-24 rider, bcf4ce2) an explicit --force-rerun id must name a gate WITHIN
+  # the selected surface: forcing a rerun of a gate the run will not touch is a
+  # no-op the command's text does not reveal, so it is a usage error (exit 2),
+  # never a silent discard. (--force-rerun-all is scoped to the selection by
+  # construction below and is exempt.)
+  selected_ids = set(gate.id for gate in selection)
+  outside = []
+  for gate_id in args.force_rerun:
+    if gate_id not in selected_ids:
+      outside.append(gate_id)
+  if outside:
+    print("error: --force-rerun names gate(s) outside the selected surface: "
+          + ", ".join(outside) + "; they would not run. Add them to the "
+          "selection (--gate) or drop them from --force-rerun")
     return 2
 
   # --force-rerun-all = force every SELECTED gate (composes with

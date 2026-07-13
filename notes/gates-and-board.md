@@ -5065,3 +5065,234 @@ lineage snapshots + STALE-DEPENDENCY. The deliberate stop at the
 census-core boundary was the right call and is credited: the four
 remaining items rewrite the validation core all 40 gates depend on
 and deserve a fresh session.
+
+## Consolidation check + 25M-23 and 25M-27..35 adjudication (Fable, 2026-07-13): the merge on main is SOUND; ten findings placed across four homes
+
+CONSOLIDATION VERDICT — SOUND. 16bea64 is a proper two-parent merge
+(81183e7 red-team line + 47e5f59 my branch tip); my branch is an
+ancestor of main (nothing dropped); zero conflict markers repo-wide;
+my three newest sections and the HARDENING 5/9 ledger paragraph are
+present verbatim; the landing is notes-only (11 files, all notes/);
+the working tree is clean; all four cited anchors resolve. The
+red team now appends to the shared ledger directly — my future
+appends anchor on their tail, which is the shared-file protocol
+working.
+
+THE BATCH: the register's 27..35 plus 25M-23, which was filed
+DURABLY but never relayed in chat — the register-is-the-record rule
+surfaces it here; adjudicated with the batch. This is the red
+team's first clause-checklist wave: each item cites an issued
+clause and its missing implementation or discriminating leg.
+
+Verified by my own probes (conclusive):
+- 23: finite_contract.py:1255 calls _chi2_domain, which is DEFINED
+  NOWHERE (the only def is check_chi2_domain, :885) — Part H dies
+  on NameError when reached. A broken gate today; no production
+  change requested.
+- 27: _watched_paths builds the root-driver pathspec from
+  _REPO.glob("*.py") — existing files only — so a DELETED tracked
+  driver vanishes from the very pathspec that asks git the
+  question; preflight certifies clean. (_EXECUTABLE_DIRS covers
+  directory deletions; only root drivers have the hole — exactly as
+  filed.)
+- 28 (mechanism): _stale_member reports the first hash mismatch by
+  stored path/key lookup; the --list omission and the relocation
+  name-loss stand per the register witness.
+- 29 (absence proven): eval_val is driven 42 times in
+  finite_contract.py, but every 1e38 payload lives in the TRAINING
+  epoch-reduction leg (:812-858); no extreme-scale eval Part I
+  exists — the issued 14(f) clause is unimplemented.
+- 35 (shape): mps_identity.py:788 calls
+  exp.release_train_staging() manually as "the sweep lane's
+  cleanup" — the lifecycle leg substitutes a manual call for
+  driving the real _sweep_job.
+
+CONFIRMED per the register's executed witnesses (30/31/32/33/34),
+with the standing condition: each entry's witness reproduces as the
+FIRST leg of its repair landing.
+
+PLACEMENTS (four homes):
+1. 23 joins the GATE-TRUTH BATCH (D4) immediately — a crashing Part
+   H is a broken gate now; the repair is the helper's real
+   definition or the call's correction, plus a leg that executes
+   Part H to completion.
+2. 27 + 28 form a small BOARD-MACHINERY FOLLOW-UP right behind the
+   census-core remainder (the hardening increment stays CLOSED at
+   nine): 27 = the watched pathspec derives from the git-tracked
+   inventory (git ls-files), never the existing-file glob, with the
+   deleted-driver leg; 28 = --list surfaces the stale member, and
+   member identity is path-aware so a byte-identical relocation is
+   still named. Both before queue 5.
+3. 29 + 30 + 31 join GATE-TRUTH INCREMENT 2 (the unit-14 acceptance
+   completions): the extreme-scale eval Part I as specified in the
+   issued 14(f) clause; 14(h)'s grid/grid2d corrupt-score refusals
+   live-driven, not AST-censused; Parts A/C asserting CURRENT error
+   prefixes (the false-red repair), each with its witness leg.
+4. 32 + 33 + 34 join the MPS/STAGING VISIT (with 17 and 96's
+   artifact legs): 32 is the heaviest — a QUEUE-3 REOPEN
+   (_grid2d_law_rows overwrites the canonical seeded order with
+   sorted-compact arange, and the MPS gate asserts the defect as
+   truth — the gate flips with the fix, one landing); 33 = exact
+   raw/base row-count equality in bounded staging, not
+   covers-the-max; 34 = the discriminating payload where a pre-cast
+   accumulator changes the pin mask. 35 joins the gate-truth work
+   (test-double honesty: drive the real _sweep_job).
+
+The 25M series stands at 01..35, one tombstone (07), no unrelayed
+remainder — 23's surfacing closes the register-vs-chat gap.
+
+## 1b hardening remainder: 18 / 16-runtime / item-7 / 19 / 26 landed; 16's data-read half is the flagged remainder (Opus, 2026-07-13)
+
+Executed the ARCHITECT_HANDOFF: READY FOR EXECUTION remainder in the
+ratified order. Four commits on the branch, each Mac-validated
+(validate_manifests 40/40 ok, board-selftest ALL PASS growing 102 ->
+120, py_compile clean); one audit.
+
+- 23cc78a (25M-18 + 25M-16-runtime): waiver coverage is ALL-quantified
+  over required covers, and a root covers a cover only by being that
+  cover or an ANCESTOR (`_root_is_ancestor`) — both permissiveness
+  directions (child-as-cover, any-of-many) killed; the pre-25M-18
+  blessing selftest fixture flipped to must-red, plus child-as-cover /
+  strip-one-of-two / any-one-of-eight (live cli_strict 8-cover) +
+  full-trees green. NEW runtime-loader census (c): `_RUNTIME_LOADER_COVERS`
+  reviewed table + `_runtime_loader_sites` scanner (spec_from_file_location
+  Call sites + python_path detected STRUCTURALLY as a dict key / yaml-line
+  via the `_COBAYA_PP` constant so the harness's own prose never
+  self-matches); coverage is TABLE-DRIVEN (positive), the scanner is the
+  negative catch on unlisted files. The eight identity/smoke manifests
+  re-populated with their cobaya_theory root(s) (cmb also
+  compute_cmb_covariance). Bare-sibling imports resolve against the
+  importer's dir in `_module_to_repo_paths` (gct_parity.py ->
+  gsv_bitwise_drift, now in cobaya-adapter's closure; a third-party
+  top-level still -> []). check_runtime_loader_census added.
+- 7d8566d (item-7 completion): the two 25M-24 clause gaps the checklist
+  audit found. An action mode (--list/--check) now rejects ANY paired run
+  control (selection / force / dry) as a usage error (exit 2) — "ignored
+  controls exit nonzero", a valid ignored control failing like an unknown
+  one; and an explicit --force-rerun id OUTSIDE the selected surface is a
+  usage error (the bcf4ce2 rider), --force-rerun-all exempt. Five
+  real-main() legs, red-capable against the un-fixed exit-0.
+- b1835ac (25M-19): input resolution is a function of the reviewed OWNER
+  of each namespace (`_input_owner`: evaluate_yaml -> repo/_REPO,
+  gate_configs.* -> yaml_dir, deploy_data/gate_data -> machine), NO
+  process-CWD candidate; the RunContext.evaluate_yaml consumer delegates
+  to the SAME resolver (executed == hashed). A repo-owned input that fails
+  to resolve reds. check_input_owner_resolution: owner dispatch, two-cwd
+  identity, collision-ignored, executed==hashed, repo-owned refuse-None-sha.
+  DEVIATION FLAGGED: the ruling's "resolve-not-exist for deploy_data ONLY"
+  is honored as "repo-owned must resolve; yaml_dir AND machine may be
+  absent on a dev box" — yaml_dir is itself a deploy path (this numpy-only
+  Mac has no external_modules/code checkout), so requiring gate_configs to
+  resolve would break the Mac-green validate the increment depends on; the
+  security property is preserved for the true repo-owned input
+  (evaluate_yaml, resolved under _REPO, present on every machine). Awaiting
+  ratification.
+- 65c5bec (25M-26): completes 25M-20's persistence clause. Each child PASS
+  persists per-dependency `deps` snapshots (attempt id + log digest,
+  `_dep_snapshot`); `_resume_state` gains `_dependency_lineage_state` ->
+  the new non-green "stale-dependency" state when a dependency's CURRENT
+  attempt differs from the snapshot (a separate invocation reran it) or
+  when a dependent PASS carries no snapshot (legacy, never blessed). Rerun
+  message + BOARD.md log-cell updated. check_cross_invocation_lineage over
+  ONE shared status file + log dir across several real main() invocations:
+  the two-invocation witness, snapshot-refresh control, and the
+  snapshot-free mutation reproducing exit-0-zero-bodies as a rerun.
+  DEFERRED to the D1 visit (per ruling): the gates/README resume-state list
+  (DIDACTICS-87) and the state-machine prose gain "stale-dependency".
+
+THE FLAGGED REMAINDER — 16's source-opened-as-data (`_data_read_sites`)
+half is NOT landed. The runtime-loader census closed the ADAPTER digest
+hole (the scientific one: a changed emul_*.py now reruns its identity /
+smoke gate). The ruling's 16 ALSO names a data-read mechanism (the
+"two-call-scanner" + "geo-paths whole-scope fixture"): geo-paths,
+board-selftest, artifact-readback, family-first, generator-seed OPEN
+executable .py AS DATA their manifests omit (verified sites: geo_paths.py
+os.walk whole-repo; board_selftest.py rglob whole-repo + board.py /
+run_board.py / finite_contract.py fixed reads; artifact_readback.py:76/97
+results.py + scalar_train_emulator.py; family_first.py:88/99 four drivers;
+generator_seed.py:39/57 generator_core.py; also cli_strict.py:82 eight
+entry points, diagnostics_domain.py:283 diagnostics.py). Per the ratified
+rule they must HASH-as-file WITHOUT closure-seeding (the finite_contract
+leaf lesson). I deliberately stopped rather than guess this design at the
+tail of a long session: it changes the DIGEST SURFACE for meta-gates
+(geo-paths' digest would become the whole repo -> it reruns on any repo
+change) and I lack the red team's FILED geo-paths whole-scope expected
+member set. PROPOSAL for audit: a `_DATA_READ_COVERS` reviewed table (per
+source-census file -> a fixed .py list OR a WHOLE_REPO marker) mirroring
+`_RUNTIME_LOADER_COVERS`; `_data_read_sites` scanner detecting open /
+read_text / read_bytes / ast.parse on a .py + os.walk/rglob/glob for .py;
+`_gate_code_digest` folds the resolved data-read targets as HASH LEAVES
+(no _derive_closure expansion), a WHOLE_REPO marker hashing the sorted
+repo .py set. OPEN QUESTIONS for the Architect: (1) reviewed-table vs
+static path resolution; (2) is geo-paths' digest = the whole repo the
+intended semantics; (3) the exact geo-paths whole-scope fixture member set
+(exclusions: __pycache__ / notes / .git / self). QUEUE 2 opens only at the
+FULL 9/9 including this half.
+
+LANDING BLOCK (main is the user's; clean fast-forward):
+  cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+  git merge claude/amazing-keller-e798b6 && git push
+
+## Hardening 8.5/9 pre-merge audit + the 19 narrowing and data-read rulings (Fable, 2026-07-13): GO on all four commits; the last half is fully specified
+
+AUDIT — GO (clause walk + live probes on the cocoa interpreter):
+- 25M-18 (23cc78a): my strip-designs-keep-losses witness now REDS
+  ("reaches the waived dynamic import emulator/results.py:672 ...");
+  the all-quantified ancestor-or-equal coverage holds; baseline
+  40/40 stays green.
+- 25M-16 runtime half: stripping cobaya_theory/emul_cmb.py from
+  cmb-identity REDS with the new census naming the runtime-loader
+  site — the adapter digest hole is CLOSED; the eight
+  identity/smoke manifests carry adapter + generator roots
+  (cmb-identity and mps-smoke inspected). One audit note: my first
+  tamper dropped the directory name "cobaya_theory" and stayed
+  green because the declared root is the FILE — a reminder that
+  tamper probes must strip EXACT declared roots (recorded so the
+  next auditor doesn't misread such a green).
+- Item-7 completion (7d8566d): --list --force-rerun <valid> now
+  exits 2; --gate A --force-rerun B-outside-selection exits 2
+  before preflight — both prior clause gaps closed, live-probed.
+- 25M-19 (b1835ac) + 25M-26 (65c5bec): clause lists walked against
+  the diffs; the two-cwd/executed==hashed/refuse-None-sha and
+  two-invocation/snapshot-refresh/legacy legs all present;
+  board-selftest ALL PASS independently rerun (102 -> 120 legs).
+
+RULING 1 — the 25M-19 NARROWING: APPROVED. Per-owner refusal
+semantics are the correct reading: repo-owned (evaluate_yaml,
+resolved under the repository) must resolve on every machine;
+yaml_dir-owned (gate_configs) and machine-owned (deploy_data) are
+resolve-not-exist on boxes lacking their trees — yaml_dir is itself
+a deploy path, so the Mac's numpy-only checkout legitimately lacks
+it. ONE BALANCING CLAUSE, binding: None-sha is a VALIDATION-time
+allowance, never a RUN-time one — at gate run time an unresolvable
+declared input refuses before the gate body executes, so a
+workstation run hashes every member or does not run. If run-time
+refusal is not already implicit in the input-digest path, it lands
+as a small leg with the data-read half.
+
+RULING 2 — the DATA-READ DESIGN (the three open questions):
+1. REVIEWED TABLE (_DATA_READ_COVERS) over static resolution —
+   consistent with _RUNTIME_LOADER_COVERS and the waiver
+   philosophy; the _data_read_sites scanner is the negative catch
+   (an unwaived data-read site = validation error). Hash-as-file,
+   never closure-seed (already approved; the finite_contract leaf
+   lesson).
+2. GEO-PATHS GOES WHOLE-SCOPE, and the missing member set is a
+   non-problem: the gate's manifest enumerator IS the gate's own
+   scan enumerator — ONE shared function with the same exclusions,
+   so the hashed surface and the asserted surface can never
+   disagree. A gate whose verdict quantifies over every repo .py
+   MUST stale when any changes; geo-paths is a cheap text scan, so
+   frequent reruns are correct, affordable, and honest.
+3. THE WHOLE-SCOPE FIXTURE: set equality between the gate's
+   enumerated scan set and its manifest members, plus one
+   byte-edit-any-file -> stale-code control; the five data-readers
+   (geo-paths, board-selftest, artifact-readback, family-first,
+   generator-seed) each gain their reviewed cover entry and a
+   member-present leg.
+
+Queue 2 opens at the full 9/9 (this half + the balancing clause);
+the 27/28 machinery follow-up lands right behind it, before
+queue 5. The deliberate stop-rather-than-guess on a digest-surface
+design question was correct and is credited — the whole-repo
+semantics needed an Architect ruling, and now it has one.
