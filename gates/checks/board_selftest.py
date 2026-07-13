@@ -285,6 +285,32 @@ def check_selector_validation():
     report("a clean --check still exits 0 (regression guard)",
            rc == 0, "rc = " + str(rc))
 
+    # item-7 completion (25M-24): an action mode ignores run controls, and a
+    # VALID ignored control fails just as an unknown one does (the pre-merge
+    # audit's gap 1). Real main(), red-capable against the un-fixed code (which
+    # returned 0); the clean --list / --check controls above pin the contrast.
+    rc, _, _ = drive_main(["--list", "--force-rerun", "beta"], gates, {})
+    report("--list with a VALID but ignored --force-rerun exits 2 (item 7)",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--check", "--gate", "beta"], gates, {})
+    report("--check with an ignored --gate selection exits 2 (item 7)",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list", "--dry-run"], gates, {})
+    report("--list with an ignored --dry-run exits 2 (item 7)",
+           rc == 2, "rc = " + str(rc))
+
+    # item-7 completion (25M-24 rider, bcf4ce2): an explicit --force-rerun id
+    # OUTSIDE the selected surface is a usage error, not a silent discard.
+    rc, _, _ = drive_main(["--gate", "alpha", "--force-rerun", "beta"], gates, {})
+    report("--force-rerun of a gate outside the selection exits 2 (item 7)",
+           rc == 2, "rc = " + str(rc))
+    # control: the SAME force-rerun id INSIDE the selection is accepted -- proof
+    # the rc-2 is caused by being outside, not by --force-rerun itself.
+    rc, _, _ = drive_main(["--gate", "beta", "--force-rerun", "beta",
+                           "--dry-run"], gates, {})
+    report("--force-rerun of a gate inside the selection is accepted (control)",
+           rc == 0, "rc = " + str(rc))
+
     # 25M-25: --from an OPTIONAL start includes it FIRST; a later optional
     # gate stays excluded. Pin the exact id list.
     from_gates = [make_gate("head"), make_gate("opt-start", optional=True),

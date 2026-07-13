@@ -2336,6 +2336,33 @@ def main(argv=None):
     print("error: " + str(bad))
     return 2
 
+  # (25M-24, item-7 completion) an action mode (--list / --check) is STANDALONE:
+  # it consumes no run control. A selection or force control paired with an
+  # action mode would be silently IGNORED, so naming one is a usage error (exit
+  # 2), never a warning-then-action -- the ruling requires "incompatible OR
+  # ignored run controls exit nonzero", and a valid ignored control must fail
+  # just as an unknown one does.
+  if args.list or args.check:
+    ignored = []
+    if args.gate:
+      ignored.append("--gate")
+    if args.tier:
+      ignored.append("--tier")
+    if getattr(args, "from_gate", None):
+      ignored.append("--from")
+    if args.force_rerun:
+      ignored.append("--force-rerun")
+    if args.force_rerun_all:
+      ignored.append("--force-rerun-all")
+    if args.dry_run:
+      ignored.append("--dry-run")
+    if ignored:
+      action = "--list" if args.list else "--check"
+      print("error: " + action + " is a standalone action and ignores the run "
+            "control(s) " + ", ".join(ignored) + "; run them without " + action
+            + ", or drop them")
+      return 2
+
   if args.list:
     cmd_list(status, cfg)
     return 0
@@ -2351,6 +2378,22 @@ def main(argv=None):
   if len(selection) == 0:
     print("error: the selection is empty; no gate matched the request "
           "(nothing was tested)")
+    return 2
+
+  # (25M-24 rider, bcf4ce2) an explicit --force-rerun id must name a gate WITHIN
+  # the selected surface: forcing a rerun of a gate the run will not touch is a
+  # no-op the command's text does not reveal, so it is a usage error (exit 2),
+  # never a silent discard. (--force-rerun-all is scoped to the selection by
+  # construction below and is exempt.)
+  selected_ids = set(gate.id for gate in selection)
+  outside = []
+  for gate_id in args.force_rerun:
+    if gate_id not in selected_ids:
+      outside.append(gate_id)
+  if outside:
+    print("error: --force-rerun names gate(s) outside the selected surface: "
+          + ", ".join(outside) + "; they would not run. Add them to the "
+          "selection (--gate) or drop them from --force-rerun")
     return 2
 
   # --force-rerun-all = force every SELECTED gate (composes with
