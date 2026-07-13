@@ -6523,3 +6523,26 @@ before commit — that discipline is the template, now standing:
   a subagent is a drafting tool, never a verification substitute.
 - My pre-merge audit is unchanged and does not care which hands
   drafted a diff.
+
+## Unit 46 COMPLETE — the golden-leg both-rc + non-empty-selection repair (Opus, 2026-07-13)
+
+DIDACTICS-46 + the rc addendum, landed serially (single-file board.py change per
+the subagent rule). `_golden_leg` discarded BOTH child return codes (`_, cur` /
+`_, pre`) and compared whatever the pattern selected, so a child that crashed
+after its last matching line, or a pattern matching nothing on both sides, passed
+byte-identity vacuously (the empty-selection green was live-reproduced).
+
+Repair (board.py `_golden_leg`): capture both child rcs (`cur_rc, cur` /
+`pre_rc, pre`); require BOTH rc == 0 AND a non-empty selected-line count (via
+`logscan.matching_lines`, so `byte_identity`'s signature is unchanged for its
+other callers) AND equality; the verdict detail always reports both rcs + both
+counts (`rc pre=.. cur=..; selected pre=.. cur=..`), and names the reason(s) on
+failure (nonzero child rc / empty selection / the byte divergence).
+
+board-selftest `check_golden_leg` drives the REAL `board._golden_leg` via a stub
+ctx (`_GoldenCtx`) feeding controlled child (rc, output) pairs: a clean rc0/rc0
+identical non-empty selection greens (control); a diverging line, an empty
+selection, both-children-rc-1-after-matching-lines, and a tip-only-rc-1 each red.
+**169 PASS / 0 FAIL** (was 164, +5); `--list` rc 0; compile clean. ("Minimum"
+selected-line count is read as non-empty / >= 1; a higher floor is a one-line
+change if the audit wants it.)
