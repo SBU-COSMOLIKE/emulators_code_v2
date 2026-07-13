@@ -2051,6 +2051,16 @@ byte-preserving rejection, RNG continuation independent; joins the
 generator publication cluster. Spec: gates-and-board.md "20M-22/23
 adjudication".
 
+BATCH-2/3 POPULATION AUDIT (2026-07-13, Fable): `2674c23` + `724bade`
+PASS pre-merge — 74-leg selftest + populated --list from a clean
+checkout; the batch-2 inputs=() deviation RATIFIED as the narrower
+truth (Architect census: zero yaml/config/rootdir usage in the three
+bodies AND check scripts — the proposal's "with a config YAML"
+description was wrong about them); all eight batch-3 bodies clean,
+designs+losses roots per the approved exemplar. 14 gates populated;
+board reruns = queue-5 first exhibit. Spec: gates-and-board.md
+"1b phase-3 batches 2 + 3 — pre-merge Architect audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

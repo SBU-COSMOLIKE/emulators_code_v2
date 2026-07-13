@@ -2429,3 +2429,32 @@ rework rulings.
   Distinct from the corrupt-resume fall-through clause: here the
   prior bundle is HEALTHY and the user's explicit append intent is
   bypassed by an unrelated accepted flag.
+
+### 1b phase-3 batches 2 + 3 — pre-merge Architect audit (Fable, 2026-07-13): PASS; one proposal correction ratified
+
+Commits `2674c23` (batch 2: eval-batch-invariance, diagnostics-domain,
+triangle-shading — Manifest(code=(), inputs=())) and `724bade`
+(batch 3: the 8 dynamic-cover identity gates —
+Manifest(code=("emulator/designs", "emulator/losses"), inputs=()))
+audited before merge. Evidence, re-executed by the Architect from a
+clean detached checkout of the branch tip: board-selftest 74 legs
+ALL PASS (rc 0); `run_board --list` rc 0 over the now-14-gate
+populated board (validate_manifests live-validates every declaration
+and the designs+losses waiver coverage on each invocation).
+
+Batch-2 deviation RATIFIED as a correction: the approved proposal
+described batch 2 as "clean-closure checks WITH a config YAML
+(inputs=(gate_configs.<key>,))" — the Architect's own census through
+the REAL registry (inspect.getsource over every populated gate body)
+plus untruncated greps over the three check scripts
+(diagnostics_domain.py, ge_c_eval_bs.py, gt_b_triangle.py) found
+ZERO yaml / require_config / rootdir usage: these gates run pure
+synthetic fixtures, so inputs=() is the NARROWER TRUTH and the
+proposal's description was wrong about them — the same honest
+correction pattern as batch 1's family-first re-categorization.
+Batch-3 census: all eight declared gate bodies clean of
+config/driver/yaml/rootdir tokens; the designs+losses roots match
+the approved exemplar reasoning (the model-recipe dynamic imports).
+Fourteen gates now carry manifests; their board reruns (pre-manifest
+firing -> persisted members) remain the first queue-5 exhibit,
+Mac preflight refusing on workstation facts as designed.
