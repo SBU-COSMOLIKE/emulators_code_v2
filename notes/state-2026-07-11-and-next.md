@@ -2661,3 +2661,18 @@ REOPEN, the gate flips with the fix); 35 -> gate-truth
 never relayed in chat; the record rule worked. Spec:
 gates-and-board.md "Consolidation check + 25M-23 and 25M-27..35
 adjudication".
+
+HARDENING 8.5/9 AUDIT + TWO RULINGS (2026-07-13, Fable): GO on all
+four commits — my strip-one witness now REDS, the adapter-root
+tamper REDS through the new runtime-loader census, both item-7
+clauses exit 2 live, selftest 120 ALL PASS independently. RULING:
+the 25M-19 narrowing APPROVED as per-owner semantics (repo-owned
+must resolve; yaml_dir/deploy resolve-not-exist) with the binding
+balancing clause — None-sha is validation-time only; run time
+refuses an unresolvable declared input before the body. RULING: the
+data-read half = reviewed _DATA_READ_COVERS + scanner-as-negative-
+catch; geo-paths goes WHOLE-SCOPE with its manifest enumerator ==
+its scan enumerator (one shared function); set-equality +
+byte-edit-any-file fixture. Queue 2 at full 9/9. Spec:
+gates-and-board.md "Hardening 8.5/9 pre-merge audit + the 19
+narrowing and data-read rulings".

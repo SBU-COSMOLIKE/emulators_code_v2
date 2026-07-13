@@ -5232,3 +5232,67 @@ FULL 9/9 including this half.
 LANDING BLOCK (main is the user's; clean fast-forward):
   cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
   git merge claude/amazing-keller-e798b6 && git push
+
+## Hardening 8.5/9 pre-merge audit + the 19 narrowing and data-read rulings (Fable, 2026-07-13): GO on all four commits; the last half is fully specified
+
+AUDIT — GO (clause walk + live probes on the cocoa interpreter):
+- 25M-18 (23cc78a): my strip-designs-keep-losses witness now REDS
+  ("reaches the waived dynamic import emulator/results.py:672 ...");
+  the all-quantified ancestor-or-equal coverage holds; baseline
+  40/40 stays green.
+- 25M-16 runtime half: stripping cobaya_theory/emul_cmb.py from
+  cmb-identity REDS with the new census naming the runtime-loader
+  site — the adapter digest hole is CLOSED; the eight
+  identity/smoke manifests carry adapter + generator roots
+  (cmb-identity and mps-smoke inspected). One audit note: my first
+  tamper dropped the directory name "cobaya_theory" and stayed
+  green because the declared root is the FILE — a reminder that
+  tamper probes must strip EXACT declared roots (recorded so the
+  next auditor doesn't misread such a green).
+- Item-7 completion (7d8566d): --list --force-rerun <valid> now
+  exits 2; --gate A --force-rerun B-outside-selection exits 2
+  before preflight — both prior clause gaps closed, live-probed.
+- 25M-19 (b1835ac) + 25M-26 (65c5bec): clause lists walked against
+  the diffs; the two-cwd/executed==hashed/refuse-None-sha and
+  two-invocation/snapshot-refresh/legacy legs all present;
+  board-selftest ALL PASS independently rerun (102 -> 120 legs).
+
+RULING 1 — the 25M-19 NARROWING: APPROVED. Per-owner refusal
+semantics are the correct reading: repo-owned (evaluate_yaml,
+resolved under the repository) must resolve on every machine;
+yaml_dir-owned (gate_configs) and machine-owned (deploy_data) are
+resolve-not-exist on boxes lacking their trees — yaml_dir is itself
+a deploy path, so the Mac's numpy-only checkout legitimately lacks
+it. ONE BALANCING CLAUSE, binding: None-sha is a VALIDATION-time
+allowance, never a RUN-time one — at gate run time an unresolvable
+declared input refuses before the gate body executes, so a
+workstation run hashes every member or does not run. If run-time
+refusal is not already implicit in the input-digest path, it lands
+as a small leg with the data-read half.
+
+RULING 2 — the DATA-READ DESIGN (the three open questions):
+1. REVIEWED TABLE (_DATA_READ_COVERS) over static resolution —
+   consistent with _RUNTIME_LOADER_COVERS and the waiver
+   philosophy; the _data_read_sites scanner is the negative catch
+   (an unwaived data-read site = validation error). Hash-as-file,
+   never closure-seed (already approved; the finite_contract leaf
+   lesson).
+2. GEO-PATHS GOES WHOLE-SCOPE, and the missing member set is a
+   non-problem: the gate's manifest enumerator IS the gate's own
+   scan enumerator — ONE shared function with the same exclusions,
+   so the hashed surface and the asserted surface can never
+   disagree. A gate whose verdict quantifies over every repo .py
+   MUST stale when any changes; geo-paths is a cheap text scan, so
+   frequent reruns are correct, affordable, and honest.
+3. THE WHOLE-SCOPE FIXTURE: set equality between the gate's
+   enumerated scan set and its manifest members, plus one
+   byte-edit-any-file -> stale-code control; the five data-readers
+   (geo-paths, board-selftest, artifact-readback, family-first,
+   generator-seed) each gain their reviewed cover entry and a
+   member-present leg.
+
+Queue 2 opens at the full 9/9 (this half + the balancing clause);
+the 27/28 machinery follow-up lands right behind it, before
+queue 5. The deliberate stop-rather-than-guess on a digest-surface
+design question was correct and is credited — the whole-repo
+semantics needed an Architect ruling, and now it has one.
