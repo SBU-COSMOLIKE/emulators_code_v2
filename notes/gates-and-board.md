@@ -4139,3 +4139,45 @@ truth. Adopted: any audit of a validation system includes at least
 one adversarial probe AGAINST the machinery (a runtime-loader
 fixture, a wrong-direction waiver, a cwd flip) — audit the
 validator, not only through it.
+
+## Population 40/40 pre-merge audit (Fable, 2026-07-13): GO — and the first audit under the new law catches an any-vs-all waiver hole
+
+The four commits (774bf3d / 9154e2e / 2108c89 / dd4bf85) audited;
+all code changes scoped to gates/ + notes. Independent verification
+on the cocoa interpreter (not a re-read of the Implementer's
+numbers): board-selftest ALL PASS rerun by the Architect;
+validate_manifests re-executed — 40 of 40 declared, ok=True, 0
+errors; deploy_data byte-matches the signed-off block (six distinct
+paths, role-named keys) with the dataset-pointer blind-spot
+sentence present in _help; the (?!\w) hardening present at BOTH
+unanchored census sites (:978, :1060) with the quoted driver= form
+untouched; spot-checked manifests exact (berhu-loss and
+production-diagnostic: one gate_configs key + the six deploy_data
+keys; production-diagnostic's code roots include the driver +
+designs + losses). The Implementer's report that the first pinned
+census leg caught a ctx.py phantom in its own fixture comment is
+credited — the leg earned its keep on day one.
+
+THE PROBE FINDING (the first audit run under "probe against the
+machinery"): stripping emulator/designs from cobaya-adapter's
+declaration IN MEMORY still validates ok=True. Cause: the waiver
+coverage clause is any()-quantified over (roots x covers) — ANY
+declared root matching ANY cover clears the whole waiver, so a
+multi-cover waiver (designs AND losses) is satisfied by either
+alone. This is the SECOND permissiveness direction in the clause
+25M-18 indicted (child-satisfies-parent was the first). NOT a
+landing blocker — every shipped declaration carries both roots — but
+it is now a witnessed ADDENDUM to the 25M-18 contract in the 1b
+hardening increment: every required cover must be covered by some
+declared root (all-quantified over covers); the strip-designs-keep-
+losses fixture becomes a must-red selftest leg beside the
+child-as-cover mutation.
+
+VERDICT: GO for the merge. The 1b population is COMPLETE. Standing
+conditions unchanged and restated: the 40/40 landing is accepted
+GREEN only with 25M-20's dependency-currency fix landing
+immediately after (acknowledged by the Implementer); queue 2 opens
+after the 1b hardening increment (16/18+addendum/19/21), not at
+this merge; the populated reruns remain the first queue-5 exhibit.
+D3/D4 prep noted and consistent with the spine (D4's full roster:
+46/47/48/52/53/63 + 61-finiteness + 66).

@@ -2444,6 +2444,19 @@ blind spots — henceforth every validation-system audit probes
 AGAINST the machinery, not only through it. Spec: gates-and-board.md
 "25M-16..21 adjudication".
 
+POPULATION 40/40 AUDIT (2026-07-13, Fable): GO — the 1b population
+is COMPLETE (774bf3d/9154e2e/2108c89/dd4bf85). Independent
+verification: selftest + validate_manifests rerun by the Architect
+(40/40, ok=True); deploy_data byte-exact with the blind-spot _help
+sentence; (?!\w) at both census sites; spot manifests exact. FIRST
+CATCH UNDER THE NEW AUDIT LAW: the waiver clause is any()-quantified
+— stripping designs while keeping losses still validates; witnessed
+addendum to 25M-18 in the hardening increment (all covers must be
+covered; strip-one fixture must-red). Green acceptance conditional
+on 25M-20 landing immediately after; queue 2 opens after the
+hardening increment. Spec: gates-and-board.md "Population 40/40
+pre-merge audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
