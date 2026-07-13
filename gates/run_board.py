@@ -1781,6 +1781,54 @@ def _log_stale(record):
   return hashlib.sha256(log_path.read_bytes()).hexdigest() != stored
 
 
+def _dep_snapshot(gate, status):
+  """The per-dependency lineage a child records at run time (25M-26).
+
+  For each DIRECT dependency, the identity of the successful result this child
+  consumed: the dependency's attempt id and its log digest. Persisted beside the
+  child's verdict so a LATER, separate invocation can tell whether a dependency
+  has been rerun (a new attempt id) since the child last passed -- the
+  cross-process half of the 25M-20 dependency-currency ruling, which the
+  in-process `reran` set cannot see.
+
+  Arguments:
+    gate   = the child gate being recorded.
+    status = the live resume map (its dependency records are current here).
+
+  Returns:
+    a dict {dep_id: {attempt, log_digest}} over gate.deps (empty for a gate
+    with no dependencies).
+  """
+  snap = {}
+  for dep in gate.deps:
+    rec = status.get(dep, {})
+    snap[dep] = {"attempt": rec.get("attempt"),
+                 "log_digest": rec.get("log_digest")}
+  return snap
+
+
+def _dependency_lineage_state(status, gate):
+  """"stale-dependency" when a child's persisted lineage no longer matches its
+  dependencies' current successful attempts, else None (25M-26).
+
+  A child that DECLARES dependencies but carries no lineage snapshot predates
+  this rule and is non-green (the pre-manifest precedent applied to lineage); a
+  child whose stored dependency attempt differs from the dependency's CURRENT
+  attempt consumed a superseded result and is non-green.
+  """
+  if not gate.deps:
+    return None
+  snapshot = status.get(gate.id, {}).get("deps")
+  if not isinstance(snapshot, dict):
+    return "stale-dependency"
+  for dep in gate.deps:
+    stored = snapshot.get(dep)
+    current = status.get(dep, {})
+    if stored is None or current.get("attempt") != stored.get("attempt"):
+      return "stale-dependency"
+  return None
+
+
 def _resume_state(status, gate, cfg):
   """The gate's resume category, for --list / BOARD.md and the runner.
 
@@ -1788,9 +1836,10 @@ def _resume_state(status, gate, cfg):
   log), "pre-manifest" (a gate that now DECLARES a manifest but whose stored
   PASS predates it, so its narrow legacy digest cannot be trusted), "stale-code",
   "stale-input", "stale-log" (the cited log is missing, undigested, or altered),
-  "interrupted" (an abandoned RUNNING attempt), "FAIL", "SKIP-DEP", or "not run".
-  Only "PASS" is green; every other state is non-green and (for a selected gate)
-  makes the gate rerun.
+  "stale-dependency" (a PASS taken against a dependency result since rerun, or a
+  dependent PASS with no lineage snapshot; 25M-26), "interrupted" (an abandoned
+  RUNNING attempt), "FAIL", "SKIP-DEP", or "not run". Only "PASS" is green; every
+  other state is non-green and (for a selected gate) makes the gate rerun.
   """
   record = status.get(gate.id, {})
   state = record.get("status")
@@ -1812,6 +1861,9 @@ def _resume_state(status, gate, cfg):
     return "stale-input"
   if _log_stale(record):
     return "stale-log"
+  lineage = _dependency_lineage_state(status, gate)
+  if lineage is not None:
+    return lineage
   return "PASS"
 
 
@@ -1877,7 +1929,7 @@ def _write_board_md(status, cfg=None):
         detail = (detail + " [stale member: " + member + "]").strip()
     log_cell = log_name if state in ("PASS", "FAIL", "stale-code",
                                      "stale-input", "stale-log",
-                                     "pre-manifest") else ""
+                                     "stale-dependency", "pre-manifest") else ""
     lines.append("| " + gate.id + " | " + gate.tier + " | " + state
                  + " | " + detail.replace("|", "/") + " | " + log_cell + " |")
   lines.append("")
@@ -2153,13 +2205,14 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
       print("[rerun] " + gate.id + ": prerequisite(s) reran this run ("
             + ", ".join(reran_deps) + ") -- rerunning to consume the fresh "
             "output rather than trust a PASS taken against the old one")
-    if (state in ("stale-code", "stale-input", "stale-log", "interrupted",
-                  "pre-manifest")
+    if (state in ("stale-code", "stale-input", "stale-log", "stale-dependency",
+                  "interrupted", "pre-manifest")
         and gate.id not in force_rerun):
       print("[rerun] " + gate.id + ": prior PASS is " + state
-            + " (the tree, the configuration, or the cited raw log changed, "
-            "the attempt was interrupted, or a newly-declared manifest "
-            "supersedes a pre-manifest record) -- rerunning")
+            + " (the tree, the configuration, or the cited raw log changed, a "
+            "dependency was rerun since, the attempt was interrupted, or a "
+            "newly-declared manifest supersedes a pre-manifest record) "
+            "-- rerunning")
 
     # dependency skip: an unmet prerequisite (not a CURRENT pass under both
     # digests) marks the gate skipped and runs no test code. It is not green.
@@ -2196,11 +2249,18 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
     man_block = _gate_manifest_block(gate, cfg)
     attempt = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     log_name = gate.id + "." + attempt + ".log"
+    # (25M-26) the per-dependency lineage this child consumes THIS run: the
+    # dependency attempt ids it is about to run against, persisted so a later
+    # separate invocation whose dependency was rerun reads stale-dependency
+    # instead of resuming the child against a superseded result.
+    dep_snap = _dep_snapshot(gate, status)
     running = {"status": "RUNNING", "ts": _now(),
                "code_digest": code_dig, "input_digest": input_dig,
                "log": log_name, "attempt": attempt}
     if man_block is not None:
       running["manifest"] = man_block
+    if gate.deps:
+      running["deps"] = dep_snap
     status[gate.id] = running
     _save_status(status)
     _write_board_md(status, cfg)
@@ -2239,6 +2299,8 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
                "attempt": attempt}
     if man_block is not None:
       verdict["manifest"] = man_block
+    if gate.deps:
+      verdict["deps"] = dep_snap
     status[gate.id] = verdict
     _save_status(status)
     _write_board_md(status, cfg)

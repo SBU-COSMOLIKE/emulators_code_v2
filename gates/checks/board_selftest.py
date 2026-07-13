@@ -105,6 +105,9 @@ def make_gate(gate_id, *, deps=(), behavior="pass", optional=False):
 # PASS must name a log whose bytes exist and match; drive_main materializes
 # this content into its temp log dir for every seeded PASS.
 SEED_LOG_BYTES = b"seeded current-pass log\n"
+# the attempt id every seeded PASS carries, so a seeded child's lineage snapshot
+# (25M-26) matches its seeded dependency's attempt and the child reads current.
+SEED_ATTEMPT = "seed-attempt"
 
 
 def pass_record(gate, cfg=None):
@@ -113,14 +116,24 @@ def pass_record(gate, cfg=None):
     Includes the raw-log evidence the runner now verifies: a seed log name and
     its digest over SEED_LOG_BYTES. drive_main writes that content into its temp
     log dir, so the record reads as a genuine current PASS (not one flagged
-    stale-log for a missing or unverifiable log).
+    stale-log for a missing or unverifiable log). A gate WITH dependencies also
+    carries a lineage snapshot (25M-26) whose stored attempt matches its seeded
+    dependency's SEED_ATTEMPT, so the child reads current rather than
+    stale-dependency.
     """
     use = FAKE_CFG if cfg is None else cfg
-    return {"status": "PASS",
-            "code_digest": run_board._gate_code_digest(gate),
-            "input_digest": run_board._gate_input_digest(gate, use),
-            "log": gate.id + ".seed.log",
-            "log_digest": hashlib.sha256(SEED_LOG_BYTES).hexdigest()}
+    log_digest = hashlib.sha256(SEED_LOG_BYTES).hexdigest()
+    record = {"status": "PASS",
+              "code_digest": run_board._gate_code_digest(gate),
+              "input_digest": run_board._gate_input_digest(gate, use),
+              "log": gate.id + ".seed.log",
+              "log_digest": log_digest,
+              "attempt": SEED_ATTEMPT}
+    if gate.deps:
+        record["deps"] = {dep: {"attempt": SEED_ATTEMPT,
+                                "log_digest": log_digest}
+                          for dep in gate.deps}
+    return record
 
 
 class _Args:
@@ -1108,6 +1121,94 @@ def check_input_owner_resolution():
            "evaluate_yaml resolves under _REPO on any machine")
 
 
+def check_cross_invocation_lineage():
+    """1b hardening (25M-26): cross-invocation dependency lineage. A child PASS
+    records the attempt id of each dependency result it consumed; a LATER,
+    SEPARATE invocation whose dependency has since been rerun reads
+    stale-dependency and reruns the child, instead of resuming it against a
+    superseded result. This is the cross-PROCESS half of 25M-20 the in-process
+    reran set cannot see, so the legs share ONE status file + log dir across
+    several real main() invocations.
+    """
+    import tempfile
+    prereq = make_gate("prereq")
+    child = make_gate("child", deps=("prereq",))
+    gates = [prereq, child]
+
+    tmp = Path(tempfile.mkdtemp(prefix="lineage-"))
+    saved = {name: getattr(run_board, name) for name in
+             ("BOARD", "_LOGS_DIR", "_STATUS_FILE", "_BOARD_MD",
+              "_load_config", "_load_status", "preflight", "_log_header")}
+    try:
+        run_board.BOARD = gates
+        run_board._LOGS_DIR = tmp
+        run_board._STATUS_FILE = tmp / "board_status.json"
+        run_board._BOARD_MD = tmp / "BOARD.md"
+        run_board._load_config = lambda: dict(FAKE_CFG)
+        run_board._load_status = lambda: (
+            json.loads(run_board._STATUS_FILE.read_text())
+            if run_board._STATUS_FILE.exists() else {})
+        run_board.preflight = lambda cfg: (True, {})
+        run_board._log_header = lambda ctx, gate: None
+
+        # invocation 1: run both -> child PASSes, snapshotting prereq's attempt.
+        CALLS.clear()
+        rc1 = run_board.main([])
+        st1 = run_board._load_status()
+        report("25M-26 inv1: both run; the child snapshots its dependency lineage",
+               rc1 == 0 and isinstance(st1["child"].get("deps"), dict),
+               "child.deps snapshot persisted")
+
+        # invocation 2 (separate process): force-rerun ONLY prereq -> new attempt.
+        a1 = st1["prereq"]["attempt"]
+        CALLS.clear()
+        rc2 = run_board.main(["--gate", "prereq", "--force-rerun", "prereq"])
+        st2 = run_board._load_status()
+        report("25M-26 inv2: force-rerunning the prerequisite advances its attempt",
+               rc2 == 0 and st2["prereq"]["attempt"] != a1, "new prereq attempt")
+
+        # the pure lineage predicate (no log entanglement): st1 matches, st2 stales.
+        report("25M-26 lineage predicate: a matching snapshot is current",
+               run_board._dependency_lineage_state(st1, child) is None,
+               "inv1 child snapshot matches inv1 prereq attempt")
+        report("25M-26 lineage predicate: a since-rerun dependency is stale-dependency",
+               run_board._dependency_lineage_state(st2, child) == "stale-dependency",
+               "child snapshot points at the superseded prereq attempt")
+
+        # invocation 3: the child's snapshot no longer matches -> it RERUNS (the
+        # exact two-invocation witness; without the fix it would resume, exit-0,
+        # zero bodies).
+        CALLS.clear()
+        rc3 = run_board.main(["--gate", "child"])
+        report("25M-26 two-invocation witness: a since-rerun dependency reruns the child",
+               CALLS.get("child", 0) == 1 and rc3 == 0,
+               "child ran once, not resumed against the superseded prereq")
+
+        # snapshot-refresh control: the re-passed child snapshots the new attempt,
+        # so a further invocation RESUMES it (no body).
+        CALLS.clear()
+        rc4 = run_board.main(["--gate", "child"])
+        report("25M-26 snapshot-refresh: the re-passed child then resumes (no body)",
+               CALLS.get("child", 0) == 0 and rc4 == 0,
+               "the refreshed snapshot matches -> resume")
+
+        # legacy / mutation: strip the child's lineage snapshot from the persisted
+        # record (a pre-25M-26 PASS). The snapshot-free record is non-green and
+        # reruns -- never retroactively blessed; without the lineage check it
+        # would resume (exit-0, zero bodies), so the mutation is red-capable.
+        rec = json.loads(run_board._STATUS_FILE.read_text())
+        del rec["child"]["deps"]
+        run_board._STATUS_FILE.write_text(json.dumps(rec))
+        CALLS.clear()
+        rc5 = run_board.main(["--gate", "child"])
+        report("25M-26 legacy/mutation: a snapshot-free dependent PASS reruns",
+               CALLS.get("child", 0) == 1,
+               "no lineage snapshot -> non-green, exit " + str(rc5))
+    finally:
+        for name, value in saved.items():
+            setattr(run_board, name, value)
+
+
 def check_manifest_persistence():
     """1b phase 2: a declared gate persists its resolved manifest members, its
     digest IS the member digest, a changed member reads stale-code (named), a
@@ -1314,6 +1415,8 @@ def main():
     check_manifest_riders()
     print("\n-- input owner resolution (owner base, no cwd, executed==hashed) --")
     check_input_owner_resolution()
+    print("\n-- cross-invocation lineage (a since-rerun dependency reruns its child) --")
+    check_cross_invocation_lineage()
     print("\n-- manifest persistence (resolved members, digest, pre-manifest) --")
     check_manifest_persistence()
     print("\n-- child environment (sh injects the certified ROOTDIR) --")
