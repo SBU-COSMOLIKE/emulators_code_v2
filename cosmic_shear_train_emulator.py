@@ -229,23 +229,37 @@ FAMILY_DRIVERS = {
 
 
 def require_family_block(data, family, prog):
-  """Loud driver-family check for the thin per-family train drivers.
+  """Loud driver-family check: reject a wrong-family YAML at startup.
 
-  The per-family drivers (train_cmb / train_baosn / train_mps) are
-  wrappers over this driver's main(); each requires its own family
-  block in the YAML's data section, so a YAML launched with the wrong
-  driver fails HERE with the right driver's name — not deep inside
-  config validation with a missing-key message.
+  Every train / tune / sweep driver owns exactly one data-block family, so a
+  YAML launched with the wrong driver fails HERE with the right driver's name,
+  not deep inside config validation with a missing-key message (a scalar YAML
+  otherwise trains under this driver and then dies at run_tag on a missing
+  train_dv key). The thin per-family wrappers pass their own family key; the
+  direct cosmic_shear drivers own the "cosmolike" data-vector family, which
+  has no data-block key of its own -- it is signalled by the ABSENCE of every
+  other family's block.
 
   Arguments:
     data   = the YAML's data mapping.
-    family = the data-block key this driver trains ("cmb" / "grid" /
-             "grid2d").
+    family = the family this driver trains: "cosmolike" for the cosmic-shear
+             data-vector, or one of the per-family keys "cmb" / "grid" /
+             "grid2d" / "outputs".
     prog   = this driver's prog name, for the message.
 
   Raises:
     SystemExit naming the driver the YAML belongs to.
   """
+  if family == "cosmolike":
+    # the cosmolike data-vector (cosmic shear) family owns no data-block key;
+    # any other family's block means the YAML belongs to that family's driver.
+    for key, driver in FAMILY_DRIVERS.items():
+      if key in data:
+        raise SystemExit(
+          f"{prog}: this YAML carries a data.{key} block — train it with "
+          f"{driver}, not {prog}.py. A direct {prog} run trains the cosmolike "
+          f"data-vector (cosmic shear) family only.")
+    return
   if family in data:
     return
   for key, driver in FAMILY_DRIVERS.items():
@@ -259,7 +273,7 @@ def require_family_block(data, family, prog):
     f"cosmic_shear_train_emulator.py")
 
 
-def main(prog="cosmic_shear_train_emulator", family=None):
+def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
   parser = argparse.ArgumentParser(prog=prog)
   # --root / --fileroot / --yaml: the cocoa project layout (data + run
   # products under --root/chains, YAML configs under --fileroot).
@@ -312,7 +326,10 @@ def main(prog="cosmic_shear_train_emulator", family=None):
                            "prints, load_source's per-source line, "
                            "and run_emulator's per-epoch log",
                       action="store_true")
-  args, unknown = parser.parse_known_args()
+  # strict parse: a misspelled flag (--sav, --activaton, --diagnostc) is a
+  # usage error naming the token and exiting nonzero, never silently ignored
+  # and then run at a default (which could publish to the wrong --save root).
+  args = parser.parse_args()
 
   # resolve_cocoa_config (cocoa.py): resolve the cocoa layout ($ROOTDIR/<root>
   # holds the data, <fileroot> under root holds this emulator's YAML; run
@@ -321,10 +338,12 @@ def main(prog="cosmic_shear_train_emulator", family=None):
   # not depend on the launch directory.
   cfg, _, chains = resolve_cocoa_config(args)
 
-  # a thin per-family driver passes its family; the dispatching driver
-  # passes None and trains whatever the data block declares.
-  if family is not None:
-    require_family_block(data=cfg["data"], family=family, prog=prog)
+  # reject a wrong-family YAML at startup, naming the right driver. Every
+  # driver owns one family: a thin per-family wrapper passes its own key, and a
+  # direct cosmic_shear run owns the "cosmolike" data-vector family (the
+  # default). There is no unrestricted dispatcher -- family is always a real
+  # identity, so this always runs.
+  require_family_block(data=cfg["data"], family=family, prog=prog)
 
   # All setup (config parse, model resolution, device, data staging,
   # geometry, chi2, spec assembly) lives in EmulatorExperiment, so a sweep

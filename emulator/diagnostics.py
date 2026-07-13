@@ -21,6 +21,69 @@ The plotting side (plot_diagnostics) turns each family dict into its
 pages; a run passes only the dict its family produces, so the
 cosmic-shear PDF is byte-identical when neither is given.
 
+Estimator vs verdict. Reading any diagnostic below, keep two things apart.
+The estimator is the number the function computes about the model: a
+correlation, a fraction, a set of percentile bands, a residual table. The
+verdict is a pass/fail decision layered on top of an estimator: a boolean
+in the returned dict, a fixed threshold, and a meaning attached to
+crossing it. Most diagnostics here return estimators only and leave the
+judgement to the reader (or the plotting page); just two compute a verdict
+in this file. The table names both for each function; a dash in the verdict
+column means the function returns numbers only, no in-code pass/fail.
+
+  function                    estimator (the number)         verdict (the decision)
+  --------------------------  -----------------------------  ----------------------
+  coverage_diagnostic         knn_dist (mean whitened-       coverage_limited: True
+                              param distance to the k        when both median_bad >
+                              nearest train points),         median_good and the rank
+                              its rank correlation with      correlation exceeds 0.1.
+                              log10 dchi2, and median         True reads as: the
+                              knn_dist split at dchi2 =       failures sit in sparse
+                              0.2.                            training regions, so the
+                                                             floor is data coverage,
+                                                             not the model.
+  local_linear_floor          f_floor / f_model / f_hard:    no boolean; the read is
+                              the fraction of val points     f_model close to f_floor
+                              whose local-linear chi2 (the    means data or
+                              floor) and whose model chi2     representation limited,
+                              exceed the fixed 0.2 cut,        f_model far above f_floor
+                              plus f_hard in the densest      means the net has
+                              decile.                          headroom. Raises when
+                                                             chi2fn is not a plain
+                                                             CosmolikeChi2.
+  hard_direction_regression   univariate per-feature         no boolean; a large joint
+                              correlations, joint OLS         r2 says the difficulty is
+                              coefficients, joint r2, and     one clean log-linear
+                              r2_omega (ln(omega_b h^2)       direction, r2_omega near
+                              alone) of log10 dchi2 on the    r2 says it collapses to
+                              standardized log-params.        the baryon-density line.
+  cmb_residual_diagnostic     per-multipole fractional and   no boolean; the bands and
+                              sigma-unit residual bands,      the worst overlay are
+                              the worst-chi2 val overlay,     read by eye, the high-pass
+                              and the high-pass remainder     remainder against what the
+                              of the sigma-unit residual.     roughness penalty targets.
+  scalar_output_diagnostic    per-output truth, prediction,  no boolean; the scatter,
+                              residual (physical and          histograms, and residual
+                              standardized), and the raw      vs input plots are read by
+                              input parameters.               eye for a bias.
+  grid_residual_diagnostic    per-redshift fractional        no boolean; the bands and
+                              residual bands, the worst-      the derived-distance page
+                              chi2 val overlay, and (for a    are read by eye for
+                              Hubble run) derived D_A / D_L   over- or under-fitting.
+                              error bands through the real
+                              distance pipeline.
+  grid2d_residual_diagnostic  per-(z, k) median absolute     no boolean; res_kind names
+                              residual, per-redshift slice    the residual meaning, the
+                              bands, and the worst-chi2 val   surfaces and slices are
+                              surface. res_kind labels it     read by eye.
+                              ln-ratio (syren law) or
+                              fractional (law none).
+
+(legend: dchi2 = per-point delta-chi2, the fit-difficulty score; whitened =
+see the note just below; the 0.2 cut is the pass line on dchi2 that
+coverage_diagnostic and local_linear_floor both use; a dash in the verdict
+column = numbers only, no in-code pass/fail.)
+
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
 variance, so correlated quantities become decorrelated and equally hard
 to fit. For the diagonal CMB geometry "whitened" is per-multipole: the
@@ -33,6 +96,34 @@ from scipy.spatial import cKDTree
 from scipy.stats import spearmanr
 
 from .training import eval_source_chi2
+from .losses.core import screen_chi2
+
+
+def _screen_diag_chi2(chunks, chi2fn, label, positions):
+  """Concatenate the per-chunk compute-dtype chi2 and pass it through the
+  shared score-domain boundary.
+
+  The CMB / grid / grid2d residual functions each accumulate their
+  per-sample chi2 in the COMPUTE dtype (the model's float32, never a
+  .double() upcast, so screen_chi2's band matches the roundoff the sum
+  accumulated) and hand the list here. screen_chi2 raises on any non-finite
+  or materially negative published score (a corrupt residual would poison
+  the percentile bands and the worst-point pick), normalizes a within-band
+  roundoff negative to exact 0, and the ACCEPTED result is cast to float64
+  for the plots.
+
+  Arguments:
+    chunks    = list of per-batch compute-dtype chi2 tensors (cpu).
+    chi2fn    = the loss object (its _chi2_n_terms sets the band).
+    label     = the producer name for the error (e.g. "cmb residual").
+    positions = the source-row indices aligned with the concatenated chi2.
+
+  Returns:
+    (N,) float64 numpy delta-chi2, screened and row-aligned.
+  """
+  c_all = torch.cat(chunks)
+  c_all = screen_chi2(c_all, loss=chi2fn, label=label, positions=positions)
+  return c_all.double().numpy()
 
 
 def coverage_diagnostic(model,
@@ -54,6 +145,12 @@ def coverage_diagnostic(model,
   rank correlation (sparser neighbourhoods at the failures) means
   the floor is data coverage, not the model. Model-agnostic: any
   trained model works.
+
+  Estimator: knn_dist, its rank correlation with log10 dchi2, and the
+  median knn_dist of the good vs bad populations. Verdict: the boolean
+  coverage_limited, true when median_bad > median_good and the rank
+  correlation exceeds 0.1 (a fixed 0.1 bar), meaning the failures cluster
+  where training is sparse.
 
   Arguments:
     model          = the trained network (eval_source_chi2 sets
@@ -162,6 +259,12 @@ def local_linear_floor(model,
     f_model >> f_floor -> the net has headroom (arch / training).
   f_floor in the best-covered (densest) decile = pure hardness.
 
+  Estimator: f_floor, f_model, and f_hard, each a fraction of val points
+  whose chi2 exceeds the fixed 0.2 cut. Verdict: no boolean is returned;
+  the two comparison arrows above are the decision the reader makes from
+  those fractions, and the function raises when chi2fn is not a plain
+  CosmolikeChi2.
+
   Valid only for a plain CosmolikeChi2 (needs_params == False): the
   fit lives in the whitened target space chi2fn.encode(dv) builds,
   and a rescaled encode/chi2 would need each point's own R.
@@ -223,8 +326,17 @@ def local_linear_floor(model,
   coef = torch.linalg.lstsq(design, Yn.cpu()).solution
   Tlin = coef[:, 0, :].to(device)                 # intercept = pred
 
-  dchi2_floor = chi2fn.chi2(pred=Tlin,
-                            target=Tva).double().cpu().numpy()
+  # the model-independent interpolation floor is a PUBLISHED score
+  # (f_floor / f_hard / median_floor read it directly), so it passes the
+  # shared score-domain boundary BEFORE any interpretation -- and in its
+  # COMPUTE dtype, not a.double() upcast: a geometry that strict
+  # loading accepted but whose Cinv is not positive-definite can make this
+  # floor negative, which the old dchi2_floor > 0.2 test read as a PERFECT
+  # 0. screen_chi2 refuses it (or normalizes a within-band roundoff negative
+  # to exact 0); only the accepted score is then cast to float64 to report.
+  c_floor = chi2fn.chi2(pred=Tlin, target=Tva)
+  c_floor = screen_chi2(c_floor, loss=chi2fn, label="local-linear floor")
+  dchi2_floor = c_floor.double().cpu().numpy()
   # eval_source_chi2 (training.py): runs the model over a source in
   # eval mode and returns (params, per-point delta-chi2) row-aligned.
   _, dchi2_model = eval_source_chi2(model=model,
@@ -262,6 +374,12 @@ def hard_direction_regression(model,
   direction), and the ln(omega_b h^2)-alone R^2 (does it collapse
   to that single physical-baryon direction?). Works for any chi2fn:
   the dchi2 comes from eval_source_chi2's param-aware path.
+
+  Estimator only: the univariate correlations, joint coefficients, joint
+  r2, and r2_omega are the numbers, and there is no boolean or threshold.
+  A large joint r2 says the hardness is one clean log-linear direction;
+  r2_omega near that r2 says the direction is the baryon-density line. The
+  reader draws the conclusion.
 
   Arguments:
     model          = the trained network.
@@ -359,6 +477,11 @@ def cmb_residual_diagnostic(model,
   term penalizes, computed with the same double-boxcar
   remainder — so over-smoothing or ringing is visible at a glance.
 
+  Estimator only: the fractional and sigma-unit residual bands, the
+  worst-chi2 overlay, and the high-pass remainder are the numbers, with no
+  boolean or threshold. The worst point is picked by the largest per-sample
+  chi2; the CMB page reads the bands and the remainder by eye.
+
   Arguments:
     model          = the trained network.
     param_geometry = ParamGeometry; .encode whitens the raw params.
@@ -411,10 +534,10 @@ def cmb_residual_diagnostic(model,
         cl = chi2fn.decode(p)
         tw = chi2fn.encode(t)
       preds.append(cl.double().cpu().numpy())
-      chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
+      chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
       start = stop
   pred  = np.concatenate(preds)
-  dchi2 = np.concatenate(chi2s)
+  dchi2 = _screen_diag_chi2(chi2s, chi2fn, "cmb residual", rows)
 
   sigma = geom.sigma.detach().cpu().numpy().astype("float64")
   frac = (pred - truth) / truth
@@ -499,6 +622,10 @@ def scalar_output_diagnostic(model,
   scatter, residual histograms both ways, residual vs each input: the
   bias hunt).
 
+  Estimator only: the truth, prediction, and residual columns are the
+  numbers, with no boolean or threshold. The scalar page reads them by eye
+  for a bias.
+
   Arguments:
     model          = the trained network.
     param_geometry = ParamGeometry; .encode whitens the raw params.
@@ -570,6 +697,11 @@ def grid_residual_diagnostic(model,
   tests what the network error does to the integration path, not just
   the raw function.
 
+  Estimator only: the per-redshift residual bands and, for a Hubble run,
+  the derived-distance error bands are the numbers, with no boolean or
+  threshold. The worst point is picked by the largest per-sample chi2; the
+  grid page reads the bands by eye.
+
   Arguments:
     model          = the trained network.
     param_geometry = ParamGeometry; .encode whitens the raw params.
@@ -618,10 +750,10 @@ def grid_residual_diagnostic(model,
       else:
         tw = chi2fn.encode(t)
         preds.append(chi2fn.decode(p).double().cpu().numpy())
-      chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
+      chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
       start = stop
   pred  = np.concatenate(preds)
-  dchi2 = np.concatenate(chi2s)
+  dchi2 = _screen_diag_chi2(chi2s, chi2fn, "grid residual", rows)
 
   frac = (pred - truth) / truth
   q = np.percentile(frac, [2.5, 16.0, 50.0, 84.0, 97.5], axis=0)
@@ -693,6 +825,12 @@ def grid2d_residual_diagnostic(model,
   (pred - truth) / truth. The returned res_kind names which one the
   arrays hold.
 
+  Estimator only: the per-(z, k) median absolute residual, the per-redshift
+  slice bands, and the worst-chi2 surface are the numbers, with no boolean
+  or threshold. res_kind names the residual's meaning; the worst point is
+  picked by the largest per-sample chi2; the grid2d page reads the surfaces
+  by eye.
+
   Arguments:
     model          = the trained network.
     param_geometry = ParamGeometry; .encode whitens the raw params.
@@ -742,10 +880,10 @@ def grid2d_residual_diagnostic(model,
       else:
         tw = chi2fn.encode(t)
         preds.append(chi2fn.decode(p).double().cpu().numpy())
-      chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
+      chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
       start = stop
   pred  = np.concatenate(preds)
-  dchi2 = np.concatenate(chi2s)
+  dchi2 = _screen_diag_chi2(chi2s, chi2fn, "grid2d residual", rows)
 
   nz = int(geom.z.numel())
   nk = int(geom.k.numel())

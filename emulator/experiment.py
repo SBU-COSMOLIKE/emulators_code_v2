@@ -57,6 +57,71 @@ from RAM, or read from a disk memmap); dump = the full on-disk array
 from the data-generation run, one row per cosmology (the dv dump is
 the .npy, the param dump the .txt); memmap = a NumPy array backed by
 that on-disk file, read in slices so it is never fully loaded.
+
+Lifecycle: the diagram above is cosmic-shear specific. Every family run,
+whatever it emulates, passes through the same six ordered stages, and the
+per-family choice is made once, at the validate stage:
+
+    read config              from_yaml reads the .yaml, then from_config;
+       │                     or from_config is called directly on an
+       │                     already-parsed mapping (one sweep point).
+       ▼
+    validate the family      from_config counts the family keys in the
+       │  block              data: block (they are mutually exclusive),
+       │                     dispatches to that family's validator, and
+       │                     resolves the model class. See the decision
+       │                     table below for which validator fires.
+       ▼
+    stage / pool the data    stage_train + stage_val load the dumps,
+       │                     apply the physics cuts, keep n_train / n_val
+       │                     rows, and build the on-device loaders.
+       ▼
+    build geometry + model   build_geometry builds the parameter geometry
+       │                     (whiten in), the output geometry (whiten
+       │                     out), and the chi2; the model class was
+       │                     already fixed at the validate stage.
+       ▼
+    train                    train calls build_run_specs -> run_emulator
+       │                     (model / optimizer / scheduler / loaders;
+       │                     one- or two-phase). run() ends here.
+       ▼
+    save                     the driver calls save_emulator after run()
+                             returns (the .h5 weights + the .emul recipe);
+                             run() itself leaves the model + histories on
+                             the instance.
+
+(legend: each box is one stage of the run, top to bottom; the text beside
+each box names the method or step that carries it out. The symbols: │ is a
+vertical line continuing one stage's arrow; ▼ is the arrowhead marking the
+move to the next stage down. to whiten in / whiten out = apply the
+whitening defined in the PS above, on the input parameters and on the
+output data vector respectively.)
+
+Decision table: at the validate stage, from_config sets a family flag from
+the presence of one distinguishing key in the data: block (the keys are
+mutually exclusive; a config carries at most one family key). The flag
+selects the validator and the model-class family (ia = the factored
+intrinsic-alignment design layered on the architecture; None = a plain
+design). The cosmolike cosmic-shear path is the fall-through: it fires when
+no family key is present.
+
+    | family                | data: key             | validator       | model family |
+    | scalar (derived)      | outputs               | validate_scalar | (name, None) |
+    | CMB spectrum          | cmb                   | validate_cmb    | (name, None) |
+    | background function   | grid                  | validate_grid   | (name, None) |
+    | matter power spectrum | grid2d                | validate_grid2d | (name, None) |
+    | cosmolike cosmic shear| cosmolike_data_dir /  | (fall-through)  | (name, ia)   |
+    |                       | cosmolike_dataset     |                 |              |
+
+Transfer and fine-tuning are run modes, not families: they ride whichever
+family the data: block selects. A top-level transfer: block (a frozen base
+under a parallel correction) is validated by validate_transfer, and a
+train_args.finetune block (a warm start from a saved source) is validated
+by warmstart.validate_finetune_config. On the four diagonal families above
+they are checked in that family's branch (transfer with diagonal=True); on
+the cosmolike path they are the two fall-through branches after the family
+dispatch. Both inherit the source's architecture and family, so neither
+adds a family row of its own.
 """
 
 import atexit
@@ -661,7 +726,7 @@ def validate_cmb(cfg, train_args, rescale="none"):
   Raises:
     ValueError on: a missing or unknown sub-key; a spectrum outside
     tt/te/ee/pp; an amplitude law outside the registry; law-column
-    names missing (as_exp2tau) or present (none); a cosmolike or
+    names missing (as_exp2tau_ref) or present (none); a cosmolike or
     scalar key beside data.cmb; a missing dv/params/covmat file key;
     a data-vector-only feature (rescale, model.ia); a pce: or
     transfer: block beside an amplitude_law other than "none" (each
@@ -672,17 +737,20 @@ def validate_cmb(cfg, train_args, rescale="none"):
   """
   # the amplitude-law registry lives with the CMB loss; imported here
   # (not at module top) so this validator stays importable in the same
-  # torch-light contexts as the rest of the config logic.
-  from .losses.cmb import AMPLITUDE_LAWS
+  # torch-light contexts as the rest of the config logic. The retired-law
+  # adjudicator rides along so an old data.cmb.amplitude_law gives the
+  # retrain instruction, not a bare "unknown law".
+  from .losses.cmb import AMPLITUDE_LAWS, reject_retired_amplitude_law
 
   data = cfg["data"]
   cmb = data["cmb"]
   if not isinstance(cmb, dict):
     raise ValueError(
       "data.cmb must be a mapping {spectrum, covariance, amplitude_law"
-      "[, as_name, tau_name]}; got " + repr(type(cmb).__name__))
+      "[, as_name, tau_name, as_ref, tau_ref]}; got "
+      + repr(type(cmb).__name__))
   allowed = {"spectrum", "covariance", "amplitude_law", "as_name",
-             "tau_name"}
+             "tau_name", "as_ref", "tau_ref"}
   unknown = sorted(set(cmb) - allowed)
   if unknown:
     raise ValueError(
@@ -701,6 +769,10 @@ def validate_cmb(cfg, train_args, rescale="none"):
       "data.cmb.spectrum must be one of tt / te / ee / pp; got "
       + repr(cmb["spectrum"]))
   law = str(cmb["amplitude_law"])
+  # a retired law name is refused with its retrain instruction before the
+  # registry check, so an old config gets the actionable message (not a
+  # bare "unknown law"); the shared adjudicator is the one message source.
+  reject_retired_amplitude_law(law)
   if law not in AMPLITUDE_LAWS:
     raise ValueError(
       "data.cmb.amplitude_law " + repr(law) + " is not in the registry "
@@ -710,17 +782,39 @@ def validate_cmb(cfg, train_args, rescale="none"):
   for key in need:
     if key not in cmb:
       raise ValueError(
-        "amplitude law " + repr(law) + " reads named parameter columns "
-        "and needs data.cmb." + key + "; it is missing")
+        "amplitude law " + repr(law) + " needs data.cmb." + key + "; it "
+        "is missing (as_name / tau_name are the parameter columns it "
+        "reads; as_ref / tau_ref are the fiducial values it measures them "
+        "against, so the per-row factor is 1 at the fiducial)")
+  # the order-one law's fiducial pair is a validated numeric fact: finite,
+  # with a strictly-positive linear amplitude (a negative or zero A_s_ref
+  # would make the factor sign-flip or divide-by-zero). No code default —
+  # the config is authoritative for the numbers (RULING 43.2).
+  if law == "as_exp2tau_ref":
+    for key in ("as_ref", "tau_ref"):
+      try:
+        val = float(cmb[key])
+      except (TypeError, ValueError):
+        raise ValueError(
+          "data.cmb." + key + " must be a real number; got "
+          + repr(cmb[key]))
+      if not np.isfinite(val):
+        raise ValueError(
+          "data.cmb." + key + " must be finite; got " + repr(cmb[key]))
+    if float(cmb["as_ref"]) <= 0.0:
+      raise ValueError(
+        "data.cmb.as_ref must be a strictly positive linear amplitude "
+        "A_s_ref; got " + repr(cmb["as_ref"]) + " (the factor divides by "
+        "it)")
   if not need:
     extra = []
-    for key in ("as_name", "tau_name"):
+    for key in ("as_name", "tau_name", "as_ref", "tau_ref"):
       if key in cmb:
         extra.append(key)
     if extra:
       raise ValueError(
-        "amplitude law 'none' reads no parameter columns; drop "
-        + repr(extra) + " from data.cmb")
+        "amplitude law 'none' reads no parameter columns and has no "
+        "fiducial reference; drop " + repr(extra) + " from data.cmb")
   # exclusivity: a CMB run has no cosmolike and is not a scalar run.
   forbidden = []
   for key in ("cosmolike_data_dir", "cosmolike_dataset", "outputs"):
@@ -750,7 +844,7 @@ def validate_cmb(cfg, train_args, rescale="none"):
       "train_args.model.ia " + repr(ia) + " is an intrinsic-alignment "
       "(cosmic-shear) design; a CMB run has no ia (remove it)")
   # NPCE rides the CMB family (the 2026-07-12 family-wide ruling), but
-  # only under amplitude_law "none": the as_exp2tau law's loss owns the
+  # only under amplitude_law "none": the as_exp2tau_ref law's loss owns the
   # target construction (CmbFactoredChi2), the same one-at-a-time
   # exclusivity as pce vs rescale / model.ia. validate_pce vets the
   # block itself (with diagonal=True) on the from_config cmb branch.
@@ -3354,6 +3448,116 @@ class EmulatorExperiment:
       self.device, X_white, Y_white, silent=self.quiet, **fit_opts)
     return PCEResidualDiagChi2(geom=self.geom, pce=pce)
 
+  def _report_cmb_staging(self, law, spectrum, ell, center, sigma,
+                          fiducial_cl, as_ref, tau_ref, f, covariance):
+    """Print the one-line CMB amplitude-law staging verdict.
+
+    Called once per staging, after the CmbDiagonalGeometry is built, so a
+    unit or fiducial mismatch is visible BEFORE the (expensive) training
+    run. The essential verdict is ONE terminal line — the target center
+    magnitude, the encoded fiducial scale (finite and documented), and,
+    for the order-one law, the per-row factor's range with the factor at
+    the fiducial reference. A wrong-magnitude as_ref in the config makes
+    the factor wildly non-order-one, so the line surfaces it at a glance.
+
+    The covariance cross-check RULED for 43 rides along: the recommended
+    reference IS the covariance's own fiducial (A_s, tau). IF the
+    covariance provenance records that pair (keyed by the run's as_name /
+    tau_name), the factor evaluated there is 1 only when the config's
+    (as_ref, tau_ref) match it, so a config that drifts from the
+    covariance fiducial is flagged loud (the config stays authoritative —
+    it warns, it does not abort). If the provenance does not record the
+    pair, the config is authoritative and no sidecar field is invented.
+
+    Arguments:
+      law         = the amplitude-law name ("none" prints a plain line).
+      spectrum    = spectrum tag, for the label.
+      ell         = (n_ell,) multipole grid (unused in the summary; kept
+                    so the signature reads as the full staging context).
+      center      = (n_ell,) target center (float64).
+      sigma       = (n_ell,) cosmic-variance whitening scale (float64).
+      fiducial_cl = (n_ell,) fiducial C_ell (float64).
+      as_ref      = fiducial A_s_ref (float; None for "none").
+      tau_ref     = fiducial tau_ref (float; None for "none").
+      f           = (n_kept,) the per-row factor already computed for the
+                    target center (order-one for the law, 1 for "none").
+      covariance  = the loaded covariance .npz (its provenance carries the
+                    recommended fiducial pair, if any).
+    """
+    center = np.asarray(center, dtype="float64")
+    sigma  = np.asarray(sigma,  dtype="float64")
+    fid    = np.asarray(fiducial_cl, dtype="float64")
+    units  = "dimensionless" if spectrum == "pp" else "muK2"
+    # target center magnitude (a robust scalar summary) and the encoded
+    # fiducial scale: the fiducial's own encoded target (fid - center) in
+    # whitening (sigma) units, an order-one-to-few number for a healthy run.
+    c_med   = float(np.median(np.abs(center)))
+    enc     = (fid - center) / sigma
+    enc_rms = float(np.sqrt(np.mean(enc ** 2)))
+    if law == "none":
+      print("CMB staging [" + spectrum + ", law=none]: target |center| "
+            "median=" + ("%.4g" % c_med) + " " + units + ", encoded "
+            "fiducial RMS=" + ("%.4g" % enc_rms) + " sigma")
+      return
+    f_arr  = np.asarray(f, dtype="float64")
+    f_min  = float(f_arr.min())
+    f_max  = float(f_arr.max())
+    f_mean = float(f_arr.mean())
+    # the factor at the fiducial reference itself: 1 by construction (the
+    # config's own pair), the invariant the retired raw factor broke.
+    f_ref  = float((as_ref / as_ref) * np.exp(2.0 * (tau_ref - tau_ref)))
+    print("CMB staging [" + spectrum + ", law=as_exp2tau_ref]: target "
+          "|center| median=" + ("%.4g" % c_med) + " " + units + ", encoded "
+          "fiducial RMS=" + ("%.4g" % enc_rms) + " sigma, factor f in ["
+          + ("%.4g" % f_min) + ", " + ("%.4g" % f_max) + "] mean="
+          + ("%.4g" % f_mean) + " (f at fiducial=" + ("%.6f" % f_ref) + ")")
+    self._cross_check_cmb_fiducial(covariance=covariance, as_ref=as_ref,
+                                   tau_ref=tau_ref)
+
+  def _cross_check_cmb_fiducial(self, covariance, as_ref, tau_ref):
+    """Warn if the covariance's own fiducial differs from the config refs.
+
+    Best-effort cross-check (RULING 43.2): the covariance provenance is a
+    json string whose fiducial_params are keyed by the cobaya parameter
+    names. If it records the run's as_name / tau_name as plain numbers, the
+    order-one factor evaluated at that pair equals 1 only when the config's
+    (as_ref, tau_ref) ARE that fiducial; a drift makes the factor there
+    differ from 1 and is flagged loud. Any parse gap (no provenance, the
+    pair absent, a non-numeric value) means the sidecar does not record the
+    pair here, so the config stays authoritative and nothing is warned — no
+    new sidecar field is invented.
+
+    Arguments:
+      covariance = the loaded covariance .npz.
+      as_ref     = the config fiducial A_s_ref (float, > 0).
+      tau_ref    = the config fiducial tau_ref (float).
+    """
+    import json
+    as_name  = str(self.cmb.get("as_name", ""))
+    tau_name = str(self.cmb.get("tau_name", ""))
+    try:
+      if "provenance" not in getattr(covariance, "files", []):
+        return
+      prov = json.loads(str(covariance["provenance"]))
+      fp   = prov.get("fiducial_params", {})
+      if as_name not in fp or tau_name not in fp:
+        return
+      a_sid = float(fp[as_name])
+      t_sid = float(fp[tau_name])
+    except (ValueError, TypeError, KeyError):
+      return
+    if not (np.isfinite(a_sid) and np.isfinite(t_sid) and a_sid > 0.0):
+      return
+    f_sid = float((as_ref / a_sid) * np.exp(2.0 * (t_sid - tau_ref)))
+    if abs(f_sid - 1.0) > 1e-6:
+      print("CMB staging cross-check: the covariance fiducial (" + as_name
+            + "=" + ("%.6g" % a_sid) + ", " + tau_name + "="
+            + ("%.6g" % t_sid) + ") differs from data.cmb (as_ref="
+            + ("%.6g" % as_ref) + ", tau_ref=" + ("%.6g" % tau_ref)
+            + "): the factor there is " + ("%.6g" % f_sid) + ", not 1. The "
+            "config is authoritative, but the recommended reference is the "
+            "covariance's own fiducial.")
+
   def build_geometry(self, train_set=None):
     """
     Build the input + output geometries and the chi2 (cached as
@@ -3534,6 +3738,15 @@ class EmulatorExperiment:
       law      = str(self.cmb["amplitude_law"])
       as_name  = str(self.cmb.get("as_name", ""))
       tau_name = str(self.cmb.get("tau_name", ""))
+      # the order-one law's fiducial reference pair (validate_cmb enforced
+      # finite + as_ref > 0 already when the law needs them); None for the
+      # "none" law, which carries no reference. Resolved from the config —
+      # the authoritative source (RULING 43.2) — and persisted with the
+      # geometry so _factor reads the numbers, never a code default.
+      as_ref  = (float(self.cmb["as_ref"])
+                 if law == "as_exp2tau_ref" else None)
+      tau_ref = (float(self.cmb["tau_ref"])
+                 if law == "as_exp2tau_ref" else None)
       cov = np.load(self.cmb["covariance"], allow_pickle=False)
       for key in ("ell", "sigma_" + spectrum, "cl_" + spectrum):
         if key not in cov.files:
@@ -3566,15 +3779,22 @@ class EmulatorExperiment:
             "finetune spectrum mismatch: the source emulates "
             + repr(sgeom.spectrum) + " but data.cmb.spectrum is "
             + repr(spectrum) + "; a warm start never crosses spectra")
-        if (sgeom.law, sgeom.as_name, sgeom.tau_name) != (law, as_name,
-                                                          tau_name):
+        # the amplitude law is inherited wholesale (the source geometry is
+        # pinned), so the config must restate the source's law, its named
+        # columns, AND its fiducial reference pair — a different fiducial
+        # would silently reinterpret the pinned target's zero-point.
+        if ((sgeom.law, sgeom.as_name, sgeom.tau_name,
+             sgeom.as_ref, sgeom.tau_ref)
+            != (law, as_name, tau_name, as_ref, tau_ref)):
           raise ValueError(
             "finetune amplitude-law mismatch: the source persisted (law="
             + repr(sgeom.law) + ", as_name=" + repr(sgeom.as_name)
-            + ", tau_name=" + repr(sgeom.tau_name) + ") but data.cmb has "
-            "(law=" + repr(law) + ", as_name=" + repr(as_name)
-            + ", tau_name=" + repr(tau_name) + "); the law is inherited, "
-            "restate the source's values")
+            + ", tau_name=" + repr(sgeom.tau_name) + ", as_ref="
+            + repr(sgeom.as_ref) + ", tau_ref=" + repr(sgeom.tau_ref)
+            + ") but data.cmb has (law=" + repr(law) + ", as_name="
+            + repr(as_name) + ", tau_name=" + repr(tau_name) + ", as_ref="
+            + repr(as_ref) + ", tau_ref=" + repr(tau_ref) + "); the law is "
+            "inherited, restate the source's values")
         src_ell = sgeom.ell.detach().cpu().numpy()
         if not np.array_equal(ell, src_ell):
           raise ValueError(
@@ -3605,7 +3825,9 @@ class EmulatorExperiment:
           self.chi2fn = make_cmb_chi2(geom=self.geom, law=law,
                                       param_geometry=self.pgeom,
                                       as_name=as_name,
-                                      tau_name=tau_name)
+                                      tau_name=tau_name,
+                                      as_ref=as_ref,
+                                      tau_ref=tau_ref)
         return self.pgeom, self.geom, self.chi2fn
       # transfer learning (the 2026-07-12 symmetry ruling): the input
       # geometry is the base's block-extended for the new parameters
@@ -3663,18 +3885,25 @@ class EmulatorExperiment:
           form=self._transfer_form,
           space=self._transfer_space)
         return self.pgeom, self.geom, self.chi2fn
-      # the per-row amplitude factor f (1 for the "none" law); the law
-      # reads RAW parameter columns, located by the covmat-header names.
-      if law == "as_exp2tau":
+      # the per-row DIMENSIONLESS amplitude factor f (1 for the "none"
+      # law); the law reads RAW parameter columns, located by the
+      # covmat-header names, and measures them against the fiducial pair so
+      #   f = (A_s_ref / A_s) * exp(2 (tau - tau_ref)),
+      # which is exactly 1 at (A_s, tau) == (as_ref, tau_ref). This mirrors
+      # CmbFactoredChi2._factor bit-for-bit (the staging center and the
+      # in-loss factor must agree), so it stays the ONE definition in the
+      # loss and is only recomputed here in float64 for the target center.
+      if law == "as_exp2tau_ref":
         names = list(self.names)
         for nm, role in ((as_name, "as_name"), (tau_name, "tau_name")):
           if nm not in names:
             raise ValueError(
               "data.cmb." + role + " " + repr(nm) + " is not among the "
               "input parameter columns " + repr(names))
-        C = np.asarray(train_set["C"])
-        f = (np.exp(2.0 * C[idx, names.index(tau_name)].astype("float64"))
-             / C[idx, names.index(as_name)].astype("float64"))
+        C     = np.asarray(train_set["C"])
+        a_s   = C[idx, names.index(as_name)].astype("float64")
+        tau   = C[idx, names.index(tau_name)].astype("float64")
+        f = (as_ref / a_s) * np.exp(2.0 * (tau - tau_ref))
       else:
         f = np.ones(len(idx), dtype="float64")
       # the training-mean of the amplitude-rescaled target, streamed in
@@ -3699,7 +3928,17 @@ class EmulatorExperiment:
                                       units=units,
                                       law=law,
                                       as_name=as_name,
-                                      tau_name=tau_name)
+                                      tau_name=tau_name,
+                                      as_ref=as_ref,
+                                      tau_ref=tau_ref)
+      # staging verdict: the amplitude-law target center + scale and the
+      # fiducial-unity check, so a unit mismatch is visible BEFORE training
+      # (terminal essential-only; the full per-multipole arrays go to the
+      # log). A no-op for the "none" law (f is identically 1).
+      self._report_cmb_staging(law=law, spectrum=spectrum, ell=ell,
+                               center=center, sigma=sigma, fiducial_cl=fid,
+                               as_ref=as_ref, tau_ref=tau_ref, f=f,
+                               covariance=cov)
       # conv/TRF heads (needs_bins): attach the channel/token
       # split — one bin, coordinate = ell (attach_head_coords).
       if getattr(self.model_cls, "needs_bins", False):
@@ -3717,7 +3956,9 @@ class EmulatorExperiment:
         self.chi2fn = make_cmb_chi2(geom=self.geom, law=law,
                                     param_geometry=self.pgeom,
                                     as_name=as_name,
-                                    tau_name=tau_name)
+                                    tau_name=tau_name,
+                                    as_ref=as_ref,
+                                    tau_ref=tau_ref)
       return self.pgeom, self.geom, self.chi2fn
 
     # grid (background-function) run: the input geometry is the

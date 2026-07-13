@@ -39,8 +39,12 @@ re-proved.
 import argparse
 import contextlib
 import datetime
+import difflib
+import hashlib
+import inspect
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -49,6 +53,17 @@ from pathlib import Path
 
 import board
 from board import BOARD, Gate, GateFailure
+
+
+class SelectionError(Exception):
+  """A command line names a gate id the registry does not contain.
+
+  Raised by the selectors (--gate / --from / --force-rerun) when a
+  requested id is not a real gate, so the command is a usage error with a
+  nonzero exit -- never a warning followed by a successful run of a
+  different, smaller surface than the text asked for. The message names the
+  offending id and the closest valid spellings.
+  """
 
 
 # The commit that carries the board + harness spec (the base-notes
@@ -569,6 +584,82 @@ def _dirty_lines(porcelain_out):
   return offenders
 
 
+def _note_markers(note_path):
+  """The set of explicit anchor markers declared in one note file.
+
+  A marker is an explicit ``<a id="..."></a>`` element (HTML embedded in
+  the markdown), chosen over a heading slug because it survives a heading
+  rewording: the evidence map cites a name the prose around it cannot move.
+
+  Arguments:
+    note_path = the notes/<stem>.md path to scan.
+
+  Returns:
+    the set of marker id strings the note declares, or None when the file
+    does not exist (so a missing note is reported distinctly from a note
+    that simply lacks the marker).
+  """
+  if not note_path.exists():
+    return None
+  text = note_path.read_text()
+  return set(re.findall(r'<a id="([^"]+)">', text))
+
+
+def validate_evidence(gates):
+  """Check every gate's structured evidence map resolves and is unique.
+
+  Two board-wide invariants, checked statically -- no GPU, no cocoa stack,
+  no clean tree -- so a plain ``--list`` on any machine exercises them:
+
+    (1) resolvable -- every Assertion.anchor "<note>.md#<marker>" names a
+        note under notes/ that exists and declares that <a id> marker, so a
+        reworded or deleted note orphans no pointer.
+    (2) unique -- no two assertions anywhere on the board share an aid, so a
+        leg's id names exactly one acceptance leg.
+
+  A gate with no evidence is skipped: the migration to the structured map is
+  rolling, and lacking evidence is never itself a failure (the gate still
+  documents itself through its free-form maps= line).
+
+  Arguments:
+    gates = the full gate registry (BOARD).
+
+  Returns:
+    (ok, errors): ok is True when every populated evidence map resolves and
+    all aids are unique; errors is the list of human-readable failures
+    (empty when ok).
+  """
+  errors = []
+  seen = {}                        # aid -> the gate id that first declared it
+  cache = {}                       # note stem -> its marker set (or None)
+  for gate in gates:
+    for item in gate.evidence:
+      if item.aid in seen:
+        errors.append("duplicate assertion id '" + item.aid + "' in gate '"
+                      + gate.id + "' (already declared by gate '"
+                      + seen[item.aid] + "')")
+      else:
+        seen[item.aid] = gate.id
+      if "#" not in item.anchor:
+        errors.append("gate '" + gate.id + "' assertion '" + item.aid
+                      + "' anchor '" + item.anchor
+                      + "' is not of the form '<note>.md#<marker>'")
+        continue
+      stem, marker = item.anchor.split("#", 1)
+      if stem not in cache:
+        cache[stem] = _note_markers(_REPO / "notes" / stem)
+      markers = cache[stem]
+      if markers is None:
+        errors.append("gate '" + gate.id + "' assertion '" + item.aid
+                      + "' cites missing note notes/" + stem)
+      elif marker not in markers:
+        errors.append("gate '" + gate.id + "' assertion '" + item.aid
+                      + "' anchor marker '#" + marker
+                      + "' is not declared in notes/" + stem
+                      + " (add <a id=\"" + marker + "\"></a> there)")
+  return (len(errors) == 0, errors)
+
+
 def preflight(cfg):
   """Run every pre-GPU check, printing remedies; return (ok, env).
 
@@ -777,16 +868,134 @@ def _load_status():
     return json.load(handle)
 
 
+# --------------------------------------------------------------------------
+# Resume identity: a stored PASS is trusted only when BOTH the gate's
+# executable surface and its effective inputs are unchanged, and an
+# interrupted attempt never masquerades as a pass. A PASS is a promise about
+# a specific tree AND a specific configuration; either one changing must
+# rerun the gate. State is published atomically so a crash never leaves a
+# stale PASS current or a status file whose cited log has been truncated.
+# --------------------------------------------------------------------------
+
+def _atomic_write_text(path, text):
+  """Write text to `path` atomically: a same-directory temp file + os.replace.
+
+  A kill during the write leaves the previous file intact and parseable
+  rather than a half-written status or board table.
+  """
+  path = Path(path)
+  path.parent.mkdir(parents=True, exist_ok=True)
+  fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix="." + path.name + ".")
+  try:
+    with os.fdopen(fd, "w") as handle:
+      handle.write(text)
+      handle.flush()
+      os.fsync(handle.fileno())
+    os.replace(tmp, str(path))
+  finally:
+    if os.path.exists(tmp):
+      os.unlink(tmp)
+
+
+def _gate_code_digest(gate):
+  """Digest the gate's executable surface: its body + the check scripts it runs.
+
+  inspect.getsource(gate.run) captures the gate body, including the literal
+  "gates/checks/<name>.py" path it invokes, so any change to the gate logic OR
+  to a check it drives changes this digest and a stored PASS becomes stale-code.
+  """
+  hasher = hashlib.sha256()
+  try:
+    src = inspect.getsource(gate.run)
+  except (OSError, TypeError):
+    src = repr(gate.run)
+  hasher.update(src.encode("utf-8"))
+  for match in re.finditer(r"gates/checks/[\w./-]+\.py", src):
+    check_file = _REPO / match.group(0)
+    if check_file.is_file():
+      hasher.update(b"\0check:" + check_file.read_bytes())
+  return hasher.hexdigest()
+
+
+def _config_yaml_bytes(cfg):
+  """The bytes of every config YAML the run references, for the input digest.
+
+  Best effort: the resolved yaml_dir's *.yaml files in name order, so a change
+  to any referenced YAML's CONTENTS (not just its path) reruns the gate. A run
+  with no yaml_dir contributes nothing (the cfg itself already changes when the
+  configuration changes).
+  """
+  parts = []
+  ydir = cfg.get("yaml_dir")
+  if ydir:
+    base = Path(ydir)
+    if not base.is_absolute() and cfg.get("rootdir"):
+      base = Path(cfg["rootdir"]) / ydir
+    if base.is_dir():
+      for yaml_file in sorted(base.glob("*.yaml")):
+        try:
+          parts.append(yaml_file.name.encode() + b"\0" + yaml_file.read_bytes())
+        except OSError:
+          pass
+  return b"".join(parts)
+
+
+def _gate_input_digest(gate, cfg):
+  """Digest the effective inputs that can change a gate's execution / science.
+
+  Covers the resolved configuration (board_config.json minus logging-only keys
+  such as debug and the derived rootdir_source), the resolved rootdir, the
+  gate's golden-worktree pin, and the referenced config YAMLs' contents. A
+  configuration change (config A -> config B) or a mutated referenced YAML thus
+  changes this digest and reruns the gate; a change to debug alone does not.
+  """
+  hasher = hashlib.sha256()
+  effective = {k: v for k, v in cfg.items()
+               if k not in ("debug", "rootdir_source")}
+  hasher.update(json.dumps(effective, sort_keys=True, default=str).encode())
+  hasher.update(("\0worktree:" + str(gate.worktree_commit)).encode())
+  hasher.update(b"\0yaml:" + _config_yaml_bytes(cfg))
+  return hasher.hexdigest()
+
+
+def _resume_state(status, gate, cfg):
+  """The gate's resume category, for --list / BOARD.md and the runner.
+
+  Returns one of: "PASS" (current under both digests), "stale-code",
+  "stale-input", "interrupted" (an abandoned RUNNING attempt), "FAIL",
+  "SKIP-DEP", or "not run". Only "PASS" is green; every other state is
+  non-green and (for a selected gate) makes the gate rerun.
+  """
+  record = status.get(gate.id, {})
+  state = record.get("status")
+  if state is None:
+    return "not run"
+  if state == "RUNNING":
+    return "interrupted"
+  if state != "PASS":
+    return state
+  if record.get("code_digest") != _gate_code_digest(gate):
+    return "stale-code"
+  if record.get("input_digest") != _gate_input_digest(gate, cfg):
+    return "stale-input"
+  return "PASS"
+
+
 def _save_status(status):
-  """Persist board_status.json (the resume + BOARD.md source)."""
-  _LOGS_DIR.mkdir(exist_ok=True)
-  with open(_STATUS_FILE, "w") as handle:
-    json.dump(status, handle, indent=2, sort_keys=True)
+  """Persist board_status.json atomically (the resume + BOARD.md source)."""
+  _atomic_write_text(_STATUS_FILE,
+                     json.dumps(status, indent=2, sort_keys=True) + "\n")
 
 
-def _write_board_md(status):
-  """Write the human-readable BOARD.md pass/fail table."""
-  _LOGS_DIR.mkdir(exist_ok=True)
+def _write_board_md(status, cfg=None):
+  """Write BOARD.md atomically, derived from the authoritative status record.
+
+  The state column distinguishes a current PASS from a stale-code PASS, a
+  stale-input PASS, an interrupted attempt, a FAIL, and a dependency skip, so
+  a reader can tell a trustworthy green from a PASS the tree or the
+  configuration has outrun. A stored log whose digest no longer matches its
+  file is flagged loud (the cited raw evidence changed under the verdict).
+  """
   lines = []
   lines.append("# Workstation board run")
   lines.append("")
@@ -796,14 +1005,70 @@ def _write_board_md(status):
   lines.append("|------|------|--------|--------|-----|")
   for gate in BOARD:
     record = status.get(gate.id, {})
-    state = record.get("status", "not run")
+    if cfg is not None:
+      state = _resume_state(status, gate, cfg)
+    else:
+      state = record.get("status", "not run")
     detail = record.get("detail", "")
-    log_cell = gate.id + ".log" if state in ("PASS", "FAIL") else ""
+    log_name = record.get("log", "")
+    if log_name and _log_digest_mismatch(record):
+      detail = (detail + " [LOG DIGEST MISMATCH: cited evidence changed]").strip()
+    log_cell = log_name if state in ("PASS", "FAIL", "stale-code",
+                                     "stale-input") else ""
     lines.append("| " + gate.id + " | " + gate.tier + " | " + state
                  + " | " + detail.replace("|", "/") + " | " + log_cell + " |")
   lines.append("")
-  with open(_BOARD_MD, "w") as handle:
-    handle.write("\n".join(lines) + "\n")
+  _atomic_write_text(_BOARD_MD, "\n".join(lines) + "\n")
+
+
+def _log_digest_mismatch(record):
+  """True when a status record cites a log whose bytes no longer digest to the
+  recorded value (the raw evidence changed under the verdict)."""
+  log_name = record.get("log")
+  stored = record.get("log_digest")
+  if not log_name or not stored:
+    return False
+  log_path = _LOGS_DIR / log_name
+  if not log_path.is_file():
+    return True
+  return hashlib.sha256(log_path.read_bytes()).hexdigest() != stored
+
+
+def _registry_ids():
+  """The set of every real gate id (the selector validation authority)."""
+  ids = set()
+  for gate in BOARD:
+    ids.add(gate.id)
+  return ids
+
+
+def _reject_unknown_ids(kind, names):
+  """Raise SelectionError if any requested id is not in the registry.
+
+  A single unknown id fails the WHOLE request rather than silently running
+  the recognized subset: a pasted command must execute exactly the surface
+  its text names, or refuse. The error suggests the closest valid ids.
+
+  Arguments:
+    kind  = the selector name for the message ("--gate", "--from", ...).
+    names = the requested ids (a list, or a single-item list for --from).
+  """
+  valid = _registry_ids()
+  unknown = []
+  for name in names:
+    if name not in valid:
+      unknown.append(name)
+  if len(unknown) == 0:
+    return
+  lines = []
+  for name in unknown:
+    near = difflib.get_close_matches(name, sorted(valid), n=3)
+    hint = "" if len(near) == 0 else " (did you mean: " + ", ".join(near) + "?)"
+    lines.append("'" + name + "'" + hint)
+  raise SelectionError(
+    kind + " names unknown gate id(s): " + "; ".join(lines)
+    + ". See --list for the registry; the whole request is refused so the "
+    "command runs exactly the gates it names.")
 
 
 def select_gates(args):
@@ -813,24 +1078,26 @@ def select_gates(args):
   explicit set (optional gates allowed). --tier picks one tier. --from
   starts the board at a gate. The result stays in board order.
 
+  Every requested gate id is validated against the registry first: an
+  unknown id raises SelectionError (the caller turns that into a nonzero
+  usage error), never a warning followed by a smaller successful run.
+
   Arguments:
     args = the parsed argparse namespace.
 
   Returns:
     a list of Gate in board order.
+
+  Raises:
+    SelectionError on an unknown --gate or --from id.
   """
   if args.gate:
+    _reject_unknown_ids("--gate", args.gate)
     wanted = set(args.gate)
     chosen = []
     for gate in BOARD:
       if gate.id in wanted:
         chosen.append(gate)
-    seen = set()
-    for gate in chosen:
-      seen.add(gate.id)
-    for name in args.gate:
-      if name not in seen:
-        print("warning: unknown gate id '" + name + "' (see --list)")
     return chosen
 
   if args.tier:
@@ -841,12 +1108,10 @@ def select_gates(args):
     return chosen
 
   if getattr(args, "from_gate", None):
+    _reject_unknown_ids("--from", [args.from_gate])
     ids = []
     for gate in BOARD:
       ids.append(gate.id)
-    if args.from_gate not in ids:
-      print("warning: unknown --from gate '" + args.from_gate + "'")
-      return []
     start = ids.index(args.from_gate)
     chosen = []
     index = 0
@@ -863,9 +1128,34 @@ def select_gates(args):
   return chosen
 
 
-def _passed(status, gate_id):
-  """Whether a gate is marked PASS in the status map."""
-  return status.get(gate_id, {}).get("status") == "PASS"
+def _gate_by_id(gate_id):
+  """The Gate with this id, or None (used to digest a dependency)."""
+  for gate in BOARD:
+    if gate.id == gate_id:
+      return gate
+  return None
+
+
+def _is_current_pass(status, gate, cfg):
+  """Whether a gate holds a PASS that is current under BOTH digests.
+
+  A stale-code PASS, a stale-input PASS, and an abandoned RUNNING attempt are
+  all NOT current, so they neither resume-skip a selected gate nor satisfy a
+  downstream dependency.
+  """
+  return _resume_state(status, gate, cfg) == "PASS"
+
+
+def _dep_current_pass(status, dep_id, cfg):
+  """Whether a dependency is a current PASS (its Gate resolved for digesting).
+
+  An unknown dependency id (not in the registry) can never be current, so a
+  gate depending on it is refused rather than silently satisfied.
+  """
+  dep_gate = _gate_by_id(dep_id)
+  if dep_gate is None:
+    return False
+  return _is_current_pass(status, dep_gate, cfg)
 
 
 # --------------------------------------------------------------------------
@@ -929,9 +1219,22 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
                   command output + config dump to the terminal too.
 
   Returns:
-    the count of gates that FAILED (0 means the selection is green).
+    a summary dict with the per-category counts
+    ("passed" = freshly PASSed this run, "resume" = skipped because already
+    current PASS, "failed", "skipped_dep"), a per-gate (id, category) list,
+    and "incomplete" -- True when any SELECTED gate did not finish current
+    PASS. A dependency skip, a failure, or a stale/interrupted state all make
+    the run incomplete: the command succeeds only when every requested gate is
+    green, so a requested gate that executed no test code can never report
+    success (a dependency skip is kept distinct from a failure in the counts).
   """
-  failures = 0
+  summary = {"passed": 0, "resume": 0, "failed": 0, "skipped_dep": 0,
+             "gates": []}
+
+  def _record(gate_id, category):
+    summary["gates"].append((gate_id, category))
+    summary[category] = summary[category] + 1
+
   for gate in selection:
     # dry mode prints every selected gate's plan, BEFORE (and bypassing)
     # the resume + dependency checks, so --dry-run --gate cobaya-adapter shows the
@@ -948,34 +1251,60 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
         print("[dry-run] (gate would need: " + str(failure) + ")")
       continue
 
-    # resume: an already-passed gate is skipped unless forced.
-    if _passed(status, gate.id) and gate.id not in force_rerun:
-      print("[skip] " + gate.id + ": already PASS (resume); "
-            "--force-rerun " + gate.id + " to rerun")
+    # resume: skip ONLY a gate whose stored PASS is current under BOTH the
+    # executable-surface digest and the input digest. A stale-code PASS, a
+    # stale-input PASS (config A -> config B), or an abandoned RUNNING attempt
+    # is not current, so it is rerun rather than trusted.
+    state = _resume_state(status, gate, cfg)
+    if state == "PASS" and gate.id not in force_rerun:
+      print("[skip] " + gate.id + ": already PASS (resume, current under both "
+            "digests); --force-rerun " + gate.id + " to rerun")
+      _record(gate.id, "resume")
       continue
+    if (state in ("stale-code", "stale-input", "interrupted")
+        and gate.id not in force_rerun):
+      print("[rerun] " + gate.id + ": prior PASS is " + state
+            + " (the tree or the configuration changed, or the attempt was "
+            "interrupted) -- rerunning")
 
-    # dependency skip: an unmet prerequisite marks SKIPPED, no abort.
+    # dependency skip: an unmet prerequisite (not a CURRENT pass under both
+    # digests) marks the gate skipped and runs no test code. It is not green.
     unmet = []
     for dep in gate.deps:
-      if not _passed(status, dep):
+      if not _dep_current_pass(status, dep, cfg):
         unmet.append(dep)
     if len(unmet) > 0:
-      detail = "dependency not passed: " + ", ".join(unmet)
+      detail = "dependency not current PASS: " + ", ".join(unmet)
       print("[skip] " + gate.id + ": " + detail)
       status[gate.id] = {"status": "SKIP-DEP",
                          "detail": detail,
                          "ts": _now()}
       _save_status(status)
-      _write_board_md(status)
+      _write_board_md(status, cfg)
+      _record(gate.id, "skipped_dep")
       continue
 
-    log_path = _LOGS_DIR / (gate.id + ".log")
+    # persist a RUNNING record BEFORE any gate code runs: an interruption,
+    # SystemExit, process kill, or crash now leaves an interrupted RUNNING
+    # attempt, never the prior PASS. The attempt writes to its OWN immutable
+    # log (a per-attempt name), so a rerun never truncates the evidence a prior
+    # PASS still cites; the log is published (atomically) only after the
+    # terminal verdict, together with its digest.
+    code_dig = _gate_code_digest(gate)
+    input_dig = _gate_input_digest(gate, cfg)
+    attempt = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    log_name = gate.id + "." + attempt + ".log"
+    status[gate.id] = {"status": "RUNNING", "ts": _now(),
+                       "code_digest": code_dig, "input_digest": input_dig,
+                       "log": log_name, "attempt": attempt}
+    _save_status(status)
+    _write_board_md(status, cfg)
+
     _LOGS_DIR.mkdir(exist_ok=True)
-    # one-line terminal header; the full header block + config dump are
-    # log-only content (debug mirrors them to the terminal).
+    inprogress = _LOGS_DIR / (log_name + ".inprogress")
     print("GATE " + gate.id + " [" + gate.tier + "] started "
           + datetime.datetime.now().strftime("%H:%M:%S"))
-    with open(log_path, "w") as log_fh:
+    with open(inprogress, "w") as log_fh:
       ctx = RunContext(cfg=cfg, dry=False, log_fh=log_fh, env=env, debug=debug)
       _log_header(ctx, gate)
       outcome = "PASS"
@@ -988,35 +1317,52 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
       except Exception as unexpected:  # a crash is a gate failure, not the board's
         outcome = "FAIL"
         detail = "unexpected: " + repr(unexpected)
-      # the final verdict stays on the terminal (log_only default False).
+      # (KeyboardInterrupt / SystemExit are NOT caught: they propagate, leaving
+      # the RUNNING record as an interrupted attempt, never a PASS.)
       footer = ("[harness] GATE " + gate.id + ": " + outcome
                 + ("" if detail == "" else "  -- " + detail) + "\n")
       ctx._emit(footer)
 
-    if outcome == "FAIL":
-      failures = failures + 1
-    status[gate.id] = {"status": outcome,
-                       "detail": detail,
-                       "ts": _now()}
+    # publish the immutable log atomically, digest it, then replace the status
+    # record with the verdict referencing that exact log path + digest.
+    final_log = _LOGS_DIR / log_name
+    os.replace(str(inprogress), str(final_log))
+    log_dig = hashlib.sha256(final_log.read_bytes()).hexdigest()
+    status[gate.id] = {"status": outcome, "detail": detail, "ts": _now(),
+                       "code_digest": code_dig, "input_digest": input_dig,
+                       "log": log_name, "log_digest": log_dig,
+                       "attempt": attempt}
     _save_status(status)
-    _write_board_md(status)
+    _write_board_md(status, cfg)
+    _record(gate.id, "passed" if outcome == "PASS" else "failed")
 
-  return failures
+  summary["incomplete"] = (summary["failed"] > 0
+                           or summary["skipped_dep"] > 0)
+  return summary
 
 
 # --------------------------------------------------------------------------
 # The CLI.
 # --------------------------------------------------------------------------
 
-def cmd_list(status):
-  """Print the board with each gate's current status (the --list view)."""
+def cmd_list(status, cfg=None):
+  """Print the board with each gate's resume state (the --list view).
+
+  The state distinguishes a current PASS from a stale-code PASS, a stale-input
+  PASS, and an interrupted attempt, so a reader can tell a trustworthy green
+  from a PASS the tree or the configuration has outrun (cfg supplies the
+  current digests; without it the raw stored status is shown).
+  """
   print("Workstation board (base-notes " + _BASE_NOTES_COMMIT[:9] + "):")
   current_tier = None
   for gate in BOARD:
     if gate.tier != current_tier:
       current_tier = gate.tier
       print("\n[" + current_tier + "]")
-    state = status.get(gate.id, {}).get("status", "not run")
+    if cfg is not None:
+      state = _resume_state(status, gate, cfg)
+    else:
+      state = status.get(gate.id, {}).get("status", "not run")
     flags = []
     if gate.optional:
       flags.append("optional")
@@ -1044,19 +1390,24 @@ def build_parser():
   parser.add_argument("--dry-run",
                       action="store_true",
                       help="print every command a selection would run")
-  parser.add_argument("--gate",
-                      nargs="+",
-                      metavar="ID",
-                      help="run only these gate ids (optional gates allowed)")
-  parser.add_argument("--tier",
-                      choices=(board.TIER_BACKLOG,
-                               board.TIER_NEW_FEATURES,
-                               board.TIER_SAVE_AND_SAMPLE),
-                      help="run only this tier")
-  parser.add_argument("--from",
-                      dest="from_gate",
-                      metavar="ID",
-                      help="run the board from this gate onward")
+  # the run-selection surface: exactly one of --gate / --tier / --from (or
+  # none, meaning the whole board). Mutually exclusive so a pasted mixed
+  # command is rejected instead of a silent precedence choosing a different
+  # surface than the text reads.
+  selectors = parser.add_mutually_exclusive_group()
+  selectors.add_argument("--gate",
+                         nargs="+",
+                         metavar="ID",
+                         help="run only these gate ids (optional gates allowed)")
+  selectors.add_argument("--tier",
+                         choices=(board.TIER_BACKLOG,
+                                  board.TIER_NEW_FEATURES,
+                                  board.TIER_SAVE_AND_SAMPLE),
+                         help="run only this tier")
+  selectors.add_argument("--from",
+                         dest="from_gate",
+                         metavar="ID",
+                         help="run the board from this gate onward")
   parser.add_argument("--force-rerun",
                       nargs="+",
                       default=[],
@@ -1094,18 +1445,44 @@ def main(argv=None):
   # presence for real runs; dry-run / --list do not need it.)
   debug = bool(cfg.get("debug", False)) or args.debug
 
+  # the structured evidence map is validated on EVERY invocation (a plain
+  # --list on any machine exercises it, no GPU): a gate that cites a note
+  # anchor that does not resolve, or reuses another gate's assertion id, is
+  # a board-authoring error that fails fast, before a single gate runs.
+  ok_ev, ev_errors = validate_evidence(BOARD)
+  if not ok_ev:
+    print("error: the structured evidence map does not validate:")
+    for line in ev_errors:
+      print("  - " + line)
+    return 2
+
   if args.list:
-    cmd_list(status)
+    cmd_list(status, cfg)
     return 0
 
   if args.check:
     ok, _ = preflight(cfg)
     return 0 if ok else 1
 
-  selection = select_gates(args)
+  # validate every requested gate id (selection AND force-rerun) against the
+  # registry before doing anything: an unknown id is a usage error with a
+  # nonzero exit, never a warning followed by a successful run of a smaller
+  # (or empty) surface than the command names.
+  try:
+    _reject_unknown_ids("--force-rerun", args.force_rerun)
+    selection = select_gates(args)
+  except SelectionError as bad:
+    print("error: " + str(bad))
+    return 2
+
+  # an empty real-run selection is a failure, not a silent success: the
+  # command was asked to test something and tested nothing. (--tier always
+  # yields its gates and the default yields the whole board, so this only
+  # trips on a genuinely empty request.)
   if len(selection) == 0:
-    print("no gates selected")
-    return 0
+    print("error: the selection is empty; no gate matched the request "
+          "(nothing was tested)")
+    return 2
 
   # --force-rerun-all = force every SELECTED gate (composes with
   # --gate / --tier / --from). Built here as the forced-id set so
@@ -1116,6 +1493,10 @@ def main(argv=None):
   if args.force_rerun_all:
     for gate in selection:
       forced.add(gate.id)
+
+  # print the resolved selection so the terminal names exactly what will run.
+  print("selected " + str(len(selection)) + " gate(s): "
+        + ", ".join(gate.id for gate in selection))
 
   if args.dry_run:
     print("dry-run plan (" + str(len(selection)) + " gates, in order):")
@@ -1128,12 +1509,23 @@ def main(argv=None):
     print("preflight failed; not running any gate")
     return 1
 
-  failures = run_selection(selection=selection, cfg=cfg, env=env,
-                           status=status, force_rerun=forced,
-                           dry=False, debug=debug)
-  print("\nboard run complete: " + str(failures) + " gate(s) FAILED; "
+  summary = run_selection(selection=selection, cfg=cfg, env=env,
+                          status=status, force_rerun=forced,
+                          dry=False, debug=debug)
+  # the completion verdict: the command succeeds only when EVERY selected gate
+  # finished current PASS (a fresh PASS or a valid resume PASS). A failure or a
+  # dependency skip makes the run incomplete and the exit nonzero; the summary
+  # keeps the categories distinct rather than relabelling skips as failures.
+  n_green = summary["passed"] + summary["resume"]
+  print("\nboard run complete: " + str(n_green) + " current PASS ("
+        + str(summary["passed"]) + " ran, " + str(summary["resume"])
+        + " resumed), " + str(summary["failed"]) + " FAILED, "
+        + str(summary["skipped_dep"]) + " dependency-skipped; "
         "see gates/logs/BOARD.md")
-  return 1 if failures > 0 else 0
+  if summary["incomplete"]:
+    print("run INCOMPLETE: not every selected gate is current PASS")
+    return 1
+  return 0
 
 
 if __name__ == "__main__":

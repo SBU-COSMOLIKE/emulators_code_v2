@@ -663,7 +663,8 @@ def main():
                       required=True,
                       help="output name root; writes "
                            "<root>/chains/<output>.npz")
-  args, _ = parser.parse_known_args()
+  # strict parse: reject a misspelled flag instead of silently ignoring it.
+  args = parser.parse_args()
 
   import yaml as pyyaml
 

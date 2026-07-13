@@ -943,6 +943,60 @@ CONFIRMED with these bindings; 43 is GO):
 Red legs: as proposed, PLUS a refusal leg for a rebuilt state
 missing as_ref / tau_ref (the no-fallback proof).
 
+QUEUE 43 COMPLETE resume (2026-07-12, Opus) — committed 4a19a17, cmb-identity green on real torch
+
+Queue 43 self-committed on the branch as 4a19a17 (batch grant, pending
+Architect audit). The imposed CMB amplitude law is now the dimensionless
+order-one factor f = (A_s_ref / A_s) * exp(2 (tau - tau_ref)), exactly 1
+at the persisted fiducial, replacing the retired raw exp(2 tau)/A_s. The
+loss-side (registry rename + configure_law refs + reject_retired) was the
+pre-(g) WIP reapplied via scratchpad/queue43_cmb.patch; this resume covers
+the whole surface the RULINGS scoped.
+
+Delivered exactly to the RULINGS:
+- Law name as_exp2tau_ref, NO version field; reject_retired_amplitude_law
+  (promoted to public in losses/cmb.py) is the ONE message source, called
+  at config build (validate_cmb), h5 rebuild (CmbDiagonalGeometry.from_state),
+  and loss build (make_cmb_chi2) — an old as_exp2tau name is refused with
+  the retrain instruction at every boundary.
+- as_ref / tau_ref: a REQUIRED validated data.cmb pair (finite; as_ref > 0),
+  persisted as RESOLVED float64 geometry state (only for the order-one law;
+  the none law records none), byte-round-tripped; from_state refuses a
+  rebuilt as_exp2tau_ref state missing either (the no-fallback proof); the
+  loss reads them via make_cmb_chi2. The artifact records the NUMBERS.
+- Staging: one verdict line (_report_cmb_staging) with target center,
+  encoded fiducial scale, factor range + f-at-fiducial; the covariance
+  cross-check (_cross_check_cmb_fiducial) reads the provenance fiducial IF
+  present and flags a drift LOUD (config stays authoritative — no invented
+  sidecar field).
+- Threading: both training call sites (fresh + finetune pin, the pin now
+  matching as_ref/tau_ref too), inference _build_cmb_decoder, and the
+  results.py info keys all carry the pair.
+- Retrain: USER-VISIBLE, declared. queue-42 metric division unchanged.
+
+Files: emulator/losses/cmb.py, emulator/geometries/cmb.py,
+emulator/experiment.py, emulator/inference.py, emulator/results.py,
+emulator/losses/pce.py (comment), plus docs (README.md, emulator/README.md,
+example_yamls/cmb_emulator.yaml, cmb_train_emulator.py) and gates
+(cmb_identity.py, cmb_smoke.py, transfer_identity.py, board.py).
+
+Gate: cmb_identity.py factored-law legs test as_exp2tau_ref — the order-one
+_factor bitwise, f == 1 at the fiducial, order-one over the box, byte-exact
+reference persistence, the retired-law + missing-reference refusals, and a
+raw-factor mutation arm that FAILS both the fiducial-unity (raw f_fid ~
+5.3e8) and order-one legs. The WHOLE cmb-identity gate is GREEN on the
+Cocoa torch (CPU), including the eq-6 covariance oracle legs. Standalone
+probes: probe_q43_geom 15/15, probe_q43_loss_config 18/18 (loss + factor +
+validate_cmb), probe_q43_staging 6/6.
+
+Workstation owed (user-run): cmb-smoke rerun (real CAMB + the retrained
+target) and any as_exp2tau CMB artifacts retrain under the new law.
+
+Queue order after 43: 14(h) 45M-61 (the diagnostic score boundary, propose
+the shared screen_chi2 helper first), then 50(+60+14f) -> 52 -> 55 ->
+22(+20) -> 13(+01).
+
+
 ### 45M-27 amendment: lmax validation does not prove multipole coverage (2026-07-12, Architect-VERIFIED; extends unit 26's axis-identity contract to the CMB read/rebuild boundary)
 
 emul_cmb.must_provide (:195-209) validates a requested lmax only

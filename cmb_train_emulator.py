@@ -4,9 +4,10 @@
 A CMB emulator maps cosmological parameters to one spectrum's C_ell
 values (TT, TE, EE, or phi-phi) on a fixed multipole grid, whitened per
 multipole by the error bar sigma_ell from the covariance script's .npz;
-an optional amplitude law (as_exp2tau) divides the known A_s e^(-2 tau)
-scaling out of the target and multiplies it back at inference. One
-emulator learns ONE spectrum.
+an optional amplitude law (as_exp2tau_ref) divides the known A_s e^(-2 tau)
+scaling out of the target — measured against a persisted fiducial so the
+factor is order-one — and multiplies it back at inference. One emulator
+learns ONE spectrum.
 
 This is a thin wrapper over cosmic_shear_train_emulator.py's
 main() — the training stack is identical for every family; the wrapper

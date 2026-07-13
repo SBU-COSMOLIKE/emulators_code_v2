@@ -26,6 +26,37 @@ Glossary:
   preflight = the pre-GPU checks (git tip, clean tree, cocoa imports,
               data paths); all must pass before any test runs.
   resume    = a rerun skips tests already marked PASS.
+  assertion = one acceptance leg named by a stable id and paired with a
+              note anchor (the Assertion class); the id names the leg, the
+              anchor points at the note passage that proves it.
+  evidence  = a gate's structured evidence map (Gate.evidence): the tuple
+              of assertions the gate is built to prove. The runner checks,
+              before any test runs, that every anchor resolves in notes/
+              and no two assertions share an id.
+
+How a gate teaches its evidence.
+  A PASS is only worth trusting if a reviewer can re-derive it from what
+  the run recorded, without rerunning it. Four records make a gate's
+  verdict legible, and each answers a different question:
+
+    what the gate claims to prove -- the maps= line (prose) and the
+      structured evidence map (assertion id -> note anchor). The runner
+      validates the anchors, so the claim cannot drift from the note.
+    what the run actually observed -- every ctx.expect writes a CHECK line
+      carrying not a bare PASS/FAIL but the acceptance value behind it (a
+      number, a count, a byte-identity result), so the log shows the
+      measurement, not a memory of it.
+    what code produced it -- the immutable per-attempt log names the home
+      note, the base-notes commit, and HEAD at run; the resume record
+      stores the executable-surface digest and the input digest, so a
+      stored PASS is trusted only while both are unchanged.
+    whether it can be believed now -- --list reports each gate as current
+      PASS, stale-code, stale-input, or interrupted, so a PASS that no
+      longer matches the tree reads as stale rather than green.
+
+  Read together, these let a reviewer confirm the gate encodes its note
+  (not a memory of it), see the values it measured, and know the verdict
+  still describes the current tree.
 """
 
 from dataclasses import dataclass, field
@@ -52,6 +83,37 @@ TIER_SAVE_AND_SAMPLE = "save-and-sample"
 # default single-train driver would execute the wrong program on a sweep
 # YAML. It sits beside the emulator package at the repo root.
 SWEEP_NTRAIN_DRIVER = "cosmic_shear_sweep_ntrain_emulator.py"
+
+
+@dataclass(frozen=True)
+class Assertion:
+  """One acceptance leg's stable id and the note anchor that proves it.
+
+  The board's trust problem: a gate's free-form maps= prose claims to
+  encode a home-note passage, but nothing checks the claim, so a
+  reworded or deleted note silently orphans the pointer (only a
+  handful of the board's tests currently name a note passage the note
+  actually still carries). An Assertion makes the pointer machine
+  checkable. Before any gate runs, the runner verifies that every
+  anchor resolves to a real, explicitly-declared marker in notes/, and
+  that no two assertions anywhere on the board share an id -- so a
+  review can trust that the gate encodes the note, not a memory of it.
+
+  Arguments:
+    aid    = the assertion id: a stable, board-unique name for one
+             acceptance leg (e.g. "brd-a.exit-truth"). Chosen once and
+             never reworded, so a log line or a review can cite the leg
+             by a name that does not move when the prose around it does.
+    anchor = the home-note anchor the leg encodes, in the form
+             "<note>.md#<marker>" (e.g.
+             "gates-and-board.md#brd-a-exit-truth"). The marker is an
+             explicit <a id="..."></a> element in the note (chosen over
+             a heading slug because it survives a heading rewording);
+             the runner fails loudly, before running, if it does not
+             resolve.
+  """
+  aid: str
+  anchor: str
 
 
 @dataclass(frozen=True)
@@ -83,6 +145,15 @@ class Gate:
               note's ledger tables. Registry data for the notes only: it is
               never printed or documented outside notes/ (user ruling
               2026-07-12 — internal tracking codes stay in notes).
+    evidence= the structured evidence map: the acceptance legs this test
+              is built to prove, each an Assertion pairing a stable,
+              board-unique id with the home-note anchor it encodes. The
+              runner validates it statically before any gate runs (every
+              anchor must resolve to a declared marker in notes/, every id
+              must be unique), so the maps= prose can never quietly drift
+              from the note it cites. Empty on tests not yet migrated to
+              the structured map -- their free-form maps= line still
+              documents them; the migration is rolling, not a flag day.
     title   = a one-line human name for the test (for the README table).
   """
   id: str
@@ -95,6 +166,7 @@ class Gate:
   needs: Tuple[str, ...] = ()
   worktree_commit: str = None
   spec_code: str = ""
+  evidence: Tuple[Assertion, ...] = ()
   title: str = ""
 
 
@@ -993,9 +1065,11 @@ def gate_cme_a(ctx):
   WHAT: tiny synthetic CMB emulators (a ParamGeometry over a written covmat
   + a CmbDiagonalGeometry over a synthetic fiducial C_ell + a small ResMLP)
   prove: the RULED cosmic-variance constants (sigma_l = C_fid*sqrt(2/(2l+1)),
-  the covinv ruling); the geometry state round-trip byte-identical (nine
-  keys incl. the law strings); the as_exp2tau law exact both ways (_factor
-  bitwise, encode(decode) to float32 round-off) + its loud errors; save ->
+  the covinv ruling); the geometry state round-trip byte-identical (the law
+  strings + the persisted fiducial refs); the as_exp2tau_ref law exact both
+  ways (the order-one _factor bitwise, 1 at the fiducial, encode(decode) to
+  float32 round-off) + its loud errors (retired-law + missing-reference
+  refusals, the raw-factor mutation failing the unity + order-one legs); save ->
   rebuild -> predict bitwise on BOTH laws (the predictor's CMB branch); the
   emul_cmb adapter's Cl assembly + every loud error (duplicate spectrum,
   wrong-kind, unknown-spectrum / beyond-lmax must_provide, both get_Cl
@@ -1041,7 +1115,7 @@ def gate_cme_b(ctx):
   l = 2..350, cmblensed, As sampled linearly) — four per-spectrum dv files
   + sidecars, phiphi actually filled; compute_cmb_covariance.py
   writes the Gaussian .npz on the fixture LCDM (its first real run);
-  a data.cmb / as_exp2tau training run collapses the val median below
+  a data.cmb / as_exp2tau_ref training run collapses the val median below
   0.5x the staged mean predictor (the bar a dead network cannot pass);
   the saved artifact serves Cl through the real cobaya
   lifecycle (get_model + add_requirements + provider.get_Cl equals the
@@ -1071,7 +1145,7 @@ def gate_bsn_a(ctx):
 
   WHAT: the cumulative Simpson (even doubled-grid points exact on cubics,
   the odd node the correct one-interval integral, exact on quadratics —
-  45M-12, superseding the old half-chunk form; the old form is the gate's
+, superseding the old half-chunk form; the old form is the gate's
   mutation control) and the H(z)->distances pipeline against a closed-form
   flat LCDM at 1e-6; the GridGeometry log_offset law both ways + the
   state round-trip byte-identical + the un-standardizable /
@@ -1241,13 +1315,13 @@ def gate_finite_contract(ctx):
   (no-extra both-arms NaN, one-arm NaN, Inf, extras-present NaN, and a
   non-finite transfer surface, each with the finite-contract message, never a
   misleading "extras leaked" / "frozen base" / tolerance verdict), and the
-  45M-24 safe-sqrt producer (an exact-fit chi2 == 0 has a finite, zero
+ safe-sqrt producer (an exact-fit chi2 == 0 has a finite, zero
   gradient in every sqrt mode instead of the 0/0 = NaN it used to produce;
   positives agree with sqrt; a negative / NaN chi2 is refused; eager and
-  torch.compile agree), and the 45M-47 epoch reduction (a finite per-batch
+  torch.compile agree), and the epoch reduction (a finite per-batch
   loss near the float32 max yields a finite epoch mean via host float64
   accumulation, where the old device float32 loss*bs product overflowed to
-  Inf), and the 45M-53 / 45M-60 chi2-domain boundary (eval_val and
+  Inf), and the chi2-domain boundary (eval_val and
   eval_source_chi2 raise on a finite negative chi2 that training folds; the
   scale-aware band scales with the per-row kept WIDTH, not w^2, so a
   production-width leg refuses a chi2 = -2 the retired w^2 rule crowned as
@@ -1255,17 +1329,221 @@ def gate_finite_contract(ctx):
   control shows genuine roundoff near zero falls inside the band); the valid
   controls keep their metrics and their [ok] parity lines. torch only, no
   cosmolike, no GPU (spec: training-stack.md, the "NaN scores as a perfect
-  emulator" section and its pre-training parity + 45M-24 + 45M-47 + 45M-53 +
-  45M-60 clauses).
+  emulator" section and its pre-training parity + +
+ clauses).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/finite_contract.py")
   if not ctx.dry:
+    # exit code 0 = every leg ran and passed; 2 = a mandatory lane (the
+    # torch.compile backward) could not run on this box, a non-green result
+    # rather than a silent PASS; any other nonzero = a tested assertion
+    # failed. Both nonzero codes make the gate non-PASS.
+    if rc == 2:
+      reason = ("a mandatory lane could not run (torch.compile backward "
+                "unavailable); run this gate on a compile-capable box")
+    else:
+      reason = "check exit code " + str(rc)
     ctx.expect(
       label="finite-contract eval/train/diagnostic/parity/safe-sqrt legs",
       ok=(rc == 0),
+      detail=reason + " (gates/checks/finite_contract.py)")
+
+
+def gate_board_selftest(ctx):
+  """board-selftest: the runner reports the truth about what actually ran.
+
+  WHAT: pure-Python self-tests of run_board's own control flow (no torch, no
+  cosmolike), over a small set of fake gates. WHY: several board-truth defects
+  let a run report success (or reuse a stale PASS) without testing what it
+  claimed. A dependency-skipped selected gate ran no test code but was counted
+  green; an unknown --gate / --from / --force-rerun id printed a warning and
+  then exited 0 on a smaller (or empty) surface; the finite-contract check
+  printed a compile-lane skip inside a process that still returned 0; a stored
+  PASS was trusted on status alone, so a configuration change or a mutated
+  referenced YAML reused it and an interrupted forced rerun preserved the prior
+  PASS while its cited log had already been truncated. HOW: the check drives the
+  real run_board.main / select_gates over fake gates -- a dependency-skipped
+  gate exits nonzero and runs no body; an unknown selector id is a usage error
+  with a suggestion; the selectors are mutually exclusive; the finite-contract
+  compile-lane code maps to a non-PASS; a stored PASS is trusted only when both
+  the executable-surface digest and the input digest are current (a config
+  change, a mutated YAML, and a mismatched digest all rerun); and a RUNNING
+  record is persisted before any gate code, so an interruption leaves an
+  interrupted attempt with its own immutable log (never the prior PASS), while
+  a successful run publishes a fresh log whose stored digest matches its bytes.
+  No torch, no cosmolike, no GPU.
+  """
+  rc, out = ctx.run_check("gates/checks/board_selftest.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="board-selftest exit-truth / selector / lane-code legs",
+      ok=(rc == 0),
       detail="check exit code " + str(rc)
-             + " (gates/checks/finite_contract.py)")
+             + " (gates/checks/board_selftest.py)")
+
+
+def gate_artifact_readback(ctx):
+  """artifact-readback: saved attributes are parsed by type, not truthiness.
+
+  WHAT: a CPU check of the typed attribute reader (_read_native_bool) plus a
+  census that no artifact boolean attribute is still read with a bool()
+  truthiness coercion. WHY: HDF5 attributes are weakly typed, so a marker read
+  back with Python truthiness can flip a feature bit -- the string "False" is
+  truthy, so a transfer artifact whose transfer_refined marker literally reads
+  "False" would load its drifted prediction weights. HOW: the reader accepts a
+  native Python / numpy boolean, returns the default for an absent key, and
+  refuses every string ("False", "true", "0", ...) and integer, naming the
+  file and the required native-boolean schema; the source census confirms the
+  read boundary routes through it. The live save/forge/rebuild proof needs a
+  real HDF5 artifact and is owned by the workstation artifact-integrity gate.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/artifact_readback.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="artifact-readback typed-attribute legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/artifact_readback.py)")
+
+
+def gate_generator_seed(ctx):
+  """generator-seed: the dataset generator samples from an owned, recorded RNG.
+
+  WHAT: a CPU census of the generator's sampling surface plus the numpy
+  Generator's replay guarantee. WHY: the generator had no seed and drew every
+  sample from the process-global np.random, so two runs with identical YAML,
+  command line, and code produced different parameter tables and nothing
+  recorded the seed -- the dataset could not be replayed from its inputs. HOW:
+  a required integer seed owns a numpy Generator threaded through the uniform
+  sampling, the emcee walker init and the sampler's own moves, and the thinning
+  subselection; the seed and RNG are written into the chain header. The check
+  confirms no process-global np.random draw remains, the owned Generator is
+  used, the seed is required / type-checked / recorded, and same-seed draws
+  reproduce. The generator imports MPI / cobaya / CAMB, so the live end-to-end
+  replay rides the workstation smoke gates; no torch here.
+  """
+  rc, out = ctx.run_check("gates/checks/generator_seed.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="generator-seed sampling-RNG legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/generator_seed.py)")
+
+
+def gate_cli_strict(ctx):
+  """cli-strict: a misspelled flag is a usage error, not a silent ignore.
+
+  WHAT: a census that all eight public entry points parse with strict
+  parse_args, plus a live test of two driver mains with the expensive boundary
+  monkeypatched. WHY: the drivers and data producers used parse_known_args and
+  discarded the unknown tokens, so a misspelled flag (--activaton, --quieet,
+  --diagnostc, --sav) was silently ignored and the run proceeded at the YAML or
+  default value -- most dangerously publishing to the default --save root. HOW:
+  a valid command line reaches the boundary (parsing succeeded); a misspelled
+  flag exits nonzero before the boundary, so no data is read, no artifact
+  loaded, no CAMB started, no worker spawned, and no output root chosen.
+  Importing the drivers needs torch; the parse itself is pure Python.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/cli_strict.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="cli-strict flag-parsing legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/cli_strict.py)")
+
+
+def gate_family_first(ctx):
+  """family-first: every driver owns exactly one data-block family.
+
+  WHAT: a CPU check of require_family_block plus a census of the four
+  cosmic_shear drivers. WHY: the direct cosmic_shear drivers passed family=None,
+  which skipped the family check, so a CMB / grid / grid2d / scalar YAML
+  launched through cosmic_shear_train_emulator.py trained under the wrong public
+  identity (a scalar YAML died later at run_tag on a missing train_dv key). HOW:
+  a direct cosmic-shear run now owns the "cosmolike" data-vector family and
+  rejects any other family's block naming its driver, while a clean cosmic-shear
+  YAML trains; the per-family wrappers accept their own block; and the census
+  confirms the four cosmic_shear drivers default family=cosmolike, always call
+  the check, and drop the misleading dispatcher prose. Importing the driver
+  needs torch; the check is pure Python.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/family_first.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="family-first driver-identity legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/family_first.py)")
+
+
+def gate_stage_ram(ctx):
+  """stage-ram: the host-RAM staging decision counts every array it copies.
+
+  WHAT: a CPU check of stage_source's resident-vs-disk branch decision with a
+  mocked available-memory value. WHY: the resident branch materializes BOTH
+  the compact parameter table C[idx] and the compact target dv[idx], but the
+  budget counted only the dv bytes, so a narrow-output dump (many input
+  columns, one output column) chose the resident branch even when the two
+  copies together exceeded the allowance -- an avoidable out-of-memory. HOW:
+  the check drives the real stage_source with available memory pinned between
+  "dv alone fits" and "dv plus C fits" (the corrected code keeps the
+  disk-backed branch there), with resident and disk controls, an unequal
+  dtype/width case, byte-identical selected rows across both regimes, and a
+  mutation arm showing the retired dv-only estimate would pick RAM. Importing
+  the module needs torch; the decision is pure NumPy on tiny arrays.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/stage_ram.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="stage-ram host-RAM accounting legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/stage_ram.py)")
+
+
+def gate_diagnostics_domain(ctx):
+  """diagnostics-domain: a corrupted chi2 never crowns a diagnostic.
+
+  WHAT: the shared score-domain boundary at every chi2 CONSUMER, not just the
+  training reduction and the two evaluation boundaries (increment (e)).
+  local_linear_floor computed its interpolation-floor score by calling
+  chi2fn.chi2 DIRECTLY and interpreting the unchecked value (f_floor via
+  dchi2_floor > 0.2, median_floor via np.median), and the CMB / grid / grid2d
+  residual functions upcast each chunk with .double() before any check. WHY: a
+  geometry whose Cinv is not positive-definite (a same-shaped h5 edit strict
+  weight loading accepts) makes the floor go negative, and the > 0.2 test read
+  a -1 floor as a PERFECT 0 -- an impossible "data-only floor" reported ideal.
+  HOW: a CPU torch-only check drives screen_chi2 (the one shared helper in
+  losses/core.py: a valid positive score passes byte-identical, a within-band
+  roundoff negative normalizes to exact 0, and a materially negative / NaN /
+  +-Inf score raises naming the boundary, the rows, the minimum, and the band;
+  a loss without _chi2_n_terms falls back to the 1e-6 band floor; the term
+  count widens the band with the kept width) and the REAL producers: the
+  local_linear_floor refuses a reachable negative floor BEFORE it computes
+  f_floor (the floor guard fires ahead of the model arm), refuses a NaN floor,
+  and returns finite scores on a valid run, with a mutation arm (the guard
+  bypassed) recreating the false f_floor = 0; the cmb_residual_diagnostic
+  refuses a corrupt per-sample score and keeps its bands on a valid run; and a
+  source census proves the grid / grid2d residual functions route through the
+  same shared boundary (_screen_diag_chi2 -> screen_chi2) with no raw .double()
+  score path left. torch only, no cosmolike, no CAMB, no GPU (spec:
+  training-stack.md, the increment (h) diagnostic-score-boundary section).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/diagnostics_domain.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="diagnostics-domain floor/residual score-boundary legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/diagnostics_domain.py)")
 
 
 BOARD = [
@@ -1332,22 +1610,136 @@ BOARD = [
        maps="the training-stack finite contract: the 'NaN scores as a "
             "perfect emulator' section (the eval_val / train-step / "
             "eval_source_chi2 guards), its pre-training parity clause "
-            "(build_warm_start + build_transfer_start), the 45M-24 "
+            "(build_warm_start + build_transfer_start), the "
             "safe-sqrt producer clause (exact-fit finite gradients per "
             "mode, positives analytic, negative/NaN chi2 refused, eager + "
-            "compiled), the 45M-47 epoch-reduction clause (host float64 "
+            "compiled), the epoch-reduction clause (host float64 "
             "accumulation; a finite epoch mean where the old float32 "
-            "loss*bs product overflowed), the 45M-53 chi2-domain "
+            "loss*bs product overflowed), the chi2-domain "
             "clause (eval_val / eval_source_chi2 raise on a finite "
             "negative chi2 that training folds; the scale-aware band; the "
             "finite-only false-crowning mutation; the capability-gated "
-            "compile arm), and the 45M-60 width-band clause (the band "
+            "compile arm), and the width-band clause (the band "
             "scales with the kept WIDTH, not w^2: a production-width leg "
             "refuses a chi2 = -2 the retired w^2 rule crowned perfect, a "
             "w^2-restoring mutation arm, a scalar-width leg, a subclass "
             "census, and an ill-conditioned SPD roundoff control); the red "
             "legs plus the finite controls",
        run=gate_finite_contract,
+       needs=("torch",)),
+  Gate(id="board-selftest",
+       spec_code="BRD-A",
+       title="Board runner reports the truth about what ran",
+       tier=TIER_BACKLOG,
+       home="gates-and-board",
+       maps="the board-truth campaign: a dependency-skipped selected gate "
+            "exits nonzero and runs no body; an unknown --gate / --from / "
+            "--force-rerun id is a usage error with a suggestion and a "
+            "nonzero exit; the run selectors are mutually exclusive; the "
+            "finite-contract compile-lane skip is a distinct non-green exit "
+            "code the board wrapper maps to a non-PASS; and the structured "
+            "evidence map validates (the shipped board resolves, and a bad "
+            "anchor / missing note / duplicate id / malformed anchor are each "
+            "rejected) (the red legs plus the valid controls)",
+       evidence=(Assertion("brd-a.exit-truth",
+                           "gates-and-board.md#brd-a-board-truth"),),
+       run=gate_board_selftest,
+       needs=()),
+  Gate(id="generator-seed",
+       spec_code="GEN-A",
+       title="Dataset generator samples from an owned, recorded RNG",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="the generator sampling-seed contract: a required integer seed "
+            "owns a numpy Generator threaded through the uniform sampling, the "
+            "emcee walker init + the sampler's own moves, and the thinning "
+            "subselection (no process-global np.random draw remains); the seed "
+            "is type-checked and written to the chain header; same-seed draws "
+            "reproduce. The append-replay and worker-invariance legs ride the "
+            "workstation smoke gates",
+       evidence=(Assertion("gen-a.owned-rng",
+                           "data-generation-and-cuts.md#gen-a-generator-seed"),),
+       run=gate_generator_seed,
+       needs=()),
+  Gate(id="cli-strict",
+       spec_code="CLI-A",
+       title="Every public executable rejects a misspelled flag",
+       tier=TIER_BACKLOG,
+       home="conventions-and-workflow",
+       maps="the strict-CLI contract: all eight public entry points parse with "
+            "parse_args (no parse_known_args), and two representative driver "
+            "mains reject a misspelled flag (--activaton) with a nonzero exit "
+            "before the expensive boundary, while a valid command line reaches "
+            "it",
+       evidence=(Assertion("cli-a.strict-parse",
+                           "conventions-and-workflow.md#cli-a-strict-cli"),),
+       run=gate_cli_strict,
+       needs=("torch",)),
+  Gate(id="family-first",
+       spec_code="FAM-A",
+       title="Every driver owns exactly one data-block family",
+       tier=TIER_BACKLOG,
+       home="conventions-and-workflow",
+       maps="the family-first driver contract: a direct cosmic_shear run owns "
+            "the cosmolike data-vector family and rejects a CMB / grid / "
+            "grid2d / scalar YAML naming its driver, a clean cosmic-shear YAML "
+            "trains, the per-family wrappers accept their own block; the "
+            "census confirms the four cosmic_shear drivers default "
+            "family=cosmolike, always check, and drop the dispatcher prose",
+       evidence=(Assertion("fam-a.family-owned",
+                           "conventions-and-workflow.md#fam-a-family-first"),),
+       run=gate_family_first,
+       needs=("torch",)),
+  Gate(id="stage-ram",
+       spec_code="SRM-A",
+       title="Host-RAM staging counts every materialized array",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="the host-RAM staging accounting: stage_source counts BOTH the "
+            "parameter and target compact copies (each at its own dtype and "
+            "width) plus the reindex array, so a narrow-output dump keeps the "
+            "disk-backed branch when the two copies together exceed the "
+            "budget; resident / disk controls, an unequal-dtype case, "
+            "byte-identical selected rows across both regimes, and the "
+            "dv-only-estimate mutation arm",
+       evidence=(Assertion("srm-a.both-copies",
+                           "data-generation-and-cuts.md#srm-a-stage-ram"),),
+       run=gate_stage_ram,
+       needs=("torch",)),
+  Gate(id="artifact-readback",
+       spec_code="ARB-A",
+       title="Saved attributes parsed by type, not truthiness",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="artifacts-inference-warmstart",
+       maps="the artifact-readback type contract: the shared typed reader "
+            "accepts a native boolean, returns the default for an absent key, "
+            "and refuses every string / integer (the truthy 'False' that "
+            "would load drifted transfer weights) naming the file + schema; a "
+            "source census confirms no artifact boolean is truthiness-coerced. "
+            "The live save/forge/rebuild proof is workstation-owed",
+       evidence=(Assertion("arb-a.typed-bool",
+                           "artifacts-inference-warmstart.md#arb-a-artifact-readback"),),
+       run=gate_artifact_readback,
+       needs=("torch",)),
+  Gate(id="diagnostics-domain",
+       spec_code="DIAG-A",
+       title="Diagnostic score-domain boundary",
+       tier=TIER_BACKLOG,
+       home="training-stack",
+       maps="the training-stack increment (h) diagnostic-score-boundary "
+            "section: the shared screen_chi2 helper (valid "
+            "byte-identical, within-band roundoff to exact 0, materially "
+            "negative / NaN / +-Inf refused naming the boundary + rows + "
+            "band, the fallback-1 floor, the width-scaled band), the REAL "
+            "local_linear_floor (a reachable negative floor refused before "
+            "f_floor, a NaN floor refused, a valid control, the "
+            "guard-bypassed mutation recreating the false f_floor = 0), the "
+            "REAL cmb_residual_diagnostic (corrupt-score refusal + valid "
+            "control), and the grid / grid2d producer census through the one "
+            "shared boundary",
+       evidence=(Assertion("diag-a.score-boundary",
+                           "training-stack.md#diag-a-diagnostics-domain"),),
+       run=gate_diagnostics_domain,
        needs=("torch",)),
   Gate(id="berhu-loss",
        spec_code="GB-C",
@@ -1474,7 +1866,7 @@ BOARD = [
        title="CMB emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-scalar-cmb",
-       maps="110-117 (identity legs) + the 45M-21 amplitude-metric legs "
+       maps="110-117 (identity legs) + the amplitude-metric legs "
             "(the factored chi2 divides f out: physical-chi2 invariance "
             "under (A_s, tau), the uncorrected f^2 catch-power, the "
             "factor-corrected roughness residual, params-required); "
