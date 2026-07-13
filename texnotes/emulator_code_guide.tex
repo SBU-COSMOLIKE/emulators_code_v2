@@ -245,27 +245,86 @@ global positions so it can scatter a kept residual back into a full vector.
 
 \subsection{The complete ownership chain}
 
-\begin{widetext}
-\begin{equation*}
-\begin{array}{c}
-\text{YAML and generated files}\\
-\downarrow\;\code{resolve\_cocoa\_config},\ \code{EmulatorExperiment.from\_config}\\
-\text{validated run description}\\
-\downarrow\;\code{stage\_train},\ \code{stage\_val}\\
-\text{source dictionaries containing NumPy arrays and row coordinates}\\
-\downarrow\;\code{build\_geometry}\\
-\text{reversible parameter/output transforms and the scientific loss}\\
-\downarrow\;\code{build\_loaders},\ \code{run\_emulator}\\
-\text{device tensors, model, optimizer, scheduler, and training histories}\\
-\downarrow\;\code{save\_emulator}\\
-\text{weight file plus HDF5 recipe/geometry record}\\
-\downarrow\;\code{rebuild\_emulator},\ \code{EmulatorPredictor}\\
-\text{physical prediction from a named cosmology}\\
-\downarrow\;\text{Cobaya adapter}\\
-\text{likelihood-facing theory product on a validated coordinate axis.}
-\end{array}
-\end{equation*}
-\end{widetext}
+Figure~\ref{fig:ownership-chain} separates a program action, printed above an
+arrow, from the object that exists after that action, printed inside a box.
+The number in each box is execution order.  A box is therefore a state of the
+run, not a function call.
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[flowbox,fill=stageblue!10,text width=3.15cm] (files) at (0,2.2)
+    {\textbf{1. Input files}\\YAML mapping; parameter table
+     $C\!:\!(N,P)$; data-vector dump $V\!:\!(N,D)$};
+  \node[flowbox,fill=stageblue!10,text width=3.15cm] (run) at (4.25,2.2)
+    {\textbf{2. Validated run description}\\absolute paths, one family,
+     requested rows, and named scientific options};
+  \node[flowbox,fill=stageblue!10,text width=3.15cm] (source) at (8.5,2.2)
+    {\textbf{3. Staged source dictionaries}\\NumPy arrays or memmaps plus
+     row coordinates and training means};
+  \node[flowbox,fill=transformgold!13,text width=3.15cm] (geometry) at (12.75,2.2)
+    {\textbf{4. Scientific coordinates}\\parameter encoder, output
+     encoder/decoder, and physical loss};
+
+  \node[flowbox,fill=sciencepurple!11,text width=3.15cm] (product) at (0,-1.7)
+    {\textbf{8. Likelihood-facing product}\\requested theory quantity on
+     the validated physical coordinate axis};
+  \node[flowbox,fill=transformgold!13,text width=3.15cm] (predictor) at (4.25,-1.7)
+    {\textbf{7. Rebuilt predictor}\\strictly loaded model and a physical
+     prediction for a named cosmology};
+  \node[flowbox,fill=sciencepurple!11,text width=3.15cm] (artifact) at (8.5,-1.7)
+    {\textbf{6. Published artifact pair}\\weight file plus HDF5 recipe,
+     geometry state, coordinates, and provenance};
+  \node[flowbox,fill=modelgreen!12,text width=3.15cm] (training) at (12.75,-1.7)
+    {\textbf{5. Training state}\\device tensors, model, optimizer,
+     scheduler, validation record, and histories};
+
+  \draw[flowarrow] (files) -- node[above,font=\scriptsize,align=center]
+    {resolve} (run);
+  \draw[flowarrow] (run) -- node[above,font=\scriptsize,align=center]
+    {stage rows} (source);
+  \draw[flowarrow] (source) -- node[above,font=\scriptsize]
+    {build maps} (geometry);
+  \draw[flowarrow] (geometry) -- node[right,font=\scriptsize]{train}
+    (training);
+  \draw[flowarrow] (training) -- node[above,font=\scriptsize]{save}
+    (artifact);
+  \draw[flowarrow] (artifact) -- node[above,font=\scriptsize]{rebuild}
+    (predictor);
+  \draw[flowarrow] (predictor) -- node[above,font=\scriptsize]{serve}
+    (product);
+\end{tikzpicture}
+\vspace{2mm}
+\begin{tabular}{p{0.10\textwidth}p{0.31\textwidth}p{0.49\textwidth}}
+\toprule
+Move & Code owner & Meaning of the move \\
+\midrule
+$1\to2$ & \code{resolve\_cocoa\_config}, \code{from\_config}
+  & Join paths, parse the mapping, reject invalid values, and select one
+    physical family. \\
+$2\to3$ & \code{stage\_train}, \code{stage\_val}
+  & Select matched rows and choose a host-RAM or disk-backed representation. \\
+$3\to4$ & \code{build\_geometry}
+  & Fit the reversible input/output coordinate maps and construct the
+    scientific error function. \\
+$4\to5$ & \code{build\_loaders}, \code{run\_emulator}
+  & Convert batches to device tensors, construct trainable objects, and
+    execute optimization and validation. \\
+$5\to6$ & \code{save\_emulator}
+  & Move the selected numerical state into the two persistent files. \\
+$6\to7$ & \code{rebuild\_emulator}, \code{EmulatorPredictor}
+  & Recreate the recorded classes and load the exact saved tensors. \\
+$7\to8$ & Cobaya adapter
+  & Translate one physical prediction into the quantity and coordinate
+    sequence requested by the likelihood. \\
+\bottomrule
+\end{tabular}
+\caption{The complete ownership chain.  Blue boxes contain file- or
+host-side data, gold boxes own reversible scientific coordinates, green owns
+optimization state, and purple marks a published interface.  An arrow names
+the code that must validate the object crossing that boundary.}
+\label{fig:ownership-chain}
+\end{figure*}
 
 Each arrow has one owner.  If two modules independently reimplement the same
 physical transformation, they can drift while their local tests remain
@@ -876,7 +935,7 @@ training subset without breaking the row relation.
 \section{From cosmologies and data vectors to a staged training source}
 \label{chap:staging}
 
-Suppose the data-generation calculation has finished.  We have a table of
+Suppose the data-generation calculation has finished.  Its output is a table of
 cosmologies, a list that names the cosmological parameters, and one data
 vector for each cosmology.  What does the emulator code do first?
 
@@ -889,7 +948,7 @@ with the data-vector dump, selects a reproducible subset of valid rows, and
 decides whether that subset lives in ordinary memory or remains backed by a
 file on disk.
 
-This section follows that process in execution order.  It stops just before
+The execution order below follows that process and stops just before
 the code constructs the whitening geometries.  Section~\ref{chap:geometries} begins with the
 staged arrays and derives the parameter-space and data-vector transforms.
 
@@ -1142,12 +1201,13 @@ establish disjointness.
 The word \emph{stage} means ``put the selected rows in the storage form from
 which later batches will read them.''  It does not yet mean ``move them to the
 GPU.''  The helper \code{stage\_source} estimates whether the selected rows
-fit within a configured fraction of available host memory.  In the current
-implementation, this estimate counts the selected data-vector array but not
-the selected parameter-array copy.  The resident branch nevertheless creates
-both arrays.  The estimate can therefore be low by
-$n_u P\,\mathrm{sizeof}(C_{ij})$ bytes.  This is a memory-accounting defect in
-the present code, not a license for consumers to ignore the parameter copy.
+fit within a configured fraction of available host memory.  The estimate
+adds three allocations: the compact parameter array, the compact data-vector
+array, and the integer reindex array.  Each numerical term uses the dtype and
+column count of the stored array it describes.  The branch decision uses all
+three terms.  The current status line names only the parameter and data-vector
+terms even though its displayed total also includes the reindex; the worked
+calculation below separates them.
 
 There are two outcomes.
 
@@ -1224,19 +1284,54 @@ the primary arrays to local coordinates, the sibling file still needs the
 original disk row numbers.  Sorting makes its reads sequential.  Applying
 \code{np.unique} removes duplicates and also sorts; it returns a new array.
 
-The complete coordinate flow is
-\begin{widetext}
-\begin{equation*}
-\begin{array}{c}
-\text{original rows }0,\ldots,N-1\\
-\downarrow\quad\text{seeded permutation and physical mask}\\
-\code{idx}:\text{ selected rows in shuffled training order}\\
-\downarrow\quad\text{sorted unique gather, only if copied to RAM}\\
-\code{idx\_src}:\text{ local coordinates into compact arrays}\\[2mm]
-\code{dump\_rows}:\text{ original coordinates retained for sibling files.}
-\end{array}
-\end{equation*}
-\end{widetext}
+Figure~\ref{fig:row-coordinates} shows the branch with a concrete selection.
+The selected rows are unique because they are a prefix of a permutation.  The
+order $[9,2,5]$ is deliberately not sorted: it lets the figure distinguish
+training-selection order from efficient disk-read order.
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[flowbox,fill=stageblue!10,text width=2.8cm] (selected) at (0,0)
+    {\textbf{Selected global rows}\\\code{idx = [9, 2, 5]}\\These numbers
+     address the original files.};
+  \node[flowbox,fill=stageblue!10,text width=2.8cm] (rows) at (3.8,0)
+    {\textbf{Sequential disk order}\\\code{rows = [2, 5, 9]}\\
+     \code{unique} removes repeats; sorting orders reads.};
+  \node[flowbox,fill=transformgold!13,text width=2.5cm] (fits) at (7.5,0)
+    {\textbf{Storage decision}\\Do both compact arrays and the reindex fit
+     the host-RAM budget?};
+
+  \node[flowbox,fill=modelgreen!12,text width=3.6cm] (resident) at (11.5,1.45)
+    {\textbf{Yes: resident representation}\\
+     \code{C[rows]} and \code{dv[rows]} are eager copies.\\
+     Compact rows $[0,1,2]$ contain disk rows $[2,5,9]$.\\
+     \code{idx\_src = [0, 1, 2]} is local.};
+  \node[flowbox,fill=guardred!8,text width=3.6cm] (disk) at (11.5,-1.45)
+    {\textbf{No: disk-backed representation}\\
+     $C$ remains the already-loaded full array.\\
+     \code{dv} remains a read-only memmap.\\
+     \code{idx\_src = [9, 2, 5]} is global.};
+
+  \node[flowbox,fill=sciencepurple!10,text width=3.5cm] (dump) at (3.8,-3.0)
+    {\textbf{Coordinate sidecar}\\\code{dump\_rows = [2, 5, 9]}\\Always
+     names original rows for a row-aligned base dump.};
+
+  \draw[flowarrow] (selected) -- (rows);
+  \draw[flowarrow] (rows) -- (fits);
+  \draw[flowarrow] (fits) -- node[above,sloped,font=\scriptsize]{yes}
+    (resident);
+  \draw[flowarrow] (fits) -- node[below,sloped,font=\scriptsize]{no}
+    (disk);
+  \draw[flowarrow] (rows) -- (dump);
+\end{tikzpicture}
+\caption{One selection, two storage representations, and two coordinate
+systems.  A global row addresses the original files; a local row addresses a
+compact copy.  \code{idx\_src} must be interpreted with the returned
+\code{C}/\code{dv} pair.  \code{dump\_rows} never becomes local because the
+grid2d base file is addressed in original-file coordinates.}
+\label{fig:row-coordinates}
+\end{figure*}
 
 \subsection{Training statistics are owned by the training source}
 
@@ -1302,6 +1397,16 @@ always apply the \code{idx} returned with its particular arrays.  Reusing the
 resident branch's $[0,1]$ against the file-backed branch would silently select
 the wrong cosmologies.
 
+The two-row example is already sorted, so it conceals a current cross-regime
+difference.  For an ordinary unsorted selection such as $[9,2,5]$, the
+resident copy is stored in sorted order $[2,5,9]$ and receives local indices
+$[0,1,2]$, while the disk branch retains $[9,2,5]$.  The training loop applies
+the same new epoch permutation to these different base sequences.  Host-memory
+availability can therefore change minibatch membership and order under the
+same seed.  The required representation keeps one canonical selected order
+and maps it explicitly into compact storage; a gate must compare the real
+loader and epoch sequence, not only the sorted set of rows.
+
 \subsection{Worked memory calculation}
 
 Assume $n_u=250{,}000$, $P=20$, $D=3{,}000$, and both arrays are stored as
@@ -1311,13 +1416,18 @@ Assume $n_u=250{,}000$, $P=20$, $D=3{,}000$, and both arrays are stored as
        =20{,}000{,}000\ \text{bytes},\\
   B_V &= 250{,}000\times3{,}000\times4
        =3{,}000{,}000{,}000\ \text{bytes},\\
-  B_{\rm total}&=B_C+B_V=3{,}020{,}000{,}000\ \text{bytes}.
+  B_I &= 250{,}000\times8
+       =2{,}000{,}000\ \text{bytes},\\
+  B_{\rm total}&=B_C+B_V+B_I=3{,}022{,}000{,}000\ \text{bytes}.
 \end{align*}
-The current implementation compares only $B_V$ with the host-memory
-allowance even though it creates both copies.  The missing 20 MB is small in
-this example, but the correctness rule cannot depend on it usually being
-small.  A storage planner must count every allocation whose lifetime it
-creates.
+$B_I$ is the new local index array.  Its entries use NumPy's 64-bit integer
+dtype, so each one occupies eight bytes.  The current decision compares this
+three-term total with the configured host-memory allowance.  The status line
+still labels the arithmetic as ``parameters plus data vector'' even though
+its displayed total includes $B_I$; the repair is to print all three named
+terms and the same total used by the branch.  The equality case also needs an
+explicit policy and test because the current comparison is strict
+($B_{\rm total}<B_{\rm budget}$).
 
 \subsection{What has not happened yet}
 
@@ -2227,7 +2337,12 @@ square-root-like sublinear growth and mildly superlinear growth.  At
 \end{equation}
 It therefore recovers \(H\) when \(p=1\).  This is a bounded generalization:
 it allows the tail to adapt without allowing an arbitrary exponent to run to
-a numerically explosive value.
+a numerically explosive value.  The word \emph{bounded} describes the
+exponent, not the floating-point result.  A sufficiently large finite
+\code{float32} input can still overflow when \(p>1\).  The implementation
+therefore needs both protections: constrain \(p\) at construction and reject
+a nonfinite activation at the numerical boundary.  Neither protection makes
+the other redundant.
 
 \subsection{Gated power: combine bulk and tail freedom}
 
@@ -3201,7 +3316,7 @@ local behavior, and the physical coverage triangle.
 The mean-predictor baseline is important.  A smoke run must beat the score
 obtained by always returning the training center; otherwise the network may
 be disconnected while every file and plot still exists.  Structured-head
-tests additionally prove that head parameters receive gradients and change,
+Separate liveness tests prove that head parameters receive gradients and change,
 because the trunk alone can hide a dead correction in aggregate metrics.
 
 \section{Scalar emulators: named derived quantities}
@@ -3266,7 +3381,7 @@ degenerate implementation that always returns \(\mu_q\) from passing.
 
 \subsection{What the scalar artifact persists}
 
-In addition to the shared model recipe, the artifact stores ordered input
+The artifact stores the shared model recipe together with ordered input
 names, ordered output names, centers/scales or covariance factors, dtype, and
 family kind.  The adapter refuses a non-scalar artifact even if its output
 width happens to equal \(Q\).  Family kind is a semantic fact, not an inferred
@@ -3791,6 +3906,73 @@ not the Python constructor that gives those tensors meaning.  The Hierarchical
 Data Format version 5 (HDF5) model recipe supplies the class name, dimensions,
 and constructor options.
 
+The two files answer different questions.  The weight file answers, ``what
+numbers were learned?''  The HDF5 file answers, ``what calculation gives those
+numbers meaning?''  A matching tensor width is not enough: the same-width
+array could represent different multipoles, redshifts, output names, units, or
+target laws.
+
+One ordinary artifact has the following logical tree.  A slash denotes an
+HDF5 group, which is a directory-like container.  A leaf such as
+\code{center} is a dataset, an array stored inside the file.  A name after
+\code{@} is an attribute, a small scalar fact attached to a group or to the
+file itself.
+\begin{verbatim}
+root.emul
+  tensor_name -> CPU tensor
+root.h5
+  @schema_version
+  @git_commit
+  model_recipe
+    YAML constructor description
+  config_resolved_yaml
+    values consumed by the run
+  param_geometry/
+    @cls
+    names, center, evecs, sqrt_ev
+  dv_geometry/
+    @cls
+    center, coordinates
+    covariance factors
+  history/
+    train_losses, val_medians
+    val_means, val_fracs
+\end{verbatim}
+Here, \code{tensor\_name} stands for each registered parameter or buffer name,
+and \code{@cls} names the Python class whose \code{from\_state} constructor
+interprets that group.  The slash syntax above is explanatory; HDF5 does not
+store a Unix directory.
+The recursive writer walks a nested Python dictionary.  A nested dictionary
+becomes a group, a numerical array becomes a dataset, and selected scalar
+facts become attributes.  The recursive reader performs the inverse walk and
+moves reconstructed tensors to the requested device.
+
+Optional model compositions add owners rather than changing the meaning of
+the ordinary fields:
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.15\textwidth}p{0.31\textwidth}p{0.44\textwidth}}
+\toprule
+Artifact kind & Main \code{.emul} tensors & Additional HDF5 owner \\
+\midrule
+Ordinary & The complete predictor network & No optional model group. \\
+NPCE & The neural residual or ratio refiner & \code{pce/} stores the frozen
+polynomial basis, coefficients, output modes, fitted box, and composition
+form. \\
+Transfer & The correction network & \code{transfer\_base/} embeds the frozen
+base recipe, base tensors, both base geometries, and the declared sum/gain
+composition facts. \\
+Refined transfer & The correction network & The original base state remains
+as provenance; \code{drifted\_state/} stores the jointly updated base.  A
+native-boolean marker and group presence must agree before that state is
+selected. \\
+\bottomrule
+\end{tabular}
+\caption{Tensor ownership in the four artifact compositions.  Rebuilding
+does not infer an optional component from shape.  Its named group and required
+facts must be present.}
+\end{table*}
+
 \paragraph{Current gap.}
 The two current files are written independently.  The HDF5 record does not
 carry a digest of the weight file, and publication is not a two-file
@@ -4007,13 +4189,20 @@ is a pass.
 Board resume records are scientifically valid only for the executable surface
 that produced them.  The present runner records status, a digest of the gate
 body and directly named check scripts, an input/configuration digest, and a
-digest of the immutable raw log.  A changed gate, fixture check, board config,
-or YAML therefore invalidates the stored PASS automatically.
+digest of the raw log.  A changed gate, directly named check script, board
+configuration, or YAML therefore invalidates the stored PASS automatically.
 
 The code digest is not yet a transitive digest of every imported production
 module, generator, adapter, and analytic base.  A production-only change can
 therefore leave that digest unchanged.  Force-rerun remains the manual
 safeguard after an affected production boundary changes.
+
+The raw-log digest is currently checked only while rendering the summary
+table.  It is not part of the resume decision.  If a raw log is deleted,
+truncated, or edited, the summary can print a mismatch warning while the
+runner still treats the stored result as a current pass and skips execution.
+Until log integrity participates in resume, a reviewer must open every cited
+log and force-rerun any gate whose log is missing or mismatched.
 
 Hardware-specific PyTorch evidence belongs in a board-listed gate.  CPU-only
 checks can prove pure validation and algebra.  CUDA compilation, GPU dtype,
@@ -4146,6 +4335,43 @@ Checking only for a phrase is insufficient if the process later exits
 nonzero; checking only exit zero is insufficient if the expected scientific
 assertion never ran.
 
+\subsection{A declared claim is not yet an executed claim}
+
+The registry is beginning to represent an acceptance leg with two strings: a
+plain identifier and an anchor in its home note.  The identifier names the
+specific observation, such as \code{stage-ram.exact-fit-boundary}.  The anchor
+points to the paragraph that defines what result is acceptable.  Registry
+validation can prove that the anchor exists and that no two legs share an
+identifier.
+
+Those checks establish declaration, not execution.  Suppose a gate declares
+three legs but a conditional return skips the third.  The remaining two can
+pass and the subprocess can exit zero unless the runner compares the declared
+and executed sets.  The complete mechanism therefore needs one terminal
+record per declared leg:
+\begin{equation*}
+ D=E,
+\end{equation*}
+where \(D\) is the set of declared identifiers and \(E\) is the set of
+identifiers with an executed terminal result: \code{PASS}, \code{FAIL}, or
+\code{UNAVAILABLE}.
+\code{UNAVAILABLE} is non-green.  It states that a required hardware or
+software lane did not run; it does not shrink the denominator and turn the
+remaining legs into a complete pass.  A crash before a check script emits its
+record is likewise a missing leg and makes the gate red.
+
+\paragraph{Current gap.}
+Only a small migrated subset of gates carries structured headline evidence.
+The runner verifies anchor existence and global identifier uniqueness, but it
+does not yet reconcile each declared leg with a result emitted by
+\code{ctx.expect} or by an external check script.
+
+\paragraph{Required closure.}
+Every gate uses a human-readable \code{<gate-id>.<leg-name>} identifier, every
+anchor belongs to the gate's declared home note, and every run emits exactly
+one terminal result per leg.  Unknown, duplicate, and missing executed ids all
+fail before the gate can be recorded as passed.
+
 \subsection{Preflight protects expensive evidence}
 
 Preflight runs before GPU time.  It checks the expected Git tip, watched-tree
@@ -4197,12 +4423,16 @@ literally inside it, not the complete transitive imported production surface.
 The dirty-tree watch is likewise narrower than the full scientific surface.
 Consequently, a change only in an imported adapter or generator can still
 require an explicit force-rerun even when resume calls the stored gate current.
+The raw-log digest is also informational: a missing or changed log annotates
+the board table but does not make the resume state non-green.
 
 \paragraph{Required closure.}
 One canonical executable-surface definition is shared by dirty preflight and
 resume identity.  It includes every imported production module, driver,
 adapter, generator, analytic base, fixture, and gate body that can affect the
-claim.
+claim.  The exact membership is persisted beside the digest.  A missing,
+truncated, or digest-mismatched raw log becomes a stale-log state and causes a
+selected gate to run again.
 
 \begin{figure*}[t]
 \centering
@@ -4690,8 +4920,7 @@ while requesting incompatible joint behavior must raise the teaching error.
 \textbf{Catch power.}  A resolver that prints the pin but still supplies the
 trunk factory to the head fails the parameter-count leg.  Silently ignoring
 the illegal combination fails the error leg.  This gate establishes
-construction; activation liveness is additionally covered by behavioral
-head checks.
+construction.  Separate behavioral head checks establish activation liveness.
 
 \subsubsection{\code{relu-tanh-norm}: fixed baselines use the requested normalization}
 
@@ -5981,7 +6210,8 @@ gate and one smoke gate.  Follow capability/dependency metadata into the
 ordered board registry.
 
 \paragraph{37. \code{gates/checks/*.py}.}
-Read the check matching the feature just studied.  Locate production import,
+Read the check matching the feature selected in the preceding stages.  Locate
+its production import,
 fixture, independent reference, valid control, mutation/catch-power arm, and
 nonzero failure exit.  Family identity checks precede family smokes.
 
