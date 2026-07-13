@@ -41,6 +41,15 @@ from emulator.geometries.scalar import ScalarGeometry
 from emulator.results import save_emulator
 from emulator.inference import EmulatorPredictor
 
+# the board harness supplies the ONE shared whole-repo .py enumerator this
+# gate's folder census scans -- the SAME function the board hashes as this
+# gate's data-read surface (25M-16), so the scanned set and the digested set can
+# never diverge (they are one function, not two lists).
+_GATES = Path(__file__).resolve().parents[1]
+if str(_GATES) not in sys.path:
+    sys.path.insert(0, str(_GATES))
+import run_board
+
 FAILURES = []
 REPO = Path(__file__).resolve().parents[2]
 IN_NAMES = ["omegabh2", "omegach2"]
@@ -179,23 +188,19 @@ def main():
            "; ".join(details) if details else
            "all %d absent from the import system" % len(LEGACY_MODULES))
 
-    # leg 3: the census — no repo code references the old flat names.
+    # leg 3: the census — no repo code references the old flat names. The file
+    # set is the SHARED whole-repo enumerator (run_board.repo_py_files), the same
+    # function the board hashes as this gate's data-read surface, so the scanned
+    # set is exactly the digested set. The gate skips its OWN source (it names
+    # the flat modules in this census logic).
     offenders = []
-    for base, dirs, files in os.walk(REPO):
-        if "__pycache__" in base or "/notes" in base \
-                or "/.git" in base:
+    for rel in run_board.repo_py_files():
+        if rel == "gates/checks/geo_paths.py":
             continue
-        for fname in files:
-            if not fname.endswith(".py"):
-                continue
-            path = os.path.join(base, fname)
-            rel = os.path.relpath(path, REPO)
-            if rel == "gates/checks/geo_paths.py":
-                continue
-            src = open(path, errors="replace").read()
-            for m in LEGACY_MODULES:
-                if "geometries_" + m in src:
-                    offenders.append((rel, m))
+        src = open(os.path.join(REPO, rel), errors="replace").read()
+        for m in LEGACY_MODULES:
+            if "geometries_" + m in src:
+                offenders.append((rel, m))
     report("census: nothing references the old flat names",
            not offenders, repr(offenders[:5]))
 

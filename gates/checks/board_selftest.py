@@ -988,6 +988,96 @@ def check_runtime_loader_census():
            "gct_parity's sibling import is digested")
 
 
+def check_data_read_census():
+    """1b hardening (25M-16 data-read half): a check that OPENS .py source AS
+    DATA hashes it as a leaf (never closure-seeded); a whole-scope reader hashes
+    the shared repo enumeration; an unreviewed data-read site reds. Drives the
+    REAL _gate_code_manifest / _gate_code_digest / validate_manifests.
+    """
+    live_cfg = run_board._load_config()
+    by_id = {g.id: g for g in BOARD}
+
+    # geo-paths whole-scope SET EQUALITY: the gate's enumerated scan set
+    # (repo_py_files) equals its manifest members -- one shared function, so the
+    # scanned surface and the hashed surface can never disagree.
+    geo = by_id["geo-paths"]
+    members = set(m["path"] for m in run_board._gate_code_manifest(geo))
+    scan = set(run_board.repo_py_files())
+    report("25M-16 geo-paths whole-scope set-equality (scan set == manifest members)",
+           members == scan and len(scan) > 1,
+           str(len(scan)) + " repo .py; members == scan")
+
+    # byte-edit control: changing ANY repo .py moves geo-paths' code digest
+    # (the whole-scope reader stales on any repo .py change -- correct, cheap).
+    base = run_board._gate_code_digest(geo)
+    real_sha = run_board._file_sha256
+    victim = "emulator/results.py"
+    run_board._file_sha256 = (lambda rel: ("dead" + real_sha(rel))
+                              if rel == victim else real_sha(rel))
+    try:
+        edited = run_board._gate_code_digest(geo)
+    finally:
+        run_board._file_sha256 = real_sha
+    report("25M-16 byte-edit any repo .py stales the whole-scope gate",
+           base != edited, "a one-file sha change moves geo-paths' digest")
+
+    # the five reviewed data-readers each carry their cover in their members.
+    def members_of(gid):
+        return set(m["path"] for m in run_board._gate_code_manifest(by_id[gid]))
+    checks = [
+        ("board-selftest", "gates/run_board.py"),          # whole-repo -> harness in
+        ("artifact-readback", "scalar_train_emulator.py"), # a driver read as data
+        ("family-first", "cosmic_shear_sweep_ntrain_emulator.py"),  # an UNdeclared driver
+        ("generator-seed", "compute_data_vectors/generator_core.py"),
+    ]
+    for gid, cover in checks:
+        report("25M-16 " + gid + " hashes its data-read cover " + cover,
+               cover in members_of(gid), "member present")
+    # family-first's data cover really CLOSES a hole: the three sweep/tune drivers
+    # it reads as data were not code roots, so without the data cover they escaped.
+    ff = members_of("family-first")
+    report("25M-16 family-first data-read closes the undeclared-driver hole",
+           "cosmic_shear_tune_emulator.py" in ff
+           and "cosmic_shear_sweep_hyperparam_emulator.py" in ff,
+           "the drivers read as data are now hashed")
+
+    # negative catch + restoration mutation: dropping artifact-readback from the
+    # reviewed table leaves its open(...results.py) read unreviewed -> validation
+    # reds (red-capable). (geo-paths now scans via the shared enumerator, so its
+    # raw os.walk is gone -- the scanner's negative catch is for a NEW reader that
+    # still uses a raw idiom, so the mutation lands on one that does.)
+    ar = by_id["artifact-readback"]
+    saved = run_board._DATA_READ_COVERS
+    try:
+        table = dict(saved)
+        table.pop("gates/checks/artifact_readback.py")
+        run_board._DATA_READ_COVERS = table
+        ok, errs = run_board.validate_manifests([ar], live_cfg)
+        report("25M-16 negative catch: an UNREVIEWED data-read site reds",
+               (not ok) and any("unreviewed data-read" in e for e in errs),
+               "a new source-as-data reader must be reviewed")
+    finally:
+        run_board._DATA_READ_COVERS = saved
+
+    # (25M-19 run-time clause) a declared input that does not resolve/hash at RUN
+    # time refuses BEFORE the gate body -- a None sha is a validation-time
+    # allowance only. Drive the real run_selection via main().
+    def _rt_run(ctx):
+        CALLS["rt"] = CALLS.get("rt", 0) + 1
+    rt_gate = Gate(id="rt", tier="backlog", home="selftest", maps="selftest",
+                   run=_rt_run,
+                   manifest=Manifest(code=(), inputs=("gate_configs.nope",)))
+    rt_cfg = dict(FAKE_CFG)
+    rt_cfg["yaml_dir"] = "/nonexistent-yaml-dir"
+    rt_cfg["gate_configs"] = {"nope": "nope.yaml"}
+    CALLS.clear()
+    rc, st, _ = drive_main(["--gate", "rt"], [rt_gate], {}, cfg=rt_cfg)
+    report("25M-19 run-time refusal: an unresolvable input refuses before the body",
+           CALLS.get("rt", 0) == 0
+           and st.get("rt", {}).get("status") == "FAIL" and rc != 0,
+           "None sha at run time -> FAIL, body never ran, rc " + str(rc))
+
+
 def check_manifest_riders():
     """1b phase-2 riders (kill the audit's P1/P2/P3 validation holes): root
     schema totality, directory-root expansion, and input-key resolution.
@@ -1411,6 +1501,8 @@ def main():
     check_manifest_reconciliation()
     print("\n-- runtime-loader census (adapters loaded by path / python_path) --")
     check_runtime_loader_census()
+    print("\n-- data-read census (source opened as data hashes as a leaf) --")
+    check_data_read_census()
     print("\n-- manifest riders (root schema, dir expansion, input keys) --")
     check_manifest_riders()
     print("\n-- input owner resolution (owner base, no cwd, executed==hashed) --")
