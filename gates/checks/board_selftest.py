@@ -280,6 +280,60 @@ def check_compile_lane_code():
 # --------------------------------------------------------------------------
 # resume identity (both digests) + evidence atomicity
 # --------------------------------------------------------------------------
+def check_dependency_currency():
+    """25M-20 (the unit-4 reopen): resume must not bypass dependency currency.
+
+    run_selection's resume skip runs before the dependency loop, so a gate whose
+    OWN stored PASS is current used to resume-skip even when a prerequisite was
+    stale / failed / interrupted -- a green child hanging off a non-current
+    parent. The reusable-PASS predicate now also requires every dependency to be
+    a current PASS that was not itself rerun this run. Each prerequisite state
+    must make the current-PASS child non-green.
+    """
+    prereq = make_gate("prereq")
+    child = make_gate("child", deps=("prereq",))
+
+    # baseline: both current PASS, prerequisite not rerun -> child resumes.
+    both = {"prereq": pass_record(prereq), "child": pass_record(child)}
+    rc, status, _ = drive_main([], [prereq, child], both)
+    report("dep-currency: both current PASS -> child resumes, no body runs",
+           CALLS.get("prereq", 0) == 0 and CALLS.get("child", 0) == 0
+           and status["child"]["status"] == "PASS" and rc == 0,
+           "prereq/child calls " + str(CALLS.get("prereq", 0)) + "/"
+           + str(CALLS.get("child", 0)) + ", rc " + str(rc))
+
+    # THE resume-before-deps mutation: a stale-code prerequisite + a current-PASS
+    # child. Before the fix the child resume-skipped (body never ran); now the
+    # reran prerequisite reruns the child so it reads the fresh output.
+    stale = {"prereq": dict(pass_record(prereq), code_digest="deadbeef"),
+             "child": pass_record(child)}
+    rc, status, _ = drive_main([], [prereq, child], stale)
+    report("dep-currency: a stale prerequisite reruns its current-PASS child",
+           CALLS.get("prereq", 0) >= 1 and CALLS.get("child", 0) >= 1
+           and status["child"]["status"] == "PASS",
+           "prereq/child calls " + str(CALLS.get("prereq", 0)) + "/"
+           + str(CALLS.get("child", 0)))
+
+    # an interrupted (RUNNING) prerequisite is also not current -> it reruns, and
+    # its current-PASS child reruns with it.
+    running = {"prereq": dict(pass_record(prereq), status="RUNNING"),
+               "child": pass_record(child)}
+    rc, status, _ = drive_main([], [prereq, child], running)
+    report("dep-currency: an interrupted (RUNNING) prerequisite reruns its child",
+           CALLS.get("child", 0) >= 1 and status["child"]["status"] == "PASS",
+           "child calls " + str(CALLS.get("child", 0)))
+
+    # a FAILED prerequisite is not current -> the current-PASS child is a
+    # dependency skip, never a resumed pass, and the run exits nonzero.
+    failing = make_gate("prereq", behavior="fail")
+    rc, status, _ = drive_main([], [failing, child], {"child": pass_record(child)})
+    report("dep-currency: a FAILED prerequisite skip-deps its current-PASS child",
+           status.get("child", {}).get("status") == "SKIP-DEP"
+           and CALLS.get("child", 0) == 0 and rc != 0,
+           "child status " + str(status.get("child", {}).get("status"))
+           + ", calls " + str(CALLS.get("child", 0)) + ", rc " + str(rc))
+
+
 def check_resume_identity():
     g = make_gate("g")
 
@@ -929,6 +983,7 @@ def main():
     check_compile_lane_code()
     print("\n-- resume identity (both digests) --")
     check_resume_identity()
+    check_dependency_currency()
     print("\n-- evidence atomicity (RUNNING + immutable logs) --")
     check_evidence_atomicity()
     print("\n-- raw-log trust (a PASS is only as good as its cited log) --")

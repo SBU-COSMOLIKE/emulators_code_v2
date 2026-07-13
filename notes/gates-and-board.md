@@ -4592,3 +4592,100 @@ ONE new clause:
   instance): the config census proving every non-documentation
   public key has an execution reader becomes a standing selftest
   leg — no future dead key can accumulate.
+
+## 25M-20 DONE — resume no longer bypasses dependency currency (Opus, 2026-07-13)
+
+Commit cc85aa9 (the immediate unit-4 reopen, landed right after population
+completion per the binding timing). run_selection's resume early-continue on a
+current stored PASS ran before the dependency loop, so a gate whose own PASS was
+current resume-skipped as green with a stale / failed / interrupted prerequisite.
+Fix: dependency currency joins the reusable-PASS predicate — a gate resumes only
+when its own PASS is current AND every dependency is a current PASS that was not
+itself rerun this run (a `reran` set tracks this-run executions; a reran
+prerequisite reruns its artifact-consuming child). board_selftest gains
+check_dependency_currency driving the real run_selection over the state matrix:
+both-current-PASS resumes (0/0 bodies); a stale-code prerequisite reruns its
+current-PASS child (the resume-before-deps mutation, red-capable — child bodies 0
+without the fix); an interrupted RUNNING prerequisite reruns the child; a FAILED
+prerequisite skip-deps it (nonzero exit). board-selftest ALL PASS; py_compile
+clean.
+
+Next: the 1b hardening increment (25M-16 whole-check closure, 25M-18 waiver
+direction + the all-quantified-coverage addendum, 25M-19 owner-specific
+resolvers, 25M-21 digest projection) — one machinery batch before queue 2, with
+the expected-and-correct side effect that the closure repair stales stored
+PASSes whose manifests omitted real dependencies. Then D3 and D4 per the specs.
+
+## 25M-20 pre-merge audit (Fable, 2026-07-13): GO — the 40/40 population is accepted GREEN; one topology rider joins the hardening increment
+
+cc85aa9 audited (run_board.py +29/-2, board_selftest.py +55). The
+implementation matches the ruling exactly: the resume predicate now
+requires own-PASS currency AND every dependency a current PASS AND
+no dependency in the this-run reran set; a current-PASS child with
+reran prerequisites prints the honest rerun line and executes; a
+gate joins reran only when its body actually runs (a SKIP-DEP'd
+gate never does, so skip cascades stay non-green). The reran set is
+TRANSITIVE by construction (A stale -> A reruns -> B reruns -> C
+reruns). An unselected stale prerequisite denies the child's resume
+and falls to the dependency-skip path: non-green, nonzero — the
+ruling's semantics precisely. Independent verification: the
+dependency-currency selftest legs rerun green on the cocoa
+interpreter (skip-cascade matrix, FAIL prerequisite, rc 1).
+
+ONE RIDER (Architect probe, non-blocking): the fix relies on BOARD
+listing dependencies before their children — TRUE today (probe: for
+every gate, each dep's BOARD index precedes the gate's; OK) but
+unenforced. The topological assertion becomes a permanent selftest
+leg in the 1b hardening increment: authoring order is now a
+correctness invariant of the resume machinery, so the board asserts
+it.
+
+VERDICT: GO. Per the binding timing, the 40/40 population landing
+is hereby ACCEPTED GREEN. The 1b hardening increment is GO as
+scoped WITH TWO SCOPE CORRECTIONS: (1) 25M-22's key removal + the
+every-key-has-a-reader config census leg belong to this increment
+(beside 21's projection — one digest transition), absent from the
+Implementer's scope list; (2) the topology-assertion leg above.
+Increment contents, final: 16 closure truth; 18 merged
+all-quantified coverage (three must-red fixtures); 19 owner
+resolvers; 21 digest projection; 22 removal + census leg; the
+topology leg. Queue 2 opens at that increment's merge.
+
+## 25M-24/25 adjudication (Fable, 2026-07-13): both selector-truth defects CONFIRMED — the hardening increment gains items 7 and 8
+
+Durable register at 97e8802. Verified at source:
+
+- 25M-24 CONFIRMED: main() returns for --list (rc 0) and --check
+  BEFORE the selector/force-rerun validation — whose own adjacent
+  comment promises "an unknown id is a usage error with a nonzero
+  exit, never a warning followed by a successful run". The promise
+  exists in the code and is bypassed for action modes: --list with
+  an unknown --gate/--from/--force-rerun prints the full board and
+  exits 0; --list --check silently prefers listing. RULING as
+  filed: action modes are standalone and mutually exclusive;
+  ignored or incompatible run controls are a usage error (exit 2);
+  the legs run the REAL main() (unknown-id-under---list nonzero;
+  --list --check nonzero; each restoration mutation red).
+- 25M-25 CONFIRMED: the --from branch indexes the FULL board
+  (optional gates included) for the start position, then filters
+  `not gate.optional` in the slice — an explicitly named OPTIONAL
+  start is silently dropped while everything after it is selected
+  (--from triangle-shading -> 20 gates beginning at joint-training,
+  the named gate absent). RULING as filed: an explicitly named
+  optional start is INCLUDED and first; unrelated later optional
+  gates remain excluded; the selector fixture pins the exact
+  expected id list and the restoration mutation must red.
+
+Placement: both amend the unit-4 harness/CLI-truth surface (the
+45M-77 selector lineage). They join THE 1B HARDENING INCREMENT as
+items 7 and 8 (same file, one machinery landing, selector truth is
+prerequisite to trusting queue-5 CLI runs). If the Implementer has
+already frozen the increment scope mid-execution, they land as an
+immediate sibling commit reviewed in the same audit — one landing
+or two commits, ONE audit.
+
+Recorded honestly: the red team's observation that board-selftest
+remains green against both defects is the point — the current legs
+exercise the selector function, not main()'s action-mode ordering.
+Consistent with the standing lesson; the new legs run the real
+main().

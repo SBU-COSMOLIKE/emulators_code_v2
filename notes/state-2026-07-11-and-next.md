@@ -2484,6 +2484,26 @@ the every-key-has-a-reader config census becomes a standing
 selftest leg. Spec: gates-and-board.md "25M-22 adjudication + the
 16..21 refile reconciliation".
 
+25M-20 AUDIT (2026-07-13, Fable): cc85aa9 GO — dependency currency
+in the reusable-PASS predicate exactly per ruling (transitive reran
+set; skip cascades non-green; unselected stale prerequisite =
+nonzero); selftest legs independently rerun green. THE 40/40
+POPULATION IS ACCEPTED GREEN. Rider: BOARD dependency order is now
+a correctness invariant — a topological selftest leg joins the
+hardening increment. Hardening scope corrected: + 25M-22 removal +
+census leg (omitted from the Implementer's list) + the topology
+leg. Queue 2 opens at the hardening merge. Spec: gates-and-board.md
+"25M-20 pre-merge audit".
+
+25M-24/25 (2026-07-13, Fable): both CONFIRMED — action modes return
+before selector validation (--list + unknown --gate exits 0,
+against the code's own adjacent promise); --from drops an
+explicitly named optional start while slicing from its position.
+Both join the 1b hardening increment as items 7-8 (mutually
+exclusive action modes with usage-error exits; named optional start
+included first; real-main() legs + selector fixture, restoration
+mutations red). Spec: gates-and-board.md "25M-24/25 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
