@@ -1090,6 +1090,350 @@ zero-connected extras is bit-identical.  Do not weaken transfer's separate
 bitwise base-composition requirement.  Scan every `bit for bit`, `bitwise`,
 and `bit-identical` occurrence and map it to the comparator actually used.
 
+## README-focused DIDACTICS handoff register: 72--92
+
+This register is the durable result of a repeated README-only audit at
+`7623756`. The review read all four README files (`README.md`,
+`emulator/README.md`, `gates/README.md`, and `syren/README.md`) in separate
+passes for entry-point orientation, first-time-ML vocabulary, shapes and
+numerical examples, command-to-output truth, executable-evidence truth,
+cross-file consistency, and stale current-state claims. The target reader is
+a second-year physics undergraduate who knows cosmology but is new to Python,
+PyTorch, Cobaya, and emulators. The 85-page TeX guide is the depth reference;
+the README repair must link to it and condense its essential bridges rather
+than copy the manuscript into another long document.
+
+These identifiers are Red Team finding labels, not implementation queue
+numbers. The Architect owns adjudication and placement. Where an item extends
+an existing queue-6 or scientific-unit contract, that relationship is named
+explicitly so the Implementer does not create a duplicate mechanism.
+
+### DIDACTICS-72 -- the README set has no audience route to the long teaching guide
+
+The root README sends the reader only to the package code map
+(`README.md:81-82`); it never links the TeX/PDF guide or the gate guide.
+`emulator/README.md:18-118` begins with a directory inventory, then jumps to a
+module table, without showing the executable order or a recommended study
+route. Add a compact **Choose your route** table near the root introduction:
+operational configuration in the root README; internals in
+`emulator/README.md`; full first-time Python/ML/code-study treatment in
+`texnotes/emulator_code_guide.pdf` (with the `.tex` source beside it); and
+executable evidence in `gates/README.md`. The package README then needs one
+small ownership flow and a nonalphabetical reading order:
+configuration -> experiment -> staging -> geometries -> loss -> model ->
+batching/training -> results/inference -> adapter. Link to the manuscript for
+the full file-by-file route instead of duplicating it.
+
+### DIDACTICS-73 -- setup names dependencies but supplies no reproducible preflight
+
+`README.md:153-171` names CoCoA/CosmoLike, NumPy, SciPy, HDF5, PyTorch, and
+CUDA, then immediately defines a relative shell variable. It gives no
+supported execution context, environment activation rule, `$ROOTDIR` check,
+dependency source, selected-device readback, or zero-training command that
+distinguishes an environment failure from a data/YAML failure. Add a short
+prerequisite table and one copyable preflight sequence: define `$ROOTDIR`,
+state whether this is a CoCoA-embedded rather than standalone install, import
+the actual runtime dependencies, print the selected device, and run the
+board's list/check-only path without GPU training. State which steps are
+CPU-safe and which require the Cocoa + CosmoLike/CAMB workstation.
+
+### DIDACTICS-74 -- commands are not mapped consistently to their products
+
+The single-run example explains the `.emul`/`.h5` pair
+(`README.md:173-203`), but the learning-curve, tuning, and bake-off commands do
+not all name their output files, table columns, authoritative best recipe,
+resume state, or success criterion (`README.md:264-344`). The family driver
+table at `README.md:475-505` names wrappers but gives no compact per-family
+command pattern. Add one driver-output matrix with: unit of work, command
+pattern, shipped template, files and location, table columns, resumable state,
+and what a successful run means. Give one row per physical family without
+copying five full command blocks. A reader must be able to follow
+command -> terminal verdict -> output file -> next consumer.
+
+### DIDACTICS-75 -- symbols and one-row mechanics remain implicit
+
+The six-term glossary at `README.md:562-573` has no shape notation. Later
+sections introduce `B`, `N`, `X`, `t`, `n_param`, and `n_dv` piecemeal, while
+`C` means the source dictionary's parameter matrix at
+`README.md:2462-2468` and covariance at `README.md:673-675,2694-2708`. Add
+the manuscript's compact symbol table: `N` complete rows, `B` minibatch rows,
+`P` physical parameters, `P_enc` encoded input width, `D` full output width,
+`K` kept/predicted coordinates, plus optional template and family axes. Use
+`Sigma` consistently for covariance and call `source["C"]` the historical
+Python key for the parameter matrix. Follow the legend with one small
+numerical row: select matching parameter/target rows, keep a few target
+coordinates, encode them, form a residual, and calculate a diagonal
+`Delta chi2`. The long four-row example stays in the guide.
+
+### DIDACTICS-76 -- the data boundary is underdefined and described incorrectly
+
+Three related claims teach the wrong storage/transformation model.
+`README.md:588-589` sends readers to generation for how parameters are
+“sampled, whitened, and named,” although the generator writes physical values
+and `ParamGeometry` whitens after row selection. `README.md:573` says the
+whole dump is memory-mapped, while `data_staging.py:649-651` memory-maps the
+data-vector `.npy` but eagerly parses the parameter `.txt`; the appendix shows
+that split at `README.md:2473-2476`. `emulator/README.md:22,128,284-290`
+calls the source dictionary “in-memory” even when its resident container
+points to a file-backed `np.memmap`. Repair these with one file/source
+contract: shapes and reserved columns; exact row-identity equality; physical
+values on disk; training-only statistics fitted after selection; keys `C`,
+`dv`, `idx`, `dump_rows`, and optional means; and each value's shape,
+RAM/file-backed status, and coordinate system. Define the resident container
+separately from its possibly lazy numerical payload.
+
+### DIDACTICS-77 -- the controls are introduced before one training step is taught
+
+`README.md:645-658` introduces epoch, minibatch, clipping, and rewind;
+`README.md:671-701` relies on gradient votes, trimming, and focal weights; and
+`README.md:726-751` introduces AdamW, learning rate, warmup, scheduler, fused
+kernels, and validation median. The later pipeline compresses training to one
+paragraph (`README.md:2667-2673`). Insert one compact “one minibatch, then one
+epoch” table before the loss controls: gather `B` rows -> forward
+`(B,P_enc)` to `(B,K)` -> compute scores `(B,)` -> reduce one scalar loss ->
+backpropagate -> finite-check gradients -> clip -> optimizer step; after all
+minibatches, evaluate held-out validation rows, snapshot the best model, and
+step the scheduler. Define gradient, optimizer, learning rate, scheduler,
+minibatch, epoch, training set, and validation set. State that validation
+performs no parameter update.
+
+### DIDACTICS-78 -- the PCE chapter names a Legendre basis but illustrates monomials
+
+`README.md:1518-1528` uses NPCE, SVD, PRESS, LOO, SGD, mode, least squares, and
+greedy selection before defining them. It correctly identifies products of
+Legendre polynomials at `README.md:1533-1577`, but the pruning table labels
+the terms as raw monomials `x_1^4`, `x_1^2 x_2^2`, and
+`x_1 x_2 x_3 x_4` (`README.md:1588-1592`). The implemented basis uses
+`P_4(x_1)`, `P_2(x_1)P_2(x_2)`, and products of first-degree Legendre
+factors. Expand every acronym at first use; define mode, design matrix,
+least-squares coefficient, greedy addition, and leave-one-out error before the
+workflow; replace table labels with Legendre products or multi-index vectors;
+and show the hyperbolic score for one two-parameter candidate.
+
+### DIDACTICS-79 -- the canonical generator command is not executable and the process model is unexplained
+
+The generator chapter opens with “MPI + emcee + cobaya” and later adds ranks,
+workers, differential-evolution moves, autocorrelation, checkpoints, and
+failure masks without defining the objects (`README.md:2307-2313,2375-2382`).
+Its copyable command has three concrete truth defects: it omits required
+`--seed` (`generator_core.py:157-166`), calls `--unif 0` “the default” although
+the parser requires the option (`generator_core.py:125-130`), and passes
+`--boundary 1.0` (`README.md:2427`) immediately after telling readers only
+`0 < boundary < 1` is valid (`README.md:2388-2389`); the code maps that
+endpoint to 1 (`generator_core.py:240-242`). Repair the command first: include
+and explain a reproducible integer seed, call `--unif` required with its 0/1
+meanings, and either omit the boundary for full support or choose and explain
+an interior value. Then link one minimal generator YAML per family, define
+generator-only keys, annotate which tokens belong to `mpirun` versus Python,
+and add a small rank-0/worker/checkpoint diagram. Name what can resume and
+which file set constitutes a complete result.
+
+### DIDACTICS-80 -- the direct-Python appendix uses unexplained compact Python
+
+The first scripting example (`README.md:2999-3016`) combines imports, mutates
+`sys.path` with an unexplained positional `0`, reads an environment variable
+inside nested path construction, and passes constructor arguments in a
+compact expression. The profile/background examples then use dense
+dictionaries and multi-assignment (`README.md:3039-3069`). Rewrite the
+teaching path in the user's code voice: one import per line; named
+`repo_path`, `artifact_root`, and `device` variables; explain that
+`sys.path.insert(0, path)` fills the first parameter with zero so the
+repository is searched first; one constructor argument per line; a named
+parameter dictionary built before `predict`; and returned type, shape, units,
+and device stated after the call. Begin with CPU and identify the single value
+changed for CUDA/MPS. Compact expert variants may follow, but not lead.
+
+### DIDACTICS-81 -- five families share a score interface, not one chi-square metric
+
+`emulator/README.md:97-100` says every family exposes “the same per-sample
+chi2.” The common invariant is one score per batch row, shape `(B,)`; the
+physical metrics differ. Cosmic shear contracts a physical residual with a
+dense inverse covariance; CMB uses persisted per-multipole error scales and
+its target law; scalar/grid/grid2d sum standardized residuals. Replace “same
+chi2” with “same per-row score interface,” add the actual weighting/formula to
+the five-family table, and explain that a common reducer can trim or focus
+these scores without making one threshold scientifically equivalent across
+families.
+
+### DIDACTICS-82 -- the architecture map conflates bases, trunks, and learned layers
+
+`emulator/README.md:110,260,374` calls NPCE respectively a trunk, a polynomial
+base plus neural refiner, and a loss-owned component that is not an SGD
+architecture. Use one description: fit and freeze a finite Legendre-polynomial
+base, then train a neural residual/refiner. The same map uses MLP, residual,
+CNN, transformer, correction head, template, IA, PCE, and SGD before defining
+them (`emulator/README.md:139-145,252-269,356-386`). Add a design table with
+input/output shape, fixed part, trained part, and intended use; define a
+residual block as same-width `h -> h + F(h)` and distinguish it from
+rectangular entry/exit projections. Narrow the root README's stronger claims:
+`README.md:929-980` says every learned layer is linear and the two trunk
+projections are the only rectangular learned matrices, but Conv1d, attention,
+and optional `FiLMGenerator` (`blocks.py:350-425`) are counterexamples. The
+square-dense/two-projection rule belongs to the ResMLP trunk, not the library.
+
+### DIDACTICS-83 -- dependency and physics-owner summaries overclaim
+
+`emulator/README.md:89-91` observes that only the cosmic-shear geometry imports
+CosmoLike, then incorrectly concludes that every other path is “pure
+PyTorch.” Those paths also use NumPy, SciPy, YAML, psutil, HDF5, and optional
+Matplotlib/GetDist; generators and smokes may require Cobaya/CAMB. State the
+precise claim: non-cosmic-shear training does not import CosmoLike, then list
+or link common and optional dependencies. `emulator/README.md:115-118`
+separately says both physics modules are shared by generator, adapter, and
+gates. That is true of the Syren base path; the background generator asks
+CAMB directly, while `emulator/background.py` owns consumer-side distance
+integration for adapter, diagnostics, and gates. Split the rows and name the
+actual consumers.
+
+### DIDACTICS-84 -- the function census promises detail it does not contain
+
+`emulator/README.md:277-280` directs readers to docstrings “for full detail,”
+then provides symbol lists that omit inputs, outputs, shape, dtype, device,
+copy/view/lazy behavior, mutation, and next caller. This is most damaging for
+staging (`:282-292`), training (`:396-409`), experiment (`:411-422`),
+persistence/inference (`:440-448`), and scheduling (`:434-438`). Keep leaf
+modules as an index, but give those lifecycle owners a compact table: public
+entry, input and shape, returned or mutated object and shape, storage/device/
+dtype, eager/lazy or copy/view behavior, and next consumer. Call section 6 an
+index and link the manuscript's file-by-file route. This does not replace the
+queued in-file docstring campaign; it prevents a false claim that the detail
+already exists.
+
+### DIDACTICS-85 -- the advertised new-family recipe ends before persistence and service
+
+The “NEW output family” row at `emulator/README.md:231` lists a geometry, loss,
+experiment branches, predictor, adapter, and two gates, but omits source
+generation or an external-source contract; geometry `state`/`from_state`;
+coordinate/head capability; family facts in save/rebuild/readback; driver and
+example YAML; diagnostics/plotting; and documentation. Replace the long cell
+with a lifecycle checklist: schema/validation, source and sidecars, geometry,
+score, model-coordinate capability, experiment, artifact facts and rebuild,
+predictor, adapter, driver/template, diagnostics, identity gate, smoke gate,
+and docs. Each row names input/output shape and permits “not applicable” only
+with a reason. A family that trains but cannot rebuild or label its physical
+output is not integrated.
+
+### DIDACTICS-86 -- stable code maps are mixed with contradictory audit chronology
+
+The package map embeds long temporary defect reports, dates, run anecdotes,
+and decision shorthand inside stable role cells
+(`emulator/README.md:128-130,155,164-169,179-216,265-273,419`). This is the
+already-queued README/current-limitations restructuring, now with two factual
+catch-power examples: line 128 says grid2d law staging “currently defeats” the
+memory ladder while line 419 says bounded streaming/spill landed and the
+materialization issue is retired; line 83 names the old
+`external_modules/code/emulators/emultrfv2/` path while this repository uses
+`external_modules/code/emulators_code_v2`. Queue 6 must leave one short
+present-tense role sentence per map row, one separate dated Current
+limitations table with consequence/status/descriptive note link, and no
+board-run anecdote or internal ruling language. Note references must be
+clickable paths rooted from `emulator/README.md`, for example
+`../notes/<file>.md#<stable-anchor>`, and a link check must cover all READMEs.
+
+### DIDACTICS-87 -- the gate README teaches obsolete scope, resume, and log semantics
+
+`gates/README.md:3-7` calls the harness a cosmic-shear suite that runs “every”
+test and writes one log per test. The board covers five families; default
+selection excludes optional gates, current PASS gates may resume without
+execution, and unmet dependencies can skip a selected body. The file promises
+`logs/<test>.log` (`gates/README.md:46,147`), while
+`run_board.py:1895-1937` writes immutable timestamped per-attempt logs through
+an atomic `.inprogress` publication and stores the exact filename/digest in
+status. Rewrite the opening as the command-line acceptance harness for all
+five families. Define default selection, optional gates, and “success = every
+selected gate is current PASS.” Teach the resume states PASS, FAIL,
+stale-code, stale-input, stale-log, pre-manifest, interrupted, SKIP-DEP, and
+not-run; only a PASS with current code, input/manifest, and raw-log identity
+may be reused. Readers must follow `BOARD.md` or `board_status.json` to the
+cited attempt rather than guess a filename.
+
+### DIDACTICS-88 -- the gate table omits foundational gates and assumes its evidence vocabulary
+
+`gates/README.md:101-108` admits its central table is incomplete. The current
+board has 40 gates, while the table omits `finite-contract`,
+`board-selftest`, `generator-seed`, `cli-strict`, `family-first`, `stage-ram`,
+`artifact-readback`, and `diagnostics-domain`. Its rows then use EMA, BerHu,
+NPCE, parity, round trip, bitwise, collapse bar, known answer, fixture, census,
+sidecar, CAMB, and Cobaya without a local primer. Complete or mechanically
+check the table from board metadata. For each gate give plain-language claim,
+production path or fixture, actual verdict, catch-power mutation/control,
+prerequisites, and what it does *not* prove. Precede it with the manuscript's
+reduced evidence ladder: banner/schema observation < parity/round trip <
+independent known answer with mutation catch power. This is distinct from
+DIDACTICS-62: evidence-map rollout cannot manufacture observations a gate
+never executes, and the README must not relabel those weak gates as stronger.
+
+### DIDACTICS-89 -- board operator instructions contradict portable configuration and preflight
+
+`gates/README.md:66-72` tells every user to edit `board_config.json`; its own
+`_help` says a standard clone resolves `rootdir: null` from `$ROOTDIR` and
+needs no edit. The README also says preflight enforces a “stale git tip”
+(`:70,83-84`), but executable preflight proves the embedded base-notes commit
+is an ancestor of HEAD; it does not fetch or compare `origin`. Replace the
+edit instruction with: export and define `$ROOTDIR`, inspect the portable
+config, override only a nonstandard deployment, then run `--check`. Add
+examples for `--list`, one named gate, the optional triangle gate, one tier,
+`--from`, `--force-rerun`, and `--force-rerun-all`; state exit 0 (selected
+surface current green), 1 (preflight/gate/dependency non-green), and 2
+(usage/board-authoring/manifest error). Distinguish terminal summary,
+`BOARD.md`, status database, and immutable raw attempt log.
+
+### DIDACTICS-90 -- the Syren README universalizes one of three target laws
+
+`syren/README.md:3-7` says the MPS network learns `log(P/P_base)` and
+multiplies the formula back. The registry has three paths: `none` learns raw
+rows; `syren_linear` learns `log(P/P_base)`; `syren_halofit` learns
+`log(B/B_base)`, with `B=P_nonlinear/P_linear`. Add a three-row table with
+quantity, axes, units, training target, and reconstruction. Define `P(k,z)`,
+linear/nonlinear power, boost, `k`, `z`, `h`, and units; call Syren a
+deterministic analytic approximation/fit, not “the exact formula.” Exactly
+executing reconstruction does not make the approximation physically exact.
+Include one number, for example `P_base=900`, `P=990`,
+`c=log(990/900)`, and `900 exp(c)=990`, then extend to a z-outer
+`(N_z,N_k)` surface and diagram raw+base -> staged ratio -> correction ->
+adapter base -> physical product.
+
+### DIDACTICS-91 -- Syren provenance promises identity the artifact does not store
+
+`syren/README.md:5-7,46-50` says vendoring means artifacts and bases can never
+drift and that artifacts record the base by construction. Current
+`Grid2DGeometry.state()` persists law name and geometry, not a Syren
+implementation digest; the root README admits artifacts do not yet bind
+implementation identity (`README.md:197-198`). This rides the existing
+implementation-identity unit: narrow current prose to “vendoring prevents an
+unreviewed package-manager upgrade”; until the manifest lands, a repository
+revision can change inference formulas and producing-commit identity/retraining
+remains necessary. `syren/README.md:34-35` also calls bodies “byte-verbatim
+(AST-verified).” An AST comparison discards comments and formatting and cannot
+prove byte identity, and no retained vendoring probe is present. Either retain
+a source snapshot plus clearly named normalized-AST comparison, or state which
+source was copied and which import/header edits were made. Reserve
+“byte-verbatim” for an actual byte/hash comparison.
+
+### DIDACTICS-92 -- the Syren README has no user-facing domain or evidence route
+
+The 50-line file lists function names and paper identifiers but gives no fit
+domain, units, callable contract, use/verification command, or evidence
+limits. Add descriptive paper titles/roles and a compact function table with
+inputs, output, shape, units, and accepted domain; this domain paragraph rides
+the existing MPS interpolator/domain unit rather than inventing ranges. Add
+commands for board-listed `mps-identity` and `mps-smoke` with prerequisites
+and an honest evidence split: `mps-identity` uses controlled/stub bases to
+prove assembly algebra, while the current `mps-smoke` real-CAMB path exercises
+law `none`; neither alone proves numerical accuracy of the real Syren fit.
+State what is tested, what remains outside the gates, and when re-vendoring
+requires retraining.
+
+### README audit exclusions and existing owners
+
+The loop re-observed, but did not duplicate, four existing contracts:
+DIDACTICS-69 owns “whitening makes every direction equally easy” language;
+DIDACTICS-62 owns board rows whose claims exceed banner-only checks; queue 6
+owns the stable-role/current-limitations split and removal of internal audit
+shorthand; and the evidence rollout owns the two-layer check-script mechanism
+plus declared-versus-executed reconciliation. DIDACTICS-86 and 88 sharpen
+their README acceptance surfaces; they do not create parallel implementations.
+
 ### Durable-record rule
 
 Every future Red Team handoff is appended to an existing topic or audit note
