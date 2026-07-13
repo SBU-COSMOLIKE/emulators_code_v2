@@ -1336,6 +1336,30 @@ def gate_artifact_readback(ctx):
              + " (gates/checks/artifact_readback.py)")
 
 
+def gate_cli_strict(ctx):
+  """cli-strict: a misspelled flag is a usage error, not a silent ignore.
+
+  WHAT: a census that all eight public entry points parse with strict
+  parse_args, plus a live test of two driver mains with the expensive boundary
+  monkeypatched. WHY: the drivers and data producers used parse_known_args and
+  discarded the unknown tokens, so a misspelled flag (--activaton, --quieet,
+  --diagnostc, --sav) was silently ignored and the run proceeded at the YAML or
+  default value -- most dangerously publishing to the default --save root. HOW:
+  a valid command line reaches the boundary (parsing succeeded); a misspelled
+  flag exits nonzero before the boundary, so no data is read, no artifact
+  loaded, no CAMB started, no worker spawned, and no output root chosen.
+  Importing the drivers needs torch; the parse itself is pure Python.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/cli_strict.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="cli-strict flag-parsing legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/cli_strict.py)")
+
+
 def gate_family_first(ctx):
   """family-first: every driver owns exactly one data-block family.
 
@@ -1520,6 +1544,18 @@ BOARD = [
             "valid controls)",
        run=gate_board_selftest,
        needs=()),
+  Gate(id="cli-strict",
+       spec_code="CLI-A",
+       title="Every public executable rejects a misspelled flag",
+       tier=TIER_BACKLOG,
+       home="conventions-and-workflow",
+       maps="the strict-CLI contract: all eight public entry points parse with "
+            "parse_args (no parse_known_args), and two representative driver "
+            "mains reject a misspelled flag (--activaton) with a nonzero exit "
+            "before the expensive boundary, while a valid command line reaches "
+            "it",
+       run=gate_cli_strict,
+       needs=("torch",)),
   Gate(id="family-first",
        spec_code="FAM-A",
        title="Every driver owns exactly one data-block family",

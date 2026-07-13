@@ -160,7 +160,8 @@ def main():
                       help="suppress all stdout (driver prints, the "
                            "per-source line, the per-epoch log)",
                       action="store_true")
-  args, _ = parser.parse_known_args()
+  # strict parse: reject a misspelled flag instead of silently ignoring it.
+  args = parser.parse_args()
 
   # resolve_cocoa_config (cocoa.py): resolve the cocoa layout, load the YAML,
   # and rewrite its data paths to absolute, so the run does not depend on the

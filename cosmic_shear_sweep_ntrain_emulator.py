@@ -378,7 +378,10 @@ def main(prog="cosmic_shear_sweep_ntrain_emulator", family="cosmolike",
                       dest="quiet",
                       help="suppress all stdout (txt / pdf still written)",
                       action="store_true")
-  args, unknown = parser.parse_known_args()
+  # strict parse: a misspelled flag (--sav, --activaton, --diagnostc) is a
+  # usage error naming the token and exiting nonzero, never silently ignored
+  # and then run at a default (which could publish to the wrong --save root).
+  args = parser.parse_args()
   # --out absent -> the driver's own default (the family
   # wrappers pass their per-family name through out_default).
   if args.out is None:

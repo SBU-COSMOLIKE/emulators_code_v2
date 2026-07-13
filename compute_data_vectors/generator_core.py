@@ -1143,7 +1143,9 @@ def run_generator(dataset_cls, prog):
     dataset_cls = the driver's GeneratorCore subclass.
     prog        = the driver script name for --help.
   """
-  args, unknown = make_cli_parser(prog).parse_known_args()
+  # strict parse: reject an unknown / misspelled flag (unit-17 ruling) rather
+  # than silently ignoring it before staging or spawning workers.
+  args = make_cli_parser(prog).parse_args()
   comm = MPI.COMM_WORLD
   rank = comm.Get_rank()
   try:

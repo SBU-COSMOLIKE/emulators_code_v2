@@ -272,7 +272,10 @@ def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
                       help="suppress all stdout (per-trial lines "
                            "and the final summary)",
                       action="store_true")
-  args, unknown = parser.parse_known_args()
+  # strict parse: a misspelled flag (--sav, --activaton, --diagnostc) is a
+  # usage error naming the token and exiting nonzero, never silently ignored
+  # and then run at a default (which could publish to the wrong --save root).
+  args = parser.parse_args()
 
   # resolve_cocoa_config (cocoa.py): resolve the cocoa layout (data under
   # $ROOTDIR/<root>, YAML under <fileroot>), load the YAML, and make its data
