@@ -96,6 +96,15 @@ _CONFIG_FILE = _GATES_DIR / "board_config.json"
 _EXECUTABLE_DIRS = ("emulator", "gates", "compute_data_vectors",
                     "cobaya_theory", "syren")
 
+# The one path the clean-tree watch excludes: board_config.json is inside the
+# watched gates/ tree, but it is machine-portable and a local deploy may
+# override a value, so a modified config must not fail the clean-tree check
+# (its effective values are dumped into every gate-log header instead). This
+# lives beside _EXECUTABLE_DIRS so the executed pathspec (_watched_paths), the
+# exclusion (_dirty_lines), and the printed surface text share one owner and
+# cannot drift apart.
+_WATCH_EXCLUDE = "gates/board_config.json"
+
 # The training driver every run-shaped gate invokes.
 _DRIVER = "cosmic_shear_train_emulator.py"
 
@@ -550,14 +559,32 @@ class RunContext:
 # Preflight (harness rule 4).
 # --------------------------------------------------------------------------
 
-def _git(args):
-  """Run a git command from the repo, returning (rc, stdout stripped)."""
+def _git(args, strip=True):
+  """Run a git command from the repo, returning (rc, stdout).
+
+  strip=True (the default) trims surrounding whitespace, which is what every
+  single-value caller wants (a commit hash, an ancestor check). The clean-tree
+  watch must pass strip=False: a global strip removes the leading status column
+  from the FIRST porcelain line only, so a downstream line[3:] parse misreads
+  that one line -- gates/board_config.json then escaped its exclusion exactly
+  when it was the only or alphabetically first dirty entry. Per-line porcelain
+  parsing needs the transport untouched.
+
+  Arguments:
+    args  = the git argument list (without the leading "git").
+    strip = trim surrounding whitespace off stdout (default True); pass False
+            when a caller parses the output line by line by column.
+
+  Returns:
+    (returncode, stdout) with stdout stripped only when strip is True.
+  """
   proc = subprocess.run(["git"] + args,
                         cwd=str(_REPO),
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True)
-  return (proc.returncode, proc.stdout.strip())
+  out = proc.stdout
+  return (proc.returncode, out.strip() if strip else out)
 
 
 def _probe_import(statement):
@@ -568,28 +595,51 @@ def _probe_import(statement):
   return proc.returncode == 0
 
 
-def _dirty_lines(porcelain_out):
-  """The clean-tree offenders, excluding gates/board_config.json.
+def _watched_paths():
+  """The clean-tree pathspec: the executable surface plus the root drivers.
 
-  board_config.json is machine-portable and normally runs unedited, but a
-  user may override a value for a non-standard deploy, so a modified config
-  must not fail the clean-tree check; it is excluded here and its effective
-  values are dumped into every gate-log header instead, so reproducibility
-  is still kept.
-
-  Arguments:
-    porcelain_out = the ``git status --porcelain`` output over the
-                    watched paths.
+  The one owner of what preflight watches. board_config.json sits inside the
+  watched gates/ tree, but _dirty_lines drops it (see _WATCH_EXCLUDE). Sharing
+  this function and that constant keeps the executed watch, the exclusion, and
+  the printed surface text from ever disagreeing about what was checked.
 
   Returns:
-    a list of the offending status lines, board_config.json removed.
+    the pathspec list to pass after ``git status --porcelain --``.
+  """
+  watched = list(_EXECUTABLE_DIRS)
+  for entry in sorted(_REPO.glob("*.py")):
+    watched.append(entry.name)
+  return watched
+
+
+def _dirty_lines(porcelain_out):
+  """The clean-tree offenders, excluding the portable config (_WATCH_EXCLUDE).
+
+  _WATCH_EXCLUDE is machine-portable and normally runs unedited, but a user may
+  override a value for a non-standard deploy, so a modified config must not fail
+  the clean-tree check; it is excluded here and its effective values are dumped
+  into every gate-log header instead, so reproducibility is still kept.
+
+  Each porcelain line is ``XY <path>``: two status columns, a space, then the
+  path, so the path is line[3:]. This is correct only when the transport left
+  the leading column in place -- the caller must read git with strip=False (a
+  global strip drops the first line's leading space and shifts its path by one,
+  which is exactly the head-line misparse 1c-bis closes).
+
+  Arguments:
+    porcelain_out = the ``git status --porcelain`` output over the watched
+                    paths, read with strip=False so every line keeps its
+                    two-column status prefix.
+
+  Returns:
+    a list of the offending status lines, the excluded config removed.
   """
   offenders = []
   for line in porcelain_out.splitlines():
     if line.strip() == "":
       continue
     path = line[3:].strip()
-    if path == "gates/board_config.json":
+    if path == _WATCH_EXCLUDE:
       continue
     offenders.append(line)
   return offenders
@@ -713,17 +763,17 @@ def preflight(cfg):
 
   # (b) clean tree across the whole executable surface (emulator/, gates/,
   # compute_data_vectors/, cobaya_theory/, syren/) and the root drivers, but
-  # NOT gates/board_config.json (portable; excluded so a local deploy override
+  # NOT the portable config (_WATCH_EXCLUDE; excluded so a local deploy override
   # does not fail the clean-tree check). A dirty generator, adapter, or
   # vendored formula changes what a run produces just as a dirty package does.
-  watched = list(_EXECUTABLE_DIRS)
-  for entry in sorted(_REPO.glob("*.py")):
-    watched.append(entry.name)
-  rc_st, out_st = _git(["status", "--porcelain", "--"] + watched)
+  # strip=False: the porcelain must reach _dirty_lines with every line's
+  # two-column status prefix intact, or the first line's path shifts by one.
+  watched = _watched_paths()
+  rc_st, out_st = _git(["status", "--porcelain", "--"] + watched, strip=False)
   offenders = _dirty_lines(out_st)
   if len(offenders) == 0:
     print("  [ok] working tree clean across the executable surface + drivers "
-          "(board_config.json excluded)")
+          "(" + _WATCH_EXCLUDE + " excluded)")
   else:
     ok = False
     print("  [FAIL] dirty working tree (a run must be reproducible):")

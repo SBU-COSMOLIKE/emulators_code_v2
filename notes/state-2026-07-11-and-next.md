@@ -1684,6 +1684,20 @@ gates-and-board.md "RT-2026-07-13-01 adjudication";
 data-generation-and-cuts.md "UNIT 64"; families-background-mps.md
 "UNIT 65".
 
+1C-BIS + BLOAT-01 PRE-COMMIT AUDIT (2026-07-13, Fable): PASS, GO
+given. The uncommitted landing audited in-tree: _WATCH_EXCLUDE +
+_watched_paths() one-owner, _git(strip=False) transport with the
+head-line misparse documented at the parse site, preflight surface
+text derived from the owner; experiment.py's _is_finite_real deleted
+and imported from training (the pinned direction). Evidence run by
+the Architect: board-selftest 46 legs ALL PASS (incl. the head-line,
+transport, one-owner, and stripped-head-line mutation arms); the
+live head-line probe through the REAL helpers now excludes a
+config-only edit (the exact RT-IMPL-02 failure case); cmb-identity
+green after the move. Part J live run stays workstation-owed. Next:
+Opus commits (one landing), then the queue-1b manifest PROPOSAL under
+the seven pre-answered constraints.
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

@@ -153,7 +153,7 @@ from .training import (
   run_emulator, build_run_specs, pick_device, make_logger,
   default_train_args, eval_source_chi2, DEFAULT_COMPILE_MODE,
   validate_phase_block, _PHASE_BLOCK_KEYS,
-  validate_loss, _loss_migration_message)
+  validate_loss, _loss_migration_message, _is_finite_real)
 
 
 # per-chunk read budget for the bounded grid2d law transform
@@ -696,28 +696,6 @@ def validate_scalar(cfg, train_args, rescale="none"):
   # branch, and the source ScalarGeometry is pinned in build_geometry
   # after the outputs-equal admissibility check.
   return outputs
-
-
-def _is_finite_real(value):
-  """True only for a finite, non-boolean real number (a plain int or float).
-
-  A public scientific control is validated by type, never made valid by
-  coercion. Two values would slip through a float()-then-finite check: bool is
-  a subclass of int (float(True) is 1.0), and a numeric string converts
-  (float("0.96") is 0.96). This admits only a genuine int or float that is not
-  a bool and whose value is finite, matching the same predicate the other
-  public numeric controls use, so True / False / "0.96" / NaN / inf are
-  rejected at the boundary.
-
-  Arguments:
-    value = the candidate configuration value.
-
-  Returns:
-    True when value is a finite int or float and not a bool.
-  """
-  if isinstance(value, bool) or not isinstance(value, (int, float)):
-    return False
-  return bool(np.isfinite(value))
 
 
 def validate_cmb(cfg, train_args, rescale="none"):

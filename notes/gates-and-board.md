@@ -888,3 +888,209 @@ repair, red-team's call in their build pipeline: stop tracking the
 PDF and build on demand (pdflatex exists on the dev Mac), or add a
 freshness check (PDF vs .tex digest) to the board's doc lane. Until
 one lands, the rebuild is owed whenever the .tex changes.
+
+### 1c-bis + BLOAT-01 DONE (Opus, 2026-07-13)
+
+1c-bis (the first-porcelain-line strip misparse): `_git` gains a
+`strip` parameter (default True, so every single-value caller -- commit
+hash, ancestor check -- is unchanged); preflight (b) reads the watch
+with `strip=False`, so `_dirty_lines` receives every porcelain line with
+its two-column status prefix intact and `line[3:]` is uniform. One owner
+for the executed watch: `_WATCH_EXCLUDE = "gates/board_config.json"`
+lives beside `_EXECUTABLE_DIRS`; `_watched_paths()` owns the pathspec;
+`_dirty_lines` excludes `_WATCH_EXCLUDE`; and the preflight `[ok]` surface
+text prints that same constant -- pathspec, exclusion, and surface text
+can no longer drift. No production behavior changes for a clean tree; the
+fix only stops the config from false-red-ing when it is the head entry.
+
+Legs (`board_selftest.check_dirty_watch`, 7, driving the REAL
+`_dirty_lines` / `_git` / `_watched_paths`): config-only head-line stays
+clean; config + neighbor reds only the neighbor; neighbor-only reds; the
+empty-porcelain clean control; a mutation arm that restores the global
+strip (feeds the stripped head line) and must -- and does -- false-red the
+config; `_git(strip=False)` proven to preserve the raw transport while
+`strip=True` trims; and the one-owner pathspec/exclusion coverage. Live
+proof on a real dirty tree (pathspec pinned to the config so it is the
+head line): `strip=False` excludes it (clean), the retired global strip
+leaks `M gates/board_config.json` (false red); the config's bytes were
+restored and the tree re-verified clean.
+
+BLOAT-01 (queue-4 dedup): `emulator/experiment.py`'s `_is_finite_real`
+copy is deleted and imported from the `emulator/training.py` owner (the
+import direction the in-repo constraint already pins; experiment already
+imports from `.training`). Verified one object
+(`experiment._is_finite_real is training._is_finite_real`), the predicate
+still rejects bool / numeric-string / non-finite, and `cmb-identity`
+(which exercises `validate_cmb` -> `_is_finite_real`) reran all green.
+finite-contract Part J (optimizer schema) rides the workstation, unchanged
+by a pure move.
+
+Verification (Mac, cocoa-torch): `compileall emulator gates` clean;
+`board-selftest` ALL PASS (now with the clean-tree-watch legs);
+`run_board --list` rc 0; `cmb-identity` all green; the live head-line
+proof PASS. Next: the queue-1b manifest PROPOSAL (design only), under the
+seven pre-answered constraints above.
+
+## Queue 1b: executable/input manifest PROPOSAL (Opus, 2026-07-13, DESIGN ONLY)
+
+For Architect review. No code lands from this section; it names the
+`Gate` field schema, the static-scan mechanics, the persisted-manifest
+JSON shape, and the pre-manifest legacy transition, and stops there.
+Numbering follows the seven pre-answered constraints above.
+
+### The problem this closes (recap)
+
+`_gate_code_digest` hashes only the gate body plus the `gates/checks/*.py`
+paths named literally in it; it misses `board.py` shared helpers, the
+`run_board.py` runner, and the production modules a check imports. A change
+to a shared helper or an imported library module can leave a stored PASS
+falsely current. `_gate_input_digest` hashes the WHOLE `yaml_dir`, so an
+unrelated YAML edit falsely stales every gate, and it never establishes
+which specific data / covmat / axis / artifact files a gate consumes. The
+audit's rule: "a digest with no inspectable membership is not evidence."
+
+### (A) Gate-field schema
+
+One NEW optional `Gate` field (constraint 2 -- not folded into `evidence=`,
+the note-anchor trust chain, nor `needs=`, the capability lanes):
+
+```
+@dataclass(frozen=True)
+class Manifest:
+  # repo-relative production-module ROOTS this gate's checks depend on,
+  # BEYOND the always-hashed shared harness and the check scripts the gate
+  # body names (those are added automatically). Each must live inside the
+  # executable surface (_EXECUTABLE_DIRS).
+  code:   Tuple[str, ...] = ()
+  # board_config KEYS (dotted) whose resolved values are the specific
+  # external files this gate consumes: its own smoke YAML(s) and any data /
+  # covmat / axis / artifact inputs. Resolved against board_config at run
+  # time, never stored as raw deploy paths.
+  inputs: Tuple[str, ...] = ()
+
+# on Gate:
+manifest: Optional[Manifest] = None   # None = the conservative fallback (D)
+```
+
+Example (illustrative, not a build list): `stage-ram` declares
+`code=("emulator/data_staging.py", "emulator/batching.py")`,
+`inputs=()` (it fabricates its own arrays). A data-driven gate such as
+`cmb-smoke` declares its generator / covariance modules in `code` and its
+YAML + dump + covmat config keys in `inputs`.
+
+The always-hashed shared harness (constraint 5) -- `run_board.py`,
+`board.py`, and every check script the gate invokes -- is added by the
+digester for EVERY gate, declared or not; a gate never has to (and cannot
+usefully) re-declare it.
+
+### (B) Static-scan reconciliation mechanics (constraint 1)
+
+The manifest is DECLARED, then CHECKED -- never walked into existence.
+A new `validate_manifests(BOARD)` runs on every invocation (including
+`--list`), the same shape as `validate_evidence`, and exits 2 on a
+mismatch.
+
+The check is a STATIC, repo-local, AST-level import scan -- it must run on
+the Mac without importing the modules, because a cosmolike-importing check
+script cannot be imported here, but its `import` lines CAN be read
+(`ast.parse` on the file bytes, never `import`/`exec`):
+
+1. Seed = the gate's check scripts (auto-discovered from the gate body, as
+   today) + its declared `code` roots + the shared harness.
+2. For each seed file, `ast.parse` and collect `import X` / `from X import`
+   targets. Resolve each to a repo-relative path ONLY if it lands inside
+   `_EXECUTABLE_DIRS`. Third-party targets (torch, numpy, cobaya,
+   cosmolike_*) are IGNORED -- environment drift stays preflight + the
+   queue-5 capability lanes, never a per-gate digest member.
+3. Transitively close over the repo-local hits to a fixpoint. The closure
+   is the "found" set.
+4. RECONCILE: every repo-local module in the found set must be covered by
+   (declared `code`) union (auto check scripts) union (shared harness). A
+   repo-local import the scan finds that the declaration does not cover is
+   an under-declaration -> validation error (exit 2). This is what forces
+   the declaration to be complete; the digest then hashes the full closure,
+   so a change to any transitively-reachable repo-local module staled the
+   gate.
+
+Open sub-choice for your ruling: whether `code` must name the FULL
+transitive closure (verbose, but the declaration is the whole truth) or
+only the DIRECT roots with the digester deriving the closure (terse, the
+scan owns transitivity). Recommendation: direct roots + derived closure --
+the note stays readable and the scan is the single source of the closure;
+the reconciliation error still fires on any direct repo-local import a
+root's checks make that no declared root covers.
+
+### (C) Persisted-manifest JSON shape (constraint 4)
+
+At PASS time the status record stores the manifest as RESOLVED members --
+materialized paths and their own digests, never re-derivable declarations
+-- so `--list` / `BOARD.md` can name WHICH member went stale, not just
+that something did:
+
+```
+"stage-ram": {
+  "status": "PASS",
+  "code_digest":  "<sha256 over the ordered code members>",
+  "input_digest": "<sha256 over the ordered input members>",
+  "manifest": {
+    "code": [
+      {"path": "gates/run_board.py",          "sha256": "..."},
+      {"path": "gates/board.py",              "sha256": "..."},
+      {"path": "gates/checks/stage_ram.py",   "sha256": "..."},
+      {"path": "emulator/data_staging.py",    "sha256": "..."},
+      {"path": "emulator/batching.py",        "sha256": "..."}
+    ],
+    "inputs": []
+  },
+  "log": "stage-ram.log", "log_digest": "..."
+}
+```
+
+The overall `code_digest` / `input_digest` stay as the fast resume
+comparison; the per-member list is the inspectable evidence behind them.
+`_resume_state` gains a member-level compare: when an overall digest
+differs, it walks the persisted members against the freshly-resolved ones
+and reports the first changed `path` (a `stale-code` / `stale-input` with a
+named member, not an opaque flip).
+
+### (D) Pre-manifest legacy transition (constraint 6)
+
+- An undeclared gate (`manifest is None`) keeps today's `_gate_code_digest`
+  / `_gate_input_digest` (whole-`yaml_dir`) behavior AND is displayed
+  manifest-less. The too-narrow surface is exactly the false currency the
+  audit proved, so this fallback is honest-but-weak, never the goal.
+- On 1b landing, every existing PASS record predates the manifest and has
+  no persisted `manifest` block. A DECLARED gate whose stored record lacks
+  that block reads a NEW non-green `pre-manifest` resume state (beside
+  `stale-code` / `stale-log`), forcing a rerun -- the same digestless-is-
+  stale ruling as the unit-4 extension. The queue-5 full-board rerun is
+  already owed, so the honest staleing costs nothing.
+
+### Input side (constraint 7)
+
+A declared gate's `inputs` name its SPECIFIC files, resolved against
+board_config at run time (its smoke YAML by its `gate_configs` key, its
+data / covmat / axis / artifact inputs by their keys). The whole-`yaml_dir`
+hash RETIRES for declared gates and survives only inside the (D) fallback.
+
+### Shared reporting shape (constraint 3)
+
+The 1b import "declared vs found" reconciliation and the queue-2 aid
+"declared vs executed" reconciliation emit ONE "declared vs observed" error
+line a reader learns once, e.g.
+`[manifest] <gate>: declared {..} but the import scan found {..} (undeclared: X)`
+alongside the rollout's
+`[evidence] <gate>: declared {aids} but executed {aids}`.
+Whether they share a helper is the queue-2 implementation's choice; the
+format is fixed here.
+
+### Sequencing
+
+1b lands before the queue-2 evidence rollout (both edit the runner's resume
+machinery; the rollout must build on the final manifest, not race it).
+Suggested build order once approved: the `Manifest` dataclass + `Gate`
+field + `validate_manifests` (fixpoint scan) first, gated by
+`board-selftest` arms driving the real scan on a fabricated under-declared
+gate (the mutation arm); then the digest + persisted-member rewrite with
+the `pre-manifest` state; then per-gate `manifest=` population, gate by
+gate, each a rerun. Awaiting Architect review before any of it.

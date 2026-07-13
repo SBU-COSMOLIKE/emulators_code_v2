@@ -484,6 +484,65 @@ def check_evidence_map():
            "empty evidence tolerated")
 
 
+def check_dirty_watch():
+    """1c-bis: the clean-tree watch parses porcelain per line, immune to the
+    global strip, and the pathspec + exclusion + surface text share one owner.
+
+    Drives the REAL run_board._dirty_lines / _git / _watched_paths. A porcelain
+    line is 'XY <path>' -- two status columns, a space, then the path -- so the
+    path is line[3:] only when the transport kept the leading column. A global
+    strip drops the FIRST line's leading space and shifts its path by one, which
+    is exactly how the portable config escaped its exclusion when it was the
+    head (only or alphabetically first) dirty entry.
+    """
+    exclude = run_board._WATCH_EXCLUDE
+    cfg_line = " M " + exclude               # raw porcelain, config as head line
+    nbr_line = " M gates/board.py"           # a watched neighbor
+
+    # (1) config-only, config as the head line: dropped -> clean. The reopened
+    #     head-line case, on the raw porcelain the fixed transport now delivers.
+    report("config-only edit (head line) stays clean",
+           run_board._dirty_lines(cfg_line) == [],
+           "head-line case: " + repr(cfg_line))
+    # (2) config + neighbor: only the neighbor reds; the config is still dropped
+    #     even though it is the alphabetically first / head line.
+    both = run_board._dirty_lines(cfg_line + "\n" + nbr_line)
+    report("config + neighbor edit reds ONLY the neighbor",
+           both == [nbr_line], "offenders = " + repr(both))
+    # (3) neighbor-only: reds.
+    report("neighbor-only edit reds",
+           run_board._dirty_lines(nbr_line) == [nbr_line], "offender kept")
+    # (4) clean-tree control.
+    report("empty porcelain is clean",
+           run_board._dirty_lines("") == [], "no offenders")
+    # (5) mutation arm: restore the head-line misparse by stripping the leading
+    #     column (what the retired global-strip transport did to the first
+    #     line). The config then escapes exclusion and false-reds -- the failure
+    #     the fix removes, so the mutant must produce exactly that offender.
+    mutated = cfg_line.strip()               # "M gates/board_config.json"
+    misparsed = run_board._dirty_lines(mutated)
+    report("mutation (stripped head line) false-reds the config -> caught",
+           misparsed == [mutated],
+           "line[3:]=" + repr(mutated[3:]) + " != exclude, so it leaks")
+    # transport: strip=False leaves git's bytes untouched (the property the
+    # per-line parse relies on); strip=True trims, for the single-value callers.
+    _rc, raw = run_board._git(["rev-parse", "HEAD"], strip=False)
+    _rc2, trimmed = run_board._git(["rev-parse", "HEAD"])
+    report("_git(strip=False) preserves the raw transport",
+           raw.endswith("\n") and trimmed == raw.strip() and trimmed != raw,
+           "raw keeps the trailing newline; strip=True trims it")
+    # one owner: the pathspec covers the executable surface + a root driver, and
+    # the excluded config lives inside it (so _dirty_lines, not the pathspec,
+    # drops it), and the exclusion string is the same constant every consumer
+    # reads.
+    watched = run_board._watched_paths()
+    owner_ok = (all(d in watched for d in run_board._EXECUTABLE_DIRS)
+                and any(p.endswith(".py") for p in watched)
+                and exclude.split("/")[0] in run_board._EXECUTABLE_DIRS)
+    report("one owner: pathspec covers the surface + drivers; config lives in it",
+           owner_ok, "watched dirs + root *.py; exclude under the surface")
+
+
 def main():
     print("board-selftest (pure Python, no torch)")
     print("\n-- exit-code truth --")
@@ -500,6 +559,8 @@ def main():
     check_log_trust()
     print("\n-- structured evidence map (anchors resolve, ids unique) --")
     check_evidence_map()
+    print("\n-- clean-tree watch (per-line porcelain, one owner) --")
+    check_dirty_watch()
     print("")
     if FAILURES:
         print("board-selftest: %d FAILURE(S): %s"
