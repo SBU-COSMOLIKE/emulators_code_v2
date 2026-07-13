@@ -340,3 +340,61 @@ so that sweep must include gates/checks/board_selftest.py, diagnostics_domain.py
 etc.) + 45M-83 (row-coordinate glossary) + 45M-86..90 (lifecycle / warmstart /
 gates-teach / diagnostics / save-rebuild didactics). 45M-75 is a workstation
 confirmation-request (post-optimizer-step finite boundary; eps=0 AdamW).
+
+## RED-TEAM BATCH continued — Opus (2026-07-12, user-authorized "do them ALL")
+
+Second wave of the red-team batch implemented on the branch (batch grant;
+merge/push to main stays user-only). Board now 40 gates. All CPU-verifiable
+legs green on the Mac (Cocoa torch where the module needs it).
+
+- 45M-71 + 45M-74 (commit 5947a05): board resume trusts BOTH an
+  executable-surface digest and an input digest; a config change / mutated
+  referenced YAML / interrupted attempt reruns and never satisfies a
+  dependency. A RUNNING record is persisted (atomically) before any gate code;
+  each attempt writes its own immutable per-attempt log (temp + os.replace);
+  board_status.json + BOARD.md go through temp + os.replace; --list / BOARD.md
+  distinguish current PASS / stale-code / stale-input / interrupted; a
+  status/log digest mismatch is loud. Gate board-selftest (BRD-A) now 26/26.
+- 45M-75 schema half (commit 7b4e4ec): _validate_optimizer_opts rejects a
+  zero / non-finite Adam eps, a non-finite / negative weight_decay, a
+  non-positive / non-finite lr, and a beta outside [0,1) before the optimizer
+  is built (the 0/0 zero-gradient trap). finite-contract Part J. The post-step
+  finite boundary remains the workstation confirmation half.
+- 45M-78 (commit 0139b1a): all eight public entry points parse with strict
+  parse_args (no parse_known_args) -- a misspelled flag exits nonzero before
+  any data / artifact / CAMB / worker / output-root work. Gate cli-strict
+  (CLI-A) 14/14.
+- 45M-80 (commit e9943bc): the direct cosmic_shear drivers own an explicit
+  "cosmolike" family identity and reject a wrong-family YAML naming the right
+  driver (family=None no longer skips the check). Gate family-first (FAM-A).
+- 45M-79 (commit 48aac94): the scalar driver stamps rescale="none" so its own
+  artifact is a valid fine-tune source. Census in artifact-readback.
+- 45M-76 (commit 53334f0): _read_native_bool parses transfer_refined by type
+  (the truthy "False" no longer loads drifted weights). Gate artifact-readback
+  (ARB-A).
+- 45M-84 (commit 0ec1879): stage_source counts BOTH compact copies (params +
+  target). Gate stage-ram (SRM-A).
+- 45M-81 (commit 80315c3): required integer --seed owns a numpy Generator
+  threaded through the four sampling sites + emcee; recorded in the chain
+  header. Gate generator-seed (GEN-A). Append-replay + worker-invariance +
+  full RNG-state manifest are the workstation remainder.
+- 45M-85 (commit 2807d3f): all 84 internal 45M-* audit codes stripped from
+  emulator/ + gates/ Python (comments / docstrings / gate descriptions /
+  printed headings); 11 of 14 files AST-identical, the other 3 differ only in a
+  human-facing runtime string; zero 45M remain.
+- 45M-83 (commit 4dc0779): the data_staging row-coordinate glossary (disk /
+  compact / loader rows + the dump_rows[j] invariant + the [9,2,9,5] example +
+  the discarded param_stats scale + grid2d moment order); AST byte-identical.
+
+STILL OPEN (the two largest, warrant a fresh session):
+- 45M-72: replace every gate's free-form maps= prose with a structured stable
+  assertion-ID -> note-section-anchor map; preflight fails on missing / dup
+  anchors; every ctx.expect + external check leg emits a unique assertion ID;
+  the runner compares expected vs executed IDs; external scripts emit an
+  executed-leg manifest. A codebase-wide refactor of all 40 gates + every check
+  + the notes (only 2/33 spec_codes currently occur in their home notes).
+- 45M-86 / 87 / 88 / 89 / 90: the didactic documentation batch (experiment
+  lifecycle diagram + decision table; warmstart / transfer tensor mechanics;
+  gates-teach-their-evidence; diagnostics estimator-vs-verdict; save/rebuild
+  reversible map). Large doc-only rewrites of 200-700-line functions;
+  AST-with-docstrings-stripped identity per file.
