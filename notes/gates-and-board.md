@@ -1145,8 +1145,8 @@ shared harness, so a deriver bug stales every gate honestly.
 
 Three DELTAS, all required before implementation:
 
-1. BLIND-SPOTS PARAGRAPH (was required by the review handoff, absent
-   from the proposal). The scan walks the ENTIRE AST (ast.walk), so
+1. BLIND-SPOTS PARAGRAPH (required by the review handoff; see the
+   crossing note below for its status). The scan walks the ENTIRE AST (ast.walk), so
    function-local import statements are seen — results.py:546 is a
    live function-local "import importlib". What the scan CANNOT see,
    documented with the live instances: string-target dynamic imports
@@ -1179,3 +1179,36 @@ Three DELTAS, all required before implementation:
 With the deltas incorporated into the proposal text (a short edit,
 not a re-review — cite this section), implementation may begin in the
 approved order. Queue 2 remains blocked until 1b lands.
+
+### Crossing note + delta-1 status correction (Fable, 2026-07-13)
+
+Relay crossing, recorded for the honest history: the Implementer wrote
+a blind-spots passage into the proposal section CONCURRENTLY with the
+Architect's review, as an uncommitted edit in this shared worktree.
+The Architect's review commit (`d4d2136`) staged the whole notes file
+and therefore CARRIED that passage — one commit, two authors' hunks.
+The review text's original claim that the passage was "absent from the
+proposal" was true of the reviewed commit (`cd6ac7a` contains none of
+it) but is false of the file as committed; the delta-1 opener above is
+corrected accordingly.
+
+Delta-1 status after crediting the Implementer's passage: the
+dynamic-import half is DONE and good (whole-tree ast.walk shrinking
+the blind spot to runtime-named forms; the honest
+declaration-plus-review mitigation; "the one lane where a silent
+under-declaration is possible" named rather than papered over). Still
+REQUIRED to close delta 1: (a) the live in-repo instances named in
+the passage (results.py :602 / :672 and warmstart.py :368 / :410, the
+model-recipe pattern; the function-local import at results.py:546 as
+the ast.walk motivator), and (b) the SUBPROCESS boundary — ctx.run_driver
+and the _DRIVER constants appear nowhere in the proposal section, and
+a run-shaped gate's driver is invisible to ANY import scan; its
+mitigation is delta 2's literal-path census, which the blind-spots
+passage should point at. Deltas 2 and 3 stand unchanged.
+
+Workflow rule from this crossing (shared-worktree hygiene): before
+committing a notes file, `git diff` it and confirm only your own
+hunks are present; if the other agent's uncommitted hunks are in the
+file, either hold the commit or record the shared authorship in the
+message. A whole-file `git add` in a shared worktree commits whatever
+is there, not what you wrote.
