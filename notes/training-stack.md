@@ -1993,3 +1993,132 @@ fail the perfect-zero leg; parity leg proving both public paths
 make the same scale decision on the same finite fractions.
 
 Placement: campaign phase (CPU-only, independent); no preemption.
+
+## UNIT 14 increment (g) AMENDED (45M-60 second addendum, thirteenth batch): the band derives from the COMPUTE dtype, never a storage upcast
+
+CONFIRMED (Fable, 2026-07-12). eval_source_chi2 computes each chi2
+chunk in the model/loss compute dtype (normally float32), then
+
+    dchi2_t = torch.cat(chunks).double()          (training.py:1608)
+    band = _chi2_neg_band(dchi2_t.dtype, n_terms) (training.py:1620)
+
+The upcast cannot undo float32 contraction roundoff; it only
+relabels the dtype the validator reads. Measured: at w = 780 the
+float64-eps band is 5.5e-12 raw -> the 1e-6 floor, while the
+float32 band (post-(g) width rule) is 0.002975; at w = 3000,
+2.1e-11 -> floor vs 0.011444. So training's _reduce and eval_val
+normalize a -5e-4 roundoff negative to exact 0 while the public
+diagnostic/sweep scorer REFUSES the same value — one score, two
+verdicts — and the comment at :1609-1615 explicitly claims the
+same predicate and band. An executed contradiction, not a policy
+choice.
+
+Amendment (folds into increment (g); rides the board-listed
+finite-contract gate, no new gate file):
+
+1. Capture the chi2 COMPUTE dtype before any storage/reporting
+   cast; derive the band from that dtype.
+2. Validate/normalize in the compute dtype; convert the ACCEPTED
+   result to float64 NumPy for reporting.
+3. Numerical provenance is never inferred from a tensor that has
+   merely been upcast.
+4. The same ordering applies to increment (h)'s shared diagnostic
+   helper (the floor arm at diagnostics.py:226 has the identical
+   .double()-before-interpretation shape).
+5. Gate leg: a real float32 loss family at a value between the
+   1e-6 floor and its adjudicated float32 band — _reduce, eval_val,
+   and eval_source_chi2 must give ONE verdict and one exact-zero
+   normalization.
+6. Mutation arm: restoring .double() before _chi2_neg_band must
+   fail.
+7. A genuine float64-compute control: a loss actually evaluated in
+   float64 still receives the float64 band.
+
+## UNIT 14 REOPENED (45M-61, thirteenth batch): increment (h) — the diagnostic score boundary
+
+CONFIRMED (Fable, 2026-07-12). The finite-chi2 contract stops
+before the "data-only floor": local_linear_floor computes its
+interpolation-floor score by calling chi2fn.chi2 DIRECTLY
+(diagnostics.py:226-227, including the same
+.double()-before-interpretation upcast) and immediately interprets
+the unchecked values — f_floor / f_hard via dchi2_floor > 0.2
+(:238, :240) and median_floor via np.median (:241) — while only
+the MODEL arm (:230-233) passes through the newly guarded
+eval_source_chi2. _chi2_domain and _chi2_neg_band appear NOWHERE
+in diagnostics.py (untruncated census, 2026-07-12). Three more
+direct producer sites: :414, :621, :745 (the CMB / grid / grid2d
+public residual functions). Increment (e) therefore established
+two different definitions of a valid diagnostic chi2 inside one
+returned record.
+
+Reachability and the concrete wrong result (adjudicated on the
+validator boundary + arithmetic; the red legs drive the real
+path): DataVectorGeometry.from_state splats state straight into
+the constructor (output.py:249 `cls(device, **state)`), which
+stores Cinv and slices Cinv_sq with NO positive-definiteness check
+(:163-186); geometry-totality unit 11 is queued, not landed. A
+one-coordinate state with Cinv = [[-1]] and a unit floor residual
+gives dchi2_floor = -1: since (-1 > 0.2) is False, f_floor = 0.0 —
+the impossible negative "data-only floor" is reported PERFECT —
+and median_floor = -1; NaN rides the same NaN-comparison-False
+path. Even after unit 11 lands, float32 contraction roundoff is
+the reason (e) built the shared band; the floor must use it too.
+Distinct from the thirteenth-wave statistics-manufacture-NaN
+extension (already folded at ledger entry 9): there the statistics
+corrupt finite inputs; here a chi2 PRODUCER returns an invalid
+score and the diagnostic boundary fails to apply the
+already-landed score-domain contract.
+
+Contract (the red team's clauses adopted whole; no new tolerance):
+
+1. ONE shared public score-domain helper owned beside _chi2_domain
+   in losses/core.py; it accepts the LOSS OBJECT and derives the
+   band from that family's adjudicated term count (increment (g))
+   and the compute dtype captured before any storage cast (the
+   (g) second addendum ordering).
+2. dchi2_floor runs through it BEFORE any threshold, median,
+   dense-decile, plotting, or persistence operation.
+3. The three other direct sites (:414, :621, :745) are censused:
+   every public family diagnostic function validates its OWN chi2
+   vectors — none may rely on a driver having happened to run
+   coverage_diagnostic first.
+4. A materially negative or non-finite score RAISES naming: the
+   diagnostic name, the score producer (local-linear floor, cmb
+   residual, ...), the bad-row count and positions, the minimum,
+   and the band. A within-band negative becomes exact zero under
+   the same rule as training/evaluation.
+5. Unit 11's geometry validation is defense in depth, not a
+   substitute for score-boundary validation.
+6. Unit 9's honest-unavailability status governs statistics that
+   are mathematically unavailable; it must NOT convert a corrupted
+   chi2 into "unavailable" and continue.
+7. Valid positive diagnostic output remains byte-identical.
+
+Red legs (torch; a board-listed diagnostics gate under
+gates/checks/ — the Implementer proposes the home, new small gate
+or the existing family-diagnostics coverage; GPU workstation lane
+plus a CPU lane wherever supported):
+
+- the REAL local_linear_floor driven with the reachable
+  one-coordinate accepted geometry whose floor score is -1:
+  current code returns f_floor = 0.0, repaired code must REFUSE
+  before computing it;
+- a materially negative model-independent floor beside an
+  otherwise finite/valid model arm — proves the FLOOR guard, not
+  eval_source_chi2, catches it;
+- NaN and +/-Inf floor scores refuse;
+- values immediately on both sides of the corrected
+  production-family band: exact-zero normalization vs refusal;
+- mutation arm: deleting ONLY the floor guard recreates the false
+  f_floor = 0;
+- each of the CMB / grid / grid2d public residual functions gets
+  one corrupt-score refusal and one valid-output identity control;
+- the loss-family term-count census from the (g) addendum rides
+  here too: the diagnostic must never silently use the
+  fallback-one band.
+
+Placement: increment (h) rides WITH (g) as one visit, AFTER queue
+43 lands (the preemption was relaxed: 43's loss side is built and
+verified uncommitted in losses/cmb.py, the same file (g) edits;
+finishing 43 avoids a half-unit and a same-file collision). Unit
+14 stays open on (f) + (g) + (h).

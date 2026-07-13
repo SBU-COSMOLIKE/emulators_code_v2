@@ -1147,7 +1147,7 @@ number. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
-14(a+b+c+d+e) -> 36 -> 42 -> 14(g) -> 43 -> 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01) order
+14(a+b+c+d+e) -> 36 -> 42 -> 43 -> 14(g+h) -> 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01) order
 define the active pipeline (updated with the third 45M batch: the CMB
 amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
 unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15
@@ -1368,6 +1368,50 @@ resolved), NOT the covariance-fiducial default the Implementer
 proposed to assume; families-scalar-cmb.md "QUEUE 43 RULINGS" is
 binding. Implementer real-torch Mac capability acknowledged
 (cosmolike-free modules validated as real functions now).
+
+THIRTEENTH 45M BATCH (2026-07-12): 45M-61 = unit 14 REOPENED on
+increment (h), the diagnostic score boundary — local_linear_floor
+calls chi2fn.chi2 directly (diagnostics.py:226-227) and interprets
+the unchecked values immediately (f_floor/f_hard > 0.2 at
+:238/:240, median at :241) while ONLY the model arm uses the
+guarded eval_source_chi2 (:230-233); _chi2_domain appears NOWHERE
+in diagnostics.py (untruncated census); three more direct producer
+sites at :414/:621/:745 (cmb/grid/grid2d residual pages).
+Reachable today: from_state splats straight into the constructor
+with no PSD check (output.py:249, :163-186; unit 11 queued not
+landed), so a one-coordinate Cinv=[[-1]] state serves
+dchi2_floor = -1 -> f_floor = 0.0 "perfect", median -1 — one
+returned record carrying two different definitions of a valid
+chi2. Contract: ONE shared public score-domain helper beside
+_chi2_domain taking the LOSS OBJECT (family width + compute-dtype
+provenance); the floor and the three family producers validate
+their OWN vectors before threshold/median/decile/plot/persist;
+corruption raises naming diagnostic/producer/count/positions/min/
+band; unit 11 = defense in depth not substitute; unit 9's
+honest-unavailability must NOT convert corruption to
+"unavailable"; valid output byte-identical; seven red legs incl.
+the floor-guard-deletion mutation and per-family refusal+identity
+controls, in a board-listed diagnostics gate (Implementer proposes
+the home). 45M-60 SECOND ADDENDUM = increment (g) AMENDED —
+eval_source_chi2 computes chi2 in the loss compute dtype then
+derives the band from the UPCAST tensor (training.py:1608
+.double(), :1620 band from dchi2_t.dtype): float64 eps collapses
+the band to the 1e-6 floor (raw 5.5e-12 at w=780 vs float32
+0.002975), so -5e-4 is zeroed by training/eval_val and REFUSED by
+the diagnostic — an executed contradiction of the "same predicate
+and band" comment (:1609-1615). Amendment adopted whole: band from
+the compute dtype captured BEFORE storage casts, validate in
+compute dtype then convert for reporting, provenance never
+inferred from an upcast, same ordering in (h)'s helper, the
+three-boundary one-verdict gate leg, .double()-restoring mutation
+arm, genuine-float64 control; rides finite-contract, no new file.
+SEQUENCING RELAXED: the (g)-preempts-43 ruling was issued when 43
+was believed unstarted; the Implementer status shows 43's loss
+side built+verified UNCOMMITTED in losses/cmb.py — the same file
+(g) edits — so 43 FINISHES FIRST (avoids a half-unit and a
+same-file collision), then 14(g+h) as one visit, then
+50(+60+14f). Continue answer to the Implementer: YES, finish 43
+as scoped.
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
