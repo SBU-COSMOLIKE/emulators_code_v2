@@ -3003,3 +3003,13 @@ covers D3 + DIDACTICS-63 together; DIDACTICS-60 recomputes after
 D3). Gauntlet now: increment 3 (Opus) parallel with D3 (red team)
 -> D4 split -> D5 (Opus). Spec: gates-and-board.md "25M-37
 evidence readback audit + D3 FIRES".
+
+SERIAL-PROOF GATE 1 (2026-07-13, Fable): 7cbcd7a (geo-paths
+migrated) GO — evidence= wired to the three drafted aids exactly,
+transform anchors resolve, maps= one sentence, ##AID emission with
+the exit code as the single aggregate; own runs green (--list,
+child emits exactly the declared legs, selftest). Pattern RATIFIED
+with the wrapper-aid clause (child-emitted legs -> aid-less wrapper
+expect; wrapper-headline aids only where the rc expect IS the leg).
+Gate 2 proceeds; batch audit delta-only. Spec: gates-and-board.md
+"Increment-3 serial-proof gate 1 audit".

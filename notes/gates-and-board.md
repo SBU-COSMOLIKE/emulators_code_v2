@@ -6869,3 +6869,36 @@ repairs may land in one visit. D5's DIDACTICS-60 baseline
 recomputation happens AFTER D3, as ruled. The gauntlet is now:
 increment 3 (Implementer) in parallel with D3 (red team) -> D4
 (split by file) -> D5 (Implementer).
+
+## Increment-3 serial-proof gate 1 audit (Fable, 2026-07-13): 7cbcd7a (geo-paths) GO — the migration pattern is RATIFIED
+
+The first migrated gate audited as the pattern the fan-out
+replicates. Verified:
+
+- evidence= carries EXACTLY the three drafted aids
+  (fresh-save-uses-folder-paths, legacy-flat-paths-absent,
+  legacy-reference-census) with exact transform anchors in
+  artifacts-inference-warmstart.md; home= already equals the anchor
+  note (ruling 5).
+- maps= is one human sentence, no line numbers, no leg enumeration.
+- geo_paths.py's report() gains aid= and prints one reserved
+  ``##AID <aid> <result>`` line per declared leg; the child's exit
+  status stays the single aggregate (the draft block's own "not a
+  fourth leg" honored — one-verdict).
+- MY RUNS: --list rc 0 (validator green over the new tuple); the
+  child under the cocoa interpreter emits EXACTLY the three
+  declared ##AID lines, all PASS, aggregate PASS; board-selftest
+  ALL PASS.
+
+PATTERN CLAUSE RATIFIED FOR THE FAN-OUT (so subagents replicate it
+correctly): when ALL of a gate's declared legs are child-emitted,
+the wrapper's rc==0 expect stays AID-LESS (invisible to
+reconciliation, which then sees exactly the folded child legs); the
+seven foundation gates' wrapper-level headline aids are the OTHER
+correct shape, for gates whose one declared leg IS the wrapper's
+rc expect. A subagent must pick the shape from the draft block's
+evidence field, never add both.
+
+VERDICT: GO. Serial-proof gate 2 (a pure in-process gate) proceeds;
+the 2-gate batch audit will be delta-only against this ratified
+pattern.
