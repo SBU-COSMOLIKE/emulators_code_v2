@@ -1147,7 +1147,7 @@ number. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
-14(a+b+c+d+e) -> 36 -> 42+43 -> 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01) order
+14(a+b+c+d+e) -> 36 -> 42 -> 14(g) -> 43 -> 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01) order
 define the active pipeline (updated with the third 45M batch: the CMB
 amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
 unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15
@@ -1333,6 +1333,41 @@ checkpoint recorded: five self-committed increments this run —
 14(c) 97963b8, 14(d) 63880d1, 36 387c650, 42 5661c08, 14(e)
 420bce2 — all pending batch audit; unit 14 closed a-e and reopens
 here on (f) only.
+
+TWELFTH 45M BATCH (2026-07-12): 45M-60 + addendum = unit 14
+REOPENED on increment (g), PREEMPTING queue 43 — the landed (e)
+band uses n_terms = w^2 on the dense base (an open, documented
+Implementer resolution of the Architect's ambiguous ruling phrase
+"count of summed products", whose own parenthetical "n_dv for the
+plain whitened form" anchored WIDTH; the ambiguity was the
+Architect's, the consequence decides): at production widths the
+band is 2.32 (w=780) / 34.33 (w=3000), so a dense chi2 of -2 is
+normalized to a PERFECT 0 — the exact false-crowning failure (e)
+exists to close — and the shipped Part H tests only the 1e-6 floor
+because PoisonChi2 omits _chi2_n_terms (finite_contract.py:913).
+RULING: n_terms := the per-row kept WIDTH for EVERY family (band
+0.002975 at w=780, 0.011444 at w=3000 — refuses -2/-4 at every
+production width; depth-not-count derivation recorded in the
+spec); ONE base-class definition, CmbDiagonal override retired,
+ScalarChi2 (diagonal, caught inheriting w^2 by the addendum)
+correct automatically; metric census + declared-width doubles +
+production-surface Part H legs incl. the w*w-restoring mutation
+arm and a measured ill-conditioned SPD valid control; band may
+only ever WIDEN on measured valid evidence. 45M-59 = NEW UNIT 61
+(plot_learning_curves sets log y unconditionally, plotting.py:304,
+so a PERFECT fraction of exactly 0 — the best outcome — is dropped
+from the published figure, while plot_sweep_curve already
+implements the correct linear-on-zero policy :372-373 with the
+docstring saying why; contract adopted + ONE shared scale-decision
+helper so the two public paths cannot drift; seven CPU legs;
+campaign phase; spec training-stack.md). Crossing note: the
+Implementer status predates the queue-43 rulings — the law-name
+default (as_exp2tau_ref) matches, but the fiducial source is RULED
+as the explicit data.cmb config pair (required, persisted
+resolved), NOT the covariance-fiducial default the Implementer
+proposed to assume; families-scalar-cmb.md "QUEUE 43 RULINGS" is
+binding. Implementer real-torch Mac capability acknowledged
+(cosmolike-free modules validated as real functions now).
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

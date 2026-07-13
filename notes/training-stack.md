@@ -1853,3 +1853,143 @@ Gate Part I (finite-contract, workstation; CPU AND the CUDA lane):
 Placement: (f) rides the SAME eval_val visit as unit 60, in the
 pipeline slot 50(+60+14f), after queue 43. Unit 14's closure claim
 (a-e) stands for its increments; the unit stays open on (f) only.
+
+## UNIT 14 REOPENED (45M-60 + addendum, twelfth batch): increment (g) — the chi2-domain band scales with the contraction WIDTH, not the product count
+
+Post-landing audit of 420bce2, CONFIRMED. Landed state:
+CosmolikeChi2._chi2_n_terms returns w*w on the dense base
+(losses/core.py:254 region, "w^2 products" in its docstring);
+CmbDiagonalChi2 overrides to w (losses/cmb.py:215); _chi2_neg_band
+multiplies 32 * eps(dtype) by that count (core.py:100 region);
+_chi2_domain clamps every within-band negative to EXACT 0. The
+production bands that fall out (computed live, float32):
+
+    w =  780:  w^2 band = 2.32086     width band = 0.002975
+    w = 1000:  w^2 band = 3.81470     width band = 0.003815
+    w = 3000:  w^2 band = 34.33228    width band = 0.011444
+
+Under w^2, a dense production loss returning chi2 = -2.0 is not
+refused — it becomes the best possible score. That reintroduces the
+false-crowning failure increment (e) exists to close. And the
+shipped gate never exercises the production band: the negative and
+band-edge legs use PoisonChi2, which omits _chi2_n_terms, so
+eval_val substitutes n_terms = 1 and only the 1e-6 floor is tested
+(finite_contract.py:913-914).
+
+The record, adjudicated precisely: the eighth-batch ruling text
+said "n_terms = the per-row count of summed products in the active
+contraction (n_dv for the plain whitened form; the documented
+equivalent for the rescaled/transfer forms)". The parenthetical
+anchored WIDTH (n_dv); the head phrase, read literally against a
+dense r^T Cinv r, yields w^2. The Implementer resolved the
+ambiguity to w^2/w and documented the resolution openly (commit
+message and resume note) — NOT a silent redefinition — but the
+resolution contradicts the n_dv anchor, and the consequence test
+decides. The ambiguous phrase was the Architect's; the contract is
+hereby revised WITH the derivation the red team demanded.
+
+RULING: n_terms := the per-row kept WIDTH w for EVERY
+CosmolikeChi2 family. Derivation (depth, not count): the band only
+governs values near zero; there the computed chi2's roundoff is
+bounded by (accumulation depth) * eps * (sum of term magnitudes).
+The dense contraction executes as a matvec — w INDEPENDENT
+length-w sums — followed by one length-w dot, so the final
+accumulated chain is ~w deep (torch's pairwise/blocked reductions
+make even w conservative), and near a small chi2 the term
+magnitudes are themselves small; the flat-chain w^2 model both
+overcounts the depth and ignores the small-term structure.
+Empirical anchor: the valid roundoff negatives that motivated
+45M-53 sat at ~1e-6 — three-plus orders inside the width band at
+every production w — while -2.0 / -4.0 are refused at every
+production width. _CHI2_NEG_KAPPA = 32 and the 1e-6 floor stand.
+GROWTH CLAUSE: the band may only ever be WIDENED by measured valid
+controls (the SPD leg below) plus a recorded forward-error
+derivation — never by convenience.
+
+ADDENDUM adopted (the metric census): with width uniform, ONE
+definition lives on the base class — n_terms = the geometry's kept
+per-row width — and the CmbDiagonalChi2 override is retired as
+redundant. ScalarChi2 (explicitly a diagonal sum of n_out squared
+standardized residuals, losses/scalar.py:28) becomes correct
+automatically; the addendum caught it silently inheriting the
+dense w^2 rule today. Every loss family documents the metric its
+chi2 actually executes at the class; test doubles used in
+production-band gate legs DECLARE their width explicitly — the
+silent hasattr fallback to n_terms = 1 (training.py:1528/:1618)
+remains only for bare doubles outside production-contract legs.
+
+Gate Part H amendments (board-listed finite_contract.py,
+workstation; no separate unlisted script):
+
+- a production-surface leg using an actual CosmolikeChi2-class
+  loss whose dest_idx has realistic dense width (>= 780);
+- -2.0 and -4.0 RAISE at realistic widths, before ranking or
+  normalization;
+- both sides of the ACTUAL production band, with the exact band
+  value reported in the leg output;
+- mutation arm: restore w*w — the realistic-width negative leg
+  must fail;
+- scalar-width leg: ScalarChi2 yields n_terms = n_out;
+- mechanical subclass census: every CosmolikeChi2 subclass returns
+  its geometry's kept width (a future diagonal family cannot
+  silently inherit a wrong rule);
+- an ill-conditioned SPD VALID control measuring where genuine
+  roundoff negatives land — they must fall inside the width band
+  (unit 11's future SPD guards are complementary, never a
+  substitute).
+
+PRIORITY: increment (g) PREEMPTS queue 43 — a live false-crowning
+hole on the branch beats a design unit; the revision is surgical.
+Unit 14 stays open on (f) + (g); pipeline slot for (g) is
+immediately next.
+
+## UNIT 61 (45M-59, twelfth batch): the learning-curve figure must represent a perfect zero
+
+CONFIRMED (Fable, 2026-07-12). plot_learning_curves documents
+f(delta-chi2 > threshold) as the plotted result, then
+unconditionally selects ax.set_yscale("log")
+(emulator/plotting.py:304). A valid fraction may equal EXACTLY 0 —
+no validation row exceeded the threshold, the best possible
+outcome — and zero has no logarithm: the most successful point is
+dropped or clipped, and the saved figure no longer represents the
+data supplied to it. The same module already implements the
+correct policy in plot_sweep_curve: "y is logarithmic when every
+fraction is positive, linear otherwise (a perfect 0.0 point would
+break a log axis)" (docstring, ~:324) with the conditional
+np.all(fr[np.isfinite(fr)] > 0) -> log at :372-373. Two public
+plotting paths disagree on the same quantity; reachable through
+the public sweep/learning-curve outputs.
+
+Contract (the red team's six clauses, one addition):
+
+1. Validate every training size finite and strictly positive, and
+   every fraction finite in [0, 1] — RAISE before figure
+   construction; matplotlib warnings are not schema validation.
+2. Sort accepted curves by training size, as today.
+3. Log y only when ALL plotted fractions are strictly positive; if
+   any accepted fraction is zero, use the zero-capable scale (the
+   existing plot_sweep_curve linear policy is the minimal
+   consistent rule).
+4. A zero marker stays visible at its exact coordinate, including
+   as the final, scientifically decisive point.
+5. target validated finite in [0, 1]; a zero target remains
+   representable.
+6. The docstring names the conditional scale (no unconditional
+   log-log promise).
+ADDITION (Architect): ONE shared scale-decision helper called by
+BOTH plot_learning_curves and plot_sweep_curve, so the two public
+paths cannot drift apart again — the parity leg then proves the
+sharing, not a coincidence.
+
+Gate legs (CPU-only, matplotlib Agg; the Implementer proposes the
+home — a small board-listed check or the existing plot coverage —
+at build): positive-only curve retains log y; {100: .5, 1000: .1,
+10000: 0} uses the zero-capable scale with the marker present at
+y = 0; an interior zero is not silently bridged away; fractions
+below zero / above one / NaN / Inf raise before figure
+construction; nonpositive or nonfinite training sizes raise;
+mutation arm restoring the unconditional set_yscale("log") must
+fail the perfect-zero leg; parity leg proving both public paths
+make the same scale decision on the same finite fractions.
+
+Placement: campaign phase (CPU-only, independent); no preemption.
