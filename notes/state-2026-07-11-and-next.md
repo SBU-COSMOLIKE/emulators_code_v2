@@ -2951,3 +2951,17 @@ zero, nonempty selection both sides, equality, both rcs + counts
 always reported; the ruled three mutations + divergence arm +
 control all present; own runs green. D4's board.py half CLOSED.
 Spec: gates-and-board.md "Unit 46 audit".
+
+TEX-PROSE BATCH (2026-07-13, Fable): the red team's eight
+manuscript findings adjudicated — 01 confirmed at source (broken
+\rm rendering stray m's), 05 sampled (h_j vs h; q twice), 03's
+diary census cross-checked (48 single-line vs their governing ~58
+multiline), 02's framing verified with correct exclusions;
+04/06/07/08 register-witnessed. All repairs red-team custody in
+their proposed order, with two riders: still-open defects never
+lose their user-facing warning (each removed diary paragraph maps
+to its new home in the register), and the refactored gate appendix
+adopts the six-field evidence-block schema + audited aid names so
+manuscript and notes teach one vocabulary. Full
+recompile/render/inspect/census acceptance per landing. Spec:
+gates-and-board.md "TEX-PROSE-01..08 adjudication".
