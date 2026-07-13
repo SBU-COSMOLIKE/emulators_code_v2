@@ -650,6 +650,125 @@ refactor, band policy unchanged):**
    legs stay green unchanged).
 6. README prose in plain language; ledger codes stay in notes/.
 
+### 25M-07 amendment (Red Team CONFIRMED, awaiting Architect adjudication): an accepted stencil step can make lensing-potential power negative
+
+The queued validator requires at least two finite, positive, strictly
+increasing `step_fracs`, but owns no upper physical-domain bound. In
+`compute_cmb_covariance.py:558-565`, the most negative five-point-stencil
+arm multiplies a positive band by `1 - 2h`. Thus any `h > 0.5` evaluates a
+negative lensing-potential power spectrum; `h == 0.5` evaluates an exactly
+zero band on the domain boundary rather than a centered interior derivative.
+
+The real `nongaussian_blocks` body was executed with a finite linear fake
+CAMBdata and `step_fracs=[0.1,0.6]`. It accepted the configuration, recorded a
+minimum perturbed `clpp` of `-0.2`, reported convergence at about
+`9.77e-15`, and returned all-finite covariance blocks. Finiteness and
+cross-step agreement can therefore certify an out-of-domain calculation.
+This is a missing scientific-domain clause in the covariance-input unit, not
+a new unit.
+
+Required contract: every step satisfies `0 < h < 0.5`, or a stricter named
+cap justified for the CAMB relensing API, before any CAMB construction/call.
+The provenance records the exact amplitude factors
+`{1-2h, 1-h, 1+h, 1+2h}`. No clamp, absolute value, or skipped arm is allowed:
+the requested centered stencil is either physical or refused.
+
+Pure gate legs: `h=0.499` is accepted with all factors positive; `0.5`,
+`0.5001`, and `1.0` refuse before a fake CAMB call; shipped
+`[0.01,0.02,0.04]` remains byte-identical; and a mutation retaining only the
+finite/positive/increasing validation executes the negative-`clpp` fake and
+must red.
+
+### 25M-08 amendment (Red Team CONFIRMED, awaiting Architect adjudication): positive steps can round to no perturbation and certify zero non-Gaussian covariance
+
+The same validator owns no lower representability boundary. Factors are
+formed as `1.0 + eps` in float64 and convergence compares response stacks only
+with one another (`compute_cmb_covariance.py:558-585`). For
+`step_fracs=[1e-20,2e-20]`, every factor rounds to exactly float64 `1.0`.
+
+Executed through the real `nongaussian_blocks` body with a finite linear fake:
+all 16 relensing inputs were byte-identical to the fiducial (one unique byte
+string), every derivative and covariance block was exactly zero, and every
+spread was `0.0`. The study therefore labels a no-op perturbation perfectly
+converged and silently deletes the non-Gaussian term. This is distinct from
+25M-07's upper physical-domain ceiling.
+
+Required contract: before CAMB, each step has ordered representable float64
+factors `1-2h < 1-h < 1 < 1+h < 1+2h`. After multiplication, every nonzero
+band must actually change on both signs; genuinely zero physical bands retain
+their existing zero-band policy. Persist the factors and changed-value counts.
+Derive the boundary from representation (`nextafter`) rather than a magic
+decimal floor.
+
+Pure gate legs: the `[1e-20,2e-20]` false-green fixture refuses before
+relensing; cases bracketing `nextafter(1, +/-inf)` prove the exact boundary;
+shipped steps remain unchanged; nonzero-band payloads differ on both signs;
+the physical-zero control stays legal; and a mutation retaining only
+positive/increasing checks returns zero blocks and must red.
+
+### 25M-11 amendment (Red Team CONFIRMED, awaiting Architect adjudication): individually nonnegative T/E noise amplitudes can define an indefinite joint covariance
+
+The queued schema requires `delta_tt`, `delta_ee`, and `delta_te` to be finite
+and nonnegative but never checks whether they are one physical 2-by-2 T/E
+noise covariance. `noise_spectrum` squares each amplitude independently and
+`gaussian_blocks` assembles the joint TT/TE/EE covariance without a PSD check
+(`compute_cmb_covariance.py:169-243`). The required per-ell condition is
+`N_te^2 <= N_tt * N_ee`; because all three use the same beam formula, the
+input-amplitude condition is `delta_te^2 <= delta_tt * delta_ee`.
+
+The real production functions were executed at ell 2 with zero signal,
+`delta_tt=delta_ee=1`, `delta_te=10`, beam 1, and `fsky=1`. Every published
+per-spectrum sigma was finite, but the joint covariance eigenvalues were
+`[-2.86365772e-11, 1.43097071e-11, 2.86537506e-11]`. Thus the accepted public
+configuration publishes a strongly indefinite matrix while all scalar
+finiteness checks green. Output-geometry SPD work is defense in depth; the
+covariance producer itself must not label an unphysical matrix as science.
+
+Required contract: the pre-CAMB config boundary enforces the 2-by-2 noise PSD
+inequality in the storage arithmetic with a representation-derived rounding
+band. After fiducial spectra are available, verify
+`(Cte+Nte)^2 <= (Ctt+Ntt)(Cee+Nee)` at every ell; before publication verify the
+assembled symmetric joint Gaussian/dense covariance is PSD within one owned
+numerical tolerance. No clipping, diagonal loading, or absolute value repairs
+an invalid input silently.
+
+Pure red legs: the `1/1/10` witness refuses before CAMB; equality passes;
+just-over-boundary refuses under the declared band; shipped `delta_te=0`
+remains byte-identical; one realistic signal+noise control passes both the
+per-ell and tiled-matrix checks; a constructed post-signal violation refuses;
+and a mutation checking only individual nonnegativity publishes the negative
+eigenvalue above and must red.
+
+### 25M-12 amendment (Red Team CONFIRMED, awaiting Architect adjudication): finite positive inputs can overflow derived noise and still publish
+
+The queued schema validates the finiteness/positivity of beam, noise
+amplitudes, `fsky`, and `lmax` separately. The derived arithmetic has no
+representability check. `noise_spectrum` exponentiates the beam factor
+directly (`compute_cmb_covariance.py:185-188`), `gaussian_blocks` squares and
+multiplies it (`:229-243`), and `main` takes square roots and writes every
+array without a postcompute finite check (`:700-769`).
+
+The production function was executed at ell 5000, delta 1 muK-arcmin. A
+finite positive 60-arcmin beam returned `inf` with an overflow warning. At 32
+arcmin the noise itself is finite (about `4.11e162`) while covariance squaring
+overflows. All input values satisfy the recorded future schema. A one-degree
+beam is not malformed by type; it is incompatible with the requested
+multipole support and must be refused rather than published in an apparently
+complete `.npz`.
+
+Required contract: before CAMB, derive the largest beam exponent from the
+resolved `lmax` in float64 and prove both the full noise expression and its
+covariance products are representable using the named formulas, not a guessed
+beam cap. After computation, require every fiducial spectrum, sigma, Gaussian
+cross term, and enabled dense block to be finite before any output mutation;
+name the first key/ell/value on failure. No clipping or infinite sentinel.
+
+Pure red legs: the exact 60-arcmin/ell-5000 witness preflight-refuses; a value
+just inside the derived representability boundary remains finite; the
+32-arcmin case whose noise is finite but square overflows refuses; shipped
+1-arcmin output is byte-identical; and a mutation checking input finiteness
+only reaches `np.savez` with an infinite member and must red.
+
 ### 45M-01 amendment (2026-07-12, red-team; Architect-VERIFIED): the fiducial params block — schema, resolution, provenance
 
 (The red-team rounds are now labeled 45M-XY by user convention; the

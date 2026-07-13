@@ -629,6 +629,45 @@ unrelated repo commit with unchanged semantic ids still rebuilds; a
 registered migration selects the old implementation and reproduces a
 stored known-answer prediction; a deleted manifest key fails loudly.
 
+## 25M-09 (Red Team CONFIRMED, awaiting Architect adjudication): deleting an optional composition group silently changes an NPCE artifact into a plain emulator
+
+Schema-v2 save/rebuild infers scientific composition solely from optional HDF5
+group presence. `save_emulator` writes `pce` only when its argument is non-None
+and likewise writes `transfer_base` conditionally (`results.py:348-396`). The
+resolved YAML stores only `train_args` and `data` (`:429-435`), so it carries
+no independent consumed NPCE/transfer mode. Rebuild reads either group if it
+happens to exist (`:617-663`); when both are absent, inference selects the
+ordinary `geom.decode` path (`inference.py:291-316,388-447`). Strict model
+state loading cannot detect this because the refiner network has the same
+weights in both interpretations.
+
+Public CPU reproduction on the real save/rebuild/predict path: a valid NPCE
+artifact predicted `H0=69.68846130371094` and
+`omegam=0.31317755579948425`. After only deleting `f['pce']` from its v2 HDF5,
+rebuild and strict state loading still succeeded and returned finite
+`H0=66.8885269165039`, `omegam=0.30848246812820435` (errors about `2.7999344`
+and `0.00469509`). The artifact silently became a different scientific model.
+Unit 3's weight/HDF5 pair identity and unit 76's recipe-key totality do not
+state the required composition mode; this is their scientific-mode interlock.
+
+Required contract: persist a native required composition enum (`plain`,
+`npce`, `transfer`) from the executed run, with transfer-refined state as a
+separate native fact. Validate mode against the exact required/forbidden group
+set in both directions before constructing a model. Authenticate the HDF5
+scientific payload/manifest so deletion cannot leave a valid marker. The
+resolved consumed record retains NPCE/transfer facts. Schema-v2 absence never
+means plain; legacy presence-only artifacts refuse with a migration/re-save
+instruction. Apply the same contract to `pce` and `transfer_base`, including
+mutual exclusion.
+
+Board-listed save/forge/rebuild legs: valid plain, NPCE, frozen transfer, and
+refined-transfer controls; delete `pce`; delete `transfer_base`; flip the enum
+without changing groups; add a forbidden second composition group; delete or
+forge the refined half; and a mutation restoring presence-only inference must
+strict-load the same-shaped net yet fail the known-answer prediction. Run the
+Torch/HDF5 legs on Vivian's workstation; enum/group validation also has a pure
+HDF5 CPU surface.
+
 ## config_resolved_yaml does not record what the run consumed (red-team 45M-19, 2026-07-12, Architect-VERIFIED; queue 41)
 
 run_emulator's resolved_train labels itself "defaults materialized"

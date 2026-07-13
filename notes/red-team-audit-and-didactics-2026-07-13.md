@@ -1580,7 +1580,25 @@ discriminating leg set in its scientific owner before any chat handoff:
   the resolved activation that trained — `training-stack.md`, resolved-record
   campaign; and
 - `25M-06`: `.ranges` serialization collapses float32-distinct legal bounds —
-  `data-generation-and-cuts.md`, canonical-representation campaign.
+  `data-generation-and-cuts.md`, canonical-representation campaign;
+- `25M-07`: a large positive CMB stencil step evaluates negative lensing
+  power and can still converge — `families-scalar-cmb.md`, covariance-input
+  unit;
+- `25M-08`: tiny positive CMB stencil steps round to no perturbation and
+  certify zero non-Gaussian covariance — `families-scalar-cmb.md`, same unit;
+- `25M-09`: deleting the optional `pce`/`transfer_base` group changes artifact
+  composition while strict model loading passes —
+  `artifacts-inference-warmstart.md`; and
+- `25M-10`: raw staging/geometry/worker prints violate every driver's
+  `--quiet` all-stdout contract — `training-stack.md`; and
+- `25M-11`: independently nonnegative TT/TE/EE noise amplitudes can produce an
+  indefinite joint covariance — `families-scalar-cmb.md`, covariance-input
+  unit; and
+- `25M-12`: finite beam/noise inputs can overflow the derived covariance and
+  still publish — `families-scalar-cmb.md`, same unit; and
+- `25M-13`: BAOSN unions incompatible Hubble/D_M input domains and serves one
+  stitched background from two cosmologies — `families-background-mps.md`,
+  unit-75/fixed-facts campaign.
 
 No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and

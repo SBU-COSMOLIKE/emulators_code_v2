@@ -1371,6 +1371,43 @@ readback equals the experiment's resolved value; and a mutation using
 pure CPU; one real sweep-path integration leg may be board-listed for Vivian's
 workstation.
 
+## 25M-10 (Red Team CONFIRMED, awaiting Architect adjudication): `--quiet` cannot satisfy its public all-stdout contract
+
+Every train/sweep/tune help surface promises that `--quiet` suppresses all
+stdout. Experiments pass `verbose=not self.quiet` into `load_source`, but
+`load_source` calls `stage_source`, whose resource line is an unconditional
+raw `print` and whose signature has no verbosity/emit channel
+(`data_staging.py:221,306,560-750`). An AST-extracted execution of the real
+function under redirected stdout produced the staging line even though the
+outer caller has no way to disable it. CMB geometry adds three more raw prints
+(`experiment.py:3493,3504,3548`), and parallel N-train/hyperparameter worker
+failure paths print directly (`cosmic_shear_sweep_ntrain_emulator.py:166`,
+`cosmic_shear_sweep_hyperparam_emulator.py:175`) rather than respecting the
+driver's quiet logger.
+
+Concrete public result: a valid `--quiet` run with ordinary staged data emits
+at least `stage_source: ...`; a CMB run also emits its staging summary. On a
+worker failure the nominally quiet sweep emits child-process stdout. This is
+not cosmetic under the repository's documentation rule: printed lines are
+the machine/operator record, and the CLI advertises a deterministic empty
+stdout surface for batch composition.
+
+Required contract: one explicit output channel is threaded through every
+reachable staging, geometry, training, and worker path. Under `--quiet`,
+successful stdout is empty; files still publish normally. Errors remain loud
+through nonzero status and stderr (quiet must not swallow failure). Essential
+scientific facts belong in the persisted resolved record and ordinary banner,
+not as raw-print exemptions. Remove raw `print` calls from methods reached by
+quiet drivers or inject the owner logger; do not use process-global stdout
+redirection as hidden state.
+
+CPU legs capture the real public paths for a valid plain/scalar/CMB staging
+run and require empty stdout under quiet plus nonempty current output without
+quiet; a worker failure is nonzero with diagnostic stderr and empty stdout;
+serial and spawned behavior agree; and an AST/call census proves every
+reachable output site uses the owner channel. The mutation restoring
+`stage_source`'s raw print must reproduce the captured line and red.
+
 ## RETRACTED: transfer refinement frozen-trunk claim (45M-43, retracted by the red team 2026-07-12 with 45M-44; unit 54 WITHDRAWN)
 
 Both retractions Architect-verified: validate_transfer

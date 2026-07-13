@@ -1201,6 +1201,44 @@ lifecycle leg board-listed (workstation if Torch is needed).
 Sequencing: wave-4 MPS adapter visit with units 73 + 74;
 EMUL2-blocking.
 
+### 25M-13 amendment (Red Team CONFIRMED, awaiting Architect adjudication): the BAOSN adapter also manufactures pair compatibility by unioning incompatible inputs
+
+`emul_baosn.initialize` loads one Hubble and one D_M artifact, unions every
+predictor input name into one Cobaya requirement mapping, and checks only
+quantity/units plus redshift-window layout (`cobaya_theory/emul_baosn.py:120-168`).
+`calculate` then evaluates the two artifacts independently (`:277-285`). It
+never proves that the pair belongs to one generator/dataset/scientific domain
+or that their sampled/fixed coordinate contracts are compatible.
+
+Public real-artifact CPU reproduction on schema v2: the Hubble artifact used
+inputs `[omegam,H0,w]`; the D_M artifact used `[omegam,H0]`. Initialization
+accepted and published the union `{omegam,H0,w}`. Changing `w` from `-1` to
+`-0.5` changed served H(z=1), while served D_M(z=1050) remained bit-identical
+at `13999.394531250002`. An independent flat-wCDM integral changed from
+`13672.42999` to `12646.12951`, a `7.506%` discrepancy. The adapter therefore
+returns a finite stitched background whose low- and high-redshift pieces
+describe different cosmologies.
+
+This is the BAOSN instance of unit 75's ratified rule that requirement union
+never creates compatibility. It shares unit 74/67's fixed-facts and flat-only
+schema; it does not create another manifest mechanism.
+
+Required contract: before publishing requirements, the Hubble and D_M
+artifacts must have equal canonical generator/dataset/scientific-domain
+binding, compatible named sampled coordinates and domains, and identical
+fixed facts. Compatible ordering is canonicalized explicitly; a parameter
+sampled by only one half is a refusal, never added to a union that the other
+half ignores. Root list order remains irrelevant because quantity labels own
+the pair.
+
+Red legs: a same-run Hubble+D_M pair passes with current numerics pinned;
+sampled `w` on only one half refuses; equal windows but different dataset or
+fixed `w` refuses; differing fixed facts refuse; differing parameter order is
+proved canonically equivalent or refused; swapped roots pass; and a mutation
+restoring union-only compatibility reproduces the bit-identical D_M under
+changed `w` and must red. Schema legs are CPU; one real-pair calculate control
+is board-listed for the workstation if Torch is required.
+
 ## UNIT 85 (20M-18, 2026-07-13, HIGH): one canonical dark-energy resolver — sampled w0pwa never silently degrades to wa = 0
 
 Finding (red team, CONFIRMED): syren_params_from supplies wa = 0.0
