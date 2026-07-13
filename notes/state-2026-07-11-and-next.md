@@ -2786,3 +2786,17 @@ ONLY; the 45M-33 artifact core stays) + 53 (whole) transfer to the
 red team per the Wave-2 table. Build order: machinery + mutation
 arms -> ##AID -> per-gate migration -> D3 -> D4 -> D5. Spec:
 gates-and-board.md "Queue-2 rollout plan adjudication".
+
+AID-PREFIX RE-RULING (2026-07-13, Fable): the Implementer BLOCKED
+on the clarification and disproved its premise; all three claims
+verified by me at the machinery — --gate rejects brd-a live and
+accepts board-selftest; brd-a IS the lowercased spec_code, the
+internal audit-code class ruling 4 forbids; BOARD.md/status/
+selectors key on gate.id and spec_code appears nowhere in
+run_board.py. RE-RULED: aid prefix = gate.id (ruling 4's example
+was literally correct; the FOUNDATION deviated, not the example);
+the 7 foundation aids re-keyed + anchors follow the transform. The
+red-team register-note request WITHDRAWN. Error recorded: I probed
+every proposal clause except the one I ruled from memory — the
+probe law binds my own premises too. Increment 1 CONFIRMED to
+build. Spec: gates-and-board.md "Aid-prefix RE-RULING".

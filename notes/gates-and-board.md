@@ -5954,3 +5954,66 @@ arms, then ##AID, then per-gate migration with the maps=/home=
 rewrite per visit), then D3 -> D4 -> D5. Every landing gets the
 standard pre-merge audit; the riders above are acceptance clauses,
 not suggestions.
+
+## Aid-prefix RE-RULING (Fable, 2026-07-13): gate.id, not the spec code — the ruling-4 "clarification" is RETRACTED
+
+The Implementer blocked on the aid-prefix clause of the adjudication
+above and filed three factual claims against its premise. All three
+verified by me against the machinery (the raw evidence, not the
+filing):
+
+- `--gate brd-a` is REJECTED live: "error: --gate names unknown
+  gate id(s): 'brd-a'" (the 45M-77 strict refusal), while
+  `--gate board-selftest` passes id validation (it proceeds to the
+  action-mode check). My "run_board.py --gate brd-a reruns exactly
+  the failing gate" was not a runnable command.
+- brd-a/gen-a/gsv/gct are the LOWERCASED SPEC CODES:
+  `Gate(id="board-selftest", spec_code="BRD-A", ...)`, and
+  board.py's own field docstring defines spec_code as "the key of
+  this test's audit-history entry inside its home" — an internal
+  audit code, exactly the class ruling 4 excludes from assertion
+  identifiers.
+- The board's log-public primary key is gate.id: BOARD.md rows
+  concatenate gate.id (run_board.py:2143), `_registry_ids()` — "the
+  selector validation authority" — collects gate.id, and an
+  untruncated grep finds spec_code NOWHERE in run_board.py.
+
+RE-RULING (replaces the "RULING-4 CLARIFICATION" paragraph of the
+adjudication above; everything else there stands): the aid prefix is
+`gate.id` — `board-selftest.exit-truth`, `save-rebuild-drift.<leg>`.
+Ruling 4's example was LITERALLY CORRECT as written; it was the
+landed foundation that deviated by keying to the spec code, and my
+adjudication preserved the deviation under an unverified rationale.
+The rationale itself survives the flip: under gate.id a red aid line
+IS directly actionable (`--gate save-rebuild-drift`) and DOES match
+the BOARD.md primary key — the two properties I wanted were only
+ever true of gate.id.
+
+CONSEQUENCE (supersedes the anchor-only normalization): the 7
+foundation aids are RE-KEYED to gate.id, and the 7 anchors follow
+via invariant (3)'s transform (e.g. brd-a.exit-truth ->
+board-selftest.exit-truth, anchor #board-selftest-exit-truth; 5
+notes touched). The proposal's `<gate-id>` placeholders now read as
+gate.id everywhere, including the six-field block template.
+
+THE ERROR, recorded: I probed every clause of the proposal EXCEPT
+the one I ruled on from memory — counts, anchors, validator,
+pinned line all verified; the selector vocabulary asserted from the
+notes prose pattern "Gate board-selftest (BRD-A)". The
+probe-against-the-machinery law applies to MY OWN premises exactly
+as it applies to filings: a ruling clause that names a runnable
+command must have run it. The Implementer's block — refusing to
+build on a premise it could falsify — is the protocol working.
+
+RETRACTION rider: the previous handoff asked the red team to record
+a register note softening ruling 4's example. WITHDRAWN — the
+example stands as written; no register edit is needed.
+
+CONFIRMED to the Implementer: proceed with increment 1 as scoped in
+the blocking handoff — the reconciliation machinery (expect(aid=),
+ctx.unavailable, executed-set recorder, PASS-on-available +
+zero-executed guard + pinned display), validate_evidence invariant
+(3), the 7 foundation aids re-keyed to gate.id + anchors
+normalized, and the board-selftest mutation arms — Mac-verified
+(--list rc 0 + board-selftest green) before handoff; ##AID
+manifests and per-gate migration follow as separate increments.
