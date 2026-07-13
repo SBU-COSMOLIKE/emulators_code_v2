@@ -2219,3 +2219,42 @@ CLAUDE.md split); the ONLY carve-out is texnotes/ TeX sources
 retraction 0040bc5 was an over-correction made in good faith — its
 deleted resume blocks survive in history and in the Architect's
 audit records, and Opus resumes notes writes from now on.
+
+## 20M-18 reachability correction + final proof + 20M-19 adjudication (Fable, 2026-07-13)
+
+20M-18 REACHABILITY: the red team retracted its own shipped-YAML
+claim after forward-walking the real Cobaya 3.6.2 routing — with
+drop: true, a component whose artifact requires w0pwa fails at model
+construction ("Requirement w0pwa of probe is not provided by any
+component, nor sampled directly"), so the shipped example is
+STARTUP-RED for w0pwa-storing artifacts, not the silent witness. The
+silent lane is the valid NON-drop configuration, now proven at the
+FULL reachability standard: a complete real Cobaya model (real
+emul_mps + vendored Syren + deterministic schema-shaped artifacts +
+a real likelihood reading Pk_grid through the provider) initialized,
+assigned the theory exactly ['w0pwa','w','As','ns','H0','omegab',
+'omegam'], ran logposterior, and served a finite positive spectrum
+at the wa = 0 base — 0.1298745470923877 max relative error against
+the requested wa = 0.5 cosmology. RULING: UNIT 85 stands, RECORD
+CORRECTED (families-background-mps.md "UNIT 85 REACHABILITY
+CORRECTION"); the shipped drop YAML's startup incompatibility is a
+SEPARATE defect folded into unit 85's scope — the example may not be
+claimed as working EMUL2 routing today and is either repaired or
+refused with a migration message; the acceptance suite carries BOTH
+branches. The Architect's earlier addendum record ("publicly
+reachable via the shipped YAML") is superseded by this correction —
+appended, not rewritten. The red team's self-correction applied the
+standing reachability rule to its own filing (trace from the public
+boundary before accepting the internal mechanism); that is the
+standard working as designed and is recorded as such.
+
+20M-19 CONFIRMED -> NEW UNIT 86 (families-background-mps.md, beside
+unit 63). The untruncated grep is decisive: const_mask exists ONLY
+in geometries/grid2d.py — no loss file consumes it — so the pin is
+enforced in decode (torch.where(const_mask, center, out)) while
+every diagonal metric sums all encoded coordinates: the executed
+witness scores chi2 = 0 vs 10000 for two predictions that decode
+BIT-IDENTICALLY. Training, validation, best-epoch selection, and
+diagnostics optimize and select a DIFFERENT FUNCTION from the one
+the program serves, and gradients flow through a coordinate the
+public path always discards.

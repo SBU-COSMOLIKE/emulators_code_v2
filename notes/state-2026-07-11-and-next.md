@@ -1979,6 +1979,23 @@ texnotes/ TeX sources are red-team-only; CLAUDE.md restored; 0040bc5
 was a good-faith over-correction. Spec: gates-and-board.md
 "20M-18 addendum + the notes-ownership correction".
 
+20M-18 CORRECTION + 20M-19 (2026-07-13, Fable): the red team
+self-corrected 18's reachability — the shipped drop:true YAML is
+STARTUP-RED for w0pwa-storing artifacts (a separate defect now in
+unit 85's scope: repair the example or refuse with migration text;
+it is not working EMUL2 routing today), while the silent wa=0 lane
+is the valid NON-drop configuration, proven through a COMPLETE real
+Cobaya model (theory assigned the seven names; logposterior served
+the wa=0 base at 0.1298745470923877 max rel error vs the requested
+wa=0.5). UNIT 85 stands with the corrected record + both-branch
+gate. 20M-19 CONFIRMED (const_mask consumed by NO loss — chi2 0 vs
+10000 for bit-identical served predictions; the program optimizes a
+different function than it serves) -> NEW UNIT 86: one
+effective-residual owner masks before every diagonal reduction, zero
+residual AND gradient on pinned coordinates, unit 63 stays the
+legality authority. Spec: gates-and-board.md "20M-18 reachability
+correction + final proof + 20M-19 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

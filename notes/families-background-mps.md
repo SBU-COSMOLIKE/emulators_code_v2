@@ -1270,3 +1270,70 @@ removing the wa requirement must reproduce the miss. The unit-7
 record sentence ("full calculate(**params) mapping") is corrected in
 artifacts-inference-warmstart.md — Cobaya routes only
 required/supported inputs.
+
+## UNIT 85 REACHABILITY CORRECTION (2026-07-13): the silent lane is the non-drop configuration — the shipped drop YAML is startup-red, a separate defect in scope
+
+Superseding this note's earlier ADDENDUM claim of shipped-YAML
+reachability (the red team retracted it after forward-walking real
+Cobaya routing): with w0pwa: {drop: true}, a component requiring
+w0pwa FAILS at model construction — the shipped EMUL2 example is
+startup-red for any artifact that stores w0pwa and is NOT a working
+example today. The silent-wrong-result lane is the valid NON-drop
+configuration, proven at full standard through a complete real
+Cobaya model (real adapter, vendored Syren, deterministic artifacts,
+real likelihood via the provider): theory assigned exactly the seven
+sampled names, logposterior served a finite positive spectrum at the
+wa = 0 base, 0.1298745470923877 max relative error vs the requested
+wa = 0.5. What stands unchanged: the producer/consumer fork (the
+generator's full to_input mapping carries wa; calculate receives
+only declared requirements), the Syren magnitudes for the reachable
+configuration, and the one-shared-resolver contract. ADDED SCOPE:
+the shipped drop-YAML startup incompatibility is unit 85's to close
+— repair the example to valid routing OR refuse it with a correct
+migration message. The gate carries BOTH branches: the non-drop
+real-Cobaya configuration that reaches and catches the silent wrong
+result, and the drop configuration proving repair-or-refusal.
+
+## UNIT 86 (20M-19, 2026-07-13): the training metric honors the grid2d pin — one effective-residual owner applies const_mask before every diagonal reduction
+
+Finding (red team, CONFIRMED; the untruncated grep shows const_mask
+lives only in geometries/grid2d.py, consumed by NO loss): the pin is
+enforced only in Grid2DGeometry.decode, so for legal pinned rows two
+standardized predictions ([0,0] vs [100,0]) decode bit-identically
+to the same served answer yet score chi2 = 0 vs 10000 — training,
+validation, best-epoch selection, and diagnostics distinguish
+physically identical predictors and backpropagate through a
+coordinate the public path discards. The program currently optimizes
+and selects a different function from the one it serves. Distinct
+from unit 63 (which rules whether a pin is LEGAL): permission to pin
+does not make the metric honor the pin.
+
+Contract (ratified): (1) ONE effective-residual owner applies the
+persisted const_mask before every diagonal chi-squared, loss,
+validation, and diagnostic reduction; (2) a pinned coordinate
+contributes exactly ZERO residual and ZERO gradient (decode
+guarantees its physical prediction equals the stored constant); (3)
+the rule covers plain ScalarChi2, diagonal NPCE residual
+composition, and TransferDiagChi2, including fine-tune and
+rebuilt-artifact evaluation; (4) the mask applies AFTER the
+effective base/correction composition is formed, so packed targets
+and internal base terms cannot bypass it; (5) unit 63 remains the
+sole authority on mask legality — the metric owner consumes only a
+validated mask; (6) const_mask = None and every unpinned coordinate
+are byte-identical; (7) finite screening stays defense in depth and
+may not convert a discarded pinned-coordinate NaN into a usable
+value — the owner defines the refusal of that corruption before
+masking.
+
+Legs (ratified; CPU/Torch, board-listed): the executed [0,0] vs
+[100,0] witness (bit-identical decode, equal ZERO chi2/loss);
+perturb only the unpinned coordinate and recover its direct squared
+residual; validation metrics + best-epoch ranking invariant under a
+pinned-only output mutation; a legal unit-63 low-k boost pin under
+none and syren_halofit; plain, NPCE-residual, and diagonal-
+transfer/fine-tune paths; save/rebuild retains the verdict; the
+no-pin control byte-identical; a mutation restoring the
+all-coordinate sum reports 10000 and reds. Placement: the
+grid2d/loss contract beside unit 63 (never folded into its legality
+validator); a science-metric defect ahead of any grid2d production
+training.
