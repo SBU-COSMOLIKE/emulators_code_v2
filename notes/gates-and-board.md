@@ -400,11 +400,22 @@ STILL OPEN:
   home= with the note that documents it) is specified in "The audited rollout"
   subsection above, held for Architect audit before it lands (a codebase-wide
   refactor of the verification harness itself).
-- 45M-86 / 87 / 88 / 89 / 90: the didactic documentation batch (experiment
-  lifecycle diagram + decision table; warmstart / transfer tensor mechanics;
-  gates-teach-their-evidence; diagnostics estimator-vs-verdict; save/rebuild
-  reversible map). Large doc-only rewrites of 200-700-line functions;
-  AST-with-docstrings-stripped identity per file.
+- 45M-86 / 87 / 88 / 89 / 90: DONE (the didactic documentation batch; each
+  doc-only, py_compile clean + AST-with-docstrings-stripped identical per
+  file). 86 = experiment.py module docstring gains the six-stage family run
+  lifecycle diagram (with legend) + the family decision table (keys +
+  validators read from from_config) (a9834fe). 87 = warmstart.py
+  transfer_state_dict gains the tensor-by-tensor shape-flow diagram, matched
+  vs grown keys, zero-padding, the rank-3 FiLM case (b37b5d2). 88 = board.py
+  module docstring gains "How a gate teaches its evidence" (the four records
+  a reviewer reads) + the assertion / evidence glossary terms (bf62114). 89 =
+  diagnostics.py gains the estimator-vs-verdict split (only 2 of 7 carry an
+  in-code verdict: coverage_limited + local_linear_floor) (b1a375a). 90 =
+  results.py save_emulator gains the reversible map pairing every saved value
+  with its rebuild read site + the labelled provenance-only keys (1c3821c).
+  The four experiment/warmstart/diagnostics/results units were drafted by
+  gated sub-agents under a strict AST-identity check, then independently
+  re-verified (compile + AST + falsifiable-fact spot-checks) before commit.
 
 ## Structured evidence map — gate contract anchors (45M-72 foundation)
 
