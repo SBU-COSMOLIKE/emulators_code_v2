@@ -544,5 +544,37 @@ red legs reject, controls accept) and the CMB legs live in a full green
 (that gate imports cosmolike). The post-optimizer-step finite check on the
 parameters and optimizer state each step remains the workstation companion.
 
+### Queue 6a DONE: README current-state factual repair (the false statements)
+
+The audit listed READMEs that contradict the landed tree. Corrected the
+unambiguous false statements:
+
+- `gates/README.md`: the "known gaps" paragraph claimed the dirty-tree watch
+  covered only `emulator/` + `gates/` + drivers and that an unknown selector
+  "warns but proceeds (exit 0)". Both are now false (queue 1c and the board's
+  45M-73/77). Rewritten to the current behavior: the watch covers the whole
+  executable surface, and an unknown `--gate` / `--from` / `--force-rerun` id
+  is a nonzero usage error rejected before any test runs.
+- `gates/README.md` "## The 32 tests" and `emulator/README.md` "the acceptance
+  board (32 gates)": de-hardcoded. `board.py` `BOARD` is named as the
+  authoritative registry (40 at this writing); the reader is pointed at
+  `run_board.py --list`, and the table is flagged as not yet listing the newest
+  gates (avoids re-introducing enumeration rot).
+- `emulator/README.md`: the two `45M-12` public-prose leaks (the Simpson rule)
+  replaced with the executed rule + a `notes/families-background-mps.md`
+  pointer; the stale grid2d "open production blocker because it materializes
+  unthinned float64 selections" replaced with the landed bounded-staging
+  behavior (its remaining review item is lifecycle/evidence).
+
+Verified: an untruncated grep for `45M-12`, `32 test`/`32 gate`, "warns but
+proceeds", and the retired grid2d claim returns nothing in either README.
+STILL OPEN in queue 6: the two-layer gate-mechanism description + the
+declared-vs-executed honesty in `gates/README.md`; the root/package README
+restructuring (stable role sentence + a separate dated "current limitations"
+table); and the broader in-file first-time-ML didactic campaign (the priority
+list in the audit spec), each doc-only with AST-identity + compile + an
+untruncated stale-pattern scan over the full pattern family (`unit \d`, `(f)`,
+"Architect", "ruling", not just `45M`).
+
 Queue items 2 (evidence rollout), 3 (staging seeded-order truth), 5
-(workstation evidence), 6 (README + didactic campaign) remain.
+(workstation evidence), and the rest of 6 remain.

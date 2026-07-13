@@ -82,12 +82,13 @@ from any directory; `$ROOTDIR` is just the natural cocoa working spot.
 
 Preflight aborts before any GPU time on a stale git tip, a dirty watched
 tree, a missing cocoa import, or a missing data path, and prints the
-remedy. Known gaps (2026-07-12, fixes in progress): the dirty-tree watch
-covers `emulator/`, `gates/`, and the root drivers only — keep
-`compute_data_vectors/`, `cobaya_theory/`, and `syren/` clean yourself
-for now; and an unknown `--gate` / `--from` name warns but proceeds
-(exit 0 with no tests run), and a bad `--force-rerun` id is silently
-ignored — automation must validate ids against `--list`.
+remedy. The dirty-tree watch covers the whole executable surface —
+`emulator/`, `gates/`, `compute_data_vectors/`, `cobaya_theory/`, and
+`syren/` — plus the root drivers, so a dirty generator, cobaya adapter, or
+vendored syren formula fails preflight just as a dirty package does. An
+unknown `--gate` / `--from` / `--force-rerun` id is a usage error with a
+suggestion and a nonzero exit, rejected before any test runs, so automation
+can never silently run a smaller surface than the one it named.
 Selectors: `--gate <name> [...]`, `--tier backlog|new-features|save-and-sample`,
 `--from <name>`, `--dry-run`. A rerun skips tests already marked PASS
 (`--force-rerun <name>` overrides for named gates; `--force-rerun-all`
@@ -95,7 +96,16 @@ reruns EVERY selected gate — the full regression pass after a batch of
 library changes, composing with the selectors and never deleting the
 resume map); a crash loses only the in-flight test.
 
-## The 32 tests
+## The tests
+
+The `BOARD` list in `gates/board.py` is the authoritative registry — count and
+name the tests from it, never from a number in prose (40 gates at this
+writing). Run `python gates/run_board.py --list` for the live set with each
+gate's current resume state. The table below describes the core tests; the
+most recent board-integrity and family gates (for example board-selftest,
+cli-strict, family-first, stage-ram, artifact-readback, generator-seed,
+diagnostics-domain) are registered in `board.py` and may not all appear here
+yet.
 
 | Test | What it confirms |
 |------|------------------|
