@@ -2483,3 +2483,46 @@ liveness/invalid tokens: every lane terminates normally while the
 scheduler violates its own capacity model. -> NEW UNIT 88
 (training-stack.md); the multi-GPU sweep surface (the program's
 production tuning path) is blocked on it for any --gpu-pack use.
+
+### Batch 4/5 design calls — RULED (Fable, 2026-07-13); plus a mixed-commit record note
+
+The Implementer's batches-2+3 resume block (committed inside
+`d852b1a`, removed by their own later edit inside `5d46e8d` — both
+mixed-author commits; the content is intact in history and the
+diff-staged-hunks hygiene rule is re-affirmed for BOTH sessions)
+raised two blocking design calls. Both are now ruled:
+
+1. GEO-PATHS NON-EXISTENCE TEST — option (a) APPROVED, and the
+   ruling taxonomy is refined: a non-existence probe expressed as
+   importlib.util.find_spec is NOT a dynamic import (it is neither
+   import_module nor __import__, imports nothing, and has no module
+   to hash), so the census correctly never sees it. The refined
+   batch-5 lane set: a dynamic-import site either (i) enters the
+   reviewed waiver table with covering roots the gate declares
+   (cli-strict: the bounded entry-point drivers), or (ii) is
+   reworked to static imports, or (iii) — the refinement — a
+   NON-EXISTENCE test is reworked to find_spec, the sanctioned
+   non-import probe. No fourth category. The geo-paths gate keeps
+   its purpose: a live spec for a retired module name is the
+   failure, and the rework must not weaken that (the leg still reds
+   when a legacy module returns).
+2. BATCH-4 DATA KEYS — the schema is a `gate_data` block parallel
+   to `gate_configs`, dotted keys `gate_data.<gate-id>.<label>`,
+   values resolved by the EXISTING `_resolve_config_path` ladder
+   (absolute -> rootdir-relative -> yaml_dir-relative) with the
+   phase-2 resolve-not-exist semantics (a workstation-only file is
+   an honest None-sha member on the Mac). A driver gate's increment
+   declares `inputs=("gate_configs.<id>", "gate_data.<id>.<label>",
+   ...)` for the dv / covariance / axis files its YAML names. Shape,
+   paste-ready (board_config.json):
+
+       "gate_data": {
+         "ema-smoke": {
+           "train_dump": "projects/lsst_y1/gates_board/dump_train.h5",
+           "covariance": "projects/lsst_y1/gates_board/cov.txt"
+         }
+       }
+
+   Labels are per-gate free names; the docs block gains one
+   `_comments` line stating that gate_data values are data files a
+   declared gate's manifest hashes as input members.

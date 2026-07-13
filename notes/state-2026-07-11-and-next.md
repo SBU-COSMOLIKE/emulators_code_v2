@@ -2073,6 +2073,19 @@ honest banner, N-train path audited identically; CPU counter-fake +
 workstation tight-fixture legs; blocks --gpu-pack production sweeps.
 Spec: gates-and-board.md "20M-24 adjudication".
 
+BATCH-4/5 RULINGS (2026-07-13, Fable): the geo-paths non-existence
+test reworks to importlib.util.find_spec — APPROVED and the batch-5
+taxonomy refined (waiver-with-roots | rework-to-static |
+find_spec-for-non-existence; no fourth category; the retired-module
+red stays); batch-4 data keys = a gate_data block parallel to
+gate_configs (dotted gate_data.<gate-id>.<label>, resolved by the
+existing ladder, resolve-not-exist semantics), with the paste-ready
+shape in the ruling. Mixed-commit record note: the Implementer's
+resume block entered history in d852b1a and left in 5d46e8d — both
+mixed-author; content intact; the diff-staged-hunks rule re-affirmed
+for both sessions. Spec: gates-and-board.md "Batch 4/5 design calls
+— RULED".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
