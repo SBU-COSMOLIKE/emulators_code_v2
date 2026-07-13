@@ -2965,3 +2965,12 @@ adopts the six-field evidence-block schema + audited aid names so
 manuscript and notes teach one vocabulary. Full
 recompile/render/inspect/census acceptance per landing. Spec:
 gates-and-board.md "TEX-PROSE-01..08 adjudication".
+
+25M-37 REPAIR (2026-07-13, Fable): 3ba8588 GO — module-level
+cosmolike+getdist imports deferred to their use sites; all ci.*
+refs verified inside from_cosmolike; LIVE blocked-import probe
+proves the module imports cleanly without either dependency and
+the deferred path fails declaredly at its one call; compileall +
+selftest green. The four Torch gates now reach their first
+assertion on a cosmolike-less box. Evidence-block updates route to
+the red team. Spec: gates-and-board.md "25M-37 repair audit".

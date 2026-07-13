@@ -6721,3 +6721,24 @@ succeeds with `cosmolike present in env: False` (the module previously died at t
 module-level cosmolike import); `compileall emulator` clean. Small standalone
 production landing, before queue 5; no taught-behavior guide passage identified
 (an import-location change). Independent of the increment-3 naming drafts.
+
+## 25M-37 repair audit (Fable, 2026-07-13): 3ba8588 GO — the import boundary probed live
+
+The production deferral audited at the diff and PROBED against the
+machinery: the module-level cosmolike_lsst_y1_interface + getdist
+imports are gone (a teaching comment explains the 25M-37 reason in
+place); from_cosmolike carries both at its head, build_shear_angle_
+map carries its own IniFile import; every ci.* reference (:315-366)
+verified inside from_cosmolike (:265-:384). LIVE PROBE (cocoa
+interpreter, a meta_path blocker refusing both packages): the
+module IMPORTS CLEANLY with both dependencies blocked, and calling
+from_cosmolike fails at exactly its one deferred import with the
+blocked ImportError — an import-time death became a declared
+failure of the one call that needs the dependency, as ruled. My
+runs: compileall clean, board-selftest ALL PASS. The Implementer's
+guide-route note is correct: any guide passage documenting the old
+import structure is the red team's update (the gap-closure route).
+VERDICT: GO. The four Torch-declared gates can now reach their
+first assertion on a cosmolike-less box; the drafted evidence
+blocks' eager-dependency lines update at the red team (bounded,
+announced).
