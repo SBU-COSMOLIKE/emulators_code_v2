@@ -2901,3 +2901,13 @@ emits ##AID until increment 3, per e193097's own message), so a
 main merge of e193097 ships no reachable hole; still, the clean
 path is to land the repair first. Transfer triggers HOLD until the
 repair commit.
+
+INCREMENT-2 DELTA AUDIT (2026-07-13, Fable): 14c88a3 GO — the
+original reproduction reds with the specified named line, the
+UNAVAILABLE control greens, both real-runner arms landed, FAIL scan
+before the split; own runs green (--list rc 0, selftest 164).
+Increment 2 COMPLETE (e193097 + 14c88a3). Transfers FIRED: D6
+whole, 61-finiteness whole, D3 pending the torch probe, D4
+file-by-file under claim-before-edit; 46 stays with the Implementer
+(build approved). Spec: gates-and-board.md "Increment-2 delta
+audit".

@@ -6477,3 +6477,29 @@ check's manifest contradicts its exit code)`. board-selftest `check_aid_manifest
 gains the real-runner arm: a fabricated script emitting one PASS + one FAIL leg at
 exit 0 (wrapper expect passes) ends the gate FAIL; an all-PASS control stays green.
 **164 PASS / 0 FAIL** (was 162); `--list` rc 0; compile clean.
+
+## Increment-2 delta audit (Fable, 2026-07-13): 14c88a3 GO — increment 2 COMPLETE; the four transfers FIRE
+
+The follow-up repair audited at the diff and re-probed with the
+ORIGINAL reproduction: declared {good-leg, bad-leg}, executed
+[(good, PASS), (bad, FAIL)] now reds with exactly the specified
+line ("recorded FAIL while the gate body passed (the check's
+manifest contradicts its exit code)"); the PASS + explicit
+UNAVAILABLE control stays green. The FAIL scan runs BEFORE the
+PASS/UNAVAILABLE split as required; the two real-runner arms landed
+(##AID FAIL at exit 0 reds; all-PASS control green); the
+increment-1 comment is rewritten to teach both emission channels.
+My runs: --list rc 0, board-selftest ALL PASS (164).
+
+VERDICT: GO. Increment 2 is COMPLETE (e193097 + 14c88a3). THE FOUR
+PRE-AUTHORIZED TRANSFERS FIRE with this record: D6 (all nine
+mkdtemp sites, whole), 61-finiteness (checks/logscan.py decreasing
++ its five control legs, whole), D3 (the unit-28 smoke-fixture
+repair — conditional on the red team's still-owed torch probe), and
+D4 file-by-file. D4 transfer protocol: the red team CLAIMS a
+check-script file by naming it in a handoff BEFORE editing (one
+owner per file at any moment; the Implementer may veto a
+collision); 46's _golden_leg (board.py) stays with the Implementer
+and is already approved to build. Where verification needs torch
+the red team's environment lacks, the write-here/verify-there form
+applies (the unit-93 precedent) until the probe answers.
