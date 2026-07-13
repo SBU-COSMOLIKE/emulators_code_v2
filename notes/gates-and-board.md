@@ -5065,3 +5065,78 @@ lineage snapshots + STALE-DEPENDENCY. The deliberate stop at the
 census-core boundary was the right call and is credited: the four
 remaining items rewrite the validation core all 40 gates depend on
 and deserve a fresh session.
+
+## Consolidation check + 25M-23 and 25M-27..35 adjudication (Fable, 2026-07-13): the merge on main is SOUND; ten findings placed across four homes
+
+CONSOLIDATION VERDICT — SOUND. 16bea64 is a proper two-parent merge
+(81183e7 red-team line + 47e5f59 my branch tip); my branch is an
+ancestor of main (nothing dropped); zero conflict markers repo-wide;
+my three newest sections and the HARDENING 5/9 ledger paragraph are
+present verbatim; the landing is notes-only (11 files, all notes/);
+the working tree is clean; all four cited anchors resolve. The
+red team now appends to the shared ledger directly — my future
+appends anchor on their tail, which is the shared-file protocol
+working.
+
+THE BATCH: the register's 27..35 plus 25M-23, which was filed
+DURABLY but never relayed in chat — the register-is-the-record rule
+surfaces it here; adjudicated with the batch. This is the red
+team's first clause-checklist wave: each item cites an issued
+clause and its missing implementation or discriminating leg.
+
+Verified by my own probes (conclusive):
+- 23: finite_contract.py:1255 calls _chi2_domain, which is DEFINED
+  NOWHERE (the only def is check_chi2_domain, :885) — Part H dies
+  on NameError when reached. A broken gate today; no production
+  change requested.
+- 27: _watched_paths builds the root-driver pathspec from
+  _REPO.glob("*.py") — existing files only — so a DELETED tracked
+  driver vanishes from the very pathspec that asks git the
+  question; preflight certifies clean. (_EXECUTABLE_DIRS covers
+  directory deletions; only root drivers have the hole — exactly as
+  filed.)
+- 28 (mechanism): _stale_member reports the first hash mismatch by
+  stored path/key lookup; the --list omission and the relocation
+  name-loss stand per the register witness.
+- 29 (absence proven): eval_val is driven 42 times in
+  finite_contract.py, but every 1e38 payload lives in the TRAINING
+  epoch-reduction leg (:812-858); no extreme-scale eval Part I
+  exists — the issued 14(f) clause is unimplemented.
+- 35 (shape): mps_identity.py:788 calls
+  exp.release_train_staging() manually as "the sweep lane's
+  cleanup" — the lifecycle leg substitutes a manual call for
+  driving the real _sweep_job.
+
+CONFIRMED per the register's executed witnesses (30/31/32/33/34),
+with the standing condition: each entry's witness reproduces as the
+FIRST leg of its repair landing.
+
+PLACEMENTS (four homes):
+1. 23 joins the GATE-TRUTH BATCH (D4) immediately — a crashing Part
+   H is a broken gate now; the repair is the helper's real
+   definition or the call's correction, plus a leg that executes
+   Part H to completion.
+2. 27 + 28 form a small BOARD-MACHINERY FOLLOW-UP right behind the
+   census-core remainder (the hardening increment stays CLOSED at
+   nine): 27 = the watched pathspec derives from the git-tracked
+   inventory (git ls-files), never the existing-file glob, with the
+   deleted-driver leg; 28 = --list surfaces the stale member, and
+   member identity is path-aware so a byte-identical relocation is
+   still named. Both before queue 5.
+3. 29 + 30 + 31 join GATE-TRUTH INCREMENT 2 (the unit-14 acceptance
+   completions): the extreme-scale eval Part I as specified in the
+   issued 14(f) clause; 14(h)'s grid/grid2d corrupt-score refusals
+   live-driven, not AST-censused; Parts A/C asserting CURRENT error
+   prefixes (the false-red repair), each with its witness leg.
+4. 32 + 33 + 34 join the MPS/STAGING VISIT (with 17 and 96's
+   artifact legs): 32 is the heaviest — a QUEUE-3 REOPEN
+   (_grid2d_law_rows overwrites the canonical seeded order with
+   sorted-compact arange, and the MPS gate asserts the defect as
+   truth — the gate flips with the fix, one landing); 33 = exact
+   raw/base row-count equality in bounded staging, not
+   covers-the-max; 34 = the discriminating payload where a pre-cast
+   accumulator changes the pin mask. 35 joins the gate-truth work
+   (test-double honesty: drive the real _sweep_job).
+
+The 25M series stands at 01..35, one tombstone (07), no unrelayed
+remainder — 23's surfacing closes the register-vs-chat gap.

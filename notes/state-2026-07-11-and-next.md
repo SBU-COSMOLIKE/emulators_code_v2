@@ -2644,3 +2644,20 @@ calls release without executing `_sweep_job`. Detailed contracts:
 gates-and-board.md, training-stack.md, and
 data-generation-and-cuts.md. No queue placements assigned by Red
 Team.
+
+25M-23 + 27..35 BATCH (2026-07-13, Fable): consolidation on main
+verified SOUND (proper merge, zero markers, my sections verbatim,
+notes-only). All ten adjudicated — five by my own conclusive probes
+(23's undefined _chi2_domain NameError; 27's existing-file glob
+hole; 28's mechanism; 29's absence: eval_val driven 42x with zero
+extreme-scale legs; 35's manual release), five per register
+witnesses reproducing as first legs. PLACEMENTS: 23 -> gate-truth
+batch NOW (broken gate); 27+28 -> a board-machinery follow-up
+behind the census-core remainder (hardening stays closed at nine);
+29/30/31 -> gate-truth increment 2 (unit-14 acceptance
+completions); 32/33/34 -> the MPS/staging visit (32 = QUEUE-3
+REOPEN, the gate flips with the fix); 35 -> gate-truth
+(test-double honesty). 25M-23 surfaced from the register only —
+never relayed in chat; the record rule worked. Spec:
+gates-and-board.md "Consolidation check + 25M-23 and 25M-27..35
+adjudication".
