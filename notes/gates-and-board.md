@@ -6780,3 +6780,56 @@ the aid->anchor transform, and are board-unique); board-selftest 169 PASS
 interpreter exits 0 and prints EXACTLY the three declared `##AID ... PASS` lines.
 The full `run_board --gate geo-paths` clean-tree rerun is the end-to-end
 confirmation (below / workstation).
+
+## THROUGHPUT REBALANCE, WAVE 3 (Fable, 2026-07-13): three further transfers + one D4 scope clarification
+
+The user asked for further red-team transfers. Inventory result:
+most of the remaining Implementer queue is either trigger-gated
+(21 at D3+56, 92 at D5, 95 at wave-4, checks-teaching at D4+D5) or
+the kept core (the artifact chain 74/76/77/78/80/82/84/85, unit 8,
+unit 96, the queue-3 staging reopen, board.py). Three items move
+NOW — each small, self-contained, red-team-filed originally, off
+the artifact chain and off board machinery, colliding with nothing
+in increment 3 (which touches board.py + checks + notes only):
+
+1. UNIT 29's 25M-14 AMENDMENT (the width-one transformer
+   refusal): designs/plain.py + designs/blocks.py refuse max token
+   width < 2 BEFORE construction on both ResTRF paths (n_tokens ==
+   n_out makes width-one tokens; LayerNorm(1) is identically zero
+   pre-affine, so the correction becomes input-independent).
+   Contract: the 25M-14 adjudication. Torch verification:
+   write-here/verify-there until the probe answers.
+2. THE SIZING UNIT (25M-15): batching.py's packed-target byte
+   estimate drops the resolved tgt_dim (the 84-byte witness
+   undercount), and max(1, ...) turns a memory deficit into a wrong
+   batch instead of a refusal. Contract: the 25M-15 adjudication —
+   the CPU boundary legs (the 84-byte witness) are plain arithmetic,
+   fully testable in their environment; the packed-target streaming
+   leg stays workstation-owed.
+3. THE TRIANGLE STRENGTHENING (DIDACTICS-29 merged with
+   DIDACTICS-65): clarifying that D6 transferred WHOLE — the
+   earlier firing named only the nine mkdtemp sites; the D6
+   bundle's triangle half (the exact expected (x_parameter,
+   y_parameter, window) set built independently, axis identities
+   per Axes object, per-artist _CUT_GREY, the moved-artist mutation
+   that leaves global counts unchanged) moves with it.
+   gt_b_triangle.py is not wrapper-family; claim it like any D4
+   file.
+
+D4 SCOPE CLARIFICATION: the file-by-file claims EXCLUDE the
+wrapper-family check scripts — gct_parity.py (DIDACTICS-66's
+masked-index repair) and gsv_bitwise_drift.py (the 64-narrowing and
+70-leg, which are D5 anyway) stay with the Implementer, because
+increment 3 wires those very files for the six wrapper-family
+gates and one file has one owner at a time. Claimable D4 surfaces
+include cmb_identity.py (53's six blocks), scalar_smoke.py (63's
+used-n-of-m banner), gwd_census.py (52's both-absences +
+per-pattern mutations), and gt_b_triangle.py (48's PDF
+verification + the triangle half above); 47 claims by naming its
+file first, as ruled.
+
+The Implementer's queue after this wave: increment 3 (in flight),
+D5, unit 56, the fixed-facts proposal + artifact chain, units 8 /
+24 / 63-reopen / 66 / 68-guards / 96, the queue-3 reopen — the
+deep-context core, plus trigger-gated items until their seams
+clear.

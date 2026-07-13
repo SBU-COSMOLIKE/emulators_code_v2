@@ -2981,3 +2981,14 @@ nothing else changed, no retired-anchor references; one convention
 across all 27 blocks; merged into the branch conflict-free. The
 drafts package is CLOSED. Spec: gates-and-board.md
 "Headline-anchor normalization audit".
+
+WAVE 3 (2026-07-13, Fable, on the user's further-transfer request):
+unit 29's 25M-14 width-one refusal (designs/, write-here/verify-
+there) + the 25M-15 sizing unit (batching.py, CPU-testable byte
+legs) + the D6 triangle half (DIDACTICS-29/65, clarified as part of
+the D6 whole) move to the red team; D4 claims clarified to EXCLUDE
+the wrapper-family files (gct_parity.py, gsv_bitwise_drift.py stay
+with the Implementer — increment 3 owns them). Most else is
+trigger-gated or kept core; the torch probe remains the unlock for
+D3 and local verification. Spec: gates-and-board.md "THROUGHPUT
+REBALANCE, WAVE 3".
