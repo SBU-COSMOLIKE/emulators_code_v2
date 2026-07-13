@@ -2444,6 +2444,13 @@ blind spots — henceforth every validation-system audit probes
 AGAINST the machinery, not only through it. Spec: gates-and-board.md
 "25M-16..21 adjudication".
 
+25M-22 FOLLOW-UP (2026-07-13, Fable): CONFIRMED; remove the dead
+`saved_emulator_root` option and its help text. Its acceptance census becomes
+a permanent selftest invariant: every public non-documentation board-config
+key has an execution reader. The manifest hardening landing is finalized as
+16 + 18 + 19 + 21 + 22, one digest transition, with queue 2 behind it. Spec:
+gates-and-board.md, `25M-22`.
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

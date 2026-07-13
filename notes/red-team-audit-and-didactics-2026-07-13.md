@@ -1678,14 +1678,16 @@ queue-5 workstation exhibits. DIDACTICS-93 is ratified as binding law, with
 the Planck-LCDM covariance byte-identity control. The series at that
 adjudication stood at 01--15 with retired tombstone 07.
 
-Architect adjudication overlay for the manifest/artifact batch: the reply
-explicitly confirmed six findings and stated the live series ended at
-`25M-21`. Therefore `25M-16` through `25M-21` are confirmed; queue 2 is
-resequenced behind their hardening increment. The Architect recorded one
-process correction against the population audit: it verified declarations
-through the same scanner that required independent attack, so “audit the
-validator, not only through it” is binding law. The presence-inference census
-closure was accepted with `const_mask` as the only remaining silent site.
-`25M-22` was included in the Red Team's later combined handoff but was not
-named or counted by this adjudication; it remains awaiting a separate ruling
-and must not be represented as accepted.
+Architect adjudication overlay for the manifest/artifact batch: the first
+reply explicitly confirmed `25M-16` through `25M-21`; a separate reply then
+confirmed `25M-22`. Queue 2 is resequenced behind one hardening increment.
+The Architect recorded one process correction against the population audit:
+it verified declarations through the same scanner that required independent
+attack, so “audit the validator, not only through it” is binding law. The
+presence-inference census closure was accepted with `const_mask` as the only
+remaining silent site. For `25M-22`, the recommended removal branch is
+binding: remove `saved_emulator_root` plus its help, and make the census that
+every public non-documentation board-config key has an execution reader a
+permanent selftest leg. The hardening landing is therefore 16 whole-check
+closure + 18 all-quantified waiver coverage + 19 owner resolvers + 21 digest
+projection + 22 dead-key removal, with one deliberate digest transition.

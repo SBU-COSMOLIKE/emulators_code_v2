@@ -4161,7 +4161,7 @@ gate input digests unchanged; mutate actual `driver_root`, `driver_fileroot`,
 prove the relevant digest changes; `debug` remains excluded. A mutation that
 hashes the raw config must reproduce the prose-only stale-input and red.
 
-## 25M-22 (Red Team CONFIRMED, awaiting Architect adjudication): `saved_emulator_root` is a documented control that no code reads
+## 25M-22 (Red Team CONFIRMED; Architect-CONFIRMED 2026-07-13): `saved_emulator_root` is a documented control that no code reads
 
 `board_config.json` promises that a non-null `saved_emulator_root` selects an
 already-saved schema-v2 artifact for `save-rebuild-drift` and
@@ -4189,6 +4189,14 @@ an execution reader; after removal, changing no dead key can stale gates. If
 the keep-capability branch is chosen, valid and missing sentinel roots prove
 selection/refusal respectively, the executed root equals the hashed pair, and
 the old unconditional-training mutation must red.
+
+Architect adjudication: CONFIRMED and the recommended removal branch is
+binding. Remove `saved_emulator_root` and its help text; do not create an
+external-artifact mode merely to preserve a dead option. The config census is
+promoted from one repair leg to a permanent board-selftest invariant: every
+public, non-documentation board-config key has an execution reader. This joins
+25M-16/18/19/21 in the single manifest-hardening landing before queue 2, so
+the landing makes one deliberate digest transition.
 ## 25M-14/15 + DIDACTICS-93 adjudication (Fable, 2026-07-13): both defects confirmed, both Torch gates commissioned; the naming ruling ratified
 
 Durable register at efddf98 (latest main merged as 97e9acb).
