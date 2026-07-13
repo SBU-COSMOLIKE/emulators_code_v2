@@ -1012,6 +1012,33 @@ script cannot be imported here, but its `import` lines CAN be read
    so a change to any transitively-reachable repo-local module staled the
    gate.
 
+Blind spots (what the scan cannot see, and the mitigation). A static scan
+reads `import` / `from ... import` nodes; it cannot resolve a module whose
+name is a runtime value. It is blind to:
+
+- Dynamic imports: `__import__(name)` and `importlib.import_module(name)`.
+  The target is a string or variable computed at runtime, so no repo-local
+  path can be recovered from the source alone.
+- importlib string / computed names: any import whose module name is built
+  from a string or a variable rather than written as a literal statement.
+- Function-local (and conditional) imports: an `import` inside a function
+  body or an `if` branch is missed if the scan reads only module-level
+  statements. Walking the WHOLE tree (`ast.walk`) recovers the literal ones
+  (a function-local `from emulator.x import y` is a visible node); only the
+  runtime-named forms above stay invisible even then. The proposal
+  recommends the whole-tree walk so the blind spot shrinks to the dynamic
+  forms alone.
+
+Because the reconciliation cannot flag a dependency it cannot see, a gate
+whose checks reach a repo-local module ONLY through one of these forms must
+declare that module explicitly in `manifest.code`; that one case rests on
+the human declaration and the Architect's review, not the automated scan.
+The manifest never CLAIMS to have found every dependency automatically -- it
+claims to hash every declared-or-found repo-local module and to error on any
+FOUND import the declaration leaves out. A dynamic-import dependency is the
+one lane where a silent under-declaration is possible; the honest cost is
+named here rather than papered over.
+
 Open sub-choice for your ruling: whether `code` must name the FULL
 transitive closure (verbose, but the declaration is the whole truth) or
 only the DIRECT roots with the digester deriving the closure (terse, the
@@ -1094,3 +1121,61 @@ field + `validate_manifests` (fixpoint scan) first, gated by
 gate (the mutation arm); then the digest + persisted-member rewrite with
 the `pre-manifest` state; then per-gate `manifest=` population, gate by
 gate, each a rerun. Awaiting Architect review before any of it.
+
+### Architect review of the 1b proposal — APPROVED WITH DELTAS (Fable, 2026-07-13)
+
+The proposal satisfies all seven constraints as written: the Manifest
+dataclass and optional Gate field, the AST fixpoint scan validated on
+every invocation, the persisted resolved members with member-level
+stale naming, the always-hashed shared harness, the pre-manifest
+transition, the yaml_dir retirement, and the fixed "declared vs
+observed" error format. The suggested build order is approved
+(dataclass + validate_manifests with the under-declaration mutation
+arm first; then the digest/persist rewrite with the pre-manifest
+state; then per-gate population, each a rerun).
+
+RULING on the flagged decision: DIRECT ROOTS + DERIVED CLOSURE (the
+Implementer's recommendation). The declaration states intent and
+stays readable; a full-closure declaration rots on every refactor and
+invites blanket copy-paste. Never-trust-defaults is satisfied because
+the PERSISTED manifest materializes the resolved closure with
+per-member digests — the artifact is the whole truth, the declaration
+is config. The closure deriver itself lives in the always-hashed
+shared harness, so a deriver bug stales every gate honestly.
+
+Three DELTAS, all required before implementation:
+
+1. BLIND-SPOTS PARAGRAPH (was required by the review handoff, absent
+   from the proposal). The scan walks the ENTIRE AST (ast.walk), so
+   function-local import statements are seen — results.py:546 is a
+   live function-local "import importlib". What the scan CANNOT see,
+   documented with the live instances: string-target dynamic imports
+   (getattr(importlib.import_module(mod), qual) at results.py
+   :602/:672 and warmstart.py :368/:410 — the model-recipe pattern
+   resolving design classes from saved artifact strings) and
+   subprocess-invoked files (ctx.run_driver / the _DRIVER constants —
+   a run-shaped gate's driver and everything it imports never appear
+   in any check script's import graph).
+2. RECONCILIATION REDEFINED under the terse ruling. With a derived
+   closure, ordinary repo-local imports are covered by construction,
+   so "found vs declared" is vacuous for them. The under-declaration
+   check that still bites, and is REQUIRED: (a) a literal
+   repo-relative .py path census over the gate body + its check
+   scripts (the subprocess targets: run_driver names, _DRIVER and the
+   sweep-driver constants) — every hit must be covered by declared
+   roots or auto-discovered scripts, and a covered driver is then a
+   SEED so the closure swallows its imports; (b) a dynamic-import
+   census — every importlib / __import__ site inside the derived
+   closure is flagged, and the gate either declares roots covering
+   the dynamically-reachable modules (rebuild-shaped gates declare
+   emulator/designs/) or the site appears in a REVIEWED waiver table
+   in this note. Declared-then-checked stays meaningful exactly where
+   the scan is blind.
+3. DETERMINISM: members sorted by repo-relative path before the
+   overall digest; the fixpoint result independent of traversal
+   order; a (path, digest) parse cache is fine but is never itself
+   persisted as evidence.
+
+With the deltas incorporated into the proposal text (a short edit,
+not a re-review — cite this section), implementation may begin in the
+approved order. Queue 2 remains blocked until 1b lands.
