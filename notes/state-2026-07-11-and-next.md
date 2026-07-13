@@ -2504,6 +2504,23 @@ exclusive action modes with usage-error exits; named optional start
 included first; real-main() legs + selector fixture, restoration
 mutations red). Spec: gates-and-board.md "25M-24/25 adjudication".
 
+25M-26 (2026-07-13, Red Team; awaiting Fable adjudication): the
+25M-20 repair's dependency-rerun memory is per invocation only.
+Dependent PASS records persist no identity of the prerequisite result
+they consumed. Executed sequential-main witness: force a current
+prerequisite (new successful attempt), then select its old-current
+child in a second call — child body runs zero times, resumes, and rc
+is 0. The real blast radius is save-rebuild-drift's overwritten
+emulator feeding cobaya-adapter / finetune-smoke / transfer-smoke.
+The same missing owner makes --list and BOARD.md publish PASS children
+under stale/failed parents. Required: persisted direct-dependency
+result snapshots, legacy dependent passes non-green, one dependency-
+aware state for resume/list/board/acceptance, sequential and mutation
+legs. This immediately reopens 25M-20's persisted-lineage half; its
+same-process reran-set fix remains correct. A 25M-24 rider also records
+that --gate A --force-rerun B silently discards valid B when B is
+outside the selected surface; reject the ignored control.
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

@@ -1688,6 +1688,11 @@ discriminating leg set in its scientific owner before any chat handoff:
 - `25M-25`: `select_gates(--from triangle-shading)` filters out the explicitly
   named optional starting gate and begins at the next non-optional gate —
   `gates-and-board.md`, optional-start selection truth.
+- `25M-26`: a child's PASS stores no dependency-result identity, so forcing a
+  prerequisite in one board process and selecting the child in a later process
+  resumes the old child PASS without testing the newly produced artifact;
+  `--list` and `BOARD.md` publish the same false green — `gates-and-board.md`,
+  immediate 25M-20 persisted-lineage reopen.
 
 No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and
@@ -1724,3 +1729,20 @@ every public non-documentation board-config key has an execution reader a
 permanent selftest leg. The hardening landing is therefore 16 whole-check
 closure + 18 all-quantified waiver coverage + 19 owner resolvers + 21 digest
 projection + 22 dead-key removal, with one deliberate digest transition.
+
+Architect adjudication overlay for `25M-24`/`25M-25` (received after commit
+`97e8802`): both were confirmed without amendment and join the 1b hardening
+increment as items 7 and 8.  The Architect adopted the promise-bypassed-by-
+ordering classification for 24 and requested the remaining `main()`
+early-return sweep.  That sweep found no other non-duplicate early-return
+false green in the check scripts or public drivers.  One 25M-24 acceptance
+rider remains for adjudication: a valid named `--force-rerun` outside the
+resolved selector surface is silently discarded and must be rejected as an
+ignored control, not counted as a new finding.
+
+25M-26 corrects an overstatement in this register's RT-IMPL-01 audit.  The
+landed `_resume_state` unifies a gate's **own** code/input/log currency, but it
+does not unify persisted dependency-result lineage: the accepted 25M-20 fix's
+`reran` set lives for one invocation only.  The durable two-command witness and
+repair contract are in `gates-and-board.md`; this correction preserves the
+valid raw-log acceptance while withdrawing the broader claim.

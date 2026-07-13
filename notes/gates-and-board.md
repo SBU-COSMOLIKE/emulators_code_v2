@@ -4689,3 +4689,110 @@ remains green against both defects is the point — the current legs
 exercise the selector function, not main()'s action-mode ordering.
 Consistent with the standing lesson; the new legs run the real
 main().
+
+Red Team coverage rider on 25M-24 (2026-07-13, awaiting Architect
+adjudication): the ignored-control class also exists inside an ordinary run
+selection.  The real command
+
+```
+python3 gates/run_board.py --dry-run --gate family-first \
+  --force-rerun triangle-shading
+```
+
+validates both ids, prints `selected 1 gate(s): family-first`, never mentions
+or runs `triangle-shading`, and exits 0.  `forced` may contain ids outside
+`selection`, while `run_selection` loops only over `selection`.  This does not
+need a new repair unit: extend 25M-24's “ignored controls are usage errors”
+contract so every named `--force-rerun` id must belong to the resolved
+selection (or the command refuses the mismatch with exit 2 and names both
+surfaces).  A real-main dry-run leg and a non-dry fake-gate leg must restore
+the current subset mismatch as their catch-power mutation.  Do not silently
+union the forced gate into the selection: `--gate` / `--tier` / `--from` own
+what is tested; force changes resume behavior only.
+
+## 25M-26 (Red Team CONFIRMED, awaiting Architect adjudication): dependency identity is lost between board invocations, so an old child PASS survives a newly produced prerequisite artifact
+
+The 25M-20 landing fixes dependency currency only inside one call to
+`run_selection`.  Its `reran = set()` is allocated afresh for each invocation
+(`gates/run_board.py:1852-1856`), and a successful child's status record stores
+its own code/input/log/attempt identity but no identity of the prerequisite
+result it consumed (`:1974-1985`).  On the next process, `_dep_current_pass`
+asks only whether the prerequisite is a current PASS *now*.  It cannot tell
+that this is a different PASS from the one against which the child was proved.
+
+Executed two-invocation reproduction through the real `main` and
+`run_selection`, sharing one status map and log directory:
+
+1. Seed `prereq` and its dependent `child` as genuine current PASS records.
+2. Invoke `--gate prereq --force-rerun prereq`.  The prerequisite executes,
+   publishes new attempt `20260713-144604-705330`, and exits 0.
+3. In a separate `main` invocation, select `--gate child`.  The runner prints
+   `[skip] child: already PASS ... dependencies current`, calls the child body
+   zero times, reports one resumed current PASS, and exits 0.  The child's
+   surviving record is still the seed record proved against the old
+   prerequisite result.
+
+This is a reachable science-evidence error on the real board, not status-only
+cosmetics.  `save-rebuild-drift` overwrites the persistent
+`gates_emul_evaluate.h5` artifact (`gsv_bitwise_drift.py:305-307`).
+`cobaya-adapter`, `finetune-smoke`, and `transfer-smoke` all declare it as
+their prerequisite (`gates/board.py:2079-2112`) and consume the saved emulator.
+A user can force only `save-rebuild-drift`, then later invoke one child; the
+old child PASS is reported current even though it did not exercise the newly
+written artifact.
+
+The publication surfaces expose the same missing owner.  `_resume_state`
+looks only at the named gate's own record (`run_board.py:1531-1562`), and both
+`cmd_list` (`:1999-2026`) and `_write_board_md` (`:1593-1628`) call it without
+dependency lineage.  With a stale-code prerequisite plus an own-current
+child, public `--list` prints the prerequisite `stale-code` and the child
+`PASS`, exit 0, even though `_dep_current_pass` returns false.  When a forced
+prerequisite rerun fails, the emitted `BOARD.md` similarly publishes the
+prerequisite as `FAIL` and its unselected child as `PASS`.
+
+Required contract (the unimplemented persisted-identity clause already
+present in the original 25M-20 ruling):
+
+1. Every dependent gate PASS persists a direct-dependency snapshot, keyed by
+   dependency id, containing the dependency's terminal result identity (a
+   unique successful attempt plus its immutable log digest, or an equivalently
+   strong single result-generation digest).  Capture it only after dependency
+   currency has been validated and only when the child itself executes and
+   passes.
+2. A dependent PASS is current only when every dependency is independently
+   current **and** its present result identity exactly equals the snapshot the
+   child consumed.  A later dependency rerun, even a successful byte-identical
+   rerun in another process, makes the child `stale-dependency` until the child
+   re-executes.
+3. One dependency-aware resume-state owner supplies execution resume,
+   dependency acceptance, `--list`, and `BOARD.md`.  These surfaces may not
+   reconstruct separate approximations.  A stale dependency changes the
+   displayed/computed state without erasing the child's historical result or
+   immutable log.
+4. A legacy PASS for a gate with `deps` but no dependency snapshot predates
+   this contract and is non-green (`pre-dependency` or equivalent).  Never
+   bless it by copying today's dependency identity into the old child record;
+   only an executed child can establish what it consumed.
+5. Direct snapshots compose transitively: if A changes, B becomes stale; C's
+   snapshot of B can no longer certify C.  Preserve the current same-process
+   rerun behavior, but persisted lineage—not an in-memory set—is the authority
+   across invocations.
+
+Pure-Python board-selftest legs, all using the real runner paths: unchanged
+current parent+child with a persisted matching snapshot resumes; two
+sequential `main` calls force the parent then select the child and prove the
+child body executes; a legacy dependent PASS without a snapshot is non-green;
+parent stale-code/stale-input/stale-log/FAIL/SKIP/RUNNING states make both
+`--list` and `BOARD.md` show the child non-green; a successful new parent
+attempt also makes the old child `stale-dependency`; an A -> B -> C chain
+proves transitive invalidation; an independent gate remains resumable.  The
+catch-power mutation deletes or ignores the stored dependency snapshot and
+must reproduce the false second-command resume with return code zero and zero
+child calls.  Census the real BOARD's dependent gates and assert every
+dependent PASS written by the harness carries the snapshot.
+
+This reopens the accepted 25M-20 implementation; it does not dispute the
+same-invocation `reran` repair, which is correct but insufficient.  It also
+corrects the Red Team's earlier RT-IMPL-01 wording that execution, dependency
+acceptance, `--list`, and `BOARD.md` already shared a complete verdict: they
+share own-gate currency, not persisted dependency-result identity.
