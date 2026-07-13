@@ -584,6 +584,82 @@ def _dirty_lines(porcelain_out):
   return offenders
 
 
+def _note_markers(note_path):
+  """The set of explicit anchor markers declared in one note file.
+
+  A marker is an explicit ``<a id="..."></a>`` element (HTML embedded in
+  the markdown), chosen over a heading slug because it survives a heading
+  rewording: the evidence map cites a name the prose around it cannot move.
+
+  Arguments:
+    note_path = the notes/<stem>.md path to scan.
+
+  Returns:
+    the set of marker id strings the note declares, or None when the file
+    does not exist (so a missing note is reported distinctly from a note
+    that simply lacks the marker).
+  """
+  if not note_path.exists():
+    return None
+  text = note_path.read_text()
+  return set(re.findall(r'<a id="([^"]+)">', text))
+
+
+def validate_evidence(gates):
+  """Check every gate's structured evidence map resolves and is unique.
+
+  Two board-wide invariants, checked statically -- no GPU, no cocoa stack,
+  no clean tree -- so a plain ``--list`` on any machine exercises them:
+
+    (1) resolvable -- every Assertion.anchor "<note>.md#<marker>" names a
+        note under notes/ that exists and declares that <a id> marker, so a
+        reworded or deleted note orphans no pointer.
+    (2) unique -- no two assertions anywhere on the board share an aid, so a
+        leg's id names exactly one acceptance leg.
+
+  A gate with no evidence is skipped: the migration to the structured map is
+  rolling, and lacking evidence is never itself a failure (the gate still
+  documents itself through its free-form maps= line).
+
+  Arguments:
+    gates = the full gate registry (BOARD).
+
+  Returns:
+    (ok, errors): ok is True when every populated evidence map resolves and
+    all aids are unique; errors is the list of human-readable failures
+    (empty when ok).
+  """
+  errors = []
+  seen = {}                        # aid -> the gate id that first declared it
+  cache = {}                       # note stem -> its marker set (or None)
+  for gate in gates:
+    for item in gate.evidence:
+      if item.aid in seen:
+        errors.append("duplicate assertion id '" + item.aid + "' in gate '"
+                      + gate.id + "' (already declared by gate '"
+                      + seen[item.aid] + "')")
+      else:
+        seen[item.aid] = gate.id
+      if "#" not in item.anchor:
+        errors.append("gate '" + gate.id + "' assertion '" + item.aid
+                      + "' anchor '" + item.anchor
+                      + "' is not of the form '<note>.md#<marker>'")
+        continue
+      stem, marker = item.anchor.split("#", 1)
+      if stem not in cache:
+        cache[stem] = _note_markers(_REPO / "notes" / stem)
+      markers = cache[stem]
+      if markers is None:
+        errors.append("gate '" + gate.id + "' assertion '" + item.aid
+                      + "' cites missing note notes/" + stem)
+      elif marker not in markers:
+        errors.append("gate '" + gate.id + "' assertion '" + item.aid
+                      + "' anchor marker '#" + marker
+                      + "' is not declared in notes/" + stem
+                      + " (add <a id=\"" + marker + "\"></a> there)")
+  return (len(errors) == 0, errors)
+
+
 def preflight(cfg):
   """Run every pre-GPU check, printing remedies; return (ok, env).
 
@@ -1368,6 +1444,17 @@ def main(argv=None):
   # the --debug flag forcing it true. (preflight enforces the key's
   # presence for real runs; dry-run / --list do not need it.)
   debug = bool(cfg.get("debug", False)) or args.debug
+
+  # the structured evidence map is validated on EVERY invocation (a plain
+  # --list on any machine exercises it, no GPU): a gate that cites a note
+  # anchor that does not resolve, or reuses another gate's assertion id, is
+  # a board-authoring error that fails fast, before a single gate runs.
+  ok_ev, ev_errors = validate_evidence(BOARD)
+  if not ok_ev:
+    print("error: the structured evidence map does not validate:")
+    for line in ev_errors:
+      print("  - " + line)
+    return 2
 
   if args.list:
     cmd_list(status, cfg)

@@ -55,6 +55,37 @@ SWEEP_NTRAIN_DRIVER = "cosmic_shear_sweep_ntrain_emulator.py"
 
 
 @dataclass(frozen=True)
+class Assertion:
+  """One acceptance leg's stable id and the note anchor that proves it.
+
+  The board's trust problem: a gate's free-form maps= prose claims to
+  encode a home-note passage, but nothing checks the claim, so a
+  reworded or deleted note silently orphans the pointer (only a
+  handful of the board's tests currently name a note passage the note
+  actually still carries). An Assertion makes the pointer machine
+  checkable. Before any gate runs, the runner verifies that every
+  anchor resolves to a real, explicitly-declared marker in notes/, and
+  that no two assertions anywhere on the board share an id -- so a
+  review can trust that the gate encodes the note, not a memory of it.
+
+  Arguments:
+    aid    = the assertion id: a stable, board-unique name for one
+             acceptance leg (e.g. "brd-a.exit-truth"). Chosen once and
+             never reworded, so a log line or a review can cite the leg
+             by a name that does not move when the prose around it does.
+    anchor = the home-note anchor the leg encodes, in the form
+             "<note>.md#<marker>" (e.g.
+             "gates-and-board.md#brd-a-exit-truth"). The marker is an
+             explicit <a id="..."></a> element in the note (chosen over
+             a heading slug because it survives a heading rewording);
+             the runner fails loudly, before running, if it does not
+             resolve.
+  """
+  aid: str
+  anchor: str
+
+
+@dataclass(frozen=True)
 class Gate:
   """One row of the board: one test, what it runs, and how it is judged.
 
@@ -83,6 +114,15 @@ class Gate:
               note's ledger tables. Registry data for the notes only: it is
               never printed or documented outside notes/ (user ruling
               2026-07-12 — internal tracking codes stay in notes).
+    evidence= the structured evidence map: the acceptance legs this test
+              is built to prove, each an Assertion pairing a stable,
+              board-unique id with the home-note anchor it encodes. The
+              runner validates it statically before any gate runs (every
+              anchor must resolve to a declared marker in notes/, every id
+              must be unique), so the maps= prose can never quietly drift
+              from the note it cites. Empty on tests not yet migrated to
+              the structured map -- their free-form maps= line still
+              documents them; the migration is rolling, not a flag day.
     title   = a one-line human name for the test (for the README table).
   """
   id: str
@@ -95,6 +135,7 @@ class Gate:
   needs: Tuple[str, ...] = ()
   worktree_commit: str = None
   spec_code: str = ""
+  evidence: Tuple[Assertion, ...] = ()
   title: str = ""
 
 
@@ -1563,10 +1604,14 @@ BOARD = [
        maps="the board-truth campaign: a dependency-skipped selected gate "
             "exits nonzero and runs no body; an unknown --gate / --from / "
             "--force-rerun id is a usage error with a suggestion and a "
-            "nonzero exit; the run selectors are mutually exclusive; and the "
+            "nonzero exit; the run selectors are mutually exclusive; the "
             "finite-contract compile-lane skip is a distinct non-green exit "
-            "code the board wrapper maps to a non-PASS (the red legs plus the "
-            "valid controls)",
+            "code the board wrapper maps to a non-PASS; and the structured "
+            "evidence map validates (the shipped board resolves, and a bad "
+            "anchor / missing note / duplicate id / malformed anchor are each "
+            "rejected) (the red legs plus the valid controls)",
+       evidence=(Assertion("brd-a.exit-truth",
+                           "gates-and-board.md#brd-a-board-truth"),),
        run=gate_board_selftest,
        needs=()),
   Gate(id="generator-seed",
@@ -1581,6 +1626,8 @@ BOARD = [
             "is type-checked and written to the chain header; same-seed draws "
             "reproduce. The append-replay and worker-invariance legs ride the "
             "workstation smoke gates",
+       evidence=(Assertion("gen-a.owned-rng",
+                           "data-generation-and-cuts.md#gen-a-generator-seed"),),
        run=gate_generator_seed,
        needs=()),
   Gate(id="cli-strict",
@@ -1593,6 +1640,8 @@ BOARD = [
             "mains reject a misspelled flag (--activaton) with a nonzero exit "
             "before the expensive boundary, while a valid command line reaches "
             "it",
+       evidence=(Assertion("cli-a.strict-parse",
+                           "conventions-and-workflow.md#cli-a-strict-cli"),),
        run=gate_cli_strict,
        needs=("torch",)),
   Gate(id="family-first",
@@ -1606,6 +1655,8 @@ BOARD = [
             "trains, the per-family wrappers accept their own block; the "
             "census confirms the four cosmic_shear drivers default "
             "family=cosmolike, always check, and drop the dispatcher prose",
+       evidence=(Assertion("fam-a.family-owned",
+                           "conventions-and-workflow.md#fam-a-family-first"),),
        run=gate_family_first,
        needs=("torch",)),
   Gate(id="stage-ram",
@@ -1620,6 +1671,8 @@ BOARD = [
             "budget; resident / disk controls, an unequal-dtype case, "
             "byte-identical selected rows across both regimes, and the "
             "dv-only-estimate mutation arm",
+       evidence=(Assertion("srm-a.both-copies",
+                           "data-generation-and-cuts.md#srm-a-stage-ram"),),
        run=gate_stage_ram,
        needs=("torch",)),
   Gate(id="artifact-readback",
@@ -1633,6 +1686,8 @@ BOARD = [
             "would load drifted transfer weights) naming the file + schema; a "
             "source census confirms no artifact boolean is truthiness-coerced. "
             "The live save/forge/rebuild proof is workstation-owed",
+       evidence=(Assertion("arb-a.typed-bool",
+                           "artifacts-inference-warmstart.md#arb-a-artifact-readback"),),
        run=gate_artifact_readback,
        needs=("torch",)),
   Gate(id="diagnostics-domain",
@@ -1651,6 +1706,8 @@ BOARD = [
             "REAL cmb_residual_diagnostic (corrupt-score refusal + valid "
             "control), and the grid / grid2d producer census through the one "
             "shared boundary",
+       evidence=(Assertion("diag-a.score-boundary",
+                           "training-stack.md#diag-a-diagnostics-domain"),),
        run=gate_diagnostics_domain,
        needs=("torch",)),
   Gate(id="berhu-loss",

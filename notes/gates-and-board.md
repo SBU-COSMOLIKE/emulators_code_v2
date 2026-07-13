@@ -354,7 +354,8 @@ legs green on the Mac (Cocoa torch where the module needs it).
   each attempt writes its own immutable per-attempt log (temp + os.replace);
   board_status.json + BOARD.md go through temp + os.replace; --list / BOARD.md
   distinguish current PASS / stale-code / stale-input / interrupted; a
-  status/log digest mismatch is loud. Gate board-selftest (BRD-A) now 26/26.
+  status/log digest mismatch is loud. Gate board-selftest (BRD-A) now 26/26
+  (33/33 after the 45M-72 evidence-map foundation adds seven legs).
 - 45M-75 schema half (commit 7b4e4ec): _validate_optimizer_opts rejects a
   zero / non-finite Adam eps, a non-finite / negative weight_decay, a
   non-positive / non-finite lr, and a beta outside [0,1) before the optimizer
@@ -386,15 +387,75 @@ legs green on the Mac (Cocoa torch where the module needs it).
   compact / loader rows + the dump_rows[j] invariant + the [9,2,9,5] example +
   the discarded param_stats scale + grid2d moment order); AST byte-identical.
 
-STILL OPEN (the two largest, warrant a fresh session):
-- 45M-72: replace every gate's free-form maps= prose with a structured stable
-  assertion-ID -> note-section-anchor map; preflight fails on missing / dup
-  anchors; every ctx.expect + external check leg emits a unique assertion ID;
-  the runner compares expected vs executed IDs; external scripts emit an
-  executed-leg manifest. A codebase-wide refactor of all 40 gates + every check
-  + the notes (only 2/33 spec_codes currently occur in their home notes).
+STILL OPEN:
+- 45M-72: FOUNDATION LANDED this session (the Assertion schema + Gate.evidence
+  field, validate_evidence run on every invocation, the seven red-team gates
+  migrated with one headline assertion each + their home-note <a id> anchors,
+  and the board-selftest evidence-map legs proving the validator rejects a bad
+  anchor / missing note / duplicate id / malformed anchor; board-selftest
+  26/26 -> 33/33). Additive: the other 33 gates are untouched and still run on
+  their maps= prose. The AUDITED ROLLOUT (per-leg ids threaded through all 58
+  ctx.expect sites + 27 check-script leg manifests + the runner's declared-vs-
+  executed reconciliation + note anchors per leg + reconciling each gate's
+  home= with the note that documents it) is specified in "The audited rollout"
+  subsection above, held for Architect audit before it lands (a codebase-wide
+  refactor of the verification harness itself).
 - 45M-86 / 87 / 88 / 89 / 90: the didactic documentation batch (experiment
   lifecycle diagram + decision table; warmstart / transfer tensor mechanics;
   gates-teach-their-evidence; diagnostics estimator-vs-verdict; save/rebuild
   reversible map). Large doc-only rewrites of 200-700-line functions;
   AST-with-docstrings-stripped identity per file.
+
+## Structured evidence map — gate contract anchors (45M-72 foundation)
+
+The board carries a structured evidence map (`Gate.evidence`, a tuple of
+`Assertion(aid, anchor)`): each migrated gate names, in code, the stable
+assertion id it proves and the home-note anchor that documents it. The
+runner validates the whole map statically before any gate runs — every
+anchor must resolve to an explicit `<a id="...">` marker in `notes/`, and
+no two assertions anywhere on the board may share an id — so the free-form
+`maps=` prose can no longer drift from the note it cites (the gap this
+increment closes: before it, almost none of the board's tests named a note
+passage the note still carried). Each anchor below is that marker; a gate
+whose home note is elsewhere carries its anchor in that note, not here.
+
+This foundation migrates the seven red-team gates with one headline
+assertion each; the per-acceptance-leg ids (every `ctx.expect` and every
+external check leg emitting a unique id the runner reconciles against the
+declared set) are the audited rollout specified below.
+
+<a id="brd-a-board-truth"></a>
+**board-selftest (BRD-A) — the wrapper reports the truth about what ran.**
+A dependency-skipped selected gate exits nonzero and runs no test body; an
+unknown `--gate` / `--from` / `--force-rerun` id is a usage error with a
+suggestion and a nonzero exit; the run selectors are mutually exclusive;
+and the finite-contract compile-lane skip is a distinct non-green exit code
+the board wrapper maps to non-PASS. Proven by `gate_board_selftest` /
+`gates/checks/board_selftest.py`.
+
+### The audited rollout (45M-72 remainder, for Architect audit)
+
+The foundation above lands the schema (`Assertion` + `Gate.evidence`), the
+static validator (`validate_evidence` in `run_board.py`, run on every
+invocation), the seven migrated gates, and the mutation leg in
+board-selftest that proves the validator rejects a missing anchor and a
+duplicate id. It is additive: a gate with no `evidence` is untouched, so
+the other 33 gates still run on their `maps=` prose. The remaining work,
+which touches all 40 gates + 58 `ctx.expect` sites + 27 check scripts + the
+home notes and so warrants an Architect audit before it lands:
+
+1. **Per-leg ids.** Give `RunContext.expect` an `aid=` argument, and give
+   every gate one `Assertion` per acceptance leg (not one headline). The
+   context records each executed aid.
+2. **Executed-vs-declared reconciliation.** After a gate runs, the runner
+   compares the set of aids the body actually emitted against the set the
+   gate declared in `evidence`; a leg that was declared but never executed
+   (a silently-dropped check) fails the gate.
+3. **External-script leg manifests.** Each `gates/checks/*.py` prints a
+   machine-readable manifest of the leg ids it ran (one line per leg); the
+   runner parses it and folds those ids into the executed set, so an
+   external check's dropped leg is caught the same way.
+4. **Note anchors for every leg.** Each home note gains an `<a id>` marker
+   per acceptance leg, and each gate's `home=` is reconciled with the note
+   that actually documents it (several red-team gates are written up here in
+   `gates-and-board.md` while their `home=` names a domain note).

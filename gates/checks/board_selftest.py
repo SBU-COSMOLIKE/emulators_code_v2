@@ -28,6 +28,12 @@ gates. Grouped by the defect each proves:
     evidence a prior PASS still cites; a successful run publishes a fresh log
     whose stored digest matches its bytes.
 
+  structured evidence map -- validate_evidence resolves every gate's Assertion
+    anchors against the notes/ markers and enforces board-wide id uniqueness,
+    so a gate's maps= claim cannot drift from the note it cites. The shipped
+    board validates (a live control), and a bad anchor, a missing note, a
+    duplicate id, and a malformed anchor are each rejected.
+
 Each check states the boundary under test, the fixture, the expected verdict,
 and (where relevant) the deliberately broken behavior it must reject.
 """
@@ -43,7 +49,7 @@ if str(_GATES) not in sys.path:
     sys.path.insert(0, str(_GATES))
 
 import run_board
-from board import Gate, GateFailure
+from board import BOARD, Assertion, Gate, GateFailure
 
 FAILURES = []
 CALLS = {}                       # gate id -> how many times its body ran
@@ -326,6 +332,67 @@ def check_evidence_atomicity():
            leftovers == [], "clean temp dir")
 
 
+def _evidence_gate(gate_id, aid, anchor):
+    """A fake gate carrying one structured evidence assertion (no body run)."""
+    def _run(ctx):
+        pass
+
+    return Gate(id=gate_id, tier="backlog", home="selftest", maps="selftest",
+                run=_run, evidence=(Assertion(aid, anchor),))
+
+
+def check_evidence_map():
+    """validate_evidence resolves anchors + enforces id uniqueness, and the
+    real board validates (every migrated anchor already resolves)."""
+    # control: the shipped board's structured evidence map validates -- every
+    # migrated gate's anchor resolves to a real <a id> marker in notes/, and
+    # no two assertions share an id. This is the leg that would go red if a
+    # future note rewording orphaned a live anchor.
+    ok, errs = run_board.validate_evidence(BOARD)
+    report("the shipped board's evidence map validates", ok,
+           "all anchors resolve, ids unique" if ok else "; ".join(errs))
+
+    # a migrated gate really does carry structured evidence (the foundation is
+    # not vacuous): at least the seven red-team gates have a populated map.
+    n_evid = sum(1 for gate in BOARD if gate.evidence)
+    report("the board carries migrated structured evidence", n_evid >= 7,
+           "%d gate(s) with evidence" % n_evid)
+
+    # mutation 1: an anchor whose marker is not declared in the note is caught.
+    bad = _evidence_gate("bad", "bad.leg",
+                         "gates-and-board.md#no-such-marker-xyz")
+    ok, errs = run_board.validate_evidence([bad])
+    report("an unresolved anchor marker is rejected", not ok,
+           errs[0] if errs else "")
+
+    # mutation 2: an anchor naming a note that does not exist is caught.
+    miss = _evidence_gate("miss", "miss.leg", "no-such-note.md#m")
+    ok, errs = run_board.validate_evidence([miss])
+    report("an anchor citing a missing note is rejected", not ok,
+           errs[0] if errs else "")
+
+    # mutation 3: two gates sharing an assertion id is caught (board-wide
+    # uniqueness, so a leg's id names exactly one leg).
+    real_anchor = "gates-and-board.md#brd-a-board-truth"
+    dup_a = _evidence_gate("dupA", "dup.id", real_anchor)
+    dup_b = _evidence_gate("dupB", "dup.id", real_anchor)
+    ok, errs = run_board.validate_evidence([dup_a, dup_b])
+    report("a duplicate assertion id across gates is rejected", not ok,
+           errs[0] if errs else "")
+
+    # mutation 4: an anchor missing the '#<marker>' shape is caught.
+    mal = _evidence_gate("mal", "mal.leg", "gates-and-board.md")
+    ok, errs = run_board.validate_evidence([mal])
+    report("a malformed anchor (no #marker) is rejected", not ok,
+           errs[0] if errs else "")
+
+    # control: a gate with no evidence is never itself a failure (the
+    # migration is rolling, not a flag day).
+    ok, errs = run_board.validate_evidence([make_gate("plain")])
+    report("a gate with no evidence is not a failure", ok and errs == [],
+           "empty evidence tolerated")
+
+
 def main():
     print("board-selftest (pure Python, no torch)")
     print("\n-- exit-code truth --")
@@ -338,6 +405,8 @@ def main():
     check_resume_identity()
     print("\n-- evidence atomicity (RUNNING + immutable logs) --")
     check_evidence_atomicity()
+    print("\n-- structured evidence map (anchors resolve, ids unique) --")
+    check_evidence_map()
     print("")
     if FAILURES:
         print("board-selftest: %d FAILURE(S): %s"

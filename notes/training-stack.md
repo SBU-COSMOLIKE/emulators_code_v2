@@ -2285,3 +2285,21 @@ gates (residual internal accumulation changed; valid output identical).
 
 Unit 14 stays OPEN on (f) 45M-58 (float64 published reductions; rides unit 50).
 Next in the queue: 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01).
+
+## Structured evidence map — gate contract anchors (45M-72 foundation)
+
+The board's structured evidence map (`Gate.evidence`) pins each migrated
+gate to a stable, runner-validated anchor in its home note; the mechanism
+and the audited rollout are documented in `gates-and-board.md`. The
+diagnostics gate anchors here:
+
+<a id="diag-a-diagnostics-domain"></a>
+**diagnostics-domain (DIAG-A) — the diagnostic score-domain boundary.** The
+shared `screen_chi2` helper (valid input byte-identical, within-band
+roundoff pulled to exact 0, a materially negative / NaN / +-Inf score
+refused naming the boundary + rows + band, the fallback-1 floor, the
+width-scaled band); the real `local_linear_floor` (a reachable negative
+floor refused before `f_floor`, a NaN floor refused, a valid control, and
+the guard-bypassed mutation that recreates the false `f_floor = 0`); the
+real `cmb_residual_diagnostic` (corrupt-score refusal + valid control); and
+the grid / grid2d producer census through the one shared boundary.
