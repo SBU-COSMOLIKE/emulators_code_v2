@@ -2178,3 +2178,62 @@ Placement: increment (h) rides WITH (g) as one visit, AFTER queue
 verified uncommitted in losses/cmb.py, the same file (g) edits;
 finishing 43 avoids a half-unit and a same-file collision). Unit
 14 stays open on (f) + (g) + (h).
+
+#### Increment (h) COMPLETE resume (2026-07-12, Opus) — committed 3f47d86, diagnostics-domain gate green
+
+Increment (h) self-committed on the branch as 3f47d86 (batch grant, pending
+Architect audit). The diagnostic score boundary now goes through ONE shared
+public helper.
+
+Contract delivered whole (the seven clauses):
+- `screen_chi2(chi2, loss, label, positions=None)` in losses/core.py beside
+  `_chi2_domain`: derives the band from `loss._chi2_n_terms()` (increment (g),
+  getattr default 1) and the chi2 COMPUTE dtype (the (g) second addendum --
+  the tensor is passed pre-.double()), applies `_chi2_domain`, RAISES naming
+  the boundary + rows + minimum + band, or returns the within-band-normalized
+  c_norm (exact 0). It raises rather than converting to "unavailable" (unit 9)
+  and is applied regardless of any upstream geometry check (unit 11 defense in
+  depth). Valid positive output byte-identical.
+- Consolidation: eval_val + eval_source_chi2 (training.py) now CALL screen_chi2;
+  the private `_report_chi2_domain` is retired (its message is preserved
+  byte-for-byte inside screen_chi2, so finite_contract's message assertions
+  still hold).
+- diagnostics.py: local_linear_floor (:262) screens the floor in its compute
+  dtype BEFORE f_floor / median_floor (its `.double()` ordering fixed); the
+  three residual producers (cmb/grid/grid2d) accumulate the compute-dtype chi2
+  per chunk and screen after concat through `_screen_diag_chi2` (a thin DRY
+  wrapper that calls screen_chi2), never a per-chunk `.double()`.
+
+Gate (NEW, board-listed): gates/checks/diagnostics_domain.py (DIAG-A, torch
+CPU, no cosmolike/CAMB) + gate_diagnostics_domain + the Gate() entry in
+board.py. 20/20 GREEN on Cocoa torch:
+- screen_chi2 unit: valid byte-identical, within-band roundoff -> exact 0,
+  materially negative / NaN / +Inf / -Inf refused naming row + band, the
+  fallback-1 band floor still rejects, and the term count widens the band
+  (no silent fallback-1);
+- the REAL local_linear_floor: valid control returns finite f_floor; a
+  reachable negative floor (a _FloorOnlyNegChi2 corrupting call #1 = the floor,
+  the model arm valid) REFUSED before f_floor naming "local-linear floor"; a
+  NaN floor refused; the mutation arm (diagnostics.screen_chi2 monkeypatched to
+  a passthrough) recreates the false f_floor = 0, median_floor = -1e3;
+- the REAL cmb_residual_diagnostic: valid control + a corrupt-score refusal
+  naming "cmb residual";
+- a source census (AST): cmb/grid/grid2d residual all route through
+  _screen_diag_chi2, local_linear_floor calls screen_chi2, _screen_diag_chi2
+  delegates to screen_chi2, and no residual producer keeps the raw
+  .double().cpu().numpy() chi2 path.
+
+Scope note (honestly flagged): the grid / grid2d residual LIVE corrupt-score
+refusals are covered by the CENSUS leg (identical _screen_diag_chi2 path,
+proven live for CMB) rather than a separate live fixture -- the shared boundary
+is exercised live once and the other two are proven to route through it. If the
+Architect wants grid/grid2d live refusals too, they are a small add (build a
+GridGeometry + Grid2DGeometry + ScalarChi2 fixture).
+
+Workstation owed (user-run): the finite-contract gate rerun (Part A/C/H
+eval_val / eval_source_chi2 now route through screen_chi2, message unchanged --
+cannot import on Mac: geometries.output -> cosmolike) and the family smoke
+gates (residual internal accumulation changed; valid output identical).
+
+Unit 14 stays OPEN on (f) 45M-58 (float64 published reductions; rides unit 50).
+Next in the queue: 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01).
