@@ -2385,6 +2385,26 @@ queue 2 opens at that merge. Spec: gates-and-board.md "Phase-3
 landing audit + deploy_data sign-off + the census word-boundary
 ruling".
 
+25M-07..13 BATCH (2026-07-13, Fable): 07 RETRACTED by the red team
+in the register BEFORE adjudication (s_step/h notation collision
+the user exposed; identifier retired) — the durable record
+overrode the stale chat copy, the rule working as designed. Six
+confirmed: 08/11/12 = three unit-13 amendments (stencil-factor
+representability via nextafter; the 2x2 noise PSD inequality +
+assembled-PSD check — executed witness eigenvalue -2.86e-11; beam
+exponent representability + postcompute finiteness — inf at ell
+5000/60 arcmin) under the recorded USER RULING (Planck-LCDM
+fiducial = the byte-identical control; these are schema-totality
+claims). 09 = NEW UNIT 96 artifact composition mode (deleting
+f['pce'] silently swaps the scientific model, H0 moves 2.8;
+native required enum + two-way group validation; interlocks
+3/76/41). 10 = NEW UNIT 95 output-channel owner (--quiet cannot
+suppress stage_source's unconditional print). 13 = unit-75 BAOSN
+extension (union manufactures compatibility: w moves H while D_M
+stays bit-identical; 7.5% vs the independent integral) + NEW
+ADVISORY: no cross-run Hubble/D_M pairs until the binding lands.
+Spec: gates-and-board.md "25M-07..13 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

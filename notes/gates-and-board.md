@@ -3830,3 +3830,92 @@ Result: the next increment lands the deploy_data block + 15 gate
 inputs= + the census hardening + production-diagnostic, completing
 population 40/40 — queue 2 opens at that merge. The full-board Mac
 validation and the review handoff remain the acceptance.
+
+## 25M-07..13 adjudication (Fable, 2026-07-13): six confirmed, one retraction accepted; units 95 + 96 minted; three unit-13 amendments under the user's reasonableness ruling; one new advisory
+
+Durable register at 652dad9. THE RETRACTION FIRST: 25M-07 was
+retracted IN THE REGISTER before this adjudication — the chat copy
+still filed it live, and the durable record overrode the chat
+exactly as the durable-record rule intends. The executed
+observation stands (the -2*s_step arm goes negative for s_step >
+0.5); the conclusion did not follow — the user's h = 0.7 remark
+exposed a notation collision (numerical step fraction vs
+cosmological Hubble parameter), and no CAMB known-answer proved
+signed formal arms wrong. Identifier retired, no code or gate
+change owed; a future restriction needs an independent CAMB
+known-answer, not the category assumption that every stencil arm
+must be a realizable cosmology.
+
+THE USER RULING (recorded in the register, ratified here):
+covariance reasonableness is anchored to the Planck-LCDM fiducial
+(example_yamls/cmb_covariance_lcdm.yaml: H0=67.36, As=2.1e-9,
+ns=0.9660, omegabh2=0.02237, omegach2=0.1200, tau=0.0544,
+mnu=0.06), which stays a byte-identical known-answer control in
+EVERY covariance-validator change. 25M-08/11/12 are SCHEMA-TOTALITY
+and catch-power claims, not claims that the shipped calculation is
+wrong.
+
+Verified and placed:
+
+- 25M-08 CONFIRMED (compute_cmb_covariance.py:562: clpp *= (1.0 +
+  eps); [1e-20, 2e-20] rounds every factor to exactly 1.0 — the
+  executed run saw ONE unique relensing payload, returned exactly
+  zero non-Gaussian covariance, and called it converged) -> UNIT 13
+  AMENDMENT: ordered representable factors 1-2s < 1-s < 1 < 1+s <
+  1+2s derived via nextafter, both-sign changed-value counts
+  persisted, the false-green fixture refuses before relensing.
+- 25M-11 CONFIRMED (noise_spectrum squares amplitudes independently
+  :185-188; gaussian_blocks assembles TT/TE/EE with no PSD check;
+  executed witness delta 1/10/1 -> joint eigenvalues
+  [-2.86365772e-11, 1.43097071e-11, 2.86537506e-11] while every
+  scalar check greens) -> UNIT 13 AMENDMENT: the 2x2 noise PSD
+  inequality delta_te^2 <= delta_tt*delta_ee at the config boundary
+  (representation-derived band), the per-ell signal+noise check,
+  assembled-covariance PSD within one owned tolerance before
+  publication; no clipping/loading/abs repairs.
+- 25M-12 CONFIRMED (:188 exponentiates the beam factor; executed:
+  ell 5000 + 60-arcmin beam -> inf; 32 arcmin -> noise finite
+  ~4.11e162 while its covariance square overflows; savez writes
+  without a postcompute finite check) -> UNIT 13 AMENDMENT: derive
+  the largest beam exponent from resolved lmax and prove noise AND
+  covariance products representable (named formulas, no guessed
+  cap); postcompute finiteness on every array before output
+  mutation, first key/ell/value named on failure.
+- 25M-09 CONFIRMED (results.py:348 writes pce only when non-None;
+  :617-625 rebuild infers composition from group PRESENCE;
+  _read_native_bool("transfer_refined") only runs inside the
+  if-transfer_base branch; executed witness: deleting f['pce'] from
+  a valid NPCE artifact strict-loads and moves H0 by 2.7999344) ->
+  NEW UNIT 96, the artifact composition mode: a native REQUIRED
+  enum (plain/npce/transfer + refined as a separate native fact)
+  persisted from the executed run; two-way required/forbidden group
+  validation before model construction; mutual exclusion; absence
+  NEVER means plain on schema v2; legacy presence-only artifacts
+  refuse with a migration instruction; config_yaml corroborates but
+  never substitutes for the enum. Interlocks units 3 (pair
+  identity), 76 (recipe totality), 41 (resolved record). HIGH.
+- 25M-10 CONFIRMED (stage_source prints unconditionally with no
+  verbosity parameter; CMB geometry raw prints at experiment.py:
+  3493/3504/3548; two worker failure paths bypass the quiet logger)
+  -> NEW UNIT 95, the output-channel owner: ONE owned emit channel
+  threaded through staging/geometry/workers; --quiet either honest
+  or its help narrowed to what it controls; the house
+  terminal-output rule (essential-only + debug switch) is the
+  design frame. The captured-stdout witness becomes the gate leg.
+- 25M-13 CONFIRMED (emul_baosn.py:126-127 unions every predictor
+  name with only quantity/units checks; executed witness: w moved
+  H(z=1) while D_M(z=1050) stayed bit-identical at
+  13999.394531250002 — an independent flat-wCDM integral moved
+  7.506%) -> UNIT 75 EXTENSION (the BAOSN half): equal canonical
+  generator/dataset/domain binding, compatible sampled coordinates
+  and domains, identical fixed facts (74/67's machinery), a
+  parameter sampled by one half = refusal; requirement union never
+  creates compatibility. NEW ADVISORY (joins the standing list):
+  never serve a Hubble + D_M pair from different runs until the
+  pair binding lands.
+
+Sequencing: production repairs join the unit queue (13's three
+amendments ride its existing 45M-01 slot; 96 beside 76's landing;
+95 with the training/driver campaign; 75-BAOSN with the family
+visits). Nothing preempts population completion -> the gauntlet.
+The registry namespace: 25M-07 retired-tombstone, 08-13 live.
