@@ -9,7 +9,8 @@
     "debug": "true = mirror full command output (driver stdout, config dump) to the terminal as well as the gate log; false = the terminal shows only gate headers, CHECK/GATE verdicts, preflight, and the summary. Log files always get everything. The --debug flag forces true.",
     "evaluate_yaml": "The cobaya evaluate YAML for cobaya-adapter. Defaults to the board's own gates/configs/cobaya-adapter-evaluate.yaml, which reads the tiny emulator save-rebuild-drift persists; point it at your own copy to evaluate a real trained run.",
     "golden_bases": "Per-gate pre-feature commit hash for the byte-identity golden leg, run in a TEMPORARY worktree (never checkout-in-place). ema-off-identity is preset to the pre-EMA commit. A null entry = the gate runs only its functional smoke leg and records the golden leg as skipped (see the harness handoff decision point).",
-    "gate_configs": "Per-gate bespoke smoke YAML (relative to yaml_dir). A null entry = the gate reports its config missing and is skipped, naming the file to author."
+    "gate_configs": "Per-gate bespoke smoke YAML (relative to yaml_dir). A null entry = the gate reports its config missing and is skipped, naming the file to author.",
+    "deploy_data": "Deploy-machine fixture files the driver gates hash as input members (ruling 2's provenance lane): logical key -> rootdir-relative path. Data vectors / params / covmat resolve under a project's chains/; the cosmolike dataset under external_modules/data/<dir>/. A gate references deploy_data.<key> in its manifest inputs; a referenced-but-absent key is a startup validation error, never a default (never-trust-defaults). Machine-varying paths belong exactly here (the local deployment override)."
   },
 
  "rootdir": null,
@@ -58,5 +59,14 @@
     "param-window-cuts-config": "../gates/configs/param-window-cuts-config.yaml",
     "finetune-smoke-config": "../gates/configs/finetune-smoke-config.yaml",
     "transfer-smoke-config": "../gates/configs/transfer-smoke-config.yaml"
+  },
+
+  "deploy_data": {
+    "w0wa_takahashi_dv_train_cs16":     "projects/lsst_y1/chains/w0wa_takahashi_dvs_train_cs_16.npy",
+    "w0wa_takahashi_params_train_cs16": "projects/lsst_y1/chains/w0wa_takahashi_params_train_cs_16.1.txt",
+    "w0wa_takahashi_covmat_cs16":       "projects/lsst_y1/chains/w0wa_takahashi_params_train_cs_16.covmat",
+    "w0wa_takahashi_dv_val_cs8":        "projects/lsst_y1/chains/w0wa_takahashi_dvs_train_cs_8.npy",
+    "w0wa_takahashi_params_val_cs8":    "projects/lsst_y1/chains/w0wa_takahashi_params_train_cs_8.1.txt",
+    "lsst_y1_ggl_dataset":              "external_modules/data/lsst_y1/lsst_y1_M1_GGL0.05.dataset"
   }
 }
