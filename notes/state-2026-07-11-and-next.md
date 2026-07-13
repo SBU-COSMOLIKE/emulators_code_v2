@@ -1866,6 +1866,23 @@ EMUL2 blocklist now 67+69+71..76. Red team continues into the
 loss/geometry-algebra and generator completion seams. Spec:
 gates-and-board.md "20M-09 adjudication".
 
+20M-10/11/12 BATCH (2026-07-13, Fable): all three CONFIRMED. 20M-10
+(CRITICAL: factored physical gain multiplies the CENTER-FREE constant
+template and re-adds the center after composition — executed gain off
+by -c*r0, zero leverage at GG=center; transfer-identity blind at r=0
+parity) -> UNIT 77, one composition owner + old-formula artifact
+refusal, blocks factored-transfer science (D-TP9). 20M-11 (CRITICAL:
+rebuild never reads the persisted rescale fact — warmstart refuses it,
+the public predictor serves finite wrong vectors) -> UNIT 78,
+refusal-first ruling ("none" only, all five adapters share it), RIDES
+the unit-76 recipe-totality landing; EMUL2 blocklist now
+67+69+71..76+78. 20M-12 (roughness leaks to scalar/grid/grid2d NPCE
+via inheritance + hasattr family test) -> UNIT 79, explicit family
+capability, refusal at validation, CMB path exact. Specs:
+artifacts-inference-warmstart.md "UNIT 77"/"UNIT 78";
+training-stack.md "UNIT 79"; gates-and-board.md "20M-10/11/12
+adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

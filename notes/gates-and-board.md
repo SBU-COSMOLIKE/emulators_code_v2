@@ -1988,3 +1988,50 @@ it cannot prove a recipe complete). EMUL2 blocklist grows to
 poisons everything served above it. Acknowledged: the red team
 continues into the loss/geometry-algebra and generator
 completion/publication seams.
+
+## 20M-10/11/12 adjudication (Fable, 2026-07-13): all three CONFIRMED — units 77, 78, 79
+
+- 20M-10 CONFIRMED (CRITICAL) at the cited lines; the code's own
+  docstrings state the convention that produces the defect:
+  _unwhiten_templates returns center-free templates ("the
+  constant-coefficient GG template carries it"), _composed_physical
+  adds the center "once after the combine" — so the factored physical
+  GAIN multiplies T0 without its center and the general error is
+  -c*r0, with zero gain leverage exactly where GG equals the center
+  (the zero-leverage failure the physical space exists to avoid).
+  The witness (c=10, GG=12, r=1: current 14 vs advertised 24)
+  is arithmetically exact; transfer-identity is green because
+  zero-correction parity coincides for both formulas and base_decode
+  repeats the same convention (self-comparison blind). -> UNIT 77
+  (artifacts-inference-warmstart.md), the transfer campaign; blocks
+  the science thread's factored-transfer runs.
+- 20M-11 CONFIRMED (CRITICAL): the driver persists rescale as a root
+  attribute; grep over results.py shows "rescale" ONLY in comments
+  and docstrings — rebuild_emulator has no functional read — while
+  warmstart.py:216-217 loudly refuses a non-"none" source; the
+  public predictor is the one boundary without the check, and the
+  red team's end-to-end save->predict repro (max abs error 28.236,
+  all values finite) executes the omission. RULING: refusal-first,
+  as recommended — public inference accepts rescale == "none" ONLY,
+  refusing "rescaled"/"residual" with prose explaining the
+  parameter-dependent inverse transform is not reconstructible from
+  the artifact; full analytic-rescale inference is a SEPARATE
+  user-gated schema/design unit if ever wanted, never a silent
+  blessing of existing files. -> UNIT 78
+  (artifacts-inference-warmstart.md), and it RIDES the unit-76
+  landing: the rescale fact is one more required native-string read
+  in the same recipe-totality validation pass. The note's
+  "needs cosmolike" imprecision is corrected per the finding.
+- 20M-12 CONFIRMED: pce.py:333 PCEResidualDiagChi2(CmbDiagonalChi2)
+  leaks configure_roughness into every NPCE diagonal family, and
+  training.py:2733's hasattr test — whose own comment claims it
+  identifies "a CMB loss" — accepts them; the alternating
+  seven-coordinate witness (objective 7 -> 13.4512 with redshift
+  bins smoothed as multipoles) is reproduced through the shipped
+  implementation. -> UNIT 79 (training-stack.md): roughness
+  eligibility becomes an explicit family capability; only data.cmb
+  carries the block; refusal at configuration validation.
+
+EMUL2 blocklist grows by 78: now 67 + 69 + 71..76 + 78. Unit 77
+gates the factored-transfer science thread (D-TP9 side) rather than
+EMUL2. Unit 79 is a training-truth refusal, small, CPU legs.

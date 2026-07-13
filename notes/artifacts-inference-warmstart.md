@@ -1133,3 +1133,78 @@ unknown kwargs raise with class + key named; the embedded
 transfer-base recipe repeats the cases; ordinary/head/transfer
 complete controls bitwise equal. Sequencing: the artifact campaign
 (pair-integrity interlock + unit 37 neighborhood); EMUL2-blocking.
+
+## UNIT 77 (20M-10, 2026-07-13, CRITICAL): factored physical gain composes on the CENTERED constant template — one composition owner, old-formula artifacts refused
+
+Finding (red team, CONFIRMED; the docstrings state the defective
+convention): _unwhiten_templates (losses/transfer.py:223-240)
+returns center-free templates, _compose applies T_t(1 + r_t), and
+_composed_physical (:337-353) adds geom.center AFTER — but template
+0 (GG, coefficient identically 1: losses/ia.py:27-45, where the
+center assignment lives in a docstring) has physical base T0 + c,
+so the executed gain differs from the advertised physical gain by
+-c*r0 (witness: c=10, GG=12, r=1 -> 14 executed vs 24 advertised),
+and gain leverage vanishes where GG equals the center.
+transfer-identity is green because r=0 parity coincides and
+base_decode shares the convention.
+
+Contract (ratified): (1) in the factored physical representation the
+center attaches to the constant-coefficient template BEFORE gain or
+sum composition, and is never added again after; (2) frozen
+encode/chi2, decode, base_decode, and every reachable live path
+share ONE conversion/composition owner; (3) "template 0 has
+coefficient identically 1" becomes explicit IA-design metadata or is
+validated — not an index literal; (4) physical SUM numerics are
+pinned (moving the center is algebraically equivalent there and must
+not change bytes); (5) zero-correction identity, plain transfer, and
+both whitened paths unchanged; (6) the corrected semantic binds to
+implementation identity — an artifact trained under the old
+factored-gain formula is REFUSED for retraining, never silently
+reinterpreted.
+
+Legs (ratified, board-listed, Torch — workstation): the analytic
+c=10 / GG=12 / r=1 case returns 24; a nonzero-amplitude case; GG=c
+proves nonzero gain leverage/gradient; a mutation restoring
+post-gain centering must red; zero-correction parity retained;
+factored physical sum pinned; plain physical gain + both whitened
+paths pinned; frozen chi2 / decode / base_decode agree on one
+formula. Sequencing: the transfer campaign, BEFORE any factored
+transfer production run (D-TP9 blocked on it).
+
+## UNIT 78 (20M-11, 2026-07-13, CRITICAL): the public inference boundary reads the rescale fact — "none" only, everything else refused loudly
+
+Finding (red team, CONFIRMED end to end): the driver persists
+rescale as a root artifact attribute; rebuild_emulator never reads
+it ("rescale" appears in results.py only inside comments/docs), so
+EmulatorPredictor installs the plain decode and returns finite,
+wrong physical vectors for "rescaled"/"residual" artifacts (probe:
+max abs error 28.236); warmstart.py:216-217 already refuses the
+same fact on ITS boundary — the asymmetry is the defect.
+
+Contract (RULING = refusal-first, as recommended): (1)
+rebuild_emulator reads rescale as a REQUIRED native-string artifact
+fact — missing, non-string, or unknown values raise before model
+use; (2) public inference accepts "none" only; "rescaled" and
+"residual" refuse with prose explaining their parameter-dependent
+inverse transform is not reconstructible from the artifact; (3)
+EmulatorPredictor and ALL five Cobaya adapters share the refusal —
+no adapter bypass; (4) full analytic-rescale inference support, if
+ever wanted, is a separate user-gated schema/design unit persisting
+every fact the training decoder needs (cosmo_mid, include_amp,
+u_star, the theta/effective-redshift mapping) and instantiating the
+SAME loss decoder — never a reimplementation, never a silent
+blessing of existing files; (5) plain "none" artifacts byte-
+identical; (6) the note's "inference needs cosmolike" claim is
+corrected — the defect is missing persisted state, not an inherent
+cosmolike dependency.
+
+Legs (ratified, board-listed): "none" control unchanged;
+"rescaled"/"residual" artifacts refused before model execution
+(or exactly reproduced if the full unit ever lands — with non-unit
+parameter-dependent R and the two forms proven separately, never
+one collapsed fixture); missing / numeric / boolean / unknown
+rescale facts refused; all five adapter entry points inherit the
+boundary; a mutation deleting the read/refusal reproduces the
+finite wrong prediction and must red. Sequencing: RIDES the unit-76
+landing (one recipe-totality validation pass in results.py);
+EMUL2-blocking.

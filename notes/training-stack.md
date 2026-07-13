@@ -2347,3 +2347,39 @@ floor refused before `f_floor`, a NaN floor refused, a valid control, and
 the guard-bypassed mutation that recreates the false `f_floor = 0`); the
 real `cmb_residual_diagnostic` (corrupt-score refusal + valid control); and
 the grid / grid2d producer census through the one shared boundary.
+
+## UNIT 79 (20M-12, 2026-07-13): roughness is a CMB-family capability — eligibility by explicit family, never by inheritance
+
+Finding (red team, CONFIRMED; witness reproduced through the shipped
+implementation): PCEResidualDiagChi2 inherits CmbDiagonalChi2
+(losses/pce.py:333) including configure_roughness, and
+training.py:2733 decides family by hasattr — its own comment says
+the method's presence identifies "a CMB loss" — so scalar / grid /
+grid2d NPCE runs legally carrying train_args.loss.roughness smooth
+redshift bins, flattened (z,k) cells, or unrelated named scalars as
+if they were consecutive multipoles (alternating length-7 witness:
+objective 7 -> 13.4512 at period_cut=5, lam=1; a two-output scalar
+run instead crashes at first batch on reflect padding).
+
+Contract (ratified): (1) roughness eligibility is an explicit
+scientific-family capability, not method presence or incidental
+inheritance; (2) only data.cmb may carry train_args.loss.roughness;
+(3) scalar, grid, grid2d, and ordinary cosmolike runs reject the
+block at configuration validation — before staging, PCE fitting,
+model construction, or training; (4) PCEResidualDiagChi2 may keep
+the shared diagonal metric, but the CMB-only training feature does
+not leak through the shared base; (5) the valid CMB+NPCE+law-none
+path retains the existing roughness computation exactly; (6) error
+prose explains the filter assumes an ordered, uniformly interpreted
+multipole axis — output-vector adjacency alone does not create that
+meaning.
+
+Legs (ratified; CPU Torch, board-listed): scalar/grid/grid2d NPCE +
+roughness each refuse at validation; plain non-NPCE controls refuse
+identically; CMB+NPCE+law-none accepted and matches a direct
+known-answer penalty; the alternating seven-coordinate example
+remains 7 (rejected before loss construction, never 13.4512);
+two-output scalar refuses at validation instead of crashing; a
+mutation restoring the hasattr decision must accept a non-CMB NPCE
+configuration and fail the gate. Sequencing: small standalone
+training-truth refusal; may ride any nearby training.py landing.
