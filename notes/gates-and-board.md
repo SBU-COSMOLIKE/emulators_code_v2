@@ -6705,3 +6705,19 @@ RULINGS (all repairs red-team custody; texnotes is theirs):
    source for what is executed TODAY.
 8. ACCEPTANCE per landing: recompile, render, visual inspection,
    and the FULL prose census repeated — evidence in the register.
+
+## 25M-37 COMPLETE — geometry-output imports deferred to their use sites (Opus, 2026-07-13)
+
+From the naming-drafts audit: `emulator/geometries/output.py` imported
+`cosmolike_lsst_y1_interface` and `getdist.IniFile` at MODULE level, so a missing
+dependency was an import-time death for every consumer of the module (inference,
+the board, tests) — not a declared disposition of the one training-path call that
+needs them. Both imports are deferred into their use sites: `from_cosmolike`
+(cosmolike + getdist) and `build_shear_angle_map` (getdist only; that path reads
+the ini + n(z) file, no cosmolike), with a module-top breadcrumb pointing there.
+
+Verified on the cocoa-torch interpreter: `import emulator.geometries.output`
+succeeds with `cosmolike present in env: False` (the module previously died at the
+module-level cosmolike import); `compileall emulator` clean. Small standalone
+production landing, before queue 5; no taught-behavior guide passage identified
+(an import-location change). Independent of the increment-3 naming drafts.
