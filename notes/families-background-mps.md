@@ -24,7 +24,7 @@ models-and-designs.md (the NPCE FAMILY-WIDE bullet).
 
 ## BSN — the expansion history. ACCEPTED END TO END (board run 6, 2026-07-11); gates bsn-identity/bsn-smoke.
 
-<a id="bsn-identity"></a>
+<a id="bsn-identity-evidence"></a>
 **bsn-identity — synthetic background artifacts exercise the integration
 rule, distance construction, grid geometry, saved predictor, adapter, NPCE
 residual model, and fine-tune boundary.**
@@ -86,7 +86,7 @@ base-plus-network prediction after save/rebuild.
 warm-start parity check, and rejects metadata and quantity mismatches before
 staging.
 
-<a id="bsn-smoke"></a>
+<a id="bsn-smoke-evidence"></a>
 **bsn-smoke — a real-CAMB background fixture is generated, two grid
 emulators are trained, the Cobaya provider is compared with CAMB, and the
 grid diagnostics path writes its output.**
@@ -271,7 +271,7 @@ the queued sigma8 and Cobaya-registration units.
 
 ## MPS — the matter power spectrum. ACCEPTED END TO END (board run 9, 2026-07-12: rel 0.93% vs CAMB against the 5% bar); gates mps-identity/mps-smoke.
 
-<a id="mps-identity"></a>
+<a id="mps-identity-evidence"></a>
 **mps-identity — synthetic matter-power artifacts exercise two-dimensional
 geometry, bounded staging and its temporary-file lifecycle, saved model
 variants, adapter assembly, config validation, and fine-tuning.**
@@ -353,7 +353,7 @@ Syren formula implementation.
 transfer config cases, accepts a grid2d fine-tune source and its epoch-zero
 parity check, and rejects a metadata mismatch before staging.
 
-<a id="mps-smoke"></a>
+<a id="mps-smoke-evidence"></a>
 **mps-smoke — a real-CAMB law-none fixture is generated, linear and boost
 emulators are trained, the Cobaya provider is compared with CAMB, and the
 grid2d diagnostics path writes its output.**

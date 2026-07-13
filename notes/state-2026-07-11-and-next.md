@@ -2974,3 +2974,10 @@ the deferred path fails declaredly at its one call; compileall +
 selftest green. The four Torch gates now reach their first
 assertion on a cosmolike-less box. Evidence-block updates route to
 the red team. Spec: gates-and-board.md "25M-37 repair audit".
+
+HEADLINE NORMALIZATION (2026-07-13, Fable): ab82b20 GO — exactly
+the eight ruled headline anchors normalized to <gate>-evidence,
+nothing else changed, no retired-anchor references; one convention
+across all 27 blocks; merged into the branch conflict-free. The
+drafts package is CLOSED. Spec: gates-and-board.md
+"Headline-anchor normalization audit".
