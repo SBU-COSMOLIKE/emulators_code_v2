@@ -2251,6 +2251,17 @@ joint-training's driver-side phase-boundary digest riding the
 training-truth trio if timing is tight. Spec: gates-and-board.md
 "DIDACTICS-62/63 adjudication".
 
+DIDACTICS-59/60 (2026-07-13, Fable): CONFIRMED — 59 the
+copied-reference gate (ge_c_eval_bs certifies its own chi2 loop, not
+the real eval_val; ruling: exercise the real entry point, reuse the
+existing production per-row diagnostics surface, no duplicated
+formula) and 60 the stale scalar-smoke baseline (0.455 removed with
+the causal smoothness claim; baseline recomputed from exact staged
+rows + dead-network mutation) — both join gate-truth increment 2,
+with 60 sequenced AFTER the unit-28 disjointness repair because its
+recomputed number was measured on the overlapping fixture. Spec:
+gates-and-board.md "DIDACTICS-59/60 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

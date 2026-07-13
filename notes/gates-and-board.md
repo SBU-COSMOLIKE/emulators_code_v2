@@ -3170,3 +3170,45 @@ RULINGS (narrow-now / strengthen-next):
    prose honest in the interim.
 4. Banner/schema evidence and numerical/optimization evidence are
    reported separately in every repaired gate.
+
+## DIDACTICS-59/60 adjudication (Fable, 2026-07-13): the copied-reference gate and the stale baseline — both join gate-truth increment 2, with one sequencing trap caught
+
+(Filed twice in one relay; counted once.)
+
+59 CONFIRMED (the copied-reference problem): ge_c_eval_bs computes
+its own per-row chi2 array while production eval_val publishes only
+reductions — the gate can certify its local helper while the real
+aggregation, row association, or ragged-batch handling is wrong.
+Contract RATIFIED: the REAL eval_val entry point exercised across
+the three partitions (one batch / equal batches / ragged final);
+every published production value compared (mean, median, threshold
+fractions, ranking-history values) against an independent float64
+reference; the distinct-scores row-permutation fixture; the
+drop-or-reorder-a-batch mutation that leaves the copied helper
+unchanged and must red. On clause 7, the RULING is reuse-not-add:
+per-row scores are already produced on the production diagnostics
+path (the _screen_diag_chi2 producers) — the gate consumes that
+existing production-owned surface; no new boundary and no duplicated
+formula. The board prose names exactly which production outputs are
+compared.
+
+60 CONFIRMED (the stale baseline + the unsupported cause): the
+smoothness-causes-two-epoch-convergence claim and the stale 0.455
+are removed NOW (factual bundle); two epochs is described as the
+bounded runtime of a deterministic smoke fixture — a budget, not a
+scientific explanation. Contract RATIFIED: the mean-only baseline
+recomputed from the EXACT staged rows; the four evidence values
+printed (val-row count, mean-only median, trained median,
+threshold); the trained model beats BOTH the fixed threshold and the
+recomputed baseline; 0.3 retained only with recorded empirical
+margin; the mean-only/dead-network mutation arm (the dead-network
+law, formalized for scalar-smoke). SEQUENCING TRAP CAUGHT: the
+recomputed 0.4401868977 was measured on the CURRENT
+100%-overlapping fixture — the unit-28 disjointness repair changes
+the staged rows, so 60's baseline recomputation and margin recording
+land WITH OR AFTER that repair, never before; the number in this
+filing is evidence of staleness, not the new reference.
+
+Placement: both join GATE-TRUTH INCREMENT 2 (the behavioral-evidence
+batch, pre-queue-5), 60 ordered after the unit-28 fixture repair
+within it.
