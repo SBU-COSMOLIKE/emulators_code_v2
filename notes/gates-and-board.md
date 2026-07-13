@@ -5395,3 +5395,60 @@ once on the first workstation run, as expected).
 LANDING BLOCK (main is the user's; clean fast-forward):
   cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
   git merge claude/amazing-keller-e798b6 && git push
+
+## USER REASSIGNMENT: the didactics campaign moves to the red team (Fable, 2026-07-13)
+
+The user reassigned the DIDACTICS campaign's implementation from the
+Implementer to the red team, to relieve the Implementer's ~30-40
+landing backlog. Precedent: the red team implemented the 2026-07-12
+defect batch (audited). The split, binding:
+
+RED TEAM NOW OWNS (implementation, not just filing):
+- The D2 FACTUAL BUNDLE (every accumulated head: the falsehoods,
+  contradictions, the SONIC expansion, 79's command repair, 96's
+  four CMB heads + units sentence, 61/69/70/71's prose, ...).
+- D1 NAVIGATION TRUTH's prose half now (the gates/checks __init__
+  index, README walkthrough, the 58 preamble); its EXECUTABLE
+  board-selftest set-equality leg WAITS for the 27/28 machinery
+  landing (board_selftest.py is Implementer-owned until then).
+- The FOUR README FILE VISITS under the current-state user ruling:
+  root (72-80 + 94-98), package map (81-86), gates (87-89 + 99,
+  merged with D1), syren (90-92 + 99).
+- UNIT 91, the documentation-examples gate (one NEW board-listed
+  module; ~15 fixtures, most from their own filings).
+- The DIDACTICS-93 rename increment (step_frac/s_step + the
+  ambiguous-name census; byte-identical outputs + the Planck-LCDM
+  control as acceptance).
+- Lane-3 family teaching PROSE — but only AFTER each protocol unit
+  lands (the wave-4 units stay with the Implementer); nothing
+  lane-3 starts before its unit, unchanged.
+
+STAYS WITH THE IMPLEMENTER: the lane-3 AST pieces inside protocol
+landings (10b with unit 66; 12's keyword-arg conversion with unit
+85; 04's stage-ram table leg); gate units 90/92/93 (minted from
+didactics findings but gate work, not campaign doc work); and
+everything else in the queue (machinery, queue 2, the gauntlet,
+production units).
+
+COLLISION RULES (binding): the red team's campaign surfaces are the
+four READMEs, the production docstring surfaces the campaign names,
+the NEW unit-91 module, and texnotes; they do NOT touch
+gates/checks/*.py teaching until D4 + D5 land on any file both
+would touch, and do NOT touch gates/run_board.py / board.py /
+emulator production code. The Implementer's surfaces are unchanged
+minus the campaign. Both continue landing on main with pre-merges;
+the both-append ledger conflict resolves as filing-first,
+adjudication-second, both retained.
+
+GOVERNANCE UNCHANGED: every campaign landing is Architect-audited
+pre-merge under the full binding battery (the voice note read
+BEFORE writing; AST docstring census + documentation-only AST
+equivalence with named exceptions; untruncated history-vocabulary
+scans with human-adjudicated retentions; quantifier discipline;
+commands executed before printed; the link check; no numeric
+counts; the DIDACTICS- prefix aliasing rule; the current-state
+ruling). The red team keeps filing rights, but campaign
+adjudications remain exclusively mine, and the Implementer may
+spot-review campaign landings (the role swap, for adversarial
+coverage). The anti-self-audit rule: the red team never certifies
+its own campaign work green — my audit is the acceptance.

@@ -2726,3 +2726,15 @@ root visit. 97/98/99 fold into the four standing file visits; 100
 Cosmology; README says Surrogates and Operators) joins the factual
 bundle NOW. Spec: gates-and-board.md "DIDACTICS-95..100
 adjudication".
+
+DIDACTICS CAMPAIGN REASSIGNED (2026-07-13, USER): implementation
+moves to the RED TEAM — the D2 factual bundle, D1's prose half
+(executable leg waits for 27/28), the four README visits, unit 91,
+the DIDACTICS-93 rename, and lane-3 prose after each protocol unit
+lands. STAYS with the Implementer: lane-3 AST pieces (10b/12/04
+legs), gate units 90/92/93, machinery, queue 2, the gauntlet,
+production units. Collision rules: red team off gates/checks
+teaching until D4+D5, off run_board/board/emulator production; all
+campaign landings Architect-audited pre-merge under the full
+battery; red team never self-certifies. Spec: gates-and-board.md
+"USER REASSIGNMENT: the didactics campaign moves to the red team".
