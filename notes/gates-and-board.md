@@ -6587,3 +6587,60 @@ figures + a preview renderer + the register record. Verified:
 
 VERDICT: GO. 46efa6d + cbdd49e + 701d6f9 land together with the
 codex branch merge.
+
+## Queue-2 note-side evidence drafts audit (Fable, 2026-07-13): 8236417 — GO; 25M-36/37 CONFIRMED; one normalization follow-up
+
+The red team's naming drafts (codex/queue2-note-evidence, 1667
+insertions-only across six home notes + the register). MY OWN
+mechanical reconciliation (a fresh parser, not theirs): 27 complete
+six-field blocks; 137 unique aids, every prefix equal to its
+block's board gate id; 164 new anchors = 137 leg transforms + 27
+headlines, no duplicates, every dot-to-dash anchor present; legs
+counts match the parsed aid lists in all 27 blocks. The exclusion
+set is the 7 foundation gates + SIX wrapper-family gates
+(cobaya-adapter, save-rebuild-drift, finetune-identity/-smoke,
+transfer-identity/-smoke) — a defensible superset of my four-
+surface minimum, erring toward leaving entangled legs with the
+Implementer; RATIFIED. Content spot-reads (ema-off-identity,
+ema-smoke, single-phase-demotion, finite-contract): the
+narrowed-claims discipline is exemplary — blind spots stated in the
+leg one-liners (the empty-selection acceptance, the broad demotion
+pattern, "no current whole-gate PASS" on finite-contract with every
+known defect mapped into evidence/owed).
+
+ONE REQUIRED FOLLOW-UP (non-blocking for increment 3): the draft
+carries TWO headline-anchor conventions — `<gate>-evidence` in four
+notes, bare `<gate>` in the two families notes (8 blocks). Leg
+anchors (what the code wires) are uniform; the headline form must
+be too. RULING: normalize the 8 bare headlines to `<gate>-evidence`
+in a follow-up commit.
+
+25M-36 CONFIRMED at gates/checks/mps_identity.py:275-276: the
+check's reference computes want.mean(axis=0) in float64 THEN casts
+to float32, while the producer means the STORED float32 payload —
+a representation-order defect in the gate's reference (the producer
+is correct). Repair: compute the reference in the producer's order
+(cast first, then mean) or justify an explicit tolerance;
+gate-truth class, red-team claimable under D4's claim-before-edit.
+
+25M-37 CONFIRMED at emulator/geometries/output.py:50-51:
+cosmolike_lsst_y1_interface and getdist.IniFile import at MODULE
+level, so any gate rebuilding a persisted cosmic-shear geometry
+pays both before its first assertion — an import-time death is not
+a declared UNAVAILABLE disposition. Repair AT THE PRODUCTION
+BOUNDARY (defer both imports into from_cosmolike / their use
+sites), NOT four gate-local stubs — Implementer custody (emulator
+production), a small standalone landing before queue 5; the four
+affected blocks then update their evidence lines (bounded, red
+team). The disclosed bounded omission (the older 25M-37 narrative
+naming only CosmoLike) is accepted as filed.
+
+MERGE MECHANICS: their branch forked pre-increment-1; git
+merge-tree found ONE conflict (the register's both-append tail).
+Resolved on THIS branch by merging codex/queue2-note-evidence in,
+both sections retained — the user's main merge is then clean.
+
+VERDICT: GO. INCREMENT 3 IS UNBLOCKED for the 27 drafted gates: the
+audited aid names are the spec; per-gate objections where migration
+disagrees; the six excluded wrapper-family gates + 7 foundation
+legs remain Implementer-named.

@@ -2931,3 +2931,17 @@ re-render register-witnessed (no pdftoppm here); geo_paths PASS
 with the new texnotes .py in scope (cocoa interpreter); no
 production/gate files touched. Spec: gates-and-board.md "README
 figures + didactic rewrite audit".
+
+NOTE-SIDE EVIDENCE DRAFTS (2026-07-13, Fable): 8236417 GO — my own
+reconciliation proves 27 six-field blocks / 137 unique gate.id-
+prefixed aids / 164 anchors with every transform present; the
+6-gate wrapper-family exclusion ratified as a safe superset;
+narrowed-claims discipline exemplary (finite-contract maps its own
+reds). Follow-up: normalize 8 bare headline anchors to
+<gate>-evidence. 25M-36 CONFIRMED (mps_identity reference means in
+float64 pre-cast — gate-truth, red-team claimable); 25M-37
+CONFIRMED (output.py:50-51 module-level cosmolike+getdist — defer
+at the production boundary, Implementer, before queue 5). Register
+both-append conflict resolved by merging their branch into this
+one. INCREMENT 3 UNBLOCKED. Spec: gates-and-board.md "Queue-2
+note-side evidence drafts audit".
