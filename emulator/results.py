@@ -196,6 +196,68 @@ def save_emulator(path_root,
   model name, activation, rescale, N_train, best epoch, ...), a
   "created" timestamp, and the torch version.
 
+  Reversible map (write here -> read in rebuild_emulator):
+    This table pairs everything this function writes with the exact
+    place rebuild_emulator reads it back, so the round trip can be
+    checked line by line. The house rule is that a saved run
+    reconstructs from the file alone, so the read side never falls
+    back to a code default: every key it needs is fetched through the
+    _need / _read_native_bool helpers, which raise a named error when
+    the key is absent instead of substituting a value. The rows marked
+    "not read (provenance)" are written on purpose as a paper trail
+    (plots, audits, git history); rebuild_emulator does not consume
+    them, and that is the intended asymmetry, not a dropped key.
+
+      written by save_emulator      | read back in rebuild_emulator
+      ------------------------------|------------------------------------
+      <root>.emul (state_dict,      | torch.load(<root>.emul), loaded
+        cpu, compile-prefix         |   strict into the main model by
+        stripped)                   |   _rebuild_model
+      param_geometry/ group +       | _rebuild_geometry(f["param_geometry"])
+        its "cls" attr              |   -> <cls>.from_state; "cls" is
+                                    |   required (missing = loud re-save)
+      dv_geometry/ group +          | _rebuild_geometry(f["dv_geometry"])
+        its "cls" attr              |   -> <cls>.from_state; the info-dict
+                                    |   family flags and the CMB / grid /
+                                    |   grid2d facts below are read off
+                                    |   this rebuilt geometry object, not
+                                    |   from separate h5 keys
+      pce/ group (NPCE runs) +      | PCEEmulator.from_state(pce_grp) and
+        its "form" attr             |   _need(pce_grp, "form") -> pce_base,
+                                    |   pce_form
+      transfer_base/ group          | read whole when "transfer_base" in f:
+        (transfer runs):            |   tb_recipe / tb_state / tb_pgeom /
+        model_recipe, state/,       |   tb_geom rebuilt, then _rebuild_model
+        param_geometry/,            |   builds the frozen base; form / space
+        dv_geometry/,               |   -> transfer_form / transfer_space
+        "form" + "space" attrs      |
+      transfer_base/drifted_state/  | _read_group(tb["drifted_state"])
+        (refined runs only) +       |   replaces tb_state; the root attr is
+        root attr transfer_refined  |   read as a native bool by
+                                    |   _read_native_bool, then cross-checked
+                                    |   two-way against the group's presence
+      model_recipe (YAML)           | yaml.safe_load(f["model_recipe"]) ->
+                                    |   recipe; drives _rebuild_model (cls,
+                                    |   dims, kwargs, act / norm / head
+                                    |   factories, compile_mode) and supplies
+                                    |   info["ia"], each via _need
+      schema_version (root attr)    | f.attrs.get("schema_version"); a value
+                                    |   other than 2 is refused before any
+                                    |   other read
+      history/ group (train_losses, | not read (provenance): per-epoch
+        val_medians, val_means,     |   training curves for plots and audit
+        val_fracs, thresholds)      |
+      config_yaml,                  | not read (provenance): the verbatim and
+        train_args_yaml,            |   resolved config text, kept so a saved
+        config_resolved_yaml        |   run documents what it consumed
+      attrs entries, created,       | not read (provenance): run identity,
+        torch_version, git_commit   |   timestamp, and build marks
+    (legend: "<root>" = path_root; "cls" = a "module.QualName" string
+     naming the class to reconstruct; state_dict = torch's name -> tensor
+     map of a model's learnable parameters and buffers; _need / _read_group
+     / _read_native_bool / _rebuild_geometry / _rebuild_model = the reader
+     helpers defined inside rebuild_emulator; "->" = "feeds into".)
+
   Arguments:
     path_root      = output path without extension; writes
                      <path_root>.emul and <path_root>.h5.
@@ -450,6 +512,11 @@ def rebuild_emulator(path_root, device, compile_model=True):
   the h5, so a run rebuilds bit-exactly even if code defaults later drift. A
   missing recipe key is a loud error, NEVER a fallback to a code default; a
   v1 file (no schema_version) is refused (it predates the guarantee).
+
+  For the full write-to-read crosswalk (every value save_emulator writes
+  paired with the line here that reads it, and the entries written only as
+  provenance that this function does not consume), see the "Reversible map"
+  table in save_emulator's docstring.
 
   Arguments:
     path_root     = the output path without extension (as passed to
