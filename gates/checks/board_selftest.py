@@ -547,9 +547,11 @@ def check_dirty_watch():
 # validate_manifests reads their SOURCE (inspect.getsource), so an undefined
 # name inside is fine; the source is the fixture.
 def _mf_body_undeclared_target(ctx):
-    """Launches a subprocess .py the manifest does not declare."""
+    """Launches a subprocess .py the manifest does not declare (a REAL repo
+    module, so declaring it is a valid root that clears the census; it is
+    dynamic-import clean, so declaring it adds no other requirement)."""
     ctx.run_check("gates/checks/board_selftest.py")   # a real check, auto-covered
-    _spawn("tools/mf_fabricated_driver.py")           # undeclared -> must red
+    _spawn("emulator/data_staging.py")                # a real .py, undeclared -> reds
 
 
 def _mf_body_launches_driver(ctx):
@@ -562,9 +564,15 @@ def _mf_body_trivial(ctx):
     return None
 
 
-def _mf_gate(gid, body, code):
+def _mf_gate(gid, body, code, inputs=()):
     return Gate(id=gid, tier=TIER_BACKLOG, home="gates-and-board", maps="",
-                run=body, manifest=Manifest(code=tuple(code), inputs=()))
+                run=body, manifest=Manifest(code=tuple(code), inputs=tuple(inputs)))
+
+
+# a minimal resolved board_config for the manifest legs: validate_manifests
+# resolves declared input keys against it. The reconciliation fixtures declare
+# no inputs, so only the root/closure checks run there.
+_MF_CFG = {"rootdir": None, "yaml_dir": None}
 
 
 def check_manifest_reconciliation():
@@ -579,31 +587,32 @@ def check_manifest_reconciliation():
     BOARD is a no-op.
     """
     # live board: every gate is still manifest-less, so validation is a no-op.
-    ok, errs = run_board.validate_manifests(BOARD)
+    ok, errs = run_board.validate_manifests(BOARD, _MF_CFG)
     report("live BOARD (all manifest-less) validates as a no-op", ok,
            "no declared manifests yet; errors=" + str(len(errs)))
 
     # (a) literal-path census: an undeclared subprocess target reds.
     g = _mf_gate("mf-target", _mf_body_undeclared_target, code=())
-    ok, errs = run_board.validate_manifests([g])
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
     report("uncovered subprocess target reds",
-           (not ok) and any("uncovered subprocess target 'tools/mf_fabricated"
+           (not ok) and any("uncovered subprocess target 'emulator/data_staging"
                             in e for e in errs),
            "the undeclared .py the import graph never sees")
-    # declaring it clears the census (the real check script stays auto-covered).
+    # declaring it clears the census (the real check script stays auto-covered;
+    # data_staging.py exists and is dynamic-clean, so the declaration is valid).
     g = _mf_gate("mf-target-ok", _mf_body_undeclared_target,
-                 code=("tools/mf_fabricated_driver.py",))
+                 code=("emulator/data_staging.py",))
     report("declaring the target clears the census",
-           run_board.validate_manifests([g])[0], "target now a declared root")
+           run_board.validate_manifests([g], _MF_CFG)[0], "target now a root")
     # the run_driver default driver is a target too.
     g = _mf_gate("mf-driver", _mf_body_launches_driver, code=())
-    ok, errs = run_board.validate_manifests([g])
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
     report("run_driver's default driver is an uncovered target when undeclared",
            (not ok) and any(run_board._DRIVER in e for e in errs),
            "run_driver -> " + run_board._DRIVER)
     g = _mf_gate("mf-driver-ok", _mf_body_launches_driver,
                  code=(run_board._DRIVER,))
-    _ok, errs = run_board.validate_manifests([g])
+    _ok, errs = run_board.validate_manifests([g], _MF_CFG)
     report("declaring the driver clears the literal census",
            not any("uncovered subprocess target" in e for e in errs),
            "no literal error once the driver is a declared root (its closure's "
@@ -613,21 +622,21 @@ def check_manifest_reconciliation():
     # waived file (the model-recipe pattern); its covering roots are the
     # design / loss trees.
     g = _mf_gate("mf-dyn", _mf_body_trivial, code=("emulator/results.py",))
-    ok, errs = run_board.validate_manifests([g])
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
     report("waived dynamic import with NO covering root declared reds",
            (not ok) and any("covering roots" in e for e in errs),
            "declares results.py but not emulator/designs")
     g = _mf_gate("mf-dyn-ok", _mf_body_trivial,
                  code=("emulator/results.py", "emulator/designs/blocks.py"))
     report("declaring a covering root clears the dynamic-import census",
-           run_board.validate_manifests([g])[0], "designs root now declared")
+           run_board.validate_manifests([g], _MF_CFG)[0], "designs root declared")
 
     # mutation arm: empty the reviewed waiver table -> the same dynamic site is
     # now unreviewed and must red (a NEW dynamic import cannot slip in unwaived).
     saved = run_board._DYNAMIC_IMPORT_WAIVERS
     try:
         run_board._DYNAMIC_IMPORT_WAIVERS = {}
-        ok, errs = run_board.validate_manifests([g])
+        ok, errs = run_board.validate_manifests([g], _MF_CFG)
         report("mutation (empty waiver table) reds the now-unwaived dynamic site",
                (not ok) and any("unwaived dynamic-import" in e for e in errs),
                "an unreviewed importlib site fails")
@@ -640,6 +649,127 @@ def check_manifest_reconciliation():
     b = run_board._derive_closure({"emulator/experiment.py"})
     report("derived closure is deterministic (order-independent)",
            a == b and len(a) > 1, str(len(a)) + " members, stable")
+
+
+def check_manifest_riders():
+    """1b phase-2 riders (kill the audit's P1/P2/P3 validation holes): root
+    schema totality, directory-root expansion, and input-key resolution.
+
+    Drives the REAL validate_manifests / _expand_root / _derive_closure.
+    """
+    # r1: a misspelled / non-existent code root is a validation error (P3).
+    g = _mf_gate("mf-typo", _mf_body_trivial, code=("emulator/desings/typo.py",))
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
+    report("r1: a non-existent code root reds (kills the typo hole)",
+           (not ok) and any("not a repo .py file or a directory" in e for e in errs),
+           "a misspelled root cannot pass while seeding nothing")
+
+    # r2: a directory root expands recursively into the closure, so declaring
+    # emulator/designs really covers AND pulls in the design classes (P1/P2).
+    dir_seeds = run_board._expand_root("emulator/designs")
+    report("r2: a directory root expands to its .py members",
+           len(dir_seeds) >= 2 and all(p.endswith(".py") for p in dir_seeds),
+           str(len(dir_seeds)) + " .py members under emulator/designs")
+    g = _mf_gate("mf-dir", _mf_body_trivial,
+                 code=("emulator/results.py", "emulator/designs"))
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
+    closure = run_board._derive_closure(run_board._manifest_seeds(g))
+    report("r2: the directory root covers the dynamic import AND enters the closure",
+           ok and ("emulator/designs/blocks.py" in closure),
+           "designs tree is really hashed, not blessed empty")
+
+    # r2b: a directory that expands to zero .py files is a validation error.
+    import tempfile, os
+    empty = tempfile.mkdtemp(dir=str(run_board._REPO / "gates"))
+    try:
+        rel = os.path.relpath(empty, str(run_board._REPO))
+        g = _mf_gate("mf-empty", _mf_body_trivial, code=(rel,))
+        ok, errs = run_board.validate_manifests([g], _MF_CFG)
+        report("r2: an empty directory root reds (expands to no .py files)",
+               (not ok) and any("expands to no .py files" in e for e in errs),
+               rel + " has no .py members")
+    finally:
+        os.rmdir(empty)
+
+    # r3: an input key that does not resolve against board_config is an error;
+    # a resolving key clears.
+    g = _mf_gate("mf-in-bad", _mf_body_trivial, code=(),
+                 inputs=("gate_configs.nope",))
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
+    report("r3: an unresolvable input key reds",
+           (not ok) and any("does not resolve against board_config" in e for e in errs),
+           "gate_configs.nope is absent from the config")
+    real = str(run_board._REPO / "gates" / "board.py")
+    cfg = dict(_MF_CFG); cfg["probe_input"] = real
+    g = _mf_gate("mf-in-ok", _mf_body_trivial, code=(), inputs=("probe_input",))
+    report("r3: a resolving input key clears",
+           run_board.validate_manifests([g], cfg)[0], "the key names a real file")
+
+
+def check_manifest_persistence():
+    """1b phase 2: a declared gate persists its resolved manifest members, its
+    digest IS the member digest, a changed member reads stale-code (named), a
+    pre-1b PASS record reads pre-manifest, and an undeclared gate is untouched.
+
+    Drives the REAL _gate_manifest_block / _gate_code_digest / _resume_state /
+    _stale_member -- no runner, no torch.
+    """
+    cfg = {"rootdir": None, "yaml_dir": None}
+    g = _mf_gate("mf-persist", _mf_body_trivial, code=("emulator/data_staging.py",))
+
+    block = run_board._gate_manifest_block(g, cfg)
+    code_paths = [m["path"] for m in block["code"]]
+    report("declared gate persists sorted resolved code members",
+           code_paths == sorted(code_paths) and len(code_paths) > 2
+           and all("sha256" in m and len(m["sha256"]) == 64 for m in block["code"]),
+           str(len(code_paths)) + " members, sorted, each a path+sha256")
+    report("overall code_digest is the resolved members' digest",
+           run_board._gate_code_digest(g) == run_board._members_digest(block["code"]),
+           "digest binds the persisted membership")
+
+    # input side: a declared key resolves to a specific file, whose sha is its
+    # member (the whole-yaml_dir hash retires for a declared gate).
+    real = str(run_board._REPO / "gates" / "board.py")
+    cfg_in = dict(cfg); cfg_in["probe_input"] = real
+    gi = Gate(id="mf-input", tier=TIER_BACKLOG, home="x", maps="",
+              run=_mf_body_trivial, manifest=Manifest(code=(), inputs=("probe_input",)))
+    inmembers = run_board._gate_input_manifest(gi, cfg_in)
+    report("declared input key resolves to its specific file + sha",
+           len(inmembers) == 1 and inmembers[0]["key"] == "probe_input"
+           and inmembers[0]["sha256"] is not None,
+           "the named file, not the whole yaml_dir")
+
+    # a pre-1b PASS record (no manifest block) on a now-declared gate reads
+    # pre-manifest -> reruns.
+    rec_pre = {"status": "PASS",
+               "code_digest": run_board._gate_code_digest(g),
+               "input_digest": run_board._gate_input_digest(g, cfg)}
+    report("declared gate with a pre-manifest PASS record reads pre-manifest",
+           run_board._resume_state({g.id: rec_pre}, g, cfg) == "pre-manifest",
+           "digestless-is-stale; it reruns and republishes members")
+
+    # a persisted record whose first code member's sha no longer matches reads
+    # stale-code, and _stale_member names that member.
+    rec_stale = {"status": "PASS", "manifest": copy.deepcopy(block),
+                 "code_digest": "bogus-does-not-match", "input_digest": "bogus"}
+    rec_stale["manifest"]["code"][0]["sha256"] = "0" * 64
+    st = run_board._resume_state({g.id: rec_stale}, g, cfg)
+    named = run_board._stale_member(rec_stale, g, cfg)
+    report("a changed code member reads stale-code and is named",
+           st == "stale-code" and named.startswith("code:"),
+           "state=" + st + " member=" + named)
+
+    # an undeclared gate keeps the legacy fallback: no manifest persisted, and
+    # its resume never reads pre-manifest.
+    gu = Gate(id="mf-undeclared", tier=TIER_BACKLOG, home="x", maps="",
+              run=_mf_body_trivial)                 # manifest defaults to None
+    rec_u = {"status": "PASS",
+             "code_digest": run_board._gate_code_digest(gu),
+             "input_digest": run_board._gate_input_digest(gu, cfg)}
+    report("undeclared gate: no manifest persisted, never pre-manifest",
+           run_board._gate_manifest_block(gu, cfg) is None
+           and run_board._resume_state({gu.id: rec_u}, gu, cfg) != "pre-manifest",
+           "legacy dual-digest fallback intact")
 
 
 def main():
@@ -662,6 +792,10 @@ def main():
     check_dirty_watch()
     print("\n-- manifest reconciliation (subprocess + dynamic-import censuses) --")
     check_manifest_reconciliation()
+    print("\n-- manifest riders (root schema, dir expansion, input keys) --")
+    check_manifest_riders()
+    print("\n-- manifest persistence (resolved members, digest, pre-manifest) --")
+    check_manifest_persistence()
     print("")
     if FAILURES:
         print("board-selftest: %d FAILURE(S): %s"

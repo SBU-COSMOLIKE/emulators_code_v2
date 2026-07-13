@@ -887,13 +887,79 @@ def _gate_source(gate):
     return ""
 
 
-def validate_manifests(gates):
+def _expand_root(root):
+  """The repo-relative .py files a declared code root contributes.
+
+  A ".py" file root is itself; a directory root expands recursively to every
+  .py file under it, so declaring a package tree seeds AND digests all of it (a
+  rebuild gate declaring emulator/designs really pulls the design classes into
+  the closure). Anything else -- a misspelled path, a non-.py file -- returns
+  the empty set, and validate_manifests names it as an error.
+
+  Arguments:
+    root = one entry of a gate's manifest.code.
+
+  Returns:
+    the set of repo-relative .py paths the root expands to.
+  """
+  path = _REPO / root
+  if root.endswith(".py") and path.is_file():
+    return {root}
+  if path.is_dir():
+    return set(str(f.relative_to(_REPO)) for f in path.rglob("*.py"))
+  return set()
+
+
+def _config_key_value(key, cfg):
+  """The string a dotted board_config key navigates to, or None.
+
+  "gate_configs.stage_ram" -> cfg["gate_configs"]["stage_ram"]. Returns None
+  when the key is absent or its value is not a string, so validate_manifests
+  can reject an input key that does not resolve against board_config.
+  """
+  node = cfg
+  for part in key.split("."):
+    if not isinstance(node, dict) or part not in node:
+      return None
+    node = node[part]
+  return node if isinstance(node, str) else None
+
+
+def _manifest_seeds(gate):
+  """The seed files of a declared gate's code closure.
+
+  The check scripts the gate body names (auto-discovered), the .py files its
+  declared roots expand to (a file root is itself; a directory root expands
+  recursively, see _expand_root), and the always-hashed shared harness (the
+  runner + the registry). The dynamic-import census and the persisted code
+  manifest derive the SAME closure from these, so the validation and the digest
+  can never disagree about what a gate depends on. A declared driver is one of
+  the roots, so its imports enter the closure too.
+
+  Arguments:
+    gate = a gate whose .manifest is not None.
+
+  Returns:
+    the set of repo-relative seed paths.
+  """
+  checks = set(re.findall(r"gates/checks/[\w./-]+\.py", _gate_source(gate)))
+  roots = set()
+  for root in gate.manifest.code:
+    roots |= _expand_root(root)
+  return checks | roots | set(_SHARED_HARNESS)
+
+
+def validate_manifests(gates, cfg):
   """Reconcile every declared Gate.manifest against what the code really does.
 
   Under the direct-roots + derived-closure ruling, ordinary repo-local imports
   are covered by construction, so a plain "found vs declared" check is vacuous
-  for them. Two censuses still bite -- exactly where the import scan is blind:
+  for them. Four checks still bite -- the schema, plus the two censuses that
+  catch exactly where the import scan is blind, plus the input side:
 
+    (r1/r2) root schema: every declared code root exists as a repo .py file or
+        a directory, and a directory expands to at least one .py file -- so a
+        misspelled or empty root cannot pass while seeding and digesting nothing.
     (a) literal-path census: every ".py" path literal in the gate body plus the
         run_driver target (the _DRIVER constant or a driver= value) is a
         subprocess target no import graph sees; each must be covered by a
@@ -901,6 +967,8 @@ def validate_manifests(gates):
     (b) dynamic-import census: every importlib / __import__ site inside the
         derived closure must sit in a file in _DYNAMIC_IMPORT_WAIVERS, and the
         gate must declare at least one of that file's covering roots.
+    (r3) input side: every declared inputs= dotted key resolves against
+        board_config to a string.
 
   A gate with no manifest (the conservative fallback) is skipped: the migration
   is rolling and manifest-less is never itself a failure here. Runs on every
@@ -908,6 +976,7 @@ def validate_manifests(gates):
 
   Arguments:
     gates = the full gate registry (BOARD).
+    cfg   = the resolved board_config, for input-key resolution.
 
   Returns:
     (ok, errors): ok is True when every declared manifest reconciles; errors is
@@ -920,8 +989,30 @@ def validate_manifests(gates):
       continue
     src = _gate_source(gate)
     roots = set(man.code)
-    checks = set(re.findall(r"gates/checks/[\w./-]+\.py", src))
-    covered = roots | checks | set(_SHARED_HARNESS)
+
+    # (r1/r2) root schema totality + directory expansion. A root must be an
+    # existing .py file or a directory, and a directory must hold at least one
+    # .py file; otherwise the closure would seed and hash nothing for it (a
+    # misspelled root, or a bare directory the cover check would wrongly bless).
+    for root in sorted(man.code):
+      path = _REPO / root
+      if root.endswith(".py") and path.is_file():
+        continue
+      if path.is_dir():
+        if not _expand_root(root):
+          errors.append("gate '" + gate.id + "' manifest: directory root '"
+                        + root + "' expands to no .py files")
+        continue
+      errors.append("gate '" + gate.id + "' manifest: declared code root '"
+                    + root + "' is not a repo .py file or a directory")
+
+    # (r3) every declared input key resolves against board_config.
+    for key in sorted(man.inputs):
+      if _config_key_value(key, cfg) is None:
+        errors.append("gate '" + gate.id + "' manifest: input key '" + key
+                      + "' does not resolve against board_config")
+
+    covered = _manifest_seeds(gate)     # expanded roots + check scripts + harness
 
     # (a) literal-path census over the gate body: the subprocess targets it
     # launches -- the check scripts (run_check -> gates/checks/*.py, auto seeds
@@ -941,12 +1032,9 @@ def validate_manifests(gates):
                       "target '" + tgt + "' -- declare it in manifest.code or "
                       "it escapes the digest")
 
-    # (b) dynamic-import census over the derived closure. A covered driver
-    # joins the seeds so its imports enter the closure.
-    seeds = checks | roots | set(_SHARED_HARNESS)
-    if "run_driver" in src and _DRIVER in covered:
-      seeds.add(_DRIVER)
-    for member in sorted(_derive_closure(seeds)):
+    # (b) dynamic-import census over the derived closure. A declared driver is
+    # one of the seeds (covered), so its imports enter the closure.
+    for member in sorted(_derive_closure(covered)):
       for site_file, lineno, kind in _dynamic_import_sites(member):
         where = site_file + ":" + str(lineno) + " (" + kind + ")"
         cover = _DYNAMIC_IMPORT_WAIVERS.get(site_file)
@@ -1202,13 +1290,115 @@ def _atomic_write_text(path, text):
       os.unlink(tmp)
 
 
-def _gate_code_digest(gate):
-  """Digest the gate's executable surface: its body + the check scripts it runs.
+def _file_sha256(rel_path):
+  """The sha256 of a repo file, or None when it cannot be read."""
+  try:
+    return hashlib.sha256((_REPO / rel_path).read_bytes()).hexdigest()
+  except OSError:
+    return None
 
-  inspect.getsource(gate.run) captures the gate body, including the literal
-  "gates/checks/<name>.py" path it invokes, so any change to the gate logic OR
-  to a check it drives changes this digest and a stored PASS becomes stale-code.
+
+def _gate_code_manifest(gate):
+  """The resolved code members of a declared gate (queue 1b phase 2).
+
+  The derived transitive repo-local closure of the gate's seeds, each member a
+  {path, sha256}, sorted by repo-relative path (determinism, delta 3). This is
+  the inspectable membership behind the code digest: --list can name WHICH
+  member went stale, not only that the overall digest moved.
   """
+  members = []
+  for rel in sorted(_derive_closure(_manifest_seeds(gate))):
+    digest = _file_sha256(rel)
+    if digest is not None:
+      members.append({"path": rel, "sha256": digest})
+  return members
+
+
+def _resolve_config_path(key, cfg):
+  """Resolve a dotted board_config key to a file Path, or None.
+
+  The key walks cfg (e.g. "gate_configs.stage_ram" -> cfg["gate_configs"]
+  ["stage_ram"]); the resolved string is tried absolute, then rootdir-relative,
+  then yaml_dir-relative, and the first that is a file wins. So a declared gate
+  names its specific input by a stable config key, never a machine path.
+  """
+  value = _config_key_value(key, cfg)
+  if value is None:
+    return None
+  tries = [Path(value)]
+  if not Path(value).is_absolute():
+    if cfg.get("rootdir"):
+      tries.append(Path(cfg["rootdir"]) / value)
+    ydir = cfg.get("yaml_dir")
+    if ydir:
+      base = Path(ydir)
+      if not base.is_absolute() and cfg.get("rootdir"):
+        base = Path(cfg["rootdir"]) / ydir
+      tries.append(base / value)
+  for cand in tries:
+    if cand.is_file():
+      return cand
+  return None
+
+
+def _gate_input_manifest(gate, cfg):
+  """The resolved input members of a declared gate: each declared input key's
+  file as {key, path, sha256}, sorted by key. Retires the whole-yaml_dir hash
+  for a declared gate -- only the files it names are members.
+  """
+  members = []
+  for key in sorted(gate.manifest.inputs):
+    path = _resolve_config_path(key, cfg)
+    if path is None:
+      members.append({"key": key, "path": None, "sha256": None})
+      continue
+    try:
+      digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+      digest = None
+    members.append({"key": key, "path": str(path), "sha256": digest})
+  return members
+
+
+def _members_digest(members):
+  """A deterministic sha256 over an ordered member list.
+
+  Keyed on each member's path (code) or config key (input) plus its file
+  sha256, in the list's given order (the manifests are already sorted), so the
+  overall digest is a stable function of the resolved membership.
+  """
+  hasher = hashlib.sha256()
+  for member in members:
+    tag = member.get("path") or member.get("key") or ""
+    hasher.update(("\0" + str(tag) + "\0" + str(member.get("sha256"))).encode())
+  return hasher.hexdigest()
+
+
+def _gate_manifest_block(gate, cfg):
+  """The persisted manifest block {code, inputs} for a gate, or None when it
+  declares no manifest (the conservative fallback)."""
+  if gate.manifest is None:
+    return None
+  return {"code": _gate_code_manifest(gate),
+          "inputs": _gate_input_manifest(gate, cfg)}
+
+
+def _gate_code_digest(gate):
+  """Digest the gate's executable surface.
+
+  A gate that declares a manifest (queue 1b) digests its resolved code manifest
+  -- the derived transitive repo-local closure of its roots, the check scripts
+  its body names, and the shared harness, member by member. A change to any
+  transitively imported production module then reruns the gate, closing the gap
+  where the legacy digest (the gate body plus the check scripts named literally
+  in it) missed an imported adapter or generator.
+
+  A gate with no manifest keeps that legacy digest as the honest conservative
+  fallback until it is populated; its narrower surface is exactly the queue-1b
+  gap (a declared gate closes it).
+  """
+  if gate.manifest is not None:
+    return _members_digest(_gate_code_manifest(gate))
   hasher = hashlib.sha256()
   try:
     src = inspect.getsource(gate.run)
@@ -1249,17 +1439,28 @@ def _gate_input_digest(gate, cfg):
   """Digest the effective inputs that can change a gate's execution / science.
 
   Covers the resolved configuration (board_config.json minus logging-only keys
-  such as debug and the derived rootdir_source), the resolved rootdir, the
-  gate's golden-worktree pin, and the referenced config YAMLs' contents. A
-  configuration change (config A -> config B) or a mutated referenced YAML thus
-  changes this digest and reruns the gate; a change to debug alone does not.
+  such as debug and the derived rootdir_source), the resolved rootdir, and the
+  gate's golden-worktree pin. For the file inputs it branches on the manifest:
+
+    - a gate that DECLARES a manifest digests only the SPECIFIC input files it
+      names (its resolved input manifest), so an unrelated YAML edit no longer
+      stales it -- the whole-yaml_dir hash retires for declared gates;
+    - a gate with no manifest keeps the broad yaml_dir-contents hash as the
+      conservative fallback (a change to any referenced YAML reruns it).
+
+  A configuration change (config A -> config B) reruns either way; a change to
+  debug alone does not.
   """
   hasher = hashlib.sha256()
   effective = {k: v for k, v in cfg.items()
                if k not in ("debug", "rootdir_source")}
   hasher.update(json.dumps(effective, sort_keys=True, default=str).encode())
   hasher.update(("\0worktree:" + str(gate.worktree_commit)).encode())
-  hasher.update(b"\0yaml:" + _config_yaml_bytes(cfg))
+  if gate.manifest is not None:
+    hasher.update(b"\0inputs:"
+                  + _members_digest(_gate_input_manifest(gate, cfg)).encode())
+  else:
+    hasher.update(b"\0yaml:" + _config_yaml_bytes(cfg))
   return hasher.hexdigest()
 
 
@@ -1295,10 +1496,12 @@ def _resume_state(status, gate, cfg):
   """The gate's resume category, for --list / BOARD.md and the runner.
 
   Returns one of: "PASS" (current under both digests, with a verifiable raw
-  log), "stale-code", "stale-input", "stale-log" (the cited log is missing,
-  undigested, or altered), "interrupted" (an abandoned RUNNING attempt),
-  "FAIL", "SKIP-DEP", or "not run". Only "PASS" is green; every other state
-  is non-green and (for a selected gate) makes the gate rerun.
+  log), "pre-manifest" (a gate that now DECLARES a manifest but whose stored
+  PASS predates it, so its narrow legacy digest cannot be trusted), "stale-code",
+  "stale-input", "stale-log" (the cited log is missing, undigested, or altered),
+  "interrupted" (an abandoned RUNNING attempt), "FAIL", "SKIP-DEP", or "not run".
+  Only "PASS" is green; every other state is non-green and (for a selected gate)
+  makes the gate rerun.
   """
   record = status.get(gate.id, {})
   state = record.get("status")
@@ -1308,6 +1511,12 @@ def _resume_state(status, gate, cfg):
     return "interrupted"
   if state != "PASS":
     return state
+  # a gate that declares a manifest but whose stored PASS carries none predates
+  # the manifest: its recorded digest is the narrow legacy surface, exactly the
+  # false currency the audit proved, so it is not green (digestless is stale,
+  # the unit-4 extension). It reruns and republishes with resolved members.
+  if gate.manifest is not None and "manifest" not in record:
+    return "pre-manifest"
   if record.get("code_digest") != _gate_code_digest(gate):
     return "stale-code"
   if record.get("input_digest") != _gate_input_digest(gate, cfg):
@@ -1315,6 +1524,28 @@ def _resume_state(status, gate, cfg):
   if _log_stale(record):
     return "stale-log"
   return "PASS"
+
+
+def _stale_member(record, gate, cfg):
+  """The first persisted manifest member whose sha256 no longer matches, or "".
+
+  For a declared gate whose overall digest moved, this names WHICH resolved
+  code or input member changed (a path, or an input key), so --list and
+  BOARD.md report the cause, not just that something staled. Returns "" when
+  the record has no manifest block or nothing individually changed.
+  """
+  block = record.get("manifest")
+  if not isinstance(block, dict) or gate.manifest is None:
+    return ""
+  fresh_code = {m["path"]: m["sha256"] for m in _gate_code_manifest(gate)}
+  for m in block.get("code", []):
+    if fresh_code.get(m.get("path")) != m.get("sha256"):
+      return "code:" + str(m.get("path"))
+  fresh_in = {m["key"]: m["sha256"] for m in _gate_input_manifest(gate, cfg)}
+  for m in block.get("inputs", []):
+    if fresh_in.get(m.get("key")) != m.get("sha256"):
+      return "input:" + str(m.get("key"))
+  return ""
 
 
 def _save_status(status):
@@ -1349,8 +1580,15 @@ def _write_board_md(status, cfg=None):
     log_name = record.get("log", "")
     if log_name and _log_digest_mismatch(record):
       detail = (detail + " [LOG DIGEST MISMATCH: cited evidence changed]").strip()
+    # name which persisted manifest member staled, so the table reports the
+    # cause and not just the state.
+    if cfg is not None and state in ("stale-code", "stale-input"):
+      member = _stale_member(record, gate, cfg)
+      if member:
+        detail = (detail + " [stale member: " + member + "]").strip()
     log_cell = log_name if state in ("PASS", "FAIL", "stale-code",
-                                     "stale-input", "stale-log") else ""
+                                     "stale-input", "stale-log",
+                                     "pre-manifest") else ""
     lines.append("| " + gate.id + " | " + gate.tier + " | " + state
                  + " | " + detail.replace("|", "/") + " | " + log_cell + " |")
   lines.append("")
@@ -1597,11 +1835,13 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
             "digests); --force-rerun " + gate.id + " to rerun")
       _record(gate.id, "resume")
       continue
-    if (state in ("stale-code", "stale-input", "stale-log", "interrupted")
+    if (state in ("stale-code", "stale-input", "stale-log", "interrupted",
+                  "pre-manifest")
         and gate.id not in force_rerun):
       print("[rerun] " + gate.id + ": prior PASS is " + state
             + " (the tree, the configuration, or the cited raw log changed, "
-            "or the attempt was interrupted) -- rerunning")
+            "the attempt was interrupted, or a newly-declared manifest "
+            "supersedes a pre-manifest record) -- rerunning")
 
     # dependency skip: an unmet prerequisite (not a CURRENT pass under both
     # digests) marks the gate skipped and runs no test code. It is not green.
@@ -1628,11 +1868,18 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
     # terminal verdict, together with its digest.
     code_dig = _gate_code_digest(gate)
     input_dig = _gate_input_digest(gate, cfg)
+    # a declared gate persists its RESOLVED manifest members (each path/key +
+    # sha256) beside the digests, so a reviewer sees the membership and --list
+    # can name which member staled. None for a manifest-less gate.
+    man_block = _gate_manifest_block(gate, cfg)
     attempt = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     log_name = gate.id + "." + attempt + ".log"
-    status[gate.id] = {"status": "RUNNING", "ts": _now(),
-                       "code_digest": code_dig, "input_digest": input_dig,
-                       "log": log_name, "attempt": attempt}
+    running = {"status": "RUNNING", "ts": _now(),
+               "code_digest": code_dig, "input_digest": input_dig,
+               "log": log_name, "attempt": attempt}
+    if man_block is not None:
+      running["manifest"] = man_block
+    status[gate.id] = running
     _save_status(status)
     _write_board_md(status, cfg)
 
@@ -1664,10 +1911,13 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
     final_log = _LOGS_DIR / log_name
     os.replace(str(inprogress), str(final_log))
     log_dig = hashlib.sha256(final_log.read_bytes()).hexdigest()
-    status[gate.id] = {"status": outcome, "detail": detail, "ts": _now(),
-                       "code_digest": code_dig, "input_digest": input_dig,
-                       "log": log_name, "log_digest": log_dig,
-                       "attempt": attempt}
+    verdict = {"status": outcome, "detail": detail, "ts": _now(),
+               "code_digest": code_dig, "input_digest": input_dig,
+               "log": log_name, "log_digest": log_dig,
+               "attempt": attempt}
+    if man_block is not None:
+      verdict["manifest"] = man_block
+    status[gate.id] = verdict
     _save_status(status)
     _write_board_md(status, cfg)
     _record(gate.id, "passed" if outcome == "PASS" else "failed")
@@ -1797,7 +2047,7 @@ def main(argv=None):
   # subprocess target or an unwaived dynamic import is a board-authoring error
   # that fails fast. A gate with no manifest is skipped (the rolling
   # migration), so this is a no-op until gates are populated.
-  ok_mf, mf_errors = validate_manifests(BOARD)
+  ok_mf, mf_errors = validate_manifests(BOARD, cfg)
   if not ok_mf:
     print("error: the gate manifest does not validate:")
     for line in mf_errors:
