@@ -3468,3 +3468,57 @@ notes/user-didactics-and-python-voice.md BEFORE writing any prose.
 
 Handed off 2026-07-13; this section is the citation for the
 relayed ARCHITECT_HANDOFF covering the whole campaign.
+
+## Registry-persistence audit (Fable, 2026-07-13): the retroactive durable-record pass — GO for merge
+
+The red team applied the durable-record rule retroactively to every
+earlier bug-hunt series on codex/architect-docs-static-audit (commit
+57dfe26, notes-only; main e6bcaf3 merged in as 35f0137, no
+conflicts). Architect verification, each claim checked at source:
+
+- 57dfe26's stat touches EXACTLY five notes files — no production,
+  gate, generator, or adapter code. The "doc-only" claim is true.
+- Tombstones: an untruncated repo-wide grep finds 45M-10, 45M-18,
+  and 20M-20 ONLY as the registry's explicit "not issued" lines —
+  the number gaps are recorded, not backfilled.
+- Retractions 45M-05/43/44 remain visible (registry + the
+  training-stack VOID analysis + the state ledger) and are not
+  rewritten as live defects; 45M-08's provenance limitation
+  (index-item-only receipt) is stated rather than reconstructed.
+- The dataset-readiness contract's LIVE-STATUS claims verified
+  against code: generator_core.py's unconditional MPI.Finalize() +
+  exit(0) tail (:1183-1184), the silent boundary rewrite (:241 —
+  their text even correctly notes boundary == 1 takes the fallback
+  branch as the valid unchanged endpoint), and data_staging.py's
+  missing fail-file consumer. All still present at the audited HEAD.
+- The scalar-driver closure (Original unit 5(a)) matches recorded
+  history (the pre-existing driver, 45M-80's executable refusal at
+  e9943bc) and is correctly scoped — it closes only the stale
+  routing claim, explicitly not the artifact-integrity units.
+- The scheduler execution protocol (45M-25) is a coherent
+  domain-owner contract consistent with house law (one warmup
+  owner; resolved pass records = never-trust-defaults; counting
+  schedulers + analytic LR sequence as the board gate), marked open.
+- MEMORY.md's 17 deleted lines remove exactly the stale numeric
+  snapshots ("32/32 at run 9", "the 32 gates") in favor of
+  board.py/--list as the authoritative gate census — the
+  DIDACTICS-02 no-counts-in-prose doctrine applied to the index —
+  and the new cold-start order routes readers through the registry.
+  The ledger's demotion to "chronology and routing, not a live
+  queue; current sequencing comes from the latest persisted
+  Architect handoff" is CORRECT and now points at the consolidated
+  DIDACTICS execution handoff above.
+
+One naming equivalence recorded, not a defect: the crosswalk says
+"the 20M-15 amendment owns checkpoint-ingress revalidation" where
+this file's ledger phrased the same object as "unit 56's
+checkpoint-ingress amendment" (the amendment was minted during the
+20M-15 adjudication and attached to unit 56). The registry's own
+scope warning — a bare number is historical shorthand; cite the
+finding name and owner heading — covers exactly this case.
+
+VERDICT: GO. Landing order: the codex branch first (main
+fast-forwards to 35f0137), then claude/amazing-keller-e798b6
+(2f25450; disjoint file sets, clean merge), then both sessions run
+the resync ritual. The registry becomes the canonical identifier
+crosswalk; adjudications keep citing topic-note headings.
