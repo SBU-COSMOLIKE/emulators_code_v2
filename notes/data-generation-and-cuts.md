@@ -2139,3 +2139,86 @@ mutation that removes/bypasses the driver's release call; it must leak the
 path and red.  The direct release/idempotence legs remain useful helper tests,
 but may not substitute for the public driver call whose ordering is the
 claim.
+
+## Queue-2 evidence draft: data-selection and triangle gates
+
+The blocks below are the note-side specification for the structured evidence
+rollout. A leg name describes only what the current check executes. In
+particular, seeing a banner is evidence that the banner was printed; it is not
+evidence that the values in the banner equal an independent row count.
+
+<a id="param-window-cuts-evidence"></a>
+**param-window-cuts — the configured training driver runs and reports that a
+parameter-window cut was applied.**
+
+- files: reads the resolved `param-window-cuts-config` YAML and its six
+  manifest-declared cosmic-shear inputs. The likelihood `.dataset` input is a
+  pointer: the driver also reads its data-vector, covariance, mask, and n(z)
+  siblings transitively, outside that six-path manifest hash. It writes the
+  driver's ordinary `.emul`/`.h5` pair and the driver stream to the immutable
+  gate log. The wrapper does not read the saved pair back.
+- subprocess: `cosmic_shear_train_emulator.py` through the board's driver
+  launcher.
+- metric: per-leg exit-status or selected-text presence; the manual
+  `init_probes` item has no executable metric.
+- legs: 3, named `param-window-cuts.driver-exit-zero`,
+  `param-window-cuts.cut-count-banner-present`, and
+  `param-window-cuts.init-probes-inspection`.
+- evidence: the first two legs are asserted by the wrapper; the
+  `init_probes` item is logged-only and must emit `UNAVAILABLE` until it is an
+  executable comparison.
+- owed: the asserted legs require the Torch, CosmoLike, and GPU workstation;
+  the `init_probes` A/B comparison needs a real assertion before it can become
+  green evidence.
+
+<a id="param-window-cuts-driver-exit-zero"></a>
+`param-window-cuts.driver-exit-zero` requires the training subprocess to exit
+with status zero.
+
+<a id="param-window-cuts-cut-count-banner-present"></a>
+`param-window-cuts.cut-count-banner-present` requires one line matching
+`used N of P cut rows`; it does not claim that a separate count was compared
+with `N` or `P`.
+
+<a id="param-window-cuts-init-probes-inspection"></a>
+`param-window-cuts.init-probes-inspection` is `UNAVAILABLE`: the current gate
+prints a manual inspection instruction and executes no A/B comparison.
+
+<a id="triangle-shading-evidence"></a>
+**triangle-shading — a synthetic corner plot contains gray artists on its
+z-order-zero shading layer.**
+
+- files: no external input or persistent output; the child constructs
+  synthetic arrays and a Matplotlib figure in memory.
+- subprocess: `gates/checks/gt_b_triangle.py`.
+- metric: per-leg object-existence, positive-count, or complete census of
+  z-order-zero filled artists.
+- legs: 4, named `triangle-shading.figure-produced`,
+  `triangle-shading.shading-layer-present`,
+  `triangle-shading.all-shading-fills-use-shared-gray`, and
+  `triangle-shading.zorder-zero-span-present`.
+- evidence: all four legs are asserted in the child; the child's exit status
+  remains the single aggregate verdict and is not a fifth leg.
+- owed: the board registry models CPU PyTorch only. The child also imports
+  Matplotlib and GetDist; absence of either is a pre-leg red import failure,
+  not an `UNAVAILABLE` capability disposition.
+
+<a id="triangle-shading-figure-produced"></a>
+`triangle-shading.figure-produced` requires the plotting helper to return a
+figure for the synthetic sample and recognized parameter names.
+
+<a id="triangle-shading-shading-layer-present"></a>
+`triangle-shading.shading-layer-present` requires at least one figure axis to
+contain a gray z-order-zero artist. The counter includes collections and span
+patches, so this leg does not prove that a two-dimensional panel was shaded.
+
+<a id="triangle-shading-all-shading-fills-use-shared-gray"></a>
+`triangle-shading.all-shading-fills-use-shared-gray` examines every filled
+artist on the shading layer and requires zero nontransparent fills outside the
+shared gray color.
+
+<a id="triangle-shading-zorder-zero-span-present"></a>
+`triangle-shading.zorder-zero-span-present` requires at least one
+z-order-zero patch somewhere in the figure. The current child does not
+identify the owning axis, so this leg does not prove that the patch is on the
+`omegamh2` marginal.
