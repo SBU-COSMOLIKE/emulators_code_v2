@@ -2086,6 +2086,18 @@ mixed-author; content intact; the diff-staged-hunks rule re-affirmed
 for both sessions. Spec: gates-and-board.md "Batch 4/5 design calls
 — RULED".
 
+20M-25 BATCH (2026-07-13, Fable): CONFIRMED — the null roughness
+path clears nothing while sweeps reuse one experiment + loss per
+lane: an enabled->disabled sweep's second point optimizes the first
+point's penalty (13.4511995 vs fresh 7.0). NEW UNIT 89
+(training-stack.md): complete loss-object state established on every
+invocation (absence = CLEAR), one owner, fresh-object equivalence
+across order/lane permutations, failed points leave nothing, the
+resolved record describes installed state, and the configure_*
+census (law, rescaling, transfer roughness) audited under the same
+discipline. Blocks production hyperparameter sweeps over loss
+blocks. Spec: gates-and-board.md "20M-25 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

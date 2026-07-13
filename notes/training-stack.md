@@ -2482,3 +2482,38 @@ token-scoped repaired execution completes, reporting raw peak
 allocated/reserved bytes. Placement: the scheduler/pool campaign
 (beside the bakeoff-liveness item and unit 55); blocks --gpu-pack
 production sweeps.
+
+## UNIT 89 (20M-25, 2026-07-13, HIGH): every training invocation establishes the COMPLETE loss-object state — absence clears, never inherits
+
+Finding (red team, CONFIRMED; executed on the real repeated-run
+path): configure_roughness fires only for a non-null resolved block
+(training.py:2732-2741) and nothing clears _rough/_rough_lam
+(losses/cmb.py:205-223), while the sweep driver reuses one staged
+experiment + chi2fn per GPU lane: after an enabled point, a later
+disabled point still optimizes lam = 1.0 roughness (13.4511995 vs
+fresh 7.0 on the alternating seven-multipole residual). Sweep order
+and lane assignment become scientific variables.
+
+Contract (ratified, with the census widening): (1) every training
+invocation establishes the COMPLETE loss-object state — roughness
+OFF is established explicitly, never inherited; (2) ONE owner
+replaces or clears the roughness state; block absence means CLEAR,
+never leave-unchanged; (3) enabled->disabled, disabled->enabled,
+repeated values, and lane/order permutations match isolated
+fresh-experiment controls; (4) a failed sweep point leaves no state
+affecting the next; (5) the resolved record describes the state
+ACTUALLY installed on the loss object; (6) single-run enabled and
+disabled numerics byte-identical; (7) CENSUS: every conditional
+configure_* on a loss object (configure_law, configure_rescaling,
+transfer's configure_roughness) is audited under the same
+establish-or-clear discipline in this unit's landing — one proven
+leak is not treated as the only one.
+
+Legs (ratified; board-listed Torch, CPU sufficient — the real
+repeated-run/same-experiment path): enabled->disabled;
+disabled->enabled; fresh-object equivalence; failure-then-valid
+isolation; lane permutation; a mutation deleting the OFF reset must
+red. Placement: with unit 55 in the repeated-training isolation
+class (their gates share the same home); blocks production
+hyperparameter sweeps over loss blocks; distinct from unit 79
+(eligibility) and unit 55 (transfer-source lifecycle).

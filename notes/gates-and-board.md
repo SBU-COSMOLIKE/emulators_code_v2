@@ -2526,3 +2526,26 @@ raised two blocking design calls. Both are now ruled:
    Labels are per-gate free names; the docs block gains one
    `_comments` line stating that gate_data values are data files a
    declared gate's manifest hashes as input members.
+
+## 20M-25 adjudication (Fable, 2026-07-13): CONFIRMED — unit 89, loss-object state is established completely on every training invocation
+
+CONFIRMED: run_emulator configures roughness only when the resolved
+block is non-null (training.py:2732-2741) and the null path clears
+NOTHING; CmbDiagonalChi2 keeps _rough/_rough_lam as persistent
+instance state (losses/cmb.py:205-223); the hyperparameter driver
+deliberately reuses one staged experiment + chi2fn per lane — so an
+enabled->disabled sweep's second point optimizes the FIRST point's
+penalty (executed: 13.4511995 vs the fresh-object 7.0; silent
+inherited penalty 6.4511995, the unit-79 witness arithmetic
+surfacing on a new lane). The in-code comment "configured once on
+the run's loss object" was written for the single-run world the
+per-lane repeated-training path no longer inhabits. Sweep order and
+lane assignment can change the scientific comparison. The
+Architect's census widens the hazard family: configure_law
+(cmb.py:342), configure_rescaling (core.py:668), and transfer's
+configure_roughness (transfer.py:754) are further conditional
+configure_* setters on loss objects — the unit audits all of them
+under one discipline. -> NEW UNIT 89 (training-stack.md), the
+loss-object sibling of unit 55's repeated-training isolation class,
+distinct from unit 79's family eligibility; blocks production
+hyperparameter sweeps over loss blocks.
