@@ -1630,7 +1630,25 @@ discriminating leg set in its scientific owner before any chat handoff:
   `models-and-designs.md`, model-value-schema unit; and
 - `25M-15`: streaming memory planning charges a packed target as if it had
   model-output width and can select an unsafe chunk — `training-stack.md`,
-  memory-accounting campaign.
+  memory-accounting campaign; and
+- `25M-16`: runtime-loaded or source-inspected Python is absent from populated
+  gate manifests, so adapter/driver edits retain a current PASS —
+  `gates-and-board.md`, manifest-completeness campaign; and
+- `25M-17`: deleting `dv_geometry/const_mask` silently disables a valid MPS
+  low-k pin while schema-v2 rebuild and strict weight loading succeed —
+  `families-background-mps.md`, unit-63/unit-96 interlock; and
+- `25M-18`: the manifest waiver validator accepts one child file as coverage
+  for an arbitrary dynamic-import tree, and board-selftest blesses the
+  backwards ancestor relation — `gates-and-board.md`, manifest-validation
+  campaign; and
+- `25M-19`: `evaluate_yaml` is executed repository-relative but hashed
+  process-CWD-first, so an outside-repo launch authenticates no input while
+  executing the real file — `gates-and-board.md`, input-manifest campaign;
+  and
+- `25M-20`: resume skips a current downstream PASS before checking that its
+  prerequisite is current, so a stale dependency can yield return code zero
+  with no gate bodies executed — `gates-and-board.md`, immediate unit-4
+  board-truth reopen.
 
 No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and
@@ -1644,3 +1662,12 @@ amends unit 53; `25M-05` extends unit 41 to sweep products; and `25M-06`
 extends unit 82 with unit 87's decimal-contract coupling. The Architect also
 adopted two process lessons: forward-walk the real signature after a repair,
 and file identity cannot substitute for representation truth.
+
+Architect adjudication overlay for `25M-14`/`25M-15` (received after commit
+`efddf98`): both were confirmed without amendment and both workstation gates
+were commissioned on the filed terms. `25M-14`'s width-one transformer
+input-independence was accepted as the strongest silent-demotion proof;
+`25M-15`'s Torch integration and pure 84-byte/refusal arithmetic join the
+queue-5 workstation exhibits. DIDACTICS-93 is ratified as binding law, with
+the Planck-LCDM covariance byte-identity control. The series at that
+adjudication stood at 01--15 with retired tombstone 07.

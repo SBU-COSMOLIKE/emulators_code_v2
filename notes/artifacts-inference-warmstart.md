@@ -671,6 +671,20 @@ delete the parent while preserving the refined marker/config and require
 refusal. One authoritative consumed mode owns runtime validation; provenance
 YAML is corroborating evidence, not a second inference algorithm.
 
+Presence-inference inventory closure (Red Team, 2026-07-13): an untruncated
+production census found only the required `model_recipe`, optional `pce`,
+optional `transfer_base`, nested `drifted_state`, and warm-start's
+`transfer_base` no-chaining branch at the HDF5 membership layer. Unit 96 owns
+the composition/refined cases. Conditional geometry-state keys are
+`section_sizes`/`probe`/`bin_sizes`/`pm_kept`, CMB `as_ref`/`tau_ref`, Grid2D
+`const_mask`, and AmplitudeFactor `names`. Every item except `const_mask`
+either has an explicit governing fact and refusal, raises before its requested
+consumer path, or is already owned by recipe/geometry totality. Only deletion
+of `const_mask` silently reinterprets a valid artifact; that finding is
+`25M-17` in `families-background-mps.md`. Cobaya adapters perform no separate
+direct HDF5 presence dispatch. This closes the Architect-requested class
+inventory without manufacturing findings from loud failures.
+
 Board-listed save/forge/rebuild legs: valid plain, NPCE, frozen transfer, and
 refined-transfer controls; delete `pce`; delete `transfer_base`; flip the enum
 without changing groups; add a forbidden second composition group; delete or

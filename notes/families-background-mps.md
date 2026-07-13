@@ -785,6 +785,45 @@ Contract (red team's adopted, one precision ruling):
    values inside a low-k region; the 7.0 shape moves to the
    refusal legs.
 
+### 25M-17 amendment (Red Team CONFIRMED, awaiting Architect adjudication): deleting the mask dataset silently turns off a valid low-k pin
+
+Unit 63 validates the science of a `const_mask` only when the dataset is
+present. `Grid2DGeometry.state()` omits the key when no pins exist
+(`grid2d.py:270-283`), the generic HDF5 writer/reader persists only keys that
+happen to exist (`results.py:306-319,563-578`), and the constructor treats a
+missing key as `const_mask=None` (`grid2d.py:108-130`). Decode clamps the
+low-k identity only when the mask is non-None (`grid2d.py:340-342`). Thus
+schema v2 still infers this scientific behavior from dataset presence.
+
+Delete only `dv_geometry/const_mask` from a valid pinned artifact. The class
+marker, model recipe, weights, center/scale, quantity/law, and axes remain
+valid; strict model loading succeeds; from_state selects the unpinned branch.
+For a `boost/none` point with persisted center 1, stored scale 1, and a
+deterministic network value 0.25, the intact artifact serves exactly 1 while
+the deleted-key artifact serves 1.25. This `none`-law control is the exact
+public catch-power witness. A Syren law also changes before its low-k blend,
+but the final public ratio is blend-weighted and is deliberately not quoted as
+`exp(0.25)`. This is a finite wrong science result, not merely a malformed-file
+exception.
+
+This reopens one precision clause of unit 63: “pre-pin artifacts with
+`const_mask=None` stay legal” makes intentional absence indistinguishable
+from erasure. Keep the no-policy-version ruling—the mask itself is the
+scientific fact, not a version integer—but current saves must always persist
+it, using an all-false mask for an explicitly unpinned geometry. The current
+schema declares the exact required geometry-state member set and validates it
+before `from_state`; anonymous legacy absence refuses with a re-save/migration
+instruction rather than guessing. Unit 63 still owns whether a present mask
+is scientifically legal; unit 96/general artifact-state authenticity owns
+whether the declared fact was erased or spuriously added.
+
+Board-listed MPS artifact legs (Torch/HDF5, workstation): valid masked pin;
+valid explicit all-false unmasked state; delete the mask from declared masked;
+add/toggle it against declared unmasked; legacy anonymous absence refuses;
+unit-63 forged-mask science checks still red. The discriminating mutation
+restores today's omit-when-None/presence inference and must rebuild the
+`1 -> 1.25` wrong-result witness.
+
 Red legs (inside the existing board-listed mps-identity;
 torch-backed geometry/readback legs):
 

@@ -68,6 +68,13 @@ a scientifically justified neighboring cosmology. An extreme synthetic fake
 can prove validator catch-power but cannot, on its own, prove the science
 answer wrong.
 
+Red Team scope ruling (user, 2026-07-13): this is a cosmological research
+code run for emulator production and MCMCs, not a public security boundary.
+Do not spend audit time on cybersecurity, hostile-user threat models,
+permissions, secrets, network attacks, or exploit hardening. Manifest and
+artifact checks are reviewed only where they affect scientific correctness,
+reproducibility, stale-test truth, or the exact model/data used by an MCMC.
+
 Red-team documentation census at HEAD 32f7545 (2026-07-12): 92 Python
 files; 6 lack a module docstring, 175 function/method definitions lack
 a docstring, and 6 small gate-stub classes lack one. Those raw numbers

@@ -3919,3 +3919,204 @@ amendments ride its existing 45M-01 slot; 96 beside 76's landing;
 95 with the training/driver campaign; 75-BAOSN with the family
 visits). Nothing preempts population completion -> the gauntlet.
 The registry namespace: 25M-07 retired-tombstone, 08-13 live.
+
+## 25M-16 (Red Team CONFIRMED, awaiting Architect adjudication): runtime-loaded Python is absent from populated gate manifests, so adapter edits retain a current PASS
+
+The phase-3 scanner recognizes literal imports plus
+`importlib.import_module` and `__import__` call sites
+(`run_board.py:858-885`). It does not recognize Python executed through
+`importlib.util.spec_from_file_location(...); loader.exec_module(...)`, a
+Cobaya `python_path`, or executable `.py` source opened as ordinary data.
+Those are all live mechanisms in populated gates, not theoretical dynamic
+imports.
+
+All four identity checks load their real adapter through
+`spec_from_file_location` (`scalar_identity.py:271-297`,
+`cmb_identity.py:552-572`, `bsn_identity.py:381-399`, and
+`mps_identity.py:1185-1218`). All four family smokes execute the adapter
+through Cobaya's declared `python_path`. Yet their populated manifests omit
+`cobaya_theory`: the real derived manifests contain 31, 31, 32, and 31 members
+for scalar/CMB/BAOSN/MPS identity and 34, 36, 34, and 37 for the corresponding
+smokes, with zero `cobaya_theory/` members in every case. Executed through the
+real manifest validator and resume-state path, all eight declarations validate
+and a stored current PASS remains PASS when the omitted adapter is the only
+changed executable. This directly falsifies `_gate_code_digest`'s claim at
+`run_board.py:1419-1424` that an imported adapter necessarily stales the gate.
+
+The same blind class exists without a module loader:
+`artifact_readback.py:83-101` opens `scalar_train_emulator.py` as text and
+asserts that it stamps `rescale='none'`. Its populated 23-member manifest
+omits that driver. A driver edit can therefore invalidate what the check
+would assert on rerun while its stored PASS stays current. This is one runtime
+executable-dependency class, not a second finding.
+
+The live inventory is broader because the `.py`-path census scans only the
+gate-body source (`run_board.py:1047-1058`), not the check-script closure.
+`family-first` omits the three family drivers it opens at
+`family_first.py:82-101`; `generator-seed` has only three manifest members and
+omits `compute_data_vectors/generator_core.py`, whose source supplies its
+science assertions (`generator_seed.py:24-58`); and `board-selftest` omits
+`gates/checks/finite_contract.py`, which it reads to certify the compile-lane
+verdict (`board_selftest.py:266-277`). Each real declaration validates today,
+and each named source member is absent. These are additional acceptance
+fixtures for the same closure defect.
+
+There is also one bounded ordinary-import hole. `gct_parity.py:43` uses the
+bare sibling import `from gsv_bitwise_drift import ...` because
+`gates/checks/` is placed on `sys.path`. `_module_to_repo_paths` rejects an
+absolute import whose first component is not one of `_EXECUTABLE_DIRS`
+(`run_board.py:804-815`), so the real static closure contains
+`emulator/inference.py` but omits
+`gates/checks/gsv_bitwise_drift.py`. `cobaya-adapter` therefore stays current
+when its executed `train_save`/`tiny_config` helper changes. A repo-wide AST
+census found this is the sole current bare sibling-check import; it is a
+bounded resolver case, not permission for a path heuristic.
+
+Required contract: derive one complete executable closure for every gate.
+In addition to literal imports, it recognizes and resolves
+`spec_from_file_location`/`exec_module`, Cobaya `python_path` plus component
+module names, subprocess targets, and executable `.py` paths opened/read by
+the check closure. A runtime-named site that cannot be resolved statically is
+covered by one reviewed direct-root declaration and reconciled against the
+site; it never disappears merely because the call is not named
+`import_module`. Persist each adapter/driver as a manifest member of every
+gate that executes or inspects it. The help text names any irreducible blind
+spot honestly.
+
+Board-selftest acceptance: census the current board and prove the executed
+adapter is a member of each of the eight family identity/smoke manifests and
+`scalar_train_emulator.py` is a member of `artifact-readback`; removing one
+direct/derived root makes validation red; a temporary byte edit to each
+runtime-loaded member changes the digest and makes `_resume_state` stale-code;
+the unchanged current board validates. The catch-power mutation restores
+today's two-call dynamic-import scanner and must green the false stored PASS.
+The current `family-first`, `generator-seed`, and board-selftest source-read
+fixtures are included so a repair limited to Cobaya adapters cannot pass.
+The sibling-import leg proves `gsv_bitwise_drift.py` joins
+`cobaya-adapter`'s closure; changing it makes that gate stale-code even if its
+dependency reruns. Restoring the `_EXECUTABLE_DIRS`-only absolute resolver is
+a required mutation failure.
+
+`geo-paths` is the largest current source-read fixture: its check walks the
+repository and reads every Python file to reject retired geometry imports
+(`geo_paths.py:180-204`), but its populated manifest contains only 31 members
+and omits executable files across `emulator/`, root drivers, generators, and
+adapters. Its correct dependency surface is the exact Python census it reads,
+with the same explicit exclusions—not merely the current designs/losses
+roots. The repaired acceptance inventory includes this whole-scope gate.
+
+## 25M-18 (Red Team CONFIRMED, awaiting Architect adjudication): a child file is accepted as coverage for an arbitrary dynamic-import tree
+
+The waiver validator accepts a required cover when
+`root == cover` **or `root.startswith(cover + "/")`**
+(`run_board.py:1070-1081`). The second direction is backwards for a dynamic
+class name: declaring one child such as `emulator/designs/blocks.py` does not
+hash sibling model implementations under the required `emulator/designs`
+tree. The shipped board selftest explicitly constructs that invalid manifest
+and reports it as “designs root declared”
+(`board_selftest.py:637-640`). The validator returns green.
+
+This has a concrete executable consequence. `results.py:664-672` imports the
+model class named by an artifact recipe. A manifest containing only
+`blocks.py` can validate while omitting `designs/plain.py` and
+`designs/ia.py`; a ResMLP or factored-IA artifact then executes unhashed code,
+so an edit can leave a stored PASS current. Current populated gates happen to
+declare the full trees, but the reusable validator and its own catch-power
+test certify an unsafe declaration. This is distinct from 25M-16: that
+finding discovers missing dependency mechanisms; this one accepts an
+insufficient declaration for a dependency mechanism it already found.
+
+Required contract: a declared root covers a waiver requirement only when it
+is equal to or an ancestor of every required cover. For the current recipe
+waiver, require exact `emulator/designs` and `emulator/losses` unless the
+waiver schema explicitly enumerates a reviewed finite subset. A child of the
+cover never stands for its siblings. Census every waiver entry for a live
+call site and its exact required covers so an obsolete entry cannot retain a
+gratuitous tree.
+
+Board-selftest legs: the full design/loss roots pass; the current
+`blocks.py`-only fixture moves to a must-red mutation; two artifacts selecting
+classes in `plain.py` and `ia.py` prove edits to either member change the
+digest/stale the dependent gate; an ancestor-root control is accepted only
+when its expansion contains the full required covers; reversing the
+ancestor test restores today's false green and must fail.
+
+## 25M-19 (Red Team CONFIRMED, awaiting Architect adjudication): input manifests hash a different path than the gate executes
+
+`RunContext.evaluate_yaml()` defines a relative `evaluate_yaml` as
+repository-relative (`run_board.py:412-420`), and `cobaya-adapter` executes
+that path. `_resolve_config_path`, used by the input manifest, instead tries
+the same string process-CWD-first, then ROOTDIR-relative, then
+`yaml_dir`-relative, and never tries repository-relative
+(`run_board.py:1347-1371`). The manifest and consumer therefore have different
+path owners.
+
+Live reproduction with the shipped value
+`gates/configs/cobaya-adapter-evaluate.yaml`: launched from the repository,
+the manifest records the file and digest; launched from an unrelated temporary
+directory, it records `{path: None, sha256: None}` and still passes
+`validate_manifests`, while `RunContext.evaluate_yaml()` continues to execute
+the real repository file. A first PASS from that directory authenticates no
+YAML bytes, so later edits do not stale it. Conversely, merely changing the
+launch directory can change the digest without changing the executed file.
+This violates the runner's any-working-directory contract and is a concrete
+false-green plus false-stale pair.
+
+The same mismatch now reaches all 15 batch-4 driver manifests. Their
+`gate_configs.*` consumers execute `yaml_dir/value`, while the generic
+manifest resolver first accepts a launch-CWD collision (or records no member
+outside the repository) before trying the owner-specific base. The
+rootdir-relative `_CS_DEPLOY_DATA` members are consistent; the bespoke gate
+YAMLs are not. Acceptance therefore covers both `evaluate_yaml` and at least
+one populated batch-4 `gate_configs.*` input rather than repairing a single
+key by special case.
+
+Required contract: each input-key namespace has one canonical resolver shared
+by its consumer and manifest writer. `evaluate_yaml` resolves relative to the
+repository; `gate_configs.*` resolves through `yaml_dir`; `gate_data.*` uses
+its declared data owner. No generic process-CWD candidate precedes those
+rules. Manifest validation requires the canonical file to exist and refuses a
+resolved string with `{path: None, sha256: None}`.
+
+Board-selftest legs: from two unrelated temporary working directories, the
+same config yields the identical absolute member path and digest; the path
+executed by `RunContext` equals the path hashed by the manifest; a colliding
+file in the launch directory is ignored; editing the canonical YAML changes
+the input digest and makes resume stale-input; a missing canonical file reds
+validation. Restoring `Path(value)` as the first candidate or omitting the
+repository candidate must fail the catch-power legs.
+
+## 25M-20 (Red Team CONFIRMED, immediate unit-4 reopen): resume trusts a downstream PASS before checking whether its dependency is current
+
+`run_selection` computes the downstream gate's resume state and returns early
+on a current stored PASS (`run_board.py:1862-1871`). Only after that early
+return does it check whether every prerequisite is a current PASS
+(`:1880-1891`). Dependency currency is therefore absent from the reusable-PASS
+predicate, despite the existing unit-4 contract explicitly requiring it.
+
+Live reproduction through the real public `main`/`run_selection` path with
+the shipped board-selftest helpers: the prerequisite has a stored PASS whose
+code digest is stale (`deadbeef`), while the downstream gate has a current
+stored PASS. Selecting the downstream gate prints
+`[skip] downstream: already PASS`, executes zero gate bodies, and exits 0.
+The current selftest covers a resumed child only when the prerequisite is
+current (`board_selftest.py:212-216`), so it encodes no counterexample. In the
+real board, `cobaya-adapter` can remain green while `save-rebuild-drift` is
+stale. Even a full run can rerun the prerequisite and then skip the child,
+never re-proving it against the newly produced artifact.
+
+Required contract: dependency currency is part of a gate's reusable-PASS
+state. Check dependencies before the resume return, or make `_resume_state`
+dependency-aware. A stale-code, stale-input, stale-log, pre-manifest, failed,
+or skipped prerequisite makes the downstream verdict non-green and the
+requested command nonzero. When a prerequisite reruns, any child whose proof
+consumes its output reruns too; persist the dependency verdict/digest or
+artifact identity needed to bind that currency. No manual `--force-rerun`
+instruction substitutes for this ordering.
+
+CPU board-selftest legs: a current child paired with each stale prerequisite
+state executes no false resume and returns nonzero; FAIL/SKIP/RUNNING
+prerequisites do the same; a full sequence reruns the prerequisite and then
+the dependent child; an unchanged current pair still resumes; an independent
+gate remains resumable. The mutation restoring today's resume-before-deps
+ordering must reproduce return code 0 with zero calls and therefore red.
