@@ -2319,6 +2319,92 @@ authority; the "main dirty" hold was stale (merge concluded as
 7743fc6); direct merge ruled safe (ancestor base, disjoint files).
 Spec: gates-and-board.md "Registry alias closure (d00358c)".
 
+BATCH-4/5B CHECKPOINT + DEPLOY_DATA SHAPE (2026-07-13, Fable): the
+three leftover no-schema declarations audited pre-commit (gwd-c's
+empty manifest is reasoned: subprocess-only gate, in-process closure
+never reaches the waived imports; gsv/gct rebuild in-process and
+correctly declare designs+losses); 18 declared, ok=True. RULING:
+ONE shared deploy_data block (semantic logical-key -> rootdir-
+relative path), lane chosen by provenance not consumer count,
+dotted deploy_data.<key> references, absent-key startup red, no
+duplicated literal paths; full derived block returns as a
+paste-ready proposal for sign-off. Spec: gates-and-board.md
+"Batch-4/5b checkpoint audit + the deploy_data shape ruling".
+
+DIDACTICS-72..92 BATCH (2026-07-13, Fable): the README wave (21
+findings, durable register e6256a1) ALL CONFIRMED on sampled
+anchors — the canonical generator command cannot run as printed
+(required --seed omitted; --boundary 1.0 violates the README's own
+rule); grid2d called both broken (:128) and landed (:419) in one
+file; the retired emultrfv2 path; the gate README's cosmic-shear/
+every-test/<test>.log trio; syren's universalized law and the
+"byte-verbatim (AST-verified)" citation of a vendoring probe that
+DOES NOT EXIST (ruling-6 class, in a README). Factual heads join
+the D2 bundle now; four file visits in queue 6 (gates/README merges
+with DIDACTICS-02's D1 landing — one visit per file); 88 extends
+the 02 set-equality leg + evidence ladder; 91's identity half rides
+implementation-identity; 92 lands with/after unit 75. NEW BINDING
+ALIASING RULE: DIDACTICS- prefix always written in full — bare
+numbers mean units (DIDACTICS-90/91/92 vs units 90/91/92 now
+collide). New acceptance: every printed command executed once on
+its machine before printing. Spec: gates-and-board.md
+"DIDACTICS-72..92 adjudication".
+
+25M-01..06 BATCH (2026-07-13, Fable): all six CONFIRMED in code.
+01 = NEW UNIT 94 boundary-interior owner (margins scale with the
+coordinate, not the width: [70.0,70.02] keeps 29.99%, [1000,
+1000.01] inverts and crashes; nextafter interior + refusal +
+requested/resolved support persisted — the generation-side half of
+unit 84's support story). 02 = unit-8 amendment (temp changes
+uniform support, filenames say only _unifs). 03 = unit-8 + 82 joint
+(chain-only rewrites params at shared stems THEN skips dv — a
+two-command corruption; --chain becomes a run-control mode axis).
+04 = unit-53 amendment (family="cosmolike" default made STUDY_NAME
+unreachable — the documented resume forks; a repair-caused
+regression, forward-walk law again). 05 = unit-41 extension (sweep
+headers persist raw args.activation=None while H runs). 06 =
+unit-82 canonical-representation extension (.ranges %.5e collapses
+float32-distinct bounds vs %.9e rows). TWO PRODUCTION ADVISORIES
+NOW: narrow/offset uniform intervals unsafe; --chain 1 on
+full-dataset stems unsafe. Spec: gates-and-board.md "25M-01..06
+adjudication".
+
+PHASE-3 LANDING + DEPLOY_DATA SIGN-OFF (2026-07-13, Fable): 774bf3d
+GO (9 no-schema gates, 24 declared; the board_selftest live-board
+leg was VACUOUS against its stub cfg — the Implementer's fix
+reconciles against the real board_config; a vacuous-pass caught in
+our own machinery). deploy_data APPROVED (22-config census
+re-verified: six identical fixtures; role-named keys ratified) with
+ONE amendment: the .dataset pointer's referenced siblings are
+outside the hash surface — blind spot named in _help, hardening
+option (r2-expand or pin members) queued for queue-5. Census regex
+hardening APPROVED and widened: (?!\w) at run_board.py:1054 AND
+:975 (phantom ctx.py live-reproduced; .pyc class closed), with
+pinned selftest legs. Next increment completes population 40/40;
+queue 2 opens at that merge. Spec: gates-and-board.md "Phase-3
+landing audit + deploy_data sign-off + the census word-boundary
+ruling".
+
+25M-07..13 BATCH (2026-07-13, Fable): 07 RETRACTED by the red team
+in the register BEFORE adjudication (s_step/h notation collision
+the user exposed; identifier retired) — the durable record
+overrode the stale chat copy, the rule working as designed. Six
+confirmed: 08/11/12 = three unit-13 amendments (stencil-factor
+representability via nextafter; the 2x2 noise PSD inequality +
+assembled-PSD check — executed witness eigenvalue -2.86e-11; beam
+exponent representability + postcompute finiteness — inf at ell
+5000/60 arcmin) under the recorded USER RULING (Planck-LCDM
+fiducial = the byte-identical control; these are schema-totality
+claims). 09 = NEW UNIT 96 artifact composition mode (deleting
+f['pce'] silently swaps the scientific model, H0 moves 2.8;
+native required enum + two-way group validation; interlocks
+3/76/41). 10 = NEW UNIT 95 output-channel owner (--quiet cannot
+suppress stage_source's unconditional print). 13 = unit-75 BAOSN
+extension (union manufactures compatibility: w moves H while D_M
+stays bit-identical; 7.5% vs the independent integral) + NEW
+ADVISORY: no cross-run Hubble/D_M pairs until the binding lands.
+Spec: gates-and-board.md "25M-07..13 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

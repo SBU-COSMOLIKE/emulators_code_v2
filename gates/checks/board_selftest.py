@@ -586,13 +586,18 @@ def check_manifest_reconciliation():
     Drives the REAL run_board.validate_manifests over fabricated gates whose
     bodies are real source (so inspect.getsource reads them) and whose declared
     roots are real repo modules (so the closure and the dynamic-import census
-    run against real files). A gate with no manifest is skipped, so the live
-    BOARD is a no-op.
+    run against real files). A gate with no manifest is skipped; the populated
+    live BOARD instead reconciles against the real board_config.
     """
-    # live board: every gate is still manifest-less, so validation is a no-op.
-    ok, errs = run_board.validate_manifests(BOARD, _MF_CFG)
-    report("live BOARD (all manifest-less) validates as a no-op", ok,
-           "no declared manifests yet; errors=" + str(len(errs)))
+    # live board: the populated manifests must all reconcile against the REAL
+    # board_config (declared input keys resolve there); a manifest-less gate is
+    # still skipped. _MF_CFG below drives only the fabricated fixtures, which
+    # declare no inputs.
+    live_cfg = run_board._load_config()
+    declared = sum(1 for g in BOARD if g.manifest is not None)
+    ok, errs = run_board.validate_manifests(BOARD, live_cfg)
+    report("live BOARD manifests validate against board_config", ok,
+           str(declared) + " gate(s) declared; errors=" + str(errs[:3]))
 
     # (a) literal-path census: an undeclared subprocess target reds.
     g = _mf_gate("mf-target", _mf_body_undeclared_target, code=())

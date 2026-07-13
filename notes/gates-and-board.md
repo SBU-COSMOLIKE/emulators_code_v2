@@ -3536,3 +3536,386 @@ hold was STALE at audit time: the user had concluded the vi-stuck
 merge as 7743fc6, MERGE_HEAD gone, status clean. d00358c's base
 83c8624 is an ancestor of main; file sets disjoint from 7743fc6's —
 the refresh-first step is unnecessary; merge directly.
+
+## Batch-4/5b checkpoint audit + the deploy_data shape ruling (Fable, 2026-07-13)
+
+CHECKPOINT AUDITED (the three leftover no-schema gates, uncommitted
+in the shared worktree; diff read pre-commit): exactly three
+Manifest insertions, five lines. weight-decay-census code=()
+inputs=() is CORRECT for a reasoned cause, not by accident: the gate
+works purely through subprocess drivers, so its IN-PROCESS check
+closure never reaches the waived dynamic-import surface — child
+executables are the trunk digest's jurisdiction. save-rebuild-drift
+and cobaya-adapter rebuild IN-PROCESS (their closures reach
+results.py's waived imports), so designs+losses roots are required
+— the geo-paths exemplar's logic, applied consistently.
+validate_manifests: 18 declared, ok=True. Commit custody: the
+Implementer commits its own board.py work at the assembled landing;
+Architect commits stay notes-only. At the assembled-landing audit I
+will independently re-derive gwd-c's empty closure
+(beyond-sufficiency, as done for geo-paths).
+
+THE DEPLOY_DATA SHAPE RULING (the one open design decision):
+APPROVED as recommended — ONE shared top-level deploy_data block in
+board_config.json, logical-key -> rootdir-relative path:
+
+  "deploy_data": {
+    "w0wa_takahashi_train_cs_16":
+      "projects/lsst_y1/chains/w0wa_takahashi_dvs_train_cs_16.npy",
+    "lsst_y1_dataset":
+      "external_modules/data/lsst_y1/lsst_y1_M1_GGL0.05.dataset"
+  }
+
+Binding constraints:
+1. Logical keys are SEMANTIC (name the fixture, never a gate id).
+2. Lane rule by PROVENANCE, not consumer count: deploy_data holds
+   deploy-machine data (external_modules/data, projects/*/chains);
+   gate_data keeps gate-owned configs/fixtures (ruling 2's lane). A
+   single-consumer deploy path still lives in deploy_data — one lane
+   for deploy data, chosen by what the path IS.
+3. Gates reference dotted deploy_data.<logical-key> in inputs=,
+   resolved through the existing ladder with resolve-not-exist
+   semantics (rider r3; cross-machine None-sha members).
+4. A referenced-but-absent logical key is STARTUP RED at
+   validate_manifests (exit 2, the dotted path named) — no fallback,
+   no default (never-trust-defaults).
+5. No literal path may appear twice: gates sharing a fixture MUST
+   share the key. The sign-off proposal proves this by presenting
+   the FULL derived block as a paste-ready JSON block plus every
+   consuming gate's inputs= — values derived from the shipped
+   configs, never guessed.
+6. board_config.json remains the local deployment override; machine-
+   varying paths belong exactly there.
+
+Sequencing confirmed: BATCH-3-STYLE gates + cli-strict land
+immediately under the standing GOs; the deploy_data proposal returns
+for sign-off; then the full-board Mac validation and the review
+handoff. The deferred resume block lands with the assembled landing.
+
+## DIDACTICS-72..92 adjudication (Fable, 2026-07-13): the README wave — four file visits, the factual heads jump the queue, one aliasing rule
+
+The register (notes/red-team-audit-and-didactics-2026-07-13.md,
+"README-focused DIDACTICS handoff register: 72--92", e6256a1) read in
+full; anchors sample-verified at the audited HEAD, ALL CONFIRMED:
+
+- 79: the canonical generator command (README.md:2425-2427) omits
+  --seed, which generator_core.py:157-166 declares required=True
+  ("an unrecorded seed cannot be replayed"); --unif is required=True
+  choices [0,1] (:125-130), not a default; and the command passes
+  --boundary 1.0 two paragraphs after the README's own "pass only
+  0 < --boundary < 1" (:2387-2389). The copyable command CANNOT RUN
+  as printed — the repo's highest-visibility falsehood class.
+- 86: both same-file contradictions verbatim — emulator/README.md
+  :128 "the grid2d law transform currently defeats the memory
+  ladder" vs :419 "Bounded grid2d staging has landed ... the retired
+  full-materialization concern"; :83 still names the retired
+  external_modules/code/emulators/emultrfv2/ path.
+- 87: gates/README.md:3-7 "cosmic-shear ... runs every ... one raw
+  log per test"; :46/:147 promise fixed logs/<test>.log against the
+  landed immutable per-attempt timestamped logs.
+- 90: syren/README.md:3-7 universalizes log(P/P_base) against the
+  three-law registry (none = raw rows; syren_linear = log(P/P_base);
+  syren_halofit = log(B/B_base)).
+- 91, SHARPENED beyond the filing: ":34-35 byte-verbatim
+  (AST-verified in the vendoring probe)" — an untruncated grep over
+  gates/, syren/, emulator/, compute_data_vectors/ finds NO retained
+  vendoring probe (the three "vendor" hits are folder-reference
+  prose). The parenthetical cites a NONEXISTENT artifact: binding
+  ruling 6's never-executed-evidence class, in a README.
+- 81: emulator/README.md:97-100 "the same per-sample chi2" verbatim.
+
+RULINGS:
+
+1. THE FACTUAL HEADS JUMP THE QUEUE (join the D2 factual bundle):
+   79's command repair (a reproducible explained seed; --unif stated
+   required with its 0/1 meanings; an interior boundary value or the
+   flag omitted); 86's two contradictions + the retired path; 87's
+   false scope/every-test/log-name claims; 89's edit-the-config
+   instruction (a standard clone resolves rootdir: null from
+   $ROOTDIR) and the "stale git tip" mischaracterization (preflight
+   proves base-notes ANCESTRY of HEAD; it never fetches origin);
+   81 -> "same per-row score interface, shape (B,)"; 82's narrowing
+   (the square-dense/two-projection rule is the ResMLP trunk's, not
+   the library's — Conv1d, attention, FiLMGenerator are
+   counterexamples at blocks.py:350-425); 83's precise claim
+   (non-cosmic-shear training does not import CosmoLike — not "pure
+   PyTorch"); 90's law table heads; 91's honest narrowing
+   ("vendoring prevents an unreviewed package-manager upgrade";
+   "byte-verbatim" reserved for byte/hash comparison; the
+   nonexistent-probe citation removed); 76's three data-boundary
+   corrections (generator writes PHYSICAL values, ParamGeometry
+   whitens after selection; the dv .npy is memmapped while the
+   parameter .txt parses eagerly; "in-memory source" vs file-backed
+   payload distinguished).
+2. FOUR FILE VISITS, one per README, queue-6 lane (doc-only,
+   review-blocked filler): root (72-80), package map (81-86), gates
+   (87-89 MERGED with DIDACTICS-02's D1 landing — gates/README.md
+   gets ONE visit: walkthrough + completed table + operator path
+   together, never two passes), syren (90-92, landing WITH or AFTER
+   unit 75 since 92's domain paragraph sources its ranges there
+   rather than inventing them).
+3. Riders honored as filed — no duplicate mechanisms: 86 + 88
+   sharpen the queue-6 restructuring and the DIDACTICS-62/ruling-6
+   acceptance surfaces; 88's completed table runs through
+   DIDACTICS-02's mechanical set-equality leg, extended to the
+   six-field rows and preceded by the evidence ladder (banner/schema
+   < parity/round-trip < independent known answer with mutation
+   catch power); 91's identity half rides the artifact
+   implementation-identity work; 92 teaches the honest evidence
+   split (stub-base assembly identity vs the law-none real-CAMB
+   smoke; neither proves the real Syren fit's accuracy).
+4. THE ALIASING RULE (binding, program-wide): DIDACTICS labels now
+   collide with unit numbers (DIDACTICS-90/91/92 vs units 90/91/92).
+   Every artifact writes the DIDACTICS- prefix in full; a bare
+   number means a UNIT. The register's own scope note anticipated
+   exactly this.
+5. Acceptance additions for this wave: every repaired command is
+   EXECUTED once on its appropriate machine before it is printed
+   (Mac-safe now; workstation commands at the queue-5 window, run
+   recorded) — command-to-output truth is the wave's theme and a
+   printed command is a quantifier claim about reality; the 86 link
+   check covers ALL READMEs (clickable ../notes/... paths); no
+   numeric gate count anywhere (DIDACTICS-02 law); untruncated
+   stale-phrase scans per file; the voice note read before writing.
+
+Sequencing: doc-only; nothing preempts the spine (4/5b -> D3 -> D4
+-> D5). The consolidated plan absorbs this wave without a new spine
+position: D1 gains 72 + the merged gates-README visit; D2 gains the
+factual heads; the four visits join the queue-6 lane.
+
+## 25M-01..06 adjudication (Fable, 2026-07-13): all six CONFIRMED — one new unit (94), four amendments, one extension; two immediate production advisories
+
+Durable register at fafc122 (entries carry contracts + red legs);
+every anchor independently verified in code:
+
+- 25M-01 CONFIRMED (generator_core.py:746-747): the uniform-branch
+  safety margin multiplies the ABSOLUTE endpoint (1.0001*lo /
+  0.9999*hi, sign-reversed for negatives) — proportional to the
+  coordinate's distance from zero, not the interval width. The
+  [70.0, 70.02] witness retains 29.99% of its width; [1000.0,
+  1000.01] inverts and rng.uniform raises. Translation-dependent
+  physics. -> NEW UNIT 94, the boundary-interior owner: ONE named
+  helper working in interval coordinates (nextafter(low,high) /
+  nextafter(high,low) preferred, or a named width-relative margin);
+  finite, ordered, representably nonempty interior validated BEFORE
+  sampling; requested AND resolved per-name support persisted in
+  dataset identity — the generation-side half of the support story
+  whose inference-side half is unit 84 (the artifact fact 84
+  consumes is the one 94 records). Red legs as filed, including the
+  endpoint-times-constant restoration mutation.
+- 25M-02 CONFIRMED (:369-375 stretch infinite hard-prior endpoints
+  by temp*width/5; :426-429 name all three uniform outputs only
+  _<probe>_unifs while the non-unif branch embeds _<temp>): two
+  healthy temperatures produce different supports at identical
+  paths. -> UNIT 8 AMENDMENT: dataset identity includes sampling
+  mode, requested temperature, resolved per-name bounds, the
+  boundary-interior policy (94's), and seed/RNG; resume/append
+  require exact identity before mutation; different identity =
+  refusal or a digest-derived distinct path.
+- 25M-03 CONFIRMED (:221-223: rank-0 __run_mcmc() runs
+  UNCONDITIONALLY, then chain==1 merely skips
+  __generate_datavectors): chain-only mode rewrites the parameter
+  chain + .paramnames/.ranges/.covmat at the same stems and leaves
+  old dv/failure files — a successful TWO-COMMAND corruption pairing
+  new cosmology row i with old physics row i, all row counts
+  agreeing. -> UNIT 8 + UNIT 82 JOINT AMENDMENT: chain-only owns a
+  distinct identity/location or refuses before mutation when any
+  full-dataset member exists; the manifest records mode; full
+  generation cannot adopt a colliding chain-only bundle. The
+  run-control state machine (unit 8) gains --chain as a mode axis
+  beside --append/--loadchk.
+- 25M-04 CONFIRMED (cosmic_shear_tune_emulator.py:217 family=
+  "cosmolike" default; :290 study_name = STUDY_NAME if family is
+  None else prog; the adjacent comment still promises the historic
+  name): STUDY_NAME is now UNREACHABLE — the documented direct
+  command forks its Optuna resume from cosmic_shear_tune to
+  cosmic_shear_tune_emulator. A REGRESSION INTRODUCED BY A REPAIR
+  (e9943bc) — the forward-walk law's second strike (FTW model-block
+  precedent). -> UNIT 53 AMENDMENT: one pure resolver maps family
+  identity to a stable study name (direct cosmolike -> the retained
+  historic constant; wrappers -> their pinned tags); resolved name
+  in the study manifest and final report; renames are explicit
+  migrations, never validator collateral. The false comment is
+  corrected in the SAME landing.
+- 25M-05 CONFIRMED (both sweep writers persist raw args.activation
+  — ntrain :493, hyperparam :444 outside the swept axis — while
+  from_config resolves None -> YAML -> "H" at experiment.py:
+  2181-2189): the shipped default runs H under "# activation=None".
+  -> UNIT 41 EXTENSION (resolved-record truth reaches sweep
+  products): metadata assembled from ONE immutable resolved run
+  record, never raw optional CLI fields; activation-family sweeps
+  record "swept" + ordered values; serial and pooled paths share the
+  record; banner/artifact/table/figure agree.
+- 25M-06 CONFIRMED (:786 .ranges writes {:.5e} while :799 chain rows
+  write %.9e): float32-distinct bounds 70.00001/70.00002 both
+  publish as 7.00000e+01 — a false zero-width support the manifest
+  would faithfully digest (file identity cannot substitute for
+  representation truth). -> UNIT 82 EXTENSION (canonical
+  representation, coupled with unit 87's one-decimal-contract): one
+  decimal policy derived from the owned dtype shared by
+  chain/header/ranges; publication refuses before mutation if
+  conversion collapses a valid interval; both witness pairs
+  round-trip distinct.
+
+TWO IMMEDIATE PRODUCTION ADVISORIES (effective now, until landings):
+(1) uniform generation with NARROW or LARGE-OFFSET intervals is
+unsafe (the margin eats width or inverts); shipped broad priors are
+negligibly affected (margin << width). (2) --chain 1 at stems
+holding a full dataset is the two-command corruption — do not run it
+there. These join the standing 45M-81 no-append advisory.
+
+Sequencing: production-code repairs in the unit queue (not the
+pre-queue-5 gate-truth gauntlet); 25M-02/03 land with unit 8's
+run-control machine; nothing preempts batches 4/5b -> D3 -> D4 ->
+D5. The 25M series joins the registry namespace with the
+durable-record rule honored (fafc122 landed before the chat copy).
+
+## Phase-3 landing audit + deploy_data sign-off + the census word-boundary ruling (Fable, 2026-07-13)
+
+LANDING 774bf3d AUDITED — GO. Nine no-schema gates populated
+(15 -> 24 declared, ok=True; selftest ALL PASS with and without
+$ROOTDIR; py_compile clean). Both flagged deviations ratified:
+
+- The board_selftest live-board fix is an UPGRADE, not merely a
+  repair: the old leg validated the live BOARD against a stub cfg
+  and was vacuous by construction ("all manifest-less ... no-op");
+  the new leg reconciles every declared manifest against the REAL
+  board_config via _load_config (safe with $ROOTDIR unset) and
+  prints the declared count. The Implementer caught a latent
+  vacuous-pass in OUR OWN acceptance machinery — the exact class the
+  gate-truth campaign hunts; recorded as such.
+- The three smoke-gate docstring rewords (bare generator .py tokens
+  -> prose) follow the diagnostics-domain precedent.
+
+DEPLOY_DATA SIGN-OFF — APPROVED WITH ONE AMENDMENT. The census claim
+was mechanically re-verified: an untruncated uniq -c over ALL gate
+configs finds exactly 22 occurrences of each of the six file names —
+every batch-4 config names the identical six fixtures, and the val
+role genuinely consumes the cs_8 files (role-named keys over
+file-named paths is honest and ratified). Paths match the resolution
+rule (train/val under --root/chains; the dataset under
+$ROOTDIR/external_modules/data/<cosmolike_data_dir>).
+cosmolike_data_dir itself is correctly omitted (a directory, not a
+leaf member). THE AMENDMENT — a recorded blind spot: the .dataset
+file is a POINTER; the sibling files it references (data vector,
+covariance, mask, n(z)) are NOT in the hash surface, so a changed
+mask leaves a green manifest. The _help entry gains one sentence
+naming this boundary, and a board-listed HARDENING OPTION is queued
+for the queue-5 window: measure the hashing cost there, then either
+r2-expand the data directory or pin the referenced members. V1
+lands as proposed; the blind spot is documented, not silent
+(scope-and-blind-spot law).
+
+CENSUS WORD-BOUNDARY RULING — APPROVED, WIDENED TO BOTH UNANCHORED
+SITES. The phantom was live-reproduced by the Architect:
+re.findall(r"[\w./-]+\.py", "cmd=[ctx.python, ...]") captures
+"ctx.py". The hardened form [\w./-]+\.py(?!\w) captures nothing
+there, still captures a real sentence-final mention
+("... gates/run_board.py."), and stops the latent .pyc/.pyx false
+captures. Apply (?!\w) to run_board.py:1054 (the general census)
+AND :975 (the gates/checks-prefixed census — same .pyc class);
+:1057's quoted driver form is bounded by quotes and stays. Pinned
+acceptance (selftest legs): production-diagnostic validates (the
+phantom is gone); a control keeps a real .py mention captured
+including sentence-final; "x.pyc" yields nothing; "ctx.python"
+yields nothing. This is the one authorized edit to the
+validate_manifests machinery; the Implementer lands it with
+production-diagnostic's population.
+
+param-window-cuts' ctx.log reword (geometries.output.py -> "the
+geometries output module") is approved at its population
+(diagnostics-domain precedent).
+
+Result: the next increment lands the deploy_data block + 15 gate
+inputs= + the census hardening + production-diagnostic, completing
+population 40/40 — queue 2 opens at that merge. The full-board Mac
+validation and the review handoff remain the acceptance.
+
+## 25M-07..13 adjudication (Fable, 2026-07-13): six confirmed, one retraction accepted; units 95 + 96 minted; three unit-13 amendments under the user's reasonableness ruling; one new advisory
+
+Durable register at 652dad9. THE RETRACTION FIRST: 25M-07 was
+retracted IN THE REGISTER before this adjudication — the chat copy
+still filed it live, and the durable record overrode the chat
+exactly as the durable-record rule intends. The executed
+observation stands (the -2*s_step arm goes negative for s_step >
+0.5); the conclusion did not follow — the user's h = 0.7 remark
+exposed a notation collision (numerical step fraction vs
+cosmological Hubble parameter), and no CAMB known-answer proved
+signed formal arms wrong. Identifier retired, no code or gate
+change owed; a future restriction needs an independent CAMB
+known-answer, not the category assumption that every stencil arm
+must be a realizable cosmology.
+
+THE USER RULING (recorded in the register, ratified here):
+covariance reasonableness is anchored to the Planck-LCDM fiducial
+(example_yamls/cmb_covariance_lcdm.yaml: H0=67.36, As=2.1e-9,
+ns=0.9660, omegabh2=0.02237, omegach2=0.1200, tau=0.0544,
+mnu=0.06), which stays a byte-identical known-answer control in
+EVERY covariance-validator change. 25M-08/11/12 are SCHEMA-TOTALITY
+and catch-power claims, not claims that the shipped calculation is
+wrong.
+
+Verified and placed:
+
+- 25M-08 CONFIRMED (compute_cmb_covariance.py:562: clpp *= (1.0 +
+  eps); [1e-20, 2e-20] rounds every factor to exactly 1.0 — the
+  executed run saw ONE unique relensing payload, returned exactly
+  zero non-Gaussian covariance, and called it converged) -> UNIT 13
+  AMENDMENT: ordered representable factors 1-2s < 1-s < 1 < 1+s <
+  1+2s derived via nextafter, both-sign changed-value counts
+  persisted, the false-green fixture refuses before relensing.
+- 25M-11 CONFIRMED (noise_spectrum squares amplitudes independently
+  :185-188; gaussian_blocks assembles TT/TE/EE with no PSD check;
+  executed witness delta 1/10/1 -> joint eigenvalues
+  [-2.86365772e-11, 1.43097071e-11, 2.86537506e-11] while every
+  scalar check greens) -> UNIT 13 AMENDMENT: the 2x2 noise PSD
+  inequality delta_te^2 <= delta_tt*delta_ee at the config boundary
+  (representation-derived band), the per-ell signal+noise check,
+  assembled-covariance PSD within one owned tolerance before
+  publication; no clipping/loading/abs repairs.
+- 25M-12 CONFIRMED (:188 exponentiates the beam factor; executed:
+  ell 5000 + 60-arcmin beam -> inf; 32 arcmin -> noise finite
+  ~4.11e162 while its covariance square overflows; savez writes
+  without a postcompute finite check) -> UNIT 13 AMENDMENT: derive
+  the largest beam exponent from resolved lmax and prove noise AND
+  covariance products representable (named formulas, no guessed
+  cap); postcompute finiteness on every array before output
+  mutation, first key/ell/value named on failure.
+- 25M-09 CONFIRMED (results.py:348 writes pce only when non-None;
+  :617-625 rebuild infers composition from group PRESENCE;
+  _read_native_bool("transfer_refined") only runs inside the
+  if-transfer_base branch; executed witness: deleting f['pce'] from
+  a valid NPCE artifact strict-loads and moves H0 by 2.7999344) ->
+  NEW UNIT 96, the artifact composition mode: a native REQUIRED
+  enum (plain/npce/transfer + refined as a separate native fact)
+  persisted from the executed run; two-way required/forbidden group
+  validation before model construction; mutual exclusion; absence
+  NEVER means plain on schema v2; legacy presence-only artifacts
+  refuse with a migration instruction; config_yaml corroborates but
+  never substitutes for the enum. Interlocks units 3 (pair
+  identity), 76 (recipe totality), 41 (resolved record). HIGH.
+- 25M-10 CONFIRMED (stage_source prints unconditionally with no
+  verbosity parameter; CMB geometry raw prints at experiment.py:
+  3493/3504/3548; two worker failure paths bypass the quiet logger)
+  -> NEW UNIT 95, the output-channel owner: ONE owned emit channel
+  threaded through staging/geometry/workers; --quiet either honest
+  or its help narrowed to what it controls; the house
+  terminal-output rule (essential-only + debug switch) is the
+  design frame. The captured-stdout witness becomes the gate leg.
+- 25M-13 CONFIRMED (emul_baosn.py:126-127 unions every predictor
+  name with only quantity/units checks; executed witness: w moved
+  H(z=1) while D_M(z=1050) stayed bit-identical at
+  13999.394531250002 — an independent flat-wCDM integral moved
+  7.506%) -> UNIT 75 EXTENSION (the BAOSN half): equal canonical
+  generator/dataset/domain binding, compatible sampled coordinates
+  and domains, identical fixed facts (74/67's machinery), a
+  parameter sampled by one half = refusal; requirement union never
+  creates compatibility. NEW ADVISORY (joins the standing list):
+  never serve a Hubble + D_M pair from different runs until the
+  pair binding lands.
+
+Sequencing: production repairs join the unit queue (13's three
+amendments ride its existing 45M-01 slot; 96 beside 76's landing;
+95 with the training/driver campaign; 75-BAOSN with the family
+visits). Nothing preempts population completion -> the gauntlet.
+The registry namespace: 25M-07 retired-tombstone, 08-13 live.
