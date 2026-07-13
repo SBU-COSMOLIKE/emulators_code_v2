@@ -634,3 +634,179 @@ gates), BEFORE the EMUL2 acceptance. USER-VISIBLE: schema break (old
 z_sn configs refused loudly) + artifact migration (old artifacts
 refused loudly); served numbers at shipped-scale zmin change
 imperceptibly (< 1e-5 relative).
+
+## UNIT 62 (45M-62, fourteenth batch, 2026-07-12): background metadata schema — producer/consumer units unification
+
+Finding (red team, CONFIRMED live): validate_grid (experiment.py
+~:826-905) requires the data.grid.units KEY but never checks its
+VALUE — reproduced through the REAL validator (cocoa python,
+2026-07-12): units = 'bananas', True, None, and 3.14 are ALL
+accepted and returned in the grid dict, while validate_grid2d in
+the SAME FILE refuses a wrong units string by name (:967-972,
+Mpc3/dimensionless per quantity). GridGeometry.__init__ then
+str()-coerces and persists (grid.py:95, True -> "True"), and
+from_state (:130-138) rebuilds with no check either. The ONLY
+value check in the program is the public consumer's:
+emul_baosn.initialize demands the exact pair Hubble -> "km/s/Mpc",
+D_M -> "Mpc" (emul_baosn.py ~:128-142) and refuses the artifact.
+Concrete wrong outcome: an expensive, otherwise-successful
+training run saves a schema-v2 pair the intended adapter can never
+serve — the producer and consumer implement different metadata
+schemas. Transfer/finetune equality checks (:2277, :3793) enforce
+only SAMENESS against a base, so a bananas base propagates.
+
+Contract (red team's six clauses adopted, one narrowing):
+
+1. ONE shared background-quantity registry beside TARGET_LAWS in
+   emulator/geometries/grid.py: quantity -> its units string
+   (Hubble -> km/s/Mpc, D_M -> Mpc). validate_grid AND
+   emul_baosn.initialize read the SAME registry (the adapter
+   already imports emulator.inference / emulator.background at
+   emul_baosn.py:46-47 — a direct import, no vendoring problem).
+   NARROWED (Architect): the registry does NOT constrain laws per
+   quantity — log_offset is legitimate for either quantity (the
+   shipped docstring recommends none for D_M without forbidding
+   log_offset) and no evidence shows any law pairing wrong; the
+   defect is units.
+2. validate_grid requires the exact registry pair BEFORE staging
+   any data or constructing torch objects — the mirror of its
+   grid2d sibling in the same file.
+3. No str() coercion anywhere on the units surface: the value must
+   be a plain str equal to the registry string; bool/int/float/
+   None/any other type is a schema error naming the received type
+   (the probe proved every one of them currently rides through to
+   persistence).
+4. GridGeometry.__init__ and from_state validate (quantity, units)
+   against the registry too, so a forged or corrupted artifact
+   cannot bypass the YAML validator; refusal at load, never at
+   first query.
+5. Shipped configs byte-identical (baosn_hubble_emulator.yaml is
+   already Hubble / km/s/Mpc; the gate D_M fixtures already Mpc);
+   NO numeric change anywhere — a metadata-only unit.
+6. The error names the received (quantity, units, law) tuple and
+   the allowed tuple(s), and says WHY: units is an artifact fact
+   the public consumer dispatches on.
+
+Red legs (inside the existing board-listed bsn-identity; the
+artifact/rebuild legs are torch-backed):
+
+- valid Hubble and D_M controls (registry pairs accepted
+  end-to-end);
+- Hubble/Mpc, D_M/km/s/Mpc, and Hubble/bananas refused at config
+  validation naming the allowed pair;
+- non-string units (True, None, 3.14) refused as type errors,
+  never stringified;
+- forged geometry state with a mismatched pair refused on
+  from_state;
+- saved valid artifact rebuilds and is ACCEPTED by the real
+  emul_baosn initialize (the producer/consumer-agreement leg);
+- mutation arm: restore the units-blind validator while the
+  adapter stays strict — the gate must fail BECAUSE producer
+  acceptance and consumer acceptance differ (the agreement leg is
+  what catches it).
+
+Adjacency: distinct from units 15/58 (they certify the numerical
+redshift domain; this unit certifies the metadata is consumable at
+all). Placement: fourth wave, lands WITH units 15+58 (one
+background visit, same gate homes), BEFORE the EMUL2 acceptance.
+USER-VISIBLE: configs with wrong or non-string units are now
+refused loudly (previously they trained to an unservable
+artifact); valid configs and all numerics unchanged.
+
+## UNIT 63 (45M-63, fourteenth batch, 2026-07-12): the grid2d constant pin must prove its science, not just zero variance
+
+Finding (red team, CONFIRMED live): D-MP9's carve-out was argued
+on boost physics (B = 1 below the nonlinear scale, so the low-k
+law-space columns are constant under any law — gates-and-board.md
+runs 7-8) but implemented value-, quantity-, and coordinate-BLIND.
+Grid2DGeometry.from_stats (grid2d.py ~:196-226) pins EVERY
+sufficiently-constant column (scale <= 8*eps32*|center|), sets its
+scale to 1, and decode (:340-341) permanently serves the training
+constant there. Reproduced through the REAL geometry (cocoa
+python, 2026-07-12):
+
+- pklin/none with ONE stale column -> pinned; decode serves
+  12345.6 at that (z, k) for EVERY input — a cosmology-independent
+  linear power, which cannot exist in the sampled A_s/shape space.
+  A partial generator failure served as physics; reachable at the
+  validator boundary (validate_grid2d allows law "none" for either
+  quantity).
+- the mps_identity pin leg (:175-197) itself pins an arbitrary
+  boost constant of 7.0 under BOTH syren_halofit and none —
+  neither the raw identity B = 1 nor the residual identity 0 — so
+  the current gate BLESSES the corruption class.
+- a FORGED const_mask on a varying pklin column is accepted by
+  from_state (the constructor checks only numel, :119-127) and
+  decode then serves the training mean regardless of input.
+
+Distinct from unit 11 / 45M-49 (representability decides whether a
+column IS constant in storage; this unit decides whether that
+constant is PERMITTED by the science schema) and from the
+whole-surface dead-dump guard (which stays).
+
+Contract (red team's adopted, one precision ruling):
+
+1. A pin is legal ONLY when all three gates pass:
+   (i) quantity == "boost" — any constant pklin coordinate is a
+   loud partial-dead-dump error naming (z, k), quantity, law, and
+   the stored value;
+   (ii) the stored center matches the law's identity within a
+   documented stored-dtype tolerance — raw none boost: 1; syren
+   residual space: 0. The tolerance is float32-eps-derived with
+   its derivation recorded, and (the band precedent) may only
+   WIDEN on measured valid evidence;
+   (iii) the pinned set is a LOW-K region: per z-row the pinned
+   columns form a contiguous prefix from the lowest k (the physics
+   that justified D-MP9 — B = 1 BELOW the nonlinear scale); a
+   pinned column with an unpinned lower-k column in the same z-row
+   is refused naming both coordinates. A constant boost outside
+   the allowed region, or at the wrong value (7, -3), is a loud
+   error. If the REAL production/smoke dumps violate strict
+   prefix-ness at the nonlinear boundary, the Implementer reports
+   the measured pattern BEFORE weakening the region rule — never
+   silently.
+2. PRECISION RULING (Architect) on the persist-the-policy clause:
+   NO new artifact field and NO policy/version key — the queue-43
+   no-version precedent applies. Legality is recomputable from
+   facts the artifact ALREADY persists (quantity, law, z, k,
+   center, const_mask), so readback VALIDATES const_mask against
+   them in the constructor — the single home both from_stats and
+   from_state flow through — and a forged mask cannot pin
+   arbitrary science. A second trusted axis (a version integer
+   beside the mask) would itself be forgeable and adds nothing the
+   persisted facts do not carry.
+3. The whole-surface dead-dump refusal stays, for every law.
+4. Pre-pin artifacts (const_mask None) stay legal; the VALID
+   existing boost pin and every nonconstant valid numeric are
+   byte-identical.
+5. The mps_identity 7.0 legs are REPLACED with the replacement
+   recorded in the check (the run-10 precedent: delete the stale
+   expectation and say why): the valid-pin legs use the identity
+   values inside a low-k region; the 7.0 shape moves to the
+   refusal legs.
+
+Red legs (inside the existing board-listed mps-identity;
+torch-backed geometry/readback legs):
+
+- pklin/none with one constant column raises naming
+  (z, k)/quantity/law/value;
+- pklin/syren_linear with one zero-residual column raises;
+- low-k boost/none == 1 and low-k boost/syren_halofit == 0 pin AND
+  round-trip (the valid D-MP9 case preserved bit-for-bit);
+- low-k boost constants 7 and -3 raise;
+- high-k boost constant at the otherwise-correct identity value
+  raises (the region gate);
+- forged artifact state with a mask on pklin or on high-k boost
+  raises on rebuild;
+- whole-surface constant still raises;
+- mutation arm: restore the current quantity-blind
+  scale <= tiny pin — the gate must fail.
+
+Note: the red team cited decode at :366; the torch.where site
+verifies at :340-341 at HEAD — line drift only, mechanism
+identical. Placement: fourth wave, lands with the MPS visit
+(beside unit 16's mps-smoke amendment; this unit's legs live in
+mps-identity), BEFORE the EMUL2 acceptance. USER-VISIBLE: dumps
+with stale constant columns now refuse loudly at geometry build
+(previously they trained "green" and served corrupted science);
+existing valid boost artifacts rebuild unchanged.

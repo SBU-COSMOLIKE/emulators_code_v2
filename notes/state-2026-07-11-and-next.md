@@ -1413,6 +1413,44 @@ same-file collision), then 14(g+h) as one visit, then
 50(+60+14f). Continue answer to the Implementer: YES, finish 43
 as scoped.
 
+FOURTEENTH 45M BATCH (2026-07-12): 45M-62 = NEW UNIT 62 —
+validate_grid requires data.grid.units but never checks the VALUE
+(probe through the REAL validator: 'bananas', True, None, 3.14 all
+accepted; validate_grid2d in the same file refuses by name at
+:967-972); GridGeometry str()-coerces and persists; the only value
+check in the program is emul_baosn's exact-pair refusal at LOAD —
+an expensive successful training run can save a pair its intended
+adapter can never serve. Contract: ONE shared quantity->units
+registry beside TARGET_LAWS read by BOTH validate_grid and
+emul_baosn (the adapter already imports the emulator package),
+exact-pair check before staging, no str() coercion (wrong types
+are schema errors), constructor+from_state defend the artifact
+side, shipped configs byte-identical, errors name received vs
+allowed tuples; NARROWED: no per-quantity law restriction
+(log_offset is legitimate for either quantity). Six legs incl. the
+producer/consumer-agreement mutation arm, in bsn-identity. Rides
+the wave-4 background visit WITH 15+58. 45M-63 = NEW UNIT 63 —
+D-MP9's constant pin is value-, quantity-, and coordinate-blind
+(from_stats pins ANY constant column; probe: pklin/none stale
+column -> decode serves 12345.6 for every cosmology; a forged
+const_mask on a varying pklin column is accepted by from_state;
+the mps_identity leg itself blesses a boost constant of 7.0 under
+both laws — neither B=1 nor residual 0). Contract: a pin is legal
+only for boost AND center at the law's identity within a
+documented float32-derived tolerance AND a per-z contiguous low-k
+prefix; a constant pklin column is a loud partial-dead-dump error;
+readback validates the mask against the persisted facts in the
+constructor; PRECISION RULING: no policy/version field (the
+queue-43 no-version precedent — legality recomputes from persisted
+facts); the whole-surface guard and the valid boost pin stay
+byte-identical; eight legs incl. the quantity-blind-pin mutation
+arm, in mps-identity, the 7.0 legs replaced on record. Rides the
+wave-4 MPS visit beside 16. Distinct from unit 11
+(representability vs permission) — recorded in both specs. No
+critical-path change: 43 -> 14(g+h) -> 50(+60+14f) unchanged; both
+new units are wave-4 riders. Specs: families-background-mps.md
+"UNIT 62 (45M-62...)" and "UNIT 63 (45M-63...)".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
