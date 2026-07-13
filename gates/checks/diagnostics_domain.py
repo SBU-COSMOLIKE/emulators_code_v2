@@ -308,6 +308,17 @@ def check_producer_census():
     report("_screen_diag_chi2 delegates to screen_chi2",
            "screen_chi2" in calls.get("_screen_diag_chi2", set()),
            "one shared helper")
+    # unit 70 (20M-02): every needs_params residual diagnostic passes THIS
+    # batch's params to chi2, so the physical metric divides by the right
+    # amplitude factor -- never the last training batch's stashed one. The
+    # caller rule is uniform across the cmb / grid / grid2d producers: each
+    # names params_whitened in its needs_p branch (three sites), and the only
+    # bare chi2(pred, target) left is the non-factored else branch.
+    report("every residual diagnostic passes params to chi2 (unit 70 "
+           "caller rule, cmb/grid/grid2d)",
+           src.count("params_whitened=x_enc") >= 3,
+           "%d params-passing residual chi2 calls"
+           % src.count("params_whitened=x_enc"))
 
 
 def main():

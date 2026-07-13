@@ -534,7 +534,14 @@ def cmb_residual_diagnostic(model,
         cl = chi2fn.decode(p)
         tw = chi2fn.encode(t)
       preds.append(cl.double().cpu().numpy())
-      chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
+      if needs_p:
+        # unit 70 (20M-02): pass THIS batch's params so the physical metric
+        # divides by the right amplitude factor, not the last training batch's
+        # stashed one (a public chi2 call must never read the private stash).
+        chi2s.append(chi2fn.chi2(pred=p, target=tw,
+                                 params_whitened=x_enc).cpu())  # compute dtype
+      else:
+        chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
       start = stop
   pred  = np.concatenate(preds)
   dchi2 = _screen_diag_chi2(chi2s, chi2fn, "cmb residual", rows)
@@ -750,7 +757,14 @@ def grid_residual_diagnostic(model,
       else:
         tw = chi2fn.encode(t)
         preds.append(chi2fn.decode(p).double().cpu().numpy())
-      chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
+      if needs_p:
+        # unit 70 (20M-02): pass THIS batch's params so the physical metric
+        # divides by the right amplitude factor, not the last training batch's
+        # stashed one (a public chi2 call must never read the private stash).
+        chi2s.append(chi2fn.chi2(pred=p, target=tw,
+                                 params_whitened=x_enc).cpu())  # compute dtype
+      else:
+        chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
       start = stop
   pred  = np.concatenate(preds)
   dchi2 = _screen_diag_chi2(chi2s, chi2fn, "grid residual", rows)
@@ -880,7 +894,14 @@ def grid2d_residual_diagnostic(model,
       else:
         tw = chi2fn.encode(t)
         preds.append(chi2fn.decode(p).double().cpu().numpy())
-      chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
+      if needs_p:
+        # unit 70 (20M-02): pass THIS batch's params so the physical metric
+        # divides by the right amplitude factor, not the last training batch's
+        # stashed one (a public chi2 call must never read the private stash).
+        chi2s.append(chi2fn.chi2(pred=p, target=tw,
+                                 params_whitened=x_enc).cpu())  # compute dtype
+      else:
+        chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
       start = stop
   pred  = np.concatenate(preds)
   dchi2 = _screen_diag_chi2(chi2s, chi2fn, "grid2d residual", rows)

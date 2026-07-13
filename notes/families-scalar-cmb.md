@@ -1072,6 +1072,42 @@ red; the cmb-smoke bar gains the same stale-cache mutation arm; a
 law="none" control proves unchanged numerics. Sequencing: lands with
 UNIT 69, parallel to phase-3 population, before queue 2.
 
+### UNIT 70 DONE (Opus, 2026-07-13): the caller rule is uniform, the stash is private, the [3,3]/[12,0.75] control is green
+
+Caller fix (clause 1 + 4): all THREE needs_params residual diagnostics --
+cmb_residual_diagnostic, grid_residual_diagnostic, grid2d_residual_diagnostic
+(emulator/diagnostics.py:541/764/901) -- now pass THIS batch's x_enc to chi2 in
+their needs_p branch, so the physical metric divides by the right amplitude
+factor. The bare chi2(pred, target) survives only in each else (non-factored)
+branch.
+
+Stash privatized (clause 2): CmbFactoredChi2.loss clears self._params in a
+finally, so it is live ONLY during the immediate reduction (the inherited
+chi2 + _penalty_residual run inside loss, before the clear). A public caller
+that omits params after a loss now hits the loud ValueError instead of the
+last batch's stale factor. The docstring says so.
+
+cmb-smoke bar (clause 3): the mean-predictor collapse bar
+(gates/checks/cmb_smoke.py) passes params_whitened in the needs_params branch
+(workstation-verified with CAMB; compileall clean here). The grid/grid2d smoke
+bars (mps_smoke:203, bsn_smoke:193) call encode(dv) paramless -> their chi2fn is
+needs_params=False, so the bare chi2 is correct; not the defect.
+
+Legs: cmb_identity gains the analytic control -- two rows with factors f=[2,0.5]
+(tau at ref, A_s = as_ref/2 and 2*as_ref), three multipoles, zero prediction,
+whitened target = f: params-passing chi2 == [3,3] (physical), the omitted path
+reading a stale [1,1]-factor stash == the shipped [12,0.75] defect (the mutation
+arm), stash-invariance (byte-identical regardless of the stash), and a
+wrong-length stash survives (no shape crash). diagnostics-domain gains an
+executable call-site census (>= 3 params-passing residual chi2 calls). The
+existing "factored chi2 without params raises" leg still passes.
+
+Verification (Mac, cocoa-torch): cmb-identity ALL green (control factors exactly
+[2.0000, 0.5000]; [3.0000, 3.0000] vs [12.0000, 0.7500]); diagnostics-domain ALL
+green (census 3/3); compileall clean. Workstation-owed: cmb-smoke's bar rerun +
+its stale-cache mutation arm, and one real-Cobaya provider-routed diagnostic
+call (queue 5). Paired with UNIT 69 (disjoint files: 69 = emul_mps getters).
+
 ## UNIT 71 (20M-03, 2026-07-13, HIGH): emul_cmb serves Cobaya's documented get_Cl protocol — conversions from persisted facts, one startup/runtime verdict
 
 Finding (red team, CONFIRMED; probe: BoltzmannBase.get_Cl defaults

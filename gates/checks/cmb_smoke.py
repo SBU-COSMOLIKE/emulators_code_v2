@@ -389,9 +389,13 @@ def check_train(paths, tmp, device):
     x_enc = exp.pgeom.encode(C)
     if getattr(exp.chi2fn, "needs_params", False):
         tw = exp.chi2fn.encode(dv, x_enc)
+        # unit 70 (20M-02): the mean-predictor bar scores with THIS batch's
+        # params, never the amplitude factor the last training batch stashed.
+        c_mean = exp.chi2fn.chi2(pred=torch.zeros_like(tw), target=tw,
+                                 params_whitened=x_enc)
     else:
         tw = exp.chi2fn.encode(dv)
-    c_mean = exp.chi2fn.chi2(pred=torch.zeros_like(tw), target=tw)
+        c_mean = exp.chi2fn.chi2(pred=torch.zeros_like(tw), target=tw)
     mean_median = ordinary_median(c_mean)  # unit 60: the ordinary median
     best_median = min(float(m) for m in medians)
     report("val collapses below the mean predictor (relative bar)",

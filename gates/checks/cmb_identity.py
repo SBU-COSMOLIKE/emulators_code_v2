@@ -390,6 +390,62 @@ def check_law(tmp, device):
     except ValueError:
         report("factored chi2 without params raises", True, "ValueError")
 
+    # unit 70 (20M-02): the stale-stash discrimination -- the analytic control
+    # the diagnostic defect turns on. Two rows with amplitude factors f=[2, 0.5]
+    # (tau at the reference so exp(2(tau-tau_ref))=1, A_s = as_ref/2 and
+    # 2*as_ref), three multipoles, a zero prediction, and a whitened target set
+    # to f per multipole (physical unit truth). Scoring with THIS row's params
+    # gives the physical chi2 [3, 3]; reading a stale stash whose factor is
+    # [1, 1] (the fiducial the LAST training batch left behind) gives the
+    # shipped defect [12, 0.75].
+    n_ell3 = 3
+    phys_ctrl = phys[:2].clone()
+    phys_ctrl[:, chi2fn.tau_idx] = TAU_REF_FIXTURE
+    phys_ctrl[:, chi2fn.as_idx] = torch.tensor(
+        [AS_REF_FIXTURE / 2.0, AS_REF_FIXTURE * 2.0], device=device)
+    x_ctrl = pgeom.encode(phys_ctrl)
+    f_ctrl = chi2fn._factor(x_ctrl).reshape(-1)
+    report("control factors are exactly [2, 0.5]",
+           torch.allclose(f_ctrl, torch.tensor([2.0, 0.5], device=device),
+                          rtol=1e-4, atol=1e-5),
+           "f = [%.4f, %.4f]" % (f_ctrl[0].item(), f_ctrl[1].item()))
+    target_ctrl = f_ctrl.reshape(-1, 1) * torch.ones(2, n_ell3, device=device)
+    pred_ctrl = torch.zeros(2, n_ell3, device=device)
+    # a stash from a DIFFERENT (fiducial) batch: its factor is [1, 1].
+    phys_stale = phys[:2].clone()
+    phys_stale[:, chi2fn.as_idx] = AS_REF_FIXTURE
+    phys_stale[:, chi2fn.tau_idx] = TAU_REF_FIXTURE
+    x_stale = pgeom.encode(phys_stale)
+    c_correct = chi2fn.chi2(pred_ctrl, target_ctrl, params_whitened=x_ctrl)
+    report("params-passing chi2 is the physical [3, 3] (unit 70 caller fix)",
+           torch.allclose(c_correct, torch.tensor([3.0, 3.0], device=device),
+                          rtol=1e-4, atol=1e-4),
+           "c = [%.4f, %.4f]" % (c_correct[0].item(), c_correct[1].item()))
+    chi2fn._params = x_stale
+    c_stale = chi2fn.chi2(pred_ctrl, target_ctrl)     # omitted -> reads stash
+    report("the omitted-params path reads the stale stash: the [12, 0.75] "
+           "defect (mutation arm)",
+           torch.allclose(c_stale, torch.tensor([12.0, 0.75], device=device),
+                          rtol=1e-4, atol=1e-4),
+           "c = [%.4f, %.4f]" % (c_stale[0].item(), c_stale[1].item()))
+    # the caller fix is invariant to whatever the stash holds: passing params
+    # gives [3, 3] no matter what a prior loss stashed.
+    chi2fn._params = x_stale
+    c_inv = chi2fn.chi2(pred_ctrl, target_ctrl, params_whitened=x_ctrl)
+    report("params-passing chi2 ignores the stash (stash-invariant)",
+           torch.allclose(c_inv, c_correct, rtol=0, atol=0), "byte-identical")
+    # a stale stash of a DIFFERENT batch length would broadcast-crash the
+    # omitted path; passing this batch's params sizes the factor correctly.
+    chi2fn._params = pgeom.encode(phys[:5].clone())   # 5 rows, not 2
+    crashed = False
+    try:
+        chi2fn.chi2(pred_ctrl, target_ctrl, params_whitened=x_ctrl)
+    except RuntimeError:
+        crashed = True
+    report("params-passing chi2 survives a wrong-length stale stash "
+           "(no shape crash)", not crashed, "factor sized from this batch")
+    chi2fn._params = None
+
     try:
         make_cmb_chi2(geom=geom, law="not_a_law")
         report("unknown law raises", False, "did not raise")

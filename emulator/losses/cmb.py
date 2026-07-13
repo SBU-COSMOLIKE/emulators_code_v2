@@ -519,7 +519,12 @@ class CmbFactoredChi2(CmbDiagonalChi2):
       pred            = (B, n_ell) network output.
       target          = (B, n_ell) whitened target.
       params_whitened = whitened inputs; stashed so the chi2 and the
-                        roughness penalty read the amplitude factor.
+                        roughness penalty read the amplitude factor. The
+                        stash is PRIVATE to this reduction: it is cleared
+                        the moment loss returns, so a public caller (a
+                        diagnostic, a gate) that omits params gets the loud
+                        refusal, never the last batch's stale factor (unit
+                        70). Every public chi2 path passes its own params.
       *args, **kwargs = mode / trim / focus reduction controls, forwarded
                         to CmbDiagonalChi2.loss unchanged.
 
@@ -527,7 +532,10 @@ class CmbFactoredChi2(CmbDiagonalChi2):
       a scalar loss tensor.
     """
     self._params = params_whitened
-    return super().loss(pred, target, *args, **kwargs)
+    try:
+      return super().loss(pred, target, *args, **kwargs)
+    finally:
+      self._params = None
 
 
 def make_cmb_chi2(geom, law, param_geometry=None, as_name=None,
