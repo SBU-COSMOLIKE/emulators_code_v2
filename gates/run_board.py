@@ -958,13 +958,42 @@ def _gate_input_digest(gate, cfg):
   return hasher.hexdigest()
 
 
+def _log_stale(record):
+  """True when a stored PASS cites a raw log that can no longer be verified.
+
+  A PASS is only as trustworthy as the immutable per-attempt log it points
+  at: that log is the evidence a reviewer reads instead of rerunning the
+  gate. The evidence is unverifiable, and the PASS therefore stale, when the
+  record names no log, stored no log digest, the log file is gone, or the
+  file's bytes no longer hash to the stored digest (a deleted, truncated, or
+  edited log). Both the resume skip decision (_resume_state) and the board
+  display consume this one predicate, so they cannot disagree about whether a
+  green is trustworthy.
+
+  Arguments:
+    record = the status record for one gate (status/digests/log/log_digest).
+
+  Returns:
+    True when the cited log is missing, undigested, absent, or altered.
+  """
+  log_name = record.get("log")
+  stored = record.get("log_digest")
+  if not log_name or not stored:
+    return True
+  log_path = _LOGS_DIR / log_name
+  if not log_path.is_file():
+    return True
+  return hashlib.sha256(log_path.read_bytes()).hexdigest() != stored
+
+
 def _resume_state(status, gate, cfg):
   """The gate's resume category, for --list / BOARD.md and the runner.
 
-  Returns one of: "PASS" (current under both digests), "stale-code",
-  "stale-input", "interrupted" (an abandoned RUNNING attempt), "FAIL",
-  "SKIP-DEP", or "not run". Only "PASS" is green; every other state is
-  non-green and (for a selected gate) makes the gate rerun.
+  Returns one of: "PASS" (current under both digests, with a verifiable raw
+  log), "stale-code", "stale-input", "stale-log" (the cited log is missing,
+  undigested, or altered), "interrupted" (an abandoned RUNNING attempt),
+  "FAIL", "SKIP-DEP", or "not run". Only "PASS" is green; every other state
+  is non-green and (for a selected gate) makes the gate rerun.
   """
   record = status.get(gate.id, {})
   state = record.get("status")
@@ -978,6 +1007,8 @@ def _resume_state(status, gate, cfg):
     return "stale-code"
   if record.get("input_digest") != _gate_input_digest(gate, cfg):
     return "stale-input"
+  if _log_stale(record):
+    return "stale-log"
   return "PASS"
 
 
@@ -1014,7 +1045,7 @@ def _write_board_md(status, cfg=None):
     if log_name and _log_digest_mismatch(record):
       detail = (detail + " [LOG DIGEST MISMATCH: cited evidence changed]").strip()
     log_cell = log_name if state in ("PASS", "FAIL", "stale-code",
-                                     "stale-input") else ""
+                                     "stale-input", "stale-log") else ""
     lines.append("| " + gate.id + " | " + gate.tier + " | " + state
                  + " | " + detail.replace("|", "/") + " | " + log_cell + " |")
   lines.append("")
@@ -1261,11 +1292,11 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
             "digests); --force-rerun " + gate.id + " to rerun")
       _record(gate.id, "resume")
       continue
-    if (state in ("stale-code", "stale-input", "interrupted")
+    if (state in ("stale-code", "stale-input", "stale-log", "interrupted")
         and gate.id not in force_rerun):
       print("[rerun] " + gate.id + ": prior PASS is " + state
-            + " (the tree or the configuration changed, or the attempt was "
-            "interrupted) -- rerunning")
+            + " (the tree, the configuration, or the cited raw log changed, "
+            "or the attempt was interrupted) -- rerunning")
 
     # dependency skip: an unmet prerequisite (not a CURRENT pass under both
     # digests) marks the gate skipped and runs no test code. It is not green.

@@ -355,7 +355,8 @@ legs green on the Mac (Cocoa torch where the module needs it).
   board_status.json + BOARD.md go through temp + os.replace; --list / BOARD.md
   distinguish current PASS / stale-code / stale-input / interrupted; a
   status/log digest mismatch is loud. Gate board-selftest (BRD-A) now 26/26
-  (33/33 after the 45M-72 evidence-map foundation adds seven legs).
+  (33/33 after the 45M-72 evidence-map foundation adds seven legs; 39/39 after
+  the raw-log-trust repair below adds six).
 - 45M-75 schema half (commit 7b4e4ec): _validate_optimizer_opts rejects a
   zero / non-finite Adam eps, a non-finite / negative weight_decay, a
   non-positive / non-finite lr, and a beta outside [0,1) before the optimizer
@@ -470,3 +471,41 @@ home notes and so warrants an Architect audit before it lands:
    per acceptance leg, and each gate's `home=` is reconciled with the note
    that actually documents it (several red-team gates are written up here in
    `gates-and-board.md` while their `home=` names a domain note).
+
+## Audit repair queue — Opus Implementer (2026-07-13)
+
+Working the ordered Implementer queue in
+[red-team-audit-and-didactics-2026-07-13.md](red-team-audit-and-didactics-2026-07-13.md).
+
+### Queue 1a DONE: resume trusts the raw log's digest (critical reopen)
+
+The audit's critical reopen: `_resume_state` checked the code and input
+digests but never the log digest, and `_log_digest_mismatch` only annotated
+`BOARD.md`, so deleting, truncating, or editing a raw log left the status a
+current PASS and a normal rerun skipped it.
+
+Repair (commit pending, `gates/run_board.py` + `gates/checks/board_selftest.py`):
+
+- One shared predicate `_log_stale(record)`: a stored PASS is unverifiable
+  (and therefore stale) when it names no log, stored no log digest, the log
+  file is gone, or the bytes no longer hash to the stored digest.
+- `_resume_state` returns a new non-green `stale-log` state on that predicate,
+  after the code/input digest checks. The runner's skip, the rerun message,
+  the `--list` / `BOARD.md` state column, and `_dep_current_pass` all consume
+  the one `_resume_state`, so the display and the skip cannot disagree (the
+  audit's "same state" requirement). The old `_log_digest_mismatch` annotation
+  stays as extra detail.
+- `board-selftest` gains a `check_log_trust` section driving the REAL
+  `_resume_state`: valid-control PASS, then truncation, edit, deletion, and a
+  missing stored digest each read `stale-log`; a stale-log record is not a
+  current dependency; a load-bearing mutation arm flips PASS -> stale-log on a
+  byte edit. `pass_record` now cites a real seed log that `drive_main`
+  materializes, so a seeded current PASS carries verifiable log evidence.
+  Board-selftest 33/33 -> 39/39, ALL PASS on the Mac; `--list` still validates.
+
+STILL OPEN in queue 1 (not this commit): the reviewed executable/input
+**manifest** replacing the two coarse digests (a proposal, per the audit), and
+extending the preflight dirty-tree watch to `compute_data_vectors/`,
+`cobaya_theory/`, `syren/` with the executable surface defined once and shared.
+Queue items 2-6 (evidence rollout, staging seeded-order truth, optimizer/CMB
+coercion, workstation evidence, README + didactic campaign) remain.

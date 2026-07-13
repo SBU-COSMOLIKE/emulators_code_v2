@@ -1637,10 +1637,12 @@ BOARD = [
             "--force-rerun id is a usage error with a suggestion and a "
             "nonzero exit; the run selectors are mutually exclusive; the "
             "finite-contract compile-lane skip is a distinct non-green exit "
-            "code the board wrapper maps to a non-PASS; and the structured "
-            "evidence map validates (the shipped board resolves, and a bad "
-            "anchor / missing note / duplicate id / malformed anchor are each "
-            "rejected) (the red legs plus the valid controls)",
+            "code the board wrapper maps to a non-PASS; a stored PASS whose "
+            "cited raw log is deleted / truncated / edited / undigested reads "
+            "stale-log through the same resume decision and reruns; and the "
+            "structured evidence map validates (the shipped board resolves, "
+            "and a bad anchor / missing note / duplicate id / malformed anchor "
+            "are each rejected) (the red legs plus the valid controls)",
        evidence=(Assertion("brd-a.exit-truth",
                            "gates-and-board.md#brd-a-board-truth"),),
        run=gate_board_selftest,
