@@ -767,3 +767,332 @@ file-by-file route.
 No private writing-guidance material is part of this repository.  No library,
 gate, generator, or adapter code was changed by the Red Team in this
 documentation close.
+
+## Durable DIDACTICS handoff register: 42--71
+
+This section is the durable copy of the Red Team handoffs that followed the
+first DIDACTICS batches.  Findings 1--41 and their Architect adjudications are
+already recorded in `gates-and-board.md` and
+`state-2026-07-11-and-next.md`.  Findings 42--58 were independently confirmed
+by the Architect on her branch while this register was being assembled;
+findings 59--71 await her adjudication.  A chat copy is a convenience only:
+this file is the source to cite in an Implementer handoff.
+
+The repair standard remains the same throughout: documentation must be
+accurate for a second-year physics undergraduate who is new to Python,
+PyTorch, Cobaya, and emulators; a gate must execute the observation named in
+its title; and a passing assertion must have a non-vacuous, independently
+owned reference.
+
+### DIDACTICS-42 -- the package introduction still says cosmic shear only
+
+`emulator/__init__.py` describes the package as a cosmic-shear emulator even
+though scalar, CMB, background-grid, and matter-power-grid families are public
+and board-listed.  Replace the family-specific headline with the package-wide
+role and give a one-line map from each family to its geometry/loss owner.  A
+mechanical family census must keep the package index synchronized with the
+public modules.
+
+### DIDACTICS-43 -- scheduling prose overstates device and worker guarantees
+
+`emulator/scheduling.py` says `set_device` changes every later default-device
+operation and implies worker output cannot interleave.  The first claim is
+false for constructors that receive an explicit device or retain an existing
+tensor; the second is false for concurrent process streams.  Teach the exact
+scope of PyTorch's default device, explicit `.to(device)` movement, and
+process-local versus merged output.  Do not promise ordering the program does
+not enforce.
+
+### DIDACTICS-44 -- CMB whitening is described as equal physical weighting
+
+`emulator/geometries/cmb.py` and the CMB loss prose conflate raw physical
+spectra, covariance-whitened coordinates, and amplitude-law-scaled whitened
+coordinates.  Whitening decorrelates and normalizes covariance scale; it does
+not guarantee that every training target has sample variance one or that all
+physical multipoles receive equal weight.  The repair must trace one
+multipole through encode, network residual, law removal, and the physical
+quadratic form, naming units and shape at each step.
+
+### DIDACTICS-45 -- `_analytic_R` promises one dtype behavior for two APIs
+
+`emulator/analytics.py` claims one dtype rule for NumPy and Torch.  The Torch
+branch preserves tensor dtype and device, whereas the NumPy branch's array
+construction and arithmetic can promote to float64.  State both contracts
+separately and include float32/float64 controls for each backend.  A prose
+claim about dtype is not accepted without an executable dtype assertion.
+
+### DIDACTICS-46 -- selected-log equality can pass with no evidence or failed children
+
+`gates/checks/logscan.py::byte_identity` returns true when both selected-line
+lists are empty.  `gates/board.py::_golden_leg` also discards both subprocess
+return codes before comparing their selected text.  Thus two empty logs, two
+matching lines followed by two crashes, or a one-sided crash after the last
+selected line can pass.  Identity requires both return codes to be zero, an
+explicit nonempty/minimum selected-line count, and equality of the selected
+lines.  Report both return codes and counts.  Mutations for empty selection,
+both children exiting one after a matching line, and only the tip child
+exiting one must all turn red.  Rename the helper if it compares normalized
+text rather than bytes.
+
+### DIDACTICS-47 -- MPS smoke deletes failed rows before testing the dump
+
+`gates/checks/mps_smoke.py` filters zero rows before applying its positivity
+test.  An all-zero dump therefore creates an empty selection whose `.all()`
+is true; a dump with one zero row can silently discard that row and pass on
+the remainder.  Validate the complete stored payload before filtering,
+require the expected row count and identity, and distinguish a physically
+valid zero from an absent/failed row through the generator's publication
+contract.  All-zero and one-zero-row mutations must fail.
+
+### DIDACTICS-48 -- `production-diagnostic` never checks that its PDF exists
+
+`gates/board.py` says the production-diagnostic harness confirms a PDF, but
+the executable predicates never assert that a PDF was created, is nonempty,
+or is readable.  Either narrow the gate to the outputs it checks or verify the
+declared PDF path, nonzero size, parseability, and the expected page/figure
+content.  A successful driver that omits the PDF must fail.
+
+### DIDACTICS-49 -- the central experiment lifecycle teaches false stage and artifact facts
+
+`emulator/experiment.py` says staging builds device loaders even though
+staging owns NumPy arrays and row coordinates and loader construction happens
+later.  It also reverses the `.h5` recipe/geometry file and `.emul` weight
+file, and still describes the multi-family experiment as cosmic-shear-only.
+Replace the lifecycle with a numbered owner/shape/device trace from raw arrays
+through staging, geometry, loader, training, and the two artifact files.
+
+### DIDACTICS-50 -- factored parameter geometry does not increase input width
+
+The parameter-geometry legend says factoring increases network input width.
+For the implemented factorization, the layout changes while the total encoded
+width remains `n_param`.  Show the unfactored and factored coordinate lists
+for one small example and state which operation changes arrangement versus
+dimension.
+
+### DIDACTICS-51 -- public training/artifact docstrings omit live arguments and returns
+
+The `run_emulator`, save, and rebuild docstrings lag their signatures and
+returned structures: anchor/refine and resolved-training inputs are omitted,
+the sixth training return is not defined, and saved/rebuilt information fields
+are incomplete.  Add an AST-based public-API documentation census comparing
+signature arguments and named return fields with the docstrings.  Each
+argument needs type/shape/device/ownership and every return needs its meaning;
+do not satisfy the census with placeholder names alone.
+
+### DIDACTICS-52 -- diagnostics-domain's source census proves neither pattern with `or`
+
+`gates/checks/diagnostics_domain.py` joins two forbidden-pattern absences with
+`or`.  If either pattern disappears while the other remains, the assertion is
+green although its label says neither exists.  Require both absences, report
+each count separately, and add one mutation per forbidden pattern so each can
+fail independently.
+
+### DIDACTICS-53 -- CMB smoke calls six blocks certified but checks only `cov_tt`
+
+The gate description names numerical certification of the full covariance
+product, but the executed numerical comparison covers only `cov_tt` while
+other blocks receive shape/finiteness treatment.  Either state that narrower
+contract or compare all declared blocks with an independent known-answer
+calculation, including a mutation in every block.  One checked block cannot
+stand in for six.
+
+### DIDACTICS-54 -- `audit_devices` misses nested tensor owners
+
+The device audit claims to inspect every executed tensor, but its traversal
+does not cover tensors hidden in nested containers/owners and it labels a
+possible mixed-device runtime failure as performance-only.  Define the object
+graph it traverses, recurse through registered modules plus documented nested
+containers, and run a board-listed accelerator leg whose mutation hides a
+wrong-device tensor at each supported nesting level.  Report unsupported
+objects explicitly rather than silently skipping them.
+
+### DIDACTICS-55 -- diagnostic prose converts association into causation
+
+Several diagnostic docstrings call a correlation or one chosen regression
+estimator a causal explanation of model error.  Define exactly what is
+computed, its conditioning variables, estimator, undefined cases, and what
+conclusion it does *not* support.  Terms such as "drives," "explains," and
+"responsible for" require an actual causal design; otherwise use association
+language.
+
+### DIDACTICS-56 -- the `state_dict` definition wrongly excludes frozen parameters
+
+The model documentation says PyTorch `state_dict()` contains trainable
+parameters.  It actually includes registered parameters whether or not
+`requires_grad` is true, plus persistent registered buffers.  Contrast
+`state_dict()`, `parameters()`, optimizer parameter groups, and
+`requires_grad` with a frozen-parameter example.
+
+### DIDACTICS-57 -- masked decode is not the inverse of full-vector encode
+
+`DataVectorGeometry.decode` is described as the inverse of encode even when a
+mask discards coordinates.  The kept-coordinate round trip can be invertible,
+but reconstructing the original full vector requires a fill/pin policy and
+cannot recover discarded values.  State the domain and codomain of both maps,
+show a three-coordinate masked example, and reserve "inverse" for the
+restricted kept-coordinate mapping.
+
+### DIDACTICS-58 -- 24 gate scripts rely on unexplained Python execution mechanics
+
+Twenty-four scripts repeat a module-level mutable failure list, helper
+functions that append to it, an `if __name__ == "__main__"` guard, and
+`sys.exit`.  A C reader cannot infer why append needs no `global`, why each
+subprocess receives a fresh list, or how the integer exit status reaches the
+board.  Add one canonical gate-script preamble defining module global versus
+local binding, in-place list mutation, process isolation, the main guard, and
+exit-code propagation; reference it concisely from individual scripts rather
+than introducing a clever framework.
+
+### DIDACTICS-59 -- eval-batch-invariance does not observe production evaluation
+
+`gates/checks/ge_c_eval_bs.py` computes a separate gate-side array of per-row
+chi-squared values, while production `eval_val` publishes aggregate mean,
+median, threshold fractions, and history values.  The copied loop can be
+invariant while production batching, aggregation, or row association is
+wrong.  Exercise the real `eval_val` with one full batch, equal partitions,
+and a ragged final batch; compare every published value to an independent
+float64 reference.  Include distinct row scores, a row permutation, and a
+mutation that drops/reorders one production batch while leaving the copied
+helper unchanged.
+
+### DIDACTICS-60 -- scalar smoke gives an unsupported convergence story and stale baseline
+
+`scalar-smoke` attributes two-epoch convergence to target smoothness and
+quotes a mean-only median near 0.455.  Recalculation on the current fixture
+gives approximately `0.4401868977`.  Describe two epochs as the bounded smoke
+budget, not a causal conclusion.  Recompute and report the exact staged-row
+baseline, validation-row count, trained median, and threshold; require the
+network to beat both the baseline and threshold.  The 0.3 bar may remain only
+with recorded empirical margin.  A mean-only/dead-network mutation must fail.
+
+### DIDACTICS-61 -- two gate comments disagree with their fixtures
+
+`gates/checks/stage_ram.py` calls a two-column target fixture one-wide.
+`logscan.decreasing` says it needs a nonempty series although a decrease
+requires at least two finite observations.  Correct the fixture shape and
+define the mathematical predicate: minimum length two, finite values, and the
+chosen strict/non-strict comparison.  Empty, one-value, NaN, and equal-value
+controls must have explicit verdicts.
+
+### DIDACTICS-62 -- four board entries advertise behavior but check banners
+
+In `gates/board.py`, `head-scheduler-override` does not parse an LR cut;
+`berhu-anneal` and `ema-anneal` do not evaluate their schedules;
+`joint-training` uses timing rather than parameter change; and
+`relu-tanh-norm` does not inspect loss descent.  Either narrow every title and
+`WHAT/WHY/HOW` block to startup-schema evidence or add executable behavior:
+phase-tagged LR cadence; schedule values before/at/during/after the ramp;
+trunk snapshots with nonzero joint delta and exact-zero frozen control; and
+finite loss observations with an explicit descent/dead-network bar.  Constant
+schedule, ignored override, frozen joint trunk, and mean-only mutations must
+red.  Evidence-map reconciliation cannot supply observations these gates
+never make.
+
+### DIDACTICS-63 -- parameter-window cuts use their own banner as truth
+
+The gate accepts any line matching `used <digits> of <digits> cut rows`; it
+does not parse the values, derive the physical mask, or compare staged row
+identities.  The same weak check appears in production-diagnostic.  Use a
+deterministic table, independently compute the expected mask, parse both
+integers, require `0 <= used <= total`, compare total/used with eligible and
+staged counts, and compare exact row identities.  The tight fixture requires
+nontrivial shrinkage.  A mutation printing `used 1 of 1 cut rows` while
+staging the wrong rows must fail.
+
+### DIDACTICS-64 -- the compile-mode drift arm patches an unused global
+
+`gates/checks/gsv_bitwise_drift.py` advertises drift tests for both activation
+defaults and compile-mode defaults.  The latter patches
+`training.DEFAULT_COMPILE_MODE`, but rebuild reads the persisted recipe's
+`compile_mode`, and the test calls rebuild with `compile_model=False`.
+Therefore the patched global cannot affect the result and cannot prove
+compile-mode persistence.  Retain the valid activation-default arm, then
+either delete the compile claim or add a CUDA compiled lane that rebuilds with
+`compile_model=True`, instruments `torch.compile` to observe the persisted
+mode, and fails when rebuild ignores or loses that field.
+
+### DIDACTICS-65 -- triangle shading checks global counts, not panel identity
+
+`gates/checks/gt_b_triangle.py` reduces the figure to positive global counts
+of shaded panels and marginal bands plus a color count.  It never maps an
+Axes object to its x/y parameter labels or compares the observed shaded-panel
+set with the expected coverage table.  One grey fill on the wrong panel plus
+one unrelated patch can pass.  Construct the exact expected
+`(x_parameter, y_parameter, window)` set, extract axis identities, compare the
+exact set/count, identify the `omegamh2` marginal, and check `_CUT_GREY` on
+each expected artist.  Moving a correct artist to a wrong axis must red while
+global counts remain unchanged.
+
+### DIDACTICS-66 -- parity's masked-zero proof can be vacuous and self-defined
+
+`gates/checks/gct_parity.py` derives `masked` from the same rebuilt geometry
+under test and accepts a zero nonzero-count.  If `dest_idx` accidentally
+covers every coordinate, the masked selection is empty and passes; if a cut
+is lost, the object under test redefines the expected mask.  The fixture must
+declare an independent, nonempty expected masked-index set, assert observed
+mask identity/count, verify exact zeros there, and compare kept coordinates
+between section/full outputs.  Mutations setting every coordinate kept and
+deleting one expected masked index must fail.
+
+### DIDACTICS-67 -- `FinetuneSource`'s one-open and attribute claims are false
+
+`emulator/warmstart.py` says the source files are opened once and lists every
+public carried attribute.  `load_source` first calls `rebuild_emulator`, which
+opens `.h5` and loads `.emul`, then opens `.h5` again to read recipe/resolved
+facts; the object is constructed once but the HDF5 file is opened twice.  The
+attribute list also omits live `.ia`.  Either intentionally consolidate the
+reader or teach why a second metadata pass occurs; distinguish object count
+from file-open count and define `ia = nla`, `tatt`, or `None`.  Instrumented
+`h5py.File`/`torch.load` counts and a constructor-field census must agree with
+the final prose.
+
+### DIDACTICS-68 -- warm-start parity does not finite-check perturbed arms
+
+The baseline finetune and transfer parity tensors pass through
+`_require_parity_finite`, but the extra-coordinate perturbation encodes and
+outputs are compared without that guard.  A model finite on the baseline and
+NaN/Inf only after perturbation is mislabeled as "extra parameters leaked";
+`torch.equal` is then asked to interpret nonfinite data.  Name the perturbed
+encode and output tensors and apply the shared finite predicate before every
+comparison in both finetune and transfer.  Board legs must produce NaN and
+Inf only on the perturbation and require the finite-contract error with
+quantity/side/row.  Removing either perturbed-arm guard must red.
+
+### DIDACTICS-69 -- whitening is repeatedly called equal learnability
+
+`geometries/output.py`, `diagnostics.py`, `warmstart.py`, `designs/plain.py`,
+`designs/ia.py`, and `losses/ia.py` say whitening makes directions equally
+hard/easy to fit.  Whitening makes training covariance approximately identity
+and equalizes numerical variance; nonlinear cosmology dependence, tails, and
+network approximation complexity remain different.  Use one canonical
+definition: "decorrelated and unit variance/equal numerical scale; this does
+not guarantee equal learnability."  A repo-wide multiline scan must leave no
+`equally hard`/`equally easy` claim in `emulator/`.
+
+### DIDACTICS-70 -- save documentation contradicts its executed CPU normalization
+
+`emulator/results.py` first says every saved state tensor moves to CPU, then
+says a CUDA-saved state needs the saving GPU visible.  The code executes
+`detach().cpu()` for every persisted tensor and loads with
+`map_location=device`; the original accelerator is not required.  Distinguish
+a raw CUDA checkpoint from this library's CPU-normalized checkpoint and teach
+that `map_location` selects the load destination.  Assert serialized tensors
+are CPU tensors in the save/rebuild gate or cite the existing equivalent leg.
+
+### DIDACTICS-71 -- warm-start's headline promises the bit equality it rejects
+
+`emulator/warmstart.py` says zero-padding reproduces the source function "bit
+for bit," while `_PARITY_TOL` explicitly documents numerical, not bitwise,
+agreement because different matrix widths change floating-point reduction
+order.  State the two distinct invariants: old versus widened networks agree
+within `_PARITY_TOL`; rerunning the *same widened network* after changing only
+zero-connected extras is bit-identical.  Do not weaken transfer's separate
+bitwise base-composition requirement.  Scan every `bit for bit`, `bitwise`,
+and `bit-identical` occurrence and map it to the comparator actually used.
+
+### Durable-record rule
+
+Every future Red Team handoff is appended to an existing topic or audit note
+before, or in the same turn as, its chat copy.  The final handoff cites that
+file and commit.  Chat history is never the sole copy of an Implementer
+contract.

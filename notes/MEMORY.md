@@ -61,9 +61,9 @@ the topic file your task touches.
   dual-agent workflow, git discipline, the Mac evidence pattern,
   machines and ROOTDIR.
 - [User didactics + Python voice](user-didactics-and-python-voice.md)
-  — who the reader is (C coder; cosmologist audience), how he likes
+  — who the reader is (C coder; cosmologist audience), how she likes
   to be taught (show-never-describe, define-or-drop, run-first), and
-  the code register with his own quotes and before/after shapes; the
+  the code register with her own quotes and before/after shapes; the
   Implementer reads it before writing code or docs.
 - [Whole-package style audit (2026-07-05)](audit-package-style-2026-07-05.md)
   — dated pre-consolidation Architect record: whole-tree audit of
@@ -75,4 +75,4 @@ the topic file your task touches.
   ~/data/claude_skills/.
 - [Red-team board-truth + integrity batch](gates-and-board.md) — all reproduced defects implemented 2026-07-12 (71/73/74/75-schema/76/77/78/79/80/81/82/83/84/85 + the 86-90 didactic batch + the 45M-72 evidence-map foundation); board 40 gates, board-selftest 33/33. Only 45M-72's full rollout (per-leg ids across all gates + check manifests) is open, held for Architect audit; 45M-75's post-step-finite half is workstation-owed.
 - [Red-team Implementer handoff (2026-07-13)](red-team-implementer-handoff-2026-07-13.md) — single-page 45M inventory + per-unit commits/files/gates + the "audit hardest here" guidance (86-90 vs the Architect specs now on main, and the five 45M-72 design decisions to rule on); the review brief for the Architect audit pass. Landed on origin/main via merge 8ce72a9.
-- [Red-team audit + didactic repair queue (2026-07-13)](red-team-audit-and-didactics-2026-07-13.md) — independent review of that landing: binding evidence-map rollout rulings; the reopened raw-log/resume, staging, and numeric-schema gaps; README contradictions; and the ordered first-time-ML documentation campaign for the Implementer.
+- [Red-team audit + didactic repair queue (2026-07-13)](red-team-audit-and-didactics-2026-07-13.md) — independent review of that landing: binding evidence-map rollout rulings; the reopened raw-log/resume, staging, and numeric-schema gaps; README contradictions; the ordered first-time-ML documentation campaign; and the durable DIDACTICS-42--71 Implementer handoff register. Future Red Team handoffs are appended here or to their existing topic note before their chat copy is sent.
