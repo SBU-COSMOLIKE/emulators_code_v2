@@ -39,6 +39,7 @@ re-proved.
 import argparse
 import contextlib
 import datetime
+import difflib
 import json
 import os
 import shutil
@@ -49,6 +50,17 @@ from pathlib import Path
 
 import board
 from board import BOARD, Gate, GateFailure
+
+
+class SelectionError(Exception):
+  """A command line names a gate id the registry does not contain.
+
+  Raised by the selectors (--gate / --from / --force-rerun) when a
+  requested id is not a real gate, so the command is a usage error with a
+  nonzero exit -- never a warning followed by a successful run of a
+  different, smaller surface than the text asked for. The message names the
+  offending id and the closest valid spellings.
+  """
 
 
 # The commit that carries the board + harness spec (the base-notes
@@ -806,6 +818,43 @@ def _write_board_md(status):
     handle.write("\n".join(lines) + "\n")
 
 
+def _registry_ids():
+  """The set of every real gate id (the selector validation authority)."""
+  ids = set()
+  for gate in BOARD:
+    ids.add(gate.id)
+  return ids
+
+
+def _reject_unknown_ids(kind, names):
+  """Raise SelectionError if any requested id is not in the registry.
+
+  A single unknown id fails the WHOLE request rather than silently running
+  the recognized subset: a pasted command must execute exactly the surface
+  its text names, or refuse. The error suggests the closest valid ids.
+
+  Arguments:
+    kind  = the selector name for the message ("--gate", "--from", ...).
+    names = the requested ids (a list, or a single-item list for --from).
+  """
+  valid = _registry_ids()
+  unknown = []
+  for name in names:
+    if name not in valid:
+      unknown.append(name)
+  if len(unknown) == 0:
+    return
+  lines = []
+  for name in unknown:
+    near = difflib.get_close_matches(name, sorted(valid), n=3)
+    hint = "" if len(near) == 0 else " (did you mean: " + ", ".join(near) + "?)"
+    lines.append("'" + name + "'" + hint)
+  raise SelectionError(
+    kind + " names unknown gate id(s): " + "; ".join(lines)
+    + ". See --list for the registry; the whole request is refused so the "
+    "command runs exactly the gates it names.")
+
+
 def select_gates(args):
   """Build the ordered gate selection from the CLI selectors.
 
@@ -813,24 +862,26 @@ def select_gates(args):
   explicit set (optional gates allowed). --tier picks one tier. --from
   starts the board at a gate. The result stays in board order.
 
+  Every requested gate id is validated against the registry first: an
+  unknown id raises SelectionError (the caller turns that into a nonzero
+  usage error), never a warning followed by a smaller successful run.
+
   Arguments:
     args = the parsed argparse namespace.
 
   Returns:
     a list of Gate in board order.
+
+  Raises:
+    SelectionError on an unknown --gate or --from id.
   """
   if args.gate:
+    _reject_unknown_ids("--gate", args.gate)
     wanted = set(args.gate)
     chosen = []
     for gate in BOARD:
       if gate.id in wanted:
         chosen.append(gate)
-    seen = set()
-    for gate in chosen:
-      seen.add(gate.id)
-    for name in args.gate:
-      if name not in seen:
-        print("warning: unknown gate id '" + name + "' (see --list)")
     return chosen
 
   if args.tier:
@@ -841,12 +892,10 @@ def select_gates(args):
     return chosen
 
   if getattr(args, "from_gate", None):
+    _reject_unknown_ids("--from", [args.from_gate])
     ids = []
     for gate in BOARD:
       ids.append(gate.id)
-    if args.from_gate not in ids:
-      print("warning: unknown --from gate '" + args.from_gate + "'")
-      return []
     start = ids.index(args.from_gate)
     chosen = []
     index = 0
@@ -929,9 +978,22 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
                   command output + config dump to the terminal too.
 
   Returns:
-    the count of gates that FAILED (0 means the selection is green).
+    a summary dict with the per-category counts
+    ("passed" = freshly PASSed this run, "resume" = skipped because already
+    current PASS, "failed", "skipped_dep"), a per-gate (id, category) list,
+    and "incomplete" -- True when any SELECTED gate did not finish current
+    PASS. A dependency skip, a failure, or a stale/interrupted state all make
+    the run incomplete: the command succeeds only when every requested gate is
+    green, so a requested gate that executed no test code can never report
+    success (a dependency skip is kept distinct from a failure in the counts).
   """
-  failures = 0
+  summary = {"passed": 0, "resume": 0, "failed": 0, "skipped_dep": 0,
+             "gates": []}
+
+  def _record(gate_id, category):
+    summary["gates"].append((gate_id, category))
+    summary[category] = summary[category] + 1
+
   for gate in selection:
     # dry mode prints every selected gate's plan, BEFORE (and bypassing)
     # the resume + dependency checks, so --dry-run --gate cobaya-adapter shows the
@@ -948,13 +1010,17 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
         print("[dry-run] (gate would need: " + str(failure) + ")")
       continue
 
-    # resume: an already-passed gate is skipped unless forced.
+    # resume: an already-passed gate is skipped unless forced. A resume
+    # skip is a CURRENT pass, so it counts toward completion.
     if _passed(status, gate.id) and gate.id not in force_rerun:
       print("[skip] " + gate.id + ": already PASS (resume); "
             "--force-rerun " + gate.id + " to rerun")
+      _record(gate.id, "resume")
       continue
 
-    # dependency skip: an unmet prerequisite marks SKIPPED, no abort.
+    # dependency skip: an unmet prerequisite marks the gate skipped and runs
+    # no test code. It is NOT green -- the requested gate never executed -- so
+    # it makes the run incomplete (counted apart from a failure).
     unmet = []
     for dep in gate.deps:
       if not _passed(status, dep):
@@ -967,6 +1033,7 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
                          "ts": _now()}
       _save_status(status)
       _write_board_md(status)
+      _record(gate.id, "skipped_dep")
       continue
 
     log_path = _LOGS_DIR / (gate.id + ".log")
@@ -993,15 +1060,16 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
                 + ("" if detail == "" else "  -- " + detail) + "\n")
       ctx._emit(footer)
 
-    if outcome == "FAIL":
-      failures = failures + 1
     status[gate.id] = {"status": outcome,
                        "detail": detail,
                        "ts": _now()}
     _save_status(status)
     _write_board_md(status)
+    _record(gate.id, "passed" if outcome == "PASS" else "failed")
 
-  return failures
+  summary["incomplete"] = (summary["failed"] > 0
+                           or summary["skipped_dep"] > 0)
+  return summary
 
 
 # --------------------------------------------------------------------------
@@ -1044,19 +1112,24 @@ def build_parser():
   parser.add_argument("--dry-run",
                       action="store_true",
                       help="print every command a selection would run")
-  parser.add_argument("--gate",
-                      nargs="+",
-                      metavar="ID",
-                      help="run only these gate ids (optional gates allowed)")
-  parser.add_argument("--tier",
-                      choices=(board.TIER_BACKLOG,
-                               board.TIER_NEW_FEATURES,
-                               board.TIER_SAVE_AND_SAMPLE),
-                      help="run only this tier")
-  parser.add_argument("--from",
-                      dest="from_gate",
-                      metavar="ID",
-                      help="run the board from this gate onward")
+  # the run-selection surface: exactly one of --gate / --tier / --from (or
+  # none, meaning the whole board). Mutually exclusive so a pasted mixed
+  # command is rejected instead of a silent precedence choosing a different
+  # surface than the text reads.
+  selectors = parser.add_mutually_exclusive_group()
+  selectors.add_argument("--gate",
+                         nargs="+",
+                         metavar="ID",
+                         help="run only these gate ids (optional gates allowed)")
+  selectors.add_argument("--tier",
+                         choices=(board.TIER_BACKLOG,
+                                  board.TIER_NEW_FEATURES,
+                                  board.TIER_SAVE_AND_SAMPLE),
+                         help="run only this tier")
+  selectors.add_argument("--from",
+                         dest="from_gate",
+                         metavar="ID",
+                         help="run the board from this gate onward")
   parser.add_argument("--force-rerun",
                       nargs="+",
                       default=[],
@@ -1102,10 +1175,25 @@ def main(argv=None):
     ok, _ = preflight(cfg)
     return 0 if ok else 1
 
-  selection = select_gates(args)
+  # validate every requested gate id (selection AND force-rerun) against the
+  # registry before doing anything: an unknown id is a usage error with a
+  # nonzero exit, never a warning followed by a successful run of a smaller
+  # (or empty) surface than the command names.
+  try:
+    _reject_unknown_ids("--force-rerun", args.force_rerun)
+    selection = select_gates(args)
+  except SelectionError as bad:
+    print("error: " + str(bad))
+    return 2
+
+  # an empty real-run selection is a failure, not a silent success: the
+  # command was asked to test something and tested nothing. (--tier always
+  # yields its gates and the default yields the whole board, so this only
+  # trips on a genuinely empty request.)
   if len(selection) == 0:
-    print("no gates selected")
-    return 0
+    print("error: the selection is empty; no gate matched the request "
+          "(nothing was tested)")
+    return 2
 
   # --force-rerun-all = force every SELECTED gate (composes with
   # --gate / --tier / --from). Built here as the forced-id set so
@@ -1116,6 +1204,10 @@ def main(argv=None):
   if args.force_rerun_all:
     for gate in selection:
       forced.add(gate.id)
+
+  # print the resolved selection so the terminal names exactly what will run.
+  print("selected " + str(len(selection)) + " gate(s): "
+        + ", ".join(gate.id for gate in selection))
 
   if args.dry_run:
     print("dry-run plan (" + str(len(selection)) + " gates, in order):")
@@ -1128,12 +1220,23 @@ def main(argv=None):
     print("preflight failed; not running any gate")
     return 1
 
-  failures = run_selection(selection=selection, cfg=cfg, env=env,
-                           status=status, force_rerun=forced,
-                           dry=False, debug=debug)
-  print("\nboard run complete: " + str(failures) + " gate(s) FAILED; "
+  summary = run_selection(selection=selection, cfg=cfg, env=env,
+                          status=status, force_rerun=forced,
+                          dry=False, debug=debug)
+  # the completion verdict: the command succeeds only when EVERY selected gate
+  # finished current PASS (a fresh PASS or a valid resume PASS). A failure or a
+  # dependency skip makes the run incomplete and the exit nonzero; the summary
+  # keeps the categories distinct rather than relabelling skips as failures.
+  n_green = summary["passed"] + summary["resume"]
+  print("\nboard run complete: " + str(n_green) + " current PASS ("
+        + str(summary["passed"]) + " ran, " + str(summary["resume"])
+        + " resumed), " + str(summary["failed"]) + " FAILED, "
+        + str(summary["skipped_dep"]) + " dependency-skipped; "
         "see gates/logs/BOARD.md")
-  return 1 if failures > 0 else 0
+  if summary["incomplete"]:
+    print("run INCOMPLETE: not every selected gate is current PASS")
+    return 1
+  return 0
 
 
 if __name__ == "__main__":

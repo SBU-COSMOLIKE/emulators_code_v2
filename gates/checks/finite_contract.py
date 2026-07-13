@@ -93,7 +93,22 @@ from emulator.training import (eval_val, eval_source_chi2,
                                ordinary_median)
 
 FAILURES = []
+# set True when a required check lane could not run for a missing capability
+# (the torch.compile backward lane). It is NOT a pass and NOT a failure of a
+# tested assertion; main turns it into a distinct exit code so the board can
+# report a non-green result instead of certifying a gate whose mandatory lane
+# never executed.
+LANE_UNAVAILABLE = []
 DEV = torch.device("cpu")            # CPU only: the contract legs need no GPU
+
+# exit codes main returns, read by the board's gate wrapper:
+#   0 = every leg ran and passed;
+#   1 = a tested assertion failed;
+#   2 = every leg that ran passed, but a mandatory lane could not run for a
+#       missing capability (a non-green result, never a silent PASS).
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_LANE_UNAVAILABLE = 2
 
 
 def report(label, ok, detail):
@@ -776,9 +791,14 @@ def check_safe_sqrt():
            "cannot green on a compile failure)", raised,
            "compile failure surfaces as an exception, not a green skip")
   else:
-    print("  [SKIP-DEP] safe-sqrt: torch.compile unavailable on this box "
-          "(no compiler) — the compile lane is workstation-owed and never "
-          "counts toward 33/33 closure.")
+    # the compile lane is mandatory; when the box cannot run a compiled
+    # backward, record the lane as unavailable so main returns a non-green
+    # exit code. A printed skip line alone would let the board read the
+    # process's success and certify a gate whose mandatory lane never ran.
+    LANE_UNAVAILABLE.append("safe-sqrt torch.compile backward")
+    print("  [LANE UNAVAILABLE] safe-sqrt: torch.compile could not run a "
+          "backward on this box; the compile lane is mandatory, so this gate "
+          "reports a non-green result (run on a compile-capable workstation).")
 
 
 # ==========================================================================
@@ -1314,11 +1334,16 @@ def main():
   check_chi2_band_dtype_provenance()
 
   print("")
-  if len(FAILURES) == 0:
-    print("finite-contract: ALL PASS")
-    return 0
-  print("finite-contract: " + str(len(FAILURES)) + " FAILURE(S)")
-  return 1
+  if len(FAILURES) > 0:
+    print("finite-contract: " + str(len(FAILURES)) + " FAILURE(S)")
+    return EXIT_FAIL
+  if len(LANE_UNAVAILABLE) > 0:
+    print("finite-contract: NON-GREEN -- a mandatory lane could not run: "
+          + ", ".join(LANE_UNAVAILABLE)
+          + " (run on a compile-capable box)")
+    return EXIT_LANE_UNAVAILABLE
+  print("finite-contract: ALL PASS")
+  return EXIT_PASS
 
 
 if __name__ == "__main__":

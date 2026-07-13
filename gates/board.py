@@ -1263,11 +1263,47 @@ def gate_finite_contract(ctx):
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/finite_contract.py")
   if not ctx.dry:
+    # exit code 0 = every leg ran and passed; 2 = a mandatory lane (the
+    # torch.compile backward) could not run on this box, a non-green result
+    # rather than a silent PASS; any other nonzero = a tested assertion
+    # failed. Both nonzero codes make the gate non-PASS.
+    if rc == 2:
+      reason = ("a mandatory lane could not run (torch.compile backward "
+                "unavailable); run this gate on a compile-capable box")
+    else:
+      reason = "check exit code " + str(rc)
     ctx.expect(
       label="finite-contract eval/train/diagnostic/parity/safe-sqrt legs",
       ok=(rc == 0),
+      detail=reason + " (gates/checks/finite_contract.py)")
+
+
+def gate_board_selftest(ctx):
+  """board-selftest: the runner reports the truth about what actually ran.
+
+  WHAT: pure-Python self-tests of run_board's own control flow (no torch, no
+  cosmolike), over a small set of fake gates. WHY: three board-truth defects
+  let a run report success without testing what it claimed. A selected gate
+  whose prerequisite is absent runs no test code but was counted green; an
+  unknown --gate / --from / --force-rerun id printed a warning and then
+  exited 0 having run a smaller (or empty) surface; the finite-contract check
+  printed a compile-lane skip inside a process that still returned 0, so the
+  board certified a gate whose mandatory lane never ran. HOW: the check drives
+  the real run_board.main and select_gates over fake gates -- a
+  dependency-skipped selected gate exits nonzero and its body never runs; an
+  unknown id in any selector is a usage error with a suggestion and a nonzero
+  exit; the run selectors are mutually exclusive; and it asserts the
+  finite-contract check exposes a distinct non-green exit code for an
+  unavailable mandatory lane that the board wrapper maps to a non-PASS. No
+  torch, no cosmolike, no GPU.
+  """
+  rc, out = ctx.run_check("gates/checks/board_selftest.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="board-selftest exit-truth / selector / lane-code legs",
+      ok=(rc == 0),
       detail="check exit code " + str(rc)
-             + " (gates/checks/finite_contract.py)")
+             + " (gates/checks/board_selftest.py)")
 
 
 def gate_diagnostics_domain(ctx):
@@ -1389,6 +1425,20 @@ BOARD = [
             "legs plus the finite controls",
        run=gate_finite_contract,
        needs=("torch",)),
+  Gate(id="board-selftest",
+       spec_code="BRD-A",
+       title="Board runner reports the truth about what ran",
+       tier=TIER_BACKLOG,
+       home="gates-and-board",
+       maps="the board-truth campaign: a dependency-skipped selected gate "
+            "exits nonzero and runs no body; an unknown --gate / --from / "
+            "--force-rerun id is a usage error with a suggestion and a "
+            "nonzero exit; the run selectors are mutually exclusive; and the "
+            "finite-contract compile-lane skip is a distinct non-green exit "
+            "code the board wrapper maps to a non-PASS (the red legs plus the "
+            "valid controls)",
+       run=gate_board_selftest,
+       needs=()),
   Gate(id="diagnostics-domain",
        spec_code="DIAG-A",
        title="Diagnostic score-domain boundary",
