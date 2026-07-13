@@ -2249,3 +2249,90 @@ code, the board, or gate checks.
 
 These checks are implementation evidence for the Architect's pre-merge audit.
 They are not Red Team self-certification.
+
+## Red Team audit: manuscript public-prose and typesetting pass
+
+This is an audit record only.  It changes no TeX source, generated figure, or
+PDF.  The manuscript remains readable and detailed, but it is not ready to
+close under the public-prose constitution.  The following findings require an
+independent Architect ruling before implementation.
+
+### TEX-PROSE-01: one malformed unit expression survives compilation
+
+At `texnotes/emulator_code_guide.tex:4969-4974`, the source uses `\ {` before
+literal `m km...` and `m Mpc` text.  TeX accepts the source but renders stray
+`m` characters.  The quantities need explicit roman unit expressions such as
+`\,\mathrm{km\,s^{-1}\,Mpc^{-1}}` and `\,\mathrm{Mpc}`.  Acceptance requires a
+clean compile plus visual inspection of the affected PDF page.
+
+### TEX-PROSE-02: prose dashes and corrective-negation frames remain
+
+Prose dash candidates remain at source lines 206, 364, 530-533, 848, 1919,
+1995, 2085, 3160, 3444, 4061, 4213-4214, 4602, 4622-4624, 4759, 4912, 4919,
+and 6613-6614.  Command-line options beginning with `--` are syntax and are
+excluded.  Corrective-negation clusters remain at 62-68, 889-900, 1313-1317,
+1580-1584, 2027-2064, 2161-2166, 2619-2622, 2683-2685, 2994-3008,
+3253-3264, 3839-3844, 4197-4200, 4338-4358, 4554 onward, 4765-4771, 4993
+onward, 5083 onward, 6283-6295, 7381-7388, and 7598-7603.  Mathematical
+negation and direct refusal rules are outside this finding.  The repair states
+the positive scientific or operational claim directly.
+
+### TEX-PROSE-03: development-state narration interrupts the guide
+
+Approximately 58 paragraphs titled or introduced as `Current gap`, `Required
+closure`, or `Current deviation` remain between the first instance near
+919-927 and the final cluster near 6228-6237.  The manuscript should teach the
+current behavior, the consequence, and the safe action.  Queue history,
+future-repair specifications, rollout narration, and landing evidence belong
+in `notes/`.  The policy discussion at 738-751 and landing narration at
+5947-5950 are additional instances.
+
+### TEX-PROSE-04: the gate appendix repeats 120 inline pseudo-headings
+
+Lines 6411-7069 repeat `Claim and path`, `Fixture and verdict`, and `Catch
+power` for 40 gates.  The three fields are useful and must stay, but a single
+defined gate-description environment or compact table should own their
+typography.  Acceptance preserves every factual field while removing the
+repeated inline-heading cadence.
+
+### TEX-PROSE-05: several mathematical symbols enter before a stable definition
+
+- Lines 2814-2817 use PCE half-width `h_j`; the symbol should be renamed because
+  `h` already denotes the cosmological quantity `H_0/100`.
+- Lines 2862-2869 and 3004-3008 use `q` for both the PCE sparsity exponent and
+  the retained SVD rank; the rank needs a distinct symbol.
+- Line 4311 needs to define `e` as the epoch number.
+- Lines 4396-4405 need to define `y_0`, the residual `r`, and the composed
+  prediction `y` before using their composition equation.
+- Lines 4626-4642 need the physical meanings of `a_1`, `a_2`, and `b_{TA}`
+  before listing the TATT monomials.
+
+### TEX-PROSE-06: external algorithm claims lack an authoritative citation
+
+The source contains no `\cite` command.  Cobaya, CAMB, CosmoLike, ensemble
+moves, Legendre PCE, LARS/OMP, PRESS leverage, BerHu, AdamW, NLA/TATT, and
+Chan/Welford statistics are the priority citation surfaces.  A claim that is
+specific to this repository may instead be narrowed explicitly to `as
+implemented here`.
+
+### TEX-PROSE-07: passive prose hides the owning program boundary
+
+Representative sites are 913-916, 1367-1369, 1904, 3976, 4175-4177,
+4231-4234, 4926, 5429-5434, and 5633-5637.  Each repair names the class,
+function, adapter, or driver that validates or changes the state.
+
+### TEX-PROSE-08: broad gate verbs exceed the executed fixture
+
+The strongest clusters occur at 5755-5758, 5865-5874, 7592-7598,
+7642-7694, and 7778-7787.  Verbs such as `prove`, `ensure`, `close`, and
+`prevent` need to become the exact fixture and observed verdict, followed by
+the boundary the gate does not establish.
+
+### Recommended repair order
+
+Repair TEX-PROSE-01 and TEX-PROSE-02 first because they are mechanical hard
+failures.  Remove the diary layer next.  Then refactor the gate appendix and
+revise definitions, citations, named owners, and gate-claim precision.  The
+file-study itinerary should remain detailed; its list structure helps a new
+reader.  A complete compile, PDF render, visual inspection, link scan, and
+repeat public-prose census are required after the edits.
