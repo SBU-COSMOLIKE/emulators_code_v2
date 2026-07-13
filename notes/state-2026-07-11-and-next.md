@@ -1945,6 +1945,26 @@ build). CLAUDE.md writer split aligned with the USER RULE
 handoff block; 0040bc5 correct). Specs: gates-and-board.md
 "20M-15/16 + 20M-14 addendum + the tracked-PDF ruling".
 
+20M-17/18 BATCH + 13-ADDENDUM (2026-07-13, Fable): all adjudicated.
+13-addendum ACCEPTED -> UNIT 80 AMENDED (float64 geometries also
+crash all four structured heads at y @ W_fd — head basis buffers
+cast at their owned boundary; one end-to-end precision owner).
+20M-17 CONFIRMED (artifacts persist NO physical input domain; the
+tanh witness serves finite answers 23.84%/90% wrong; _as_row
+unchecked) -> NEW UNIT 84: persisted per-name support from the
+declared prior contract (never observed minima), save+rebuild
+validation, startup prior-subset proof, per-point refusal before
+encode, no clamping, intersection serving, narrowing-only
+propagation, legacy refusal; enforced centrally in
+EmulatorPredictor. 20M-18 CONFIRMED (sampled w0pwa silently
+degrades to wa=0 in the served syren base while the correction was
+generated at wa=0.5; 12.987% miss) -> NEW UNIT 85: one canonical
+dark-energy resolver shared by generator and adapter, persisted
+parameterization identity in the fixed-facts block, refusal on
+underdetermined mappings. Open EMUL2 blocklist: 67, 71-76, 78, 84,
+85. Specs: gates-and-board.md "20M-13 addendum + 20M-17/18
+adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

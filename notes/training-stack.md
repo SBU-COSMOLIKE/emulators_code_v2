@@ -2417,3 +2417,28 @@ precision choices; a mutation arm restoring the direct mixed-dtype
 einsum must reproduce the runtime failure. Sequencing: lands in the
 transfer campaign WITH unit 77 as one algebra increment — unit 80's
 contraction owner is where unit 77's composition owner contracts.
+
+## UNIT 80 AMENDED (20M-13 addendum, 2026-07-13): geometry precision has one end-to-end owner — head basis buffers cast at their boundary
+
+Finding (red team, CONFIRMED): the structured heads register
+W_fd / W_df directly from the geometry's float64 eigenvector/scale
+tensors (plain.py:577-594; mirrored in ia.py), so a float64
+DataVectorGeometry crashes ResCNN / ResTRF / TemplateResCNN /
+TemplateResTRF at y @ W_fd ("expected m1 and m2 to have the same
+dtype") before any loss executes — the public Python geometry API
+reaches it even though the YAML surface does not yet expose the
+dtype knob.
+
+Amendment (binding, lands IN the unit-80 increment): (1) model
+computation stays in the declared model compute dtype (normally
+float32); (2) structured-head basis-transform buffers are derived or
+cast explicitly into the trunk-output dtype at their owned
+composition boundary; (3) the loss geometry keeps its requested
+precision — float64 Cinv stays float64 for the unit-80 contraction;
+(4) the forward and inverse basis transforms get an independent
+known-answer check; (5) default float32 geometry/model behavior
+bitwise identical; (6) all four structured families complete forward
+AND backward under a float64 output geometry; (7) a mutation
+retaining float64 W_fd/W_df beside a float32 trunk must red.
+"supported geometry precision" has ONE owner from model head through
+physical contraction.

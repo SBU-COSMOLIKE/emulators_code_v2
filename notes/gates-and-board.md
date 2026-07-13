@@ -2140,3 +2140,46 @@ Also this turn: CLAUDE.md's writer split aligned with the USER RULE
 (Architect owns notes/*.md, red team owns texnotes/, the Implementer
 writes neither — everything travels in the handoff block); Opus's
 retraction commit 0040bc5 was correct under that rule.
+
+## 20M-13 addendum + 20M-17/18 adjudication (Fable, 2026-07-13): unit 80 extended; units 84 + 85 born; two more EMUL2 blockers
+
+- 20M-13 ADDENDUM ACCEPTED -> UNIT 80 AMENDED (training-stack.md):
+  the structured heads build W_fd / W_df from geometry-dtype tensors
+  with no cast (plain.py:577-594 — the construction is right in the
+  docstring — mirrored in ia.py), so a documented/recommended
+  float64 output geometry crashes every structured head family
+  (ResCNN / ResTRF / Template*) at y @ W_fd before any loss runs.
+  The amendment lands IN the unit-80 increment: one end-to-end owner
+  of "supported geometry precision" from model head through physical
+  contraction — trunk stays the model compute dtype, head basis
+  buffers cast at their owned boundary, the loss geometry keeps its
+  requested precision, forward/inverse basis transforms get an
+  independent known answer, float32 bitwise identical, all four
+  head families complete forward+backward under float64, and a
+  mutation keeping float64 buffers beside a float32 trunk reds.
+- 20M-17 CONFIRMED -> NEW UNIT 84 (physical input-domain identity),
+  artifacts-inference-warmstart.md. ParamGeometry.state() persists
+  exactly {names, center, evecs, sqrt_ev} — no support fact —
+  _as_row builds the tensor uncheckedand all five adapters cross
+  that boundary; the red team's tanh witness serves finite,
+  well-shaped answers 23.84% / 90% wrong far outside the trained
+  box. Distinct from units 20/21/46/58/74 exactly as filed; unit 46
+  (NPCE domain policy) becomes the PCE-specific instance of this
+  general contract and must consume the same persisted block.
+  EMUL2-blocking.
+- 20M-18 CONFIRMED -> NEW UNIT 85 (canonical dark-energy resolver),
+  families-background-mps.md. syren_params_from documents and
+  implements wa = 0.0 when absent (syren_base.py:54, :88) and
+  nothing in the adapter requests or derives wa from a sampled
+  w0pwa — the generator meanwhile computes through Cobaya's resolved
+  input mapping, so the stored correction belongs to wa = 0.5 while
+  the served base uses wa = 0 (12.987% miss on the shipped-adapter
+  probe). The SAMPLED-coordinate sibling of unit 74's fixed-fact
+  lane in the same function. EMUL2-blocking.
+
+Open EMUL2 blocklist after this batch: 67, 71-76, 78, 84, 85
+(69 closed by audit; 70 in flight, never blocklisted). The
+fixed-facts block proposal (already queued for Architect review)
+now ALSO carries 85's persisted dark-energy parameterization/role
+identity and 84's domain block placement question — the proposal
+must present all the persisted-identity members together.

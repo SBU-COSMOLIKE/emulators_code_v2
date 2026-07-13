@@ -1200,3 +1200,47 @@ control pins today's output. Schema legs CPU; the real-artifact
 lifecycle leg board-listed (workstation if Torch is needed).
 Sequencing: wave-4 MPS adapter visit with units 73 + 74;
 EMUL2-blocking.
+
+## UNIT 85 (20M-18, 2026-07-13, HIGH): one canonical dark-energy resolver — sampled w0pwa never silently degrades to wa = 0
+
+Finding (red team, CONFIRMED): syren_params_from supplies wa = 0.0
+when absent (syren_base.py:54, :88) and understands no w0pwa; the
+adapter requests only artifact names + the five syren params and
+never derives wa — while the GENERATOR computes through Cobaya's
+resolved input mapping (w0pwa=-0.5, w=-1 -> wa=0.5). The stored
+correction therefore belongs to wa = 0.5 while the served analytic
+base runs at wa = 0: the shipped-adapter probe with a perfect
+zero-residual pklin + identity boost initializes, returns True,
+serves finite positive spectra, and misses the real vendored base by
+up to 12.987%. The sampled-coordinate sibling of unit 74's fixed
+mnu lane in the same function; unit 7's alias rule does not apply
+(w0pwa is a different COORDINATE requiring arithmetic, not a
+spelling).
+
+Contract (ratified): (1) ONE canonical dark-energy resolver shared
+by generator and adapter; (2) it accepts explicit (w or w0, wa) or
+sampled (w0pwa, w or w0) and computes wa = w0pwa - w0; (3) when all
+three are present, w0pwa == w0 + wa must hold under one documented
+representation tolerance before canonicalization; (4) the w/w0
+alias equality (unit 7) applies BEFORE the coordinate relation; (5)
+the adapter's requirements guarantee enough inputs to resolve the
+artifact's exact parameterization — wa is NEVER defaulted to 0 when
+w0pwa is present; (6) the absent-all LCDM case stays legal only as
+an explicit persisted fact under unit 74; (7) the resolved
+dark-energy parameterization/role identity is PERSISTED (a member of
+the shared fixed-facts block) so generator and consumer cannot
+choose different coordinate laws; (8) a mismatch or underdetermined
+mapping refuses before predictor or base runs, leaving no partial
+Pk state; (9) explicit wa = 0 behavior byte-identical.
+
+Legs (ratified; CPU, board-listed): the real Cobaya to_input control
+(w0pwa=-0.5, w=-1 -> wa=0.5); the shipped-adapter zero-residual
+known answer against the vendored base at nonzero wa; explicit
+(w, wa) and transformed (w0pwa, w) forms produce one base; the
+wa = 0 control byte-identical; consistent and inconsistent
+all-three mappings; missing information refuses before prediction;
+pair artifacts declare one coordinate law; a mutation restoring
+"absent wa means zero even when w0pwa is present" reproduces the
+12.987% miss and reds. Placement: the shared Syren
+parameter-resolution contract, coordinated with units 74-75 in the
+wave-4 MPS visit; EMUL2-blocking.

@@ -1208,3 +1208,50 @@ boundary; a mutation deleting the read/refusal reproduces the
 finite wrong prediction and must red. Sequencing: RIDES the unit-76
 landing (one recipe-totality validation pass in results.py);
 EMUL2-blocking.
+
+## UNIT 84 (20M-17, 2026-07-13, HIGH): the artifact records the physical parameter domain its predictions are valid on — enforced centrally at the predictor
+
+Finding (red team, CONFIRMED end to end through a real save/rebuild
+and the real emul_scalars path): ParamGeometry.state() persists only
+{names, center, evecs, sqrt_ev}; _as_row orders values and builds
+the tensor with no domain check; all five adapters cross that
+boundary. The tanh witness (y = x trained on [-0.1, 0.1]) serves
+finite, correctly shaped answers that are 23.84% wrong at x = 1 and
+90% wrong at x = 10 — invisible to every finiteness or type guard.
+
+Contract (ratified): (1) the artifact persists the canonical
+admissible physical input support BY PARAMETER NAME, sourced from
+the declared generator/prior/cut contract — NEVER from observed
+sample minima/maxima; (2) a valid set more restrictive than an
+axis-aligned box persists the actual named constraint or a versioned
+validator identity — no silent widening to a bounding box; (3) the
+support block validates at save AND rebuild (exact name set/order,
+finite endpoints or explicitly supported open bounds, strict
+ordering, no coordinate both sampled and fixed); (4) at adapter
+startup the inference sampler's prior is proven a subset of the
+artifact support wherever Cobaya exposes it — a wider prior refuses
+BEFORE sampling; (5) every point is independently validated before
+pgeom.encode — startup proof never replaces runtime defense; (6) a
+physical cosmology is NEVER clamped to the boundary; (7) multiple
+artifacts in one adapter serve only their declared intersection,
+explicit in the startup record; (8) fine-tuning and transfer persist
+their executed domain — inherited coordinates may narrow, never
+silently widen; new coordinates acquire explicit support; (9) a
+legacy artifact without the block refuses with a migration
+instruction — absence never means unbounded; (10) in-domain
+prediction byte-identical. Unit 46's NPCE domain policy becomes the
+PCE-specific instance and consumes the same persisted block.
+
+Legs (ratified; CPU/Torch, board-listed): the real
+save -> rebuild -> emul_scalars known answer on [-0.1, 0.1]; exact
+boundary values accepted; one representable value below/above
+refused before encode; the finite x = 1 / x = 10 witnesses refused;
+a wider Cobaya prior rejected at startup and a contained prior
+accepted; multi-artifact overlap + disjoint refusal; malformed /
+missing / reordered / sampled-plus-fixed records refused;
+fine-tune/transfer propagation; a mutation deleting the predictor
+check reproduces the 23.84% / 90% answers and reds. Placement: the
+inference/artifact boundary campaign, enforced centrally in
+EmulatorPredictor (never five adapter copies); EMUL2-blocking; the
+domain block's schema placement rides the fixed-facts proposal
+review.
