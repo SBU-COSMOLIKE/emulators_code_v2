@@ -2846,3 +2846,11 @@ message. INCREMENT 2 FIRES; its landing is the transfer trigger.
 Commit-authority question routed to the user (recommend a
 time-boxed self-commit grant through the gauntlet). Spec:
 gates-and-board.md "Queue-2 increment-1 audit".
+
+COMMIT GRANT (2026-07-13, USER): the Implementer self-commits its
+branch landings, time-boxed through the gauntlet (queue-2
+increments 2..n + migration + D3/D4/D5; closes at D5). Pre-merge
+audit before any main merge and user-only merge/push are unchanged;
+a landing my audit reds is repaired by a follow-up commit, both
+shas recorded. Spec: gates-and-board.md "COMMIT GRANT (user,
+2026-07-13)".

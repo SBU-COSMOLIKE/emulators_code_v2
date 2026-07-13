@@ -6307,3 +6307,22 @@ moving without a new grant. My recommendation if speed matters: a
 time-boxed self-commit grant through the gauntlet (increments 2..n +
 D3/D4/D5), since every landing still gets my pre-merge audit before
 any merge to main.
+
+## COMMIT GRANT (user, 2026-07-13): Implementer self-commits branch landings through the gauntlet
+
+The user granted the commit authorization requested in the
+increment-1 audit. Scope as recommended and now binding:
+
+- The Implementer SELF-COMMITS its landings on
+  claude/amazing-keller-e798b6, TIME-BOXED through the gauntlet:
+  queue-2 increments 2..n, the per-gate migration, D3, D4, D5. The
+  box closes when D5 lands; anything after needs a fresh grant.
+- Unchanged safety: every landing is still handed off for my
+  pre-merge audit BEFORE any merge to main, and merge/push to main
+  remains user-only. The grant removes the Architect-as-committer
+  serialization point, not the audit.
+- A landing commit that my audit then REDS is repaired by a
+  follow-up commit on the branch (never a rewrite of a pushed/
+  merged commit); the audit records both shas.
+- I keep committing my own notes (adjudications, audits, ledger),
+  as throughout.
