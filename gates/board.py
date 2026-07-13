@@ -276,9 +276,9 @@ def _golden_leg(ctx, gate_id, grep_pattern, *, yaml_name=None,
   # absolute-path passthrough, so an absolute --yaml would be re-prefixed
   # there; the fileroot convention resolves a bare name on every commit.
   with ctx.staged_golden(gate_id=gate_id, source=source) as bare:
-    _, cur = ctx.run_driver(yaml_path=bare)
+    cur_rc, cur = ctx.run_driver(yaml_path=bare)
     with ctx.worktree(commit=base) as wt:
-      _, pre = ctx.run_driver(yaml_path=bare, cwd=wt)
+      pre_rc, pre = ctx.run_driver(yaml_path=bare, cwd=wt)
 
   if ctx.dry:
     return
@@ -290,9 +290,28 @@ def _golden_leg(ctx, gate_id, grep_pattern, *, yaml_name=None,
                                         text_b=cur,
                                         pattern=grep_pattern,
                                         strip=r"[ \t]+\d+(?:\.\d+)?s$")
+  # A golden proof is evidence only when BOTH children COMPLETED (rc 0) AND the
+  # compared selection is NON-EMPTY. The pre-46 leg discarded both child return
+  # codes (``_, cur`` / ``_, pre``) and compared whatever the pattern selected,
+  # so a child that crashed after its last matching line -- or a pattern that
+  # matched nothing on both sides -- passed byte-identity vacuously. Require
+  # clean rcs and a non-empty selection, and report both rcs + both selected
+  # counts beside the equality verdict.
+  n_pre = len(logscan.matching_lines(text=pre, pattern=grep_pattern))
+  n_cur = len(logscan.matching_lines(text=cur, pattern=grep_pattern))
+  reasons = []
+  if pre_rc != 0 or cur_rc != 0:
+    reasons.append("a child exited nonzero (a golden run must complete)")
+  if n_pre == 0 or n_cur == 0:
+    reasons.append("empty selection (the pattern matched no lines to compare)")
+  if not equal:
+    reasons.append(detail)
+  ok = (len(reasons) == 0)
+  status = ("rc pre=" + str(pre_rc) + " cur=" + str(cur_rc)
+            + "; selected pre=" + str(n_pre) + " cur=" + str(n_cur))
   ctx.expect(label=gate_id + " golden byte-identity (" + base + " vs tip)",
-             ok=equal,
-             detail=detail)
+             ok=ok,
+             detail=status + ("" if ok else "; " + "; ".join(reasons)))
 
 
 def _smoke_driver(ctx, config_key, required_banners, *, extra=()):

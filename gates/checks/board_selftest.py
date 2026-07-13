@@ -43,6 +43,7 @@ gates. Grouped by the defect each proves:
 Each check states the boundary under test, the fixture, the expected verdict,
 and (where relevant) the deliberately broken behavior it must reject.
 """
+import contextlib
 import copy
 import hashlib
 import io
@@ -944,8 +945,129 @@ def check_aid_manifest():
             report("a leg counted by both the script and the body reds (one-verdict)",
                    final.get("dvg", {}).get("status") == "FAIL",
                    repr(final.get("dvg", {}).get("status")))
+
+            # (f) the composition hole (increment-2 audit ab07a2e): a script that
+            # prints '##AID <aid> FAIL' but EXITS 0 passes the wrapper's rc==0
+            # expect, so the passing path sees a FOLDED FAIL -- it must red, not
+            # be relabeled UNAVAILABLE.
+            fail0_s = sd / "fail0.py"
+            fail0_s.write_text("print('##AID failg.a PASS')\n"
+                               "print('##AID failg.b FAIL')\n")
+
+            def _fl_run(ctx):
+                rc, out = ctx.run_check(str(fail0_s))
+                ctx.expect(label="ran (rc==0)", ok=(rc == 0), detail="rc=" + str(rc))
+            failg = Gate(id="failg", tier="backlog", home="selftest", maps="s",
+                         run=_fl_run,
+                         evidence=(Assertion("failg.a", "n.md#failg-a"),
+                                   Assertion("failg.b", "n.md#failg-b")))
+            rc, final, tmp = drive_main(["--gate", "failg"], [failg], {})
+            report("a folded FAIL while the wrapper rc==0 expect passes reds the gate",
+                   final.get("failg", {}).get("status") == "FAIL",
+                   repr(final.get("failg", {}).get("status")))
+
+            # (g) control: both legs PASS under the same wrapper rc==0 expect -> green.
+            pass0_s = sd / "pass0.py"
+            pass0_s.write_text("print('##AID passg.a PASS')\n"
+                               "print('##AID passg.b PASS')\n")
+
+            def _ps_run(ctx):
+                rc, out = ctx.run_check(str(pass0_s))
+                ctx.expect(label="ran (rc==0)", ok=(rc == 0), detail="rc=" + str(rc))
+            passg = Gate(id="passg", tier="backlog", home="selftest", maps="s",
+                         run=_ps_run,
+                         evidence=(Assertion("passg.a", "n.md#passg-a"),
+                                   Assertion("passg.b", "n.md#passg-b")))
+            rc, final, tmp = drive_main(["--gate", "passg"], [passg], {})
+            report("an all-PASS manifest under the wrapper expect stays green (control)",
+                   final.get("passg", {}).get("status") == "PASS",
+                   repr(final.get("passg", {}).get("status")))
         finally:
             run_board.validate_evidence = saved_ve
+
+
+class _GoldenCtx:
+    """A stub ctx that drives the REAL board._golden_leg over controlled child
+    (rc, output) pairs, so the empty-selection / crashed-child mutations red
+    through the production leg itself (DIDACTICS-46 + the rc addendum).
+
+    _golden_leg calls run_driver twice: first the current tree, then the pinned
+    worktree. This returns _cur on the first call and _pre on the second, and
+    captures the leg's single ctx.expect verdict in .result = (ok, detail).
+    """
+
+    def __init__(self, *, pre, cur, pre_rc=0, cur_rc=0):
+        self._pre = (pre_rc, pre)
+        self._cur = (cur_rc, cur)
+        self.dry = False
+        self.result = None
+        self._n = 0
+
+    def golden_base(self, gate_id):
+        return "deadbeef"                # a configured base (not the skip path)
+
+    def config_yaml_name(self, name):
+        return "c.yaml"
+
+    def require_config(self, key):
+        return "c.yaml"
+
+    def log(self, msg):
+        pass
+
+    @contextlib.contextmanager
+    def staged_golden(self, *, gate_id, source):
+        yield "bare.yaml"
+
+    @contextlib.contextmanager
+    def worktree(self, *, commit):
+        yield "/tmp/wt"
+
+    def run_driver(self, *, yaml_path, cwd=None):
+        self._n = self._n + 1
+        return self._cur if self._n == 1 else self._pre
+
+    def expect(self, *, label, ok, detail=""):
+        self.result = (ok, detail)
+
+
+def check_golden_leg():
+    """board._golden_leg reds on a crashed child or an empty selection, not only
+    on a diff (DIDACTICS-46 + the rc addendum). Drives the REAL leg via _GoldenCtx.
+
+    The pre-46 leg discarded both child rcs and compared whatever the pattern
+    selected, so a nonzero-rc child after its matching lines, or a pattern that
+    matched nothing on both sides, passed vacuously. These arms hold the fix.
+    """
+    def _drive(**kw):
+        c = _GoldenCtx(**kw)
+        board._golden_leg(c, "g", "^epoch", yaml_name="c.yaml")
+        return c.result
+
+    same = "epoch 1 loss 0.5\nepoch 2 loss 0.3\n"
+
+    # control: rc0/rc0 + identical non-empty selection -> green.
+    ok, detail = _drive(pre=same, cur=same)
+    report("golden control: clean rcs + identical non-empty selection passes",
+           ok, detail)
+
+    # the original equality check still bites: a diverging line reds.
+    ok, detail = _drive(pre=same, cur="epoch 1 loss 0.5\nepoch 2 loss 0.9\n")
+    report("golden: a diverging selection reds", not ok, detail)
+
+    # the 46 defect: neither side has an 'epoch' line -> empty selection must
+    # red, not pass vacuously.
+    ok, detail = _drive(pre="hello\nworld\n", cur="hello\nworld\n")
+    report("golden: an empty selection reds (not a vacuous pass)", not ok, detail)
+
+    # the rc addendum: both children exit 1 after identical matching lines.
+    ok, detail = _drive(pre=same, cur=same, pre_rc=1, cur_rc=1)
+    report("golden: both children rc 1 reds despite matching lines", not ok,
+           detail)
+
+    # the rc addendum: a tip-only nonzero child rc.
+    ok, detail = _drive(pre=same, cur=same, cur_rc=1)
+    report("golden: a tip-only nonzero child rc reds", not ok, detail)
 
 
 def check_dirty_watch():
@@ -1916,6 +2038,8 @@ def main():
     check_evidence_gate_verdict()
     print("\n-- ##AID manifest (check-script per-leg fold, crash/malformed/one-verdict) --")
     check_aid_manifest()
+    print("\n-- golden leg (both child rcs + non-empty selection, not just a diff) --")
+    check_golden_leg()
     print("\n-- clean-tree watch (per-line porcelain, one owner) --")
     check_dirty_watch()
     print("\n-- manifest reconciliation (subprocess + dynamic-import censuses) --")

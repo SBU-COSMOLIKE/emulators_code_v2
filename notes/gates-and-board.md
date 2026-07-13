@@ -6459,3 +6459,131 @@ consistent; the hole lives in their composition (a comment in 1
 made an assumption 2 invalidated). Composition re-walks — re-reading
 the earlier increment's assumptions against the new one's channels —
 join the audit checklist alongside the clause walk.
+
+### Increment-2 follow-up repair — the folded-FAIL composition hole (Opus, 2026-07-13)
+
+Architect audit ab07a2e caught a composition hole in `e193097`: the `##AID` fold
+is a NON-raising channel, so a check that prints `##AID <aid> FAIL` while exiting
+0 passes the wrapper's `rc==0` expect and reaches `_reconcile_evidence`'s passing
+path with a FAIL in its executed set — where increment 1's PASS/UNAVAILABLE split
+silently relabeled it UNAVAILABLE (and the gate could PASS). Increment 1's "a FAIL
+always raised GateFailure" assumption is falsified by the fold channel.
+
+Repair (follow-up commit, per the self-commit grant): `_reconcile_evidence`'s
+passing path now scans every declared leg for a FAIL record BEFORE the
+PASS/UNAVAILABLE split and reds on any, with the named line
+`[evidence] <gate>: leg <aid> recorded FAIL while the gate body passed (the
+check's manifest contradicts its exit code)`. board-selftest `check_aid_manifest`
+gains the real-runner arm: a fabricated script emitting one PASS + one FAIL leg at
+exit 0 (wrapper expect passes) ends the gate FAIL; an all-PASS control stays green.
+**164 PASS / 0 FAIL** (was 162); `--list` rc 0; compile clean.
+
+## Increment-2 delta audit (Fable, 2026-07-13): 14c88a3 GO — increment 2 COMPLETE; the four transfers FIRE
+
+The follow-up repair audited at the diff and re-probed with the
+ORIGINAL reproduction: declared {good-leg, bad-leg}, executed
+[(good, PASS), (bad, FAIL)] now reds with exactly the specified
+line ("recorded FAIL while the gate body passed (the check's
+manifest contradicts its exit code)"); the PASS + explicit
+UNAVAILABLE control stays green. The FAIL scan runs BEFORE the
+PASS/UNAVAILABLE split as required; the two real-runner arms landed
+(##AID FAIL at exit 0 reds; all-PASS control green); the
+increment-1 comment is rewritten to teach both emission channels.
+My runs: --list rc 0, board-selftest ALL PASS (164).
+
+VERDICT: GO. Increment 2 is COMPLETE (e193097 + 14c88a3). THE FOUR
+PRE-AUTHORIZED TRANSFERS FIRE with this record: D6 (all nine
+mkdtemp sites, whole), 61-finiteness (checks/logscan.py decreasing
++ its five control legs, whole), D3 (the unit-28 smoke-fixture
+repair — conditional on the red team's still-owed torch probe), and
+D4 file-by-file. D4 transfer protocol: the red team CLAIMS a
+check-script file by naming it in a handoff BEFORE editing (one
+owner per file at any moment; the Implementer may veto a
+collision); 46's _golden_leg (board.py) stays with the Implementer
+and is already approved to build. Where verification needs torch
+the red team's environment lacks, the write-here/verify-there form
+applies (the unit-93 precedent) until the probe answers.
+
+## SUBAGENT RULE (user, 2026-07-13): Implementer handoffs request subagent fan-outs where the work parallelizes
+
+USER RULING: when the Architect hands the Implementer new work, the
+handoff requests subagents where the work admits them. Precedent:
+the 45M-86..90 didactics units were drafted by gated sub-agents
+under a strict AST-identity check, then independently re-verified
+before commit — that discipline is the template, now standing:
+
+- The handoff NAMES which deliverables parallelize (e.g. increment
+  3's per-gate migration fans out per gate once the pattern is
+  proven serially on the first two or three gates) and which stay
+  serial (shared-file machinery edits; anything where increments
+  interlock).
+- Every subagent draft passes the SAME per-landing acceptance as
+  first-hand work (selftest/compile/AST gates as applicable), and
+  the Implementer independently re-verifies before self-committing —
+  a subagent is a drafting tool, never a verification substitute.
+- My pre-merge audit is unchanged and does not care which hands
+  drafted a diff.
+
+## Unit 46 COMPLETE — the golden-leg both-rc + non-empty-selection repair (Opus, 2026-07-13)
+
+DIDACTICS-46 + the rc addendum, landed serially (single-file board.py change per
+the subagent rule). `_golden_leg` discarded BOTH child return codes (`_, cur` /
+`_, pre`) and compared whatever the pattern selected, so a child that crashed
+after its last matching line, or a pattern matching nothing on both sides, passed
+byte-identity vacuously (the empty-selection green was live-reproduced).
+
+Repair (board.py `_golden_leg`): capture both child rcs (`cur_rc, cur` /
+`pre_rc, pre`); require BOTH rc == 0 AND a non-empty selected-line count (via
+`logscan.matching_lines`, so `byte_identity`'s signature is unchanged for its
+other callers) AND equality; the verdict detail always reports both rcs + both
+counts (`rc pre=.. cur=..; selected pre=.. cur=..`), and names the reason(s) on
+failure (nonzero child rc / empty selection / the byte divergence).
+
+board-selftest `check_golden_leg` drives the REAL `board._golden_leg` via a stub
+ctx (`_GoldenCtx`) feeding controlled child (rc, output) pairs: a clean rc0/rc0
+identical non-empty selection greens (control); a diverging line, an empty
+selection, both-children-rc-1-after-matching-lines, and a tip-only-rc-1 each red.
+**169 PASS / 0 FAIL** (was 164, +5); `--list` rc 0; compile clean. ("Minimum"
+selected-line count is read as non-empty / >= 1; a higher floor is a one-line
+change if the audit wants it.)
+
+## README figures + didactic rewrite audit (Fable, 2026-07-13): 701d6f9 — GO
+
+The red team's root-README visit (codex/readme-code-map-dedup):
+1249 insertions / 939 deletions on top of D2, three manuscript
+figures + a preview renderer + the register record. Verified:
+
+- SONIC expansion SURVIVES as the subtitle (bold-initial form); the
+  cbdd49e pair warning survives; the DIDACTICS-95-class overclaim
+  phrases remain absent (zero hits).
+- The three figures verified VISUALLY (Read on the PNGs):
+  colorblind-safe throughout (blue/orange/purple + distinct line
+  styles; no red+green pairing), no cropped labels or overlaps; the
+  ownership chain teaches the true eight-state pipeline (strict
+  load, artifact pair, per-arrow validating boundary); the
+  activation panels carry the gamma/beta, gates, and p=1.4 tail
+  content truthfully.
+- Every figure symbol defined in place beside fig01 (C, V, N, B, P,
+  P_enc, D, K, the memmap sentence, the box-color semantics); each
+  PNG links to its vector PDF; both the PDF owner
+  (texnotes/make_figures.py) and the new renderer are linked.
+- PNG dimensions verified with sips: 1800x550 / 1800x525 / 1800x700
+  — the register's exact numbers. The byte-identical second-render
+  claim is REGISTER-WITNESSED only (pdftoppm is not on my PATH);
+  the renderer's determinism is structurally plausible (fixed dpi,
+  -singlefile, one tool) and the dimensions cross-check.
+- render_readme_previews.py: stdlib + Poppler, no absolute paths,
+  house Arguments: blocks. Style note (not a blocker): f-strings +
+  type annotations are texnotes-local idiom, outside the production
+  surface the C-readable rule guards.
+- BOARD IMPACT of the new tracked texnotes .py: geo_paths run with
+  the cocoa torch interpreter in their tree — PASS (the whole-scope
+  enumerator absorbs the new file on both sides of its set
+  equality). No production or gate file touched (commit stat).
+- Em dashes: zero in the rewritten README. The register attributes
+  the prose rules to the user's ruling in publicly-stateable form.
+- The frontispiece image the README embeds is pre-existing and
+  tracked (cb2ee8e).
+
+VERDICT: GO. 46efa6d + cbdd49e + 701d6f9 land together with the
+codex branch merge.
