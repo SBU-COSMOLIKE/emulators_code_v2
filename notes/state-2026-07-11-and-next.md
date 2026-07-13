@@ -1640,6 +1640,28 @@ data-generation-and-cuts.md "UNIT 8 EXTENDED (45M-68)" and
 "UNIT 33 AMENDED AGAIN (45M-70)"; gates-and-board.md "UNIT 4
 EXTENDED (45M-69)".
 
+ARCHITECT BATCH AUDIT (2026-07-13): everything landed after 05d4937
+audited from the merge-candidate tree with the Architect's own gate
+reruns (all CPU gates green) + independent code reads. Queue 43 /
+14(h) / 60+14(f) PASS their contracts. The red-team wave 45M-71..90
+(implemented without adjudication while the Architect was offline) is
+ACCEPTED post-hoc; the red-team audit's critical reopens are
+independently CONFIRMED — above all the stage_source order defect
+(same seed, different minibatches by host-RAM availability; the
+stage-ram gate sorts-before-comparing and cannot see it). Repair
+queue 1a/1c VERIFIED; queue 4 (c9ace04) + 6a (dce3d69) AUDITED PASS
+and cleared to merge. The five evidence-map questions are now BINDING
+rulings (red-team answers ratified, plain-leg-name aid scheme, plus
+the adopted declared-vs-executed reconciliation clause); the 45M-72
+rollout spec is APPROVED. SEQUENCING: queue 3 (staging truth, pinned
+contract in gates-and-board.md) FIRST, then the 1b manifest proposal,
+then the rollout, then 50 -> 52 -> 55 -> 22(+20) -> 13(+01); unit 50
+depends on queue 3's canonical order. Governance: adjudication
+protocol resumes; the 45M-69 propose-first deviation is recorded and
+self-corrected (queue 1b); the (h)-then-43 flag is closed. Spec:
+gates-and-board.md "Architect batch audit of the overnight batch
+(2026-07-13, Fable)".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
