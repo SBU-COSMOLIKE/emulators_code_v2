@@ -3100,3 +3100,20 @@ repair): MERGED, no second unit. The 40-ADDENDUM is accepted: the
 direction census covers docstrings, comments, AND exception strings
 (printed errors are user documentation), adding the cmb.py:207/:245
 and scalar.py:121-128 reversal sites to the multiline scan.
+
+## DIDACTICS-58 adjudication (Fable, 2026-07-13): the canonical harness-Python preamble — a rider on the DIDACTICS-02 __init__ landing
+
+CONFIRMED with a precise census: the Architect's own count finds
+EXACTLY 24 gate scripts carrying both the module-global FAILURES
+accumulator and the __main__ executable footer (full intersection of
+the two patterns). RATIFIED as filed, PLACED as a rider on the
+DIDACTICS-02 gates/checks/__init__.py landing — the file-by-file
+index and the canonical beginner preamble are one edit to one file.
+The preamble teaches all seven mechanics (module-load-time list
+creation; name lookup finding the module-level object; in-place
+.append needing no global; rebinding needing global; per-subprocess
+isolation via fresh module execution; __name__ semantics; main() ->
+sys.exit -> shell/board exit status), each standalone script points
+to it without team shorthand, per-file report docstrings stay
+descriptive, and — per the standing C-coder rule — the repeated
+pattern is NOT compressed into a clever framework to save lines.

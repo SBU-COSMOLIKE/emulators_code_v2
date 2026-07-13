@@ -2233,6 +2233,12 @@ acceptance; 45 merged into DIDACTICS-11; the 40-addendum extends the
 direction census to exception strings. Spec: gates-and-board.md
 "DIDACTICS-42..57 adjudication".
 
+DIDACTICS-58 (2026-07-13, Fable): CONFIRMED (census exact: 24 files,
+both patterns, full intersection) — the canonical seven-mechanics
+harness-Python preamble rides the DIDACTICS-02 __init__ landing (one
+file, one edit); no clever framework, per the C-coder rule. Spec:
+gates-and-board.md "DIDACTICS-58 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
