@@ -3591,3 +3591,94 @@ Sequencing confirmed: BATCH-3-STYLE gates + cli-strict land
 immediately under the standing GOs; the deploy_data proposal returns
 for sign-off; then the full-board Mac validation and the review
 handoff. The deferred resume block lands with the assembled landing.
+
+## DIDACTICS-72..92 adjudication (Fable, 2026-07-13): the README wave — four file visits, the factual heads jump the queue, one aliasing rule
+
+The register (notes/red-team-audit-and-didactics-2026-07-13.md,
+"README-focused DIDACTICS handoff register: 72--92", e6256a1) read in
+full; anchors sample-verified at the audited HEAD, ALL CONFIRMED:
+
+- 79: the canonical generator command (README.md:2425-2427) omits
+  --seed, which generator_core.py:157-166 declares required=True
+  ("an unrecorded seed cannot be replayed"); --unif is required=True
+  choices [0,1] (:125-130), not a default; and the command passes
+  --boundary 1.0 two paragraphs after the README's own "pass only
+  0 < --boundary < 1" (:2387-2389). The copyable command CANNOT RUN
+  as printed — the repo's highest-visibility falsehood class.
+- 86: both same-file contradictions verbatim — emulator/README.md
+  :128 "the grid2d law transform currently defeats the memory
+  ladder" vs :419 "Bounded grid2d staging has landed ... the retired
+  full-materialization concern"; :83 still names the retired
+  external_modules/code/emulators/emultrfv2/ path.
+- 87: gates/README.md:3-7 "cosmic-shear ... runs every ... one raw
+  log per test"; :46/:147 promise fixed logs/<test>.log against the
+  landed immutable per-attempt timestamped logs.
+- 90: syren/README.md:3-7 universalizes log(P/P_base) against the
+  three-law registry (none = raw rows; syren_linear = log(P/P_base);
+  syren_halofit = log(B/B_base)).
+- 91, SHARPENED beyond the filing: ":34-35 byte-verbatim
+  (AST-verified in the vendoring probe)" — an untruncated grep over
+  gates/, syren/, emulator/, compute_data_vectors/ finds NO retained
+  vendoring probe (the three "vendor" hits are folder-reference
+  prose). The parenthetical cites a NONEXISTENT artifact: binding
+  ruling 6's never-executed-evidence class, in a README.
+- 81: emulator/README.md:97-100 "the same per-sample chi2" verbatim.
+
+RULINGS:
+
+1. THE FACTUAL HEADS JUMP THE QUEUE (join the D2 factual bundle):
+   79's command repair (a reproducible explained seed; --unif stated
+   required with its 0/1 meanings; an interior boundary value or the
+   flag omitted); 86's two contradictions + the retired path; 87's
+   false scope/every-test/log-name claims; 89's edit-the-config
+   instruction (a standard clone resolves rootdir: null from
+   $ROOTDIR) and the "stale git tip" mischaracterization (preflight
+   proves base-notes ANCESTRY of HEAD; it never fetches origin);
+   81 -> "same per-row score interface, shape (B,)"; 82's narrowing
+   (the square-dense/two-projection rule is the ResMLP trunk's, not
+   the library's — Conv1d, attention, FiLMGenerator are
+   counterexamples at blocks.py:350-425); 83's precise claim
+   (non-cosmic-shear training does not import CosmoLike — not "pure
+   PyTorch"); 90's law table heads; 91's honest narrowing
+   ("vendoring prevents an unreviewed package-manager upgrade";
+   "byte-verbatim" reserved for byte/hash comparison; the
+   nonexistent-probe citation removed); 76's three data-boundary
+   corrections (generator writes PHYSICAL values, ParamGeometry
+   whitens after selection; the dv .npy is memmapped while the
+   parameter .txt parses eagerly; "in-memory source" vs file-backed
+   payload distinguished).
+2. FOUR FILE VISITS, one per README, queue-6 lane (doc-only,
+   review-blocked filler): root (72-80), package map (81-86), gates
+   (87-89 MERGED with DIDACTICS-02's D1 landing — gates/README.md
+   gets ONE visit: walkthrough + completed table + operator path
+   together, never two passes), syren (90-92, landing WITH or AFTER
+   unit 75 since 92's domain paragraph sources its ranges there
+   rather than inventing them).
+3. Riders honored as filed — no duplicate mechanisms: 86 + 88
+   sharpen the queue-6 restructuring and the DIDACTICS-62/ruling-6
+   acceptance surfaces; 88's completed table runs through
+   DIDACTICS-02's mechanical set-equality leg, extended to the
+   six-field rows and preceded by the evidence ladder (banner/schema
+   < parity/round-trip < independent known answer with mutation
+   catch power); 91's identity half rides the artifact
+   implementation-identity work; 92 teaches the honest evidence
+   split (stub-base assembly identity vs the law-none real-CAMB
+   smoke; neither proves the real Syren fit's accuracy).
+4. THE ALIASING RULE (binding, program-wide): DIDACTICS labels now
+   collide with unit numbers (DIDACTICS-90/91/92 vs units 90/91/92).
+   Every artifact writes the DIDACTICS- prefix in full; a bare
+   number means a UNIT. The register's own scope note anticipated
+   exactly this.
+5. Acceptance additions for this wave: every repaired command is
+   EXECUTED once on its appropriate machine before it is printed
+   (Mac-safe now; workstation commands at the queue-5 window, run
+   recorded) — command-to-output truth is the wave's theme and a
+   printed command is a quantifier claim about reality; the 86 link
+   check covers ALL READMEs (clickable ../notes/... paths); no
+   numeric gate count anywhere (DIDACTICS-02 law); untruncated
+   stale-phrase scans per file; the voice note read before writing.
+
+Sequencing: doc-only; nothing preempts the spine (4/5b -> D3 -> D4
+-> D5). The consolidated plan absorbs this wave without a new spine
+position: D1 gains 72 + the merged gates-README visit; D2 gains the
+factual heads; the four visits join the queue-6 lane.
