@@ -1,0 +1,66 @@
+# ema-off-identity, golden config (spec:
+# notes/training-stack.md:98-101, 229-238). A SHORT (~40 epoch)
+# plain resmlp run with NO ema block. The golden byte-identity leg trains
+# this on the current tree and on the pre-EMA commit (46ec5e1, in a
+# temporary worktree) and requires character-identical epoch / best-epoch
+# lines: EMA switched off must reproduce the pre-EMA run bit for bit.
+#
+# Declared deviation from the home note's literal production YAML: identity
+# is proven per epoch line, so two production-length runs are not required
+# (both golden legs resolve THIS config through the ema-off-identity-golden
+# gate_configs key). Every train_args sub-block build_run_specs reads is
+# present (model, optimizer, lr, scheduler, trim, focus); ema is
+# deliberately absent, the point of the test.
+#
+data:
+  train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
+  train_params: w0wa_takahashi_params_train_cs_16.1.txt
+  train_covmat: w0wa_takahashi_params_train_cs_16.covmat
+  val_dv:       w0wa_takahashi_dvs_train_cs_8.npy
+  val_params:   w0wa_takahashi_params_train_cs_8.1.txt
+  cosmolike_data_dir: lsst_y1
+  cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
+  param_cuts:
+    omegabh2_hi:   0.035
+    omegabh2_lo:   0.014
+    omegam2h2_lo:  0.015
+    omegam2h2_hi:  0.08
+  n_train:       25000
+  n_val:         5000
+  split_seed:    0
+  ram_frac:      0.7
+
+train_args:
+  nepochs: 40
+  bs:      256
+  loss:
+    mode: sqrt
+  # no ema block: EMA off must be byte-identical to the pre-EMA run.
+  model:
+    name: resmlp
+    mlp:
+      width:    128
+      n_blocks: 4
+  optimizer:
+    weight_decay: 0.0
+  lr:
+    lr_base:       0.0025
+    bs_base:       64.0
+    warmup_epochs: 10
+  scheduler:
+    mode:     min
+    patience: 25
+    factor:   0.8
+  trim:
+    start:         0.1
+    end:           0.025
+    hold_epochs:   50
+    anneal_epochs: 300
+    shape:         cosine
+  focus:
+    start:         0.0
+    end:           2.0
+    hold_epochs:   50
+    anneal_epochs: 300
+    shape:         linear
+    kappa:         0.15

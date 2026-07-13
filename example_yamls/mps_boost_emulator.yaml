@@ -1,0 +1,169 @@
+# MPS grid2d emulator config (the nonlinear-boost artifact) for
+# mps_train_emulator.py (see notes/families-background-mps.md and
+# emulator/geometries/grid2d.py).
+#
+# The MPS family serves P(k, z) from TWO artifacts: this one emulates the
+# nonlinear boost B(k, z) = P_nl / P_lin as a CORRECTION to the
+# syren-halofit analytic formula (the target is log(B / B_syren), the
+# formula multiplied back at inference); a second config with quantity
+# pklin / law syren_linear over the *_pklin files trains the linear P.
+# The dumps come from compute_data_vectors/dataset_generator_mps.py with
+# write_syren_base true (one CAMB pass per sample writes the raw surface
+# AND the syren base beside it, plus the _z.npy/_k.npy grid sidecars).
+# Together the pair feeds cosmolike's hybrid mode (use_emulator: 2)
+# through cobaya_theory/emul_mps.py. No cosmolike on this path.
+
+data:
+  # the grid2d sub-block: its presence switches the run to the MPS path
+  # (the scalar / cmb / grid / cosmolike keys are forbidden beside it).
+  grid2d:
+    # which surface the dv rows hold: pklin (linear P, Mpc3) or boost
+    # (P_nl/P_lin, dimensionless).
+    quantity: boost
+    units:    dimensionless
+
+    # the target law (persisted in the artifact by name): syren_halofit
+    # learns log(B / B_syren-halofit) — the network corrects the
+    # analytic formula, so the amplitude and shape it must learn are
+    # gentle. The pairing is fixed: pklin <- syren_linear, boost <-
+    # syren_halofit (or none for either, learning the raw surface).
+    law: syren_halofit
+
+    # the generator's *_base dumps (REQUIRED under a syren law): the
+    # analytic base rows the staging divides out, read from disk so
+    # training uses exactly the base the generator wrote (the formulas
+    # themselves are vendored in syren/ — pinned twice).
+    train_base: dvs_train_mps_unifs_boost_base.npy
+    val_base:   dvs_val_mps_unifs_boost_base.npy
+
+    # the generator's grid sidecars; the (z, k) axes persist into the
+    # artifact from these FILES.
+    z_file: dvs_train_mps_unifs_z.npy
+    k_file: dvs_train_mps_unifs_k.npy
+
+    # V1 k thinning: keep every k_stride-th wavenumber (the top edge
+    # always kept); the emul_mps interpolator fills between kept points
+    # exactly as CAMB's own interpolator would. The KEPT grid is what
+    # persists in the artifact.
+    k_stride: 10
+
+  # the dumps (dataset_generator_mps.py): the chosen quantity's dv files
+  # plus the chain sidecars.
+  train_dv:     dvs_train_mps_unifs_boost.npy
+  val_dv:       dvs_val_mps_unifs_boost.npy
+  train_params: params_train_mps_unifs.1.txt
+  val_params:   params_val_mps_unifs.1.txt
+  train_covmat: params_train_mps_unifs.covmat
+
+  n_train:    50000
+  n_val:      10000
+  split_seed: 0
+  ram_frac:   0.7
+
+# OPTIONAL NPCE trunk (README section 12): fit a closed-form
+# sparse-Legendre base on the staged law-space surface at staging, then
+# train the model below as the refiner correcting it — the arXiv
+# 2404.12344 configuration (an NPCE on the boost; EuclidEmulator2 is
+# itself a PCE of this quantity). A top-level block (a sibling of
+# data / train_args — structurally unsweepable, one base per study);
+# residual only on this family. The fit knobs and their defaults are
+# annotated in example_yamls/cosmic_shear_train_emulator.yaml.
+# pce:
+#   form: residual
+
+# OPTIONAL frozen-base transfer (README section 13): freeze a saved
+# emulator of the SAME quantity, law, and (z, k) grids (same k_stride)
+# and train the model below as a small parallel correction — the tool
+# for a NEW physics sector, where fine-tuning's same-capacity
+# adaptation is not enough (the 2026-07-12 ruling: "this for sure
+# should be allowed for MPS"). On this family the composition acts in
+# the whitened space (form sum recommended; gain prints a
+# zero-crossing note); refine: is not offered here yet. Exclusive with
+# pce: and train_args.finetune.
+# transfer:
+#   from: chains/my_lcdm_boost_base
+#   form: sum
+
+train_args:
+  nepochs: 300
+  bs:      256
+
+  # the model. name picks the architecture: resmlp (the plain trunk) or
+  # the correction heads rescnn / restrf. The
+  # flattened surface is z-outer, so the natural split is one bin per z
+  # slice: rescnn gets the z slices as conv CHANNELS and slides along k
+  # (channel mixing couples redshifts at like k); restrf gets one TOKEN
+  # per z slice (attention shares information across redshifts, each
+  # slice's private MLP specializes along k; n_tokens is rejected here —
+  # the z slices ARE the tokens, and restrf's n_heads must divide nk
+  # after the k_stride thinning). Uncomment ONE head block with its
+  # name. With a head, the two-phase schedule applies here exactly as
+  # on cosmic shear (trunk_epochs / freeze_trunk + the trunk: / head:
+  # blocks — README section 11).
+  model:
+    name: resmlp
+    mlp:
+      width:    256
+      n_blocks: 4
+    activation:
+      type:    H
+      n_gates: 3
+    # cnn:                   # with name: rescnn
+    #   kernel_size: 5       # odd conv width, slides along k
+    #   n_blocks:    1
+    # trf:                   # with name: restrf
+    #   n_heads:      2      # must divide nk (post k_stride)
+    #   n_blocks:     1
+    #   n_mlp_blocks: 2
+
+  # sqrt is the usual default; the FULL shared mode ladder applies here
+  # exactly as on cosmic shear (chi2 / sqrt / sqrt_dchi2 / berhu /
+  # berhu_capped, with the berhu: knot / cap / anneal sub-block — see
+  # the annotated ladder in cosmic_shear_train_emulator.yaml).
+  loss:
+    mode: sqrt
+
+  optimizer:           # cls is fixed to AdamW in the driver
+    weight_decay: 0.0
+
+  lr:
+    lr_base:       0.001
+    bs_base:       256.0
+    warmup_epochs: 5
+
+  scheduler:           # cls is fixed to ReduceLROnPlateau
+    mode:     min
+    patience: 25
+    factor:   0.8
+
+  # OPTIONAL training guards — the SAME shared loop as cosmic shear
+  # (off when absent): clip = per-step gradient-norm ceiling; rewind =
+  # reload the best weights + optimizer snapshot on every plateau lr
+  # cut; ema = a Polyak weight average {horizon_epochs, anneal}. The
+  # annotated versions live in cosmic_shear_train_emulator.yaml.
+  # clip:   1.0
+  # rewind: true
+  # ema:
+  #   horizon_epochs: 20
+
+  trim:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         cosine
+
+  focus:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         linear
+    kappa:         0.15
+
+  # OPTIONAL fine-tuning: warm-start from a saved grid2d
+  # emulator of the SAME quantity, units, law, (z, k) grids, and
+  # k_stride. Delete the model: block when using it — the architecture
+  # is inherited.
+  # finetune:
+  #   from: chains/emulator_boost_resmlp_ntrain50000

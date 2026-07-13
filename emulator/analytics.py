@@ -1,6 +1,7 @@
-"""Analytic cosmic-shear rescaling R (the As / shape preprocessor).
+"""This module computes the analytic cosmic-shear rescaling R, the As /
+shape preprocessor.
 
-Computes a fast, closed-form reference xi (Eisenstein-Hu zero-baryon
+It evaluates a fast, closed-form reference xi (Eisenstein-Hu zero-baryon
 transfer, linear, single-plane Limber) to divide out the broadband
 cosmology dependence so the network emulates a flatter target. _analytic_R
 holds the formula (numpy or torch, picked by input type).
@@ -8,16 +9,26 @@ analytic_shape_ratio wraps it over the masked data vector (the emulator
 path); rescale_xi wraps it over the (theta, xip, xim) matrix layout (for
 plotting and visual checks). The RescaledChi2 and ResidualBaseChi2 losses
 call _analytic_R on-device.
+
+PS: squeeze = keep only the unmasked dv entries (the geometry's squeeze),
+so the squeezed dv has one column per kept element; unsqueeze scatters them
+back into the full-length vector. resident = held in GPU memory the whole
+run, not re-loaded each batch.
 """
 
 import numpy as np
 import torch
 
 
-def _analytic_R(theta_arcmin, z_eff, cosmo, cosmo_mid,
-                names, u_star=0.5, include_amp=False):
+def _analytic_R(theta_arcmin,
+                z_eff,
+                cosmo,
+                cosmo_mid,
+                names,
+                u_star=0.5,
+                include_amp=False):
   """
-  Core analytic cosmic-shear rescaling R -- the one place the
+  Core analytic cosmic-shear rescaling R: the one place the
   formula lives.
 
     R = (As_mid/As) * q_mid^ns_mid T(q_mid)^2 / (q^ns T(q)^2),
@@ -64,17 +75,18 @@ def _analytic_R(theta_arcmin, z_eff, cosmo, cosmo_mid,
   # library/dtype/device to broadcast.
   is_torch = torch.is_tensor(cosmo)
   if is_torch:
-    log    = torch.log
-    coerce = lambda a: torch.as_tensor(
-      a, dtype=cosmo.dtype, device=cosmo.device)
+    log = torch.log
+    def coerce(a):
+      return torch.as_tensor(a, dtype=cosmo.dtype, device=cosmo.device)
     # a lone 1D row -> (1, n_param): the tensor np.atleast_2d, so
     # the [:, col] indexing below works.
     if cosmo.ndim == 1:
       cosmo = cosmo[None, :]
   else:
-    log    = np.log
-    coerce = lambda a: np.asarray(a, dtype="float64")
-    cosmo  = np.atleast_2d(
+    log = np.log
+    def coerce(a):
+      return np.asarray(a, dtype="float64")
+    cosmo = np.atleast_2d(
       np.asarray(cosmo, dtype="float64"))
   mid = coerce(cosmo_mid)
 
@@ -100,7 +112,7 @@ def _analytic_R(theta_arcmin, z_eff, cosmo, cosmo_mid,
   S     = tuple(base.shape)
   flat  = base.reshape(-1)                   # (n_elem,)
   # flat[None, :] -> (1, n_elem); Gam[:, None] -> (N, 1). Dividing
-  # broadcasts to the full (N, n_elem) grid -- every cosmology's
+  # broadcasts to the full (N, n_elem) grid: every cosmology's
   # Gamma against every element's base wavenumber. ([None, :] and
   # [:, None] are the numpy/torch spelling of unsqueeze.)
   q     = flat[None, :] / Gam[:, None]       # (N, n_elem)
@@ -131,9 +143,14 @@ def _analytic_R(theta_arcmin, z_eff, cosmo, cosmo_mid,
   return R.reshape((cosmo.shape[0],) + S)        # (N, *S)
 
 
-def analytic_shape_ratio(
-  cosmo, cosmo_mid, names, theta_kept, zsrc_i, zsrc_j,
-  u_star=0.5, include_amp=False):
+def analytic_shape_ratio(cosmo,
+                         cosmo_mid,
+                         names,
+                         theta_kept,
+                         zsrc_i,
+                         zsrc_j,
+                         u_star=0.5,
+                         include_amp=False):
   """
   Cosmic-shear rescaling R over the masked (kept) data vector,
   for the emulator pipeline: column k aligns with kept element
@@ -167,9 +184,13 @@ def analytic_shape_ratio(
                      include_amp=include_amp)
 
 
-def rescale_xi(
-  xi, cosmo, cosmo_mid, names, z_src,
-  u_star=0.5, include_amp=True):
+def rescale_xi(xi,
+               cosmo,
+               cosmo_mid,
+               names,
+               z_src,
+               u_star=0.5,
+               include_amp=True):
   """
   Rescale a list of xi curves by R, in the (theta, xip, xim)
   matrix layout, for plotting/visual checks. Calls _analytic_R

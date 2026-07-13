@@ -1,0 +1,470 @@
+# Config for cosmic_shear_train_emulator.py
+#
+# cosmic_shear_sweep_ntrain_emulator.py and cosmic_shear_bakeoff_activation_emulator.py
+# reuse this same YAML unchanged (their range leaves collapse to the defaults).
+#
+# The data files below are bare filenames; the driver resolves them under
+# $ROOTDIR/<--root>/chains (where dataset_generator_lensing.py writes the
+# dvs / params / covmat), so no folder prefix and no dependence on the
+# launch directory. The cosmolike_data_dir / cosmolike_dataset keys are
+# separate: they live under $ROOTDIR/external_modules/data, not under --root.
+
+data:
+  train_dv:     w0wa_takahashi_dvs_train_cs_16.npy
+  train_params: w0wa_takahashi_params_train_cs_16.1.txt
+  train_covmat: w0wa_takahashi_params_train_cs_16.covmat
+  val_dv:       w0wa_takahashi_dvs_train_cs_8.npy
+  val_params:   w0wa_takahashi_params_train_cs_8.1.txt
+
+  cosmolike_data_dir: lsst_y1
+  cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
+
+  param_cuts:              # physical density windows (see phys_cut_idx)
+    omegabh2_hi:   0.035   # required upper bound on omega_b h^2 (the hard
+                           # corner; renamed from the former omegabh2_cut)
+    omegabh2_lo:   0.014   # optional lower bound (Planck omega_b h^2 =
+                           # 0.0224; omit for no lower cut)
+    omegam2h2_lo:  0.015   # keep omegam^2 h^2 = (Omega_m H0/100)^2 above this
+    omegam2h2_hi:  0.08    # ... and below this (both tails rarefied and fail;
+                           # Planck sits at 0.045; omit a key for no cut)
+    # omegamh2_lo:    0.10   # optional window on omegamh2 = Omega_m (H0/100)^2
+    # omegamh2_hi:    0.18   #   (Planck 0.143); omit both keys for no cut
+    # omegamh2ns_lo:  0.10   # optional window on omegamh2 * n_s (needs the ns
+    # omegamh2ns_hi:  0.17   #   column; Planck 0.138); omit both for no cut
+  n_train:       25000   # absolute training rows kept after param_cuts
+                         # (raises if the cut pool is smaller; your scale)
+  n_val:         5000    # absolute validation rows, same rule
+  split_seed:    0
+  ram_frac:      0.7     # RAM fraction stage_source may fill
+
+# Read only by cosmic_shear_sweep_hyperparam_emulator.py (the other
+# drivers ignore this block): sweep exactly one train_args leaf, named
+# by its dotted path, over the listed values (one full training per
+# value at fixed N_train; outputs a value/frac table + figure like the
+# N_train sweep). Any leaf works: bs, lr.lr_base, scheduler.patience,
+# trim.start, model.mlp.width, model.cnn.kernel_size, model.cnn.film
+# (values true/false), head.lr.lr_base, ... Special case: parameter
+# model.activation sweeps the activation family (values H / power /
+# multigate / gated_power; leave --activation unset). model.name and
+# model.ia are refused (they change the model class, so use one sweep
+# per architecture).
+#
+# sweep:
+#   parameter: lr.lr_base
+#   values:
+#     - 0.0010
+#     - 0.0025
+#     - 0.0063
+
+# Fine-tune warm start (an alternative to training from random weights):
+# continue a saved emulator on a new training set with a lower initial
+# learning rate, by adding a train_args.finetune block (and dropping the
+# model: block, whose architecture is then inherited from the source). See
+# example_yamls/cosmic_shear_finetune_emulator.yaml and
+# notes/artifacts-inference-warmstart.md.
+#
+# Transfer learning (a frozen base + a small parallel correction net, for a
+# larger model extension like Early Dark Energy + w(z)-PCA): add a top-level
+# transfer: block (from / form / space) and keep a model: block describing the
+# correction net's capacity. See
+# example_yamls/cosmic_shear_transfer_emulator.yaml and
+# notes/artifacts-inference-warmstart.md.
+
+train_args:
+  nepochs:   1600
+  bs:        256         # training batch; validation runs at a derived
+                         # ~1024-row batch (see derive_eval_bs), independent
+                         # of bs, so a small bs does not slow the eval pass
+  loss:                    # nested loss block (absent -> mode sqrt)
+    mode: sqrt             # sqrt | chi2 | sqrt_dchi2 | berhu | berhu_capped
+                           # (berhu = sqrt below the knot, chi2-like above,
+                           # C1 there; berhu_capped also plateaus the tail
+                           # vote above the cap, monster-robust)
+    # berhu:               # the C1 knots of berhu / berhu_capped (defaults
+    #   knot: 0.2          # 0.2 / 10.0). knot = sqrt below this chi2 (the
+    #   cap:  10           # frac>0.2 goal threshold); cap = berhu_capped
+    #                      # sqrt-shaped again above (accepted but unused
+    #                      # under plain berhu). Valid only beside a berhu
+    #                      # mode; a per-phase loss: block full-replaces it.
+    #                      # Name the block berhu: (works for every mode,
+    #                      # sweep-safe) or exactly after the chosen mode
+    #                      # (berhu_capped: under mode berhu_capped).
+    #   anneal:            # optional (presence = on; absent = full berhu
+    #                      # from epoch 1). Start as plain sqrt everywhere
+    #                      # and blend into the berhu shape on a trim-style
+    #                      # schedule, so the escalated (knot, cap) window
+    #                      # votes arrive late (few outliers still pass
+    #                      # down through the window by then). Advice: set
+    #                      # hold_epochs >= the trim hold, so trim absorbs
+    #                      # the monsters while berhu is still soft.
+    #     hold_epochs:   50    # plain sqrt through here (s = 0)
+    #     anneal_epochs: 300   # then ramp s 0 -> 1 over this many epochs
+    #     shape:         cosine  # cosine | linear | step | const
+  silent:    false       # false -> per-epoch progress lines
+
+  # Stability guards (both optional, both default off; the trunk: /
+  # head: blocks below can override either per phase).
+  # clip = per-step gradient-norm ceiling: the full gradient vector
+  # is rescaled to norm <= clip before each optimizer step (same
+  # direction, bounded size), so one monster-outlier batch cannot
+  # kick the weights (the train-loss-spike epochs a quadratic
+  # (chi2) loss produces on a fat-tailed training set). 0 = off.
+  # rewind = on every plateau-scheduler lr cut, reload the
+  # best-so-far weights together with the optimizer state snapshotted
+  # with them, keeping the new (reduced) lr. At a true plateau this is a
+  # no-op (best ~= current); after an excursion into a bad basin it
+  # is the rescue: the run resumes from its best point at most
+  # `patience` epochs after the damage, instead of decaying the lr
+  # inside the wreckage and freezing there. Plateau scheduler only.
+  # clip:   1.0
+  # rewind: true
+
+  # Weight averaging (Polyak / ema), optional, off when absent. Keeps a
+  # running average of the weights and ships that instead of the single
+  # best epoch: it stabilizes the tail metric (frac>0.2) at every batch
+  # size for a few percent overhead. The average is coupled to the loop's
+  # best-snapshot and rewind (restored together), so an excursion the
+  # rewind discards also leaves the average. horizon_epochs is the
+  # averaging window in epochs (beta is derived from the steps per epoch,
+  # so the window is the same at any bs). Selection and the reported
+  # metrics use the average; the plateau scheduler stays on the raw
+  # median. A quality knob, sweepable.
+  # ema:
+  #   horizon_epochs: 3
+  #   anneal:                # optional (presence = on; absent = full
+  #                          # horizon from the live point). Ramps the
+  #                          # averaging window from 0 (the berhu-anneal
+  #                          # twins): h(e) = horizon * s(e), so the average
+  #                          # has no memory through the terrible early era
+  #                          # and grows to the full horizon as s -> 1. The
+  #                          # average goes live only once s > 0.
+  #     hold_epochs:   50    # window 0 (average dormant) through here
+  #     anneal_epochs: 300   # then ramp the horizon 0 -> full over these
+  #     shape:         cosine  # cosine | linear | step | const
+  # A per-phase ema: (under trunk: / head:) full-replaces this one for that
+  # pass; ema: null (the key with an empty value) disables an inherited
+  # top-level ema for that phase.
+
+  # Two-phase schedule (ANY correction head: name rescnn | restrf,
+  # plain or with ia:, on every family the heads ride; omit or 0 =
+  # joint training).
+  # Phase 1 (epochs 1..trunk_epochs): the correction head is bypassed,
+  # so the model trains as its pure trunk at trunk cost per epoch.
+  # Phase 2 (the
+  # remaining nepochs - trunk_epochs): by default the trunk freezes at
+  # phase 1's best epoch and runs under no_grad (no trunk backward); only
+  # the head + gates train, from a zero-init identity start, so the loss is
+  # continuous at the handoff. Fresh optimizer / lr warmup / scheduler /
+  # trim / focus schedules per phase.
+  # trunk_epochs: 1500
+
+  # freeze_trunk (default true = today): phase 2 freezes the trunk and
+  # trains the head alone. Set false to train trunk + head together (a
+  # joint fine-tune warm-started by phase 1); costs more per epoch (the
+  # trunk backward returns). Needs trunk_epochs > 0; sweepable on a
+  # two-phase model, dropped on a single-phase one.
+  # freeze_trunk: false
+
+  # Per-phase overrides, symmetric (both need trunk_epochs > 0; error
+  # otherwise). Each block mirrors the top-level train_args schema
+  # key-for-key; the eight keys are lr / scheduler / loss / trim /
+  # focus / clip / rewind / ema, each optional and falling back to
+  # the run default. lr is an overlay {lr_base, warmup_epochs} onto the
+  # lr: block (bs_base stays run-global, so a phase never sets it);
+  # scheduler is a full replacement of the scheduler kwargs (the run's
+  # scheduler class stays); trim / focus are full-replacement blocks
+  # (same keys as the main ones, incl. kappa, no merging), restarting at
+  # the phase's own epoch 1; loss (the nested {mode, berhu} block), ema
+  # (the {horizon_epochs, anneal} block; ema: null disables an inherited
+  # one), clip, and rewind replace their value.
+  # On a single-phase model (resmlp, including ia nla / tatt — the one
+  # design with no head; every rescnn / restrf is two-phase) train()
+  # ignores head: and trunk_epochs and merges trunk: into the top level,
+  # printing a one-line notice, so this same YAML also drives a plain
+  # baseline with no edits.
+  # trunk:                   # phase 1 (pure-trunk training)
+  #   lr:
+  #     lr_base:   0.0025    # phase-1 base lr (same sqrt-batch rule)
+  #   loss:
+  #     mode: sqrt
+  #   trim:
+  #     start:         0.1
+  #     end:           0.01  # floor, never 0.0: the worst fraction
+  #                          # stays out of the loss forever
+  #     hold_epochs:   50
+  #     anneal_epochs: 400
+  #     shape:         cosine
+  #   focus:
+  #     start:         0.0
+  #     end:           2.0
+  #     hold_epochs:   50
+  #     anneal_epochs: 300
+  #     shape:         linear
+  #     kappa:         0.15
+  # head:                    # phase 2 (frozen trunk, head only)
+  #   lr:
+  #     lr_base:       0.001 # phase-2 base lr (same sqrt-batch rule)
+  #     warmup_epochs: 5     # optional per-phase warmup (default: global)
+  #   scheduler:             # full replacement of the scheduler kwargs;
+  #     mode:     min        # the run's scheduler class stays. A lower
+  #     patience: 10         # head patience cuts the lr sooner on the
+  #     factor:   0.8        # frozen-trunk phase.
+  #   loss:                  # the head's loss block (full replacement): a
+  #     mode: berhu_capped   # natural head loss, sqrt bulk + chi2 window,
+  #     berhu:               # the tail vote capped above chi2=10
+  #       knot: 0.2          # (monster-robust, so clip is often redundant).
+  #       cap:  10           # Alternatives: mode berhu (tail rises unbounded);
+  #                          # sqrt (as phase 1); chi2 is sharper on the tail
+  #                          # but needs the trim floor + clip (an untrimmed
+  #                          # quadratic loss fits the monster tail at the
+  #                          # bulk's expense)
+  #   trim:
+  #     start:         0.03
+  #     end:           0.01  # floor, never 0.0
+  #     hold_epochs:   15
+  #     anneal_epochs: 100
+  #     shape:         cosine
+  #   focus:                 # all-zero = focal weighting off in
+  #     start:         0.0   # phase 2 (omit the block entirely and
+  #     end:           0.0   # the head inherits the top-level focus
+  #     hold_epochs:   1     # schedule instead)
+  #     anneal_epochs: 1
+  #     shape:         linear
+  #     kappa:         0.15
+  #   clip:      1.0         # bound per-step grads (chi2 + fat tail)
+  #   rewind:    true        # self-heal after an excursion
+
+  model:
+    # Two orthogonal choices pick the model class; the other keys are
+    # its kwargs. YAML silently keeps the last occurrence of a duplicated
+    # key, so never leave two uncommented copies of one key (a
+    # stray duplicate runs the wrong model with no error). The startup
+    # banner prints the resolved class, so check it.
+    #
+    # `name` = the architecture:
+    #
+    #   resmlp  Plain residual MLP. The baseline; maps the whitened
+    #           parameters straight to the whitened data vector.
+    #
+    #   rescnn  ResMLP trunk + a 1-D CNN correction head: the
+    #           theta-order dv splits into its (xi+/-, source-pair)
+    #           bins, the bins are the conv channels, and a single
+    #           kernel slides along theta over the whole data vector
+    #           (theta-local and cross-bin, with no channel expansion;
+    #           uncomment the conv-head knobs below).
+    #
+    #   restrf  ResMLP trunk + a bin-token transformer correction
+    #           head (uncomment the TRF knobs below): the theta-order
+    #           dv splits into its (xi+/-, source-pair) tomographic
+    #           bins, each bin is one token, attention shares
+    #           information across bins, and each bin then gets its
+    #           own private MLP stack (a textbook transformer shares
+    #           one MLP across tokens; the unique weights also stand
+    #           in for the positional encoding). For cross-bin
+    #           structure in the residuals.
+    #
+    # `ia` = the factored intrinsic-alignment design layered on the
+    # architecture (omit the key for the plain emulator):
+    #
+    #   nla     The net emits 3 templates from the non-amplitude
+    #           inputs and the loss combines them in closed form:
+    #             xi = K1 + A1 * K2 + A1^2 * K3
+    #           The amplitude A1 (= LSST_A1_1) never enters the
+    #           network, so the emulator is exact in it and its prior
+    #           costs zero training coverage. LSST_A1_2 (the eta
+    #           power) stays an input. With name: rescnn / restrf the
+    #           gated head corrects the templates before the combine
+    #           (both treat the (template, bin) pairs as their units:
+    #           conv channels / attention tokens), so the polynomial is
+    #           untouched and the correction stays exact in A1.
+    #
+    #   tatt    The same factoring with 3 amplitudes (a1, a2, b_TA
+    #           = LSST_A1_1 / LSST_A2_1 / LSST_BTA_1) and 10
+    #           templates, exact in all three amplitudes; the
+    #           redshift powers (LSST_A1_2, LSST_A2_2) stay emulated
+    #           inputs. The code path is live; a run needs dv dumps
+    #           holding the 10 templates.
+    #
+    name:        resmlp
+    # ia:        nla
+    #
+    # Each component nests its own knobs, so the names stay short:
+    # cnn.n_blocks and trf.n_blocks need no suffixes. A head block the
+    # architecture does not have is ignored (keep cnn: and trf: both
+    # configured and switch models by changing name: alone); unknown
+    # keys at the top level or inside the active blocks are loud
+    # errors.
+    #
+    # The trunk (required; every architecture is built on it):
+    mlp:
+      width:    128        # residual-block width
+      n_blocks: 4          # number of residual blocks
+    #
+    # Activation for the ResBlocks (the heads share it). type is one
+    # of:
+    #   H            the paper's learnable leaky/Swish gate (default)
+    #   power        H with a bounded learnable tail exponent
+    #   multigate    K independent gates (K = n_gates)
+    #   gated_power  K gates + the tail exponent
+    #   relu         a plain rectifier (parameter-free)
+    #   tanh         the classic tanh (parameter-free; pair with
+    #                norm: per_feature to guard its saturation)
+    # The --activation flag, when given, overrides type. A bare
+   # string (activation: H) is accepted as shorthand for the type.
+   # activation:
+    #   type:    H
+    #   n_gates: 3         # gates K for multigate / gated_power
+    #
+    # ResBlock normalization before each activation (the paper's
+    # saturation guard; the trunk only, not the conv / TRF heads):
+    #   affine       one scalar g*x + b per layer (default, the paper)
+    #   per_feature  a per-feature (per-width) gain / bias; the tanh
+    #                saturation guard
+    #   none         no normalization (an ablation)
+    # batchnorm is deliberately not offered (batch coupling would
+    # confound the bs / EMA experiments; its train/eval split leaves
+    # buffers outside the EMA average; see the README norm knob).
+    # norm: affine
+    #
+    # Conv head (name: rescnn only). The channels are the bins
+    # themselves (with ia: nla, the (template, bin) pairs, so the head
+    # is cross-template as well as cross-bin; A1 exactness is unaffected,
+    # it lives in the loss combine), so the head's tensors never exceed
+    # the padded dv size and there is no channels knob to budget.
+    # cnn:
+    #   kernel_size: 11    # conv kernel width (odd), tuned as if
+    #                      # n_blocks were 1 (the target view)
+    #   rescale_kernel: false
+    #                      # true = shrink the per-block kernel as
+    #                      # n_blocks grows, so the stack keeps a single
+    #                      # kernel_size-wide block's receptive field
+    #                      # (n*(k-1)+1 >= kernel_size) instead of
+    #                      # over-growing it; head params stay nearly
+    #                      # flat in depth. E.g. kernel_size 27 ->
+    #                      # per-block k = 27 / 15 / 11 / 9 at
+    #                      # n_blocks = 1 / 2 / 3 / 4.
+    #   groups:      1     # channel-mixing cuts (consecutive blocks
+    #                      # that never mix; conv params drop by the
+    #                      # same factor). Physical values only:
+    #                      #   plain rescnn (channels = bins):
+    #                      #     1 = dense; 2 = xi+ never mixes xi-
+    #                      #   rescnn + ia nla (channels = 3 x bins,
+    #                      #   template-major):
+    #                      #     1 = dense; 3 = GG/GI/II never mix;
+    #                      #     6 = templates isolated and xi+
+    #                      #         isolated from xi-
+    #                      # anything else errors; the xi cut is
+    #                      # validated against the mask at build.
+    #   separable:   false # true = factor each block into a
+    #                      # depthwise theta filter + pointwise
+    #                      # channel mix (a low-rank factorization of
+    #                      # the same conv, ~k/2 times fewer weights;
+    #                      # composes with groups + rescale_kernel).
+    #   film:        false # true = re-inject the (non-amplitude)
+    #                      # parameters into every block as a
+    #                      # per-channel affine gamma(z)*c + beta(z)
+    #                      # (identity-initialized; the head becomes
+    #                      # cosmology-aware instead of one fixed
+    #                      # map; ~2*channels*n_param params/block;
+    #                      # amplitude exactness untouched).
+    #   n_blocks:    1     # stacked conv+activation blocks
+    #   gate_init:   0.1   # initial correction scale (small, not 0)
+    #   activation:          # optional: the CNN head's own family
+    #     type: gated_power  # (absent = shares the trunk's
+    #     n_gates: 3         # model.activation; the head trains in
+    #                        # phase 2, so this pins its phase-2 family).
+    #                        # Needs trunk_epochs > 0 + freeze_trunk true.
+    #
+    # Transformer head (name: restrf only): each bin is one token at
+    # its natural width (the padded bin length, with no embedding layer
+    # in and no projection out, so no width knob and no adapter
+    # parameters; with ia: nla the tokens are the (template, bin)
+    # pairs). Attention shares information across the tokens; each
+    # token gets its own private MLP stack.
+    # trf:
+    #   n_heads:      2    # parallel attention patterns; same params
+    #                      # and FLOPs at any value, but must divide
+    #                      # the bin length (26 -> 1 | 2 | 13)
+    #   n_blocks:     1    # stacked transformer blocks
+    #   n_mlp_blocks: 2    # each token's private MLP depth per block;
+    #                      # every layer at the token width, pinned to
+    #                      # the bin length, no width knob (depth only)
+    #   shared_mlp: false  # true = one MLP for every token (the
+    #                      # textbook block; ablation of the unique-MLP
+    #                      # deviation, so then nothing structural tells
+    #                      # tokens apart, no positional encoding)
+    #   film:       false  # true = after every TRF block, modulate
+    #                      # the token stream with a cosmology-
+    #                      # dependent per-token affine (identity-
+    #                      # initialized; same design as cnn.film)
+    #   gate_init:    0.1  # initial correction scale (small, not 0)
+    #   activation:          # optional: the TRF head's own family
+    #     type: gated_power  # (absent = shares the trunk's
+    #     n_gates: 3         # model.activation; the head trains in
+    #                        # phase 2, so this pins its phase-2 family).
+    #                        # Needs trunk_epochs > 0 + freeze_trunk true.
+    #
+    # compile_mode: default  # conv/TRF models default to this because
+    #                        # CUDA-graph capture (reduce-overhead)
+    #                        # crashed on the gated skip-add (torch <=
+    #                        # 2.x, 2026-06); reduce-overhead is worth
+    #                        # a single retry on a newer torch (it either
+    #                        # works or crashes in epoch 1).
+    #
+    # The ia designs need no other kwargs: n_amps and the template
+    # count plus the amplitude column names come from the design
+    # (IA_DESIGNS in experiment.py).
+
+  optimizer:             # cls is fixed to AdamW in the script
+    weight_decay: 0.0
+
+  lr:                    # learning rate = lr_base * sqrt(bs / bs_base)
+    lr_base:       0.0025
+    bs_base:       64.0
+    warmup_epochs: 10
+    # Two-phase runs: each phase restarts at its base lr with a fresh
+    # warmup + scheduler (never phase 1's decayed lr); a head-specific
+    # base goes in the head: block above as head.lr.lr_base (and its own
+    # head.lr.warmup_epochs / head.scheduler), not here. bs_base is
+    # run-global: it belongs only in this top-level lr: block.
+
+  scheduler:             # cls is fixed to ReduceLROnPlateau
+    mode:     min
+    patience: 25
+    factor:   0.8
+
+  trim:                  # hold `start`, then ease to `end`
+    start:         0.1
+    end:           0.025
+    hold_epochs:   50
+    anneal_epochs: 300
+    shape:         cosine
+
+  focus:                 # focal hardness weighting (gamma schedule)
+    start:         0.0
+    end:           2.0
+    hold_epochs:   50
+    anneal_epochs: 300
+    shape:         linear
+    kappa:         0.15
+
+# NPCE (optional, off by default): a TOP-LEVEL block (a sibling of data /
+# train_args, never inside train_args). Present = fit a closed-form
+# sparse-Legendre base on the staged training set, then train model.name above
+# as its refiner ("trunk = PCE, head = any SGD model"). Kept top-level on
+# purpose: sweep_hyperparam builds the base once, so a pce knob under
+# train_args would sweep without refitting it (a silent no-op) -> one base per
+# study. Exclusive with --rescale and model.ia (each replaces the chi2 loss).
+# The block rides EVERY family (the scalar / cmb / baosn / mps example
+# YAMLs carry it too; residual-only there, and on CMB only with
+# amplitude_law: none). Uncomment to enable:
+# pce:
+#   form: residual         # residual = base + net | ratio = base * (1 + net)
+#   # fit knobs (defaults = the values shown; all optional):
+#   # p_max:     4         # max total degree (the smoothness knob)
+#   # r_max:     2         # max interaction order (vars per term)
+#   # q:         0.5       # hyperbolic sparsity exponent in (0, 1]
+#   # k_max:     40        # max leading SVD modes to try
+#   # loo_max:   0.05      # keep a mode only if its relative LOO < this
+#   # max_terms: 30        # per-mode active-set cap
+#   # max_fail:  4         # stop after this many consecutive misses

@@ -1,0 +1,133 @@
+# Example cobaya "evaluate" config for a schema-v2 cosmic-shear emulator.
+#
+# The new calling convention: the theory block names one saved-emulator path
+# ROOT per emulator and nothing else about the network. The legacy ord (input
+# ordering), extrapar (architecture dims), file/extra (the two file paths as a
+# split pair) are all GONE -- the <root>.h5 stores the resolved model recipe
+# and the parameter names in training order, so rebuild_emulator reconstructs
+# the module and the theory reads the required inputs from the file. The
+# emulator file IS the emulator (the never-trust-defaults rule, applied to the
+# sampling YAML).
+#
+# Run (from $ROOTDIR, cobaya installed):
+#   cobaya-run ./external_modules/code/emulators_code_v2/cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml
+
+timing: True
+debug: False
+stop_at_error: True
+
+likelihood:
+  lsst_y1.cosmic_shear:
+    path: ./external_modules/data/lsst_y1
+    data_file: lsst_y1_M1_GGL0.05.dataset
+    use_emulator: 1
+    print_datavector: False
+    print_datavector_file: "./projects/lsst_y1/chains/example_emul_v2_theory.modelvector"
+
+params:
+  As_1e9:
+    prior:
+      min: 0.5
+      max: 5
+    ref:
+      dist: norm
+      loc: 2.1
+      scale: 0.65
+    proposal: 0.4
+    latex: 10^9 A_\mathrm{s}
+    renames: A
+  ns:
+    prior:
+      min: 0.87
+      max: 1.07
+    ref:
+      dist: norm
+      loc: 0.96605
+      scale: 0.01
+    proposal: 0.01
+    latex: n_\mathrm{s}
+  H0:
+    prior:
+      min: 55
+      max: 91
+    ref:
+      dist: norm
+      loc: 67.32
+      scale: 5
+    proposal: 3
+    latex: H_0
+  omegab:
+    prior:
+      min: 0.03
+      max: 0.07
+    ref:
+      dist: norm
+      loc: 0.0495
+      scale: 0.004
+    proposal: 0.004
+    latex: \Omega_\mathrm{b}
+  omegam:
+    prior:
+      min: 0.1
+      max: 0.9
+    ref:
+      dist: norm
+      loc: 0.316
+      scale: 0.02
+    proposal: 0.02
+    latex: \Omega_\mathrm{m}
+  # No reparametrization bridge: a schema-v2 emulator requires exactly the
+  # names stored in its h5, and this repo's training dumps use the
+  # sampler-side names directly (the covmat header: As_1e9 ns H0 omegab
+  # omegam LSST_DZ_S1..S5 LSST_A1_1 LSST_A1_2). The DZ/A1 names arrive from
+  # the likelihood's params_source.yaml defaults. Add derived-param lambdas
+  # (e.g. the legacy lcdm emulator's logA / omegabh2 / omegach2, with
+  # drop: true on the sampled names) ONLY when the h5's stored names are a
+  # reparametrization of what the sampler walks — a dropped name never
+  # reaches the theory, so dropping a stored name fails dependency
+  # resolution ("Requirement ... is not provided by any component").
+
+theory:
+  emul_cosmic_shear:
+    # python_path (NOT path) is cobaya's external-class key; without it the
+    # legacy v1 adapter bundled in cocoa's cobaya fork shadows this class.
+    python_path: ./external_modules/code/emulators_code_v2/cobaya_theory/
+    stop_at_error: True
+    extra_args:
+      device: 'cuda'
+      # one path root per emulator -> <root>.h5 + <root>.emul; list-shaped for
+      # future probes (one cosmic-shear emulator today). ROOTDIR-relative.
+      emulators:
+        - projects/lsst_y1/emulators/<run>/emul_v2
+      # compile: false          # torch.compile on CUDA; off by default (batch-1)
+      # dv_return: section       # the returned shape: 'section' (the default)
+      #                          # = this emulator's own probe block (xi for
+      #                          # cosmic shear, the length the likelihood
+      #                          # glues per probe); '3x2pt' = the full
+      #                          # scattered vector (masked positions zero).
+      # fast_params (one inner list per emulator): sampled parameters passed
+      # through to the requirements but NOT fed to the network -- for a setup
+      # where a nuisance (e.g. Roman shear calibration) is applied in the
+      # theory rather than the likelihood. Absent = the geometry's names are
+      # the whole input list.
+      # fast_params:
+      #   - [roman_M1, roman_M2, roman_M3, roman_M4]
+
+sampler:
+  evaluate:
+    N: 1
+    override:
+      As_1e9: 2.1
+      ns: 0.96605
+      H0: 67.32
+      omegab: 0.04
+      omegam: 0.3
+      LSST_DZ_S1: 0.0414632
+      LSST_DZ_S2: 0.00147332
+      LSST_DZ_S3: 0.0237035
+      LSST_DZ_S4: -0.0773436
+      LSST_DZ_S5: -8.67127e-05
+      LSST_A1_1: 0.606102
+      LSST_A1_2: -1.51541
+
+output: ./projects/lsst_y1/chains/EXAMPLE_EMUL_EVALUATE

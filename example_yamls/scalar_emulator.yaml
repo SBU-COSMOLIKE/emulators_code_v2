@@ -1,0 +1,114 @@
+# Scalar (derived-parameter) emulator config for scalar_train_emulator.py
+# (see notes/families-scalar-cmb.md and emulator/geometries/scalar.py).
+#
+# A scalar emulator maps cosmological parameters to a small set of NAMED
+# derived parameters (H0, omegam, rdrag, ...), not a cosmolike data vector.
+# Inputs and outputs are both columns of ONE parameter .txt: the inputs are
+# the covmat-header names (whitened by the plain ParamGeometry), the outputs
+# are the columns named in data.outputs (standardized by a ScalarGeometry).
+# There is no data vector, no mask, and no cosmolike anywhere on this path.
+
+data:
+  # the parameter chain files. Each .txt needs a getdist .paramnames sidecar
+  # beside it (chain_thetastar_lcdm.paramnames); the sidecar names the .txt
+  # columns, so the output columns can be found by name and the sampled block
+  # is pinned to the covmat / whitening order. The covmat header is the input
+  # (sampled) parameter names, in whitening order.
+  train_params: chain_thetastar_lcdm.1.txt
+  train_covmat: chain_thetastar_lcdm.covmat
+  val_params:   chain_thetastar_lcdm_val.1.txt
+
+  # the derived parameters to emulate. Each must be a column of the .txt
+  # (usually a getdist-derived column, marked with a trailing * in the
+  # sidecar). Its presence switches the run to the scalar path; the
+  # data-vector / cosmolike keys (train_dv / val_dv / cosmolike_data_dir /
+  # cosmolike_dataset) are forbidden here.
+  outputs:
+    - H0
+    - omegam
+
+  # absolute row counts (kept after any optional cuts).
+  n_train:    100000
+  n_val:      20000
+  split_seed: 0
+  ram_frac:   0.7
+
+  # data.param_cuts is OPTIONAL on the scalar path (a scalar chain is already
+  # the target distribution, and the omega-windows reference parameters a
+  # scalar input set may not carry). Omit it to keep the whole pool; include
+  # it only when the input names carry omegab / H0 / omegam / ns.
+
+# OPTIONAL NPCE trunk (README section 12): fit a closed-form
+# sparse-Legendre base on the standardized outputs at staging, then
+# train the model below as the refiner correcting it — the classic PCE
+# setting (a handful of smooth scalar outputs). A top-level block (a
+# sibling of data / train_args — structurally unsweepable, one base per
+# study); residual only on this family. The fit knobs and their defaults
+# are annotated in example_yamls/cosmic_shear_train_emulator.yaml.
+# pce:
+#   form: residual
+
+train_args:
+  nepochs: 300         # scalar maps are cheap; a few hundred epochs suffice
+  bs:      256
+
+  # the model: a trunk-only design (resmlp). The conv / trf heads correct
+  # along an output COORDINATE axis (theta / ell / z / k — every other
+  # family has one), and a scalar output is a set of named values
+  # with no axis between them, so name: rescnn / restrf stay a loud error
+  # here. Small widths are plenty.
+  model:
+    name: resmlp
+    mlp:
+      width:    64
+      n_blocks: 3
+    activation:
+      type:    H
+      n_gates: 3
+
+  # standardized mean-square loss (ScalarChi2); sqrt is the usual default.
+  loss:
+    mode: sqrt
+
+  optimizer:           # cls is fixed to AdamW in the driver
+    weight_decay: 0.0
+
+  lr:
+    lr_base:       0.001
+    bs_base:       256.0
+    warmup_epochs: 5
+
+  scheduler:           # cls is fixed to ReduceLROnPlateau
+    mode:     min
+    patience: 25
+    factor:   0.8
+
+  # OPTIONAL training guards — the SAME shared loop as every family
+  # (off when absent): clip = per-step gradient-norm ceiling; rewind =
+  # reload the best weights + optimizer snapshot on every plateau lr
+  # cut; ema = a Polyak weight average {horizon_epochs, anneal}. The
+  # annotated versions live in cosmic_shear_train_emulator.yaml.
+  # clip:   1.0
+  # rewind: true
+  # ema:
+  #   horizon_epochs: 20
+
+  # trim and focus are REQUIRED blocks (build_run_specs reads them with no
+  # code default — the resolved-values rule). Both ship off here: a scalar
+  # chain rarely needs outlier trimming or hardness weighting. Raise
+  # trim.start to drop that fraction of the hardest samples early, or
+  # focus.end for a focal hardness weight, exactly as on a data-vector run.
+  trim:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         cosine
+
+  focus:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         linear
+    kappa:         0.15

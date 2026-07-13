@@ -1,0 +1,109 @@
+# Transfer-learning config for cosmic_shear_train_emulator.py
+# (see notes/artifacts-inference-warmstart.md and emulator/losses/transfer.py).
+#
+# A transfer run freezes a trained base emulator whole and trains a small
+# parallel correction net over the full new parameter space; the final data
+# vector combines the two per element (per template, for a factored NLA / TATT
+# base) before the amplitude combine. The correction only expands the base,
+# so it needs far fewer parameters. The headline use is a model extension of
+# ~12 new parameters (Early Dark Energy + w(z)-PCA) on top of an LCDM base.
+#
+# Unlike a fine-tune YAML, this one does carry a model: block: it describes the
+# correction net (its capacity is your knob). The correction's family is forced
+# by the base (a factored base gets a template correction with the same
+# template count), so a model.ia key here is a loud error.
+
+# The base is a top-level block (a sibling of data / train_args, like pce:).
+transfer:
+  # the frozen base artifact path root (<root>.h5 + <root>.emul), resolved
+  # exactly like finetune.from (expanduser / expandvars; a relative path joins
+  # $ROOTDIR; both files must exist). Its whole self is embedded in the saved
+  # transfer artifact, so the base file may move afterward.
+  from: projects/lsst_y1/emulators/lcdm_run/emulator_resmlp_t256_ntrain250000
+  # the combination form: gain = base * (1 + correction) | sum = base +
+  # correction. Unknown form is a loud error.
+  form: gain
+  # where the composition acts: physical (squeezed bins) | whitened
+  # (eigenbasis). optional: absent takes the form's recommended space
+  # (gain -> physical, sum -> whitened), materialized into the saved config.
+  # The off-recommendation pairing is allowed (you decide per study) and
+  # prints one notice naming the conditioning trade-off.
+  space: physical
+  # Optional stage-2 joint refinement: after the correction trains
+  # with the base frozen, unfreeze the base once and train jointly. Absent =
+  # frozen-only (the default). anchor is required when refine: is present (an
+  # explicit 0.0 states free fine-tuning deliberately; no silent default).
+  # Recommend optimizer.weight_decay 0.0 beside a nonzero anchor (decay pulls
+  # toward 0, away from the pretrained base).
+  # refine:
+  #   epochs:        200      # stage-2 epochs, appended after the correction
+  #   base_lr_scale: 0.01     # the base group's lr as a multiple of the run lr
+  #   anchor:        1.0e-2   # L2-SP lambda toward the pretrained base (0 = free)
+
+data:
+  # the new training set (the extended-model dvs): its own dv / params /
+  # covmat. The covmat header names must be a superset of the base's; the
+  # extras (the new physics) carry over into the correction's input.
+  train_dv:     ede_wzpca_dvs_train_cs_16.npy
+  train_params: ede_wzpca_params_train_cs_16.1.txt
+  train_covmat: ede_wzpca_params_train_cs_16.covmat
+  val_dv:       ede_wzpca_dvs_train_cs_8.npy
+  val_params:   ede_wzpca_params_train_cs_8.1.txt
+
+  # must match the base's dataset exactly (the output geometry is pinned from
+  # the base): same dataset + mask + scale cut.
+  cosmolike_data_dir: lsst_y1
+  cosmolike_dataset:  lsst_y1_M1_GGL0.05.dataset
+
+  param_cuts:
+    omegabh2_hi: 0.035
+  n_train:    50000
+  n_val:      5000
+  split_seed: 0
+
+train_args:
+  nepochs: 800
+  bs:      256
+
+  # the correction net (a small trunk: the base carries the bulk). Its family
+  # (resmlp for a plain base, the template trunk for a factored base) is forced
+  # from the base; name it resmlp and set the capacity here. A model.ia key is
+  # a loud error (the family is inherited).
+  model:
+    name: resmlp
+    mlp:
+      width:    64
+      n_blocks: 2
+
+  # the ordinary lr: block (no new knob; a transfer correction trains from a
+  # zero-init identity, so full lr is fine).
+  lr:
+    lr_base:       0.0025
+    bs_base:       64.0
+    warmup_epochs: 10
+
+  loss:
+    mode: sqrt
+
+  optimizer:
+    weight_decay: 0.0
+
+  scheduler:
+    mode:     min
+    patience: 25
+    factor:   0.8
+
+  trim:
+    start:         0.1
+    end:           0.025
+    hold_epochs:   50
+    anneal_epochs: 400
+    shape:         cosine
+
+  focus:
+    start:         0.0
+    end:           2.0
+    hold_epochs:   50
+    anneal_epochs: 400
+    shape:         linear
+    kappa:         0.15

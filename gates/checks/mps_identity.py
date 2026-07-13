@@ -1,0 +1,1473 @@
+#!/usr/bin/env python3
+"""mps-identity gate: the grid2d-emulator save/rebuild/predict
+identity, the staging law transform, the emul_mps assembly math (base
+stubbed: closed-form stub bases pin the assembly EXACTLY, independent
+of the vendored syren/ formulas), the config loud errors, and the
+finetune parity — torch + scipy, no CAMB.
+
+Legs:
+  - Grid2DGeometry: standardize round-trip to float32 round-off; state
+    round-trip byte-identical (seven keys incl. quantity/units/law);
+    the width / unknown-law guards; the constant-column pinning (a
+    constant law-space column that is not the whole surface is physics
+    under ANY law — the boost's low-k B = 1 region: scale 1, decode
+    returns the training constant, const_mask persists; a WHOLLY
+    constant surface still raises, the dead-dump signature — the run-10
+    pass deleted the pre-amendment partial-constant raise leg this
+    section used to carry);
+  - the STAGING law transform through the REAL load_source +
+    _grid2d_law_rows: law rows == log(raw / base) with the base dump
+    aligned by dump_rows through a real shuffled staging; the k_stride
+    thinning keeps the top edge; the positivity and width guards;
+  - the BOUNDED staging on the production 122 x 2,000 grid (k_stride
+    10, tiny memory budget, guarded memmap reads): every raw + base
+    read is row-chunked and column-thinned (never the unthinned
+    selection), the values and streamed mean equal an independent
+    known-answer calculation, the low-RAM result is disk-backed, and
+    the guard trips on the old whole-selection access — so the leg
+    fails against the pre-fix implementation;
+  - the STABLE streamed moments (check_stable_moments): the streamed
+    geometry mean/std reproduce float64 np.std(ddof 0) of the
+    materialized rows across uneven chunkings — a 50,000-row 1e8/1-ULP
+    column keeps its true std 4.0 (the old one-pass form drifts to
+    ~3.97 and can flip a varying column to a false constant pin), a
+    constant column still pins, and the from_stats encode matches the
+    materialized standardization;
+  - the disk-backed staging LIFECYCLE (check_staging_lifecycle): the
+    experiment owns its train / val temp file, supersedes it on restage
+    (first file absent, second readable), keeps a three-point sweep's
+    live temp count / bytes bounded to one point, unlinks a partial file
+    on a mid-transform failure, releases a failed point's file through
+    the lane-style cleanup, and the resident-RAM control makes no temp
+    file and stays byte-identical;
+  - save -> rebuild -> predict bitwise on the syren_linear and none
+    laws (the predictor's grid2d branch returns {"z", "k", quantity}
+    reshaped (nz, nk)); rebuild info flags class-guarded;
+  - the correction-head leg: attach_head_coords (one bin per z slice),
+    the identity basis (W_fd / W_df None), the ResCNN epoch-0
+    identity start, the two-phase discipline (set_train_phase
+    freezes the right groups per phase, the trunk phase bypasses
+    the head bitwise, unknown phases raise — the 2026-07-12 ruling),
+    the n_tokens rejection on real physical bins, and the head
+    save -> rebuild -> predict bitwise round-trip (the rebuild-side
+    attach in results._rebuild_model);
+  - emul_mps (cobaya.theory stubbed, syren_base MONKEYPATCHED with
+    synthetic closed forms): pair validation (missing quantity /
+    duplicate / wrong-kind / grid mismatch loud); the calculate
+    assembly EXACT against the stubs (P_lin = exp(net) * base; the
+    low-k blend pins boost -> 1 below k_t; P_nl = B * P_lin); the
+    legacy state keys; get_Pk_grid / get_Pk_interpolator round-trip at
+    the grid nodes; a non-positive spectrum rejects the point (False);
+  - the NPCE check_npce leg (the 2026-07-12 family-wide ruling): the
+    residual base + refiner algebra bitwise under the diagonal metric,
+    the base alive, the state round-trip, save -> rebuild -> predict
+    composing base + net bitwise, the diagonal ratio-form rejection;
+  - validate_grid2d legs (law-quantity pairing, base files both ways,
+    k_stride, transfer ACCEPTED since the 2026-07-12 symmetry ruling);
+  - finetune: epoch-0 parity from a grid2d source; the
+    wrong-kind and metadata-mismatch from_config errors.
+"""
+
+import importlib.util
+import os
+import sys
+import tempfile
+import types
+from pathlib import Path
+
+import numpy as np
+import torch
+
+from emulator.activations import make_activation
+from emulator.designs.blocks import make_norm
+from emulator.designs.plain import ResMLP
+from emulator.geometries.grid2d import Grid2DGeometry, TARGET_LAWS_2D
+from emulator.geometries.parameter import ParamGeometry
+from emulator.data_staging import load_source
+from emulator.experiment import EmulatorExperiment, validate_grid2d
+from emulator.results import save_emulator, rebuild_emulator
+from emulator.inference import EmulatorPredictor
+from emulator import warmstart
+
+FAILURES = []
+IN_NAMES = ["As", "H0", "omch2"]
+N_IN = len(IN_NAMES)
+Z4 = np.array([0.0, 0.5, 1.0, 2.0])
+K6 = np.logspace(-4, 0.0, 6)
+
+
+def report(label, ok, detail):
+    mark = "PASS" if ok else "FAIL"
+    print("  [" + mark + "] " + label + "  (" + detail + ")")
+    if not ok:
+        FAILURES.append(label)
+
+
+def write_covmat(path, names, seed):
+    g = np.random.default_rng(seed)
+    a = g.standard_normal((len(names), len(names)))
+    cov = a @ a.T + len(names) * np.eye(len(names))
+    with open(path, "w") as f:
+        f.write("# " + " ".join(names) + "\n")
+        for row in cov:
+            f.write(" ".join(repr(float(x)) for x in row) + "\n")
+
+
+def synth_rows(n, z=Z4, k=K6, seed=5):
+    """Law-space-like synthetic rows over the (z, k) surface."""
+    g = np.random.default_rng(seed)
+    base = np.log(1.0 + (k[None, :] * (1 + z[:, None])))
+    rows = base.reshape(1, -1) + 0.1 * g.standard_normal(
+        (n, z.size * k.size))
+    return rows.astype("float32")
+
+
+def check_geometry(device):
+    Y = synth_rows(400)
+    geom = Grid2DGeometry.from_targets(device=device, targets=Y, z=Z4,
+                                       k=K6, quantity="pklin",
+                                       units="Mpc3", law="syren_linear")
+    t = torch.randn(6, Z4.size * K6.size)
+    back = geom.encode(geom.decode(t))
+    rel = (back - t).abs().max().item()
+    report("standardize round-trip to float32 round-off", rel < 1e-4,
+           "max |d| %.1e" % rel)
+    st0 = geom.state()
+    geom2 = Grid2DGeometry.from_state(device=device, state=st0)
+    st1 = geom2.state()
+    ok = set(st0) == set(st1)
+    for kk in st0:
+        a, b = st0[kk], st1[kk]
+        ok = ok and (torch.equal(a, b) if isinstance(a, torch.Tensor)
+                     else a == b)
+    report("grid2d state round-trip byte-identical", ok,
+           "%d keys" % len(st0))
+    try:
+        Grid2DGeometry.from_targets(device=device, targets=Y[:, :-1],
+                                    z=Z4, k=K6, quantity="pklin",
+                                    units="Mpc3", law="none")
+        report("width guard raises", False, "no raise")
+    except ValueError:
+        report("width guard raises", True, "ValueError")
+    # (run-10 regression-pass catch: the old "un-standardizable guard
+    # raises" leg lived here, feeding ONE constant column under law
+    # "none" and expecting the pre-amendment raise. The constant-column
+    # pin went law-agnostic in board runs 7-8 — a partial-constant
+    # column is PINNED under any law, asserted by the pin legs below,
+    # and the dead-dump raise now needs a WHOLLY constant surface,
+    # asserted by the last leg. The stale expectation is deleted, not
+    # reworded.)
+    try:
+        Grid2DGeometry.from_targets(device=device, targets=Y, z=Z4,
+                                    k=K6, quantity="pklin",
+                                    units="Mpc3", law="nope")
+        report("unknown law raises", False, "no raise")
+    except ValueError:
+        report("unknown law raises", True, "ValueError")
+    # The constant-column pin (amended law-agnostic after the gate's
+    # law-none boost training hit it): a constant law-space column that
+    # is not the whole surface is PHYSICS (boost = 1 below the
+    # nonlinear scale for every cosmology, under ANY law) — pinned
+    # (scale 1, decode returns the training constant, mask persisted),
+    # never rejected; a WHOLLY constant surface still dies loudly for
+    # every law.
+    for law_c in ("syren_halofit", "none"):
+        Yc = Y.copy()
+        Yc[:, 3] = 7.0
+        geom_c = Grid2DGeometry.from_targets(device=device, targets=Yc,
+                                             z=Z4, k=K6,
+                                             quantity="boost",
+                                             units="dimensionless",
+                                             law=law_c)
+        t = torch.randn(5, Z4.size * K6.size)
+        dec = geom_c.decode(t)
+        st_c = geom_c.state()
+        geom_c2 = Grid2DGeometry.from_state(device=device, state=st_c)
+        dec2 = geom_c2.decode(t)
+        ok = (geom_c.const_mask is not None
+              and int(geom_c.const_mask.sum()) == 1
+              and bool(geom_c.const_mask[3])
+              and float(geom_c.scale[3]) == 1.0
+              and bool((dec[:, 3] == geom_c.center[3]).all())
+              and "const_mask" in st_c
+              and torch.equal(dec, dec2))
+        report("constant column pinned + round-trip (%s)" % law_c,
+               ok, "1 pin, scale 1.0, decode = the constant, state rides")
+    try:
+        Yall = np.tile(Y[:1], (Y.shape[0], 1))
+        Grid2DGeometry.from_targets(device=device, targets=Yall, z=Z4,
+                                    k=K6, quantity="boost",
+                                    units="dimensionless",
+                                    law="none")
+        report("wholly constant surface still raises", False,
+               "no raise")
+    except ValueError as e:
+        report("wholly constant surface still raises",
+               "EVERY grid point" in str(e), "names the dead dump")
+
+
+def check_staging(tmp):
+    """The real load_source + _grid2d_law_rows path, base-aligned."""
+    nz, nk = Z4.size, K6.size
+    n = 60
+    g = np.random.default_rng(11)
+    raw = np.exp(g.normal(0.0, 1.0, (n, nz * nk))).astype("float32")
+    base = np.exp(g.normal(0.0, 1.0, (n, nz * nk))).astype("float32")
+    np.save(os.path.join(tmp, "st_dv.npy"), raw)
+    np.save(os.path.join(tmp, "st_base.npy"), base)
+    np.save(os.path.join(tmp, "st_z.npy"), Z4)
+    np.save(os.path.join(tmp, "st_k.npy"), K6)
+    # a params .txt in the load_source layout (weight, lnp, 3 params,
+    # trailing chi2 column).
+    cols = np.column_stack([np.ones(n), np.zeros(n),
+                            g.normal(2.1, 0.1, n),
+                            g.normal(67.0, 2.0, n),
+                            g.normal(0.12, 0.005, n),
+                            np.zeros(n)])
+    np.savetxt(os.path.join(tmp, "st_params.1.txt"), cols)
+    gen = torch.Generator().manual_seed(3)
+    src = load_source(dv_path=os.path.join(tmp, "st_dv.npy"),
+                      params_path=os.path.join(tmp, "st_params.1.txt"),
+                      names=IN_NAMES, omegabh2_hi=None, n_keep=40,
+                      gen=gen, ram_frac=0.7, with_means=True,
+                      verbose=False)
+    exp = EmulatorExperiment.__new__(EmulatorExperiment)
+    exp.grid2d = {"quantity": "pklin",
+                  "units": "Mpc3",
+                  "law": "syren_linear",
+                  "z_file": os.path.join(tmp, "st_z.npy"),
+                  "k_file": os.path.join(tmp, "st_k.npy"),
+                  "k_stride": 2}
+    exp.data = {"ram_frac": 0.7}
+    exp.log = lambda *a, **k: None
+    exp._grid2d_z = None
+    exp._grid2d_k = None
+    exp._grid2d_center = None
+    exp._grid2d_scale = None
+    dump_rows = np.array(src["dump_rows"])
+    exp._grid2d_law_rows(src=src, base_path=os.path.join(tmp,
+                                                         "st_base.npy"),
+                         with_means=True)
+    kept_k = np.unique(np.concatenate([np.arange(0, nk, 2),
+                                       np.array([nk - 1])]))
+    cols_idx = (np.arange(nz)[:, None] * nk
+                + kept_k[None, :]).reshape(-1)
+    want = np.log(raw[dump_rows].astype("float64")
+                  / base[dump_rows].astype("float64"))[:, cols_idx]
+    ok = (np.allclose(src["dv"], want.astype("float32"), rtol=0, atol=0)
+          and np.array_equal(exp._grid2d_k, K6[kept_k])
+          and src["dv"].shape == (40, nz * kept_k.size)
+          and np.array_equal(src["idx"], np.arange(40))
+          and (nk - 1) in kept_k)
+    report("staging law transform: base-aligned + strided + top edge",
+           ok, "shape %s" % (src["dv"].shape,))
+    ok2 = np.allclose(src["dv_mean"],
+                      want.mean(axis=0).astype("float32"))
+    report("staging recomputes dv_mean over law rows", ok2, "")
+    # positivity guard
+    bad = raw.copy()
+    bad[3, 5] = 0.0
+    np.save(os.path.join(tmp, "st_bad.npy"), bad)
+    gen = torch.Generator().manual_seed(3)
+    src2 = load_source(dv_path=os.path.join(tmp, "st_bad.npy"),
+                       params_path=os.path.join(tmp, "st_params.1.txt"),
+                       names=IN_NAMES, omegabh2_hi=None, n_keep=40,
+                       gen=gen, ram_frac=0.7, with_means=True,
+                       verbose=False)
+    try:
+        exp._grid2d_law_rows(src=src2,
+                             base_path=os.path.join(tmp, "st_base.npy"),
+                             with_means=True)
+        report("staging positivity guard raises", False, "no raise")
+    except ValueError:
+        report("staging positivity guard raises", True, "ValueError")
+
+
+class _GuardProxy:
+    """A memmap-like read instrument for the bounded grid2d staging.
+
+    Wraps a raw or base array and records every __getitem__, FAILING a
+    read that (a) is not a paired (rows, columns) advanced index — the
+    old whole-row-block access — (b) asks for more rows than the chunk
+    bound, or (c) touches a column outside the kept set. So the leg
+    fails against any implementation that materializes the unthinned
+    selection or reads a whole row block before thinning.
+
+    Arguments:
+      arr         = the wrapped raw / base array (ndarray or memmap).
+      kept_cols   = the flattened kept-column indices (the thinning).
+      chunk_bound = the maximum rows one read may request.
+      reads       = a list the proxy appends (n_rows, n_cols) to per
+                    read, so the leg can assert every read was bounded
+                    and thinned.
+    """
+
+    def __init__(self, arr, kept_cols, chunk_bound, reads):
+        self._arr   = arr
+        self._kept  = set(np.asarray(kept_cols).reshape(-1).tolist())
+        self._bound = int(chunk_bound)
+        self._reads = reads
+
+    @property
+    def shape(self):
+        return self._arr.shape
+
+    @property
+    def dtype(self):
+        return self._arr.dtype
+
+    def __getitem__(self, key):
+        if not (isinstance(key, tuple) and len(key) == 2):
+            raise AssertionError(
+                "guarded read: a whole-row-block access (key "
+                + type(key).__name__ + ") — the bounded staging must "
+                "index (rows, kept_cols) together, never a full-width "
+                "row block")
+        rows = np.asarray(key[0]).reshape(-1)
+        cols = np.asarray(key[1]).reshape(-1)
+        if int(rows.size) > self._bound:
+            raise AssertionError(
+                "guarded read: " + str(int(rows.size)) + " rows exceeds "
+                "the chunk bound " + str(self._bound))
+        touched = set(cols.tolist())
+        if not touched.issubset(self._kept):
+            raise AssertionError(
+                "guarded read: touched unthinned columns "
+                + str(sorted(touched - self._kept)[:6]))
+        self._reads.append((int(rows.size), int(cols.size)))
+        return np.asarray(self._arr[key])
+
+
+def _reads_ok(reads, bound, width):
+    """True when the recorded reads prove real chunking: more than one
+    read, each within the row bound and exactly the thinned width."""
+    if len(reads) < 2:
+        return False
+    for n_rows, n_cols in reads:
+        if n_rows > bound or n_cols != width:
+            return False
+    return True
+
+
+def check_bounded_staging(tmp):
+    """The bounded grid2d law transform, the production shape.
+
+    Runs _grid2d_law_rows on a 122 x 2,000 grid, k_stride 10, with a
+    tiny memory budget and GUARDED reads: it proves every raw and base
+    read is row-chunked and column-thinned (never the unthinned
+    50,000 x 244,000 selection the old code cast to float64 twice),
+    that the values and streamed mean equal an independent known-answer
+    calculation, and that the low-RAM result is genuinely disk-backed.
+    Part two runs the REAL load_source(stage_dv=False) so the genuine
+    np.memmap source branch and the ram_frac resident/disk toggle are
+    exercised end to end.
+    """
+    import emulator.experiment as expmod
+    nz, nk = 122, 2000
+    z = np.linspace(0.0, 3.0, nz)
+    k = np.logspace(-4.0, 1.0, nk)
+    np.save(os.path.join(tmp, "bs_z.npy"), z)
+    np.save(os.path.join(tmp, "bs_k.npy"), k)
+    stride = 10
+    kept_k = np.unique(np.concatenate([np.arange(0, nk, stride),
+                                       np.array([nk - 1])]))
+    cols  = (np.arange(nz)[:, None] * nk + kept_k[None, :]).reshape(-1)
+    width = int(cols.shape[0])
+
+    # --- part 1: guarded reads + known answer + disk-backed result ---
+    g = np.random.default_rng(707)
+    n_raw, n_used = 60, 48
+    raw_full = np.exp(
+        g.normal(0.0, 1.0, (n_raw, nz * nk))).astype("float32")
+    base_full = np.exp(
+        g.normal(0.0, 1.0, (n_raw, nz * nk))).astype("float32")
+    dump_rows = np.sort(g.choice(n_raw, size=n_used, replace=False))
+    raw_compact = raw_full[dump_rows]              # the resident-form raw
+    C_compact = g.normal(0.0, 1.0, (n_used, N_IN)).astype("float32")
+    base_path = os.path.join(tmp, "bs_base.npy")
+    np.save(base_path, base_full)
+
+    # the known answer, computed DIRECTLY from the inputs (never through
+    # the staging path): log(raw / base) over the kept columns only.
+    want = np.log(raw_compact[:, cols].astype("float64")
+                  / base_full[dump_rows][:, cols].astype("float64"))
+    want_mean = want.mean(axis=0)
+
+    # shrink the per-chunk budget so 48 rows split into several chunks,
+    # and size the guard bound to the code's derived chunk height.
+    saved_budget = expmod._GRID2D_CHUNK_BYTES
+    expmod._GRID2D_CHUNK_BYTES = width * 8 * 16
+    bound = max(1, expmod._GRID2D_CHUNK_BYTES // (width * 8))
+    raw_reads, base_reads = [], []
+    src = {"C": C_compact,
+           "dv": _GuardProxy(raw_compact, cols, bound, raw_reads),
+           "idx": np.arange(n_used),
+           "dump_rows": dump_rows}
+    exp = EmulatorExperiment.__new__(EmulatorExperiment)
+    exp.grid2d = {"quantity": "pklin", "units": "Mpc3",
+                  "law": "syren_linear",
+                  "z_file": os.path.join(tmp, "bs_z.npy"),
+                  "k_file": os.path.join(tmp, "bs_k.npy"),
+                  "k_stride": stride}
+    exp.data = {"ram_frac": 1e-12}                 # force disk-backed
+    exp.log = lambda *a, **k: None
+    exp._grid2d_z = None
+    exp._grid2d_k = None
+    exp._grid2d_center = None
+    exp._grid2d_scale = None
+
+    real_load = np.load
+
+    def guarded_load(path, *a, **kw):
+        arr = real_load(path, *a, **kw)
+        if os.path.abspath(path) == os.path.abspath(base_path):
+            return _GuardProxy(arr, cols, bound, base_reads)
+        return arr
+
+    np.load = guarded_load
+    try:
+        exp._grid2d_law_rows(src=src, base_path=base_path,
+                             with_means=True)
+    finally:
+        np.load = real_load
+        expmod._GRID2D_CHUNK_BYTES = saved_budget
+
+    got = np.asarray(src["dv"])
+    report("bounded staging: 122 x 201 kept columns (24522 wide)",
+           got.shape == (n_used, nz * kept_k.size) and kept_k.size == 201,
+           "shape %s" % (got.shape,))
+    report("bounded staging: values equal the direct known answer",
+           np.allclose(got, want.astype("float32"), rtol=0, atol=0),
+           "max|d| %.1e" % float(np.abs(got - want.astype("float32")).max()))
+    report("bounded staging: streamed mean equals the known answer",
+           np.allclose(src["dv_mean"], want_mean.astype("float32")), "")
+    report("bounded staging: every raw + base read chunked and thinned",
+           _reads_ok(raw_reads, bound, width)
+           and _reads_ok(base_reads, bound, width),
+           "raw %d reads, base %d reads, <= %d rows x %d cols"
+           % (len(raw_reads), len(base_reads), bound, width))
+    report("bounded staging: the tiny-budget result is disk-backed",
+           isinstance(src["dv"], np.memmap), type(src["dv"]).__name__)
+    tripped = False
+    probe = _GuardProxy(raw_compact, cols, bound, [])
+    try:
+        _ = probe[np.arange(n_used)]               # the old mm[rows] read
+    except AssertionError:
+        tripped = True
+    report("bounded staging: guard trips on a whole-selection read",
+           tripped, "old mm[rows] pattern rejected")
+
+    # --- part 2: the real load_source(stage_dv=False) memmap branch ---
+    nz2, nk2 = Z4.size, K6.size
+    np.save(os.path.join(tmp, "bs2_z.npy"), Z4)
+    np.save(os.path.join(tmp, "bs2_k.npy"), K6)
+    g2 = np.random.default_rng(808)
+    n2 = 50
+    raw2 = np.exp(g2.normal(0.0, 1.0, (n2, nz2 * nk2))).astype("float32")
+    base2 = np.exp(g2.normal(0.0, 1.0, (n2, nz2 * nk2))).astype("float32")
+    np.save(os.path.join(tmp, "bs2_dv.npy"), raw2)
+    np.save(os.path.join(tmp, "bs2_base.npy"), base2)
+    txt = np.column_stack([np.ones(n2), np.zeros(n2),
+                           g2.normal(2.1, 0.1, n2),
+                           g2.normal(67.0, 2.0, n2),
+                           g2.normal(0.12, 0.005, n2),
+                           np.zeros(n2)])
+    np.savetxt(os.path.join(tmp, "bs2_params.1.txt"), txt)
+
+    def stage_and_transform(ram_frac):
+        gen = torch.Generator().manual_seed(9)
+        s = load_source(dv_path=os.path.join(tmp, "bs2_dv.npy"),
+                        params_path=os.path.join(tmp, "bs2_params.1.txt"),
+                        names=IN_NAMES, omegabh2_hi=None, n_keep=40,
+                        gen=gen, ram_frac=ram_frac, with_means=True,
+                        stage_dv=False, verbose=False)
+        raw_is_memmap = isinstance(s["dv"], np.memmap)
+        e = EmulatorExperiment.__new__(EmulatorExperiment)
+        e.grid2d = {"quantity": "pklin", "units": "Mpc3",
+                    "law": "syren_linear",
+                    "z_file": os.path.join(tmp, "bs2_z.npy"),
+                    "k_file": os.path.join(tmp, "bs2_k.npy"),
+                    "k_stride": 1}
+        e.data = {"ram_frac": ram_frac}
+        e.log = lambda *a, **k: None
+        e._grid2d_z = None
+        e._grid2d_k = None
+        e._grid2d_center = None
+        e._grid2d_scale = None
+        dump2 = np.array(s["dump_rows"])
+        e._grid2d_law_rows(src=s,
+                           base_path=os.path.join(tmp, "bs2_base.npy"),
+                           with_means=True)
+        want2 = np.log(raw2[dump2].astype("float64")
+                       / base2[dump2].astype("float64"))
+        return s, raw_is_memmap, want2
+
+    src_lo, raw_mm, want2 = stage_and_transform(1e-12)
+    report("bounded staging: stage_dv keeps the raw dump a memmap",
+           raw_mm, "raw is np.memmap on load")
+    report("bounded staging: memmap branch, tiny budget stays disk-backed",
+           isinstance(src_lo["dv"], np.memmap)
+           and np.allclose(np.asarray(src_lo["dv"]),
+                           want2.astype("float32"), rtol=0, atol=0),
+           "result %s" % type(src_lo["dv"]).__name__)
+    src_hi, _, _ = stage_and_transform(0.7)
+    report("bounded staging: memmap branch, ample budget is resident",
+           isinstance(src_hi["dv"], np.ndarray)
+           and not isinstance(src_hi["dv"], np.memmap),
+           "result %s" % type(src_hi["dv"]).__name__)
+
+
+def _run_law_none(tmp, raw_compact, z, k, chunk_bytes=None):
+    """Stage a resident-form law-none source through the REAL
+    _grid2d_law_rows and return (exp, src) — the streamed moments land on
+    exp._grid2d_center / _scale. chunk_bytes overrides the derived chunk
+    height so uneven chunkings can be exercised."""
+    import emulator.experiment as expmod
+    n = int(raw_compact.shape[0])
+    np.save(os.path.join(tmp, "sm_z.npy"), z)
+    np.save(os.path.join(tmp, "sm_k.npy"), k)
+    exp = EmulatorExperiment.__new__(EmulatorExperiment)
+    exp.grid2d = {"quantity": "pklin", "units": "Mpc3", "law": "none",
+                  "z_file": os.path.join(tmp, "sm_z.npy"),
+                  "k_file": os.path.join(tmp, "sm_k.npy"), "k_stride": 1}
+    exp.data = {"ram_frac": 0.9}
+    exp.log = lambda *a, **k: None
+    exp._grid2d_z = None
+    exp._grid2d_k = None
+    exp._grid2d_center = None
+    exp._grid2d_scale = None
+    src = {"C": np.zeros((n, N_IN), dtype="float32"),
+           "dv": raw_compact.copy(),
+           "idx": np.arange(n),
+           "dump_rows": np.arange(n)}
+    saved = expmod._GRID2D_CHUNK_BYTES
+    if chunk_bytes is not None:
+        expmod._GRID2D_CHUNK_BYTES = int(chunk_bytes)
+    try:
+        exp._grid2d_law_rows(src=src, base_path=None, with_means=True)
+    finally:
+        expmod._GRID2D_CHUNK_BYTES = saved
+    return exp, src
+
+
+def check_stable_moments(tmp, device):
+    """The streamed geometry moments must reproduce float64
+    np.std(ddof 0) of the MATERIALIZED float32 rows. The old
+    (s2 - s1^2/n)/n one-pass form drifts by percent on a high-offset
+    small-spread column and, under some orderings, flips a genuinely
+    varying column to an exact-zero (false constant) pin. These legs fail
+    that form and pass the stable Chan/Welford accumulator."""
+    # 1) the headline: 50,000 float32 rows alternating 1e8 / 1e8+ULP,
+    # true population std exactly 4.0 per column, over several chunk
+    # heights. The naive form returns ~3.97 (order-dependent); the stable
+    # form returns 4.0 and never a false pin.
+    nz, nk = 1, 4
+    z = np.array([0.5])
+    k = np.logspace(-3.0, 0.0, nk)
+    n = 50000
+    raw = np.empty((n, nz * nk), dtype="float32")
+    for j in range(nz * nk):
+        lo = np.float32(1e8 * (j + 1))
+        hi = np.nextafter(lo, np.float32(2e8 * (j + 1)))
+        raw[0::2, j] = lo
+        raw[1::2, j] = hi
+    scales = []
+    for chunk_bytes in (None, nz * nk * 8 * 7, nz * nk * 8 * 337):
+        exp, src = _run_law_none(tmp, raw, z, k, chunk_bytes=chunk_bytes)
+        stored = np.asarray(src["dv"], dtype="float64")
+        want = stored.std(axis=0, ddof=0)
+        report("stable moments: 1e8/1-ULP scale = np.std(ddof 0), no "
+               "false pin (chunk %s)" % (chunk_bytes,),
+               np.allclose(exp._grid2d_scale, want, rtol=1e-9)
+               and bool(np.all(exp._grid2d_scale > 0.0)),
+               "scale %s" % np.round(exp._grid2d_scale, 3))
+        scales.append(exp._grid2d_scale)
+    report("stable moments: uneven chunkings agree (order-stable)",
+           np.allclose(scales[0], scales[1], rtol=1e-9)
+           and np.allclose(scales[0], scales[2], rtol=1e-9), "")
+
+    # 2) the from_stats pin threshold is RELATIVE: tiny = 8 * eps32 *
+    # |center|, about 95.4 at center 1e8. Three columns exercise it and
+    # keep zero.size < n_out so the whole-surface dead-dump guard stays
+    # out of reach: (col 0) exactly constant -> pins; (col 1) a 1-ULP
+    # spread at 1e8, std 4 -- about 4e-8 relative, BELOW float32
+    # precision -> pins BY THE RELATIVE RULE, which is correct
+    # standardization (the model cannot resolve that spread in float32,
+    # so decode should return the constant); (col 2) a std-1024 spread at
+    # 1e8, about 10.7x tiny -> resolvable, must NOT pin. The stable
+    # accumulator is what makes col 1 read 4 (not a cancellation
+    # artifact) and col 2 read 1024 rather than a false zero.
+    three = np.empty((4000, 3), dtype="float32")
+    three[:, 0] = np.float32(1e8)                      # exactly constant
+    lo1 = np.float32(1e8)
+    hi1 = np.nextafter(lo1, np.float32(2e8))           # 1-ULP, std 4
+    three[0::2, 1] = lo1
+    three[1::2, 1] = hi1
+    three[0::2, 2] = np.float32(1e8 - 1024.0)          # std 1024, above tiny
+    three[1::2, 2] = np.float32(1e8 + 1024.0)
+    exp2, _ = _run_law_none(tmp, three, np.array([0.5]),
+                            np.logspace(-3.0, 0.0, 3))
+    geom2 = Grid2DGeometry.from_stats(
+        device=device, center=exp2._grid2d_center,
+        scale=exp2._grid2d_scale, z=exp2._grid2d_z, k=exp2._grid2d_k,
+        quantity="pklin", units="Mpc3", law="none")
+    mask = (geom2.const_mask.cpu().numpy().tolist()
+            if geom2.const_mask is not None else None)
+    report("stable moments: relative pin threshold (constant + "
+           "sub-eps32 spread pin, resolvable spread does not, no "
+           "dead-dump crash)",
+           geom2.const_mask is not None
+           and bool(geom2.const_mask[0])
+           and bool(geom2.const_mask[1])
+           and not bool(geom2.const_mask[2]),
+           "const_mask %s (tiny ~ 95.4 at 1e8)" % (mask,))
+
+    # 3) the ordinary log-ratio fixture: streamed scale = np.std, and the
+    # from_stats encode reproduces the materialized standardization.
+    g = np.random.default_rng(21)
+    nz3, nk3, n3 = 3, 5, 400
+    z3 = np.linspace(0.0, 2.0, nz3)
+    k3 = np.logspace(-3.0, 0.0, nk3)
+    rawL = np.exp(g.normal(0.0, 1.0, (n3, nz3 * nk3))).astype("float32")
+    baseL = np.exp(g.normal(0.0, 1.0, (n3, nz3 * nk3))).astype("float32")
+    np.save(os.path.join(tmp, "sml_base.npy"), baseL)
+    np.save(os.path.join(tmp, "sml_z.npy"), z3)
+    np.save(os.path.join(tmp, "sml_k.npy"), k3)
+    expL = EmulatorExperiment.__new__(EmulatorExperiment)
+    expL.grid2d = {"quantity": "pklin", "units": "Mpc3",
+                   "law": "syren_linear",
+                   "z_file": os.path.join(tmp, "sml_z.npy"),
+                   "k_file": os.path.join(tmp, "sml_k.npy"),
+                   "k_stride": 1}
+    expL.data = {"ram_frac": 0.9}
+    expL.log = lambda *a, **k: None
+    expL._grid2d_z = None
+    expL._grid2d_k = None
+    expL._grid2d_center = None
+    expL._grid2d_scale = None
+    dumpL = np.arange(n3)
+    srcL = {"C": np.zeros((n3, N_IN), dtype="float32"),
+            "dv": rawL.copy(), "idx": dumpL, "dump_rows": dumpL}
+    expL._grid2d_law_rows(src=srcL,
+                          base_path=os.path.join(tmp, "sml_base.npy"),
+                          with_means=True)
+    storedL = np.asarray(srcL["dv"], dtype="float64")
+    wantL = storedL.std(axis=0, ddof=0)
+    report("stable moments: log-ratio scale = np.std(ddof 0)",
+           np.allclose(expL._grid2d_scale, wantL, rtol=1e-9),
+           "max rel %.1e"
+           % float(np.max(np.abs(expL._grid2d_scale - wantL) / wantL)))
+    geomL = Grid2DGeometry.from_stats(
+        device=device, center=expL._grid2d_center,
+        scale=expL._grid2d_scale, z=expL._grid2d_z, k=expL._grid2d_k,
+        quantity="pklin", units="Mpc3", law="syren_linear")
+    enc = geomL.encode(
+        torch.from_numpy(storedL.astype("float32")).to(device)).cpu().numpy()
+    want_enc = (storedL - expL._grid2d_center) / expL._grid2d_scale
+    report("stable moments: from_stats encode matches the materialized "
+           "standardization", np.allclose(enc, want_enc, rtol=1e-5,
+                                           atol=1e-5),
+           "max|d| %.1e" % float(np.abs(enc - want_enc).max()))
+
+
+def _g2law_live(baseline):
+    """The .g2law.dat temp files created since the `baseline` snapshot
+    (a set of paths), and their total bytes — the live disk-backed
+    staging footprint the sweep must keep bounded."""
+    import glob
+    now = set(glob.glob(os.path.join(tempfile.gettempdir(), "*.g2law.dat")))
+    new = now - baseline
+    total = 0
+    for p in new:
+        try:
+            total += os.path.getsize(p)
+        except OSError:
+            pass
+    return new, total
+
+
+def _lifecycle_files(tmp, law):
+    """Write synthetic grid2d files (law 'none' or 'syren_linear') and
+    return (data-block, grid2d-block, raw array) for a minimal
+    experiment; a syren law also writes a positive base sibling."""
+    nz, nk = 1, 4
+    tag = "lc_" + law
+    np.save(os.path.join(tmp, tag + "_z.npy"), np.array([0.5]))
+    np.save(os.path.join(tmp, tag + "_k.npy"), np.logspace(-3.0, 0.0, nk))
+    g = np.random.default_rng(303)
+    n = 50
+    raw = np.exp(g.normal(0.0, 1.0, (n, nz * nk))).astype("float32")
+    np.save(os.path.join(tmp, tag + "_dv.npy"), raw)
+    txt = np.column_stack([np.ones(n), np.zeros(n),
+                           g.normal(2.1, 0.1, n), g.normal(67.0, 2.0, n),
+                           g.normal(0.12, 0.005, n), np.zeros(n)])
+    np.savetxt(os.path.join(tmp, tag + "_params.1.txt"), txt)
+    g2 = {"quantity": "pklin", "units": "Mpc3", "law": law,
+          "z_file": os.path.join(tmp, tag + "_z.npy"),
+          "k_file": os.path.join(tmp, tag + "_k.npy"), "k_stride": 1}
+    if law != "none":
+        base = np.exp(g.normal(0.0, 1.0, (n, nz * nk))).astype("float32")
+        np.save(os.path.join(tmp, tag + "_base.npy"), base)
+        g2["train_base"] = os.path.join(tmp, tag + "_base.npy")
+        g2["val_base"] = os.path.join(tmp, tag + "_base.npy")
+    data = {"split_seed": 0, "n_train": 30, "n_val": 20,
+            "train_params": os.path.join(tmp, tag + "_params.1.txt"),
+            "train_dv": os.path.join(tmp, tag + "_dv.npy"),
+            "val_params": os.path.join(tmp, tag + "_params.1.txt"),
+            "val_dv": os.path.join(tmp, tag + "_dv.npy")}
+    return data, g2, raw
+
+
+def _lifecycle_exp(data, g2, ram_frac):
+    """A minimal grid2d experiment whose stage_train / release_* paths
+    run for real (no from_config, no GPU)."""
+    exp = EmulatorExperiment.__new__(EmulatorExperiment)
+    exp._scalar = exp._cmb = exp._grid = False
+    exp._grid2d = True
+    exp.names = IN_NAMES
+    exp.quiet = True
+    exp.log = lambda *a, **k: None
+    exp._grid2d_z = exp._grid2d_k = None
+    exp._grid2d_center = exp._grid2d_scale = None
+    exp._grid2d_train_tmp = exp._grid2d_val_tmp = None
+    exp.grid2d = dict(g2)
+    d = dict(data)
+    d["ram_frac"] = ram_frac
+    exp.data = d
+    return exp
+
+
+def check_staging_lifecycle(tmp):
+    """The disk-backed staging temp-file lifecycle (the reopened c03a084
+    close): the experiment OWNS its train / val temp file, supersedes it
+    on restage, releases it explicitly for the sweep lane, and never
+    orphans a partial file on a failed transform. Runs the REAL
+    stage_train / release_train_staging / _grid2d_law_rows paths."""
+    import glob
+    base0 = set(glob.glob(os.path.join(tempfile.gettempdir(),
+                                       "*.g2law.dat")))
+    data, g2, raw = _lifecycle_files(tmp, "none")
+
+    # (a) low-RAM staging twice on one experiment: the second staging
+    # supersedes the first, so the first temp file is unlinked and the
+    # second is live and readable.
+    exp = _lifecycle_exp(data, g2, 1e-12)
+    exp.stage_train(n_train=30)
+    p1 = exp._grid2d_train_tmp
+    exp.stage_train(n_train=30)
+    p2 = exp._grid2d_train_tmp
+    report("lifecycle: restage supersedes (1st file absent, 2nd readable)",
+           p1 is not None and p2 is not None and p1 != p2
+           and not os.path.exists(p1) and os.path.exists(p2)
+           and isinstance(exp.train_set["dv"], np.memmap),
+           "p1 gone=%s p2 live=%s" % (not os.path.exists(p1),
+                                      os.path.exists(p2)))
+    exp.release_train_staging()
+
+    # (b) three N-train sweep points with the lane-style cleanup between
+    # them: the live temp count + bytes stay bounded to ONE point, never
+    # cumulative.
+    exp = _lifecycle_exp(data, g2, 1e-12)
+    peak = 0
+    for N in (20, 25, 30):
+        exp.stage_train(n_train=N)
+        live, _ = _g2law_live(base0)
+        peak = max(peak, len(live))
+        exp.train_set = None
+        exp.release_train_staging()          # the sweep lane's cleanup
+    live_end, bytes_end = _g2law_live(base0)
+    report("lifecycle: 3-point sweep bounded (<=1 live temp, 0 at end)",
+           peak <= 1 and len(live_end) == 0 and bytes_end == 0,
+           "peak %d live, end %d file(s)" % (peak, len(live_end)))
+
+    # (c) a mid-transform failure (a non-positive value under a syren
+    # law, caught inside the chunk loop) leaves NO temp file.
+    datab, g2b, rawb = _lifecycle_files(tmp, "syren_linear")
+    rawb[:, 2] = 0.0                          # positivity failure
+    np.save(datab["train_dv"], rawb)
+    exp = _lifecycle_exp(datab, g2b, 1e-12)
+    before, _ = _g2law_live(base0)
+    raised = False
+    try:
+        exp.stage_train(n_train=30)
+    except ValueError:
+        raised = True
+    after, _ = _g2law_live(base0)
+    report("lifecycle: mid-transform failure leaves no temp file",
+           raised and len(after) == len(before)
+           and exp._grid2d_train_tmp is None,
+           "raised=%s new files=%d" % (raised, len(after) - len(before)))
+
+    # (d) a failed TRAINING after a successful staging releases that
+    # point's train file through the lane-style cleanup (the except path
+    # reaches the same block).
+    exp = _lifecycle_exp(data, g2, 1e-12)
+    exp.stage_train(n_train=30)
+    pth = exp._grid2d_train_tmp
+    ok_setup = pth is not None and os.path.exists(pth)
+    exp.train_set = None
+    exp.release_train_staging()
+    report("lifecycle: failed-point cleanup releases the train file",
+           ok_setup and not os.path.exists(pth)
+           and exp._grid2d_train_tmp is None,
+           "staged=%s file gone=%s" % (ok_setup, not os.path.exists(pth)))
+
+    # (e) resident-RAM control: no temp file, and the staged values are
+    # byte-identical to the direct known answer (law none = raw
+    # passthrough over the kept columns).
+    exp = _lifecycle_exp(data, g2, 0.9)
+    before_e, _ = _g2law_live(base0)
+    exp.stage_train(n_train=30)
+    after_e, _ = _g2law_live(base0)
+    dump_rows = np.array(exp.train_set["dump_rows"])
+    want = raw[dump_rows].astype("float32")     # stride 1 -> all columns
+    report("lifecycle: resident control makes no temp file, byte-identical",
+           exp._grid2d_train_tmp is None
+           and len(after_e) == len(before_e)
+           and not isinstance(exp.train_set["dv"], np.memmap)
+           and np.array_equal(np.asarray(exp.train_set["dv"]), want),
+           "no temp=%s bitwise=%s"
+           % (exp._grid2d_train_tmp is None,
+              np.array_equal(np.asarray(exp.train_set["dv"]), want)))
+    exp.release_train_staging()
+
+
+def grid2d_recipe(width):
+    return {"cls": "emulator.designs.plain.ResMLP",
+            "name": "resmlp",
+            "ia": None,
+            "input_dim": N_IN,
+            "output_dim": width,
+            "compile_mode": None,
+            "needs_geom": False,
+            "kwargs": {"int_dim_res": 16,
+                       "n_blocks": 2,
+                       "block_opts": {"act": {"type": "H", "n_gates": 3},
+                                      "norm": "affine"}}}
+
+
+def save_synthetic_grid2d(root, device, tmp, quantity="pklin",
+                          units="Mpc3", law="syren_linear",
+                          z=Z4, k=K6, seed=0):
+    covmat = os.path.join(tmp, "g2_%d.covmat" % seed)
+    write_covmat(covmat, IN_NAMES, seed=seed + 1)
+    pgeom = ParamGeometry.from_covmat(
+        device=device, center=np.array([2.1, 67.0, 0.12]),
+        covmat_path=covmat)
+    Y = synth_rows(400, z=z, k=k, seed=seed + 2)
+    geom = Grid2DGeometry.from_targets(device=device, targets=Y, z=z,
+                                       k=k, quantity=quantity,
+                                       units=units, law=law)
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    model = ResMLP(input_dim=N_IN, output_dim=z.size * k.size,
+                   int_dim_res=16, n_blocks=2,
+                   block_opts=block_opts).to(device)
+    config = {"data": {"grid2d": {"quantity": quantity,
+                                  "units": units,
+                                  "law": law,
+                                  "z_file": "z.npy",
+                                  "k_file": "k.npy"},
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat)},
+              "train_args": {"nepochs": 1}}
+    if law != "none":
+        config["data"]["grid2d"]["train_base"] = "tb.npy"
+        config["data"]["grid2d"]["val_base"] = "vb.npy"
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
+                  geometry=geom, config=config, histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=grid2d_recipe(z.size * k.size),
+                  attrs={"rescale": "none", "quantity": quantity})
+    return pgeom, geom, model, covmat
+
+
+def check_roundtrip(tmp, device, law):
+    root = os.path.join(tmp, "emul_g2_" + law)
+    pgeom, geom, model, _ = save_synthetic_grid2d(
+        root, device, tmp, law=law, seed=30)
+    theta = np.array([[2.15, 68.0, 0.121]])
+    x = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        ref = geom.decode(model(pgeom.encode(x)))[0].cpu().numpy()
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    ok = (np.array_equal(got["pklin"].reshape(-1), ref)
+          and got["pklin"].shape == (Z4.size, K6.size)
+          and np.array_equal(got["z"], Z4)
+          and np.array_equal(got["k"], K6)
+          and getattr(pred, "_grid2d", False)
+          and pred.law == law)
+    report("predict round-trip bitwise (%s law)" % law, ok,
+           "shape %s" % (got["pklin"].shape,))
+    _, _, _, info = rebuild_emulator(root, device, compile_model=False)
+    report("rebuild info: grid2d flags (%s)" % law,
+           info["grid2d"] and info["grid2d_quantity"] == "pklin"
+           and info["grid2d_law"] == law and not info["grid"]
+           and info["grid_law"] is None,
+           "law %s" % info["grid2d_law"])
+    return root
+
+
+def grid2d_head_recipe(width):
+    """The model_recipe for the ResCNN head leg: needs_geom
+    True (rebuild re-attaches the z-slice split via attach_head_coords),
+    every constructor default materialized."""
+    return {"cls": "emulator.designs.plain.ResCNN",
+            "name": "rescnn",
+            "ia": None,
+            "input_dim": N_IN,
+            "output_dim": width,
+            "compile_mode": None,
+            "needs_geom": True,
+            "kwargs": {"int_dim_res": 16,
+                       "n_blocks": 2,
+                       "kernel_size": 3,
+                       "rescale_kernel": False,
+                       "groups": 1,
+                       "separable": False,
+                       "film": False,
+                       "n_blocks_cnn": 1,
+                       "gate_init": 0.1,
+                       "head_act": None,
+                       "block_opts": {"act": {"type": "H", "n_gates": 3},
+                                      "norm": "affine"}}}
+
+
+def check_head(tmp, device):
+    """The correction-head leg: the conv head on the grid2d geometry —
+    z slices as channels, the identity basis, the epoch-0 identity
+    start, the n_tokens rejection on real physical bins, and save ->
+    rebuild -> predict bitwise (proving the rebuild-side
+    attach_head_coords in results._rebuild_model)."""
+    from emulator.designs.plain import ResCNN, ResTRF
+    covmat = os.path.join(tmp, "g2h.covmat")
+    write_covmat(covmat, IN_NAMES, seed=41)
+    pgeom = ParamGeometry.from_covmat(
+        device=device, center=np.array([2.1, 67.0, 0.12]),
+        covmat_path=covmat)
+    Y = synth_rows(400, seed=42)
+    geom = Grid2DGeometry.from_targets(device=device, targets=Y, z=Z4,
+                                       k=K6, quantity="pklin",
+                                       units="Mpc3", law="syren_linear")
+    geom.attach_head_coords()
+    want_sizes = []
+    for _ in range(Z4.size):
+        want_sizes.append(int(K6.size))
+    report("attach_head_coords: one bin per z slice, length nk",
+           geom.bin_sizes == want_sizes,
+           "bin_sizes %s" % (geom.bin_sizes,))
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    width = Z4.size * K6.size
+    model = ResCNN(input_dim=N_IN, output_dim=width, int_dim_res=16,
+                   geom=geom, kernel_size=3, n_blocks=2,
+                   n_blocks_cnn=1, block_opts=block_opts).to(device)
+    report("identity basis: W_fd / W_df stay None on the grid2d geometry",
+           model.W_fd is None and model.W_df is None,
+           "n_bins %d, max_bin %d" % (model.n_bins, model.max_bin))
+    x = torch.randn(4, N_IN, device=device)
+    with torch.no_grad():
+        full = model(x)
+        trunk = model.mlp(x)
+    report("epoch-0 identity: the head model equals its trunk bitwise",
+           torch.equal(full, trunk),
+           "max|d| = %.2e" % (full - trunk).abs().max().item())
+    # two-phase on the plain heads (user ruling 2026-07-12): the phase
+    # switch freezes the right parameter groups, the trunk phase
+    # bypasses the head (forward == the bare trunk), and an unknown
+    # phase is loud. At the zero init every phase's output equals the
+    # trunk, so the flags are the discriminating assertions.
+    model.set_train_phase("trunk")
+    trunk_on = all(p.requires_grad for p in model.mlp.parameters())
+    head_off = (all(not p.requires_grad for p in model.convs.parameters())
+                and all(not p.requires_grad
+                        for p in model.acts.parameters()))
+    with torch.no_grad():
+        bypass = model(x)
+    model.set_train_phase("head")
+    trunk_off = all(not p.requires_grad for p in model.mlp.parameters())
+    head_on = (all(p.requires_grad for p in model.convs.parameters())
+               and model.gate.requires_grad)
+    with torch.no_grad():
+        head_out = model(x)
+    model.set_train_phase("joint")
+    joint_on = all(p.requires_grad for p in model.parameters())
+    report("two-phase: freezes per phase + trunk-phase head bypass",
+           trunk_on and head_off and trunk_off and head_on and joint_on
+           and torch.equal(bypass, trunk)
+           and torch.equal(head_out, trunk),
+           "trunk/head/joint flags + bypass == trunk bitwise")
+    try:
+        model.set_train_phase("nope")
+        report("unknown train phase raises", False, "no raise")
+    except ValueError:
+        report("unknown train phase raises", True, "ValueError")
+    try:
+        ResTRF(input_dim=N_IN, output_dim=width, int_dim_res=8,
+               geom=geom, n_tokens=3, block_opts=block_opts)
+        report("n_tokens on real physical bins raises", False, "no raise")
+    except ValueError as e:
+        report("n_tokens on real physical bins raises",
+               "physical bins" in str(e), "ValueError names the bins")
+    # save -> rebuild -> predict bitwise: the rebuilt Grid2DGeometry
+    # carries no bin_sizes in its state (derived, never persisted), so
+    # this leg fails unless _rebuild_model re-attaches before
+    # constructing the head model.
+    root = os.path.join(tmp, "emul_g2_head")
+    config = {"data": {"grid2d": {"quantity": "pklin",
+                                  "units": "Mpc3",
+                                  "law": "syren_linear",
+                                  "z_file": "z.npy",
+                                  "k_file": "k.npy",
+                                  "train_base": "tb.npy",
+                                  "val_base": "vb.npy"},
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat)},
+              "train_args": {"nepochs": 1}}
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
+                  geometry=geom, config=config, histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=grid2d_head_recipe(width),
+                  attrs={"rescale": "none", "quantity": "pklin"})
+    theta = np.array([[2.15, 68.0, 0.121]])
+    x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        ref = geom.decode(model(pgeom.encode(x1)))[0].cpu().numpy()
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    report("head save -> rebuild -> predict bitwise (rebuild attach)",
+           np.array_equal(got["pklin"].reshape(-1), ref),
+           "max|d| = %.2e"
+           % np.abs(got["pklin"].reshape(-1) - ref).max())
+
+
+def check_npce(tmp, device):
+    """NPCE on grid2d (the 2026-07-12 family-wide ruling): the residual
+    base + refiner algebra is exact under the diagonal metric, the
+    fitted base's state round-trips byte-identical, save -> rebuild ->
+    predict composes base + net bitwise (_build_diag_decoder), and the
+    ratio form is loudly rejected on a diagonal family (validate_pce)."""
+    from emulator.designs.pce import PCEEmulator
+    from emulator.losses.pce import PCEResidualDiagChi2
+    from emulator.experiment import validate_pce
+    covmat = os.path.join(tmp, "g2npce.covmat")
+    write_covmat(covmat, IN_NAMES, seed=51)
+    pgeom = ParamGeometry.from_covmat(
+        device=device, center=np.array([2.1, 67.0, 0.12]),
+        covmat_path=covmat)
+    g = np.random.default_rng(53)
+    C = np.column_stack([g.normal(2.1, 0.1, 400),
+                         g.normal(67.0, 2.0, 400),
+                         g.normal(0.12, 0.005, 400)]).astype("float32")
+    # rows with a REAL smooth parameter dependence (an H0-linear shift),
+    # so the LOO gate keeps a mode and the fitted base is alive — a leg
+    # a dead base could pass proves nothing (the smoke-gate rule).
+    Y = synth_rows(400, seed=52)
+    Y = Y + 0.3 * ((C[:, 1] - 67.0) / 2.0)[:, None]
+    geom = Grid2DGeometry.from_targets(device=device, targets=Y, z=Z4,
+                                       k=K6, quantity="pklin",
+                                       units="Mpc3", law="syren_linear")
+    tC = torch.from_numpy(C).to(device)
+    X_white = pgeom.encode(tC)
+    dv = torch.from_numpy(Y.astype("float32")).to(device)
+    pce = PCEEmulator.from_training(device, X_white, geom.encode(dv),
+                                    p_max=2, r_max=2, q=0.5, k_max=4,
+                                    loo_max=0.9, max_terms=8, silent=True)
+    chi2fn = PCEResidualDiagChi2(geom=geom, pce=pce)
+    report("NPCE wrapper: diagonal residual class + needs_params",
+           type(chi2fn).__name__ == "PCEResidualDiagChi2"
+           and chi2fn.needs_params, "")
+    with torch.no_grad():
+        base = pce(X_white[:8])
+    report("NPCE base is alive (the fit kept a real mode)",
+           base.abs().max().item() > 1e-4,
+           "max|base| = %.2e" % base.abs().max().item())
+    enc = chi2fn.encode(dv[:8], X_white[:8])
+    report("NPCE encode: whitened truth minus the base, bitwise",
+           torch.equal(enc, geom.encode(dv[:8]) - base), "")
+    y = torch.randn(8, int(Z4.size) * int(K6.size), device=device)
+    report("NPCE decode: geom.decode(net + base), bitwise",
+           torch.equal(chi2fn.decode(y, X_white[:8]),
+                       geom.decode(y + base)), "")
+    pce2 = PCEEmulator.from_state(pce.state(), device)
+    st_ok = True
+    for key, val in pce.state().items():
+        st_ok = st_ok and torch.equal(val, pce2.state()[key])
+    report("NPCE base state round-trip byte-identical", st_ok,
+           "%d buffers" % len(pce.state()))
+    # save -> rebuild -> predict: the pce h5 group + form attr must
+    # rebuild the base, and the family predictor must compose it
+    # (a bare geom.decode here would be silently wrong).
+    block_opts = {"act": make_activation("H", n_gates=3),
+                  "norm": make_norm("affine")}
+    width = int(Z4.size) * int(K6.size)
+    model = ResMLP(input_dim=N_IN, output_dim=width, int_dim_res=16,
+                   n_blocks=2, block_opts=block_opts).to(device)
+    root = os.path.join(tmp, "emul_g2_npce")
+    config = {"data": {"grid2d": {"quantity": "pklin",
+                                  "units": "Mpc3",
+                                  "law": "syren_linear",
+                                  "z_file": "z.npy",
+                                  "k_file": "k.npy",
+                                  "train_base": "tb.npy",
+                                  "val_base": "vb.npy"},
+                       "train_dv": "t.npy",
+                       "val_dv": "v.npy",
+                       "train_params": "t.1.txt",
+                       "val_params": "v.1.txt",
+                       "train_covmat": os.path.basename(covmat)},
+              "pce": {"form": "residual"},
+              "train_args": {"nepochs": 1}}
+    histories = {"train_losses": [0.1],
+                 "val_medians": [0.1],
+                 "val_means": [0.1],
+                 "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
+                 "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
+                  geometry=geom, config=config, histories=histories,
+                  train_args=config["train_args"],
+                  resolved_train={"nepochs": 1},
+                  resolved_model=grid2d_recipe(width),
+                  pce=pce, pce_form="residual",
+                  attrs={"rescale": "none", "quantity": "pklin"})
+    theta = np.array([[2.15, 68.0, 0.121]])
+    x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
+    with torch.no_grad():
+        x1e = pgeom.encode(x1)
+        ref = geom.decode(model(x1e) + pce(x1e))[0].cpu().numpy()
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    got = pred.predict({nm: float(theta[0, i])
+                        for i, nm in enumerate(IN_NAMES)})
+    report("NPCE save -> rebuild -> predict composes base + net bitwise",
+           np.array_equal(got["pklin"].reshape(-1), ref),
+           "max|d| = %.2e"
+           % np.abs(got["pklin"].reshape(-1) - ref).max())
+    try:
+        validate_pce({"form": "ratio"}, diagonal=True)
+        report("diagonal family rejects pce form ratio", False, "no raise")
+    except ValueError as e:
+        report("diagonal family rejects pce form ratio",
+               "residual" in str(e), "ValueError names the fix")
+
+
+def _load_emul_mps_stubbed():
+    if "cobaya" not in sys.modules:
+        sys.modules["cobaya"] = types.ModuleType("cobaya")
+    theory_mod = types.ModuleType("cobaya.theory")
+
+    class _Theory:
+        renames = {}
+        extra_args = {}
+        def initialize(self):
+            pass
+
+    theory_mod.Theory = _Theory
+    sys.modules["cobaya.theory"] = theory_mod
+    log_mod = types.ModuleType("cobaya.log")
+
+    class _LoggedError(Exception):
+        def __init__(self, logger, msg=""):
+            super().__init__(msg)
+
+    class _Logger:
+        def warning(self, *a, **k):
+            pass
+        def debug(self, *a, **k):
+            pass
+
+    log_mod.LoggedError = _LoggedError
+    log_mod.get_logger = lambda name: _Logger()
+    sys.modules["cobaya.log"] = log_mod
+    root = Path(__file__).resolve().parents[2]
+    path = root / "cobaya_theory" / "emul_mps.py"
+    spec = importlib.util.spec_from_file_location("emul_mps_shim", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def check_adapter(tmp, device):
+    mod = _load_emul_mps_stubbed()
+    cls = mod.emul_mps
+    root_p = os.path.join(tmp, "ad_pklin")
+    save_synthetic_grid2d(root_p, device, tmp, quantity="pklin",
+                          units="Mpc3", law="syren_linear", seed=40)
+    root_b = os.path.join(tmp, "ad_boost")
+    save_synthetic_grid2d(root_b, device, tmp, quantity="boost",
+                          units="dimensionless", law="syren_halofit",
+                          seed=50)
+
+    # synthetic base stubs: closed forms the assembly must reproduce
+    # EXACTLY (the real syren formulas are the workstation/EMUL2 story).
+    calls = {}
+
+    def stub_pklin(k_mpc, z, As_1e9, ns, H0, Ob, Om, w0=-1.0, wa=0.0,
+                   mnu=0.06):
+        calls["pklin"] = (As_1e9, ns, H0, Ob, Om, w0, wa)
+        return (1.0 + z[:, None]) * (1.0 + k_mpc[None, :])
+
+    def stub_boost(k_mpc, z, pk_lin_mpc, As_1e9, ns, H0, Ob, Om,
+                   w0=-1.0, wa=0.0, mnu=0.06):
+        calls["boost_plin"] = np.array(pk_lin_mpc)
+        return 2.0 * np.ones((z.size, k_mpc.size))
+
+    saved = (mod.syren_base.base_pklin, mod.syren_base.base_boost)
+    mod.syren_base.base_pklin = stub_pklin
+    mod.syren_base.base_boost = stub_boost
+    try:
+        t = cls()
+        t.extra_args = {"device": "cpu", "emulators": [root_p, root_b]}
+        t.initialize()
+        report("requirements include the syren-base names",
+               {"As", "ns", "H0", "omegab", "omegam"}
+               <= set(t.get_requirements()), "")
+        t.log = types.SimpleNamespace(debug=lambda *a, **k: None)
+        t.output_params = []
+        point = {"As": 2.1e-9,
+                 "ns": 0.965,
+                 "H0": 67.0,
+                 "omegab": 0.049,
+                 "omegam": 0.31,
+                 "omch2": 0.12}
+        state = {}
+        ok_calc = t.calculate(state, want_derived=False, **point)
+        # exact assembly against the stubs.
+        out_lin = t.p_lin.predict(point)["pklin"]
+        base = stub_pklin(K6, Z4, 2.1, 0.965, 67.0, 0.049, 0.31)
+        want_plin = np.exp(out_lin) * base
+        k_arr, z_arr, got_plin = state[("Pk_grid", False, "delta_tot",
+                                        "delta_tot")]
+        ok = ok_calc and np.allclose(got_plin, want_plin, rtol=0, atol=0)
+        out_b = t.p_boost.predict(point)["boost"]
+        weight = 1.0 - np.exp(-(K6 / mod._BLEND_K_T) ** mod._BLEND_N)
+        want_boost = 1.0 + (np.exp(out_b) * 2.0 - 1.0) * weight[None, :]
+        _, _, got_pnl = state[("Pk_grid", True, "delta_tot",
+                               "delta_tot")]
+        ok = ok and np.allclose(got_pnl, want_boost * want_plin,
+                                rtol=1e-12)
+        # the blend pins boost -> 1 at the lowest k (k = 1e-4 << k_t).
+        low_boost = got_pnl[:, 0] / got_plin[:, 0]
+        ok = ok and np.abs(low_boost - 1.0).max() < 1e-3
+        # the As -> As_1e9 conversion reached the base.
+        ok = ok and abs(calls["pklin"][0] - 2.1) < 1e-12
+        # boost base received the EMULATED P_lin (the legacy flow).
+        ok = ok and np.allclose(calls["boost_plin"], want_plin)
+        report("calculate assembly exact vs base stubs + blend", ok, "")
+        # get_Pk_grid / interpolator at the nodes.
+        t.current_state = state
+        kk, zz, pk = t.get_Pk_grid(nonlinear=False)
+        itp = t.get_Pk_interpolator(nonlinear=True)
+        node = itp.P(float(Z4[2]), float(K6[3]))
+        want_node = got_pnl[2, 3]
+        ok = np.allclose(pk, want_plin) and abs(
+            node / want_node - 1.0) < 1e-6
+        report("get_Pk_grid + interpolator node round-trip", ok,
+               "rel %.1e" % abs(node / want_node - 1.0))
+        # a non-positive base -> calculate returns False (the legacy
+        # rejection semantics).
+        mod.syren_base.base_pklin = (
+            lambda *a, **kw: -np.ones((Z4.size, K6.size)))
+        state2 = {}
+        report("non-positive spectrum rejects the point (False)",
+               t.calculate(state2, want_derived=False, **point) is False,
+               "")
+        mod.syren_base.base_pklin = stub_pklin
+        # pair-validation legs.
+        try:
+            t2 = cls()
+            t2.extra_args = {"device": "cpu", "emulators": [root_p]}
+            t2.initialize()
+            report("pair-count guard raises", False, "no raise")
+        except ValueError:
+            report("pair-count guard raises", True, "ValueError")
+        root_p2 = os.path.join(tmp, "ad_pklin2")
+        save_synthetic_grid2d(root_p2, device, tmp, quantity="pklin",
+                              units="Mpc3", law="none", seed=60)
+        try:
+            t3 = cls()
+            t3.extra_args = {"device": "cpu",
+                             "emulators": [root_p, root_p2]}
+            t3.initialize()
+            report("duplicate quantity raises", False, "no raise")
+        except ValueError:
+            report("duplicate quantity raises", True, "ValueError")
+        root_bad = os.path.join(tmp, "ad_badgrid")
+        save_synthetic_grid2d(root_bad, device, tmp, quantity="boost",
+                              units="dimensionless", law="none",
+                              k=np.logspace(-4, 0.0, 5), seed=70)
+        try:
+            t4 = cls()
+            t4.extra_args = {"device": "cpu",
+                             "emulators": [root_p, root_bad]}
+            t4.initialize()
+            report("grid mismatch raises", False, "no raise")
+        except ValueError:
+            report("grid mismatch raises", True, "ValueError")
+    finally:
+        mod.syren_base.base_pklin, mod.syren_base.base_boost = saved
+
+
+def check_validate():
+    def cfg(g2, extra=None):
+        data = {"grid2d": g2,
+                "train_dv": "a",
+                "val_dv": "b",
+                "train_params": "c",
+                "val_params": "d",
+                "train_covmat": "e"}
+        if extra:
+            data.update(extra)
+        return {"data": data,
+                "pce": None,
+                "transfer": None}
+    good = {"quantity": "boost",
+            "units": "dimensionless",
+            "law": "syren_halofit",
+            "z_file": "z.npy",
+            "k_file": "k.npy",
+            "train_base": "tb.npy",
+            "val_base": "vb.npy",
+            "k_stride": 10}
+    out = validate_grid2d(cfg(good), train_args={}, rescale="none")
+    ok = out["quantity"] == "boost"
+    bads = [
+        {**good, "law": "syren_linear"},                # wrong pairing
+        {**good, "units": "Mpc3"},                      # wrong units
+        {k: v for k, v in good.items() if k != "train_base"},
+        {**good, "law": "none"},                        # base under none
+        {**good, "k_stride": 0},
+    ]
+    for b in bads:
+        try:
+            validate_grid2d(cfg(b), train_args={}, rescale="none")
+            ok = False
+            print("  validate_grid2d silent on:", b.get("law"),
+                  b.get("units"), b.get("k_stride"))
+        except ValueError:
+            pass
+    # transfer is ACCEPTED here since the 2026-07-12 symmetry ruling
+    # (the block itself is vetted by validate_transfer on the
+    # from_config branch); this leg pins the acceptance so a re-added
+    # family forbid would be loud.
+    c = cfg(good)
+    c["transfer"] = {"from": "x"}
+    try:
+        validate_grid2d(c, train_args={}, rescale="none")
+    except ValueError as e:
+        ok = False
+        print("  validate_grid2d rejected a transfer block:", str(e)[:70])
+    report("validate_grid2d legs", ok, "")
+
+
+def check_finetune(tmp, device):
+    root = os.path.join(tmp, "ft_g2_src")
+    pgeom, geom, model, covmat = save_synthetic_grid2d(
+        root, device, tmp, law="syren_linear", seed=80)
+    source = warmstart.load_source(root=root, device=device)
+    report("load_source accepts a grid2d artifact",
+           type(source.geom).__name__ == "Grid2DGeometry",
+           "geom %s" % type(source.geom).__name__)
+    g = np.random.default_rng(90)
+    C = np.column_stack([g.normal(2.1, 0.1, 64),
+                         g.normal(67.0, 2.0, 64),
+                         g.normal(0.12, 0.005, 64)]).astype("float32")
+    train_set = {"C": C,
+                 "idx": np.arange(64),
+                 "C_mean": C.mean(axis=0)}
+    new_pgeom, extra = warmstart.extend_input_geometry(
+        source=source, covmat_path=covmat,
+        train_mean=train_set["C_mean"], device=device)
+    model_opts = warmstart.recipe_to_model_opts(source.recipe)
+    try:
+        init_state, verdict, _ = warmstart.build_warm_start(
+            source=source, new_pgeom=new_pgeom, pinned_geom=source.geom,
+            model_opts=model_opts, train_set=train_set,
+            extra_names=extra, device=device)
+        report("grid2d warm start reproduces the source at epoch 0",
+               init_state is not None, verdict.strip()[:60])
+    except ValueError as e:
+        report("grid2d warm start reproduces the source at epoch 0",
+               False, str(e)[:80])
+    def ft_cfg(g2, from_root):
+        return {"data": {"grid2d": g2,
+                         "train_dv": "t.npy",
+                         "val_dv": "v.npy",
+                         "train_params": "t.1.txt",
+                         "val_params": "v.1.txt",
+                         "train_covmat": covmat,
+                         "n_train": 10,
+                         "n_val": 5,
+                         "split_seed": 0},
+                "train_args": {"nepochs": 1,
+                               "bs": 8,
+                               "finetune": {"from": from_root}}}
+    good = {"quantity": "pklin",
+            "units": "Mpc3",
+            "law": "syren_linear",
+            "z_file": "z.npy",
+            "k_file": "k.npy",
+            "train_base": "tb.npy",
+            "val_base": "vb.npy"}
+    bad = dict(good)
+    bad["quantity"] = "boost"
+    bad["units"] = "dimensionless"
+    bad["law"] = "syren_halofit"
+    try:
+        EmulatorExperiment.from_config(ft_cfg(bad, root),
+                                       device=torch.device("cpu"))
+        report("metadata mismatch raises", False, "no raise")
+    except ValueError as e:
+        report("metadata mismatch raises",
+               "grid2d-metadata mismatch" in str(e), "ValueError")
+
+
+def main():
+    print("mps-identity: geometry + staging law + round-trip + "
+          "assembly + finetune legs")
+    # seed the GLOBAL torch RNG so the synthetic nets are the same
+    # every run (a red must reproduce — the run-10 bsn lesson).
+    torch.manual_seed(0)
+    device = torch.device("cpu")
+    with tempfile.TemporaryDirectory() as tmp:
+        check_geometry(device)
+        check_staging(tmp)
+        check_bounded_staging(tmp)
+        check_stable_moments(tmp, device)
+        check_staging_lifecycle(tmp)
+        check_roundtrip(tmp, device, law="syren_linear")
+        check_roundtrip(tmp, device, law="none")
+        check_head(tmp, device)
+        check_npce(tmp, device)
+        check_adapter(tmp, device)
+        check_validate()
+        check_finetune(tmp, device)
+    if FAILURES:
+        print("FAIL: " + str(len(FAILURES)) + " check(s): "
+              + ", ".join(FAILURES))
+        sys.exit(1)
+    print("PASS: mps-identity all checks green")
+
+
+if __name__ == "__main__":
+    main()

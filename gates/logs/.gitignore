@@ -1,0 +1,9 @@
+# The logs/ directory ships EMPTY: this .gitignore keeps the directory
+# tracked (git will not store an empty dir) while ignoring every run
+# artifact the harness writes here (<GATE>.log, BOARD.md,
+# board_status.json). After a workstation run the user force-adds the
+# logs for the Architect to audit:
+#     git add -f gates/logs
+#     git commit -m "workstation board run: logs"
+*
+!.gitignore

@@ -1,0 +1,221 @@
+Notebook[{
+
+Cell["Learnable activations for cosmological emulators", "Title"],
+
+Cell["From the Speculator H(x) to multi-gate and power-tail \
+generalizations", "Subtitle"],
+
+Cell["Context: these are the activation functions of our cosmic-shear \
+data-vector emulator (emulator/activations.py). The network regresses \
+whitened data vectors from whitened cosmological parameters, so the \
+activation must (a) be able to pass signal through untouched (identity- \
+capable), (b) never saturate (tanh-style flat tails kill gradients on \
+regression targets), and (c) start near a simple, safe function so \
+residual blocks begin close to the identity. Every parameter below is \
+learned per feature: each neuron shapes its own curve during training.", \
+"Text"],
+
+Cell["A colorblind-safe palette used throughout (no red+green pairs).", \
+"Text"],
+
+Cell["cbp = {RGBColor[\"#0072B2\"], RGBColor[\"#E69F00\"], \
+RGBColor[\"#CC79A7\"], RGBColor[\"#56B4E9\"], Black};", "Input"],
+
+Cell["1. The base activation H(x)", "Section"],
+
+Cell["The starting point (Alsing et al., the Speculator activation):    \
+H(x) = (gamma + (1 - gamma) sigmoid(beta x)) x.    The bracket is a \
+gate that runs from gamma (as x -> -infinity, for beta > 0) up to 1 \
+(as x -> +infinity), so H interpolates between a leaky line and a \
+Swish-like curve. Both gamma and beta are learnable, one pair per \
+feature. At initialization gamma = beta = 0, so sigmoid(0) = 1/2 and \
+H(x) = 0.5 x: every neuron starts as a simple halved identity, and \
+training bends each one individually.", "Text"],
+
+Cell["H[x_, gamma_, beta_] := (gamma + (1 - gamma) \
+LogisticSigmoid[beta x]) x", "Input"],
+
+Cell["Three sanity checks: gamma -> 1 gives the identity; gamma = 0, \
+beta = 1 gives exactly Swish x sigmoid(x); and the two tail slopes are \
+gamma (left) and 1 (right).", "Text"],
+
+Cell["{Simplify[H[x, 1, beta]],
+ Simplify[H[x, 0, 1] - x LogisticSigmoid[x]],
+ Assuming[beta > 0, {Limit[D[H[x, gamma, beta], x], x -> -Infinity],
+   Limit[D[H[x, gamma, beta], x], x -> +Infinity]}]}", "Input"],
+
+Cell["Plot[{0.5 x, H[x, 0, 4], H[x, 0.3, 4], H[x, 0.9, 4]}, {x, -4, 4},
+ PlotStyle -> cbp, Frame -> True,
+ FrameLabel -> {\"x\", \"H(x)\"},
+ PlotLegends -> {\"init: gamma=beta=0 (0.5 x)\",
+   \"gamma=0, beta=4 (Swish-like)\", \"gamma=0.3, beta=4\",
+   \"gamma=0.9, beta=4 (near identity)\"},
+ PlotLabel -> \"The H family: one learnable identity <-> Swish dial per \
+feature\"]", "Input"],
+
+Cell["Explore the two knobs. Watch the gate: gamma sets the left-tail \
+slope, beta sets how fast the slope switches from gamma to 1.", "Text"],
+
+Cell["Manipulate[
+ Plot[{H[x, gamma, beta], 0.5 x}, {x, -4, 4},
+  PlotStyle -> {cbp[[1]], Directive[Gray, Dashed]},
+  PlotRange -> {-3, 4}, Frame -> True,
+  FrameLabel -> {\"x\", \"H(x)\"},
+  PlotLegends -> {\"H\", \"init 0.5 x\"}],
+ {{gamma, 0}, 0, 1}, {{beta, 1}, -6, 6}]", "Input"],
+
+Cell["The derivative view (for the students who ask what the optimizer \
+sees): the slope schedule interpolates from gamma to 1, with one \
+transition whose location is fixed at x = 0 and whose width is set by \
+beta.", "Text"],
+
+Cell["Manipulate[
+ Plot[Evaluate[D[H[x, gamma, beta], x]], {x, -4, 4},
+  PlotStyle -> cbp[[1]], PlotRange -> {-0.5, 1.6}, Frame -> True,
+  FrameLabel -> {\"x\", \"H'(x)\"},
+  GridLines -> {None, {gamma, 1}}],
+ {{gamma, 0.3}, 0, 1}, {{beta, 2}, -6, 6}]", "Input"],
+
+Cell["2. Generalization 1: a K-gate slope schedule (multigate)", \
+"Section"],
+
+Cell["One sigmoid buys one slope transition, pinned at x = 0. But the \
+whitened inputs live mostly in [-3, 3], and there is no reason a \
+feature's best response has a single transition, or one centered at \
+zero. So free the gate:    gate(x) = a0 + sum_k w_k sigmoid(beta_k (x \
+- mu_k)),    H_K(x) = gate(x) x.    K sigmoids with learnable weights, \
+sharpnesses, and centers form a learned slope-versus-x schedule. The \
+paper's H is exactly the K = 1 case with a0 = gamma, w = 1 - gamma, \
+mu = 0.", "Text"],
+
+Cell["gate[x_, a0_, w_List, betas_List, mus_List] :=
+  a0 + Total[MapThread[#1 LogisticSigmoid[#2 (x - #3)] &, {w, betas, mus}]]
+multigate[x_, a0_, w_, betas_, mus_] := gate[x, a0, w, betas, mus] x", \
+"Input"],
+
+Cell["Two checks: the K = 1 reduction to H is exact, and the K = 3 \
+initialization (gate 1 active at value 1/2; gates 2 and 3 dormant with \
+w = 0, sharp beta = 1, centers spread over [-1.5, 1.5]) reproduces the \
+0.5 x start.", "Text"],
+
+Cell["{Simplify[multigate[x, gamma, {1 - gamma}, {beta}, {0}]
+   - H[x, gamma, beta]],
+ Simplify[multigate[x, 0, {1, 0, 0}, {0, 1, 1}, {0, -1.5, 1.5}]
+   - 0.5 x]}", "Input"],
+
+Cell["A trained-looking example: plot the gate itself (the slope \
+schedule) next to the activation it produces. This is the picture to \
+remember: the network learns WHERE to change slope, not just how \
+much.", "Text"],
+
+Cell["With[{a0 = 0.1, w = {0.5, 0.6, -0.4}, betas = {2, 3, 3},
+  mus = {0, -1.2, 1.4}},
+ GraphicsRow[{
+   Plot[gate[x, a0, w, betas, mus], {x, -4, 4}, PlotStyle -> cbp[[2]],
+    Frame -> True, FrameLabel -> {\"x\", \"gate(x)\"},
+    PlotLabel -> \"the learned slope schedule\"],
+   Plot[{multigate[x, a0, w, betas, mus], 0.5 x}, {x, -4, 4},
+    PlotStyle -> {cbp[[1]], Directive[Gray, Dashed]}, Frame -> True,
+    FrameLabel -> {\"x\", \"gate(x) x\"},
+    PlotLabel -> \"the activation it produces\"]}, ImageSize -> 700]]", \
+"Input"],
+
+Cell["Explore K = 3. Gate 1 plays the old H role (center fixed at 0); \
+gates 2 and 3 add transitions wherever their centers move.", "Text"],
+
+Cell["Manipulate[
+ Plot[{multigate[x, a0, {w1, w2, w3}, {b, b, b}, {0, mu2, mu3}],
+   0.5 x}, {x, -4, 4},
+  PlotStyle -> {cbp[[1]], Directive[Gray, Dashed]},
+  PlotRange -> {-4, 5}, Frame -> True,
+  FrameLabel -> {\"x\", \"multigate(x)\"}],
+ {{a0, 0}, -0.5, 1}, {{w1, 1}, -1, 2}, {{w2, 0}, -1, 2},
+ {{w3, 0}, -1, 2}, {{mu2, -1.2}, -3, 0}, {{mu3, 1.2}, 0, 3},
+ {{b, 2}, 0.2, 8}]", "Input"],
+
+Cell["3. Generalization 2: a bounded power tail (psi_p)", "Section"],
+
+Cell["The second, orthogonal generalization reshapes what multiplies \
+the gate. Replace x by a signed power transform    psi_p(x) = sign(x) \
+((1 + |x|)^p - 1) / p.    Three built-in safety properties: the slope \
+at x = 0 is exactly 1 for EVERY p (the division by p normalizes it), \
+so p reshapes only the tail; the base 1 + |x| >= 1 keeps any real p \
+finite (no NaN); and p itself is boxed into (p_min, p_max) = (0.5, \
+1.5) through p = p_min + (p_max - p_min) sigmoid(rho), so the tail \
+ranges from sqrt-like to mildly super-linear and can never blow up. \
+rho = 0 at init gives p = 1, and psi_1(x) = x exactly: the transform \
+starts invisible.", "Text"],
+
+Cell["psi[x_, p_] := Sign[x] ((1 + Abs[x])^p - 1)/p
+pOf[rho_, pmin_: 0.5, pmax_: 1.5] :=
+ pmin + (pmax - pmin) LogisticSigmoid[rho]", "Input"],
+
+Cell["The two properties, verified symbolically: unit slope at the \
+origin for symbolic p, and the exact p = 1 identity.", "Text"],
+
+Cell["{Assuming[p > 0, Limit[D[((1 + x)^p - 1)/p, x], x -> 0]],
+ Simplify[psi[x, 1] - x, x > 0]}", "Input"],
+
+Cell["Plot[{psi[x, 0.5], psi[x, 1], psi[x, 1.5]}, {x, -4, 4},
+ PlotStyle -> cbp, Frame -> True,
+ FrameLabel -> {\"x\", \"psi_p(x)\"},
+ PlotLegends -> {\"p = 0.5 (sqrt-like tail)\", \"p = 1 (identity)\",
+   \"p = 1.5 (super-linear tail)\"},
+ PlotLabel -> \"same unit slope at 0, different tails\"]", "Input"],
+
+Cell["The power-gated activation applies the H gate to psi_p. Note in \
+the Manipulate how p bends only the far field; near the origin all \
+curves agree.", "Text"],
+
+Cell["powerAct[x_, gamma_, beta_, p_] :=
+ (gamma + (1 - gamma) LogisticSigmoid[beta x]) psi[x, p]
+Manipulate[
+ Plot[{powerAct[x, gamma, beta, p], H[x, gamma, beta]}, {x, -5, 5},
+  PlotStyle -> {cbp[[1]], Directive[cbp[[2]], Dashed]},
+  PlotRange -> {-4, 7}, Frame -> True,
+  FrameLabel -> {\"x\", \"activation\"},
+  PlotLegends -> {\"power-gated\", \"plain H (p = 1)\"}],
+ {{gamma, 0.2}, 0, 1}, {{beta, 2}, -6, 6}, {{p, 1.2}, 0.5, 1.5}]", \
+"Input"],
+
+Cell["4. The full generalization: gated_power", "Section"],
+
+Cell["Compose the two orthogonal pieces:    A(x) = gate(x) psi_p(x),    \
+with the K-gate slope schedule in the bulk and the bounded power tail \
+in the far field. Per feature this costs 3K + 2 learnable numbers (a0, \
+K weights, K sharpnesses, K centers, rho). At initialization it is \
+again exactly 0.5 x: gate 1 gives 1/2, the dormant gates give 0, and \
+p = 1 makes psi invisible.", "Text"],
+
+Cell["gatedPower[x_, a0_, w_, betas_, mus_, p_] :=
+  gate[x, a0, w, betas, mus] psi[x, p]
+Simplify[gatedPower[x, 0, {1, 0, 0}, {0, 1, 1}, {0, -1.5, 1.5}, 1]
+  - 0.5 x, x > 0]", "Input"],
+
+Cell["Manipulate[
+ Plot[{gatedPower[x, a0, {w1, w2, 0}, {2, 3, 3}, {0, mu2, 1.4}, p],
+   0.5 x}, {x, -4, 4},
+  PlotStyle -> {cbp[[1]], Directive[Gray, Dashed]},
+  PlotRange -> {-4, 6}, Frame -> True,
+  FrameLabel -> {\"x\", \"gated power activation\"}],
+ {{a0, 0.1}, -0.5, 1}, {{w1, 0.6}, -1, 2}, {{w2, 0.4}, -1, 2},
+ {{mu2, -1.2}, -3, 3}, {{p, 1.15}, 0.5, 1.5}]", "Input"],
+
+Cell["5. Design principles (the summary slide)", "Section"],
+
+Cell["Four rules generated this whole family. (1) Identity-capable and \
+non-saturating: every variant can pass signal through with slope 1, \
+and no tail ever flattens, because regression gradients must survive \
+depth. (2) Start simple: every variant equals 0.5 x at initialization, \
+so residual blocks begin near the identity and training shapes each \
+feature from a common, safe starting point. (3) Bounded ingredients \
+only: gates are sums of bounded sigmoids, the tail exponent is boxed \
+by a sigmoid into (0.5, 1.5) — a curve can specialize but never blow \
+up. (4) Per-feature freedom: all parameters are vectors over the \
+feature width; the network learns a different curve for every neuron. \
+One practical footnote from training: these activation parameters are \
+1-D vectors and are deliberately excluded from weight decay — decaying \
+them would pull every learned curve back toward its initialization.", \
+"Text"]
+
+}, WindowSize -> {1100, 850}, StyleDefinitions -> "Default.nb"]

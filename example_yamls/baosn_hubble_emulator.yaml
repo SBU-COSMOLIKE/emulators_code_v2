@@ -1,0 +1,146 @@
+# BAOSN grid emulator config (the SN-range H(z) artifact) for
+# baosn_train_emulator.py (see notes/families-background-mps.md and
+# emulator/geometries/grid.py).
+#
+# The BAOSN family serves the expansion history from TWO artifacts (the
+# two-regime design): this one emulates H(z) on the SN range (distances
+# inside the window are then KNOWN physics, integrated from H by
+# emulator/background.py); a second config with quantity D_M / law none
+# over the *_dm files trains the recombination-window comoving distance.
+# The dumps come from compute_data_vectors/dataset_generator_background.py
+# (both quantities from one background CAMB pass per sample, plus the
+# _z.npy grid sidecars). There is no cosmolike anywhere on this path.
+
+data:
+  # the grid sub-block: its presence switches the run to the grid path
+  # (the scalar / cmb / cosmolike keys are forbidden beside it).
+  grid:
+    # which background function the dv rows hold: Hubble (SN range) or
+    # D_M (the recombination-window comoving distance).
+    quantity: Hubble
+    units:    km/s/Mpc
+
+    # the target law (persisted in the artifact by name): log_offset
+    # learns log(H + offset) — the legacy emulbaosn convention, gentler
+    # across decades — and decodes exp(y) - offset; none learns the raw
+    # rows (use it for D_M). offset is REQUIRED under log_offset.
+    law:    log_offset
+    offset: 0.0
+
+    # the generator's grid sidecar (dvs_*_h_z.npy beside the dv file);
+    # the z grid persists into the artifact from this FILE.
+    z_file: dvs_train_background_unifs_h_z.npy
+
+  # the dumps (dataset_generator_background.py): the chosen quantity's dv
+  # files plus the chain sidecars.
+  train_dv:     dvs_train_background_unifs_h.npy
+  val_dv:       dvs_val_background_unifs_h.npy
+  train_params: params_train_background_unifs.1.txt
+  val_params:   params_val_background_unifs.1.txt
+  train_covmat: params_train_background_unifs.covmat
+
+  n_train:    50000
+  n_val:      10000
+  split_seed: 0
+  ram_frac:   0.7
+
+# OPTIONAL NPCE trunk (README section 12): fit a closed-form
+# sparse-Legendre base on the law-space rows at staging, then train the
+# model below as the refiner correcting it. A top-level block (a sibling
+# of data / train_args — structurally unsweepable, one base per study);
+# residual only on this family. The fit knobs and their defaults are
+# annotated in example_yamls/cosmic_shear_train_emulator.yaml.
+# pce:
+#   form: residual
+
+# OPTIONAL frozen-base transfer (README section 13): freeze a saved
+# emulator of the SAME quantity, law, and z grid and train the model
+# below as a small parallel correction — the tool for a NEW physics
+# sector, where fine-tuning's same-capacity adaptation is not enough.
+# On this family the composition acts in the whitened space (form sum
+# recommended; gain prints a zero-crossing note); refine: is not
+# offered here yet. Exclusive with pce: and train_args.finetune.
+# transfer:
+#   from: chains/my_lcdm_hubble_base
+#   form: sum
+
+train_args:
+  nepochs: 300
+  bs:      256
+
+  # the model. name picks the architecture: resmlp (the plain trunk) or
+  # the correction heads rescnn / restrf. The
+  # diagonal grid geometry keeps the z order, so the heads correct
+  # along the function directly: rescnn slides an odd-width conv kernel
+  # along z; restrf re-segments the z grid into model.trf.n_tokens
+  # contiguous windows and attends across them. Uncomment ONE head
+  # block together with its name. With a head, the two-phase schedule
+  # applies here exactly as on cosmic shear (trunk_epochs /
+  # freeze_trunk + the trunk: / head: blocks — README section 11).
+  model:
+    name: resmlp
+    mlp:
+      width:    128
+      n_blocks: 3
+    activation:
+      type:    H
+      n_gates: 3
+    # cnn:                   # with name: rescnn
+    #   kernel_size: 5       # odd conv width, slides along z
+    #   n_blocks:    1
+    # trf:                   # with name: restrf
+    #   n_heads:      2      # must divide ceil(nz / n_tokens)
+    #   n_blocks:     1
+    #   n_mlp_blocks: 2
+    #   n_tokens:     8      # attention windows over the z grid
+
+  # sqrt is the usual default; the FULL shared mode ladder applies here
+  # exactly as on cosmic shear (chi2 / sqrt / sqrt_dchi2 / berhu /
+  # berhu_capped, with the berhu: knot / cap / anneal sub-block — see
+  # the annotated ladder in cosmic_shear_train_emulator.yaml).
+  loss:
+    mode: sqrt
+
+  optimizer:           # cls is fixed to AdamW in the driver
+    weight_decay: 0.0
+
+  lr:
+    lr_base:       0.001
+    bs_base:       256.0
+    warmup_epochs: 5
+
+  scheduler:           # cls is fixed to ReduceLROnPlateau
+    mode:     min
+    patience: 25
+    factor:   0.8
+
+  # OPTIONAL training guards — the SAME shared loop as cosmic shear
+  # (off when absent): clip = per-step gradient-norm ceiling; rewind =
+  # reload the best weights + optimizer snapshot on every plateau lr
+  # cut; ema = a Polyak weight average {horizon_epochs, anneal}. The
+  # annotated versions live in cosmic_shear_train_emulator.yaml.
+  # clip:   1.0
+  # rewind: true
+  # ema:
+  #   horizon_epochs: 20
+
+  trim:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         cosine
+
+  focus:
+    start:         0.0
+    end:           0.0
+    hold_epochs:   0
+    anneal_epochs: 1
+    shape:         linear
+    kappa:         0.15
+
+  # OPTIONAL fine-tuning: warm-start from a saved grid emulator
+  # of the SAME quantity, units, law, offset, and z grid. Delete the
+  # model: block when using it — the architecture is inherited.
+  # finetune:
+  #   from: chains/emulator_hubble_resmlp_ntrain50000

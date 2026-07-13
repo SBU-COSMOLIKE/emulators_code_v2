@@ -1,15 +1,25 @@
-"""Training-history, learning-curve, coverage, and xi plots.
+"""Training-history, learning-curve, coverage, xi, and family plots.
 
-The matplotlib figures (a colorblind-safe palette, no red/green).
-plot_history draws the training history, plot_diagnostics the multipage
-diagnostics PDF (history, coverage, the local-linear floor, the
-hard-direction regression, a chi2-colored LCDM triangle, and the
-ln-parameter PCA plane colored by chi2 and by training sparsity), and
-plot_learning_curves overlays
-f(delta-chi2 > thr) vs N_train curves (the sweep / bake-off output).
-source_param_samples, dv_to_xi, and plot_xi handle the parameter-coverage
-triangle and the xi correlation-function curves. The "_"-prefixed helpers
-draw the individual panels the public functions share.
+This module draws every matplotlib figure the package produces, all in
+a colorblind-safe palette (never red with green). plot_history draws
+the training history, plot_diagnostics the multipage diagnostics PDF
+(history, coverage, the local-linear floor, the hard-direction
+regression, a chi2-colored lcdm triangle, and the ln-parameter PCA
+plane colored by chi2 and by training sparsity; a CMB / scalar /
+background run appends its family's pages — per-multipole residual
+bands and short-period wiggle content for CMB, per-output residual
+pages for scalars, per-redshift bands plus the derived-distance page
+for the background), and
+plot_learning_curves overlays f(delta-chi2 > thr) vs N_train curves
+(the sweep / bake-off output). source_param_samples, dv_to_xi, and
+plot_xi handle the parameter-coverage triangle and the xi
+correlation-function curves. The "_"-prefixed helpers draw the
+individual panels the public functions share.
+
+PS: whitened = rotated into the covariance eigenbasis and scaled to
+unit variance, the decorrelated space the chi2 residuals live in;
+dump = the full on-disk array from the data-generation run, one row
+per cosmology (the dv dump is the .npy, the param dump the .txt).
 """
 
 import itertools
@@ -30,7 +40,7 @@ def _finish(fig, savepath):
   """Save the figure and close, or show it.
 
   If savepath is given, write the figure there (format from the
-  extension, e.g. .pdf) and close it -- a batch script has no
+  extension, e.g. .pdf) and close it, a batch script has no
   display; if None, show it interactively.
   """
   if savepath is not None:
@@ -127,7 +137,7 @@ def _coverage_panels(ax_scatter, ax_hist, knn_dist, dchi2, k_nn):
   ax_scatter: per-val hardness log10(dchi2) vs local sparsity (mean
   distance to the k nearest training points), with the 0.2 goal
   line. ax_hist: sparsity distributions of the good (dchi2<=0.2) and
-  bad (dchi2>0.2) populations -- a right-shifted "bad" histogram
+  bad (dchi2>0.2) populations, a right-shifted "bad" histogram
   means failures live where training is scarce.
 
   Arguments:
@@ -166,7 +176,7 @@ def _coverage_panels(ax_scatter, ax_hist, knn_dist, dchi2, k_nn):
   # bins so the two histograms are comparable. The range clips the
   # far knn tails (a lone outlier stretches equal-width bins until
   # the narrow population falls into a single bar), and the bin
-  # width follows the NARROWER population (Freedman-Diaconis per
+  # width follows the narrower population (Freedman-Diaconis per
   # population, take the smaller), so a tight "good" peak still
   # shows its shape next to a broad "bad" one.
   lo = np.percentile(knn_dist, 0.5)
@@ -456,7 +466,7 @@ def _save_pages(figs, savepath):
   Save figures as a multipage PDF, or show them.
 
   If savepath is given, write every figure as one page of a single
-  PDF (matplotlib's PdfPages) and close them -- a batch script has
+  PDF (matplotlib's PdfPages) and close them, a batch script has
   no display; if None, show them interactively.
 
   Arguments:
@@ -473,7 +483,7 @@ def _save_pages(figs, savepath):
       plt.close(f)
 
 
-# The basic LCDM subset for the chi2-colored triangle: lowercased dump
+# The basic lcdm subset for the chi2-colored triangle: lowercased dump
 # names seen in covmat headers, each with its getdist LaTeX label (no
 # surrounding $). tau is not sampled in these dumps; w0 / wa and the
 # nuisances are deliberately left out (the triangle reads best small).
@@ -494,7 +504,7 @@ _LCDM_ALIASES = (
 
 def _lcdm_columns(names):
   """
-  The LCDM subset of a dump's parameter names, with LaTeX labels.
+  The lcdm subset of a dump's parameter names, with LaTeX labels.
 
   Matches each name (case-insensitively) against _LCDM_ALIASES and
   returns the ones present, in the alias table's canonical order
@@ -525,7 +535,13 @@ _CUT_ROLES = (
   ("ob",   ("omegab", "omega_b")),
   ("om",   ("omegam", "omega_m")),
   ("omh2", ("omegamh2",)),
+  ("ns",   ("ns",)),
 )
+
+# same semi-transparent grey for every window; separate fills alpha-stack,
+# so a double overlap darkens visibly and the union's outer edge traces the
+# allowed region, while a triple still sits clearly under the points.
+_CUT_GREY = (0.55, 0.55, 0.55, 0.30)
 
 
 def _cut_role(name):
@@ -538,48 +554,66 @@ def _cut_role(name):
   return None
 
 
-def _cut_exclusion(rx, ry, xx, yy, cuts):
+def _window_masks(rx, ry, xx, yy, cuts):
   """
-  Boolean mask of the physically-cut region on one triangle panel.
+  Per-window physical-cut exclusion masks sharp on one triangle panel.
 
-  A cut on a derived product is a sharp 2D region only on a panel
-  whose two axes determine that product:
+  Returns one boolean grid per active window that this panel's two axes
+  make sharp (a list of (window_name, mask)); empty when no window is
+  sharp here. A window is sharp only where its derived quantity is a
+  function of the panel's axes (the "sharp only" rule): every other
+  panel merely thins the cloud marginally and gets nothing. The
+  formulas mirror phys_cut_idx's quantity table (data_staging.py)
+  exactly.
 
-    omega_b h^2  = Omega_b (H0/100)^2      on the (H0, Omega_b) panel
-    omegam^2 h^2 = (Omega_m H0/100)^2      on (H0, Omega_m),
-                 = Omega_m * (Omega_m h^2) on (Omega_m, omegam h^2),
-                 = (Omega_m h^2)^2/(H0/100)^2 on (H0, omegam h^2).
-
-  Every other panel only thins marginally, so it gets no shading.
+  Sharp panels (the coverage table in
+  notes/data-generation-and-cuts.md):
+    omegabh2   = Omega_b (H0/100)^2          on (ob, h0)
+    omegam2h2  = (Omega_m H0/100)^2          on (om, h0),
+               = Omega_m * omegamh2          on (om, omh2),
+               = omegamh2^2 / (H0/100)^2     on (h0, omh2)
+    omegamh2   = Omega_m (H0/100)^2          on (om, h0),
+               = the omh2 axis value         on any panel with an omh2 axis
+    omegamh2ns = omegamh2 * n_s              on (ns, omh2)
 
   Arguments:
     rx, ry = cut roles of the panel's x and y axes (see _cut_role).
     xx, yy = meshgrid of axis values covering the panel.
-    cuts   = mapping with "omegabh2_cut" / "omegabh2_lo" /
-             "omegam2h2_lo" / "omegam2h2_hi" (any may be None =
-             that cut is off).
+    cuts   = the validated param_cuts mapping (omegabh2_lo / _hi,
+             omegam2h2_lo / _hi, omegamh2_lo / _hi, omegamh2ns_lo /
+             _hi; any absent = that side not cut).
 
   Returns:
-    a boolean grid, True where the cuts exclude, or None when this
-    panel determines no cut variable (or the cut is off).
+    a list of (window_name, boolean_grid), True where that window
+    excludes; empty when no window is sharp or active on this panel.
   """
-  obcut = cuts.get("omegabh2_cut")
-  oblo  = cuts.get("omegabh2_lo")
-  lo    = cuts.get("omegam2h2_lo")
-  hi    = cuts.get("omegam2h2_hi")
   pair  = {rx, ry}
+  masks = []
 
-  if pair == {"h0", "ob"} and (obcut is not None or oblo is not None):
+  # add a window's mask: excluded where q <= lo or q >= hi, matching
+  # phys_cut_idx's strict keep window lo < q < hi (an inactive side is
+  # skipped; an all-False mask is dropped).
+  def add(name, q, lo, hi):
+    if lo is None and hi is None:
+      return
+    bad = np.zeros(q.shape, dtype=bool)
+    if lo is not None:
+      bad |= q <= lo
+    if hi is not None:
+      bad |= q >= hi
+    if bad.any():
+      masks.append((name, bad))
+
+  # omegabh2 = Omega_b (H0/100)^2, sharp on (ob, h0).
+  # (phys_cut_idx quantity table: _omega_b_h2.)
+  if pair == {"h0", "ob"}:
     h0 = xx if rx == "h0" else yy
     ob = yy if rx == "h0" else xx
-    obh2 = ob * (h0 / 100.0) ** 2
-    bad = np.zeros(obh2.shape, dtype=bool)
-    if obcut is not None:
-      bad |= obh2 >= obcut
-    if oblo is not None:
-      bad |= obh2 <= oblo
-    return bad
+    add("omegabh2", ob * (h0 / 100.0) ** 2,
+        cuts.get("omegabh2_lo"), cuts.get("omegabh2_hi"))
 
+  # omegam2h2 = (Omega_m H0/100)^2 = Gamma^2, sharp three ways.
+  # (phys_cut_idx quantity table: _omega_m2_h2.)
   g2 = None
   if pair == {"h0", "om"}:
     h0 = xx if rx == "h0" else yy
@@ -593,34 +627,55 @@ def _cut_exclusion(rx, ry, xx, yy, cuts):
     h0   = xx if rx == "h0" else yy
     omh2 = yy if rx == "h0" else xx
     g2 = omh2 ** 2 / (h0 / 100.0) ** 2
-  if g2 is None or (lo is None and hi is None):
-    return None
-  bad = np.zeros(g2.shape, dtype=bool)
-  if lo is not None:
-    bad |= g2 <= lo
-  if hi is not None:
-    bad |= g2 >= hi
-  return bad
+  if g2 is not None:
+    add("omegam2h2", g2,
+        cuts.get("omegam2h2_lo"), cuts.get("omegam2h2_hi"))
+
+  # omegamh2 = Omega_m (H0/100)^2, sharp on (om, h0); on any panel with
+  # an omh2 axis it is that axis value directly, so a 1-D band across it.
+  # (phys_cut_idx quantity table: _omega_m_h2.)
+  if pair == {"h0", "om"}:
+    h0 = xx if rx == "h0" else yy
+    om = yy if rx == "h0" else xx
+    add("omegamh2", om * (h0 / 100.0) ** 2,
+        cuts.get("omegamh2_lo"), cuts.get("omegamh2_hi"))
+  elif "omh2" in pair:
+    omh2 = xx if rx == "omh2" else yy
+    add("omegamh2", omh2,
+        cuts.get("omegamh2_lo"), cuts.get("omegamh2_hi"))
+
+  # omegamh2ns = omegamh2 * n_s, sharp on (ns, omh2).
+  # (phys_cut_idx quantity table: _omega_m_h2_ns.)
+  if pair == {"ns", "omh2"}:
+    ns   = xx if rx == "ns" else yy
+    omh2 = yy if rx == "ns" else xx
+    add("omegamh2ns", ns * omh2,
+        cuts.get("omegamh2ns_lo"), cuts.get("omegamh2ns_hi"))
+
+  return masks
 
 
 def _shade_cuts(g, plot_names, cuts):
   """
   Gray out the physically-cut regions on a getdist triangle.
 
-  Walks the lower-triangle panels; where a panel's two axes
-  determine a cut variable (see _cut_exclusion), fills the excluded
-  region light gray under the points, so an empty corner reads as
-  "removed by the cut", not as an emulator failure. Adds one caption
-  line naming the convention.
+  Walks the lower-triangle panels; on each, every window the two axes
+  make sharp (see _window_masks) fills its excluded region in the same
+  semi-transparent grey under the points, so the fills alpha-stack and
+  the union's outer edge traces the allowed region. The derived
+  omega_m h^2 axis also gets a 1-D exclusion band on its diagonal
+  marginal. One caption line names the convention, so an empty corner
+  reads as "removed by the cut", not as an emulator failure.
 
   Arguments:
     g          = the getdist subplot plotter (after triangle_plot).
     plot_names = the plotted column names, in triangle order
                  (panel [i][j] has x = plot_names[j],
                  y = plot_names[i]).
-    cuts       = the cut values (see _cut_exclusion).
+    cuts       = the validated param_cuts mapping (see _window_masks).
   """
   n = len(plot_names)
+  # lower-triangle 2-D panels: one grey fill per sharp window, stacked.
   for i in range(1, n):
     for j in range(i):
       ax = g.subplots[i][j]
@@ -633,33 +688,71 @@ def _shade_cuts(g, plot_names, cuts):
       xs = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 200)
       ys = np.linspace(ax.get_ylim()[0], ax.get_ylim()[1], 200)
       xx, yy = np.meshgrid(xs, ys)
-      bad = _cut_exclusion(rx=rx, ry=ry, xx=xx, yy=yy, cuts=cuts)
-      if bad is None or not bad.any():
+      masks = _window_masks(rx=rx, ry=ry, xx=xx, yy=yy, cuts=cuts)
+      if not masks:
         continue
-      # zorder 0 renders the fill under the already-drawn points;
-      # the [0.5, 1.5] level band selects exactly the True cells.
-      ax.contourf(xx, yy, bad.astype(float),
-                  levels=[0.5, 1.5], colors=["0.88"], zorder=0)
+      for _name, bad in masks:
+        # one fill per window, all the same grey; zorder 0 renders them
+        # under the already-drawn points, and the separate artists
+        # alpha-stack so overlaps darken. The [0.5, 1.5] band selects
+        # exactly the True cells.
+        ax.contourf(xx, yy, bad.astype(float),
+                    levels=[0.5, 1.5], colors=[_CUT_GREY], zorder=0)
       # contourf can widen the limits; pin them back to the data's.
       ax.set_xlim(xs[0], xs[-1])
       ax.set_ylim(ys[0], ys[-1])
+  # the omega_m h^2 1-D marginal (a diagonal panel) gets a band too.
+  _shade_omh2_marginal(g=g, plot_names=plot_names, cuts=cuts)
   g.fig.text(0.99, 0.99,
              "gray: region removed by the physical cuts",
              ha="right", va="top", fontsize=9, color="0.35")
 
 
+def _shade_omh2_marginal(g, plot_names, cuts):
+  """
+  Band out the omega_m h^2 window on its 1-D diagonal marginal.
+
+  omegamh2 is a derived triangle axis, so its cut is a plain interval
+  on the omh2 marginal: axvspan the excluded low / high ends in the
+  same grey, drawing nothing when the window is off, the omh2 axis is
+  absent, or a bound sits outside the panel range. (phys_cut_idx
+  quantity table: _omega_m_h2.)
+
+  Arguments:
+    g          = the getdist subplot plotter.
+    plot_names = the plotted column names, triangle order.
+    cuts       = the validated param_cuts mapping.
+  """
+  lo = cuts.get("omegamh2_lo")
+  hi = cuts.get("omegamh2_hi")
+  if (lo is None and hi is None) or "omegamh2" not in plot_names:
+    return
+  k  = plot_names.index("omegamh2")
+  ax = g.subplots[k][k]
+  if ax is None:
+    return
+  x0, x1 = ax.get_xlim()
+  # excluded omh2 < lo and omh2 > hi, each drawn only where it lands
+  # inside the panel's x range (a bound outside it shades nothing).
+  if lo is not None and lo > x0:
+    ax.axvspan(x0, min(lo, x1), color=_CUT_GREY, zorder=0)
+  if hi is not None and hi < x1:
+    ax.axvspan(max(hi, x0), x1, color=_CUT_GREY, zorder=0)
+  ax.set_xlim(x0, x1)
+
+
 def _lcdm_triangle_fig(source, names, dchi2, cuts=None):
   """
-  getdist triangle of a source's LCDM parameters, colored by chi2.
+  getdist triangle of a source's lcdm parameters, colored by chi2.
 
   Each off-diagonal panel is a scatter of the source's cosmologies
   (one point per used row, in the same sorted-idx order
   eval_source_chi2 scores), colored by log10 delta-chi2; the
-  diagonal shows the 1D densities. It answers where in LCDM space
+  diagonal shows the 1D densities. It answers where in lcdm space
   the emulator fails, not just how often. When both Omega_m and H0
   are present, the derived omega_m h^2 = Omega_m (H0/100)^2 (the
   structure-amplitude direction) is appended as an extra triangle
-  axis. Returns None when fewer than two LCDM columns are
+  axis. Returns None when fewer than two lcdm columns are
   recognized in `names`.
 
   Arguments:
@@ -667,11 +760,12 @@ def _lcdm_triangle_fig(source, names, dchi2, cuts=None):
     names  = parameter column names, in the dump's column order.
     dchi2  = (N,) per-row delta-chi2, sorted-idx order (as returned
              by coverage_diagnostic / eval_source_chi2).
-    cuts   = optional mapping with the physical-cut values
-             ("omegabh2_cut" / "omegam2h2_lo" / "omegam2h2_hi");
-             when given, the excluded regions are shaded gray on the
-             panels that determine them (see _shade_cuts), so an
-             empty corner is not mistaken for an emulator failure.
+    cuts   = optional validated param_cuts mapping (omegabh2_lo /
+             _hi, omegam2h2_lo / _hi, omegamh2_lo / _hi, omegamh2ns_lo
+             / _hi); when given, each window's excluded region is
+             shaded grey on the panels it makes sharp (see
+             _shade_cuts / _window_masks), so an empty corner is not
+             mistaken for an emulator failure.
 
   Returns:
     the matplotlib Figure of the triangle, or None.
@@ -893,7 +987,7 @@ def _lnparam_pca_fig(source, names, color, clabel, title,
     t = np.log(np.maximum(np.asarray(fit_target, dtype="float64"),
                           1e-300))
     A = np.column_stack([np.ones(Z.shape[0]), Z])
-    coefs, *_ = np.linalg.lstsq(A, t, rcond=None)
+    coefs = np.linalg.lstsq(A, t, rcond=None)[0]
     pred = A @ coefs
     ss_res = ((t - pred) ** 2).sum()
     ss_tot = ((t - t.mean()) ** 2).sum()
@@ -932,6 +1026,315 @@ def _lnparam_pca_fig(source, names, color, clabel, title,
   return fig
 
 
+def _cmb_pages(cmb):
+  """Build the two CMB-family pages from cmb_residual_diagnostic.
+
+  Page A (2x2): the per-multipole residual bands, fractionally (top
+  left; readable for tt/ee/pp, spiky where te crosses zero) and in
+  cosmic-variance error-bar units (top right; always well-defined — for
+  te read this one), plus the worst-cosmology overlay: predicted vs
+  true C_ell (bottom left) and its per-multipole residual/sigma (bottom
+  right).
+
+  Page B: the roughness companion — the median absolute short-period
+  remainder of the whitened residual vs multipole (the wiggle spectrum
+  the roughness term penalizes), with the acoustic band (~200-300 in
+  period) noted so over-smoothing or ringing reads at a glance.
+
+  Arguments:
+    cmb = the dict cmb_residual_diagnostic returned.
+
+  Returns:
+    a list of matplotlib figures.
+  """
+  ell  = np.asarray(cmb["ell"], dtype="float64")
+  spec = str(cmb["spectrum"]).upper()
+  figs = []
+
+  fa, ax = plt.subplots(2, 2, figsize=(13, 9))
+  # top left: fractional residual bands.
+  a = ax[0, 0]
+  a.fill_between(ell, cmb["frac_lo95"], cmb["frac_hi95"],
+                 color=_CB[4], alpha=0.35, label="95%")
+  a.fill_between(ell, cmb["frac_lo68"], cmb["frac_hi68"],
+                 color=_CB[0], alpha=0.45, label="68%")
+  a.plot(ell, cmb["frac_med"], color=_CB[3], lw=1.0, label="median")
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel(r"$(\hat C_\ell - C_\ell)\,/\,C_\ell$")
+  a.set_title(f"{spec}: fractional residual over the val set")
+  a.legend(fontsize=8)
+  # top right: residual in error-bar units.
+  a = ax[0, 1]
+  a.fill_between(ell, cmb["sig_lo95"], cmb["sig_hi95"],
+                 color=_CB[4], alpha=0.35, label="95%")
+  a.fill_between(ell, cmb["sig_lo68"], cmb["sig_hi68"],
+                 color=_CB[0], alpha=0.45, label="68%")
+  a.plot(ell, cmb["sig_med"], color=_CB[3], lw=1.0, label="median")
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel(r"$(\hat C_\ell - C_\ell)\,/\,\sigma_\ell$")
+  a.set_title(f"{spec}: residual in cosmic-variance units")
+  a.legend(fontsize=8)
+  # bottom left: the worst-cosmology overlay. te crosses zero, so the
+  # log scale applies only to the strictly positive spectra.
+  a = ax[1, 0]
+  w = cmb["worst"]
+  a.plot(ell, w["truth"], color=_CB[3], lw=1.2, label="truth")
+  a.plot(ell, w["pred"], color=_CB[1], lw=1.0, ls="--",
+         label="emulator")
+  if np.all(np.asarray(w["truth"]) > 0):
+    a.set_yscale("log")
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel(rf"$C_\ell$ ({cmb['units']})")
+  a.set_title(f"worst val cosmology (chi2 = {w['dchi2']:.1f})")
+  a.legend(fontsize=8)
+  # bottom right: that cosmology's per-multipole residual/sigma.
+  a = ax[1, 1]
+  sigma_resid = np.asarray(w["pred"] - w["truth"], dtype="float64")
+  # reconstruct sigma from the band statistics is lossy; the residual
+  # in physical units with the median band overlaid keeps it honest.
+  a.plot(ell, sigma_resid, color=_CB[0], lw=0.8)
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel(rf"$\hat C_\ell - C_\ell$ ({cmb['units']})")
+  a.set_title("worst val cosmology: residual")
+  fa.tight_layout()
+  figs.append(fa)
+
+  fb, a = plt.subplots(figsize=(9, 5))
+  hp = cmb["highpass"]
+  a.plot(ell, hp["median_abs_rem"], color=_CB[0], lw=1.0)
+  a.set_xlabel(r"$\ell$")
+  a.set_ylabel("median |high-pass remainder|  (error-bar units)")
+  a.set_title(
+    f"{spec}: short-period residual content (the roughness band; "
+    f"periods < ~{hp['period_cut']} in ell). The acoustic structure "
+    "(period ~200-300, incl. lensing peak smoothing) is filtered "
+    "out — content here is network wiggle, not physics.")
+  fb.tight_layout()
+  figs.append(fb)
+  return figs
+
+
+def _scalar_pages(sc):
+  """Build the scalar-family pages from scalar_output_diagnostic.
+
+  Page A: per-output truth-vs-predicted scatter with the identity line.
+  Page B: per-output residual histograms, physical units (left) and
+  standardized units (right) side by side.
+  Page C: residual (standardized) vs each input parameter — the bias
+  hunt: any trend says the emulator is systematically wrong along that
+  direction, not just noisy.
+
+  Arguments:
+    sc = the dict scalar_output_diagnostic returned.
+
+  Returns:
+    a list of matplotlib figures.
+  """
+  names  = list(sc["names"])
+  truth  = np.asarray(sc["truth"], dtype="float64")
+  pred   = np.asarray(sc["pred"], dtype="float64")
+  rstd   = np.asarray(sc["resid_std"], dtype="float64")
+  params = np.asarray(sc["params"], dtype="float64")
+  pnames = list(sc["param_names"])
+  n_out  = len(names)
+  figs = []
+
+  # page A: truth vs predicted, identity line.
+  fa, axs = plt.subplots(1, n_out, figsize=(4.5 * n_out, 4.5),
+                         squeeze=False)
+  for j, nm in enumerate(names):
+    a = axs[0, j]
+    a.scatter(truth[:, j], pred[:, j], s=4, alpha=0.4, color=_CB[0])
+    lo = min(truth[:, j].min(), pred[:, j].min())
+    hi = max(truth[:, j].max(), pred[:, j].max())
+    a.plot([lo, hi], [lo, hi], color=_CB[3], lw=0.8, ls="--")
+    a.set_xlabel(f"true {nm}")
+    a.set_ylabel(f"predicted {nm}")
+    a.set_title(nm)
+  fa.tight_layout()
+  figs.append(fa)
+
+  # page B: residual histograms, physical | standardized.
+  fb, axs = plt.subplots(n_out, 2, figsize=(11, 3.6 * n_out),
+                         squeeze=False)
+  for j, nm in enumerate(names):
+    r_phys = pred[:, j] - truth[:, j]
+    a = axs[j, 0]
+    a.hist(r_phys, bins=60, color=_CB[0], alpha=0.85)
+    a.set_xlabel(f"{nm}: predicted - true (physical units)")
+    a.set_ylabel("val points")
+    a = axs[j, 1]
+    a.hist(rstd[:, j], bins=60, color=_CB[1], alpha=0.85)
+    a.set_xlabel(f"{nm}: residual / training scale (standardized)")
+    a.set_ylabel("val points")
+  fb.tight_layout()
+  figs.append(fb)
+
+  # page C: standardized residual vs each input parameter (the bias
+  # hunt): rows = outputs, columns = inputs.
+  n_par = len(pnames)
+  fc, axs = plt.subplots(n_out, n_par,
+                         figsize=(3.2 * n_par, 3.0 * n_out),
+                         squeeze=False)
+  for j, nm in enumerate(names):
+    for k, pn in enumerate(pnames):
+      a = axs[j, k]
+      a.scatter(params[:, k], rstd[:, j], s=3, alpha=0.3,
+                color=_CB[0])
+      a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+      if j == n_out - 1:
+        a.set_xlabel(pn)
+      if k == 0:
+        a.set_ylabel(f"{nm} resid (std)")
+  fc.tight_layout()
+  figs.append(fc)
+  return figs
+
+
+def _grid_pages(gd):
+  """Build the grid-family pages from grid_residual_diagnostic.
+
+  Page A (1x2 or 2x2): the per-redshift fractional-residual bands for
+  the emulated background function, plus the worst-cosmology overlay
+  (pred vs truth and its fractional residual).
+  Page B (only for a "Hubble" artifact): the DERIVED-distance page —
+  fractional D_A and D_L error bands at interior redshifts, computed
+  through the real integration pipeline (emulator/background.py), so
+  the page tests the path a likelihood actually consumes.
+
+  Arguments:
+    gd = the dict grid_residual_diagnostic returned.
+
+  Returns:
+    a list of matplotlib figures.
+  """
+  z = np.asarray(gd["z"], dtype="float64")
+  q = str(gd["quantity"])
+  figs = []
+
+  fa, ax = plt.subplots(2, 2, figsize=(13, 9))
+  a = ax[0, 0]
+  a.fill_between(z, gd["frac_lo95"], gd["frac_hi95"],
+                 color=_CB[4], alpha=0.35, label="95%")
+  a.fill_between(z, gd["frac_lo68"], gd["frac_hi68"],
+                 color=_CB[0], alpha=0.45, label="68%")
+  a.plot(z, gd["frac_med"], color=_CB[3], lw=1.0, label="median")
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel("z")
+  a.set_ylabel(f"fractional {q} residual")
+  a.set_title(f"{q}: fractional residual over the val set")
+  a.legend(fontsize=8)
+  ax[0, 1].axis("off")
+  w = gd["worst"]
+  a = ax[1, 0]
+  a.plot(z, w["truth"], color=_CB[3], lw=1.2, label="truth")
+  a.plot(z, w["pred"], color=_CB[1], lw=1.0, ls="--", label="emulator")
+  a.set_xlabel("z")
+  a.set_ylabel(f"{q} ({gd['units']})")
+  a.set_title(f"worst val cosmology (chi2 = {w['dchi2']:.1f})")
+  a.legend(fontsize=8)
+  a = ax[1, 1]
+  a.plot(z, (np.asarray(w["pred"]) - np.asarray(w["truth"]))
+            / np.asarray(w["truth"]), color=_CB[0], lw=0.8)
+  a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+  a.set_xlabel("z")
+  a.set_ylabel(f"fractional {q} residual")
+  a.set_title("worst val cosmology: residual")
+  fa.tight_layout()
+  figs.append(fa)
+
+  d = gd.get("derived")
+  if d is not None:
+    fb, ax = plt.subplots(1, 2, figsize=(12, 5))
+    for k, (tag, label) in enumerate((("da", "D_A"), ("dl", "D_L"))):
+      a = ax[k]
+      a.fill_between(d["z_eval"], d[tag + "_lo68"], d[tag + "_hi68"],
+                     color=_CB[0], alpha=0.45, label="68%")
+      a.plot(d["z_eval"], d[tag + "_med"], color=_CB[3], lw=1.0,
+             label="median")
+      a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+      a.set_xlabel("z")
+      a.set_ylabel(f"fractional {label} error")
+      a.set_title(f"derived {label} through the real pipeline")
+      a.legend(fontsize=8)
+    fb.tight_layout()
+    figs.append(fb)
+  return figs
+
+
+def _grid2d_pages(g2):
+  """Build the grid2d-family pages from grid2d_residual_diagnostic.
+
+  Page A (1x2): the median |residual| over the validation set as a
+  (z, k) surface, beside the worst validation cosmology's |residual|
+  surface (same color scale, so "how bad is the worst" reads at a
+  glance). Under a syren law the residual is ln(P_pred / P_truth) —
+  the base cancels — so the color is the fractional error of the
+  served spectrum; under law "none" it is the plain fractional
+  residual.
+  Page B (stacked): per-k residual bands (68/95 + median) at the
+  first / middle / last stored redshift, with the worst cosmology's
+  cut overlaid.
+
+  Arguments:
+    g2 = the dict grid2d_residual_diagnostic returned.
+
+  Returns:
+    a list of matplotlib figures.
+  """
+  z = np.asarray(g2["z"], dtype="float64")
+  k = np.asarray(g2["k"], dtype="float64")
+  q = str(g2["quantity"])
+  res_label = ("ln(pred / truth)" if g2["res_kind"] == "ln-ratio"
+               else "fractional residual")
+  figs = []
+
+  med_abs = np.asarray(g2["med_abs"], dtype="float64")
+  worst_abs = np.abs(np.asarray(g2["worst"]["res"], dtype="float64"))
+  vmax = max(float(med_abs.max()), float(worst_abs.max()), 1e-12)
+  fa, ax = plt.subplots(1, 2, figsize=(13, 5))
+  for a, surf, title in ((ax[0], med_abs,
+                          f"{q}: median |{res_label}| over the val set"),
+                         (ax[1], worst_abs,
+                          "worst val cosmology (chi2 = "
+                          f"{g2['worst']['dchi2']:.1f})")):
+    pc = a.pcolormesh(k, z, surf, shading="auto", cmap="viridis",
+                      vmin=0.0, vmax=vmax)
+    a.set_xscale("log")
+    a.set_xlabel("k (1/Mpc)")
+    a.set_ylabel("z")
+    a.set_title(title, fontsize=10)
+    fa.colorbar(pc, ax=a, label=f"|{res_label}|")
+  fa.tight_layout()
+  figs.append(fa)
+
+  cuts = g2["slices"]
+  fb, ax = plt.subplots(len(cuts), 1, figsize=(9, 3.2 * len(cuts)),
+                        sharex=True)
+  if len(cuts) == 1:
+    ax = [ax]
+  for a, s in zip(ax, cuts):
+    a.fill_between(k, s["lo95"], s["hi95"], color=_CB[4], alpha=0.35,
+                   label="95%")
+    a.fill_between(k, s["lo68"], s["hi68"], color=_CB[0], alpha=0.45,
+                   label="68%")
+    a.plot(k, s["med"], color=_CB[3], lw=1.0, label="median")
+    a.plot(k, np.asarray(g2["worst"]["res"])[s["iz"]], color=_CB[1],
+           lw=0.8, ls="--", label="worst cosmology")
+    a.axhline(0.0, color=_CB[3], lw=0.5, ls=":")
+    a.set_xscale("log")
+    a.set_ylabel(res_label)
+    a.set_title(f"z = {s['z']:.3g}", fontsize=9)
+    a.legend(fontsize=7)
+  ax[-1].set_xlabel("k (1/Mpc)")
+  fb.tight_layout()
+  figs.append(fb)
+  return figs
+
+
 def plot_diagnostics(train_losses,
                      medians,
                      means,
@@ -943,6 +1346,10 @@ def plot_diagnostics(train_losses,
                      val_set=None,
                      names=None,
                      cuts=None,
+                     cmb=None,
+                     scalar=None,
+                     grid=None,
+                     grid2d=None,
                      savepath=None):
   """
   All available diagnostics as a single multipage figure / PDF.
@@ -954,15 +1361,31 @@ def plot_diagnostics(train_losses,
     delta-chi2), if `floor` is given.
   Page 3: the hard-direction regression (univariate ranking and
     joint log-linear coefficients), if `hard_dir` is given.
-  Page 4: the getdist LCDM triangle of the val cosmologies, colored
+  Page 4: the getdist lcdm triangle of the val cosmologies, colored
     by log10 delta-chi2, if `val_set` and `names` are given.
   Page 5: the first two ln-parameter PCA directions of the val
     cosmologies, colored the same way (a principal direction in ln
     space is a product of parameter powers), same condition.
   Page 6: the same PCA plane colored by local training sparsity
     (coverage's knn_dist), with the fitted sparsity direction
-    annotated -- names the combinations where training is thin,
+    annotated, names the combinations where training is thin,
     independent of the chi2; same condition.
+
+  Family pages, appended after the shared pages when their dict is
+  given:
+    cmb    -> two CMB pages (per-multipole residual bands + the worst
+              overlay; the high-pass wiggle content).
+    scalar -> three scalar pages (truth-vs-predicted; residual
+              histograms physical + standardized; residual vs each
+              input parameter).
+    grid   -> the background pages (per-redshift residual bands +
+              worst overlay; for a Hubble artifact the derived
+              D_A / D_L page through the real pipeline).
+    grid2d -> two matter-power pages (the (z, k) |residual| surfaces,
+              median + worst; per-k bands at three redshifts).
+  A run passes only its own family's dict, so a cosmic-shear run's
+  PDF is byte-identical to before the dispatch existed (both default
+  None).
 
   floor / hard_dir / val_set are optional so a run can drop a page
   it cannot produce (e.g. the local-linear floor is defined only for
@@ -977,7 +1400,7 @@ def plot_diagnostics(train_losses,
     val_set  = the validation source dict ("C" / "idx"), or None;
                its rows must be the ones coverage's dchi2 scored.
     names    = parameter column names in the dump's order, or None.
-    cuts     = optional physical-cut values ("omegabh2_cut" /
+    cuts     = optional physical-cut values ("omegabh2_hi" /
                "omegam2h2_lo" / "omegam2h2_hi") to shade gray on the
                triangle page (empty cut regions then read as removed,
                not as failures).
@@ -1009,10 +1432,10 @@ def plot_diagnostics(train_losses,
     figs.append(f3)
 
   # pages 4-6: where in parameter space the failures live. Page 4 is
-  # the LCDM triangle (getdist lays it out itself, so no
+  # the lcdm triangle (getdist lays it out itself, so no
   # tight_layout); page 5 the ln-parameter PCA plane colored by chi2
   # (hardness); page 6 the same plane colored by local training
-  # sparsity (coverage), with the fitted sparsity direction --
+  # sparsity (coverage), with the fitted sparsity direction,
   # aligned gradients on 5 and 6 say the failures are coverage,
   # diverging ones say the hardness is intrinsic.
   if val_set is not None and names is not None:
@@ -1052,6 +1475,18 @@ def plot_diagnostics(train_losses,
     if f6 is not None:
       figs.append(f6)
 
+  # family pages: appended after the shared pages;
+  # None (the default) adds nothing, keeping the cosmic-shear PDF
+  # byte-identical.
+  if cmb is not None:
+    figs.extend(_cmb_pages(cmb))
+  if scalar is not None:
+    figs.extend(_scalar_pages(scalar))
+  if grid is not None:
+    figs.extend(_grid_pages(grid))
+  if grid2d is not None:
+    figs.extend(_grid2d_pages(grid2d))
+
   _save_pages(figs, savepath)
 
 
@@ -1062,7 +1497,7 @@ def source_param_samples(source, names, labels, label):
   Pulls the rows the source actually uses (source["idx"]) from its
   parameter dump and wraps them as equally-weighted samples for a
   coverage triangle (no likelihood, no chi2). Reads no module
-  globals -- source, names, labels, and the legend label all arrive
+  globals, source, names, labels, and the legend label all arrive
   as arguments.
 
   Arguments:
@@ -1076,7 +1511,7 @@ def source_param_samples(source, names, labels, label):
   Returns:
     an MCSamples over the source's used parameter rows.
   """
-  # the rows this source uses -- coverage is about what was
+  # the rows this source uses, coverage is about what was
   # trained / validated on, not the whole file.
   rows = np.sort(source["idx"])
   # raw physical parameters of those rows (never whitened).
@@ -1128,7 +1563,7 @@ def dv_to_xi(dv_row, geom):
 
 def plot_xi(pm, xi, xi_ref = None, param = None, colorbarlabel = None,
             marker = None, linestyle = None, linewidth = None,
-            ylim = [0.88,1.12], cmap = 'gist_rainbow', legend = None,
+            ylim = [0.88,1.12], cmap = "viridis", legend = None,
             legendloc = (0.6,0.78), yaxislabelsize = 16, yaxisticklabelsize = 10,
             xaxisticklabelsize = 20, bintextpos = [[0.8, 0.875],[0.2,0.875]],
             bintextsize = 15, figsize = (12, 12), show = None, thetashow=[3,1000],
@@ -1141,7 +1576,9 @@ def plot_xi(pm, xi, xi_ref = None, param = None, colorbarlabel = None,
     from the notebook, so its body keeps the original style.
 
     Arguments:
-      pm            = "p", "m", or "pm": which of xi+ / xi- to draw.
+      pm            = integer selecting the correlation sign: pm > 0
+                      draws xi+, pm <= 0 draws xi- (the body tests
+                      `pm > 0`, not a string mode).
       xi            = list of (theta, xip, xim) triples (dv_to_xi
                       output), one curve set per line drawn.
       xi_ref        = reference triple; when given, panels show the
@@ -1154,7 +1591,9 @@ def plot_xi(pm, xi, xi_ref = None, param = None, colorbarlabel = None,
       linestyle     = linestyle cycle (list); solid when None.
       linewidth     = linewidth cycle (list) or None.
       ylim          = y range of the ratio panels.
-      cmap          = matplotlib colormap name for param coloring.
+      cmap          = matplotlib colormap name for param coloring;
+                      the default "viridis" is sequential and
+                      colorblind-safe (the palette rule).
       legend        = per-curve legend labels or None.
       legendloc     = legend anchor (axes fraction).
       yaxislabelsize / yaxisticklabelsize / xaxisticklabelsize
@@ -1163,12 +1602,15 @@ def plot_xi(pm, xi, xi_ref = None, param = None, colorbarlabel = None,
                       anchors of the per-panel bin annotation.
       bintextsize   = font size of that annotation.
       figsize       = figure size in inches.
-      show          = list of (i, j) bin pairs to draw; None = all.
+      show          = display toggle: not None calls fig.show() and
+                      returns None; None returns (fig, axes).
       thetashow     = [min, max] theta range (arcmin) shown.
       colorbar      = 1 to draw the param colorbar, None to skip.
 
     Returns:
-      the matplotlib figure (0 on malformed input, with a message).
+      (fig, axes) when show is None; None when show is set (the
+      figure is displayed instead); 0 (int) on malformed input,
+      after printing a message.
     """
 
     (theta, xip, xim) = xi[0]
