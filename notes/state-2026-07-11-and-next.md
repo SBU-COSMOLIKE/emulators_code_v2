@@ -2512,6 +2512,17 @@ never blessed. Item 9 of the hardening increment; the 24 rider
 (--force-rerun outside the selection = usage error) folds into
 item 7. Spec: gates-and-board.md "25M-26 adjudication".
 
+HARDENING 5/9 AUDIT (2026-07-13, Fable): GO for the merge —
+21/22/topology/25 + 24's landed clauses all probe clean against the
+real main() (prose-edit digest fixity, zero dead-key occurrences,
+named optional start first, unknown-id and --list --check exit 2).
+TWO CLAUSE GAPS in item 7, the checklist law's first catches:
+ignored run controls still exit 0 (--list --force-rerun <valid>),
+and the outside-selection force-rerun rider is unimplemented
+(reached preflight). Both join the remainder batch. Queue 2 = 9/9 +
+item-7 completion. Remainder order ratified: 18 -> 16 -> 19 -> 26.
+Spec: gates-and-board.md "Hardening 5/9 pre-merge audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

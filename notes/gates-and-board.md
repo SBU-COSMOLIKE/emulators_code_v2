@@ -4439,3 +4439,51 @@ These four are best landed together with fresh focus -- they change the
 validation core (census, coverage, resolver, resume-persistence) all 40 gates
 depend on, and 16's tables consume 18's coverage rule. Queue 2 opens at the
 full increment's merge.
+
+## Hardening 5/9 pre-merge audit (Fable, 2026-07-13): GO for the merge; item 7 is INCOMPLETE by two clauses — the checklist law's first two catches
+
+Commits 9e30860 + 05334f3 audited under both new laws (clause
+checklist + live probes against the real main() on the cocoa
+interpreter).
+
+CLEAN — verified by probe, not by report:
+- 25M-21: _config_execution_projection excludes ANY
+  underscore-prefixed documentation namespace (a correct
+  generalization beyond the ruling's literal _help); live probe —
+  prose edit leaves the projection fixed, value edit moves it.
+- 25M-22: zero saved_emulator_root occurrences remain; the
+  config-census standing leg present.
+- Topology-assertion leg present (deps precede children in BOARD).
+- 25M-24, the landed clauses: --list with an unknown --gate exits 2;
+  --list --check exits 2 (live real-main() probes).
+- 25M-25: --from triangle-shading returns the named optional start
+  FIRST (count 21, zero later optionals) — exactly to ruling.
+
+TWO CLAUSE GAPS, both in item 7 (25M-24), both found by walking the
+ruling's clause list:
+1. IGNORED run controls: --list --force-rerun <valid-id> exits 0 —
+   the ruling requires "incompatible or IGNORED run controls exit
+   nonzero"; the mutual exclusion covers --check and unknown ids
+   but a valid ignored control passes silently.
+2. The bcf4ce2 RIDER: --gate A --force-rerun B with B outside the
+   selected surface reached preflight instead of exiting 2 as a
+   usage error (live probe: cmb-identity + force-rerun bsn-identity
+   ran preflight).
+
+RESOLUTION: the merge proceeds NOW — nothing landed is wrong; the
+gaps are absent clauses, not broken ones, and the increment is
+explicitly open at 5/9. Item 7's two missing clauses join the
+remainder batch (a small commit alongside or before the census-core
+trio). QUEUE 2 opens only at 9/9 PLUS item-7 completion.
+
+GO for the remainder in the Implementer's proposed dependency
+order, ratified: 18's all-quantified coverage rule first (16's
+tables consume it), then 16's closure truth (the
+_RUNTIME_LOADER_COVERS reviewed table; the hashes-as-file
+data-read rule is APPROVED — a source file read as data joins the
+digest surface without seeding the import closure, the
+finite_contract leaf lesson), then 19's owner resolvers, then 26's
+lineage snapshots + STALE-DEPENDENCY. The deliberate stop at the
+census-core boundary was the right call and is credited: the four
+remaining items rewrite the validation core all 40 gates depend on
+and deserve a fresh session.
