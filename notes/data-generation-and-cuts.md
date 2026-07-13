@@ -67,6 +67,78 @@ set" — the four-generator table + the shared-core walkthrough).
   OWN train_args (probe/ord/fiducial/params_covmat_file) — unrelated
   to the trainer's train_args. Two stages, two schemas.
 
+## Original unit 2: a generated dataset is ready only when every published row is valid
+
+This is the durable topic-level contract for the dataset-readiness half of
+the first red-team queue. The state ledger recorded the mechanism, but this
+file previously described the fail file without specifying how it controls
+publication and training.
+
+The current failure path is reachable and silent. A provider failure marks
+the corresponding fail-file entry and leaves a zero-filled data-vector row.
+The generator then calls `MPI.Finalize()` and exits with status zero
+unconditionally. `emulator/data_staging.py` does not read the fail file, so
+the trainer can treat a fabricated zero row as ordinary science. A separate
+input error has the same trust shape: a `--boundary` value `<= 0` or `> 1` is
+silently replaced by `1` instead of being rejected (`1` also takes the
+fallback branch but is the valid unchanged endpoint). At the audited HEAD,
+`generator_core.py` still contains both the unconditional `exit(0)` tail and
+the boundary rewrite, and the staging module still contains no fail-file
+consumer.
+
+Required contract:
+
+1. A row is successful only if the provider lifecycle accepted that exact
+   cosmology and the complete stored payload passes the family's publication
+   predicate after its storage-dtype cast. A returned array or a finite
+   subset is not enough.
+2. Failure state carries the original row identity and is part of the same
+   checkpoint/dataset generation as the parameter table, axes, and payloads.
+   Missing, stale, wrong-length, or forged failure metadata makes the set
+   unreadable.
+3. A production-ready marker is published only when the requested post-cut
+   count is made entirely of successful rows. A run that ends incomplete
+   exits nonzero or publishes an explicit non-ready status. Checkpoint
+   material may retain failed proposals for an explicit retry, but it is not
+   training input.
+4. Every loader and staging entry loudly excludes **or** rejects flagged rows
+   before `n_train`/`n_val`, sampling, thinning, centering, or device work. If
+   exclusion is the chosen policy, the successful pool must still satisfy the
+   requested count; a smaller dataset cannot be published silently. This is
+   the original either/or ruling, not a later refusal-only redesign.
+5. `boundary` is a native finite non-boolean real with `0 < boundary <= 1`.
+   Validation happens before any output path is opened; no invalid value is
+   rewritten to a default.
+6. Refusal preserves every previously valid file byte-for-byte. This unit
+   composes with checkpoint-set transactionality and row authenticity; neither
+   substitutes for the readiness verdict.
+
+This unit consumes the existing owners rather than cloning them: unit 33
+(45M-64/70) owns the provider-lifecycle verdict; unit 56 (45M-48) owns the
+post-cast payload predicate; the 20M-15 amendment owns checkpoint-ingress
+revalidation; unit 82 owns row authenticity; and the amended 45M-81 contract
+owns RNG continuation. Dataset readiness combines those exact verdicts into
+the final ready/non-ready state. An "almost equivalent" local predicate would
+recreate the drift this program is trying to remove.
+
+Required gates use a small deterministic dataset: one provider rejection that
+leaves a zero payload; a nonzero fail flag paired with an otherwise plausible
+row; an all-success forged fail file paired with an invalid payload; missing
+and wrong-length failure metadata; and a fully successful control. Each
+failure must produce a non-success readiness verdict and either a loader
+refusal naming the original row or a loudly reported exclusion that still
+delivers the exact requested successful-row count. Missing or wrong-length
+metadata errors name the path and expected/observed structure rather than
+inventing a row number. Boundary controls cover zero, a negative value, a
+value above one, NaN, a boolean, the valid endpoint `1`, and a valid interior
+value. A mutation that restores unconditional exit zero or removes the
+staging-side readiness check must turn the board leg red.
+
+The MPS `sigma8` half that originally shared unit 2 has its complete modern
+contract in `families-background-mps.md` (including the later 45M-67 domain
+extension). Keeping the two halves in their scientific owner notes avoids
+making generator readiness depend on one derived MPS quantity.
+
 ## Staging (emulator/data_staging.py)
 
 - Memmap the dv dump (never loaded whole); params load to RAM;

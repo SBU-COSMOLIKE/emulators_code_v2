@@ -708,6 +708,48 @@ malformed case raises at config load; no malformed range reaches
 suggest_*; ordinary-training and search_defaults defaults identical;
 nested paths report full dotted names.
 
+## Scheduler execution protocol (45M-25, Architect-VERIFIED, open)
+
+`make_scheduler` advertises a constructible scheduler class, but constructing
+an object does not establish how often or with which argument it must be
+stepped. The training loop implements only two per-epoch protocols:
+`ReduceLROnPlateau.step(validation_median)` and a bare `scheduler.step()` for
+every other class. A per-update scheduler such as `OneCycleLR` therefore
+constructs successfully and then executes at the wrong cadence by orders of
+magnitude. Per-phase and refinement construction also need the true number of
+optimizer updates rather than the nominal epoch count.
+
+Required contract:
+
+1. Either expose a deliberately bounded scheduler surface and reject every
+   unsupported class before model/data staging, or persist an explicit
+   protocol with each class: cadence (`per_update` or `per_epoch`), whether a
+   metric is required, which metric, and the resolved horizon.
+2. A per-update scheduler steps only after an accepted optimizer update. A
+   nonfinite/skipped update or an empty chunk does not advance it.
+3. A per-epoch scheduler steps once after the complete accepted epoch.
+   `ReduceLROnPlateau` uses the shared validated ordinary-median reducer and
+   chi-squared domain rule on the raw-model scores. With EMA disabled this is
+   also the reported/selection median; with EMA active, the deliberate policy
+   remains raw-model median for scheduling and EMA-model median for reporting
+   and selection.
+4. Each trunk, head, joint, and refinement pass resolves its own effective
+   update count from executed rows, batch size, chunk-tail policy, and epoch
+   count. Nominal configuration counts cannot stand in for executed steps.
+5. Warmup has one owner and cannot advance both the explicit warmup rule and a
+   scheduler's internal warmup on the same update.
+6. The resolved pass record stores scheduler class, kwargs, cadence, metric
+   source, and effective step count so the artifact describes what actually
+   ran.
+
+The board gate uses counting schedulers for per-update and per-epoch paths,
+pins the plateau median argument, and checks a short analytic learning-rate
+sequence for an admitted `OneCycleLR` or the exact startup refusal if that
+class is outside the bounded surface. It covers a ragged final chunk, a
+skipped optimizer step, separate phase horizons, refinement, and a
+double-warmup mutation. Merely printing the scheduler class or completing a
+run does not prove the execution protocol.
+
 ## Selection-record truth (red-team fifth wave — the FULL CONTRACT for the wave-1 best-record unit; Architect-VERIFIED, CRITICAL)
 
 The wave-1 finding (unit 3: the loop restores the epoch-0 baseline
