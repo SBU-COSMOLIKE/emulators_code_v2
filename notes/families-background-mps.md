@@ -1042,3 +1042,37 @@ Contract:
 5. Sequencing: rides the wave-4 background visit (units 15 + 58 +
    62 + 67 — same files, one visit); the CRITICAL flag means the
    visit cannot close without it.
+
+## UNIT 69 (20M-01, 2026-07-13, HIGH): the MPS getters serve Cobaya's public default — nonlinear=True when the argument is omitted
+
+Finding (red team, CONFIRMED; Architect probe on the installed
+cobaya 3.6.2): BoltzmannBase.get_Pk_grid and get_Pk_interpolator
+default nonlinear=True; emul_mps declares nonlinear=False on both
+(emul_mps.py:411-412, :426-428) while promising CAMB/Cobaya-
+compatible getters. A likelihood that legally omits the argument
+receives the LINEAR spectrum labeled as its default product. Both
+stored branches are correct when the argument is spelled; every
+existing gate leg spells it, so the board is green around the defect.
+
+Contract (the red team's clauses, ratified):
+
+1. Both getters adopt Cobaya's nonlinear=True default.
+2. Explicit nonlinear=False and nonlinear=True stay byte-identical
+   to today's linear and nonlinear branches.
+3. A protocol-guard gate leg pins both adapter signatures (parameter
+   names + defaults) against the INSTALLED Cobaya base signatures,
+   so an upstream default drift reds for review instead of being
+   copied silently.
+4. The adapter docstrings name the omitted-call behavior: nonlinear
+   is the public default; callers request the linear spectrum
+   explicitly.
+
+Legs (board-listed in the existing MPS gates): omitted
+get_Pk_grid() == explicit True and != explicit False on a real
+calculated state; the same three-arm comparison through
+get_Pk_interpolator at stored nodes and one interior point; a
+sentinel state with deliberately separated linear/nonlinear values
+proves catch power; a mutation arm restoring nonlinear=False must
+red; one real-Cobaya provider-routed call proves the protocol, not
+just direct method calls. Sequencing: lands with UNIT 70 as one
+increment, parallel to phase-3 population, before queue 2.

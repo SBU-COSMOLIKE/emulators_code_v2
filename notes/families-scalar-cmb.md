@@ -1028,3 +1028,46 @@ spectra with different complete maxima and valid independent
 requests; the mutation leg — a same-shaped h5 edit that strict weight
 loading accepts but the coordinate guard catches (board-listed,
 torch/h5, workstation).
+
+## UNIT 70 (20M-02, 2026-07-13, HIGH): needs_params diagnostics pass the batch's own parameters everywhere — the training stash is private
+
+Finding (red team, CONFIRMED): cmb_residual_diagnostic branches on
+needs_params for encode/decode with the validation batch's x_enc
+(diagnostics.py:530-535) and then drops it at the chi2 call (:537);
+CmbFactoredChi2.chi2 falls back to the mutable self._params
+(losses/cmb.py:486) that loss() stashed from the LAST TRAINING BATCH
+(:529). Under the shipped as_exp2tau_ref example the diagnostic
+scores validation rows with stale training amplitude factors: finite,
+nonnegative, and belonging to the wrong cosmologies — worst-row
+selection and overlays can invert (analytic two-row control: correct
+[3,3], shipped [12,0.75]); mismatched batch lengths crash on shape
+instead. cmb_smoke's mean-predictor bar (cmb_smoke.py:394) has the
+same parameterless call, so its collapse bar can be calibrated
+against stale factors; diagnostics-domain constructs only law="none"
+and cannot expose any of this.
+
+Contract (the red team's clauses, ratified):
+
+1. Every needs_params diagnostic branch passes that same batch's
+   x_enc to encode, decode, AND chi2.
+2. The mutable _params stash is private to the immediate
+   inherited-loss reduction (and _penalty_residual inside loss); no
+   public diagnostic or gate obtains scientific meaning from it.
+3. The cmb-smoke mean-predictor bar uses explicit validation
+   parameters.
+4. The caller rule applies uniformly across the CMB / grid / grid2d
+   diagnostic family, including where today's implementation accepts
+   and ignores the argument — capability dispatch means the same
+   thing at every call site. A call-site census over
+   emulator/diagnostics.py + gates/checks/ is part of the landing.
+
+Legs (board-listed; small-tensor CPU, Mac-validatable): the real
+CmbFactoredChi2 two-row analytic control expecting [3,3]; _params
+preloaded with different same-shaped factors -> diagnostic invariant;
+_params preloaded with a different batch length -> no shape failure;
+the same validation rows split across different diagnostic bs values
+-> identical per-row scores and worst row; a mutation arm omitting
+params_whitened must reproduce [12,0.75] (or the shape crash) and
+red; the cmb-smoke bar gains the same stale-cache mutation arm; a
+law="none" control proves unchanged numerics. Sequencing: lands with
+UNIT 69, parallel to phase-3 population, before queue 2.

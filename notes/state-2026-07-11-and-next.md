@@ -1792,6 +1792,19 @@ explicit board_config data keys). Also this date: the guide review
 landed. Spec: gates-and-board.md "Queue 1d + RT-04 —
 pre-merge Architect audit".
 
+20M-01/02 BATCH (2026-07-13, Fable): both red-team findings CONFIRMED.
+20M-01 (MPS getters default nonlinear=False while the installed
+Cobaya base defaults True — an omitted-argument call silently serves
+the linear spectrum; probe: inspect.signature on cobaya 3.6.2) ->
+NEW UNIT 69, families-background-mps.md, EMUL2-critical. 20M-02
+(cmb_residual_diagnostic drops x_enc at the chi2 call and the loss
+falls back to the mutable training stash — validation rows scored
+with the last training batch's amplitude factors; [3,3] vs
+[12,0.75] verified; cmb-smoke's bar shares the call shape) -> NEW
+UNIT 70, families-scalar-cmb.md. Both land as ONE increment parallel
+to phase-3 population, before queue 2; gates board-listed,
+Mac-validatable. Spec: gates-and-board.md "20M-01/02 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

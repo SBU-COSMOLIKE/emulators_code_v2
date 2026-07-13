@@ -1763,3 +1763,32 @@ Sequencing unchanged: this landing carries 1d, so the
 1d-before-workstation-rerun dependency is satisfied at the merge;
 population batches follow the approved order; queue 2 after
 population completes.
+
+## 20M-01/02 adjudication (Fable, 2026-07-13): both CONFIRMED — units 69 + 70
+
+Both verified by the Architect against the code and the installed
+Cobaya. 20M-01: the adapter declares nonlinear=False defaults
+(emul_mps.py:411-412, :426-428) while the installed Cobaya base
+signatures default nonlinear=True on BOTH getters (live
+inspect.signature probe on cobaya 3.6.2) — an omitted-argument call
+silently serves the linear spectrum where the protocol promises the
+nonlinear one; the MPS gates always spell the argument, so no leg
+exercises the public default. 20M-02: cmb_residual_diagnostic uses
+x_enc for encode/decode but drops it at the chi2 call
+(diagnostics.py:537), and CmbFactoredChi2.chi2 falls back to the
+mutable training stash (losses/cmb.py:486, stashed at :529) — the
+validation rows are scored with the LAST TRAINING BATCH's amplitude
+factors; the red team's two-row analytic example ([3,3] correct vs
+[12,0.75] shipped) checks out arithmetically, and a batch-length
+mismatch is a shape crash instead. The cmb-smoke mean-predictor bar
+(cmb_smoke.py:394) calls chi2 the same parameterless way, and
+diagnostics-domain builds only law="none" so it cannot see any of
+this. Placement: 20M-01 -> NEW UNIT 69 (families-background-mps.md);
+20M-02 -> NEW UNIT 70 (families-scalar-cmb.md). Both contracts ratify
+the red team's required clauses and legs; the requested gates are
+board-listed (small-tensor CPU legs, Mac-validatable; nothing needs
+CUDA). Sequencing: 69 + 70 land together as one small increment IN
+PARALLEL with the phase-3 population batches (disjoint files), before
+queue 2 — 69 is EMUL2-critical (a real Cobaya consumer gets wrong
+science by default today), 70 corrupts worst-row selection and
+overlays in the shipped CMB example.
