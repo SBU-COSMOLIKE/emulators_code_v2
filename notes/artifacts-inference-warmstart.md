@@ -431,6 +431,80 @@ names; lambda-zero identity; transfer-refine eager coverage; nonzero
 matched count asserted for a positive anchor; the resolved artifact
 record inspected.
 
+### README teaching rider (DIDACTICS-94, Red Team, 2026-07-13; awaiting Architect adjudication)
+
+The root README currently reduces the fine-tune anchor to “a pull back
+toward the saved weights.”  That does not teach the requested L2
+weight-displacement regularization, the difference from ordinary weight
+decay, which parameters are selected, or the operation the library actually
+executes.  The fine-tuning section must add a compact but complete explanation
+next to the current-state refusal, not send a first-time reader into this
+internal note.
+
+Let `W_{j,0}` be parameter tensor `j` in the saved source emulator, `W_j` its
+current fine-tuned value, and `M_j` an element-by-element binary mask.  First
+define the *regularization idea* in the familiar L2-SP form
+
+```
+R(W) = (lambda / 2) sum_j || M_j * (W_j - W_{j,0}) ||_F^2 .
+```
+
+Define every symbol in prose: `lambda` is the YAML `anchor` strength; `*` in
+this equation means element-by-element multiplication; and the squared
+Frobenius norm means “square every selected displacement and add the squares.”
+Explain that ordinary weight decay pulls `W_j` toward zero, whereas this
+quantity measures movement away from an already-trained source emulator.
+
+Then state the executable truth.  CoCoA SONIC deliberately does **not** add
+`R(W)` to the scalar scientific loss seen by AdamW.  After the ordinary
+optimizer step proposes `W_j^opt`, `Anchor.apply` performs the decoupled,
+in-place update
+
+```
+W_j^+ = W_j^opt
+        - eta_j lambda M_j * (W_j^opt - W_{j,0}),
+```
+
+where `eta_j` is the current learning rate of that parameter's optimizer
+group.  This keeps Adam's adaptive second-moment rescaling out of the anchor.
+There is no hidden division by batch size, layer width, or number of
+parameters.  `anchor: 0.0` is an exact no-op.  For a one-number example, if
+`W_0 = 2.0`, the optimizer proposes `W^opt = 2.4`, `eta = 0.01`, `lambda =
+0.5`, and the mask is one, the anchor removes `0.01 * 0.5 * 0.4 = 0.002` and
+stores `W^+ = 2.398`.  This example must say that the optimizer's scientific
+step happened first; the anchor modifies the resulting displacement.
+
+The parameter-selection paragraph must say that matched, trainable source
+parameters are anchored: matrices, biases, affine-normalization parameters,
+and trainable activation parameters all qualify when they are model
+parameters owned by an optimizer group.  Geometry tensors and other
+non-parameter state do not.  When fine-tuning adds cosmological inputs, the
+newly appended input-weight columns start at zero to preserve epoch-0 parity
+and receive mask value zero, so they remain free to learn the new physics;
+the pre-existing columns and other matched trainable parameters receive mask
+value one.  Recommend optimizer `weight_decay: 0.0` beside a nonzero anchor,
+because simultaneous weight decay pulls toward zero rather than toward
+`W_{j,0}`.
+
+Finally, current state must remain adjacent and unambiguous: this is the
+queued anchored-fine-tuning contract, not a claim that it executes today.
+`validate_finetune_config` currently refuses every
+`train_args.finetune.anchor` key before training, so ordinary fine-tuning is
+currently unanchored.  Do not print a usable fine-tune-anchor YAML until this
+unit opens that boundary and its board-listed gate passes.  The already-live
+cosmic-shear `transfer.refine.anchor` is a different path: it anchors only the
+formerly frozen base during joint refinement, not the correction network.
+Diagonal-family transfer refinement remains refused.
+
+Acceptance: root `README.md` contains the definition, executable update,
+symbol definitions, one-number example, mask ownership, weight-decay
+distinction, and current refusal in the fine-tuning section; `emulator/README.md`
+gets a shorter equation-and-owner pointer rather than duplicating the full
+tutorial.  The prose must never say the implementation currently adds an L2
+term “to the loss.”  A stale-claim scan covers “anchor,” “L2-SP,” “penalty,”
+and “refine” across both READMEs.  Documentation-only: Python ASTs and runtime
+behavior remain unchanged.
+
 ## Transfer learning (TPE; family-wide since 2026-07-12, scalar excepted)
 
 - Scope (RE-RULED 2026-07-12, overnight): the user overturned the

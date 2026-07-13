@@ -1448,6 +1448,29 @@ names such as `horizon_epochs`, `hidden`, `hardness`, and `hubble_values`.
 This is a readability rename, not permission to change equations or persisted
 field names.
 
+### DIDACTICS-94 -- fine-tuning names an anchor without teaching the L2 weight-displacement contract
+
+`README.md:1748-1755` calls the planned fine-tune anchor only “a pull back
+toward the saved weights.”  A first-time machine-learning reader is not told
+what is measured, what `anchor` controls, how this differs from weight decay,
+or which new-input weights must remain free.  The user's requested explanation
+is now specified in `artifacts-inference-warmstart.md`, “README teaching
+rider”: define the conceptual L2-SP displacement penalty, then show the actual
+decoupled post-optimizer update, with every symbol, one scalar numerical
+example, the new-column mask, and the current public refusal.
+
+Accuracy constraint: do not say CoCoA SONIC currently adds this penalty to
+the scientific loss.  `emulator/training.py:323-385` deliberately keeps the
+anchor outside the loss and applies
+`W <- W - lr * lambda * mask * (W - W_0)` in place after
+`optimizer.step()`, so AdamW's adaptive moments do not rescale the pull.
+`emulator/warmstart.py:977-1007` masks the padded columns for newly added
+cosmological inputs.  `emulator/warmstart.py:159-165` still refuses a
+fine-tune `anchor` at the public validator, so the README must teach the
+queued behavior without advertising it as live.  This is a documentation
+repair owned by the existing unit-24 anchor-truth campaign, not a second
+implementation unit.
+
 ### README audit exclusions and existing owners
 
 The loop re-observed, but did not duplicate, four existing contracts:
