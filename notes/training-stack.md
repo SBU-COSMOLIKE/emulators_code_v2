@@ -1647,3 +1647,138 @@ Files (e): emulator/losses/core.py, emulator/losses/cmb.py,
 emulator/training.py, gates/checks/finite_contract.py, gates/board.py,
 notes/training-stack.md. Next: 42 landed (5661c08); 43 proposed; then
 50 -> 52 -> 55 -> 22 -> 13.
+
+## UNIT 59 (45M-56, tenth batch): top-level config keys are never censused — a typo silently changes the training design
+
+CONFIRMED (Fable, 2026-07-12). Every nested block is strictly
+validated with an unknown-key census (param_cuts experiment.py:540,
+per-head scheduler :282, data.cmb :686, data.grid :833, data.mps
+:948), but NO top-level census exists anywhere: an untruncated grep
+for set(cfg) / cfg.keys() / list(cfg) / sorted(cfg) across
+experiment.py, the drivers, and gates/checks returns EMPTY. Branch
+selection is pure cfg.get: transfer at :625/:772, pce at :757; the
+sweep driver reads cfg["sweep"] raw (family_drivers.py:92, a bare
+KeyError when absent). The red team drove the REAL extracted
+validate_scalar: a config carrying trasnfer: {from: base, form: sum}
+was accepted and resolved as an ordinary scalar run — consistent with
+the census absence, since the only top-level readers are
+cfg.get(<known>) calls. Consequences adopted verbatim: a requested
+transfer silently becomes a from-scratch model; a requested NPCE run
+becomes a plain emulator; a sweep block is ignored by a non-sweep
+driver; and the RAW saved YAML claims a feature the resolved model
+never executed — the never-trust-defaults inversion (the artifact
+lies about the run).
+
+Contract (the red team's six clauses, with three rulings):
+
+1. One explicit top-level schema shared by config loading and every
+   driver.
+2. The allowed set covers the emulator-owned blocks (data,
+   train_args, pce, transfer, sweep) plus the explicitly enumerated
+   cobaya pass-through blocks the shared generator YAMLs need
+   (params, likelihood, theory, and any deliberately supported
+   controls). RULING (allowlist provenance): the set is not invented
+   — the Implementer ENUMERATES every top-level key across the
+   shipped corpus (example_yamls/, gates/configs/, the generator
+   YAML docstrings), records the census in this note, and the
+   Architect audits it before the schema hardens (propose-first; the
+   large-unit precedent). Today the shipped training YAML carries
+   only data + train_args; the generator YAMLs carry the cobaya
+   blocks + train_args — both families must resolve under one
+   schema.
+3. Any other top-level key raises BEFORE device selection, staging,
+   source loading, or artifact mutation — at from_config entry AND
+   at each driver's load boundary.
+4. RULING (suggestion mechanism): difflib.get_close_matches (stdlib,
+   C-readable); the error names the unknown key, the close
+   recognized spelling when one exists (trasnfer -> transfer, pec ->
+   pce), and the full allowed set.
+5. Driver-specific requirements stay driver-specific: the sweep
+   driver requires sweep (its missing-sweep failure becomes a named
+   error, not today's raw KeyError); the training driver may
+   tolerate a VALID sweep block (one YAML deliberately serves both
+   drivers) but never an unknown spelling.
+6. The resolved record states the executed composition explicitly —
+   plain, NPCE with form, fine-tune with source, or transfer with
+   source/form/space; a raw block is never evidence that its path
+   executed. INTERLOCK: this clause rides unit 41's resolved-record
+   rebuild (artifacts-inference-warmstart.md) — one record, one
+   writer.
+
+Gate legs (pure CPU, board-listed with the config-schema coverage):
+valid plain / PCE / transfer / sweep / shared-generator configs
+pass; misspelled transfer, pce, sweep, train_args, data fail at the
+top boundary naming the key and the suggestion; mutation arm
+restores bare cfg.get("transfer") without the census and proves the
+misspelled-transfer config reaches the plain branch; raw and
+resolved records compared to prove the selected composition matches
+execution.
+
+Placement: campaign phase, beside unit 41 — the config namespace
+truth companion to the resolved-record truth (NOT part of the
+8+17+25+26 file-set authenticity cluster; that boundary is files,
+this one is the config namespace above train_args).
+
+## UNIT 60 (45M-57, tenth batch): the reported validation "median" is the lower middle sample for every even n_val
+
+CONFIRMED (Fable, 2026-07-12) at HEAD 5661c08. eval_val reduces the
+full validation chi2 vector with median = c.median().item()
+(training.py:1498 — the single .median( site in the module; the line
+number drifts with the in-flight 14(e) increment). torch.median
+returns the LOWER of the two central ordered values for even length:
+live-verified on the cocoa python —
+
+    torch.median([0, 1, 9, 10])   = 1.0   (ordinary median: 5.0)
+    torch.quantile([...], 0.5)    = 5.0
+    torch.median([0, 1, 9])       = 1.0   (odd control; quantile
+                                           agrees at 1.0)
+
+The value is not cosmetic: sched_median = raw_median (:2147) feeds
+scheduler.step(sched_median) (:2202) for ReduceLROnPlateau; the
+best-epoch record breaks equal-frac ties on it (:2163-2166 — ties
+are common because frac moves in steps of 1/n_val); the per-epoch
+medians list is persisted and plotted as a scientific summary
+(:2149, returned through :3056). And FIVE gate files manufacture
+their reference statistics with the SAME lower-middle operation —
+cmb_smoke.py:389, bsn_smoke.py:193, mps_smoke.py:203,
+finite_contract.py:137/:873, ge_c_eval_bs.py:99 — so the board
+ENCODES the defect rather than detecting it. Reachability: n_val is
+any positive integer and even is the norm (shipped placeholder
+n_val 5000; board runs use 200).
+
+RULINGS:
+
+- Naming: adopt the ordinary 50th-percentile median everywhere —
+  the center value for odd N, the arithmetic mean of the two center
+  values for even N. NOT renamed to "lower median": every prose,
+  plot, history, and gate surface already says median and every
+  scientific reader assumes the standard estimator; a rename sweep
+  buys nothing.
+- Implementation freedom: torch.quantile(c, 0.5) reproduces the
+  contract on both parities (verified above; its documented
+  input-size cap ~2^24 elements sits far above any n_val here and
+  the helper documents it), or a kthvalue midpoint. Either way ONE
+  shared reduction serves eval_val, the scheduler feed, the
+  tie-break, saved histories, and every gate reference.
+- The five gate reference sites migrate IN THIS UNIT, so repaired
+  production code and the gates cannot disagree for the right
+  reason.
+- USER-VISIBLE, declared: even-n_val medians change (reported,
+  persisted, plotted), and plateau timing / tie-breaks can change —
+  training trajectories are not byte-identical for even n_val.
+  Odd-n_val values are exactly unchanged (gate leg).
+- Placement: unit 60 rides WITH unit 50 (epoch-truth under
+  chunking) — the same eval/epoch-reduction surface, one visit —
+  and lands AFTER 14(e) (same function; no collision with the
+  in-flight increment).
+
+Gate legs (torch, workstation lane, joining
+gates/checks/ge_c_eval_bs.py — board-run at board.py:369 and
+already driving the REAL eval_val with partition-invariance legs):
+[0, 1, 9, 10] -> 5 not 1 through the real eval_val; odd control
+[0, 1, 9] -> 1 exactly (byte-identity for odd N); batch/chunk
+invariance of the median through real eval_val; an equal-fraction
+epoch pair where lower-median and true-median rank opposite models
+and the true-median model must win the tie-break; a plateau-
+scheduler spy asserting the stepped value equals the reported and
+persisted median; mutation arm retaining Tensor.median() must fail.

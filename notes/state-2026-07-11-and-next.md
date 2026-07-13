@@ -1147,7 +1147,7 @@ number. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
-14(a+b+c+d+e) -> 36 -> 42+43 -> 50 -> 52 -> 55 -> 22(+20) -> 13(+01) order
+14(a+b+c+d+e) -> 36 -> 42+43 -> 50(+60) -> 52 -> 55 -> 22(+20) -> 13(+01) order
 define the active pipeline (updated with the third 45M batch: the CMB
 amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
 unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15
@@ -1271,6 +1271,38 @@ backend), cobaya 3.6.2, and scipy 1.12.0 — Mac probes can now
 exercise REAL torch/scipy/cobaya paths (the 45M-55 reproduction
 imported the real background.py under it); board gate runs stay
 workstation-owed.
+
+TENTH 45M BATCH (2026-07-12): 45M-56 = NEW UNIT 59 (top-level
+config keys are never censused: every nested block raises on
+unknown sub-keys — param_cuts :540, per-head scheduler :282, cmb
+:686, grid :833, mps :948 — but set(cfg)/cfg.keys() appears
+NOWHERE, untruncated grep; branch selection is
+cfg.get("transfer"/"pce") (experiment.py:625/:757/:772) and the
+sweep driver reads cfg["sweep"] raw (family_drivers.py:92), so a
+misspelled trasnfer:/pec:/seep: block silently builds a DIFFERENT
+design and the raw saved YAML claims a feature that never
+executed; contract: one explicit top-level schema at from_config +
+every driver load boundary before device/staging/source/artifact
+work, corpus-derived allowlist audited propose-first,
+close-spelling suggestion in the error, executed-composition
+statement riding unit 41's resolved record; campaign phase beside
+unit 41; spec training-stack.md). 45M-57 = NEW UNIT 60 (the
+reported validation "median" is torch.median's LOWER middle sample
+for every even n_val — [0,1,9,10] reports 1, the ordinary median
+is 5, live-verified; the value drives ReduceLROnPlateau
+(training.py:2147/:2202), breaks best-epoch ties at equal frac
+(:2163-2166), and is persisted/plotted; FIVE gate files
+manufacture their references with the SAME op (cmb_smoke:389,
+bsn_smoke:193, mps_smoke:203, finite_contract:137/:873,
+ge_c_eval_bs:99) — the board encodes the defect; RULING: adopt the
+ordinary 50th percentile (torch.quantile(0.5) verified equal on
+both parities), ONE shared reduction for eval_val + scheduler feed
++ tie-break + histories + gate references, the five gate sites
+migrate in the same unit, odd-n_val values byte-identical,
+even-n_val medians/trajectories change — USER-VISIBLE, declared;
+rides WITH unit 50 after 14(e) lands (same eval_val surface); legs
+join ge_c_eval_bs (board.py:369, already drives the REAL
+eval_val); spec training-stack.md).
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
