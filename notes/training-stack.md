@@ -1782,3 +1782,74 @@ epoch pair where lower-median and true-median rank opposite models
 and the true-median model must win the tie-break; a plateau-
 scheduler spy asserting the stepped value equals the reported and
 persisted median; mutation arm retaining Tensor.median() must fail.
+
+## UNIT 14 REOPENED AGAIN (45M-58, eleventh batch): increment (f) — validate the published reductions, not just the rows
+
+CONFIRMED (Fable, 2026-07-12, live through the REAL function).
+eval_val's landed chokepoint validates every per-sample chi2 (the
+increment-(e) domain predicate raises on bad ROWS), then publishes
+
+    mean   = c.mean().item()     # raw float32 reduction, unvalidated
+
+(training.py:1539 at HEAD 420bce2). PyTorch's float32 mean forms a
+float32 sum: eight finite rows near 1e38 have a true sum of 8e38 >
+float32 max, so the intermediate overflows in ANY summation order and
+the published mean is Inf AFTER the row guard declared the set valid.
+Reproduced through the real eval_val (cocoa python, torch 2.6.0 CPU,
+duck-typed loss returning 1e38 rows):
+
+    rows: 8 x 1e38 float32, all finite; domain predicate: PASS
+    published median = 9.999999680285692e+37   (order statistic, fine)
+    published mean   = inf
+    float64 reference mean = 9.999999680285692e+37
+
+This violates unit 14's own clause 4 ("mean/median/fractions must be
+finite before the publication" — the clause list above): increments
+(a+b) implemented clause 1 (rows), nothing implemented clause 4 for
+the reduction itself. Distinct from 45M-47 / increment (d), which
+repaired the TRAINING-epoch loss accumulator; this is the validation
+reporting path. The mean is appended to histories, plotted, and
+persisted. eval_source_chi2 returns per-row (params, dchi2) with no
+scalar reduction, so (f) is scoped to eval_val's published outputs.
+Honest scoping: the median (order statistic) and the boolean
+fractions (bounded by 1) cannot overflow — the mean is the vulnerable
+reduction — but the post-reduction check covers all three because it
+is one line each and because unit 60's even-N midpoint in float32
+could itself overflow at extreme scale (the float64 helper covers
+both).
+
+Contract, increment (f):
+
+1. eval_val computes its published reductions in float64 on the CPU
+   tensor: the mean now; the median through unit 60's shared ordinary-
+   median helper when it lands (same visit — do not build two
+   helpers). The threshold fractions are means of {0,1} and stay
+   exact; they are validated with the rest.
+2. EVERY published scalar/vector (mean, median, frac) is validated
+   finite AFTER reduction, before return; failure RAISES naming the
+   reduction, the side ("validation"), and the offending value.
+   Never a sentinel repair — an infinite mean is a refused
+   evaluation, not a big number.
+3. Ordinary-range results are numerically unchanged to the documented
+   tolerance: the float64 mean of float32 rows differs from the old
+   float32 mean at rounding level (~1e-7 relative). Histories are NOT
+   byte-identical — USER-VISIBLE, declared.
+4. The row-level guards ((a+b), (e)) are untouched; (f) is clause 4
+   made real.
+
+Gate Part I (finite-contract, workstation; CPU AND the CUDA lane):
+
+- through the REAL eval_val: eight finite float32 rows near 1e38 ->
+  the published mean is finite and equals the float64 reference
+  within the documented tolerance; median and fractions finite;
+- the same value reaches the training-loop history append (the
+  return contract is the history value);
+- mutation arm: restoring the float32 c.mean() must FAIL on a lane
+  where the float32 sum overflows; a backend that happens not to
+  overflow is recorded as a CONTROL — the contract is never
+  backend-dependent;
+- ordinary-scale positive control within the documented tolerance.
+
+Placement: (f) rides the SAME eval_val visit as unit 60, in the
+pipeline slot 50(+60+14f), after queue 43. Unit 14's closure claim
+(a-e) stands for its increments; the unit stays open on (f) only.

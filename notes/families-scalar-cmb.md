@@ -905,6 +905,44 @@ fails the fiducial-unity and target-scale legs.
 Files (queue 42): emulator/losses/cmb.py, gates/checks/cmb_identity.py,
 gates/board.py, notes/families-scalar-cmb.md.
 
+QUEUE 43 RULINGS (Architect, 2026-07-12 — the proposal above is
+CONFIRMED with these bindings; 43 is GO):
+
+1. Version key: a NEW registry law NAME — `as_exp2tau_ref` — and NO
+   parallel law-version field. One axis of truth: the law string is
+   already persisted, validated (unknown law raises), byte-round-
+   tripped, and exposed by rebuild info; a second "version" key could
+   contradict the name (the never-trust-defaults failure mode). Unit
+   37's implementation manifest carries the new name naturally.
+   Loading an artifact whose law is the old "as_exp2tau" under the
+   new implementation is REFUSED with a named error carrying the
+   retrain instruction (consistent with the adjudicated 45M-22
+   contract and the project's retrain-over-compat stance).
+2. Fiducial source + persistence keys: the source of record is an
+   EXPLICIT validated config pair in the data.cmb block — `as_ref`
+   and `tau_ref` — REQUIRED when the law is as_exp2tau_ref, no code
+   default, validated (finite; as_ref > 0). The covariance fiducial
+   is the documented RECOMMENDED value for the pair; at
+   implementation, IF the covariance sidecar already records its
+   fiducial (A_s, tau), staging cross-checks and a mismatch is LOUD;
+   if it does not, the config is authoritative — do NOT invent a new
+   sidecar field for this. Persistence: geometry state keys `as_ref`
+   / `tau_ref` (the config spelling), stored as RESOLVED float64 in
+   state()/rebuild, byte-round-tripped; _factor READS the persisted
+   values with no fallback, and a rebuilt as_exp2tau_ref geometry
+   missing either key REFUSES. The artifact records the NUMBERS,
+   never a pointer or path.
+3. Staging report: confirmed as proposed — one staging verdict line
+   with the target-center, the encoded-target scale, and the
+   f(fiducial) == 1 check (terminal essential-only discipline
+   holds; the full values go to the log).
+4. Retrain: confirmed — affected CMB artifacts retrain; workstation,
+   user-run, declared USER-VISIBLE.
+5. The queue-42 metric division applies unchanged.
+
+Red legs: as proposed, PLUS a refusal leg for a rebuilt state
+missing as_ref / tau_ref (the no-fallback proof).
+
 ### 45M-27 amendment: lmax validation does not prove multipole coverage (2026-07-12, Architect-VERIFIED; extends unit 26's axis-identity contract to the CMB read/rebuild boundary)
 
 emul_cmb.must_provide (:195-209) validates a requested lmax only

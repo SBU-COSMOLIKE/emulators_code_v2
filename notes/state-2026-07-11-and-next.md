@@ -1147,7 +1147,7 @@ number. 45M-20 amends unit 22
 (training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
 carry the red team's priority order and 36 is scheduled first among
 them. The three-gate rerun and the
-14(a+b+c+d+e) -> 36 -> 42+43 -> 50(+60) -> 52 -> 55 -> 22(+20) -> 13(+01) order
+14(a+b+c+d+e) -> 36 -> 42+43 -> 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01) order
 define the active pipeline (updated with the third 45M batch: the CMB
 amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
 unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15
@@ -1303,6 +1303,36 @@ even-n_val medians/trajectories change — USER-VISIBLE, declared;
 rides WITH unit 50 after 14(e) lands (same eval_val surface); legs
 join ge_c_eval_bs (board.py:369, already drives the REAL
 eval_val); spec training-stack.md).
+
+ELEVENTH 45M BATCH (2026-07-12): 45M-58 = unit 14 REOPENED on
+increment (f) — the landed eval_val validates the chi2 ROWS then
+publishes mean = c.mean().item() as a raw float32 reduction
+(training.py:1539 at HEAD), violating unit 14's own clause 4
+("mean/median/fractions must be finite before the publication").
+Reproduced through the REAL eval_val on the Mac cocoa python:
+eight finite float32 rows at 1e38 pass the domain predicate,
+median publishes finite 9.99999968e+37, and mean publishes INF
+(float64 reference: 9.99999968e+37). Distinct from 45M-47 (the
+training-epoch loss accumulator); eval_source_chi2 returns per-row
+values only, so (f) is eval_val's published reductions: compute in
+float64 on the CPU tensor, validate EVERY published scalar/vector
+after reduction (raise naming the reduction — no sentinel repair),
+ordinary range unchanged to documented ~1e-7 relative tolerance
+(histories not byte-identical, USER-VISIBLE declared); gate Part I
+in finite-contract with the float32-restoring mutation arm, CPU +
+CUDA lanes (backend non-overflow = control, never permission).
+(f) rides the SAME eval_val visit as unit 60 — pipeline slot
+50(+60+14f). Also this batch: QUEUE 43 RULINGS delivered
+(families-scalar-cmb.md): new law NAME as_exp2tau_ref, no parallel
+version field, old-law artifacts refused with the retrain error;
+as_ref/tau_ref sourced from an explicit validated data.cmb config
+pair (required, no default), persisted as resolved float64 state
+keys as_ref/tau_ref, _factor reads them with no fallback; staging
+verdict line confirmed; retrain confirmed; 43 is GO. Implementer
+checkpoint recorded: five self-committed increments this run —
+14(c) 97963b8, 14(d) 63880d1, 36 387c650, 42 5661c08, 14(e)
+420bce2 — all pending batch audit; unit 14 closed a-e and reopens
+here on (f) only.
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
