@@ -2249,3 +2249,32 @@ code, the board, or gate checks.
 
 These checks are implementation evidence for the Architect's pre-merge audit.
 They are not Red Team self-certification.
+## Queue-2 note-side evidence draft and new correctness finding
+
+The Red Team drafted the A1-ii home-note surface for the 27 gates outside the
+Implementer's seven foundation gates and four wrapper surfaces (six board
+gates).  The six existing home notes now contain one six-field block per gate
+plus one narrowed, long-`Gate.id` anchor per logical leg.  The draft has 137
+leg anchors.  Exact
+dot-to-dash mapping, anchor uniqueness, six-field completeness, and declared-
+name reconciliation were checked mechanically.  Logged-only, visual,
+conditionally absent, environment-owed, and currently red claims are labeled
+instead of being promoted to green evidence.  These blocks are a draft for
+Architect audit; they do not certify the future runner wiring.
+
+The execution pass also found `25M-36`, recorded in full in
+`families-background-mps.md`: `mps-identity` is currently false-red because
+its bounded-staging mean leg compares the streamed float32-payload mean with a
+mean formed before the independent law rows are cast to float32.  The producer
+matches the correctly ordered independent stored-payload reference exactly;
+the gate does not.  The producer remains frozen, the wrong-reference mutation
+must become a discriminating red leg, and the current queue-2 block explicitly
+withholds a whole-gate pass.
+
+The same execution pass found `25M-37`, recorded in
+`artifacts-inference-warmstart.md`: four gates declared as Torch-only fail
+before their first assertion because importing the persisted output-geometry
+type eagerly imports the compiled CosmoLike interface.  The fix belongs at
+the production `from_cosmolike` boundary so constructor/from-state artifact
+use is genuinely independent; adding four gate-local stubs would preserve the
+false public import contract.

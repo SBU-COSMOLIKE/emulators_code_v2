@@ -2931,3 +2931,46 @@ re-render register-witnessed (no pdftoppm here); geo_paths PASS
 with the new texnotes .py in scope (cocoa interpreter); no
 production/gate files touched. Spec: gates-and-board.md "README
 figures + didactic rewrite audit".
+
+NOTE-SIDE EVIDENCE DRAFTS (2026-07-13, Fable): 8236417 GO — my own
+reconciliation proves 27 six-field blocks / 137 unique gate.id-
+prefixed aids / 164 anchors with every transform present; the
+6-gate wrapper-family exclusion ratified as a safe superset;
+narrowed-claims discipline exemplary (finite-contract maps its own
+reds). Follow-up: normalize 8 bare headline anchors to
+<gate>-evidence. 25M-36 CONFIRMED (mps_identity reference means in
+float64 pre-cast — gate-truth, red-team claimable); 25M-37
+CONFIRMED (output.py:50-51 module-level cosmolike+getdist — defer
+at the production boundary, Implementer, before queue 5). Register
+both-append conflict resolved by merging their branch into this
+one. INCREMENT 3 UNBLOCKED. Spec: gates-and-board.md "Queue-2
+note-side evidence drafts audit".
+
+UNIT 46 AUDIT (2026-07-13, Fable): b9835a2 GO — both rcs required
+zero, nonempty selection both sides, equality, both rcs + counts
+always reported; the ruled three mutations + divergence arm +
+control all present; own runs green. D4's board.py half CLOSED.
+Spec: gates-and-board.md "Unit 46 audit".
+
+TEX-PROSE BATCH (2026-07-13, Fable): the red team's eight
+manuscript findings adjudicated — 01 confirmed at source (broken
+\rm rendering stray m's), 05 sampled (h_j vs h; q twice), 03's
+diary census cross-checked (48 single-line vs their governing ~58
+multiline), 02's framing verified with correct exclusions;
+04/06/07/08 register-witnessed. All repairs red-team custody in
+their proposed order, with two riders: still-open defects never
+lose their user-facing warning (each removed diary paragraph maps
+to its new home in the register), and the refactored gate appendix
+adopts the six-field evidence-block schema + audited aid names so
+manuscript and notes teach one vocabulary. Full
+recompile/render/inspect/census acceptance per landing. Spec:
+gates-and-board.md "TEX-PROSE-01..08 adjudication".
+
+25M-37 REPAIR (2026-07-13, Fable): 3ba8588 GO — module-level
+cosmolike+getdist imports deferred to their use sites; all ci.*
+refs verified inside from_cosmolike; LIVE blocked-import probe
+proves the module imports cleanly without either dependency and
+the deferred path fails declaredly at its one call; compileall +
+selftest green. The four Torch gates now reach their first
+assertion on a cosmolike-less box. Evidence-block updates route to
+the red team. Spec: gates-and-board.md "25M-37 repair audit".

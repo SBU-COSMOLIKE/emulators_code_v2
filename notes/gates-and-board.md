@@ -6587,3 +6587,158 @@ figures + a preview renderer + the register record. Verified:
 
 VERDICT: GO. 46efa6d + cbdd49e + 701d6f9 land together with the
 codex branch merge.
+
+## Queue-2 note-side evidence drafts audit (Fable, 2026-07-13): 8236417 — GO; 25M-36/37 CONFIRMED; one normalization follow-up
+
+The red team's naming drafts (codex/queue2-note-evidence, 1667
+insertions-only across six home notes + the register). MY OWN
+mechanical reconciliation (a fresh parser, not theirs): 27 complete
+six-field blocks; 137 unique aids, every prefix equal to its
+block's board gate id; 164 new anchors = 137 leg transforms + 27
+headlines, no duplicates, every dot-to-dash anchor present; legs
+counts match the parsed aid lists in all 27 blocks. The exclusion
+set is the 7 foundation gates + SIX wrapper-family gates
+(cobaya-adapter, save-rebuild-drift, finetune-identity/-smoke,
+transfer-identity/-smoke) — a defensible superset of my four-
+surface minimum, erring toward leaving entangled legs with the
+Implementer; RATIFIED. Content spot-reads (ema-off-identity,
+ema-smoke, single-phase-demotion, finite-contract): the
+narrowed-claims discipline is exemplary — blind spots stated in the
+leg one-liners (the empty-selection acceptance, the broad demotion
+pattern, "no current whole-gate PASS" on finite-contract with every
+known defect mapped into evidence/owed).
+
+ONE REQUIRED FOLLOW-UP (non-blocking for increment 3): the draft
+carries TWO headline-anchor conventions — `<gate>-evidence` in four
+notes, bare `<gate>` in the two families notes (8 blocks). Leg
+anchors (what the code wires) are uniform; the headline form must
+be too. RULING: normalize the 8 bare headlines to `<gate>-evidence`
+in a follow-up commit.
+
+25M-36 CONFIRMED at gates/checks/mps_identity.py:275-276: the
+check's reference computes want.mean(axis=0) in float64 THEN casts
+to float32, while the producer means the STORED float32 payload —
+a representation-order defect in the gate's reference (the producer
+is correct). Repair: compute the reference in the producer's order
+(cast first, then mean) or justify an explicit tolerance;
+gate-truth class, red-team claimable under D4's claim-before-edit.
+
+25M-37 CONFIRMED at emulator/geometries/output.py:50-51:
+cosmolike_lsst_y1_interface and getdist.IniFile import at MODULE
+level, so any gate rebuilding a persisted cosmic-shear geometry
+pays both before its first assertion — an import-time death is not
+a declared UNAVAILABLE disposition. Repair AT THE PRODUCTION
+BOUNDARY (defer both imports into from_cosmolike / their use
+sites), NOT four gate-local stubs — Implementer custody (emulator
+production), a small standalone landing before queue 5; the four
+affected blocks then update their evidence lines (bounded, red
+team). The disclosed bounded omission (the older 25M-37 narrative
+naming only CosmoLike) is accepted as filed.
+
+MERGE MECHANICS: their branch forked pre-increment-1; git
+merge-tree found ONE conflict (the register's both-append tail).
+Resolved on THIS branch by merging codex/queue2-note-evidence in,
+both sections retained — the user's main merge is then clean.
+
+VERDICT: GO. INCREMENT 3 IS UNBLOCKED for the 27 drafted gates: the
+audited aid names are the spec; per-gate objections where migration
+disagrees; the six excluded wrapper-family gates + 7 foundation
+legs remain Implementer-named.
+
+## Unit 46 audit (Fable, 2026-07-13): b9835a2 GO — the golden leg is no longer vacuously green
+
+The D4 _golden_leg repair walked clause-by-clause against the 46
+ruling + addendum: both child return codes are now captured and
+required zero ("a golden run must complete"); the compared
+selection must be NON-EMPTY on both sides; equality still required;
+and the always-printed status reports both rcs and both selected
+counts beside the verdict. Selftest arms: the ruled three mutations
+(empty selection; both children rc 1 after matching lines; tip-only
+rc 1) plus a diverging-selection arm and the clean control — all
+red/green as required. My runs: board-selftest ALL PASS, --list
+rc 0. The inline comment records the pre-46 vacuous-pass honestly.
+VERDICT: GO. D4's board.py half is closed; the check-script D4 legs
+remain with their claim-before-edit owners.
+
+## TEX-PROSE-01..08 adjudication (Fable, 2026-07-13): all eight CONFIRMED/ACCEPTED; the repair order approved with two riders
+
+The red team's independent manuscript pass (register on
+codex/tex-prose-audit, c9b6f64; no TeX/figure/PDF edits — filed,
+not fixed). My verification: 01 CONFIRMED AT SOURCE (the guide's
+:4969-4974 carries a broken \rm — literally "{ m km..." after a
+lost backslash-r — compiling but rendering stray m's); 05 SAMPLED
+(h_j half-width at :2815 beside cosmological h; kernel half-width q
+at :2697 beside q's other meaning); 03's census cross-checked (my
+single-line grep finds 48 Current gap / Required closure / Current
+deviation paragraphs vs their ~58 — their multiline census governs,
+non-material); 02's register framing verified publicly-stateable
+with correct exclusions (CLI -- syntax, mathematical negation,
+refusal rules) and exact line anchors. 04/06/07/08 are
+register-witnessed with the same line-anchor discipline that has
+run ~60-for-60 this campaign — ACCEPTED as filed.
+
+RULINGS (all repairs red-team custody; texnotes is theirs):
+
+1. 01 + 02 first, as they propose — mechanical hard failures.
+2. 03: the current-state doctrine EXTENDS from the README to the
+   guide — current behavior, consequence, safe user action. RIDER:
+   a still-open defect NEVER loses its user-facing warning; each
+   removed diary paragraph gets a register map entry (where its
+   warning now lives, or why none is needed). The standing
+   gap-closure route continues: an Implementer landing that closes
+   a gap names file+line, and the guide update routes to the red
+   team.
+3. 04: APPROVED with the SCHEMA-ALIGNMENT RIDER — the refactored
+   per-gate appendix uses the six-field evidence-block vocabulary
+   (files / subprocess / metric / legs / evidence / owed) and the
+   audited aid names where it names legs, so the manuscript and the
+   home notes teach ONE schema, not two.
+4. 05: APPROVED — rename the colliding half-width symbol,
+   disambiguate q, define epoch/composition/TATT symbols before
+   first use.
+5. 06: APPROVED — authoritative citations for external algorithm
+   claims, or the explicit "as implemented here" narrowing.
+6. 07: APPROVED — name the owning class/function/adapter/driver at
+   every state transition.
+7. 08: APPROVED — gate-claim verbs narrowed to what the executed
+   fixtures establish; the audited evidence blocks are the truth
+   source for what is executed TODAY.
+8. ACCEPTANCE per landing: recompile, render, visual inspection,
+   and the FULL prose census repeated — evidence in the register.
+
+## 25M-37 COMPLETE — geometry-output imports deferred to their use sites (Opus, 2026-07-13)
+
+From the naming-drafts audit: `emulator/geometries/output.py` imported
+`cosmolike_lsst_y1_interface` and `getdist.IniFile` at MODULE level, so a missing
+dependency was an import-time death for every consumer of the module (inference,
+the board, tests) — not a declared disposition of the one training-path call that
+needs them. Both imports are deferred into their use sites: `from_cosmolike`
+(cosmolike + getdist) and `build_shear_angle_map` (getdist only; that path reads
+the ini + n(z) file, no cosmolike), with a module-top breadcrumb pointing there.
+
+Verified on the cocoa-torch interpreter: `import emulator.geometries.output`
+succeeds with `cosmolike present in env: False` (the module previously died at the
+module-level cosmolike import); `compileall emulator` clean. Small standalone
+production landing, before queue 5; no taught-behavior guide passage identified
+(an import-location change). Independent of the increment-3 naming drafts.
+
+## 25M-37 repair audit (Fable, 2026-07-13): 3ba8588 GO — the import boundary probed live
+
+The production deferral audited at the diff and PROBED against the
+machinery: the module-level cosmolike_lsst_y1_interface + getdist
+imports are gone (a teaching comment explains the 25M-37 reason in
+place); from_cosmolike carries both at its head, build_shear_angle_
+map carries its own IniFile import; every ci.* reference (:315-366)
+verified inside from_cosmolike (:265-:384). LIVE PROBE (cocoa
+interpreter, a meta_path blocker refusing both packages): the
+module IMPORTS CLEANLY with both dependencies blocked, and calling
+from_cosmolike fails at exactly its one deferred import with the
+blocked ImportError — an import-time death became a declared
+failure of the one call that needs the dependency, as ruled. My
+runs: compileall clean, board-selftest ALL PASS. The Implementer's
+guide-route note is correct: any guide passage documenting the old
+import structure is the red team's update (the gap-closure route).
+VERDICT: GO. The four Torch-declared gates can now reach their
+first assertion on a cosmolike-less box; the drafted evidence
+blocks' eager-dependency lines update at the red team (bounded,
+announced).
