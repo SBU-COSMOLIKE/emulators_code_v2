@@ -2034,6 +2034,62 @@ finite-contract gate, no new gate file):
 7. A genuine float64-compute control: a loss actually evaluated in
    float64 still receives the float64 band.
 
+#### Increment (g) COMPLETE resume (2026-07-12, Opus) — committed cf1ab16, unit 14 open on (h)
+
+Increment (g) self-committed on the branch as cf1ab16 (batch grant, pending
+Architect audit): the width rule (twelfth batch) AND the compute-dtype band
+provenance (thirteenth batch, second addendum). This resume is a follow-up
+commit because the runner's concurrent notes commits repeatedly clobbered the
+uncommitted resume. Sequencing note: my relayed handoff ordered (g) before 43;
+I built (g) first and disentangled it from the queue-43 loss-side WIP (the
+cmb.py (g) diff is ONLY the override removal), which resolves the entanglement
+the thirteenth batch cited for "43 first". (h) is next, then queue 43.
+
+Width rule (45M-60):
+- losses/core.py: `CosmolikeChi2._chi2_n_terms` returns the kept width
+  `int(self.dest_idx.numel())` (was w*w); the docstring carries the
+  depth-not-count derivation + the GROWTH CLAUSE. `_chi2_neg_band` + the module
+  comment now read "reduction depth = kept width w".
+- losses/cmb.py: the redundant `CmbDiagonalChi2._chi2_n_terms` override removed
+  (a class comment documents the inherited width band; no CMB behaviour change).
+- losses/scalar.py: ScalarChi2's docstring records it now inherits the width
+  band (the addendum's catch: it silently carried the dense w^2 rule before).
+
+Second addendum (45M-60, thirteenth batch):
+- training.py `eval_source_chi2`: the band derives from the COMPUTE dtype
+  (`c_compute = torch.cat(chunks)`, no `.double()` before the band); validate /
+  normalize in the compute dtype, cast the ACCEPTED result to float64 for
+  reporting only. Fixes the one-score-two-verdicts split (the float64 upcast
+  floored the band to 1e-6, refusing a roundoff negative _reduce / eval_val
+  normalize to 0).
+
+Gate (gates/checks/finite_contract.py, board-listed, no new file):
+- `check_chi2_band_production` (45M-60): a REAL CosmolikeChi2 subclass at width
+  780 -- -2 / -4 RAISE (band 0.002975 reported); both band sides (half
+  accepted, double raises, above the 1e-6 floor); a w^2-restoring mutation arm
+  (band 2.32086) that must NOT raise; a scalar-width leg (n_out); a mechanical
+  subclass census; an ill-conditioned SPD roundoff control. All via eval_val
+  (float32 band).
+- `check_chi2_band_dtype_provenance` (second addendum): _reduce / eval_val /
+  eval_source give ONE verdict on a value between the 1e-6 floor and the float32
+  band; the restored .double() upcast splits them (mutation); a float64-compute
+  loss gets the tight float64 band.
+- board.py maps + the gate docstring name 45M-60 + the second addendum.
+
+Mac verification (raw): py_compile OK on core.py, cmb.py, scalar.py,
+training.py, finite_contract.py, board.py; probe_width_band.py 9/9 and
+probe_band_dtype.py 4/4 on the REAL losses + eval_val + eval_source_chi2 +
+_reduce (Cocoa torch 2.6, CPU) -- n_terms 780 not 608400, bands 0.002975 /
+2.32086, eval_val refuses -2 / -4, the w^2 mutation swallows -2, the three
+boundaries agree on -5e-4 (float32 compute) and the float64-compute loss gets
+the float64 band. The torch legs ride the workstation finite-contract gate
+(still 33/33, zero skips = compile mandatory).
+
+Unit 14 stays OPEN on (h) 45M-61 (the diagnostic score boundary: the shared
+public score-domain helper + the four producer sites + the diagnostics gate)
+and (f) 45M-58 (float64 published reductions; rides 50). Next: (h), then queue
+43 under the QUEUE 43 RULINGS, then 50(+60+14f) -> 52 -> 55 -> 22 -> 13.
+
 ## UNIT 14 REOPENED (45M-61, thirteenth batch): increment (h) — the diagnostic score boundary
 
 CONFIRMED (Fable, 2026-07-12). The finite-chi2 contract stops
