@@ -28,6 +28,12 @@ gates. Grouped by the defect each proves:
     evidence a prior PASS still cites; a successful run publishes a fresh log
     whose stored digest matches its bytes.
 
+  raw-log trust -- a stored PASS is trusted only while the raw log it cites
+    still verifies. Deleting, truncating, or editing that log, or a record
+    that never stored a log digest, reads as stale-log through the same resume
+    decision the runner and the board display consume, so the gate reruns
+    rather than skipping on unverifiable evidence.
+
   structured evidence map -- validate_evidence resolves every gate's Assertion
     anchors against the notes/ markers and enforces board-wide id uniqueness,
     so a gate's maps= claim cannot drift from the note it cites. The shipped
@@ -38,6 +44,7 @@ Each check states the boundary under test, the fixture, the expected verdict,
 and (where relevant) the deliberately broken behavior it must reject.
 """
 import copy
+import hashlib
 import os
 import sys
 import tempfile
@@ -88,12 +95,27 @@ def make_gate(gate_id, *, deps=(), behavior="pass"):
                 maps="selftest", run=_run, deps=tuple(deps))
 
 
+# the byte content of the seed log a seeded current-PASS record cites. The
+# runner now verifies a stored PASS against its raw log's digest, so a seeded
+# PASS must name a log whose bytes exist and match; drive_main materializes
+# this content into its temp log dir for every seeded PASS.
+SEED_LOG_BYTES = b"seeded current-pass log\n"
+
+
 def pass_record(gate, cfg=None):
-    """A current-PASS status record for `gate` under cfg (both digests set)."""
+    """A current-PASS status record for `gate` under cfg (all three digests set).
+
+    Includes the raw-log evidence the runner now verifies: a seed log name and
+    its digest over SEED_LOG_BYTES. drive_main writes that content into its temp
+    log dir, so the record reads as a genuine current PASS (not one flagged
+    stale-log for a missing or unverifiable log).
+    """
     use = FAKE_CFG if cfg is None else cfg
     return {"status": "PASS",
             "code_digest": run_board._gate_code_digest(gate),
-            "input_digest": run_board._gate_input_digest(gate, use)}
+            "input_digest": run_board._gate_input_digest(gate, use),
+            "log": gate.id + ".seed.log",
+            "log_digest": hashlib.sha256(SEED_LOG_BYTES).hexdigest()}
 
 
 class _Args:
@@ -125,6 +147,14 @@ def drive_main(argv, gates, status0, cfg=None):
         run_board._LOGS_DIR = tmp
         run_board._STATUS_FILE = tmp / "board_status.json"
         run_board._BOARD_MD = tmp / "BOARD.md"
+        # materialize each seeded current-PASS record's cited log into the temp
+        # log dir, so the runner's raw-log digest check sees a genuine current
+        # PASS. A seeded record that deliberately cites a different log (e.g. an
+        # old-log fixture) is left alone.
+        for rec in status_copy.values():
+            if (rec.get("status") == "PASS"
+                    and rec.get("log", "").endswith(".seed.log")):
+                (tmp / rec["log"]).write_bytes(SEED_LOG_BYTES)
         run_board._load_config = lambda: dict(use_cfg)
         run_board._load_status = lambda: status_copy
         run_board.preflight = lambda cfg: (True, {})
@@ -332,6 +362,67 @@ def check_evidence_atomicity():
            leftovers == [], "clean temp dir")
 
 
+def check_log_trust():
+    """A stored PASS is trusted only while its cited raw log verifies.
+
+    Drives the REAL resume decision (run_board._resume_state) -- the same
+    function the runner's skip and the board display both consume -- over a
+    genuine current PASS and then over a deleted, truncated, edited, and
+    digest-missing log. Only the untouched control reads PASS; every altered or
+    absent log reads stale-log, and a stale-log record is not a current
+    dependency. This closes the reopen where deleting or editing a raw log left
+    the status a current PASS and a rerun skipped it.
+    """
+    g = make_gate("g")
+    tmp = Path(tempfile.mkdtemp(prefix="board-logtrust-"))
+    saved = run_board._LOGS_DIR
+    try:
+        run_board._LOGS_DIR = tmp
+        rec = pass_record(g)                       # cites g.seed.log + its digest
+        log_path = tmp / rec["log"]
+
+        # valid control: the cited log exists and its bytes match the digest.
+        log_path.write_bytes(SEED_LOG_BYTES)
+        state = run_board._resume_state({"g": rec}, g, FAKE_CFG)
+        report("valid unchanged log reads current PASS", state == "PASS", state)
+
+        # truncation: fewer bytes than the digest was taken over.
+        log_path.write_bytes(SEED_LOG_BYTES[:5])
+        state = run_board._resume_state({"g": rec}, g, FAKE_CFG)
+        report("a truncated raw log reads stale-log", state == "stale-log", state)
+
+        # a stale-log PASS is not a current dependency (same decision).
+        dep_current = run_board._dep_current_pass({"g": rec}, "g", FAKE_CFG)
+        report("a stale-log prerequisite is not current", not dep_current,
+               "not current")
+
+        # deletion: the cited log is gone.
+        log_path.unlink()
+        state = run_board._resume_state({"g": rec}, g, FAKE_CFG)
+        report("a deleted raw log reads stale-log", state == "stale-log", state)
+
+        # missing stored digest: a PASS that never recorded a log digest, even
+        # with the file present, cannot be verified and is stale.
+        rec_nodig = dict(pass_record(g))
+        rec_nodig.pop("log_digest")
+        (tmp / rec_nodig["log"]).write_bytes(SEED_LOG_BYTES)
+        state = run_board._resume_state({"g": rec_nodig}, g, FAKE_CFG)
+        report("a PASS with no stored log digest reads stale-log",
+               state == "stale-log", state)
+
+        # mutation arm: the digest is load-bearing. A valid log reads PASS; the
+        # same record after a byte edit reads stale-log. Retaining the old
+        # code (digest ignored on the skip path) would keep both PASS.
+        log_path.write_bytes(SEED_LOG_BYTES)
+        good = run_board._resume_state({"g": rec}, g, FAKE_CFG)
+        log_path.write_bytes(b"tampered\n")
+        bad = run_board._resume_state({"g": rec}, g, FAKE_CFG)
+        report("the log digest is load-bearing (tamper flips PASS -> stale-log)",
+               good == "PASS" and bad == "stale-log", good + " -> " + bad)
+    finally:
+        run_board._LOGS_DIR = saved
+
+
 def _evidence_gate(gate_id, aid, anchor):
     """A fake gate carrying one structured evidence assertion (no body run)."""
     def _run(ctx):
@@ -405,6 +496,8 @@ def main():
     check_resume_identity()
     print("\n-- evidence atomicity (RUNNING + immutable logs) --")
     check_evidence_atomicity()
+    print("\n-- raw-log trust (a PASS is only as good as its cited log) --")
+    check_log_trust()
     print("\n-- structured evidence map (anchors resolve, ids unique) --")
     check_evidence_map()
     print("")
