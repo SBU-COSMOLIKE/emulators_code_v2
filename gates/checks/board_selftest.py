@@ -46,6 +46,7 @@ and (where relevant) the deliberately broken behavior it must reject.
 import copy
 import hashlib
 import io
+import json
 import os
 import subprocess
 import sys
@@ -80,12 +81,13 @@ class _Interrupt(BaseException):
     run_selection does not catch it -- it propagates, leaving RUNNING."""
 
 
-def make_gate(gate_id, *, deps=(), behavior="pass"):
+def make_gate(gate_id, *, deps=(), behavior="pass", optional=False):
     """A fake board gate whose body records the call and passes / fails / dies.
 
     behavior "pass" -> runs and returns (PASS); "fail" -> raises GateFailure;
     "interrupt" -> raises _Interrupt (an uncaught interruption). CALLS[gate_id]
     counts executions, so a leg can prove a skipped or resumed gate never ran.
+    optional -> the Gate.optional flag (off the default sweep unless named).
     """
     def _run(ctx):
         CALLS[gate_id] = CALLS.get(gate_id, 0) + 1
@@ -95,7 +97,7 @@ def make_gate(gate_id, *, deps=(), behavior="pass"):
             raise _Interrupt("interrupted mid-gate")
 
     return Gate(id=gate_id, tier="backlog", home="selftest",
-                maps="selftest", run=_run, deps=tuple(deps))
+                maps="selftest", run=_run, deps=tuple(deps), optional=optional)
 
 
 # the byte content of the seed log a seeded current-PASS record cites. The
@@ -260,6 +262,51 @@ def check_selector_validation():
         report("ambiguous --gate + --tier rejected (parser)",
                e.code != 0, "SystemExit " + str(e.code))
 
+    # 25M-24: action modes are STANDALONE and validate their run controls.
+    # These drive the REAL main() so main()'s action-mode ORDERING is under
+    # test -- the ordering the select_gates-only legs above never exercised
+    # (why board-selftest stayed green against this defect).
+    rc, _, _ = drive_main(["--list", "--gate", "nope"], gates, {})
+    report("--list with an unknown --gate id exits nonzero (25M-24)",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list", "--from", "nope"], gates, {})
+    report("--list with an unknown --from id exits nonzero",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list", "--force-rerun", "nope"], gates, {})
+    report("--list with an unknown --force-rerun id exits nonzero",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list", "--check"], gates, {})
+    report("--list --check (incompatible actions) exits nonzero",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list"], gates, {})
+    report("a clean --list still exits 0 (regression guard)",
+           rc == 0, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--check"], gates, {})
+    report("a clean --check still exits 0 (regression guard)",
+           rc == 0, "rc = " + str(rc))
+
+    # 25M-25: --from an OPTIONAL start includes it FIRST; a later optional
+    # gate stays excluded. Pin the exact id list.
+    from_gates = [make_gate("head"), make_gate("opt-start", optional=True),
+                  make_gate("mid"), make_gate("opt-late", optional=True),
+                  make_gate("tail")]
+    saved = run_board.BOARD
+    try:
+        run_board.BOARD = from_gates
+        chosen = run_board.select_gates(_Args(from_gate="opt-start"))
+        report("--from an optional start: it is included and first (25M-25)",
+               [g.id for g in chosen] == ["opt-start", "mid", "tail"],
+               ", ".join(g.id for g in chosen))
+        chosen = run_board.select_gates(_Args(from_gate="mid"))
+        report("--from a non-optional start: unchanged tail (regression)",
+               [g.id for g in chosen] == ["mid", "tail"],
+               ", ".join(g.id for g in chosen))
+    finally:
+        run_board.BOARD = saved
+    rc, _, _ = drive_main(["--from", "opt-start", "--dry-run"], from_gates, {})
+    report("--from an optional start drives main() to a clean dry-run",
+           rc == 0, "rc = " + str(rc))
+
 
 # --------------------------------------------------------------------------
 # compile-lane non-green code (static contract; the check imports torch)
@@ -332,6 +379,67 @@ def check_dependency_currency():
            and CALLS.get("child", 0) == 0 and rc != 0,
            "child status " + str(status.get("child", {}).get("status"))
            + ", calls " + str(CALLS.get("child", 0)) + ", rc " + str(rc))
+
+
+def check_config_readers():
+    """25M-22: every non-documentation board_config key has a Python reader.
+
+    A documented control no code reads is a standing lie -- saved_emulator_root
+    was one (removed). This census re-derives the public key set from the
+    shipped board_config.json and refuses any key that no repo .py source
+    mentions, so no future dead key can accumulate.
+    """
+    cfg = json.loads(run_board._CONFIG_FILE.read_text())
+    public = [k for k in cfg if not k.startswith("_")]
+    blob = []
+    for py in run_board._REPO.rglob("*.py"):
+        if "__pycache__" in str(py) or "/.git/" in str(py):
+            continue
+        try:
+            blob.append(py.read_text(errors="replace"))
+        except OSError:
+            pass
+    text = "\n".join(blob)
+    dead = [k for k in public if k not in text]
+    report("config census: every public board_config key has a Python reader",
+           not dead, "keys no .py mentions: " + repr(dead))
+
+
+def check_dependency_topology():
+    """25M-20 rider: BOARD lists every gate's dependencies BEFORE the gate.
+
+    The resume dependency-currency fix relies on prerequisites being processed
+    before their children (a reran prerequisite is in the reran set by the time
+    the child is reached). Authoring order is a correctness invariant of the
+    resume machinery, so the board asserts it.
+    """
+    order = {g.id: i for i, g in enumerate(BOARD)}
+    bad = []
+    for g in BOARD:
+        for dep in g.deps:
+            if dep not in order or order[dep] >= order[g.id]:
+                bad.append(g.id + " <- " + dep)
+    report("topology: every gate's dependencies precede it in BOARD",
+           not bad, "out-of-order or missing: " + repr(bad))
+
+
+def check_digest_projection():
+    """25M-21: a _help (documentation) edit leaves the input digest fixed; a
+    value edit to an execution-relevant key stales it.
+    """
+    g = _mf_gate("proj", _mf_body_trivial, code=())
+    cfg = json.loads(run_board._CONFIG_FILE.read_text())
+    base = run_board._gate_input_digest(g, cfg)
+    doc = copy.deepcopy(cfg)
+    doc["_help"]["driver_root"] = "EDITED DOCUMENTATION PROSE"
+    val = copy.deepcopy(cfg)
+    val["driver_root"] = "edited-value"
+    report("digest projection: a _help prose edit leaves the input digest fixed",
+           run_board._gate_input_digest(g, doc) == base,
+           "documentation (_help) is excluded from the execution projection")
+    report("digest projection: an execution-value edit stales the input digest",
+           run_board._gate_input_digest(g, val) != base,
+           "a driver_root value change reruns the consuming gates")
 
 
 def check_resume_identity():
@@ -984,6 +1092,9 @@ def main():
     print("\n-- resume identity (both digests) --")
     check_resume_identity()
     check_dependency_currency()
+    check_config_readers()
+    check_dependency_topology()
+    check_digest_projection()
     print("\n-- evidence atomicity (RUNNING + immutable logs) --")
     check_evidence_atomicity()
     print("\n-- raw-log trust (a PASS is only as good as its cited log) --")

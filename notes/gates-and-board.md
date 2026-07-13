@@ -4890,3 +4890,178 @@ Selftest legs: real `main --list` names a changed code member; generated
 `stale-input` and names `input:<key>` plus the path change; content-only input
 change names the key; unchanged members remain current.  Mutations removing
 the list detail and reducing inputs back to `{key: sha}` must each red.
+
+## DIDACTICS-94 adjudication (Fable, 2026-07-13): CONFIRMED with one sharpening — the decoupled anchor is live for refine, queued for finetune
+
+Durable register at c020c84. Verified: README.md:1748 carries the
+compressed "(a pull back toward the saved weights) is planned"
+one-liner; the decoupled post-step mechanism is REAL and documented
+in the code itself (training.py:324-356: "decoupled L2-SP anchor: a
+post-step pull toward a reference W_0 ... AdamW-decoupling argument
+... kept OUT of the loss"); the masked zero-init extra columns
+story is executed (warmstart.py anchor_masks: ones on source
+columns, zeros on the n_extra carriers; training.py:343). The
+scalar example's arithmetic checks: 2.4 - 0.01*0.5*(2.4-2.0) =
+2.398.
+
+RATIFIED as filed, with ONE SHARPENING the prose must carry: the
+decoupled anchor is a LIVE mechanism for the transfer REFINE stage
+(refine.anchor is a validated key, experiment.py:1488-1501); it is
+the ordinary-FINETUNE train_args.finetune.anchor key that is queued
+and currently refused. The README teaches: (1) the conceptual L2-SP
+form R(W) = (lambda/2) sum_j ||M_j o (W_j - W_j0)||_F^2 with every
+symbol defined and the weight-decay distinction (decay pulls toward
+ZERO and fights the warm start; the anchor pulls toward the SOURCE
+weights); (2) the executed decoupled update W+ = Wopt - eta*lambda*
+M o (Wopt - W0), kept out of the reported scientific loss, with the
+recorded scalar example; (3) which weights anchor and why the
+zero-initialized new-parameter columns are masked FREE; (4) the
+current-state adjacency: live for refine, queued for finetune
+(unit 24's contract), so ordinary fine-tuning is currently
+unanchored.
+
+Placement per campaign law: the teaching lands with the ROOT README
+visit (the 72-80 batch's fine-tuning section); the 2.398 scalar
+example is an executable documentation fixture -> UNIT 91; the
+current-state sentence follows the stable prose per the
+limitations-adjacent rule.
+
+## 25M-26 adjudication (Fable, 2026-07-13): CONFIRMED — the persisted-lineage half of my own 25M-20 ruling, unimplemented and un-caught by my audit
+
+Durable register at d890cab. The finding is verified against the
+code I audited: cc85aa9's reran set is allocated per run_selection
+call, and a child's status record persists its own code/input/log/
+attempt identity but NO identity of the prerequisite result it
+consumed; _dep_current_pass asks only whether the prerequisite is a
+current PASS NOW. The red team's two-invocation witness (force-rerun
+the prerequisite; a separate invocation resumes the child with zero
+bodies, exit 0) follows necessarily.
+
+THE HONEST PART FIRST: the 25M-20 ruling ALREADY contained this
+clause — "persist the dependency verdict/digest or artifact
+identity needed to bind that currency." cc85aa9 implemented the
+in-process half only, the handoff's scope list did not mention
+persistence, and my audit GO'd it as "exactly to the ruling"
+without reconciling the ruling's clause list against the delivered
+mechanism. AUDIT LESSON (recorded beside the probe-the-machinery
+law): a pre-merge audit walks the RULING'S CLAUSES as a checklist
+against the diff — "matches the described design" is not "matches
+the ruling"; the described design may be the ruling minus a clause.
+
+RULING (completes 25M-20; the contract as filed): each successful
+child PASS persists, per direct dependency, the identity of the
+successful result it consumed (the dependency's attempt id + verdict
+/log digest). _resume_state compares the snapshot against each
+dependency's CURRENT successful attempt; a mismatch is the new
+non-green state STALE-DEPENDENCY, rerun on selection, published as
+such by --list and BOARD.md (a child never displays PASS beneath a
+stale/failed prerequisite). Legacy dependent PASSes without
+snapshots are non-green and rerun — never retroactively blessed
+(the pre-manifest precedent applied to lineage). Cross-process
+selftest legs: the exact two-invocation witness; the
+snapshot-refresh control (child reruns once, snapshots the new
+attempt, then resumes); the legacy-record refusal; the mutation
+restoring snapshot-free records must reproduce exit-0-zero-bodies
+and red. The resume-state list grows to include stale-dependency —
+the gates/README teaching (DIDACTICS-87's list) and the state
+machine prose update with it in the D1 visit.
+
+The 25M-24 RIDER is ratified into item 7's contract: --gate A
+--force-rerun B with B outside the selected surface is a usage
+error (exit 2), never a silent discard.
+
+Placement: 25M-26 = ITEM 9 of the 1b hardening increment (one
+machinery landing, one audit; the same status-record surface 21's
+projection already touches). Queue 2 remains behind the increment.
+
+## 1b hardening increment: 5 of 9 items landed (Opus, 2026-07-13)
+
+Five self-contained / low-blast-radius items landed on the branch, each
+Mac-validated (board-selftest ALL PASS, validate_manifests 40/40 ok, py_compile
+clean); reviewed together in one audit (the Architect's "one landing or two
+commits, ONE audit"):
+
+- 9e30860 (items 21+22+topology): 25M-21 the named _config_execution_projection
+  (documentation namespaces excluded from the input digest; _help prose edits no
+  longer stale gates, value edits still do); 25M-22 saved_emulator_root removed
+  (key + _help, zero readers verified) with the config-census standing leg
+  (every non-documentation board_config key has a Python reader); the
+  topology-assertion leg (deps precede children in BOARD, the 25M-20 rider).
+- 05334f3 (items 24+25): 25M-24 main() validates selectors + rejects
+  --list/--check-together BEFORE any action-mode return (real-main() legs);
+  25M-25 select_gates' --from includes an explicitly named optional start first
+  (id-list-pinned leg + restoration mutation).
+
+REMAINING (the interdependent census-core trio + the cross-invocation item), all
+fully specced (parallel subagent investigation captured in the handoff):
+- 25M-16 closure truth: extend the census for spec_from_file_location loaders +
+  Cobaya python_path adapters (reviewed _RUNTIME_LOADER_COVERS table), source-
+  opened-as-data (a _data_read_sites scanner hashing-as-file, NOT closure-
+  seeding -- the finite_contract.py leaf lesson), and the bare-sibling import
+  (gct_parity.py:43 -> resolve against the importer's dir); re-populate the 8
+  identity/smoke manifests with their cobaya_theory root; the two-call-scanner
+  mutation + the geo-paths whole-scope fixture. Per-gate covering-root table in
+  the handoff.
+- 25M-18 all-quantified coverage: census (b) requires a declared root equal-to-
+  or-ancestor-of EVERY required cover, all-quantified over covers AND over
+  required-all tuple members; must-red fixtures child-as-cover, strip-one-of-two,
+  any-one-of-eight (interlocks 16's new tables).
+- 25M-19 owner resolvers: one resolver per input namespace (evaluate_yaml->repo,
+  gate_configs.*->yaml_dir, gate_data.*->owner, deploy_data->machine-dependent
+  resolve-not-exist); repo-owned inputs refuse None-sha; two-cwd + executed==
+  hashed legs; CWD-first mutation.
+- 25M-26 cross-invocation lineage: per-dependency snapshots persisted + a
+  STALE-DEPENDENCY resume state (the cross-run persistence clause of 25M-20).
+
+These four are best landed together with fresh focus -- they change the
+validation core (census, coverage, resolver, resume-persistence) all 40 gates
+depend on, and 16's tables consume 18's coverage rule. Queue 2 opens at the
+full increment's merge.
+
+## Hardening 5/9 pre-merge audit (Fable, 2026-07-13): GO for the merge; item 7 is INCOMPLETE by two clauses — the checklist law's first two catches
+
+Commits 9e30860 + 05334f3 audited under both new laws (clause
+checklist + live probes against the real main() on the cocoa
+interpreter).
+
+CLEAN — verified by probe, not by report:
+- 25M-21: _config_execution_projection excludes ANY
+  underscore-prefixed documentation namespace (a correct
+  generalization beyond the ruling's literal _help); live probe —
+  prose edit leaves the projection fixed, value edit moves it.
+- 25M-22: zero saved_emulator_root occurrences remain; the
+  config-census standing leg present.
+- Topology-assertion leg present (deps precede children in BOARD).
+- 25M-24, the landed clauses: --list with an unknown --gate exits 2;
+  --list --check exits 2 (live real-main() probes).
+- 25M-25: --from triangle-shading returns the named optional start
+  FIRST (count 21, zero later optionals) — exactly to ruling.
+
+TWO CLAUSE GAPS, both in item 7 (25M-24), both found by walking the
+ruling's clause list:
+1. IGNORED run controls: --list --force-rerun <valid-id> exits 0 —
+   the ruling requires "incompatible or IGNORED run controls exit
+   nonzero"; the mutual exclusion covers --check and unknown ids
+   but a valid ignored control passes silently.
+2. The bcf4ce2 RIDER: --gate A --force-rerun B with B outside the
+   selected surface reached preflight instead of exiting 2 as a
+   usage error (live probe: cmb-identity + force-rerun bsn-identity
+   ran preflight).
+
+RESOLUTION: the merge proceeds NOW — nothing landed is wrong; the
+gaps are absent clauses, not broken ones, and the increment is
+explicitly open at 5/9. Item 7's two missing clauses join the
+remainder batch (a small commit alongside or before the census-core
+trio). QUEUE 2 opens only at 9/9 PLUS item-7 completion.
+
+GO for the remainder in the Implementer's proposed dependency
+order, ratified: 18's all-quantified coverage rule first (16's
+tables consume it), then 16's closure truth (the
+_RUNTIME_LOADER_COVERS reviewed table; the hashes-as-file
+data-read rule is APPROVED — a source file read as data joins the
+digest surface without seeding the import closure, the
+finite_contract leaf lesson), then 19's owner resolvers, then 26's
+lineage snapshots + STALE-DEPENDENCY. The deliberate stop at the
+census-core boundary was the right call and is credited: the four
+remaining items rewrite the validation core all 40 gates depend on
+and deserve a fresh session.

@@ -2532,6 +2532,40 @@ the exact seam 25M-26 exposed in the prior 25M-20 pre-merge audit.
 The hardening increment is now closed to unrelated scope; only a
 reopen of one of its existing clauses may join it.
 
+DIDACTICS-94 (2026-07-13, Fable): CONFIRMED — the README's one-line
+anchor prose becomes the full L2-SP teaching (conceptual form +
+the EXECUTED decoupled post-step update kept out of the loss +
+masked-free new-parameter columns + the 2.398 scalar example), with
+one sharpening: the mechanism is LIVE for transfer-refine
+(validated refine.anchor) and QUEUED for finetune (unit 24). Rides
+the root README visit; the scalar example joins unit 91. Spec:
+gates-and-board.md "DIDACTICS-94 adjudication".
+
+25M-26 (2026-07-13, Fable): CONFIRMED — cross-invocation dependency
+lineage is lost (the reran set is process-local; a child PASS
+records no identity of the prerequisite result it consumed; the
+two-invocation witness resumes the child under a fresh prerequisite
+artifact). This was the UNIMPLEMENTED persistence clause of my own
+25M-20 ruling, and my audit missed the gap — new audit law: walk
+the ruling's clauses as a checklist against the diff. RULING:
+per-dependency result-identity snapshots in every child PASS; the
+new STALE-DEPENDENCY non-green state across processes and in
+--list/BOARD.md; legacy snapshot-free dependent PASSes non-green,
+never blessed. Item 9 of the hardening increment; the 24 rider
+(--force-rerun outside the selection = usage error) folds into
+item 7. Spec: gates-and-board.md "25M-26 adjudication".
+
+HARDENING 5/9 AUDIT (2026-07-13, Fable): GO for the merge —
+21/22/topology/25 + 24's landed clauses all probe clean against the
+real main() (prose-edit digest fixity, zero dead-key occurrences,
+named optional start first, unknown-id and --list --check exit 2).
+TWO CLAUSE GAPS in item 7, the checklist law's first catches:
+ignored run controls still exit 0 (--list --force-rerun <valid>),
+and the outside-selection force-rerun rider is unimplemented
+(reached preflight). Both join the remainder batch. Queue 2 = 9/9 +
+item-7 completion. Remainder order ratified: 18 -> 16 -> 19 -> 26.
+Spec: gates-and-board.md "Hardening 5/9 pre-merge audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
