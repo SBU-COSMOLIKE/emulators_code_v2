@@ -2875,3 +2875,17 @@ fix-queued diary replaced with the direct pair-integrity warning
 (current-state ruling; the 77/80 contract stays in its owner note;
 retained claims verified true). Lineage checked: D2 is an
 ancestor. Spec: gates-and-board.md "Root README cleanup audit".
+
+QUEUE-2 INCREMENT-2 AUDIT (2026-07-13, Fable): the ##AID fold layer
+verified good (parser, malformed-raise, fold, five real-runner
+arms; own compile/--list/selftest runs green) EXCEPT one required
+repair, found in the increments' COMPOSITION and reproduced against
+the machinery: a script printing ``##AID <aid> FAIL`` while exiting
+0 reconciles GREEN with the FAIL relabeled UNAVAILABLE (increment
+1's "a FAIL raised GateFailure" comment falsified by increment 2's
+non-raising fold channel). Repair: the passing path reds on any
+FAIL record with a named contradiction line + a real-runner arm
+(FAIL-under-rc-0 reds; all-PASS control green). Implementer
+self-commits the repaired layer under the grant; transfer triggers
+fire at that commit. New audit-checklist law: composition re-walks.
+Spec: gates-and-board.md "Queue-2 increment-2 audit".

@@ -6357,3 +6357,105 @@ VERDICT: GO. The register carries both records with the
 no-self-certification line. Landing: merge
 codex/readme-code-map-dedup (it contains D2 + this cleanup), then
 amazing-keller as usual.
+
+## Queue 2 increment 2 COMPLETE — the ##AID check-script manifest fold (Opus, 2026-07-13)
+
+Increment 2 is landed and Mac-verified. It builds the MECHANISM that lets an
+external check script's per-leg legs reconcile like in-process ones; it does NOT
+migrate the 25 scripts to emit their real aids (that is increment 3, which wires
+to the red team's audited naming drafts). No real script emits `##AID` yet, so the
+live board is unchanged (`--list` rc 0).
+
+**What landed (run_board.py + board_selftest.py only):**
+
+- `_parse_aid_manifest(output)` + the `_AID_MANIFEST_PREFIX = "##AID"` constant:
+  scans a check script's captured output for reserved
+  `##AID <aid> <PASS|FAIL|UNAVAILABLE> [reason...]` lines, returns
+  `(records, malformed)` — records are `(aid, result, reason)` (the reason keeps
+  its spaces for an UNAVAILABLE leg); non-manifest output is ignored so a script
+  keeps its human CHECK lines.
+- `run_check` now FOLDS the parsed records into `ctx._executed` after the
+  subprocess returns, so a script's per-leg legs join the executed set and
+  reconcile exactly like in-process `expect(aid=)` legs. An UNPARSEABLE `##AID`
+  line raises `GateFailure` immediately (a machine-unreadable manifest is a
+  check-script contract violation), regardless of `allow_fail`.
+- Binding ruling 6 for external checks is now closed: a script that DROPS a
+  declared leg (the aid is never folded) reds via reconciliation; a script that
+  CRASHES before its manifest emits nothing, so its declared leg is missing and
+  reds; a malformed line reds. The one-verdict constraint is enforced by
+  reconciliation's duplicate rule — a leg counted by BOTH the script's `##AID`
+  and a gate-body `expect(aid=)` is emitted-twice and reds (so a migrated gate
+  records ONE verdict per leg, never a second parallel one).
+
+**board-selftest `check_aid_manifest`** drives the REAL parser, the REAL
+`run_check` subprocess, and the REAL `run_selection` over tiny temp check scripts
+(auto-cleaned via `TemporaryDirectory`): the parser unit legs (records + reason;
+malformed flagged); a both-legs script folds green; a dropped-leg / crash /
+malformed / double-counted-leg script each reds. **162 PASS / 0 FAIL** (was 155,
++7 legs); `--list` rc 0; compile clean.
+
+**Increment 2's landing is the pre-authorized WAVE-2 TRIGGER** (throughput
+rebalance f0aa2a9): D6, 61-finiteness, D3 (pending the red team's torch probe),
+and the D4 file-by-file split leave the Implementer queue for the red team on
+this landing; **46's `_golden_leg` repair (board.py) stays with the Implementer.**
+
+**Next:** increment 3 = per-gate migration in the Deliverable-C order (7 migrated
+-> in-process -> wrapper+child -> subprocess-driver last), each gate's per-leg
+aids wired to the red team's AUDITED home-note naming draft (per-gate objection
+where migration disagrees; the 4 subprocess-driver wrappers + the 7 foundation
+re-keys are Implementer-named), with the `maps=` one-sentence rewrite + `home=`
+reconciliation per visit. Increment 3 waits on the audited drafts.
+
+## Queue-2 increment-2 audit (Fable, 2026-07-13): ONE REQUIRED REPAIR — a manifest FAIL under a zero exit code reconciles GREEN
+
+The ##AID fold layer audited in the working tree (run_board.py +
+board_selftest.py + the notes resume; no check-script or board.py
+edits — the step-2 scope exactly). VERIFIED GOOD: _parse_aid_manifest
+(reserved-prefix scan, reason kept with internal spaces, malformed
+lines collected); run_check raising on an unparseable ##AID line
+regardless of allow_fail (a contract violation is never tolerated);
+the fold into ctx._executed; and five real-runner selftest arms
+(fold-green control, dropped-leg red, crash-before-manifest red,
+unparseable-line red, script+body double-count red under the
+one-verdict constraint). My own runs: compileall clean, --list rc 0,
+board-selftest ALL PASS.
+
+THE DEFECT (found by walking the two increments' COMPOSITION, then
+reproduced against the machinery): _reconcile_evidence's passing
+path still assumes "a FAIL raised GateFailure and never reaches
+this path" — true for in-process expects, FALSIFIED by the fold,
+which appends FAIL records without raising. A check script whose
+own aggregation is buggy — it prints ``##AID <aid> FAIL`` yet exits
+0 (exactly the D-SPE2-5/DIDACTICS-62 verdict-aggregation class this
+program exists to catch) — passes the wrapper's rc==0 expect, and
+reconciliation RELABELS the FAIL as UNAVAILABLE. Reproduced
+in-process: declared {good-leg, bad-leg}, executed [(good-leg,
+PASS), (bad-leg, FAIL)] -> ok=True, display "executed 1/2;
+UNAVAILABLE 1: probe-fail.bad-leg". A recorded failure absorbed as
+an owed leg; the harness quietly reinterprets contradictory
+evidence — the precise anti-pattern binding ruling 6 kills.
+
+REQUIRED REPAIR (blocks the increment-2 commit):
+
+1. _reconcile_evidence's passing path reds on ANY record whose
+   result is FAIL, with a named line, e.g. ``[evidence] <gate>: leg
+   <aid> recorded FAIL while the gate body passed (the check's
+   manifest contradicts its exit code)``. The scan runs BEFORE the
+   n_pass / unavailable split, so a FAIL is never counted into
+   either bucket.
+2. A selftest arm through the real runner: a fabricated script
+   prints one PASS leg and one ``##AID <aid> FAIL`` leg and exits 0;
+   the wrapper's rc==0 expect passes; the gate must end FAIL with
+   the named line. Control: the same script with both legs PASS
+   stays green.
+
+Under the commit grant: repair, self-commit the corrected increment
+(one commit, the whole layer), and hand off the sha for the delta
+audit. The four transfer triggers announced on this landing HOLD —
+they fire when the repaired increment commits, not before.
+
+Note for the record: increments 1 and 2 were each internally
+consistent; the hole lives in their composition (a comment in 1
+made an assumption 2 invalidated). Composition re-walks — re-reading
+the earlier increment's assumptions against the new one's channels —
+join the audit checklist alongside the clause walk.
