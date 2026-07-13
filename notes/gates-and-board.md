@@ -4215,3 +4215,26 @@ ONE new clause:
   instance): the config census proving every non-documentation
   public key has an execution reader becomes a standing selftest
   leg — no future dead key can accumulate.
+
+## 25M-20 DONE — resume no longer bypasses dependency currency (Opus, 2026-07-13)
+
+Commit cc85aa9 (the immediate unit-4 reopen, landed right after population
+completion per the binding timing). run_selection's resume early-continue on a
+current stored PASS ran before the dependency loop, so a gate whose own PASS was
+current resume-skipped as green with a stale / failed / interrupted prerequisite.
+Fix: dependency currency joins the reusable-PASS predicate — a gate resumes only
+when its own PASS is current AND every dependency is a current PASS that was not
+itself rerun this run (a `reran` set tracks this-run executions; a reran
+prerequisite reruns its artifact-consuming child). board_selftest gains
+check_dependency_currency driving the real run_selection over the state matrix:
+both-current-PASS resumes (0/0 bodies); a stale-code prerequisite reruns its
+current-PASS child (the resume-before-deps mutation, red-capable — child bodies 0
+without the fix); an interrupted RUNNING prerequisite reruns the child; a FAILED
+prerequisite skip-deps it (nonzero exit). board-selftest ALL PASS; py_compile
+clean.
+
+Next: the 1b hardening increment (25M-16 whole-check closure, 25M-18 waiver
+direction + the all-quantified-coverage addendum, 25M-19 owner-specific
+resolvers, 25M-21 digest projection) — one machinery batch before queue 2, with
+the expected-and-correct side effect that the closure repair stales stored
+PASSes whose manifests omitted real dependencies. Then D3 and D4 per the specs.
