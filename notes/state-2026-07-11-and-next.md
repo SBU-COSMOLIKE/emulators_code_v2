@@ -1996,6 +1996,17 @@ residual AND gradient on pinned coordinates, unit 63 stays the
 legality authority. Spec: gates-and-board.md "20M-18 reachability
 correction + final proof + 20M-19 adjudication".
 
+UNIT 70 AUDIT (2026-07-13, Fable): `5d22634` PASS pre-merge —
+cmb-identity 78 legs ALL PASS from a clean checkout ([3,3] and
+[12,0.75] verbatim; stash-invariant; wrong-length no-crash) +
+diagnostics-domain green; all three diagnostic families pass the
+batch's own x_enc; the smoke bar uses explicit params. Beyond
+contract: loss() clears the stash in a finally, making stash privacy
+structural. 20M-01 and 20M-02 are now both CLOSED on the Mac; their
+workstation legs (69 leg 5, the smoke mutation arm) ride queue 5.
+Next per the sequencing ruling: unit 79. Spec: gates-and-board.md
+"Unit 70 — pre-merge Architect audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

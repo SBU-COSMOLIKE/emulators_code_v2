@@ -2258,3 +2258,26 @@ BIT-IDENTICALLY. Training, validation, best-epoch selection, and
 diagnostics optimize and select a DIFFERENT FUNCTION from the one
 the program serves, and gradients flow through a coordinate the
 public path always discards.
+
+### Unit 70 — pre-merge Architect audit (Fable, 2026-07-13): PASS, one improvement beyond contract
+
+Commit `5d22634` audited before merge. Evidence re-executed by the
+Architect from a clean detached checkout on the cocoa interpreter:
+cmb-identity 78 legs ALL PASS (rc 0) — the [2, 0.5] control factors,
+the analytic params-passing [3.0000, 3.0000], the omitted-params
+stale-stash demonstration reproducing [12.0000, 0.7500] exactly, the
+stash-invariance leg (byte-identical), and the wrong-length-stash
+no-crash leg — and diagnostics-domain green (the law="none"
+control). Contract-true on all four clauses: every needs_params
+branch in cmb/grid/grid2d residual diagnostics passes the batch's
+own x_enc to chi2 (diagnostics.py :537, :760, :897); the cmb-smoke
+mean-predictor bar scores with explicit validation params; the
+caller rule is uniform across the family. BEYOND CONTRACT, verified
+and approved: loss() now clears the stash in a finally block, so the
+private-stash rule is structural — an omitting public caller gets
+the loud ValueError refusal, never ANY stale factor; the roughness
+penalty still reads the stash inside the reduction, before the
+clear. The Implementer's resume-state notes entry
+(families-scalar-cmb.md) is back under the corrected ownership rule
+and is accurate. The cmb-smoke stale-cache mutation arm rides the
+workstation smoke run (queue 5), as scoped.
