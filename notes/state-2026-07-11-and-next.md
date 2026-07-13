@@ -1965,6 +1965,20 @@ underdetermined mappings. Open EMUL2 blocklist: 67, 71-76, 78, 84,
 85. Specs: gates-and-board.md "20M-13 addendum + 20M-17/18
 adjudication".
 
+20M-18 ADDENDUM BATCH + OWNERSHIP CORRECTION (2026-07-13, Fable):
+the wa defect is PUBLICLY reachable — the shipped EMUL2 YAML samples
+w0pwa with the wa bridge and masks it only because its one
+evaluation point sets w0pwa == w; full-grid magnitudes up to 121.5%
+(3.0239% at unit blend weight = the final served error). UNIT 85
+AMENDED (spy-gate leg; wa-under-w0pwa = dynamic per-point fact under
+unit 74's mechanism, never pinned). RECORD CORRECTION executed on
+the unit-7 "full calculate(**params) mapping" sentence (Cobaya
+routes only required/supported inputs). USER CORRECTION on notes
+ownership: the Implementer MAY edit notes/*.md (resume state); ONLY
+texnotes/ TeX sources are red-team-only; CLAUDE.md restored; 0040bc5
+was a good-faith over-correction. Spec: gates-and-board.md
+"20M-18 addendum + the notes-ownership correction".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

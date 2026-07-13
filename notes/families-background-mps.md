@@ -1244,3 +1244,29 @@ pair artifacts declare one coordinate law; a mutation restoring
 12.987% miss and reds. Placement: the shared Syren
 parameter-resolution contract, coordinated with units 74-75 in the
 wave-4 MPS visit; EMUL2-blocking.
+
+## UNIT 85 ADDENDUM (20M-18 addendum, 2026-07-13): publicly reachable via the shipped EMUL2 YAML; served-error magnitudes; the spy-gate leg
+
+The shipped cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml already
+carries the defect's trigger: sampled w0pwa (dropped), the dynamic
+bridge wa = w0pwa - w with derived: false, and a single evaluation
+point at w0pwa == w (wa = 0) that MASKS the omission — any point
+with w0pwa != w inside the published priors (e.g. w = -0.99,
+w0pwa = -0.89 -> wa = 0.1) exercises it. Independent full-grid
+magnitudes on the real vendored base at wa = 0 vs the generator's
+wa = 0.1: 1.7774% (P_lin), 3.0239% (combined pklin x boost within
+z<=2, k<=10, where the low-k blend weight is numerically one — the
+FINAL served nonlinear error under a perfect network), 6.8977%
+(z<=10, k<=100), 121.5% (full z<=50, k<=100 grid).
+
+Contract refinements folded in: wa-under-w0pwa is a DYNAMIC
+per-point fact resolved by unit 74's consumer-side mechanism — it is
+never pinned as a fixed fact; unit 7 remains the shared
+alias/coordinate resolver applied first. Added leg (binding): a
+real-Cobaya gate on the PUBLIC w0pwa YAML at a nonzero-wa point with
+a perfect-residual predictor SPIES the canonical Syren tuple
+received at generation and at serving and requires equality;
+removing the wa requirement must reproduce the miss. The unit-7
+record sentence ("full calculate(**params) mapping") is corrected in
+artifacts-inference-warmstart.md — Cobaya routes only
+required/supported inputs.

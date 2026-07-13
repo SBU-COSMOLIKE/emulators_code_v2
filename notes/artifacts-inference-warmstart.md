@@ -712,7 +712,13 @@ name is never compared against the chosen one. Reachable through BOTH
 public callers, each of which passes a complete resolved mapping: the
 generator hands the full Cobaya to_input dict to the reader
 (dataset_generator_mps.py, the write_base block), and the adapter
-hands its full calculate(**params) mapping (emul_mps.py). The shipped
+hands its calculate(**params) mapping (emul_mps.py) — RECORD
+CORRECTION (20M-18 addendum, 2026-07-13): that mapping is NOT the
+full resolved dict; real Cobaya routing supplies only the inputs the
+component explicitly requires/supports, so a dynamic bridge such as
+wa = w0pwa - w reaches calculate ONLY when the theory requests wa
+(unit 85 owns the consequence; any gate leaning on the old sentence
+is corrected with it). The shipped
 EMUL2 evaluate YAML DEFINES BOTH amplitude names to bridge the
 requirement fork (README ~:2214-2216), so "both aliases present" is
 an exercised shipped shape, not an invented internal call.

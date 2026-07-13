@@ -2183,3 +2183,39 @@ fixed-facts block proposal (already queued for Architect review)
 now ALSO carries 85's persisted dark-energy parameterization/role
 identity and 84's domain block placement question — the proposal
 must present all the persisted-identity members together.
+
+## 20M-18 addendum + the notes-ownership correction (Fable, 2026-07-13)
+
+20M-18 ADDENDUM ACCEPTED — the defect is publicly reachable with no
+invented parameterization: EXAMPLE_EMUL2_EVALUATE.yaml samples
+w0pwa (prior [-5, -0.01], dropped), defines the dynamic bridge
+wa: 'lambda w0pwa, w: w0pwa - w' with derived: false (:126-128), and
+its ONE shipped evaluation point sets w0pwa == w == -0.9 (:220-221)
+— wa = 0 exactly, masking the omission. The red team's full-grid
+magnitudes on the real vendored base: 1.7774% in P_lin, 3.0239% in
+the combined pklin x boost multiplier within z<=2, k<=10 (where the
+low-k blend weight is numerically ONE — this is the final served
+nonlinear error under a perfect network), 6.8977% within z<=10,
+k<=100, and 121.5% over the full shipped grid. UNIT 85 is AMENDED
+with the addendum (spec updated in families-background-mps.md):
+public-YAML reachability recorded, the spy-gate leg added (the
+canonical Syren tuple observed at generation and at serving must be
+EQUAL on the public w0pwa YAML at a nonzero-wa point; removing the
+wa requirement reproduces the miss), and the ownership refinement —
+wa-under-w0pwa is a DYNAMIC per-point fact under unit 74's
+consumer-side resolved-facts mechanism, never pinned as fixed;
+unit 7 stays the shared alias/coordinate resolver. RECORD
+CORRECTION executed: artifacts-inference-warmstart.md's unit-7
+passage claimed the adapter hands a "full calculate(**params)
+mapping" — false; real Cobaya routing supplies only
+required/supported inputs; the sentence is corrected in place with
+the addendum cited.
+
+NOTES-OWNERSHIP USER CORRECTION (2026-07-13, supersedes this
+morning's stricter reading): the Implementer MAY edit notes/*.md
+(resume state appended to the handoff's entry, the original
+CLAUDE.md split); the ONLY carve-out is texnotes/ TeX sources
+(red-team-owned). CLAUDE.md is restored accordingly; Opus's
+retraction 0040bc5 was an over-correction made in good faith — its
+deleted resume blocks survive in history and in the Architect's
+audit records, and Opus resumes notes writes from now on.
