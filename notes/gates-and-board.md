@@ -3360,3 +3360,111 @@ fixture repair -> the gate-truth batch (46+addendum/47/48/52/53/63
 + 61-finiteness + 66) -> gate-truth increment 2 (62/59/60 +
 64-narrowing + 70-leg). Unit 93 is workstation-owed; 67+68 ride the
 family visits; the factual bundle grows by 61/69/70/71's prose.
+
+## The consolidated DIDACTICS execution handoff (Fable, 2026-07-13): one plan for findings 01--71
+
+Every DIDACTICS finding is adjudicated; this section is the ONE
+execution plan the Implementer works from, consolidating the
+per-batch adjudications above into ordered deliverables. The full
+filings live in notes/red-team-audit-and-didactics-2026-07-13.md
+(the durable register, 42--71) and the per-batch sections of this
+file (01/02, 03..09, 10..19, 20..26, 27..32, 33..41, 42..57, 58,
+62/63, 59/60, 61+64..71). On any tension between this summary and a
+per-batch section, the per-batch section wins.
+
+THE SPINE (binding order; nothing below preempts it): batches 4/5b
+(1b population) -> the unit-28 smoke-fixture repair -> the
+gate-truth batch -> gate-truth increment 2 -> queue 5. Doc-only
+deliverables interleave as review-blocked filler.
+
+- D1, navigation truth (DIDACTICS-02 + 58): the gates/checks
+  __init__ file-by-file index; the README inventory mechanically
+  validated against BOARD by a board-selftest set-equality leg with
+  a helper-file allowlist; no numeric gate count anywhere in prose;
+  the beginner-first runner walkthrough before the evidence
+  vocabulary; the worked miniature gate with all six artifacts; the
+  seven-mechanics harness-Python preamble (58, census: 24 files)
+  rides this landing. Manifest/Gate docstring cleanup AFTER 4/5b.
+- D2, the factual bundle (queue 6; falsehoods jump the queue; first
+  landing = 02 + 05a + 08 + 33 per their sections): every item a
+  per-batch section marks "factual bundle", headline members — the
+  package/experiment/inference cosmic-shear-only intros (42/49/10a);
+  the .h5/.emul ownership reversals; "re-derives no physics" (14);
+  the dtype contract truths (11a/45); six-vs-seven syren args (12);
+  board.py :634/:1370; the stale "refine not yet implemented" (23);
+  the HDF5-typed correction (24); geo_paths' import-raises prose
+  (26); scalar-smoke's "smooth"/0.455 (60-prose); experiment.py's
+  false "independent selection" comment (31); the wrapper falsehood
+  echoes (27); weight-decay narrowing + BerHu units (30); the
+  batching.py two-regime rows correction (08); the README
+  all-family + BSN honest narrowing (05a); scheduling device/worker
+  scope (43); CMB whitening weighting (44); factored-width (50);
+  state_dict frozen params (56); masked-decode inverse (57);
+  association-not-causation (55); 61's two prose halves; 69's
+  six-site canonical whitening sentence (multiline census); 70's
+  CPU-normalization correction; 71's two-invariant split (+ the
+  bit-for-bit census).
+- D3, the unit-28 smoke-fixture repair (31): distinct RECORDED
+  generator seeds (or one proven-disjoint partition), zero-overlap
+  refusal before training, row-alignment proof, printed
+  seeds/counts/overlap, the same-seed mutation arm. BEFORE queue 5.
+- D4, the gate-truth batch: 46 (+ the golden-leg rc addendum: both
+  rc==0, nonempty/minimum selected-line count, both rcs+counts
+  reported, three mutations), 47 (payload validated before
+  filtering), 48 (the PDF verified), 52 (both absences, per-pattern
+  mutations), 53 (all six blocks or the narrowed contract), 63
+  (parse-and-verify the used-n-of-m banner against an independent
+  mask), 61-finiteness (decreasing: both endpoints finite, five
+  named controls), 66 (independent nonempty expected masked-index
+  set + two mutations).
+- D5, gate-truth increment 2: 62's five behavioral gates
+  (parse-and-assert; the joint-training driver's ONE phase-boundary
+  trunk digest line), 59 (the real eval_val across three
+  partitions; reuse the production per-row surface), 60 (baseline
+  recomputed AFTER D3, both bars, dead-network arm), 64's vacuous
+  compile-arm removal, 70's CPU-residency leg.
+- D6, behavioral hygiene: the mkdtemp cleanup (all NINE sites — the
+  five gate sites of 25 + board_selftest's four of 28 — one
+  landing, injected-failure acceptance); the triangle strengthening
+  (29 with 65's exact acceptance: expected (x,y,window) set, axis
+  identities, per-artist _CUT_GREY, moved-artist mutation).
+- D7, UNIT 91 (the documentation-examples gate): ONE board-listed
+  module holding every executable worked example — 11's dtype
+  controls, 12's unit-table check, 13's five-point Simpson, 15's
+  instrumented lifecycle order, 16's overlapping-requirement
+  example, 17's interpolator shape/range cases, 18's scatter+mixed
+  fixtures, 04's coordinate-table leg, 21's activation tail tests,
+  22's constructor tests (validation code rides unit 40), 67's
+  open-count census. Production files stay stripped-AST-identical.
+- D8, lane-3 family visits (each rides its protocol unit, never
+  before): 15-19 adapter teaching with units 71-75/73/85; 12's
+  keyword-arg conversion with 85; 13 + unit 90 with the BSN visit;
+  10b with unit 66; 03/04/06/07/09 per gate family; 23's
+  finetune/transfer preambles; 28's subprocess ten-field contract +
+  both-stream failure tails; 32's persisted labeled child streams +
+  the explicit no-timeout statement; 67+68 as ONE warmstart visit
+  (teach the double open, define .ia, finite guards on BOTH
+  perturbed parity arms + board legs).
+- D9, queue-2 riders: 20's registry stable-section rewrite, 27's
+  wrapper-child reconciliation, UNAVAILABLE labeling per binding
+  ruling 6, and 09's taught vocabulary in the rollout's logs.
+- D10, minted units on the board: 90 (BSN independent quadrature +
+  Simpson-weights mutation), 91 (D7), 92 (device-audit totality),
+  93 (compile-mode persistence, CUDA instrumented lane) — 93 and
+  the accelerator halves are workstation-owed queue-5 exhibits.
+
+ACCEPTANCE, binding per landing: the AST docstring census with the
+reviewed one-liner allowlist; the untruncated 108-line
+history-pattern scan (emulator/ + cobaya_theory/ + gates/);
+compileall + board-selftest green; documentation-only AST
+equivalence with the NAMED executable exceptions only (04's table
+leg, units 90-93, the D4-D6 gate repairs); the quantifier
+discipline (bitwise / exactly-once / all claims carry adjacent
+mechanical proof); multiline stale-phrase censuses;
+scope-and-blind-spot labels ("census" = complete surfaces only);
+the signature-vs-Arguments AST census (51); the second-year physics
+student voice — the Implementer reads
+notes/user-didactics-and-python-voice.md BEFORE writing any prose.
+
+Handed off 2026-07-13; this section is the citation for the
+relayed ARCHITECT_HANDOFF covering the whole campaign.

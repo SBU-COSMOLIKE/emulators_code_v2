@@ -2287,6 +2287,18 @@ required). Durable-record rule adopted both ways. Gauntlet
 unchanged. Spec: gates-and-board.md "DIDACTICS-61 + 64..71
 adjudication".
 
+CONSOLIDATED DIDACTICS HANDOFF (2026-07-13, Fable): the whole
+campaign (01--71) issued to the Implementer as ONE ordered plan —
+D1 navigation truth (02+58), D2 factual bundle (falsehoods jump the
+queue), D3 unit-28 fixture repair, D4 gate-truth batch, D5
+increment 2, D6 hygiene (nine mkdtemp sites + triangle 29/65), D7
+unit 91, D8 lane-3 family visits riding protocol units, D9 queue-2
+riders, D10 minted units 90-93 — under the binding per-landing
+acceptance (AST censuses, untruncated scans, quantifier discipline,
+the didactics voice note read first). The spine is unchanged:
+4/5b -> D3 -> D4 -> D5 -> queue 5. Spec: gates-and-board.md "The
+consolidated DIDACTICS execution handoff".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
