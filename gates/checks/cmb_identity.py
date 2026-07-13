@@ -12,13 +12,16 @@ small ResMLP), saves them with save_emulator, rebuilds, and asserts:
     non-positive fiducial raises naming the multipole;
   - CmbDiagonalGeometry.state() round-trips byte-identical (all nine keys,
     the law strings included);
-  - the as_exp2tau law is exact: _factor equals exp(2 tau)/A_s computed the
-    same way (bitwise) and encode(decode(x)) returns x to float32 tolerance;
-    the metric divides the factor back out (45M-21) so the physical chi2 is
-    invariant under (A_s, tau) at a fixed physical residual, the uncorrected
-    plain sum misses by f^2, the roughness residual is factor-corrected, and
-    chi2 without params raises; the registry / configure_law loud errors
-    fire;
+  - the as_exp2tau_ref law is exact: _factor equals the order-one
+    (A_s_ref/A_s) exp(2 (tau - tau_ref)) bitwise, is exactly 1 at the
+    fiducial reference and order-one over the box, and encode(decode(x))
+    returns x to float32 tolerance; the metric divides the factor back out
+    (45M-21) so the physical chi2 is invariant under (A_s, tau) at a fixed
+    physical residual, the uncorrected plain sum misses by f^2, the
+    roughness residual is factor-corrected, and chi2 without params raises;
+    the registry / configure_law loud errors fire, the retired as_exp2tau
+    law and the missing-reference case are refused, and a raw-factor
+    mutation fails both the fiducial-unity and order-one legs (45M-22);
   - save -> rebuild -> EmulatorPredictor.predict is bitwise vs the pre-save
     decode, on BOTH laws; the predictor takes the CMB branch and exposes
     spectrum / ell / units / amplitude_law;
@@ -103,6 +106,13 @@ FAILURES = []
 IN_NAMES = ["As", "tau", "omegam"]
 N_IN = len(IN_NAMES)
 
+# the fixture fiducial reference pair the order-one law measures against
+# (45M-22): the recommended values are the covariance's own fiducial, so
+# these mirror a plausible LCDM (A_s ~ 2.1e-9, tau ~ 0.0544). The factor
+# is exactly 1 at (As, tau) == (AS_REF_FIXTURE, TAU_REF_FIXTURE).
+AS_REF_FIXTURE  = 2.1e-9
+TAU_REF_FIXTURE = 0.0544
+
 
 def report(label, ok, detail):
     """Print one PASS/FAIL line and remember any failure."""
@@ -171,8 +181,8 @@ def cmb_recipe(n_ell):
     }
 
 
-def save_synthetic_cmb(root, device, tmp, spectrum="tt", law="as_exp2tau",
-                       n_ell=200, seed=0):
+def save_synthetic_cmb(root, device, tmp, spectrum="tt",
+                       law="as_exp2tau_ref", n_ell=200, seed=0):
     """Build, then save, a tiny synthetic CMB emulator under `root`.
 
     Returns:
@@ -184,17 +194,22 @@ def save_synthetic_cmb(root, device, tmp, spectrum="tt", law="as_exp2tau",
     g = np.random.default_rng(seed + 3)
     center = cl * (1.0 + 0.01 * g.standard_normal(n_ell))
     units = "dimensionless" if spectrum == "pp" else "muK2"
-    as_name = "As" if law == "as_exp2tau" else ""
-    tau_name = "tau" if law == "as_exp2tau" else ""
+    is_ref = (law == "as_exp2tau_ref")
+    as_name  = "As" if is_ref else ""
+    tau_name = "tau" if is_ref else ""
+    as_ref   = AS_REF_FIXTURE if is_ref else None
+    tau_ref  = TAU_REF_FIXTURE if is_ref else None
     geom = CmbDiagonalGeometry.from_fiducial(
         device=device, spectrum=spectrum, ell=ell, fiducial_cl=cl,
         center=center, units=units, law=law,
-        as_name=as_name, tau_name=tau_name)
+        as_name=as_name, tau_name=tau_name,
+        as_ref=as_ref, tau_ref=tau_ref)
     if law == "none":
         chi2fn = make_cmb_chi2(geom=geom, law=law)
     else:
         chi2fn = make_cmb_chi2(geom=geom, law=law, param_geometry=pgeom,
-                               as_name=as_name, tau_name=tau_name)
+                               as_name=as_name, tau_name=tau_name,
+                               as_ref=as_ref, tau_ref=tau_ref)
     block_opts = {"act": make_activation("H", n_gates=3),
                   "norm": make_norm("affine")}
     model = ResMLP(input_dim=N_IN, output_dim=n_ell, int_dim_res=16,
@@ -208,9 +223,11 @@ def save_synthetic_cmb(root, device, tmp, spectrum="tt", law="as_exp2tau",
                        "val_params": "v.1.txt",
                        "train_covmat": os.path.basename(covmat_path)},
               "train_args": {"nepochs": 1}}
-    if law == "as_exp2tau":
+    if is_ref:
         config["data"]["cmb"]["as_name"] = "As"
         config["data"]["cmb"]["tau_name"] = "tau"
+        config["data"]["cmb"]["as_ref"] = as_ref
+        config["data"]["cmb"]["tau_ref"] = tau_ref
     histories = {"train_losses": [0.1],
                  "val_medians": [0.1],
                  "val_means": [0.1],
@@ -259,8 +276,9 @@ def check_state_roundtrip(device):
     ell, cl = synth_ell_cl()
     geom = CmbDiagonalGeometry.from_fiducial(
         device=device, spectrum="ee", ell=ell, fiducial_cl=cl,
-        center=cl * 1.01, units="muK2", law="as_exp2tau",
-        as_name="As", tau_name="tau")
+        center=cl * 1.01, units="muK2", law="as_exp2tau_ref",
+        as_name="As", tau_name="tau",
+        as_ref=AS_REF_FIXTURE, tau_ref=TAU_REF_FIXTURE)
     st0 = geom.state()
     geom2 = CmbDiagonalGeometry.from_state(device=device, state=st0)
     st1 = geom2.state()
@@ -272,20 +290,34 @@ def check_state_roundtrip(device):
         else:
             ok = ok and (a == b)
     report("geometry state round-trip byte-identical",
-           ok, "%d keys incl. law strings" % len(st0))
+           ok, "%d keys incl. law strings + fiducial refs" % len(st0))
+    # the fiducial reference pair persisted as resolved float64 and rebuilt
+    # byte-exact (the numbers the artifact records, not a code default).
+    report("state persists as_ref / tau_ref as float64",
+           st0["as_ref"].dtype == torch.float64
+           and st0["tau_ref"].dtype == torch.float64,
+           "0-d float64 tensors")
+    report("as_ref / tau_ref round-trip byte-exact",
+           geom2.as_ref == AS_REF_FIXTURE
+           and geom2.tau_ref == TAU_REF_FIXTURE,
+           "as_ref %.3e, tau_ref %.4f" % (geom2.as_ref, geom2.tau_ref))
 
 
 def check_law(tmp, device):
-    """The as_exp2tau law: _factor exact, encode/decode inverse, loud errors."""
+    """The as_exp2tau_ref law: order-one _factor exact, encode/decode
+    inverse, the fiducial-unity + order-one legs, the retired-law and
+    missing-reference refusals, and the raw-factor mutation arm."""
     pgeom, _ = make_pgeom(tmp, device, seed=50)
     ell, cl = synth_ell_cl()
     geom = CmbDiagonalGeometry.from_fiducial(
         device=device, spectrum="tt", ell=ell, fiducial_cl=cl,
-        center=cl, units="muK2", law="as_exp2tau",
-        as_name="As", tau_name="tau")
-    chi2fn = make_cmb_chi2(geom=geom, law="as_exp2tau",
+        center=cl, units="muK2", law="as_exp2tau_ref",
+        as_name="As", tau_name="tau",
+        as_ref=AS_REF_FIXTURE, tau_ref=TAU_REF_FIXTURE)
+    chi2fn = make_cmb_chi2(geom=geom, law="as_exp2tau_ref",
                            param_geometry=pgeom,
-                           as_name="As", tau_name="tau")
+                           as_name="As", tau_name="tau",
+                           as_ref=AS_REF_FIXTURE, tau_ref=TAU_REF_FIXTURE)
     g = np.random.default_rng(60)
     theta = np.column_stack([g.normal(2.1e-9, 1e-10, 8),
                              g.normal(0.055, 0.005, 8),
@@ -294,10 +326,27 @@ def check_law(tmp, device):
     x_enc = pgeom.encode(x)
     f = chi2fn._factor(x_enc)
     phys = pgeom.decode(x_enc)
-    want = (torch.exp(2.0 * phys[:, 1]) / phys[:, 0]).reshape(-1, 1)
-    report("_factor equals exp(2 tau)/A_s bitwise (same decoded params)",
+    want = ((AS_REF_FIXTURE / phys[:, 0])
+            * torch.exp(2.0 * (phys[:, 1] - TAU_REF_FIXTURE))).reshape(-1, 1)
+    report("_factor equals the order-one (As_ref/A_s) exp(2(tau-tau_ref)) "
+           "bitwise (same decoded params)",
            torch.equal(f, want), "max|d| = %.2e"
            % (f - want).abs().max().item())
+    # 45M-22: the factor is exactly 1 at the fiducial reference and stays
+    # order-one over the sampled box (the retired raw exp(2 tau)/A_s is
+    # ~5e8 there). Build a row whose DECODED params are exactly the
+    # fiducial pair, then read the factor.
+    phys_fid = phys.clone()
+    phys_fid[:, 0] = AS_REF_FIXTURE
+    phys_fid[:, 1] = TAU_REF_FIXTURE
+    x_fid = pgeom.encode(phys_fid)               # encode(decode) is identity
+    f_fid = chi2fn._factor(x_fid)
+    report("factor == 1 at the fiducial reference",
+           torch.allclose(f_fid, torch.ones_like(f_fid), rtol=0, atol=1e-6),
+           "max|f_fid - 1| = %.2e" % (f_fid - 1.0).abs().max().item())
+    report("factor is order-one over the sampled box (not the raw ~5e8)",
+           float(f.min()) > 0.5 and float(f.max()) < 2.0,
+           "f in [%.3f, %.3f]" % (f.min().item(), f.max().item()))
     # encode(decode(pred)) returns pred to float32 round-off (the factor
     # multiplies and divides, so bitwise is not guaranteed; the bar is a
     # tight relative tolerance).
@@ -346,17 +395,67 @@ def check_law(tmp, device):
         report("unknown law raises", False, "did not raise")
     except ValueError:
         report("unknown law raises", True, "ValueError")
-    try:
-        make_cmb_chi2(geom=geom, law="as_exp2tau")
-        report("as_exp2tau without its columns raises", False, "no raise")
-    except ValueError:
-        report("as_exp2tau without its columns raises", True, "ValueError")
+    # the retired raw-factor law is refused with its retrain instruction
+    # (45M-22): an old convention name is never silently reinterpreted.
     try:
         make_cmb_chi2(geom=geom, law="as_exp2tau", param_geometry=pgeom,
-                      as_name="NOPE", tau_name="tau")
+                      as_name="As", tau_name="tau")
+        report("retired as_exp2tau law refused with retrain error",
+               False, "no raise")
+    except ValueError as e:
+        report("retired as_exp2tau law refused with retrain error",
+               "retired" in str(e) and "retrain" in str(e), "ValueError")
+    # the order-one law with its columns but WITHOUT the fiducial refs is
+    # refused (the numbers are required, no code default).
+    try:
+        make_cmb_chi2(geom=geom, law="as_exp2tau_ref", param_geometry=pgeom,
+                      as_name="As", tau_name="tau")
+        report("as_exp2tau_ref without as_ref/tau_ref raises",
+               False, "no raise")
+    except ValueError as e:
+        report("as_exp2tau_ref without as_ref/tau_ref raises",
+               "as_ref" in str(e) and "tau_ref" in str(e), "ValueError")
+    try:
+        make_cmb_chi2(geom=geom, law="as_exp2tau_ref", param_geometry=pgeom,
+                      as_name="NOPE", tau_name="tau",
+                      as_ref=AS_REF_FIXTURE, tau_ref=TAU_REF_FIXTURE)
         report("configure_law bad column raises", False, "no raise")
     except ValueError:
         report("configure_law bad column raises", True, "ValueError")
+    # a non-positive as_ref divides the factor by <= 0, so configure_law
+    # refuses it (finite validation before the comparative law is applied).
+    try:
+        make_cmb_chi2(geom=geom, law="as_exp2tau_ref", param_geometry=pgeom,
+                      as_name="As", tau_name="tau",
+                      as_ref=-1.0, tau_ref=TAU_REF_FIXTURE)
+        report("configure_law non-positive as_ref raises", False, "no raise")
+    except ValueError as e:
+        report("configure_law non-positive as_ref raises",
+               "positive" in str(e), "ValueError")
+
+    # --- the raw-factor mutation arm (45M-22): a loss whose _factor
+    # restores the RETIRED raw exp(2 tau)/A_s must FAIL both the
+    # fiducial-unity leg (f_fid ~ 5e8, not 1) and the order-one leg. This
+    # proves the two red legs actually discriminate the fixed law from the
+    # regression they guard against.
+    class _RawFactorChi2(type(chi2fn)):
+        def _factor(self, params_whitened):
+            phys = self.param_geometry.decode(params_whitened)
+            a_s  = phys[:, self.as_idx]
+            tau  = phys[:, self.tau_idx]
+            return (torch.exp(2.0 * tau) / a_s).reshape(-1, 1)
+
+    raw = _RawFactorChi2(geom=geom).configure_law(
+        param_geometry=pgeom, as_name="As", tau_name="tau",
+        as_ref=AS_REF_FIXTURE, tau_ref=TAU_REF_FIXTURE)
+    raw_fid = raw._factor(x_fid)
+    report("mutation (raw factor) FAILS the fiducial-unity leg",
+           not torch.allclose(raw_fid, torch.ones_like(raw_fid),
+                              rtol=0, atol=1e-6),
+           "raw f_fid ~ %.2e (not 1)" % raw_fid.mean().item())
+    report("mutation (raw factor) FAILS the order-one leg",
+           float(raw._factor(x_enc).max()) > 1e6,
+           "raw f max %.2e" % raw._factor(x_enc).max().item())
 
 
 def check_roundtrip(tmp, device, law):
@@ -430,7 +529,7 @@ def check_adapter(tmp, device):
     cls = _load_emul_cmb_stubbed()
     root_tt = os.path.join(tmp, "ad_tt")
     save_synthetic_cmb(root_tt, device, tmp, spectrum="tt",
-                       law="as_exp2tau", n_ell=200, seed=90)
+                       law="as_exp2tau_ref", n_ell=200, seed=90)
     root_ee = os.path.join(tmp, "ad_ee")
     save_synthetic_cmb(root_ee, device, tmp, spectrum="ee",
                        law="none", n_ell=100, seed=100)
@@ -696,7 +795,7 @@ def check_finetune(tmp, device):
     """Warm-start parity from a CMB source + the wrong-kind guard."""
     root = os.path.join(tmp, "emul_ft_src")
     pgeom, geom, model, chi2fn = save_synthetic_cmb(
-        root, device, tmp, spectrum="tt", law="as_exp2tau", seed=120)
+        root, device, tmp, spectrum="tt", law="as_exp2tau_ref", seed=120)
     source = warmstart.load_source(root=root, device=device)
     report("load_source accepts a CMB artifact",
            type(source.geom).__name__ == "CmbDiagonalGeometry",
@@ -850,9 +949,11 @@ def check_npce(tmp, device):
     # time): validate_cmb must be loud.
     cfg = {"data": {"cmb": {"spectrum": "tt",
                             "covariance": "c.npz",
-                            "amplitude_law": "as_exp2tau",
+                            "amplitude_law": "as_exp2tau_ref",
                             "as_name": "As",
-                            "tau_name": "tau"},
+                            "tau_name": "tau",
+                            "as_ref": AS_REF_FIXTURE,
+                            "tau_ref": TAU_REF_FIXTURE},
                     "train_dv": "a",
                     "val_dv": "b",
                     "train_params": "c",
@@ -1245,7 +1346,7 @@ def main():
         check_state_roundtrip(device)
         check_law(tmp, device)
         check_roundtrip(tmp, device, law="none")
-        check_roundtrip(tmp, device, law="as_exp2tau")
+        check_roundtrip(tmp, device, law="as_exp2tau_ref")
         check_head(tmp, device)
         check_npce(tmp, device)
         check_adapter(tmp, device)

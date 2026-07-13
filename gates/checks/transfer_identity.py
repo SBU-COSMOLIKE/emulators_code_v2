@@ -762,9 +762,11 @@ def check_diagonal(device, tmp):
            str(e)[:70])
   cfg["data"]["cmb"] = {"spectrum": "tt",
                         "covariance": "c.npz",
-                        "amplitude_law": "as_exp2tau",
+                        "amplitude_law": "as_exp2tau_ref",
                         "as_name": "As",
-                        "tau_name": "tau"}
+                        "tau_name": "tau",
+                        "as_ref": 2.1e-9,
+                        "tau_ref": 0.0544}
   try:
     validate_cmb(cfg, train_args={}, rescale="none")
     report("validate_cmb: transfer x amplitude-law raises", False,

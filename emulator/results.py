@@ -651,6 +651,13 @@ def rebuild_emulator(path_root, device, compile_model=True):
                        if isinstance(geom, CmbDiagonalGeometry) else None),
     "tau_name":       (geom.tau_name
                        if isinstance(geom, CmbDiagonalGeometry) else None),
+    # the order-one law's fiducial reference pair, surfaced so the
+    # predictor rebuilds the same law-aware decode without rereading the
+    # config; None for the "none" law (and for non-CMB artifacts).
+    "as_ref":         (geom.as_ref
+                       if isinstance(geom, CmbDiagonalGeometry) else None),
+    "tau_ref":        (geom.tau_ref
+                       if isinstance(geom, CmbDiagonalGeometry) else None),
     # grid (background-function) emulator: dispatched on the
     # rebuilt class; the quantity / units / law / offset are ARTIFACT
     # FACTS persisted in the geometry state, surfaced for the predictor

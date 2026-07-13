@@ -993,9 +993,11 @@ def gate_cme_a(ctx):
   WHAT: tiny synthetic CMB emulators (a ParamGeometry over a written covmat
   + a CmbDiagonalGeometry over a synthetic fiducial C_ell + a small ResMLP)
   prove: the RULED cosmic-variance constants (sigma_l = C_fid*sqrt(2/(2l+1)),
-  the covinv ruling); the geometry state round-trip byte-identical (nine
-  keys incl. the law strings); the as_exp2tau law exact both ways (_factor
-  bitwise, encode(decode) to float32 round-off) + its loud errors; save ->
+  the covinv ruling); the geometry state round-trip byte-identical (the law
+  strings + the persisted fiducial refs); the as_exp2tau_ref law exact both
+  ways (the order-one _factor bitwise, 1 at the fiducial, encode(decode) to
+  float32 round-off) + its loud errors (retired-law + missing-reference
+  refusals, the raw-factor mutation failing the unity + order-one legs); save ->
   rebuild -> predict bitwise on BOTH laws (the predictor's CMB branch); the
   emul_cmb adapter's Cl assembly + every loud error (duplicate spectrum,
   wrong-kind, unknown-spectrum / beyond-lmax must_provide, both get_Cl
@@ -1041,7 +1043,7 @@ def gate_cme_b(ctx):
   l = 2..350, cmblensed, As sampled linearly) — four per-spectrum dv files
   + sidecars, phiphi actually filled; compute_cmb_covariance.py
   writes the Gaussian .npz on the fixture LCDM (its first real run);
-  a data.cmb / as_exp2tau training run collapses the val median below
+  a data.cmb / as_exp2tau_ref training run collapses the val median below
   0.5x the staged mean predictor (the bar a dead network cannot pass);
   the saved artifact serves Cl through the real cobaya
   lifecycle (get_model + add_requirements + provider.get_Cl equals the
