@@ -5545,3 +5545,53 @@ D1's executable board-selftest set-equality leg is hereby RELEASED
 to the red team (the 27/28 landing quieted board_selftest.py). The
 spine: queue 2 -> D3 -> D4 -> D5 -> queue 5, whose first exhibit is
 the populated board's real reruns with persisted members.
+
+## PARALLELIZATION WAVE 2 (user pre-authorization, trigger table) (Fable, 2026-07-13)
+
+The user pre-authorized further transfers to the red team as
+collision constraints clear. Binding mechanism: each row fires when
+its trigger lands (reported in an Implementer handoff); the
+Architect then issues the transfer handoff WITHOUT a fresh user
+ruling — the authorization is this section. Governance unchanged
+(Architect pre-merge audit; no self-certification; the seams rule).
+
+| Transfer | Trigger | Why safe then |
+- UNIT 93 (compile-mode CUDA lane): trigger NONE — transferable on
+  red-team request at any time. Writing is machine-independent;
+  execution is workstation-owed for either team. Moves on their
+  capacity, not on a seam.
+- UNIT 92 (device-audit totality, emulator/training.py): trigger =
+  D5 landed. The unit-14 acceptance completions are the last
+  gauntlet work near the training/eval surface; after D5,
+  training.py has no in-flight Implementer increment until the
+  late-unit tail.
+- UNIT 21 (CMB publication PSD): trigger = D3 + unit 56 landed.
+  Its publication-predicate coupling is to the disjointness repair
+  and checkpoint-ingress; once both land, the generator publication
+  surface is quiet and the legs are pure CPU.
+- UNITS 41 + 53 (sweep-header truth; study-name resolver): trigger
+  = queue-2 rollout plan APPROVED (both touch driver surfaces the
+  rollout may relabel; after the plan freezes the vocabulary, the
+  drivers are safe to edit). Pure-python table/resolver work,
+  red-team CPU-executable.
+- UNIT 95 (output-channel owner): trigger = the wave-4 protocol
+  chain landed (experiment.py quiets — 95 spans
+  staging/experiment/sweep drivers and CANNOT move while the
+  adapter-protocol units are in flight there). The largest wave-2
+  item; re-confirm the seam with the Implementer at transfer time.
+- gates/checks teaching (the campaign's 03/04/06/07 batches):
+  trigger = D4 + D5 landed (the standing collision rule lifting is
+  itself the trigger; already implied by the campaign transfer,
+  restated here for completeness).
+
+NOT pre-authorized (would need a fresh user ruling): unit 96 (the
+artifact core), units 74/76/77/78/80/82/84/85 (fixed-facts +
+recipe/artifact one-owner chain), unit 8 (run-control machine),
+queue 2 itself, and the queue-3 staging reopen — these are the
+Implementer's deep-context core, and moving them would trade
+correctness risk for throughput.
+
+Standing expectation: at each trigger the Implementer's handoff
+names the freed surface; my transfer handoff to the red team cites
+this section and the unit's contract; the ledger records each
+firing.
