@@ -823,12 +823,51 @@ def check_manifest_reconciliation():
     g = _mf_gate("mf-dyn", _mf_body_trivial, code=("emulator/results.py",))
     ok, errs = run_board.validate_manifests([g], _MF_CFG)
     report("waived dynamic import with NO covering root declared reds",
-           (not ok) and any("covering roots" in e for e in errs),
-           "declares results.py but not emulator/designs")
+           (not ok) and any("covering root" in e for e in errs),
+           "declares results.py but neither designs nor losses")
+
+    # (25M-18) coverage is ALL-quantified over the required covers, and a root
+    # covers a cover only by being that cover or an ANCESTOR of it. results.py's
+    # waiver requires BOTH emulator/designs AND emulator/losses.
+    # child-as-cover (the pre-25M-18 blessing fixture, now flipped to must-red):
+    # a file INSIDE the tree does not satisfy the tree waiver.
+    g = _mf_gate("mf-dyn-child", _mf_body_trivial,
+                 code=("emulator/results.py", "emulator/designs/blocks.py",
+                       "emulator/losses"))
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
+    report("25M-18 child-as-cover reds: a file inside the tree is not the tree",
+           (not ok) and any("emulator/designs" in e and "covering root" in e
+                            for e in errs),
+           "designs/blocks.py does not cover the emulator/designs waiver")
+    # strip-one-of-two: one satisfied cover does not clear a multi-cover waiver.
+    g = _mf_gate("mf-dyn-strip", _mf_body_trivial,
+                 code=("emulator/results.py", "emulator/designs"))
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
+    report("25M-18 strip-one-of-two reds: the second cover is still required",
+           (not ok) and any("emulator/losses" in e for e in errs),
+           "designs declared, losses missing -> losses uncovered")
+    # the green control: declaring BOTH full trees clears the census.
     g = _mf_gate("mf-dyn-ok", _mf_body_trivial,
-                 code=("emulator/results.py", "emulator/designs/blocks.py"))
-    report("declaring a covering root clears the dynamic-import census",
-           run_board.validate_manifests([g], _MF_CFG)[0], "designs root declared")
+                 code=("emulator/results.py", "emulator/designs",
+                       "emulator/losses"))
+    report("declaring every covering root (full trees) clears the census",
+           run_board.validate_manifests([g], _MF_CFG)[0],
+           "designs AND losses declared")
+
+    # any-one-of-eight (25M-18): cli-strict's cli_strict.py waiver lists eight
+    # driver entry points; dropping any ONE leaves that driver uncovered. Uses
+    # the LIVE gate + config (the real eight-cover waiver), the 40/40 audit probe.
+    live_probe_cfg = run_board._load_config()
+    cli = [g for g in BOARD if g.id == "cli-strict"][0]
+    kept = tuple(r for r in cli.manifest.code
+                 if r != "scalar_train_emulator.py")
+    probe = Gate(id="cli-strict-probe", tier=cli.tier, home=cli.home,
+                 maps=cli.maps, run=cli.run,
+                 manifest=Manifest(code=kept, inputs=cli.manifest.inputs))
+    ok, errs = run_board.validate_manifests([probe], live_probe_cfg)
+    report("25M-18 any-one-of-eight reds: dropping one waiver entry-point",
+           (not ok) and any("scalar_train_emulator.py" in e for e in errs),
+           "the cli_strict waiver's eight covers are all-required")
 
     # mutation arm: empty the reviewed waiver table -> the same dynamic site is
     # now unreviewed and must red (a NEW dynamic import cannot slip in unwaived).
@@ -850,6 +889,66 @@ def check_manifest_reconciliation():
            a == b and len(a) > 1, str(len(a)) + " members, stable")
 
 
+def check_runtime_loader_census():
+    """1b hardening (25M-16): the runtime-loader census (c). A gate that loads an
+    adapter by FILE PATH (importlib spec_from_file_location) or a Cobaya
+    python_path component must DECLARE the loaded .py, so an edit to the adapter
+    reruns the gate rather than escaping the digest. Drives the REAL
+    validate_manifests over live gates, a reviewed-table mutation, and the
+    bare-sibling resolver.
+    """
+    live_cfg = run_board._load_config()
+    si = [g for g in BOARD if g.id == "scalar-identity"][0]
+    # positive strip: scalar-identity minus its cobaya_theory/emul_scalars root
+    # still reaches the spec_from_file_location site but no longer covers it.
+    stripped = Gate(id=si.id, tier=si.tier, home=si.home, maps=si.maps,
+                    run=si.run,
+                    manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+                                      inputs=si.manifest.inputs))
+    ok, errs = run_board.validate_manifests([stripped], live_cfg)
+    report("25M-16 positive: an identity gate missing its adapter root reds",
+           (not ok) and any("emul_scalars" in e for e in errs),
+           "the loaded adapter must be a declared root")
+    report("25M-16 the populated identity gate clears census (c)",
+           run_board.validate_manifests([si], live_cfg)[0],
+           "emul_scalars declared -> covered")
+
+    # negative mutation: drop cmb_identity from the reviewed table -> its
+    # spec_from_file_location site is now unreviewed and reds (a NEW adapter
+    # loader in an unlisted file cannot slip in undeclared).
+    saved = run_board._RUNTIME_LOADER_COVERS
+    try:
+        table = dict(saved)
+        table.pop("gates/checks/cmb_identity.py")
+        run_board._RUNTIME_LOADER_COVERS = table
+        ci = [g for g in BOARD if g.id == "cmb-identity"][0]
+        ok, errs = run_board.validate_manifests([ci], live_cfg)
+        report("25M-16 negative: an UNLISTED runtime-loader site reds",
+               (not ok) and any("unreviewed runtime-loader" in e for e in errs),
+               "the spec_from_file_location site has no reviewed cover")
+    finally:
+        run_board._RUNTIME_LOADER_COVERS = saved
+
+    # the bare-sibling resolver (25M-16): `from gsv_bitwise_drift import ...` in
+    # gates/checks/gct_parity.py resolves against the importer's OWN directory,
+    # so the sibling enters the closure and is digested; a real third-party
+    # top-level still resolves to nothing (environment drift is preflight's job).
+    sib = run_board._module_to_repo_paths(
+        "gsv_bitwise_drift", 0, "gates/checks/gct_parity.py")
+    report("25M-16 bare-sibling import resolves against the importer's dir",
+           sib == ["gates/checks/gsv_bitwise_drift.py"], str(sib))
+    third = run_board._module_to_repo_paths(
+        "torch", 0, "gates/checks/gct_parity.py")
+    report("25M-16 a third-party top-level still resolves to nothing",
+           third == [], str(third))
+    # and the live cobaya-adapter really carries the sibling in its closure.
+    ca = [g for g in BOARD if g.id == "cobaya-adapter"][0]
+    ca_closure = run_board._derive_closure(run_board._manifest_seeds(ca))
+    report("25M-16 cobaya-adapter's closure includes the resolved sibling",
+           "gates/checks/gsv_bitwise_drift.py" in ca_closure,
+           "gct_parity's sibling import is digested")
+
+
 def check_manifest_riders():
     """1b phase-2 riders (kill the audit's P1/P2/P3 validation holes): root
     schema totality, directory-root expansion, and input-key resolution.
@@ -869,8 +968,12 @@ def check_manifest_riders():
     report("r2: a directory root expands to its .py members",
            len(dir_seeds) >= 2 and all(p.endswith(".py") for p in dir_seeds),
            str(len(dir_seeds)) + " .py members under emulator/designs")
+    # both waiver covers are declared (results.py needs designs AND losses under
+    # 25M-18); the leg's point is that the designs DIRECTORY root expands into
+    # the closure, not the coverage rule itself.
     g = _mf_gate("mf-dir", _mf_body_trivial,
-                 code=("emulator/results.py", "emulator/designs"))
+                 code=("emulator/results.py", "emulator/designs",
+                       "emulator/losses"))
     ok, errs = run_board.validate_manifests([g], _MF_CFG)
     closure = run_board._derive_closure(run_board._manifest_seeds(g))
     report("r2: the directory root covers the dynamic import AND enters the closure",
@@ -1105,6 +1208,8 @@ def main():
     check_dirty_watch()
     print("\n-- manifest reconciliation (subprocess + dynamic-import censuses) --")
     check_manifest_reconciliation()
+    print("\n-- runtime-loader census (adapters loaded by path / python_path) --")
+    check_runtime_loader_census()
     print("\n-- manifest riders (root schema, dir expansion, input keys) --")
     check_manifest_riders()
     print("\n-- manifest persistence (resolved members, digest, pre-manifest) --")

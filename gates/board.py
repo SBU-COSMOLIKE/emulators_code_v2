@@ -2001,7 +2001,8 @@ BOARD = [
             "the constant-column / duplicate-name / trunk-only / "
             "wrong-kind error legs)",
        run=gate_spe_a,
-       manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+       manifest=Manifest(code=("emulator/designs", "emulator/losses",
+                               "cobaya_theory/emul_scalars.py"),
                          inputs=()),
        needs=("torch",)),
   Gate(id="cmb-identity",
@@ -2019,7 +2020,9 @@ BOARD = [
             "integrity, the width-3 band projection, and the exact "
             "zero-band weight)",
        run=gate_cme_a,
-       manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+       manifest=Manifest(code=("emulator/designs", "emulator/losses",
+                               "cobaya_theory/emul_cmb.py",
+                               "compute_data_vectors/compute_cmb_covariance.py"),
                          inputs=()),
        needs=("torch",)),
   Gate(id="bsn-identity",
@@ -2030,7 +2033,8 @@ BOARD = [
        maps="118-127 (identity legs); 138-176 (the "
             "two-regime + desert legs); 217-231 (finetune legs)",
        run=gate_bsn_a,
-       manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+       manifest=Manifest(code=("emulator/designs", "emulator/losses",
+                               "cobaya_theory/emul_baosn.py"),
                          inputs=()),
        needs=("torch",)),
   Gate(id="mps-identity",
@@ -2049,7 +2053,8 @@ BOARD = [
             "interpolator, != the explicit linear branch, pinned against "
             "the installed BoltzmannBase signature); finetune",
        run=gate_mps_a,
-       manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+       manifest=Manifest(code=("emulator/designs", "emulator/losses",
+                               "cobaya_theory/emul_mps.py"),
                          inputs=()),
        needs=("torch",)),
   Gate(id="geo-paths",
@@ -2119,7 +2124,8 @@ BOARD = [
        maps="128-134 (fixture train + collapse + off-center predict + "
             "cobaya evaluate through emul_scalars)",
        run=gate_spe_b,
-       manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+       manifest=Manifest(code=("emulator/designs", "emulator/losses",
+                               "cobaya_theory/emul_scalars.py"),
                          inputs=()),
        needs=("torch", "cobaya")),
   Gate(id="cmb-smoke",
@@ -2134,6 +2140,7 @@ BOARD = [
        run=gate_cme_b,
        manifest=Manifest(
            code=("emulator/designs", "emulator/losses",
+                 "cobaya_theory/emul_cmb.py",
                  "compute_data_vectors/dataset_generator_cmb.py",
                  "compute_data_vectors/compute_cmb_covariance.py"),
            inputs=()),
@@ -2148,6 +2155,7 @@ BOARD = [
        run=gate_bsn_b,
        manifest=Manifest(
            code=("emulator/designs", "emulator/losses",
+                 "cobaya_theory/emul_baosn.py",
                  "compute_data_vectors/dataset_generator_background.py"),
            inputs=()),
        needs=("torch", "cobaya")),
@@ -2161,6 +2169,7 @@ BOARD = [
        run=gate_mps_b,
        manifest=Manifest(
            code=("emulator/designs", "emulator/losses",
+                 "cobaya_theory/emul_mps.py",
                  "compute_data_vectors/dataset_generator_mps.py"),
            inputs=()),
        needs=("torch", "cobaya")),

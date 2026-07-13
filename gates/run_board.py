@@ -782,6 +782,32 @@ _DYNAMIC_IMPORT_WAIVERS = {
 }
 
 
+# The reviewed runtime-loader table (25M-16): a check that loads EXECUTABLE code
+# by a route the static import graph cannot follow -- importlib
+# spec_from_file_location (a module loaded from a FILE PATH) or a Cobaya
+# `python_path` component (a class Cobaya imports by name from a directory) --
+# names, per loader-bearing FILE, the repo .py path(s) that route pulls in. The
+# gate must declare a root covering each (validate_manifests census (c)), so the
+# adapter whose bytes decide the verdict is seeded into the closure AND digested.
+# A loader site in a file NOT listed here is unreviewed and fails validation.
+# The four identity checks load their family adapter by spec_from_file_location
+# (cmb also loads the covariance oracle); the four smokes run the same adapters
+# through Cobaya's python_path. Verified against the sites (scalar_identity.py:294,
+# cmb_identity.py:569 + :1043, bsn_identity.py:396, mps_identity.py:1215; the
+# smokes' python_path blocks).
+_RUNTIME_LOADER_COVERS = {
+  "gates/checks/scalar_identity.py": ("cobaya_theory/emul_scalars.py",),
+  "gates/checks/cmb_identity.py":    ("cobaya_theory/emul_cmb.py",
+                                      "compute_data_vectors/compute_cmb_covariance.py"),
+  "gates/checks/bsn_identity.py":    ("cobaya_theory/emul_baosn.py",),
+  "gates/checks/mps_identity.py":    ("cobaya_theory/emul_mps.py",),
+  "gates/checks/scalar_smoke.py":    ("cobaya_theory/emul_scalars.py",),
+  "gates/checks/cmb_smoke.py":       ("cobaya_theory/emul_cmb.py",),
+  "gates/checks/bsn_smoke.py":       ("cobaya_theory/emul_baosn.py",),
+  "gates/checks/mps_smoke.py":       ("cobaya_theory/emul_mps.py",),
+}
+
+
 def _module_to_repo_paths(module, level, from_rel):
   """Resolve one import target to the repo-relative .py path(s) it names.
 
@@ -811,7 +837,21 @@ def _module_to_repo_paths(module, level, from_rel):
     if not module:
       return []
     parts = module.split(".")
-    if not parts or parts[0] not in _EXECUTABLE_DIRS:
+    if not parts:
+      return []
+    if parts[0] not in _EXECUTABLE_DIRS:
+      # a bare sibling import (25M-16): a check script launched as a standalone
+      # script (not as gates.checks.<name>) has its OWN directory on sys.path,
+      # so `from gsv_bitwise_drift import ...` in gates/checks/gct_parity.py
+      # names gates/checks/gsv_bitwise_drift.py. Resolve the name against the
+      # importer's directory; accept it only when the resolved path lands inside
+      # the executable surface and exists -- a real third-party top-level (torch,
+      # numpy) finds no such sibling and still returns [].
+      sibling = from_rel.split("/")[:-1] + parts
+      sib_rel = "/".join(sibling)
+      if (sibling and sibling[0] in _EXECUTABLE_DIRS
+          and (_REPO / (sib_rel + ".py")).is_file()):
+        return [sib_rel + ".py"]
       return []
   if not parts:
     return []
@@ -882,6 +922,67 @@ def _dynamic_import_sites(rel_path):
       kind = "__import__"
     if kind:
       sites.append((rel_path, node.lineno, kind))
+  return sites
+
+
+# the Cobaya theory-component key that names the directory Cobaya imports a
+# named component class from. Kept as a constant, never repeated as a bare
+# literal, so run_board.py's OWN source (which is in every gate closure as the
+# shared harness) carries no matchable "python_path" dict key or YAML line and
+# so is never mistaken for an adapter loader (the self-reference false positive).
+_COBAYA_PP = "python_path"
+
+
+def _runtime_loader_sites(rel_path):
+  """The runtime executable-loader sites in one file (25M-16).
+
+  Beyond importlib.import_module / __import__ (the dynamic-import census), a
+  file can run EXECUTABLE code the static import graph never resolves by two
+  routes the identity / smoke gates use:
+
+    - importlib.util.spec_from_file_location(name, PATH) (or a SourceFileLoader):
+      a module loaded from a FILE PATH computed at runtime -- the four *_identity
+      checks load their cobaya_theory adapter (cmb also the covariance oracle)
+      this way (a Call site);
+    - a Cobaya component declaration naming a `python_path` import directory --
+      the four *_smoke checks run the adapter this way. Detected STRUCTURALLY, so
+      the harness's own prose about python_path never matches: a dict KEY equal
+      to _COBAYA_PP (the three dict-form smokes), or a string whose first token
+      is the "python_path:" YAML assignment line (the one yaml-text smoke).
+
+  Arguments:
+    rel_path = the repo-relative path of the file to scan.
+
+  Returns:
+    a list of (rel_path, lineno, kind) for each runtime-loader site.
+  """
+  try:
+    tree = ast.parse((_REPO / rel_path).read_bytes())
+  except (OSError, SyntaxError, ValueError):
+    return []
+  yaml_line = _COBAYA_PP + ":"
+  sites = []
+  for node in ast.walk(tree):
+    if isinstance(node, ast.Call):
+      fn = node.func
+      if isinstance(fn, ast.Attribute):
+        name = fn.attr
+      elif isinstance(fn, ast.Name):
+        name = fn.id
+      else:
+        name = None
+      if name in ("spec_from_file_location", "SourceFileLoader"):
+        sites.append((rel_path, node.lineno, "spec_from_file_location"))
+    elif isinstance(node, ast.Dict):
+      # a Cobaya info block names the import directory under a python_path KEY.
+      for key in node.keys:
+        if (isinstance(key, ast.Constant) and isinstance(key.value, str)
+            and key.value == _COBAYA_PP):
+          sites.append((rel_path, key.lineno, "cobaya python_path"))
+    elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+      # a YAML-text component block: a "python_path: <dir>" assignment line.
+      if node.value.lstrip().startswith(yaml_line):
+        sites.append((rel_path, node.lineno, "cobaya python_path"))
   return sites
 
 
@@ -982,6 +1083,27 @@ def _manifest_seeds(gate):
   return checks | roots | set(_SHARED_HARNESS)
 
 
+def _root_is_ancestor(root, cover):
+  """True when a declared code root equals or is an ANCESTOR of a required cover.
+
+  The waiver-coverage direction (25M-18): a declared root covers a required
+  cover only by BEING that cover or a directory above it. A root that is a file
+  INSIDE the required tree (a child of the cover, e.g. emulator/designs/blocks.py
+  for the cover emulator/designs) does NOT satisfy a tree waiver -- it seeds and
+  digests one file, not the tree the runtime loader can reach. The old check
+  tested the reverse containment (root.startswith(cover + "/")) and so blessed a
+  single child as covering the whole tree.
+
+  Arguments:
+    root  = one declared manifest.code root (a .py file or a directory).
+    cover = one required cover from a _DYNAMIC_IMPORT_WAIVERS entry.
+
+  Returns:
+    True when root == cover, or root is a directory the cover lives under.
+  """
+  return cover == root or cover.startswith(root + "/")
+
+
 def validate_manifests(gates, cfg):
   """Reconcile every declared Gate.manifest against what the code really does.
 
@@ -999,7 +1121,13 @@ def validate_manifests(gates, cfg):
         declared root, an auto-discovered check script, or the shared harness.
     (b) dynamic-import census: every importlib / __import__ site inside the
         derived closure must sit in a file in _DYNAMIC_IMPORT_WAIVERS, and the
-        gate must declare at least one of that file's covering roots.
+        gate must declare a root covering EVERY one of that file's covers (an
+        ancestor-or-equal root per cover, 25M-18).
+    (c) runtime-loader census: every spec_from_file_location / Cobaya
+        python_path site inside the closure must sit in a file in
+        _RUNTIME_LOADER_COVERS, with a declared root covering each loaded .py
+        (25M-16), so an adapter loaded by file path or component name is
+        digested rather than silently escaping the surface.
     (r3) input side: every declared inputs= dotted key resolves against
         board_config to a string.
 
@@ -1079,11 +1207,55 @@ def validate_manifests(gates, cfg):
                         "import site " + where + " -- add it to the reviewed "
                         "waiver table with its covering roots, or remove the "
                         "dynamic import")
-        elif not any(r == c or r.startswith(c + "/")
-                     for r in roots for c in cover):
+          continue
+        # (25M-18) coverage is ALL-quantified over the required covers: EVERY
+        # cover must be covered by SOME declared root, and a root covers a cover
+        # only by being that cover or an ANCESTOR of it (_root_is_ancestor). A
+        # file INSIDE the required tree (a child of the cover) does not satisfy
+        # a tree waiver, and one covered entry does not clear a multi-cover
+        # waiver -- the two permissiveness directions the audit witnessed.
+        uncovered = []
+        for need in cover:
+          if not any(_root_is_ancestor(root, need) for root in roots):
+            uncovered.append(need)
+        if uncovered:
           errors.append("gate '" + gate.id + "' manifest: reaches the waived "
-                        "dynamic import " + where + " but declares none of its "
-                        "covering roots " + repr(cover))
+                        "dynamic import " + where + " but declares no covering "
+                        "root for " + repr(uncovered) + " -- each required "
+                        "cover " + repr(cover) + " needs a declared root equal "
+                        "to or above it")
+
+    # (c) runtime-loader census over the derived closure (25M-16), two duties:
+    #   POSITIVE -- every closure member that is a KEY in _RUNTIME_LOADER_COVERS
+    #     (a reviewed check that loads an adapter by file path or Cobaya
+    #     python_path) must have EACH loaded .py covered by a declared root
+    #     (ancestor-or-equal, all-quantified), so the adapter whose bytes decide
+    #     the verdict is seeded AND digested rather than silently escaping;
+    #   NEGATIVE -- a runtime-loader site the scanner finds in a member that is
+    #     NOT a reviewed key is an unreviewed loader and fails, so a new adapter
+    #     load cannot slip in undeclared.
+    # The TABLE (not the scanner) drives coverage, so a reviewed check whose
+    # loader idiom the scanner does not itself match is still required to declare
+    # its adapter; the scanner's own duty is the negative catch on unlisted files.
+    closure = _derive_closure(covered)
+    for member in sorted(closure):
+      cover = _RUNTIME_LOADER_COVERS.get(member)
+      if cover is None:
+        for site_file, lineno, kind in _runtime_loader_sites(member):
+          errors.append("gate '" + gate.id + "' manifest: unreviewed runtime-"
+                        "loader site " + site_file + ":" + str(lineno) + " ("
+                        + kind + ") -- add it to _RUNTIME_LOADER_COVERS with "
+                        "the .py path(s) it loads, or remove the runtime load")
+        continue
+      uncovered = []
+      for need in cover:
+        if not any(_root_is_ancestor(root, need) for root in roots):
+          uncovered.append(need)
+      if uncovered:
+        errors.append("gate '" + gate.id + "' manifest: reaches runtime-loader "
+                      "check " + member + " but declares no covering root for "
+                      + repr(uncovered) + " -- declare each of " + repr(cover)
+                      + " (the loaded adapter escapes the digest otherwise)")
   return (len(errors) == 0, errors)
 
 
