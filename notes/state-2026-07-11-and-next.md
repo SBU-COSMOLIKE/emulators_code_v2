@@ -183,6 +183,18 @@ evidence line under each unit is the anchor a spec starts from:
    and the preflight dirty-tree watch covers emulator/, gates/, and
    the root *.py only (run_board.py ~615) — compute_data_vectors/,
    cobaya_theory/, and syren/ are unwatched.
+   EXTENDED (45M-69, seventeenth batch): _passed is status-only
+   (run_board.py:866-868) — a stored PASS survives ANY executable
+   change (resume skip :952, dependency accept :960; records
+   carry status/detail/ts only), so a green BOARD.md can certify
+   a tree that never executed the gate. Executable-surface digest
+   stored with every verdict, PASS reusable only on digest
+   equality, legacy/digestless = STALE, dependencies
+   current-digest only, digest surface = the SAME expanded
+   surface as this entry's dirty-watch fix, propose-first digest
+   design, eight CPU legs + status-only mutation arm. Interim:
+   --force-rerun stays the manual truth control. Spec:
+   gates-and-board.md "UNIT 4 EXTENDED (45M-69)".
 5. Small contracts. VERIFIED: (a) the shared driver reads
    cfg["data"]["train_dv"] unconditionally (~214 run_tag, ~379
    attrs) while the scalar data block documents that key as
@@ -298,6 +310,16 @@ files were created. Priority follows user-visible risk:
    in `except Exception` -> loadedfromchk = False -> the fresh-run
    branch on the SAME roots — the very row-count ValueError that means
    "this set is inconsistent, stop" is converted into a replacement.
+   EXTENDED (45M-68, seventeenth batch): the loader VERIFIES the
+   .paramnames sidecar then discards the resolved names and
+   slices [:, 2:-1] positionally (pool_size repeats the literal
+   slice); reproduced through the real load_source — two derived
+   columns give a 3-wide C against a 2-name covmat, zero derived
+   silently drops a sampled parameter; _scalar_columns already
+   resolves by name in the same file. One shared named-column
+   resolver for load_source/load_scalar_source/pool_size/
+   checkpoint-reload/generator-readback. Spec:
+   data-generation-and-cuts.md "UNIT 8 EXTENDED (45M-68)".
 9. **Validation and diagnostic memory truth.** Validation ignores its own
    safe chunk and uses the train chunk; the generic local-linear floor
    expands as N_val x 40 x output width and is not runnable on production
@@ -790,6 +812,17 @@ files were created. Priority follows user-visible risk:
     contract + fake-Cobaya order/token legs; background is the
     FIRST PATIENT, not the template. Spec:
     data-generation-and-cuts.md "UNIT 33 AMENDED (45M-64)".
+    AMENDED AGAIN (45M-70, seventeenth batch): the SAME
+    verdict-blind pattern at all six gate-side lifecycle sites
+    (cmb_smoke :441, bsn_smoke :248/:291, mps_smoke :331/:376)
+    and the CMB covariance producer (:420) — the gates prove "a
+    value was readable", not that the point was accepted; ONE
+    shared acceptance definition (first landing establishes it,
+    gate legs ride the wave-4 family gate visits, the covariance
+    producer rides the 33 helper), rejected point = zero getters
+    = red, CAMB-reference rejection never reference truth. Spec:
+    data-generation-and-cuts.md "UNIT 33 AMENDED AGAIN
+    (45M-70)".
 34. **Public prose states the current state** (45M-07, 2026-07-12;
     documentation-only). emulator/README.md:216 narrates board-run
     history; warmstart.py:162 names "unit 2" in a user-facing error;
@@ -1558,6 +1591,54 @@ in mps-identity/mps-smoke. Both are folds into existing units —
 no new numbers, no critical-path change. Specs:
 families-background-mps.md "UNIT 62 EXTENDED (45M-66)" and
 "UNIT 2 EXTENDED (45M-67)".
+
+SEVENTEENTH 45M BATCH (2026-07-12): 45M-68 = UNIT 8 EXTENDED —
+load_source verifies the .paramnames sidecar (check_paramnames
+:527-533) then discards the resolved names and slices with the
+positional default param_cols = slice(2, -1) (:448/:536);
+pool_size repeats the literal slice (experiment.py:3303).
+Reproduced through the REAL load_source: [weight, lnp, a, b,
+d1*, d2*] with a fully-declaring sidecar -> C width 3 vs the
+2-name covmat (whitening mismatch); [weight, lnp, a, b] -> C
+width 1, sampled b silently dropped; the same file's
+_scalar_columns already resolves by name and its docstring says
+the fixed slice cannot locate derived columns. One shared
+named-column resolver (generalizing _scalar_columns) for
+load_source/load_scalar_source/pool_size/checkpoint-reload/
+generator-readback, no last-column-is-chi2 inference, exact
+uniqueness/presence/width/order before selection, current
+generator form byte-identical, missing sidecar = one documented
+legacy contract or refusal, seven CPU legs incl. the [:, 2:-1]
+mutation arm and the unit-11 one-row composition leg; rides
+unit 8 in the ingress cluster. 45M-69 = UNIT 4 EXTENDED — the
+board reuses PASS verdicts across executable changes (_passed is
+status-only, run_board.py:866-868; records carry status/detail/
+ts; HEAD-at-run is written but never read): digest contract
+adopted whole (stored per verdict, equality-gated reuse,
+legacy = STALE, current-digest dependencies, STALE display,
+force-rerun preserved, log/notes commits never invalidate),
+digest surface ALIGNED with entry 4's dirty-watch expansion,
+propose-first design, eight CPU legs + the status-only mutation
+arm; interim rule: --force-rerun stays the manual truth control.
+45M-70 = UNIT 33 AMENDED AGAIN — the same verdict blindness
+45M-64 proved in the generator exists at all six gate-side
+lifecycle sites (cmb_smoke :441-442, bsn_smoke :248-252/:291-295,
+mps_smoke :331-335/:376-380) and the CMB covariance producer
+(compute_cmb_covariance.py:420-422): LogPosterior discarded,
+getters read, no cached=False, so the gates prove readability
+not acceptance and two-call forms can bless stale provider
+state. Eight clauses adopted; ORDERING RULING: one shared
+acceptance definition, whichever side lands first establishes
+it (gate legs ride the wave-4 family gate visits, before the
+ingress cluster; home importable from gates/ AND
+compute_data_vectors/); rejected point = zero getters = red;
+CAMB-reference rejection never truth; six workstation legs in
+the board-listed smoke gates incl. the instrumented
+getter-count and discard mutation arms. All three are folds into
+existing units — no new numbers, no critical-path change. Specs:
+data-generation-and-cuts.md "UNIT 8 EXTENDED (45M-68)" and
+"UNIT 33 AMENDED AGAIN (45M-70)"; gates-and-board.md "UNIT 4
+EXTENDED (45M-69)".
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

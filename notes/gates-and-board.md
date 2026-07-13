@@ -216,3 +216,73 @@ Acceptance: importing the module is side-effect free; the free-name
 scan reports no data-global reads; direct script execution still
 returns nonzero on a forced partition mismatch; the board continues to
 execute the real check, not a helper-only substitute.
+
+## UNIT 4 EXTENDED (45M-69, seventeenth batch, 2026-07-12): the board reuses PASS verdicts after executable code changes
+
+Finding (red team, CONFIRMED by read — the mechanism is plain):
+_passed is status-only (run_board.py:866-868,
+`status.get(gate_id, {}).get("status") == "PASS"`); the resume
+path skips any stored PASS (:952) and dependency resolution
+accepts it (:960); board_status.json records only
+status/detail/ts (:965-967). Nothing ties a verdict to the
+executable tree that produced it: HEAD-at-run goes into the raw
+log but is never read back; the base-notes ancestor check passes
+for every descendant; --force-rerun-all is manual recovery, not
+automatic truth. Reachable wrong result: gate G passes at commit
+A; commit B regresses the code; a normal board run at B skips G
+"already PASS" and BOARD.md certifies a tree that never executed
+the gate — a nominally green board can combine verdicts from
+different executable versions.
+
+Contract (the red team's clauses adopted, plus a scope
+alignment and propose-first):
+
+1. A deterministic executable-surface digest covers tracked
+   emulator code, root Python drivers, gate
+   definitions/checks/configs, and the other executable inputs.
+   SCOPE ALIGNMENT (Architect): the digest surface is the SAME
+   surface entry 4's dirty-tree-watch fix expands to —
+   compute_data_vectors/, cobaya_theory/, and syren/ INCLUDED —
+   one executable-surface definition for both mechanisms.
+   Excluded: generated gate logs, BOARD.md/board_status.json,
+   the machine-local board_config.json override, notes/ and
+   documentation-only files.
+2. The digest is stored with every PASS or FAIL record.
+3. A PASS is reusable only when its stored digest equals the
+   current digest.
+4. A legacy record without a digest is STALE, never implicitly
+   current.
+5. Dependency checks accept only current-digest PASS records.
+6. --list and BOARD.md display stale verdicts as STALE, not
+   PASS.
+7. --force-rerun / --force-rerun-all are preserved as explicit
+   rerun controls, not correctness patches.
+8. The raw log's commit identifier stays provenance and never
+   substitutes for the digest: committing logs or notes must not
+   invalidate science gates.
+9. The digest definition (hash construction, file enumeration,
+   ordering stability) is design-sensitive: PROPOSE-FIRST in the
+   unit-4 landing, per the large-unit rule.
+
+Red legs (CPU-only harness testing):
+
+- PASS under digest A followed by executable digest B reruns
+  instead of skipping;
+- a stale prerequisite produces dependency-stale behavior, never
+  downstream execution under an old PASS;
+- a legacy PASS lacking a digest is stale;
+- a documentation-only or generated-log commit leaves the digest
+  unchanged;
+- changing one byte in emulator code, a driver, a gate body, or
+  a committed gate fixture changes the digest;
+- a same-digest interrupted run still resumes;
+- --force-rerun executes even when the digest matches;
+- mutation arm: restore status-only _passed — the
+  executable-change leg must fail.
+
+Interim rule, recorded: until unit 4 lands, --force-rerun on
+every gate whose surfaces changed remains the manual truth
+control (the current owed rerun list already follows it).
+Placement: unit 4 (harness/CLI truth), where queued — no new
+number. USER-VISIBLE: BOARD.md gains STALE; a green board
+certifies the current tree only.

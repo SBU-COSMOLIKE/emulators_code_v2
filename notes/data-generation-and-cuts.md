@@ -1322,3 +1322,145 @@ produced it). Placement: rides unit 33 in the ingress cluster
 (8+17+25+26+28+33), unchanged. USER-VISIBLE: rejected points now
 fail their sample loudly with the verdict named (previously they
 could write the previous cosmology's physics as a success).
+
+## UNIT 8 EXTENDED (45M-68, seventeenth batch, 2026-07-12): the loader verifies parameter names, then ignores them and slices by position
+
+Finding (red team, CONFIRMED live): load_source cross-checks the
+GetDist .paramnames sidecar against the covariance header
+(check_paramnames, data_staging.py:527-533), then DISCARDS the
+resolved name list and selects columns with the positional
+default param_cols = slice(2, -1) (:448, :536) — exactly two
+leading bookkeeping columns, exactly one trailing derived column,
+an assumption the check's own docstring bakes in ("e.g. chi2* —
+which the staging slice already drops"). pool_size repeats the
+literal slice (experiment.py:3303), so staging and pool
+accounting share the defect instead of one checking the other.
+Reproduced through the REAL load_source (2026-07-12): a valid
+table [weight, lnp, a, b, d1*, d2*] with a fully-declaring
+sidecar passes check_paramnames and returns C of width 3 (both
+inputs plus the first derived value) against the two-name
+covariance — the whitening dimension mismatch downstream; a
+zero-derived table [weight, lnp, a, b] passes the same check and
+returns C of width 1 — sampled parameter b silently DROPPED. The
+sharpest fact is in-file: _scalar_columns (:632) ALREADY resolves
+columns by name for load_scalar_source, and its docstring states
+outright that "a fixed slice like load_source's slice(2, -1)
+cannot locate them" — the scalar path does it right while the
+main path guesses.
+
+Contract (the red team's seven clauses adopted; the resolver
+GENERALIZES _scalar_columns — no parallel mechanism):
+
+1. ONE shared named-column resolver owns the parameter table for
+   load_source, load_scalar_source, pool_size, checkpoint reload,
+   and any generator readback.
+2. It parses the COMPLETE .paramnames sequence including which
+   entries are derived, and maps each covariance/header input
+   name to its exact numeric column after the two GetDist
+   bookkeeping columns.
+3. Never infer "last column is chi2": derived-column count and
+   placement come from the sidecar/manifest.
+4. Exact uniqueness, presence, numeric table width, and order
+   agreement are required before any value is selected.
+5. The repository generator's current [weight, lnp, sampled...,
+   chi2] form selects byte-for-byte identical values.
+6. A missing sidecar follows ONE explicit documented legacy
+   format contract or is refused with migration instructions —
+   never an undocumented positional guess.
+7. pool_size calls the same resolver and returns the same
+   legal-row ceiling as stage_train.
+
+Red legs (CPU):
+
+- a current generator-shaped file selects the same sampled matrix
+  exactly;
+- zero, one, and multiple derived columns select the named
+  sampled inputs correctly;
+- a derived column interleaved among sampled names is selected
+  correctly by the declared map, or refused if the documented
+  format forbids the layout;
+- duplicate/missing sidecar names, table-width mismatch, and
+  covariance-name mismatch fail before staging;
+- mutation arm: restore [:, 2:-1] — the zero-derived and
+  two-derived legs must fail;
+- pool_size and stage_train use the identical selected parameter
+  matrix under every accepted layout;
+- one-row versions compose with unit 11's exact-2D normalization
+  contract (the 45M-65 amendment).
+
+Distinct from the queued one-row normalization and no-cut
+pool_size findings (row rank and optional cuts); this defect
+chooses the wrong scientific COLUMNS on a multi-row finite table
+whose sidecar declares everything correctly. Placement: unit 8
+(checkpoint-set/file-set integrity), ingress cluster
+8+17+25+26+28+33 — no new number. USER-VISIBLE: non-generator
+GetDist tables now load their declared columns or refuse
+(today: wrong columns, silently or via a downstream shape error).
+
+## UNIT 33 AMENDED AGAIN (45M-70, seventeenth batch, 2026-07-12): the gate-side lifecycle calls have the same verdict blindness
+
+Finding (red team, CONFIRMED by read at all six sites; the
+rejection mechanism proven on real cobaya 3.6.2 in the 45M-64
+adjudication): the three cobaya smoke gates and the CMB
+covariance producer call model.logposterior(...), discard the
+returned LogPosterior, and immediately read provider/theory
+getters — cmb_smoke.py:441-442, bsn_smoke.py:248-252 and
+:291-295, mps_smoke.py:331-335 and :376-380,
+compute_cmb_covariance.py:420-422. None passes cached=False.
+Since rejection is a NORMAL -inf return, a theory can populate
+provider state, a downstream component can reject the point, and
+the gate then compares the populated state against the reference
+and greens: the gates prove "a value was readable", not "the
+full lifecycle accepted the cosmology whose value they claim to
+validate". The two-call forms can additionally bless a prior
+accepted point's state after a rejected second evaluation.
+
+Contract (the red team's eight clauses adopted, one ordering
+ruling):
+
+1. Every gate-side logposterior call captures the returned
+   object.
+2. Before the FIRST provider or theory getter, the point verdict
+   is asserted accepted via the documented numeric fields — never
+   exception absence or terminal-text matching.
+3. cached=False whenever a gate intentionally evaluates multiple
+   points.
+4. A rejected point executes ZERO getters and reds the gate.
+5. The rule applies to BOTH the emulator-provider and the
+   CAMB-reference calls — an invalid reference lifecycle is never
+   accepted as truth.
+6. ONE Cobaya acceptance definition shared with the 45M-64
+   generator helper. ORDERING RULING (Architect): whichever side
+   lands first ESTABLISHES the shared definition — the gate-side
+   fixes ride the wave-4 family gate visits, which come before
+   the ingress cluster, so the gates will likely establish it and
+   the generator migration consumes it; the Implementer proposes
+   a home importable from both gates/ and compute_data_vectors/;
+   two definitions never exist.
+7. The existing numerical comparisons are preserved after the
+   verdict guard.
+8. The CMB covariance producer is amended through the same
+   acceptance helper: its fiducial result is captured and
+   validated before get_Cl or get_CAMBdata.
+
+Red legs (in the existing board-listed cmb/bsn/mps smoke gates;
+workstation torch/cobaya):
+
+- real-cobaya accepted control: finite verdict, then getter, the
+  existing numerical comparison unchanged;
+- a rejecting likelihood after a theory populates state: current
+  code reaches the getter and can green; repaired code reds
+  BEFORE it;
+- valid first point + rejected second point: no stale/current
+  provider output is read for the rejected point;
+- instrumented provider counts getter calls; rejection requires
+  exactly zero;
+- CAMB-reference rejection is red, never reference truth;
+- mutation arm: discard the returned LogPosterior and proceed —
+  the rejection leg must fail.
+
+Placement: rides unit 33 (verdict truth), with the gate legs
+executing at the wave-4 family gate visits and the covariance
+producer at the 33 helper landing. USER-VISIBLE: smoke gates can
+newly red on rejected points (previously green on readable stale
+state).
