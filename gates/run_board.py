@@ -37,6 +37,7 @@ re-proved.
 """
 
 import argparse
+import ast
 import contextlib
 import datetime
 import difflib
@@ -718,6 +719,247 @@ def validate_evidence(gates):
                       + "' anchor marker '#" + marker
                       + "' is not declared in notes/" + stem
                       + " (add <a id=\"" + marker + "\"></a> there)")
+  return (len(errors) == 0, errors)
+
+
+# --------------------------------------------------------------------------
+# Queue 1b: the executable / input manifest (phase 1 -- the Gate.manifest
+# field plus its static validation). A gate declares only the ROOTS of its
+# dependency graph; the deriver below walks the transitive repo-local closure.
+# The digest rewrite that consumes the closure and the per-gate population are
+# later phases. The full design is notes/gates-and-board.md "Queue 1b ...
+# PROPOSAL". No gate declares a manifest yet, so validate_manifests(BOARD) is a
+# no-op over the live board; board-selftest drives it on fabricated gates.
+# --------------------------------------------------------------------------
+
+# The always-hashed shared harness: a change to the runner or the registry can
+# change any gate's behavior, so both are members of every gate's code manifest
+# regardless of what it declares.
+_SHARED_HARNESS = ("gates/run_board.py", "gates/board.py")
+
+# The reviewed dynamic-import waiver table. A static AST scan cannot resolve a
+# module named by a runtime string (importlib.import_module / __import__), so
+# every such site in the executable surface is reviewed here once: the file it
+# lives in maps to the declared roots a gate must carry to legitimately reach
+# the modules that site loads. A dynamic-import site in a file NOT listed here
+# is unreviewed and fails validation. The model-recipe pattern rebuilds a saved
+# artifact's design / loss class from its stored string
+# (getattr(importlib.import_module(mod), qual)); a gate that rebuilds an
+# artifact reaches it and must declare the design / loss trees.
+_DYNAMIC_IMPORT_WAIVERS = {
+  "emulator/results.py":   ("emulator/designs", "emulator/losses"),
+  "emulator/warmstart.py": ("emulator/designs", "emulator/losses"),
+}
+
+
+def _module_to_repo_paths(module, level, from_rel):
+  """Resolve one import target to the repo-relative .py path(s) it names.
+
+  Only targets inside the executable surface resolve; a third-party module
+  (torch, numpy, cobaya, cosmolike_*) returns [] -- environment drift is
+  preflight's job, never a per-gate digest member. A relative import (level>0)
+  resolves against from_rel's package.
+
+  Arguments:
+    module   = the dotted module string (ast node's .module / alias .name), or
+               None for a bare ``from . import x``.
+    level    = the ImportFrom relative level (0 for an absolute import).
+    from_rel = the repo-relative path of the importing file, so a relative
+               import resolves against its package.
+
+  Returns:
+    a list of repo-relative ".py" paths (a module file or a package __init__)
+    that exist under the repo; empty when the target is third-party or absent.
+  """
+  if level and level > 0:
+    # relative: drop the filename, then climb (level-1) more packages.
+    pkg = from_rel.split("/")[:-1]
+    climb = level - 1
+    base = pkg[:len(pkg) - climb] if climb else pkg
+    parts = base + (module.split(".") if module else [])
+  else:
+    if not module:
+      return []
+    parts = module.split(".")
+    if not parts or parts[0] not in _EXECUTABLE_DIRS:
+      return []
+  if not parts:
+    return []
+  rel = "/".join(parts)
+  hits = []
+  if (_REPO / (rel + ".py")).is_file():
+    hits.append(rel + ".py")
+  elif (_REPO / rel / "__init__.py").is_file():
+    hits.append(rel + "/__init__.py")
+  return hits
+
+
+def _static_repo_imports(rel_path):
+  """The repo-local modules a file imports with a literal import statement.
+
+  Walks the WHOLE AST (ast.walk), so a function-local or conditional import is
+  seen as long as its module name is a literal; only runtime-named imports
+  (the dynamic-import census) stay invisible.
+
+  Arguments:
+    rel_path = the repo-relative path of the file to scan.
+
+  Returns:
+    the set of repo-relative .py paths it imports from inside the surface.
+  """
+  try:
+    tree = ast.parse((_REPO / rel_path).read_bytes())
+  except (OSError, SyntaxError, ValueError):
+    return set()
+  found = set()
+  for node in ast.walk(tree):
+    if isinstance(node, ast.Import):
+      for alias in node.names:
+        found.update(_module_to_repo_paths(alias.name, 0, rel_path))
+    elif isinstance(node, ast.ImportFrom):
+      found.update(_module_to_repo_paths(node.module, node.level, rel_path))
+      # each imported name may itself be a submodule (from pkg import sub).
+      for alias in node.names:
+        sub = (node.module + "." + alias.name) if node.module else alias.name
+        found.update(_module_to_repo_paths(sub, node.level, rel_path))
+  return found
+
+
+def _dynamic_import_sites(rel_path):
+  """The importlib.import_module / __import__ call sites in one file.
+
+  These are the runtime-named imports a static scan cannot resolve to a path.
+
+  Arguments:
+    rel_path = the repo-relative path of the file to scan.
+
+  Returns:
+    a list of (rel_path, lineno, kind) for each dynamic-import call site.
+  """
+  try:
+    tree = ast.parse((_REPO / rel_path).read_bytes())
+  except (OSError, SyntaxError, ValueError):
+    return []
+  sites = []
+  for node in ast.walk(tree):
+    if not isinstance(node, ast.Call):
+      continue
+    fn = node.func
+    kind = None
+    if isinstance(fn, ast.Attribute) and fn.attr == "import_module":
+      kind = "importlib.import_module"
+    elif isinstance(fn, ast.Name) and fn.id == "__import__":
+      kind = "__import__"
+    if kind:
+      sites.append((rel_path, node.lineno, kind))
+  return sites
+
+
+def _derive_closure(seeds):
+  """The transitive repo-local import closure of a set of seed files.
+
+  A fixpoint over _static_repo_imports; the result is a set, so it does not
+  depend on traversal order (determinism, delta 3).
+
+  Arguments:
+    seeds = the repo-relative paths to start from (check scripts, declared
+            roots, the shared harness, any covered driver).
+
+  Returns:
+    the set of repo-relative paths reachable by literal imports.
+  """
+  closure = set()
+  frontier = set(seeds)
+  while frontier:
+    member = frontier.pop()
+    if member in closure:
+      continue
+    closure.add(member)
+    frontier.update(_static_repo_imports(member))
+  return closure
+
+
+def _gate_source(gate):
+  """The gate body's source text (empty when it cannot be read)."""
+  try:
+    return inspect.getsource(gate.run)
+  except (OSError, TypeError):
+    return ""
+
+
+def validate_manifests(gates):
+  """Reconcile every declared Gate.manifest against what the code really does.
+
+  Under the direct-roots + derived-closure ruling, ordinary repo-local imports
+  are covered by construction, so a plain "found vs declared" check is vacuous
+  for them. Two censuses still bite -- exactly where the import scan is blind:
+
+    (a) literal-path census: every ".py" path literal in the gate body plus the
+        run_driver target (the _DRIVER constant or a driver= value) is a
+        subprocess target no import graph sees; each must be covered by a
+        declared root, an auto-discovered check script, or the shared harness.
+    (b) dynamic-import census: every importlib / __import__ site inside the
+        derived closure must sit in a file in _DYNAMIC_IMPORT_WAIVERS, and the
+        gate must declare at least one of that file's covering roots.
+
+  A gate with no manifest (the conservative fallback) is skipped: the migration
+  is rolling and manifest-less is never itself a failure here. Runs on every
+  invocation, so a plain --list exercises it.
+
+  Arguments:
+    gates = the full gate registry (BOARD).
+
+  Returns:
+    (ok, errors): ok is True when every declared manifest reconciles; errors is
+    the list of human-readable failures (empty when ok).
+  """
+  errors = []
+  for gate in gates:
+    man = gate.manifest
+    if man is None:
+      continue
+    src = _gate_source(gate)
+    roots = set(man.code)
+    checks = set(re.findall(r"gates/checks/[\w./-]+\.py", src))
+    covered = roots | checks | set(_SHARED_HARNESS)
+
+    # (a) literal-path census over the gate body: the subprocess targets it
+    # launches -- the check scripts (run_check -> gates/checks/*.py, auto seeds
+    # and so covered) and the training driver (run_driver -> _DRIVER by default
+    # or a driver= constant / literal). These are the .py files no import graph
+    # shows. A driver reached only through a shared board.py helper is declared
+    # and reviewed at population time; the census catches every directly-named
+    # target here.
+    targets = set(re.findall(r"[\w./-]+\.py", src))
+    if "run_driver" in src:
+      targets.add(_DRIVER)
+      for lit in re.findall(r"""driver\s*=\s*["']([\w./-]+\.py)["']""", src):
+        targets.add(lit)
+    for tgt in sorted(targets):
+      if tgt not in covered:
+        errors.append("gate '" + gate.id + "' manifest: uncovered subprocess "
+                      "target '" + tgt + "' -- declare it in manifest.code or "
+                      "it escapes the digest")
+
+    # (b) dynamic-import census over the derived closure. A covered driver
+    # joins the seeds so its imports enter the closure.
+    seeds = checks | roots | set(_SHARED_HARNESS)
+    if "run_driver" in src and _DRIVER in covered:
+      seeds.add(_DRIVER)
+    for member in sorted(_derive_closure(seeds)):
+      for site_file, lineno, kind in _dynamic_import_sites(member):
+        where = site_file + ":" + str(lineno) + " (" + kind + ")"
+        cover = _DYNAMIC_IMPORT_WAIVERS.get(site_file)
+        if cover is None:
+          errors.append("gate '" + gate.id + "' manifest: unwaived dynamic-"
+                        "import site " + where + " -- add it to the reviewed "
+                        "waiver table with its covering roots, or remove the "
+                        "dynamic import")
+        elif not any(r == c or r.startswith(c + "/")
+                     for r in roots for c in cover):
+          errors.append("gate '" + gate.id + "' manifest: reaches the waived "
+                        "dynamic import " + where + " but declares none of its "
+                        "covering roots " + repr(cover))
   return (len(errors) == 0, errors)
 
 
@@ -1547,6 +1789,18 @@ def main(argv=None):
   if not ok_ev:
     print("error: the structured evidence map does not validate:")
     for line in ev_errors:
+      print("  - " + line)
+    return 2
+
+  # the executable/input manifest is validated on the same footing (every
+  # invocation, no GPU): a declared manifest whose closure hides an uncovered
+  # subprocess target or an unwaived dynamic import is a board-authoring error
+  # that fails fast. A gate with no manifest is skipped (the rolling
+  # migration), so this is a no-op until gates are populated.
+  ok_mf, mf_errors = validate_manifests(BOARD)
+  if not ok_mf:
+    print("error: the gate manifest does not validate:")
+    for line in mf_errors:
       print("  - " + line)
     return 2
 

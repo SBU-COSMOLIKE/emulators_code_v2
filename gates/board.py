@@ -117,6 +117,37 @@ class Assertion:
 
 
 @dataclass(frozen=True)
+class Manifest:
+  """A gate's declared executable / input dependency roots (queue 1b).
+
+  A resume digest is only evidence if its membership is inspectable. A gate
+  declares the ROOTS of its dependency graph; the runner derives the transitive
+  repo-local closure, hashes it, and persists the resolved members. The
+  declaration states intent (and stays readable across refactors); the
+  persisted closure is the whole truth. This is phase 1: the field and its
+  static validation (validate_manifests in run_board.py). The digest rewrite
+  that consumes it and the per-gate population are later phases; a gate with no
+  Manifest keeps the conservative dual-digest fallback until then.
+
+  Arguments:
+    code   = repo-relative production modules this gate's checks depend on
+             BEYOND the always-hashed shared harness (run_board.py, board.py)
+             and the gates/checks/*.py scripts the gate body names (both added
+             automatically). A subprocess-invoked driver named in the gate body
+             is declared here too, since it appears in no check script's import
+             graph; declaring it lets the literal-path census cover it and its
+             imports join the closure. Each path lives inside the executable
+             surface. Only the ROOTS are declared: the deriver walks the rest.
+    inputs = board_config keys (dotted) whose resolved values are the specific
+             external files this gate consumes (its smoke YAML, data, covmat,
+             axis, artifact inputs), resolved against board_config at run time
+             so a raw deploy path is never baked into the registry.
+  """
+  code:   Tuple[str, ...] = ()
+  inputs: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Gate:
   """One row of the board: one test, what it runs, and how it is judged.
 
@@ -155,6 +186,10 @@ class Gate:
               the structured map -- their free-form maps= line still
               documents them; the migration is rolling, not a flag day.
     title   = a one-line human name for the test (for the README table).
+    manifest= the executable / input dependency roots this test declares (a
+              Manifest, or None until it is populated). Validated statically by
+              validate_manifests before any gate runs; None keeps the
+              conservative dual-digest fallback (queue 1b, rolling migration).
   """
   id: str
   tier: str
@@ -168,6 +203,7 @@ class Gate:
   spec_code: str = ""
   evidence: Tuple[Assertion, ...] = ()
   title: str = ""
+  manifest: Manifest = None
 
 
 # --------------------------------------------------------------------------
