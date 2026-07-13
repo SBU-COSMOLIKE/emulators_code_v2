@@ -156,6 +156,18 @@ evidence line under each unit is the anchor a spec starts from:
    dimensionally wrong legacy math is not reproduced). Also verified
    for this unit: --boundary values outside (0, 1) are silently
    rewritten to 1 (generator_core.py ~231) instead of rejected.
+   EXTENDED (45M-67, sixteenth batch): sigma8's domain holes are
+   in-unit — the nearest-z-within-0.01 branch relabels P(k, 0.009)
+   as z = 0 (0.896% deterministic bias on a toy growth law) and
+   the top-hat integral runs on whatever k interval the validator
+   admitted (lo < hi, nk >= 8 is the WHOLE constraint): the
+   shipped expression on an admitted 1..10 grid reports 0.01794 of
+   the reference — a 98.2% silent underestimate, reproduced
+   digit-for-digit. Never-relabel + exact z=0 ownership +
+   conditional advertisement + certified k-completeness persisted
+   with the manifest + float64/radicand validation; the R = 8
+   USER RULING stays open. Spec: families-background-mps.md
+   "UNIT 2 EXTENDED (45M-67)".
 3. Best-record truth. VERIFIED: training.py seeds best-tracking with
    the epoch-0 baseline and restores those weights, but the driver
    (cosmic_shear_train_emulator.py ~350: "fracs[i][0] is frac>0.2 at
@@ -1511,6 +1523,41 @@ crossed my fourteenth-batch commit in relay — 62/63 were
 adjudicated at 8364598. Specs: data-generation-and-cuts.md
 "UNIT 33 AMENDED (45M-64)", artifacts-inference-warmstart.md
 "UNIT 11 AMENDED (45M-65)".
+
+SIXTEENTH 45M BATCH (2026-07-12): 45M-66 = UNIT 62 EXTENDED — the
+log_offset offset is presence-checked only: the REAL validator
+accepted +Inf, NaN, "inf", and True; from_targets' float(offset)
+then clears BOTH guards on finite Hubble rows (Inf > 0 passes
+positivity; NaN <= Inf is False so the degeneracy guard reports
+nothing) and returns center [inf, ...], scale [nan, ...], encode
+all-NaN; the poisoned state round-trips from_state. Extension:
+explicit finite non-bool real at the validator, from_targets
+finite-validates offset/rows/center/scale BEFORE comparative
+guards, four separately-named law-domain failures, rebuild
+applies the same contract, finite mechanism SHARED with unit 11
+(no second mechanism), six legs incl. the
+comparative-guards-only mutation arm, bsn-identity home, wave-4
+background visit. 45M-67 = UNIT 2 EXTENDED — sigma8 is
+advertised unconditionally while _compute_sigma8 relabels the
+nearest stored z within 0.01 as z_eval (P(k, 0.009) served as
+z = 0, 0.896% deterministic bias; above 0.01 a raw SciPy bounds
+error) and integrates the top-hat over whatever k interval the
+generator validator admitted (lo < hi, nk >= 8 is the WHOLE
+constraint): the exact shipped expression on an admitted 1..10
+grid reproduces the red team's numbers digit-for-digit —
+0.0000884680 vs reference 0.0049304012, ratio 0.01794, a 98.2%
+silent underestimate. Extension: never-relabel (exact stored
+z = 0 or refuse naming the range), conditional advertisement,
+pre-integration validation, documented k-completeness criterion
+tied to the top-hat integrand with certification facts persisted
+in the manifest, float64 + radicand validation, shipped
+wide-grid preserved subject only to the OPEN R-8-vs-8/h USER
+RULING (still owed); eight legs incl. both mutation arms,
+numeric legs CPU, the registration + Boltzmann-comparison legs
+in mps-identity/mps-smoke. Both are folds into existing units —
+no new numbers, no critical-path change. Specs:
+families-background-mps.md "UNIT 62 EXTENDED (45M-66)" and
+"UNIT 2 EXTENDED (45M-67)".
 
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 

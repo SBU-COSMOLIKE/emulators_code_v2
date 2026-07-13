@@ -810,3 +810,147 @@ mps-identity), BEFORE the EMUL2 acceptance. USER-VISIBLE: dumps
 with stale constant columns now refuse loudly at geometry build
 (previously they trained "green" and served corrupted science);
 existing valid boost artifacts rebuild unchanged.
+
+## UNIT 62 EXTENDED (45M-66, sixteenth batch, 2026-07-12): log_offset totality — a +Inf offset passes both guards and builds an all-NaN background target
+
+Finding (red team, CONFIRMED live): validate_grid requires
+data.grid.offset under log_offset but checks neither type nor
+finiteness (experiment.py:857-864) — the probe accepted
+offset = +Inf, NaN, "inf", and True through the REAL validator
+(NaN is one beyond the red team's list). from_targets then
+coerces float(offset) (grid.py:177) and the poisoning chain
+clears BOTH guards on ordinary finite Hubble rows: shifted =
+targets + Inf = Inf; the positivity guard passes (Inf > 0);
+log(shifted) = Inf; center = Inf; the population std is NaN; the
+degeneracy guard is scale <= tiny and NaN <= Inf is False, so
+zero bad columns are reported. Reproduced through the REAL
+from_targets: center [inf, inf], scale [nan, nan], encode of the
+training rows themselves all-NaN — and the poisoned state
+ROUND-TRIPS through from_state (the constructor validates
+nothing it loads). A setup-boundary defect: unit 14's
+finite-training contract catching the poisoned loss later is
+defense in depth, not acceptance.
+
+Contract (the red team's six clauses adopted; folded here per
+their own no-second-mechanism clause):
+
+1. data.grid.offset must be an explicit finite non-bool real; no
+   string coercion (a quoted "inf" is a schema error naming the
+   received type — the unit-62 units-clause pattern).
+2. from_targets independently validates the resolved offset, the
+   law-space rows, and the computed center/scale as FINITE before
+   any comparative guard runs (comparative guards are undefined
+   on NaN — the exact evasion this finding proves).
+3. The law-domain check reports SEPARATELY: invalid offset;
+   nonpositive target+offset (naming the grid coordinate);
+   nonfinite law transform; unrepresentable/zero stored scale.
+4. Accepted finite offsets preserve numerics byte-for-byte.
+5. Persisted/rebuilt geometry applies the same finite contract —
+   a forged nonfinite offset/center/scale refuses at load, before
+   prediction (the probe proved today's from_state accepts all
+   three).
+6. NO second generic finite mechanism: the finite checks use the
+   shared stored-integrity mechanism unit 11 establishes; this
+   extension owns only the background law-domain semantics and
+   messages.
+
+Red legs (CPU validator/NumPy discrimination legs; the geometry
+round-trip/rebuild legs board-listed under bsn-identity):
+
+- +Inf, -Inf, NaN, bool, and quoted numeric offsets fail at
+  validation;
+- a bypassed +Inf offset fails inside from_targets before any
+  geometry is returned;
+- a finite offset with a nonpositive shifted target fails naming
+  the offending grid coordinate (existing behavior, now a pinned
+  leg);
+- a finite-offset control round-trips decode(encode(y));
+- forged artifact state with a nonfinite offset, center, or scale
+  fails on rebuild;
+- mutation arm: retain ONLY the current positivity and
+  scale <= tiny comparisons — must fail (NaN evades both).
+
+Placement: rides unit 62 (the background value-schema unit) in
+the wave-4 background visit with 15+58; same gate home.
+USER-VISIBLE: poisoned offsets refuse at config/build (today they
+train an all-NaN target); valid runs byte-identical.
+
+## UNIT 2 EXTENDED (45M-67, sixteenth batch, 2026-07-12): sigma8 domain totality — no z relabeling, no partial top-hat integrals, no unconditional advertisement
+
+(The sigma8 half of ledger entry 2 — dataset readiness + MPS
+sigma8 — is specified here with the MPS family; the R = 8 Mpc vs
+8 Mpc/h USER RULING recorded in entry 2 stays OPEN and is
+prerequisite context, not resolved by this extension.)
+
+Finding (red team, CONFIRMED live, numbers reproduced
+digit-for-digit): emul_mps advertises sigma8 unconditionally
+(get_can_support_params) and _compute_sigma8 has two independent
+domain holes. (1) z relabeling: the nearest stored redshift
+within 0.01 of z_eval is used UNCHANGED (:487-493) — P(k, 0.009)
+is served labeled z = 0; under the toy growth law P ~ e^{-2z}
+that is a deterministic 0.896% bias (e^{-0.009} = 0.99104); a
+grid starting above 0.01 instead hits SciPy's out-of-domain
+interp1d error. The generator validator admits either grid
+(z_segments requires only ascending, >= 4 points). (2) k-domain
+truncation: the integral runs over whatever stored k interval
+exists (:495-505) while k_log10 validates ONLY lo < hi and
+nk >= 8 (dataset_generator_mps.py:128-130). With the EXACT
+shipped integration expression on the smooth positive toy
+spectrum P(k) = k/(1+(k/0.2)^4): the reference grid 1e-4..100
+gives 0.0049304012; the validator-admitted 8-point grid 1..10
+gives 0.0000884680 — reported/reference = 0.01794, a 98.2%
+SILENT underestimate. Not a tolerance issue, and independent of
+the open radius/unit ruling.
+
+Contract (the red team's seven clauses adopted):
+
+1. Folded HERE — no second sigma8 implementation.
+2. NEVER substitute a nearby redshift. Serving sigma8 at z = 0
+   requires an exact stored z = 0 row; otherwise the product is
+   unavailable/refused naming the stored range (the physical grid
+   is nonnegative, so interpolation cannot manufacture z = 0
+   either).
+3. sigma8 is advertised/registered ONLY when the loaded
+   artifact's axis contract supports it (the Implementer proposes
+   the cobaya-correct hook — initialize/must_provide — at build).
+4. z/k axes, P shape, finiteness, positivity, and exact z
+   ownership are validated BEFORE integration.
+5. k-domain completeness is certified by a documented
+   convergence/omitted-tail criterion tied to the top-hat
+   integrand (never nk or guessed endpoint constants); the
+   certification FACTS persist with the generator/file-set
+   manifest (never-trust-defaults: resolved facts, not a
+   boolean); the criterion's derivation is recorded,
+   propose-first.
+6. Integration in float64; the final radicand/result validated
+   (the ledger already records a negative-radicand case at
+   extreme parameters).
+7. The shipped wide-grid result is preserved subject ONLY to the
+   separately queued physical-radius correction — which still
+   awaits the USER RULING.
+
+Red legs (NumPy/CPU for the numerical-domain legs; the cobaya
+registration + provider-comparison legs board-listed in
+mps-identity / mps-smoke for the workstation):
+
+- a grid containing exact z = 0 returns the direct float64
+  reference;
+- an otherwise-identical grid beginning at z = 0.009 is REFUSED,
+  not relabeled;
+- a grid beginning above 0.01 receives the same early domain
+  refusal, never a SciPy bounds error;
+- narrow low-k-only, high-k-only, and 1..10 grids fail the
+  completeness proof despite finite positive spectra;
+- a converged wide grid passes; extending it further moves the
+  result only within the recorded tail tolerance;
+- mutation arm: restore the nearest-within-0.01 branch — fails;
+- mutation arm: completeness reduced to nk >= 8 — fails on the
+  98.2%-wrong example;
+- the corrected sigma8 is compared with the underlying Boltzmann
+  provider at a known cosmology on the workstation (mps-smoke).
+
+Placement: unit 2 (dataset readiness + MPS sigma8), where queued;
+the sigma8 code work naturally batches with the MPS family visit
+but the unit's number and order do not change. USER-VISIBLE:
+sigma8 refusals on unsupporting grids (today: silently biased or
+98%-wrong values); the radius ruling remains the user's.
