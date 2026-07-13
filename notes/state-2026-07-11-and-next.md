@@ -1737,6 +1737,24 @@ data-generation-and-cuts.md. Sequencing AMENDED: 1b -> 1d(+RT-04)
 13(+01). Spec: gates-and-board.md "RT-2026-07-13-02..06
 adjudication".
 
+1B PHASE 1 POST-MERGE AUDIT (2026-07-13, Fable): `5e4fded` PASS —
+evidence re-executed from a clean checkout of merged main 060a150
+(board-selftest 55 legs ALL PASS, --list rc 0; the shared worktree
+holds the in-flight phase-2 edit and was not used). Contract-true on
+every delta: whole-AST closure, set fixpoint, both censuses, waiver
+table = the delta-1 live instances, mutation arms catch the
+uncovered-subprocess and unwaived-dynamic-import cases. Architect
+probes found two VALIDATION HOLES (no false evidence — no live gate
+declares a manifest): a bare-directory covering root validates while
+contributing nothing to the closure, and a typo'd extra root
+validates silently -> THREE BINDING PHASE-2 RIDERS (root schema
+totality; directory-root expansion with zero-member refusal;
+inputs-key resolution), spec in gates-and-board.md "1b phase 1 —
+post-merge Architect audit". Phase 2 GO under the riders. Also this
+date: the landing-divergence incident diagnosed (merge commits never
+flowed back to the branch) and the resync ritual recorded in
+conventions-and-workflow.md "Landing-block resync ritual".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

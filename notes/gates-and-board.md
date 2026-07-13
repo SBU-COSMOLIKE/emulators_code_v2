@@ -1359,3 +1359,66 @@ Sequencing after this batch (amended, binding): 1b (in flight) ->
 these five defects deserve, and their later closure, are RED-TEAM
 edits only (conventions-and-workflow.md custody rule); the landings
 NAME affected paragraphs and stop there.
+
+## 1b phase 1 — post-merge Architect audit (Fable, 2026-07-13): PASS, phase-2 GO with three binding riders
+
+Commit `5e4fded` (on main via `907064f`) audited post-merge (it reached
+main before this audit — queue-4/6a precedent, gap closed here).
+Evidence, re-executed by the Architect from a CLEAN detached checkout
+of merged main `060a150` on the cocoa interpreter (the shared worktree
+already carries the Implementer's uncommitted phase-2 edit, so it was
+NOT used): board-selftest 55 legs ALL PASS (rc 0) including the nine
+manifest legs; `run_board --list` rc 0.
+
+Contract conformance, verified in the diff: frozen roots-only
+`Manifest(code, inputs)` with the intent-vs-truth story;
+`Gate.manifest=None` conservative fallback, rolling migration;
+`validate_manifests(BOARD)` on every invocation before `--list`,
+exit 2; the closure deriver walks the WHOLE AST (the function-local
+import motivator is covered), resolves repo-local only (third-party
+= preflight territory), and is a set-based fixpoint (delta 3); both
+censuses bite exactly where the import scan is blind — the
+literal-path census adds `_DRIVER` and `driver=` literals, a covered
+driver joins the closure seeds; the dynamic-import census walks the
+DERIVED closure against the reviewed `_DYNAMIC_IMPORT_WAIVERS`
+(results.py + warmstart.py, the delta-1 live instances); the selftest
+mutation arms catch an uncovered subprocess target AND an unwaived
+dynamic-import site (the pinned rider, honored).
+
+Architect adversarial probes (run live against the real
+`validate_manifests` on clean main; both are validation HOLES, not
+false evidence — no live gate declares a manifest yet):
+
+- P1/P2: a BARE DIRECTORY declared as the covering root
+  (`emulator/designs`) VALIDATES (the cover check accepts `r == c`)
+  while `_derive_closure({"emulator/designs"})` returns the
+  unparseable directory string as its only member — the designs tree
+  never enters the closure, so a phase-2 digest built on it would
+  hash nothing real for the dynamically-loaded modules.
+- P3: a typo'd extra root (`emulator/desings/typo.py`) validates
+  silently — it seeds nothing, covers nothing, and errors nothing;
+  a misspelled declaration is exactly the lie the manifest exists to
+  prevent.
+
+BINDING PHASE-2 RIDERS (before any phase-3 population):
+
+1. Root schema totality: every declared code root must exist as a
+   repo `.py` file or a directory; anything else is a validation
+   error (kills P3).
+2. Directory-root expansion: a directory root expands recursively to
+   its `.py` members as closure seeds and digest members; a root
+   resolving to ZERO members is a validation error (makes the cover
+   check's directory acceptance correct, kills P1/P2).
+3. Input-side validation: phase 2 validates every `inputs=` dotted
+   key resolves against board_config (phase 1 validates nothing on
+   the input side).
+
+Awareness note (not a defect; direction is false-red): the
+literal-path census reads the whole gate source including docstrings,
+so a `.py` path named in a gate docstring becomes a required
+declaration at population time — reword or declare when phase 3 hits
+one. The determinism leg is a same-process smoke; the structural
+guarantee is the set-based fixpoint, which the diff shows.
+
+Phase 2 is GO under these riders; its notes entry names guide
+~:4723's digest half as the narrowed Current-gap (red-team custody).

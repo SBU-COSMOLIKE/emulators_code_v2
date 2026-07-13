@@ -620,3 +620,21 @@ line-by-line guide review (a separate Architect item) verifies the
 remaining paragraphs against code and hands its findings to the red
 team the same way — the Architect reads and audits the guide, only
 the red team writes it.
+
+## Landing-block resync ritual (2026-07-13)
+
+The user's landing merges create merge commits on main that never flow
+back to the working branch, so the branch and main DIVERGE after every
+landing; the next `git merge` is then a true merge (editor prompt,
+surprise merge commit) instead of a fast-forward — the "this caused
+problems" incident of 2026-07-13. The fix is a standing ritual: after
+a landing merges (and at Architect turn start when main moved), the
+worktree branch is fast-forwarded up to main FROM THE WORKTREE —
+
+    git merge --ff-only main
+
+— which is content-identical (the merge commit adds ancestry only),
+preserves any uncommitted work in the shared tree, and fails harmlessly
+(`--ff-only`) if new branch commits landed meanwhile. With the branch
+resynced, every subsequent landing block fast-forwards. Landing blocks
+themselves stay the user's four lines, unchanged.
