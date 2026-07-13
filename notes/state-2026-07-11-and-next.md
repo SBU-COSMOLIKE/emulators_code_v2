@@ -2319,6 +2319,18 @@ authority; the "main dirty" hold was stale (merge concluded as
 7743fc6); direct merge ruled safe (ancestor base, disjoint files).
 Spec: gates-and-board.md "Registry alias closure (d00358c)".
 
+BATCH-4/5B CHECKPOINT + DEPLOY_DATA SHAPE (2026-07-13, Fable): the
+three leftover no-schema declarations audited pre-commit (gwd-c's
+empty manifest is reasoned: subprocess-only gate, in-process closure
+never reaches the waived imports; gsv/gct rebuild in-process and
+correctly declare designs+losses); 18 declared, ok=True. RULING:
+ONE shared deploy_data block (semantic logical-key -> rootdir-
+relative path), lane chosen by provenance not consumer count,
+dotted deploy_data.<key> references, absent-key startup red, no
+duplicated literal paths; full derived block returns as a
+paste-ready proposal for sign-off. Spec: gates-and-board.md
+"Batch-4/5b checkpoint audit + the deploy_data shape ruling".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

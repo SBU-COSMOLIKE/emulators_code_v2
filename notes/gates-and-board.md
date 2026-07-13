@@ -3536,3 +3536,58 @@ hold was STALE at audit time: the user had concluded the vi-stuck
 merge as 7743fc6, MERGE_HEAD gone, status clean. d00358c's base
 83c8624 is an ancestor of main; file sets disjoint from 7743fc6's —
 the refresh-first step is unnecessary; merge directly.
+
+## Batch-4/5b checkpoint audit + the deploy_data shape ruling (Fable, 2026-07-13)
+
+CHECKPOINT AUDITED (the three leftover no-schema gates, uncommitted
+in the shared worktree; diff read pre-commit): exactly three
+Manifest insertions, five lines. weight-decay-census code=()
+inputs=() is CORRECT for a reasoned cause, not by accident: the gate
+works purely through subprocess drivers, so its IN-PROCESS check
+closure never reaches the waived dynamic-import surface — child
+executables are the trunk digest's jurisdiction. save-rebuild-drift
+and cobaya-adapter rebuild IN-PROCESS (their closures reach
+results.py's waived imports), so designs+losses roots are required
+— the geo-paths exemplar's logic, applied consistently.
+validate_manifests: 18 declared, ok=True. Commit custody: the
+Implementer commits its own board.py work at the assembled landing;
+Architect commits stay notes-only. At the assembled-landing audit I
+will independently re-derive gwd-c's empty closure
+(beyond-sufficiency, as done for geo-paths).
+
+THE DEPLOY_DATA SHAPE RULING (the one open design decision):
+APPROVED as recommended — ONE shared top-level deploy_data block in
+board_config.json, logical-key -> rootdir-relative path:
+
+  "deploy_data": {
+    "w0wa_takahashi_train_cs_16":
+      "projects/lsst_y1/chains/w0wa_takahashi_dvs_train_cs_16.npy",
+    "lsst_y1_dataset":
+      "external_modules/data/lsst_y1/lsst_y1_M1_GGL0.05.dataset"
+  }
+
+Binding constraints:
+1. Logical keys are SEMANTIC (name the fixture, never a gate id).
+2. Lane rule by PROVENANCE, not consumer count: deploy_data holds
+   deploy-machine data (external_modules/data, projects/*/chains);
+   gate_data keeps gate-owned configs/fixtures (ruling 2's lane). A
+   single-consumer deploy path still lives in deploy_data — one lane
+   for deploy data, chosen by what the path IS.
+3. Gates reference dotted deploy_data.<logical-key> in inputs=,
+   resolved through the existing ladder with resolve-not-exist
+   semantics (rider r3; cross-machine None-sha members).
+4. A referenced-but-absent logical key is STARTUP RED at
+   validate_manifests (exit 2, the dotted path named) — no fallback,
+   no default (never-trust-defaults).
+5. No literal path may appear twice: gates sharing a fixture MUST
+   share the key. The sign-off proposal proves this by presenting
+   the FULL derived block as a paste-ready JSON block plus every
+   consuming gate's inputs= — values derived from the shipped
+   configs, never guessed.
+6. board_config.json remains the local deployment override; machine-
+   varying paths belong exactly there.
+
+Sequencing confirmed: BATCH-3-STYLE gates + cli-strict land
+immediately under the standing GOs; the deploy_data proposal returns
+for sign-off; then the full-board Mac validation and the review
+handoff. The deferred resume block lands with the assembled landing.
