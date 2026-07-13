@@ -1793,3 +1793,22 @@ item cites an issued clause and the exact missing implementation or
 discriminating leg.  Current-correct producers are stated as such for 25M-34
 and 25M-35; their defect is the claimed acceptance evidence, not the runtime
 body.  No number in the series may be reused.
+
+Architect adjudication overlay for `25M-23` and `25M-27` through `25M-35`
+(received after commit `81183e7`): all ten findings were CONFIRMED.  The
+Architect's audit recovered `25M-23` from this durable register even though no
+chat relay had carried it; that is direct acceptance evidence for the rule
+that the file record, not chat, is authoritative.  The clause-reconciliation
+classification is adopted: issued clauses with missing or substituted
+acceptance evidence are defects even when the current producer is correct.
+In particular, the precise wording for `25M-34` and `25M-35`—correct
+producers, defective claimed evidence—is binding.
+
+`25M-32` is the batch's heaviest item and reopens queue 3.  Its repair and the
+gate assertion that currently blesses sorted `arange` order land atomically;
+the gate must be flipped in the same unit so it cannot continue to encode the
+defect as truth.  The machinery follow-up `25M-27`/`25M-28` queues behind the
+in-flight census-core remainder.  Queue 2 remains closed until the remainder
+and that follow-up are green.  At this adjudication the series stands at
+`25M-01` through `25M-35`, with the single retired tombstone `25M-07` and no
+unreconciled chat-only finding.

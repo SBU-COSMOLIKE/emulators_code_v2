@@ -2644,3 +2644,14 @@ calls release without executing `_sweep_job`. Detailed contracts:
 gates-and-board.md, training-stack.md, and
 data-generation-and-cuts.md. No queue placements assigned by Red
 Team.
+
+25M-23 + 25M-27..35 ADJUDICATED (2026-07-13, Fable): all ten
+CONFIRMED. The durable register alone surfaced 25M-23, proving the
+file record—not chat—is authoritative. The clause-checklist framing
+is accepted, including the exact distinction for 34/35: producer
+correct, claimed evidence defective. 32 is a queue-3 reopen and its
+repair must flip the gate that currently asserts sorted `arange` as
+truth in the same landing. The census-core remainder stays first;
+machinery follow-up 27/28 follows it; queue 2 opens only after both
+are green. Series state: 01..35, tombstone 07, register and chat
+reconciled.
