@@ -1988,6 +1988,8 @@ BOARD = [
             "new-save markers + full-board acceptance; shims retired "
             "(legacy flat paths dead, loudly)",
        run=gate_geo_a,
+       manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+                         inputs=()),
        needs=("torch",)),
 
   Gate(id="save-rebuild-drift",

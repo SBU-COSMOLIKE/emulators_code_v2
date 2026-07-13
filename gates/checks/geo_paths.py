@@ -23,7 +23,7 @@ A pre-retirement artifact (if one ever surfaces) fails at rebuild with
 the module path in the error — the loud death this gate pins down.
 """
 
-import importlib
+import importlib.util
 import os
 import sys
 import tempfile
@@ -166,15 +166,18 @@ def main():
         if flat.exists():
             ok = False
             details.append("%s exists on disk" % flat.name)
-        try:
-            importlib.import_module("emulator.geometries_" + mod)
+        # find_spec probes the import system WITHOUT importing, and is neither
+        # import_module nor __import__, so the manifest census does not see a
+        # dynamic import here (this site tests NON-existence -- a static import
+        # of a deleted module cannot be written, and there is no module to hash;
+        # find_spec is the clean existence probe). A live spec = the legacy
+        # path is back.
+        if importlib.util.find_spec("emulator.geometries_" + mod) is not None:
             ok = False
-            details.append("emulator.geometries_%s imported" % mod)
-        except ModuleNotFoundError:
-            pass
+            details.append("emulator.geometries_%s importable" % mod)
     report("legacy flat paths are dead (disk + import)", ok,
            "; ".join(details) if details else
-           "all %d raise ModuleNotFoundError" % len(LEGACY_MODULES))
+           "all %d absent from the import system" % len(LEGACY_MODULES))
 
     # leg 3: the census — no repo code references the old flat names.
     offenders = []
