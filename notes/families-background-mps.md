@@ -879,8 +879,10 @@ train an all-NaN target); valid runs byte-identical.
 
 (The sigma8 half of ledger entry 2 — dataset readiness + MPS
 sigma8 — is specified here with the MPS family; the R = 8 Mpc vs
-8 Mpc/h USER RULING recorded in entry 2 stays OPEN and is
-prerequisite context, not resolved by this extension.)
+8 Mpc/h USER RULING recorded in entry 2 was RESOLVED on
+2026-07-13 — R = 8 Mpc/h, the conventional definition; see
+"USER RULING (2026-07-13)" below. This extension supplies the
+domain-totality contract, not that resolution.)
 
 Finding (red team, CONFIRMED live, numbers reproduced
 digit-for-digit): emul_mps advertises sigma8 unconditionally
@@ -981,3 +983,18 @@ Contract:
 4. Acceptance: adapter behavior byte-identical on valid configs;
    refusal messages may only gain precision; the board-listed adapter
    identity gates rerun green.
+
+## USER RULING (2026-07-13): sigma8 radius = 8 Mpc/h — the conventional definition
+
+Asked and answered 2026-07-13 (during the Architect texnotes-gap
+triage): the derived sigma8 the MPS adapter serves uses the
+CONVENTIONAL top-hat radius R = 8 Mpc/h, not the legacy R = 8.0 with
+k in 1/Mpc that _compute_sigma8 ships today. This changes
+legacy-served values ON PURPOSE — the BSN-curvature precedent applies
+(dimensionally or conventionally wrong legacy math is not
+reproduced). No renamed legacy product and no dual serving: one
+product, one convention, named sigma8. Implementation rides the
+wave-4 MPS visit (units 16 + 63 + the entry-2 sigma8 half, under
+UNIT 2 EXTENDED's domain-totality contract); the guide's Current-gap
+paragraph (texnotes/emulator_code_guide.tex ~:3885) updates in the
+SAME landing per the currency rule in conventions-and-workflow.md.
