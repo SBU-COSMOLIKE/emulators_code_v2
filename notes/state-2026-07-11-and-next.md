@@ -2921,3 +2921,13 @@ before self-committing, the pre-merge audit is unchanged. First
 application: increment 3's per-gate migration (fan out per gate
 after a serial proof on the first gates). Spec: gates-and-board.md
 "SUBAGENT RULE".
+
+README FIGURES AUDIT (2026-07-13, Fable): 701d6f9 GO — the root
+README's didactic rewrite with three manuscript figures; SONIC +
+pair warning + overclaim-absence survive; figures visually verified
+colorblind-safe and content-true; symbols defined in place; PNG
+dims verified (sips) at the register's numbers, the byte-identity
+re-render register-witnessed (no pdftoppm here); geo_paths PASS
+with the new texnotes .py in scope (cocoa interpreter); no
+production/gate files touched. Spec: gates-and-board.md "README
+figures + didactic rewrite audit".
