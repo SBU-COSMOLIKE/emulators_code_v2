@@ -1724,6 +1724,20 @@ uses “Simulated Observables for Numerical Inference in Cosmology.” In Markdo
 the first letters are bold exactly as shown above. The acronym, filenames, and
 artwork path remain `SONIC`; no code or artifact schema changes.
 
+#### Fable adjudication of DIDACTICS-95--100 (2026-07-13)
+
+All six findings are **CONFIRMED**. The user's current-library/not-a-diary
+ruling is the binding standard for every README. Its acceptance remains the
+candidate scan followed by human adjudication, with reasons recorded in audit
+evidence rather than inserted into the README. DIDACTICS-96's code comparison
+also established that three of its four CMB overclaims conflict with the
+repository's own more accurate loss docstring, geometry preamble, or covariance
+implementation: the public teaching prose drifted beyond its owners. The wave
+folds into the existing root, emulator, gates, and Syren README visits; it does
+not create new queue slots. DIDACTICS-100 keeps the custody split already
+executed: the Red Team corrected the TeX source and PDF, and the Implementer
+corrects the root README. The DIDACTICS register is now 001--100.
+
 ### README audit exclusions and existing owners
 
 The loop re-observed, but did not duplicate, four existing contracts:

@@ -2709,3 +2709,15 @@ Observables for Numerical Inference in Cosmology. The TeX source was
 corrected by its Red Team custodian in this landing; the root README
 correction belongs to the Implementer visit. No README or library code
 was edited by the Red Team.
+
+DIDACTICS-95..100 ADJUDICATED (2026-07-13, Fable): all six
+CONFIRMED. The current-library/not-a-development-diary ruling is now
+the campaign-wide README standard. Acceptance is the candidate scan
+plus human adjudication, with retained-hit reasons in audit evidence
+rather than public prose. The CMB verification found three overclaims
+already contradicted by more accurate implementation-owned text, so
+README teaching now carries the same one-owner discipline as
+numerics. The wave folds into the existing root, emulator, gates, and
+Syren visits with no new queue slot. Custody on DIDACTICS-100 stands:
+TeX/PDF corrected by Red Team, root README assigned to Implementer.
+DIDACTICS register: 001--100.
