@@ -2451,6 +2451,12 @@ key has an execution reader. The manifest hardening landing is finalized as
 16 + 18 + 19 + 21 + 22, one digest transition, with queue 2 behind it. Spec:
 gates-and-board.md, `25M-22`.
 
+25M-23 (2026-07-13, Red Team; awaiting Fable): the board-listed
+`finite_contract.py` dtype-provenance leg calls `_chi2_domain` without
+importing or defining it. Compile passes, execution raises `NameError` late in
+Part H before Part J/final summary. Gate-only repair plus the complete Torch
+workstation rerun; no producer change. Spec: gates-and-board.md, `25M-23`.
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

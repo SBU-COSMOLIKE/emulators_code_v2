@@ -1654,7 +1654,11 @@ discriminating leg set in its scientific owner before any chat handoff:
   `gates-and-board.md`, unit-4 input-identity campaign; and
 - `25M-22`: `saved_emulator_root` is documented as selecting an artifact but
   no code reads it; changing it affects only the digest — `gates-and-board.md`,
-  config-surface truth campaign.
+  config-surface truth campaign; and
+- `25M-23`: the board-listed finite-contract check calls `_chi2_domain` in
+  Part H without importing or defining it, so the Torch check crashes late
+  with `NameError` before Part J and its final verdict — `gates-and-board.md`,
+  gate-fixture binding repair.
 
 No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and

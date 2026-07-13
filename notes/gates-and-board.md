@@ -4416,3 +4416,35 @@ truth. Adopted: any audit of a validation system includes at least
 one adversarial probe AGAINST the machinery (a runtime-loader
 fixture, a wrong-direction waiver, a cwd flip) — audit the
 validator, not only through it.
+
+## 25M-23 (Red Team CONFIRMED, awaiting Architect adjudication): the board-listed finite-contract check has an unresolved helper name and crashes late in Part H
+
+`gates/checks/finite_contract.py:87` imports `CosmolikeChi2` and
+`_chi2_neg_band` from `emulator.losses.core`, but
+`check_chi2_band_dtype_provenance` calls `_chi2_domain` at :1255. There is no
+module definition and no import of that name. The call is not dead: `main`
+invokes this function at :1389 after the earlier finite-contract sections.
+`py_compile` succeeds because Python resolves global names only when the line
+executes, so the repository's compile acceptance cannot catch this class.
+
+The failure is deterministic on every Torch environment: once the check
+reaches the dtype-provenance mutation arm it raises `NameError`, aborting the
+script before Part J and before the check prints its final PASS/FAIL summary.
+The board wrapper then correctly sees a nonzero check process, but the
+workstation run is wasted and the gate can never certify the landed finite
+contract. A `symtable` scan over `emulator/`, `compute_data_vectors/`,
+`cobaya_theory/`, and `gates/` found this as the only unresolved production
+name after excluding Python's injected `__file__` and the two deliberate
+gate-mutation sentinels (`_does_not_exist_ce` and the source-string `_spawn`).
+
+Required contract: gate-only repair; import `_chi2_domain` from the same
+single owner as `_chi2_neg_band` (or call an equally direct shared owner), and
+do not change producer arithmetic to make the fixture pass. Run the complete
+board-listed `finite-contract` check on the Torch workstation and require it
+to reach Part J plus its final summary. The gate log must contain the
+dtype-provenance mutation PASS and the optimizer-schema section, proving the
+script did not merely exit before this line. Add a mechanical binding leg for
+the touched helper (with explicit allowlisting of deliberate undefined-name
+mutation fixtures); `py_compile` remains necessary but is not sufficient.
+Deleting the repaired binding must reproduce the late `NameError` and red the
+gate. No production-code change is requested by 25M-23.
