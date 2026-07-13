@@ -165,6 +165,12 @@ class RunContext:
     self._env = env
     self.debug = debug
     self.repo = _REPO
+    # (queue 2) the ordered evidence legs this gate body emitted this run, each
+    # (aid, "PASS"/"FAIL"/"UNAVAILABLE", detail-or-reason). The runner reconciles
+    # it against the gate's declared evidence map after the body returns; a leg
+    # emitted with aid None (not yet migrated) is never recorded, so the
+    # migration to the structured map stays rolling.
+    self._executed = []
     # The interpreter running the harness runs the gates too, so
     # a check / driver never depends on a bare "python" being on PATH
     # (the dev Mac has only python3). cobaya-run stays a PATH lookup (it
@@ -202,7 +208,7 @@ class RunContext:
     """
     self._emit("[harness] " + msg + "\n")
 
-  def expect(self, *, label, ok, detail=""):
+  def expect(self, *, label, ok, detail="", aid=None):
     """Write an acceptance verdict, raising GateFailure on failure.
 
     Arguments:
@@ -211,15 +217,44 @@ class RunContext:
       detail = the acceptance value(s) behind the verdict, always
                logged so the raw log carries the evidence, not a bare
                PASS/FAIL.
+      aid    = the structured-evidence assertion id this leg proves
+               (queue 2), or None for a leg not yet migrated to the map.
+               When given, the id and its terminal result (PASS or FAIL)
+               are recorded so the runner can reconcile the legs the gate
+               DECLARED against the legs it actually executed; a leg with
+               aid None is invisible to that reconciliation.
 
     Returns:
       None. Raises GateFailure when ok is False.
     """
     verdict = "PASS" if ok else "FAIL"
+    if aid is not None:
+      self._executed.append((aid, verdict, detail))
     self._emit("[harness] CHECK " + label + ": " + verdict
                + ("" if detail == "" else "  (" + detail + ")") + "\n")
     if not ok:
       raise GateFailure(label + ("" if detail == "" else ": " + detail))
+
+  def unavailable(self, *, aid, label, reason):
+    """Record a DECLARED evidence leg that could not be executed here.
+
+    The honest non-green terminal for a leg the gate declares but cannot
+    prove in this environment -- a workstation-owed leg on the dev Mac, a
+    lexical scan a wrapper must not upgrade into runtime proof, or a logged
+    instruction that ran no test. It is NOT a gate failure: a gate passes on
+    its environment-available legs (binding ruling 6, fork D1-ii). But it is
+    also not silence -- the id is recorded, so a leg the gate declared and
+    then dropped WITHOUT this explicit call reds the gate in reconciliation.
+    The reason travels with the aid into the log, --list, and BOARD.md.
+
+    Arguments:
+      aid    = the declared assertion id this leg would prove.
+      label  = what the leg checks (appears as CHECK <label>).
+      reason = why it could not run here (owed-workstation / lexical /
+               environment), carried beside the aid on every surface.
+    """
+    self._executed.append((aid, "UNAVAILABLE", reason))
+    self._emit("[harness] CHECK " + label + ": UNAVAILABLE  (" + reason + ")\n")
 
   # ---- shell -------------------------------------------------------------
 
@@ -715,6 +750,11 @@ def validate_evidence(gates):
         reworded or deleted note orphans no pointer.
     (2) unique -- no two assertions anywhere on the board share an aid, so a
         leg's id names exactly one acceptance leg.
+    (3) transform -- every anchor fragment equals its aid with "." -> "-", so
+        the aid <-> anchor correspondence is one mechanical string map (no
+        second naming convention to drift). Since the aid prefix is the gate's
+        board id (the --gate selector), a red aid line names both the gate to
+        rerun and the note passage to read.
 
   A gate with no evidence is skipped: the migration to the structured map is
   rolling, and lacking evidence is never itself a failure (the gate still
@@ -745,6 +785,12 @@ def validate_evidence(gates):
                       + "' is not of the form '<note>.md#<marker>'")
         continue
       stem, marker = item.anchor.split("#", 1)
+      expected_marker = item.aid.replace(".", "-")
+      if marker != expected_marker:
+        errors.append("gate '" + gate.id + "' assertion '" + item.aid
+                      + "' anchor marker '#" + marker
+                      + "' is not the aid with '.'->'-' (expected '#"
+                      + expected_marker + "')")
       if stem not in cache:
         cache[stem] = _note_markers(_REPO / "notes" / stem)
       markers = cache[stem]
@@ -2087,6 +2133,119 @@ def _stale_member(record, gate, cfg):
   return ""
 
 
+def _fmt_set(ids):
+  """Render an id set deterministically as ``{a, b, c}`` for a reconcile line."""
+  return "{" + ", ".join(sorted(ids)) + "}"
+
+
+def _evidence_cell(ev_block):
+  """Render the pinned per-gate evidence line (queue 2, fork D1-ii display).
+
+  ``executed N/M; UNAVAILABLE K: <aid> <aid> ...`` -- N legs executed as a real
+  PASS, M legs declared, K legs explicitly UNAVAILABLE (their ids named so an
+  owed or lexical leg is never hidden behind a bare PASS). Reasons live in the
+  raw log; the cell names the ids. Shared by the run footer, --list, and
+  BOARD.md so the three surfaces cannot disagree.
+
+  Arguments:
+    ev_block = the persisted evidence summary, {"executed": N, "declared": M,
+               "unavailable": [[aid, reason], ...]}.
+
+  Returns:
+    the one-line cell string.
+  """
+  unavailable = ev_block.get("unavailable", [])
+  cell = ("executed " + str(ev_block["executed"]) + "/"
+          + str(ev_block["declared"]) + "; UNAVAILABLE " + str(len(unavailable)))
+  if unavailable:
+    ids = []
+    for pair in unavailable:
+      ids.append(pair[0])
+    cell = cell + ": " + " ".join(ids)
+  return cell
+
+
+def _reconcile_evidence(gate, executed):
+  """Reconcile the legs a gate DECLARED against the legs it EXECUTED (queue 2).
+
+  Binding ruling 6 (the dead-network rule turned on the harness itself): each
+  declared assertion emits exactly one terminal result per run -- PASS, FAIL, or
+  an explicit UNAVAILABLE. A declared leg never emitted (silently dropped), an
+  emitted id the gate never declared, or one id emitted twice reds the gate.
+  Fork D1-ii: the gate still PASSES on its available legs, but a gate whose
+  executed set holds no real PASS (every declared leg UNAVAILABLE) may not pass
+  -- a gate that proved nothing is not evidence (the zero-executed guard).
+
+  Only an otherwise-passing gate is reconciled: a gate that already FAILED is
+  non-green for a real reason, and its raised leg left the executed set short.
+
+  Arguments:
+    gate     = the Gate whose evidence map is reconciled.
+    executed = ctx._executed: the ordered (aid, result, reason) the body emitted.
+
+  Returns:
+    (ok, ev_block, line): ok is True when the declared and executed id sets
+    agree and at least one leg really passed; ev_block is the persisted summary
+    for the pinned display (None when not ok); line is the reconciliation line
+    (the pinned ``[evidence]`` error when not ok, else the passing summary).
+  """
+  declared = []
+  for item in gate.evidence:
+    declared.append(item.aid)
+  declared_set = set(declared)
+
+  # count emissions per id: a duplicate is two terminals for one leg, a red.
+  seen = {}
+  order = []
+  for record in executed:
+    aid = record[0]
+    if aid not in seen:
+      seen[aid] = []
+      order.append(aid)
+    seen[aid].append((record[1], record[2]))
+  executed_set = set(order)
+
+  duplicates = []
+  for aid in order:
+    if len(seen[aid]) > 1:
+      duplicates.append(aid)
+  unknown = sorted(executed_set - declared_set)
+  missing = sorted(declared_set - executed_set)
+
+  if duplicates or unknown or missing:
+    line = ("[evidence] " + gate.id + ": declared " + _fmt_set(declared_set)
+            + " but executed " + _fmt_set(executed_set))
+    parts = []
+    if missing:
+      parts.append("declared-not-executed: " + ", ".join(missing))
+    if unknown:
+      parts.append("executed-not-declared: " + ", ".join(unknown))
+    if duplicates:
+      parts.append("emitted-twice: " + ", ".join(sorted(duplicates)))
+    return (False, None, line + " (" + "; ".join(parts) + ")")
+
+  # every declared leg emitted exactly one terminal (PASS or UNAVAILABLE; a
+  # FAIL raised GateFailure and never reaches this passing path).
+  n_pass = 0
+  unavailable = []
+  for aid in declared:
+    result, reason = seen[aid][0]
+    if result == "PASS":
+      n_pass = n_pass + 1
+    else:
+      unavailable.append([aid, reason])
+
+  if n_pass == 0:
+    line = ("[evidence] " + gate.id + ": zero executed legs -- all "
+            + str(len(declared)) + " declared leg(s) UNAVAILABLE; a gate that "
+            "proved nothing may not PASS")
+    return (False, None, line)
+
+  ev_block = {"executed": n_pass, "declared": len(declared),
+              "unavailable": unavailable}
+  return (True, ev_block, "[evidence] " + gate.id + ": " + _evidence_cell(ev_block))
+
+
 def _state_detail(state, record, gate, cfg):
   """The detail column for a gate's state, SHARED by --list and BOARD.md (25M-28).
 
@@ -2102,6 +2261,12 @@ def _state_detail(state, record, gate, cfg):
     member = _stale_member(record, gate, cfg)
     if member:
       detail = (detail + " [stale member: " + member + "]").strip()
+  # (queue 2, fork D1-ii) a current PASS that declared evidence carries the
+  # pinned executed/UNAVAILABLE line, so --list and BOARD.md never show a bare
+  # PASS while the recorder held an owed or lexical leg.
+  if state == "PASS" and record.get("evidence"):
+    detail = (detail + " [evidence: "
+              + _evidence_cell(record["evidence"]) + "]").strip()
   return detail
 
 
@@ -2498,6 +2663,7 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
     inprogress = _LOGS_DIR / (log_name + ".inprogress")
     print("GATE " + gate.id + " [" + gate.tier + "] started "
           + datetime.datetime.now().strftime("%H:%M:%S"))
+    ev_block = None                  # (queue 2) the pinned-display summary, or None
     with open(inprogress, "w") as log_fh:
       ctx = RunContext(cfg=cfg, dry=False, log_fh=log_fh, env=env, debug=debug)
       _log_header(ctx, gate)
@@ -2513,7 +2679,24 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
         detail = "unexpected: " + repr(unexpected)
       # (KeyboardInterrupt / SystemExit are NOT caught: they propagate, leaving
       # the RUNNING record as an interrupted attempt, never a PASS.)
-      footer = ("[harness] GATE " + gate.id + ": " + outcome
+      # (queue 2) evidence reconciliation: an otherwise-passing gate that
+      # declares a structured map must have EXECUTED every leg it declared and
+      # proved at least one (binding ruling 6 + fork D1-ii). A silently-dropped,
+      # unknown, duplicate, or all-UNAVAILABLE leg reds the gate. A gate that
+      # already FAILED is left alone -- it is non-green for a real reason, and
+      # its raised leg left the executed set deliberately short.
+      if outcome == "PASS" and gate.evidence:
+        ok_ev, ev_summary, ev_line = _reconcile_evidence(gate, ctx._executed)
+        ctx.log(ev_line)
+        if not ok_ev:
+          outcome = "FAIL"
+          detail = ev_line
+        else:
+          ev_block = ev_summary
+      outcome_display = outcome
+      if ev_block is not None:
+        outcome_display = outcome + " (" + _evidence_cell(ev_block) + ")"
+      footer = ("[harness] GATE " + gate.id + ": " + outcome_display
                 + ("" if detail == "" else "  -- " + detail) + "\n")
       ctx._emit(footer)
 
@@ -2530,6 +2713,8 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
       verdict["manifest"] = man_block
     if gate.deps:
       verdict["deps"] = dep_snap
+    if ev_block is not None:
+      verdict["evidence"] = ev_block
     status[gate.id] = verdict
     _save_status(status)
     _write_board_md(status, cfg)

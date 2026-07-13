@@ -120,16 +120,21 @@ class Assertion:
 
   Arguments:
     aid    = the assertion id: a stable, board-unique name for one
-             acceptance leg (e.g. "brd-a.exit-truth"). Chosen once and
-             never reworded, so a log line or a review can cite the leg
-             by a name that does not move when the prose around it does.
+             acceptance leg, "<gate-id>.<plain-leg-name>" where <gate-id>
+             is the gate's board id (the --gate selector), e.g.
+             "board-selftest.exit-truth". Chosen once and never reworded,
+             so a log line or a review can cite the leg by a name that
+             does not move when the prose around it does -- and a red aid
+             line names both the gate to rerun and the leg that failed.
     anchor = the home-note anchor the leg encodes, in the form
-             "<note>.md#<marker>" (e.g.
-             "gates-and-board.md#brd-a-exit-truth"). The marker is an
-             explicit <a id="..."></a> element in the note (chosen over
-             a heading slug because it survives a heading rewording);
-             the runner fails loudly, before running, if it does not
-             resolve.
+             "<note>.md#<marker>", where the marker is the aid with
+             "." -> "-" (e.g. "gates-and-board.md#board-selftest-exit-truth"
+             for aid "board-selftest.exit-truth"). validate_evidence
+             enforces that transform, so the aid <-> anchor map is one
+             mechanical string rule. The marker is an explicit
+             <a id="..."></a> element in the note (chosen over a heading
+             slug because it survives a heading rewording); the runner
+             fails loudly, before running, if it does not resolve.
   """
   aid: str
   anchor: str
@@ -1434,6 +1439,7 @@ def gate_board_selftest(ctx):
   rc, out = ctx.run_check("gates/checks/board_selftest.py")
   if not ctx.dry:
     ctx.expect(
+      aid="board-selftest.exit-truth",
       label="board-selftest exit-truth / selector / lane-code legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1459,6 +1465,7 @@ def gate_artifact_readback(ctx):
   rc, out = ctx.run_check("gates/checks/artifact_readback.py")
   if not ctx.dry:
     ctx.expect(
+      aid="artifact-readback.typed-bool",
       label="artifact-readback typed-attribute legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1484,6 +1491,7 @@ def gate_generator_seed(ctx):
   rc, out = ctx.run_check("gates/checks/generator_seed.py")
   if not ctx.dry:
     ctx.expect(
+      aid="generator-seed.owned-rng",
       label="generator-seed sampling-RNG legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1508,6 +1516,7 @@ def gate_cli_strict(ctx):
   rc, out = ctx.run_check("gates/checks/cli_strict.py")
   if not ctx.dry:
     ctx.expect(
+      aid="cli-strict.strict-parse",
       label="cli-strict flag-parsing legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1533,6 +1542,7 @@ def gate_family_first(ctx):
   rc, out = ctx.run_check("gates/checks/family_first.py")
   if not ctx.dry:
     ctx.expect(
+      aid="family-first.family-owned",
       label="family-first driver-identity legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1568,6 +1578,7 @@ def gate_stage_ram(ctx):
   rc, out = ctx.run_check("gates/checks/stage_ram.py")
   if not ctx.dry:
     ctx.expect(
+      aid="stage-ram.both-copies",
       label="stage-ram host-RAM accounting legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1606,6 +1617,7 @@ def gate_diagnostics_domain(ctx):
   rc, out = ctx.run_check("gates/checks/diagnostics_domain.py")
   if not ctx.dry:
     ctx.expect(
+      aid="diagnostics-domain.score-boundary",
       label="diagnostics-domain floor/residual score-boundary legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1724,8 +1736,8 @@ BOARD = [
             "structured evidence map validates (the shipped board resolves, "
             "and a bad anchor / missing note / duplicate id / malformed anchor "
             "are each rejected) (the red legs plus the valid controls)",
-       evidence=(Assertion("brd-a.exit-truth",
-                           "gates-and-board.md#brd-a-board-truth"),),
+       evidence=(Assertion("board-selftest.exit-truth",
+                           "gates-and-board.md#board-selftest-exit-truth"),),
        run=gate_board_selftest,
        manifest=Manifest(code=(), inputs=()),
        needs=()),
@@ -1741,8 +1753,8 @@ BOARD = [
             "is type-checked and written to the chain header; same-seed draws "
             "reproduce. The append-replay and worker-invariance legs ride the "
             "workstation smoke gates",
-       evidence=(Assertion("gen-a.owned-rng",
-                           "data-generation-and-cuts.md#gen-a-generator-seed"),),
+       evidence=(Assertion("generator-seed.owned-rng",
+                           "data-generation-and-cuts.md#generator-seed-owned-rng"),),
        run=gate_generator_seed,
        manifest=Manifest(code=(), inputs=()),
        needs=()),
@@ -1756,8 +1768,8 @@ BOARD = [
             "mains reject a misspelled flag (--activaton) with a nonzero exit "
             "before the expensive boundary, while a valid command line reaches "
             "it",
-       evidence=(Assertion("cli-a.strict-parse",
-                           "conventions-and-workflow.md#cli-a-strict-cli"),),
+       evidence=(Assertion("cli-strict.strict-parse",
+                           "conventions-and-workflow.md#cli-strict-strict-parse"),),
        run=gate_cli_strict,
        manifest=Manifest(
            code=("cosmic_shear_train_emulator.py",
@@ -1783,8 +1795,8 @@ BOARD = [
             "trains, the per-family wrappers accept their own block; the "
             "census confirms the four cosmic_shear drivers default "
             "family=cosmolike, always check, and drop the dispatcher prose",
-       evidence=(Assertion("fam-a.family-owned",
-                           "conventions-and-workflow.md#fam-a-family-first"),),
+       evidence=(Assertion("family-first.family-owned",
+                           "conventions-and-workflow.md#family-first-family-owned"),),
        run=gate_family_first,
        manifest=Manifest(code=("cosmic_shear_train_emulator.py",
                                "emulator/designs", "emulator/losses"),
@@ -1807,8 +1819,8 @@ BOARD = [
             "exact-fit boundary, the honest three-term banner, the loader-driven "
             "order proof, and mutation arms for the dv-only estimate and the "
             "retired arange reindex",
-       evidence=(Assertion("srm-a.both-copies",
-                           "data-generation-and-cuts.md#srm-a-stage-ram"),),
+       evidence=(Assertion("stage-ram.both-copies",
+                           "data-generation-and-cuts.md#stage-ram-both-copies"),),
        run=gate_stage_ram,
        manifest=Manifest(code=(), inputs=()),
        needs=("torch",)),
@@ -1823,8 +1835,8 @@ BOARD = [
             "would load drifted transfer weights) naming the file + schema; a "
             "source census confirms no artifact boolean is truthiness-coerced. "
             "The live save/forge/rebuild proof is workstation-owed",
-       evidence=(Assertion("arb-a.typed-bool",
-                           "artifacts-inference-warmstart.md#arb-a-artifact-readback"),),
+       evidence=(Assertion("artifact-readback.typed-bool",
+                           "artifacts-inference-warmstart.md#artifact-readback-typed-bool"),),
        run=gate_artifact_readback,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -1845,8 +1857,8 @@ BOARD = [
             "REAL cmb_residual_diagnostic (corrupt-score refusal + valid "
             "control), and the grid / grid2d producer census through the one "
             "shared boundary",
-       evidence=(Assertion("diag-a.score-boundary",
-                           "training-stack.md#diag-a-diagnostics-domain"),),
+       evidence=(Assertion("diagnostics-domain.score-boundary",
+                           "training-stack.md#diagnostics-domain-score-boundary"),),
        run=gate_diagnostics_domain,
        manifest=Manifest(code=(), inputs=()),
        needs=("torch",)),

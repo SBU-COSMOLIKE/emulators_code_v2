@@ -436,7 +436,7 @@ assertion each; the per-acceptance-leg ids (every `ctx.expect` and every
 external check leg emitting a unique id the runner reconciles against the
 declared set) are the audited rollout specified below.
 
-<a id="brd-a-board-truth"></a>
+<a id="board-selftest-exit-truth"></a>
 **board-selftest (BRD-A) — the wrapper reports the truth about what ran.**
 A dependency-skipped selected gate exits nonzero and runs no test body; an
 unknown `--gate` / `--from` / `--force-rerun` id is a usage error with a
@@ -740,7 +740,7 @@ row for row against a selection-order anchor, with a mutation arm restoring
 assertion. Texnotes: `texnotes/emulator_code_guide.tex` §"Worked staging
 example" and §"Worked memory calculation" updated from the cross-regime
 divergence + pending-banner limitations to the landed behavior, in this same
-landing. Home-note spec (`data-generation-and-cuts.md#srm-a-stage-ram`) and the
+landing. Home-note spec (`data-generation-and-cuts.md#stage-ram-both-copies`) and the
 board `maps` / gate docstring rewritten to the broadened claim.
 
 Verification (Mac, cocoa-torch interpreter): `stage-ram` 21/21 ALL PASS;
@@ -5954,3 +5954,375 @@ arms, then ##AID, then per-gate migration with the maps=/home=
 rewrite per visit), then D3 -> D4 -> D5. Every landing gets the
 standard pre-merge audit; the riders above are acceptance clauses,
 not suggestions.
+
+## Aid-prefix RE-RULING (Fable, 2026-07-13): gate.id, not the spec code — the ruling-4 "clarification" is RETRACTED
+
+The Implementer blocked on the aid-prefix clause of the adjudication
+above and filed three factual claims against its premise. All three
+verified by me against the machinery (the raw evidence, not the
+filing):
+
+- `--gate brd-a` is REJECTED live: "error: --gate names unknown
+  gate id(s): 'brd-a'" (the 45M-77 strict refusal), while
+  `--gate board-selftest` passes id validation (it proceeds to the
+  action-mode check). My "run_board.py --gate brd-a reruns exactly
+  the failing gate" was not a runnable command.
+- brd-a/gen-a/gsv/gct are the LOWERCASED SPEC CODES:
+  `Gate(id="board-selftest", spec_code="BRD-A", ...)`, and
+  board.py's own field docstring defines spec_code as "the key of
+  this test's audit-history entry inside its home" — an internal
+  audit code, exactly the class ruling 4 excludes from assertion
+  identifiers.
+- The board's log-public primary key is gate.id: BOARD.md rows
+  concatenate gate.id (run_board.py:2143), `_registry_ids()` — "the
+  selector validation authority" — collects gate.id, and an
+  untruncated grep finds spec_code NOWHERE in run_board.py.
+
+RE-RULING (replaces the "RULING-4 CLARIFICATION" paragraph of the
+adjudication above; everything else there stands): the aid prefix is
+`gate.id` — `board-selftest.exit-truth`, `save-rebuild-drift.<leg>`.
+Ruling 4's example was LITERALLY CORRECT as written; it was the
+landed foundation that deviated by keying to the spec code, and my
+adjudication preserved the deviation under an unverified rationale.
+The rationale itself survives the flip: under gate.id a red aid line
+IS directly actionable (`--gate save-rebuild-drift`) and DOES match
+the BOARD.md primary key — the two properties I wanted were only
+ever true of gate.id.
+
+CONSEQUENCE (supersedes the anchor-only normalization): the 7
+foundation aids are RE-KEYED to gate.id, and the 7 anchors follow
+via invariant (3)'s transform (e.g. brd-a.exit-truth ->
+board-selftest.exit-truth, anchor #board-selftest-exit-truth; 5
+notes touched). The proposal's `<gate-id>` placeholders now read as
+gate.id everywhere, including the six-field block template.
+
+THE ERROR, recorded: I probed every clause of the proposal EXCEPT
+the one I ruled on from memory — counts, anchors, validator,
+pinned line all verified; the selector vocabulary asserted from the
+notes prose pattern "Gate board-selftest (BRD-A)". The
+probe-against-the-machinery law applies to MY OWN premises exactly
+as it applies to filings: a ruling clause that names a runnable
+command must have run it. The Implementer's block — refusing to
+build on a premise it could falsify — is the protocol working.
+
+RETRACTION rider: the previous handoff asked the red team to record
+a register note softening ruling 4's example. WITHDRAWN — the
+example stands as written; no register edit is needed.
+
+CONFIRMED to the Implementer: proceed with increment 1 as scoped in
+the blocking handoff — the reconciliation machinery (expect(aid=),
+ctx.unavailable, executed-set recorder, PASS-on-available +
+zero-executed guard + pinned display), validate_evidence invariant
+(3), the 7 foundation aids re-keyed to gate.id + anchors
+normalized, and the board-selftest mutation arms — Mac-verified
+(--list rc 0 + board-selftest green) before handoff; ##AID
+manifests and per-gate migration follow as separate increments.
+
+## D2 factual-increment audit (Fable, 2026-07-13): 9b59e0e — GO for merge
+
+The red team's first campaign landing (DIDACTICS D2, the factual
+bundle) on codex/architect-docs-static-audit, 29 files: four READMEs
+(root, emulator/, gates/, syren/), 22 Python doc surfaces under
+emulator/ + cobaya_theory/, and their register. Every evidence claim
+re-derived independently, not accepted:
+
+- AST (my own comparator, parent 238d774 vs 9b59e0e, all 24 .py):
+  20 files AST-identical with docstrings stripped; 4 files differ
+  ONLY in human-facing runtime strings (losses/cmb.py, results.py,
+  training.py, warmstart.py — voice/punctuation plus warmstart's
+  clearer anchor refusal "train_args.finetune.anchor is not
+  available. Remove the anchor key ..."); ZERO structural changes.
+  Matches the register's own four-file disclosure exactly.
+- compileall (emulator, cobaya_theory, syren, compute_data_vectors,
+  gates/checks) clean and board_selftest ALL PASS — MY runs, not
+  the filing's.
+- SONIC expands exactly to "Simulated Observables for Numerical
+  Inference in Cosmology" (README:21); an untruncated scan finds no
+  retired expansion.
+- Residual-block order: the rewritten docstring (final Linear ->
+  skip addition -> normalization -> activation) matches the executed
+  forward (blocks.py: the i == n-1 branch adds xskip after
+  layers[i], before acts[i](norms[i](out))). The shared-MLP
+  "textbook" overclaim is narrowed to the fixed-width dim->dim
+  truth.
+- losses/cmb.py rewrite VERIFIED as the 44/95-class corrections
+  with the teaching preserved: the amplitude-law transform (f =
+  (A_s_ref/A_s) * exp(2(tau - tau_ref))), encode/decode/score
+  directions, AMPLITUDE_LAWS registry all survive; "cosmic-variance
+  scale" is corrected to "the positive scale stored in the
+  covariance product", and "the amplitude generalizes for free" is
+  narrowed to "removes the dominant primary-CMB amplitude trend but
+  does not make the remaining target independent of all amplitude
+  information". The retired-law diary paragraph is gone per the
+  current-state ruling.
+- warmstart.py:20-33 now carries EXACTLY the 71 two-invariant
+  split (_PARITY_TOL numerical reproduction with the
+  reduction-order reason; torch.equal on the zero-connected-extras
+  arm), the 56 state_dict frozen-parameters fact, and the 69
+  whitening sentence; the 69 census is CLEAN (zero "equally
+  hard"/"equally easy" in emulator/ at the commit).
+- results.py teaches the executed CPU normalization (detach + CPU
+  before torch.save; map_location selects the destination) — the 70
+  prose fix.
+- The README CMB workflow now shows the independent
+  dataset_generator_cmb.py / compute_cmb_covariance.py branches.
+- gates/README.md's one row (bsn-identity) is an HONEST NARROWING
+  consistent with unit 90's confirmed finding: "vs closed-form flat
+  LCDM ... save/rebuild bitwise" becomes "numerical consistency of
+  the production distance integrator on analytic fixtures ...
+  save/rebuild identity" — the row now claims what is executed;
+  the independent-quadrature strengthening remains unit 90 (their
+  custody).
+- Ruling 4 restored BYTE-EXACT in the register (the withdrawn
+  brd-a.exit-truth clarification note removed) — closing my
+  retraction's loop.
+- DIDACTICS-79 HOLD ACCEPTED as filed: the false generator command
+  is removed, --unif/--seed requiredness was proven by executing
+  the parser in isolation, and NO replacement command was invented
+  because none can be executed in their environment — the
+  executed-before-printed rule applied correctly, the item stays
+  open with a durable-record explanation. The register also
+  explicitly refuses to bless the remaining history-vocabulary in
+  the READMEs (later current-state visits).
+- COLLISION CHECK: no gates/board.py, gates/run_board.py, or
+  gates/checks/*.py edits — the Implementer's exclusive surfaces
+  untouched while increment 1 is in flight (confirmed in flight as
+  UNCOMMITTED working-tree edits on amazing-keller; the branch tip
+  is still my audited dbc7f16, so the landing order below sweeps in
+  nothing unaudited).
+
+VERDICT: GO. Landing order: the codex branch first, then
+claude/amazing-keller-e798b6 (disjoint files, no conflict — the
+codex commit touches no note my branch touches). Units 41 + 53 may
+start at the red team on this landing, per their handoff's own
+sequencing. Unit 93 remains unclaimed and available.
+
+## THROUGHPUT REBALANCE (user ruling, 2026-07-13): red-team speed is now an explicit division criterion
+
+USER RULING (after the D2 GO): the red team's demonstrated pace is
+taken into account when dividing work — the backlog must finish
+faster. Calibration recorded with the ruling: D2 was doc-only under
+an AST-identity constraint (intrinsically faster than machinery
+increments), so the acted-on signal is QUALITY-PER-AUDIT — the red
+team is ~60-for-60 on verified filings and its first code-adjacent
+landing passed audit clean on the first pass. Governance is
+unchanged: Architect pre-merge audit on every landing, no
+self-certification, one owner per file at any moment.
+
+TRANSFERS EFFECTIVE NOW (zero collision with increment 1/2):
+
+1. QUEUE-2 NOTE-SIDE EVIDENCE BLOCKS. The red team drafts the
+   home-note evidence surface for the board per the approved A1-ii
+   template: one six-field block per gate (files / subprocess /
+   metric / legs / evidence / owed) at the headline anchor plus a
+   lightweight per-leg anchor + one-line claim, leg names minted by
+   the frozen Deliverable-B rule (gate.id prefix, narrowed claims,
+   taught vocabulary, reserved terms). Rationale: this is the
+   rollout's largest WRITING surface, most narrowed claims trace to
+   the red team's own filings, extra <a id> markers are inert until
+   a gate declares them (validate_evidence checks only declared
+   anchors), and the notes/ side collides with nothing the
+   Implementer's increments touch except the seven foundation
+   anchors ALREADY being re-keyed — those seven are EXCLUDED from
+   the draft (the Implementer lands them in increment 1). Division
+   inside the surface: the red team drafts every gate EXCEPT the
+   four subprocess-driver gates (gct / gsv / ftw / tpe wrapper
+   gates), whose leg classification is entangled with the
+   wrapper-falsehood machine disposition — the Implementer names
+   those legs during migration. I audit the drafted blocks; the
+   Implementer treats audited names as the spec and files a naming
+   objection per gate where migration disagrees.
+2. ENVIRONMENT PROBE (gates further transfers). The red team
+   reports whether the cocoa interpreter
+   (Cocoa/.local/bin/python, torch 2.6.0 CPU+MPS) executes in
+   their sandbox — evidence: one torch import + one small forward
+   pass printed. The answer decides whether torch-executing units
+   (D3's smoke-fixture repair, most D4/D5 legs) can transfer with
+   local verification or only in write-here/verify-there form (the
+   unit-93 precedent).
+
+PRE-AUTHORIZED AT THE INCREMENT-2 SEAM (fires when the Implementer
+lands the ##AID manifest increment and gates/checks/ goes quiet;
+same mechanism as the Wave-2 table — no fresh ruling needed):
+
+3. D6 (mkdtemp hygiene, all nine sites) — whole.
+4. 61-FINITENESS — whole (checks/logscan.py decreasing: both
+   endpoints finite + the five named controls as board-selftest
+   legs); pure-CPU, runnable in their environment.
+5. D3 (the unit-28 smoke-fixture disjointness repair) — IF the
+   environment probe says torch runs locally; otherwise it stays
+   with the Implementer (a gauntlet-critical repair must be
+   executed by its author, not verified blind).
+6. D4 SPLIT DECISION at the same seam: check-script legs whose
+   files the ##AID sweep has finished may transfer file-by-file
+   (one owner per file at any moment); board.py legs (46's
+   _golden_leg + addendum) stay with the Implementer.
+
+UNCHANGED — THE IMPLEMENTER'S CORE (kept deliberately; the reason
+is capability and stakes, not habit): the queue-2 machinery +
+board.py migration (one file, the harness itself), the fixed-facts/
+artifact chain (74/76/77/78/80/82/84/85 — production artifact truth
+whose legs execute torch save/rebuild), unit 8, unit 96, the
+queue-3 staging reopen. Stripping everything else away is what
+shortens that queue; moving its members would trade the most
+expensive class of error for throughput.
+
+The gauntlet's critical path is unchanged (increments 1-2 -> D3 ->
+D4 -> D5 -> queue 5); this rebalance shortens the TAIL behind it
+and parallelizes the note surface under it.
+
+## Queue 2 increment 1 COMPLETE — reconciliation machinery + the 7-aid re-key (Opus, 2026-07-13)
+
+The approved increment 1 is landed and Mac-verified (cocoa-torch not needed —
+board-selftest is pure Python). Scope exactly as ruled; ##AID manifests and the
+per-gate migration are the following increments.
+
+**What landed:**
+
+- `RunContext` (run_board.py): `self._executed` recorder; `expect(*, ..., aid=None)`
+  records `(aid, PASS/FAIL, detail)` when an aid is given (un-migrated legs stay
+  invisible — rolling migration); new `unavailable(*, aid, label, reason)` — the
+  honest non-green terminal that does NOT raise (fork D1-ii).
+- `validate_evidence` invariant (3): every anchor fragment must equal its aid
+  with `.`->`-`. Runs on every invocation incl. `--list` (exits 2 on violation).
+- `_reconcile_evidence(gate, executed)` + `_evidence_cell` + `_fmt_set`: binding
+  ruling 6 — declared-not-executed, executed-not-declared, and emitted-twice red
+  the gate via the pinned `[evidence] <gate>: declared {..} but executed {..}`
+  line; fork D1-ii PASS-on-available; the ZERO-EXECUTED GUARD (all-UNAVAILABLE
+  may not PASS). Wired into `run_selection` (reconciles only an otherwise-passing
+  gate), persisted as `verdict["evidence"]`, and rendered by the shared
+  `_state_detail` so the pinned `PASS (executed N/M; UNAVAILABLE K: <aid> ...)`
+  line shows in the gate log, `--list`, and BOARD.md alike.
+- The 7 foundation aids RE-KEYED to the gate.id prefix (per the aid-prefix
+  re-ruling): `board-selftest.exit-truth`, `generator-seed.owned-rng`,
+  `cli-strict.strict-parse`, `family-first.family-owned`, `stage-ram.both-copies`,
+  `artifact-readback.typed-bool`, `diagnostics-domain.score-boundary`; their 7
+  note anchors renamed to the transform (5 notes touched + one prose spec pointer
+  in gates-and-board.md). Each gate body's result `expect` now carries its
+  headline `aid=`, so the declared leg actually executes and reconciles.
+- board-selftest: `check_evidence_map` mutations transform-isolated (1/2 anchors
+  made transform-correct so they isolate the unresolved / missing-note defect; 3
+  uses a real re-keyed anchor so the duplicate is isolated) + new mutation 5
+  (non-transform anchor rejected) + the CLI arm (a non-transform anchor makes the
+  REAL `main --list` exit 2). Two new check functions: `check_evidence_reconciliation`
+  (drives the REAL `_reconcile_evidence` — control-green, declared-not-executed,
+  emitted-twice, executed-not-declared, mixed-PASS+UNAVAILABLE-green, zero-executed
+  guard) and `check_evidence_gate_verdict` (drives the REAL `run_selection` via
+  `drive_main`, validate_evidence patched off: a mixed gate ends PASS with the
+  persisted block, an all-UNAVAILABLE gate ends FAIL, a silently-dropped leg reds).
+
+**Verification (Mac):** `py_compile` + `compileall gates` clean; board-selftest
+**155 PASS / 0 FAIL** (was 142 — +13 legs); `run_board --list` rc 0 (all 7
+re-keyed anchors resolve + satisfy invariant 3, all aids unique). Every mutation
+arm reds its fabricated gate; every control greens.
+
+**Two implementation choices flagged for the pre-merge audit:**
+
+1. A reconciliation failure (mismatch OR the zero-executed guard) sets the gate's
+   `outcome = "FAIL"` with a distinguishing DETAIL (the `[evidence]` line), rather
+   than minting a NEW named status. Rationale: FAIL is already a fully-plumbed
+   non-green terminal (resume, exit code, display, counts); a new state would need
+   threading through `_resume_state`, `cmd_list`, `_write_board_md`, and the exit
+   rule for no behavioral gain. The ruling's "distinct non-green state" is met by
+   the detail. If the audit prefers a distinct label, it is a small follow-up.
+2. Reconciliation runs ONLY on an otherwise-passing gate: a gate that already
+   FAILED (a raised `expect`) is non-green for a real reason, and its raised leg
+   left `_executed` deliberately short — reconciling it would report spurious
+   declared-not-executed noise on an already-red gate.
+
+**Trigger already fired:** the rollout-plan approval freed UNITS 41 (25M-05 slice
+only) + 53; recorded here so the transfer is on the ledger.
+
+**Next:** increment 2 = the `##AID` check-script manifests (parse-and-fold in
+`run_check`, crash-before-manifest reds) with its board-selftest arm; then
+increment 3 = per-gate migration in the Deliverable-C order (7 migrated ->
+in-process -> wrapper+child -> subprocess-driver last) with the `maps=` one-
+sentence rewrite + `home=` reconciliation per visit.
+
+## Queue-2 increment-1 audit (Fable, 2026-07-13): GO — audited PRE-commit, landed as d1896ce
+
+The Implementer delivered increment 1 uncommitted and asked for a
+commit; I audited the working tree BEFORE any commit existed (a
+strictly stronger ordering than the session's usual land-then-audit)
+and committed it myself on GO. 8 files, 467 insertions / 42
+deletions. The ruling walked as a checklist against the diff:
+
+- expect(aid=) records (aid, PASS/FAIL, detail), keeps raise-on-FAIL;
+  aid=None stays invisible, so the migration is rolling and the 33
+  evidence-less gates are untouched.
+- ctx.unavailable(aid, label, reason) is the explicit non-green
+  terminal; the reason travels into the log, and the docstring
+  teaches exactly ruling 6 + D1-ii.
+- _reconcile_evidence: declared-not-executed / executed-not-declared
+  / emitted-twice each red an otherwise-passing gate through the
+  pinned line, which appears VERBATIM with an additive parenthetical
+  taxonomy (declared-not-executed: ... ; emitted-twice: ...) --
+  RATIFIED as an enhancement, the fixed prefix intact. A FAILED gate
+  is left unreconciled (already red for a real reason).
+- Zero-executed guard present: n_pass == 0 reds with "a gate that
+  proved nothing may not PASS".
+- Pinned display in ALL THREE surfaces: the footer prints
+  "PASS (executed N/M; UNAVAILABLE K: <aids>)", verdict["evidence"]
+  persists the block, and the SHARED _state_detail (the 25M-28
+  helper) appends "[evidence: ...]" so --list and BOARD.md cannot
+  disagree with the log.
+- validate_evidence invariant (3): anchor fragment must equal the
+  aid with "." -> "-"; clear error message naming both.
+- All 7 foundation aids re-keyed to gate.id with leg names retained
+  (board-selftest.exit-truth, generator-seed.owned-rng,
+  cli-strict.strict-parse, family-first.family-owned,
+  stage-ram.both-copies, artifact-readback.typed-bool,
+  diagnostics-domain.score-boundary); all 7 note anchors renamed to
+  the exact transforms (5 notes); aid= threaded into each foundation
+  wrapper's rc==0 expect so every declared leg is EXECUTED --
+  reconciliation is coherent on the shipped board from day one.
+- Selftest arms EXCEED the ruled minimum: beyond the predicate arms
+  (clean control, declared-not-executed, emitted-twice,
+  executed-not-declared, mixed-passes, all-UNAVAILABLE-must-not-
+  PASS, non-transform anchor red + --list exit 2), the increment
+  adds REAL-RUNNER arms driving fabricated gates through
+  run_selection itself (mixed ends PASS with the persisted evidence
+  block; all-UNAVAILABLE ends FAIL; a silently-dropped leg reds) --
+  the probe-the-machinery law applied by the author.
+
+My own verification (not the filing's): compileall clean;
+PYTHONPATH=. python3 gates/run_board.py --list rc 0 (the validator
+green over the re-keyed board, so all 7 transforms resolve); board
+selftest ALL PASS; and a direct in-process tamper probe -- a
+fabricated gate declaring a RESOLVABLE but non-transform anchor --
+reds validate_evidence with the exact expected message (no tree
+mutation; the probe ran against the machinery, not through it).
+
+VERDICT: GO. Landed as d1896ce (Architect-committed, Opus
+co-authored). INCREMENT 2 (##AID manifests) FIRES NOW -- its landing
+is the pre-authorized transfer trigger (D6, 61-finiteness,
+D3-if-torch, D4 file-by-file).
+
+COMMIT-AUTHORITY NOTE for the user: the Implementer asked whether it
+may self-commit board-code landings to keep throughput up. That
+grant is the user's, not mine (branch commits are user-owned by
+default, with explicit time-boxed authorizations on record). Interim
+protocol used here -- audit-then-Architect-commit -- keeps increments
+moving without a new grant. My recommendation if speed matters: a
+time-boxed self-commit grant through the gauntlet (increments 2..n +
+D3/D4/D5), since every landing still gets my pre-merge audit before
+any merge to main.
+
+## COMMIT GRANT (user, 2026-07-13): Implementer self-commits branch landings through the gauntlet
+
+The user granted the commit authorization requested in the
+increment-1 audit. Scope as recommended and now binding:
+
+- The Implementer SELF-COMMITS its landings on
+  claude/amazing-keller-e798b6, TIME-BOXED through the gauntlet:
+  queue-2 increments 2..n, the per-gate migration, D3, D4, D5. The
+  box closes when D5 lands; anything after needs a fresh grant.
+- Unchanged safety: every landing is still handed off for my
+  pre-merge audit BEFORE any merge to main, and merge/push to main
+  remains user-only. The grant removes the Architect-as-committer
+  serialization point, not the audit.
+- A landing commit that my audit then REDS is repaired by a
+  follow-up commit on the branch (never a rewrite of a pushed/
+  merged commit); the audit records both shas.
+- I keep committing my own notes (adjudications, audits, ledger),
+  as throughout.

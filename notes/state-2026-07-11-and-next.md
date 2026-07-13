@@ -2798,3 +2798,71 @@ ONLY; the 45M-33 artifact core stays) + 53 (whole) transfer to the
 red team per the Wave-2 table. Build order: machinery + mutation
 arms -> ##AID -> per-gate migration -> D3 -> D4 -> D5. Spec:
 gates-and-board.md "Queue-2 rollout plan adjudication".
+
+AID-PREFIX RE-RULING (2026-07-13, Fable): the Implementer BLOCKED
+on the clarification and disproved its premise; all three claims
+verified by me at the machinery — --gate rejects brd-a live and
+accepts board-selftest; brd-a IS the lowercased spec_code, the
+internal audit-code class ruling 4 forbids; BOARD.md/status/
+selectors key on gate.id and spec_code appears nowhere in
+run_board.py. RE-RULED: aid prefix = gate.id (ruling 4's example
+was literally correct; the FOUNDATION deviated, not the example);
+the 7 foundation aids re-keyed + anchors follow the transform. The
+red-team register-note request WITHDRAWN. Error recorded: I probed
+every proposal clause except the one I ruled from memory — the
+probe law binds my own premises too. Increment 1 CONFIRMED to
+build. Spec: gates-and-board.md "Aid-prefix RE-RULING".
+
+D2 FACTUAL-INCREMENT AUDIT (2026-07-13, Fable): the red team's
+first campaign landing (9b59e0e, 29 files) GO'd — my own AST
+comparator proves 20/24 .py doc-identical + 4 string-only (the
+register's exact four-file disclosure), my own compileall +
+board_selftest runs green; SONIC exact; the residual-block order
+docstring matches the executed forward; the losses/cmb.py rewrite
+lands the covariance-product-scale and amplitude-trend narrowings
+with the f-transform teaching preserved; warmstart carries the 71
+two-invariant headline and the 69 census is zero; ruling 4 restored
+byte-exact; the DIDACTICS-79 hold accepted (executed-before-printed
+honored, no invented command); collision check clean (board.py /
+run_board.py / checks untouched; increment 1 confirmed in flight
+uncommitted, branch tip still dbc7f16). Landing order: codex branch
+first, then amazing-keller. 41+53 start at the red team on this
+landing. Spec: gates-and-board.md "D2 factual-increment audit".
+
+THROUGHPUT REBALANCE (2026-07-13, USER): red-team pace is now an
+explicit division criterion. Effective now: the queue-2 note-side
+evidence blocks (all gates except the four subprocess-driver
+wrappers and the seven foundation re-keys) draft at the red team
+per the approved A1-ii template + frozen naming rule; environment
+probe requested (does cocoa torch run in their sandbox — gates
+D3/D4/D5 transfers). Pre-authorized at the increment-2 seam: D6
+(nine mkdtemp sites), 61-finiteness whole, D3 if torch runs
+locally, D4 file-by-file where ##AID has finished. Kept with the
+Implementer on stakes+capability: queue-2 machinery + board.py,
+the artifact chain, units 8/96, the staging reopen. Critical path
+unchanged; the tail parallelizes. Spec: gates-and-board.md
+"THROUGHPUT REBALANCE".
+
+QUEUE-2 INCREMENT-1 AUDIT (2026-07-13, Fable): audited PRE-commit
+in the working tree, GO, landed as d1896ce (Architect-committed,
+Opus co-authored). Every ruled clause present: recorder +
+ctx.unavailable, reconciliation with the verbatim pinned line (an
+additive taxonomy suffix ratified), zero-executed guard, the pinned
+executed/UNAVAILABLE display shared across footer/--list/BOARD.md
+via _state_detail, invariant (3), 7/7 re-keys + 7/7 anchor
+transforms with aid= threaded so declared == executable. Selftest
+arms exceed the minimum (real-runner fabricated-gate legs). My own
+runs: compileall, --list rc 0, selftest ALL PASS, plus an
+in-process non-transform tamper probe that reds with the exact
+message. INCREMENT 2 FIRES; its landing is the transfer trigger.
+Commit-authority question routed to the user (recommend a
+time-boxed self-commit grant through the gauntlet). Spec:
+gates-and-board.md "Queue-2 increment-1 audit".
+
+COMMIT GRANT (2026-07-13, USER): the Implementer self-commits its
+branch landings, time-boxed through the gauntlet (queue-2
+increments 2..n + migration + D3/D4/D5; closes at D5). Pre-merge
+audit before any main merge and user-only merge/push are unchanged;
+a landing my audit reds is repaired by a follow-up commit, both
+shas recorded. Spec: gates-and-board.md "COMMIT GRANT (user,
+2026-07-13)".
