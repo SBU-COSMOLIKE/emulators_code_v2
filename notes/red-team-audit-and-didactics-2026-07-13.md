@@ -628,3 +628,141 @@ Do not mark any item closed from a source-text census alone when the claimed
 behavior has an executable public boundary.  The landing handoff must name
 the real path run, the mutation that the gate catches, and any capability lane
 that remains unavailable.
+
+## Close update after Architect adjudication and manuscript review
+
+This section is the current status.  It supersedes queue states above without
+deleting the evidence that led to them.
+
+The preflight finding `RT-IMPL-02` was real, but its first mechanism diagnosis
+above was wrong.  The pathspec includes the intended executable roots.  The
+actual defect was the shared Git helper's global `stdout.strip()`: stripping
+the entire porcelain output removes the first status column when
+`gates/board_config.json` is the first line, so `_dirty_lines` cannot recognize
+and exclude that line.  Queue 1c-bis repaired that parser and landed as
+`279409c`.  The Architect independently audited the real helper in both
+directions, including the stripped-first-line mutation arm.  BLOAT-01 landed
+in the same commit, leaving one finite-real predicate owner in
+`emulator/training.py`.
+
+The staging-order reopen is closed on the code side.  The resident and
+disk-backed representations now preserve one selected-row order, and the
+banner and boundary cases are covered.  Workstation certification remains a
+separate obligation; a Mac/CPU source audit does not promote the workstation
+lane to green.  Raw-log deletion, truncation, and byte-edit handling are also
+closed on the CPU path.  The executable/input manifest is only partly landed:
+phase 1 is on main, while phases 2--3 and their static-import reconciliation
+remain open.  The manifest documentation must continue to name its inability
+to discover dynamic imports and subprocess targets assembled from nonliteral
+strings.  Acceptance attacks a driver invoked through a variable, a dynamic
+import inside a newly declared root, and a waiver-table entry whose original
+site has disappeared.
+
+### Newly adjudicated correctness findings
+
+The Architect independently confirmed all five findings in
+`RT-2026-07-13-02..06`; none was reduced in severity or scope.  They are
+implementation specifications, not permission for the Red Team to edit the
+library.
+
+1. **RT-02, returned-array ownership (unit 66).**  Public predictor and
+   diagnostic mappings can expose NumPy views of tensors retained by the
+   geometry or a derived cache.  On CPU, `.detach().cpu().numpy()` can share
+   storage; on MPS, the device transfer copies.  Caller mutation can therefore
+   change future CPU predictions while the same misuse appears harmless on an
+   accelerator.  The gate must mutate a returned direct axis and a view of a
+   derived cached tensor, repeat prediction, and prove behavioral isolation on
+   every supported device.
+2. **RT-03, subprocess root identity (queue 1d).**  The board can resolve and
+   print project root B while a child process inherits an ambient `$ROOTDIR`
+   naming root A.  Inject the resolved root in the child environment at process
+   creation, before a check or driver resolves any path.  Red legs include a
+   child that rereads `$ROOTDIR` after changing its own environment and a check
+   that otherwise resolves data before the injection point.
+3. **RT-04, warning-plus-crash false green (queue-1d rider).**  The
+   `head-activation-pin` warning leg records the subprocess return code but
+   judges only whether warning text appeared.  A process that prints the
+   warning and then crashes can pass that leg.  One verdict must require both
+   the expected warning and return code zero; a warning-then-nonzero mutation
+   must turn red.
+4. **RT-05, curved-distance mislabel (blocking unit 67, critical).**  A fixed
+   nonzero global curvature can bypass the sampled-parameter check.  The
+   background producer labels radial comoving distance $\chi$ as transverse
+   comoving distance $D_M$, although curved geometry requires the sine or
+   hyperbolic-sine mapping.  At $H_0=70\,{\rm km\,s^{-1}\,Mpc^{-1}}$,
+   $\Omega_k=0.1$, and $z=1100$, the independently reproduced values are
+   $\chi=13296.826\,{\rm Mpc}$ and $D_M=15538.408\,{\rm Mpc}$, a 16.858 percent
+   difference; both are finite and smooth.  Until curvature-capable artifacts
+   exist, generation and consumption require a persisted flat-only fact and
+   refuse nonzero fixed or sampled curvature before provider work.
+5. **RT-06, optional Cobaya display label (unit 68).**  A component without a
+   LaTeX display label can fail late even though its scientific name is valid.
+   The accepted contract treats the component name as the plain-text fallback;
+   a LaTeX label remains optional presentation metadata.
+
+### Twenty-pass teaching and compression review of the manuscript
+
+The 20-pass main-text review used a second-year physics undergraduate who has
+not used PyTorch as the reader model.  Each pass looked for one failure class:
+undefined dimensions; undefined physics symbols; shape changes hidden inside
+prose; views confused with copies; CPU/device movement; mutable defaults;
+anonymous callback arguments; unexplained framework lifecycle; validation
+after expensive work; residual-block dimension changes; PCE vocabulary;
+activation ownership; loss-coordinate changes; family axis conventions;
+artifact facts versus code defaults; diagnostic truth sources; gate
+catch-power; stale current-state claims; compressed transitions; and generic
+machine-written connective prose.  The concrete repairs are in
+`texnotes/emulator_code_guide.tex`:
+
+- the first symbol table now defines $N$, $B$, $P$, $P_{\rm enc}$, $D$, $K$,
+  and $T_{\rm tmpl}$ in its caption;
+- the running example follows four named cosmologies through row selection,
+  local coordinates, parameter encoding, target masking, batching, network
+  output, decoding, and the physical quadratic error;
+- Python mechanics define iterator versus list, eager versus lazy work, views
+  versus copies, broadcasting, reshape, dtype, device transfer, factory
+  callables, `ModuleList`, classmethods, and mutable defaults before relying on
+  them;
+- the validation section separates type, finiteness, domain, cross-field, and
+  file-dependent checks and shows why quoted YAML booleans and NaN comparisons
+  are dangerous;
+- a residual block is defined only as the width-preserving map from
+  $(B,W)$ to $(B,W)$; the rectangular input and output projections are outside
+  that definition, and the skip addition follows the second internal dense
+  layer;
+- the PCE section defines the polynomial basis, hyperbolic truncation,
+  interaction rank, greedy selection, ordinary least squares, PRESS/LOO score,
+  all public controls, and a numerical term-by-term example;
+- the activation section defines every implemented family, its learned scalar
+  count, local derivative, bulk behavior, tail behavior, and head-safety
+  question, with a regenerated vector figure whose labels no longer cover the
+  curves;
+- the family sections state exact CMB, TATT, background, and matter-power axis
+  orders and distinguish persisted artifact facts from values inferred from
+  current code; and
+- the long gate appendix and the file-by-file study route now state what to
+  read, what object owns each operation, what to write down, and which
+  executable observation is the first evidence.
+
+The anti-template pass removed unsupported praise, vague claims such as
+“robust,” canned conclusion sentences, and audit codes from teaching prose.
+Current limitations remain labeled as current gaps so they can be deleted
+cleanly when their implementation units land.
+
+### PDF custody and freshness ruling
+
+Keep `texnotes/emulator_code_guide.pdf` tracked.  It is a reader-facing product
+that can be opened without a TeX installation, and the user explicitly asked
+to see the PDF.  Until a documentation gate exists, every change to the TeX or
+figure inputs requires a clean two-pass build and visual inspection in the
+same documentation commit.  The eventual gate should rebuild in a clean
+temporary directory and compare the resulting PDF to the tracked product; it
+must not compare timestamps alone.  The current close built 85 pages twice,
+with no overfull boxes, undefined references, or cross-reference rerun warning,
+then visually inspected the frontispiece, numerical example, validation
+section, PCE/design material, activation figure, curved-distance example, and
+file-by-file route.
+
+No private writing-guidance material is part of this repository.  No library,
+gate, generator, or adapter code was changed by the Red Team in this
+documentation close.

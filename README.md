@@ -1,17 +1,56 @@
-**Warning** This pipeline is still in alpha stage `v0.05` and not ready for production. 
+**Warning:** This is the alpha `v0.1` development series. It is not ready for
+production inference.
 
-# Cosmic-shear data-vector emulator
+# CoCoA SONIC
 
-A neural emulator that maps cosmological parameters to the masked cosmic-shear
-(`xi`) data vector, trained against the full-3x2pt chi2 from cosmolike.
+**Surrogates and Operators for Numerical Inference in Cosmology**
 
-Cosmological inference calls a physics pipeline millions of times; this package
-trains a neural network to stand in for it, fast enough to run inside the
-inference loop. `xi` is the cosmic-shear two-point correlation functions — the
-data the analysis measures; cosmolike (inside Cocoa) supplies the analysis mask
-and covariance. Accuracy is judged as chi2 — the prediction error in the
-covariance units inference actually cares about (the
-[chi2 metric](#20-appendix-the-chi2-metric-mahalanobis)).
+<p align="center">
+  <img src="texnotes/artwork/cocoa_sonic_frontispiece.png"
+       alt="A Doctor-inspired science traveler uses a sonic tool to assemble a luminous cosmological emulator from parameter tables, data vectors, and scientific graphs."
+       width="900">
+</p>
+
+An **emulator** is a fast fitted approximation to a slower scientific
+calculation. One input row describes one cosmology through numbers such as
+$H_0$, the present expansion rate, and $\Omega_m$, the present matter-density
+fraction. The slow physics code maps that row to an observable. CoCoA SONIC
+learns the same map from a table of examples so an inference sampler can
+evaluate it many times.
+
+The name SONIC abbreviates **Surrogates and Operators for Numerical Inference
+in Cosmology**. A *surrogate* is the fitted approximation. Here an *operator*
+is ordinary scientific code rather than another learned model: geometry
+operators store and reverse coordinate transformations, while a loss operator
+applies the physical error metric.
+
+| Physical family | What one artifact predicts |
+|---|---|
+| Cosmic shear | The kept $\xi_+$ and $\xi_-$ angular-correlation values in one ordered data vector |
+| Scalar | Named one-number outputs such as $H_0$ or $r_{\rm drag}$ |
+| Cosmic microwave background (CMB) | One TT, TE, EE, or lensing-potential spectrum versus multipole $\ell$ |
+| Background expansion | $H(z)$ or a recombination-distance function versus redshift $z$ |
+| Matter power | Linear $P(k,z)$ or a nonlinear boost on a redshift–wavenumber grid |
+
+Cosmic shear is the weak distortion of galaxy images by foreground matter.
+$\xi_+$ and $\xi_-$ are its two angular correlation functions. A **3×2-point**
+analysis combines three two-point probes: cosmic shear, galaxy–galaxy lensing,
+and galaxy clustering. CosmoLike, inside CoCoA, supplies the mask that states
+which entries the likelihood keeps and the covariance Σ that describes their
+correlated survey uncertainty.
+
+If $r$ is the prediction-minus-truth residual on the kept entries, accuracy
+is measured by
+
+\[
+\Delta\chi^2 = r^{\mathsf T}\Sigma^{-1}r.
+\]
+
+This score measures emulator error in the uncertainty units that inference
+actually uses; [Appendix 20](#20-appendix-the-chi2-metric-mahalanobis) derives
+it. The other four families reuse the same staging, construction, training,
+persistence, and executable-evidence system while defining their own
+coordinates and scientific loss.
 
 The pipeline at a glance — every stage is one section of this README:
 
@@ -115,18 +154,20 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 
 ### Setup: where it runs, and the three path flags
 
-Training needs a machine with a working Cocoa installation — cosmolike
-supplies the data-vector mask and covariance — and, in practice, a CUDA GPU;
-the `emulator/` package itself is pure PyTorch and can be read or developed
-anywhere. Every driver reads the same three path flags, so set the driver
-folder once:
+The cosmic-shear training path needs a working CoCoA/CosmoLike installation
+to obtain its likelihood mask and covariance. Scalar, CMB, background, and
+matter-power training consume already-generated files and do not make that
+CosmoLike read. The library uses NumPy, SciPy, and HDF5 as well as PyTorch.
+CUDA is recommended for full training, while many validation and documentation
+tasks run on a CPU. Every driver reads the same three path flags, so set the
+driver folder once:
 
 ```bash
 # run from $ROOTDIR (cocoa exports it). --root = project folder under $ROOTDIR;
 # --fileroot = a subfolder of it holding this emulator's YAML + outputs; --yaml =
 # a bare filename under --fileroot. Data (dv/params/covmat) lives in
 # --root/chains, the project's data folder.
-D=external_modules/code/emulators/emultrfv2
+D=external_modules/code/emulators_code_v2
 ```
 
 ### One training run
@@ -140,19 +181,22 @@ python $D/cosmic_shear_train_emulator.py \
   --yaml cosmic_shear_train_emulator.yaml --diagnostic diagnostic
 ```
 
-For the production matter-power width, omit `--diagnostic` for now. The
-generic local-linear page expands one array as validation rows x 40 neighbours
-x output width before the matter-power pages run; at the shipped thinned grid
-this is tens of gigabytes. Training has a separate staging blocker described in
-section 17. The bounded diagnostic contract is in
+For a production-width matter-power run, omit `--diagnostic` for now. The
+generic local-linear diagnostic still forms an array with axes validation rows
+× 40 neighbours × output coordinates and can require tens of gigabytes.
+Training staging itself is bounded; [section 17](#17-emulating-the-matter-power-spectrum-hybrid-inference-emul2)
+explains its column-first, chunked path. The bounded diagnostic contract is in
 `notes/training-stack.md`.
 
 This writes the trained emulator under `--root/chains` as a `.emul` / `.h5`
 pair: the `.emul` holds the best-epoch weights, and the `.h5` carries both
-whitening geometries, the per-epoch histories, and the fully-resolved config
-(schema v2) — so a saved emulator rebuilds bit-exactly even if code defaults
-later change (`rebuild_emulator` in `emulator/results.py` reads the file
-instead of current defaults). Known integrity gap (fix queued): the `.h5`
+whitening geometries, the per-epoch histories, and the fully resolved config
+(schema v2). Because the HDF5 record stores the resolved configuration,
+rebuild does not silently adopt a later configuration default. That is
+configuration self-containment, not immunity to implementation changes:
+current artifacts do not yet bind an implementation manifest or the exact
+`.h5`/`.emul` pair. `rebuild_emulator` in `emulator/results.py` reads the
+stored recipe rather than current defaults. Known integrity gap (fix queued): the `.h5`
 does not yet carry a digest of its `.emul`, and saving the pair is not a
 two-file transaction. Do not mix files from different path roots or overwrite
 a trusted artifact in place until the binding lands; the exact contract is in
@@ -316,7 +360,7 @@ to a card, ≤ 40% two to a card, bigger ones exclusive (off by default — on a
 
 ### Where next
 
-The YAML has two top-level blocks:
+Every ordinary training YAML has two core top-level blocks:
 
 ```yaml
 data:          # where the training vectors come from, how many rows to use
@@ -324,6 +368,11 @@ data:          # where the training vectors come from, how many rows to use
 train_args:    # the whole run: objective, optimizer, schedules, model
   ...
 ```
+
+Workflow-specific blocks can be their siblings: `pce` adds a fitted analytic
+base, `transfer` adds a frozen-base correction, and `sweep` describes a
+one-knob campaign. They are not nested inside `data` or `train_args`; their
+validators state which combinations are legal.
 
 The next
 chapter ([The YAML file](#2-the-yaml-file), sections 2–11) documents every
@@ -333,9 +382,10 @@ edit it). The `sweep:` block is documented [below](#sweep-block).
 
 ### The `sweep:` block (one-knob sweeps) <a name="sweep-block"></a>
 
-`cosmic_shear_sweep_hyperparam_emulator.py` (and the per-family
-`<family>_sweep_hyperparam_emulator.py` siblings, which run the same
-sweep serially) reads one extra top-level YAML
+`cosmic_shear_sweep_hyperparam_emulator.py` and the per-family
+`<family>_sweep_hyperparam_emulator.py` siblings call the same `main()`.
+They therefore share its multi-GPU pool, `--gpu-pack` option, and serial
+fallback on one GPU or Apple MPS. The driver reads one extra top-level YAML
 block (the other drivers ignore it) naming exactly one `train_args` leaf by
 its dotted path, and the values to try — one full training per value at
 fixed `N_train`:
@@ -469,9 +519,12 @@ move with it.
 
 ## 2. The YAML file
 
-The YAML has two top-level blocks. `data` says where the training vectors
-come from and how many rows to use. `train_args` describes the whole run:
-objective, optimizer, schedules, model. Any numeric leaf may be a plain
+Every ordinary training YAML has two core top-level blocks. `data` says where
+the training vectors come from and how many rows to use. `train_args`
+describes the whole run: objective, optimizer, schedules, and model.
+Workflow-specific sibling blocks may also appear: `pce`, `transfer`, and
+`sweep`. They are top-level peers, not children of `train_args`, and their
+validators define which combinations are exclusive. Any numeric leaf may be a plain
 scalar or a `[default, min, max, kind]` search range, where `kind` is `int`,
 `float`, or `log`; only the `*_tune_emulator.py` drivers search the
 ranges, and every other driver collapses a range to its default value. Sections 3–11 document each
@@ -512,9 +565,9 @@ Six terms the chapter uses. The details live in appendices
 
 | Term | Meaning |
 |---|---|
-| data vector, dv | The masked cosmic-shear two-point functions xi+/- stacked into one vector. This is what the network predicts. |
-| chi2 | Prediction error measured in the analysis covariance, `r^T Cinv r` — [appendix 20](#20-appendix-the-chi2-metric-mahalanobis). The headline metric is written `frac>0.2` in the logs: the fraction of validation cosmologies with delta-chi2 above 0.2. The goal is to drive it down. |
-| whitened | Rotated and rescaled so the components are decorrelated with unit variance. This is the form the network sees, input and output — [appendix 19](#19-appendix-the-pipeline). |
+| data vector, `dv` | A one-dimensional ordered list of observables. On the cosmic-shear path it stacks the kept $\xi_+$ and $\xi_-$ angular-correlation values. The position of a number is part of its meaning. |
+| chi-square, $\Delta\chi^2$ | Prediction error measured with the analysis covariance: $r^{\mathsf T}\Sigma^{-1}r$, where $r$ is prediction minus truth and $\Sigma^{-1}$ is the inverse covariance. The result is one nonnegative score per cosmology. The log label `frac>0.2` is the number of validation scores above 0.2 divided by the total number of validation cosmologies. The goal is to drive that fraction down. See [Appendix 20](#20-appendix-the-chi2-metric-mahalanobis). |
+| whitened | Reversibly rotated and rescaled into covariance coordinates so the components are decorrelated with unit variance. Whitening improves numerical conditioning; it does not discard rows or output coordinates. The saved inverse returns a prediction to physical units. See [Appendix 19](#19-appendix-the-pipeline). |
 | theta order | The data vector re-sorted to vary smoothly along the angular axis. The correction heads work in this basis. |
 | trunk / head | Every architecture is a shared ResMLP trunk; `rescnn` and `restrf` add a gated correction head on top — [section 10](#10-model). |
 | dump | The big on-disk table of parameters and data vectors the physics code wrote. Training memmaps it — reads slices from disk, never the whole file — and stages only the rows it needs, [section 3](#3-data). |
@@ -626,10 +679,10 @@ sample's gradient vote scales with its misfit:
 | mode | $L(c)$ | vote vs misfit | use it when |
 |---|---|---|---|
 | `chi2` | $c$ | grows with $c$ (tail-chasing) | the fit is already close everywhere |
-| `sqrt` | $\sqrt{c}$ | equal for every sample | the default; robust to a fat tail |
+| `sqrt` | $\sqrt{c}$ | equal for every sample | the default; reduces the influence of a fat tail compared with `chi2` |
 | `sqrt_dchi2` | $\sqrt{1+2c}-1$ | equal, softer near 0 | a smoother sqrt |
 | `berhu` | reversed Huber (below) | equal in the bulk, rising in the window | push the bulk under the goal |
-| `berhu_capped` | berhu, then flat | rising, then bounded above the cap | as berhu, monster-robust |
+| `berhu_capped` | berhu, then flat | rising, then bounded above the cap | as `berhu`, but prevents the largest rows from dominating the batch |
 
 In closed form, `chi2` is $c$, `sqrt` is $\sqrt{c}$, and `sqrt_dchi2` is
 $\sqrt{1+2c}-1$. `berhu` is the reversed Huber,
@@ -911,13 +964,14 @@ only rectangular weight matrices in the network:
 ```
 parameters (n_params numbers)
      │
-     ▼  entry projection     W is n_params × width: the one place
+     ▼  entry projection     W has shape (width, n_params): one row
+     │                       for each output feature; this is where
      │                       the vector grows to the working width
      │
      the trunk's residual blocks — every dense layer width → width
      │
-     ▼  exit projection      W is width × n_dv: the one place the
-     │                       vector becomes data-vector sized
+     ▼  exit projection      W has shape (n_dv, width): one row for
+     │                       each output data-vector coordinate
 data vector (n_dv numbers)
 ```
 
@@ -1464,9 +1518,12 @@ global.
 Neural PCE (NPCE): before any network trains, fit a closed-form
 polynomial approximation of the training set — the **base**
 $B(\theta)$ — then train the `model.name` architecture as a
-**refiner** $f(\theta)$ that corrects what the base misses. The base
-is analytic: no network, no gradient descent, one least-squares pass
-at staging. It captures the smooth, low-order dependence on the
+**refiner** $f(\theta)$ that corrects what the base misses. The base uses no
+neural network and no gradient descent. It builds the polynomial design matrix
+once. Then, for each candidate SVD mode, a greedy selector adds one polynomial
+term at a time, re-solves least squares on the active terms, and measures PRESS
+leave-one-out error. The fitted buffers are frozen before neural training
+begins. The base captures the smooth, low-order dependence on the
 cosmology; the refiner handles the rest — "trunk = PCE, head = any
 SGD model". The fit runs on the training set in its rescaled form
 from section 2, the same units the chi2 loss uses. The `pce:` block
@@ -1558,20 +1615,22 @@ per-mode amplitudes z_0, z_1, ...         ever-smaller shape changes
      │  per mode: least squares over the allowed terms — terms
      │  added greedily, each addition judged by its
      ▼  leave-one-out error
-keep a mode in the base only if that error < loo_max
+normally keep a mode only if that error < loo_max
      │                                    │
      ▼                                    ▼
-B(theta) = mean + the kept modes,    the rejected modes are left
-rebuilt from their polynomial fits   for the refiner to learn
+B(theta) = mean + the accepted       rejected modes are left for
+modes and their polynomial fits      the refiner to learn
 ```
 
 The **leave-one-out error** is the fit's error at each training
 point, computed as if that point had been excluded from the fit — a
 generalization test that needs no refit and no held-out data. It is
-the gate everywhere above, because a mode kept with a poor fit
-injects more error than it removes; every rejected mode is simply
-left to the refiner, which corrects the full data vector and
-backstops everything the gate drops.
+the intended gate everywhere above, because a mode kept with a poor fit
+injects more error than it removes. The current implementation has one
+exception: if no mode passes, it force-keeps mode 0. That fallback can admit a
+demonstrably poor base and is queued for removal. Until then, inspect the
+printed per-mode LOO values rather than assuming every persisted mode passed
+`loo_max`; modes rejected after an accepted one are left to the refiner.
 
 The other hard-won rule is to keep the degree low. A high-degree
 polynomial can pass near every training point and still oscillate
@@ -1724,8 +1783,8 @@ transfer needs `amplitude_law: none` on both the base and the run (the
 law and the transfer each replace the target construction — one at a
 time). The base must be the same family, quantity, and grids as the
 run — every mismatch is a loud error naming the fix. A `transfer:`
-block on a scalar config remains a loud error (a recorded ruling);
-scalar maps [fine-tune](#fine-tuning-train_argsfinetune) instead.
+block on a scalar config remains a loud error because scalar maps use
+[fine-tune](#fine-tuning-train_argsfinetune) instead.
 
 ```yaml
 transfer:
@@ -1816,14 +1875,15 @@ data:
 The model is a plain trunk (`name: resmlp`); the conv and transformer heads
 correct along an output coordinate axis (theta / ell / z / k — every other
 family has one), and a scalar output is a set of named values with no axis
-between them, so `rescnn` / `restrf` are a loud error here. Everything
-else — the loss ladder, trimming,
-focus, EMA, the L2-SP anchor — works unchanged, since they act on a
-per-sample error. The NPCE trunk needs no coordinate axis either, so a
+between them, so `rescnn` / `restrf` are a loud error here. The loss ladder,
+trimming, focus, and EMA work unchanged because they act on one error per
+sample. Fine-tuning is currently unanchored: `train_args.finetune.anchor` is
+refused, and scalar artifacts do not support transfer/refine. The NPCE trunk
+needs no coordinate axis either, so a
 `pce:` block works here too ([section 12](#12-pce), `form: residual`) —
 a closed-form polynomial base under the network refiner, the classic
-PCE setting (a handful of smooth scalar outputs). A scalar map is cheap, so small widths and a few hundred
-epochs are plenty. The physical-window `param_cuts` are optional on this
+PCE setting for a handful of smooth scalar outputs. The physical-window
+`param_cuts` are optional on this
 path, because a parameter chain is already the target distribution.
 
 **In an MCMC, the theory block reads what it provides from the file.** One
@@ -2032,12 +2092,14 @@ cmb-smoke on the board.
 
 ## 16. Emulating the expansion history (H(z), BAO and SN distances)
 
-Only H(z) is a network; every distance is known physics computed from
-it. The BAOSN family serves the background — the Hubble rate and the
-comoving / angular-diameter / luminosity distances — to BAO and
-supernova likelihoods from TWO small artifacts:
+Two separate networks cover two disjoint redshift windows. A Hubble artifact
+predicts $H(z)$ over the supernova window; the code integrates $c/H$ there
+to obtain $\chi$, $D_A$, and $D_L$. A second artifact predicts the
+recombination-window distance directly. Nothing integrates across the
+untrained desert between them. The BAOSN family serves these quantities to BAO
+and supernova likelihoods from two small artifacts:
 
-    the "Hubble" artifact                the "D_M" artifact
+    the "Hubble" artifact                the recombination artifact
     H(z) on the SN range, z in [0, 3]    the comoving distance, trained
        │                                 directly on the recombination
        │  emulator/background.py:        window z in [1000, 1200] (the
@@ -2045,6 +2107,10 @@ supernova likelihoods from TWO small artifacts:
        ▼  (cumulative Simpson)
     D_C = chi, D_A = chi/(1+z),
     D_L = chi*(1+z)   (flat)
+
+The high-redshift generator writes radial comoving distance $\chi$ and the
+current flat-only contract calls it $D_M$. In a flat universe those quantities
+are equal; they are not equal in a curved universe.
 
 Nothing is emulated between the two windows — no likelihood queries
 that desert — and a query there is a loud error, never a silent bridge.
@@ -2094,9 +2160,13 @@ theory:
 
 get_Hubble (km/s/Mpc or 1/Mpc), get_comoving_radial_distance,
 get_angular_diameter_distance (+ the two-redshift variant), and
-get_luminosity_distance are served piecewise by query redshift. V1 is
-flat-only (a sampled omk is a loud error; the legacy curvature formula
-was dimensionally wrong and is not reproduced). Fine-tuning works per
+get_luminosity_distance are served piecewise by query redshift. The served
+formulas are flat-universe formulas. The current guard rejects curvature only
+when `omk` appears among an artifact's required input names; a fixed or global
+nonzero `omk` can bypass it, and the quantity called `D_M` is radial $\chi$. Until
+the blocking flat-only artifact fact and load-time check land, use these
+artifacts only with `omk = 0` and verify that fact outside the adapter.
+Fine-tuning works per
 artifact (same quantity, grid, units, and law; the model: block is
 inherited). `--diagnostic` adds the per-redshift residual bands and,
 for the Hubble artifact, the derived-distance page computed through the
@@ -2152,13 +2222,14 @@ exactly the training constant: the analytic base under a syren law,
 the constant itself under law `none`) instead of failing on an
 unlearnable column, and reports how many it pinned at startup.
 
-Known production blocker (fix queued): the current grid2d staging path
-materializes the selected raw and Syren-base matrices in float64 before it
-applies `k_stride`, and therefore does not honor the documented memmap /
-`ram_frac` ladder. The shipped 50,000-row, 122 x 2,000 setup can require well
-over 180 GiB during this step. Do not start the production MPS trainings until
-the bounded, column-first staging gate lands; see
-`notes/data-generation-and-cuts.md`.
+Grid2d training no longer materializes the unthinned float64 selection. It
+leaves the raw and analytic-base dumps memory-mapped, selects the kept (k)
+columns, forms the target law in bounded row chunks, and writes the stored
+float32 target either to RAM or to an experiment-owned temporary memmap.
+Stable moments are computed from that exact stored payload. The code-side
+staging and temporary-file lifecycle gates are closed; production-width
+workstation evidence remains a certification step, not an unbounded-staging
+code blocker. See `notes/data-generation-and-cuts.md`.
 
 The optional PCE block is currently a smoke-scale/research path on this
 family: it materializes the full thinned target on the GPU and performs a dense
@@ -2418,20 +2489,25 @@ and only `N_train` rows are kept. The result is a "source" dict (`C`, `dv`,
                  ┌─────────┴──────────┐
                 yes                    no
                  ▼                     ▼
-       ┌────────────────────┐  ┌────────────────────┐
-       │ materialize the    │  │ keep the memmap    │
-       │ compact subset,    │  │ + global idx       │
-       │ reindex → arange   │  │ (stream from disk) │
-       └────────────────────┘  └────────────────────┘
+       ┌──────────────────────────────┐  ┌────────────────────┐
+       │ copy distinct rows in sorted │  │ keep full arrays / │
+       │ disk order; idx_src =        │  │ memmap; idx_src =  │
+       │ searchsorted(rows, idx)      │  │ global idx         │
+       └──────────────────────────────┘  └────────────────────┘
                  └─────────┬──────────┘
                            ▼
-       source dict  { C, dv, idx  (+ C_mean, dv_mean — train only) }
+       source dict  { C, dv, idx, dump_rows
+                      (+ C_mean, dv_mean — train only) }
                     ──────────────────────────────────────────────▶  build_loaders
 ```
 
-The local `arange` reindex is the trick: every consumer reads `C` / `dv` only
-through `idx`, so it does not matter whether `idx` points into the full memmap or
-the compact in-RAM subset — the pipeline is identical either way.
+`idx` first names selected **disk rows in seeded order**. A RAM copy is filled
+in sorted disk order for sequential I/O, so its storage-row numbers are not
+the selection positions. `searchsorted(rows, idx)` maps each selected disk row
+to its compact storage row while preserving seeded visit order; a plain
+`arange` would silently change training order. The disk path keeps global
+indices. `dump_rows[j]` records which original disk row supplied compact
+storage row `j`, allowing a grid2d sibling base file to align row for row.
 
 **2. Whiten the inputs** (`geometries/parameter.py`). Raw cosmological parameters
 are correlated and span wildly different scales. `ParamGeometry` centers them,

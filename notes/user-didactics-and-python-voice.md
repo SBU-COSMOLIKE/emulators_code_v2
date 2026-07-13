@@ -5,7 +5,7 @@ everything you learned how I like to be didactical and the way I code
 in Python"). This is the voice-and-why companion to
 conventions-and-workflow.md: that note is the compressed rulebook
 (mechanics, environment, process); this one records who the reader
-actually is, what he said when a rule was born, and the before/after
+actually is, what she said when a rule was born, and the before/after
 shapes that make the rules concrete. The Implementer reads this note
 BEFORE writing any code or documentation; the Architect reads it
 before writing specs, READMEs, and handoffs. On any mechanical
@@ -15,10 +15,10 @@ note wins on tone and emphasis.
 ## Who is reading
 
 - Vivian is a cosmology professor and mainly a C coder. Python beyond
-  C-like constructs is genuinely hard for him to parse — his words:
-  "remember, Python is hard for me as a human to parse". He reads
+  C-like constructs is genuinely hard for her to parse — her words:
+  "remember, Python is hard for me as a human to parse". She reads
   code as prose, and error messages, argparse help, and log lines ARE
-  prose to him. Anything printed is documentation.
+  prose to her. Anything printed is documentation.
 - The README audience is cosmologists who are NOT AI experts. Every
   machine-learning term (MLP, dense layer, residual block,
   normalization, saturation, warm start) gets the two-sentence
@@ -29,7 +29,7 @@ note wins on tone and emphasis.
   jargon defined three sections earlier. Every passage is
   self-contained or links to its definition in place.
 
-## How he likes to be taught
+## How she likes to be taught
 
 1. **Run first, mechanism later.** The two-README split exists
    because of this: the main README teaches how to RUN and configure
@@ -43,7 +43,7 @@ note wins on tone and emphasis.
    prose-only descriptions were rejected repeatedly ("I dont see the
    file", "show me the block"). File formats appear as actual table
    snippets, equations verbatim from the code, and ASCII flow
-   diagrams wherever data moves (he loves them). Every YAML change in
+   diagrams wherever data moves (she loves them). Every YAML change in
    a report is a paste-ready block in context, never a description of
    the edit. Every landing step is a complete copy-pasteable command
    block.
@@ -74,7 +74,7 @@ note wins on tone and emphasis.
    a config mistake, name the fix ("needs amplitude_law: none" beats
    "invalid configuration").
 
-## The way he codes Python (the voice)
+## The way she codes Python (the voice)
 
 The base register is C written in Python syntax: flat, explicit,
 one step visible per line on any cold path. Cleverness is a cost, not
@@ -86,11 +86,11 @@ better comment.
   ternaries are fine ("C has ?:"); ternary pileups, walrus, nested
   comprehensions, lambda-where-a-def-reads-better, and starred
   gymnastics are "Alien Python" and get rewritten.
-- **Staged calls split into named temporaries.** His words, on a
+- **Staged calls split into named temporaries.** Her words, on a
   nested tensor-staging chain: "that is hard to parse. Splitting into
   tmp variables would make it easier to read."
 
-  Hard for him to parse:
+  Hard for her to parse:
 
   ```python
   Xtr = torch.from_numpy(rows[tr_idx].astype("float32")).to(device)
@@ -104,7 +104,7 @@ better comment.
   ```
 
 - **One key-value pair per line** in any dict literal of three or
-  more pairs, paren-aligned. His words: "Please one line per
+  more pairs, paren-aligned. Her words: "Please one line per
   key-value pair."
 
   ```python
@@ -137,11 +137,11 @@ better comment.
 
 ## How to use this note
 
-Before writing code: skim "The way he codes Python" and write in that
+Before writing code: skim "The way she codes Python" and write in that
 register from the first line — the alien-Python and docs sweeps of
 2026-07-10/12 exist because retrofitting voice is expensive. Before
-writing user-facing text: skim "How he likes to be taught" and check
+writing user-facing text: skim "How she likes to be taught" and check
 each passage against rules 2-4 (real snippet present, every term
 glossed in place, no clause-bearing parentheses, tables for
-enumerations). When he pushes back on a passage, the fix is almost
+enumerations). When she pushes back on a passage, the fix is almost
 never more words — it is a snippet, a gloss, or a split sentence.
