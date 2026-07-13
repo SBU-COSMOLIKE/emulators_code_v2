@@ -567,6 +567,19 @@ def _mf_body_trivial(ctx):
     return None
 
 
+def _mf_body_phantom_py_tokens(ctx):
+    """A ".py" appears only inside longer tokens: the ctx.python attribute and a
+    .pyc name. The word-boundary census must lift neither as a target."""
+    ctx.sh(cmd=[ctx.python, "-c", "print(1)"])   # the interpreter, not a file
+    _cache = "board_selftest.pyc"                 # a compiled-cache name
+
+
+def _mf_body_sentence_final_py(ctx):
+    """Names a real, undeclared repo module at a sentence end. The census still
+    catches it: emulator/data_staging.py. ends the path at the period."""
+    ctx.run_check("gates/checks/board_selftest.py")   # auto-covered check
+
+
 def _mf_gate(gid, body, code, inputs=()):
     return Gate(id=gid, tier=TIER_BACKLOG, home="gates-and-board", maps="",
                 run=body, manifest=Manifest(code=tuple(code), inputs=tuple(inputs)))
@@ -625,6 +638,22 @@ def check_manifest_reconciliation():
            not any("uncovered subprocess target" in e for e in errs),
            "no literal error once the driver is a declared root (its closure's "
            "model-recipe imports still want a designs root, correctly)")
+
+    # (a') word-boundary: a ".py" inside a longer token is not a phantom target
+    # (ctx.python must not read as ctx.py, and .pyc/.pyx never match), while a
+    # genuine sentence-final mention is still caught.
+    g = _mf_gate("mf-phantom", _mf_body_phantom_py_tokens, code=())
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
+    report("word-boundary census: ctx.python / a .pyc are not phantom targets",
+           ok,
+           "no uncovered-target error from ctx.python or a .pyc name; errors="
+           + str(errs))
+    g = _mf_gate("mf-sentence-final", _mf_body_sentence_final_py, code=())
+    ok, errs = run_board.validate_manifests([g], _MF_CFG)
+    report("word-boundary census: a real sentence-final .py mention still reds",
+           (not ok) and any("emulator/data_staging.py" in e for e in errs),
+           "the period ends the path, so the undeclared module is still an "
+           "uncovered target")
 
     # (b) dynamic-import census over the derived closure. results.py is a
     # waived file (the model-recipe pattern); its covering roots are the

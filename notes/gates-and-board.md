@@ -4189,3 +4189,222 @@ an execution reader; after removal, changing no dead key can stale gates. If
 the keep-capability branch is chosen, valid and missing sentinel roots prove
 selection/refusal respectively, the executed root equals the hashed pair, and
 the old unconditional-training mutation must red.
+## 25M-14/15 + DIDACTICS-93 adjudication (Fable, 2026-07-13): both defects confirmed, both Torch gates commissioned; the naming ruling ratified
+
+Durable register at efddf98 (latest main merged as 97e9acb).
+
+- 25M-14 CONFIRMED (the width-one transformer demotion):
+  plain.py:866-870 bounds n_tokens by 2..total, ADMITTING T == total
+  (one scalar per token); blocks.py:602-604's only constructor guard
+  is dim % n_heads == 0, which width 1 + n_heads 1 passes; both
+  TRFBlock branches are pre-norm LayerNorm(dim) (:609, :621) — at
+  dim = 1 the normalized value is identically zero before the
+  learned affine, so with film: false every branch output is a
+  learned constant and the ResTRF correction t - t0 is
+  input-independent FOR EVERY POSSIBLE TRAINED WEIGHT SET, while the
+  ResMLP trunk still learns and hides the demotion from aggregate
+  bars. -> AMENDMENT to unit 29 (model-block value schema,
+  models-and-designs.md): the active-model validator derives real
+  token widths (the padded max_bin) from the geometry BEFORE
+  construction and refuses max token width < 2 for BOTH plain and
+  factored TRF paths, naming output length, token count, resolved
+  width, and the LayerNorm degeneracy; no padding or artificial
+  embedding silently repairs a requested design. TORCH GATE
+  COMMISSIONED (board-listed, workstation): the five filed legs —
+  the N=4/n_tokens=4/n_heads=1/film-false refusal before
+  construction; the bypassed-validation behavioral witness
+  (deterministic nonzero head weights, identical corrections for
+  two distinct t0 rows, zero correction Jacobian w.r.t. t0);
+  adjacent n_tokens=3 constructs input-dependent; plain and
+  factored share the verdict; the divisibility-only mutation greens
+  construction but reds the behavioral witness.
+- 25M-15 CONFIRMED (the packed-target planner undercount):
+  batching.py:124-127's own comment asserts the target "matches the
+  output's shape/dtype, so another out_bytes" — false for
+  PCERatioChi2 / TransferDiagChi2 (2*n_keep per row) and factored
+  TransferChi2 ((n_templates+1)*n_keep); the resident path resolves
+  tgt_dim (:276-289) but BOTH streaming calls (:373, :387) invoke
+  batches_per_load without it, and :214's max(1, ...) converts a
+  resident-plus-one-batch deficit into permission. The 84-byte
+  witness arithmetic (3*(14-7)*4) is exact. Distinct from 45M-84
+  (permanent host copy vs transient device memory), as filed. ->
+  AMENDMENT to the live-resource-sizing unit (second-wave local
+  list 5, training-stack.md owner): ONE owner computes input +
+  model-output + ACTUAL-target bytes with width/dtype threaded from
+  the loader boundary that stages the target; ordinary
+  target_dim == out_dim stays byte-identical; the planner report
+  names each term; a deficit REFUSES with required/available/terms
+  — never max(1, ...). TORCH LEGS COMMISSIONED (board-listed):
+  the pure 84-byte and two-batches-vs-one boundary legs (CPU); one
+  real packed-target streaming integration leg + ordinary control
+  (workstation); both mutations (restore 2*out_bytes; restore
+  max(1, ...)) red.
+- DIDACTICS-93 RATIFIED (the user's naming ruling, recorded in
+  conventions-and-workflow.md as binding): cosmological h is
+  RESERVED for H0/100 program-wide; the covariance numerical step
+  becomes step_frac in Python and s_step in prose; the untruncated
+  census also disambiguates hidden-state, hardness, horizon, and
+  local-Hubble uses. This is an AST-CHANGING rename, not doc-only:
+  it lands as a bounded rename increment whose acceptance is
+  byte-identical outputs (the Planck-LCDM control among them) and
+  the untruncated census; arithmetic and persisted values
+  unchanged. The 25M-07 retraction was CAUSED by this collision —
+  the ruling closes the class, not just the instance.
+
+Both commissioned gates join the queue-5 workstation exhibit
+family. Sequencing unchanged: population completion -> the gauntlet
+first; the two amendments join their units' queue slots.
+
+## 1b phase-3 population COMPLETE — 40/40 declared (Opus, 2026-07-13)
+
+The manifest population is finished; queue 2 opens at the merge. Three
+branch commits carry it, each Mac-validated (validate_manifests ok=True,
+board-selftest ALL PASS with and without $ROOTDIR, py_compile clean):
+
+- 774bf3d — nine no-schema gates (15 -> 24): weight-decay-census (code=(),
+  its in-process check never reaches the waived model-recipe surface),
+  save-rebuild-drift + cobaya-adapter (designs+losses; adapter inputs
+  evaluate_yaml), cli-strict (the reviewed _DYNAMIC_IMPORT_WAIVERS entry ->
+  the eight entry-point drivers + designs+losses), family-first,
+  scalar-smoke, and cmb/bsn/mps-smoke (designs+losses + their
+  compute_data_vectors generators as declared subprocess-dep roots;
+  bare-generator .py docstring tokens reworded per the diagnostics-domain
+  precedent). The board_selftest live-board leg was upgraded from a vacuous
+  stub-cfg no-op to a real board_config reconciliation (cobaya-adapter's
+  evaluate_yaml was the first real input key that exposed it).
+
+- 9154e2e — batch 4 (24 -> 39): the signed-off deploy_data block (one shared
+  top-level block, six semantic fixture keys, values derived from the shipped
+  configs -- census: all 22 configs name the identical six, no path twice)
+  plus its _help; two board.py constants (_CS_TRAIN_CODE, _CS_DEPLOY_DATA) so
+  gates sharing a fixture share the key; 15 driver-gate manifests;
+  param-window-cuts' ctx.log reworded.
+
+- 2108c89 — census (?!\w) hardening + production-diagnostic (39 -> 40): the one
+  authorized validate_manifests edit, at both unanchored census sites (:975,
+  :1054; the quoted driver= form stays), so cmd=[ctx.python, ...] no longer
+  reads as a phantom ctx.py and a .pyc never false-matches while a real
+  sentence-final path is still caught; production-diagnostic populates; the
+  deploy_data _help gains the .dataset-pointer blind spot (siblings outside the
+  hash surface -- the queued queue-5 hardening option); two pinned selftest
+  legs (the first immediately caught a standalone ctx.py in its own fixture
+  comment). The populated reruns are the first queue-5 exhibit (deploy_data
+  resolves to strings on the Mac, hashes on the box).
+
+Next spine increments (fully specced via parallel subagent investigation):
+D3 (unit-28 smoke-fixture disjointness -- distinct recorded seeds train 1234 /
+val 5678, a zero-overlap refusal before training, a same-seed mutation arm, in
+cmb/bsn/mps_smoke.py) and D4 (gate-truth 46/47/48 -- selected_subset_equal with
+both-rc==0 and a nonempty minimum count; the vacuous all-zero P_lin positivity
+fix in mps_smoke; the unchecked-PDF assertion in gate_diag).
+
+## 25M-16..21 adjudication (Fable, 2026-07-13): the board-machinery batch — unit-4 reopened NOW, a 1b hardening increment minted, queue 2 resequenced behind it; an Architect audit lesson
+
+Durable register at a3b19f4. The chat relay carried 16..20; the
+register additionally holds 25M-21 (complete, with an executed
+digest witness) — adjudicated with the batch, the register being
+the source of record. Scope note recorded: scientific correctness,
+MCMC reproducibility, and test truth only.
+
+ALL SIX CONFIRMED (anchors verified in code):
+
+- 25M-20, THE IMMEDIATE UNIT-4 REOPEN: run_selection's resume
+  early-continue on a current stored PASS runs BEFORE the
+  dependency loop, so _dep_current_pass is never consulted for a
+  resumed gate — the existing "dependencies accept only current
+  PASS" clause is bypassed by resume. Live witness: stale-code
+  prerequisite + current child -> "[skip] ... already PASS", zero
+  bodies, exit 0. RULING: dependency currency joins the
+  reusable-PASS predicate (check deps before the resume return or
+  make _resume_state dependency-aware); every stale/FAIL/SKIP/
+  RUNNING/pre-manifest prerequisite state makes the child
+  non-green; a rerun prerequisite reruns its artifact-consuming
+  children. The full state matrix + the resume-before-deps mutation
+  land as selftest legs. BINDING TIMING: this fix lands with or
+  immediately after the population-completing increment — the
+  40/40 handoff is not accepted green without it.
+- 25M-16 (closure truth): _dynamic_import_sites recognizes only
+  importlib.import_module/__import__; the four identity gates load
+  adapters via spec_from_file_location (scalar_identity.py:294,
+  cmb_identity.py:569 and :1043's cov oracle, bsn/mps siblings),
+  the four smokes load them via Cobaya python_path, and NONE of the
+  eight manifests contains a cobaya_theory member (red-team
+  executed counts: 31/31/32/31 and 34/36/34/37). artifact-readback,
+  family-first, generator-seed, board-selftest, and geo-paths read
+  executable source AS DATA that their manifests omit; the .py
+  census scans gate-body source only, not the check closure.
+  gct_parity.py:43's bare sibling import is dropped by
+  _module_to_repo_paths' _EXECUTABLE_DIRS filter (the sole such
+  import, per their repo-wide census). RULING: one whole-check
+  executable closure (runtime loaders, Cobaya python_path +
+  component names, subprocess targets, source-opened-as-data, bare
+  sibling imports); unresolvable runtime-named sites get reviewed
+  direct-root declarations reconciled against the site; the
+  acceptance battery as filed, including the two-call-scanner
+  restoration mutation and the geo-paths whole-scope fixture.
+- 25M-18 (waiver direction): run_board.py:1076-1077 accepts
+  r.startswith(cover + "/") — a CHILD satisfies a tree requirement,
+  and board_selftest.py:637-640 blesses the blocks.py-only fixture
+  as "designs root declared". Current populated gates happen to
+  declare full trees (which is why the population audits passed:
+  the declarations are sufficient, the VALIDATOR is permissive).
+  RULING: a declared root covers a waiver only when equal to or an
+  ANCESTOR of every required cover; the blessing fixture becomes a
+  must-red mutation; every waiver entry censused against its live
+  call site.
+- 25M-19 (resolution ownership): the evaluate_yaml consumer
+  resolves repo-relative (:412-420) while _resolve_config_path
+  tries Path(value) process-CWD-FIRST and never tries the repo
+  (:1355-1360); the same CWD-first generic reaches all 15 batch-4
+  gate_configs manifests. Live witness: from an unrelated cwd the
+  manifest records {path: None, sha256: None} and validates while
+  the gate executes the real file. RULING: one owner-specific
+  resolver per input namespace, shared by consumer and manifest
+  writer (evaluate_yaml -> repo; gate_configs.* -> yaml_dir;
+  gate_data.* -> its data owner; NO generic CWD candidate);
+  REPO-OWNED inputs must resolve and refuse None-sha — rider r3's
+  resolve-not-exist stays for deploy_data ONLY (machine-dependent
+  by design). Two-cwd identity, collision-ignored, executed-path ==
+  hashed-path legs as filed.
+- 25M-21 (register-only filing; input-digest scope):
+  _gate_input_digest hashes the effective config excluding only
+  debug/rootdir_source, so a _help prose edit stales EVERY declared
+  gate (witness: 471a30.. -> eed28b..) — a false-red contradicting
+  unit 4's documentation-currency requirement. RULING: one named
+  canonical projection of execution-relevant fields; _help and any
+  documentation namespace excluded; a projection-change leg proves
+  prose edits leave digests fixed while value edits stale.
+- 25M-17 (const_mask presence inference): grid2d state() omits the
+  mask when None, from_state treats absence as None (:119-120),
+  decode clamps only when non-None — deleting dv_geometry/
+  const_mask from a valid pinned artifact strict-loads and serves
+  1.25 where the intact artifact serves 1.00 (their executed
+  boost/none witness). REOPENS unit 63's "pre-pin absence stays
+  legal" precision clause: current saves ALWAYS persist the mask
+  (explicit all-false when unpinned); the required geometry-state
+  member set is validated before from_state; anonymous legacy
+  absence refuses with a migration instruction; no version integer
+  (the mask itself is the fact). Interlocks unit 96; lands with the
+  MPS visit beside 96's group-validation legs. The
+  PRESENCE-INFERENCE CENSUS I requested is CLOSED: beyond 96's
+  composition groups, const_mask was the only silent scientific
+  reinterpretation site.
+
+STRUCTURE: 16 + 18 + 19 + 21 form THE 1B HARDENING INCREMENT — one
+machinery batch landing AFTER population completes and BEFORE
+queue 2. SEQUENCING CHANGE (explicit): queue 2 (the evidence
+rollout) now opens after the hardening increment, not at population
+completion — the registry rewrite must mint aids from truthful
+machinery. Expected and correct side effect: the completed closure
+repair stales stored PASSes whose manifests omitted real
+dependencies; those reruns are the system working.
+
+ARCHITECT AUDIT LESSON (recorded against my own passes): the
+population audits verified declarations THROUGH the machinery now
+shown permissive — validate_manifests green plus my geo-paths
+closure re-derivation used the same scanner and so inherited its
+blind spots. Declarations-vs-machinery consistency is not machinery
+truth. Adopted: any audit of a validation system includes at least
+one adversarial probe AGAINST the machinery (a runtime-loader
+fixture, a wrong-direction waiver, a cwd flip) — audit the
+validator, not only through it.

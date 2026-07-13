@@ -85,6 +85,25 @@ TIER_SAVE_AND_SAMPLE = "save-and-sample"
 SWEEP_NTRAIN_DRIVER = "cosmic_shear_sweep_ntrain_emulator.py"
 
 
+# The cosmic-shear driver gates all rebuild an artifact through the model-recipe
+# (results.py / warmstart.py dynamic imports), so each declares the training
+# driver plus the design and loss trees; npce-training additionally declares the
+# sweep driver. Shared here so the 1b manifest closure is one reviewed tuple.
+_CS_TRAIN_CODE = ("cosmic_shear_train_emulator.py",
+                  "emulator/designs", "emulator/losses")
+
+# The deploy-data fixture keys every cosmic-shear driver gate consumes, resolved
+# against board_config.json's deploy_data block. Shared so gates that share a
+# fixture share the key (no deploy path appears twice); a gate's manifest inputs
+# are its own gate_configs key(s) + these.
+_CS_DEPLOY_DATA = ("deploy_data.w0wa_takahashi_dv_train_cs16",
+                   "deploy_data.w0wa_takahashi_params_train_cs16",
+                   "deploy_data.w0wa_takahashi_covmat_cs16",
+                   "deploy_data.w0wa_takahashi_dv_val_cs8",
+                   "deploy_data.w0wa_takahashi_params_val_cs8",
+                   "deploy_data.lsst_y1_ggl_dataset")
+
+
 @dataclass(frozen=True)
 class Assertion:
   """One acceptance leg's stable id and the note anchor that proves it.
@@ -605,7 +624,7 @@ def gate_item27(ctx):
                                pattern=r"used\s+\d+\s+of\s+\d+\s+cut rows"),
              detail="the banner cut count must match the pool shrinkage")
   ctx.log("param-window-cuts ci.init_probes A/B: the duplicate init_probes call in "
-          "geometries.output.py is inspected with this run's evidence "
+          "the geometries output module is inspected with this run's evidence "
           "(data-generation-and-cuts.md:248); a manual A/B, not an "
           "automatable assertion.")
 
@@ -1601,6 +1620,8 @@ BOARD = [
        home="training-stack",
        maps="98-101 (byte-identity gate); 229-238 (the epoch-line diff recipe)",
        run=gate_gm_c,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.ema-off-identity-golden",) + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu"),
        worktree_commit="46ec5e1"),
   Gate(id="ema-smoke",
@@ -1611,6 +1632,8 @@ BOARD = [
        maps="104-107, 240-251 (on-mode smoke: horizon banner + metrics); "
             "246-249 (the lr-cut rewind line)",
        run=gate_gm_d,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.ema-smoke-config",) + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="production-diagnostic",
        spec_code="DIAG (G1, G-F, GN-F, GS-D, GT-C)",
@@ -1624,6 +1647,9 @@ BOARD = [
             "training-stack.md:110-112; shaded triangle "
             "data-generation-and-cuts.md:76-79",
        run=gate_diag,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.production-diagnostic-config",)
+                                + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="single-phase-demotion",
        spec_code="GP-D",
@@ -1632,6 +1658,9 @@ BOARD = [
        home="training-stack",
        maps="110-113 (single-phase demotion trains; two-phase control no-op)",
        run=gate_gp_d,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.single-phase-demotion-single",
+                                 "gate_configs.single-phase-demotion-control") + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="head-scheduler-override",
        spec_code="GH-E",
@@ -1640,6 +1669,8 @@ BOARD = [
        home="training-stack",
        maps="262-267 (head override banner + cadence); 269-279 (golden diff)",
        run=gate_gh_e,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.head-scheduler-override-config",) + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="eval-batch-invariance",
        spec_code="GE-C",
@@ -1827,6 +1858,8 @@ BOARD = [
        maps="148-153 (leg 1: berhu/_reduce numerics + autograd continuity); "
             "290-314 (leg 2: golden + head-berhu banners)",
        run=gate_gb_c,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.berhu-loss-config",) + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="loss-schema-equivalence",
        spec_code="GL-D",
@@ -1835,6 +1868,8 @@ BOARD = [
        home="training-stack",
        maps="237-244 (new-schema reproduces pre-change epoch lines)",
        run=gate_gl_d,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.berhu-loss-config",) + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="berhu-anneal",
        spec_code="GBA-C",
@@ -1843,6 +1878,8 @@ BOARD = [
        home="training-stack",
        maps="199-221 (golden no-anneal + anneal banner + continuity + s=1)",
        run=gate_gba_c,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.berhu-anneal-config",) + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="ema-anneal",
        spec_code="GME-C",
@@ -1851,6 +1888,8 @@ BOARD = [
        home="training-stack",
        maps="180-197 (golden no-anneal + anneal banner + live-point metrics)",
        run=gate_gme_c,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.ema-anneal-config",) + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="param-window-cuts",
        spec_code="item-27",
@@ -1861,6 +1900,8 @@ BOARD = [
             "data-generation-and-cuts.md:94-95 (nested block normal banner); "
             "248 (ci.init_probes A/B inspection)",
        run=gate_item27,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.param-window-cuts-config",) + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="triangle-shading",
        spec_code="GT-B",
@@ -1880,6 +1921,9 @@ BOARD = [
        home="training-stack",
        maps="115-120, 211-228 (joint banners + continuity + epoch-time signal)",
        run=gate_gft_c,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.joint-training-config",
+                                 "gate_configs.joint-training-control") + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="head-activation-pin",
        spec_code="GHA-F",
@@ -1889,6 +1933,9 @@ BOARD = [
        maps="239-242, 405-430 (model-spec banner + param count + warning); "
             "429-430 (leg 4: freeze_trunk false + pin -> build_specs errors)",
        run=gate_gha_f,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.head-activation-pin-config",
+                                 "gate_configs.head-activation-pin-license") + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="relu-tanh-norm",
        spec_code="GAN-C",
@@ -1897,6 +1944,9 @@ BOARD = [
        home="models-and-designs",
        maps="99-101 (tanh+per_feature + tanh+affine + golden absent-key)",
        run=gate_gan_c,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.relu-tanh-norm-per-feature",
+                                 "gate_configs.relu-tanh-norm-affine") + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="weight-decay-census",
        spec_code="GWD-C",
@@ -1914,6 +1964,13 @@ BOARD = [
        home="models-and-designs",
        maps="117-122, 201-204 (residual + ratio + rebuild + exclusivity + sweep)",
        run=gate_gpc_c,
+       manifest=Manifest(code=_CS_TRAIN_CODE
+                              + ("cosmic_shear_sweep_ntrain_emulator.py",),
+                         inputs=("gate_configs.npce-training-residual",
+                                 "gate_configs.npce-training-ratio",
+                                 "gate_configs.npce-training-excl-ia",
+                                 "gate_configs.npce-training-excl-rescale",
+                                 "gate_configs.npce-training-sweep") + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="finetune-identity",
        spec_code="FTW-A",
@@ -2038,6 +2095,8 @@ BOARD = [
        maps="277-284 (names-equal fine-tune: parity line + banner + completes; "
             "finetuned_from + save-rebuild round-trip are the workstation leg)",
        run=gate_ftw_b,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.finetune-smoke-config",) + _CS_DEPLOY_DATA),
        deps=("save-rebuild-drift",),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="transfer-smoke",
@@ -2048,6 +2107,8 @@ BOARD = [
        maps="221-228 (names-equal gain transfer: parity + banner + completes; "
             "transfer_from + embedded base + round-trip are the workstation leg)",
        run=gate_tpe_b,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.transfer-smoke-config",) + _CS_DEPLOY_DATA),
        deps=("save-rebuild-drift",),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="scalar-smoke",
