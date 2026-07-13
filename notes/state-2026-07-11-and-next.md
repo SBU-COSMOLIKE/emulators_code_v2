@@ -1698,6 +1698,24 @@ green after the move. Part J live run stays workstation-owed. Next:
 Opus commits (one landing), then the queue-1b manifest PROPOSAL under
 the seven pre-answered constraints.
 
+TEXNOTES GAP TRIAGE + SIGMA8 RULING (2026-07-13): all 20 Current-gap
+paragraphs in texnotes/emulator_code_guide.tex audited against HEAD.
+Sixteen map to already-adjudicated unit specs (map in
+conventions-and-workflow.md "Texnotes Current-gap paragraphs"); two
+are STALE (watch scope — queue 1c landed; the raw-log resume half of
+the digest paragraph — queue 1a landed) and their refresh is
+RED-TEAM-owed; two are in flight (queue 1b digest closure,
+queue 2 reconciliation); one needed the user and is RESOLVED — sigma8
+serves the CONVENTIONAL R = 8 Mpc/h (BSN-curvature precedent; no
+legacy rename, no dual serving; rides the wave-4 MPS visit; recorded
+in families-background-mps.md). NEW BINDING RULE (ownership by USER
+RULE, same day): a landing that changes behavior taught by a
+Current-gap paragraph NAMES the paragraph in its notes entry, and
+the RED TEAM — the guide's ONLY editor; Architect and Implementer
+never touch texnotes/emulator_code_guide.tex — updates it via the
+handoff loop (custody rule in conventions-and-workflow.md).
+The entry-2 sigma8 caveat above is CLOSED by this ruling.
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
