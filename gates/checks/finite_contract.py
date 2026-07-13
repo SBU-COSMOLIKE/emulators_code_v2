@@ -90,7 +90,7 @@ from emulator.losses.transfer import TransferChi2
 from emulator.results import save_emulator
 from emulator.training import (eval_val, eval_source_chi2,
                                training_loop_batched, _global_grad_norm,
-                               ordinary_median)
+                               ordinary_median, _validate_optimizer_opts)
 
 FAILURES = []
 # set True when a required check lane could not run for a missing capability
@@ -1300,6 +1300,43 @@ def _short(msg):
   return line
 
 
+def check_optimizer_schema():
+  """Part J: the optimizer spec validates its protocol-bearing numeric kwargs.
+
+  The finite objective supports an exact-fit row with a finite, zero gradient;
+  a freshly initialized Adam state at zero gradient then forms 0 / (sqrt(0) +
+  eps) = 0 / 0 when eps is 0, a non-finite update the pre-step loss and gradient
+  guards do not catch. The optimizer spec now rejects a zero (or non-finite) eps
+  before the optimizer is built, along with a non-finite / negative weight
+  decay, a non-positive / non-finite learning rate, and a beta outside [0, 1).
+  (Validating the parameters an optimizer step actually produces is the
+  workstation companion to this schema check.)
+  """
+  base = {"cls": torch.optim.AdamW, "weight_decay": 0.0}
+  # valid controls pass.
+  try:
+    _validate_optimizer_opts(base, 1e-3)
+    _validate_optimizer_opts(dict(base, eps=1e-8, betas=(0.9, 0.999)), 1e-3)
+    report("optimizer schema: valid AdamW opts pass", True, "accepted")
+  except ValueError as exc:
+    report("optimizer schema: valid AdamW opts pass", False, str(exc))
+  # each out-of-range kwarg is refused.
+  cases = [("eps = 0 (the 0/0 zero-gradient trap)", dict(base, eps=0.0), 1e-3),
+           ("non-finite eps", dict(base, eps=float("inf")), 1e-3),
+           ("negative weight_decay", dict(base, weight_decay=-1.0), 1e-3),
+           ("non-positive lr", dict(base), 0.0),
+           ("non-finite lr", dict(base), float("nan")),
+           ("beta2 == 1.0", dict(base, betas=(0.9, 1.0)), 1e-3),
+           ("single beta", dict(base, betas=(0.9,)), 1e-3)]
+  for label, opts, lr in cases:
+    refused = False
+    try:
+      _validate_optimizer_opts(opts, lr)
+    except ValueError:
+      refused = True
+    report("optimizer schema: " + label + " is refused", refused, "ValueError")
+
+
 def main():
   """Run every part of the finite contract; return 1 if any leg failed."""
   print("== finite-contract ==")
@@ -1332,6 +1369,9 @@ def main():
   print("\n-- Part H: the chi2-domain band's compute-dtype provenance "
         "(45M-60 second addendum) --")
   check_chi2_band_dtype_provenance()
+
+  print("\n-- Part J: the optimizer-kwarg schema (zero-eps guard) --")
+  check_optimizer_schema()
 
   print("")
   if len(FAILURES) > 0:

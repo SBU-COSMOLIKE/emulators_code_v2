@@ -165,6 +165,63 @@ def make_model(model_opts, input_dim, output_dim, device,
   return model
 
 
+def _validate_optimizer_opts(opt_opts, lr):
+  """Validate an optimizer spec's protocol-bearing numeric kwargs.
+
+  The optimizer spec forwards arbitrary kwargs into the constructor, so a
+  config can set an Adam-family epsilon of 0. The finite objective deliberately
+  supports an exact-fit row with a finite, zero gradient; a freshly initialized
+  Adam state at zero gradient then forms 0 / (sqrt(0) + eps) = 0 / 0 when eps is
+  0, a non-finite update the pre-step guards (the scalar loss and the gradient
+  norm) do not catch because both are finite. This validates the numeric kwargs
+  before the optimizer is built: the learning rate finite and positive, the
+  weight decay finite and nonnegative, an Adam-family eps finite and strictly
+  positive, and each beta finite in the half-open range 0 to 1. Validating the
+  parameters and optimizer state produced by each step is the workstation
+  companion to this schema check.
+
+  Arguments:
+    opt_opts = the optimizer spec dict (the class, the weight decay, and any
+               forwarded constructor kwargs such as eps / betas).
+    lr       = the resolved base learning rate.
+
+  Raises:
+    ValueError naming the offending kwarg and the range it must fall in.
+  """
+  lr_value = float(lr)
+  if not (math.isfinite(lr_value) and lr_value > 0.0):
+    raise ValueError(
+      "optimizer lr must be finite and positive; got " + repr(lr))
+  weight_decay = opt_opts.get("weight_decay", 0.0)
+  if not (math.isfinite(float(weight_decay)) and float(weight_decay) >= 0.0):
+    raise ValueError(
+      "optimizer weight_decay must be finite and nonnegative; got "
+      + repr(weight_decay))
+  if "eps" in opt_opts:
+    eps_value = float(opt_opts["eps"])
+    if not (math.isfinite(eps_value) and eps_value > 0.0):
+      raise ValueError(
+        "optimizer eps must be finite and strictly positive; an Adam-family "
+        "eps of 0 forms 0 / (sqrt(0) + 0) at a zero-gradient exact-fit row, a "
+        "non-finite update the loss and gradient guards do not catch. Got "
+        + repr(opt_opts["eps"]))
+  if "betas" in opt_opts:
+    try:
+      pair = tuple(opt_opts["betas"])
+    except TypeError:
+      pair = ()
+    if len(pair) != 2:
+      raise ValueError(
+        "optimizer betas must be a pair (beta1, beta2); got "
+        + repr(opt_opts["betas"]))
+    for index, beta in enumerate(pair):
+      beta_value = float(beta)
+      if not (math.isfinite(beta_value) and 0.0 <= beta_value < 1.0):
+        raise ValueError(
+          "optimizer beta" + str(index + 1) + " must be finite in [0, 1); got "
+          + repr(beta))
+
+
 def make_optimizer(model, opt_opts, lr, device):
   """
   Build the optimizer from a spec dict.
@@ -223,6 +280,7 @@ def make_optimizer(model, opt_opts, lr, device):
       decay.append(p)
     else:
       no_decay.append(p)
+  _validate_optimizer_opts(opt_opts, lr)
   wd    = opt_opts.get("weight_decay", 0.0)
   cls   = opt_opts["cls"]
   # forward every key except cls / weight_decay to the constructor.
@@ -398,6 +456,7 @@ def make_refine_optimizer(correction, base, opt_opts, lr, base_lr_scale,
   Returns:
     the optimizer with the four groups.
   """
+  _validate_optimizer_opts(opt_opts, lr)
   wd  = opt_opts.get("weight_decay", 0.0)
   cls = opt_opts["cls"]
   extra = {}
