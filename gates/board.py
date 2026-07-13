@@ -2093,9 +2093,15 @@ BOARD = [
        title="Geometry folder is the only geometry home",
        tier=TIER_NEW_FEATURES,
        home="artifacts-inference-warmstart",
-       maps="the note's geometry-folder section: import rewrite census; "
-            "new-save markers + full-board acceptance; shims retired "
-            "(legacy flat paths dead, loudly)",
+       maps="fresh artifacts name geometry classes from the geometry package "
+            "(emulator.geometries.*), and the retired flat module paths stay "
+            "absent from disk, the import system, and the repository source",
+       evidence=(Assertion("geo-paths.fresh-save-uses-folder-paths",
+                           "artifacts-inference-warmstart.md#geo-paths-fresh-save-uses-folder-paths"),
+                 Assertion("geo-paths.legacy-flat-paths-absent",
+                           "artifacts-inference-warmstart.md#geo-paths-legacy-flat-paths-absent"),
+                 Assertion("geo-paths.legacy-reference-census",
+                           "artifacts-inference-warmstart.md#geo-paths-legacy-reference-census")),
        run=gate_geo_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),

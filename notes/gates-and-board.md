@@ -6756,3 +6756,27 @@ blocks; leg anchors were already uniform. Merged into this branch
 (no conflict — the register untouched this time). VERDICT: GO. The
 drafts package (8236417 + ab82b20) is fully closed; increment 3
 wires against it unchanged (code references leg anchors only).
+
+## Queue 2 increment 3 — serial-proof gate 1: geo-paths migrated (Opus, 2026-07-13)
+
+First gate of the serial proof (a check-script gate) wired to the audited naming
+draft (56661f2). No objection: the drafted names fit the code exactly (each of
+geo_paths.py's three legs is one report() call).
+
+- board.py geo-paths: `evidence=` = the three drafted Assertions
+  (`geo-paths.fresh-save-uses-folder-paths`, `.legacy-flat-paths-absent`,
+  `.legacy-reference-census`, anchored in artifacts-inference-warmstart.md);
+  `maps=` rewritten to one taught-vocabulary sentence (the draft headline);
+  `home=` already `artifacts-inference-warmstart` (no change). The gate body's
+  rc `expect` stays aid-less: the child exit is the aggregate, not a fourth leg
+  (the draft's one-verdict clause).
+- geo_paths.py: `report()` gains `aid=` and emits one `##AID <aid> <result>`
+  line per leg; the three leg report() calls carry their drafted aid. The board
+  folds those three records; reconciliation matches declared == executed.
+
+Verified (Mac): compile clean; `--list` rc 0 (the three anchors resolve, satisfy
+the aid->anchor transform, and are board-unique); board-selftest 169 PASS
+(the fold/reconcile machinery unchanged); geo_paths.py on the cocoa-torch
+interpreter exits 0 and prints EXACTLY the three declared `##AID ... PASS` lines.
+The full `run_board --gate geo-paths` clean-tree rerun is the end-to-end
+confirmation (below / workstation).
