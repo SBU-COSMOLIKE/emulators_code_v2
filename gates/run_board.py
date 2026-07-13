@@ -972,7 +972,10 @@ def _manifest_seeds(gate):
   Returns:
     the set of repo-relative seed paths.
   """
-  checks = set(re.findall(r"gates/checks/[\w./-]+\.py", _gate_source(gate)))
+  # the trailing (?!\w) stops a ".py" inside a longer token (ctx.python -> the
+  # phantom ctx.py; a .pyc / .pyx) from being lifted; a real path ends at a
+  # non-word char (quote, space, sentence-final period, EOL).
+  checks = set(re.findall(r"gates/checks/[\w./-]+\.py(?!\w)", _gate_source(gate)))
   roots = set()
   for root in gate.manifest.code:
     roots |= _expand_root(root)
@@ -1051,7 +1054,10 @@ def validate_manifests(gates, cfg):
     # shows. A driver reached only through a shared board.py helper is declared
     # and reviewed at population time; the census catches every directly-named
     # target here.
-    targets = set(re.findall(r"[\w./-]+\.py", src))
+    # (?!\w) so a ".py" inside a longer token is not a phantom target: the real
+    # code cmd=[ctx.python, ...] must not read as the file "ctx.py", and .pyc /
+    # .pyx never match. A genuine driver path ends at a non-word char.
+    targets = set(re.findall(r"[\w./-]+\.py(?!\w)", src))
     if "run_driver" in src:
       targets.add(_DRIVER)
       for lit in re.findall(r"""driver\s*=\s*["']([\w./-]+\.py)["']""", src):

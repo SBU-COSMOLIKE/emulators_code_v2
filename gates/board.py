@@ -1647,6 +1647,9 @@ BOARD = [
             "training-stack.md:110-112; shaded triangle "
             "data-generation-and-cuts.md:76-79",
        run=gate_diag,
+       manifest=Manifest(code=_CS_TRAIN_CODE,
+                         inputs=("gate_configs.production-diagnostic-config",)
+                                + _CS_DEPLOY_DATA),
        needs=("torch", "cosmolike", "gpu")),
   Gate(id="single-phase-demotion",
        spec_code="GP-D",
