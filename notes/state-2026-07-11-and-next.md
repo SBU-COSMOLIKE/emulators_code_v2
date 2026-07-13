@@ -2816,3 +2816,17 @@ run_board.py / checks untouched; increment 1 confirmed in flight
 uncommitted, branch tip still dbc7f16). Landing order: codex branch
 first, then amazing-keller. 41+53 start at the red team on this
 landing. Spec: gates-and-board.md "D2 factual-increment audit".
+
+THROUGHPUT REBALANCE (2026-07-13, USER): red-team pace is now an
+explicit division criterion. Effective now: the queue-2 note-side
+evidence blocks (all gates except the four subprocess-driver
+wrappers and the seven foundation re-keys) draft at the red team
+per the approved A1-ii template + frozen naming rule; environment
+probe requested (does cocoa torch run in their sandbox — gates
+D3/D4/D5 transfers). Pre-authorized at the increment-2 seam: D6
+(nine mkdtemp sites), 61-finiteness whole, D3 if torch runs
+locally, D4 file-by-file where ##AID has finished. Kept with the
+Implementer on stakes+capability: queue-2 machinery + board.py,
+the artifact chain, units 8/96, the staging reopen. Critical path
+unchanged; the tail parallelizes. Spec: gates-and-board.md
+"THROUGHPUT REBALANCE".

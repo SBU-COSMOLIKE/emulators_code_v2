@@ -6096,3 +6096,77 @@ claude/amazing-keller-e798b6 (disjoint files, no conflict — the
 codex commit touches no note my branch touches). Units 41 + 53 may
 start at the red team on this landing, per their handoff's own
 sequencing. Unit 93 remains unclaimed and available.
+
+## THROUGHPUT REBALANCE (user ruling, 2026-07-13): red-team speed is now an explicit division criterion
+
+USER RULING (after the D2 GO): the red team's demonstrated pace is
+taken into account when dividing work — the backlog must finish
+faster. Calibration recorded with the ruling: D2 was doc-only under
+an AST-identity constraint (intrinsically faster than machinery
+increments), so the acted-on signal is QUALITY-PER-AUDIT — the red
+team is ~60-for-60 on verified filings and its first code-adjacent
+landing passed audit clean on the first pass. Governance is
+unchanged: Architect pre-merge audit on every landing, no
+self-certification, one owner per file at any moment.
+
+TRANSFERS EFFECTIVE NOW (zero collision with increment 1/2):
+
+1. QUEUE-2 NOTE-SIDE EVIDENCE BLOCKS. The red team drafts the
+   home-note evidence surface for the board per the approved A1-ii
+   template: one six-field block per gate (files / subprocess /
+   metric / legs / evidence / owed) at the headline anchor plus a
+   lightweight per-leg anchor + one-line claim, leg names minted by
+   the frozen Deliverable-B rule (gate.id prefix, narrowed claims,
+   taught vocabulary, reserved terms). Rationale: this is the
+   rollout's largest WRITING surface, most narrowed claims trace to
+   the red team's own filings, extra <a id> markers are inert until
+   a gate declares them (validate_evidence checks only declared
+   anchors), and the notes/ side collides with nothing the
+   Implementer's increments touch except the seven foundation
+   anchors ALREADY being re-keyed — those seven are EXCLUDED from
+   the draft (the Implementer lands them in increment 1). Division
+   inside the surface: the red team drafts every gate EXCEPT the
+   four subprocess-driver gates (gct / gsv / ftw / tpe wrapper
+   gates), whose leg classification is entangled with the
+   wrapper-falsehood machine disposition — the Implementer names
+   those legs during migration. I audit the drafted blocks; the
+   Implementer treats audited names as the spec and files a naming
+   objection per gate where migration disagrees.
+2. ENVIRONMENT PROBE (gates further transfers). The red team
+   reports whether the cocoa interpreter
+   (Cocoa/.local/bin/python, torch 2.6.0 CPU+MPS) executes in
+   their sandbox — evidence: one torch import + one small forward
+   pass printed. The answer decides whether torch-executing units
+   (D3's smoke-fixture repair, most D4/D5 legs) can transfer with
+   local verification or only in write-here/verify-there form (the
+   unit-93 precedent).
+
+PRE-AUTHORIZED AT THE INCREMENT-2 SEAM (fires when the Implementer
+lands the ##AID manifest increment and gates/checks/ goes quiet;
+same mechanism as the Wave-2 table — no fresh ruling needed):
+
+3. D6 (mkdtemp hygiene, all nine sites) — whole.
+4. 61-FINITENESS — whole (checks/logscan.py decreasing: both
+   endpoints finite + the five named controls as board-selftest
+   legs); pure-CPU, runnable in their environment.
+5. D3 (the unit-28 smoke-fixture disjointness repair) — IF the
+   environment probe says torch runs locally; otherwise it stays
+   with the Implementer (a gauntlet-critical repair must be
+   executed by its author, not verified blind).
+6. D4 SPLIT DECISION at the same seam: check-script legs whose
+   files the ##AID sweep has finished may transfer file-by-file
+   (one owner per file at any moment); board.py legs (46's
+   _golden_leg + addendum) stay with the Implementer.
+
+UNCHANGED — THE IMPLEMENTER'S CORE (kept deliberately; the reason
+is capability and stakes, not habit): the queue-2 machinery +
+board.py migration (one file, the harness itself), the fixed-facts/
+artifact chain (74/76/77/78/80/82/84/85 — production artifact truth
+whose legs execute torch save/rebuild), unit 8, unit 96, the
+queue-3 staging reopen. Stripping everything else away is what
+shortens that queue; moving its members would trade the most
+expensive class of error for throughput.
+
+The gauntlet's critical path is unchanged (increments 1-2 -> D3 ->
+D4 -> D5 -> queue 5); this rebalance shortens the TAIL behind it
+and parallelizes the note surface under it.
