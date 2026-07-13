@@ -1932,3 +1932,33 @@ fixed-facts block as units 71/74 — pair equality is proven on the
 persisted scientific-domain binding, never manufactured by a union.
 EMUL2 acceptance blocklist grows to 67 + 69 + 71 + 72 + 73 + 74 +
 75.
+
+### 1b phase-3 batch-1 — pre-merge Architect audit (Fable, 2026-07-13): PASS on Mac scope; family-first re-categorization APPROVED
+
+Commit `bb370cf` audited before merge. Evidence re-executed by the
+Architect from a clean detached checkout on the cocoa interpreter:
+board-selftest 74 legs ALL PASS (rc 0; includes the pre-manifest and
+persisted-member legs), `run_board --list` rc 0 over the now-populated
+BOARD (validate_manifests runs on every invocation, so the three
+declarations are live-validated). A real single-gate run attempt
+confirms the Mac boundary: preflight refuses on cosmolike / CUDA /
+the deploy yaml_dir — workstation facts, exactly as designed — so the
+populated gates' REAL reruns (pre-manifest firing, verdicts
+republished with persisted members) ride the next real board
+invocation and are the first thing queue 5 must show. The three
+resolved closures match the landing notes and are strictly broader
+than the legacy digests (the shared harness is now hashed for all
+three; stage-ram additionally hashes data_staging.py + batching.py —
+the surface it tests).
+
+The family-first re-categorization is APPROVED: the three probe-found
+reasons are real (the docstring literal is the phase-1 awareness case
+where DECLARE is right; root-driver imports are outside
+_EXECUTABLE_DIRS by design and enter as declared roots; open().read()
+dependencies are invisible to every code census — the right lane for
+those is the INPUT side, which is exactly what the batch-4
+board_config data keys provide). family-first populates in a declared
+batch with its driver root and input keys, not with code=(). The
+open().read() lane is hereby added to the documented blind-spot list
+beside dynamic imports and subprocess targets: code censuses cannot
+see file reads; input keys carry them.

@@ -1840,6 +1840,17 @@ compatibility; wave-4 MPS visit. EMUL2 blocklist now
 67+69+71+72+73+74+75. Spec: gates-and-board.md "20M-07/08
 adjudication".
 
+BATCH-1 POPULATION AUDIT (2026-07-13, Fable): `bb370cf` PASS on Mac
+scope pre-merge — 74-leg selftest + --list over the populated BOARD
+re-executed from a clean checkout; the three closures strictly
+broader (harness hashed; stage-ram hashes its tested surface); the
+real reruns (pre-manifest -> republish with persisted members) are
+the first queue-5 exhibit, Mac preflight refusing on workstation
+facts as designed. family-first re-categorization APPROVED (declare
+the driver root; open().read() added to the documented blind-spot
+list — file reads are INPUT-side keys, not code roots). Spec:
+gates-and-board.md "1b phase-3 batch-1 — pre-merge Architect audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
