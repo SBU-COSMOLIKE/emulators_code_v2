@@ -131,6 +131,52 @@ _LEGACY_DRIVERS = {
 
 
 # --------------------------------------------------------------------------
+# Queue 2: an external check script's per-leg assertion manifest. Binding
+# ruling 6 -- a subprocess check's aggregate exit code is not enough evidence;
+# the runner needs a per-leg record to catch a silently-dropped script leg the
+# same way it catches an in-process one. A check prints one reserved line per
+# leg, ``##AID <aid> <PASS|FAIL|UNAVAILABLE> [reason...]``; run_check folds the
+# parsed records into ctx._executed, and reconciliation does the rest.
+# --------------------------------------------------------------------------
+
+_AID_MANIFEST_PREFIX = "##AID"
+
+
+def _parse_aid_manifest(output):
+  """Extract a check script's per-leg assertion manifest from its output.
+
+  Scans for the reserved ``##AID <aid> <result> [reason...]`` lines (result one
+  of PASS / FAIL / UNAVAILABLE; the optional reason is the rest of the line,
+  carried for an UNAVAILABLE leg). Non-manifest output is ignored, so a script
+  keeps printing its human CHECK lines alongside.
+
+  Arguments:
+    output = the captured stdout+stderr of the check script.
+
+  Returns:
+    (records, malformed): records is a list of (aid, result, reason) for
+    well-formed lines; malformed is the list of raw ``##AID`` lines that did not
+    parse (an unparseable manifest line is a check-script contract violation the
+    caller turns into a red gate).
+  """
+  records = []
+  malformed = []
+  for raw in output.splitlines():
+    line = raw.strip()
+    if not line.startswith(_AID_MANIFEST_PREFIX):
+      continue
+    # split into at most 4 fields: the prefix, the aid, the result, the reason
+    # (the reason keeps its internal spaces).
+    parts = line.split(None, 3)
+    if len(parts) < 3 or parts[2] not in ("PASS", "FAIL", "UNAVAILABLE"):
+      malformed.append(line)
+      continue
+    reason = parts[3] if len(parts) == 4 else ""
+    records.append((parts[1], parts[2], reason))
+  return (records, malformed)
+
+
+# --------------------------------------------------------------------------
 # The per-test helper each test function receives.
 # --------------------------------------------------------------------------
 
@@ -337,6 +383,14 @@ class RunContext:
     the check imports the package it tests. The verbatim scripts stay
     untouched; the path fix lives entirely in the runner.
 
+    A check script may also print a per-leg assertion manifest (queue 2): one
+    reserved ``##AID <aid> <PASS|FAIL|UNAVAILABLE> [reason]`` line per acceptance
+    leg it ran. Those records are folded into this gate's executed set, so a
+    silently-dropped script leg reds the gate in reconciliation exactly like a
+    dropped in-process one, and a crash before the manifest leaves the declared
+    leg unemitted (also red). An unparseable ``##AID`` line is a check-script
+    contract violation and raises immediately, regardless of allow_fail.
+
     Arguments:
       script     = the check script path relative to the repo (or
                    absolute); passed straight to python.
@@ -354,9 +408,16 @@ class RunContext:
       pythonpath = str(self.repo)
     else:
       pythonpath = str(self.repo) + os.pathsep + existing
-    return self.sh(cmd=cmd,
-                   env={"PYTHONPATH": pythonpath},
-                   allow_fail=allow_fail)
+    rc, output = self.sh(cmd=cmd,
+                         env={"PYTHONPATH": pythonpath},
+                         allow_fail=allow_fail)
+    records, malformed = _parse_aid_manifest(output)
+    if malformed:
+      raise GateFailure("check " + str(script) + " printed an unparseable "
+                        "##AID manifest line: " + malformed[0])
+    for record in records:
+      self._executed.append(record)
+    return (rc, output)
 
   # ---- environment -------------------------------------------------------
 

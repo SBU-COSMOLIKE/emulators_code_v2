@@ -844,6 +844,110 @@ def check_evidence_gate_verdict():
         run_board.validate_evidence = saved_ve
 
 
+def check_aid_manifest():
+    """run_check folds a check script's ##AID per-leg manifest into the executed
+    set (binding ruling 6 + the one-verdict constraint).
+
+    Drives the REAL parser, the REAL run_check subprocess, and the REAL
+    run_selection over tiny temp check scripts: a script's legs fold and reconcile
+    green; a script that drops a declared leg, crashes before its manifest, or
+    prints an unparseable line each red the gate; and a leg counted by BOTH the
+    script and the gate body reds (no second parallel verdict).
+    """
+    # unit: the parser extracts (aid, result, reason), keeping the reason for an
+    # UNAVAILABLE leg and ignoring non-manifest output.
+    recs, mal = run_board._parse_aid_manifest(
+        "noise\n##AID g.a PASS\n##AID g.b UNAVAILABLE owed to box\nmore\n")
+    report("the manifest parser extracts (aid, result, reason)",
+           recs == [("g.a", "PASS", ""), ("g.b", "UNAVAILABLE", "owed to box")]
+           and mal == [], repr(recs))
+    recs, mal = run_board._parse_aid_manifest("##AID g.a MAYBE\n##AID g.b\n")
+    report("the parser flags malformed manifest lines", recs == [] and len(mal) == 2,
+           repr(mal))
+
+    saved_ve = run_board.validate_evidence
+    run_board.validate_evidence = lambda gates: (True, [])
+    with tempfile.TemporaryDirectory(prefix="board-selftest-aid-") as sdir:
+        sd = Path(sdir)
+        try:
+            # (a) a script emitting both declared legs -> folded -> gate PASS.
+            ok_s = sd / "ok.py"
+            ok_s.write_text("print('##AID okg.a PASS')\nprint('##AID okg.b PASS')\n")
+
+            def _ok_run(ctx):
+                ctx.run_check(str(ok_s))
+            okg = Gate(id="okg", tier="backlog", home="selftest", maps="s",
+                       run=_ok_run,
+                       evidence=(Assertion("okg.a", "n.md#okg-a"),
+                                 Assertion("okg.b", "n.md#okg-b")))
+            rc, final, tmp = drive_main(["--gate", "okg"], [okg], {})
+            report("a script's ##AID legs fold into the executed set (gate PASS)",
+                   final.get("okg", {}).get("status") == "PASS",
+                   repr(final.get("okg", {}).get("status")))
+
+            # (b) a script that DROPS a declared leg -> reconciliation reds.
+            drop_s = sd / "drop.py"
+            drop_s.write_text("print('##AID dpg.a PASS')\n")
+
+            def _dp_run(ctx):
+                ctx.run_check(str(drop_s))
+            dpg = Gate(id="dpg", tier="backlog", home="selftest", maps="s",
+                       run=_dp_run,
+                       evidence=(Assertion("dpg.a", "n.md#dpg-a"),
+                                 Assertion("dpg.b", "n.md#dpg-b")))
+            rc, final, tmp = drive_main(["--gate", "dpg"], [dpg], {})
+            report("a script that drops a declared leg reds the gate",
+                   final.get("dpg", {}).get("status") == "FAIL",
+                   repr(final.get("dpg", {}).get("status")))
+
+            # (c) a script that CRASHES before its manifest -> the declared leg is
+            # never emitted -> reconciliation reds (no headline rc-check needed).
+            crash_s = sd / "crash.py"
+            crash_s.write_text("import sys\nsys.exit(3)\n")
+
+            def _cr_run(ctx):
+                ctx.run_check(str(crash_s))
+            crg = Gate(id="crg", tier="backlog", home="selftest", maps="s",
+                       run=_cr_run,
+                       evidence=(Assertion("crg.a", "n.md#crg-a"),))
+            rc, final, tmp = drive_main(["--gate", "crg"], [crg], {})
+            report("a script crash before its manifest reds the gate",
+                   final.get("crg", {}).get("status") == "FAIL",
+                   repr(final.get("crg", {}).get("status")))
+
+            # (d) an unparseable ##AID line -> run_check raises -> gate FAIL.
+            mal_s = sd / "mal.py"
+            mal_s.write_text("print('##AID malg.a PROBABLY')\n")
+
+            def _ml_run(ctx):
+                ctx.run_check(str(mal_s))
+            mlg = Gate(id="mlg", tier="backlog", home="selftest", maps="s",
+                       run=_ml_run,
+                       evidence=(Assertion("malg.a", "n.md#malg-a"),))
+            rc, final, tmp = drive_main(["--gate", "mlg"], [mlg], {})
+            report("an unparseable ##AID manifest line reds the gate",
+                   final.get("mlg", {}).get("status") == "FAIL",
+                   repr(final.get("mlg", {}).get("status")))
+
+            # (e) one-verdict: a script emits the leg AND the body also expects the
+            # same aid -> emitted twice -> reds (no second parallel verdict).
+            dv_s = sd / "dv.py"
+            dv_s.write_text("print('##AID dvg.a PASS')\n")
+
+            def _dv_run(ctx):
+                ctx.run_check(str(dv_s))
+                ctx.expect(aid="dvg.a", label="dup", ok=True, detail="")
+            dvg = Gate(id="dvg", tier="backlog", home="selftest", maps="s",
+                       run=_dv_run,
+                       evidence=(Assertion("dvg.a", "n.md#dvg-a"),))
+            rc, final, tmp = drive_main(["--gate", "dvg"], [dvg], {})
+            report("a leg counted by both the script and the body reds (one-verdict)",
+                   final.get("dvg", {}).get("status") == "FAIL",
+                   repr(final.get("dvg", {}).get("status")))
+        finally:
+            run_board.validate_evidence = saved_ve
+
+
 def check_dirty_watch():
     """1c-bis: the clean-tree watch parses porcelain per line, immune to the
     global strip, and the pathspec + exclusion + surface text share one owner.
@@ -1810,6 +1914,8 @@ def main():
     check_evidence_reconciliation()
     print("\n-- evidence gate verdict (the runner hook flips + persists the block) --")
     check_evidence_gate_verdict()
+    print("\n-- ##AID manifest (check-script per-leg fold, crash/malformed/one-verdict) --")
+    check_aid_manifest()
     print("\n-- clean-tree watch (per-line porcelain, one owner) --")
     check_dirty_watch()
     print("\n-- manifest reconciliation (subprocess + dynamic-import censuses) --")
