@@ -2966,3 +2966,61 @@ example; a deliberately bad row reported as its original dump row in
 both regimes; CPU and accelerator controls verify the transfer
 wording; no universal global-row or unconditional-D2H claim survives
 the scan.
+
+## DIDACTICS-34..41 adjudication (Fable, 2026-07-13): eight model/loss/geometry documentation falsehoods, all CONFIRMED — two Architect widenings and one campaign-wide census upgrade
+
+All eight anchors verified on HEAD; the red team's mathematics
+checks out where checkable (35's joint-to-separable ratio
+Ck/(gk+C) = 330/41 = 8.05 for C=30, g=1, k=11, against the claimed
+~k/2 = 5.5; 38's capped-BerHu upper branch grows like sqrt(c) —
+the VALUE is unbounded, the residual INFLUENCE is what plateaus).
+All eight are documentation-only repairs routed into the didactics
+campaign's model/loss/geometry family batches under the standing
+acceptance (stripped-AST identity, compileall, the stale-phrase
+scans); their worked examples (34's one-multipole encode->residual->
+law-removal->chi2 trip, 38's three-row sorted-prefix-mask example,
+41's ResBlock shape trace, 35's exact parameter counts) land as
+UNIT 91 documentation fixtures.
+
+Verdicts + Architect deltas:
+
+- 34 (CMB law direction): CONFIRMED — encode forms f*C/sigma,
+  decode DIVIDES by f (consistent with the queue-43 law: the chi2
+  divides f back out); "already physical" mislabels a whitened
+  residual. WIDENED: the reversed phrase has two siblings the filing
+  did not cite — inference.py:180 ("multiplies the imposed amplitude
+  law back") and :532-534 ("decode multiplies the amplitude law
+  back") — the stale-phrase census covers all three.
+- 35 (Conv1d bank): CONFIRMED with the ratio formula verified; the
+  free-standing ~k/2 rule is deleted, the executed
+  (C_out, C_in/g, k) bank taught, parameter counts shown or
+  evaluated from the resolved run.
+- 36 (shared_mlp): CONFIRMED — the executed branch is a
+  fixed-width shared-across-token MLP ablation (dim -> dim every
+  layer, activation after the last), not the dim -> d_ff -> dim
+  textbook FFN; renamed honestly with the shape trace.
+- 37 (PCE OMP-vs-LARS): CONFIRMED — the executed algorithm is
+  OMP-style greedy selection with per-term ridge refits and
+  PRESS/LOO + patience; "least-angle" and "one pass" retire from
+  prose (public names may stay for compatibility).
+- 38 (trim + BerHu): CONFIRMED — "topk" becomes
+  sort-then-fixed-prefix-mask (with the compiled-shape rationale);
+  bounded INFLUENCE (the sqrt(c) dL/dc vote) is distinguished from
+  the unbounded loss value.
+- 39 (loss study map): CONFIRMED — the package preamble teaches the
+  geometry PROTOCOL (encode/decode/dest_idx/total_size as the
+  relied-upon surface, not one concrete class) and the study map
+  gains scalar.py/cmb.py/transfer.py with a mechanical
+  file-completeness census.
+- 40 (grid.py direction reversal): CONFIRMED as the amendment it
+  claims to be — this instance SURVIVED the existing single-line
+  direction census precisely because the false clause spans lines.
+  CAMPAIGN-WIDE UPGRADE: every stale-phrase census in the didactics
+  acceptance battery becomes multiline/semantic-capable (recorded
+  scan patterns; single-line grep is no longer sufficient evidence
+  for a zero-hit claim on prose).
+- 41 (ResBlock skip location): CONFIRMED — the invariant moves to
+  the module introduction (width-preserving (B,D)->(B,D); internal
+  path Linear->norm->act->...->final Linear->ADD SKIP->final
+  norm->final act; rectangular projections outside the block) with
+  the named shape trace.

@@ -2206,6 +2206,16 @@ torch.cat allocation described separately from the conditional
 .cpu() transfer. 28..32 re-filed and already adjudicated. Spec:
 gates-and-board.md "DIDACTICS-33 adjudication".
 
+DIDACTICS-34..41 BATCH (2026-07-13, Fable): eight model/loss/
+geometry documentation falsehoods, ALL CONFIRMED (ratio + growth
+algebra re-verified; the CMB decode direction consistent with the
+queue-43 law). Architect widenings: 34's reversed law-direction
+phrase has two uncited siblings in inference.py (:180, :532); 40's
+multiline escape upgrades EVERY campaign stale-phrase census to
+multiline/semantic-capable scans. All routed to the model/loss/
+geometry family batches; worked examples to unit 91. Spec:
+gates-and-board.md "DIDACTICS-34..41 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
