@@ -1337,3 +1337,14 @@ all-coordinate sum reports 10000 and reds. Placement: the
 grid2d/loss contract beside unit 63 (never folded into its legality
 validator); a science-metric defect ahead of any grid2d production
 training.
+
+### UNIT 85 — the coupling clause (20M-18 rejection notice, 2026-07-13)
+
+Adopted from the red team's crossing notice: repairing the shipped
+EMUL2 example by merely REMOVING drop: true is insufficient — that
+alone converts the loud startup failure into the silent wrong-physics
+lane. The example repair and the canonical dark-energy resolver land
+IN THE SAME UNIT: either the routing delivers a correct wa to the
+adapter (resolver landed) or the example refuses with migration
+text. The magnitude ladder and the spy-tuple leg run on the non-drop
+branch; the shipped drop branch is the startup/migration leg.

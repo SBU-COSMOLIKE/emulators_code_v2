@@ -2007,6 +2007,22 @@ workstation legs (69 leg 5, the smoke mutation arm) ride queue 5.
 Next per the sequencing ruling: unit 79. Spec: gates-and-board.md
 "Unit 70 — pre-merge Architect audit".
 
+20M-18 COUPLING + 45M-81 EXECUTED FAILURE (2026-07-13, Fable): the
+red team's 18 rejection notice crossed with the already-committed
+correction; its ONE new clause is adopted — the shipped-YAML repair
+and the canonical resolver are ONE landing (removing drop: true
+alone converts loud failure into silent wrong physics). 45M-81 is
+now a CONFIRMED CURRENT FAILURE, Architect-re-executed (append with
+the same seed restarts default_rng and duplicates 200/200 rows at
+the public minimum; no RNG state in checkpoints; the header implies
+seed-only provenance): binding amendment in
+data-generation-and-cuts.md — RNG state is checkpoint state,
+persisted transactionally, restored-or-verified before any append
+draw, emcee state included (the queue-5 sampler._random rider joins
+it), refusal before touching the old dataset; NO production append
+until it lands; unit 82 is orthogonal. Spec: gates-and-board.md
+"20M-18 coupling clause + 45M-81 executed failure".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

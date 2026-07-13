@@ -1706,3 +1706,44 @@ the canonical one. Placement: the generator-ingress campaign
 (rides with the ingress cluster; distinct from 20M-15's payload
 validity — 15 asks whether the stored answer is legal, 82 whether
 it belongs to the printed cosmology).
+
+## 45M-81 AMENDED (2026-07-13, CONFIRMED CURRENT FAILURE): append restarts the RNG stream and duplicates the original dataset — RNG state is checkpoint state
+
+Finding (red team; Architect re-executed the repro exactly): fresh
+generation with --seed S followed by --loadchk 1 --append 1 --seed S
+reconstructs default_rng(S) from the beginning
+(generator_core.py:270), the checkpoint restores rows/payloads but
+NO generator state or draw offset, and the append branch calls the
+same rng.uniform (:748): at the public minimum N = M = 200 every
+appended row duplicates an original, fresh+append != one-shot, and
+the first appended row is draw 1, not draw N+1. The :792 chain
+header ("seed=... rng=numpy.default_rng") implies seed-only
+provenance — false for append.
+
+Binding amendment (converts the owed acceptance proof into this
+contract): (1) the COMPLETE owned RNG state is persisted
+transactionally with checkpoint generation — never the seed alone;
+(2) append restores that exact state before any draw, OR
+replays/advances only under a manifest-proven algorithm + prior-row
+count with the resulting state VERIFIED; (3) every sampling engine
+that owns state is covered, including the emcee move/random state on
+the Gaussian branch (the queue-5 sampler._random rider joins here:
+the private-attr assignment gains its attribute-presence assert and
+its state joins the persisted block); (4) one-shot N+M and
+fresh-N-then-append-M produce the SAME canonical parameter rows and
+row order; (5) missing, stale, or mismatched RNG state REFUSES
+append before modifying the old dataset; (6) the chain header stops
+implying seed-only replay provenance; (7) MPI worker count must not
+affect the parameter table (science-row ordering remains unit 82's
+coordinated half). CAUTION: no dataset may be produced via append
+until this lands; unit 82 is orthogonal (it would faithfully
+canonicalize the duplicates).
+
+Legs (CPU now): real uniform fresh/append restart; exact equality to
+one-shot; no cross-half duplicates; state readback; missing/corrupt
+state refusal; a mutation reinitializing default_rng(seed) must
+reproduce the 200/200 duplication and red. The Gaussian/emcee
+continuation and worker-invariance legs may stay workstation-bound
+where their dependencies require it. Placement: the
+generator-ingress campaign beside unit 82; blocks any production
+append.
