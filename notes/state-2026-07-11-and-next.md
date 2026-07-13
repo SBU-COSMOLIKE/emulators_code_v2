@@ -2457,6 +2457,18 @@ on 25M-20 landing immediately after; queue 2 opens after the
 hardening increment. Spec: gates-and-board.md "Population 40/40
 pre-merge audit".
 
+25M-22 + REFILE RECONCILIATION (2026-07-13, Fable): the seven-item
+relay = 16..21 (already ruled; counted once) + the 18
+tuples-as-alternatives clause (CONVERGES with my strip-one probe —
+one merged all-quantified coverage contract, three must-red
+fixtures) + 25M-22 CONFIRMED (saved_emulator_root: _help + null
+value only, zero Python reads, digest-only dead control). RULING:
+REMOVE key + help (paste-ready block owed), landing with the
+hardening increment beside 21's projection (one digest transition);
+the every-key-has-a-reader config census becomes a standing
+selftest leg. Spec: gates-and-board.md "25M-22 adjudication + the
+16..21 refile reconciliation".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

@@ -4181,3 +4181,37 @@ after the 1b hardening increment (16/18+addendum/19/21), not at
 this merge; the populated reruns remain the first queue-5 exhibit.
 D3/D4 prep noted and consistent with the spine (D4's full roster:
 46/47/48/52/53/63 + 61-finiteness + 66).
+
+## 25M-22 adjudication + the 16..21 refile reconciliation (Fable, 2026-07-13)
+
+The seven-finding relay is the 16..21 batch already adjudicated
+(rulings stand unchanged; counted once) plus ONE new finding and
+ONE new clause:
+
+- 25M-18's NEW CLAUSE (tuples-as-alternatives) CONVERGES with my
+  40/40-audit probe: the red team observed that cli_strict's waiver
+  lists eight entry points, ALL imported, while the any() quantifier
+  treats them as alternatives; my in-memory strip-designs-keep-
+  losses probe witnessed the same quantifier hole on the recipe
+  waiver. ONE merged contract in the 1b hardening increment:
+  coverage is all-quantified over required covers AND over
+  required-all tuple members; must-red fixtures = child-as-cover,
+  strip-one-of-two-covers, any-one-of-eight-entry-points.
+- 25M-22 CONFIRMED (verified by untruncated grep: the key exists
+  ONLY at board_config.json:8 (_help) and :20 (null value); zero
+  Python reads; gsv_bitwise_drift reads rootdir/driver_root and
+  unconditionally trains chains/gates_emul_evaluate at :305-307).
+  The board promises it tests a selected emulator while always
+  testing its internally trained one, and the dead value still
+  enters every input digest. RULING: REMOVE — the recommended
+  option. A documented control no code reads is a standing lie
+  (never-trust-defaults applied to config surfaces); the tiny
+  self-trained fixture is deliberate gate ownership; an
+  external-root mode adds no current evidence. Remove the key AND
+  its _help entry; the Implementer presents the resulting
+  board_config block paste-ready. LANDING: with the 1b hardening
+  increment beside 25M-21's digest projection, so the digest
+  transition happens ONCE. PERMANENT ACCEPTANCE (class, not
+  instance): the config census proving every non-documentation
+  public key has an execution reader becomes a standing selftest
+  leg — no future dead key can accumulate.
