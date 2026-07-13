@@ -33,6 +33,34 @@ from scipy.spatial import cKDTree
 from scipy.stats import spearmanr
 
 from .training import eval_source_chi2
+from .losses.core import screen_chi2
+
+
+def _screen_diag_chi2(chunks, chi2fn, label, positions):
+  """Concatenate the per-chunk compute-dtype chi2 and pass it through the
+  shared score-domain boundary (45M-61).
+
+  The CMB / grid / grid2d residual functions each accumulate their
+  per-sample chi2 in the COMPUTE dtype (the model's float32, never a
+  .double() upcast, so screen_chi2's band matches the roundoff the sum
+  accumulated) and hand the list here. screen_chi2 raises on any non-finite
+  or materially negative published score (a corrupt residual would poison
+  the percentile bands and the worst-point pick), normalizes a within-band
+  roundoff negative to exact 0, and the ACCEPTED result is cast to float64
+  for the plots.
+
+  Arguments:
+    chunks    = list of per-batch compute-dtype chi2 tensors (cpu).
+    chi2fn    = the loss object (its _chi2_n_terms sets the band).
+    label     = the producer name for the error (e.g. "cmb residual").
+    positions = the source-row indices aligned with the concatenated chi2.
+
+  Returns:
+    (N,) float64 numpy delta-chi2, screened and row-aligned.
+  """
+  c_all = torch.cat(chunks)
+  c_all = screen_chi2(c_all, loss=chi2fn, label=label, positions=positions)
+  return c_all.double().numpy()
 
 
 def coverage_diagnostic(model,
@@ -223,8 +251,17 @@ def local_linear_floor(model,
   coef = torch.linalg.lstsq(design, Yn.cpu()).solution
   Tlin = coef[:, 0, :].to(device)                 # intercept = pred
 
-  dchi2_floor = chi2fn.chi2(pred=Tlin,
-                            target=Tva).double().cpu().numpy()
+  # the model-independent interpolation floor is a PUBLISHED score
+  # (f_floor / f_hard / median_floor read it directly), so it passes the
+  # shared score-domain boundary BEFORE any interpretation -- and in its
+  # COMPUTE dtype, not a .double() upcast (45M-61): a geometry that strict
+  # loading accepted but whose Cinv is not positive-definite can make this
+  # floor negative, which the old dchi2_floor > 0.2 test read as a PERFECT
+  # 0. screen_chi2 refuses it (or normalizes a within-band roundoff negative
+  # to exact 0); only the accepted score is then cast to float64 to report.
+  c_floor = chi2fn.chi2(pred=Tlin, target=Tva)
+  c_floor = screen_chi2(c_floor, loss=chi2fn, label="local-linear floor")
+  dchi2_floor = c_floor.double().cpu().numpy()
   # eval_source_chi2 (training.py): runs the model over a source in
   # eval mode and returns (params, per-point delta-chi2) row-aligned.
   _, dchi2_model = eval_source_chi2(model=model,
@@ -411,10 +448,10 @@ def cmb_residual_diagnostic(model,
         cl = chi2fn.decode(p)
         tw = chi2fn.encode(t)
       preds.append(cl.double().cpu().numpy())
-      chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
+      chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
       start = stop
   pred  = np.concatenate(preds)
-  dchi2 = np.concatenate(chi2s)
+  dchi2 = _screen_diag_chi2(chi2s, chi2fn, "cmb residual", rows)
 
   sigma = geom.sigma.detach().cpu().numpy().astype("float64")
   frac = (pred - truth) / truth
@@ -618,10 +655,10 @@ def grid_residual_diagnostic(model,
       else:
         tw = chi2fn.encode(t)
         preds.append(chi2fn.decode(p).double().cpu().numpy())
-      chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
+      chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
       start = stop
   pred  = np.concatenate(preds)
-  dchi2 = np.concatenate(chi2s)
+  dchi2 = _screen_diag_chi2(chi2s, chi2fn, "grid residual", rows)
 
   frac = (pred - truth) / truth
   q = np.percentile(frac, [2.5, 16.0, 50.0, 84.0, 97.5], axis=0)
@@ -742,10 +779,10 @@ def grid2d_residual_diagnostic(model,
       else:
         tw = chi2fn.encode(t)
         preds.append(chi2fn.decode(p).double().cpu().numpy())
-      chi2s.append(chi2fn.chi2(pred=p, target=tw).double().cpu().numpy())
+      chi2s.append(chi2fn.chi2(pred=p, target=tw).cpu())  # compute dtype
       start = stop
   pred  = np.concatenate(preds)
-  dchi2 = np.concatenate(chi2s)
+  dchi2 = _screen_diag_chi2(chi2s, chi2fn, "grid2d residual", rows)
 
   nz = int(geom.z.numel())
   nk = int(geom.k.numel())

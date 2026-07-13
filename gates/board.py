@@ -1270,6 +1270,44 @@ def gate_finite_contract(ctx):
              + " (gates/checks/finite_contract.py)")
 
 
+def gate_diagnostics_domain(ctx):
+  """diagnostics-domain: a corrupted chi2 never crowns a diagnostic (45M-61).
+
+  WHAT: the shared score-domain boundary at every chi2 CONSUMER, not just the
+  training reduction and the two evaluation boundaries (increment (e)).
+  local_linear_floor computed its interpolation-floor score by calling
+  chi2fn.chi2 DIRECTLY and interpreting the unchecked value (f_floor via
+  dchi2_floor > 0.2, median_floor via np.median), and the CMB / grid / grid2d
+  residual functions upcast each chunk with .double() before any check. WHY: a
+  geometry whose Cinv is not positive-definite (a same-shaped h5 edit strict
+  weight loading accepts) makes the floor go negative, and the > 0.2 test read
+  a -1 floor as a PERFECT 0 -- an impossible "data-only floor" reported ideal.
+  HOW: a CPU torch-only check drives screen_chi2 (the one shared helper in
+  losses/core.py: a valid positive score passes byte-identical, a within-band
+  roundoff negative normalizes to exact 0, and a materially negative / NaN /
+  +-Inf score raises naming the boundary, the rows, the minimum, and the band;
+  a loss without _chi2_n_terms falls back to the 1e-6 band floor; the term
+  count widens the band with the kept width) and the REAL producers: the
+  local_linear_floor refuses a reachable negative floor BEFORE it computes
+  f_floor (the floor guard fires ahead of the model arm), refuses a NaN floor,
+  and returns finite scores on a valid run, with a mutation arm (the guard
+  bypassed) recreating the false f_floor = 0; the cmb_residual_diagnostic
+  refuses a corrupt per-sample score and keeps its bands on a valid run; and a
+  source census proves the grid / grid2d residual functions route through the
+  same shared boundary (_screen_diag_chi2 -> screen_chi2) with no raw .double()
+  score path left. torch only, no cosmolike, no CAMB, no GPU (spec:
+  training-stack.md, the increment (h) diagnostic-score-boundary section).
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("gates/checks/diagnostics_domain.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="diagnostics-domain floor/residual score-boundary legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/diagnostics_domain.py)")
+
+
 BOARD = [
   Gate(id="ema-off-identity",
        spec_code="GM-C",
@@ -1350,6 +1388,24 @@ BOARD = [
             "census, and an ill-conditioned SPD roundoff control); the red "
             "legs plus the finite controls",
        run=gate_finite_contract,
+       needs=("torch",)),
+  Gate(id="diagnostics-domain",
+       spec_code="DIAG-A",
+       title="Diagnostic score-domain boundary",
+       tier=TIER_BACKLOG,
+       home="training-stack",
+       maps="the training-stack increment (h) diagnostic-score-boundary "
+            "section (45M-61): the shared screen_chi2 helper (valid "
+            "byte-identical, within-band roundoff to exact 0, materially "
+            "negative / NaN / +-Inf refused naming the boundary + rows + "
+            "band, the fallback-1 floor, the width-scaled band), the REAL "
+            "local_linear_floor (a reachable negative floor refused before "
+            "f_floor, a NaN floor refused, a valid control, the "
+            "guard-bypassed mutation recreating the false f_floor = 0), the "
+            "REAL cmb_residual_diagnostic (corrupt-score refusal + valid "
+            "control), and the grid / grid2d producer census through the one "
+            "shared boundary",
+       run=gate_diagnostics_domain,
        needs=("torch",)),
   Gate(id="berhu-loss",
        spec_code="GB-C",

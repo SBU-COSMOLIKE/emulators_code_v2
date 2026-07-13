@@ -150,6 +150,70 @@ def _chi2_domain(c, band):
   return c_norm, bad
 
 
+def screen_chi2(chi2, loss, label, positions=None):
+  """The shared score-domain boundary for every chi2 CONSUMER (45M-61).
+
+  One public helper for every site that PUBLISHES or RANKS a per-sample chi2
+  -- eval_val, eval_source_chi2, and the diagnostics producers (the local
+  linear floor, the CMB / grid / grid2d residual functions). It derives the
+  family's roundoff band from the loss object's OWN adjudicated term count
+  (_chi2_n_terms, increment (g)) and the chi2's COMPUTE dtype (increment (g)
+  second addendum -- pass the compute-dtype tensor, NEVER a .double() storage
+  upcast, or the band is relabelled to float64 and floored to 1e-6, splitting
+  one score into two verdicts), applies the shared _chi2_domain predicate,
+  and RAISES on any non-finite or materially-negative score. A within-band
+  roundoff negative normalizes to EXACT 0 -- the SAME rule training folds to
+  NaN -- so one score is never exact in training and negative in scoring, and
+  a valid positive score passes through byte-identical.
+
+  Why raise here (unit 9 clause): a corrupted score must be REFUSED, never
+  converted to "statistically unavailable" and carried on -- a negative
+  compares False to every positive threshold and would crown a broken model.
+  A geometry positive-definiteness check (unit 11) is defense in depth
+  UPSTREAM, not a substitute for this boundary: a same-shaped h5 edit that
+  strict weight loading accepts can still produce an out-of-domain score.
+
+  Arguments:
+    chi2      = the per-sample chi2 tensor (B,), in its COMPUTE dtype (do not
+                upcast it first -- the band must match the roundoff the sum
+                actually accumulated).
+    loss      = the loss object whose _chi2_n_terms() sets the band's term
+                count; a bare test double without it defaults to 1 (the band's
+                1e-6 floor), which still rejects out-of-domain scores.
+    label     = the boundary name for the error message (e.g. "validation",
+                "diagnostic", "local-linear floor", "cmb residual").
+    positions = optional per-row source indices (a 1-D array-like aligned with
+                chi2) so the error names the offending SOURCE rows; None
+                reports the tensor offsets.
+
+  Returns:
+    c_norm = chi2 with within-band roundoff negatives normalized to exact 0
+             (valid entries unchanged), same dtype / device as the input.
+
+  Raises:
+    ValueError naming label, the bad count and positions, the minimum, and
+    the band when any score is non-finite or materially negative.
+  """
+  n_terms = loss._chi2_n_terms() if hasattr(loss, "_chi2_n_terms") else 1
+  band = _chi2_neg_band(chi2.dtype, n_terms)
+  c_norm, bad = _chi2_domain(chi2, band)
+  if bool(bad.any()):
+    idx = np.nonzero(bad.detach().cpu().numpy())[0]
+    if positions is not None:
+      pos = np.asarray(positions)[idx][:8].tolist()
+    else:
+      pos = idx[:8].tolist()
+    raise ValueError(
+      "chi2 domain contract [" + str(label) + "]: " + str(int(idx.size))
+      + " of " + str(int(chi2.numel())) + " per-sample chi2 are non-finite "
+      "or materially negative (minimum " + repr(float(chi2.min()))
+      + ", below the allowed roundoff band of -" + repr(band) + "). First "
+      "offending positions: " + str(pos) + ". A chi2 is non-negative; a "
+      "negative or non-finite score would rank a corrupted model as perfect "
+      "— fix the run, never score it (training rejects the same value).")
+  return c_norm
+
+
 def _safe_sqrt(c):
   """sqrt(c) with a finite, zero gradient exactly at c == 0.
 

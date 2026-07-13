@@ -46,7 +46,7 @@ from torch.optim import lr_scheduler
 from .batching import build_loaders
 from .designs.plain import ResMLP
 from .designs.blocks import Affine, BinLinear
-from .losses.core import anneal_value, _chi2_neg_band, _chi2_domain
+from .losses.core import anneal_value, screen_chi2
 
 
 def pick_device(name=None):
@@ -1342,37 +1342,6 @@ def _report_nonfinite(side, quantity, n_bad, n_total, positions):
     "run, never score it (no sentinel, never counted below threshold).")
 
 
-def _report_chi2_domain(side, n_bad, n_total, positions, min_value, band):
-  """Raise the chi2-domain error, one message shape for the eval sites.
-
-  The evaluation / diagnostic boundaries (eval_val, eval_source_chi2) RAISE
-  on a non-finite or materially-negative per-sample chi2 (45M-53) -- a
-  negative would compare False to every positive threshold and rank a
-  corrupted model as PERFECT, flipping best-epoch selection. Training folds
-  the same value to NaN through the shared _chi2_domain predicate; here the
-  boundary refuses loudly instead.
-
-  Arguments:
-    side      = "validation" or "diagnostic" (the boundary at fault).
-    n_bad     = how many per-sample chi2 are non-finite or materially neg.
-    n_total   = the total scored.
-    positions = the first few offending source-row indices (a Python list).
-    min_value = the minimum offending chi2 (how far out of domain).
-    band      = the allowed roundoff band; a chi2 below -band is corruption.
-
-  Raises:
-    ValueError, always.
-  """
-  raise ValueError(
-    "chi2 domain contract [" + side + "]: " + str(int(n_bad)) + " of "
-    + str(int(n_total)) + " per-sample chi2 are non-finite or materially "
-    "negative (minimum " + repr(min_value) + ", below the allowed roundoff "
-    "band of -" + repr(band) + "). First offending positions: "
-    + str(positions) + ". A chi2 is non-negative; a negative or non-finite "
-    "score would rank a corrupted model as perfect — fix the run, never "
-    "score it (training rejects the same value).")
-
-
 def _global_grad_norm(params):
   """The L2 norm of all parameter gradients, READ-ONLY (None grads
   skipped, the frozen trunk in a head phase).
@@ -1515,27 +1484,15 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
   c = torch.cat(chi2s).cpu() # per-sample chi2; the one D2H copy
   # chi2-domain contract (the single validation chokepoint: the baseline,
   # the raw eval, and the ema eval all pass through here, so best-epoch
-  # selection only ever compares valid scores). A non-finite OR materially
-  # negative per-sample chi2 must never reach the median / mean / threshold
-  # fractions — a negative compares False to every positive threshold and
-  # would rank a corrupted model as PERFECT (45M-53). The SAME predicate and
-  # band the training reduction uses run here, but raise instead of folding;
-  # within-band roundoff negatives normalize to exact 0.
-  # a production loss (a CosmolikeChi2 subclass) always declares its
-  # contraction's per-row term count; a bare test double defaults to 1 (the
-  # band's 1e-6 floor), which still rejects the out-of-domain values a double
-  # injects.
-  n_terms = lossfn._chi2_n_terms() if hasattr(lossfn, "_chi2_n_terms") else 1
-  band = _chi2_neg_band(c.dtype, n_terms)
-  c_norm, bad = _chi2_domain(c, band)
-  if bool(bad.any()):
-    idx   = np.nonzero(bad.numpy())[0]
-    order = np.concatenate(order_rows)
-    _report_chi2_domain(side="validation", n_bad=int(idx.size),
-                        n_total=int(c.numel()),
-                        positions=order[idx][:8].tolist(),
-                        min_value=float(c.min()), band=band)
-  c = c_norm   # within-band roundoff negatives are now exact 0
+  # selection only ever compares valid scores). The shared score-domain
+  # boundary raises on a non-finite OR materially negative per-sample chi2
+  # (a negative compares False to every positive threshold and would rank a
+  # corrupted model as PERFECT, 45M-53), naming the offending validation
+  # rows; within-band roundoff negatives normalize to exact 0, the same rule
+  # the training reduction folds to NaN. c is already the compute-dtype tensor
+  # (no .double() before this), so the band matches the accumulated roundoff.
+  c = screen_chi2(c, loss=lossfn, label="validation",
+                  positions=np.concatenate(order_rows))
   mean   = c.mean().item()
   median = c.median().item()
 
@@ -1609,28 +1566,17 @@ def eval_source_chi2(model,
   # chi2-domain contract (45M-53 / 45M-60 second addendum): a diverged model's
   # non-finite OR materially negative per-row chi2 must not be published as a
   # diagnostic metric (a silent NaN, or a negative delta-chi2, in the
-  # parameter-space plots). The SAME predicate + band the training reduction
-  # uses run here, but raise instead of folding; within-band roundoff negatives
-  # normalize to exact 0. The band derives from the dtype the chi2 was COMPUTED
-  # in (normally float32), NEVER a storage upcast: an earlier .double() here
-  # relabelled the dtype to float64 and floored the band to 1e-6, so this
-  # diagnostic scorer REFUSED a roundoff negative that _reduce / eval_val (the
-  # float32 band, ~3e-3 at w = 780) normalize to exact 0 -- one score, two
-  # verdicts. The upcast cannot undo float32 contraction roundoff, it only
-  # relabels the dtype. So: validate / normalize in the compute dtype; the
-  # ACCEPTED result is cast to float64 for reporting only. (The diagnostics' own
-  # NaN-from-finite-input is a separate unit; this guards the MODEL output that
-  # feeds them.) (see eval_val: production losses declare _chi2_n_terms; a bare
-  # double defaults to 1, the band floor.)
-  n_terms = chi2fn._chi2_n_terms() if hasattr(chi2fn, "_chi2_n_terms") else 1
-  band = _chi2_neg_band(c_compute.dtype, n_terms)
-  c_norm, bad = _chi2_domain(c_compute, band)
-  if bool(bad.any()):
-    idx = np.nonzero(bad.numpy())[0]
-    _report_chi2_domain(side="diagnostic", n_bad=int(idx.size),
-                        n_total=int(c_compute.numel()),
-                        positions=rows[idx][:8].tolist(),
-                        min_value=float(c_compute.min()), band=band)
+  # parameter-space plots). The shared score-domain boundary raises here (it
+  # folds to NaN in training), naming the offending source rows; within-band
+  # roundoff negatives normalize to exact 0. The band derives from the dtype
+  # the chi2 was COMPUTED in (normally float32), NEVER a storage upcast: an
+  # earlier .double() here relabelled the dtype to float64 and floored the
+  # band to 1e-6, so this diagnostic scorer REFUSED a roundoff negative that
+  # _reduce / eval_val (the float32 band, ~3e-3 at w = 780) normalize to exact
+  # 0 -- one score, two verdicts. So screen in the compute dtype; the ACCEPTED
+  # result is cast to float64 for reporting only.
+  c_norm = screen_chi2(c_compute, loss=chi2fn, label="diagnostic",
+                       positions=rows)
   dchi2 = c_norm.double().numpy()        # accepted result -> float64 to report
   return params, dchi2
 
