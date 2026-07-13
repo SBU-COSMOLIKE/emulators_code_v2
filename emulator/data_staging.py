@@ -24,10 +24,11 @@ The staging pipeline, per source (load_source top to bottom):
     pool = surviving row indices
        │  keep the first n_keep cut rows, one seeded shuffle
        ▼
-    idx = this run's rows
+    idx = this run's rows (seeded selection order)
        │  stage_source: do the used rows fit ram_frac of free RAM?
-       │    yes -> materialize C[idx] / dv[idx], reindex local
-       │    no  -> keep the memmap, idx stays global
+       │    yes -> copy C[rows] / dv[rows] (sorted, distinct), return
+       │           local coordinates that walk the copy in selection order
+       │    no  -> keep the memmap, idx stays the global selection order
        ▼
     source dict {C, dv, idx, C_mean, dv_mean}
 
@@ -39,33 +40,48 @@ The staging pipeline, per source (load_source top to bottom):
      C_mean / dv_mean = training-subset means the geometries
      center on; ram_frac = the fraction of free RAM the staged
      subset may occupy (materialize only if it fits, else keep the
-     memmap); local reindex = idx becomes arange so the staged
-     arrays and the loaders agree on row numbering.)
+     memmap); local coordinates = searchsorted(rows, idx), returned by
+     the resident branch instead of a plain arange so the compact copy
+     is walked in the same seeded selection order the memmap path keeps,
+     and the loader trains the same cosmology at the same step in either
+     regime.)
 
-Row coordinates (the same three names are used in stage_source,
-load_source, the loader closures in batching, and the grid2d base-row
-helper in experiment): three coordinate systems name a row, and a bug
-hides wherever they are confused.
+Row coordinates (the same names are used in stage_source, load_source,
+the loader closures in batching, and the grid2d base-row helper in
+experiment): three coordinate systems name a row, and a bug hides
+wherever they are confused.
 
-  disk row   = a row's position in the original parameter / data-vector
-               files (0 is the first row on disk).
-  compact row= its position after the selected rows are copied into a
-               fresh in-RAM array (0 is the first selected row).
-  loader row = the index later handed to a loader closure; it equals the
-               compact row after staging materialized, or the disk row
-               when staging stayed on the memmap.
+  disk row     = a row's position in the original parameter / data-vector
+                 files (0 is the first row on disk).
+  storage row  = its position after the distinct selected rows are copied
+                 into a fresh in-RAM array in sorted order (0 is the
+                 smallest selected disk row; sorted so a memmap fills
+                 sequentially). Also called the compact row.
+  loader index = the per-position index the training loop hands a loader
+                 each epoch (perm = idx_src[randperm]). The resident
+                 branch sets idx_src = searchsorted(rows, idx), the
+                 storage rows in selection order; the memmap branch sets
+                 idx_src = idx, the global rows in selection order. Walking
+                 either under the same permutation visits the same disk
+                 rows in the same order.
 
 The load-bearing invariant: dump_rows[j] is the DISK row that supplied
-compact row j. A separate file storing another quantity for the same
-cosmologies in the same original row order (the grid2d "base" dump) is
-read at dump_rows to line up cosmology for cosmology.
+storage row j (dump_rows is sorted, distinct). The grid2d base-row helper
+reads a separate file that stores another quantity for the same
+cosmologies in the same original row order (the "base" dump) at
+dump_rows, to line up cosmology for cosmology; it is the only consumer of
+dump_rows.
 
-A tiny example. Say a run selects disk rows [9, 2, 9, 5]. The distinct
-rows in ascending order are [2, 5, 9], so dump_rows = [2, 5, 9]. If those
-rows are copied into RAM (the resident branch), compact rows [0, 1, 2]
-hold disk rows [2, 5, 9] and the loader index becomes arange(3); if
-staging stays on the memmap, the loader index stays [2, 5, 9] (the disk
-rows) and no compact copy exists. Only the resident branch renumbers.
+A tiny example. Say a run's seeded selection order is disk rows [9, 2, 5]
+(distinct, unsorted). The sorted distinct rows are [2, 5, 9], so
+dump_rows = [2, 5, 9] and the compact copy's storage rows [0, 1, 2] hold
+disk rows [2, 5, 9]. The resident branch returns the loader index
+searchsorted([2, 5, 9], [9, 2, 5]) = [2, 0, 1], so loader positions
+[0, 1, 2] point at storage rows [2, 0, 1] = disk rows [9, 2, 5], the
+selection order. The memmap branch returns the loader index [9, 2, 5]
+(the global selection order) and holds no compact copy. Under any epoch
+permutation the two branches therefore walk the identical sequence of
+disk rows; the RAM decision never reorders training.
 
 PS: a dump is the full on-disk array from the data-generation run, every
 simulated cosmology stored as one row (the data-vector dump is the .npy
@@ -212,24 +228,56 @@ def stage_source(C, dv, idx, ram_frac=0.7):
   RAM even when the dump does not. If the combined bytes of BOTH
   compact copies (the parameter table C[idx] and the target dv[idx],
   each at its own dtype and width) are below ram_frac of available
-  RAM, materialize them and reindex locally; otherwise return the
-  inputs unchanged so the loaders stream dv from the memmap by
-  global index. Either way idx matches its own C/dv, so the rest of
-  the pipeline is identical.
+  RAM, materialize them and return local coordinates into that copy;
+  otherwise return the inputs unchanged so the loaders stream dv from
+  the memmap by global index.
+
+  `idx` is the run's seeded selection order: a distinct, generally
+  unsorted prefix of one shuffled permutation of the cut pool. Both
+  branches must present the selected rows in that one canonical order,
+  because the training loop applies the same epoch permutation to
+  whichever index it receives (perm = idx_src[randperm]). If the
+  resident branch renumbered to a plain arange over the sorted compact
+  copy, the same seed would map to a different cosmology at every step
+  than the disk-backed branch does -- host-memory availability would
+  silently change training. The resident branch therefore returns
+  searchsorted(rows, idx), the local coordinates that walk the compact
+  copy in exactly the selection order the disk branch keeps.
 
   Arguments:
     C        = full parameter dump, (N, Ncosmo).
     dv       = full dv dump, (N, Ndv); ndarray or np.memmap.
-    idx      = the rows this run uses, as global row indices.
+    idx      = the rows this run uses, as global row indices, in the
+               run's seeded selection order. Must be unique (a
+               permutation prefix); a duplicate raises, since it would
+               train one cosmology twice and skew the stats.
     ram_frac = fraction of available RAM the materialized subset
                may occupy (default 0.7).
 
   Returns:
-    C_src, dv_src, idx_src = compact in-RAM subset with idx_src
-      = arange(n_used) when it fits; otherwise (C, dv, idx)
-      unchanged (dv still the memmap, idx still global).
+    C_src, dv_src, idx_src. When the subset fits: the compact in-RAM
+      copies C[rows] / dv[rows] over the distinct rows in sorted
+      (sequential-read) order, and idx_src = searchsorted(rows, idx),
+      the local coordinates that reproduce the seeded selection order
+      (not a plain arange). When it does not fit: (C, dv, idx) unchanged (dv
+      still the memmap, idx still the global selection order). Either
+      way the loader walks the selected rows in one canonical order, so
+      the RAM decision never changes which cosmology trains at a step.
   """
-  rows = np.sort(np.unique(idx))        # sorted -> sequential
+  idx_arr = np.asarray(idx)
+  rows = np.sort(np.unique(idx_arr))    # sorted, distinct -> sequential
+  # the training selection is a unique permutation prefix by construction:
+  # load_source and the scalar loader both draw phys[:keep] from one shuffled
+  # cut pool with no repeats. A duplicate reaching here is upstream corruption
+  # (it would train one cosmology twice and weight the normalization stats by
+  # the accident), so refuse loudly rather than paper over it with the
+  # searchsorted map below, which would silently reproduce the repeat.
+  if rows.size != idx_arr.size:
+    raise ValueError(
+      "stage_source got a selection of " + str(int(idx_arr.size))
+      + " rows with only " + str(int(rows.size)) + " distinct; the training "
+      "selection must be a unique set of rows (a permutation prefix). A repeat "
+      "means the upstream shuffle or physical cut lost its uniqueness.")
   # advanced indexing (C[rows] and dv[rows]) materializes BOTH arrays as eager
   # copies, so the budget must count BOTH, each at its own dtype and width, plus
   # the reindex array. Counting only the dv copy underestimated by the whole
@@ -242,21 +290,41 @@ def stage_source(C, dv, idx, ram_frac=0.7):
   need = dv_bytes + par_bytes + idx_bytes
   avail = psutil.virtual_memory().available
   budget = ram_frac * avail
+  # strict less-than is a deliberate policy, not an accidental branch: the
+  # eager copies need transient working room above their own bytes (the
+  # allocator, the advanced-index temporaries), so an exact fill (need ==
+  # budget) stays on disk rather than materializing to the last free byte.
+  # The self-test pins need below, equal to, and above budget so this
+  # boundary cannot drift to <= without a caught failure.
   fits = need < budget
-  # one essential staging line: the predicted resident bytes and the branch,
-  # so an out-of-memory or a surprise disk-streaming run is visible up front.
-  print("stage_source: %d rows, params %.1f MB + dv %.1f MB = %.1f MB vs "
-        "budget %.1f MB -> %s"
-        % (rows.size, par_bytes / 1e6, dv_bytes / 1e6, need / 1e6,
-           budget / 1e6, "RAM (materialized)" if fits else "memmap (disk)"))
+  # one essential staging line: the three named byte terms, their sum, the
+  # comparison that actually held, the budget, and the branch, so an
+  # out-of-memory or a surprise disk-streaming run is visible up front. The
+  # sum names idx_bytes explicitly -- an earlier line printed "params + dv =
+  # total" while total already carried the reindex bytes, so the arithmetic
+  # on screen did not add up.
+  print("stage_source: %d rows, params %.1f MB + dv %.1f MB + idx %.1f MB "
+        "= %.1f MB %s budget %.1f MB -> %s"
+        % (rows.size, par_bytes / 1e6, dv_bytes / 1e6, idx_bytes / 1e6,
+           need / 1e6, "<" if fits else ">=", budget / 1e6,
+           "RAM (materialized)" if fits else "memmap (disk)"))
   if fits:
-    # materialize into RAM, reindex locally.
+    # materialize the distinct rows into RAM in sorted (sequential-read)
+    # order, then return LOCAL coordinates that walk that compact copy in the
+    # run's seeded selection order -- not a plain arange. searchsorted sends
+    # each selected row to its slot in the sorted copy, so C[rows][local] ==
+    # C[idx] and dv[rows][local] == dv[idx]: the compact copy is presented in
+    # exactly the order the disk-backed branch keeps its global index, and the
+    # same epoch permutation trains the same cosmology at the same step in
+    # either regime.
+    local = np.searchsorted(rows, idx_arr)
     return (np.asarray(C[rows]),
             np.asarray(dv[rows]),
-            np.arange(rows.size))
-  # too big for RAM: keep full arrays + global index, stream dv
+            local)
+  # too big for RAM: keep full arrays + the global selection index, stream dv
   # from disk (the parameter table was already loaded eagerly upstream; only
-  # the dv memmap stays disk-backed here).
+  # the dv memmap stays disk-backed here). idx is the seeded selection order,
+  # the same order the resident branch reproduces through its local map.
   return C, dv, idx
 
 

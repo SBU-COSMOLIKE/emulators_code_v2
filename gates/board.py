@@ -1483,20 +1483,29 @@ def gate_family_first(ctx):
 
 
 def gate_stage_ram(ctx):
-  """stage-ram: the host-RAM staging decision counts every array it copies.
+  """stage-ram: the host-RAM staging decision counts every array, keeps the
+  seeded row order, and prints honest arithmetic.
 
   WHAT: a CPU check of stage_source's resident-vs-disk branch decision with a
-  mocked available-memory value. WHY: the resident branch materializes BOTH
-  the compact parameter table C[idx] and the compact target dv[idx], but the
-  budget counted only the dv bytes, so a narrow-output dump (many input
-  columns, one output column) chose the resident branch even when the two
-  copies together exceeded the allowance -- an avoidable out-of-memory. HOW:
-  the check drives the real stage_source with available memory pinned between
-  "dv alone fits" and "dv plus C fits" (the corrected code keeps the
-  disk-backed branch there), with resident and disk controls, an unequal
-  dtype/width case, byte-identical selected rows across both regimes, and a
-  mutation arm showing the retired dv-only estimate would pick RAM. Importing
-  the module needs torch; the decision is pure NumPy on tiny arrays.
+  mocked available-memory value, plus the row order the two branches hand the
+  training loop. WHY: two ways the branch could differ silently. First, the
+  resident branch materializes BOTH the compact parameter table C[idx] and the
+  compact target dv[idx], but the budget once counted only the dv bytes, so a
+  narrow-output dump (many input columns, one output column) chose the resident
+  branch even when the two copies together exceeded the allowance -- an
+  avoidable out-of-memory. Second, both branches must present the selected rows
+  in the run's one seeded selection order; if the resident branch renumbered to
+  a plain arange over the sorted compact copy, the same seed would train a
+  different cosmology at each step than the disk branch, so host-memory
+  availability would change training. HOW: pinned memory between "dv alone fits"
+  and "dv plus C fits" (the corrected code keeps disk there), resident/disk
+  controls, an unequal dtype/width case, a duplicate selection refused loudly,
+  the exact-fit boundary (need below, equal, above budget), a banner that names
+  params + dv + idx and adds up, and the seeded-order proof -- the real
+  per-source loader built in both storage
+  regimes, one shared epoch permutation, identical executed params, targets,
+  and minibatch order, with a mutation arm restoring arange that must break the
+  match. Importing the module needs torch; every array is tiny.
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/stage_ram.py")
@@ -1697,13 +1706,18 @@ BOARD = [
        title="Host-RAM staging counts every materialized array",
        tier=TIER_BACKLOG,
        home="data-generation-and-cuts",
-       maps="the host-RAM staging accounting: stage_source counts BOTH the "
-            "parameter and target compact copies (each at its own dtype and "
-            "width) plus the reindex array, so a narrow-output dump keeps the "
-            "disk-backed branch when the two copies together exceed the "
-            "budget; resident / disk controls, an unequal-dtype case, "
-            "byte-identical selected rows across both regimes, and the "
-            "dv-only-estimate mutation arm",
+       maps="the host-RAM staging accounting and the seeded row order: "
+            "stage_source counts BOTH the parameter and target compact copies "
+            "(each at its own dtype and width) plus the reindex array, so a "
+            "narrow-output dump keeps the disk-backed branch when the two "
+            "copies together exceed the budget; and the resident branch returns "
+            "local coordinates that walk the compact copy in the seeded "
+            "selection order, so the real loader trains the same cosmology at "
+            "the same step in either storage regime; resident / disk controls, "
+            "an unequal-dtype case, a duplicate selection refused loudly, the "
+            "exact-fit boundary, the honest three-term banner, the loader-driven "
+            "order proof, and mutation arms for the dv-only estimate and the "
+            "retired arange reindex",
        evidence=(Assertion("srm-a.both-copies",
                            "data-generation-and-cuts.md#srm-a-stage-ram"),),
        run=gate_stage_ram,

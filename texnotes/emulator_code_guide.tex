@@ -1286,29 +1286,39 @@ the following expressions all refer to the original files:
   V[3]&=(10.5,21,31.5,42,52.5).
 \end{align*}
 
-If the subset fits in host RAM, \code{stage\_source} makes compact copies:
+If the subset fits in host RAM, \code{stage\_source} makes compact copies over
+the distinct rows in sorted order:
 \begin{equation*}
  C_{\rm src}=C[[2,3]],\qquad V_{\rm src}=V[[2,3]].
 \end{equation*}
-The new arrays have two rows.  Their local coordinates are $[0,1]$, so the
-returned \code{idx} becomes $[0,1]$.  \code{dump\_rows} remains $[2,3]$
-because a separately opened base dump still uses original file coordinates.
+The new arrays have two rows.  The returned \code{idx} is the local coordinate
+of each selected row, in the original selected order, inside that compact
+copy: $\code{searchsorted}([2,3],[2,3])=[0,1]$.  This selection is already
+sorted, so the map happens to be the identity; the next paragraph shows the
+general case.  \code{dump\_rows} remains $[2,3]$ because a separately opened
+base dump still uses original file coordinates.
 
 If the subset does not fit, the program returns the original $C$ and memmapped
-$V$ with \code{idx=[2,3]}.  No local reindexing occurred.  A consumer must
-always apply the \code{idx} returned with its particular arrays.  Reusing the
-resident branch's $[0,1]$ against the file-backed branch would silently select
-the wrong cosmologies.
+$V$ with \code{idx=[2,3]}.  No compact copy was made.  A consumer must always
+apply the \code{idx} returned with its particular arrays.  Reusing the
+resident branch's local coordinates against the file-backed branch would
+silently select the wrong cosmologies.
 
-The two-row example is already sorted, so it conceals a current cross-regime
-difference.  For an ordinary unsorted selection such as $[9,2,5]$, the
-resident copy is stored in sorted order $[2,5,9]$ and receives local indices
-$[0,1,2]$, while the disk branch retains $[9,2,5]$.  The training loop applies
-the same new epoch permutation to these different base sequences.  Host-memory
-availability can therefore change minibatch membership and order under the
-same seed.  The required representation keeps one canonical selected order
-and maps it explicitly into compact storage; a gate must compare the real
-loader and epoch sequence, not only the sorted set of rows.
+An ordinary selection is unsorted, and the two branches must still present its
+rows in one canonical order.  For $[9,2,5]$, the resident copy is stored
+sorted as $[2,5,9]$, but the returned local index is
+$\code{searchsorted}([2,5,9],[9,2,5])=[2,0,1]$, \emph{not} a bare $[0,1,2]$:
+reading the compact copy at $[2,0,1]$ walks disk rows $[9,2,5]$, the original
+selected order, exactly the order the disk branch keeps.  The training loop
+applies its shared epoch permutation to whichever index the branch returned,
+so it trains the same cosmology at the same step whether host memory chose the
+resident or the disk branch.  The \code{stage\_source} routine refuses a
+selection with a repeated row, since the seeded selection is a unique
+permutation prefix and a repeat is upstream corruption.  The \code{stage-ram}
+gate drives the real per-source loader in both storage regimes, draws one
+shared epoch permutation, and compares the executed parameters, targets, and
+minibatch membership and order row for row, with a mutation arm restoring the
+bare $[0,1,2]$ that must fail.
 
 \subsection{Worked memory calculation}
 
@@ -1323,14 +1333,15 @@ Assume $n_u=250{,}000$, $P=20$, $D=3{,}000$, and both arrays are stored as
        =2{,}000{,}000\ \text{bytes},\\
   B_{\rm total}&=B_C+B_V+B_I=3{,}022{,}000{,}000\ \text{bytes}.
 \end{align*}
-$B_I$ is the new local index array.  Its entries use NumPy's 64-bit integer
-dtype, so each one occupies eight bytes.  The current decision compares this
+$B_I$ is the local index array.  Its entries use NumPy's 64-bit integer
+dtype, so each one occupies eight bytes.  The decision compares this
 three-term total with the configured host-memory allowance.  The status line
-still labels the arithmetic as ``parameters plus data vector'' even though
-its displayed total includes $B_I$; the repair is to print all three named
-terms and the same total used by the branch.  The equality case also needs an
-explicit policy and test because the current comparison is strict
-($B_{\rm total}<B_{\rm budget}$).
+names all three terms---parameters, data vector, and index---prints their
+exact total, the comparison operator that held, the budget, and the selected
+branch, so the displayed arithmetic sums.  The comparison is strict
+($B_{\rm total}<B_{\rm budget}$): an exact fill streams from disk, keeping
+transient working room above the copies' own bytes, and the gate pins the
+below, equal, and above cases so this equality policy cannot drift.
 
 \subsection{What has not happened yet}
 

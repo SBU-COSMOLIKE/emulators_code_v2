@@ -701,3 +701,54 @@ by the audit into queue 1b, no rework — the interim is honest and
 strictly better than nothing; (3) the earlier (h)-then-43 resequencing
 flag is CLOSED — both landed green the same night, no interaction
 materialized.
+
+### Queue 3 DONE: staging seeded-order truth (Opus, 2026-07-13)
+
+The pinned queue-3 contract and every rider are satisfied in one landing.
+
+Code (`emulator/data_staging.py::stage_source`): the resident branch now
+returns `np.searchsorted(rows, idx)` — the local coordinates that walk the
+sorted compact copy in the run's seeded selection order — instead of a bare
+`np.arange(rows.size)`. The disk branch already returned the global selection
+order, so both branches now present the selected rows in one canonical order;
+under the training loop's shared epoch permutation (`perm = idx_src[randperm]`)
+the same seed trains the same cosmology at the same step in either storage
+regime. The loader's own `slots()` remap (`searchsorted(used_rows, rows)` in
+`batching.py`) made the disk branch correct under every loader regime already;
+the defect was solely the resident branch's arange, so the fix is confined to
+`stage_source`. A duplicate selection row now raises loudly (the selection is a
+unique permutation prefix by construction — census: the only two callers,
+`load_source` and the scalar loader, both pass `phys[:keep]` from one
+`torch.randperm` draw). The banner prints all three named terms
+(`params + dv + idx = total`), the comparison operator that held, the budget,
+and the branch; the strict `<` boundary is documented as a deliberate policy
+(exact fill streams from disk to keep working headroom). The module docstring's
+row-coordinate story and the `[9,2,9,5]` example were rewritten around a unique
+`[9,2,5]` selection with corrected coordinate definitions (storage vs loader).
+
+Gate (`gates/checks/stage_ram.py`, 21 legs, rebuilt): the byte-accounting legs
+are preserved; new legs are the duplicate refusal + unique control, the
+exact-fit boundary (need below / equal / above budget via a pinned integer
+allowance), the honest three-term banner (parsed and summed, operator vs
+branch), and the canonical-order proof — it drives the REAL per-source loader
+`_build_loaders_one` in both storage regimes (resident gather from an ndarray,
+disk stream from a real `.npy` memmap) with identity geometry/loss stand-ins,
+draws one shared epoch permutation, and asserts the executed parameters,
+targets, `dump_rows` alignment, and bs=2 minibatch membership and order match
+row for row against a selection-order anchor, with a mutation arm restoring
+`arange` that must (and does) diverge. No sorting or dedup inside any
+assertion. Texnotes: `texnotes/emulator_code_guide.tex` §"Worked staging
+example" and §"Worked memory calculation" updated from the cross-regime
+divergence + pending-banner limitations to the landed behavior, in this same
+landing. Home-note spec (`data-generation-and-cuts.md#srm-a-stage-ram`) and the
+board `maps` / gate docstring rewritten to the broadened claim.
+
+Verification (Mac, cocoa-torch interpreter): `stage-ram` 21/21 ALL PASS;
+`compileall emulator gates` clean; `run_board --list` rc 0 (evidence anchors
+validate); `board-selftest` ALL PASS. The full 40-gate board run stays
+workstation-owed (queue 5). NOTE for unit 50 (epoch chunking, queue tail): it
+must preserve this canonical order under chunking and can reuse these
+invariance legs.
+
+Queue items 2 (evidence rollout), the 1b manifest PROPOSAL, 5 (workstation
+evidence), and the rest of 6 (README + didactic campaign) remain.
