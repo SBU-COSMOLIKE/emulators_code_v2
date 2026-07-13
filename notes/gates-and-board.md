@@ -5344,3 +5344,54 @@ never in the README.
   (the project's own name, line 21). The red team's TeX/PDF
   correction stays in their custody — the texnotes rule honored
   exactly as designed.
+
+## 1b hardening COMPLETE — 9/9 + item-7 + the 27/28 machinery follow-up (Opus, 2026-07-13)
+
+Executed the two READY-FOR-EXECUTION handoffs after the 8.5/9 audit GO.
+Two commits since the 8.5/9 batch, each Mac-validated (validate_manifests
+40/40 ok, board-selftest ALL PASS 129 -> 142, py_compile clean):
+
+- 9fec3fa (16 DATA-READ HALF -> 9/9): a check that OPENS .py source AS DATA
+  hashes it as a DIGEST LEAF, never closure-seeded (finite_contract leaf
+  lesson). `_DATA_READ_COVERS` reviewed table (the five named readers +
+  the scanner-forced diagnostics-domain; cli-strict dropped -- its eight
+  drivers are already code roots) drives the digest via `_data_read_targets`
+  (POSITIVE fold); `_data_read_sites` is the NEGATIVE catch (os.walk /
+  glob-of-.py / open|read_text|read_bytes|getsource with a .py literal;
+  ast.walk and ast.parse are NOT reads, excluded; the shared harness is
+  excluded). census (d) reds an unreviewed data-read site. geo-paths goes
+  WHOLE-SCOPE via ONE shared enumerator: `run_board.repo_py_files()` is BOTH
+  the gate's manifest data surface AND geo_paths.py's own folder-census scan
+  (geo_paths imports run_board the board_selftest way) -- proven by the
+  set-equality leg (101 == 101), so the scanned set and the hashed set are
+  one function, not two lists. board-selftest is likewise whole-scope.
+  family-first's data cover closes a real hole (its three sweep/tune drivers
+  were read as data but not code roots). 25M-19 BALANCING CLAUSE: a None
+  input sha is a VALIDATION-time allowance only -- at RUN time run_selection
+  refuses a declared input that does not resolve/hash BEFORE the body.
+  EXPECTED on the first workstation run and CORRECT (per the ruling):
+  geo-paths and board-selftest read stale-code and rerun ONCE, because their
+  whole-repo digest is now computed -- a cheap text scan, honest, affordable.
+- 1eb0e8d (27+28 machinery follow-up): 25M-27 -- the clean-tree watch's root
+  drivers are the UNION of git-TRACKED root *.py (git ls-files) and current
+  root *.py, so a DELETED tracked driver stays watched and reds instead of a
+  glob built from the damaged filesystem certifying it clean; preflight
+  treats a nonzero git status as FAILURE, not empty-clean. 25M-28 --
+  _stale_member compares an input by its FULL identity (key, path, sha256),
+  so a byte-identical RELOCATION names key + old->new path; a shared
+  `_state_detail` formatter now serves BOTH --list and BOARD.md, so the
+  operator surface the ruling names can inspect the stale member on --list.
+  board-selftest gains check_watch_tracked_drivers (pure-git temp-repo legs)
+  and check_stale_member_surface.
+
+DEFERRED to the D1 visit (per the 26 ruling): the gates/README resume-state
+list (DIDACTICS-87) and the state-machine prose gain "stale-dependency".
+
+QUEUE 2 now opens (9/9 + item-7 complete, 27/28 landed). Per the spine:
+queue 2's evidence rollout -> D3 -> D4 -> queue 5, whose first exhibit is the
+populated board's real reruns (including geo-paths / board-selftest staling
+once on the first workstation run, as expected).
+
+LANDING BLOCK (main is the user's; clean fast-forward):
+  cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+  git merge claude/amazing-keller-e798b6 && git push

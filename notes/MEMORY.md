@@ -59,9 +59,10 @@ relevant topic note before implementation.
   philosophy, dead-network rule, resume/evidence design, manifest population,
   and run history. `gates/board.py` plus `python3 gates/run_board.py --list`
   are authoritative for the current gate set; prose counts are snapshots.
-  1b hardening 8.5/9 landed (25M-18 coverage, 16-runtime-loaders, item-7,
-  19 owner resolvers, 26 lineage); 16's source-opened-as-data (_data_read_sites)
-  is the flagged remainder; queue 2 opens at full 9/9.
+  1b hardening COMPLETE (9/9 + item-7: 18 coverage, 16 runtime-loaders +
+  data-read leaves, 19 owner resolvers + run-time refusal, 26 lineage) plus the
+  27/28 machinery follow-up (tracked-driver watch, shared stale-member surface);
+  QUEUE 2 OPENS. Remaining texnotes/D1 prose deferrals only.
 - [Conventions + workflow + environment](conventions-and-workflow.md)
   — the Python/docs/README/plots/terminal/YAML house rules, the
   dual-agent workflow, git discipline, the Mac evidence pattern,
