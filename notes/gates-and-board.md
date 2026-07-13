@@ -6503,3 +6503,23 @@ collision); 46's _golden_leg (board.py) stays with the Implementer
 and is already approved to build. Where verification needs torch
 the red team's environment lacks, the write-here/verify-there form
 applies (the unit-93 precedent) until the probe answers.
+
+## SUBAGENT RULE (user, 2026-07-13): Implementer handoffs request subagent fan-outs where the work parallelizes
+
+USER RULING: when the Architect hands the Implementer new work, the
+handoff requests subagents where the work admits them. Precedent:
+the 45M-86..90 didactics units were drafted by gated sub-agents
+under a strict AST-identity check, then independently re-verified
+before commit — that discipline is the template, now standing:
+
+- The handoff NAMES which deliverables parallelize (e.g. increment
+  3's per-gate migration fans out per gate once the pattern is
+  proven serially on the first two or three gates) and which stay
+  serial (shared-file machinery edits; anything where increments
+  interlock).
+- Every subagent draft passes the SAME per-landing acceptance as
+  first-hand work (selftest/compile/AST gates as applicable), and
+  the Implementer independently re-verifies before self-committing —
+  a subagent is a drafting tool, never a verification substitute.
+- My pre-merge audit is unchanged and does not care which hands
+  drafted a diff.

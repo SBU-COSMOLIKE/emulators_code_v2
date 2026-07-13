@@ -2911,3 +2911,13 @@ whole, 61-finiteness whole, D3 pending the torch probe, D4
 file-by-file under claim-before-edit; 46 stays with the Implementer
 (build approved). Spec: gates-and-board.md "Increment-2 delta
 audit".
+
+SUBAGENT RULE (2026-07-13, USER): Architect handoffs to the
+Implementer request subagent fan-outs wherever the work
+parallelizes (the gated-subagent 45M-86..90 precedent is the
+template): the handoff names the parallelizable deliverables,
+every draft passes the same acceptance, the Implementer re-verifies
+before self-committing, the pre-merge audit is unchanged. First
+application: increment 3's per-gate migration (fan out per gate
+after a serial proof on the first gates). Spec: gates-and-board.md
+"SUBAGENT RULE".
