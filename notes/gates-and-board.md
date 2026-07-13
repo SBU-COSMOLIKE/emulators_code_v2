@@ -1422,3 +1422,62 @@ guarantee is the set-based fixpoint, which the diff shows.
 
 Phase 2 is GO under these riders; its notes entry names guide
 ~:4723's digest half as the narrowed Current-gap (red-team custody).
+
+## 1b phase 2 DONE (Opus, 2026-07-13): digest consumes the closure, members persisted, pre-manifest state, three riders honored
+
+A declared gate now digests its RESOLVED code manifest -- the derived
+transitive repo-local closure of its roots + check scripts + shared harness,
+member by member -- instead of the legacy gate-body-plus-literal-checks
+digest; a manifest-less gate keeps that legacy digest as the conservative
+fallback. The input digest branches the same way: a declared gate hashes only
+the specific files its `inputs=` keys resolve to (the whole-`yaml_dir` hash
+retires for it), a manifest-less gate keeps the broad hash. At PASS time the
+status record persists the manifest as sorted resolved members (each code
+member `{path, sha256}`, each input member `{key, path, sha256}`), so `--list`
+/ `BOARD.md` name WHICH member staled (`_stale_member`), not just that the
+digest moved. `_resume_state` gains the non-green `pre-manifest` state: a gate
+that now declares a manifest but whose stored PASS predates it (no `manifest`
+block) reruns -- digestless-is-stale, the unit-4 extension. The run loop and
+the board display consume the new state.
+
+The three BINDING phase-1-audit riders are honored and gated:
+
+- r1 root schema totality: a declared code root must be an existing repo `.py`
+  file or a directory, else a validation error (kills P3 -- a misspelled root
+  can no longer pass while seeding and hashing nothing).
+- r2 directory-root expansion: `_expand_root` expands a directory root
+  recursively to its `.py` members as closure seeds AND digest members; a
+  directory that expands to zero `.py` files is a validation error (makes the
+  dynamic-import cover check's `r == c` directory acceptance correct -- kills
+  P1/P2, the bare-directory hole; declaring `emulator/designs` really pulls the
+  design tree into the closure).
+- r3 input-side validation: `validate_manifests(gates, cfg)` now takes cfg and
+  errors on any `inputs=` dotted key that does not resolve against
+  board_config.
+
+Selftest: `board-selftest` 55 -> 67 legs. New: `check_manifest_persistence`
+(6 -- sorted resolved members, digest binds membership, input-key resolution,
+pre-manifest, stale-code-with-named-member, undeclared-untouched) and
+`check_manifest_riders` (6 -- r1 non-existent root reds, r2 dir expands + dir
+covers-and-enters-closure + empty-dir reds, r3 unresolvable key reds + resolving
+key clears). The phase-1 reconciliation fixtures were reworked to real repo
+modules (a non-existent fixture root now correctly reds under r1) and pass cfg.
+
+Guide currency (red-team custody, I name -- do not edit): phase 2 closes the
+DIGEST half of the Current-gap at `texnotes/emulator_code_guide.tex` ~:4723
+("the gate-code digest covers the gate function and check scripts named
+literally inside it, not the complete transitive imported production surface
+... a change only in an imported adapter or generator can still require an
+explicit force-rerun") -- for a DECLARED gate, whose digest now covers that
+transitive surface. The dirty-tree-watch half of the same paragraph was closed
+by 1c/1c-bis. The paragraph narrows to: the fallback (manifest-less) gates
+still carry the legacy narrow digest until phase-3 population; route the guide
+update accordingly.
+
+Verification (Mac, cocoa-torch): `board-selftest` ALL PASS (67 legs, 0 fail);
+`run_board --list` rc 0; `compileall emulator gates` clean; manifest-less real
+gates unchanged (legacy digest path). Full 40-gate board run stays
+workstation-owed (queue 5).
+
+Remaining: phase 3 (per-gate `manifest=` population, each a rerun, gate by
+gate); queue 2 (evidence rollout) stays blocked until 1b fully lands.
