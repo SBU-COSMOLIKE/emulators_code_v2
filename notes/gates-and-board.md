@@ -3986,6 +3986,49 @@ Both commissioned gates join the queue-5 workstation exhibit
 family. Sequencing unchanged: population completion -> the gauntlet
 first; the two amendments join their units' queue slots.
 
+## 1b phase-3 population COMPLETE — 40/40 declared (Opus, 2026-07-13)
+
+The manifest population is finished; queue 2 opens at the merge. Three
+branch commits carry it, each Mac-validated (validate_manifests ok=True,
+board-selftest ALL PASS with and without $ROOTDIR, py_compile clean):
+
+- 774bf3d — nine no-schema gates (15 -> 24): weight-decay-census (code=(),
+  its in-process check never reaches the waived model-recipe surface),
+  save-rebuild-drift + cobaya-adapter (designs+losses; adapter inputs
+  evaluate_yaml), cli-strict (the reviewed _DYNAMIC_IMPORT_WAIVERS entry ->
+  the eight entry-point drivers + designs+losses), family-first,
+  scalar-smoke, and cmb/bsn/mps-smoke (designs+losses + their
+  compute_data_vectors generators as declared subprocess-dep roots;
+  bare-generator .py docstring tokens reworded per the diagnostics-domain
+  precedent). The board_selftest live-board leg was upgraded from a vacuous
+  stub-cfg no-op to a real board_config reconciliation (cobaya-adapter's
+  evaluate_yaml was the first real input key that exposed it).
+
+- 9154e2e — batch 4 (24 -> 39): the signed-off deploy_data block (one shared
+  top-level block, six semantic fixture keys, values derived from the shipped
+  configs -- census: all 22 configs name the identical six, no path twice)
+  plus its _help; two board.py constants (_CS_TRAIN_CODE, _CS_DEPLOY_DATA) so
+  gates sharing a fixture share the key; 15 driver-gate manifests;
+  param-window-cuts' ctx.log reworded.
+
+- 2108c89 — census (?!\w) hardening + production-diagnostic (39 -> 40): the one
+  authorized validate_manifests edit, at both unanchored census sites (:975,
+  :1054; the quoted driver= form stays), so cmd=[ctx.python, ...] no longer
+  reads as a phantom ctx.py and a .pyc never false-matches while a real
+  sentence-final path is still caught; production-diagnostic populates; the
+  deploy_data _help gains the .dataset-pointer blind spot (siblings outside the
+  hash surface -- the queued queue-5 hardening option); two pinned selftest
+  legs (the first immediately caught a standalone ctx.py in its own fixture
+  comment). The populated reruns are the first queue-5 exhibit (deploy_data
+  resolves to strings on the Mac, hashes on the box).
+
+Next spine increments (fully specced via parallel subagent investigation):
+D3 (unit-28 smoke-fixture disjointness -- distinct recorded seeds train 1234 /
+val 5678, a zero-overlap refusal before training, a same-seed mutation arm, in
+cmb/bsn/mps_smoke.py) and D4 (gate-truth 46/47/48 -- selected_subset_equal with
+both-rc==0 and a nonempty minimum count; the vacuous all-zero P_lin positivity
+fix in mps_smoke; the unchecked-PDF assertion in gate_diag).
+
 ## 25M-16..21 adjudication (Fable, 2026-07-13): the board-machinery batch — unit-4 reopened NOW, a 1b hardening increment minted, queue 2 resequenced behind it; an Architect audit lesson
 
 Durable register at a3b19f4. The chat relay carried 16..20; the
