@@ -37,11 +37,10 @@ def _analytic_R(theta_arcmin,
   with T the Eisenstein-Hu zero-baryon transfer function. Each
   cosmology uses its own ns.
 
-  One formula, two array libraries: numpy (the analysis /
-  plotting wrappers) or torch (the training loop, on-device from
-  the resident params). The body is shared arithmetic; only log
-  and the coercion differ. The numpy path is bit-identical to
-  the original.
+  One formula supports two array libraries. NumPy is used by the
+  analysis and plotting wrappers. Torch is used by the training loop
+  with tensors already placed on the selected device. The arithmetic
+  is shared, while the logarithm and input conversion differ.
 
   theta_arcmin and z_eff broadcast to the element shape S (both
   (n_keep,) for the masked dv; (ntheta,1,1) and (1,nt,nt) for
@@ -51,9 +50,9 @@ def _analytic_R(theta_arcmin,
     theta_arcmin = per-element angular scale(s) [arcmin].
     z_eff        = per-element effective source redshift(s), e.g.
                    min(z_i, z_j) for a tomographic pair.
-    cosmo        = (N, n_param) rows to rescale, numpy array or
-                   torch tensor; a tensor's dtype/device sets the
-                   output's.
+    cosmo        = (N, n_param) rows to rescale. A Torch tensor keeps
+                   its dtype and device. A NumPy input is converted to
+                   float64 before the calculation.
     cosmo_mid    = (n_param,) reference ("mid") cosmology; R=1
                    for a row equal to it.
     names        = parameter column names (pgeom.names order);
@@ -67,7 +66,8 @@ def _analytic_R(theta_arcmin,
                    off by default.
 
   Returns:
-    R = (N, *S), same library/dtype as cosmo.
+    R = (N, *S). Torch input returns a Torch tensor with the input
+        dtype and device. NumPy input returns a float64 NumPy array.
   """
   # pick the array library once: torch when cosmo is a tensor
   # (on-device path), numpy otherwise. log is the only math call

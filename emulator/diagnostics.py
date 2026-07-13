@@ -1,7 +1,9 @@
 """This module runs model diagnostics over a validation set.
 
-It provides the post-training analyses that say why the metric sits
-where it does (each returns a dict the plotting reads).
+It provides post-training analyses that describe how the metric varies
+across the validation set. Each function returns a dictionary consumed by
+the plotting code. These summaries measure associations; they do not by
+themselves identify a causal reason for model error.
 
 The chi2-based analyses are family-generic BY CONSTRUCTION (every
 family's loss exposes a per-sample chi2, and these consume only params +
@@ -37,18 +39,17 @@ column means the function returns numbers only, no in-code pass/fail.
                               param distance to the k        when both median_bad >
                               nearest train points),         median_good and the rank
                               its rank correlation with      correlation exceeds 0.1.
-                              log10 dchi2, and median         True reads as: the
-                              knn_dist split at dchi2 =       failures sit in sparse
-                              0.2.                            training regions, so the
-                                                             floor is data coverage,
-                                                             not the model.
+                              log10 dchi2, and median         True means failures are
+                              knn_dist split at dchi2 =       associated with sparser
+                              0.2.                            training regions. It does
+                                                             not identify a cause.
   local_linear_floor          f_floor / f_model / f_hard:    no boolean; the read is
                               the fraction of val points     f_model close to f_floor
-                              whose local-linear chi2 (the    means data or
-                              floor) and whose model chi2     representation limited,
-                              exceed the fixed 0.2 cut,        f_model far above f_floor
-                              plus f_hard in the densest      means the net has
-                              decile.                          headroom. Raises when
+                              whose local-linear chi2 (the    means the two estimators
+                              floor) and whose model chi2     are similar; a larger
+                              exceed the fixed 0.2 cut,        f_model measures a gap to
+                              plus f_hard in the densest      this local reference. It
+                              decile.                          does not identify a cause.
                                                              chi2fn is not a plain
                                                              CosmolikeChi2.
   hard_direction_regression   univariate per-feature         no boolean; a large joint
@@ -85,9 +86,10 @@ coverage_diagnostic and local_linear_floor both use; a dash in the verdict
 column = numbers only, no in-code pass/fail.)
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
-variance, so correlated quantities become decorrelated and equally hard
-to fit. For the diagonal CMB geometry "whitened" is per-multipole: the
-residual divided by its cosmic-variance error bar sigma_ell.
+variance under the covariance used to define the transform. This gives
+decorrelated coordinates with comparable numerical scale. Learning difficulty
+can still differ among coordinates. For the diagonal CMB geometry, whitened means
+the residual divided by its stored per-multipole scale sigma_ell.
 """
 
 import numpy as np
@@ -142,9 +144,9 @@ def coverage_diagnostic(model,
   parameter space (Euclidean distance there weights each direction
   by its prior spread, so no single wide param dominates) and
   relate that local sparsity to the per-point delta-chi2. A positive
-  rank correlation (sparser neighbourhoods at the failures) means
-  the floor is data coverage, not the model. Model-agnostic: any
-  trained model works.
+  rank correlation reports an association between sparse neighbourhoods
+  and large errors. It does not show that sparse coverage caused the
+  errors or exclude a model limitation. Any trained model can be scored.
 
   Estimator: knn_dist, its rank correlation with log10 dchi2, and the
   median knn_dist of the good vs bad populations. Verdict: the boolean
@@ -253,11 +255,12 @@ def local_linear_floor(model,
   extracts from the data. A linear fit is exact for a locally-linear
   map, so its error is the local nonlinearity (hardness) plus
   residual coverage. Comparing the fractions:
-    f_model ~ f_floor  -> data / representation-limited (the net is
-                          at what the data supports; lever = prior /
-                          features / more N).
-    f_model >> f_floor -> the net has headroom (arch / training).
-  f_floor in the best-covered (densest) decile = pure hardness.
+    f_model ~ f_floor  -> model and local-linear errors are similar.
+    f_model >> f_floor -> the model error is larger than this local
+                          linear reference.
+  The floor in the densest decile measures the same estimator in the
+  region with the smallest neighbour distances. None of these comparisons
+  alone identifies a causal limitation.
 
   Estimator: f_floor, f_model, and f_hard, each a fraction of val points
   whose chi2 exceeds the fixed 0.2 cut. Verdict: no boolean is returned;
@@ -328,7 +331,7 @@ def local_linear_floor(model,
 
   # the model-independent interpolation floor is a PUBLISHED score
   # (f_floor / f_hard / median_floor read it directly), so it passes the
-  # shared score-domain boundary BEFORE any interpretation -- and in its
+  # shared score-domain boundary BEFORE any interpretation, and in its
   # COMPUTE dtype, not a.double() upcast: a geometry that strict
   # loading accepted but whose Cinv is not positive-definite can make this
   # floor negative, which the old dchi2_floor > 0.2 test read as a PERFECT
@@ -343,7 +346,8 @@ def local_linear_floor(model,
                                     param_geometry=param_geometry,
                                     chi2fn=chi2fn, source=val_set,
                                     device=device, bs=bs)
-  # pure hardness: the floor in the densest (best-covered) decile.
+  # Evaluate the local-linear floor in the densest decile. This subset has
+  # the smallest neighbour distances; the statistic does not isolate a cause.
   dense = knn_dist <= np.quantile(knn_dist, 0.1)
   return {"dchi2_floor": dchi2_floor,
           "dchi2_model": dchi2_model,
@@ -465,15 +469,15 @@ def cmb_residual_diagnostic(model,
   """
   Per-multipole residual statistics for a CMB spectrum run.
 
-  Decodes every validation prediction back to PHYSICAL C_ell (the
-  training chi2fn.decode, so the imposed amplitude law is multiplied
-  back) and summarizes the residual against the true spectra two ways
+  Decodes every validation prediction back to physical C_ell through the
+  training chi2fn.decode, which reverses the imposed amplitude law. It
+  summarizes the residual against the true spectra two ways
   per multipole: fractionally ((pred - truth) / truth; readable for
   tt / ee / pp, spiky where te crosses zero) and in error-bar units
   ((pred - truth) / sigma_ell; always well-defined — for te read this
   one). Also finds the worst validation cosmology (highest per-sample
   chi2) for a pred-vs-truth overlay, and measures the residual's
-  HIGH-PASS content — the short-period wiggle spectrum the roughness
+  short-period content, which is the residual component the roughness
   term penalizes, computed with the same double-boxcar
   remainder — so over-smoothing or ringing is visible at a glance.
 

@@ -15,14 +15,17 @@ In front of the loop sits a pure configuration layer: validate_phase_block,
 validate_loss, validate_berhu, and validate_ema check and canonicalize the
 train_args blocks (the eight-key per-phase whitelist, the nested loss {mode,
 berhu, roughness} block, the berhu {knot, cap, anneal} schedule, the ema
-{horizon_epochs, anneal} block) before anything runs; derive_eval_bs and derive_ema_beta turn
+{horizon_epochs, anneal} block) before anything runs; derive_eval_bs and
+derive_ema_beta turn
 run-global targets into the evaluation batch size and the per-epoch EMA decay.
 The loss modes the loop can apply are chi2 / sqrt / sqrt_dchi2 / berhu /
 berhu_capped (losses/core.py).
 
-PS: a loader is a closure load(rows) -> tensor mapping global row indices to a
-ready-to-train batch already on the compute device, hiding where the data lives
-(resident on the GPU, streamed from RAM, or a disk memmap). build_loaders
+PS: a loader is a closure ``load(rows) -> tensor``. The row numbers address
+the active source array: local coordinates for a compact RAM copy and original
+dump-row coordinates for a disk-backed source. It returns a ready-to-train
+batch on the compute device and hides whether data are resident on the GPU,
+streamed from RAM, or read from a disk memmap. build_loaders
 (batching.py) makes one loader for the whitened parameters (load_C) and one for
 the encoded targets (load_dv) per source; the loop here just asks for the rows
 it wants. whitened = rotated into a covariance eigenbasis and scaled to unit
@@ -1454,7 +1457,7 @@ def ordinary_median(values):
   """The ordinary 50th-percentile median (unit 60).
 
   The center value for odd N, the arithmetic MEAN of the two center values
-  for even N -- the standard estimator every prose, plot, history, and gate
+  for even N. It is the standard estimator every prose, plot, history, and gate
   surface already names "median". torch.median returns the LOWER of the two
   central ordered values for even N (a lower-median), which biases the
   plateau-scheduler feed, the equal-fraction best-epoch tie-break, and the
@@ -1508,7 +1511,7 @@ def _validate_published_reductions(mean, median, frac):
       raise ValueError(
         "published reduction [validation]: the " + name + " is "
         + repr(value) + ", not finite. A reduction that overflowed or went "
-        "NaN must not rank, reschedule, or ship a model -- fix the run "
+        "NaN must not rank, reschedule, or ship a model. Fix the run "
         "(the per-sample rows passed the domain guard; the reduction "
         "itself is out of range).")
   if not bool(torch.isfinite(frac).all()):
@@ -1533,8 +1536,8 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
     c_b (bs,)                 tiny; pad rows sliced off, cloned
        │  ... all batches, all chunks ...
        ▼
-    c  (n_val,)               on device, 4 bytes per val point
-       │  one .cpu()          the eval's only device-to-host copy
+    c  (n_val,)               concatenated on the compute device
+       │  .cpu()              moves to CPU only when c is on an accelerator
        ▼
     median / mean / frac      (median and the threshold fractions
                               need the full distribution at once,
@@ -1552,7 +1555,7 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
   for the factored heads that meant ~1 GB of VRAM churn per epoch.
   Reducing per batch keeps only (bs,) scalars alive (the clone
   survives but copies bs floats, not bs x out_dim) and the
-  device-to-host traffic stays at one small transfer per eval,
+  accelerator-to-CPU traffic stays at one small transfer per eval,
   which matters when the GPU hangs off a bandwidth- and
   latency-limited link (an eGPU over Thunderbolt).
 
@@ -1567,9 +1570,9 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
     model      = the network, in eval mode.
     lossfn     = CosmolikeChi2; .chi2 gives the per-sample chi2 of
                  a prediction against its target.
-    data       = dict with load_C, load_dv (the loaders) and idx
-                 (global validation row indices; read into the
-                 local vidx).
+    data       = dict with load_C, load_dv (the loaders) and idx.
+                 idx contains coordinates into the active validation
+                 source and is read into the local vidx.
     load       = rows per streamed chunk.
     bs         = model batch size (the derived eval batch, see
                  derive_eval_bs; independent of the training bs), so
@@ -1603,7 +1606,9 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
       return lossfn.chi2(pred=pred, target=yb)
 
   chi2s = []
-  order_rows = []   # the global val rows in c's order, for the finite guard
+  # Active validation-source coordinates in c's order. They are local to a
+  # compact RAM source and original dump rows for a disk-backed source.
+  order_rows = []
   with torch.no_grad():
     for cs in range(0, len(vidx), load):
       rows = np.sort(vidx[cs:cs+load])
@@ -1631,7 +1636,10 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
         # the stash is now (bs,) floats, not (bs, out_dim).
         chi2s.append(fwd_chi2(xb, yb)[:n].clone())
 
-  c = torch.cat(chi2s).cpu() # per-sample chi2; the one D2H copy
+  # torch.cat allocates the concatenated score tensor on its current device.
+  # cpu() then transfers it only when that tensor is on an accelerator. For
+  # an already-CPU tensor, cpu() normally returns CPU storage without a move.
+  c = torch.cat(chi2s).cpu()
   # chi2-domain contract (the single validation chokepoint: the baseline,
   # the raw eval, and the ema eval all pass through here, so best-epoch
   # selection only ever compares valid scores). The shared score-domain
@@ -1647,7 +1655,7 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
   # rows near the float32 max overflows to Inf AFTER the row guard passed
   # (the sum exceeds float32 range in any order), so the mean is formed in
   # float64. The median is the ordinary 50th-percentile estimator (unit 60,
-  #) -- torch.median's lower-middle sample for even n_val biased the
+  #). torch.median's lower-middle sample for even n_val biased the
   # plateau-scheduler feed, the equal-fraction tie-break, and the persisted
   # history; ordinary_median (float64, torch.quantile 0.5) fixes all four at
   # once because they all consume this returned median.
@@ -1661,7 +1669,7 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
   frac = (c[:, None] > thresholds[None, :]).float().mean(0)
   # clause 4 (unit 14(f)): every PUBLISHED reduction must be finite before it
   # is returned, appended to histories, plotted, and stepped into the
-  # scheduler -- an infinite mean is a REFUSED evaluation, never a sentinel.
+  # scheduler. An infinite mean is a REFUSED evaluation, never a sentinel.
   _validate_published_reductions(mean=mean, median=median, frac=frac)
   return median, mean, frac
 
@@ -1675,8 +1683,9 @@ def eval_source_chi2(model,
   """
   Per-cosmology delta-chi2 of the emulator over one source.
 
-  Scores every row of `source` in source["idx"]: encodes its
-  parameters into model inputs, predicts the whitened data vector,
+  Scores every row named by ``source["idx"]`` in the active source
+  coordinate system. It encodes the parameters into model inputs, predicts
+  the whitened data vector,
   and evaluates the full masked chi2 against the encoded truth.
   Returns plain numpy arrays aligned row-for-row, ready for a
   parameter-space plot.
@@ -1735,7 +1744,7 @@ def eval_source_chi2(model,
   # earlier .double() here relabelled the dtype to float64 and floored the
   # band to 1e-6, so this diagnostic scorer REFUSED a roundoff negative that
   # _reduce / eval_val (the float32 band, ~3e-3 at w = 780) normalize to exact
-  # 0 -- one score, two verdicts. So screen in the compute dtype; the ACCEPTED
+  # 0: one score, two verdicts. So screen in the compute dtype; the ACCEPTED
   # result is cast to float64 for reporting only.
   c_norm = screen_chi2(c_compute, loss=chi2fn, label="diagnostic",
                        positions=rows)
@@ -1784,9 +1793,10 @@ def training_loop_batched(nepochs,
                  the training loss, .chi2 the eval metric.
     mode       = loss mode passed to .loss ("sqrt", "chi2", ...).
     data       = nested source dict: data["train"] and data["val"],
-                 each with load_C, load_dv (the loaders), idx
-                 (global rows into the full dump), and load (rows
-                 per streamed chunk). The val sub-dict is handed to
+                 each with load_C, load_dv, idx, and load. idx contains
+                 active source coordinates, which are compact-RAM local
+                 rows or disk-backed original rows. load is the number of
+                 rows per streamed chunk. The val sub-dict is handed to
                  eval_val each epoch.
     trim_opts  = trim schedule (see anneal_value): "start"/"end"
                  trim fractions, "hold_epochs"/"anneal_epochs",
@@ -1860,11 +1870,11 @@ def training_loop_batched(nepochs,
     train_losses, medians, means, fracs = per-epoch lists
       (fracs holds one fraction tensor per epoch).
   """
-  # loaders: global row indices -> ready-to-train param inputs
-  # / dv targets on the GPU (the regime hides where they live).
+  # loaders: active source coordinates -> ready-to-train parameter inputs
+  # and targets on the device. The regime hides where the source lives.
   load_C  = data["train"]["load_C"]
   load_dv = data["train"]["load_dv"]
-  tidx    = data["train"]["idx"]   # global training rows into the dump
+  tidx    = data["train"]["idx"]   # active training-source coordinates
   # device the model lives on; place new tensors here too.
   # model.parameters() is an iterator, so next(...), not [0].
   device  = next(model.parameters()).device
@@ -2270,7 +2280,7 @@ def training_loop_batched(nepochs,
         run_sum += float(loss.detach()) * bs
         run_n   += bs
     train_loss = run_sum / run_n
-    # a reduction's result must be checked -- finite per-batch
+    # a reduction's result must be checked. Finite per-batch
     # operands do not prove a finite epoch mean. Refuse to publish (append,
     # print, persist) a non-finite epoch loss; name the epoch.
     if not np.isfinite(train_loss):

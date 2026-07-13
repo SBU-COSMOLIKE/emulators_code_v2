@@ -79,43 +79,44 @@ gates/                                 the acceptance board (see gates/README.md
 
 The driver scripts sit beside `emulator/` (no `driver/` subfolder): launching one
 puts its own folder on `sys.path`, so `import emulator` resolves with no path
-setup. In a cocoa install this folder is
-`external_modules/code/emulators/emultrfv2/`; run the drivers from `$ROOTDIR`.
+setup. In a CoCoA install this folder is
+`external_modules/code/emulators_code_v2/`; run the drivers from `$ROOTDIR`.
 The `cobaya_theory/` adapters drive `emulator/inference.py`
 (`EmulatorPredictor`) to run saved emulators inside a Cobaya MCMC (each
 prepends the repo root to `sys.path` so `import emulator` resolves from a
 folder deeper).
 
-Only `geometries/output.py` imports cosmolike, so cosmic-shear training runs
-on a machine with a working Cocoa installation; every other family (and the
-library everywhere else) is pure PyTorch and reviewable anywhere.
+Only cosmic-shear training imports CosmoLike, through
+`geometries/output.py`. The other training families avoid CosmoLike but still
+use PyTorch, NumPy, SciPy, YAML, HDF5, and psutil. Plotting and diagnostics
+have optional Matplotlib and GetDist dependencies. Data generation and the
+integration smokes can additionally require Cobaya and CAMB.
 
 ---
 
 ## 2. The five emulator families
 
-One training stack serves five output kinds. The family is picked by the
-config's data block; every family's loss exposes the same per-sample chi2, so
-trimming / the focal weight / the berhu ladder / EMA / fine-tuning compose
-unchanged for all of them:
+One training stack serves five output kinds. The config's data block selects
+the family. Every loss returns one score per cosmology, with shape `(B,)`, so
+the shared trimming, focus, reduction, and training mechanics can consume it.
+The scientific meaning of that score is family-specific:
 
-| family | data block key | output geometry | loss | cobaya adapter |
+| family | data key | geometry | per-row score | Cobaya adapter |
 |---|---|---|---|---|
-| cosmic shear (3x2pt) | the cosmolike keys | `geometries/output.py` | `losses/core.py` (+ ia / pce / transfer) | `emul_cosmic_shear` |
-| scalar (derived params) | `outputs` | `geometries/scalar.py` | `losses/scalar.py` | `emul_scalars` |
-| CMB spectra | `cmb` | `geometries/cmb.py` | `losses/cmb.py` | `emul_cmb` |
-| background (BAO/SN) | `grid` | `geometries/grid.py` | `losses/scalar.py` (reused) | `emul_baosn` |
-| matter power (EMUL2) | `grid2d` | `geometries/grid2d.py` | `losses/scalar.py` (reused) | `emul_mps` |
+| cosmic shear | CosmoLike keys | `geometries/output.py` | $r^{\mathsf T}\Sigma^{-1}r$ | `emul_cosmic_shear` |
+| scalar | `outputs` | `geometries/scalar.py` | squared standardized output residuals | `emul_scalars` |
+| CMB spectra | `cmb` | `geometries/cmb.py` | sum of `((prediction - truth) / sigma)^2`, using the stored per-ℓ `sigma` | `emul_cmb` |
+| background | `grid` | `geometries/grid.py` | squared standardized residuals in encoded law space | `emul_baosn` |
+| matter power | `grid2d` | `geometries/grid2d.py` | squared standardized residuals in encoded law space | `emul_mps` |
 
-The NPCE trunk (`pce:`) rides every row (the 2026-07-12 family-wide
-ruling): on the four diagonal families it wraps
-`losses/pce.py::PCEResidualDiagChi2` (residual only; on CMB only with
-amplitude law "none").
+A `pce:` block first fits and freezes a finite Legendre-polynomial base, then
+trains the selected neural architecture as a residual refiner. On CMB it
+requires `amplitude_law: none`.
 
-Two physics modules sit beside the geometries, each with exactly one
-definition shared by its generator, its adapter, and its gates:
-`background.py` (the distances are KNOWN physics integrated from the emulated
-H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
+`background.py` owns the distance integrations used by the BAOSN adapter,
+diagnostics, and gates. The background generator obtains its raw quantities
+directly from CAMB. `syren_base.py` is shared by the optional MPS base-sidecar
+producer, the MPS adapter, and gates.
 
 ---
 
@@ -125,11 +126,11 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 
 | File | Role |
 |---|---|
-| `data_staging.py` | On-disk dumps → in-memory "source" dicts; streaming per-column stats; the physical density windows (`omega_b h^2` bound, plus the optional `omegam^2 h^2` / `omegamh2` / `omegamh2·n_s` windows). Memmaps ordinary dv dumps and returns `dump_rows` so a sibling dump file can stay row-aligned. Known gaps (fix queued): standard `X.1.txt` misses the generator's `X.paramnames` order check, and the later grid2d law transform currently defeats the memory ladder; details in `notes/data-generation-and-cuts.md`. |
+| `data_staging.py` | Builds a resident Python source dictionary whose arrays may be compact RAM copies or file-backed memmaps. Parameter text is parsed eagerly; target `.npy` files are memory-mapped. If the selected rows fit the memory budget, both arrays are copied into compact local order. Otherwise the target payload stays file-backed and `idx` keeps source-row coordinates. `dump_rows` preserves original row identity for aligned sibling files. The grid2d path thins columns before forming its law-space target in bounded chunks. |
 | `geometries/parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. Known numerical gap (fix queued): covariance eigenvalues and rebuilt scales are not yet validated before division; details in `notes/artifacts-inference-warmstart.md`. |
 | `geometries/output.py` | The 3x2pt output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry`, `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** Known numerical gap (fix queued): a singular per-bin covariance is clipped to zero and then used as a divisor; details in `notes/artifacts-inference-warmstart.md`. |
 | `geometries/scalar.py` | `ScalarGeometry`: per-output standardization over named derived parameters, with the un-standardizable-column guard. |
-| `geometries/cmb.py` | `CmbDiagonalGeometry`: per-multipole whitening by the cosmic-variance error bar (sigma from the covariance script's .npz), the spectrum / units / amplitude-law facts persisted. |
+| `geometries/cmb.py` | `CmbDiagonalGeometry`: subtract the training center and divide by the persisted `sigma_<spectrum>` from the covariance `.npz`; persist the spectrum, multipole grid, units, and amplitude-law facts. |
 | `geometries/grid.py` | `GridGeometry` + `TARGET_LAWS`: a function on a stored z grid, the law (`log_offset` / `none`) inside encode/decode. |
 | `geometries/grid2d.py` | `Grid2DGeometry` + `TARGET_LAWS_2D`: a flattened (z, k) surface standardized in LAW space (the syren division happens at staging; see `syren_base.py`). |
 | `background.py` | The BAOSN imposed physics: the cumulative Simpson (composite even nodes + the correct one-interval odd node), c/H on the doubled grid, the flat distance conversions, `distance_interpolators`. |
@@ -142,7 +143,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 |---|---|
 | `activations.py` | Learnable activations: the paper's `H` plus Power / Gated / GatedPower variants; `make_activation` maps a name → factory. |
 | `designs/blocks.py` | The small `nn.Module`s models are built from: `Affine`, `ResBlock`, `BinLinear`, `TRFBlock`, `FiLMGenerator`, plus `rescale_kernel_size`. |
-| `designs/plain.py` | The full networks: `ResMLP` (baseline; the only design the SCALAR family accepts — named outputs have no coordinate axis), `ResCNN`, `ResTRF` (the correction heads; they now ride cmb / grid / grid2d too — the diagonal geometries keep physical order, so the basis change degenerates to the identity and the split comes from `attach_head_coords()`; `model.trf.n_tokens` re-segments a single-bin spectrum into attention windows). The factored-IA and NPCE variants are `designs/ia.py` / `designs/pce.py`. |
+| `designs/plain.py` | `ResMLP` is the trunk-only neural architecture. `ResCNN` and `ResTRF` add a coordinate-aware correction head to that trunk. Scalar outputs have names but no ordered output axis, so the scalar family accepts `ResMLP` only. The factored-IA and NPCE variants are in `designs/ia.py` and `designs/pce.py`. |
 
 **Loss & training**
 
@@ -151,7 +152,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `losses/core.py` | chi2 losses on the whitened residual: `CosmolikeChi2` (plain; the `sqrt` / pseudo-Huber / `berhu` / `berhu_capped` mode ladder), `RescaledChi2` / `ResidualBaseChi2` (analytic-R), `ElementWeightedChi2`; `anneal_value`; `make_chi2`. The `_reduce` here is THE shared reduction every family's loss routes through. |
 | `losses/scalar.py` | `ScalarChi2` + `make_scalar_chi2`: the standardized-residual chi2 (also wraps the grid and grid2d geometries — their laws live in the geometry, so the loss needs nothing new). |
 | `losses/cmb.py` | `AMPLITUDE_LAWS` (`none` / `as_exp2tau_ref`), `CmbDiagonalChi2` / `CmbFactoredChi2` (the imposed-amplitude target, measured against the persisted fiducial so the factor is order-one), `ResidualRoughness` (the optional band-explicit penalty on short-period residual wiggles), `make_cmb_chi2`. |
-| `losses/transfer.py` | `TransferChi2`: a frozen base network under a parallel correction (gain / sum, physical / whitened space, the cosmolike form). `TransferDiagChi2`: the same design on the elementwise-whitened families — cmb law-none / grid / grid2d, whitened space only (the 2026-07-12 symmetry ruling). |
+| `losses/transfer.py` | `TransferChi2`: a frozen base network under a parallel correction, using gain or sum in physical or whitened space on the CosmoLike path. `TransferDiagChi2` applies the same design to CMB law-none, grid, and grid2d artifacts in whitened space only. |
 | `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. Known gap (fix queued): validation computes its own safe chunk against the remaining budget, but the training loop uses the train chunk for validation and can exceed that bound; details in `notes/training-stack.md`. |
 | `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the config validators (`validate_phase_block` / `validate_loss` — now with the `roughness:` sub-block — / `validate_berhu` / `validate_ema`), the per-epoch loop, and `run_emulator`. |
 
@@ -162,7 +163,7 @@ H(z)) and `syren_base.py` (the analytic formula the MPS emulators correct).
 | `experiment.py` | `EmulatorExperiment`: config → device → data → geometry → chi2 → spec → train as one reusable object (`from_yaml` / `from_config`). Holds every family's validator (`validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_param_cuts` / `validate_sizes`), the family branches of `from_config` / `build_geometry` (including the fine-tune geometry pins), and the grid2d staging law transform. The drivers compose it. |
 | `warmstart.py` | Fine-tune / transfer sources: `load_source` (validate a saved artifact), `extend_input_geometry` (block-extend for new parameters), `pin_output_geometry` (the cosmolike pin; the scalar/cmb/grid/grid2d pins live in their `build_geometry` branches), `build_warm_start` (transfer the weights + prove epoch-0 parity), `anchor_masks`. |
 | `scheduling.py` | GPU job balancing (`lpt_assign`, `even_assign`), the spawned worker pool (`run_gpu_pool`), and the `--gpu-pack` VRAM-token machinery. Known lifecycle gap (fix queued): early failures do not yet guarantee every sibling process is terminated/joined, and invalid token plans can wait forever; details in `notes/training-stack.md`. |
-| `results.py` | `save_learning_curves` / `save_sweep_table`; `save_emulator` (`.emul` weights + `.h5` record — geometries persisted by `state()` + full cls path); `rebuild_emulator` (h5-driven recipe plus the paired weights; its `info` dict carries the family flags `scalar` / `cmb` / `grid` / `grid2d` + each family's artifact facts, class-guarded). Known integrity gap (fix queued): the two files are not yet transactionally published or digest-bound; details in `notes/artifacts-inference-warmstart.md`. |
+| `results.py` | `save_learning_curves` / `save_sweep_table`; `save_emulator` writes CPU-normalized tensors to `.emul` and the recipe and geometry record to `.h5`; `rebuild_emulator` reads the pair and uses `map_location=device` to choose the destination device. Its `info` dictionary carries the family flags and family-specific artifact facts. |
 | `inference.py` | `EmulatorPredictor`: rebuild a saved emulator and predict — one `predict(params)` for every artifact kind: the dv section, the scalar `{name: value}` dict, the physical C_ell row, the background `{"z", quantity}` function, or the (z, k) law-space surface. Reuses the exact training decode per family. |
 | `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves, and the multipage diagnostics PDF with the per-family pages (`cmb=` / `scalar=` / `grid=` / `grid2d=`). |
 | `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`, `grid2d_residual_diagnostic`). Known production-width gap (fix queued): the local-linear floor materializes validation rows x 40 neighbours x output width, so an MPS `--diagnostic` run is not bounded; details in `notes/training-stack.md`. |
@@ -213,7 +214,7 @@ other kinds' artifacts loudly, naming the right adapter)
 | `dataset_generator_cmb.py` | CMB spectra: four per-spectrum 2D files (tt / te / ee / pp) from one CAMB pass, phi-phi filled. |
 | `dataset_generator_background.py` | H(z) on the SN grid + D_M on the recombination window, one background-only CAMB evaluation per sample, grid sidecars beside the dumps. |
 | `dataset_generator_mps.py` | linear P + boost on the (z, k) grids (+ the syren base files when `write_syren_base`), through the Pk_interpolator requirement (the wants-Cl quirk kept verbatim). |
-| `compute_cmb_covariance.py` | The Motloch & Hu CMB covariance (eqs 1-7): the Gaussian part always, the lens-induced non-Gaussian terms behind a default-off flag with a 5-point-stencil convergence study; writes the `.npz` the CMB training consumes. The non-Gaussian normalization is workstation-proven (board run 12: the identity gate matched an independent known-answer calculation, and the smoke gate ran the path end to end on real CAMB); the raw-vs-CAMB-scaled fixture has landed and awaits one final identity-gate rerun; the Gaussian path is unchanged (notes/families-scalar-cmb.md). |
+| `compute_cmb_covariance.py` | Computes the Gaussian CMB covariance and, when requested, dense lens-induced blocks with a five-point-stencil convergence study. The `.npz` stores the multipole grid, per-spectrum `sigma`, fiducial spectra, optional dense blocks, and provenance. Current training consumes the grid, one `sigma`, and one fiducial spectrum; it does not consume the dense blocks. |
 
 ---
 
@@ -259,18 +260,12 @@ loss.
 |---|---|---|
 | NPCE | `designs/pce.py` + `losses/pce.py` | a sparse-Legendre polynomial-chaos base plus a neural refiner. |
 | Factored IA | `designs/ia.py` + `losses/ia.py` | emulate cosmology-only templates and apply the IA-amplitude polynomial in closed form (the amplitudes never enter the network). |
-| Transfer | `warmstart.py` + `losses/transfer.py` | a frozen trained base under a parallel correction net. Family-wide since the 2026-07-12 symmetry ruling (cosmolike + cmb + grid + grid2d; frozen-base only off cosmolike); SCALAR is the one family out (a recorded ruling; see notes/families-scalar-cmb.md). |
-| Fine-tuning | `warmstart.py` (`train_args.finetune`) | warm-start from a saved source of the SAME family and geometry; epoch 0 reproduces the source exactly. Supported by EVERY family. |
+| Transfer | `warmstart.py` + `losses/transfer.py` | a frozen trained base under a parallel correction network. Supported for CosmoLike, CMB, grid, and grid2d artifacts; scalar artifacts use fine-tuning instead. |
+| Fine-tuning | `warmstart.py` (`train_args.finetune`) | warm-start from a compatible saved source. The copied parameters are exact; the rebuilt function must agree within the parity tolerance, and zero-connected new inputs must have bit-identical zero influence. Supported by every family. |
 
-The grid2d NPCE algebra is implemented and smoke-gated, but the fit is not
-production-scale: it materializes the full thinned target on the GPU and runs a
-dense float64 SVD on the CPU. Treat MPS NPCE as a research path until the
-separate scalable low-rank-fit contract in `notes/data-generation-and-cuts.md`
-lands.
-
-Removed: the per-bin CNN (its own folder, deleted) — tested; the grouped conv
-was absorbed into `rescnn`'s `groups` / `separable` knobs, the per-bin split
-lost to a single ResMLP; see git history.
+The grid2d NPCE fit materializes the thinned target on the accelerator and
+runs a dense float64 singular-value decomposition on the CPU. Use it only for
+research-scale fits that fit both memory budgets.
 
 ---
 
@@ -315,7 +310,7 @@ covariance. The only file importing cosmolike.
 
 ### `emulator/geometries/cmb.py` <a name="apx-geometries_cmb"></a>
 
-- `CmbDiagonalGeometry` — per-multipole whitening by the cosmic-variance error bar; persists spectrum / ell / units / the amplitude-law facts (`from_fiducial` for synthetic fixtures — the ruled `sigma_l = C_fid sqrt(2/(2l+1))`; the training path feeds sigma from the covariance `.npz` through `__init__`).
+- `CmbDiagonalGeometry` — subtracts the target center and divides by the persisted `sigma_<spectrum>` from the covariance `.npz`; persists the spectrum, multipole grid, units, and amplitude-law facts. `from_fiducial` is a synthetic-construction helper; the training path passes the stored scale through `__init__`.
 - `attach_head_coords()` — the conv/TRF heads' channel/token split: one bin covering the spectrum, coordinate = ell; pure, idempotent, run at training and at rebuild.
 
 ### `emulator/geometries/grid.py` <a name="apx-geometries_grid"></a>
@@ -416,7 +411,7 @@ The run layer that ties everything together.
 - `validate_param_cuts` / `validate_sizes` / `validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_transfer` — the pure data-block validators, one per concern.
 - `resolve_phase_args` / `validate_sweep_paths` — the two-phase schedule resolution.
 - `_head_activation_spec` / `_resolve_head_activation` / `_activation_flag_notice` / `_pinned_head_warning` — the per-head activation config layer.
-- `stage_train` / `stage_val` / `pool_size` — stage the sources (the grid2d branch forms the law-space rows here, `_grid2d_law_rows`); the physical-cut pool size. Bounded grid2d staging has landed: it thins the k axis and streams the law-space moments rather than materializing the whole unthinned float64 surface, and can spill a temp memmap to disk when the resident copy would not fit. Its remaining review item is staging lifecycle and evidence, not the retired full-materialization concern; see `notes/data-generation-and-cuts.md`.
+- `stage_train` / `stage_val` / `pool_size` — stage the sources and report the physical-cut pool size. The grid2d branch thins the k axis, forms law-space rows in bounded chunks, computes moments from the stored float32 payload, and uses an experiment-owned temporary memmap when the resident copy would exceed its memory budget.
 - `build_geometry` / `build_specs` — the input/output geometry + chi2 per family (the fine-tune pins live here); the `run_emulator` spec dicts.
 - `train` / `run` / `frac_above` — train on the staged data; the full pipeline; the sweep metric.
 - `print_design()` — the shared startup banner (family line included), so a stale YAML is caught at launch.
@@ -440,8 +435,8 @@ routes through).
 ### `emulator/results.py` <a name="apx-results"></a>
 
 - `save_learning_curves` / `save_sweep_table` — plain-text tables.
-- `save_emulator(...)` — `.emul` (cpu state_dict) + `.h5` (geometry `state()` groups with their FULL cls paths, histories, raw + resolved config, the model recipe, run-identity attrs; a `pce` / `transfer_base` group when present).
-- `rebuild_emulator(path_root, device)` — reconstruct `(model, param_geometry, geometry, info)` from the files alone; `info` carries the family flags (`scalar` / `cmb` / `grid` / `grid2d`) and each family's artifact facts (amplitude law, grid quantity/units/law), class-guarded so one family's facts never smear onto another.
+- `save_emulator(...)` — writes a CPU-normalized PyTorch `state_dict` to `.emul` and geometry states, histories, resolved config, model recipe, and optional PCE or transfer-base records to `.h5`.
+- `rebuild_emulator(path_root, device)` — reconstructs `(model, param_geometry, geometry, info)` from the pair. `map_location=device` selects the destination, so loading does not require the accelerator used during saving. `info` carries the family flags and family-specific artifact facts.
 
 ### `emulator/inference.py` <a name="apx-inference"></a>
 

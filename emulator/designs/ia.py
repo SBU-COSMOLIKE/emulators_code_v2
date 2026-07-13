@@ -13,9 +13,10 @@ This is the intrinsic-alignment member of the emulator/designs/ family
 templates and lets the loss apply the NLA / TATT amplitude polynomial
 analytically. The paired loss is losses/ia.py.
 
-PS: whitened = rotated into the covariance eigenbasis and scaled to
-unit variance, so correlated dv entries become decorrelated and
-equally hard to fit; encoded = a dv or parameter vector put through
+PS: whitened = rotated into the covariance eigenbasis and scaled to unit
+variance under the covariance that defines the transform. This gives
+decorrelated coordinates on comparable numerical scales, while learning
+difficulty can still differ. encoded = a dv or parameter vector put through
 the geometry's encode (kept entries, centered, whitened); squeeze =
 keep only the unmasked dv entries (the geometry's squeeze), the
 smaller vector the network actually emulates.
@@ -223,9 +224,10 @@ class TemplateResCNN(DesignSpec, nn.Module):
   channel mix honoring `groups` (n_ch*(n_ch/groups) weights),
   versus the plain block's joint n_ch*(n_ch/groups)*k. With no
   activation between them the pair composes into one constrained
-  conv, w[o, c, t] = pointwise[o, c] * depthwise[c, t], a
-  low-rank factorization of the same sum, ~k/2 times fewer
-  weights; the zero-init identity start moves to the last block's
+  conv, w[o, c, t] = pointwise[o, c] * depthwise[c, t]. This is a
+  constrained factorization of the same sum. The exact parameter count
+  is obtained from the depthwise and grouped-pointwise tensor shapes above;
+  it is not one universal ratio. The zero-init identity start moves to the last block's
   pointwise. Full graph and the assumption it adds: see ResCNN's
   separable paragraph (n_ch = n_templates * n_bins here).
 
@@ -315,9 +317,9 @@ class TemplateResCNN(DesignSpec, nn.Module):
                      at build.
       separable    = False (default): one joint conv per block.
                      True: factor each block into a depthwise
-                     theta filter + a pointwise channel mix (a
-                     low-rank factorization of the same sum,
-                     ~k/2 times fewer weights). See the separable
+                     theta filter + a pointwise channel mix. This is a
+                     constrained factorization whose exact parameter
+                     count follows the executed tensor shapes. See the separable
                      paragraph in the class docstring.
       film         = False (default): the head is one fixed map,
                      blind to the cosmology. True: re-inject the

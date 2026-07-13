@@ -57,7 +57,9 @@ build_geometry, and the startup banner; an architecture that omits
 head_block fails at class-definition time.
 
 Whitened = rotated into the covariance eigenbasis and scaled to unit
-variance, leaving the components decorrelated and equally hard to fit;
+variance under the covariance that defines the transform. This gives
+decorrelated coordinates on comparable numerical scales, while learning
+difficulty can still differ among directions;
 done by the geometry classes (geometries.parameter /
 geometries.output).
 """
@@ -361,9 +363,10 @@ class ResCNN(DesignSpec, nn.Module):
                    build.
     separable    = False (default): one joint conv per block.
                    True: factor each block into a depthwise
-                   theta filter + a pointwise channel mix (a
-                   low-rank factorization of the same sum, ~k/2
-                   times fewer weights). See the separable
+                   theta filter + a pointwise channel mix. This is a
+                   constrained factorization of the joint convolution.
+                   Its parameter count follows the executed channel,
+                   group, kernel, and bias shapes. See the separable
                    paragraph and graph in the class docstring.
     film         = False (default): the head is one fixed map,
                    blind to the cosmology. True: re-inject the

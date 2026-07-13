@@ -11,9 +11,10 @@ vector, and TemplateFactoredChi2 applies that combine and then scores
 the result with the full chi2. The amplitudes enter only here, never
 the network.
 
-PS: whitened = rotated into the covariance eigenbasis and scaled to
-unit variance, so correlated dv entries become decorrelated and
-equally hard to fit; encoded = a dv put through the geometry's encode
+PS: whitened = rotated into the covariance eigenbasis and scaled to unit
+variance under the covariance that defines the transform. This gives
+decorrelated coordinates on comparable numerical scales, while learning
+difficulty can still differ. encoded = a dv put through the geometry's encode
 (kept entries, centered, whitened); squeeze = keep only the unmasked
 dv entries (the geometry's squeeze), the smaller vector the network
 emulates.

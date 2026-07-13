@@ -2,19 +2,23 @@
 
 This module is the output side: it owns every transform between a raw
 cosmolike data vector and the whitened, masked target the network
-predicts, plus the chi2's covariance. DataVectorGeometry is the base
-(squeeze to the unmasked
-entries, center, whiten in the covariance eigenbasis, and invert each
-step). DiagonalGeometry whitens by the marginal sigma only (theta order
+predicts, plus the chi2's covariance. DataVectorGeometry is the base:
+squeeze to the unmasked entries, center, and whiten in the covariance
+eigenbasis. Decoding reverses centering and whitening only on the kept
+coordinates. ``unsqueeze`` can place those values in a full vector, but
+masked coordinates are filled with zero and cannot be recovered.
+DiagonalGeometry whitens by the marginal sigma only (theta order
 kept, for a 1D CNN head); BlockDiagonalGeometry whitens each tomographic
 bin by its own sub-block. build_shear_angle_map attaches the per-element
 angle / tomography metadata (theta, source redshifts, xi+/- branch,
 per-bin sizes). The only module that imports cosmolike.
 
-PS: to whiten is to rotate into the covariance eigenbasis and scale to
-unit variance (decorrelated, equally-hard-to-fit components). To squeeze
-is to keep only the unmasked entries of the full data vector (the masked
-ones the analysis drops). encode = squeeze, center, then whiten, the form
+PS: to whiten is to rotate into the covariance eigenbasis and scale each
+coordinate to unit variance under the covariance that defines the transform.
+This decorrelates the coordinates and gives them comparable numerical scale.
+Learning difficulty can still differ among directions. To
+squeeze is to keep only the unmasked entries of the full data vector. encode
+= squeeze, center, then whiten, the form
 the network predicts. The Mahalanobis distance r^T Cinv r is a squared
 residual r weighted by the inverse covariance Cinv (the chi2 this geometry
 owns), summed over the kept entries.
@@ -32,9 +36,12 @@ owns), summed over the kept entries.
 (legend: B = batch rows; total_size = full data-vector length
 including masked entries; n_keep = the kept/unmasked length, the
 width the network emits; dest_idx = the kept entries' positions in
-the full vector. unwhiten / unsqueeze / decode invert the arrows
-bottom-up; the chi2 (losses/core.py) un-whitens the residual and
-contracts it with the inverse covariance.)
+the full vector. ``decode(encode(dv))`` returns the kept physical
+coordinates, not the original full vector. ``squeeze(unsqueeze(kept))``
+returns ``kept``. ``unsqueeze(squeeze(dv))`` matches ``dv`` only at the
+kept coordinates and fills masked coordinates with zero. The chi2 in
+losses/core.py unwhitens the residual and contracts it with the inverse
+covariance.)
 """
 
 import os
@@ -47,9 +54,10 @@ from getdist import IniFile
 class DataVectorGeometry:
   """
   Geometry and normalization of one probe's masked data
-  vector. Whitening (see module PS) is applied to the
-  data-vector targets, so every network output is
-  decorrelated and equally hard to fit.
+  vector. Whitening is applied to the data-vector targets.
+  It decorrelates the covariance coordinates and places them
+  on comparable numerical scales. Learning difficulty can
+  still differ among coordinates.
 
   One instance owns every transform between a raw cosmolike
   dv and the vector the network sees, for one probe (xi,
@@ -428,10 +436,11 @@ class DataVectorGeometry:
   def unsqueeze(self, sq):
     """Scatter the unmasked entries into a full vector.
 
-    Inverse of squeeze, for the chi2: place the (B, n_keep)
-    kept entries at their dest_idx slots in a fresh
+    Place the (B, n_keep) kept entries at their dest_idx slots in a fresh
     (B, total_size) zero tensor, so the full masked Cinv can
-    be applied. Masked-out slots stay 0.
+    be applied. This is a right inverse on kept coordinates because
+    ``squeeze(unsqueeze(sq)) == sq``. It is not an inverse on an arbitrary
+    full vector because masked-out slots stay 0.
 
     Arguments:
       sq = (B, n_keep) kept entries (squeeze output).

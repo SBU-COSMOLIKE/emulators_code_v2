@@ -210,10 +210,11 @@ def _lane_main(gpu_id,
   """
   One worker process: pin the GPU, set up once, drain the job queue.
 
-  Runs in a spawned child. Claims GPU gpu_id (so every default-device
-  op and mem_get_info read this card), builds the per-worker state
-  once via setup_fn (the expensive part: an EmulatorExperiment with
-  its staged data), then loops: pull (payload, tokens) items until
+  Runs in a spawned child. ``torch.cuda.set_device(gpu_id)`` sets this
+  process's current CUDA device. CUDA calls that omit an explicit device
+  use that current device. The call does not move existing tensors and
+  does not override an explicitly supplied device. The worker then builds
+  its state once via setup_fn and loops: pull (payload, tokens) items until
   the None sentinel, run job_fn on each, put its result. Under
   packing the gate (lock, semaphore) serializes token acquisition --
   see the module docstring's graph.
@@ -279,8 +280,10 @@ def run_gpu_pool(setup_fn,
   Spawns min(lanes_per_gpu, len(bucket)) worker processes per GPU
   (spawn start method: each child is a fresh interpreter with its
   own CUDA context), fills one job queue per GPU, and drains one
-  result per job, calling on_result as each arrives (the parent does
-  all logging, so worker streams do not interleave). With
+  result per job, calling on_result as each arrives. Calls to on_result
+  are serialized in the parent as it drains results. A worker can still
+  print directly to inherited stdout or stderr, so concurrent worker
+  streams may interleave. With
   lanes_per_gpu > 1 a per-GPU (lock, Semaphore(GPU_TOKENS)) gate
   enforces the token packing; job_tokens maps each payload to its
   token count (vram_tokens of its estimated fraction).

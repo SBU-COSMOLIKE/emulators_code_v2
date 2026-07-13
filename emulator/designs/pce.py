@@ -142,9 +142,12 @@ def pce_design(Xm, multi_index):
 
 def select_lars_loo(Psi, y, max_terms=150, patience=10):
   """
-  Greedy least-angle / OMP selection with a leave-one-out (LOO)
-  stop, the self-contained stand-in for UQLab's LARS+LOO sparse-
-  PCE selection.
+  Greedy OMP-style selection with a leave-one-out (LOO) stop.
+
+  At each iteration the implementation chooses the inactive basis column
+  with the largest normalized residual correlation. It then refits all
+  active coefficients by least squares and evaluates the PRESS/LOO score.
+  It does not execute the least-angle-regression path algorithm.
 
   Arguments:
     Psi       = (n_samples, n_terms) PCE design matrix, each column
@@ -217,9 +220,8 @@ class PCEEmulator(nn.Module):
   """
   Sparse-Legendre Polynomial Chaos Expansion (PCE) emulator, the
   analytic "base" of the NPCE (Neural PCE). It maps the cosmological
-  parameters to the whitened data vector with no network: every
-  coefficient is a closed-form least-squares fit, built in one pass
-  over the training set.
+  parameters to the whitened data vector with no neural network. Each
+  selected support is refit by least squares as the greedy loop adds terms.
 
   A polynomial chaos expansion writes a quantity as a sum of
   orthogonal polynomials of the inputs. Here (eqs 9-11) each
@@ -228,7 +230,7 @@ class PCEEmulator(nn.Module):
     lambda_i(theta) ~ sum_alpha eta_{i,alpha} Psi_alpha(x)
   Psi_alpha is a product of 1-D Legendre polynomials (eq 10) and
   alpha runs over a sparse multi-index set from a hyperbolic q-norm
-  + max-interaction truncation, pruned by LARS with a leave-one-out
+  + max-interaction truncation, pruned by greedy residual correlation with a leave-one-out
   criterion (eq 11). Sparse = only a handful of terms survive
   (sparsity-of-effects), making the fit data-efficient and
   overfit-resistant.
@@ -327,7 +329,7 @@ class PCEEmulator(nn.Module):
     """
     Fit from whitened training inputs/targets.
 
-    Fit pipeline (one pass, no gradient descent):
+    Fit pipeline (iterative greedy fitting, no gradient descent):
 
         X_white (N, n_dim)      Y_white (N, n_keep)
            │                       │  center on the mean Ybar

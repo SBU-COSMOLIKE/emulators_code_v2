@@ -84,9 +84,9 @@ def anneal_value(epoch, opts):
 # a chi2 is a sum of (possibly matrix-contracted)
 # whitened products, mathematically >= 0; float roundoff in a non-PSD-adjacent
 # precision contraction (the dense / rescaled / transfer forms) can nudge a
-# near-zero value slightly negative. The allowed band is scale-aware in the
-# quantity roundoff grows with -- the per-row reduction DEPTH of the active
-# contraction (n_terms = the kept width w; see _chi2_n_terms) -- with a fixed
+# near-zero value slightly negative. The allowed band follows the quantity
+# that roundoff grows with: the per-row reduction DEPTH of the active
+# contraction (n_terms = the kept width w; see _chi2_n_terms), with a fixed
 # floor, so it stays a per-run build-time constant (elementwise, compile-safe,
 # no batch statistic that a NaN could poison). A value within the band is
 # roundoff (normalized to an exact 0); anything more negative, or non-finite,
@@ -101,11 +101,12 @@ def _chi2_neg_band(dtype, n_terms):
   """The largest a chi2 may go negative from roundoff before it is corruption.
 
   band = max(1e-6, _CHI2_NEG_KAPPA * eps(dtype) * n_terms). n_terms is the
-  per-row reduction DEPTH of the contraction -- the kept width w for every
+  per-row reduction DEPTH of the contraction: the kept width w for every
   family (a length-w reduction, whether the dense r^T Cinv r or a diagonal
   sum of w squares; see _chi2_n_terms), a per-run constant, so the band is a
-  plain Python float -- elementwise and compile / CUDA-graph safe, scale-aware
-  in exactly the quantity roundoff accumulates in. The 1e-6 floor survives
+  plain Python float. The predicate is elementwise and safe for compiled or
+  CUDA-graph execution. Its scale matches the quantity in which roundoff
+  accumulates. The 1e-6 floor survives
   from the first cut for tiny contractions.
 
   Arguments:
@@ -154,20 +155,20 @@ def screen_chi2(chi2, loss, label, positions=None):
   """The shared score-domain boundary for every chi2 CONSUMER.
 
   One public helper for every site that PUBLISHES or RANKS a per-sample chi2
-  -- eval_val, eval_source_chi2, and the diagnostics producers (the local
+  * eval_val, eval_source_chi2, and the diagnostics producers (the local
   linear floor, the CMB / grid / grid2d residual functions). It derives the
   family's roundoff band from the loss object's OWN adjudicated term count
   (_chi2_n_terms, increment (g)) and the chi2's COMPUTE dtype (increment (g)
-  second addendum -- pass the compute-dtype tensor, NEVER a .double() storage
+  second addendum: pass the compute-dtype tensor, NEVER a .double() storage
   upcast, or the band is relabelled to float64 and floored to 1e-6, splitting
   one score into two verdicts), applies the shared _chi2_domain predicate,
   and RAISES on any non-finite or materially-negative score. A within-band
-  roundoff negative normalizes to EXACT 0 -- the SAME rule training folds to
-  NaN -- so one score is never exact in training and negative in scoring, and
+  roundoff negative normalizes to EXACT 0. The SAME rule training folds to
+  NaN, so one score is never exact in training and negative in scoring, and
   a valid positive score passes through byte-identical.
 
   Why raise here (unit 9 clause): a corrupted score must be REFUSED, never
-  converted to "statistically unavailable" and carried on -- a negative
+  converted to "statistically unavailable" and carried on. A negative
   compares False to every positive threshold and would crown a broken model.
   A geometry positive-definiteness check (unit 11) is defense in depth
   UPSTREAM, not a substitute for this boundary: a same-shaped h5 edit that
@@ -175,7 +176,7 @@ def screen_chi2(chi2, loss, label, positions=None):
 
   Arguments:
     chi2      = the per-sample chi2 tensor (B,), in its COMPUTE dtype (do not
-                upcast it first -- the band must match the roundoff the sum
+                upcast it first. The band must match the roundoff the sum
                 actually accumulated).
     loss      = the loss object whose _chi2_n_terms() sets the band's term
                 count; a bare test double without it defaults to 1 (the band's
@@ -227,7 +228,7 @@ def _safe_sqrt(c):
 
   Forward is bit-identical to torch.sqrt(c) for every c >= 0 (including
   sqrt(0) = 0), so the loss VALUE is unchanged and the C1 knot matching of
-  the berhu family is preserved -- unlike sqrt(c + eps), which shifts the
+  the berhu family is preserved. Unlike sqrt(c + eps), which shifts the
   value everywhere and is NOT contract-equivalent. Only the GRADIENT
   changes: 0 at c == 0 instead of NaN. c is already validated
   non-negative-or-NaN by _chi2_domain (the top of _reduce), so a NaN
@@ -278,7 +279,7 @@ class CosmolikeChi2:
        │                        , the slow reference path)
        ▼
     c  (B,)                      per-sample chi2
-       │  loss() only: drop the worst `trim` fraction (topk) ->
+       │  loss() only: sort scores and mask the worst `trim` prefix ->
        │  mode transform (chi2 | sqrt | sqrt_dchi2 | berhu |
        │  berhu_capped) -> focal weights -> normalized weighted mean
        ▼
@@ -324,7 +325,7 @@ class CosmolikeChi2:
     (term magnitudes), so the band tracks the DEPTH of the reduction, not
     the count of products. The dense r^T Cinv r executes as a length-w
     matvec (w independent length-w sums) followed by one length-w dot, so
-    the accumulated chain is ~w deep -- torch's pairwise / blocked
+    the accumulated chain is ~w deep. Torch's pairwise/blocked
     reductions make even w conservative; the diagonal families sum w
     squares, also w deep. Both depths are the kept per-row width w, so this
     is ONE definition on the base class for EVERY family. A flat w^2 product
@@ -355,13 +356,15 @@ class CosmolikeChi2:
     return self.geom.encode(dv)
 
   def decode(self, whitened_sq):
-    """Forward to geom.decode (inverse of encode).
+    """Forward to geom.decode on the kept-coordinate space.
 
     Arguments:
       whitened_sq = (B, out_dim) whitened kept-entry vector.
 
     Returns:
-      (B, total_size) physical dv scattered to full length.
+      (B, out_dim) physical values on the kept coordinates. Call
+      ``geom.unsqueeze`` separately when a full-length, zero-filled layout
+      is required. Values discarded by the mask cannot be recovered.
     """
     return self.geom.decode(whitened_sq)
 
@@ -418,9 +421,10 @@ class CosmolikeChi2:
                  (c+t1)/(2 sqrt(t1)) above (reversed Huber, C1 at
                  t1 = berhu_knot); needs berhu_knot
                "berhu_capped" -> berhu up to a second knot
-                 t2 = berhu_cap, then sqrt-shaped again above (the
-                 per-sample tail vote plateaus, so a monster chi2 is
-                 bounded; C1 at both knots); needs berhu_knot + berhu_cap
+                 t2 = berhu_cap, then sqrt-shaped again above. The
+                 derivative approaches zero as c grows, so the tail's
+                 influence is bounded even though the value is not.
+                 C1 at both knots; needs berhu_knot + berhu_cap
       trim   = fraction of the worst (largest-chi2) samples to
                drop before averaging; 0 disables trimming.
       focus  = focal weight exponent gamma. <= 0 -> plain mean;
@@ -581,9 +585,10 @@ class CosmolikeChi2:
     elif mode == "berhu_capped":
       # berhu up to a second knot t2 = berhu_cap, then sqrt-shaped again:
       # region 3 is a*sqrt(c)+b (a = sqrt(t2/t1), b = (t1-t2)/(2 sqrt t1)),
-      # C1-matched at t2, so the per-sample tail vote plateaus instead of
-      # rising forever (a monster chi2 stays bounded, robustness baked
-      # into the loss shape). Reduces exactly to berhu for c <= t2. The
+      # C1-matched at t2, so the derivative decreases instead of staying
+      # constant. The influence of a very large c is bounded, while the
+      # loss value continues to grow like sqrt(c). Reduces exactly to
+      # berhu for c <= t2. The
       # region-3 sqrt(t2*c) is ALSO _safe_sqrt: where() evaluates every
       # branch, and at an exact-fit c == 0 that term's plain-sqrt gradient
       # (infinite at 0) times the branch's masked-off 0 upstream gradient is

@@ -37,11 +37,11 @@ from syren.syrenhalofit import run_halofit_vec
 
 
 def syren_params_from(params):
-  """Read the six syren-base arguments from a resolved parameter dict.
+  """Read the seven Syren-base arguments from resolved parameters.
 
-  The base formulas need (As_1e9, ns, H0, Ob, Om, w0, wa). One mapping
-  rule, shared by the dump generator and the emul_mps adapter (so the
-  two can never disagree about which columns feed the base):
+  The base formulas need ``As_1e9``, ``ns``, ``H0``, ``Ob``, ``Om``,
+  ``w0``, and ``wa``. The dump generator and the matter-power adapter
+  use this one mapping from named parameters to the formula arguments.
 
     As_1e9 = params["As_1e9"] if present, else params["As"] * 1e9
              (the linear amplitude either way; a missing amplitude is
@@ -54,11 +54,14 @@ def syren_params_from(params):
     wa     = params["wa"] if present, else 0.0 (same reasoning).
 
   Arguments:
-    params = a mapping of resolved parameter values (the generator's
-             to_input dict / the adapter's sampled point).
+    params = a mapping of resolved parameter values. During generation
+             this is the provider's input dictionary. During inference
+             it is the sampled cosmological point.
 
   Returns:
-    (As_1e9, ns, H0, Ob, Om, w0, wa) as floats.
+    ``(As_1e9, ns, H0, Ob, Om, w0, wa)`` as seven floats. ``H0`` is in
+    km s^-1 Mpc^-1. ``Ob`` and ``Om`` are dimensionless density
+    fractions. The remaining entries are dimensionless.
 
   Raises:
     KeyError naming the missing required name(s).

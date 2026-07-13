@@ -15,13 +15,14 @@ epochs relearning the basis. This module builds the new input geometry by
 block extension instead: the shared parameters keep the source's exact
 center, rotation and scale, and the extra parameters are whitened on their
 own marginal covariance and appended as the last encoded coordinates. Paired
-with a state-dict transfer that copies the source weights verbatim and pads
-the extra input columns with exact zeros, this makes epoch 0 compute the
-source emulator's own function, bit for bit, independent of the extra
-parameters' values. Fine-tuning then moves away from a proven starting point
-instead of a scrambled one. Those extra columns are the last columns of dim 1
-in every input-consumer weight; transfer_state_dict carries the per-tensor
-shape flow (which rows and columns copy, which stay zero).
+with a state-dict transfer that pads the extra input columns with exact zeros,
+this gives two separate checks. First, the widened model must reproduce the
+source prediction within ``_PARITY_TOL``. Changing matrix width can change
+floating-point reduction order, so this is a numerical comparison rather
+than a bitwise comparison. Second, changing only the zero-connected extra
+inputs on that same widened model must leave its output bit-identical under
+``torch.equal``. Fine-tuning therefore begins from a checked source function
+rather than a scrambled coordinate system.
 
 The functions here are called by experiment.py at three points: config
 validation (validate_finetune_config, resolve_source_root, load_source),
@@ -30,10 +31,12 @@ geometry building (extend_input_geometry, pin_output_geometry), and training
 and the pre-train parity check). training.py's make_model / run_emulator load
 the transferred weights; nothing else in the training loop changes.
 
-PS: whiten = rotate into the covariance eigenbasis and scale each direction
-to unit variance (decorrelated, equally hard to fit); encode = center then
-whiten a raw parameter vector; state_dict = torch's name -> tensor mapping of
-a model's learnable parameters and buffers; recipe = the model_recipe record
+PS: whiten = rotate into the covariance eigenbasis and scale each coordinate
+to unit variance under the covariance used to define the transform. This
+gives comparable numerical scales, while learning difficulty can still differ.
+encode = center then whiten a raw parameter vector; state_dict = PyTorch's
+name -> tensor mapping of registered parameters, including frozen parameters,
+and persistent registered buffers; recipe = the model_recipe record
 a schema-v2 .h5 stores, the class + constructor kwargs rebuild_emulator reads
 to reconstruct the network; the extras = the parameters present in the new
 covmat but not the source's (the new physics being fine-tuned in).
@@ -51,12 +54,11 @@ from .activations import make_activation
 from .designs.blocks import make_norm
 
 
-# the only keys the train_args.finetune block accepts. "from" is the source
-# artifact path root (required); "compile_mode" is the one machine knob allowed
-# beside it (torch.compile mode override for this machine); "anchor" is the
-# optional L2-SP strength (a decoupled pull back toward the transferred
-# weights, the shared anchor facility, absent = byte-identical). The lower
-# learning rate is not here: it rides the existing lr: block (a smaller lr_base).
+# Keys recognized by the train_args.finetune parser. "from" is the required
+# source-artifact path root. "compile_mode" is the optional torch.compile mode
+# for the current machine. "anchor" has a reserved name but is refused by the
+# validator below; omit it to run unanchored fine-tuning. The lower learning
+# rate belongs in the existing lr block through a smaller lr_base.
 _FINETUNE_KEYS = ("from", "compile_mode", "anchor")
 
 # the torch.compile modes a finetune.compile_mode override may name (None =
@@ -155,14 +157,12 @@ def validate_finetune_config(cfg, train_args, rescale, activation_flag):
     raise ValueError(
       "train_args.finetune must be a block with a 'from' key, got "
       + type(ft).__name__)
-  # the L2-SP anchor facility is a separate unit (the shared anchor extension,
-  # lands with the transfer refine stage); reject it loudly rather than
-  # as an unknown key.
+  # The anchor name is reserved but not currently accepted. Reject it with
+  # the user action instead of letting the generic unknown-key error hide it.
   if "anchor" in ft:
     raise NotImplementedError(
-      "train_args.finetune.anchor (the L2-SP penalty toward the transferred "
-      "init state) is not implemented in V1; it lands as unit 2. Remove the "
-      "anchor key for a plain warm start")
+      "train_args.finetune.anchor is not available. Remove the anchor key "
+      "to run unanchored fine-tuning")
   # the finetune block's own whitelist.
   unknown = set(ft) - set(_FINETUNE_KEYS)
   if unknown:
@@ -345,7 +345,7 @@ def load_source(root, device, allow_factored=False):
     # a missing attr is not the same failure as a wrong value: the training
     # drivers stamp rescale in the run-identity attrs, but an artifact saved
     # by another path (e.g. a check script) may predate the stamp. No
-    # fallback to "none" here -- an artifact that does not record its rescale
+    # fallback to "none" here. An artifact that does not record its rescale
     # is ambiguous (the never-trust-defaults rule).
     raise ValueError(
       "finetune source records no 'rescale' root attr in " + root + ".h5; "
@@ -440,9 +440,12 @@ def _extend_param_geometry(src_pgeom, names_n, cov, train_mean, device):
 
   Given a source ParamGeometry and the new (superset) parameter names, the
   new covariance matrix, and the staged-train mean, build a plain
-  ParamGeometry whose shared-parameter encoding is bit-identical to the
-  source's, with the extras whitened on their marginal block and appended as
-  the last encoded coordinates. Reused for a factored base's inner pg_keep.
+  ParamGeometry that copies the source parameters' center, rotation, and
+  scale into the first encoded block. The extra parameters are whitened on
+  their marginal covariance and appended as the final encoded coordinates.
+  Floating-point equality of a model prediction is checked later by
+  ``build_warm_start``. This helper is also reused for a factored base's
+  inner ``pg_keep``.
 
     source geometry (n_s params)          new names (n_n params)
        │  center_s / evecs_s=V / sqrt_ev_s=s     │  names_n, cov (n_n x n_n)

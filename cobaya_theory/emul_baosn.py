@@ -1,9 +1,12 @@
 """Thin cobaya Theory adapter: background H(z) + distances from saved
 grid emulators (the BAOSN family).
 
-This is a shell over emulator.inference.EmulatorPredictor and
-emulator.background — it defines no nn.Module and re-derives no physics.
-Two saved grid artifacts serve everything (the two-regime design):
+This adapter contains no trainable network. ``EmulatorPredictor`` owns the
+learned Hubble-rate or distance prediction. This file owns the deterministic
+background calculation applied afterward: it forms ``c/H(z)``, integrates
+the comoving radial distance, and uses the flat-universe relations for
+angular-diameter and luminosity distances. Two saved grid artifacts provide
+the two redshift regimes:
 
     the "Hubble" artifact          H(z) on the SN-range grid [~0, 3]
        │  emulator/background.py   c/H cubic onto the doubled grid,

@@ -1,30 +1,27 @@
 """Output geometry for CMB power-spectrum emulators (TT / TE / EE / pp).
 
-The output side of a CMB-spectrum emulator: maps one spectrum's C_ell
-vector (over l = 2..ellmax) to the whitened target the network predicts
-(encode) and back (decode). CmbDiagonalGeometry is diagonal by
-construction: the covariance is the analytic cosmic-variance diagonal of
-a stored fiducial C_ell, so there is no rotation and no dense matrix. It
-whitens each multipole by its own cosmic-variance scale sigma_l, so the
-whitened target is in units of the fiducial error bar and the plain
-sum-of-squares chi2 (losses/cmb.py) is exactly the cosmic-variance chi2.
+This geometry maps one spectrum row on a stored multipole grid to the
+standardized target predicted by the network. The covariance product supplies
+one positive scale ``sigma_l`` for each multipole. The geometry subtracts the
+training mean and divides by that scale. It performs no rotation and stores no
+dense inverse covariance.
 
-Unlike the cosmolike data-vector geometries this path never imports
-cosmolike and stores only per-l vectors (center, sigma, fiducial C_ell),
-not the O(n_ell^2) eigenbasis and inverse covariance a dense whitening
-would need. Every multipole is kept, so dest_idx / total_size are the
-trivial identity (arange(n_ell), n_ell), present only so the training
-loop's output-width surface is unchanged. The imposed amplitude law
-(losses/cmb.py) is applied by the chi2 wrapper, not here; this geometry
-is the plain center-and-scale.
+The meaning of ``sigma_l`` depends on the spectrum and on the covariance
+producer. TT, TE, EE, and pp do not share one variance formula. The geometry
+therefore treats the stored scale as an input fact rather than re-deriving it.
+Dividing by ``sigma_l`` expresses a residual in units of the stored fiducial
+error scale. It does not guarantee empirical unit variance, equal physical
+importance, or uniform learning difficulty across multipoles.
 
-PS: to whiten here is to divide each multipole's residual by its
-marginal (cosmic-variance) error bar sigma_l, so every multipole is
-unit-variance and equally weighted (the diagonal analogue of the
-data-vector geometries' eigenbasis whiten). cosmic variance is the
-irreducible sample variance of a full-sky C_ell estimate,
-Var(C_l) proportional to C_l^2 / (2l+1); sigma_l is its square root.
-encode = center then scale each multipole; decode is its exact inverse.
+The imposed amplitude law is owned by ``losses/cmb.py``. For a row-dependent
+factor ``f``, the complete path is raw ``C_l`` -> ``f C_l`` -> subtract the
+training mean -> divide by ``sigma_l`` -> network residual. The loss divides
+the residual by ``f`` before reporting the physical diagonal score. Decoding
+reverses the standardization and divides by ``f`` to return raw ``C_l``.
+
+Every multipole is kept. ``dest_idx`` is ``arange(n_ell)`` and ``total_size``
+is ``n_ell`` so the shared training loop can obtain the output width through
+the same interface used by masked data-vector geometries.
 
     dv (B, n_ell)           one spectrum's raw C_ell, l = 2..ellmax
        │  squeeze            every l kept (dest_idx = arange, a copy)
@@ -62,11 +59,10 @@ class CmbDiagonalGeometry:
     - spectrum: which spectrum this is ("tt" / "te" / "ee" / "pp").
     - ell: the multipole grid l = 2..ellmax (integer, ascending).
     - center: the per-multipole training mean (the target zero-point).
-    - sigma: the per-multipole cosmic-variance scale (the whitening
-      unit; strictly positive), sigma_l = C_fid_l * sqrt(2/(2l+1)) =
-      1 / sqrt(cinv_l), so whiten and the cinv the chi2 reports are
-      inverse-consistent and the plain sum-of-squares chi2 is the
-      cosmic-variance chi2.
+    - sigma: the positive per-multipole scale read from the covariance
+      product. The precise variance expression belongs to that producer and
+      differs among TT, TE, EE, and pp. The plain sum of squared standardized
+      residuals is the diagonal score defined by these stored scales.
     - fiducial_cl: the stored fiducial C_ell the cosmic-variance
       diagonal was built from (persisted so the units convention and
       the diagonal are reproducible, never a default).

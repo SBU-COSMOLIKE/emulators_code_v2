@@ -1,4 +1,4 @@
-"""The EmulatorExperiment: one configured cosmic-shear emulator run.
+"""The EmulatorExperiment: one configured observable-emulator run.
 
 This class factors the driver setup boilerplate (parse the config, pick the
 device, stage the sources, build the parameter + data-vector geometries and
@@ -72,9 +72,10 @@ per-family choice is made once, at the validate stage:
        │                     resolves the model class. See the decision
        │                     table below for which validator fires.
        ▼
-    stage / pool the data    stage_train + stage_val load the dumps,
-       │                     apply the physics cuts, keep n_train / n_val
-       │                     rows, and build the on-device loaders.
+    stage / pool the data    stage_train + stage_val load or map the NumPy
+       │                     arrays, apply the physics cuts, and retain the
+       │                     selected row coordinates. Loaders are built
+       │                     later, when training starts.
        ▼
     build geometry + model   build_geometry builds the parameter geometry
        │                     (whiten in), the output geometry (whiten
@@ -86,9 +87,11 @@ per-family choice is made once, at the validate stage:
        │                     one- or two-phase). run() ends here.
        ▼
     save                     the driver calls save_emulator after run()
-                             returns (the .h5 weights + the .emul recipe);
-                             run() itself leaves the model + histories on
-                             the instance.
+                             returns. The .emul file holds the CPU model
+                             state_dict. The .h5 file holds the recipe,
+                             geometries, scientific facts, configuration,
+                             and histories. run() itself leaves the model
+                             and histories on the instance.
 
 (legend: each box is one stage of the run, top to bottom; the text beside
 each box names the method or step that carries it out. The symbols: │ is a
@@ -1719,8 +1722,7 @@ def validate_sweep_paths(paths, two_phase):
 
 class EmulatorExperiment:
   """
-  Configuration + environment for one single-network cosmic-shear (xi)
-  emulator, reusable across a single run and across sweeps.
+  Configuration and environment for one emulator run or parameter sweep.
 
   The constructor builds only the cheap, config-derived state (device,
   parameter names, the quiet-gated logger); the staged data and geometry
@@ -2908,9 +2910,9 @@ class EmulatorExperiment:
       self.log(self._activation_notice)
     # the model class describes itself: only the sub-blocks this
     # architecture consumes (its own head, never the inactive cnn: / trf:).
-    # A finetune run has no model: block (forbidden -- the architecture is
-    # inherited), so it prints the source recipe's constructor kwargs
-    # instead: the consumed view of the inherited spec.
+    # A finetune run has no model: block. The architecture is inherited, so
+    # this prints the source recipe's constructor kwargs instead: the
+    # consumed view of the inherited spec.
     if self._finetune is not None:
       self.log("model spec: inherited from the source recipe  "
                f"{self._finetune.recipe.get('kwargs', {})}")
@@ -3252,9 +3254,12 @@ class EmulatorExperiment:
     """
     Stage the validation source (cached as self.val_set).
 
-    Seeded from data["split_seed"] like the train source (the val file
-    differs, so the same seed gives an independent selection). Carries no
-    means, geometry centers come from the training source only.
+    Seeded from data["split_seed"] like the training source. This seed
+    permutes and selects rows within the validation file. A different file
+    name does not prove that its cosmologies are disjoint from the training
+    cosmologies; disjointness requires a comparison of the physical rows.
+    The validation source carries no means because geometry centers come
+    from the training source only.
 
     Arguments:
       n_val = absolute number of validation rows to keep; None (default)

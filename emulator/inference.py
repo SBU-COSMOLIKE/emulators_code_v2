@@ -1,14 +1,32 @@
-"""Inference-time prediction on a saved emulator.
+"""Inference-time prediction from a saved emulator artifact pair.
 
-EmulatorPredictor is the in-package physics layer for running a trained
-emulator outside training: it wraps rebuild_emulator (schema v2, the h5
-alone) and turns a parameter dict into the physical cosmic-shear data
-vector by exactly the forward path training used -- encode with the saved
-ParamGeometry, the module forward, the factored-IA amplitude combine or the
-NPCE base recombine when the run used one, then decode with the saved
-DataVectorGeometry. The cobaya Theory adapter is a thin shell over this; all
-the prediction physics lives here, testable against the training stack and
-immune to code-default drift (the recipe + geometries come from the file).
+``EmulatorPredictor`` rebuilds one trained model from two required files.
+The ``.emul`` file contains the model's registered tensors. The ``.h5`` file
+contains the constructor recipe, geometries, scientific facts, configuration,
+and histories. Prediction then follows the same common prefix used during
+training: order the raw parameters, encode them, call the model, and apply the
+saved decoder. The final return value depends on the observable family:
+
+=====================  ======================================================
+family                 ``predict`` return
+=====================  ======================================================
+cosmic-shear vector    one physical NumPy vector, either the stored section
+                       or the full scattered 3x2pt layout
+scalar outputs         a dictionary from output name to Python float
+CMB spectrum           one NumPy vector of physical ``C_ell`` values on the
+                       stored multipole grid
+background grid        a dictionary containing ``z`` and the named physical
+                       function on that grid
+matter-power grid      a dictionary containing ``z``, ``k``, and the named
+                       law-space surface; the adapter applies the stored base
+=====================  ======================================================
+
+``torch.no_grad()`` disables gradient recording because inference does not
+update model weights. ``detach()`` removes a tensor from any gradient graph
+without changing its numerical values. ``cpu()`` places a tensor in CPU
+memory and copies only when a device move is required. ``numpy()`` exposes a
+CPU tensor as a NumPy array. These operations appear together at the return
+boundary because Cobaya and analysis scripts consume NumPy values.
 
 PS: whitened = rotated into the covariance eigenbasis and scaled to unit
 variance (the decorrelated space the network sees); encode = the geometry's
@@ -26,13 +44,13 @@ from .results import rebuild_emulator
 
 class EmulatorPredictor:
   """
-  Physical-data-vector predictor for a saved emulator (schema v2).
+  Physical-observable predictor for a saved schema-v2 emulator.
 
-  Built from rebuild_emulator(path_root, device): the module, the two saved
-  geometries, and the physics-branch metadata (ia / pce_base / pce_form) all
-  come from the h5, so nothing is re-declared here and a run predicts what
-  its training-side eval would. predict() maps a parameter dict (or an
-  ordered array in .names order) to the physical kept-entry data vector:
+  ``rebuild_emulator(path_root, device)`` reads both ``path_root.emul`` and
+  ``path_root.h5``. It returns the model, the two saved geometries, and the
+  branch metadata. Nothing in this constructor re-declares those saved facts.
+  The diagram below shows the cosmic-shear branch, where ``predict`` maps a
+  parameter dictionary or ordered array to a physical data vector:
 
       params (in .names order)
          │  theta = (1, n_param) raw physical parameters
@@ -47,7 +65,7 @@ class EmulatorPredictor:
          │                        NPCE:     (1, n_keep) refiner output
          │  _decode(pred, X)      plain:    geom.decode; factored: the
          │                        amplitude combine then geom.decode; NPCE:
-         │                        the base recombine then geom.decode -- the
+         │                        the base recombine, then geom.decode; the
          │                        exact training chi2fn.decode, reused not
          │                        re-derived
          ▼
@@ -70,7 +88,7 @@ class EmulatorPredictor:
   the amplitudes among .names feed the combine, never the network.)
 
   Authority chain (the never-trust-defaults rule, read side): .names IS the
-  saved ParamGeometry's stored names, in training order -- for a factored
+  saved ParamGeometry's stored names in training order. For a factored
   emulator the AmplitudeFactorGeometry's names already carry the IA
   amplitudes, so they join the required inputs automatically. The predictor
   asks the geometry; nobody keeps a second list. The kept-entry return shape
@@ -177,8 +195,8 @@ class EmulatorPredictor:
     # row on the stored multipole grid (a 1-D numpy array over .ell), so
     # skip the 3x2pt mask/section accounting a CmbDiagonalGeometry does
     # not have. The decoder is law-dispatched: the training chi2's decode
-    # (losses/cmb.py) multiplies the imposed amplitude law back, reused
-    # here not re-derived (the same single-sourcing as the dv branches).
+    # (losses/cmb.py) divides out the factor applied before encoding. The
+    # predictor reuses that decoder rather than copying the law equation.
     if self._cmb:
       self.spectrum       = self.geom.spectrum
       self.ell            = self.geom.ell
@@ -318,10 +336,11 @@ class EmulatorPredictor:
   def _build_cmb_decoder(self, law, as_name, tau_name, as_ref, tau_ref):
     """Pick the whitened-output -> physical-C_ell map for a CMB emulator.
 
-    Reconstructs the same loss object training used, purely for its
-    decode (the amplitude law multiplied back for "as_exp2tau_ref", the
-    plain un-whiten for "none"), so the law math keeps one definition
-    (losses/cmb.py). Mirrors _build_decoder for the data-vector kinds.
+    Reconstructs the same loss object training used, solely to reuse its
+    decode method. For ``as_exp2tau_ref``, decode divides out the factor
+    that encode applied. For ``none``, decode only reverses the geometry's
+    centering and scaling. The equation therefore has one owner in
+    ``losses/cmb.py``.
 
     Arguments:
       law      = the imposed amplitude-law name the artifact persisted
@@ -490,7 +509,7 @@ class EmulatorPredictor:
       entry per emulated output; the dv_return / section machinery
       does not apply. For a CMB spectrum emulator: a 1-D numpy array of
       physical C_ell on the stored multipole grid .ell (the
-      imposed amplitude law already multiplied back); dv_return does not
+      imposed amplitude law already reversed); dv_return does not
       apply. For a data-vector emulator: a 1-D numpy array.
       dv_return 'section' (the default): this emulator's own probe block(s),
       shape (section_size,); for a cosmic-shear emulator the xi block, the
@@ -529,10 +548,9 @@ class EmulatorPredictor:
       return {"z": self.z.detach().cpu().numpy(),
               "k": self.k.detach().cpu().numpy(),
               self.quantity: surface.reshape(nz, nk)}
-    # CMB spectrum emulator: decode multiplies the amplitude law
-    # back (law-dispatched at build time), returning the physical C_ell on
-    # the stored multipole grid .ell; no mask to unsqueeze through and no
-    # section to slice.
+    # CMB spectrum emulator: decode reverses the selected target law and
+    # returns physical C_ell on the stored multipole grid. This family has
+    # no mask to scatter through and no data-vector section to slice.
     if self._cmb:
       cl = self._decode(pred, x_enc)         # (1, n_ell) physical C_ell
       return cl[0].detach().cpu().numpy()

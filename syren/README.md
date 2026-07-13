@@ -1,50 +1,107 @@
-# syren/ — the vendored symbolic_pofk formulas
+# `syren/`: analytic matter-power base formulas
 
-The analytic matter-power-spectrum formulas the MPS emulators correct
-(the "syren" base): the network learns `log(P / P_base)` and the exact
-formula is multiplied back at inference. This folder pins the formula
-in-repo so the artifacts and their base can never drift apart under a
-package upgrade, and so nothing needs `pip install symbolic_pofk`.
+This directory contains the vendored `symbolic_pofk` formulas used by the
+matter-power-spectrum emulators. A matter power spectrum
+$P_{\rm lin}(k,z)$ describes the variance of the linear matter-density field
+as a function of wavenumber $k$ and redshift $z$. CoCoA SONIC stores it in
+$\mathrm{Mpc}^3$. The nonlinear boost
 
-## Provenance
+$$
+B(k,z) = \frac{P_{\rm nl}(k,z)}{P_{\rm lin}(k,z)}
+$$
 
-Copied 2026-07-11 from the symbolic_pofk bundle shipped with the
-legacy emulmps code (`emulators_code/emulmps/emulmps_emul/
-symbolic_pofk`) — the exact copy the legacy pipeline ran, including
-its local edits — originally from
-[DeaglanBartlett/symbolic_pofk](https://github.com/DeaglanBartlett/symbolic_pofk)
-(MIT license, kept verbatim in [LICENSE](LICENSE)). Papers:
-arXiv:2311.15865 (linear fit), arXiv:2402.17492 (syren-halofit),
-arXiv:2410.14623 (w0waCDM extension).
+is dimensionless. The word *base* means the deterministic analytic
+approximation that the neural network may correct.
 
-## What is here (only the functions we use, plus their file-mates)
+## The three target laws
 
-| file | the functions the pipeline calls |
+A target law defines the number formed from each raw training value before
+per-grid-point standardization. The natural logarithm is written `ln` below.
+The configured law is stored by name in the emulator artifact.
+
+| Target law | Allowed quantity | Law-space value $y$ | Reconstruction after the network |
+|---|---|---|---|
+| `none` | `pklin` or `boost` | The raw $P_{\rm lin}$ or raw $B$ | Use the decoded raw value directly. No base file is read. |
+| `syren_linear` | `pklin` only | $y=\ln(P_{\rm lin}/P_{\rm base})$ | $P_{\rm lin}=P_{\rm base}\exp(y)$ |
+| `syren_halofit` | `boost` only | $y=\ln(B/B_{\rm base})$ | First form $B_{\rm temp}=B_{\rm base}\exp(y)$. The MPS adapter then blends $B_{\rm temp}$ toward 1 on its low-$k$ transition. |
+
+Here $k$ is the comoving wavenumber in $\mathrm{Mpc}^{-1}$, $z$ is redshift,
+and $h=H_0/(100\,\mathrm{km\,s^{-1}\,Mpc^{-1}})$ is the reduced Hubble
+constant. The Syren functions use their documented internal $h$ conventions;
+`emulator/syren_base.py` owns those conversions.
+
+For either Syren law, the data generator writes a raw dump and its row-aligned
+`*_base` sibling. Training reads both files and forms the logarithmic ratio.
+Inference recomputes the same type of analytic base through
+`emulator/syren_base.py` and reverses the target law. Under `none`, the
+validator refuses base-file keys because no base participates.
+
+The network does not receive $y$ directly. At each $(z,k)$ coordinate,
+`Grid2DGeometry` stores the training mean $\mu$ and population standard
+deviation $s$, then forms
+
+$$
+t = \frac{y-\mu}{s}.
+$$
+
+The network predicts $t$. Decoding first recovers $y=t s+\mu$ and then
+applies the reconstruction in the table.
+
+**Numerical example.** Suppose one linear-power value is
+$P_{\rm lin}=1200\,\mathrm{Mpc}^3$ and the Syren base is
+$P_{\rm base}=1000\,\mathrm{Mpc}^3$. The law-space value is
+$y=\ln(1.2)\simeq0.1823$. If the training mean is $\mu=0.10$ and the standard
+deviation is $s=0.05$, the network target is
+$t=(0.1823-0.10)/0.05\simeq1.646$. Decoding gives $y\simeq0.1823$, and the
+adapter reconstructs $1000\exp(0.1823)\simeq1200\,\mathrm{Mpc}^3$.
+
+The boost law uses the same ratio. For example, $B=1.50$ and
+$B_{\rm base}=1.25$ also give $y=\ln(1.2)$. After reconstruction, the
+`syren_halofit` serving path applies its low-$k$ blend.
+
+## Scientific source and license
+
+The implementation is derived from
+[`DeaglanBartlett/symbolic_pofk`](https://github.com/DeaglanBartlett/symbolic_pofk)
+as carried by the legacy CoCoA `emulmps` bundle. That bundle includes local
+modifications that remain visible in the vendored files. The MIT license is
+stored in [`LICENSE`](LICENSE). The associated formula papers are
+[arXiv:2311.15865](https://arxiv.org/abs/2311.15865),
+[arXiv:2402.17492](https://arxiv.org/abs/2402.17492), and
+[arXiv:2410.14623](https://arxiv.org/abs/2410.14623).
+
+Keeping these files in the repository prevents an unreviewed package-manager
+upgrade from silently replacing the formulas. Vendoring does not by itself
+prove byte identity with an upstream revision. This repository does not carry
+an upstream source snapshot or an executable byte comparison, so this README
+makes no byte-for-byte claim.
+
+## What is here
+
+| file | functions used by the emulator pipeline |
 |---|---|
-| `linear.py` | `plin_emulated` (linear P(k), w0waCDM), `get_approximate_D`, `growth_correction_R`, `As_to_sigma8` |
-| `syrenhalofit.py` | `run_halofit_vec` (the nonlinear boost, `return_boost=True`) |
+| `linear.py` | `plin_emulated`, `get_approximate_D`, `growth_correction_R`, and `As_to_sigma8` |
+| `syrenhalofit.py` | `run_halofit_vec` with `return_boost=True` |
 
-The one repo consumer is `emulator/syren_base.py` (`base_pklin` /
-`base_boost` / `syren_params_from`) — the dump generator, the
-`emul_mps` adapter, and the gates all go through it, never through
-this package directly.
+The repository consumer is `emulator/syren_base.py`. The dump generator,
+`emul_mps` adapter, and gates call that owner instead of calling this package
+directly.
 
-## Deviations from the source files (import lines only)
+## Local packaging choices
 
-Function bodies are byte-verbatim (AST-verified in the vendoring
-probe). Three import-line deviations:
+The current files have these directly observable import properties:
 
-1. `linear.py`: `import warnings` dropped — the name is never used in
-   the file.
-2. `linear.py`: `import scipy.integrate` dropped — never used either;
-   dropping it makes the package numpy-only, importable everywhere the
-   emulator package is.
-3. `syrenhalofit.py`: `import symbolic_pofk.linear as linear` →
-   `import syren.linear as linear` (the internal import retargeted at
-   this package).
+- `linear.py` imports NumPy. It does not import `warnings` or
+  `scipy.integrate`.
+- `syrenhalofit.py` imports the local module as
+  `import syren.linear as linear`.
 
-Each file also carries a short provenance header comment. Nothing
-else changed. If the upstream bundle is ever updated, re-vendor
-deliberately and retrain — the artifacts record the base they were
-trained against by construction (the generator writes the base dumps
-beside the raw dumps).
+`linear.py` also contains local formula modifications inherited from the
+CoCoA bundle. They are part of the scientific implementation used here, not
+packaging-only changes.
+
+Changing either formula changes the analytic base used to construct future
+training targets and to serve predictions. Treat such a change as a
+scientific model change. An emulator trained against a different base
+implementation must not be served with the changed formulas without
+retraining.

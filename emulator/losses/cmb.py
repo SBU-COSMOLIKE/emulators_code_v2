@@ -1,41 +1,29 @@
-"""Chi2 losses and the imposed-amplitude-law registry for CMB spectra.
+"""Diagonal scores and target-law transforms for CMB spectra.
 
-The CMB sibling of losses/core.py's CosmolikeChi2 and losses/scalar.py's
-ScalarChi2: it wraps a CmbDiagonalGeometry and exposes the exact loop
-interface (encode / decode / a per-sample chi2 / loss), so the shared
-training machinery (trimming, the focal hardness weight, the sqrt / berhu
-ladder, EMA, the L2-SP anchor) composes unchanged. Because the geometry
-whitens each multipole by its cosmic-variance scale, the per-sample chi2
-is the plain sum of squared whitened residuals, and that already is the
-cosmic-variance chi2 (no covariance to contract, no mask to unsqueeze
-through).
+The classes in this file provide the interface used by the shared training
+loop: encode a raw target, decode a network output, compute one score per
+cosmology, and reduce those scores to a training objective. The wrapped
+``CmbDiagonalGeometry`` standardizes each multipole with the positive scale
+stored in the covariance product. The plain score is the sum of squared
+standardized residuals over the multipoles.
 
-Two laws share this file. The "none" law (CmbDiagonalChi2) is the plain
-diagonal chi2: the network learns the raw C_ell shape directly. The
-"as_exp2tau_ref" law (CmbFactoredChi2) imposes the primary amplitude
-scaling rather than learning it: the target the network sees is the
-amplitude-rescaled spectrum
-target' = C_ell * (A_s_ref / A_s) * exp(2 (tau - tau_ref)), and the
-decode multiplies the law back so the emulator returns physical C_ell.
-A_s and tau are read from named input columns, measured against the
-persisted fiducial (A_s_ref, tau_ref) so the factor is a dimensionless
-order-one number (exactly 1 at the fiducial) rather than the retired
-raw exp(2 tau)/A_s ~ 5e8 that wrecked the float32 conditioning (the
-factored-IA philosophy: an exactly-known scaling is imposed in closed
-form, not fit, so only the shape is learned and the amplitude
-generalizes for free). AMPLITUDE_LAWS is the small registry (persisted
-by name in the artifact, never a code default); make_cmb_chi2 builds the
-right loss and refuses the retired law name.
+The ``none`` law applies no analytic amplitude transform. The
+``as_exp2tau_ref`` law multiplies each raw spectrum by
 
-PS: a whitened residual is (pred - target) after each multipole has been
-put in units of its cosmic-variance error bar (see geometries.cmb's PS);
-its square summed over the multipoles is the per-sample chi2 this loss
-reduces. "The loop interface" is the small set of methods the training
-loop calls on the loss object: encode (raw target -> network space),
-decode (its inverse), chi2 (per-sample metric), and loss (the scalar
-objective). needs_params (True only for as_exp2tau_ref) is the flag the
-loop reads to decide whether to hand the loss the whitened input params
-(the law reads A_s / tau from them); it mirrors RescaledChi2's contract.
+``f = (A_s_ref / A_s) * exp(2 * (tau - tau_ref))``
+
+before centering and standardization. This removes the dominant primary-CMB
+amplitude trend but does not make the remaining target independent of all
+amplitude information. ``A_s`` and ``tau`` are read from named parameter
+columns. The reference values are persisted scientific facts, and ``f`` is
+one at the reference cosmology.
+
+Encoding multiplies by ``f``. Decoding therefore divides by ``f`` to return
+physical ``C_l``. The standardized network residual also contains ``f``, so
+the score divides the residual by ``f`` before squaring. At a fixed physical
+error, the reported score is then independent of this chosen target
+transformation. ``AMPLITUDE_LAWS`` maps the stored law name to its class, and
+``make_cmb_chi2`` constructs the selected implementation.
 """
 
 import math
@@ -256,7 +244,7 @@ class CmbDiagonalChi2(CosmolikeChi2):
     """
     return pred - target
 
-  # Executed metric: a plain sum of n_ell squared whitened residuals -- a
+  # Executed metric: a plain sum of n_ell squared whitened residuals. A
   # length-n_ell (= kept width) diagonal reduction, the SAME depth as the
   # base dense r^T Cinv r. So the chi2-domain band's per-row term count
   # (_chi2_n_terms = the kept width w) is inherited from CosmolikeChi2
@@ -300,8 +288,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
   """
   Diagonal chi2 with the imposed amplitude law (the "as_exp2tau_ref" law).
 
-  The network learns the SHAPE of the spectrum, not its primary
-  amplitude: the target it sees is the amplitude-rescaled spectrum
+  The target presented to the network is the amplitude-rescaled spectrum
 
       target' = C_ell * (A_s_ref / A_s) * exp(2 (tau - tau_ref))
 
@@ -309,19 +296,18 @@ class CmbFactoredChi2(CmbDiagonalChi2):
   multiplied into every multipole (A_s and tau are the same for all l of
   one cosmology). Measuring against the persisted fiducial (A_s_ref,
   tau_ref) makes f a dimensionless order-one number, exactly 1 at the
-  fiducial, so the encoded target keeps A_s_ref-scale conditioning
-  instead of the retired raw exp(2 tau)/A_s ~ 5e8. encode
-  bakes f into the target before the geometry centers and whitens it;
+  fiducial. encode bakes f into the target before the geometry centers it
+  and divides by the stored per-multipole scale;
   decode divides f back out, so the emulator returns physical C_ell. The
   chi2 also DIVIDES the per-row factor back out of the whitened residual
   before summing, so the reported metric is the physical cosmic-variance
-  chi2 -- pred and target of one row share the same f, so a plain sum
+  chi2. Prediction and target for one row share the same f, so a plain sum
   would carry f^2 (not cancel) and bias delta-chi2, the threshold
   fractions, and selection by cosmology.
 
   This mirrors RescaledChi2 (losses/core.py) with a per-row scalar factor
   in place of the per-element analytic R, and, like RescaledChi2, divides
-  that factor out of the metric -- it is NOT neutral in the residual.
+  that factor out of the metric. It is NOT neutral in the residual.
   needs_params = True, so the training loop hands encode / decode /
   chi2 / loss the whitened input params; _factor decodes them to physical
   through the param geometry and reads A_s / tau by column. Build by
@@ -403,10 +389,9 @@ class CmbFactoredChi2(CmbDiagonalChi2):
 
         f = (A_s_ref / A_s) * exp(2 (tau - tau_ref))
 
-    which is exactly 1 at the persisted fiducial (as_ref, tau_ref), so the
-    encoded target keeps A_s_ref-scale conditioning instead of the retired
-    raw exp(2 tau)/A_s (~5e8 at fiducial). The factor is the same for every
-    multipole of one cosmology, returned as a column to broadcast.
+    which is exactly 1 at the persisted fiducial (as_ref, tau_ref). The
+    factor is the same for every multipole of one cosmology and is returned
+    as a column so Torch broadcasts it across the multipole axis.
 
     Arguments:
       params_whitened = (B, n_param) whitened model inputs (the tensor the
@@ -461,11 +446,11 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     encode multiplies the spectrum by the per-row amplitude factor f before
     whitening, so the whitened residual pred - target is f * (the physical
     whitened residual). A plain sum of its squares would therefore report
-    f^2 * chi2_physical -- and since f = f(A_s, tau) varies by cosmology,
+    f^2 * chi2_physical. Since f = f(A_s, tau) varies by cosmology,
     that biases delta-chi2, every threshold fraction, and best-epoch
-    selection toward small-f cosmologies at a FIXED physical error (
-    the old "cancels in the residual" claim was false -- pred and target of
-    one row share the same f, so it does not cancel, it squares). This
+    selection toward small-f cosmologies at a fixed physical error.
+    Prediction and target for one row share the same f, so subtracting them
+    leaves f in the residual and squaring produces f^2. This method
     DIVIDES the factor back out of the residual before summing, so the
     metric is the cosmic-variance chi2 of the physical spectra, independent
     of (A_s, tau) at a fixed physical error.
@@ -474,7 +459,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
       pred            = (B, n_ell) network output, whitened space.
       target          = (B, n_ell) whitened target (holds the factor).
       params_whitened = (B, n_param) whitened inputs; the amplitude factor
-                        is read from them (REQUIRED -- the metric cannot be
+                        is read from them (REQUIRED because the metric cannot be
                         computed without it). The eval path passes it
                         explicitly; the loss reduction, which calls chi2
                         without params, reads the value loss stashed.
@@ -489,7 +474,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
         "CmbFactoredChi2.chi2 requires params_whitened: the amplitude "
         "factor f divides the whitened residual to recover the physical "
         "metric (a plain sum would report f^2 * chi2_physical), so the chi2 "
-        "cannot be computed without the parameters -- pass params_whitened, "
+        "cannot be computed without the parameters. Pass params_whitened, "
         "or call through loss(), which stashes them.")
     r = (pred - target) / self._factor(p)
     return (r * r).sum(dim=1)
@@ -498,7 +483,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     """The factor-corrected whitened residual (pred - target) / f.
 
     The roughness penalty must see the PHYSICAL residual, not the
-    f-scaled one -- without the division the penalty would carry f^2 like
+    f-scaled one. Without the division the penalty would carry f^2 like
     the uncorrected chi2 did, so it would depend on (A_s, tau) at a fixed
     physical roughness. Reads the parameters loss stashed (the
     roughness term runs only inside loss, after the stash).
@@ -511,8 +496,8 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     The amplitude factor is NOT neutral in the metric: the chi2
     divides it back out of the residual, and the roughness penalty (when
     present) measures the same factor-corrected residual. loss stashes
-    params_whitened so both -- the chi2 the reduction calls without params,
-    and _penalty_residual -- can read it, then forwards the reduction
+    params_whitened so both consumers can read it: the chi2 that the reduction
+    calls without params and _penalty_residual. It then forwards the reduction
     controls positionally.
 
     Arguments:

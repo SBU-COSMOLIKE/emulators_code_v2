@@ -2079,3 +2079,84 @@ in-flight census-core remainder.  Queue 2 remains closed until the remainder
 and that follow-up are green.  At this adjudication the series stands at
 `25M-01` through `25M-35`, with the single retired tombstone `25M-07` and no
 unreconciled chat-only finding.
+
+## Red Team implementation record: D2 factual increment
+
+This increment implements the collision-safe factual and teaching corrections
+transferred to the Red Team under the USER REASSIGNMENT.  Architect acceptance
+is still required; this record is implementation evidence, not self-
+certification.
+
+The public-documentation changes are:
+
+- the root README uses the user-defined SONIC expansion, describes the actual
+  bounded staging and artifact/device behavior, and distinguishes the common
+  per-row score interface from each family's different scientific metric;
+- the dense-layer and residual-block chapter now distinguishes dimension-
+  changing projections from fixed-width residual blocks and shows the executed
+  order: second linear, skip addition, final normalization, final activation;
+- warm-start prose distinguishes fine-tuning's numerical parity check from
+  transfer's bitwise check and explains the optional anchor as a decoupled
+  pull toward saved weights, not as part of the scientific loss;
+- the PCE text defines the finite Legendre-polynomial base and its neural
+  residual refiner without calling the base a neural trunk;
+- the CMB chapter has separate spectrum-generation and covariance-generation
+  branches, spectrum-specific covariance equations, the actual amplitude-law
+  transform, the twice-applied roughness operator, and the narrow units served
+  by the current adapter.  Run history and internal ledger language are
+  absent;
+- the matter-power chapter distinguishes the three target laws and states that
+  Syren base sidecars are conditional on `write_syren_base`;
+- `emulator/README.md` now teaches the five family-specific score meanings,
+  current dependencies, producer/consumer ownership, conditional Syren base
+  files, CPU-normalized artifacts, and current architecture scope; and
+- `syren/README.md` defines its inputs, outputs, units, three target laws, and
+  present vendoring relationship without claiming byte identity or recounting
+  development history.
+
+The in-file documentation changes name tensor shapes, ownership boundaries,
+copy/view behavior, device and dtype transitions, state-dictionary meaning,
+active-source coordinates, CMB factor directions, and PCE mechanics in the
+Python voice defined by `user-didactics-and-python-voice.md`.  Executable AST
+structure is unchanged.  Four files also receive punctuation or a clearer
+current refusal message in user-facing exception strings:
+`emulator/losses/cmb.py`, `emulator/results.py`, `emulator/training.py`, and
+`emulator/warmstart.py`.
+
+### Deliberate holds and later owners
+
+DIDACTICS-79 is **not claimed closed** in this increment.  The old generator
+command was false: it omitted required arguments, used an invalid boundary,
+and named project files absent from this checkout.  The invalid command is
+removed, and the invocation choices now state that `--unif` and `--seed` are
+required and that `--boundary`, when supplied, is interior.  No replacement
+command is printed because no shipped minimal generator configuration can be
+executed in the available environment.  The command, minimal per-family YAML,
+and rank/worker/checkpoint teaching remain open under DIDACTICS-79; the
+executed-before-printed rule forbids inventing an example.
+
+D1 navigation prose, the cohesive current-state visits that remove remaining
+README diary language, gates/check teaching after D4+D5, and lane-3 protocol
+prose remain with their named later increments.  This bounded factual landing
+does not claim those surfaces.
+
+### Evidence collected before Architect audit
+
+- `python3 -m compileall -q emulator cobaya_theory syren
+  compute_data_vectors gates/checks` completed successfully;
+- `PYTHONPATH=. python3 gates/checks/board_selftest.py` completed with its
+  all-pass verdict;
+- a Python AST comparison found no non-string executable change in any edited
+  Python file;
+- `git diff --check` reported no whitespace errors;
+- Markdown fence, math-delimiter, table-column, relative-file-link, and local-
+  anchor scans found no unresolved item after the dense-layer anchor repair;
+- an untruncated scan found no retired SONIC expansion; and
+- the generator parser was executed in isolation: valid explicit `--unif 1`
+  and `--seed 17` values were retained, while omission of either required
+  option returned the parser's error status.  This parser proof does not stand
+  in for the still-open end-to-end DIDACTICS-79 command.
+
+The remaining history-vocabulary candidates in the four READMEs are
+pre-existing and belong to the later current-state file visits.  They are not
+silently blessed by this increment.

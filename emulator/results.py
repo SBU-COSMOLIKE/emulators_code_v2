@@ -8,9 +8,10 @@ files: <root>.emul, the model weights (a torch state_dict, cpu tensors),
 and <root>.h5, everything inference or a paper trail needs (both
 whitening geometries, the training histories, and the full config).
 
-PS: state_dict = torch's name -> tensor mapping of a model's learnable
-parameters and buffers; whitening = the center/rotate/scale transform the
-geometries apply to parameters (input) and data vectors (output).
+PS: ``state_dict`` is PyTorch's name-to-tensor mapping for every registered
+parameter, including frozen parameters, and every persistent registered
+buffer. It is not the list of tensors that an optimizer updates. Whitening is
+the center, rotation, and scaling transform applied by the geometries.
 """
 
 import os
@@ -145,11 +146,13 @@ def save_emulator(path_root,
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
-  The .emul holds only the model weights: torch.save of the
-  state_dict with every tensor moved to cpu, so it loads on any
-  machine (a cuda-saved state needs the saving GPU visible). A
-  torch.compile'd model wraps the real one and prefixes every
-  state_dict key with "_orig_mod."; the prefix is stripped so the
+  The .emul holds only the model weights. Before ``torch.save``,
+  ``save_emulator`` detaches every state_dict tensor and moves it to
+  the CPU. Loading therefore does not require the accelerator used
+  during training. ``rebuild_emulator`` passes ``map_location=device``
+  to ``torch.load``; ``map_location`` selects the restored tensors'
+  destination device. A torch.compile'd model wraps the real one and
+  prefixes every state_dict key with "_orig_mod."; the prefix is stripped so the
   saved keys always match the plain architecture.
 
   The .h5 holds everything else, grouped:
@@ -253,8 +256,9 @@ def save_emulator(path_root,
       attrs entries, created,       | not read (provenance): run identity,
         torch_version, git_commit   |   timestamp, and build marks
     (legend: "<root>" = path_root; "cls" = a "module.QualName" string
-     naming the class to reconstruct; state_dict = torch's name -> tensor
-     map of a model's learnable parameters and buffers; _need / _read_group
+     naming the class to reconstruct; state_dict = PyTorch's name -> tensor
+     map of registered parameters, including frozen parameters, and
+     persistent registered buffers; _need / _read_group
      / _read_native_bool / _rebuild_geometry / _rebuild_model = the reader
      helpers defined inside rebuild_emulator; "->" = "feeds into".)
 
@@ -322,9 +326,9 @@ def save_emulator(path_root,
     # input whitening. param_geometry.state() (geometries.parameter.py):
     # the input-whitening tensors keyed exactly as from_state expects. The
     # group also records its own CLASS (materialized from the object's type
-    # at write time) so rebuild dispatches to the right from_state -- a
+    # at write time) so rebuild dispatches to the right from_state. A
     # factored run's AmplitudeFactorGeometry, a log run's LogParamGeometry,
-    # a plain run's ParamGeometry -- rather than hardcoding the base class
+    # a plain run's ParamGeometry, rather than hardcoding the base class
     # (the never-trust-defaults rule applied to class identity).
     pg_group = f.create_group("param_geometry")
     write_state(pg_group, param_geometry.state())
@@ -500,7 +504,7 @@ def _read_native_bool(attrs, key, *, default, where):
     where + ": the attribute " + repr(key) + " must be a native boolean, "
     "got " + repr(value) + " (type " + type(value).__name__ + "). HDF5 "
     "attributes are weakly typed, so a string or integer is refused rather "
-    "than coerced by truthiness -- the string 'False' would read as True and "
+    "than coerced by truthiness. The string 'False' would read as True and "
     "select the wrong branch. Re-save the artifact with a real boolean.")
 
 
@@ -595,7 +599,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
       raise KeyError(
         f"{path_root}.h5 {where} is missing the 'cls' class marker; it was "
         "saved before the geometry-class fix. Re-save the emulator (retrain, "
-        "or re-run save_emulator on the run) to add it -- rebuild_emulator "
+        "or re-run save_emulator on the run) to add it. rebuild_emulator "
         "never falls back to a base geometry class.")
     cls_path = st.pop("cls")
     mod, _, qual = cls_path.rpartition(".")
@@ -704,7 +708,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
           "recipe needs the geometry (a conv/TRF head): this artifact "
           "predates the bin-split persistence (the split was attached "
           "only at training time and never saved). Retrain, or re-run "
-          "save_emulator on a live run, to write it -- rebuild_emulator "
+          "save_emulator on a live run, to write it. rebuild_emulator "
           "never re-derives it (that would need ROOTDIR data files).")
       kwargs["geom"] = geom_for_needs
     m = cls(input_dim=_need(rc, "input_dim", "model_recipe"),

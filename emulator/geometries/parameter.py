@@ -23,11 +23,11 @@ is its exact inverse.
     x  (B, encoded_dim)      whitened model inputs
 
 (legend: B = batch rows; n_param = number of sampled parameters;
-encoded_dim = the model-input width, equal to n_param for the plain
-geometries, larger for the factored ones, which whiten everything
-except the IA amplitude(s) and append those raw at the end for the
-loss's closed-form combine. decode runs the arrows bottom-up, exactly
-inverting each step.)
+encoded_dim = the model-input width. It equals n_param for both the plain
+and factored geometries. Factoring changes the coordinate layout, not the
+width. For example, three inputs [p0, p1, A1] become two whitened
+non-amplitude coordinates followed by the raw A1 coordinate. decode runs
+the arrows bottom-up, exactly inverting each step.)
 """
 
 import numpy as np

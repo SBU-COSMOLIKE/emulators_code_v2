@@ -38,11 +38,12 @@ The regime ladder, per source:
      headroom factor (plan against 0.8 * budget, leaving ~20% for
      allocator slack and fragmentation), as in batches_per_load.)
 
-PS: a loader is a closure load(rows) -> tensor mapping global row indices
-to a ready-to-train batch on the compute device. It hides where the data
-lives (resident on the GPU, streamed from RAM, or read from a disk
-memmap), so the training loop just asks for rows and gets device tensors
-back, the same in every regime. Two loaders per source: load_C for
+PS: a loader is a closure ``load(rows) -> tensor``. Its row numbers address
+the active source array. For a compact RAM copy they are local coordinates
+inside that copy. For a disk-backed source they are original dump-row
+coordinates. The loader hides whether targets are resident on the GPU,
+streamed from RAM, or read from a disk memmap, so the training loop uses the
+same call in every regime. Two loaders per source: load_C for
 whitened param inputs, load_dv for encoded targets. whitened = rotated
 into the covariance eigenbasis and scaled to unit variance, so the
 components are decorrelated (the form the network sees). encoded = a data
@@ -219,7 +220,7 @@ def _build_loaders_one(device, C, dv, idx,
   """
   Build the two data loaders for one source, a train or val
   file, and decide where that source's data lives. Both take
-  global row indices into the full C/dv dump; a `slots` helper
+  row coordinates into the active C/dv arrays; a `slots` helper
   maps those to local positions in the compact resident subset
   (see below), so the rest of the pipeline is identical wherever
   the data ended up (see Returns for the four outputs). The
@@ -248,10 +249,11 @@ def _build_loaders_one(device, C, dv, idx,
 
   Arguments:
     device     = target device for the staged tensors.
-    C          = full param dump, (N, Ncosmo).
-    dv         = full dv dump, (N, Ndv); ndarray -> regime 2,
+    C          = active parameter array, (N, Ncosmo). It is either a
+                 compact RAM copy or the full disk-backed source.
+    dv         = active target array, (N, Ndv); ndarray -> regime 2,
                  np.memmap -> regime 3.
-    idx        = global row indices into C/dv to make loadable.
+    idx        = row coordinates into the active C/dv arrays.
     param_geometry = ParamGeometry; .encode whitens raw params.
     chi2fn     = CosmolikeChi2 or RescaledChi2 (output geom).
     model      = network; read only to size resident memory.
@@ -260,8 +262,8 @@ def _build_loaders_one(device, C, dv, idx,
     dv_len     = full dv length the chi2 unsqueezes to.
     CHUNK      = rows per block when pre-encoding (regime 1).
   Returns:
-    load_C  = callable: global rows -> whitened inputs.
-    load_dv = callable: global rows -> whitened targets.
+    load_C  = callable: active source rows -> whitened inputs.
+    load_dv = callable: active source rows -> whitened targets.
     load    = rows per chunk chosen for this regime.
     used    = GPU bytes this source made resident.
   """
@@ -290,7 +292,7 @@ def _build_loaders_one(device, C, dv, idx,
 
   # used_rows = the distinct rows this source loads. np.unique
   # drops duplicates (idx may name a row twice) and returns them
-  # sorted, so each row is staged once and in file order: what
+  # sorted, so each row is staged once and in active storage order: what
   # slots() assumes, and what makes a memmap read sequential.
   # n_used counts them.
   used_rows = np.unique(idx)
@@ -314,14 +316,13 @@ def _build_loaders_one(device, C, dv, idx,
   resident    = (model_bytes + cinv + enc_params)
 
   def slots(rows):
-    # Translate global row numbers into local positions in the
-    # compact resident subset. This run trains on only the
-    # N_train subset of the on-disk dump; the loaders staged
-    # those used rows into C_used / dv_used in sorted order, so a
-    # row's global index (position in the full dump) differs from
-    # its local index (position in the resident subset). used_rows
-    # is the sorted kept global indices, so a row's local index is
-    # where it sits inside used_rows. np.searchsorted gives each
+    # Translate active source-row numbers into local positions in the
+    # compact resident subset. The active source may itself be a compact
+    # RAM copy or the full disk-backed dump. The loaders stage its used
+    # rows into C_used / dv_used in sorted order, so a source coordinate
+    # can differ from its position in the resident subset. used_rows is
+    # the sorted set of active source coordinates, so a row's resident
+    # position is where it sits inside used_rows. np.searchsorted gives each
     # query's insertion index into the sorted array; since every
     # query row is itself in used_rows, that index is its row
     # index in C_used/dv_used.
@@ -399,18 +400,19 @@ def build_loaders(device, train_set, val_set, param_geometry,
                   dv_len=3000, CHUNK=1000):
   """
   Build the train and val loaders, return the data dict the
-  training loop and eval_val consume. Train and val live in
-  separate files (T and T/2); each is passed as a source dict
-  and gets its own loaders via _build_loaders_one (no shared
-  rows, no leakage). The same training-built param_geometry /
-  chi2fn whiten both sources.
+  training loop and eval_val consume. Train and validation are passed as
+  separate source dictionaries and receive separate loader closures through
+  _build_loaders_one. Separate file names do not prove that the files contain
+  different cosmologies; this function does not test physical-row
+  disjointness. The same training-built param_geometry and chi2fn transform
+  both sources.
 
   Arguments:
     device     = target device.
     train_set  = training source dict:
-                   "C"   full param dump (T file),
-                   "dv"  full dv dump (T file),
-                   "idx" global rows to train on (into C/dv).
+                   "C"   active parameter array,
+                   "dv"  active target array,
+                   "idx" row coordinates into those active arrays.
     val_set    = validation source dict, same three keys.
     param_geometry, chi2fn, model, bs, budget, dv_len, CHUNK
                = forwarded to _build_loaders_one (see there);

@@ -13,9 +13,11 @@ ia.py) are assembled from. Each piece sits as follows:
              (per-token unique MLPs = BinLinear)
 
 Affine is a learnable scalar scale and shift (the default ResBlock
-"norm" and the models' final layer). ResBlock is a width-preserving
-residual block (n dense layers, each with a norm and activation
-factory, skip added before the last). rescale_kernel_size shrinks
+"norm" and the models' final layer). ResBlock is width preserving:
+``(B, D) -> (B, D)``. Its learned branch ends with its final Linear.
+The skip is added after that Linear, and the final normalization and
+activation run after the addition. Rectangular input/output projections
+belong outside the residual block. rescale_kernel_size shrinks
 the conv heads' kernel as their depth grows, preserving a single
 block's receptive field. FiLMGenerator predicts the conv heads'
 optional per-channel, cosmology-dependent modulation (the film
@@ -534,8 +536,11 @@ class TRFBlock(nn.Module):
     standard transformer applies one shared MLP to every token.
     The unique weights specialize each token's correction and
     stand in for the positional encoding (see BinLinear).
-    shared_mlp=True restores the textbook shared MLP, the
-    ablation baseline isolating that deviation. Caveat: with the
+    shared_mlp=True shares this fixed-width MLP across tokens. A
+    textbook transformer often expands the hidden width before
+    projecting it back; this implementation keeps ``dim -> dim`` at
+    every MLP layer. The shared option is the ablation baseline for
+    token-specific weights. Caveat: with the
     MLP shared (and the attention maps always shared), nothing in
     the block tells the tokens apart structurally, so the head
     becomes permutation-equivariant over tokens, with no
@@ -578,10 +583,10 @@ class TRFBlock(nn.Module):
     act          = activation factory act(dim) -> module for the
                    MLP layers (the run's activation; defaults to
                    activation_fcn, the paper's H).
-    shared_mlp   = False (default): per-token unique MLPs
-                   (BinLinear). True: one MLP shared by every
-                   token (plain nn.Linear applied position-wise),
-                   the textbook block, see the caveat above.
+    shared_mlp   = False (default): per-token unique fixed-width MLPs
+                   (BinLinear). True: one fixed-width MLP shared by every
+                   token through plain nn.Linear applied position-wise.
+                   This changes weight sharing, not the hidden width.
 
   forward Arguments:
     x = input tensor of shape (B, G, dim); B = batch rows, G =
@@ -615,9 +620,9 @@ class TRFBlock(nn.Module):
     # MLP branch: pre-norm, n_mlp_blocks layers each dim -> dim (the
     # interior width is pinned to the token width, no width knob), each
     # its own activation instance. Per-token unique (BinLinear) by default;
-    # with shared_mlp one nn.Linear serves every token (a Linear on
-    # a (B, G, dim) tensor applies position-wise to the last axis,
-    # which is exactly the textbook transformer FFN).
+    # with shared_mlp one nn.Linear serves every token. A Linear on
+    # a (B, G, dim) tensor applies position-wise to the last axis.
+    # Every layer remains dim -> dim; there is no expansion projection.
     self.ln_mlp = nn.LayerNorm(normalized_shape=dim)
     lins, acts = [], []
     for _ in range(n_mlp_blocks):

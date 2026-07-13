@@ -1,10 +1,13 @@
 """Thin cobaya Theory adapter: matter power spectra from saved grid2d
 emulators (the MPS family — the EMUL2 hybrid-inference provider).
 
-This is a shell over emulator.inference.EmulatorPredictor and
-emulator.syren_base — it defines no nn.Module and re-derives no physics.
-Two saved grid2d artifacts serve the P(k, z) products cosmolike's hybrid
-mode (use_emulator: 2) consumes:
+This adapter contains no trainable network. ``EmulatorPredictor`` owns the
+learned prediction, while this file owns the deterministic reconstruction
+that turns two saved grid2d predictions into the matter-power products used
+by CosmoLike's hybrid mode. It evaluates the stored Syren base, forms
+``P_lin = exp(r_lin) P_base``, forms the nonlinear boost
+``B = exp(r_boost) B_base``, applies the low-k boost rule, computes
+``P_nl = B P_lin``, and provides sigma8. The two artifacts are:
 
     the "pklin" artifact              the "boost" artifact
     log(P_lin / P_syren) on the       log(B / B_syren-halofit), same
