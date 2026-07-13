@@ -6238,3 +6238,72 @@ only) + 53; recorded here so the transfer is on the ledger.
 increment 3 = per-gate migration in the Deliverable-C order (7 migrated ->
 in-process -> wrapper+child -> subprocess-driver last) with the `maps=` one-
 sentence rewrite + `home=` reconciliation per visit.
+
+## Queue-2 increment-1 audit (Fable, 2026-07-13): GO — audited PRE-commit, landed as d1896ce
+
+The Implementer delivered increment 1 uncommitted and asked for a
+commit; I audited the working tree BEFORE any commit existed (a
+strictly stronger ordering than the session's usual land-then-audit)
+and committed it myself on GO. 8 files, 467 insertions / 42
+deletions. The ruling walked as a checklist against the diff:
+
+- expect(aid=) records (aid, PASS/FAIL, detail), keeps raise-on-FAIL;
+  aid=None stays invisible, so the migration is rolling and the 33
+  evidence-less gates are untouched.
+- ctx.unavailable(aid, label, reason) is the explicit non-green
+  terminal; the reason travels into the log, and the docstring
+  teaches exactly ruling 6 + D1-ii.
+- _reconcile_evidence: declared-not-executed / executed-not-declared
+  / emitted-twice each red an otherwise-passing gate through the
+  pinned line, which appears VERBATIM with an additive parenthetical
+  taxonomy (declared-not-executed: ... ; emitted-twice: ...) --
+  RATIFIED as an enhancement, the fixed prefix intact. A FAILED gate
+  is left unreconciled (already red for a real reason).
+- Zero-executed guard present: n_pass == 0 reds with "a gate that
+  proved nothing may not PASS".
+- Pinned display in ALL THREE surfaces: the footer prints
+  "PASS (executed N/M; UNAVAILABLE K: <aids>)", verdict["evidence"]
+  persists the block, and the SHARED _state_detail (the 25M-28
+  helper) appends "[evidence: ...]" so --list and BOARD.md cannot
+  disagree with the log.
+- validate_evidence invariant (3): anchor fragment must equal the
+  aid with "." -> "-"; clear error message naming both.
+- All 7 foundation aids re-keyed to gate.id with leg names retained
+  (board-selftest.exit-truth, generator-seed.owned-rng,
+  cli-strict.strict-parse, family-first.family-owned,
+  stage-ram.both-copies, artifact-readback.typed-bool,
+  diagnostics-domain.score-boundary); all 7 note anchors renamed to
+  the exact transforms (5 notes); aid= threaded into each foundation
+  wrapper's rc==0 expect so every declared leg is EXECUTED --
+  reconciliation is coherent on the shipped board from day one.
+- Selftest arms EXCEED the ruled minimum: beyond the predicate arms
+  (clean control, declared-not-executed, emitted-twice,
+  executed-not-declared, mixed-passes, all-UNAVAILABLE-must-not-
+  PASS, non-transform anchor red + --list exit 2), the increment
+  adds REAL-RUNNER arms driving fabricated gates through
+  run_selection itself (mixed ends PASS with the persisted evidence
+  block; all-UNAVAILABLE ends FAIL; a silently-dropped leg reds) --
+  the probe-the-machinery law applied by the author.
+
+My own verification (not the filing's): compileall clean;
+PYTHONPATH=. python3 gates/run_board.py --list rc 0 (the validator
+green over the re-keyed board, so all 7 transforms resolve); board
+selftest ALL PASS; and a direct in-process tamper probe -- a
+fabricated gate declaring a RESOLVABLE but non-transform anchor --
+reds validate_evidence with the exact expected message (no tree
+mutation; the probe ran against the machinery, not through it).
+
+VERDICT: GO. Landed as d1896ce (Architect-committed, Opus
+co-authored). INCREMENT 2 (##AID manifests) FIRES NOW -- its landing
+is the pre-authorized transfer trigger (D6, 61-finiteness,
+D3-if-torch, D4 file-by-file).
+
+COMMIT-AUTHORITY NOTE for the user: the Implementer asked whether it
+may self-commit board-code landings to keep throughput up. That
+grant is the user's, not mine (branch commits are user-owned by
+default, with explicit time-boxed authorizations on record). Interim
+protocol used here -- audit-then-Architect-commit -- keeps increments
+moving without a new grant. My recommendation if speed matters: a
+time-boxed self-commit grant through the gauntlet (increments 2..n +
+D3/D4/D5), since every landing still gets my pre-merge audit before
+any merge to main.

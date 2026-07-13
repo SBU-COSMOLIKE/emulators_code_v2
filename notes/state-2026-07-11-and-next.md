@@ -2830,3 +2830,19 @@ Implementer on stakes+capability: queue-2 machinery + board.py,
 the artifact chain, units 8/96, the staging reopen. Critical path
 unchanged; the tail parallelizes. Spec: gates-and-board.md
 "THROUGHPUT REBALANCE".
+
+QUEUE-2 INCREMENT-1 AUDIT (2026-07-13, Fable): audited PRE-commit
+in the working tree, GO, landed as d1896ce (Architect-committed,
+Opus co-authored). Every ruled clause present: recorder +
+ctx.unavailable, reconciliation with the verbatim pinned line (an
+additive taxonomy suffix ratified), zero-executed guard, the pinned
+executed/UNAVAILABLE display shared across footer/--list/BOARD.md
+via _state_detail, invariant (3), 7/7 re-keys + 7/7 anchor
+transforms with aid= threaded so declared == executable. Selftest
+arms exceed the minimum (real-runner fabricated-gate legs). My own
+runs: compileall, --list rc 0, selftest ALL PASS, plus an
+in-process non-transform tamper probe that reds with the exact
+message. INCREMENT 2 FIRES; its landing is the transfer trigger.
+Commit-authority question routed to the user (recommend a
+time-boxed self-commit grant through the gauntlet). Spec:
+gates-and-board.md "Queue-2 increment-1 audit".
