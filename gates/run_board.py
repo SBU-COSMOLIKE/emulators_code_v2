@@ -1746,7 +1746,11 @@ def select_gates(args):
     chosen = []
     index = 0
     for gate in BOARD:
-      if index >= start and not gate.optional:
+      # the explicitly named start is always included (an optional start the
+      # command asked for by id is not silently dropped); every gate AFTER it
+      # keeps the default "skip optional" rule, so an unrelated later optional
+      # gate stays excluded (25M-25).
+      if index == start or (index > start and not gate.optional):
         chosen.append(gate)
       index = index + 1
     return chosen
@@ -2139,6 +2143,27 @@ def main(argv=None):
       print("  - " + line)
     return 2
 
+  # --list and --check are STANDALONE actions: exactly one runs per invocation.
+  # Naming both is a usage error, never a silent precedence that runs one and
+  # drops the other (argparse cannot express this action pair as one mutually-
+  # exclusive group).
+  if args.list and args.check:
+    print("error: --list and --check are separate actions; name only one")
+    return 2
+
+  # validate every requested gate id (selection AND force-rerun) against the
+  # registry BEFORE any action mode returns: an unknown id is a usage error with
+  # a nonzero exit, never a warning followed by a successful run of a smaller
+  # (or empty) surface than the command names. An action mode (--list / --check)
+  # carrying an unknown or incompatible run control is therefore also a usage
+  # error, not a warning-then-list-then-exit-0 (25M-24).
+  try:
+    _reject_unknown_ids("--force-rerun", args.force_rerun)
+    selection = select_gates(args)
+  except SelectionError as bad:
+    print("error: " + str(bad))
+    return 2
+
   if args.list:
     cmd_list(status, cfg)
     return 0
@@ -2146,17 +2171,6 @@ def main(argv=None):
   if args.check:
     ok, _ = preflight(cfg)
     return 0 if ok else 1
-
-  # validate every requested gate id (selection AND force-rerun) against the
-  # registry before doing anything: an unknown id is a usage error with a
-  # nonzero exit, never a warning followed by a successful run of a smaller
-  # (or empty) surface than the command names.
-  try:
-    _reject_unknown_ids("--force-rerun", args.force_rerun)
-    selection = select_gates(args)
-  except SelectionError as bad:
-    print("error: " + str(bad))
-    return 2
 
   # an empty real-run selection is a failure, not a silent success: the
   # command was asked to test something and tested nothing. (--tier always

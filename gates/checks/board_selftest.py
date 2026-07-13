@@ -81,12 +81,13 @@ class _Interrupt(BaseException):
     run_selection does not catch it -- it propagates, leaving RUNNING."""
 
 
-def make_gate(gate_id, *, deps=(), behavior="pass"):
+def make_gate(gate_id, *, deps=(), behavior="pass", optional=False):
     """A fake board gate whose body records the call and passes / fails / dies.
 
     behavior "pass" -> runs and returns (PASS); "fail" -> raises GateFailure;
     "interrupt" -> raises _Interrupt (an uncaught interruption). CALLS[gate_id]
     counts executions, so a leg can prove a skipped or resumed gate never ran.
+    optional -> the Gate.optional flag (off the default sweep unless named).
     """
     def _run(ctx):
         CALLS[gate_id] = CALLS.get(gate_id, 0) + 1
@@ -96,7 +97,7 @@ def make_gate(gate_id, *, deps=(), behavior="pass"):
             raise _Interrupt("interrupted mid-gate")
 
     return Gate(id=gate_id, tier="backlog", home="selftest",
-                maps="selftest", run=_run, deps=tuple(deps))
+                maps="selftest", run=_run, deps=tuple(deps), optional=optional)
 
 
 # the byte content of the seed log a seeded current-PASS record cites. The
@@ -260,6 +261,51 @@ def check_selector_validation():
     except SystemExit as e:
         report("ambiguous --gate + --tier rejected (parser)",
                e.code != 0, "SystemExit " + str(e.code))
+
+    # 25M-24: action modes are STANDALONE and validate their run controls.
+    # These drive the REAL main() so main()'s action-mode ORDERING is under
+    # test -- the ordering the select_gates-only legs above never exercised
+    # (why board-selftest stayed green against this defect).
+    rc, _, _ = drive_main(["--list", "--gate", "nope"], gates, {})
+    report("--list with an unknown --gate id exits nonzero (25M-24)",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list", "--from", "nope"], gates, {})
+    report("--list with an unknown --from id exits nonzero",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list", "--force-rerun", "nope"], gates, {})
+    report("--list with an unknown --force-rerun id exits nonzero",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list", "--check"], gates, {})
+    report("--list --check (incompatible actions) exits nonzero",
+           rc == 2, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--list"], gates, {})
+    report("a clean --list still exits 0 (regression guard)",
+           rc == 0, "rc = " + str(rc))
+    rc, _, _ = drive_main(["--check"], gates, {})
+    report("a clean --check still exits 0 (regression guard)",
+           rc == 0, "rc = " + str(rc))
+
+    # 25M-25: --from an OPTIONAL start includes it FIRST; a later optional
+    # gate stays excluded. Pin the exact id list.
+    from_gates = [make_gate("head"), make_gate("opt-start", optional=True),
+                  make_gate("mid"), make_gate("opt-late", optional=True),
+                  make_gate("tail")]
+    saved = run_board.BOARD
+    try:
+        run_board.BOARD = from_gates
+        chosen = run_board.select_gates(_Args(from_gate="opt-start"))
+        report("--from an optional start: it is included and first (25M-25)",
+               [g.id for g in chosen] == ["opt-start", "mid", "tail"],
+               ", ".join(g.id for g in chosen))
+        chosen = run_board.select_gates(_Args(from_gate="mid"))
+        report("--from a non-optional start: unchanged tail (regression)",
+               [g.id for g in chosen] == ["mid", "tail"],
+               ", ".join(g.id for g in chosen))
+    finally:
+        run_board.BOARD = saved
+    rc, _, _ = drive_main(["--from", "opt-start", "--dry-run"], from_gates, {})
+    report("--from an optional start drives main() to a clean dry-run",
+           rc == 0, "rc = " + str(rc))
 
 
 # --------------------------------------------------------------------------
