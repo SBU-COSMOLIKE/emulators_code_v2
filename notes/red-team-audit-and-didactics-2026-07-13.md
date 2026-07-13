@@ -651,8 +651,9 @@ banner and boundary cases are covered.  Workstation certification remains a
 separate obligation; a Mac/CPU source audit does not promote the workstation
 lane to green.  Raw-log deletion, truncation, and byte-edit handling are also
 closed on the CPU path.  The executable/input manifest is only partly landed:
-phase 1 is on main, while phases 2--3 and their static-import reconciliation
-remain open.  The manifest documentation must continue to name its inability
+phases 1--2 are on main, while phase 3 and its final static-import
+reconciliation remain open.  The manifest documentation must continue to name
+its inability
 to discover dynamic imports and subprocess targets assembled from nonliteral
 strings.  Acceptance attacks a driver invoked through a variable, a dynamic
 import inside a newly declared root, and a waiver-table entry whose original
