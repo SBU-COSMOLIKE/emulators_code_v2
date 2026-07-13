@@ -1568,7 +1568,7 @@ def gate_diagnostics_domain(ctx):
   weight loading accepts) makes the floor go negative, and the > 0.2 test read
   a -1 floor as a PERFECT 0 -- an impossible "data-only floor" reported ideal.
   HOW: a CPU torch-only check drives screen_chi2 (the one shared helper in
-  losses/core.py: a valid positive score passes byte-identical, a within-band
+  the losses core module: a valid positive score passes byte-identical, a within-band
   roundoff negative normalizes to exact 0, and a materially negative / NaN /
   +-Inf score raises naming the boundary, the rows, the minimum, and the band;
   a loss without _chi2_n_terms falls back to the 1e-6 band floor; the term
@@ -1648,6 +1648,7 @@ BOARD = [
        home="training-stack",
        maps="102-108 (partition invariance rtol 1e-6 + timing); 202-300 script",
        run=gate_ge_c,
+       manifest=Manifest(code=(), inputs=()),
        needs=("torch", "gpu")),
   Gate(id="finite-contract",
        spec_code="FIN-A",
@@ -1797,6 +1798,7 @@ BOARD = [
        evidence=(Assertion("diag-a.score-boundary",
                            "training-stack.md#diag-a-diagnostics-domain"),),
        run=gate_diagnostics_domain,
+       manifest=Manifest(code=(), inputs=()),
        needs=("torch",)),
   Gate(id="berhu-loss",
        spec_code="GB-C",
@@ -1849,6 +1851,7 @@ BOARD = [
        maps="72-75 (synthetic four-window triangle: artist-list fills + band)",
        run=gate_gt_b,
        optional=True,
+       manifest=Manifest(code=(), inputs=()),
        needs=("torch",)),
 
   Gate(id="joint-training",
