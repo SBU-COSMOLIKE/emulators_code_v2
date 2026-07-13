@@ -1276,3 +1276,86 @@ hunks are present; if the other agent's uncommitted hunks are in the
 file, either hold the commit or record the shared authorship in the
 message. A whole-file `git add` in a shared worktree commits whatever
 is there, not what you wrote.
+
+## RT-2026-07-13-02..06 adjudication (Fable, 2026-07-13)
+
+All five findings independently verified by the Architect (code
+chains read end to end + live probes on the cocoa interpreter; the
+red team's curved-distance numbers reproduce EXACTLY under the sinh
+mapping at H0 = 70.0, Omega_k = 0.1). Verdicts and placement:
+
+- RT-02 CONFIRMED -> NEW UNIT 66 (public return-value ownership),
+  spec in artifacts-inference-warmstart.md. On CPU,
+  .detach().cpu().numpy() on the persistent axes shares storage
+  (inference.py:520, :529-530); Architect probe: a caller edit of the
+  returned array changed the tensor [0,1] -> [99,1]; the SAME code on
+  MPS copies, so public ownership semantics are device-dependent
+  today. Persistent-state views also leave through diagnostic
+  dictionaries (diagnostics.py :542, :585, :669, :765, :790, :901,
+  :917 — geometry sigma/ell/scale/z/k).
+- RT-03 CONFIRMED -> NEW queue 1d (board child environment
+  identity), contract below. The whole mechanism is in code:
+  rootdir() resolves config-override-else-$ROOTDIR
+  (run_board.py:406-420); sh() copies os.environ verbatim (:255) and
+  nothing injects ROOTDIR; run_check adds only PYTHONPATH
+  (:301-307); emulator/cocoa.py and the generators read $ROOTDIR
+  directly; the :526 comment states the assumption ("rootdir equals
+  $ROOTDIR") that nothing enforces. With a board_config rootdir
+  override B and shell $ROOTDIR=A, the board certifies B while every
+  child executes against A.
+- RT-04 CONFIRMED -> rider on the 1d landing. rc_w is captured at
+  board.py:705 and never consumed (single occurrence in the file);
+  the warning expectation (:712-717) is substring-only, so a
+  print-the-warning-then-crash run passes the leg.
+- RT-05 CONFIRMED (CRITICAL — wrong science) -> NEW UNIT 67, spec in
+  families-background-mps.md. The flat-only refusal keys on emulator
+  input names only (emul_baosn.py:161, "omk" in req) — a global
+  Cobaya omk that is not an emulator input bypasses it; the producer
+  stores chi as D_M with the flat assumption in a comment only
+  (dataset_generator_background.py:343-347); the untruncated omk
+  grep over compute_data_vectors shows the ONLY curvature
+  enforcement in the tree is compute_cmb_covariance's
+  LCDM_FIXED_ONLY — the background generator has none.
+- RT-06 CONFIRMED -> NEW UNIT 68, spec in
+  data-generation-and-cuts.md. Architect probe on the real Cobaya: a
+  parameter declared {prior: {min: 0, max: 1}} yields
+  model.info()['params'] WITHOUT a 'latex' key, and
+  generator_core.py:808 indexes it unconditionally — after sampling
+  finished and after the chain .txt was written. RULING on the fix:
+  the parameter NAME becomes the display label when latex is absent
+  (GetDist's own convention); presentation metadata is NOT promoted
+  to a required key and is NOT a refusal surface.
+
+### Queue 1d contract (RT-03 + the RT-04 rider): the executed child environment equals the certified root
+
+- ONE owner: sh() injects ROOTDIR = str(effective resolved rootdir)
+  into child_env for EVERY child. The landing includes the census
+  proving all child launches (drivers, check scripts, Cobaya
+  subprocesses, golden runs) route through that owner. If rootdir is
+  unresolved, the refusal fires BEFORE any child launch.
+- The injected value is recorded in the per-run log header alongside
+  the existing metadata — the recorded value IS the executed value,
+  never a restatement from another variable.
+- Legs (board_selftest, driving the REAL sh / run_driver /
+  run_check): inherited shell $ROOTDIR=A + board rootdir B -> the
+  child observes exactly B on driver, check, and Cobaya paths;
+  $ROOTDIR absent entirely -> the child still observes B; board
+  rootdir unresolved -> refusal before launch; a mutation arm
+  restoring the uninjected inherit-only environment must FAIL.
+- RT-04 rider, same landing: gate_gha_f's warning leg becomes
+  (rc_w == 0) AND the warning substring, with a board_selftest
+  fake-ctx warning-then-nonzero-rc arm that must fail the leg; the
+  invalid-license leg's required rc_l != 0 stays the separate
+  negative control.
+- Sequencing: after the in-flight 1b phases (same files), BEFORE
+  queue 2 and queue 5 — the workstation certification run must
+  execute with a trustworthy environment. Queue 5 now DEPENDS on 1d.
+
+Sequencing after this batch (amended, binding): 1b (in flight) ->
+1d(+RT-04) -> 2 -> 66 -> 5 -> rest of 6 -> 50 -> 52 -> 55 ->
+22(+20) -> 13(+01). Unit 67 rides the wave-4 background visit
+(15 + 58 + 62 + 67); unit 68 rides the generator-ingress cluster;
+64 and 65 unchanged. Guide-custody note: any Current-gap paragraphs
+these five defects deserve, and their later closure, are RED-TEAM
+edits only (conventions-and-workflow.md custody rule); the landings
+NAME affected paragraphs and stop there.

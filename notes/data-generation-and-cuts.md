@@ -1612,3 +1612,23 @@ Contract:
 5. Sequencing: AFTER the generator-ingress cluster (units 8, 17, 25,
    26, 28, 33) — those units edit the same files, and consolidating
    under them would churn every open spec.
+
+## UNIT 68 (RT-2026-07-13-06, 2026-07-13): optional latex metadata must not crash the run after sampling
+
+Finding (red team, CONFIRMED by Architect probe on the real Cobaya):
+a sampled parameter declared {prior: {min: 0, max: 1}} is valid and
+yields model.info()['params'] WITHOUT a 'latex' key —
+generator_core.py:808 evaluates param_info[x]['latex']
+unconditionally, raising KeyError AFTER sampling completed and after
+the chain .txt was written (:798-801). The run loses its
+.paramnames / .covmat epilogue to a missing presentation string.
+
+Contract (RULING): the parameter NAME becomes the GetDist display
+label when 'latex' is absent — GetDist's own convention;
+presentation metadata is NOT promoted to a required key and is NOT a
+refusal surface. Legs: a real-Cobaya no-latex control runs the whole
+epilogue and the emitted .paramnames is READ BACK by the getdist
+reader (loadMCSamples), not just written; a with-latex control stays
+byte-identical to today; the covmat epilogue executes in both.
+Sequencing: rides the generator-ingress cluster (same file,
+generator_core.py); no standalone landing.

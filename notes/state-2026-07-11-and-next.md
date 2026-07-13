@@ -1716,6 +1716,27 @@ never touch texnotes/emulator_code_guide.tex — updates it via the
 handoff loop (custody rule in conventions-and-workflow.md).
 The entry-2 sigma8 caveat above is CLOSED by this ruling.
 
+RT-2026-07-13-02..06 BATCH (2026-07-13): five red-team findings, ALL
+CONFIRMED by the Architect (code chains + cocoa-interpreter probes;
+the curved-distance numbers reproduce exactly at H0 = 70.0). RT-02
+(CPU predictions return storage-sharing views of persistent axes;
+ownership is device-dependent) -> NEW UNIT 66,
+artifacts-inference-warmstart.md. RT-03 (board children inherit the
+shell's $ROOTDIR while the board certifies its own resolved root: sh
+copies os.environ verbatim, nothing injects, cocoa.py reads the env)
+-> NEW queue 1d (one-owner inject-and-record + red legs),
+gates-and-board.md; queue 5 now DEPENDS on 1d. RT-04 (gate_gha_f
+captures rc_w and never asserts it — warning-then-crash passes) ->
+rider on the 1d landing. RT-05 (CRITICAL wrong science: flat-only
+bypassed by a global omk; the producer stores chi as D_M) -> NEW
+UNIT 67, rides the wave-4 background visit,
+families-background-mps.md. RT-06 (KeyError 'latex' after sampling)
+-> NEW UNIT 68 (name-as-label ruling), rides the ingress cluster,
+data-generation-and-cuts.md. Sequencing AMENDED: 1b -> 1d(+RT-04)
+-> 2 -> 66 -> 5 -> rest of 6 -> 50 -> 52 -> 55 -> 22(+20) ->
+13(+01). Spec: gates-and-board.md "RT-2026-07-13-02..06
+adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

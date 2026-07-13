@@ -1014,3 +1014,45 @@ default for an absent key, and refuses every string / integer (the truthy
 file and the schema; a source census confirms no artifact boolean is
 truthiness-coerced. The live save / forge / rebuild proof is
 workstation-owed.
+
+## UNIT 66 (RT-2026-07-13-02, 2026-07-13): public returned arrays own their storage — no mutable views of persistent state
+
+Finding (red team, CONFIRMED by Architect probe): on CPU,
+EmulatorPredictor.predict returns the PERSISTENT grid axes as
+storage-sharing views — self.z at inference.py:520, self.z + self.k
+at :529-530 (.detach().cpu().numpy(): cpu() is a no-op on a CPU
+tensor and numpy() shares storage). A caller edit of the returned
+NumPy array silently edits the predictor's stored scientific axis,
+and the NEXT prediction labels unchanged model values with corrupted
+coordinates (probe: [0,1] -> [99,1]). On CUDA/MPS, .cpu() copies —
+public ownership semantics are device-dependent today (MPS probe:
+the caller edit does NOT reach the tensor). The same pattern returns
+persistent geometry state through public diagnostic dictionaries:
+diagnostics.py :542 (geom.sigma), :585 (geom.ell), :669 (geom.scale),
+:765 + :790 (geom.z), :901 + :917 (geom.z, geom.k).
+
+Contract:
+
+1. Every array a public entry point returns that derives from
+   PERSISTENT model or geometry state is an owned copy — a caller
+   mutation can never reach predictor or geometry state. Freshly
+   computed per-call arrays (decode outputs and friends) have no
+   second owner and are NOT blanket-copied: the contract is
+   behavioral isolation, not defensive copying of everything.
+2. The census over emulator/inference.py + emulator/diagnostics.py
+   (the .numpy() sites above are the seed, not the bound) decides
+   copy-vs-keep per site and is recorded in the landing notes.
+3. Gate legs (CPU): predict once, mutate EVERY returned array,
+   predict again — the second result is byte-identical to a pristine
+   reference and the stored axes are unchanged; the same discipline
+   for one grid and one grid2d public diagnostic dictionary.
+   Device-parity leg: the same mutation-isolation assertions pass on
+   an MPS-built predictor (Mac-runnable; CUDA parity rides the
+   workstation board). Mutation arm: restoring a bare
+   storage-sharing .numpy() on a persistent axis must FAIL.
+4. Producer model math unchanged. In-repo consumers censused for
+   existing mutation of returned arrays — any hit is a live
+   corruption to REPORT, not silently absorb.
+5. Sequencing: standalone small unit — after the queue-2 evidence
+   rollout, before queue 5 (the workstation run certifies the fixed
+   surface).
