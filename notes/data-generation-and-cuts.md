@@ -1615,7 +1615,7 @@ gate to a stable, runner-validated anchor in its home note; the mechanism
 and the audited rollout are documented in `gates-and-board.md`. The two
 generation-side gates anchor here:
 
-<a id="gen-a-generator-seed"></a>
+<a id="generator-seed-owned-rng"></a>
 **generator-seed (GEN-A) — the dataset generator samples from an owned,
 recorded RNG.** A required integer `--seed` owns a numpy Generator threaded
 through the uniform parameter sampling, the emcee walker init and the
@@ -1624,7 +1624,7 @@ sampler's own moves, and the thinning subselection (no process-global
 chain header, and same-seed draws reproduce. Append-replay and
 worker-invariance ride the workstation smoke gates.
 
-<a id="srm-a-stage-ram"></a>
+<a id="stage-ram-both-copies"></a>
 **stage-ram (SRM-A) — host-RAM staging counts every array and keeps the
 seeded row order.** Two silent-divergence surfaces. (1) Accounting:
 `stage_source` counts BOTH the parameter and target compact copies (each at

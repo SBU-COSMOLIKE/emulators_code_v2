@@ -436,7 +436,7 @@ assertion each; the per-acceptance-leg ids (every `ctx.expect` and every
 external check leg emitting a unique id the runner reconciles against the
 declared set) are the audited rollout specified below.
 
-<a id="brd-a-board-truth"></a>
+<a id="board-selftest-exit-truth"></a>
 **board-selftest (BRD-A) — the wrapper reports the truth about what ran.**
 A dependency-skipped selected gate exits nonzero and runs no test body; an
 unknown `--gate` / `--from` / `--force-rerun` id is a usage error with a
@@ -740,7 +740,7 @@ row for row against a selection-order anchor, with a mutation arm restoring
 assertion. Texnotes: `texnotes/emulator_code_guide.tex` §"Worked staging
 example" and §"Worked memory calculation" updated from the cross-regime
 divergence + pending-banner limitations to the landed behavior, in this same
-landing. Home-note spec (`data-generation-and-cuts.md#srm-a-stage-ram`) and the
+landing. Home-note spec (`data-generation-and-cuts.md#stage-ram-both-copies`) and the
 board `maps` / gate docstring rewritten to the broadened claim.
 
 Verification (Mac, cocoa-torch interpreter): `stage-ram` 21/21 ALL PASS;
@@ -6170,3 +6170,71 @@ expensive class of error for throughput.
 The gauntlet's critical path is unchanged (increments 1-2 -> D3 ->
 D4 -> D5 -> queue 5); this rebalance shortens the TAIL behind it
 and parallelizes the note surface under it.
+
+## Queue 2 increment 1 COMPLETE — reconciliation machinery + the 7-aid re-key (Opus, 2026-07-13)
+
+The approved increment 1 is landed and Mac-verified (cocoa-torch not needed —
+board-selftest is pure Python). Scope exactly as ruled; ##AID manifests and the
+per-gate migration are the following increments.
+
+**What landed:**
+
+- `RunContext` (run_board.py): `self._executed` recorder; `expect(*, ..., aid=None)`
+  records `(aid, PASS/FAIL, detail)` when an aid is given (un-migrated legs stay
+  invisible — rolling migration); new `unavailable(*, aid, label, reason)` — the
+  honest non-green terminal that does NOT raise (fork D1-ii).
+- `validate_evidence` invariant (3): every anchor fragment must equal its aid
+  with `.`->`-`. Runs on every invocation incl. `--list` (exits 2 on violation).
+- `_reconcile_evidence(gate, executed)` + `_evidence_cell` + `_fmt_set`: binding
+  ruling 6 — declared-not-executed, executed-not-declared, and emitted-twice red
+  the gate via the pinned `[evidence] <gate>: declared {..} but executed {..}`
+  line; fork D1-ii PASS-on-available; the ZERO-EXECUTED GUARD (all-UNAVAILABLE
+  may not PASS). Wired into `run_selection` (reconciles only an otherwise-passing
+  gate), persisted as `verdict["evidence"]`, and rendered by the shared
+  `_state_detail` so the pinned `PASS (executed N/M; UNAVAILABLE K: <aid> ...)`
+  line shows in the gate log, `--list`, and BOARD.md alike.
+- The 7 foundation aids RE-KEYED to the gate.id prefix (per the aid-prefix
+  re-ruling): `board-selftest.exit-truth`, `generator-seed.owned-rng`,
+  `cli-strict.strict-parse`, `family-first.family-owned`, `stage-ram.both-copies`,
+  `artifact-readback.typed-bool`, `diagnostics-domain.score-boundary`; their 7
+  note anchors renamed to the transform (5 notes touched + one prose spec pointer
+  in gates-and-board.md). Each gate body's result `expect` now carries its
+  headline `aid=`, so the declared leg actually executes and reconciles.
+- board-selftest: `check_evidence_map` mutations transform-isolated (1/2 anchors
+  made transform-correct so they isolate the unresolved / missing-note defect; 3
+  uses a real re-keyed anchor so the duplicate is isolated) + new mutation 5
+  (non-transform anchor rejected) + the CLI arm (a non-transform anchor makes the
+  REAL `main --list` exit 2). Two new check functions: `check_evidence_reconciliation`
+  (drives the REAL `_reconcile_evidence` — control-green, declared-not-executed,
+  emitted-twice, executed-not-declared, mixed-PASS+UNAVAILABLE-green, zero-executed
+  guard) and `check_evidence_gate_verdict` (drives the REAL `run_selection` via
+  `drive_main`, validate_evidence patched off: a mixed gate ends PASS with the
+  persisted block, an all-UNAVAILABLE gate ends FAIL, a silently-dropped leg reds).
+
+**Verification (Mac):** `py_compile` + `compileall gates` clean; board-selftest
+**155 PASS / 0 FAIL** (was 142 — +13 legs); `run_board --list` rc 0 (all 7
+re-keyed anchors resolve + satisfy invariant 3, all aids unique). Every mutation
+arm reds its fabricated gate; every control greens.
+
+**Two implementation choices flagged for the pre-merge audit:**
+
+1. A reconciliation failure (mismatch OR the zero-executed guard) sets the gate's
+   `outcome = "FAIL"` with a distinguishing DETAIL (the `[evidence]` line), rather
+   than minting a NEW named status. Rationale: FAIL is already a fully-plumbed
+   non-green terminal (resume, exit code, display, counts); a new state would need
+   threading through `_resume_state`, `cmd_list`, `_write_board_md`, and the exit
+   rule for no behavioral gain. The ruling's "distinct non-green state" is met by
+   the detail. If the audit prefers a distinct label, it is a small follow-up.
+2. Reconciliation runs ONLY on an otherwise-passing gate: a gate that already
+   FAILED (a raised `expect`) is non-green for a real reason, and its raised leg
+   left `_executed` deliberately short — reconciling it would report spurious
+   declared-not-executed noise on an already-red gate.
+
+**Trigger already fired:** the rollout-plan approval freed UNITS 41 (25M-05 slice
+only) + 53; recorded here so the transfer is on the ledger.
+
+**Next:** increment 2 = the `##AID` check-script manifests (parse-and-fold in
+`run_check`, crash-before-manifest reds) with its board-selftest arm; then
+increment 3 = per-gate migration in the Deliverable-C order (7 migrated ->
+in-process -> wrapper+child -> subprocess-driver last) with the `maps=` one-
+sentence rewrite + `home=` reconciliation per visit.

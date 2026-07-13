@@ -2530,7 +2530,7 @@ gate to a stable, runner-validated anchor in its home note; the mechanism
 and the audited rollout are documented in `gates-and-board.md`. The
 diagnostics gate anchors here:
 
-<a id="diag-a-diagnostics-domain"></a>
+<a id="diagnostics-domain-score-boundary"></a>
 **diagnostics-domain (DIAG-A) — the diagnostic score-domain boundary.** The
 shared `screen_chi2` helper (valid input byte-identical, within-band
 roundoff pulled to exact 0, a materially negative / NaN / +-Inf score

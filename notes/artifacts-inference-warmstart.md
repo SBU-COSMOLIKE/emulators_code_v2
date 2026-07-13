@@ -1150,7 +1150,7 @@ gate to a stable, runner-validated anchor in its home note; the mechanism
 and the audited rollout are documented in `gates-and-board.md`. The
 artifact-side gate anchors here:
 
-<a id="arb-a-artifact-readback"></a>
+<a id="artifact-readback-typed-bool"></a>
 **artifact-readback (ARB-A) — saved attributes are parsed by type, not
 truthiness.** The shared typed reader accepts a native boolean, returns the
 default for an absent key, and refuses every string / integer (the truthy

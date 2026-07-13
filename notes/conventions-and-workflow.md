@@ -594,14 +594,14 @@ gate to a stable, runner-validated anchor in its home note; the mechanism
 and the audited rollout are documented in `gates-and-board.md`. The two
 workflow-side gates anchor here:
 
-<a id="cli-a-strict-cli"></a>
+<a id="cli-strict-strict-parse"></a>
 **cli-strict (CLI-A) — every public executable rejects a misspelled flag.**
 All eight public entry points parse with `parse_args` (never
 `parse_known_args`), and two representative driver mains reject a misspelled
 flag (`--activaton`) with a nonzero exit before the expensive boundary,
 while a valid command line reaches it.
 
-<a id="fam-a-family-first"></a>
+<a id="family-first-family-owned"></a>
 **family-first (FAM-A) — every driver owns exactly one data-block family.**
 A direct cosmic_shear run owns the cosmolike data-vector family and rejects
 a CMB / grid / grid2d / scalar YAML naming its driver; a clean cosmic-shear
