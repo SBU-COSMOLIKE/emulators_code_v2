@@ -999,3 +999,46 @@ UNIT 2 EXTENDED's domain-totality contract); the guide's Current-gap
 paragraph (texnotes/emulator_code_guide.tex ~:3885) is then
 RED-TEAM-owed — only the red team edits the guide (USER RULE
 2026-07-13; custody rule in conventions-and-workflow.md).
+
+## UNIT 67 (RT-2026-07-13-05, 2026-07-13, CRITICAL): flat-only is one enforced fact — curvature refused at generation AND consumption, from the global model
+
+Finding (red team, CONFIRMED; math independently verified): the
+flat-only refusal inspects only the emulator input names
+(emul_baosn.py:161 — "omk" in req), so a fixed or
+separately-consumed GLOBAL Cobaya omk bypasses it: the red team's
+real-Cobaya composition returned bit-identical adapter distances for
+omk = 0 vs 0.1 while CAMB's distances changed. The producer
+compounds it: dataset_generator_background.py:346-347 requests
+get_comoving_radial_distance (chi) and stores it as D_M — equal only
+in a flat model — with the assumption recorded in a comment only,
+and no curvature guard exists anywhere in compute_data_vectors (the
+only omk enforcement in the tree is compute_cmb_covariance's
+LCDM_FIXED_ONLY). The counterexample is exact: at z = 1100,
+Omega_k = 0.1, chi = 13296.826 Mpc vs D_M = 15538.408 Mpc — 16.858%;
+the Architect's independent check confirms D_M = R sinh(chi/R) with
+R = c/(H0 sqrt(Omega_k)) reproduces their D_M at H0 = 70.0 exactly.
+
+Contract:
+
+1. ONE explicit flat-only fact governs both ends. Generation: the
+   background generator REFUSES a sampled OR fixed nonzero curvature
+   read from the GLOBAL Cobaya model info — not from emulator input
+   names — before any sampling starts. Consumption: emul_baosn
+   refuses nonzero curvature from the global model composition the
+   same way; the existing names-based refusal may stay as a cheap
+   early layer but is no longer THE guard.
+2. The artifact records the flat-only fact it was generated under;
+   the consumer reads it from the artifact (never-trust-defaults),
+   so a future curvature-capable artifact is distinguishable from a
+   flat-only one at load time.
+3. Legs: real-Cobaya fixed omk != 0 refusal; sampled-omk refusal;
+   the omk = 0 flat control byte-identical to today; the independent
+   chi-vs-D_M curved counterexample (analytic sinh mapping,
+   Mac-runnable; the CAMB cross-check rides the workstation board);
+   mutation arm restoring the names-only guard must FAIL (a global
+   fixed omk = 0.1 composition slips through it).
+4. Producer physics for the flat case unchanged — byte-identical
+   dumps on flat configs.
+5. Sequencing: rides the wave-4 background visit (units 15 + 58 +
+   62 + 67 — same files, one visit); the CRITICAL flag means the
+   visit cannot close without it.
