@@ -2174,3 +2174,10 @@ Evidence before Architect audit: an untruncated scan finds one `code map`
 navigation reference in the root README, the retained relative link resolves
 to `emulator/README.md`, and `git diff --check` is clean.  This is
 implementation evidence, not Red Team self-certification.
+
+The same follow-up removes development-ledger language from the saved-artifact
+warning.  The README now states the action a user must take: keep the `.h5`
+recipe and `.emul` weights together, never combine members from different path
+roots, and never replace only one member of a trusted pair.  It no longer
+describes the queued digest or publication implementation.  That engineering
+contract remains in its owner note rather than in the public introduction.
