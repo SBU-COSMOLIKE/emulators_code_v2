@@ -5140,3 +5140,95 @@ PLACEMENTS (four homes):
 
 The 25M series stands at 01..35, one tombstone (07), no unrelayed
 remainder — 23's surfacing closes the register-vs-chat gap.
+
+## 1b hardening remainder: 18 / 16-runtime / item-7 / 19 / 26 landed; 16's data-read half is the flagged remainder (Opus, 2026-07-13)
+
+Executed the ARCHITECT_HANDOFF: READY FOR EXECUTION remainder in the
+ratified order. Four commits on the branch, each Mac-validated
+(validate_manifests 40/40 ok, board-selftest ALL PASS growing 102 ->
+120, py_compile clean); one audit.
+
+- 23cc78a (25M-18 + 25M-16-runtime): waiver coverage is ALL-quantified
+  over required covers, and a root covers a cover only by being that
+  cover or an ANCESTOR (`_root_is_ancestor`) — both permissiveness
+  directions (child-as-cover, any-of-many) killed; the pre-25M-18
+  blessing selftest fixture flipped to must-red, plus child-as-cover /
+  strip-one-of-two / any-one-of-eight (live cli_strict 8-cover) +
+  full-trees green. NEW runtime-loader census (c): `_RUNTIME_LOADER_COVERS`
+  reviewed table + `_runtime_loader_sites` scanner (spec_from_file_location
+  Call sites + python_path detected STRUCTURALLY as a dict key / yaml-line
+  via the `_COBAYA_PP` constant so the harness's own prose never
+  self-matches); coverage is TABLE-DRIVEN (positive), the scanner is the
+  negative catch on unlisted files. The eight identity/smoke manifests
+  re-populated with their cobaya_theory root(s) (cmb also
+  compute_cmb_covariance). Bare-sibling imports resolve against the
+  importer's dir in `_module_to_repo_paths` (gct_parity.py ->
+  gsv_bitwise_drift, now in cobaya-adapter's closure; a third-party
+  top-level still -> []). check_runtime_loader_census added.
+- 7d8566d (item-7 completion): the two 25M-24 clause gaps the checklist
+  audit found. An action mode (--list/--check) now rejects ANY paired run
+  control (selection / force / dry) as a usage error (exit 2) — "ignored
+  controls exit nonzero", a valid ignored control failing like an unknown
+  one; and an explicit --force-rerun id OUTSIDE the selected surface is a
+  usage error (the bcf4ce2 rider), --force-rerun-all exempt. Five
+  real-main() legs, red-capable against the un-fixed exit-0.
+- b1835ac (25M-19): input resolution is a function of the reviewed OWNER
+  of each namespace (`_input_owner`: evaluate_yaml -> repo/_REPO,
+  gate_configs.* -> yaml_dir, deploy_data/gate_data -> machine), NO
+  process-CWD candidate; the RunContext.evaluate_yaml consumer delegates
+  to the SAME resolver (executed == hashed). A repo-owned input that fails
+  to resolve reds. check_input_owner_resolution: owner dispatch, two-cwd
+  identity, collision-ignored, executed==hashed, repo-owned refuse-None-sha.
+  DEVIATION FLAGGED: the ruling's "resolve-not-exist for deploy_data ONLY"
+  is honored as "repo-owned must resolve; yaml_dir AND machine may be
+  absent on a dev box" — yaml_dir is itself a deploy path (this numpy-only
+  Mac has no external_modules/code checkout), so requiring gate_configs to
+  resolve would break the Mac-green validate the increment depends on; the
+  security property is preserved for the true repo-owned input
+  (evaluate_yaml, resolved under _REPO, present on every machine). Awaiting
+  ratification.
+- 65c5bec (25M-26): completes 25M-20's persistence clause. Each child PASS
+  persists per-dependency `deps` snapshots (attempt id + log digest,
+  `_dep_snapshot`); `_resume_state` gains `_dependency_lineage_state` ->
+  the new non-green "stale-dependency" state when a dependency's CURRENT
+  attempt differs from the snapshot (a separate invocation reran it) or
+  when a dependent PASS carries no snapshot (legacy, never blessed). Rerun
+  message + BOARD.md log-cell updated. check_cross_invocation_lineage over
+  ONE shared status file + log dir across several real main() invocations:
+  the two-invocation witness, snapshot-refresh control, and the
+  snapshot-free mutation reproducing exit-0-zero-bodies as a rerun.
+  DEFERRED to the D1 visit (per ruling): the gates/README resume-state list
+  (DIDACTICS-87) and the state-machine prose gain "stale-dependency".
+
+THE FLAGGED REMAINDER — 16's source-opened-as-data (`_data_read_sites`)
+half is NOT landed. The runtime-loader census closed the ADAPTER digest
+hole (the scientific one: a changed emul_*.py now reruns its identity /
+smoke gate). The ruling's 16 ALSO names a data-read mechanism (the
+"two-call-scanner" + "geo-paths whole-scope fixture"): geo-paths,
+board-selftest, artifact-readback, family-first, generator-seed OPEN
+executable .py AS DATA their manifests omit (verified sites: geo_paths.py
+os.walk whole-repo; board_selftest.py rglob whole-repo + board.py /
+run_board.py / finite_contract.py fixed reads; artifact_readback.py:76/97
+results.py + scalar_train_emulator.py; family_first.py:88/99 four drivers;
+generator_seed.py:39/57 generator_core.py; also cli_strict.py:82 eight
+entry points, diagnostics_domain.py:283 diagnostics.py). Per the ratified
+rule they must HASH-as-file WITHOUT closure-seeding (the finite_contract
+leaf lesson). I deliberately stopped rather than guess this design at the
+tail of a long session: it changes the DIGEST SURFACE for meta-gates
+(geo-paths' digest would become the whole repo -> it reruns on any repo
+change) and I lack the red team's FILED geo-paths whole-scope expected
+member set. PROPOSAL for audit: a `_DATA_READ_COVERS` reviewed table (per
+source-census file -> a fixed .py list OR a WHOLE_REPO marker) mirroring
+`_RUNTIME_LOADER_COVERS`; `_data_read_sites` scanner detecting open /
+read_text / read_bytes / ast.parse on a .py + os.walk/rglob/glob for .py;
+`_gate_code_digest` folds the resolved data-read targets as HASH LEAVES
+(no _derive_closure expansion), a WHOLE_REPO marker hashing the sorted
+repo .py set. OPEN QUESTIONS for the Architect: (1) reviewed-table vs
+static path resolution; (2) is geo-paths' digest = the whole repo the
+intended semantics; (3) the exact geo-paths whole-scope fixture member set
+(exclusions: __pycache__ / notes / .git / self). QUEUE 2 opens only at the
+FULL 9/9 including this half.
+
+LANDING BLOCK (main is the user's; clean fast-forward):
+  cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+  git merge claude/amazing-keller-e798b6 && git push
