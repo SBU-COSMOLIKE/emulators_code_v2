@@ -6326,3 +6326,34 @@ increment-1 audit. Scope as recommended and now binding:
   merged commit); the audit records both shas.
 - I keep committing my own notes (adjudications, audits, ledger),
   as throughout.
+
+## Root README cleanup audit (Fable, 2026-07-13): 46efa6d + cbdd49e — GO
+
+Red-team follow-up on branch codex/readme-code-map-dedup (a NEW
+worktree; lineage verified: D2's 9b59e0e is an ancestor, so no
+collision with the pending D2 merge). Two bounded README changes +
+register records, both verified at the diff:
+
+- 46efa6d removes the DUPLICATE "Code map" bullet from Contents;
+  the explanatory sentence with the same emulator/README.md link
+  remains directly above (README:79). My untruncated scan confirms
+  exactly one code-map navigation reference remains (the other hit
+  is the verb "maps" in prose).
+- cbdd49e replaces the saved-artifact paragraph's development-ledger
+  language ("Known integrity gap (fix queued)... until the binding
+  lands", plus a notes/ pointer in the public README) with the
+  direct user action: keep the .h5/.emul pair together, never mix
+  path roots, never replace only one member. The current-state
+  ruling applied correctly: consequence + user action stay, the
+  queued-fix diary goes, the engineering contract remains in its
+  owner note (their register says so explicitly). The retained
+  claims are true (the .emul holds best-epoch weights; the .h5
+  carries the resolved config; rebuild_emulator reads the stored
+  recipe, never later defaults). The units-77/80 production
+  advisory is UNAFFECTED — it lives in notes, and the user-facing
+  warning that motivated it is preserved.
+
+VERDICT: GO. The register carries both records with the
+no-self-certification line. Landing: merge
+codex/readme-code-map-dedup (it contains D2 + this cleanup), then
+amazing-keller as usual.

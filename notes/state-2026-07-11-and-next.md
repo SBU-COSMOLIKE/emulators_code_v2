@@ -2854,3 +2854,12 @@ audit before any main merge and user-only merge/push are unchanged;
 a landing my audit reds is repaired by a follow-up commit, both
 shas recorded. Spec: gates-and-board.md "COMMIT GRANT (user,
 2026-07-13)".
+
+ROOT README CLEANUP (2026-07-13, Fable): red-team follow-up
+46efa6d + cbdd49e on codex/readme-code-map-dedup GO'd — the
+duplicate Contents code-map bullet removed (one navigation
+reference remains, verified), and the saved-artifact paragraph's
+fix-queued diary replaced with the direct pair-integrity warning
+(current-state ruling; the 77/80 contract stays in its owner note;
+retained claims verified true). Lineage checked: D2 is an
+ancestor. Spec: gates-and-board.md "Root README cleanup audit".
