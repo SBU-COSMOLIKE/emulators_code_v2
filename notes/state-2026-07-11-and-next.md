@@ -1805,6 +1805,25 @@ UNIT 70, families-scalar-cmb.md. Both land as ONE increment parallel
 to phase-3 population, before queue 2; gates board-listed,
 Mac-validatable. Spec: gates-and-board.md "20M-01/02 adjudication".
 
+20M-03..06 BATCH (2026-07-13, Fable): all four CONFIRMED — the
+real-consumer protocol cluster, NEW UNITS 71-74. 71 (emul_cmb
+advertises generic Cl but refuses the documented protocol; probe:
+BoltzmannBase.get_Cl defaults units='FIRASmuK2', so even the
+default-argument call fails; RULING = honor the generic contract,
+conversions from persisted facts). 72 (scalar outputs written as
+top-level state keys can crash on "derived" and silently corrupt
+"params"/"dependency_params"; publication moves into the derived
+namespace, atomic assembly, reserved-name refusal). 73 (emul_mps has
+NO must_provide — accepts Weyl pairs, out-of-domain z, any k_max;
+one-verdict capability helper, the BAOSN law now program-wide). 74
+(CRITICAL: fixed cosmology facts are not artifact identity — global
+mnu 0.06->0.12 serves an unchanged spectrum while the base is 6.76%
+sensitive; ONE persisted fixed-facts block shared with 71 + 67,
+compared against the global model at startup). Sequencing: 71+72
+join the wave-4 CMB/scalar visits, 73+74 the MPS visit; EMUL2
+ACCEPTANCE FORMALLY BLOCKED on 67+69+71+72+73+74. Spec:
+gates-and-board.md "20M-03..06 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

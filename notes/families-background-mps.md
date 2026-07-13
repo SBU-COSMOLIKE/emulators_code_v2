@@ -1076,3 +1076,87 @@ proves catch power; a mutation arm restoring nonlinear=False must
 red; one real-Cobaya provider-routed call proves the protocol, not
 just direct method calls. Sequencing: lands with UNIT 70 as one
 increment, parallel to phase-3 population, before queue 2.
+
+## UNIT 73 (20M-05, 2026-07-13, HIGH): emul_mps implements must_provide — one capability verdict at startup and runtime
+
+Finding (red team, CONFIRMED): emul_mps subclasses Theory with NO
+must_provide (class at :193; only get_requirements at :330), so it
+inherits the accept-everything base: unservable P(k,z) requests
+(z outside the artifact domain, ("Weyl","Weyl") pairs, off-node grid
+redshifts, excessive k_max) pass startup and fail — or mis-serve
+under Cobaya's include-the-requested-nodes grid contract — at
+evaluation. ACT DR6's optional Limber path is a real bundled
+consumer of the Weyl pair.
+
+Contract (ratified): explicit must_provide on the supported Cobaya
+schema, without mutating the caller's mapping; native finite
+types only (exact supported variable pair, native booleans, finite
+1-d z requests, finite positive k_max); every interpolator z inside
+the validated domain; every grid z present on the returned axis or
+explicitly resampled — in-range coverage alone is not the grid
+contract; ONE explicit k_max policy (stored support or a documented
+validated extrapolation capability); repeated requirements
+accumulate as the union of z / pairs / branches and the max k_max;
+startup and runtime share one capability helper with one
+verdict/reason (the BAOSN one-verdict law, now program-wide); the
+base lifecycle is called so changed requirements invalidate stale
+states.
+
+Gates (ratified): real-Cobaya linear-only / nonlinear-only /
+combined lifecycles; Weyl refused during must_provide with zero
+predictor calls; z below/above domain refused at startup; off-node
+grid request exercises the include-or-refuse policy; excessive k_max
+exercises the declared policy; repeated requests merge; the caller
+dict is unchanged; deleting the override must red; the ACT-DR6
+Limber requirement is refused at startup with a teaching error or
+supported end to end — never accepted then failed. Schema legs CPU;
+provider lifecycle board-listed in the MPS gate. Sequencing: wave-4
+MPS adapter visit; EMUL2-blocking.
+
+## UNIT 74 (20M-06, 2026-07-13, CRITICAL): fixed cosmology facts are artifact identity — persisted at generation, compared against the global model before serving
+
+Finding (red team, CONFIRMED): the shipped EMUL2 YAML fixes
+mnu: 0.06; a fixed parameter is absent from predictor.names, the
+adapter requests only the sampled names + the five syren params
+(emul_mps.py:253-292), syren_params_from returns seven values
+(syren_base.py:39-90), and the base functions keep their hidden
+mnu=0.06 default (:94). A global change to mnu=0.12 therefore serves
+an EXACTLY unchanged spectrum (red team live repro: 0.0 relative
+difference) while the real base is 6.76% sensitive on the same grid
+— finite/positivity guards cannot see the substitution. The general
+class: any network trained at a fixed mnu / w0 / wa / curvature
+carries a correction specific to that cosmology while the artifact
+records only sampled columns.
+
+Contract (ratified, with the unifying delta): (1) generation
+persists every non-sampled cosmology fact that changes the target or
+the analytic base — at minimum fixed mnu, w0/w, wa, curvature,
+noncanonical radiation/temperature facts, and the neutrino
+convention — in ONE shared "fixed scientific facts" artifact block
+(the same block carries UNIT 71's temperature convention and UNIT
+67's flat-only fact; producer side coordinates with units 37 + 62);
+(2) the MPS artifact pair agrees on those facts and on base
+implementation identity before either predictor serves; (3) the
+adapter obtains the GLOBAL resolved values and compares them against
+the artifact before evaluation — sampled-name equality is not a
+substitute; (4) a mismatch raises at startup naming artifact value,
+requested value, and the remediation; (5) a sampled fact that is an
+artifact input validates through the ordinary domain contract and is
+NOT also pinned; (6) the mnu=0.06 syren baseline stays explicit —
+generalizing it is a new producer/consumer law identity, not an
+inference keyword; (7) legacy artifacts without fixed-fact identity
+are refused with a migration instruction.
+
+Gates (ratified): fixed-0.06 control byte-identical; real-Cobaya
+fixed mnu=0.12 refused before predictor/base execution; a fabricated
+fixed-0.12 manifest accepted only at 0.12; the sampled-mnu path
+accepted only with mnu a stored input and matching law identity;
+fixed non-LCDM w0 and nonzero wa mismatch legs; artifact-pair
+disagreement on any fixed fact; a mutation checking only
+predictor.names must red; an independent base/CAMB comparison proves
+the chosen fact scientifically active. Manifest/schema legs CPU; the
+end-to-end comparison board-listed in mps-smoke (workstation if
+Torch/CAMB is needed). Sequencing: wave-4 MPS adapter visit;
+EMUL2-blocking; the producer clause lands with the generator-side
+schema work, coordinated so the consumer never reads a fact the
+producer does not yet write.

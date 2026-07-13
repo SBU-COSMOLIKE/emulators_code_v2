@@ -1792,3 +1792,49 @@ PARALLEL with the phase-3 population batches (disjoint files), before
 queue 2 — 69 is EMUL2-critical (a real Cobaya consumer gets wrong
 science by default today), 70 corrupts worst-row selection and
 overlays in the shipped CMB example.
+
+## 20M-03..06 adjudication (Fable, 2026-07-13): all four CONFIRMED — the real-consumer protocol cluster, units 71-74; EMUL2 acceptance now formally blocked on it
+
+All four verified by the Architect (code reads + probes on the
+installed cobaya 3.6.2). The sharpest probe result: BoltzmannBase's
+get_Cl signature is (ell_factor=False, units='FIRASmuK2') — so even a
+DEFAULT-argument get_Cl() call fails against emul_cmb's muK2-only
+refusal (:271-282); the adapter advertises generic "Cl" (:192-193)
+and the README promises "serves get_Cl to any cobaya likelihood"
+(:1961). emul_scalars.calculate writes state[name] = value for every
+artifact-defined output (:222) with no string/reserved-name check in
+validate_scalar (:648-651). emul_mps defines NO must_provide (class
+:193; only get_requirements :330) — it inherits the accept-everything
+base. syren_base holds the hidden mnu=0.06 default (:94, documented
+"legacy fixed") and the adapter never requests a global mnu, so the
+red team's fixed-mnu 0.12 substitution serving an unchanged spectrum
+(with 6.76% real base sensitivity) is mechanically exact.
+
+RULING (20M-03, the requested choice): OPTION 1 — honor the generic
+Cl contract. The method name, the advertised product, the README
+promise, and EMUL2's purpose (drop-in serving to the bundled real
+likelihoods, two of which are the cited consumers) all commit to the
+protocol; implementing the DOCUMENTED conversions from PERSISTED
+artifact facts is not silent conversion, it is the contract. The
+startup-green/runtime-red middle state is inadmissible either way.
+
+Placement: 20M-03 -> UNIT 71 (families-scalar-cmb.md); 20M-04 ->
+UNIT 72 (families-scalar-cmb.md); 20M-05 -> UNIT 73
+(families-background-mps.md); 20M-06 -> UNIT 74 (CRITICAL,
+families-background-mps.md). One unifying delta across the cluster:
+71's temperature/unit convention, 74's fixed cosmology facts, and
+67's flat-only fact are ONE persisted "fixed scientific facts" block
+in the artifact schema — defined once on the producer side
+(coordinates with units 37 + 62), read back and compared by every
+adapter; not three ad-hoc mechanisms. The BAOSN one-verdict precedent
+(must_provide and getters share one capability helper) is now a
+program-wide adapter law and folds into the typed adapter contract
+(unit 65's neighborhood).
+
+Sequencing: units 71-74 join the wave-4 adapter visits (CMB/scalar
+visits gain 71+72; the MPS visit gains 73+74 beside 16+63+the sigma8
+half). EMUL2 ACCEPTANCE IS FORMALLY BLOCKED on 67 + 69 + 71 + 72 +
+73 + 74 — no real-Cobaya acceptance claim while a bundled consumer
+can pass startup and fail (or silently mis-serve) at evaluation.
+Population, 69+70, and queue 2 stay ahead of the cluster as
+sequenced.

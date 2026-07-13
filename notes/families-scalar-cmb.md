@@ -1071,3 +1071,74 @@ params_whitened must reproduce [12,0.75] (or the shape crash) and
 red; the cmb-smoke bar gains the same stale-cache mutation arm; a
 law="none" control proves unchanged numerics. Sequencing: lands with
 UNIT 69, parallel to phase-3 population, before queue 2.
+
+## UNIT 71 (20M-03, 2026-07-13, HIGH): emul_cmb serves Cobaya's documented get_Cl protocol — conversions from persisted facts, one startup/runtime verdict
+
+Finding (red team, CONFIRMED; probe: BoltzmannBase.get_Cl defaults
+units='FIRASmuK2', so even a default-argument call fails): the
+adapter advertises generic "Cl" and must_provide validates only
+spectra + l_max, but get_Cl refuses ell_factor=True and any units
+but the stored "muK2" (emul_cmb.py:253-282) — bundled real consumers
+(Planck low-l EE sroll2: ell_factor=True; ACT DR6 lensing:
+units="FIRASmuK2") pass startup and deterministically fail at
+evaluation.
+
+RULING: honor the generic contract (option 1). Contract (the red
+team's clauses, ratified, with deltas):
+
+1. The generator persists the temperature/unit convention of the
+   dumps; the adapter reads it back as an artifact fact (part of the
+   shared fixed-facts block, see UNIT 74) and derives unit
+   conversions from it — "muK2" is never assumed equal to
+   "FIRASmuK2" by default-temperature coincidence.
+2. Cobaya's documented unit choices are supported without
+   truthiness/coercion; a DEFAULT-argument get_Cl() call succeeds.
+3. Spectrum-specific ell factors: l(l+1)/2pi for TT/TE/EE,
+   [l(l+1)]^2/2pi for pp; l = 0, 1 behavior explicit.
+4. must_provide and get_Cl produce the same capability verdict — no
+   startup-green/runtime-red combination.
+5. Raw "muK2" output stays byte-identical; a legacy artifact with no
+   persisted convention is refused with a migration instruction.
+
+Gates (ratified): raw/muK2 control byte-identical; TT/TE/EE
+ell-factor known-answers at several l; pp squared-factor
+known-answer; FIRAS conversion known-answer from a persisted
+temperature fact; real Planck-low-l consumer lifecycle; real ACT-DR6
+getter lifecycle; forged/missing convention refuses before
+calculation; mutation arms restoring each current refusal must red.
+Conversion legs CPU/NumPy; lifecycle legs board-listed with the CMB
+adapter gate (workstation if the rebuild needs Torch). Sequencing:
+wave-4 CMB adapter visit; EMUL2-blocking.
+
+## UNIT 72 (20M-04, 2026-07-13, HIGH): scalar outputs publish into Cobaya's derived namespace — never top-level state keys
+
+Finding (red team, CONFIRMED): emul_scalars.calculate writes
+state[name] = value for every artifact-defined output name
+(emul_scalars.py:222) and validate_scalar accepts any nonempty unique
+list (experiment.py:648-651, no string or reserved-name check) — an
+output named "derived" crashes on the next line (TypeError), and
+"params" / "dependency_params" silently replace Cobaya's cache and
+dependency bookkeeping.
+
+Contract (ratified): (1) artifact outputs never become arbitrary
+top-level Cobaya state keys; (2) publication goes into
+state["derived"] and get_param reads that namespace per the
+supported Cobaya lifecycle; (3) state["params"] and
+state["dependency_params"] are preserved across calculate; (4)
+multi-artifact assembly is atomic — validate and compute into a
+local result before touching state, so a failing second predictor
+cannot leave the first partially published; (5) at the training
+boundary, output names are native nonempty strings checked against
+the complete supported-Cobaya reserved-name set (defense in depth;
+the namespace is the primary mechanism); (6) error text names the
+offending output and why Cobaya owns it.
+
+Gates (ratified): validate_scalar refusal legs for "derived" /
+"params" / "dependency_params"; a REAL Cobaya Theory lifecycle per
+collision (no hand-built dicts); the ordinary rdrag control;
+two-predictor atomicity with an invalid second result; a cache-reuse
+control proving the sampled/dependency dicts unchanged; get_param
+reads the same mapping Cobaya exposes; a mutation arm restoring
+state[name] = value must red. CPU legs; lifecycle board-listed
+(workstation if the rebuild needs Torch). Sequencing: wave-4 scalar
+adapter visit; EMUL2-blocking.
