@@ -1747,3 +1747,39 @@ continuation and worker-invariance legs may stay workstation-bound
 where their dependencies require it. Placement: the
 generator-ingress campaign beside unit 82; blocks any production
 append.
+
+## UNIT 87 (20M-21, 2026-07-13): the chain's reserved column carries minus_logpost — named honestly, exact against chi2*, uniform mode never fakes a posterior
+
+Finding (red team, CONFIRMED; Architect live GetDist probe
+reproduces the reversal): the generator writes raw lnp into chain
+column 2 on fresh AND append (generator_core.py:798, :844), which
+GetDist defines as -log(posterior) and minimizes for the best fit —
+row ranking, shading, and cooling all reverse. The trailing
+chi2* = -2*lnp has the right sign but does not repair the reserved
+column. Uniform mode fabricates lnp = 1 / chi2* = -2 (:751, :760),
+which must never be described as an evaluated posterior.
+
+Contract (ratified): (1) the in-memory quantity is named logpost;
+minus_logpost = -logpost is materialized at the PUBLICATION
+boundary; (2) minus_logpost is written into reserved column 2 on
+fresh and append; (3) the exact relation minus_logpost == chi2*/2
+holds when chi2* means -2 log p; (4) headers/sidecars are honest —
+"lnp" may not label a negative-log-posterior column, and "chi2" may
+not silently mean posterior; (5) the uniform-sampling record is
+explicit: no evaluated posterior means the GetDist-required neutral
+value with a declared unavailable status, or the derived diagnostic
+omitted under a documented format — never -2 published as measured
+chi-squared; (6) old sign-reversed chains carry an explicit
+migration marker/tool or refuse — the convention is never inferred
+from numeric values; (7) parameter rows and science payloads
+unchanged.
+
+Legs (ratified; CPU, real GetDist): the [-1, -10] known-answer pair
+selects the -1 row; the current-sign mutation selects the worse row
+and must red; fresh and append read back one convention; column 2 ==
+trailing chi2*/2 exactly under the declared rounding policy;
+headers/sidecars distinguish posterior from likelihood; uniform mode
+claims no measured posterior; legacy missing-convention and migrated
+chains covered. Placement: the generator publication/provenance
+campaign (with the 45M-81 RNG amendment and units 68 + 82);
+production Gaussian/MCMC generation blocked on it alongside them.

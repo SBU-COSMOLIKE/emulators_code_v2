@@ -2023,6 +2023,19 @@ it), refusal before touching the old dataset; NO production append
 until it lands; unit 82 is orthogonal. Spec: gates-and-board.md
 "20M-18 coupling clause + 45M-81 executed failure".
 
+20M-21 BATCH (2026-07-13, Fable): CONFIRMED — the generator writes
+raw lnp into GetDist's reserved minus-log-posterior column on fresh
+AND append (Architect live probe: GetDist selects the logpost=-10
+row over -1 as best fit; ranking/shading/cooling all reverse);
+uniform mode fabricates lnp=1/chi2*=-2. NEW UNIT 87
+(data-generation-and-cuts.md): minus_logpost materialized at the
+publication boundary into column 2, exact chi2*/2 relation, honest
+headers, explicit uniform unavailable status, legacy chains
+marker-or-refuse. Joins the generator publication cluster (45M-81
+RNG amendment + 68 + 82); production Gaussian/MCMC generation
+blocked on the cluster. Spec: gates-and-board.md "20M-21
+adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

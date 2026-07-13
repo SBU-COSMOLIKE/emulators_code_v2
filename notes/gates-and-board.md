@@ -2315,3 +2315,21 @@ lands. Unit 82's canonical serialization is orthogonal and cannot
 repair it (it would faithfully canonicalize the duplicates); the
 queue-5 emcee rider (sampler._random private-attr seeding) joins
 this amendment's Gaussian-branch clause.
+
+## 20M-21 adjudication (Fable, 2026-07-13): CONFIRMED — unit 87, the chain writes GetDist's column with the wrong sign
+
+CONFIRMED at every anchor AND by the Architect's own live GetDist
+probe: sampler.get_log_prob supplies lnp (:727), uniform mode
+fabricates lnp = 1 (:751), chi2 = -2*lnp is computed separately
+(:760), and BOTH fresh (:798) and append (:844) publish
+[weights, lnp, params..., chi2*] — raw log posterior in the reserved
+column GetDist documents and reads as MINUS log posterior. The probe:
+two rows with log posteriors [-1, -10] written in the current
+convention make loadMCSamples select the logpost = -10 row as best
+fit (argmin over loglikes); the minus_logpost convention selects -1.
+Likelihood shading, cooling, and every loglikes consumer reverse the
+same way. The standard chain file currently tells its standard
+reader that the least probable sample is the best one. -> NEW UNIT
+87 (data-generation-and-cuts.md), the generator
+publication/provenance campaign beside the 45M-81 amendment and
+units 68/82.
