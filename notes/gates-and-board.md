@@ -6833,3 +6833,39 @@ D5, unit 56, the fixed-facts proposal + artifact chain, units 8 /
 24 / 63-reopen / 66 / 68-guards / 96, the queue-3 reopen — the
 deep-context core, plus trigger-gated items until their seams
 clear.
+
+## 25M-37 evidence readback audit + D3 FIRES (Fable, 2026-07-13): de4bdd5 GO; the torch probe is positive
+
+de4bdd5 audited: the two red-team-owned evidence blocks
+(scalar-identity, finite-contract) updated to the 3ba8588 deferred
+reality — the stale eager-dependency text is gone, the
+wrapper-reduction truth is retained ("no logged-only claim is
+promoted"), and finite-contract's account now records the repaired
+import boundary while keeping the four Parts A/C message-prefix
+false reds and the Part F crash as CURRENT execution truth. The
+wrapper-family boundary was respected: finetune-identity and
+transfer-identity blocks untouched (their children's new results
+are recorded in the register for the Implementer's future blocks
+to carry). MY OWN RUN reproduced the headline claim: the
+scalar_identity child, cocoa Torch interpreter, ends
+"PASS: scalar-identity all checks green". Merged into this branch
+conflict-free (they merged our branch first).
+
+THE TORCH PROBE IS POSITIVE: cocoa Python imports Torch 2.6.0 and
+a CPU nn.Linear(2,1) forward pass with input [1,2], weight [3,4]
+prints [[11.0]] — the arithmetic itself checks (1*3 + 2*4 = 11).
+No CUDA claim made or needed. D3's pre-authorized environment
+condition (THROUGHPUT REBALANCE item 5) is satisfied:
+
+D3 TRANSFERS to the red team NOW — the unit-28 smoke-fixture
+disjointness repair, gauntlet-critical, BEFORE queue 5: distinct
+RECORDED generator seeds (train 1234 / val 5678, or one
+proven-disjoint partition), a zero-overlap refusal BEFORE training,
+the row-alignment proof, printed seeds/counts/overlap, and the
+same-seed mutation arm (D3's contract in the consolidated DIDACTICS
+handoff). Coordination: scalar_smoke.py hosts both D3 fixture work
+and DIDACTICS-63's banner leg — ONE claim covers the file, both
+repairs may land in one visit. D5's DIDACTICS-60 baseline
+recomputation happens AFTER D3, as ruled. The gauntlet is now:
+increment 3 (Implementer) in parallel with D3 (red team) -> D4
+(split by file) -> D5 (Implementer).

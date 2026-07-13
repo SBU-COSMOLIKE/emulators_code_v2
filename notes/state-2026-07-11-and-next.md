@@ -2992,3 +2992,14 @@ with the Implementer — increment 3 owns them). Most else is
 trigger-gated or kept core; the torch probe remains the unlock for
 D3 and local verification. Spec: gates-and-board.md "THROUGHPUT
 REBALANCE, WAVE 3".
+
+25M-37 READBACK + D3 FIRES (2026-07-13, Fable): de4bdd5 GO — the
+two owned blocks match the deferred reality, wrapper-family
+boundary respected, my own run reproduces scalar-identity all
+green; the torch probe is POSITIVE (Torch 2.6.0, CPU forward
+[[11.0]], arithmetic verified), so D3 transfers to the red team
+(seeds/refusal/alignment/mutation contract; scalar_smoke.py claim
+covers D3 + DIDACTICS-63 together; DIDACTICS-60 recomputes after
+D3). Gauntlet now: increment 3 (Opus) parallel with D3 (red team)
+-> D4 split -> D5 (Opus). Spec: gates-and-board.md "25M-37
+evidence readback audit + D3 FIRES".
