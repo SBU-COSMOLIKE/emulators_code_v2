@@ -5505,3 +5505,43 @@ generator_core.py's uniform branch (unit 94 half, landing before
 unit 8). Everything else remains Implementer territory. Governance
 unchanged: every landing Architect-audited pre-merge; the red team
 never self-certifies; adjudications stay mine.
+
+## 1B COMPLETE: the 9/9 + 27/28 pre-merge audit (Fable, 2026-07-13): GO — queue 2 formally opens
+
+Commits 9fec3fa (data-read half -> 9/9) and 1eb0e8d (27/28) audited
+under the clause-checklist law with fresh adversarial probes:
+
+- 40/40 validates, 0 errors; the full selftest reruns ALL PASS
+  independently on the cocoa interpreter.
+- The whole-scope ruling is implemented EXACTLY as designed:
+  geo_paths.py:197 iterates run_board.repo_py_files() — the same
+  function that builds its manifest surface; the live set equality
+  holds at 101 == 101. One enumerator, not two lists.
+- The census-(d) negative catch is real: removing
+  artifact_readback's reviewed cover entry in memory REDS with the
+  scanner naming the exact unreviewed data-read site
+  (artifact_readback.py:76).
+- Clause walks clean on both rulings, including the 25M-19
+  balancing clause (run-time refusal of an unresolvable declared
+  input, landed + legged) and 28's full-identity member comparison
+  with the shared _state_detail formatter (one owner for --list and
+  BOARD.md).
+
+Three Implementer refinements RATIFIED as improvements over the
+ruled minimum: cli-strict dropped from the data-read covers (its
+drivers are already code roots — correct de-duplication); the
+27 pathspec is the UNION of git-tracked and currently existing
+root drivers (covers untracked new drivers beyond my git-ls-files
+minimum); a nonzero git status is now itself a preflight failure
+(fail-closed). The expected first-workstation-run staling of
+geo-paths and board-selftest (their whole-repo digests computed
+fresh) is honest, affordable, and recorded in advance.
+
+VERDICT: GO. THE 1B PROGRAM IS COMPLETE — population 40/40,
+hardening 9/9 with item-7 and the 27/28 follow-up, every clause of
+every ruling implemented and probed. QUEUE 2 (the evidence rollout)
+FORMALLY OPENS at this merge. Per the standing coordination point,
+D1's executable board-selftest set-equality leg is hereby RELEASED
+to the red team (the 27/28 landing quieted board_selftest.py). The
+spine: queue 2 -> D3 -> D4 -> D5 -> queue 5, whose first exhibit is
+the populated board's real reruns with persisted members.

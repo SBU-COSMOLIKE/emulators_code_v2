@@ -2749,3 +2749,13 @@ Examined-and-kept: 92/93/95/96, the .ranges fix (82's one-owner),
 the gauntlet, machinery, queue 2, queue-3 reopen, unit 21, wave-4,
 both proposals — each with its reason. Spec: gates-and-board.md
 "USER REASSIGNMENT, EXTENDED".
+
+1B COMPLETE (2026-07-13, Fable): 9fec3fa + 1eb0e8d GO — the
+data-read half (whole-scope geo-paths at a live 101==101 set
+equality through ONE shared enumerator; census-(d) reds an
+unreviewed reader, tamper-probed) and 27/28 (union pathspec
+exceeding the ruled minimum; full-identity stale members; shared
+_state_detail). Three refinements ratified. QUEUE 2 FORMALLY OPENS;
+D1's executable leg released to the red team. Spine: queue 2 -> D3
+-> D4 -> D5 -> queue 5. Spec: gates-and-board.md "1B COMPLETE: the
+9/9 + 27/28 pre-merge audit".
