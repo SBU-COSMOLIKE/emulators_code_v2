@@ -1924,6 +1924,27 @@ after population; queue 5 carries the accumulated workstation legs.
 Spec: gates-and-board.md "Unit 69 post-merge audit + the 20M-backlog
 sequencing ruling".
 
+20M-15/16 BATCH + 14-ADDENDUM + PDF RULING (2026-07-13, Fable): all
+adjudicated. 20M-15 CONFIRMED (structural-only checkpoint loaders
+trust false success bits; corrupt rows resume as finished science)
+-> UNIT 56 checkpoint-ingress amendment: resumed success rows
+revalidate through the publication predicate, inconsistency refuses
+touching neither file. 20M-16 CONFIRMED (fresh writes %.9e float64
+chain but computes at an independent float32 cast; append reloads —
+one-ULP row-identity mismatch, ~700/1e6 draws) -> NEW UNIT 82 (row
+authenticity): one canonical table, bitwise producer == staged ==
+loader-recovered on every path. 20M-14 ADDENDUM accepted -> UNIT 81
+AMENDED (semantic roles: persisted role registry + the
+fiducial-unity check through resolved roles; swapped-role witness
+3.4907e-8 re-derived exactly). TRACKED-PDF RULING ratified -> NEW
+UNIT 83 (queue-6 doc lane): PDF stays tracked, bound by a
+build-manifest gate (digests over the include/graphics closure +
+the PDF; no mtimes; manifest written only after a successful
+build). CLAUDE.md writer split aligned with the USER RULE
+(Implementer writes no notes/ or texnotes/; everything in the
+handoff block; 0040bc5 correct). Specs: gates-and-board.md
+"20M-15/16 + 20M-14 addendum + the tracked-PDF ruling".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

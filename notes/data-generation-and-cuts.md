@@ -1632,3 +1632,77 @@ reader (loadMCSamples), not just written; a with-latex control stays
 byte-identical to today; the covmat epilogue executes in both.
 Sequencing: rides the generator-ingress cluster (same file,
 generator_core.py); no standalone landing.
+
+## UNIT 56 — checkpoint-ingress amendment (20M-15, 2026-07-13, binding): resumed rows revalidate through the publication predicate
+
+Finding (red team, CONFIRMED; shipped loader body executed with only
+unavailable imports stubbed): a two-row checkpoint holding [NaN, 1] /
+[Inf, 2] under a both-succeeded sidecar loads cleanly, prints
+"Loaded models", schedules no recomputation, and republishes — the
+loaders validate existence / row counts / rank / nbytes only
+(generator_core.py:503-521, :540, :580-594, :619-640) and trust the
+sidecar bits.
+
+Amendment (binding, the unit's read-side half): (1) immediately
+after every _dv_load_chk — before printing, before loadedfromchk,
+before scheduling — every row whose failure bit is FALSE revalidates
+through the EXACT family-specific stored-payload predicate used at
+publication (unit 56's write-side), on the actual stored dtype,
+exact expected shape, and family semantics (generic/lensing exact
+vectors; all four CMB spectra with signed TE; the background-domain
+rules; the MPS positivity/linear/nonlinear/boost/base rules); (2) a
+failed row's documented zero placeholder stays legal; (3) an invalid
+row under a false success bit is a checkpoint/sidecar inconsistency:
+REFUSE with nonzero status, modify neither file, never silently flip
+a bit; (4) manifests/digests remain provenance, never a substitute
+for payload validity; (5) valid resume byte-identical.
+
+Legs (ratified; CPU): valid rows load; NaN / +Inf / -Inf under a
+success bit refuse; a dtype-overflow value refuses on readback;
+every family's domain-invalid payload refuses (incl. nonpositive MPS
+products where positivity is required); the zero placeholder stays
+legal; refusal fires BEFORE "Loaded models" with both files
+untouched; a mutation restoring the structural-only loader accepts
+the corrupt row and schedules nothing (must red); a census leg
+proves every loader calls the ONE shared predicate.
+
+## UNIT 82 (20M-16, 2026-07-13): row authenticity — the published parameter table IS the computed one, bitwise, on every path
+
+Finding (red team, CONFIRMED; mechanism verified in code): fresh
+generation writes the float64 chain at nine decimal digits
+(generator_core.py:798-801) and independently casts the computation
+copy to float32 (:804), while append reloads the written chain
+(:365-368) — decimal and binary rounding do not commute at
+midpoint-adjacent values (witness: default_rng(0) uniform index
+1582, one float32 ULP; ~700 per million draws), so a fresh run
+computes science one representable cosmology away from the row it
+publishes, finite and shape-correct throughout.
+
+Contract (ratified): (1) ONE canonical published parameter table is
+materialized exactly once, before any science call; (2) the rows
+every _compute_dvs_from_sample receives are BITWISE identical to the
+rows the real training loader recovers from the published chain;
+(3) fresh, resume, append, serial, and MPI share that representation
+and row order; (4) never write float64 xf and independently cast a
+second copy — either write a representation that round-trips exactly
+to the canonical computation dtype, or write first and reload once
+through the shared reader before any computation; the owner and the
+conversion are explicit; (5) lnp, chi2, bound checks, and other
+row-labelled facts are recomputed at the canonical row OR explicitly
+stored as pre-canonical sampling diagnostics — never facts about a
+different row; (6) the checkpoint/artifact manifest records the
+canonical parameter dtype and representation; (7) valid values and
+row order otherwise unchanged.
+
+Legs (ratified; CPU): the seed-0/index-1582 witness through fresh
+generation with an identity producer; chain read back through the
+real load_source with bitwise equality among producer row, staged
+row, and identity payload; an away-from-boundary control; fresh ==
+append == resume on the same canonical rows; serial == MPI;
+multi-parameter rows with one boundary-crossing coordinate; a
+mutation restoring write-then-independent-cast must fail on the
+witness; a census proving no producer call receives any table but
+the canonical one. Placement: the generator-ingress campaign
+(rides with the ingress cluster; distinct from 20M-15's payload
+validity — 15 asks whether the stored answer is legal, 82 whether
+it belongs to the printed cosmology).

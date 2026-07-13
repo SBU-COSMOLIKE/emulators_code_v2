@@ -2073,3 +2073,70 @@ coming):
    workstation session) now carries: the populated gates' real
    reruns, unit 69 leg 5, the 77/80 Torch legs, the 45M-75
    post-step half, Part J / Part 2 timing, and the full board.
+
+## 20M-15/16 + 20M-14 addendum + the tracked-PDF ruling (Fable, 2026-07-13): all adjudicated
+
+- 20M-15 CONFIRMED: __load_chk loads the failure sidecar
+  (generator_core.py:619-640) and every loader validates STRUCTURE
+  only (existence, row counts, nbytes/rank at :503-521, :540,
+  :580-594) — a corrupt payload row under a false success bit loads,
+  prints "Loaded models", schedules nothing, and republishes; the red
+  team executed the shipped loader body with only unavailable imports
+  stubbed. -> BINDING READ-SIDE AMENDMENT TO UNIT 56 (its
+  checkpoint-ingress half; spec in data-generation-and-cuts.md):
+  every row whose failure bit is false revalidates through THE SAME
+  family-specific stored-payload predicate used at publication,
+  BEFORE any print / flag / scheduling; an invalid-but-successful row
+  makes checkpoint and sidecar mutually inconsistent and REFUSES with
+  nonzero status touching neither file. "Valid when written" and
+  "valid when resumed" share one predicate so they cannot drift.
+- 20M-16 CONFIRMED: the fresh path writes the float64 chain with
+  fmt="%.9e" (:798-801) and INDEPENDENTLY casts self.samples to
+  float32 (:804, self.dtype at :244), while the append path reloads
+  the written chain as float32 before computing (:365-368) — decimal
+  and binary rounding do not commute at midpoint-adjacent values, so
+  fresh generation computes at a row one float32 ULP away from the
+  row it publishes (~700 per million uniform draws). The parameter
+  row is the scientific LABEL of the data vector; a payload may not
+  belong to the neighboring representable cosmology. -> NEW UNIT 82
+  (row authenticity), data-generation-and-cuts.md: one canonical
+  published parameter table materialized once before any science
+  call; bitwise identity between producer rows, staged rows, and the
+  training loader's recovered rows across fresh / resume / append /
+  serial / MPI; lnp/chi2 either recomputed at the canonical row or
+  explicitly labeled pre-canonical sampling diagnostics; the manifest
+  records the canonical dtype/representation.
+- 20M-14 ADDENDUM ACCEPTED -> UNIT 81 AMENDED (semantic roles):
+  distinctness is necessary, not sufficient — swapped roles
+  (as_name="tau", tau_name="As") give the finite factor 3.4907e-8 at
+  the fiducial (Architect re-derivation exact: 3.889e-8 x
+  exp(-0.108)) with producer/consumer in perfect agreement. The
+  amended contract requires explicit persisted column-role semantics
+  (a canonical role registry; aliases legal only when registered to
+  the scientific role) AND the executable semantic check: f at the
+  RECORDED fiducial, through the RESOLVED roles, equals the law's
+  identity value within its declared numerical contract — which
+  refuses swaps and arbitrary pairs without needing the registry to
+  enumerate the world. Added legs adopted (swapped pair; unrelated
+  existing pair; registered-alias control; fiducial unity; the
+  presence+distinctness-only mutation must fail).
+- TRACKED-PDF RULING (red team, RATIFIED — closes the last custody
+  item): the PDF stays tracked (the user wants it browsable); the
+  documentation lane gains a BUILD-MANIFEST gate -> NEW UNIT 83
+  (queue-6 documentation lane): a generated manifest of cryptographic
+  digests over every included .tex source, figure-generation script,
+  figure/vector asset, texnotes-owned bibliography/style input, and
+  the tracked PDF itself; written ONLY after a successful build; any
+  edit, regeneration, missing input, unrecorded include, or
+  independently replaced PDF turns the lane non-green until rebuild +
+  manifest regeneration. NO modification times (checkouts and merges
+  make them lies); the input census derives from the manuscript's
+  actual include/graphics dependency closure with an explicit
+  reviewed list only where TeX discovery cannot be mechanical.
+  Custody split at implementation: the red team owns the .tex side;
+  the Implementer builds the gate/helper code via handoff.
+
+Also this turn: CLAUDE.md's writer split aligned with the USER RULE
+(Architect owns notes/*.md, red team owns texnotes/, the Implementer
+writes neither — everything travels in the handoff block); Opus's
+retraction commit 0040bc5 was correct under that rule.

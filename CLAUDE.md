@@ -65,8 +65,10 @@ delegation choice:
   paraphrased numerics.
 - **`notes/`**: the Architect reads broadly (index first, then the relevant
   notes); the Implementer reads the entry named in its handoff plus the
-  `[[links]]` it cites. Writers: Architect = design specs and milestone
-  records; Implementer = resume state appended to the handoff's entry.
+  `[[links]]` it cites. Writers (USER RULE 2026-07-13): the Architect owns
+  `notes/*.md`; the red team owns `texnotes/`; the Implementer writes NEITHER —
+  all resume state, status, and findings travel in the IMPLEMENTER_HANDOFF
+  block, which the Architect records into notes/ when adjudicating.
 
 ## Conventions (pointers, not copies)
 

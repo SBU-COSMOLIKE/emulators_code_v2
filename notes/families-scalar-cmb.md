@@ -1181,3 +1181,23 @@ parity leg proves both consume the one resolved mapping.
 Sequencing: rides the wave-4 CMB adapter visit with unit 71; the
 readback-refusal clause is binding before any CMB production
 training.
+
+## UNIT 81 AMENDED (20M-14 addendum, 2026-07-13): roles are semantic, not structural — the fiducial-unity check through resolved roles is the executable proof
+
+The red team's addendum is ACCEPTED: nonempty + native + distinct
+names still admit SWAPPED roles or any arbitrary existing pair
+(witness at the real fiducial: as_name="tau"/tau_name="As" gives
+f = 3.4907e-8; Architect re-derivation exact). Amended contract:
+(1) explicit persisted column-role semantics — a canonical role
+registry in which as_name must denote a raw linear A_s coordinate
+and tau_name an optical depth; aliases legal ONLY when registered to
+the scientific role; (2) presence/native/distinct remain necessary,
+never sufficient; (3) swapped roles and unrelated pairs (ns /
+omegabh2) refuse; (4) the executable semantic check: f evaluated at
+the RECORDED fiducial through the RESOLVED roles equals the law's
+identity value within its declared numerical contract — this refuses
+swaps without the registry having to enumerate every spelling.
+Added legs: swapped As/tau; two unrelated existing columns; a valid
+registered-alias control; canonical pair at the fiducial gives
+exactly f = 1; a mutation validating only presence + index
+distinctness must fail.
