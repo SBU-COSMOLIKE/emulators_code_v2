@@ -47,8 +47,13 @@ covariance.)
 import os
 import numpy as np
 import torch
-import cosmolike_lsst_y1_interface as ci
-from getdist import IniFile
+# cosmolike_lsst_y1_interface and getdist are imported at their use sites
+# (from_cosmolike, build_shear_angle_map), NOT at module level: both are heavy
+# optional training-path dependencies, and importing them here made a missing
+# one an import-time death for every consumer of this module -- inference, the
+# board, tests (25M-37). Deferred, absence is a clear failure of the one call
+# that needs them, a declared disposition rather than an import that never
+# returns.
 
 
 class DataVectorGeometry:
@@ -283,6 +288,11 @@ class DataVectorGeometry:
                   wtheta, 3x2pt).
       dtype     = precision for the stored basis and Cinv.
     """
+    # deferred (25M-37): the training-path dependencies live here, at their
+    # one use site, not at module import.
+    import cosmolike_lsst_y1_interface as ci
+    from getdist import IniFile
+
     if probe not in cls.PROBE_BLOCKS:
       raise ValueError(f"unknown probe: {probe}")
 
@@ -757,6 +767,9 @@ def build_shear_angle_map(geom,
     bin_sizes (list, len = #non-empty bins, sum = n_keep).
   """
   # Locate and parse the dataset ini (binning + n(z) file).
+  # deferred (25M-37): getdist is imported here, not at module level (this
+  # path reads the ini + n(z) file only, no cosmolike).
+  from getdist import IniFile
   RD   = os.environ["ROOTDIR"]
   path = os.path.normpath(
     os.path.join(RD, "external_modules/data", data_dir))

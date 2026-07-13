@@ -120,16 +120,21 @@ class Assertion:
 
   Arguments:
     aid    = the assertion id: a stable, board-unique name for one
-             acceptance leg (e.g. "brd-a.exit-truth"). Chosen once and
-             never reworded, so a log line or a review can cite the leg
-             by a name that does not move when the prose around it does.
+             acceptance leg, "<gate-id>.<plain-leg-name>" where <gate-id>
+             is the gate's board id (the --gate selector), e.g.
+             "board-selftest.exit-truth". Chosen once and never reworded,
+             so a log line or a review can cite the leg by a name that
+             does not move when the prose around it does -- and a red aid
+             line names both the gate to rerun and the leg that failed.
     anchor = the home-note anchor the leg encodes, in the form
-             "<note>.md#<marker>" (e.g.
-             "gates-and-board.md#brd-a-exit-truth"). The marker is an
-             explicit <a id="..."></a> element in the note (chosen over
-             a heading slug because it survives a heading rewording);
-             the runner fails loudly, before running, if it does not
-             resolve.
+             "<note>.md#<marker>", where the marker is the aid with
+             "." -> "-" (e.g. "gates-and-board.md#board-selftest-exit-truth"
+             for aid "board-selftest.exit-truth"). validate_evidence
+             enforces that transform, so the aid <-> anchor map is one
+             mechanical string rule. The marker is an explicit
+             <a id="..."></a> element in the note (chosen over a heading
+             slug because it survives a heading rewording); the runner
+             fails loudly, before running, if it does not resolve.
   """
   aid: str
   anchor: str
@@ -271,9 +276,9 @@ def _golden_leg(ctx, gate_id, grep_pattern, *, yaml_name=None,
   # absolute-path passthrough, so an absolute --yaml would be re-prefixed
   # there; the fileroot convention resolves a bare name on every commit.
   with ctx.staged_golden(gate_id=gate_id, source=source) as bare:
-    _, cur = ctx.run_driver(yaml_path=bare)
+    cur_rc, cur = ctx.run_driver(yaml_path=bare)
     with ctx.worktree(commit=base) as wt:
-      _, pre = ctx.run_driver(yaml_path=bare, cwd=wt)
+      pre_rc, pre = ctx.run_driver(yaml_path=bare, cwd=wt)
 
   if ctx.dry:
     return
@@ -285,9 +290,28 @@ def _golden_leg(ctx, gate_id, grep_pattern, *, yaml_name=None,
                                         text_b=cur,
                                         pattern=grep_pattern,
                                         strip=r"[ \t]+\d+(?:\.\d+)?s$")
+  # A golden proof is evidence only when BOTH children COMPLETED (rc 0) AND the
+  # compared selection is NON-EMPTY. The pre-46 leg discarded both child return
+  # codes (``_, cur`` / ``_, pre``) and compared whatever the pattern selected,
+  # so a child that crashed after its last matching line -- or a pattern that
+  # matched nothing on both sides -- passed byte-identity vacuously. Require
+  # clean rcs and a non-empty selection, and report both rcs + both selected
+  # counts beside the equality verdict.
+  n_pre = len(logscan.matching_lines(text=pre, pattern=grep_pattern))
+  n_cur = len(logscan.matching_lines(text=cur, pattern=grep_pattern))
+  reasons = []
+  if pre_rc != 0 or cur_rc != 0:
+    reasons.append("a child exited nonzero (a golden run must complete)")
+  if n_pre == 0 or n_cur == 0:
+    reasons.append("empty selection (the pattern matched no lines to compare)")
+  if not equal:
+    reasons.append(detail)
+  ok = (len(reasons) == 0)
+  status = ("rc pre=" + str(pre_rc) + " cur=" + str(cur_rc)
+            + "; selected pre=" + str(n_pre) + " cur=" + str(n_cur))
   ctx.expect(label=gate_id + " golden byte-identity (" + base + " vs tip)",
-             ok=equal,
-             detail=detail)
+             ok=ok,
+             detail=status + ("" if ok else "; " + "; ".join(reasons)))
 
 
 def _smoke_driver(ctx, config_key, required_banners, *, extra=()):
@@ -1434,6 +1458,7 @@ def gate_board_selftest(ctx):
   rc, out = ctx.run_check("gates/checks/board_selftest.py")
   if not ctx.dry:
     ctx.expect(
+      aid="board-selftest.exit-truth",
       label="board-selftest exit-truth / selector / lane-code legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1459,6 +1484,7 @@ def gate_artifact_readback(ctx):
   rc, out = ctx.run_check("gates/checks/artifact_readback.py")
   if not ctx.dry:
     ctx.expect(
+      aid="artifact-readback.typed-bool",
       label="artifact-readback typed-attribute legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1484,6 +1510,7 @@ def gate_generator_seed(ctx):
   rc, out = ctx.run_check("gates/checks/generator_seed.py")
   if not ctx.dry:
     ctx.expect(
+      aid="generator-seed.owned-rng",
       label="generator-seed sampling-RNG legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1508,6 +1535,7 @@ def gate_cli_strict(ctx):
   rc, out = ctx.run_check("gates/checks/cli_strict.py")
   if not ctx.dry:
     ctx.expect(
+      aid="cli-strict.strict-parse",
       label="cli-strict flag-parsing legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1533,6 +1561,7 @@ def gate_family_first(ctx):
   rc, out = ctx.run_check("gates/checks/family_first.py")
   if not ctx.dry:
     ctx.expect(
+      aid="family-first.family-owned",
       label="family-first driver-identity legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1568,6 +1597,7 @@ def gate_stage_ram(ctx):
   rc, out = ctx.run_check("gates/checks/stage_ram.py")
   if not ctx.dry:
     ctx.expect(
+      aid="stage-ram.both-copies",
       label="stage-ram host-RAM accounting legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1606,6 +1636,7 @@ def gate_diagnostics_domain(ctx):
   rc, out = ctx.run_check("gates/checks/diagnostics_domain.py")
   if not ctx.dry:
     ctx.expect(
+      aid="diagnostics-domain.score-boundary",
       label="diagnostics-domain floor/residual score-boundary legs",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
@@ -1724,8 +1755,8 @@ BOARD = [
             "structured evidence map validates (the shipped board resolves, "
             "and a bad anchor / missing note / duplicate id / malformed anchor "
             "are each rejected) (the red legs plus the valid controls)",
-       evidence=(Assertion("brd-a.exit-truth",
-                           "gates-and-board.md#brd-a-board-truth"),),
+       evidence=(Assertion("board-selftest.exit-truth",
+                           "gates-and-board.md#board-selftest-exit-truth"),),
        run=gate_board_selftest,
        manifest=Manifest(code=(), inputs=()),
        needs=()),
@@ -1741,8 +1772,8 @@ BOARD = [
             "is type-checked and written to the chain header; same-seed draws "
             "reproduce. The append-replay and worker-invariance legs ride the "
             "workstation smoke gates",
-       evidence=(Assertion("gen-a.owned-rng",
-                           "data-generation-and-cuts.md#gen-a-generator-seed"),),
+       evidence=(Assertion("generator-seed.owned-rng",
+                           "data-generation-and-cuts.md#generator-seed-owned-rng"),),
        run=gate_generator_seed,
        manifest=Manifest(code=(), inputs=()),
        needs=()),
@@ -1756,8 +1787,8 @@ BOARD = [
             "mains reject a misspelled flag (--activaton) with a nonzero exit "
             "before the expensive boundary, while a valid command line reaches "
             "it",
-       evidence=(Assertion("cli-a.strict-parse",
-                           "conventions-and-workflow.md#cli-a-strict-cli"),),
+       evidence=(Assertion("cli-strict.strict-parse",
+                           "conventions-and-workflow.md#cli-strict-strict-parse"),),
        run=gate_cli_strict,
        manifest=Manifest(
            code=("cosmic_shear_train_emulator.py",
@@ -1783,8 +1814,8 @@ BOARD = [
             "trains, the per-family wrappers accept their own block; the "
             "census confirms the four cosmic_shear drivers default "
             "family=cosmolike, always check, and drop the dispatcher prose",
-       evidence=(Assertion("fam-a.family-owned",
-                           "conventions-and-workflow.md#fam-a-family-first"),),
+       evidence=(Assertion("family-first.family-owned",
+                           "conventions-and-workflow.md#family-first-family-owned"),),
        run=gate_family_first,
        manifest=Manifest(code=("cosmic_shear_train_emulator.py",
                                "emulator/designs", "emulator/losses"),
@@ -1807,8 +1838,8 @@ BOARD = [
             "exact-fit boundary, the honest three-term banner, the loader-driven "
             "order proof, and mutation arms for the dv-only estimate and the "
             "retired arange reindex",
-       evidence=(Assertion("srm-a.both-copies",
-                           "data-generation-and-cuts.md#srm-a-stage-ram"),),
+       evidence=(Assertion("stage-ram.both-copies",
+                           "data-generation-and-cuts.md#stage-ram-both-copies"),),
        run=gate_stage_ram,
        manifest=Manifest(code=(), inputs=()),
        needs=("torch",)),
@@ -1823,8 +1854,8 @@ BOARD = [
             "would load drifted transfer weights) naming the file + schema; a "
             "source census confirms no artifact boolean is truthiness-coerced. "
             "The live save/forge/rebuild proof is workstation-owed",
-       evidence=(Assertion("arb-a.typed-bool",
-                           "artifacts-inference-warmstart.md#arb-a-artifact-readback"),),
+       evidence=(Assertion("artifact-readback.typed-bool",
+                           "artifacts-inference-warmstart.md#artifact-readback-typed-bool"),),
        run=gate_artifact_readback,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -1845,8 +1876,8 @@ BOARD = [
             "REAL cmb_residual_diagnostic (corrupt-score refusal + valid "
             "control), and the grid / grid2d producer census through the one "
             "shared boundary",
-       evidence=(Assertion("diag-a.score-boundary",
-                           "training-stack.md#diag-a-diagnostics-domain"),),
+       evidence=(Assertion("diagnostics-domain.score-boundary",
+                           "training-stack.md#diagnostics-domain-score-boundary"),),
        run=gate_diagnostics_domain,
        manifest=Manifest(code=(), inputs=()),
        needs=("torch",)),
@@ -2062,9 +2093,15 @@ BOARD = [
        title="Geometry folder is the only geometry home",
        tier=TIER_NEW_FEATURES,
        home="artifacts-inference-warmstart",
-       maps="the note's geometry-folder section: import rewrite census; "
-            "new-save markers + full-board acceptance; shims retired "
-            "(legacy flat paths dead, loudly)",
+       maps="fresh artifacts name geometry classes from the geometry package "
+            "(emulator.geometries.*), and the retired flat module paths stay "
+            "absent from disk, the import system, and the repository source",
+       evidence=(Assertion("geo-paths.fresh-save-uses-folder-paths",
+                           "artifacts-inference-warmstart.md#geo-paths-fresh-save-uses-folder-paths"),
+                 Assertion("geo-paths.legacy-flat-paths-absent",
+                           "artifacts-inference-warmstart.md#geo-paths-legacy-flat-paths-absent"),
+                 Assertion("geo-paths.legacy-reference-census",
+                           "artifacts-inference-warmstart.md#geo-paths-legacy-reference-census")),
        run=gate_geo_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),

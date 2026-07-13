@@ -2249,7 +2249,6 @@ code, the board, or gate checks.
 
 These checks are implementation evidence for the Architect's pre-merge audit.
 They are not Red Team self-certification.
-
 ## Red Team implementation record: second root-README public-prose pass
 
 The Architect cleared the preceding figure and didactic increment at `701d6f9`.
@@ -2389,3 +2388,84 @@ is byte-identical to the pre-rewrite source, all fenced blocks retain their
 order and language, changed fence content is explanatory text rather than an
 executable command or YAML value, and `git diff --check` is clean.  The review
 is evidence for the Architect and does not certify the landing.
+## Queue-2 note-side evidence draft and new correctness finding
+
+The Red Team drafted the A1-ii home-note surface for the 27 gates outside the
+Implementer's seven foundation gates and four wrapper surfaces (six board
+gates).  The six existing home notes now contain one six-field block per gate
+plus one narrowed, long-`Gate.id` anchor per logical leg.  The draft has 137
+leg anchors.  Exact
+dot-to-dash mapping, anchor uniqueness, six-field completeness, and declared-
+name reconciliation were checked mechanically.  Logged-only, visual,
+conditionally absent, environment-owed, and currently red claims are labeled
+instead of being promoted to green evidence.  These blocks are a draft for
+Architect audit; they do not certify the future runner wiring.
+
+The execution pass also found `25M-36`, recorded in full in
+`families-background-mps.md`: `mps-identity` is currently false-red because
+its bounded-staging mean leg compares the streamed float32-payload mean with a
+mean formed before the independent law rows are cast to float32.  The producer
+matches the correctly ordered independent stored-payload reference exactly;
+the gate does not.  The producer remains frozen, the wrong-reference mutation
+must become a discriminating red leg, and the current queue-2 block explicitly
+withholds a whole-gate pass.
+
+The same execution pass found `25M-37`, recorded in
+`artifacts-inference-warmstart.md`: four gates declared as Torch-only fail
+before their first assertion because importing the persisted output-geometry
+type eagerly imports the compiled CosmoLike interface.  The fix belongs at
+the production `from_cosmolike` boundary so constructor/from-state artifact
+use is genuinely independent; adding four gate-local stubs would preserve the
+false public import contract.
+
+## Red Team implementation record: 25M-37 evidence readback and Torch probe
+
+The audited production repair at `3ba8588` defers the optional geometry
+dependencies to the two operations that use them.  `from_cosmolike` owns the
+compiled CosmoLike interface plus GetDist's `IniFile`, while
+`build_shear_angle_map` owns `IniFile` alone.  Importing
+`emulator.geometries.output` no longer loads either optional package.
+
+The two existing queue-2 evidence blocks affected by that repair now describe
+the landed code and direct execution:
+
+- `scalar-identity` reaches every declared assertion with the Cocoa Torch
+  2.6.0 CPU interpreter on a machine without the compiled CosmoLike interface
+  and ends `PASS: scalar-identity all checks green`;
+- `finite-contract` reaches its body, records the four known Parts A/C
+  message-prefix false reds, completes Parts B/D/E, then crashes in Part F
+  because the synthetic loss object has no `geom` from which
+  `_chi2_n_terms` can obtain a contraction width.
+
+The queue-2 draft deliberately excluded `finetune-identity` and
+`transfer-identity` with the other wrapper-family gates, so there are no
+six-field blocks for those two gates in the red-team-owned note surface yet.
+Their direct children now pass the repaired import boundary.  The fine-tune
+child ends `finetune-identity: ALL PASS`.  The transfer child executes all 59
+logical checks and retains its separate known red on the cross-family fixture,
+ending with one failure.  The Implementer's wrapper-family evidence rollout
+must record those current results when it creates the two excluded blocks.
+This bounded update does not take ownership of their leg names.
+
+The environment probe requested for the increment-2 seam also succeeds.  The
+interpreter at
+`/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python`
+imports Torch 2.6.0.  A real `torch.nn.Linear(2, 1, bias=False)` forward pass
+with weight `[3, 4]` and input `[1, 2]` prints
+`torch 2.6.0 device cpu forward [[11.0]]`.  This result answers the Architect's
+probe positively and makes the conditional D3 transfer executable in this
+environment.  It does not claim CUDA or workstation evidence.
+
+Evidence commands, run from the current worktree with `PYTHONPATH=.`:
+
+```text
+Cocoa/.local/bin/python gates/checks/scalar_identity.py
+Cocoa/.local/bin/python gates/checks/finetune_identity.py
+Cocoa/.local/bin/python gates/checks/transfer_identity.py
+Cocoa/.local/bin/python gates/checks/finite_contract.py
+```
+
+The first two return zero.  Transfer returns one for its independently known
+fixture red.  Finite-contract returns one at the Part F fixture crash after
+the import repair lets it reach the check body.  These are implementation
+readbacks for Architect audit, not self-certification.

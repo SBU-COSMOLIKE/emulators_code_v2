@@ -43,6 +43,7 @@ gates. Grouped by the defect each proves:
 Each check states the boundary under test, the fixture, the expected verdict,
 and (where relevant) the deliberately broken behavior it must reject.
 """
+import contextlib
 import copy
 import hashlib
 import io
@@ -654,23 +655,27 @@ def check_evidence_map():
            "%d gate(s) with evidence" % n_evid)
 
     # mutation 1: an anchor whose marker is not declared in the note is caught.
-    bad = _evidence_gate("bad", "bad.leg",
-                         "gates-and-board.md#no-such-marker-xyz")
+    # The aid->anchor transform is satisfied (bad.leg -> bad-leg), so the
+    # unresolved marker is the only defect this leg isolates.
+    bad = _evidence_gate("bad", "bad.leg", "gates-and-board.md#bad-leg")
     ok, errs = run_board.validate_evidence([bad])
     report("an unresolved anchor marker is rejected", not ok,
            errs[0] if errs else "")
 
-    # mutation 2: an anchor naming a note that does not exist is caught.
-    miss = _evidence_gate("miss", "miss.leg", "no-such-note.md#m")
+    # mutation 2: an anchor naming a note that does not exist is caught. The
+    # transform is satisfied (miss.leg -> miss-leg), so the missing note is the
+    # only defect.
+    miss = _evidence_gate("miss", "miss.leg", "no-such-note.md#miss-leg")
     ok, errs = run_board.validate_evidence([miss])
     report("an anchor citing a missing note is rejected", not ok,
            errs[0] if errs else "")
 
     # mutation 3: two gates sharing an assertion id is caught (board-wide
-    # uniqueness, so a leg's id names exactly one leg).
-    real_anchor = "gates-and-board.md#brd-a-board-truth"
-    dup_a = _evidence_gate("dupA", "dup.id", real_anchor)
-    dup_b = _evidence_gate("dupB", "dup.id", real_anchor)
+    # uniqueness, so a leg's id names exactly one leg). The shared aid's anchor
+    # resolves and satisfies the transform, so the duplicate is the only defect.
+    real_anchor = "gates-and-board.md#board-selftest-exit-truth"
+    dup_a = _evidence_gate("dupA", "board-selftest.exit-truth", real_anchor)
+    dup_b = _evidence_gate("dupB", "board-selftest.exit-truth", real_anchor)
     ok, errs = run_board.validate_evidence([dup_a, dup_b])
     report("a duplicate assertion id across gates is rejected", not ok,
            errs[0] if errs else "")
@@ -681,11 +686,388 @@ def check_evidence_map():
     report("a malformed anchor (no #marker) is rejected", not ok,
            errs[0] if errs else "")
 
+    # mutation 5 (invariant 3): an anchor that resolves to a REAL marker but is
+    # not the aid with '.'->'-' is caught -- the marker exists, so this isolates
+    # the aid<->anchor transform violation (the second naming convention this
+    # rollout kills).
+    xform = _evidence_gate("xform", "xform.leg",
+                          "gates-and-board.md#board-selftest-exit-truth")
+    ok, errs = run_board.validate_evidence([xform])
+    has_transform_err = False
+    for e in errs:
+        if "not the aid" in e:
+            has_transform_err = True
+    report("a non-transform anchor (marker != aid) is rejected",
+           (not ok) and has_transform_err, errs[0] if errs else "")
+
+    # the CLI refuses to LIST a board whose evidence violates the transform:
+    # validate_evidence runs on every invocation, so the REAL main --list exits
+    # 2 before any gate runs (the whole CLI path, not just the predicate).
+    rc, _, _ = drive_main(["--list"], [xform], {})
+    report("a non-transform anchor makes --list exit 2", rc == 2,
+           "rc=" + str(rc))
+
     # control: a gate with no evidence is never itself a failure (the
     # migration is rolling, not a flag day).
     ok, errs = run_board.validate_evidence([make_gate("plain")])
     report("a gate with no evidence is not a failure", ok and errs == [],
            "empty evidence tolerated")
+
+
+def _reconcile_gate(gate_id, aids):
+    """A fake gate declaring `aids` as its evidence (bodies are irrelevant to
+    _reconcile_evidence, which reads only gate.evidence and the executed list)."""
+    def _run(ctx):
+        pass
+    ev = []
+    for aid in aids:
+        ev.append(Assertion(aid, "n.md#" + aid.replace(".", "-")))
+    return Gate(id=gate_id, tier="backlog", home="selftest", maps="s",
+                run=_run, evidence=tuple(ev))
+
+
+def check_evidence_reconciliation():
+    """run_board._reconcile_evidence enforces binding ruling 6 + fork D1-ii.
+
+    Drives the REAL reconcile predicate: every declared leg emits exactly one
+    terminal (PASS / UNAVAILABLE; a FAIL raised and never reaches here), the
+    gate passes on its available legs, and a gate that proved nothing (every
+    declared leg UNAVAILABLE) may not pass -- the dead-network rule turned on
+    the harness itself.
+    """
+    # control: declared == executed, every leg a real PASS -> green, and the
+    # pinned summary reports 2/2 with zero unavailable.
+    g = _reconcile_gate("ctrl", ["ctrl.a", "ctrl.b"])
+    ok, ev, line = run_board._reconcile_evidence(
+        g, [("ctrl.a", "PASS", ""), ("ctrl.b", "PASS", "")])
+    report("clean declared==executed reconciles green", ok and ev is not None,
+           line)
+    report("the pinned summary counts executed/declared",
+           ev == {"executed": 2, "declared": 2, "unavailable": []}, repr(ev))
+
+    # a DECLARED leg the body never emitted (silently dropped) reds the gate.
+    g = _reconcile_gate("drop", ["drop.a", "drop.b"])
+    ok, ev, line = run_board._reconcile_evidence(g, [("drop.a", "PASS", "")])
+    report("a declared-not-executed leg reds the gate",
+           (not ok) and "declared-not-executed: drop.b" in line, line)
+
+    # the same id emitted twice (two terminals for one leg) reds the gate.
+    g = _reconcile_gate("dupe", ["dupe.a"])
+    ok, ev, line = run_board._reconcile_evidence(
+        g, [("dupe.a", "PASS", ""), ("dupe.a", "PASS", "")])
+    report("a leg emitted twice reds the gate",
+           (not ok) and "emitted-twice: dupe.a" in line, line)
+
+    # an emitted id the gate never declared reds the gate.
+    g = _reconcile_gate("unk", ["unk.a"])
+    ok, ev, line = run_board._reconcile_evidence(
+        g, [("unk.a", "PASS", ""), ("unk.b", "PASS", "")])
+    report("an executed-not-declared id reds the gate",
+           (not ok) and "executed-not-declared: unk.b" in line, line)
+
+    # fork D1-ii: a gate that PROVED one leg and marked another UNAVAILABLE
+    # passes on its available legs, and the summary names the owed leg.
+    g = _reconcile_gate("mix", ["mix.a", "mix.b"])
+    ok, ev, line = run_board._reconcile_evidence(
+        g, [("mix.a", "PASS", ""), ("mix.b", "UNAVAILABLE", "owed-workstation")])
+    report("a mixed PASS + UNAVAILABLE gate passes on its available legs",
+           ok and ev == {"executed": 1, "declared": 2,
+                         "unavailable": [["mix.b", "owed-workstation"]]},
+           repr(ev))
+
+    # zero-executed guard: a gate whose every declared leg is UNAVAILABLE proved
+    # nothing and MAY NOT pass.
+    g = _reconcile_gate("void", ["void.a", "void.b"])
+    ok, ev, line = run_board._reconcile_evidence(
+        g, [("void.a", "UNAVAILABLE", "owed"), ("void.b", "UNAVAILABLE", "owed")])
+    report("an all-UNAVAILABLE gate may not PASS (zero-executed guard)",
+           (not ok) and "zero executed legs" in line, line)
+
+
+def check_evidence_gate_verdict():
+    """The run_selection HOOK applies reconciliation to the REAL verdict.
+
+    Drives run_board.run_selection through drive_main (validate_evidence patched
+    off, so fabricated anchors need not resolve -- anchor resolution is covered
+    by check_evidence_map). A mixed gate ends PASS with the pinned evidence block
+    persisted; an all-UNAVAILABLE gate and a silently-dropped-leg gate each end
+    FAIL, never a bare green.
+    """
+    saved_ve = run_board.validate_evidence
+    run_board.validate_evidence = lambda gates: (True, [])
+    try:
+        # a gate that emits one PASS + one UNAVAILABLE leg: ends PASS, and the
+        # persisted record carries the pinned executed/UNAVAILABLE block.
+        def _mix_run(ctx):
+            ctx.expect(aid="mixg.a", label="a", ok=True, detail="")
+            ctx.unavailable(aid="mixg.b", label="b", reason="owed-workstation")
+        mixg = Gate(id="mixg", tier="backlog", home="selftest", maps="s",
+                    run=_mix_run,
+                    evidence=(Assertion("mixg.a", "n.md#mixg-a"),
+                              Assertion("mixg.b", "n.md#mixg-b")))
+        rc, final, tmp = drive_main(["--gate", "mixg"], [mixg], {})
+        rec = final.get("mixg", {})
+        report("a mixed PASS+UNAVAILABLE gate ends PASS via the real runner",
+               rec.get("status") == "PASS", repr(rec.get("status")))
+        report("the passing gate persists the pinned evidence block",
+               rec.get("evidence") == {"executed": 1, "declared": 2,
+                                       "unavailable": [["mixg.b",
+                                                        "owed-workstation"]]},
+               repr(rec.get("evidence")))
+
+        # a gate that marks BOTH declared legs UNAVAILABLE proved nothing: the
+        # real runner records FAIL, never a green (the zero-executed guard).
+        def _void_run(ctx):
+            ctx.unavailable(aid="voidg.a", label="a", reason="owed")
+            ctx.unavailable(aid="voidg.b", label="b", reason="owed")
+        voidg = Gate(id="voidg", tier="backlog", home="selftest", maps="s",
+                     run=_void_run,
+                     evidence=(Assertion("voidg.a", "n.md#voidg-a"),
+                               Assertion("voidg.b", "n.md#voidg-b")))
+        rc, final, tmp = drive_main(["--gate", "voidg"], [voidg], {})
+        rec = final.get("voidg", {})
+        report("an all-UNAVAILABLE gate ends FAIL via the real runner (not PASS)",
+               rec.get("status") == "FAIL", repr(rec.get("status")))
+
+        # a gate that silently drops a declared leg reds through the real runner
+        # (the body passes its one emitted leg, but the second is never emitted).
+        def _drop_run(ctx):
+            ctx.expect(aid="dropg.a", label="a", ok=True, detail="")
+        dropg = Gate(id="dropg", tier="backlog", home="selftest", maps="s",
+                     run=_drop_run,
+                     evidence=(Assertion("dropg.a", "n.md#dropg-a"),
+                               Assertion("dropg.b", "n.md#dropg-b")))
+        rc, final, tmp = drive_main(["--gate", "dropg"], [dropg], {})
+        rec = final.get("dropg", {})
+        report("a silently-dropped declared leg reds via the real runner",
+               rec.get("status") == "FAIL", repr(rec.get("status")))
+    finally:
+        run_board.validate_evidence = saved_ve
+
+
+def check_aid_manifest():
+    """run_check folds a check script's ##AID per-leg manifest into the executed
+    set (binding ruling 6 + the one-verdict constraint).
+
+    Drives the REAL parser, the REAL run_check subprocess, and the REAL
+    run_selection over tiny temp check scripts: a script's legs fold and reconcile
+    green; a script that drops a declared leg, crashes before its manifest, or
+    prints an unparseable line each red the gate; and a leg counted by BOTH the
+    script and the gate body reds (no second parallel verdict).
+    """
+    # unit: the parser extracts (aid, result, reason), keeping the reason for an
+    # UNAVAILABLE leg and ignoring non-manifest output.
+    recs, mal = run_board._parse_aid_manifest(
+        "noise\n##AID g.a PASS\n##AID g.b UNAVAILABLE owed to box\nmore\n")
+    report("the manifest parser extracts (aid, result, reason)",
+           recs == [("g.a", "PASS", ""), ("g.b", "UNAVAILABLE", "owed to box")]
+           and mal == [], repr(recs))
+    recs, mal = run_board._parse_aid_manifest("##AID g.a MAYBE\n##AID g.b\n")
+    report("the parser flags malformed manifest lines", recs == [] and len(mal) == 2,
+           repr(mal))
+
+    saved_ve = run_board.validate_evidence
+    run_board.validate_evidence = lambda gates: (True, [])
+    with tempfile.TemporaryDirectory(prefix="board-selftest-aid-") as sdir:
+        sd = Path(sdir)
+        try:
+            # (a) a script emitting both declared legs -> folded -> gate PASS.
+            ok_s = sd / "ok.py"
+            ok_s.write_text("print('##AID okg.a PASS')\nprint('##AID okg.b PASS')\n")
+
+            def _ok_run(ctx):
+                ctx.run_check(str(ok_s))
+            okg = Gate(id="okg", tier="backlog", home="selftest", maps="s",
+                       run=_ok_run,
+                       evidence=(Assertion("okg.a", "n.md#okg-a"),
+                                 Assertion("okg.b", "n.md#okg-b")))
+            rc, final, tmp = drive_main(["--gate", "okg"], [okg], {})
+            report("a script's ##AID legs fold into the executed set (gate PASS)",
+                   final.get("okg", {}).get("status") == "PASS",
+                   repr(final.get("okg", {}).get("status")))
+
+            # (b) a script that DROPS a declared leg -> reconciliation reds.
+            drop_s = sd / "drop.py"
+            drop_s.write_text("print('##AID dpg.a PASS')\n")
+
+            def _dp_run(ctx):
+                ctx.run_check(str(drop_s))
+            dpg = Gate(id="dpg", tier="backlog", home="selftest", maps="s",
+                       run=_dp_run,
+                       evidence=(Assertion("dpg.a", "n.md#dpg-a"),
+                                 Assertion("dpg.b", "n.md#dpg-b")))
+            rc, final, tmp = drive_main(["--gate", "dpg"], [dpg], {})
+            report("a script that drops a declared leg reds the gate",
+                   final.get("dpg", {}).get("status") == "FAIL",
+                   repr(final.get("dpg", {}).get("status")))
+
+            # (c) a script that CRASHES before its manifest -> the declared leg is
+            # never emitted -> reconciliation reds (no headline rc-check needed).
+            crash_s = sd / "crash.py"
+            crash_s.write_text("import sys\nsys.exit(3)\n")
+
+            def _cr_run(ctx):
+                ctx.run_check(str(crash_s))
+            crg = Gate(id="crg", tier="backlog", home="selftest", maps="s",
+                       run=_cr_run,
+                       evidence=(Assertion("crg.a", "n.md#crg-a"),))
+            rc, final, tmp = drive_main(["--gate", "crg"], [crg], {})
+            report("a script crash before its manifest reds the gate",
+                   final.get("crg", {}).get("status") == "FAIL",
+                   repr(final.get("crg", {}).get("status")))
+
+            # (d) an unparseable ##AID line -> run_check raises -> gate FAIL.
+            mal_s = sd / "mal.py"
+            mal_s.write_text("print('##AID malg.a PROBABLY')\n")
+
+            def _ml_run(ctx):
+                ctx.run_check(str(mal_s))
+            mlg = Gate(id="mlg", tier="backlog", home="selftest", maps="s",
+                       run=_ml_run,
+                       evidence=(Assertion("malg.a", "n.md#malg-a"),))
+            rc, final, tmp = drive_main(["--gate", "mlg"], [mlg], {})
+            report("an unparseable ##AID manifest line reds the gate",
+                   final.get("mlg", {}).get("status") == "FAIL",
+                   repr(final.get("mlg", {}).get("status")))
+
+            # (e) one-verdict: a script emits the leg AND the body also expects the
+            # same aid -> emitted twice -> reds (no second parallel verdict).
+            dv_s = sd / "dv.py"
+            dv_s.write_text("print('##AID dvg.a PASS')\n")
+
+            def _dv_run(ctx):
+                ctx.run_check(str(dv_s))
+                ctx.expect(aid="dvg.a", label="dup", ok=True, detail="")
+            dvg = Gate(id="dvg", tier="backlog", home="selftest", maps="s",
+                       run=_dv_run,
+                       evidence=(Assertion("dvg.a", "n.md#dvg-a"),))
+            rc, final, tmp = drive_main(["--gate", "dvg"], [dvg], {})
+            report("a leg counted by both the script and the body reds (one-verdict)",
+                   final.get("dvg", {}).get("status") == "FAIL",
+                   repr(final.get("dvg", {}).get("status")))
+
+            # (f) the composition hole (increment-2 audit ab07a2e): a script that
+            # prints '##AID <aid> FAIL' but EXITS 0 passes the wrapper's rc==0
+            # expect, so the passing path sees a FOLDED FAIL -- it must red, not
+            # be relabeled UNAVAILABLE.
+            fail0_s = sd / "fail0.py"
+            fail0_s.write_text("print('##AID failg.a PASS')\n"
+                               "print('##AID failg.b FAIL')\n")
+
+            def _fl_run(ctx):
+                rc, out = ctx.run_check(str(fail0_s))
+                ctx.expect(label="ran (rc==0)", ok=(rc == 0), detail="rc=" + str(rc))
+            failg = Gate(id="failg", tier="backlog", home="selftest", maps="s",
+                         run=_fl_run,
+                         evidence=(Assertion("failg.a", "n.md#failg-a"),
+                                   Assertion("failg.b", "n.md#failg-b")))
+            rc, final, tmp = drive_main(["--gate", "failg"], [failg], {})
+            report("a folded FAIL while the wrapper rc==0 expect passes reds the gate",
+                   final.get("failg", {}).get("status") == "FAIL",
+                   repr(final.get("failg", {}).get("status")))
+
+            # (g) control: both legs PASS under the same wrapper rc==0 expect -> green.
+            pass0_s = sd / "pass0.py"
+            pass0_s.write_text("print('##AID passg.a PASS')\n"
+                               "print('##AID passg.b PASS')\n")
+
+            def _ps_run(ctx):
+                rc, out = ctx.run_check(str(pass0_s))
+                ctx.expect(label="ran (rc==0)", ok=(rc == 0), detail="rc=" + str(rc))
+            passg = Gate(id="passg", tier="backlog", home="selftest", maps="s",
+                         run=_ps_run,
+                         evidence=(Assertion("passg.a", "n.md#passg-a"),
+                                   Assertion("passg.b", "n.md#passg-b")))
+            rc, final, tmp = drive_main(["--gate", "passg"], [passg], {})
+            report("an all-PASS manifest under the wrapper expect stays green (control)",
+                   final.get("passg", {}).get("status") == "PASS",
+                   repr(final.get("passg", {}).get("status")))
+        finally:
+            run_board.validate_evidence = saved_ve
+
+
+class _GoldenCtx:
+    """A stub ctx that drives the REAL board._golden_leg over controlled child
+    (rc, output) pairs, so the empty-selection / crashed-child mutations red
+    through the production leg itself (DIDACTICS-46 + the rc addendum).
+
+    _golden_leg calls run_driver twice: first the current tree, then the pinned
+    worktree. This returns _cur on the first call and _pre on the second, and
+    captures the leg's single ctx.expect verdict in .result = (ok, detail).
+    """
+
+    def __init__(self, *, pre, cur, pre_rc=0, cur_rc=0):
+        self._pre = (pre_rc, pre)
+        self._cur = (cur_rc, cur)
+        self.dry = False
+        self.result = None
+        self._n = 0
+
+    def golden_base(self, gate_id):
+        return "deadbeef"                # a configured base (not the skip path)
+
+    def config_yaml_name(self, name):
+        return "c.yaml"
+
+    def require_config(self, key):
+        return "c.yaml"
+
+    def log(self, msg):
+        pass
+
+    @contextlib.contextmanager
+    def staged_golden(self, *, gate_id, source):
+        yield "bare.yaml"
+
+    @contextlib.contextmanager
+    def worktree(self, *, commit):
+        yield "/tmp/wt"
+
+    def run_driver(self, *, yaml_path, cwd=None):
+        self._n = self._n + 1
+        return self._cur if self._n == 1 else self._pre
+
+    def expect(self, *, label, ok, detail=""):
+        self.result = (ok, detail)
+
+
+def check_golden_leg():
+    """board._golden_leg reds on a crashed child or an empty selection, not only
+    on a diff (DIDACTICS-46 + the rc addendum). Drives the REAL leg via _GoldenCtx.
+
+    The pre-46 leg discarded both child rcs and compared whatever the pattern
+    selected, so a nonzero-rc child after its matching lines, or a pattern that
+    matched nothing on both sides, passed vacuously. These arms hold the fix.
+    """
+    def _drive(**kw):
+        c = _GoldenCtx(**kw)
+        board._golden_leg(c, "g", "^epoch", yaml_name="c.yaml")
+        return c.result
+
+    same = "epoch 1 loss 0.5\nepoch 2 loss 0.3\n"
+
+    # control: rc0/rc0 + identical non-empty selection -> green.
+    ok, detail = _drive(pre=same, cur=same)
+    report("golden control: clean rcs + identical non-empty selection passes",
+           ok, detail)
+
+    # the original equality check still bites: a diverging line reds.
+    ok, detail = _drive(pre=same, cur="epoch 1 loss 0.5\nepoch 2 loss 0.9\n")
+    report("golden: a diverging selection reds", not ok, detail)
+
+    # the 46 defect: neither side has an 'epoch' line -> empty selection must
+    # red, not pass vacuously.
+    ok, detail = _drive(pre="hello\nworld\n", cur="hello\nworld\n")
+    report("golden: an empty selection reds (not a vacuous pass)", not ok, detail)
+
+    # the rc addendum: both children exit 1 after identical matching lines.
+    ok, detail = _drive(pre=same, cur=same, pre_rc=1, cur_rc=1)
+    report("golden: both children rc 1 reds despite matching lines", not ok,
+           detail)
+
+    # the rc addendum: a tip-only nonzero child rc.
+    ok, detail = _drive(pre=same, cur=same, cur_rc=1)
+    report("golden: a tip-only nonzero child rc reds", not ok, detail)
 
 
 def check_dirty_watch():
@@ -1648,8 +2030,16 @@ def main():
     check_evidence_atomicity()
     print("\n-- raw-log trust (a PASS is only as good as its cited log) --")
     check_log_trust()
-    print("\n-- structured evidence map (anchors resolve, ids unique) --")
+    print("\n-- structured evidence map (anchors resolve, ids unique, transform) --")
     check_evidence_map()
+    print("\n-- evidence reconciliation (declared vs executed, ruling 6 + D1-ii) --")
+    check_evidence_reconciliation()
+    print("\n-- evidence gate verdict (the runner hook flips + persists the block) --")
+    check_evidence_gate_verdict()
+    print("\n-- ##AID manifest (check-script per-leg fold, crash/malformed/one-verdict) --")
+    check_aid_manifest()
+    print("\n-- golden leg (both child rcs + non-empty selection, not just a diff) --")
+    check_golden_leg()
     print("\n-- clean-tree watch (per-line porcelain, one owner) --")
     check_dirty_watch()
     print("\n-- manifest reconciliation (subprocess + dynamic-import censuses) --")

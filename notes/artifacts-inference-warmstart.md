@@ -1150,7 +1150,7 @@ gate to a stable, runner-validated anchor in its home note; the mechanism
 and the audited rollout are documented in `gates-and-board.md`. The
 artifact-side gate anchors here:
 
-<a id="arb-a-artifact-readback"></a>
+<a id="artifact-readback-typed-bool"></a>
 **artifact-readback (ARB-A) — saved attributes are parsed by type, not
 truthiness.** The shared typed reader accepts a native boolean, returns the
 default for an absent key, and refuses every string / integer (the truthy
@@ -1399,3 +1399,79 @@ inference/artifact boundary campaign, enforced centrally in
 EmulatorPredictor (never five adapter copies); EMUL2-blocking; the
 domain block's schema placement rides the fixed-facts proposal
 review.
+
+## 25M-37 (Red Team finding, awaiting Architect adjudication): an eager CosmoLike import makes four advertised Torch-only gates fail before their first assertion
+
+`emulator/geometries/output.py` imports
+`cosmolike_lsst_y1_interface` at module import time.  Only the
+`DataVectorGeometry.from_cosmolike` construction path uses that interface;
+the plain constructor and `from_state` rebuild path use persisted arrays and
+do not.  The module's own teaching text says that inference never rereads
+CosmoLike, but importing the module still requires the compiled package.
+
+This makes the gate capability declarations false.  The board declares
+`scalar-identity`, `finetune-identity`, `transfer-identity`, and
+`finite-contract` with `needs=("torch",)` and their child documentation says
+that CosmoLike is not required.  Each child imports `DataVectorGeometry`
+before entering `main`.  Executing all four with the Cocoa Torch 2.6.0
+interpreter and `PYTHONPATH=.` on a machine without the compiled interface
+produces the same pre-body `ModuleNotFoundError`; no child report or logical
+leg executes.  `finite-contract` therefore cannot even reach its separately
+known `_chi2_domain` red on the environment its own header promises.
+
+Required contract: make the compiled interface a dependency of the
+`from_cosmolike` construction boundary, not of importing the persisted
+geometry type.  Importing `emulator.geometries.output`, constructing or
+restoring `DataVectorGeometry` from explicit tensors, and rebuilding a saved
+artifact must work with Torch and NumPy when the interface is absent.
+Calling `from_cosmolike` without it must raise a teaching error that names the
+missing compiled dependency and the operation that requested it.  With the
+interface installed, the existing construction numerics and saved state stay
+unchanged.  Red legs execute the four real child entry points in an
+environment where the interface import is deliberately unavailable; each
+must get past module import and reach its owned assertions.  A mutation that
+restores the eager module-level import must fail all four.  This is production
+geometry ownership plus board capability evidence, not four independent gate
+stubs.
+
+## Queue-2 evidence draft: geometry-module paths
+
+<a id="geo-paths-evidence"></a>
+**geo-paths — fresh artifacts name geometry classes from the geometry package,
+and the retired flat module paths remain absent.**
+
+- files: creates a temporary covariance file plus temporary `.h5` and `.emul`
+  artifact files; scans every repository Python file returned by the board's
+  shared repository-file enumerator except its own check source, which contains
+  the retired names as test data; all generated files are deleted with the
+  temporary directory.
+- subprocess: `gates/checks/geo_paths.py`.
+- metric: per-leg attribute-prefix/count and finite-prediction checks, a
+  complete six-name disk/import census, or a repository-Python reference
+  census with the one named self-exclusion.
+- legs: 3, named `geo-paths.fresh-save-uses-folder-paths`,
+  `geo-paths.legacy-flat-paths-absent`, and
+  `geo-paths.legacy-reference-census`.
+- evidence: all three legs are asserted in the child; the child's exit status
+  remains the single aggregate verdict and is not a fourth leg.
+- owed: the board registry models CPU PyTorch only. NumPy and HDF5 are also
+  ordinary imports of the child; if either import is absent the child is red
+  before these legs, rather than capability-skipped. A green full board is
+  separate integration evidence and is not minted as a `geo-paths` leg.
+
+<a id="geo-paths-fresh-save-uses-folder-paths"></a>
+`geo-paths.fresh-save-uses-folder-paths` requires a fresh artifact to contain
+at least two attribute values beginning `emulator.geometries.`, no attribute
+value beginning with the retired flat prefix, and a finite prediction after
+rebuild. The current child does not identify which two geometry classes own
+those markers.
+
+<a id="geo-paths-legacy-flat-paths-absent"></a>
+`geo-paths.legacy-flat-paths-absent` checks each of the six retired module
+names on disk and through `importlib.util.find_spec`; every name must be
+absent.
+
+<a id="geo-paths-legacy-reference-census"></a>
+`geo-paths.legacy-reference-census` scans the complete repository Python-file
+set supplied by the shared board enumerator, excluding only the check that
+contains the search terms, and requires zero retired flat-module references.

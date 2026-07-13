@@ -107,6 +107,141 @@ emulator/activations.py.
   legal alias, both spellings = error; `trunk: activation:` errors
   with a teaching message.
 
+<a id="head-activation-pin-evidence"></a>
+### Board evidence: `head-activation-pin`
+
+**The current gate checks the configured pin through process results and
+selected startup text.**  It does not inspect the trained parameters or compare
+the model's numerical predictions.
+
+- files: reads `gates/configs/head-activation-pin-config.yaml`,
+  `gates/configs/head-activation-pin-license.yaml`, and the cosmic-shear
+  training/validation arrays, parameter tables, covariance, and CosmoLike
+  `.dataset` pointer named by the board manifest. The driver follows that
+  pointer to data-vector, covariance, mask, and n(z) siblings that are
+  transitive reads outside the manifest hash. A configured golden leg would
+  also read `cosmic_shear_train_emulator.yaml` and stage one temporary copy in
+  the configured driver fileroot for both the current and pinned drivers.
+  Successful training calls write the driver's ordinary `.emul` and `.h5`
+  products, but this gate does not read those products back; the board runner
+  writes the gate's raw log.
+- subprocess: runs `cosmic_shear_train_emulator.py` for the pinned-head
+  configuration, for that configuration plus `--activation=power`, and for
+  the deliberately invalid unfrozen-head configuration.  A configured golden
+  leg would run the current and pinned drivers once each.  There is no separate
+  `gates/checks/` child.
+- metric: per-leg.  The executable legs use exact process-exit predicates,
+  literal selected-text containment, or a case-insensitive selected-text
+  regular expression.  The conditional golden leg compares only selected log
+  lines after removing their trailing wall-clock field; it is not a raw-byte
+  comparison, and the helper does not require either selected-line list to be
+  nonempty.
+- legs: 5, named `head-activation-pin.golden-selected-text-equality`,
+  `head-activation-pin.pinned-config-exit-zero`,
+  `head-activation-pin.gated-power-text-present`,
+  `head-activation-pin.flag-vs-pin-warning`, and
+  `head-activation-pin.unfrozen-pin-refusal`.
+- evidence: 4 legs are asserted when the Torch, CosmoLike, and GPU
+  requirements are available.  The golden selected-text leg is
+  **UNAVAILABLE** because `board_config.json` names no pinned base for this
+  gate.  The output may contain other design information, but the gate does
+  not assert a parameter count.
+- owed: the manifest-bound workstation rerun is **UNAVAILABLE until that
+  run executes**.  A golden comparison remains unavailable until a reviewed
+  base commit is configured, and it additionally needs a nonempty-selection
+  assertion before equality proves that any selected text existed.
+
+<a id="head-activation-pin-golden-selected-text-equality"></a>
+`head-activation-pin.golden-selected-text-equality` — **UNAVAILABLE:** no base
+commit is configured; if one is added, the leg compares selected current/base
+log-line lists after stripping the trailing wall-clock value. The current
+helper would also accept two empty lists.
+
+<a id="head-activation-pin-pinned-config-exit-zero"></a>
+`head-activation-pin.pinned-config-exit-zero` — the process running the
+pinned-head configuration exits with status zero.
+
+<a id="head-activation-pin-gated-power-text-present"></a>
+`head-activation-pin.gated-power-text-present` — the captured output from the
+pinned-head configuration contains the literal text `gated_power`.
+
+<a id="head-activation-pin-flag-vs-pin-warning"></a>
+`head-activation-pin.flag-vs-pin-warning` — the run with
+`--activation=power` both exits with status zero and prints that the head keeps
+its `gated_power` pin.
+
+<a id="head-activation-pin-unfrozen-pin-refusal"></a>
+`head-activation-pin.unfrozen-pin-refusal` — the deliberately invalid
+unfrozen-head configuration exits nonzero and its captured output contains
+`frozen`, matched without regard to letter case.
+
+<a id="relu-tanh-norm-evidence"></a>
+### Board evidence: `relu-tanh-norm`
+
+**The current gate runs two configurations that request `tanh` and checks the
+reported norm names.**  Process completion and startup text do not by
+themselves prove that the training loss decreased or that a ReLU model works.
+
+- files: reads `gates/configs/relu-tanh-norm-per-feature.yaml`,
+  `gates/configs/relu-tanh-norm-affine.yaml`, and the cosmic-shear
+  training/validation arrays, parameter tables, covariance, and CosmoLike
+  `.dataset` pointer named by the board manifest. The driver follows that
+  pointer to data-vector, covariance, mask, and n(z) siblings that are
+  transitive reads outside the manifest hash. A configured golden leg would
+  also read `cosmic_shear_train_emulator.yaml` and stage one temporary copy in
+  the configured driver fileroot for both the current and pinned drivers.
+  Successful calls write the driver's ordinary `.emul` and `.h5` products,
+  but this gate does not read those products back; the board runner writes the
+  gate's raw log.
+- subprocess: runs `cosmic_shear_train_emulator.py` once for the
+  `tanh`/`per_feature` configuration and once for the `tanh`/`affine`
+  configuration.  A configured golden leg would run the current and pinned
+  drivers once each.  There is no separate `gates/checks/` child.
+- metric: per-leg.  The executable legs use exact zero-exit predicates and
+  literal selected-text containment.  The conditional golden leg compares
+  selected log lines after removing their trailing wall-clock field; it is not
+  a raw-byte comparison, and the helper does not require either selected-line
+  list to be nonempty.
+- legs: 5, named `relu-tanh-norm.golden-selected-text-equality`,
+  `relu-tanh-norm.per-feature-config-exit-zero`,
+  `relu-tanh-norm.per-feature-text-present`,
+  `relu-tanh-norm.affine-config-exit-zero`, and
+  `relu-tanh-norm.affine-text-present`.
+- evidence: 4 legs are asserted when the Torch, CosmoLike, and GPU
+  requirements are available.  The golden selected-text leg is
+  **UNAVAILABLE** because `board_config.json` names no pinned base for this
+  gate.  Epoch histories are present in the raw subprocess output, but no
+  assertion compares their loss values, so loss descent is logged-only and
+  **UNAVAILABLE** as behavioral evidence.
+- owed: the manifest-bound workstation rerun is **UNAVAILABLE until that
+  run executes**.  A ReLU-specific run and a numerical loss-descent assertion
+  are not present in this gate; neither claim may be inferred from its current
+  result.  A golden comparison remains unavailable until a reviewed base
+  commit is configured and must also assert that the selected-line lists are
+  nonempty.
+
+<a id="relu-tanh-norm-golden-selected-text-equality"></a>
+`relu-tanh-norm.golden-selected-text-equality` — **UNAVAILABLE:** no base commit
+is configured; if one is added, the leg compares selected current/base log
+line lists after stripping the trailing wall-clock value. The current helper
+would also accept two empty lists.
+
+<a id="relu-tanh-norm-per-feature-config-exit-zero"></a>
+`relu-tanh-norm.per-feature-config-exit-zero` — the process whose YAML requests
+`tanh` with `per_feature` normalization exits with status zero.
+
+<a id="relu-tanh-norm-per-feature-text-present"></a>
+`relu-tanh-norm.per-feature-text-present` — that process's captured output
+contains the literal text `per_feature`.
+
+<a id="relu-tanh-norm-affine-config-exit-zero"></a>
+`relu-tanh-norm.affine-config-exit-zero` — the process whose YAML requests
+`tanh` with `affine` normalization exits with status zero.
+
+<a id="relu-tanh-norm-affine-text-present"></a>
+`relu-tanh-norm.affine-text-present` — that process's captured output contains
+the literal text `affine`.
+
 ## Factored IA (what "factored" means)
 
 Parameters entering the dv as polynomial COEFFICIENTS (NLA A1 -> 3
@@ -148,6 +283,101 @@ amplitudes. NEVER emulate a parameter dependence you can write down.
   owns the target construction — validate_cmb). Note the cosmic-shear
   verdict above does NOT transfer: on MPS the PCE fits the law-space
   boost, exactly the 2404.12344 regime where it worked.
+
+<a id="npce-training-evidence"></a>
+### Board evidence: `npce-training`
+
+**The current gate checks process results and selected NPCE text for residual,
+ratio, refusal, and two-point-sweep configurations.**  Its smoke helpers do
+not compare losses, and the current sweep check does not observe a separate
+base fit inside each worker.
+
+- files: reads the five `gates/configs/npce-training-*.yaml` training and
+  refusal configurations, the cosmic-shear training/validation arrays,
+  parameter tables, covariance, and CosmoLike `.dataset` pointer named by the
+  board manifest. The driver follows that pointer to data-vector, covariance,
+  mask, and n(z) siblings that are transitive reads outside the manifest hash.
+  A configured golden leg would also read
+  `cosmic_shear_train_emulator.yaml` and stage one temporary copy in the
+  configured driver fileroot for both the current and pinned drivers.
+  Successful calls write the drivers' ordinary `.emul`/`.h5` and sweep
+  products; this gate does not read a saved NPCE artifact back, and the board
+  runner writes the gate's raw log.
+- subprocess: runs `cosmic_shear_train_emulator.py` for residual and ratio
+  NPCE, for the invalid NPCE-plus-IA configuration, and for NPCE plus the
+  `--rescale=residual` flag.  It runs
+  `cosmic_shear_sweep_ntrain_emulator.py` with a requested two-point training
+  set-size grid.  A configured golden leg would additionally run the current
+  and pinned single-training drivers.  There is no separate `gates/checks/`
+  child.
+- metric: per-leg.  The executable legs use exact process-exit predicates,
+  literal or regular-expression selected-text checks, and for the sweep a
+  lower-bound count of matching result lines plus a staging-banner check.  The
+  conditional golden leg compares selected log lines after removing their
+  trailing wall-clock field; it is not a raw-byte comparison, and the helper
+  does not require either selected-line list to be nonempty.
+- legs: 9, named `npce-training.golden-selected-text-equality`,
+  `npce-training.residual-config-exit-zero`,
+  `npce-training.residual-pce-text-present`,
+  `npce-training.ratio-config-exit-zero`,
+  `npce-training.ratio-pce-text-present`,
+  `npce-training.pce-ia-refusal`,
+  `npce-training.pce-rescale-refusal`,
+  `npce-training.sweep-result-lines-and-pce-banner`, and
+  `npce-training.rebuild-vs-base`.
+- evidence: 7 legs are asserted when the Torch, CosmoLike, and GPU
+  requirements are available.  The golden selected-text leg is
+  **UNAVAILABLE** because `board_config.json` names no pinned base.  The
+  rebuild-versus-base item is logged-only and therefore **UNAVAILABLE**: the
+  gate prints an instruction but executes no comparison.
+- owed: the manifest-bound workstation rerun is **UNAVAILABLE until that
+  run executes**.  An independent saved-artifact rebuild-versus-base
+  comparison is likewise **UNAVAILABLE** and owed.  The current result also
+  does not prove numerical loss descent or a per-worker NPCE refit in the
+  sweep.  A golden comparison remains unavailable until a reviewed base
+  commit is configured and must also assert that the selected-line lists are
+  nonempty.
+
+<a id="npce-training-golden-selected-text-equality"></a>
+`npce-training.golden-selected-text-equality` — **UNAVAILABLE:** no base commit
+is configured; if one is added, the leg compares selected current/base log
+line lists after stripping the trailing wall-clock value. The current helper
+would also accept two empty lists.
+
+<a id="npce-training-residual-config-exit-zero"></a>
+`npce-training.residual-config-exit-zero` — the residual-form NPCE process
+exits with status zero.
+
+<a id="npce-training-residual-pce-text-present"></a>
+`npce-training.residual-pce-text-present` — the residual-form process's
+captured output contains the literal text `pce`.
+
+<a id="npce-training-ratio-config-exit-zero"></a>
+`npce-training.ratio-config-exit-zero` — the ratio-form NPCE process exits with
+status zero.
+
+<a id="npce-training-ratio-pce-text-present"></a>
+`npce-training.ratio-pce-text-present` — the ratio-form process's captured
+output contains the literal text `pce`.
+
+<a id="npce-training-pce-ia-refusal"></a>
+`npce-training.pce-ia-refusal` — the NPCE-plus-IA process exits nonzero and its
+captured output contains `exclusive`, matched without regard to letter case.
+
+<a id="npce-training-pce-rescale-refusal"></a>
+`npce-training.pce-rescale-refusal` — the NPCE process launched with
+`--rescale=residual` exits nonzero and its captured output contains
+`exclusive`, matched without regard to letter case.
+
+<a id="npce-training-sweep-result-lines-and-pce-banner"></a>
+`npce-training.sweep-result-lines-and-pce-banner` — the requested two-point
+sweep exits with status zero, prints at least two result lines containing both
+`N_train` and `f(>0.2)`, and prints a line beginning `pce: form`.
+
+<a id="npce-training-rebuild-vs-base"></a>
+`npce-training.rebuild-vs-base` — **UNAVAILABLE:** the wrapper only logs that a
+save/rebuild/base comparison belongs in a check script; it does not run that
+comparison.
 
 ### NPCE LOO gate must be absolute (red-team 2026-07-12 fifth wave, Architect-VERIFIED, CRITICAL, open; the full contract for the wave-1 pce-fallback finding)
 

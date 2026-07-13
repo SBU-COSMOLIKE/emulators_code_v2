@@ -8,6 +8,111 @@ README sections 14 and 15.
 
 ## SPE — scalar (derived-parameter) emulators. CLOSED, board 25/25.
 
+<a id="scalar-identity-evidence"></a>
+**scalar-identity — synthetic scalar artifacts exercise the scalar geometry,
+saved predictor, adapter, NPCE residual model, and fine-tune boundary.**
+
+- files: temporary covariance and parameter-name sidecars plus synthetic
+  `.h5`/`.emul` artifact pairs; every output is owned by the child check's
+  temporary directory.
+- subprocess: `gates/checks/scalar_identity.py`; no nested subprocess (the
+  scalar Cobaya adapter is loaded with a minimal `Theory` stub).
+- metric: per-leg — exact value or tensor equality for round trips and
+  compositions, set/order equality for declared names, explicit tolerances
+  only for the tiny-scale standardization and live-PCE controls, and typed
+  refusal for invalid inputs.
+- legs: 5, named `scalar-identity.artifact-round-trip`,
+  `scalar-identity.geometry-and-schema-guards`,
+  `scalar-identity.scalar-adapter-contract`,
+  `scalar-identity.npce-composition`, and
+  `scalar-identity.finetune-parity`.
+- evidence: `DataVectorGeometry` now imports without loading either optional
+  CosmoLike dependency. The compiled interface and GetDist's `IniFile` are
+  loaded only by `from_cosmolike` and `build_shear_angle_map`, respectively.
+  A direct run with the Cocoa Torch 2.6.0 interpreter on CPU and without the
+  compiled CosmoLike interface reached every declared assertion and ended
+  `PASS: scalar-identity all checks green`. The board wrapper still reduces
+  those child assertions to the process exit code; no logged-only claim is
+  promoted.
+- owed: wire and reconcile the per-leg assertion identifiers during the
+  queue-2 rollout, then rerun the board gate. Missing the registry's PyTorch
+  capability makes the gate `UNAVAILABLE`. The gate claims neither GPU nor a
+  real-Cobaya lifecycle.
+
+<a id="scalar-identity-artifact-round-trip"></a>
+`scalar-identity.artifact-round-trip` asserts exact named predictions before
+and after save/rebuild, exact scalar geometry-state tensors, and the rebuilt
+scalar-family flags.
+
+<a id="scalar-identity-geometry-and-schema-guards"></a>
+`scalar-identity.geometry-and-schema-guards` rejects a constant output,
+duplicate sidecar names, and a correction-head architecture while accepting
+a genuinely varying tiny-magnitude output whose standardized spread is
+within 0.05 of one.
+
+<a id="scalar-identity-scalar-adapter-contract"></a>
+`scalar-identity.scalar-adapter-contract` checks the stored output-name union
+and input-name set, accepts an explicit output subset, and rejects duplicate
+outputs, input/output chaining, an unavailable superset, and a non-scalar
+artifact.
+
+<a id="scalar-identity-npce-composition"></a>
+`scalar-identity.npce-composition` requires a nonzero fitted polynomial base,
+then checks the residual encode/decode algebra and saved base-plus-network
+prediction by exact tensor or scalar equality.
+
+<a id="scalar-identity-finetune-parity"></a>
+`scalar-identity.finetune-parity` runs the epoch-zero warm-start parity check,
+checks that the anchor mask excludes exactly an appended input column, and
+rejects output-name and source-family mismatches before staging.
+
+<a id="scalar-smoke-evidence"></a>
+**scalar-smoke — a trained scalar emulator is checked against the analytic
+relation `omegamh2 = omegam*(H0/100)^2` and through a real Cobaya evaluate
+run.**
+
+- files: temporary train/validation parameter tables, covariance and
+  parameter-name sidecars, one saved `.h5`/`.emul` pair, a diagnostics PDF,
+  and the temporary YAML and chain output written by Cobaya evaluate.
+- subprocess: `gates/checks/scalar_smoke.py`; that child additionally runs
+  `python -m cobaya run` for the evaluate leg, while training, prediction,
+  and diagnostics execute in-process.
+- metric: per-leg — validation median below `0.3`, off-center analytic
+  relative error below `0.05`, diagnostics page/file-shape assertions, and
+  Cobaya-derived-value relative error below `0.05` after a zero exit code.
+- legs: 4, named `scalar-smoke.training-collapse`,
+  `scalar-smoke.analytic-prediction`, `scalar-smoke.diagnostics-output`, and
+  `scalar-smoke.cobaya-evaluate`.
+- evidence: each claim is asserted inside the child; the board wrapper
+  currently exposes only the aggregate child exit code, and diagnostic text
+  printed after a failed readback is troubleshooting output rather than a
+  green assertion.
+- owed: the registry capability lane requires CPU PyTorch and Cobaya,
+  including its CLI. Matplotlib and GetDist are additional diagnostics
+  imports; if either is absent, that assertion fails rather than all four legs
+  becoming capability-`UNAVAILABLE`. No GPU, CosmoLike, or CAMB result is
+  claimed.
+
+<a id="scalar-smoke-training-collapse"></a>
+`scalar-smoke.training-collapse` asserts only that the best validation median
+after two training epochs is below `0.3`. The child comment motivates that bar
+with the theoretical chi-square-one median; it neither computes an initial
+median nor evaluates the fixture's mean predictor for this leg.
+
+<a id="scalar-smoke-analytic-prediction"></a>
+`scalar-smoke.analytic-prediction` compares an off-center saved prediction
+with the analytic `omegamh2` value and requires relative error below `0.05`.
+
+<a id="scalar-smoke-diagnostics-output"></a>
+`scalar-smoke.diagnostics-output` asserts three scalar diagnostic pages and
+a nonempty diagnostics PDF larger than 10,000 bytes; it does not certify the
+scientific content of the plots.
+
+<a id="scalar-smoke-cobaya-evaluate"></a>
+`scalar-smoke.cobaya-evaluate` requires the Cobaya subprocess to exit zero
+and its derived `omegamh2` readback to agree with the analytic value within
+relative error `0.05`; subprocess exit alone is not the leg's evidence.
+
 - Design: ScalarGeometry (geometries/scalar.py) — names/center/scale
   per-output standardization from training targets; from_targets =
   mean + population std with the RELATIVE zero-variance guard
@@ -100,6 +205,150 @@ contract; and plotting defaults belong to the plotting/documentation
 campaign.
 
 ## CME — CMB spectra emulators. ACCEPTED END TO END (board run 4, 2026-07-11); gates cmb-identity/cmb-smoke.
+
+<a id="cmb-identity-evidence"></a>
+**cmb-identity — synthetic CMB artifacts exercise the diagonal geometry,
+amplitude-dependent score, saved predictor and adapter, model variants,
+fine-tuning, and the non-Gaussian covariance contraction.**
+
+- files: temporary covariance files and synthetic `.h5`/`.emul` artifact
+  pairs; the covariance known-answer arrays are constructed in memory and no
+  persistent science product is written.
+- subprocess: `gates/checks/cmb_identity.py`; no nested subprocess, real
+  CAMB, or real Cobaya process (the adapter uses a minimal `Theory` stub).
+- metric: per-leg — exact value, tensor, state, or mapping comparisons where
+  promised, explicitly bounded floating-point comparisons for transforms, score and
+  roughness, typed refusal checks, and relative error below `1e-9` for the
+  direct covariance known answer.
+- legs: 7, named `cmb-identity.geometry-and-reference-schema`,
+  `cmb-identity.amplitude-law-and-score`,
+  `cmb-identity.artifact-and-adapter-round-trip`,
+  `cmb-identity.roughness-contract`,
+  `cmb-identity.model-variant-composition`,
+  `cmb-identity.finetune-parity`, and
+  `cmb-identity.covariance-known-answer`.
+- evidence: every listed claim is asserted inside the child check; the board
+  wrapper currently sees only its exit code, so future per-leg reconciliation
+  must preserve these narrower claims; no printed banner or detail line is
+  counted independently.
+- owed: none once CPU PyTorch is available; without it all seven declared
+  legs are environment-UNAVAILABLE even though the covariance known-answer
+  cluster itself is NumPy. No GPU, real-CAMB, or real-Cobaya evidence is
+  claimed.
+
+<a id="cmb-identity-geometry-and-reference-schema"></a>
+`cmb-identity.geometry-and-reference-schema` checks the declared Gaussian
+per-multipole scale, exact persistence of the fiducial amplitude references,
+the geometry state round trip, the endpoint comparison `sigma[0] >
+sigma[-1]` (not monotonicity over the axis), refusal of a nonpositive
+fiducial value naming multipole 50, and typed rejection of nonfinite, Boolean,
+string, or nonpositive reference values where the domain forbids them.
+
+<a id="cmb-identity-amplitude-law-and-score"></a>
+`cmb-identity.amplitude-law-and-score` checks the order-one reference law,
+transform round trip, parameter-aware physical score, factor-corrected
+roughness residual, stale-parameter isolation, and the corresponding missing
+or invalid-law refusals, including mutation controls for the retired raw
+factor.
+
+<a id="cmb-identity-artifact-and-adapter-round-trip"></a>
+`cmb-identity.artifact-and-adapter-round-trip` checks exact saved predictions
+for both supported amplitude laws and checks the stubbed adapter's shared
+axis, low-multipole padding, requirements, convention guards, spectrum
+uniqueness, and request-range refusals.
+
+<a id="cmb-identity-roughness-contract"></a>
+`cmb-identity.roughness-contract` checks frequency discrimination, exact zero
+for a zero residual, bitwise identity when roughness is off, one-reduction
+score composition, and the bounded lensing-period contribution on its
+synthetic residuals.
+
+<a id="cmb-identity-model-variant-composition"></a>
+`cmb-identity.model-variant-composition` checks correction-head attachment,
+epoch-zero identity, phase/refusal behavior and save/rebuild equality, plus
+exact NPCE residual algebra, roughness composition, saved prediction, and
+the PCE/amplitude-law exclusivity guard.
+
+<a id="cmb-identity-finetune-parity"></a>
+`cmb-identity.finetune-parity` accepts a CMB source, runs its epoch-zero
+warm-start parity check, accepts the CMB fine-tune config shape, and rejects
+using that source through the CosmoLike-only pin.
+
+<a id="cmb-identity-covariance-known-answer"></a>
+`cmb-identity.covariance-known-answer` compares all six non-Gaussian blocks
+with a direct sensitivity-matrix contraction at relative error below `1e-9`,
+proves the retired weights miss by more than six orders of magnitude, keeps
+raw and scaled lensing-potential fixtures distinct, checks a width-three
+constant-response projection, and requires an exactly zero weight for a
+zeroed band.
+
+<a id="cmb-smoke-evidence"></a>
+**cmb-smoke — the generator, Gaussian and non-Gaussian covariance builders,
+training loop, Cobaya provider, and diagnostics execute on a small real-CAMB
+fixture.**
+
+- files: temporary train/validation parameter tables and sidecars, four CMB
+  spectrum dumps per split, Gaussian and non-Gaussian covariance `.npz`
+  files, one saved `.h5`/`.emul` pair, and a diagnostics PDF; the `$ROOTDIR`
+  work directory is removed in `finally`.
+- subprocess: `gates/checks/cmb_smoke.py`, which launches
+  `dataset_generator_cmb.py` twice and `compute_cmb_covariance.py` once for
+  each of the Gaussian and non-Gaussian configurations; training, the Cobaya
+  model lifecycle, and diagnostics then execute in-process.
+- metric: per-leg — process/file/schema assertions for generation and
+  covariance, structural and tolerance checks for the dense covariance,
+  validation median below half the staged mean-predictor median, provider
+  relative equality at `rtol=1e-6`, and diagnostics page/file assertions.
+- legs: 6, named `cmb-smoke.generated-spectrum-dumps`,
+  `cmb-smoke.gaussian-covariance`,
+  `cmb-smoke.nondiagonal-covariance-structure`,
+  `cmb-smoke.training-collapse`, `cmb-smoke.cobaya-serving`, and
+  `cmb-smoke.diagnostics-output`.
+- evidence: all six claims are asserted in the child; child-process exit
+  codes are combined with output checks and are never promoted by
+  themselves; stdout/stderr tails are failure diagnostics only.
+- owed: the registry capability lane requires CPU PyTorch and Cobaya. An
+  unresolved `$ROOTDIR` aborts preflight; a missing compiled CAMB makes the
+  generator/covariance assertions fail and leaves later aids unreported;
+  missing plotting imports make the diagnostics assertion fail. Those are
+  current red/missing evidence outcomes, not capability-`UNAVAILABLE` legs. A
+  banner or old log cannot substitute for execution.
+
+<a id="cmb-smoke-generated-spectrum-dumps"></a>
+`cmb-smoke.generated-spectrum-dumps` requires both generator subprocesses to
+exit zero, all parameter-table sidecars and four spectrum dumps to exist,
+each TT dump to have the expected shape, and each lensing-potential dump to
+contain a nonzero value.
+
+<a id="cmb-smoke-gaussian-covariance"></a>
+`cmb-smoke.gaussian-covariance` requires the Gaussian covariance subprocess
+to exit zero and writes an `.npz` whose multipole axis is exactly `2..LMAX`
+and whose TT standard deviations are positive.
+
+<a id="cmb-smoke-nondiagonal-covariance-structure"></a>
+`cmb-smoke.nondiagonal-covariance-structure` requires six dense blocks with
+the expected shapes, then checks TT symmetry, diagonal growth, a nonzero
+off-diagonal, a tolerance-bounded nonnegative spectrum, and the step-study
+and fractional-amplitude keys in provenance. “Diagonal growth” here means no
+TT diagonal falls below its Gaussian counterpart beyond the `1e-10` relative
+allowance; it does not require a strict increase. This is a structural
+real-CAMB check, not the independent numerical known answer supplied by
+cmb-identity.
+
+<a id="cmb-smoke-training-collapse"></a>
+`cmb-smoke.training-collapse` requires the best validation median to fall
+below half the median score of the staged mean predictor, using the same
+batch parameters for the amplitude-dependent score.
+
+<a id="cmb-smoke-cobaya-serving"></a>
+`cmb-smoke.cobaya-serving` runs the real in-process Cobaya lifecycle and
+requires its padded TT array to equal the saved predictor on multipoles
+`2..LMAX` within `rtol=1e-6`, with finite values and exact zeros below two.
+
+<a id="cmb-smoke-diagnostics-output"></a>
+`cmb-smoke.diagnostics-output` asserts two CMB diagnostic pages and a
+nonempty diagnostics PDF larger than 10,000 bytes; it does not certify the
+scientific interpretation of the plotted curves.
 
 - One emulator learns ONE spectrum (tt/te/ee/pp) on l = 2..lmax
   (l = 0,1 are zero-variance whitening poison). CmbDiagonalGeometry:

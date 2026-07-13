@@ -24,6 +24,119 @@ models-and-designs.md (the NPCE FAMILY-WIDE bullet).
 
 ## BSN — the expansion history. ACCEPTED END TO END (board run 6, 2026-07-11); gates bsn-identity/bsn-smoke.
 
+<a id="bsn-identity-evidence"></a>
+**bsn-identity — synthetic background artifacts exercise the integration
+rule, distance construction, grid geometry, saved predictor, adapter, NPCE
+residual model, and fine-tune boundary.**
+
+- files: temporary covariance files and synthetic `.h5`/`.emul` artifact
+  pairs for Hubble and recombination-distance quantities; no persistent
+  science product is written.
+- subprocess: `gates/checks/bsn_identity.py`; no nested subprocess, real
+  CAMB, or real Cobaya process (the adapter uses a minimal `Theory` stub).
+- metric: per-leg — analytic polynomial tolerances for integration,
+  tolerance-bounded agreement with a dense path using the same integrator,
+  exact saved-state comparisons and typed refusal checks.
+- legs: 6, named `bsn-identity.simpson-polynomial-nodes`,
+  `bsn-identity.distance-pipeline-consistency`,
+  `bsn-identity.geometry-and-artifact-round-trip`,
+  `bsn-identity.adapter-piecewise-contract`,
+  `bsn-identity.npce-composition`, and `bsn-identity.finetune-parity`.
+- evidence: every listed claim is asserted inside the child; the board
+  wrapper currently exposes only its aggregate exit code, and the
+  distance-pipeline leg is deliberately named as consistency rather than an
+  independent numerical reference; no logged-only line is promoted.
+- owed: the board registry models CPU PyTorch only. SciPy is an eager child
+  import; without it the child is red before reporting any leg, not six
+  capability-`UNAVAILABLE` legs. No GPU, real-CAMB, or real-Cobaya evidence is
+  claimed.
+
+<a id="bsn-identity-simpson-polynomial-nodes"></a>
+`bsn-identity.simpson-polynomial-nodes` compares every node with analytic
+constant, linear, quadratic, and cubic integrals, requires the tighter exact
+bars where the rule supports them, proves the retired odd-node formula misses
+the linear and quadratic answers, and checks the odd-point-count guard.
+
+<a id="bsn-identity-distance-pipeline-consistency"></a>
+`bsn-identity.distance-pipeline-consistency` compares the interpolation
+pipeline with a very fine grid evaluated by the same cumulative integrator
+and requires relative agreement within `1e-6`; it does not claim an
+algorithmically independent cosmology calculation.
+
+<a id="bsn-identity-geometry-and-artifact-round-trip"></a>
+`bsn-identity.geometry-and-artifact-round-trip` checks the log-offset
+transform to float32 tolerance, exact grid-state values, explicit law and
+domain refusals, and exact saved predictions and family metadata under both
+the log-offset and no-law configurations.
+
+<a id="bsn-identity-adapter-piecewise-contract"></a>
+`bsn-identity.adapter-piecewise-contract` checks the two-window artifact
+layout, the code-declared exact or tolerance-bounded comparisons with the
+same constructed pipeline and interpolator, derived-distance and unit
+relations, and loud desert, missing-pair, duplicate-quantity, and
+out-of-window refusals using the stubbed adapter.
+
+<a id="bsn-identity-npce-composition"></a>
+`bsn-identity.npce-composition` requires a nonzero fitted polynomial base and
+checks exact residual encode/decode algebra through the log law plus exact
+base-plus-network prediction after save/rebuild.
+
+<a id="bsn-identity-finetune-parity"></a>
+`bsn-identity.finetune-parity` accepts a grid source, runs its epoch-zero
+warm-start parity check, and rejects metadata and quantity mismatches before
+staging.
+
+<a id="bsn-smoke-evidence"></a>
+**bsn-smoke — a real-CAMB background fixture is generated, two grid
+emulators are trained, the Cobaya provider is compared with CAMB, and the
+grid diagnostics path writes its output.**
+
+- files: temporary train/validation parameter tables and covariance files,
+  Hubble and recombination-distance dumps with redshift sidecars, two saved
+  `.h5`/`.emul` pairs, and a diagnostics PDF; the `$ROOTDIR` work directory
+  is removed in `finally`.
+- subprocess: `gates/checks/bsn_smoke.py`, which launches
+  `dataset_generator_background.py` twice; training, the real Cobaya/CAMB
+  model lifecycles, comparison, and diagnostics execute in-process.
+- metric: per-leg — process/file checks plus a relative-spread tripwire,
+  validation medians below half their staged mean-predictor medians, maximum
+  relative CAMB error below `0.02` with a typed desert refusal, and
+  diagnostics page/file assertions.
+- legs: 4, named `bsn-smoke.generated-background-dumps`,
+  `bsn-smoke.training-collapse`, `bsn-smoke.cobaya-vs-camb`, and
+  `bsn-smoke.diagnostics-output`.
+- evidence: all four claims are asserted in the child; generator exit codes
+  are combined with output checks rather than treated as sufficient, and
+  failure-stream tails are troubleshooting text only.
+- owed: the registry capability lane requires CPU PyTorch and Cobaya. An
+  unresolved `$ROOTDIR` aborts preflight; a missing compiled CAMB makes the
+  generator assertion fail and leaves later aids unreported; missing plotting
+  imports make the diagnostics assertion fail. Those are current red/missing
+  evidence outcomes, not capability-`UNAVAILABLE` legs. No prior log
+  substitutes for execution.
+
+<a id="bsn-smoke-generated-background-dumps"></a>
+`bsn-smoke.generated-background-dumps` requires both generator subprocesses
+to exit zero and write both quantities and both redshift sidecars, then
+requires every Hubble column to have relative spread greater than `1e-5`
+across generated cosmologies.
+
+<a id="bsn-smoke-training-collapse"></a>
+`bsn-smoke.training-collapse` requires the Hubble and recombination-distance
+trainings each to reduce their best validation median below half the median
+score of their own staged mean predictor.
+
+<a id="bsn-smoke-cobaya-vs-camb"></a>
+`bsn-smoke.cobaya-vs-camb` runs the real provider lifecycle and requires the
+served Hubble, angular-diameter-distance, and recombination-distance arrays
+to agree with CAMB's background within maximum relative error `0.02`, while
+a query in the unemulated redshift desert must raise.
+
+<a id="bsn-smoke-diagnostics-output"></a>
+`bsn-smoke.diagnostics-output` asserts two grid diagnostic pages and a
+nonempty diagnostics PDF larger than 10,000 bytes; it does not certify the
+scientific interpretation of the plotted curves.
+
 - THE STALE-BACKGROUND SAGA (board runs 1 + 3, 2026-07-11; the full
   hypothesis-falsified arc, recorded so nobody re-walks it): with
   background-only requirements the legacy hand-rolled
@@ -157,6 +270,139 @@ finite product is rejected leaving NO Pk state keys. Independent of
 the queued sigma8 and Cobaya-registration units.
 
 ## MPS — the matter power spectrum. ACCEPTED END TO END (board run 9, 2026-07-12: rel 0.93% vs CAMB against the 5% bar); gates mps-identity/mps-smoke.
+
+<a id="mps-identity-evidence"></a>
+**mps-identity — synthetic matter-power artifacts exercise two-dimensional
+geometry, bounded staging and its temporary-file lifecycle, saved model
+variants, adapter assembly, config validation, and fine-tuning.**
+
+- files: temporary raw/base dumps and axis sidecars, temporary staged
+  memmaps, covariance files, and synthetic `.h5`/`.emul` artifact pairs;
+  lifecycle legs assert removal of the files they supersede or release.
+- subprocess: `gates/checks/mps_identity.py`; no nested subprocess, real
+  CAMB, real Syren formula evaluation, or real Cobaya process (the adapter
+  uses stubs, including synthetic base functions).
+- metric: per-leg — exact transform, state, and composition comparisons,
+  NumPy-relative floating-point comparisons for streamed
+  statistics, bounded read and filesystem-state assertions, installed-API
+  signature equality, and typed refusal checks.
+- legs: 7, named `mps-identity.geometry-laws-and-pins`,
+  `mps-identity.bounded-staging-values`,
+  `mps-identity.stable-streamed-moments`,
+  `mps-identity.staging-file-lifecycle`,
+  `mps-identity.saved-model-variants`,
+  `mps-identity.adapter-assembly-and-defaults`, and
+  `mps-identity.config-and-finetune`.
+- evidence: the listed assertions exist inside the child, but the current
+  child is red in `bounded-staging-values`: its streamed-mean reference is
+  computed before the independently calculated law rows are converted to the
+  stored float32 payload. The producer's center exactly matches the mean of
+  that stored payload after the result is converted to float32. The board
+  wrapper currently exposes only the aggregate child exit code, and the
+  synthetic assembly leg is not upgraded into evidence for the real Syren
+  formulas; diagnostic print lines inside a failed config check are
+  logged-only.
+- owed: replace the false pre-cast mean reference with the independent stored-
+  float32-payload reference and rerun the complete child. Until that repair,
+  the gate has no whole-gate PASS even where CPU PyTorch, SciPy, and the
+  importable Cobaya base API are available. The registry models only CPU
+  PyTorch: missing SciPy can crash the dynamically loaded adapter, while a
+  missing installed Cobaya base API reaches explicit protocol failures. Those
+  are red/missing evidence, not seven capability-`UNAVAILABLE` legs. Real
+  Syren/CAMB and GPU behavior remain outside this gate.
+
+<a id="mps-identity-geometry-laws-and-pins"></a>
+`mps-identity.geometry-laws-and-pins` checks float32 transform round trips,
+exact grid-state values, width/law guards, exact constant-column pins under
+both laws, and refusal of a wholly constant surface.
+
+<a id="mps-identity-bounded-staging-values"></a>
+`mps-identity.bounded-staging-values` is current-red: its stored row values,
+positivity refusal, bounded reads, disk/RAM selection, and whole-selection
+mutation execute, but its mean assertion compares with a pre-float32 reference
+that is not the payload whose moments the producer owns.
+
+<a id="mps-identity-stable-streamed-moments"></a>
+`mps-identity.stable-streamed-moments` compares streamed centers and
+population standard deviations with NumPy over uneven chunkings and large
+offsets, checks the relative constant-pin boundary, and checks that
+from-stats encoding matches materialized-law encoding.
+
+<a id="mps-identity-staging-file-lifecycle"></a>
+`mps-identity.staging-file-lifecycle` checks that restaging supersedes the old
+temporary file, a three-point sweep keeps at most one live file and releases
+it, failures unlink partial files, and the resident-memory control creates no
+temporary file while preserving values exactly.
+
+<a id="mps-identity-saved-model-variants"></a>
+`mps-identity.saved-model-variants` checks exact saved predictions for Syren-
+linear and no-law artifacts, correction-head attachment/phase behavior and
+save/rebuild equality, plus exact NPCE residual algebra, state, saved
+prediction, and rejection of the unsupported ratio form.
+
+<a id="mps-identity-adapter-assembly-and-defaults"></a>
+`mps-identity.adapter-assembly-and-defaults` checks linear/nonlinear
+composition against synthetic base stubs, low-wavenumber blending, grid and
+interpolator readback, the omitted nonlinear argument against Cobaya's
+installed default signature, requirements containing the Syren-base names,
+point rejection, and pair/quantity/grid refusals; it does not execute the real
+Syren formula implementation.
+
+<a id="mps-identity-config-and-finetune"></a>
+`mps-identity.config-and-finetune` checks the current grid2d pairing and
+transfer config cases, accepts a grid2d fine-tune source and its epoch-zero
+parity check, and rejects a metadata mismatch before staging.
+
+<a id="mps-smoke-evidence"></a>
+**mps-smoke — a real-CAMB law-none fixture is generated, linear and boost
+emulators are trained, the Cobaya provider is compared with CAMB, and the
+grid2d diagnostics path writes its output.**
+
+- files: temporary train/validation parameter tables and covariance files,
+  linear-power and boost dumps with redshift/wavenumber sidecars, two saved
+  `.h5`/`.emul` pairs, and a diagnostics PDF; the `$ROOTDIR` work directory
+  is removed in `finally`.
+- subprocess: `gates/checks/mps_smoke.py`, which launches
+  `dataset_generator_mps.py` twice; training, the real Cobaya/CAMB model
+  lifecycles, comparison, and diagnostics execute in-process.
+- metric: per-leg — process/file/shape/positivity checks, validation medians
+  below half their staged mean-predictor medians, maximum relative CAMB error
+  below `0.05` plus a range refusal, and diagnostics shape/page/file checks.
+- legs: 4, named `mps-smoke.generated-power-dumps`,
+  `mps-smoke.training-collapse`, `mps-smoke.cobaya-vs-camb`, and
+  `mps-smoke.diagnostics-output`.
+- evidence: all four claims are asserted in the child; generator exit codes
+  are combined with output checks rather than treated as sufficient, and
+  failure-stream tails are troubleshooting text only.
+- owed: the registry capability lane requires CPU PyTorch and Cobaya. An
+  unresolved `$ROOTDIR` aborts preflight; a missing compiled CAMB makes the
+  generator assertion fail and leaves later aids unreported; missing plotting
+  imports make the diagnostics assertion fail. Those are current red/missing
+  evidence outcomes, not capability-`UNAVAILABLE` legs. The real Syren-law
+  hybrid is not executed by this law-none smoke gate.
+
+<a id="mps-smoke-generated-power-dumps"></a>
+`mps-smoke.generated-power-dumps` requires both generator subprocesses to
+exit zero and write the linear-power and boost arrays plus both axis
+sidecars, then checks the expected linear-dump shape and positivity of every
+nonfailed row.
+
+<a id="mps-smoke-training-collapse"></a>
+`mps-smoke.training-collapse` requires the linear-power and boost trainings
+each to reduce their best validation median below half the median score of
+their own staged mean predictor.
+
+<a id="mps-smoke-cobaya-vs-camb"></a>
+`mps-smoke.cobaya-vs-camb` runs the real provider lifecycle and requires
+served linear and nonlinear power to agree with CAMB within maximum relative
+error `0.05`; an out-of-range interpolator query must raise, but the exception
+type is not constrained by the current child.
+
+<a id="mps-smoke-diagnostics-output"></a>
+`mps-smoke.diagnostics-output` asserts the expected grid2d diagnostic array
+shapes, one to three redshift slices, two pages, and a nonempty PDF larger
+than 10,000 bytes; it does not certify the scientific interpretation of the
+plots.
 
 - Headline (D-MP2): the network learns the CORRECTION to an analytic
   formula — target = log(P / P_base); two artifacts: pklin (base =
@@ -1425,3 +1671,42 @@ IN THE SAME UNIT: either the routing delivers a correct wa to the
 adapter (resolver landed) or the example refuses with migration
 text. The magnitude ladder and the spy-tuple leg run on the non-drop
 branch; the shipped drop branch is the startup/migration leg.
+
+## 25M-36 (Red Team finding, awaiting Architect adjudication): the bounded-staging mean leg uses the forbidden pre-cast reference and makes `mps-identity` red
+
+The queue-2 evidence walk executed the real
+`gates/checks/mps_identity.py` child with Cocoa Torch 2.6.0.  The child
+completed every other printed check but failed
+`bounded staging: streamed mean equals the known answer`.  This is a gate-
+reference defect, not evidence of a producer defect.
+
+The independent law calculation first forms float64
+`log(raw / base)` as `want`.  The producer then stores those law rows as
+float32 and streams its moments over that stored payload.  The child instead
+computes `want.mean(axis=0)` before the float32 conversion and only converts
+the final mean.  Those operations do not commute.  On the seeded production-
+width fixture, the two means differ by as much as
+`5.960464477539063e-08`; at column 4799 the default `numpy.allclose` ratio is
+`1.183065878154562`, so the check is deterministically false.  In the same
+probe, the producer center is exactly array-equal to
+`want.astype(float32).astype(float64).mean(axis=0).astype(float32)`.  The
+stored float32 rows also remain exactly equal to `want.astype(float32)`.
+
+This reopens an already-issued acceptance clause: the grid2d moments contract
+states that an analytic pre-cast log result alone is not the reference for a
+float32 stored payload.  The present gate repeats precisely that forbidden
+reference.  It therefore cannot certify the correctly implemented producer,
+and the queue-2 evidence block above records the logical
+`mps-identity.bounded-staging-values` leg as current-red rather than claiming a
+whole-gate pass.
+
+Required repair: keep the producer frozen.  In the child, derive the
+independent stored-payload reference by converting the independently computed
+law rows to float32 first, then accumulate their mean in float64 and convert
+the final reference to the producer's persisted dtype.  The stored values and
+mean are two assertions: the former remains exact, while the latter compares
+the same represented quantity the geometry receives.  A mutation arm that
+restores the pre-cast-then-convert ordering must fail on the seeded fixture,
+so a future tolerance widening cannot bless the wrong reference.  The full
+`mps-identity` child must then exit zero.  This is a `gates/checks/` repair and
+remains outside the Red Team's current collision window.
