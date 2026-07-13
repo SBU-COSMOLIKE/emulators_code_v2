@@ -2574,3 +2574,65 @@ cli_strict.py's bounded entry-point driver imports, naming the driver
 roots the gate then declares. Their landing COMPLETES the 1b
 population; queue 2 (the evidence rollout) unblocks at that merge.
 The populated board's real reruns remain the first queue-5 exhibit.
+
+## DIDACTICS-01/02 adjudication (Fable, 2026-07-13): both ACCEPTED into queue 6 — navigation truth first, then the file-by-file teaching campaign
+
+Factual verification (Architect): gates/checks/__init__.py says "the
+other six files" while the directory holds 27 (25 substantive check
+modules + __init__ + logscan); the README carries the prose count
+INSIDE the very sentence warning against prose counts ("never from a
+number in prose (40 gates at this writing...)", :102) and admits its
+table is knowingly incomplete (:107); the broken phrase "never a
+storage upcast (the):" sits at finite_contract.py:58; the Manifest
+docstring carries "phase 1"/"later phases" rollout history. The
+representative teaching gaps cited (bsn_identity :102-293,
+mps_smoke :110-399, finite_contract :17-64 and body) are consistent
+with the census counts on spot-check.
+
+RULINGS:
+
+1. DIDACTICS-02 (navigation truth) lands FIRST — it is small,
+   factual, and unblocks every new reader: the file-by-file
+   __init__ index; the README inventory MECHANICALLY VALIDATED
+   against BOARD (validation, not generation — the prose around the
+   table stays human-written per the house didactic register, but a
+   board-selftest LEG proves exact set equality of the table, the
+   __init__ index, and the live files/BOARD, with an explicit
+   helper-file allowlist); no numeric gate count anywhere in prose;
+   the beginner-first runner walkthrough (BOARD row -> run function
+   -> ctx.run/ctx.expect -> raw log -> status record -> BOARD.md)
+   BEFORE the evidence/audit vocabulary; the worked miniature gate
+   with all six artifacts; the maps/evidence/manifest distinction
+   taught on that example. TIMING: the Manifest/Gate docstring
+   cleanup happens AFTER batches 4/5b land, so the docstrings
+   describe the completed two-regime behavior once, with the queue
+   phases and dates moved to notes/ where they belong.
+2. DIDACTICS-01 (the teaching campaign) is the large queue-6 item,
+   landed FILE-BY-FILE per gate family as the red team's follow-up
+   batches isolate them — never one mega-commit. Its whole required
+   contract is ratified: the per-file pipeline diagram + glossary;
+   the four paragraphs (Production rule / Fixture / Pass condition /
+   Catch-power) on every scientific leg owner; test-double honesty
+   statements; Python mechanics taught at first use; named constants
+   with derivations replacing magic values; mutation arms showing
+   the faulty algorithm and the numerical difference; the Cobaya
+   lifecycle taught once and referenced; internal audit codes and
+   history removed from executable documentation (history lives in
+   notes/); tests never shortened to pay for prose.
+3. The mechanical acceptance is BINDING per landing: the AST
+   docstring census with a reviewed one-liner allowlist; the
+   untruncated internal-history scan over gates/**/*.py — this
+   MERGES with the existing queue-6 108-line pattern-family
+   completion evidence, whose scope now names gates/ explicitly;
+   compileall + board-selftest green; and the DOCUMENTATION-ONLY
+   AST-EQUIVALENCE rule: the executable AST unchanged except
+   docstrings and named documentation constants whose values are
+   byte-identical. The human spot-check standard (the second-year
+   physics student answering the four questions from the file alone)
+   is the campaign's acceptance voice, consistent with
+   user-didactics-and-python-voice.md.
+
+Sequencing: doc-only, interleaves with the unit queue as
+review-blocked filler; does NOT preempt batches 4/5b, queue 2, or
+unit 79. The Implementer reads
+notes/user-didactics-and-python-voice.md BEFORE writing any of it.

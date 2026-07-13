@@ -2107,6 +2107,23 @@ landing completes the 1b population and unblocks queue 2. Spec:
 gates-and-board.md "Batch 5a (geo-paths) — pre-merge Architect
 audit".
 
+DIDACTICS-01/02 BATCH (2026-07-13, Fable): both ACCEPTED into queue
+6. 02 (navigation truth: the __init__ "six files" claim vs 27 real
+files; the README prose count inside the sentence warning against
+prose counts; the missing beginner walkthrough; rollout history in
+the Manifest/Gate docstrings) lands FIRST, with a board-selftest
+set-equality leg validating the __init__ index + README table
+against BOARD, and the docstring cleanup after batches 4/5b. 01 (the
+file-by-file teaching campaign: four-paragraph contracts on every
+scientific leg owner, test-double honesty, taught Python mechanics,
+named constants, shown mutation arithmetic, one Cobaya lifecycle
+lesson) lands per gate family under the BINDING mechanical
+acceptance: AST docstring census, the untruncated history scan
+(merged with the queue-6 108-line pattern family, gates/ explicit),
+compileall + selftest, and documentation-only AST equivalence.
+Doc-only interleave; nothing preempted. Spec: gates-and-board.md
+"DIDACTICS-01/02 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
