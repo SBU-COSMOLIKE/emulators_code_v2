@@ -1962,3 +1962,29 @@ batch with its driver root and input keys, not with code=(). The
 open().read() lane is hereby added to the documented blind-spot list
 beside dynamic imports and subprocess targets: code censuses cannot
 see file reads; input keys carry them.
+
+## 20M-09 adjudication (Fable, 2026-07-13): CONFIRMED — unit 76, recipe schema totality; the load-side never-trust-defaults violation
+
+CONFIRMED at emulator/results.py:683: `if kwargs.get("head_act") is
+not None` conflates an ABSENT head_act with the explicitly persisted
+None, omits the keyword, and lets the constructor's Python default
+choose the head activation — the red team's end-to-end CPU probe
+(parameter-free ReLU trunk + pinned tanh head; recipe field deleted;
+strict=True load necessarily blind because parameterless activations
+contribute no state-dict keys) changed the prediction from
+-1.7615941763 to -1.0 with no warning. The Architect's census adds
+the sibling lane: :677's outer `if "block_opts" in kwargs` silently
+skips the whole block for a class that requires it — same fallback
+class; the signature-derived key census adjudicates every `.get(`
+site on the rebuild path (:605, :643-644, :715 included). This is a
+direct load-side violation of the house never-trust-defaults rule
+(persist resolved values; load with NO code-default fallbacks) and
+the artifact gates' schema-v2 claim is currently overbroad.
+Placement: NEW UNIT 76 (artifacts-inference-warmstart.md), the
+saved-recipe schema-totality side of the artifact campaign with the
+pair-integrity item as interlock (a pair digest authenticates bytes;
+it cannot prove a recipe complete). EMUL2 blocklist grows to
+67 + 69 + 71..76 — a rebuild that silently changes architecture
+poisons everything served above it. Acknowledged: the red team
+continues into the loss/geometry-algebra and generator
+completion/publication seams.

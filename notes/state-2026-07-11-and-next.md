@@ -1851,6 +1851,21 @@ the driver root; open().read() added to the documented blind-spot
 list — file reads are INPUT-side keys, not code roots). Spec:
 gates-and-board.md "1b phase-3 batch-1 — pre-merge Architect audit".
 
+20M-09 BATCH (2026-07-13, Fable): CONFIRMED — results.py:683
+conflates absent head_act with explicit None and lets the
+constructor default rebuild a DIFFERENT architecture that strict
+loading cannot see (red-team end-to-end probe: prediction
+-1.7615941763 -> -1.0 after deleting one recipe field); the
+Architect census adds the :677 outer block_opts-presence lane and
+every rebuild-path .get( to the same adjudication. NEW UNIT 76
+(recipe schema totality: absence raises, explicit None is a value,
+signature-derived key census + injected allowlist, transfer-base
+recipes included, complete artifacts byte-identical),
+artifacts-inference-warmstart.md; board-listed CPU+Torch legs.
+EMUL2 blocklist now 67+69+71..76. Red team continues into the
+loss/geometry-algebra and generator completion seams. Spec:
+gates-and-board.md "20M-09 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

@@ -1093,3 +1093,43 @@ reference; two simulated likelihood consumers (destructive first,
 read-only second); MPS edits to each of k, z, P; CMB edits to ell
 and one spectrum; mutation arms restoring each direct return must
 red. CPU-only. Sequencing unchanged: after queue 2, before queue 5.
+
+## UNIT 76 (20M-09, 2026-07-13, HIGH): the model recipe is validated total before construction — absence is corruption, explicit None is a value
+
+Finding (red team, CONFIRMED end to end on CPU; mechanism verified
+at results.py:683 with the sibling outer-presence lane at :677): a
+schema-v2 artifact whose recipe lost head_act rebuilds silently under
+the constructor default and predicts differently ([-1.7615941763] ->
+[-1.0] on the probe artifact); strict weight loading cannot see it
+because parameterless activations carry no state-dict keys.
+
+Contract (ratified):
+
+1. "Key absent" and "key present with explicit None" are DISTINCT
+   for every constructor field; absence raises before any
+   import/construction.
+2. The complete recipe validates before the model class is imported
+   or constructed: required top-level keys, an exact kwargs schema
+   for the declared class, complete factory specs, no unknown keys
+   (unknown keys raise naming the class and the key).
+3. head_act is REQUIRED for a head model; explicit None is the valid
+   "inherit the trunk activation" value; absence is corruption.
+4. The required-key census derives from the ACTUAL class signature
+   plus the deliberate injected allowlist (input_dim, output_dim,
+   geom, factories) — a newly added constructor default can never
+   reopen the fallback. The same rule closes the outer
+   block_opts-presence lane (:677) and adjudicates every remaining
+   `.get(` on the rebuild path.
+5. Embedded transfer-base recipes validate under the same schema.
+6. Complete current artifacts stay byte-identical in prediction.
+
+Legs (ratified; CPU + Torch, Mac-runnable, board-listed — the
+artifact gates claim the schema-v2 guarantee, so the guarantee gets
+legs): missing head_act raises before construction; explicit
+head_act: null rebuilds with inherited behavior; the parameterless
+ReLU/tanh deletion probe must red; missing block_opts.act,
+block_opts.norm, n_blocks, and one more scalar default each raise;
+unknown kwargs raise with class + key named; the embedded
+transfer-base recipe repeats the cases; ordinary/head/transfer
+complete controls bitwise equal. Sequencing: the artifact campaign
+(pair-integrity interlock + unit 37 neighborhood); EMUL2-blocking.
