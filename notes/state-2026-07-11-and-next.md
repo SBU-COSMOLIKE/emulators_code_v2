@@ -2738,3 +2738,14 @@ teaching until D4+D5, off run_board/board/emulator production; all
 campaign landings Architect-audited pre-merge under the full
 battery; red team never self-certifies. Spec: gates-and-board.md
 "USER REASSIGNMENT: the didactics campaign moves to the red team".
+
+REASSIGNMENT EXTENDED (2026-07-13, USER): three more moves — the
+unit-13 covariance package (25M-08/11/12 + 45M-01; pure-CPU,
+Planck-LCDM control), unit 90 (bsn_identity quadrature reference;
+workstation execution as always), and unit 94's boundary-interior
+half (generator_core uniform branch; the identity-persistence
+clause STAYS with unit 8, red team lands first, unit 8 rebases).
+Examined-and-kept: 92/93/95/96, the .ranges fix (82's one-owner),
+the gauntlet, machinery, queue 2, queue-3 reopen, unit 21, wave-4,
+both proposals — each with its reason. Spec: gates-and-board.md
+"USER REASSIGNMENT, EXTENDED".
