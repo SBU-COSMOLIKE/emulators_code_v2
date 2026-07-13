@@ -409,8 +409,13 @@ class emul_mps(Theory):
         return True
 
     def get_Pk_grid(self, var_pair=("delta_tot", "delta_tot"),
-                    nonlinear=False):
-        r"""P(k, z) grid in cobaya units: k in 1/Mpc, Pk in Mpc^3."""
+                    nonlinear=True):
+        r"""P(k, z) grid in cobaya units: k in 1/Mpc, Pk in Mpc^3.
+
+        nonlinear follows Cobaya's BoltzmannBase default: an omitted
+        argument returns the NONLINEAR grid. A caller that wants the
+        linear spectrum requests it explicitly with nonlinear=False.
+        """
         if var_pair != ("delta_tot", "delta_tot"):
             raise LoggedError(
                 self.log,
@@ -424,10 +429,15 @@ class emul_mps(Theory):
             f"Matter power spectrum (nonlinear={nonlinear}) not computed.")
 
     def get_Pk_interpolator(self, var_pair=("delta_tot", "delta_tot"),
-                            nonlinear=False, extrap_kmin=None,
+                            nonlinear=True, extrap_kmin=None,
                             extrap_kmax=None):
         r"""Get a P(z, k) bicubic interpolation object (the legacy flow:
-        log-P spline over the stored grid, power-law tails on request)."""
+        log-P spline over the stored grid, power-law tails on request).
+
+        nonlinear follows Cobaya's BoltzmannBase default: an omitted
+        argument interpolates the NONLINEAR grid. A caller that wants the
+        linear spectrum requests it explicitly with nonlinear=False.
+        """
         if var_pair != ("delta_tot", "delta_tot"):
             raise LoggedError(
                 self.log,

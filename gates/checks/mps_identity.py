@@ -69,6 +69,7 @@ Legs:
 """
 
 import importlib.util
+import inspect
 import os
 import sys
 import tempfile
@@ -77,6 +78,16 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+# Captured BEFORE any check stubs cobaya.log: the installed Cobaya base
+# getter signatures, so the protocol-guard leg pins emul_mps's public
+# nonlinear default against upstream (unit 69 / 20M-01).
+try:
+    from cobaya.theories.cosmo import BoltzmannBase as _BoltzmannBase
+    _BASE_PK_SIGS = {name: inspect.signature(getattr(_BoltzmannBase, name))
+                     for name in ("get_Pk_grid", "get_Pk_interpolator")}
+except Exception:                                        # pragma: no cover
+    _BASE_PK_SIGS = None
 
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
@@ -1284,6 +1295,73 @@ def check_adapter(tmp, device):
             node / want_node - 1.0) < 1e-6
         report("get_Pk_grid + interpolator node round-trip", ok,
                "rel %.1e" % abs(node / want_node - 1.0))
+        # unit 69 (20M-01): the getters serve Cobaya's public default --
+        # an omitted nonlinear argument returns the NONLINEAR spectrum.
+        # On the real computed state the omitted grid must equal the
+        # explicit nonlinear grid and differ from the linear one.
+        _, _, pk_omit = t.get_Pk_grid()
+        _, _, pk_true = t.get_Pk_grid(nonlinear=True)
+        _, _, pk_false = t.get_Pk_grid(nonlinear=False)
+        ok = (np.array_equal(pk_omit, pk_true)
+              and not np.array_equal(pk_omit, pk_false))
+        report("get_Pk_grid() omitted == explicit nonlinear=True, != "
+               "nonlinear=False (the public default is nonlinear)", ok, "")
+        # the same three-arm comparison through the interpolator, at a
+        # stored node and one interior (between-node) point.
+        itp_omit = t.get_Pk_interpolator()
+        itp_true = t.get_Pk_interpolator(nonlinear=True)
+        itp_false = t.get_Pk_interpolator(nonlinear=False)
+        z_mid = 0.5 * (float(Z4[1]) + float(Z4[2]))
+        k_mid = 0.5 * (float(K6[3]) + float(K6[4]))
+        ok_itp = True
+        for zq, kq in ((float(Z4[2]), float(K6[3])), (z_mid, k_mid)):
+            v_omit = itp_omit.P(zq, kq)
+            v_true = itp_true.P(zq, kq)
+            v_false = itp_false.P(zq, kq)
+            ok_itp = (ok_itp
+                      and abs(v_omit / v_true - 1.0) < 1e-12
+                      and abs(v_omit / v_false - 1.0) > 1e-6)
+        report("get_Pk_interpolator() omitted tracks nonlinear=True at "
+               "node + interior, differs from nonlinear=False", ok_itp, "")
+        # a sentinel state with deliberately separated linear/nonlinear
+        # values proves the discrimination has catch power on its own,
+        # independent of the assembly: the omitted call returns the
+        # nonlinear sentinel (100), never the linear one (1).
+        ks = np.array([1e-3, 1e-2, 1e-1])
+        zs = np.array([0.0, 1.0])
+        lin = np.ones((zs.size, ks.size))
+        nl = 100.0 * np.ones((zs.size, ks.size))
+        t.current_state = {
+            ("Pk_grid", False, "delta_tot", "delta_tot"): (ks, zs, lin),
+            ("Pk_grid", True, "delta_tot", "delta_tot"): (ks, zs, nl)}
+        _, _, s_omit = t.get_Pk_grid()
+        report("sentinel: omitted get_Pk_grid returns the nonlinear "
+               "values, not the linear ones",
+               np.array_equal(s_omit, nl) and not np.array_equal(s_omit, lin),
+               "")
+        t.current_state = state
+        # mutation control: the two branches genuinely differ, so the
+        # default VALUE is load-bearing -- a revert to nonlinear=False
+        # would serve the linear spectrum by omission and red the legs
+        # above and the signature guard below.
+        report("mutation control: nonlinear=False and =True differ, so "
+               "the default value decides the served spectrum",
+               not np.array_equal(pk_false, pk_true), "")
+        # protocol guard: pin emul_mps's public nonlinear default against
+        # the INSTALLED Cobaya BoltzmannBase, so an upstream drift OR a
+        # local revert reds for review instead of silently serving the
+        # wrong spectrum.
+        ok_sig = _BASE_PK_SIGS is not None
+        detail = "BoltzmannBase not importable"
+        if ok_sig:
+            for name in ("get_Pk_grid", "get_Pk_interpolator"):
+                base_def = _BASE_PK_SIGS[name].parameters["nonlinear"].default
+                our_def = inspect.signature(
+                    getattr(cls, name)).parameters["nonlinear"].default
+                ok_sig = ok_sig and (our_def is True) and (our_def == base_def)
+            detail = "nonlinear default True on both getters == BoltzmannBase"
+        report("adapter getters pin Cobaya's nonlinear=True default "
+               "(BoltzmannBase protocol guard)", ok_sig, detail)
         # a non-positive base -> calculate returns False (the legacy
         # rejection semantics).
         mod.syren_base.base_pklin = (

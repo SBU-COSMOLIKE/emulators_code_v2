@@ -1954,7 +1954,10 @@ BOARD = [
             "(experiment-owned temp files, supersede-on-restage, "
             "sweep-lane release, failure unlink; Grid2d staging defeats "
             "its own memory ladder, data-generation-and-cuts.md); "
-            "identity legs; finetune",
+            "identity legs; the getters serve Cobaya's public nonlinear "
+            "default (an omitted argument returns the nonlinear grid / "
+            "interpolator, != the explicit linear branch, pinned against "
+            "the installed BoltzmannBase signature); finetune",
        run=gate_mps_a,
        needs=("torch",)),
   Gate(id="geo-paths",
