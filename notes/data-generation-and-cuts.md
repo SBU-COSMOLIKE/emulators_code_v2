@@ -1578,3 +1578,57 @@ policy), the honest three-term banner
 (`params + dv + idx = total`, the operator that held, the branch), the
 dv-only-estimate mutation arm, and `dump_rows[idx_src]` recovering the global
 selection order so a row-matched base dump lines up in either regime.
+
+## UNIT 64 (BLOAT-02, RT-2026-07-13-01, 2026-07-13): one generator storage engine — the seven duplicated _dv_* operations move to generator_core
+
+Finding (red team, CONFIRMED): dataset_generator_background.py (365
+lines), dataset_generator_cmb.py (364), and dataset_generator_mps.py
+(429) each carry the SAME seven storage operations by name and
+structure — _dv_chk_files, _dv_load_chk, _dv_save, _dv_append,
+_dv_alloc, _dv_write, _dv_zero — plus the _read_train_args frame;
+roughly 449 shared lines maintained in triplicate, so a checkpoint or
+append fix must be applied three times and can drift.
+dataset_generator_lensing.py (136 lines) is thinner and must be
+censused by the proposal (it may already delegate).
+
+Contract:
+
+1. PROPOSAL-FIRST (large-unit rule): the layout proposal is written
+   in this note and audited by the Architect BEFORE implementation.
+2. One multi-array store in compute_data_vectors/generator_core.py
+   owning the seven operations, written as ordinary loops (C-readable;
+   no comprehension cleverness) — the store handles N named arrays so
+   the MPS multi-quantity case and the single-dv families use the
+   same code.
+3. Family physics (_compute_dvs_from_sample and friends) and sidecar
+   generation STAY in the family drivers; the store owns bytes,
+   checkpoints, and resume arithmetic only.
+4. Acceptance is byte-identity: for all four generators, the dumps,
+   checkpoints, and headers produced on the same seed + YAML are
+   byte-identical before and after the refactor, including the
+   append-and-restart path (a one-shot N+M equals fresh N then append
+   M remains the separately-owed 45M-81 workstation leg, unchanged
+   by this unit).
+5. Sequencing: AFTER the generator-ingress cluster (units 8, 17, 25,
+   26, 28, 33) — those units edit the same files, and consolidating
+   under them would churn every open spec.
+
+## UNIT 68 (RT-2026-07-13-06, 2026-07-13): optional latex metadata must not crash the run after sampling
+
+Finding (red team, CONFIRMED by Architect probe on the real Cobaya):
+a sampled parameter declared {prior: {min: 0, max: 1}} is valid and
+yields model.info()['params'] WITHOUT a 'latex' key —
+generator_core.py:808 evaluates param_info[x]['latex']
+unconditionally, raising KeyError AFTER sampling completed and after
+the chain .txt was written (:798-801). The run loses its
+.paramnames / .covmat epilogue to a missing presentation string.
+
+Contract (RULING): the parameter NAME becomes the GetDist display
+label when 'latex' is absent — GetDist's own convention;
+presentation metadata is NOT promoted to a required key and is NOT a
+refusal surface. Legs: a real-Cobaya no-latex control runs the whole
+epilogue and the emitted .paramnames is READ BACK by the getdist
+reader (loadMCSamples), not just written; a with-latex control stays
+byte-identical to today; the covmat epilogue executes in both.
+Sequencing: rides the generator-ingress cluster (same file,
+generator_core.py); no standalone landing.

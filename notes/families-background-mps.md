@@ -879,8 +879,10 @@ train an all-NaN target); valid runs byte-identical.
 
 (The sigma8 half of ledger entry 2 — dataset readiness + MPS
 sigma8 — is specified here with the MPS family; the R = 8 Mpc vs
-8 Mpc/h USER RULING recorded in entry 2 stays OPEN and is
-prerequisite context, not resolved by this extension.)
+8 Mpc/h USER RULING recorded in entry 2 was RESOLVED on
+2026-07-13 — R = 8 Mpc/h, the conventional definition; see
+"USER RULING (2026-07-13)" below. This extension supplies the
+domain-totality contract, not that resolution.)
 
 Finding (red team, CONFIRMED live, numbers reproduced
 digit-for-digit): emul_mps advertises sigma8 unconditionally
@@ -954,3 +956,89 @@ the sigma8 code work naturally batches with the MPS family visit
 but the unit's number and order do not change. USER-VISIBLE:
 sigma8 refusals on unsupporting grids (today: silently biased or
 98%-wrong values); the radius ruling remains the user's.
+
+## UNIT 65 (BLOAT-03, RT-2026-07-13-01, 2026-07-13): one adapter mechanics owner — device, compile, options, and root expansion shared across the five Cobaya adapters
+
+Finding (red team, CONFIRMED): the five adapters duplicate their
+mechanics. _pick_device is verbatim-identical at least in
+emul_cmb.py (:167-185) and emul_scalars.py (:171-189), with variants
+in the others; torch.compile coercion, option handling, and
+ROOTDIR-relative root expansion repeat per file. A device- or
+compile-policy fix currently needs five edits.
+
+Contract:
+
+1. One shared mechanics module under cobaya_theory/ (importable by
+   all five adapters) owning: device resolution (the cuda/mps/cpu
+   fallback ladder), torch.compile coercion and policy, unknown /
+   mistyped option refusal, and ROOTDIR-relative path expansion.
+2. The five Theory classes REMAIN separate, explicit owners of their
+   family lifecycle (initialize / must_provide / calculate / getters).
+   NO parameterized adapter superclass (ratified from the handoff):
+   shared helpers, not shared inheritance.
+3. Sequencing: lands WITH the typed adapter contract — after the
+   wave-4 adapter visits (units 15 + 58 + 62 background; 16 + 63
+   MPS) establish what the typed boundary validates, so the shared
+   module is written once against the final contract, not twice.
+4. Acceptance: adapter behavior byte-identical on valid configs;
+   refusal messages may only gain precision; the board-listed adapter
+   identity gates rerun green.
+
+## USER RULING (2026-07-13): sigma8 radius = 8 Mpc/h — the conventional definition
+
+Asked and answered 2026-07-13 (during the Architect texnotes-gap
+triage): the derived sigma8 the MPS adapter serves uses the
+CONVENTIONAL top-hat radius R = 8 Mpc/h, not the legacy R = 8.0 with
+k in 1/Mpc that _compute_sigma8 ships today. This changes
+legacy-served values ON PURPOSE — the BSN-curvature precedent applies
+(dimensionally or conventionally wrong legacy math is not
+reproduced). No renamed legacy product and no dual serving: one
+product, one convention, named sigma8. Implementation rides the
+wave-4 MPS visit (units 16 + 63 + the entry-2 sigma8 half, under
+UNIT 2 EXTENDED's domain-totality contract); the guide's Current-gap
+paragraph (texnotes/emulator_code_guide.tex ~:3885) is then
+RED-TEAM-owed — only the red team edits the guide (USER RULE
+2026-07-13; custody rule in conventions-and-workflow.md).
+
+## UNIT 67 (RT-2026-07-13-05, 2026-07-13, CRITICAL): flat-only is one enforced fact — curvature refused at generation AND consumption, from the global model
+
+Finding (red team, CONFIRMED; math independently verified): the
+flat-only refusal inspects only the emulator input names
+(emul_baosn.py:161 — "omk" in req), so a fixed or
+separately-consumed GLOBAL Cobaya omk bypasses it: the red team's
+real-Cobaya composition returned bit-identical adapter distances for
+omk = 0 vs 0.1 while CAMB's distances changed. The producer
+compounds it: dataset_generator_background.py:346-347 requests
+get_comoving_radial_distance (chi) and stores it as D_M — equal only
+in a flat model — with the assumption recorded in a comment only,
+and no curvature guard exists anywhere in compute_data_vectors (the
+only omk enforcement in the tree is compute_cmb_covariance's
+LCDM_FIXED_ONLY). The counterexample is exact: at z = 1100,
+Omega_k = 0.1, chi = 13296.826 Mpc vs D_M = 15538.408 Mpc — 16.858%;
+the Architect's independent check confirms D_M = R sinh(chi/R) with
+R = c/(H0 sqrt(Omega_k)) reproduces their D_M at H0 = 70.0 exactly.
+
+Contract:
+
+1. ONE explicit flat-only fact governs both ends. Generation: the
+   background generator REFUSES a sampled OR fixed nonzero curvature
+   read from the GLOBAL Cobaya model info — not from emulator input
+   names — before any sampling starts. Consumption: emul_baosn
+   refuses nonzero curvature from the global model composition the
+   same way; the existing names-based refusal may stay as a cheap
+   early layer but is no longer THE guard.
+2. The artifact records the flat-only fact it was generated under;
+   the consumer reads it from the artifact (never-trust-defaults),
+   so a future curvature-capable artifact is distinguishable from a
+   flat-only one at load time.
+3. Legs: real-Cobaya fixed omk != 0 refusal; sampled-omk refusal;
+   the omk = 0 flat control byte-identical to today; the independent
+   chi-vs-D_M curved counterexample (analytic sinh mapping,
+   Mac-runnable; the CAMB cross-check rides the workstation board);
+   mutation arm restoring the names-only guard must FAIL (a global
+   fixed omk = 0.1 composition slips through it).
+4. Producer physics for the flat case unchanged — byte-identical
+   dumps on flat configs.
+5. Sequencing: rides the wave-4 background visit (units 15 + 58 +
+   62 + 67 — same files, one visit); the CRITICAL flag means the
+   visit cannot close without it.

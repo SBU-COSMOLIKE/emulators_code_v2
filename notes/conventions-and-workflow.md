@@ -565,3 +565,76 @@ a CMB / grid / grid2d / scalar YAML naming its driver; a clean cosmic-shear
 YAML trains; the per-family wrappers accept their own block. The census
 confirms the four cosmic_shear drivers default `family=cosmolike`, always
 check, and drop the dispatcher prose.
+
+## Texnotes Current-gap paragraphs: triage + the currency rule (Architect, 2026-07-13)
+
+texnotes/emulator_code_guide.tex teaches the package with labeled
+"Current gap" paragraphs (20 as of 2026-07-13) so a reader never
+mistakes documented intent for shipped behavior. Architect triage of
+all 20 against HEAD:
+
+- SIXTEEN document known defects that already carry adjudicated unit
+  specs — no new units were needed. Map (guide line -> owner):
+  :450 config-surface totality -> units 23 + 29 + 59; :565 no-cut
+  sweep pool counting -> the data-selection-truth spec
+  (data-generation-and-cuts.md "No-cut learning-curve pool
+  counting"); :604 parallel study parent -> the parallel-truth item
+  (+ unit 55); :664 bake-off liveness -> the activation-bakeoff
+  liveness item; :771 dataset certification -> checkpoint-set
+  integrity + units 56/57 + the ingress cluster; :2238 NPCE domain
+  policy -> unit 46; :2652 fused/closure optimizer -> unit 49;
+  :2720 ramp direction -> unit 18; :3032 MPS float16 scaler ->
+  unit 51; :3169 finetune.anchor -> unit 24; :3734 background
+  zero-anchor extrapolation -> unit 58 (wave-4 background visit
+  15+58+62); :3995 diagnostics NaN totality -> the
+  validation/diagnostic-memory-truth item; :4105 two-file
+  transaction -> the artifact-pair-integrity item; :4261 adapter
+  value-schema -> units 15/58/62 + 16/63 + 65; :4283 CMB multipole
+  identity -> unit 47; :4308 finite-verdict-before-provider-read ->
+  the acceptance-fact ordering spec + unit 33.
+- TWO are STALE — the code already moved: :4691 (dirty-tree watch
+  scope; queue 1c landed _EXECUTABLE_DIRS covering all five
+  executable roots) and the raw-log half of :4723 (queue 1a made
+  stale-log a first-class non-green resume state). The refresh is
+  RED-TEAM work under the custody rule below.
+- TWO are IN FLIGHT: the digest half of :4723 is queue 1b (building
+  now); :4666 declared-vs-executed reconciliation is queue 2 (next).
+- ONE was blocked on the user and is now RESOLVED: :3885 sigma8
+  radius — USER RULING 2026-07-13 = R = 8 Mpc/h (recorded in
+  families-background-mps.md "USER RULING (2026-07-13)").
+
+THE CURRENCY RULE + GUIDE CUSTODY (binding; ownership corrected by
+USER RULE the same day): texnotes/emulator_code_guide.tex is
+RED-TEAM-OWNED — neither the Architect nor the Implementer edits it
+(user instruction, 2026-07-13). A landing that changes behavior
+taught by a Current-gap paragraph therefore does NOT carry the guide
+edit itself; instead the landing's notes entry NAMES the affected
+paragraph(s), the Architect carries the owed delta into the next
+ARCHITECT_HANDOFF_FOR_THE_RED_TEAM block, and the RED TEAM updates
+the guide — closing a gap rewrites the passage to the new behavior;
+narrowing one rewrites it to the remaining gap. A Current-gap
+paragraph is a contract surface, not decoration: a stale "gap"
+teaches a defect the code no longer has, which is the same falsehood
+as documenting a feature that does not exist. The queued full
+line-by-line guide review (a separate Architect item) verifies the
+remaining paragraphs against code and hands its findings to the red
+team the same way — the Architect reads and audits the guide, only
+the red team writes it.
+
+## Landing-block resync ritual (2026-07-13)
+
+The user's landing merges create merge commits on main that never flow
+back to the working branch, so the branch and main DIVERGE after every
+landing; the next `git merge` is then a true merge (editor prompt,
+surprise merge commit) instead of a fast-forward — the "this caused
+problems" incident of 2026-07-13. The fix is a standing ritual: after
+a landing merges (and at Architect turn start when main moved), the
+worktree branch is fast-forwarded up to main FROM THE WORKTREE —
+
+    git merge --ff-only main
+
+— which is content-identical (the merge commit adds ancestry only),
+preserves any uncommitted work in the shared tree, and fails harmlessly
+(`--ff-only`) if new branch commits landed meanwhile. With the branch
+resynced, every subsequent landing block fast-forwards. Landing blocks
+themselves stay the user's four lines, unchanged.

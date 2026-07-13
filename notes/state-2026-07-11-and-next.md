@@ -1662,6 +1662,114 @@ self-corrected (queue 1b); the (h)-then-43 flag is closed. Spec:
 gates-and-board.md "Architect batch audit of the overnight batch
 (2026-07-13, Fable)".
 
+RT-2026-07-13-01 BATCH (2026-07-13): queue-3 landing 2c26c34 AUDITED
+PASS (riders honored; stage-ram rerun by the Architect from clean
+merged main). RT-IMPL-02 CONFIRMED with a sharper mechanism — _git's
+global stdout.strip() breaks _dirty_lines' column parse on the FIRST
+porcelain line only, so board_config.json escapes its documented
+exclusion exactly when it is the only/first dirty entry (live-proved
+both directions); queue 1c REOPENED as 1c-bis (contract in
+gates-and-board.md), false-red only, no false-green path. BLOAT-01
+CONFIRMED -> queue-4 rider (one _is_finite_real owner = training.py,
+import direction already pinned). BLOAT-02 CONFIRMED (the seven _dv_*
+ops verbatim across background/cmb/mps; lensing censused) -> NEW
+UNIT 64, proposal-first storage engine in generator_core, byte-identity
+acceptance, sequenced after the ingress cluster. BLOAT-03 CONFIRMED
+(_pick_device verbatim in cmb+scalars, variants elsewhere) -> NEW
+UNIT 65, shared adapter mechanics module, no superclass, lands with
+the wave-4 typed adapter contract. BLOAT-04 CONFIRMED -> queue-6
+rider; completion evidence BINDING as the untruncated 108-line
+pattern-family scan + reviewed identifier allowlist. Specs:
+gates-and-board.md "RT-2026-07-13-01 adjudication";
+data-generation-and-cuts.md "UNIT 64"; families-background-mps.md
+"UNIT 65".
+
+1C-BIS + BLOAT-01 PRE-COMMIT AUDIT (2026-07-13, Fable): PASS, GO
+given. The uncommitted landing audited in-tree: _WATCH_EXCLUDE +
+_watched_paths() one-owner, _git(strip=False) transport with the
+head-line misparse documented at the parse site, preflight surface
+text derived from the owner; experiment.py's _is_finite_real deleted
+and imported from training (the pinned direction). Evidence run by
+the Architect: board-selftest 46 legs ALL PASS (incl. the head-line,
+transport, one-owner, and stripped-head-line mutation arms); the
+live head-line probe through the REAL helpers now excludes a
+config-only edit (the exact RT-IMPL-02 failure case); cmb-identity
+green after the move. Part J live run stays workstation-owed. Next:
+Opus commits (one landing), then the queue-1b manifest PROPOSAL under
+the seven pre-answered constraints.
+
+TEXNOTES GAP TRIAGE + SIGMA8 RULING (2026-07-13): all 20 Current-gap
+paragraphs in texnotes/emulator_code_guide.tex audited against HEAD.
+Sixteen map to already-adjudicated unit specs (map in
+conventions-and-workflow.md "Texnotes Current-gap paragraphs"); two
+are STALE (watch scope — queue 1c landed; the raw-log resume half of
+the digest paragraph — queue 1a landed) and their refresh is
+RED-TEAM-owed; two are in flight (queue 1b digest closure,
+queue 2 reconciliation); one needed the user and is RESOLVED — sigma8
+serves the CONVENTIONAL R = 8 Mpc/h (BSN-curvature precedent; no
+legacy rename, no dual serving; rides the wave-4 MPS visit; recorded
+in families-background-mps.md). NEW BINDING RULE (ownership by USER
+RULE, same day): a landing that changes behavior taught by a
+Current-gap paragraph NAMES the paragraph in its notes entry, and
+the RED TEAM — the guide's ONLY editor; Architect and Implementer
+never touch texnotes/emulator_code_guide.tex — updates it via the
+handoff loop (custody rule in conventions-and-workflow.md).
+The entry-2 sigma8 caveat above is CLOSED by this ruling.
+
+RT-2026-07-13-02..06 BATCH (2026-07-13): five red-team findings, ALL
+CONFIRMED by the Architect (code chains + cocoa-interpreter probes;
+the curved-distance numbers reproduce exactly at H0 = 70.0). RT-02
+(CPU predictions return storage-sharing views of persistent axes;
+ownership is device-dependent) -> NEW UNIT 66,
+artifacts-inference-warmstart.md. RT-03 (board children inherit the
+shell's $ROOTDIR while the board certifies its own resolved root: sh
+copies os.environ verbatim, nothing injects, cocoa.py reads the env)
+-> NEW queue 1d (one-owner inject-and-record + red legs),
+gates-and-board.md; queue 5 now DEPENDS on 1d. RT-04 (gate_gha_f
+captures rc_w and never asserts it — warning-then-crash passes) ->
+rider on the 1d landing. RT-05 (CRITICAL wrong science: flat-only
+bypassed by a global omk; the producer stores chi as D_M) -> NEW
+UNIT 67, rides the wave-4 background visit,
+families-background-mps.md. RT-06 (KeyError 'latex' after sampling)
+-> NEW UNIT 68 (name-as-label ruling), rides the ingress cluster,
+data-generation-and-cuts.md. Sequencing AMENDED: 1b -> 1d(+RT-04)
+-> 2 -> 66 -> 5 -> rest of 6 -> 50 -> 52 -> 55 -> 22(+20) ->
+13(+01). Spec: gates-and-board.md "RT-2026-07-13-02..06
+adjudication".
+
+1B PHASE 1 POST-MERGE AUDIT (2026-07-13, Fable): `5e4fded` PASS —
+evidence re-executed from a clean checkout of merged main 060a150
+(board-selftest 55 legs ALL PASS, --list rc 0; the shared worktree
+holds the in-flight phase-2 edit and was not used). Contract-true on
+every delta: whole-AST closure, set fixpoint, both censuses, waiver
+table = the delta-1 live instances, mutation arms catch the
+uncovered-subprocess and unwaived-dynamic-import cases. Architect
+probes found two VALIDATION HOLES (no false evidence — no live gate
+declares a manifest): a bare-directory covering root validates while
+contributing nothing to the closure, and a typo'd extra root
+validates silently -> THREE BINDING PHASE-2 RIDERS (root schema
+totality; directory-root expansion with zero-member refusal;
+inputs-key resolution), spec in gates-and-board.md "1b phase 1 —
+post-merge Architect audit". Phase 2 GO under the riders. Also this
+date: the landing-divergence incident diagnosed (merge commits never
+flowed back to the branch) and the resync ritual recorded in
+conventions-and-workflow.md "Landing-block resync ritual".
+
+1B PHASE 2 POST-MERGE AUDIT (2026-07-13, Fable): `24ed07a` PASS —
+board-selftest 67 legs ALL PASS + --list rc 0 re-executed from a
+clean checkout of merged main 6f3f54f; all three phase-1 riders
+probe-verified live (typo root reds; directory roots expand — the
+texnotes probe was an Architect false alarm, make_figures.py is a
+real member; empty dir reds; inputs keys resolve-not-exist, the
+right cross-machine call); pre-manifest via the REAL _resume_state;
+stale members named; resolutions deterministic and sorted;
+_manifest_seeds is the one owner behind validation AND digest.
+Phase-3 flow APPROVED propose-first (population order + first gate's
+roots reviewed before landing); queue-1d placement AMENDED: 1d lands
+before the first WORKSTATION rerun of any populated gate; queue 2
+blocked until 1b population completes. Spec: gates-and-board.md
+"1b phase 2 — post-merge Architect audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

@@ -752,3 +752,792 @@ invariance legs.
 
 Queue items 2 (evidence rollout), the 1b manifest PROPOSAL, 5 (workstation
 evidence), and the rest of 6 (README + didactic campaign) remain.
+
+## RT-2026-07-13-01 adjudication (Fable, 2026-07-13)
+
+The queue-3 landing (`2c26c34`) is AUDITED PASS first: every pinned
+clause and every deep-pass rider is honored — searchsorted local
+coordinates in seeded selection order, the in-code duplicate refusal,
+the three-term banner naming the comparison that actually held, the
+below/equal/above budget legs, the texnotes passage and module example
+corrected in the SAME commit — and the rebuilt stage-ram gate reran
+ALL PASS under the Architect's own hands from a clean checkout of the
+merged main (order-recovery leg + the arange mutation arm included).
+
+### RT-IMPL-02 CONFIRMED — queue 1c REOPENED (1c-bis)
+
+The red team's claim is right, with a sharper mechanism than stated:
+the preflight pathspec is fine and `_dirty_lines` DOES carry the
+exclusion — but `_git` returns `proc.stdout.strip()`, so the FIRST
+porcelain line loses its leading status column and `line[3:]`
+misparses that line only. `gates/board_config.json` therefore escapes
+the exclusion exactly when it is the only (or alphabetically first)
+dirty entry — the documented local-deploy-override use case. Proved
+live in a clean worktree of merged main: a config-only edit returned
+`['M gates/board_config.json']` as an offender (the false red), while
+a config + board.py edit correctly excluded the config and reported
+only board.py (proving the filter works when the config is not the
+head line). The failure direction is false-red only; no false-green
+path exists (a garbled first-line path can never EQUAL the exclusion).
+
+Contract (1c-bis):
+
+- Per-line parsing immune to the transport: either `_dirty_lines`
+  parses each line without relying on column alignment a global strip
+  can break, or the porcelain consumer stops using the stripped
+  transport (`_git`'s strip stays for its other callers).
+- ONE owner for the executed watch: the pathspec
+  (`_EXECUTABLE_DIRS` + root drivers) and the exclusion path live
+  together, and the displayed surface text (the [ok]/[FAIL] lines and
+  the log-header note) derives from that owner, never restated by
+  hand.
+- Legs, driving the REAL preflight helpers: a config-ONLY edit stays
+  clean (the head-line case this reopen proves); a config + neighbor
+  edit reds ONLY the neighbor; a neighbor-only edit reds; the valid
+  clean-tree control; a mutation arm restoring the head-line misparse
+  must fail.
+
+Small and board-side; may ride the next board-harness commit, ahead
+of the evidence rollout.
+
+### BLOAT-01 CONFIRMED — queue-4 rider
+
+`_is_finite_real` is defined twice (training.py + experiment.py, both
+born in the queue-4 commit). One owner: `emulator/training.py` — the
+import direction is already pinned by the in-repo constraint that
+training must not import experiment, and experiment.py already
+imports from `.training`. The experiment copy is deleted, its call
+sites import the one definition, the explanatory docstring is kept,
+and the existing finite-contract Part J + cmb-identity schema legs
+rerun green unchanged.
+
+### BLOAT-04 CONFIRMED — queue-6 rider (binding completion evidence)
+
+The generator modules gain real module docstrings defining, in plain
+language at first use: MPI rank, worker, memmap, checkpoint, append,
+and sidecar. The Cobaya adapters gain module docstrings defining:
+construction, requirement negotiation, sample calculation, getter
+readback, and what Cobaya's state means to an adapter. Completion
+evidence for the whole queue-6 campaign is now BINDING as: an
+untruncated zero-hit scan over the Architect's full audit-pattern
+family (45M, unit N, increment, Architect/Implementer, red team,
+ruling, adjudicat-, D-*, POL-* — the 108-line baseline), against a
+REVIEWED identifier allowlist recorded in the gate output.
+
+### New units from this batch
+
+BLOAT-02 -> UNIT 64 (generator storage consolidation, proposal-first):
+spec in data-generation-and-cuts.md "UNIT 64". BLOAT-03 -> UNIT 65
+(adapter mechanics consolidation): spec in families-background-mps.md
+"UNIT 65". Sequencing: 64 AFTER the ingress cluster (same files); 65
+lands with the typed adapter contract the wave-4 adapter visits
+establish. Staging truth stays ahead of the evidence rollout
+(landed); 45M-89 retains exactly one in-code verdict (ratified).
+
+### Queue 1b: Architect constraints for the manifest proposal (2026-07-13)
+
+Queue 3 is closed (landing `2c26c34` AUDITED PASS). The 1b proposal is
+GO, and the Implementer's three open questions are pre-answered so the
+proposal can converge in one review round. Order of work: the 1c-bis +
+BLOAT-01 rider commit first (small, already contracted above), the 1b
+proposal note in the same session (design only), the rollout (queue 2)
+strictly after 1b review — both edit the same runner files, and the
+rollout must build on the final resume machinery, not race it.
+
+1. Declared, then checked — never walked into existence. The manifest
+   is a DECLARED set (inspectable, note-auditable). Reconciliation is
+   a STATIC repo-local import scan (AST-level over the executable
+   surface dirs), chosen because it must run on the Mac without
+   importing the modules — a cosmolike-importing check script cannot
+   be imported here, but its import lines can be read. A repo-local
+   import the scan finds missing from the declaration is a validation
+   error (exit 2, the evidence-map pattern). Third-party drift (torch,
+   numpy, cobaya) stays environment territory — preflight and the
+   queue-5 capability lanes — never a per-gate digest member.
+2. A NEW Gate field. evidence= is the note-anchor trust chain; needs=
+   is capability lanes; overloading either muddles two validators.
+   The new field defaults to None = the conservative fallback below.
+3. Composition with the rollout: the aid declared-vs-executed
+   reconciliation (queue 2) and the import declared-vs-found
+   reconciliation (1b) SHARE the reporting shape (one "declared vs
+   observed" error format a reader learns once); whether they share
+   code is the proposal's choice.
+4. Persisted inspectable membership: at PASS time the status record
+   stores the manifest as RESOLVED members, each with its own digest
+   (resolved paths, materialized facts — never re-derivable
+   declarations), so --list names WHICH member went stale, not just
+   that something did.
+5. The shared harness surface (run_board.py, board.py, every invoked
+   check script) is hashed for every gate — the audit's "a digest with
+   no inspectable membership is not evidence" requirement stands.
+6. Conservative fallback + honest legacy: an undeclared gate keeps
+   today's dual-digest behavior AND is displayed manifest-less; on 1b
+   landing, legacy PASS records become a non-green "pre-manifest"
+   resume state. The too-narrow digest surface is exactly the false
+   currency the audit proved, and the queue-5 full board rerun is
+   already owed, so the honest staleing costs nothing (consistent
+   with the digestless-is-STALE ruling of the unit-4 extension).
+7. Input side: a declared gate names its SPECIFIC files (its YAMLs
+   and data / covmat / axis / artifact inputs), resolved against
+   board_config at run time; the whole-yaml_dir hash retires for
+   declared gates and survives only inside the fallback.
+
+Texnotes PDF: a tracked build product beside its source is stale by
+construction (it is stale now, third time this cycle). Preferred
+repair, red-team's call in their build pipeline: stop tracking the
+PDF and build on demand (pdflatex exists on the dev Mac), or add a
+freshness check (PDF vs .tex digest) to the board's doc lane. Until
+one lands, the rebuild is owed whenever the .tex changes.
+
+### 1c-bis + BLOAT-01 DONE (Opus, 2026-07-13)
+
+1c-bis (the first-porcelain-line strip misparse): `_git` gains a
+`strip` parameter (default True, so every single-value caller -- commit
+hash, ancestor check -- is unchanged); preflight (b) reads the watch
+with `strip=False`, so `_dirty_lines` receives every porcelain line with
+its two-column status prefix intact and `line[3:]` is uniform. One owner
+for the executed watch: `_WATCH_EXCLUDE = "gates/board_config.json"`
+lives beside `_EXECUTABLE_DIRS`; `_watched_paths()` owns the pathspec;
+`_dirty_lines` excludes `_WATCH_EXCLUDE`; and the preflight `[ok]` surface
+text prints that same constant -- pathspec, exclusion, and surface text
+can no longer drift. No production behavior changes for a clean tree; the
+fix only stops the config from false-red-ing when it is the head entry.
+
+Legs (`board_selftest.check_dirty_watch`, 7, driving the REAL
+`_dirty_lines` / `_git` / `_watched_paths`): config-only head-line stays
+clean; config + neighbor reds only the neighbor; neighbor-only reds; the
+empty-porcelain clean control; a mutation arm that restores the global
+strip (feeds the stripped head line) and must -- and does -- false-red the
+config; `_git(strip=False)` proven to preserve the raw transport while
+`strip=True` trims; and the one-owner pathspec/exclusion coverage. Live
+proof on a real dirty tree (pathspec pinned to the config so it is the
+head line): `strip=False` excludes it (clean), the retired global strip
+leaks `M gates/board_config.json` (false red); the config's bytes were
+restored and the tree re-verified clean.
+
+BLOAT-01 (queue-4 dedup): `emulator/experiment.py`'s `_is_finite_real`
+copy is deleted and imported from the `emulator/training.py` owner (the
+import direction the in-repo constraint already pins; experiment already
+imports from `.training`). Verified one object
+(`experiment._is_finite_real is training._is_finite_real`), the predicate
+still rejects bool / numeric-string / non-finite, and `cmb-identity`
+(which exercises `validate_cmb` -> `_is_finite_real`) reran all green.
+finite-contract Part J (optimizer schema) rides the workstation, unchanged
+by a pure move.
+
+Verification (Mac, cocoa-torch): `compileall emulator gates` clean;
+`board-selftest` ALL PASS (now with the clean-tree-watch legs);
+`run_board --list` rc 0; `cmb-identity` all green; the live head-line
+proof PASS. Next: the queue-1b manifest PROPOSAL (design only), under the
+seven pre-answered constraints above.
+
+## Queue 1b: executable/input manifest PROPOSAL (Opus, 2026-07-13, DESIGN ONLY)
+
+For Architect review. No code lands from this section; it names the
+`Gate` field schema, the static-scan mechanics, the persisted-manifest
+JSON shape, and the pre-manifest legacy transition, and stops there.
+Numbering follows the seven pre-answered constraints above.
+
+### The problem this closes (recap)
+
+`_gate_code_digest` hashes only the gate body plus the `gates/checks/*.py`
+paths named literally in it; it misses `board.py` shared helpers, the
+`run_board.py` runner, and the production modules a check imports. A change
+to a shared helper or an imported library module can leave a stored PASS
+falsely current. `_gate_input_digest` hashes the WHOLE `yaml_dir`, so an
+unrelated YAML edit falsely stales every gate, and it never establishes
+which specific data / covmat / axis / artifact files a gate consumes. The
+audit's rule: "a digest with no inspectable membership is not evidence."
+
+### (A) Gate-field schema
+
+One NEW optional `Gate` field (constraint 2 -- not folded into `evidence=`,
+the note-anchor trust chain, nor `needs=`, the capability lanes):
+
+```
+@dataclass(frozen=True)
+class Manifest:
+  # repo-relative production-module ROOTS this gate's checks depend on,
+  # BEYOND the always-hashed shared harness and the check scripts the gate
+  # body names (those are added automatically). Each must live inside the
+  # executable surface (_EXECUTABLE_DIRS).
+  code:   Tuple[str, ...] = ()
+  # board_config KEYS (dotted) whose resolved values are the specific
+  # external files this gate consumes: its own smoke YAML(s) and any data /
+  # covmat / axis / artifact inputs. Resolved against board_config at run
+  # time, never stored as raw deploy paths.
+  inputs: Tuple[str, ...] = ()
+
+# on Gate:
+manifest: Optional[Manifest] = None   # None = the conservative fallback (D)
+```
+
+Example (illustrative, not a build list): `stage-ram` declares
+`code=("emulator/data_staging.py", "emulator/batching.py")`,
+`inputs=()` (it fabricates its own arrays). A data-driven gate such as
+`cmb-smoke` declares its generator / covariance modules in `code` and its
+YAML + dump + covmat config keys in `inputs`.
+
+The always-hashed shared harness (constraint 5) -- `run_board.py`,
+`board.py`, and every check script the gate invokes -- is added by the
+digester for EVERY gate, declared or not; a gate never has to (and cannot
+usefully) re-declare it.
+
+### (B) Static-scan reconciliation mechanics (constraint 1)
+
+The manifest is DECLARED, then CHECKED -- never walked into existence.
+A new `validate_manifests(BOARD)` runs on every invocation (including
+`--list`), the same shape as `validate_evidence`, and exits 2 on a
+mismatch.
+
+The check is a STATIC, repo-local, AST-level import scan -- it must run on
+the Mac without importing the modules, because a cosmolike-importing check
+script cannot be imported here, but its `import` lines CAN be read
+(`ast.parse` on the file bytes, never `import`/`exec`):
+
+1. Seed = the gate's check scripts (auto-discovered from the gate body, as
+   today) + its declared `code` roots + the shared harness.
+2. For each seed file, `ast.parse` and collect `import X` / `from X import`
+   targets. Resolve each to a repo-relative path ONLY if it lands inside
+   `_EXECUTABLE_DIRS`. Third-party targets (torch, numpy, cobaya,
+   cosmolike_*) are IGNORED -- environment drift stays preflight + the
+   queue-5 capability lanes, never a per-gate digest member.
+3. Transitively close over the repo-local hits to a fixpoint. The closure
+   is the "found" set.
+4. RECONCILE. Under the approved terse ruling (direct roots + derived
+   closure) the closure is derived from the declared roots, so ordinary
+   repo-local imports are covered by construction -- a plain "found vs
+   declared" check is vacuous for them (the deriver already swallowed every
+   import it could see, and it declared nothing separately to compare
+   against). The under-declaration that still bites is the dependency the
+   scan is blind to, and it is caught by two censuses instead:
+
+   (a) a literal repo-relative `.py`-path census over the gate body and its
+       check scripts -- the subprocess targets: the `run_driver` driver
+       names, the `_DRIVER` constant, and the sweep-driver constants. Every
+       such literal `.py` path must be covered by a declared root or an
+       auto-discovered check script; an uncovered one is a validation error
+       (exit 2). A covered driver then becomes a seed, so the closure walk
+       swallows its imports the same as any other seed.
+   (b) a dynamic-import census -- every `importlib` / `__import__` site
+       inside the derived closure is flagged. The gate must either declare
+       roots covering the dynamically-reachable modules (a rebuild-shaped
+       gate declares `emulator/designs/`, the directory the model-recipe
+       strings resolve into) or the site must appear in a reviewed waiver
+       table kept in this note. This is where "declared-then-checked" stays
+       meaningful: exactly where the scan is blind, the human declaration
+       (or a reviewed waiver) is what the census reconciles against.
+
+   The digest then hashes the full derived closure, so a change to any
+   transitively-reachable repo-local module -- including a driver pulled in
+   by census (a) -- staled the gate.
+
+Blind spots (what the scan cannot see, and the mitigation). A static scan
+reads `import` / `from ... import` nodes; it cannot resolve a module whose
+name is a runtime value. It is blind to:
+
+- Dynamic imports: `__import__(name)` and `importlib.import_module(name)`.
+  The target is a string or variable computed at runtime, so no repo-local
+  path can be recovered from the source alone.
+- importlib string / computed names: any import whose module name is built
+  from a string or a variable rather than written as a literal statement.
+- Function-local (and conditional) imports: an `import` inside a function
+  body or an `if` branch is missed if the scan reads only module-level
+  statements. Walking the WHOLE tree (`ast.walk`) recovers the literal ones
+  (a function-local `from emulator.x import y` is a visible node); only the
+  runtime-named forms above stay invisible even then. The proposal
+  recommends the whole-tree walk so the blind spot shrinks to the dynamic
+  forms alone.
+
+These forms are not hypothetical; the live in-repo instances (verified to
+exist) are the reason the scan is built the way it is:
+
+- The function-local `import importlib` at `emulator/results.py:546` is the
+  concrete motivator for walking the whole tree (`ast.walk`) rather than only
+  the module level -- it sits inside a function body, so a module-level-only
+  scan would miss it. Walking the whole tree sees it as an ordinary literal
+  import node.
+- The string-target dynamic imports at `emulator/results.py:602` and `:672`,
+  and `emulator/warmstart.py:368` and `:410`, are the "model-recipe" pattern:
+  `getattr(importlib.import_module(mod), qual)` resolving a design / loss
+  class from a string that a saved artifact recorded. The module name is a
+  runtime value read out of the recipe, so the scan cannot resolve it to a
+  repo-local path -- these are the true blind spots that survive the
+  whole-tree walk.
+
+There is a second blind spot the source-level import scan cannot cross at
+all: the subprocess boundary. A run-shaped gate does not `import` its work; it
+launches a driver in a child process through `ctx.run_driver` (the `_DRIVER`
+constant `"cosmic_shear_train_emulator.py"`, plus the sweep and legacy driver
+constants). That driver `.py` file, and everything it imports, appears in no
+check script's import graph -- the check script only spawns it -- so an import
+scan is structurally blind to the whole driver subtree. Its mitigation is not
+another import walk (there is nothing to walk from) but delta 2's literal-path
+census: the driver names written as literal `.py` strings in the gate body are
+enumerated and required to be covered, which makes each driver a scan seed in
+its own right. See the reconciliation below.
+
+Because the reconciliation cannot flag a dependency it cannot see, a gate
+whose checks reach a repo-local module only through one of these forms must
+either declare that module explicitly in `manifest.code` or (for the driver
+subtree) have the driver enumerated by the literal-path census so it becomes a
+seed; that resolution rests on the declaration and the Architect's review, not
+on the import scan alone. The manifest never claims to have found every
+dependency automatically -- it claims to hash every declared-or-found
+repo-local module and to error on any found import the declaration leaves out.
+A dynamic-import dependency is the one lane where a silent under-declaration is
+possible; the honest cost is named here rather than papered over
+(per the Architect review, d4d2136, and the crossing note, 416f821).
+
+Ruling (approved): direct roots + derived closure. `code` names only the
+direct roots; the digester derives the transitive closure from them. This was
+chosen over a full-closure declaration (which would be verbose and rot on
+every refactor) because the note stays readable and the scan is the single
+source of the closure. Never-trust-defaults is still satisfied: the closure is
+a derived value, but the persisted manifest (section C) materializes that
+resolved closure with per-member digests, so the artifact is the whole truth
+while the declaration is only intent / config. The two censuses above are how
+under-declaration is still caught once transitivity is delegated to the
+deriver -- the reconciliation bites exactly at the driver subtree and the
+dynamic-import sites the closure walk cannot reach on its own.
+
+### (C) Persisted-manifest JSON shape (constraint 4)
+
+At PASS time the status record stores the manifest as RESOLVED members --
+materialized paths and their own digests, never re-derivable declarations
+-- so `--list` / `BOARD.md` can name WHICH member went stale, not just
+that something did:
+
+```
+"stage-ram": {
+  "status": "PASS",
+  "code_digest":  "<sha256 over the ordered code members>",
+  "input_digest": "<sha256 over the ordered input members>",
+  "manifest": {
+    "code": [
+      {"path": "gates/run_board.py",          "sha256": "..."},
+      {"path": "gates/board.py",              "sha256": "..."},
+      {"path": "gates/checks/stage_ram.py",   "sha256": "..."},
+      {"path": "emulator/data_staging.py",    "sha256": "..."},
+      {"path": "emulator/batching.py",        "sha256": "..."}
+    ],
+    "inputs": []
+  },
+  "log": "stage-ram.log", "log_digest": "..."
+}
+```
+
+The overall `code_digest` / `input_digest` stay as the fast resume
+comparison; the per-member list is the inspectable evidence behind them.
+`_resume_state` gains a member-level compare: when an overall digest
+differs, it walks the persisted members against the freshly-resolved ones
+and reports the first changed `path` (a `stale-code` / `stale-input` with a
+named member, not an opaque flip).
+
+Determinism. The members are sorted by their repo-relative path before the
+overall digest is taken, so the same set of members always produces the same
+digest regardless of the order the closure walk discovered them. The fixpoint
+closure result is likewise independent of traversal order -- it is the set of
+files reachable from the seeds, and a set has no order. A `(path, digest)`
+parse cache is an allowed optimization (it avoids re-hashing a file two seeds
+both reach), but the cache is never itself persisted as evidence: only the
+resolved, sorted member list is written to the status record, so nothing about
+the run's traversal or caching can leak into the stored truth.
+
+### (D) Pre-manifest legacy transition (constraint 6)
+
+- An undeclared gate (`manifest is None`) keeps today's `_gate_code_digest`
+  / `_gate_input_digest` (whole-`yaml_dir`) behavior AND is displayed
+  manifest-less. The too-narrow surface is exactly the false currency the
+  audit proved, so this fallback is honest-but-weak, never the goal.
+- On 1b landing, every existing PASS record predates the manifest and has
+  no persisted `manifest` block. A DECLARED gate whose stored record lacks
+  that block reads a NEW non-green `pre-manifest` resume state (beside
+  `stale-code` / `stale-log`), forcing a rerun -- the same digestless-is-
+  stale ruling as the unit-4 extension. The queue-5 full-board rerun is
+  already owed, so the honest staleing costs nothing.
+
+### Input side (constraint 7)
+
+A declared gate's `inputs` name its SPECIFIC files, resolved against
+board_config at run time (its smoke YAML by its `gate_configs` key, its
+data / covmat / axis / artifact inputs by their keys). The whole-`yaml_dir`
+hash RETIRES for declared gates and survives only inside the (D) fallback.
+
+### Shared reporting shape (constraint 3)
+
+The 1b import "declared vs found" reconciliation and the queue-2 aid
+"declared vs executed" reconciliation emit ONE "declared vs observed" error
+line a reader learns once, e.g.
+`[manifest] <gate>: declared {..} but the import scan found {..} (undeclared: X)`
+alongside the rollout's
+`[evidence] <gate>: declared {aids} but executed {aids}`.
+Whether they share a helper is the queue-2 implementation's choice; the
+format is fixed here.
+
+### Sequencing
+
+1b lands before the queue-2 evidence rollout (both edit the runner's resume
+machinery; the rollout must build on the final manifest, not race it).
+Suggested build order once approved: the `Manifest` dataclass + `Gate`
+field + `validate_manifests` (fixpoint scan) first, gated by
+`board-selftest` arms driving the real scan on a fabricated under-declared
+gate (the mutation arm); then the digest + persisted-member rewrite with
+the `pre-manifest` state; then per-gate `manifest=` population, gate by
+gate, each a rerun. Awaiting Architect review before any of it.
+
+### Architect review of the 1b proposal — APPROVED WITH DELTAS (Fable, 2026-07-13)
+
+The proposal satisfies all seven constraints as written: the Manifest
+dataclass and optional Gate field, the AST fixpoint scan validated on
+every invocation, the persisted resolved members with member-level
+stale naming, the always-hashed shared harness, the pre-manifest
+transition, the yaml_dir retirement, and the fixed "declared vs
+observed" error format. The suggested build order is approved
+(dataclass + validate_manifests with the under-declaration mutation
+arm first; then the digest/persist rewrite with the pre-manifest
+state; then per-gate population, each a rerun).
+
+RULING on the flagged decision: DIRECT ROOTS + DERIVED CLOSURE (the
+Implementer's recommendation). The declaration states intent and
+stays readable; a full-closure declaration rots on every refactor and
+invites blanket copy-paste. Never-trust-defaults is satisfied because
+the PERSISTED manifest materializes the resolved closure with
+per-member digests — the artifact is the whole truth, the declaration
+is config. The closure deriver itself lives in the always-hashed
+shared harness, so a deriver bug stales every gate honestly.
+
+Three DELTAS, all required before implementation:
+
+1. BLIND-SPOTS PARAGRAPH (required by the review handoff; see the
+   crossing note below for its status). The scan walks the ENTIRE AST (ast.walk), so
+   function-local import statements are seen — results.py:546 is a
+   live function-local "import importlib". What the scan CANNOT see,
+   documented with the live instances: string-target dynamic imports
+   (getattr(importlib.import_module(mod), qual) at results.py
+   :602/:672 and warmstart.py :368/:410 — the model-recipe pattern
+   resolving design classes from saved artifact strings) and
+   subprocess-invoked files (ctx.run_driver / the _DRIVER constants —
+   a run-shaped gate's driver and everything it imports never appear
+   in any check script's import graph).
+2. RECONCILIATION REDEFINED under the terse ruling. With a derived
+   closure, ordinary repo-local imports are covered by construction,
+   so "found vs declared" is vacuous for them. The under-declaration
+   check that still bites, and is REQUIRED: (a) a literal
+   repo-relative .py path census over the gate body + its check
+   scripts (the subprocess targets: run_driver names, _DRIVER and the
+   sweep-driver constants) — every hit must be covered by declared
+   roots or auto-discovered scripts, and a covered driver is then a
+   SEED so the closure swallows its imports; (b) a dynamic-import
+   census — every importlib / __import__ site inside the derived
+   closure is flagged, and the gate either declares roots covering
+   the dynamically-reachable modules (rebuild-shaped gates declare
+   emulator/designs/) or the site appears in a REVIEWED waiver table
+   in this note. Declared-then-checked stays meaningful exactly where
+   the scan is blind.
+3. DETERMINISM: members sorted by repo-relative path before the
+   overall digest; the fixpoint result independent of traversal
+   order; a (path, digest) parse cache is fine but is never itself
+   persisted as evidence.
+
+With the deltas incorporated into the proposal text (a short edit,
+not a re-review — cite this section), implementation may begin in the
+approved order. Queue 2 remains blocked until 1b lands.
+
+### Crossing note + delta-1 status correction (Fable, 2026-07-13)
+
+Relay crossing, recorded for the honest history: the Implementer wrote
+a blind-spots passage into the proposal section CONCURRENTLY with the
+Architect's review, as an uncommitted edit in this shared worktree.
+The Architect's review commit (`d4d2136`) staged the whole notes file
+and therefore CARRIED that passage — one commit, two authors' hunks.
+The review text's original claim that the passage was "absent from the
+proposal" was true of the reviewed commit (`cd6ac7a` contains none of
+it) but is false of the file as committed; the delta-1 opener above is
+corrected accordingly.
+
+Delta-1 status after crediting the Implementer's passage: the
+dynamic-import half is DONE and good (whole-tree ast.walk shrinking
+the blind spot to runtime-named forms; the honest
+declaration-plus-review mitigation; "the one lane where a silent
+under-declaration is possible" named rather than papered over). Still
+REQUIRED to close delta 1: (a) the live in-repo instances named in
+the passage (results.py :602 / :672 and warmstart.py :368 / :410, the
+model-recipe pattern; the function-local import at results.py:546 as
+the ast.walk motivator), and (b) the SUBPROCESS boundary — ctx.run_driver
+and the _DRIVER constants appear nowhere in the proposal section, and
+a run-shaped gate's driver is invisible to ANY import scan; its
+mitigation is delta 2's literal-path census, which the blind-spots
+passage should point at. Deltas 2 and 3 stand unchanged.
+
+Workflow rule from this crossing (shared-worktree hygiene): before
+committing a notes file, `git diff` it and confirm only your own
+hunks are present; if the other agent's uncommitted hunks are in the
+file, either hold the commit or record the shared authorship in the
+message. A whole-file `git add` in a shared worktree commits whatever
+is there, not what you wrote.
+
+## RT-2026-07-13-02..06 adjudication (Fable, 2026-07-13)
+
+All five findings independently verified by the Architect (code
+chains read end to end + live probes on the cocoa interpreter; the
+red team's curved-distance numbers reproduce EXACTLY under the sinh
+mapping at H0 = 70.0, Omega_k = 0.1). Verdicts and placement:
+
+- RT-02 CONFIRMED -> NEW UNIT 66 (public return-value ownership),
+  spec in artifacts-inference-warmstart.md. On CPU,
+  .detach().cpu().numpy() on the persistent axes shares storage
+  (inference.py:520, :529-530); Architect probe: a caller edit of the
+  returned array changed the tensor [0,1] -> [99,1]; the SAME code on
+  MPS copies, so public ownership semantics are device-dependent
+  today. Persistent-state views also leave through diagnostic
+  dictionaries (diagnostics.py :542, :585, :669, :765, :790, :901,
+  :917 — geometry sigma/ell/scale/z/k).
+- RT-03 CONFIRMED -> NEW queue 1d (board child environment
+  identity), contract below. The whole mechanism is in code:
+  rootdir() resolves config-override-else-$ROOTDIR
+  (run_board.py:406-420); sh() copies os.environ verbatim (:255) and
+  nothing injects ROOTDIR; run_check adds only PYTHONPATH
+  (:301-307); emulator/cocoa.py and the generators read $ROOTDIR
+  directly; the :526 comment states the assumption ("rootdir equals
+  $ROOTDIR") that nothing enforces. With a board_config rootdir
+  override B and shell $ROOTDIR=A, the board certifies B while every
+  child executes against A.
+- RT-04 CONFIRMED -> rider on the 1d landing. rc_w is captured at
+  board.py:705 and never consumed (single occurrence in the file);
+  the warning expectation (:712-717) is substring-only, so a
+  print-the-warning-then-crash run passes the leg.
+- RT-05 CONFIRMED (CRITICAL — wrong science) -> NEW UNIT 67, spec in
+  families-background-mps.md. The flat-only refusal keys on emulator
+  input names only (emul_baosn.py:161, "omk" in req) — a global
+  Cobaya omk that is not an emulator input bypasses it; the producer
+  stores chi as D_M with the flat assumption in a comment only
+  (dataset_generator_background.py:343-347); the untruncated omk
+  grep over compute_data_vectors shows the ONLY curvature
+  enforcement in the tree is compute_cmb_covariance's
+  LCDM_FIXED_ONLY — the background generator has none.
+- RT-06 CONFIRMED -> NEW UNIT 68, spec in
+  data-generation-and-cuts.md. Architect probe on the real Cobaya: a
+  parameter declared {prior: {min: 0, max: 1}} yields
+  model.info()['params'] WITHOUT a 'latex' key, and
+  generator_core.py:808 indexes it unconditionally — after sampling
+  finished and after the chain .txt was written. RULING on the fix:
+  the parameter NAME becomes the display label when latex is absent
+  (GetDist's own convention); presentation metadata is NOT promoted
+  to a required key and is NOT a refusal surface.
+
+### Queue 1d contract (RT-03 + the RT-04 rider): the executed child environment equals the certified root
+
+- ONE owner: sh() injects ROOTDIR = str(effective resolved rootdir)
+  into child_env for EVERY child. The landing includes the census
+  proving all child launches (drivers, check scripts, Cobaya
+  subprocesses, golden runs) route through that owner. If rootdir is
+  unresolved, the refusal fires BEFORE any child launch.
+- The injected value is recorded in the per-run log header alongside
+  the existing metadata — the recorded value IS the executed value,
+  never a restatement from another variable.
+- Legs (board_selftest, driving the REAL sh / run_driver /
+  run_check): inherited shell $ROOTDIR=A + board rootdir B -> the
+  child observes exactly B on driver, check, and Cobaya paths;
+  $ROOTDIR absent entirely -> the child still observes B; board
+  rootdir unresolved -> refusal before launch; a mutation arm
+  restoring the uninjected inherit-only environment must FAIL.
+- RT-04 rider, same landing: gate_gha_f's warning leg becomes
+  (rc_w == 0) AND the warning substring, with a board_selftest
+  fake-ctx warning-then-nonzero-rc arm that must fail the leg; the
+  invalid-license leg's required rc_l != 0 stays the separate
+  negative control.
+- Sequencing: after the in-flight 1b phases (same files), BEFORE
+  queue 2 and queue 5 — the workstation certification run must
+  execute with a trustworthy environment. Queue 5 now DEPENDS on 1d.
+
+Sequencing after this batch (amended, binding): 1b (in flight) ->
+1d(+RT-04) -> 2 -> 66 -> 5 -> rest of 6 -> 50 -> 52 -> 55 ->
+22(+20) -> 13(+01). Unit 67 rides the wave-4 background visit
+(15 + 58 + 62 + 67); unit 68 rides the generator-ingress cluster;
+64 and 65 unchanged. Guide-custody note: any Current-gap paragraphs
+these five defects deserve, and their later closure, are RED-TEAM
+edits only (conventions-and-workflow.md custody rule); the landings
+NAME affected paragraphs and stop there.
+
+## 1b phase 1 — post-merge Architect audit (Fable, 2026-07-13): PASS, phase-2 GO with three binding riders
+
+Commit `5e4fded` (on main via `907064f`) audited post-merge (it reached
+main before this audit — queue-4/6a precedent, gap closed here).
+Evidence, re-executed by the Architect from a CLEAN detached checkout
+of merged main `060a150` on the cocoa interpreter (the shared worktree
+already carries the Implementer's uncommitted phase-2 edit, so it was
+NOT used): board-selftest 55 legs ALL PASS (rc 0) including the nine
+manifest legs; `run_board --list` rc 0.
+
+Contract conformance, verified in the diff: frozen roots-only
+`Manifest(code, inputs)` with the intent-vs-truth story;
+`Gate.manifest=None` conservative fallback, rolling migration;
+`validate_manifests(BOARD)` on every invocation before `--list`,
+exit 2; the closure deriver walks the WHOLE AST (the function-local
+import motivator is covered), resolves repo-local only (third-party
+= preflight territory), and is a set-based fixpoint (delta 3); both
+censuses bite exactly where the import scan is blind — the
+literal-path census adds `_DRIVER` and `driver=` literals, a covered
+driver joins the closure seeds; the dynamic-import census walks the
+DERIVED closure against the reviewed `_DYNAMIC_IMPORT_WAIVERS`
+(results.py + warmstart.py, the delta-1 live instances); the selftest
+mutation arms catch an uncovered subprocess target AND an unwaived
+dynamic-import site (the pinned rider, honored).
+
+Architect adversarial probes (run live against the real
+`validate_manifests` on clean main; both are validation HOLES, not
+false evidence — no live gate declares a manifest yet):
+
+- P1/P2: a BARE DIRECTORY declared as the covering root
+  (`emulator/designs`) VALIDATES (the cover check accepts `r == c`)
+  while `_derive_closure({"emulator/designs"})` returns the
+  unparseable directory string as its only member — the designs tree
+  never enters the closure, so a phase-2 digest built on it would
+  hash nothing real for the dynamically-loaded modules.
+- P3: a typo'd extra root (`emulator/desings/typo.py`) validates
+  silently — it seeds nothing, covers nothing, and errors nothing;
+  a misspelled declaration is exactly the lie the manifest exists to
+  prevent.
+
+BINDING PHASE-2 RIDERS (before any phase-3 population):
+
+1. Root schema totality: every declared code root must exist as a
+   repo `.py` file or a directory; anything else is a validation
+   error (kills P3).
+2. Directory-root expansion: a directory root expands recursively to
+   its `.py` members as closure seeds and digest members; a root
+   resolving to ZERO members is a validation error (makes the cover
+   check's directory acceptance correct, kills P1/P2).
+3. Input-side validation: phase 2 validates every `inputs=` dotted
+   key resolves against board_config (phase 1 validates nothing on
+   the input side).
+
+Awareness note (not a defect; direction is false-red): the
+literal-path census reads the whole gate source including docstrings,
+so a `.py` path named in a gate docstring becomes a required
+declaration at population time — reword or declare when phase 3 hits
+one. The determinism leg is a same-process smoke; the structural
+guarantee is the set-based fixpoint, which the diff shows.
+
+Phase 2 is GO under these riders; its notes entry names guide
+~:4723's digest half as the narrowed Current-gap (red-team custody).
+
+## 1b phase 2 DONE (Opus, 2026-07-13): digest consumes the closure, members persisted, pre-manifest state, three riders honored
+
+A declared gate now digests its RESOLVED code manifest -- the derived
+transitive repo-local closure of its roots + check scripts + shared harness,
+member by member -- instead of the legacy gate-body-plus-literal-checks
+digest; a manifest-less gate keeps that legacy digest as the conservative
+fallback. The input digest branches the same way: a declared gate hashes only
+the specific files its `inputs=` keys resolve to (the whole-`yaml_dir` hash
+retires for it), a manifest-less gate keeps the broad hash. At PASS time the
+status record persists the manifest as sorted resolved members (each code
+member `{path, sha256}`, each input member `{key, path, sha256}`), so `--list`
+/ `BOARD.md` name WHICH member staled (`_stale_member`), not just that the
+digest moved. `_resume_state` gains the non-green `pre-manifest` state: a gate
+that now declares a manifest but whose stored PASS predates it (no `manifest`
+block) reruns -- digestless-is-stale, the unit-4 extension. The run loop and
+the board display consume the new state.
+
+The three BINDING phase-1-audit riders are honored and gated:
+
+- r1 root schema totality: a declared code root must be an existing repo `.py`
+  file or a directory, else a validation error (kills P3 -- a misspelled root
+  can no longer pass while seeding and hashing nothing).
+- r2 directory-root expansion: `_expand_root` expands a directory root
+  recursively to its `.py` members as closure seeds AND digest members; a
+  directory that expands to zero `.py` files is a validation error (makes the
+  dynamic-import cover check's `r == c` directory acceptance correct -- kills
+  P1/P2, the bare-directory hole; declaring `emulator/designs` really pulls the
+  design tree into the closure).
+- r3 input-side validation: `validate_manifests(gates, cfg)` now takes cfg and
+  errors on any `inputs=` dotted key that does not resolve against
+  board_config.
+
+Selftest: `board-selftest` 55 -> 67 legs. New: `check_manifest_persistence`
+(6 -- sorted resolved members, digest binds membership, input-key resolution,
+pre-manifest, stale-code-with-named-member, undeclared-untouched) and
+`check_manifest_riders` (6 -- r1 non-existent root reds, r2 dir expands + dir
+covers-and-enters-closure + empty-dir reds, r3 unresolvable key reds + resolving
+key clears). The phase-1 reconciliation fixtures were reworked to real repo
+modules (a non-existent fixture root now correctly reds under r1) and pass cfg.
+
+Guide currency (red-team custody, I name -- do not edit): phase 2 closes the
+DIGEST half of the Current-gap at `texnotes/emulator_code_guide.tex` ~:4723
+("the gate-code digest covers the gate function and check scripts named
+literally inside it, not the complete transitive imported production surface
+... a change only in an imported adapter or generator can still require an
+explicit force-rerun") -- for a DECLARED gate, whose digest now covers that
+transitive surface. The dirty-tree-watch half of the same paragraph was closed
+by 1c/1c-bis. The paragraph narrows to: the fallback (manifest-less) gates
+still carry the legacy narrow digest until phase-3 population; route the guide
+update accordingly.
+
+Verification (Mac, cocoa-torch): `board-selftest` ALL PASS (67 legs, 0 fail);
+`run_board --list` rc 0; `compileall emulator gates` clean; manifest-less real
+gates unchanged (legacy digest path). Full 40-gate board run stays
+workstation-owed (queue 5).
+
+Remaining: phase 3 (per-gate `manifest=` population, each a rerun, gate by
+gate); queue 2 (evidence rollout) stays blocked until 1b fully lands.
+
+### 1b phase 2 — post-merge Architect audit (Fable, 2026-07-13): PASS; phase-3 flow approved
+
+Commit `24ed07a` (on main via `6f3f54f`) audited post-merge. Evidence,
+re-executed by the Architect from a clean detached checkout of merged
+main on the cocoa interpreter: board-selftest 67 legs ALL PASS (rc 0),
+`run_board --list` rc 0.
+
+Contract-true on the phase-2 spec AND all three phase-1-audit riders:
+
+- The digest rewrite: a declared gate's code digest is the digest of
+  its RESOLVED sorted members ({path, sha256} over the derived
+  closure); its input digest hashes only the specific files its
+  inputs= keys resolve to (the whole-yaml_dir hash retires for it);
+  a manifest-less gate keeps both legacy digests. One structural
+  improvement beyond the spec, VERIFIED: `_manifest_seeds` is the ONE
+  owner feeding validation and digest, so they can never disagree
+  about a gate's dependency set.
+- Riders: r1 typo'd root reds (Architect probe re-run: reds); r2
+  directory roots expand recursively (probe: emulator/designs
+  contributes 5 members to the closure) and a zero-member directory
+  reds (probe with a genuinely empty in-repo dir: reds — the
+  Architect's first "texnotes should red" probe was a FALSE ALARM,
+  texnotes/make_figures.py legitimately expands); r3 an unresolvable
+  inputs key reds and a resolving one clears (probe: both
+  directions). r3's semantics are deliberately resolve-not-exist:
+  the key must navigate board_config to a string, but the file may
+  legitimately be absent on the Mac (workstation deploy data) — the
+  None-sha member records the absence honestly instead of breaking
+  cross-machine --list. Verified and RIGHT.
+- Pre-manifest: the REAL `_resume_state` returns "pre-manifest" for a
+  declared gate whose stored PASS carries no manifest block
+  (Architect probe: confirmed), the run loop reruns it, and the
+  BOARD.md log cell carries the state — one `_resume_state`, every
+  consumer (the 1a lesson held).
+- Member-level naming: `_stale_member` names the first changed
+  member (probe: a perturbed stored sha256 named
+  "code:emulator/activations.py"); surfaced in the BOARD.md detail.
+- Determinism (delta 3): two independent resolutions byte-identical,
+  members sorted by path (probe: confirmed).
+
+Minor notes, no rework: `_stale_member` names only members present in
+the STORED block — a newly-ADDED member (a new import) yields a
+generic stale-code with no member named; best-effort naming, the
+digest verdict is still correct. The persisted manifest is computed
+at launch, consistent with the verdict-bound digests + the clean-tree
+preflight.
+
+Phase-3 flow (RULING): propose-first, approved as the Implementer
+suggested — the population ORDER plus the FIRST gate's declared
+roots/inputs come to the Architect as a notes proposal before any
+population lands; each populated gate is a rerun. PLACEMENT AMENDED
+for queue 1d: population may begin on Mac-runnable gates once the
+proposal is approved, but 1d (child-environment identity, with the
+RT-04 rider) must land BEFORE the first WORKSTATION rerun — a
+populated gate re-certified on the box must execute under an injected,
+recorded ROOTDIR, not an inherited ambiguous one. Queue 2 stays
+blocked until 1b fully lands (population complete). Guide gap
+handling verified: the phase-2 notes entry NAMES ~:4723's digest half
+(narrowed), no guide edit — custody honored.
