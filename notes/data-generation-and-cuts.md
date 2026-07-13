@@ -1552,9 +1552,29 @@ chain header, and same-seed draws reproduce. Append-replay and
 worker-invariance ride the workstation smoke gates.
 
 <a id="srm-a-stage-ram"></a>
-**stage-ram (SRM-A) — host-RAM staging counts every materialized array.**
+**stage-ram (SRM-A) — host-RAM staging counts every array and keeps the
+seeded row order.** Two silent-divergence surfaces. (1) Accounting:
 `stage_source` counts BOTH the parameter and target compact copies (each at
 its own dtype and width) plus the reindex array, so a narrow-output dump
-keeps the disk-backed branch when the two copies together exceed the
-budget. Resident / disk controls, an unequal-dtype case, byte-identical
-selected rows across both regimes, and the dv-only-estimate mutation arm.
+keeps the disk-backed branch when the two copies together exceed the budget.
+(2) Seeded order: `idx` is the run's seeded selection order (a distinct,
+generally unsorted permutation prefix); both branches must present those rows
+in that one canonical order, because the training loop applies the same epoch
+permutation to whichever index stage_source returns. The resident branch
+returns `searchsorted(rows, idx)` — the local coordinates that walk the sorted
+compact copy in selection order — not a plain `arange`; the disk branch
+returns the global selection order unchanged. The gate drives the real
+per-source loader (`_build_loaders_one`) in both storage regimes (resident
+gather and disk stream), draws one shared epoch permutation, and requires the
+executed parameters, targets, and minibatch membership and order to match
+row-for-row against a selection-order anchor, with a mutation arm restoring
+`arange` that must break the match. A duplicate row in the selection refuses
+loudly (the selection is a unique permutation prefix by construction, so a
+repeat is upstream corruption that would train one cosmology twice and skew
+the normalization stats). Companion legs: resident / disk controls, an
+unequal-dtype case, the duplicate refusal with a unique control, the exact-fit
+boundary (need below / equal / above budget, strict less-than a deliberate
+policy), the honest three-term banner
+(`params + dv + idx = total`, the operator that held, the branch), the
+dv-only-estimate mutation arm, and `dump_rows[idx_src]` recovering the global
+selection order so a row-matched base dump lines up in either regime.
