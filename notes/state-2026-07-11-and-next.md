@@ -2239,6 +2239,18 @@ harness-Python preamble rides the DIDACTICS-02 __init__ landing (one
 file, one edit); no clever framework, per the C-coder rule. Spec:
 gates-and-board.md "DIDACTICS-58 adjudication".
 
+DIDACTICS-62/63 (2026-07-13, Fable): CONFIRMED — the banner-as-truth
+class (five behavioral-claim gates checking only banners/exit codes;
+param-window-cuts accepting any "used n of m" line unparsed). Point
+7 adopted as doctrine beside ruling 6: reconciliation proves
+execution, never observation. RULINGS: prose narrowed NOW (factual
+bundle; queue-2 aids mint from narrowed claims); 63's independent-
+reference repair joins the gate-truth batch; 62's parse-and-assert
+strengthening = gate-truth increment 2 pre-queue-5, with
+joint-training's driver-side phase-boundary digest riding the
+training-truth trio if timing is tight. Spec: gates-and-board.md
+"DIDACTICS-62/63 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
