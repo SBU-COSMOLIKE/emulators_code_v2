@@ -154,6 +154,16 @@ def make_cli_parser(prog):
                       dest="boundary",
                       help="Boundary setup: test/val requires boundaries to be cut",
                       type=float)
+  parser.add_argument("--seed",
+                      dest="seed",
+                      help="Required integer sampling seed. Owns every random "
+                           "draw (uniform sampling, the emcee walker init and "
+                           "the sampler's own moves, and the thinning "
+                           "subselection), so two runs with the same seed, "
+                           "YAML, and code produce the same parameter table. "
+                           "No default: an unrecorded seed cannot be replayed.",
+                      type=int,
+                      required=True)
   return parser
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
@@ -248,6 +258,16 @@ class GeneratorCore:
     self.maxcorr = 0.15 if self.args.maxcorr is None else self.args.maxcorr
     if not (0.01 < self.maxcorr <= 1):
       raise ValueError("--maxcorr must be between (0.01,1]")
+    # the sampling seed: a required non-bool integer, no default. Every random
+    # draw goes through this owned Generator instead of the process-global
+    # np.random, so two runs with the same seed, YAML and code produce the same
+    # parameter table (bool is refused: argparse int never yields one, but a
+    # programmatic caller might pass True, which would silently mean seed 1).
+    if isinstance(self.args.seed, bool) or not isinstance(self.args.seed, int):
+      raise ValueError("--seed must be an integer (a non-bool int); got "
+                       + repr(self.args.seed))
+    self.seed = int(self.args.seed)
+    self.rng = np.random.default_rng(self.seed)
     self.names = None
     self.model = None
     self.nparams = 10000 if self.args.nparams is None else self.args.nparams
@@ -693,9 +713,13 @@ class GeneratorCore:
                                         moves=[(emcee.moves.DEMove(), 0.9),
                                                (emcee.moves.DESnookerMove(), 0.1)],
                                         log_prob_fn = self.__param_logpost)
+        # give emcee's own moves a seeded random state derived from the owned
+        # Generator, so the walk (not just the starting point) is replayable.
+        sampler._random = np.random.RandomState(
+            int(self.rng.integers(0, 2**31 - 1)))
         sampler.run_mcmc(initial_state = self.fiducial[np.newaxis] +
                                          0.5*np.sqrt(np.diag(self.covmat))*
-                                         np.random.normal(size=(nwalkers,ndim)),
+                                         self.rng.standard_normal(size=(nwalkers,ndim)),
                          nsteps=nsteps,
                          progress=False)
         xf  = sampler.get_chain(flat=True, discard=burnin, thin=1)
@@ -704,7 +728,7 @@ class GeneratorCore:
         if len(xf) < self.nparams:
           print(f"Warning: only {len(xf)} unique rows, requested {self.nparams}")
         else:
-          indices = np.random.choice(np.arange(len(xf)), size=self.nparams, replace=False)
+          indices = self.rng.choice(np.arange(len(xf)), size=self.nparams, replace=False)
           xf  = xf[indices,:]
           lnp = lnp[indices,:]
         nparams = len(xf)
@@ -721,9 +745,9 @@ class GeneratorCore:
         # extra safety so logprior is not -infty --------------------
         bds[:,0] = np.where(bds[:,0] > 0, 1.0001*self.bounds[:,0],0.9999*self.bounds[:,0])
         bds[:,1] = np.where(bds[:,1] > 0, 0.9999*self.bounds[:,1],1.0001*self.bounds[:,1])
-        xf  = np.random.uniform(low  = bds[:,0],
-                                high = bds[:,1],
-                                size = (nparams,ndim))
+        xf  = self.rng.uniform(low  = bds[:,0],
+                               high = bds[:,1],
+                               size = (nparams,ndim))
         lnp = np.ones((nparams,1), dtype=self.dtype)
         # Double check that prior is not -infty --------------------------------
         idx = self.reorder_idx_from_ord_to_yaml()
@@ -763,10 +787,13 @@ class GeneratorCore:
 
         # save chain begins ----------------------------------------------------
         fname = f"{self.paramsf}.1.txt";
+        # record the sampling seed and RNG in the chain header so the parameter
+        # table can be replayed from the recorded inputs alone.
+        rng_tag = f"seed={self.seed} rng=numpy.default_rng"
         if not self.unif == 1:
-          hd=f"nwalkers={nwalkers}\n"
+          hd=f"nwalkers={nwalkers} {rng_tag}\n"
         else:
-          hd=f"Uniform Sampling\n"
+          hd=f"Uniform Sampling {rng_tag}\n"
         np.savetxt(fname,
                    np.concatenate([w, lnp, xf, chi2], axis=1),
                    fmt="%.9e",

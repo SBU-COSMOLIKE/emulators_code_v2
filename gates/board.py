@@ -1336,6 +1336,31 @@ def gate_artifact_readback(ctx):
              + " (gates/checks/artifact_readback.py)")
 
 
+def gate_generator_seed(ctx):
+  """generator-seed: the dataset generator samples from an owned, recorded RNG.
+
+  WHAT: a CPU census of the generator's sampling surface plus the numpy
+  Generator's replay guarantee. WHY: the generator had no seed and drew every
+  sample from the process-global np.random, so two runs with identical YAML,
+  command line, and code produced different parameter tables and nothing
+  recorded the seed -- the dataset could not be replayed from its inputs. HOW:
+  a required integer seed owns a numpy Generator threaded through the uniform
+  sampling, the emcee walker init and the sampler's own moves, and the thinning
+  subselection; the seed and RNG are written into the chain header. The check
+  confirms no process-global np.random draw remains, the owned Generator is
+  used, the seed is required / type-checked / recorded, and same-seed draws
+  reproduce. The generator imports MPI / cobaya / CAMB, so the live end-to-end
+  replay rides the workstation smoke gates; no torch here.
+  """
+  rc, out = ctx.run_check("gates/checks/generator_seed.py")
+  if not ctx.dry:
+    ctx.expect(
+      label="generator-seed sampling-RNG legs",
+      ok=(rc == 0),
+      detail="check exit code " + str(rc)
+             + " (gates/checks/generator_seed.py)")
+
+
 def gate_cli_strict(ctx):
   """cli-strict: a misspelled flag is a usage error, not a silent ignore.
 
@@ -1543,6 +1568,20 @@ BOARD = [
             "code the board wrapper maps to a non-PASS (the red legs plus the "
             "valid controls)",
        run=gate_board_selftest,
+       needs=()),
+  Gate(id="generator-seed",
+       spec_code="GEN-A",
+       title="Dataset generator samples from an owned, recorded RNG",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="the generator sampling-seed contract: a required integer seed "
+            "owns a numpy Generator threaded through the uniform sampling, the "
+            "emcee walker init + the sampler's own moves, and the thinning "
+            "subselection (no process-global np.random draw remains); the seed "
+            "is type-checked and written to the chain header; same-seed draws "
+            "reproduce. The append-replay and worker-invariance legs ride the "
+            "workstation smoke gates",
+       run=gate_generator_seed,
        needs=()),
   Gate(id="cli-strict",
        spec_code="CLI-A",

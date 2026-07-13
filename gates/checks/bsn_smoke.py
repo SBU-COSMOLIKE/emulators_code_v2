@@ -106,7 +106,7 @@ def run_generator(rootdir, rel_root, tag):
            "--root", rel_root, "--fileroot", "emul", "--yaml", "gen.yaml",
            "--datavsfile", "dvs_" + tag, "--paramfile", "params_" + tag,
            "--failfile", "failed_" + tag, "--chain", "0",
-           "--nparams", str(NROWS), "--unif", "1", "--temp", "2"]
+           "--nparams", str(NROWS), "--unif", "1", "--temp", "2", "--seed", "1234"]
     return subprocess.run(cmd, capture_output=True, text=True, cwd=rootdir)
 
 

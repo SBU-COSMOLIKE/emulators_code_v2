@@ -178,7 +178,7 @@ def check_generate(rootdir, rel_root):
             ["--root", rel_root, "--fileroot", "emul", "--yaml", "gen.yaml",
              "--datavsfile", "dvs_" + tag, "--paramfile", "params_" + tag,
              "--failfile", "failed_" + tag, "--chain", "0",
-             "--nparams", str(NROWS), "--unif", "1", "--temp", "2"],
+             "--nparams", str(NROWS), "--unif", "1", "--temp", "2", "--seed", "1234"],
             rootdir)
         stem = os.path.join(chains, "params_%s_cmblensed_unifs" % tag)
         dv = os.path.join(chains, "dvs_%s_cmblensed_unifs_tt.npy" % tag)

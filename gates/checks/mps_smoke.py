@@ -123,7 +123,7 @@ def check_generate(rootdir, rel_root):
                "--datavsfile", "dvs_" + tag,
                "--paramfile", "params_" + tag,
                "--failfile", "failed_" + tag, "--chain", "0",
-               "--nparams", str(NROWS), "--unif", "1", "--temp", "2"]
+               "--nparams", str(NROWS), "--unif", "1", "--temp", "2", "--seed", "1234"]
         proc = subprocess.run(cmd, capture_output=True, text=True,
                               cwd=rootdir)
         stem = os.path.join(chains, "params_%s_mps_unifs" % tag)
