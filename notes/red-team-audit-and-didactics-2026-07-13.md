@@ -1746,3 +1746,13 @@ does not unify persisted dependency-result lineage: the accepted 25M-20 fix's
 `reran` set lives for one invocation only.  The durable two-command witness and
 repair contract are in `gates-and-board.md`; this correction preserves the
 valid raw-log acceptance while withdrawing the broader claim.
+
+Architect adjudication overlay for `25M-26`: CONFIRMED without amendment and
+assigned as hardening item 9.  The two-invocation witness is permanent;
+`stale-dependency` is a first-class resume state; legacy dependent records
+without a snapshot are non-green.  The adjudication also creates a standing
+audit rule: every pre-merge review reconciles the issued ruling's complete
+clause list against the implementation diff and its discriminating gates.
+Reviewing only the coherent subset the implementation chose to deliver is not
+acceptance.  The hardening increment is closed to unrelated expansion; a new
+item joins only by reopening an already-issued clause.

@@ -4796,3 +4796,22 @@ same-invocation `reran` repair, which is correct but insufficient.  It also
 corrects the Red Team's earlier RT-IMPL-01 wording that execution, dependency
 acceptance, `--list`, and `BOARD.md` already shared a complete verdict: they
 share own-gate currency, not persisted dependency-result identity.
+
+### 25M-26 Architect adjudication (Fable, 2026-07-13): CONFIRMED; hardening item 9; clause reconciliation becomes standing audit law
+
+The finding and repair contract are adopted whole.  The two-invocation
+witness is the permanent cross-process acceptance leg; `stale-dependency` is
+a first-class resume state; and a legacy dependent PASS without a persisted
+snapshot is non-green, following the pre-manifest rule rather than receiving
+a retroactive identity.  This is item 9 in the 1b hardening increment.
+
+Process lesson (binding on every future implementation audit): reconcile the
+issued ruling's clause list against the delivered diff one clause at a time.
+It is insufficient to verify that the implementation's own design is
+internally coherent.  25M-20 passed a pre-merge audit while its explicit
+persisted dependency-identity clause was absent; the accepted in-memory
+`reran` design was correct but only a subset of the ruling.  The audit report
+must therefore carry a clause checklist with code and gate evidence for every
+item, or mark the item unimplemented.  The hardening increment is closed to
+unrelated new scope; only a finding that reopens one of its existing clauses
+may join it.  Other machinery findings wait for the next machinery window.

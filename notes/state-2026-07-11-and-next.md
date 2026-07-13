@@ -2521,6 +2521,17 @@ same-process reran-set fix remains correct. A 25M-24 rider also records
 that --gate A --force-rerun B silently discards valid B when B is
 outside the selected surface; reject the ignored control.
 
+25M-26 ADJUDICATED (2026-07-13, Fable): CONFIRMED whole; hardening
+item 9. The two-invocation witness becomes the permanent cross-
+process leg, stale-dependency is a first-class resume state, and
+legacy dependent PASS records without snapshots are non-green.
+Standing audit law: reconcile every issued ruling clause against the
+delivered diff and discriminating gate; verifying only the coherent
+subset chosen by the implementation is not acceptance. This records
+the exact seam 25M-26 exposed in the prior 25M-20 pre-merge audit.
+The hardening increment is now closed to unrelated scope; only a
+reopen of one of its existing clauses may join it.
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
