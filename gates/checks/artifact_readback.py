@@ -84,12 +84,30 @@ def check_no_truthiness_census():
            "_read_native_bool(f.attrs" in src, "transfer_refined routed through it")
 
 
+def check_scalar_records_rescale():
+    """The scalar driver stamps the rescale fact its own fine-tune loader needs.
+
+    A scalar run has no analytic rescale, but warmstart.load_source requires
+    the rescale root attr of every source it admits (it refuses a missing one
+    as ambiguous, never defaulting it). The scalar driver must therefore record
+    rescale="none" explicitly, or its own artifact cannot be its supported
+    fine-tune source. The live save/reload epoch-0 parity leg is owned by the
+    workstation finetune-identity gate; this census proves the attr is stamped.
+    """
+    src = open(os.path.join(_REPO, "scalar_train_emulator.py")).read()
+    report("scalar driver records rescale='none' in its run-identity attrs",
+           '"rescale":' in src and '"none"' in src,
+           "load_source admits the scalar driver's own artifact")
+
+
 def main():
     print("artifact-readback (typed attribute parsing; no torch build, no HDF5 file)")
     print("\n-- native-boolean typing --")
     check_native_bool()
     print("\n-- truthiness-coercion census --")
     check_no_truthiness_census()
+    print("\n-- scalar artifact records its rescale fact --")
+    check_scalar_records_rescale()
     print("")
     if FAILURES:
         print("artifact-readback: %d FAILURE(S): %s"

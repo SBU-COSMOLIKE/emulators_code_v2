@@ -198,8 +198,15 @@ def main():
   save_root = cocoa_output(chains, f"{args.save}_{run_tag(cfg, exp)}")
   # run-identity root attrs (no train_dv / val_dv: a scalar run reads only
   # parameter .txt files, so it records their basenames and its outputs).
+  # rescale is recorded as the resolved "none": a scalar run has no analytic
+  # rescale (that is a cosmolike data-vector concept), but the shared fine-tune
+  # loader (warmstart.load_source) requires the rescale fact of every source it
+  # admits. Omitting it made the scalar driver's own artifact unusable as its
+  # supported fine-tune source (load_source refused "records no rescale"); the
+  # value is recorded explicitly, never left to be inferred.
   attrs = {"model":        str(exp.arch or "resmlp").lower(),
            "activation":   exp.activation,
+           "rescale":      "none",
            "n_train":      int(exp.train_set["idx"].shape[0]),
            "n_val":        int(exp.val_set["idx"].shape[0]),
            "best_epoch":   best + 1,
