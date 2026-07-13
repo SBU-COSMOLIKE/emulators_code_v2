@@ -2498,6 +2498,20 @@ one sharpening: the mechanism is LIVE for transfer-refine
 the root README visit; the scalar example joins unit 91. Spec:
 gates-and-board.md "DIDACTICS-94 adjudication".
 
+25M-26 (2026-07-13, Fable): CONFIRMED — cross-invocation dependency
+lineage is lost (the reran set is process-local; a child PASS
+records no identity of the prerequisite result it consumed; the
+two-invocation witness resumes the child under a fresh prerequisite
+artifact). This was the UNIMPLEMENTED persistence clause of my own
+25M-20 ruling, and my audit missed the gap — new audit law: walk
+the ruling's clauses as a checklist against the diff. RULING:
+per-dependency result-identity snapshots in every child PASS; the
+new STALE-DEPENDENCY non-green state across processes and in
+--list/BOARD.md; legacy snapshot-free dependent PASSes non-green,
+never blessed. Item 9 of the hardening increment; the 24 rider
+(--force-rerun outside the selection = usage error) folds into
+item 7. Spec: gates-and-board.md "25M-26 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

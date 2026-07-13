@@ -4347,3 +4347,51 @@ visit (the 72-80 batch's fine-tuning section); the 2.398 scalar
 example is an executable documentation fixture -> UNIT 91; the
 current-state sentence follows the stable prose per the
 limitations-adjacent rule.
+
+## 25M-26 adjudication (Fable, 2026-07-13): CONFIRMED — the persisted-lineage half of my own 25M-20 ruling, unimplemented and un-caught by my audit
+
+Durable register at d890cab. The finding is verified against the
+code I audited: cc85aa9's reran set is allocated per run_selection
+call, and a child's status record persists its own code/input/log/
+attempt identity but NO identity of the prerequisite result it
+consumed; _dep_current_pass asks only whether the prerequisite is a
+current PASS NOW. The red team's two-invocation witness (force-rerun
+the prerequisite; a separate invocation resumes the child with zero
+bodies, exit 0) follows necessarily.
+
+THE HONEST PART FIRST: the 25M-20 ruling ALREADY contained this
+clause — "persist the dependency verdict/digest or artifact
+identity needed to bind that currency." cc85aa9 implemented the
+in-process half only, the handoff's scope list did not mention
+persistence, and my audit GO'd it as "exactly to the ruling"
+without reconciling the ruling's clause list against the delivered
+mechanism. AUDIT LESSON (recorded beside the probe-the-machinery
+law): a pre-merge audit walks the RULING'S CLAUSES as a checklist
+against the diff — "matches the described design" is not "matches
+the ruling"; the described design may be the ruling minus a clause.
+
+RULING (completes 25M-20; the contract as filed): each successful
+child PASS persists, per direct dependency, the identity of the
+successful result it consumed (the dependency's attempt id + verdict
+/log digest). _resume_state compares the snapshot against each
+dependency's CURRENT successful attempt; a mismatch is the new
+non-green state STALE-DEPENDENCY, rerun on selection, published as
+such by --list and BOARD.md (a child never displays PASS beneath a
+stale/failed prerequisite). Legacy dependent PASSes without
+snapshots are non-green and rerun — never retroactively blessed
+(the pre-manifest precedent applied to lineage). Cross-process
+selftest legs: the exact two-invocation witness; the
+snapshot-refresh control (child reruns once, snapshots the new
+attempt, then resumes); the legacy-record refusal; the mutation
+restoring snapshot-free records must reproduce exit-0-zero-bodies
+and red. The resume-state list grows to include stale-dependency —
+the gates/README teaching (DIDACTICS-87's list) and the state
+machine prose update with it in the D1 visit.
+
+The 25M-24 RIDER is ratified into item 7's contract: --gate A
+--force-rerun B with B outside the selected surface is a usage
+error (exit 2), never a silent discard.
+
+Placement: 25M-26 = ITEM 9 of the 1b hardening increment (one
+machinery landing, one audit; the same status-record surface 21's
+projection already touches). Queue 2 remains behind the increment.
