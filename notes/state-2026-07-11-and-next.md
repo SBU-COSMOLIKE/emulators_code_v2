@@ -1895,6 +1895,20 @@ the boundary; chi2 dtype follows Cinv; float32 byte-identical; lands
 in the transfer campaign WITH unit 77 as one algebra increment.
 Spec: gates-and-board.md "20M-13 adjudication".
 
+20M-14 BATCH (2026-07-13, Fable): CONFIRMED — the CMB amplitude
+law's two roles can alias one input column consistently on both
+sides (presence-only validation; two parallel names.index mappings
+in configure_law AND staging; persisted geometry never validates the
+relationship; witnesses exact: 0.8976275921 / 3.8889e-8). NEW UNIT
+81 (families-scalar-cmb.md): distinct strings AND distinct resolved
+indices, enforced at config and at readback (same-role artifacts
+refused), one shared resolved-role mapping, and the
+factor-at-reference invariant evaluated through the resolved roles —
+which also closes the Architect's deep-pass minor (the
+identity-computed staging banner). Rides the wave-4 CMB visit with
+unit 71; readback refusal binding before CMB production training.
+Spec: gates-and-board.md "20M-14 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

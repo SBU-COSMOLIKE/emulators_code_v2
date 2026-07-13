@@ -1142,3 +1142,42 @@ reads the same mapping Cobaya exposes; a mutation arm restoring
 state[name] = value must red. CPU legs; lifecycle board-listed
 (workstation if the rebuild needs Torch). Sequencing: wave-4 scalar
 adapter visit; EMUL2-blocking.
+
+## UNIT 81 (20M-14, 2026-07-13): the amplitude law's two roles resolve to two columns — validated at config, at readback, and through one shared mapping
+
+Finding (red team, CONFIRMED; witnesses reproduced through the real
+classes): as_name / tau_name accept any present column including the
+SAME one — validate_cmb requires presence only (:806), configure_law
+resolves each with an independent names.index (:392-393), staging
+repeats the parallel mapping (:3899-3900), the persisted geometry
+never validates the relationship, and rebuild reproduces a same-role
+artifact. Aliased roles give finite factors (0.8976275921;
+3.8889e-8) that both sides consume consistently, and the
+covariance-fiducial cross-check is warning-only.
+
+Contract (ratified): (1) for as_exp2tau_ref, as_name and tau_name
+are each nonempty native strings AND different strings; (2) after
+resolution their column INDICES must differ (protects future alias
+machinery where distinct spellings resolve to one column); (3)
+enforced at public config validation before staging; (4) repeated at
+artifact readback before the factor is constructed — a saved
+same-role artifact is REFUSED, never reproduced; (5) staging and
+loss construction consume ONE shared resolved-role helper or one
+persisted validated mapping — the parallel names.index definitions
+are retired; (6) legitimately distinct aliases resolving to distinct
+columns stay allowed; (7) the factor-at-reference invariant is
+evaluated through the RESOLVED roles — never the tautology
+(as_ref/as_ref)*exp(2*(tau_ref-tau_ref)) — closing the
+identity-computed staging banner as well.
+
+Legs (ratified; CPU, board-listed): same-name config refuses in
+validate_cmb; same-name direct configure_law refuses; distinct
+spellings resolving to one column refuse; a same-role persisted
+artifact refuses on rebuild; the correct mapping returns exactly
+unity at the fiducial and keeps its non-fiducial known answers; a
+valid distinct-column alias control passes; a mutation restoring
+membership-only validation reproduces 0.8976275921; a staging/loss
+parity leg proves both consume the one resolved mapping.
+Sequencing: rides the wave-4 CMB adapter visit with unit 71; the
+readback-refusal clause is binding before any CMB production
+training.

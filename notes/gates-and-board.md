@@ -2060,3 +2060,25 @@ unit-14 chi2 screen already carries compute-dtype provenance; a
 float64 contraction yields a float64 chi2 and the band follows the
 actual compute dtype — no double work, but the unit-80 legs assert
 the returned dtype so the provenance stays honest.
+
+## 20M-14 adjudication (Fable, 2026-07-13): CONFIRMED — unit 81, amplitude-law role distinctness
+
+CONFIRMED at every anchor: validate_cmb checks presence of the four
+law keys (experiment.py:806) with no distinctness or native-string
+requirement; configure_law does two membership checks and two
+independent names.index resolutions (losses/cmb.py:392-393); the
+staging repeats the SAME parallel mapping (experiment.py:3899-3900)
+— two independent definitions of one resolved mapping, the exact
+anti-pattern — so a single column can hold both physical roles
+consistently on producer AND consumer sides, and ordinary parity
+agrees on the wrong science. The witnesses are exact
+(exp(-0.108) = 0.8976275921 for tau_name aliased to As;
+3.8889e-8 for as_name aliased to tau). The red team's clause 7
+also formally closes the Architect's own deep-pass minor: the
+staging banner's "f at fiducial" was computed from the identity
+(definitionally 1.0); it becomes an evaluation through the RESOLVED
+roles, which detects aliasing at the fiducial. -> NEW UNIT 81
+(families-scalar-cmb.md). Not EMUL2-blocklisted (the shipped
+configuration is correct; the readback refusal protects serving),
+but the artifact-readback refusal clause is binding before any CMB
+production training.
