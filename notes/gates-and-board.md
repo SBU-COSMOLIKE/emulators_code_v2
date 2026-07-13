@@ -4395,3 +4395,47 @@ error (exit 2), never a silent discard.
 Placement: 25M-26 = ITEM 9 of the 1b hardening increment (one
 machinery landing, one audit; the same status-record surface 21's
 projection already touches). Queue 2 remains behind the increment.
+
+## 1b hardening increment: 5 of 9 items landed (Opus, 2026-07-13)
+
+Five self-contained / low-blast-radius items landed on the branch, each
+Mac-validated (board-selftest ALL PASS, validate_manifests 40/40 ok, py_compile
+clean); reviewed together in one audit (the Architect's "one landing or two
+commits, ONE audit"):
+
+- 9e30860 (items 21+22+topology): 25M-21 the named _config_execution_projection
+  (documentation namespaces excluded from the input digest; _help prose edits no
+  longer stale gates, value edits still do); 25M-22 saved_emulator_root removed
+  (key + _help, zero readers verified) with the config-census standing leg
+  (every non-documentation board_config key has a Python reader); the
+  topology-assertion leg (deps precede children in BOARD, the 25M-20 rider).
+- 05334f3 (items 24+25): 25M-24 main() validates selectors + rejects
+  --list/--check-together BEFORE any action-mode return (real-main() legs);
+  25M-25 select_gates' --from includes an explicitly named optional start first
+  (id-list-pinned leg + restoration mutation).
+
+REMAINING (the interdependent census-core trio + the cross-invocation item), all
+fully specced (parallel subagent investigation captured in the handoff):
+- 25M-16 closure truth: extend the census for spec_from_file_location loaders +
+  Cobaya python_path adapters (reviewed _RUNTIME_LOADER_COVERS table), source-
+  opened-as-data (a _data_read_sites scanner hashing-as-file, NOT closure-
+  seeding -- the finite_contract.py leaf lesson), and the bare-sibling import
+  (gct_parity.py:43 -> resolve against the importer's dir); re-populate the 8
+  identity/smoke manifests with their cobaya_theory root; the two-call-scanner
+  mutation + the geo-paths whole-scope fixture. Per-gate covering-root table in
+  the handoff.
+- 25M-18 all-quantified coverage: census (b) requires a declared root equal-to-
+  or-ancestor-of EVERY required cover, all-quantified over covers AND over
+  required-all tuple members; must-red fixtures child-as-cover, strip-one-of-two,
+  any-one-of-eight (interlocks 16's new tables).
+- 25M-19 owner resolvers: one resolver per input namespace (evaluate_yaml->repo,
+  gate_configs.*->yaml_dir, gate_data.*->owner, deploy_data->machine-dependent
+  resolve-not-exist); repo-owned inputs refuse None-sha; two-cwd + executed==
+  hashed legs; CWD-first mutation.
+- 25M-26 cross-invocation lineage: per-dependency snapshots persisted + a
+  STALE-DEPENDENCY resume state (the cross-run persistence clause of 25M-20).
+
+These four are best landed together with fresh focus -- they change the
+validation core (census, coverage, resolver, resume-persistence) all 40 gates
+depend on, and 16's tables consume 18's coverage rule. Queue 2 opens at the
+full increment's merge.
