@@ -412,3 +412,134 @@ returns zero stale hits — a clipped result may not feed the claim.
 Replacements stay formal and definitional (owner role, tensor
 operation, direction), never vague "normalization failed" prose. No
 new gates: the parent units carry the executable evidence.
+## Continued red-team documentation campaign: code must teach the current program, not its audit history (2026-07-12)
+
+### 45M-85: internal audit identifiers remain in executable Python prose
+
+At HEAD `05d4937`, an untruncated `rg -n '45M' emulator gates --glob '*.py'`
+returns 61 lines.  They occur in module docstrings, comments, gate leg lists,
+and mathematical explanations.  This is the same user-facing leak as the
+earlier design-ledger codes: `45M-60` tells a new reader nothing about a
+roundoff band, a safe square root, or an independent known answer.
+
+Required documentation contract:
+
+- Remove every red-team/audit identifier from `emulator/` and `gates/`
+  prose.  Identifiers remain in `notes/` only.
+- Replace each occurrence with the current-state fact.  “The contraction
+  width sets the roundoff band” is useful; “45M-60” is not.
+- Delete review biography (who ruled, which run reopened it, what the old
+  gate said) from the runtime explanation.  Preserve that history in the
+  owning note and preserve a short note-file pointer only when a reader needs
+  the design record.
+- Keep identifiers and function/class names that the program executes.  This
+  is a prose-only removal, not a rename campaign.
+- Prove completion with an untruncated zero-hit scan over Python files and an
+  AST-with-docstrings-stripped hash showing no executable change.
+
+### 45M-86: the experiment lifecycle is buried in three 700-line methods
+
+The public orchestration surface is described locally but not teachably.
+`EmulatorExperiment.from_config` is 708 lines, `build_geometry` 739,
+`build_specs` 259, and `train` 206.  `training_loop_batched` is 704 lines and
+`run_emulator` 770.  The comments inside them repeatedly explain a historical
+ruling or say “same as the other path,” while the reader needs to know which
+state exists before and after each method.
+
+Required documentation contract:
+
+- Put one lifecycle diagram at the class boundary: resolve paths; validate
+  exactly one family; choose model class; stage train/validation; construct
+  parameter and output geometries; construct the loss; build model/optimizer/
+  scheduler specs; train; persist.
+- For every stage, name its inputs, the instance attributes it creates, which
+  work is eager or deferred, and which state a sweep deliberately reuses.
+- Add a family decision table showing the scalar/CMB/grid/grid2d/cosmolike
+  differences.  Do not repeat five copies of activation precedence,
+  fine-tune inheritance, and transfer setup in prose.
+- Define `classmethod`, `cls(...)`, `**kwargs`, capability flag, cached state,
+  and alternative constructor at first use.
+- Replace “same rule as” comments with the actual rule or a pointer to one
+  shared, nearby definition.  A reader who enters the grid2d branch cold must
+  not need to read the scalar branch first.
+- Separate current mechanics from the configuration-key catalog.  A method
+  docstring should teach its state transition; the README/YAML reference owns
+  the exhaustive key table.
+- Where a 700-line method still performs several independent transitions,
+  split cold-path orchestration into named helpers.  The refactor is accepted
+  only with compile, binding, leftover-pattern, and behavior gates; comments
+  alone cannot make an unbounded branch cascade auditable.
+
+### 45M-87: warm-start and transfer prose begins after the hard tensor step
+
+`warmstart.py` and `losses/transfer.py` describe the high-level intent well,
+but the executable comments jump directly to `n_s`, `n_s'`, `n_n`, “block
+extension,” “parity,” “pin,” and packed `[base ; truth]` targets.  The compact
+slices and concatenations are the part a first-time PyTorch reader cannot
+infer.
+
+Required documentation contract:
+
+- Give one small named-column example: a source with three parameters, a new
+  run with two extra parameters, and the exact encoded column order before
+  and after extension.
+- Draw the source-to-new input-weight transfer with concrete shapes.  Define
+  dimension 0 as output neurons and dimension 1 as input features.  Explain
+  why shared columns are copied, new columns are zero-filled, and `clone`
+  creates independent storage.
+- Explain every slice in `_shared_columns`, `extend_input_geometry`,
+  `transfer_state_dict`, and `_base_input`.  State whether it is a view or a
+  copy and which parameter names occupy it.
+- Define `torch.no_grad` as “do not record operations for gradient
+  calculation,” then contrast the frozen base with live refine mode.  Name
+  which optimizer owns the correction and which owns the base in each stage.
+- Expand the packed target with shapes: plain transfer stages
+  `[base prediction ; truth]`; factored transfer stages one block per template
+  plus truth.  Explain that batching caches the frozen base once, while the
+  loss unpacks it on every minibatch.
+- Define parity as an executed epoch-zero equality check and state what is
+  compared, in which coordinate system, with which dtype/device, and why
+  floating-point reduction order prevents a blanket bitwise claim.
+- Until an advertised feature is reachable, documentation states that it is
+  refused today.  Unreachable validation code and “lands as unit” biography
+  are not a current API explanation.
+
+### 45M-88: gate files describe audit chronology instead of teaching evidence
+
+The identity gates open with long “Legs” inventories containing terms such as
+mutation control, catch power, stale leg, law-space pin, lifecycle, monkeypatch,
+and bitwise identity.  Representative 80--120-line `check_*` functions have
+no docstring at all.  An AST census at HEAD finds 82 public gate functions
+without a docstring.  The number is a triage measure, not a demand for 82
+boilerplate blocks.
+
+Required gate-documentation contract:
+
+- Begin every check file with the user-visible promise it tests, the required
+  dependencies, and the reason the check belongs on the board.  Define
+  “gate” as a test whose failure blocks acceptance.
+- For each nontrivial `check_*`, document four objects: the system under test,
+  the fixture (small constructed input), the independent expected answer, and
+  the deliberately broken implementation or input that proves the assertion
+  can fail.
+- Define test double, fake, stub, monkeypatch, fixture, known-answer test,
+  control arm, mutation arm, and catch power before using them.  Prefer plain
+  wording in report labels.
+- Show execution order: arrange the input, call the real public boundary,
+  compute an independent answer, compare, record failure, and make `main`
+  return nonzero.  Explain the module-level `FAILURES` list as shared test
+  state and why every helper contributes to the final exit status.
+- Historical deleted legs and board-run stories move to notes.  The Python
+  file documents what the current gate executes.
+- A fake must state exactly which external behavior it replaces and which
+  behavior it cannot prove.  “Real function” must name the boundary actually
+  called.  A numerical reference must not be produced by the same helper as
+  the value under test.
+- Prioritize the long undocumented public checks and the nested fake APIs.
+  Trivial `forward` methods may use a one-line purpose docstring; bulk text
+  that repeats a signature is not an improvement.
+
+Acceptance combines the zero-audit-code scan, the existing board behavior,
+and a reviewer exercise: starting from one identity file alone, a new reader
+can say what would fail if the production formula were replaced by the
+mutation without consulting a note ledger.

@@ -1,0 +1,450 @@
+\documentclass[11pt,oneside]{report}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage{xcolor}
+
+\definecolor{codegray}{RGB}{245,245,245}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\shape}[1]{\ensuremath{\mathtt{#1}}}
+\newcommand{\btheta}{\boldsymbol{\theta}}
+\newcommand{\bd}{\mathbf{d}}
+
+\title{How the CoCoA Emulator Code Works\\
+       \large A tensor-by-tensor guide from generated cosmologies to inference}
+\author{V. Miranda}
+\date{Working draft: Chapter 1}
+
+\begin{document}
+
+\pagenumbering{roman}
+\maketitle
+\tableofcontents
+\clearpage
+\pagenumbering{arabic}
+
+\chapter{From cosmologies and data vectors to a staged training source}
+\label{chap:staging}
+
+Suppose the data-generation calculation has finished.  We have a table of
+cosmologies, a list that names the cosmological parameters, and one data
+vector for each cosmology.  What does the emulator code do first?
+
+There are two answers because the program has a control path and a numerical
+path.  The control path first reads the YAML file, resolves its file names,
+checks which emulator family was requested, and chooses the corresponding
+model class.  No cosmological row has been transformed yet.  The first
+numerical operation is \emph{staging}: the code aligns the parameter table
+with the data-vector dump, selects a reproducible subset of valid rows, and
+decides whether that subset lives in ordinary memory or remains backed by a
+file on disk.
+
+This chapter follows that process in execution order.  It stops just before
+the code constructs the whitening geometries.  Chapter~2 will begin with the
+staged arrays and derive the parameter-space and data-vector transforms.
+
+\section{The four files that must agree}
+
+For an ordinary data-vector emulator, one training source is described by
+four files.  The validation source has the same structure but different
+rows.
+
+\begin{center}
+\begin{tabular}{p{0.24\textwidth}p{0.29\textwidth}p{0.37\textwidth}}
+\toprule
+File & Contents & Why the code needs it \\
+\midrule
+Parameter table, \code{*.txt}
+  & One row per cosmology
+  & Supplies the input parameters $\btheta_i$. \\
+Parameter names, \code{*.paramnames}
+  & One name per parameter-table column
+  & States which physical parameter occupies each column. \\
+Parameter covariance, \code{*.covmat}
+  & A square covariance matrix with a name header
+  & Supplies a second declaration of the input order and later defines the
+    input whitening transform. \\
+Data-vector dump, \code{*.npy}
+  & One vector $\bd_i$ per cosmology
+  & Supplies the targets that the network will learn. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Let $N$ be the number of generated cosmologies, $P$ the number of modeled
+parameters, and $D$ the length of one physical data vector.  The two arrays
+that matter numerically are
+\begin{equation}
+  C =
+  \begin{bmatrix}
+    \btheta_0^{\mathsf T} \\
+    \btheta_1^{\mathsf T} \\
+    \vdots \\
+    \btheta_{N-1}^{\mathsf T}
+  \end{bmatrix}
+  \in \mathbb{R}^{N\times P},
+  \qquad
+  V =
+  \begin{bmatrix}
+    \bd_0^{\mathsf T} \\
+    \bd_1^{\mathsf T} \\
+    \vdots \\
+    \bd_{N-1}^{\mathsf T}
+  \end{bmatrix}
+  \in \mathbb{R}^{N\times D}.
+  \label{eq:raw-arrays}
+\end{equation}
+Row $i$ of $C$ and row $i$ of $V$ must describe the same cosmology.  This
+row identity is the central invariant of staging.  A network trained on
+$C_i$ paired with $V_j$ for $i\ne j$ does not learn a noisy approximation.
+It learns the wrong function.
+
+\paragraph{The current parameter-table layout.}
+The non-scalar loader currently reads the complete text table and then uses
+the positional slice \code{[:, 2:-1]}.  In other words, it assumes that the
+first two columns are the sample weight and minus log posterior, the modeled
+parameters occupy the middle columns, and the last column is not a model
+input.  The \code{.paramnames} file is checked against the covariance header
+when it is present, but the returned name resolution is not yet used to form
+the slice.  This is a current implementation constraint, not a property of
+the mathematics.  A table with extra derived columns in the middle can pass
+the name comparison and still violate the positional assumption.
+
+The scalar-family loader is different.  Its inputs and targets are both
+columns of the parameter table, so it resolves the requested input and output
+names explicitly through the \code{.paramnames} sidecar.
+
+\section{Control path: resolving a run before touching the rows}
+
+The single-run driver is \code{cosmic\_shear\_train\_emulator.py}.  Its
+family siblings call the same package layer.  The startup chain is
+\begin{equation*}
+\begin{array}{c}
+\text{command-line strings}\\
+\downarrow\quad \code{resolve\_cocoa\_config}\\
+\text{parsed YAML with absolute data paths}\\
+\downarrow\quad \code{EmulatorExperiment.from\_config}\\
+\text{validated family, model class, device, and run settings}\\
+\downarrow\quad \code{exp.run()}\\
+\text{stage train, stage validation, build geometries, train.}
+\end{array}
+\end{equation*}
+
+The path resolver reads the environment variable \code{ROOTDIR}.  It joins
+the project name and the \code{chains} directory to each relative data-file
+name.  An absolute path remains absolute.  This step changes strings in a
+Python dictionary.  It does not load the large arrays.
+
+\code{EmulatorExperiment.from\_config} is an alternative constructor.  A
+\code{classmethod} receives the class as its first argument, conventionally
+named \code{cls}, and returns a newly constructed instance.  It validates the
+configuration and chooses one branch: cosmic shear, scalar outputs, a CMB
+spectrum, a one-dimensional background grid, or a two-dimensional
+matter-power grid.  The ordinary constructor then stores cheap state:
+parameter names, the selected compute device, the logger, and empty slots for
+objects that do not exist yet.
+
+The important empty slots are
+\begin{center}
+\begin{tabular}{p{0.26\textwidth}p{0.63\textwidth}}
+\toprule
+Attribute & Meaning before and after the corresponding method runs \\
+\midrule
+\code{train\_set}
+  & \code{None} initially; a staged training-source dictionary after
+    \code{stage\_train}. \\
+\code{val\_set}
+  & \code{None} initially; a staged validation-source dictionary after
+    \code{stage\_val}. \\
+\code{pgeom}
+  & \code{None} initially; the parameter transform after
+    \code{build\_geometry}. \\
+\code{geom}
+  & \code{None} initially; the output transform after
+    \code{build\_geometry}. \\
+\code{chi2fn}
+  & \code{None} initially; the loss wrapper after
+    \code{build\_geometry}. \\
+\code{model}
+  & \code{None} initially; the trained PyTorch module after
+    \code{train}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This delayed construction matters in parameter sweeps.  A sweep can keep the
+validation source fixed while replacing the training subset, or keep both
+sources fixed while rebuilding only a model.  Expensive state is therefore
+created by named methods instead of being hidden inside the constructor.
+
+\section{Numerical path: opening the source}
+
+\code{stage\_train} creates a local random-number generator from the YAML
+value \code{split\_seed}, then calls \code{load\_source} in
+\code{emulator/data\_staging.py}.  The generator is local state.  It is passed
+as an argument, so row selection does not depend on a module-level random
+state left behind by an earlier call.
+
+The two large inputs are opened differently:
+\begin{verbatim}
+dv = np.load(dv_path, mmap_mode="r", allow_pickle=False)
+C  = np.loadtxt(params_path, dtype="float32")[:, param_cols]
+\end{verbatim}
+
+\code{np.loadtxt} is eager: it parses the complete parameter table and creates
+a new in-memory NumPy array.  The requested dtype is \code{float32}, four
+bytes per element.  The slice that follows selects the modeled columns.
+
+\code{np.load(..., mmap\_mode="r")} is lazy with respect to the payload.  It
+creates an \code{np.memmap}, an array-like object whose elements remain in the
+\code{.npy} file until a later indexing operation asks the operating system
+to read them.  The mode \code{"r"} makes this mapping read-only.  The code can
+inspect \code{dv.shape} without loading $N D$ floating-point values.
+
+At this point the data still live on the host, meaning ordinary CPU memory or
+disk-backed virtual memory.  Nothing has moved to CUDA or Apple MPS.  Device
+placement occurs later, after the geometry exists and the batching code knows
+which rows a particular minibatch needs.
+
+\subsection{The first row-identity check}
+
+The loader immediately compares the row counts:
+\begin{equation}
+  C.\mathrm{shape}[0] = V.\mathrm{shape}[0].
+\end{equation}
+If the counts differ, it raises an error that names both files and both
+counts.  Equality is necessary but not sufficient.  It proves that the files
+have the same number of rows; it cannot prove by itself that row $i$ in one
+file belongs to row $i$ in the other.  The generator must preserve that
+ordering when it writes the pair.
+
+\section{A seeded permutation, followed by physical cuts}
+
+The loader next creates a permutation of the integers $0,\ldots,N-1$:
+\begin{verbatim}
+order = torch.randperm(n, generator=gen).numpy()
+\end{verbatim}
+\code{torch.randperm} returns a one-dimensional PyTorch tensor containing
+every integer exactly once in pseudorandom order.  It is not an iterator and
+it is not lazy: all $N$ indices are materialized.  The call to
+\code{.numpy()} exposes the CPU tensor as a NumPy array.  Because both objects
+use CPU storage, this conversion normally shares memory rather than copying
+the index values.
+
+The physical-window function receives $C$, the permutation, and the ordered
+parameter names.  Each active window locates its columns by name and computes
+one derived quantity per candidate row:
+\begin{align}
+  \omega_b h^2 &= \Omega_b\left(\frac{H_0}{100}\right)^2,\\
+  (\Omega_m h)^2 &= \left(\Omega_m\frac{H_0}{100}\right)^2,\\
+  \omega_m &= \Omega_m\left(\frac{H_0}{100}\right)^2,\\
+  \omega_m n_s &=
+  \Omega_m\left(\frac{H_0}{100}\right)^2 n_s.
+\end{align}
+For an active lower bound $a$ and upper bound $b$, the comparison is strict:
+$a<q_i<b$.  The code builds a Boolean mask for each window and intersects it
+with the masks already applied.  A Boolean mask is an array of \code{True}
+and \code{False} values, one per candidate row.  Indexing
+\code{order[mask]} uses NumPy advanced indexing and creates a new array of
+the surviving integer indices.  Their order remains the shuffled order.
+
+The result, called \code{phys}, is therefore not a new cosmology table.  It is
+a list of row coordinates into the original files:
+\begin{equation*}
+  \code{phys} = [i_0,i_1,\ldots],
+  \qquad C[i_k]\text{ and }V[i_k]\text{ remain a matched pair.}
+\end{equation*}
+
+\section{Selecting an absolute number of rows}
+
+The YAML states an absolute number of training rows, \code{n\_train}, and an
+absolute number of validation rows, \code{n\_val}.  After the cuts, the
+loader checks that the requested number is at least one and that the physical
+pool is large enough.  It then takes
+\begin{verbatim}
+idx = phys[:n_keep]
+\end{verbatim}
+The slice is the first $n_{\rm keep}$ entries of the seeded, cut permutation.
+Using the same seed at multiple training sizes creates nested learning-curve
+subsets: the $2{,}000$-row set is the prefix of the $4{,}000$-row set rather
+than an unrelated draw.
+
+Training and validation use different files.  Reusing the numerical seed
+therefore repeats the selection algorithm, not the cosmologies themselves.
+The scientific assumption is that the two file sets are disjoint.  That
+assumption must be checked from file identity or row identity; a seed does not
+establish disjointness.
+
+\section{Staging: copy the subset or retain the disk mapping}
+
+The word \emph{stage} means ``put the selected rows in the storage form from
+which later batches will read them.''  It does not yet mean ``move them to the
+GPU.''  The helper \code{stage\_source} estimates whether the selected rows
+fit within a configured fraction of available host memory.  In the current
+implementation, this estimate counts the selected data-vector array but not
+the selected parameter-array copy.  The resident branch nevertheless creates
+both arrays.  The estimate can therefore be low by
+$n_u P\,\mathrm{sizeof}(C_{ij})$ bytes.  This is a memory-accounting defect in
+the present code, not a license for consumers to ignore the parameter copy.
+
+There are two outcomes.
+
+\subsection{Resident host-memory outcome}
+
+If the pair fits, the helper gathers the sorted unique selected rows into
+compact arrays.  Advanced integer indexing is eager and returns a copy.  The
+compact arrays have shapes
+\begin{equation}
+  C_{\rm src}\in\mathbb{R}^{n_u\times P},
+  \qquad
+  V_{\rm src}\in\mathbb{R}^{n_u\times D},
+\end{equation}
+where $n_u$ is the number of distinct selected rows.  The source's
+\code{idx} is then expressed in the compact arrays' local row coordinates.
+If original dump row 91 becomes compact row 3, later code asks the resident
+array for row 3, not row 91.
+
+\subsection{Disk-backed outcome}
+
+If the data vectors do not fit, the helper retains the original read-only
+\code{np.memmap}.  The source's \code{idx} remains in global on-disk row
+coordinates.  A later batch read such as \code{dv[idx]} asks the operating
+system for only those rows.  This advanced indexing operation materializes
+the requested batch; it does not turn the entire dump into an in-memory
+array.
+
+The parameter table was already loaded eagerly by \code{np.loadtxt}.  Thus,
+``disk-backed source'' describes the data vectors, not every object in the
+source dictionary.
+
+\section{The source dictionary and its coordinate systems}
+
+\code{load\_source} returns a small dictionary:
+\begin{verbatim}
+src = {"C":         C_src,
+       "dv":        dv_src,
+       "idx":       idx_src,
+       "dump_rows": sorted_unique_original_rows}
+\end{verbatim}
+
+The fields have distinct jobs.
+
+\begin{center}
+\begin{tabular}{p{0.18\textwidth}p{0.25\textwidth}p{0.47\textwidth}}
+\toprule
+Key & Coordinate system & Meaning \\
+\midrule
+\code{C}
+  & Matches \code{idx}
+  & Parameter rows.  It is compact in the resident outcome and the full
+    eager table in the disk-backed outcome. \\
+\code{dv}
+  & Matches \code{idx}
+  & Data-vector rows.  It is compact in the resident outcome and a file
+    mapping in the disk-backed outcome. \\
+\code{idx}
+  & Local or global
+  & The row coordinates that consumers must use with this particular
+    \code{C}/\code{dv} pair. \\
+\code{dump\_rows}
+  & Always global
+  & Sorted unique row numbers in the original files.  A sibling dump uses
+    these coordinates to retrieve the same cosmologies. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\code{dump\_rows} is needed by the two-dimensional matter-power path.  That
+path has a second, row-aligned base dump.  Even when staging has converted
+the primary arrays to local coordinates, the sibling file still needs the
+original disk row numbers.  Sorting makes its reads sequential.  Applying
+\code{np.unique} removes duplicates and also sorts; it returns a new array.
+
+The complete coordinate flow is
+\begin{equation*}
+\begin{array}{c}
+\text{original rows }0,\ldots,N-1\\
+\downarrow\quad\text{seeded permutation and physical mask}\\
+\code{idx}:\text{ selected rows in shuffled training order}\\
+\downarrow\quad\text{sorted unique gather, only if copied to RAM}\\
+\code{idx\_src}:\text{ local coordinates into compact arrays}\\[2mm]
+\code{dump\_rows}:\text{ original coordinates retained for sibling files.}
+\end{array}
+\end{equation*}
+
+\section{Training statistics are owned by the training source}
+
+For the training source, \code{with\_means=True}.  The loader computes the
+mean of every parameter column and every staged data-vector column:
+\begin{equation}
+  \bar C_j = \frac{1}{n}\sum_{i=1}^{n}C_{ij},
+  \qquad
+  \bar V_k = \frac{1}{n}\sum_{i=1}^{n}V_{ik}.
+\end{equation}
+These arrays are stored as \code{C\_mean} and \code{dv\_mean}.  The
+validation source uses \code{with\_means=False}; it does not estimate a
+second zero point.  Training and validation must be expressed in the same
+coordinate system, so the training-derived geometry transforms both.
+
+Subtracting a center does not change a residual-based loss.  If prediction
+and truth are both centered by $\bar V$, then
+\begin{equation}
+  (V_{\rm pred}-\bar V)-(V_{\rm true}-\bar V)
+  = V_{\rm pred}-V_{\rm true}.
+\end{equation}
+Centering changes the zero point the network learns, not the physical
+prediction-minus-truth residual.
+
+The matter-power path is again special.  Its raw surface is transformed into
+``law space''---for example, $\log(P/P_{\rm base})$---and may be thinned along
+the wavenumber axis.  Its final output mean must therefore be computed after
+that transformation.  The generic loader skips the raw \code{dv\_mean}; the
+bounded matter-power staging code streams the transformed mean and variance
+over row chunks.
+
+\section{What has not happened yet}
+
+At the end of \code{stage\_train} and \code{stage\_val}, the program has
+selected and located the rows.  It has not yet built a neural network, an
+optimizer, or a covariance-weighted loss.  Apart from the seeded permutation,
+the arrays are still NumPy objects on the host.
+
+The next method, \code{build\_geometry}, creates two maps:
+\begin{align*}
+  \text{parameter geometry: }&
+  \btheta\longmapsto x,
+  &&\text{raw cosmology to centered, rescaled network input},\\
+  \text{output geometry: }&
+  \bd\longmapsto t,
+  &&\text{physical data vector to centered, covariance-scaled target}.
+\end{align*}
+Only after those maps exist can the batching code convert a NumPy batch with
+\code{torch.from\_numpy}, cast it to the model's \code{float32} dtype, move it
+to the selected device, and encode it.  That is the subject of Chapter~2.
+
+\section{Chapter summary}
+
+The first numerical job is not neural-network training.  It is identity
+preservation.  The staging code must keep four statements true:
+\begin{enumerate}[leftmargin=2em]
+  \item Parameter row $i$ and data-vector row $i$ describe the same
+        cosmology.
+  \item Parameter names and column order match the covariance that will
+        transform them.
+  \item The seeded subset is selected after the declared physical cuts and
+        contains the requested absolute number of rows.
+  \item Every row index is interpreted in the coordinate system of the array
+        it indexes: compact local rows for a resident copy, original global
+        rows for a file-backed dump.
+\end{enumerate}
+Once those conditions hold, the program has a staged training source.  The
+next problem is numerical geometry: how to transform correlated parameters
+and correlated outputs into coordinates a neural network can learn without
+silently changing the $\chi^2$ that defines emulator accuracy.
+
+\end{document}

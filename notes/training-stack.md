@@ -2178,3 +2178,47 @@ Placement: increment (h) rides WITH (g) as one visit, AFTER queue
 verified uncommitted in losses/cmb.py, the same file (g) edits;
 finishing 43 avoids a half-unit and a same-file collision). Unit
 14 stays open on (f) + (g) + (h).
+## 45M-89 red-team documentation amendment: diagnostics must separate an estimator from a scientific verdict (2026-07-12)
+
+The current `diagnostics.py` prose teaches several heuristic outputs as if
+they establish causation.  `coverage_diagnostic` says a positive rank
+correlation means the floor is data coverage rather than the model, while its
+Boolean verdict is the unmotivated conjunction `median_bad > median_good` and
+`rho > 0.1`.  The same file hard-codes the good/bad boundary 0.2, dense/sparse
+deciles, a `1e-4` log floor, `k_nn=8`, a local-linear `k_nn=40`, and a CMB
+period fallback 50.  `plotting.py` adds percentile clipping and histogram-bin
+floors/ceilings.  Comments call some of these “readable” or “pure hardness”
+without deriving the choices or stating their sensitivity.
+
+Required documentation contract, folded into the queued diagnostics-totality
+unit rather than a second diagnostic implementation:
+
+- Define k-nearest-neighbor distance, Spearman rank correlation, local linear
+  regression, percentile, decile, and $R^2$ in plain language at the first
+  executable use.  State shapes and units.
+- A local-linear estimate is one comparator under locality and smoothness
+  assumptions.  It is not a mathematical lower bound and not “the best” a
+  smooth method can extract.  Rename prose and plot labels accordingly.
+- Descriptive statistics remain descriptive.  A correlation and a median
+  split can support “consistent with coverage limitation”; they cannot prove
+  that the model is not responsible.  State competing explanations and the
+  experiment that would distinguish them.
+- Every numerical control becomes a named argument or named module constant
+  with a derivation, units, and one sensitivity check.  The physical
+  $\Delta\chi^2=0.2$ acceptance threshold may remain shared from the run; the
+  0.1 correlation threshold, neighbor counts, deciles, floors, period, and
+  plot clipping cannot remain anonymous literals.
+- Teach device movement exactly: which arrays are copied from NumPy to
+  float32 device tensors, which calculations return to CPU and float64, and
+  why SciPy operates on host arrays.
+- The diagnostics-totality status/reason record owns empty groups, constant
+  features, zero truth crossings, and unavailable regressions.  Documentation
+  never describes NaN as an ordinary scientific number or lets plotting
+  silently reinterpret it.
+- A gate varies each newly named heuristic on a finite known-answer dataset
+  and proves that a categorical verdict cannot flip without the report naming
+  the changed control.  Existing numerical-totality legs remain mandatory.
+
+This amendment is both scientific and didactic: a novice must learn what the
+diagnostic measures, while an expert must be able to see which part is a
+measurement and which part is an interpretation.

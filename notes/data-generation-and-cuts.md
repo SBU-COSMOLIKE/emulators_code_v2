@@ -1464,3 +1464,73 @@ executing at the wave-4 family gate visits and the covariance
 producer at the 33 helper landing. USER-VISIBLE: smoke gates can
 newly red on rejected points (previously green on readable stale
 state).
+## Continued red-team findings: staging must teach its row coordinates and count every host copy (2026-07-12)
+
+### 45M-83: the row-coordinate comments are correct only after a reader already understands the implementation
+
+`load_source` builds `src["dump_rows"]` beside `C`, `dv`, and `idx`, but its
+comment begins with internal nouns (on-disk indices, staged rows, sibling
+dump) and an expression split across comment lines.  The nearby comments for
+`C_mean` and the grid2d exception assume the reader already knows the two
+staging regimes, why resident staging changes the row-coordinate system, why
+the base dump does not change with it, and why only training owns means.
+
+Required documentation contract:
+
+- Define the two coordinate systems before the dictionary: a global row is a
+  row number in the original files; a local row is a row number in the compact
+  resident copy.
+- Walk one concrete example through both regimes.  If original rows
+  `[9, 2, 9, 5]` are selected, show the sorted unique disk rows `[2, 5, 9]`,
+  the resident arrays in that order, and the local coordinates that address
+  them.  State which arrays are copies and which object remains a memmap.
+- Define `dump_rows` as the coordinate list for a second file written in the
+  same row order, then name grid2d's base dump as the consumer.  Do not use
+  “sibling” before defining it.
+- Explain `param_stats` and `stream_stats` separately.  The first statistic
+  returned is the training-column center.  The unused second return is the
+  scale, because the parameter covariance supplies the input scale on this
+  path.  Validation never estimates its own center.
+- Explain why grid2d defers the output moments: it first thins the k axis and
+  transforms the raw surface into the target-law quantity, so a mean of the
+  raw, unthinned file is a different statistic and is deliberately not
+  computed.
+- Correct the overgeneralization in the current comment: NumPy advanced
+  indexing of a memmap materializes the requested result.  The source remains
+  disk-backed because each requested block is materialized on demand, not
+  because the indexed result is itself a memmap view.
+
+Acceptance is documentation-only: no AST-with-docstrings-stripped code hash
+changes.  A first-time reader must be able to label every index as global or
+local and every array access as eager, lazy, view, or copy without consulting
+the gate history.
+
+### 45M-84: the host-RAM decision omits the parameter copy it creates
+
+`stage_source` computes
+`rows.size * dv.shape[1] * dv.dtype.itemsize`, compares that number with the
+RAM allowance, and, on the resident branch, materializes both `dv[rows]` and
+`C[rows]`.  The parameter copy is absent from the decision.  This is the same
+shared-resource-accounting class as the GPU loader defect: a storage decision
+must count every object whose lifetime it creates, even when one is usually
+smaller than the other.
+
+Required implementation contract:
+
+- The predicted resident bytes equal the bytes of the stored representation
+  of `dv[rows]` plus the bytes of the stored representation of `C[rows]`, with
+  no count based on the source dtype when the stored copy changes dtype.
+- The comparison and the verbose line report the same named components and
+  the same total.
+- The disk-backed branch remains lazy for the data-vector dump and does not
+  claim that the already-eager parameter table is disk-backed.
+- A CPU-only gate chooses a memory allowance between “dv alone fits” and
+  “dv plus C fits.”  Current code must take the resident branch and the fixed
+  code must take the disk-backed branch.
+- Companion legs cover the exact-fit boundary, a resident control, a
+  disk-backed control, and numerical/row-order identity across the two
+  regimes.
+
+The comment rewrite in 45M-83 and the accounting correction land together so
+the code does not teach a byte formula that the implementation no longer
+uses.

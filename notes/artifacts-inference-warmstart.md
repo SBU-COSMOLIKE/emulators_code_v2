@@ -949,3 +949,52 @@ Placement: unit 11, where queued (no reshuffle). USER-VISIBLE:
 one-parameter emulators become buildable (today they crash before
 training); malformed covariances are refused loudly (today a
 negative variance trains with NaN whitening).
+## 45M-90 red-team documentation amendment: teach the artifact as a write/read symmetry, not an HDF5 inventory (2026-07-12)
+
+`results.py` gives a long inventory of HDF5 groups, but a first-time PyTorch
+reader reaches the nested `write_state`, `_read_group`, `_rebuild_geometry`,
+and `_rebuild_model` functions without the mechanics needed to audit them.
+The distinction between a model object and its `state_dict`, an HDF5 dataset
+and attribute, a tensor and a NumPy array, CPU and accelerator storage, and a
+serialized class name and a live class object is assumed.  The two public
+operations are each about 270 lines, so local comments do not reveal the
+write/read inverse as one system.
+
+Required documentation contract, folded into the artifact-pair integrity
+campaign:
+
+- Start with a two-column write/read table.  For every payload, name the
+  writer, stored representation, reader, rebuilt Python type, dtype/device,
+  and owning constructor argument.
+- Define `state_dict` as a name-to-tensor mapping of parameters and registered
+  buffers, not a saved model object.  Explain `detach` (remove gradient
+  history), `cpu` (copy or move storage to host), `numpy` (share CPU tensor
+  storage when possible), and why the saved tensor must not require the
+  training GPU to load.
+- Define an HDF5 group as a directory-like container, a dataset as an array
+  payload, and an attribute as scalar metadata attached to a group or file.
+  Show one concrete nested geometry state and its exact read-back dictionary.
+- Explain recursion before `write_state` and `_read_group`: a nested dict
+  creates a subgroup; the same function calls itself on that subgroup; the
+  base cases are tensor, string list, numeric scalar, and serialized dtype.
+- Explain dynamic class reconstruction step by step: split the persisted
+  `module.Class` string, import the module, retrieve the class object, and call
+  its `from_state` classmethod.  State why `cls(...)` preserves subclasses.
+- Explain strict weight loading: every expected key must exist and no
+  unexpected key may remain.  Explain why a compiled model's `_orig_mod.`
+  prefix is removed before storage and compilation happens only after the
+  eager object and weights are rebuilt.
+- Draw the ordinary, NPCE, transfer, and refined-transfer ownership trees.
+  Distinguish pretrained base weights used as reference from drifted base
+  weights used for prediction.
+- Current-state prose must match the transactional artifact contract when it
+  lands: the `.emul` and `.h5` pair is one publication, not two independent
+  successful writes.  Until that lands, documentation states the present
+  non-transactional behavior rather than promising atomicity.
+- Gates exercise the public save/rebuild pair and inspect the actual on-disk
+  type/dtype/device transitions.  A test double for HDF5 recursion may teach
+  structure but cannot substitute for a real-file round trip.
+
+Completion includes concise docstrings for the nested helpers.  The goal is
+not to repeat 270 lines in prose; it is to give the reader one reversible map
+with enough mechanics to verify every branch.
