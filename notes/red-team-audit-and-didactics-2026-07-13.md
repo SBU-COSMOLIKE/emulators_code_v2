@@ -1659,6 +1659,12 @@ discriminating leg set in its scientific owner before any chat handoff:
   Part H without importing or defining it, so the Torch check crashes late
   with `NameError` before Part J and its final verdict — `gates-and-board.md`,
   gate-fixture binding repair.
+- `25M-24`: `run_board.main` returns from `--list` / `--check` before selector
+  validation, so list+unknown gate/from/force commands exit 0 and list+check
+  silently chooses one action — `gates-and-board.md`, action/selector truth.
+- `25M-25`: `select_gates(--from triangle-shading)` filters out the explicitly
+  named optional starting gate and begins at the next non-optional gate —
+  `gates-and-board.md`, optional-start selection truth.
 
 No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and

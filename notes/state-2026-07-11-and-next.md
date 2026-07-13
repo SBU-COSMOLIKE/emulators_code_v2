@@ -2450,6 +2450,15 @@ importing or defining it. Compile passes, execution raises `NameError` late in
 Part H before Part J/final summary. Gate-only repair plus the complete Torch
 workstation rerun; no producer change. Spec: gates-and-board.md, `25M-23`.
 
+25M-24/25 (2026-07-13, Red Team; awaiting Fable): two public selector-truth
+holes reproduced on the real board. 24: `main` returns from `--list` / `--check`
+before selector validation; list+unknown gate/from/force all exit 0 and
+`--list --check` silently chooses list. 25: `--from triangle-shading` drops the
+explicitly named optional start and begins at `joint-training`. Contract:
+unambiguous action-mode parsing/validation plus real-main selftests; explicit
+optional `--from` start included while unrelated later optionals stay out.
+Gate-harness-only. Spec: gates-and-board.md, `25M-24` / `25M-25`.
+
 POPULATION 40/40 AUDIT (2026-07-13, Fable): GO — the 1b population
 is COMPLETE (774bf3d/9154e2e/2108c89/dd4bf85). Independent
 verification: selftest + validate_manifests rerun by the Architect

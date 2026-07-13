@@ -4449,6 +4449,74 @@ mutation fixtures); `py_compile` remains necessary but is not sufficient.
 Deleting the repaired binding must reproduce the late `NameError` and red the
 gate. No production-code change is requested by 25M-23.
 
+## 25M-24 (Red Team CONFIRMED, awaiting Architect adjudication): action-mode early returns bypass the board's selector-truth contract
+
+`build_parser` makes `--list` and `--check` independent booleans and makes
+only `--gate` / `--tier` / `--from` mutually exclusive
+(`gates/run_board.py:2004-2046`).  In `main`, the `--list` return at
+:2097-2100 and the `--check` return at :2102-2104 occur before the unknown-id
+checks and `select_gates` at :2108-2112.  The board therefore enforces its
+selector contract only in run mode, although the BRD-A evidence anchor and
+`board_selftest.py` state without that qualification that an unknown
+`--gate`, `--from`, or `--force-rerun` id is a nonzero usage error.
+
+This is live through the real command line on current HEAD:
+
+```
+python3 gates/run_board.py --list --gate definitely-not-a-gate
+python3 gates/run_board.py --list --from definitely-not-a-gate
+python3 gates/run_board.py --list --force-rerun definitely-not-a-gate
+```
+
+All three print the ordinary 51-line full-board listing, print no error, and
+exit 0.  `--list --check` also exits 0 and silently chooses the listing; on a
+workstation where preflight is green, `--check --gate definitely-not-a-gate`
+would analogously return the preflight verdict without validating the named
+id.  A pasted command can therefore contain a misspelled requested gate or
+rerun while reporting success and executing none of the named work.
+
+Required contract: define one unambiguous action before any early return.
+`--list` and `--check` are mutually exclusive with each other and with
+run-only selectors, force controls, and `--dry-run` (recommended), or every
+named id is
+validated before either action and the supported composition is documented;
+there must be no silent precedence.  The parser/error names the conflicting
+flags and exits nonzero before preflight or a gate body.  Plain `--list` stays
+the portable no-Torch listing and plain `--check` stays preflight-only.
+Board-selftest drives the real `main` boundary for list+unknown gate,
+list+unknown from, list+unknown force-rerun, check+unknown from, list+dry-run,
+and list+check; every ambiguous/unknown command is nonzero, while the two plain
+controls retain their existing behavior.  A mutation that restores either
+early return above argument/selector validation must red.  This is a
+gate-harness-only repair; no scientific producer changes.
+
+## 25M-25 (Red Team CONFIRMED, awaiting Architect adjudication): `--from` silently omits an optional gate when that gate is the named start
+
+`select_gates` documents `--from` as “starts the board at a gate” and first
+locates the named registry index, but its append condition is
+`index >= start and not gate.optional` (`gates/run_board.py:1720-1732`).
+Consequently an explicitly named optional start is discarded by the same
+default filter intended for optional gates the user did not request.
+
+The current board has a real witness.  Calling the production selector with
+`from_gate="triangle-shading"` returns 20 gates whose first id is
+`joint-training`; `triangle-shading` is absent.  The control
+`--gate triangle-shading` includes it.  Thus a workstation command
+`run_board.py --from triangle-shading` can finish green after running every
+later non-optional gate while never executing the gate named as its starting
+point.
+
+Required contract: an optional gate named as the `--from` start is explicit
+user intent and is included as the first selected gate.  Later optional gates
+may remain excluded, preserving the default-board policy; ordinary
+non-optional starts and `--gate` behavior stay byte-for-byte equivalent in
+selection/order.  Board-selftest uses a small board containing an optional
+start, a later non-optional gate, and a later optional gate: the named start
+plus later non-optionals are returned in board order, the unrelated later
+optional is absent, and an unknown start still raises.  A mutation restoring
+the unconditional `not gate.optional` filter must red.  This is also
+gate-harness-only.
+
 ## Population 40/40 pre-merge audit (Fable, 2026-07-13): GO — and the first audit under the new law catches an any-vs-all waiver hole
 
 The four commits (774bf3d / 9154e2e / 2108c89 / dd4bf85) audited;
