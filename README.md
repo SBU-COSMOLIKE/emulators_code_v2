@@ -42,9 +42,9 @@ correlated survey uncertainty.
 If $r$ is the prediction-minus-truth residual on the kept entries, accuracy
 is measured by
 
-\[
+$$
 \Delta\chi^2 = r^{\mathsf T}\Sigma^{-1}r.
-\]
+$$
 
 This score measures emulator error in the uncertainty units that inference
 actually uses; [Appendix 20](#20-appendix-the-chi2-metric-mahalanobis) derives
