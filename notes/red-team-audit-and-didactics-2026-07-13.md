@@ -1677,3 +1677,15 @@ input-independence was accepted as the strongest silent-demotion proof;
 queue-5 workstation exhibits. DIDACTICS-93 is ratified as binding law, with
 the Planck-LCDM covariance byte-identity control. The series at that
 adjudication stood at 01--15 with retired tombstone 07.
+
+Architect adjudication overlay for the manifest/artifact batch: the reply
+explicitly confirmed six findings and stated the live series ended at
+`25M-21`. Therefore `25M-16` through `25M-21` are confirmed; queue 2 is
+resequenced behind their hardening increment. The Architect recorded one
+process correction against the population audit: it verified declarations
+through the same scanner that required independent attack, so “audit the
+validator, not only through it” is binding law. The presence-inference census
+closure was accepted with `const_mask` as the only remaining silent site.
+`25M-22` was included in the Red Team's later combined handoff but was not
+named or counted by this adjudication; it remains awaiting a separate ruling
+and must not be represented as accepted.
