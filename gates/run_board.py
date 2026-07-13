@@ -1849,6 +1849,12 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
     summary["gates"].append((gate_id, category))
     summary[category] = summary[category] + 1
 
+  # gate ids that executed their body this run (did NOT resume-skip). A gate
+  # whose prerequisite is in this set reruns instead of resuming: the rerun may
+  # have produced a fresh artifact, and an artifact-consuming child must read it
+  # rather than trust a stored PASS taken against the old one (25M-20).
+  reran = set()
+
   for gate in selection:
     # dry mode prints every selected gate's plan, BEFORE (and bypassing)
     # the resume + dependency checks, so --dry-run --gate cobaya-adapter shows the
@@ -1869,12 +1875,27 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
     # executable-surface digest and the input digest. A stale-code PASS, a
     # stale-input PASS (config A -> config B), or an abandoned RUNNING attempt
     # is not current, so it is rerun rather than trusted.
+    # resume: skip a gate ONLY when its own stored PASS is current under BOTH
+    # digests AND every dependency is a current PASS that was NOT itself rerun
+    # this run. The dependency loop below runs AFTER this point, so resume must
+    # check dependency currency here too (25M-20): a stale / FAIL / SKIP /
+    # RUNNING / pre-manifest prerequisite makes the child non-green, and a
+    # prerequisite that reran (possibly a fresh artifact) reruns its child.
     state = _resume_state(status, gate, cfg)
-    if state == "PASS" and gate.id not in force_rerun:
+    reran_deps = [dep for dep in gate.deps if dep in reran]
+    deps_current = all(_dep_current_pass(status, dep, cfg)
+                       for dep in gate.deps)
+    if (state == "PASS" and gate.id not in force_rerun
+        and deps_current and not reran_deps):
       print("[skip] " + gate.id + ": already PASS (resume, current under both "
-            "digests); --force-rerun " + gate.id + " to rerun")
+            "digests, dependencies current); --force-rerun " + gate.id
+            + " to rerun")
       _record(gate.id, "resume")
       continue
+    if state == "PASS" and reran_deps and gate.id not in force_rerun:
+      print("[rerun] " + gate.id + ": prerequisite(s) reran this run ("
+            + ", ".join(reran_deps) + ") -- rerunning to consume the fresh "
+            "output rather than trust a PASS taken against the old one")
     if (state in ("stale-code", "stale-input", "stale-log", "interrupted",
                   "pre-manifest")
         and gate.id not in force_rerun):
@@ -1899,6 +1920,10 @@ def run_selection(*, selection, cfg, env, status, force_rerun, dry,
       _write_board_md(status, cfg)
       _record(gate.id, "skipped_dep")
       continue
+
+    # this gate executes its body now (it did not resume-skip and its deps are
+    # met): record it as rerun so its artifact-consuming children rerun too.
+    reran.add(gate.id)
 
     # persist a RUNNING record BEFORE any gate code runs: an interruption,
     # SystemExit, process kill, or crash now leaves an interrupted RUNNING
