@@ -1,12 +1,8 @@
-\documentclass[11pt,oneside]{report}
+\documentclass[10pt,aps,prd,twocolumn,nofootinbib]{revtex4-2}
 
-\usepackage[margin=1in]{geometry}
-\usepackage{amsmath,amssymb}
+\usepackage{amsmath,amssymb,mathtools}
 \usepackage{booktabs}
-\usepackage{enumitem}
-\usepackage[hidelinks]{hyperref}
 \usepackage[T1]{fontenc}
-\usepackage{microtype}
 \usepackage{xcolor}
 
 \definecolor{codegray}{RGB}{245,245,245}
@@ -15,20 +11,28 @@
 \newcommand{\btheta}{\boldsymbol{\theta}}
 \newcommand{\bd}{\mathbf{d}}
 
-\title{How the CoCoA Emulator Code Works\\
-       \large A tensor-by-tensor guide from generated cosmologies to inference}
-\author{V. Miranda}
-\date{Working draft: Chapter 1}
-
 \begin{document}
 
-\pagenumbering{roman}
-\maketitle
-\tableofcontents
-\clearpage
-\pagenumbering{arabic}
+\title{How the CoCoA Emulator Code Works: A Tensor-by-Tensor Guide from
+Generated Cosmologies to Inference}
+\author{V. Miranda}
+\affiliation{Code documentation manuscript}
+\date{Working draft}
 
-\chapter{From cosmologies and data vectors to a staged training source}
+\begin{abstract}
+This manuscript follows one cosmological sample through the CoCoA emulator
+program.  It begins with generated parameter tables and data-vector dumps,
+then explains staging, coordinate transforms, neural designs, loss
+construction, device-aware batching, training, family-specific physics,
+artifact reconstruction, Cobaya adapters, and executable acceptance gates.
+The emphasis is operational: every tensor is assigned a shape, dtype, device,
+and physical meaning, and every non-obvious Python or PyTorch mechanism is
+defined where it first changes the calculation.
+\end{abstract}
+
+\maketitle
+
+\section{From cosmologies and data vectors to a staged training source}
 \label{chap:staging}
 
 Suppose the data-generation calculation has finished.  We have a table of
@@ -48,13 +52,14 @@ This chapter follows that process in execution order.  It stops just before
 the code constructs the whitening geometries.  Chapter~2 will begin with the
 staged arrays and derive the parameter-space and data-vector transforms.
 
-\section{The four files that must agree}
+\subsection{The four files that must agree}
 
 For an ordinary data-vector emulator, one training source is described by
 four files.  The validation source has the same structure but different
 rows.
 
-\begin{center}
+\begin{table*}[t]
+\centering
 \begin{tabular}{p{0.24\textwidth}p{0.29\textwidth}p{0.37\textwidth}}
 \toprule
 File & Contents & Why the code needs it \\
@@ -74,7 +79,7 @@ Data-vector dump, \code{*.npy}
   & Supplies the targets that the network will learn. \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table*}
 
 Let $N$ be the number of generated cosmologies, $P$ the number of modeled
 parameters, and $D$ the length of one physical data vector.  The two arrays
@@ -119,7 +124,7 @@ The scalar-family loader is different.  Its inputs and targets are both
 columns of the parameter table, so it resolves the requested input and output
 names explicitly through the \code{.paramnames} sidecar.
 
-\section{Control path: resolving a run before touching the rows}
+\subsection{Control path: resolving a run before touching the rows}
 
 The single-run driver is \code{cosmic\_shear\_train\_emulator.py}.  Its
 family siblings call the same package layer.  The startup chain is
@@ -150,7 +155,8 @@ parameter names, the selected compute device, the logger, and empty slots for
 objects that do not exist yet.
 
 The important empty slots are
-\begin{center}
+\begin{table*}[t]
+\centering
 \begin{tabular}{p{0.26\textwidth}p{0.63\textwidth}}
 \toprule
 Attribute & Meaning before and after the corresponding method runs \\
@@ -175,14 +181,14 @@ Attribute & Meaning before and after the corresponding method runs \\
     \code{train}. \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table*}
 
 This delayed construction matters in parameter sweeps.  A sweep can keep the
 validation source fixed while replacing the training subset, or keep both
 sources fixed while rebuilding only a model.  Expensive state is therefore
 created by named methods instead of being hidden inside the constructor.
 
-\section{Numerical path: opening the source}
+\subsection{Numerical path: opening the source}
 
 \code{stage\_train} creates a local random-number generator from the YAML
 value \code{split\_seed}, then calls \code{load\_source} in
@@ -192,8 +198,12 @@ state left behind by an earlier call.
 
 The two large inputs are opened differently:
 \begin{verbatim}
-dv = np.load(dv_path, mmap_mode="r", allow_pickle=False)
-C  = np.loadtxt(params_path, dtype="float32")[:, param_cols]
+dv = np.load(dv_path,
+             mmap_mode="r",
+             allow_pickle=False)
+C_all = np.loadtxt(params_path,
+                   dtype="float32")
+C = C_all[:, param_cols]
 \end{verbatim}
 
 \code{np.loadtxt} is eager: it parses the complete parameter table and creates
@@ -211,7 +221,7 @@ disk-backed virtual memory.  Nothing has moved to CUDA or Apple MPS.  Device
 placement occurs later, after the geometry exists and the batching code knows
 which rows a particular minibatch needs.
 
-\subsection{The first row-identity check}
+\subsubsection{The first row-identity check}
 
 The loader immediately compares the row counts:
 \begin{equation}
@@ -223,11 +233,14 @@ have the same number of rows; it cannot prove by itself that row $i$ in one
 file belongs to row $i$ in the other.  The generator must preserve that
 ordering when it writes the pair.
 
-\section{A seeded permutation, followed by physical cuts}
+\subsection{A seeded permutation, followed by physical cuts}
 
 The loader next creates a permutation of the integers $0,\ldots,N-1$:
 \begin{verbatim}
-order = torch.randperm(n, generator=gen).numpy()
+order_tensor = torch.randperm(
+    n,
+    generator=gen)
+order = order_tensor.numpy()
 \end{verbatim}
 \code{torch.randperm} returns a one-dimensional PyTorch tensor containing
 every integer exactly once in pseudorandom order.  It is not an iterator and
@@ -256,11 +269,13 @@ the surviving integer indices.  Their order remains the shuffled order.
 The result, called \code{phys}, is therefore not a new cosmology table.  It is
 a list of row coordinates into the original files:
 \begin{equation*}
-  \code{phys} = [i_0,i_1,\ldots],
-  \qquad C[i_k]\text{ and }V[i_k]\text{ remain a matched pair.}
+\begin{aligned}
+  \code{phys} &= [i_0,i_1,\ldots],\\
+  C[i_k]&\text{ and }V[i_k]\text{ remain a matched pair.}
+\end{aligned}
 \end{equation*}
 
-\section{Selecting an absolute number of rows}
+\subsection{Selecting an absolute number of rows}
 
 The YAML states an absolute number of training rows, \code{n\_train}, and an
 absolute number of validation rows, \code{n\_val}.  After the cuts, the
@@ -280,7 +295,7 @@ The scientific assumption is that the two file sets are disjoint.  That
 assumption must be checked from file identity or row identity; a seed does not
 establish disjointness.
 
-\section{Staging: copy the subset or retain the disk mapping}
+\subsection{Staging: copy the subset or retain the disk mapping}
 
 The word \emph{stage} means ``put the selected rows in the storage form from
 which later batches will read them.''  It does not yet mean ``move them to the
@@ -294,7 +309,7 @@ the present code, not a license for consumers to ignore the parameter copy.
 
 There are two outcomes.
 
-\subsection{Resident host-memory outcome}
+\subsubsection{Resident host-memory outcome}
 
 If the pair fits, the helper gathers the sorted unique selected rows into
 compact arrays.  Advanced integer indexing is eager and returns a copy.  The
@@ -309,7 +324,7 @@ where $n_u$ is the number of distinct selected rows.  The source's
 If original dump row 91 becomes compact row 3, later code asks the resident
 array for row 3, not row 91.
 
-\subsection{Disk-backed outcome}
+\subsubsection{Disk-backed outcome}
 
 If the data vectors do not fit, the helper retains the original read-only
 \code{np.memmap}.  The source's \code{idx} remains in global on-disk row
@@ -322,19 +337,21 @@ The parameter table was already loaded eagerly by \code{np.loadtxt}.  Thus,
 ``disk-backed source'' describes the data vectors, not every object in the
 source dictionary.
 
-\section{The source dictionary and its coordinate systems}
+\subsection{The source dictionary and its coordinate systems}
 
 \code{load\_source} returns a small dictionary:
 \begin{verbatim}
+dump_rows = sorted_unique_original_rows
 src = {"C":         C_src,
        "dv":        dv_src,
        "idx":       idx_src,
-       "dump_rows": sorted_unique_original_rows}
+       "dump_rows": dump_rows}
 \end{verbatim}
 
 The fields have distinct jobs.
 
-\begin{center}
+\begin{table*}[t]
+\centering
 \begin{tabular}{p{0.18\textwidth}p{0.25\textwidth}p{0.47\textwidth}}
 \toprule
 Key & Coordinate system & Meaning \\
@@ -357,7 +374,7 @@ Key & Coordinate system & Meaning \\
     these coordinates to retrieve the same cosmologies. \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table*}
 
 \code{dump\_rows} is needed by the two-dimensional matter-power path.  That
 path has a second, row-aligned base dump.  Even when staging has converted
@@ -366,6 +383,7 @@ original disk row numbers.  Sorting makes its reads sequential.  Applying
 \code{np.unique} removes duplicates and also sorts; it returns a new array.
 
 The complete coordinate flow is
+\begin{widetext}
 \begin{equation*}
 \begin{array}{c}
 \text{original rows }0,\ldots,N-1\\
@@ -376,8 +394,9 @@ The complete coordinate flow is
 \code{dump\_rows}:\text{ original coordinates retained for sibling files.}
 \end{array}
 \end{equation*}
+\end{widetext}
 
-\section{Training statistics are owned by the training source}
+\subsection{Training statistics are owned by the training source}
 
 For the training source, \code{with\_means=True}.  The loader computes the
 mean of every parameter column and every staged data-vector column:
@@ -407,7 +426,7 @@ that transformation.  The generic loader skips the raw \code{dv\_mean}; the
 bounded matter-power staging code streams the transformed mean and variance
 over row chunks.
 
-\section{What has not happened yet}
+\subsection{What has not happened yet}
 
 At the end of \code{stage\_train} and \code{stage\_val}, the program has
 selected and located the rows.  It has not yet built a neural network, an
@@ -415,6 +434,7 @@ optimizer, or a covariance-weighted loss.  Apart from the seeded permutation,
 the arrays are still NumPy objects on the host.
 
 The next method, \code{build\_geometry}, creates two maps:
+\begin{widetext}
 \begin{align*}
   \text{parameter geometry: }&
   \btheta\longmapsto x,
@@ -423,15 +443,16 @@ The next method, \code{build\_geometry}, creates two maps:
   \bd\longmapsto t,
   &&\text{physical data vector to centered, covariance-scaled target}.
 \end{align*}
+\end{widetext}
 Only after those maps exist can the batching code convert a NumPy batch with
 \code{torch.from\_numpy}, cast it to the model's \code{float32} dtype, move it
 to the selected device, and encode it.  That is the subject of Chapter~2.
 
-\section{Chapter summary}
+\subsection{Chapter summary}
 
 The first numerical job is not neural-network training.  It is identity
 preservation.  The staging code must keep four statements true:
-\begin{enumerate}[leftmargin=2em]
+\begin{enumerate}
   \item Parameter row $i$ and data-vector row $i$ describe the same
         cosmology.
   \item Parameter names and column order match the covariance that will
@@ -446,5 +467,833 @@ Once those conditions hold, the program has a staged training source.  The
 next problem is numerical geometry: how to transform correlated parameters
 and correlated outputs into coordinates a neural network can learn without
 silently changing the $\chi^2$ that defines emulator accuracy.
+
+\section{Geometries: changing coordinates without changing the science}
+\label{chap:geometries}
+
+The staged source contains physical numbers.  The columns can differ by many
+orders of magnitude and can be strongly correlated.  A neural network trains
+more easily when its inputs and targets have comparable scales.  The geometry
+classes own that coordinate change.
+
+Here, \emph{geometry} does not mean spacetime geometry.  It means a reversible
+map between physical coordinates and network coordinates.  There are two
+maps:
+\begin{equation*}
+  \btheta \xleftrightarrow[\text{decode}]{\text{encode}} x,
+  \qquad
+  \bd \xleftrightarrow[\text{decode}]{\text{encode}} t.
+\end{equation*}
+$x$ is the tensor presented to the model.  $t$ is the tensor the model is
+trained to predict.  The inverse maps are part of the saved artifact because
+an emulator prediction is useful only after it has returned to physical
+units.
+
+\subsection{The parameter geometry}
+
+The ordinary input transform is \code{ParamGeometry}.  The constructor stores
+four facts:
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.20\textwidth}p{0.68\textwidth}}
+\toprule
+Field & Meaning \\
+\midrule
+\code{names} & Parameter names in the exact column order of the covariance. \\
+\code{center} & Training-set mean $\boldsymbol\mu$. \\
+\code{evecs} & Orthonormal covariance eigenvectors $Q$. \\
+\code{sqrt\_ev} & Square roots of the covariance eigenvalues,
+                   $s_j=\sqrt{\lambda_j}$. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The covariance is symmetric, so NumPy computes
+\begin{equation}
+  \Sigma = Q\,\mathrm{diag}(\lambda_1,\ldots,\lambda_P)Q^{\mathsf T}.
+\end{equation}
+For a batch of raw parameter rows $\Theta\in\mathbb{R}^{B\times P}$,
+encoding is
+\begin{equation}
+  X = (\Theta-\boldsymbol\mu)Q\,\mathrm{diag}(s_1^{-1},\ldots,s_P^{-1}).
+  \label{eq:param-encode}
+\end{equation}
+Subtracting the mean centers the cloud at zero.  Multiplication by $Q$ rotates
+the correlated ellipsoid onto its principal axes.  Division by $s_j$ gives
+each rotated direction unit scale.  This complete operation is called
+\emph{whitening}.
+
+Decoding performs the inverse operations in reverse order:
+\begin{equation}
+  \Theta =
+  \left[X\,\mathrm{diag}(s_1,\ldots,s_P)\right]Q^{\mathsf T}
+  +\boldsymbol\mu.
+  \label{eq:param-decode}
+\end{equation}
+Because $Q$ is orthonormal, $Q Q^{\mathsf T}=I$.  A numerical identity test
+must therefore verify
+\begin{equation}
+  \code{decode(encode(theta))}\simeq\code{theta}
+\end{equation}
+over representative rows, with an error consistent with the stored
+\code{float32} representation.
+
+\paragraph{Alternative constructors.}
+The method \code{from\_covmat} reads and diagonalizes the training
+covariance.  The method \code{from\_state} rebuilds the object from saved
+arrays.  The ordinary \code{\_\_init\_\_} method only stores fields.  Keeping
+those jobs separate means inference never needs the original covariance file.
+
+\subsection{Views, copies, dtype, and device}
+
+The geometry converts each array with
+\begin{verbatim}
+torch.as_tensor(array,
+                dtype=torch.float32,
+                device=device)
+\end{verbatim}
+If the source already has the requested dtype and device, PyTorch may reuse
+its storage.  If dtype or device changes, it creates new storage.  Moving from
+a NumPy CPU array to CUDA necessarily copies the values to GPU memory.
+
+The model uses \code{float32}.  Covariance construction and diagnostic
+reductions often use \code{float64} on the CPU because sums and
+eigendecompositions lose more information than a neural-network forward pass.
+The program must state where a cast occurs.  A finite nonzero scale in
+\code{float64} is not automatically usable if it becomes zero in
+\code{float32}.
+
+\subsection{The data-vector geometry}
+
+Cosmic-shear output uses \code{DataVectorGeometry}.  Its first operation is a
+mask.  The full physical vector has width $D$, but the likelihood keeps only
+$K$ entries.  \code{dest\_idx} stores their global column positions.
+
+For a batch $V\in\mathbb{R}^{B\times D}$,
+\begin{equation*}
+  V_{\rm keep}=V[:,\code{dest\_idx}]
+  \in\mathbb{R}^{B\times K}.
+\end{equation*}
+This is PyTorch advanced indexing.  It gathers the selected columns in the
+specified order and returns a new tensor.  The method is named
+\code{squeeze}, but it is not \code{torch.squeeze}: no size-one dimension is
+removed.
+
+The inverse method, \code{unsqueeze}, allocates a zero-filled
+$B\times D$ tensor and assigns the $K$ values back into
+\code{dest\_idx}.  Masked locations remain zero.  This is a scatter
+operation.
+
+After masking and centering, the dense-covariance geometry applies the same
+eigenvector construction as Eq.~\eqref{eq:param-encode}.  If
+\begin{equation}
+  C_{\rm keep}=U\,\mathrm{diag}(\eta)U^{\mathsf T},
+\end{equation}
+then a centered kept vector $r$ is whitened as
+\begin{equation}
+  t=rU\,\mathrm{diag}(\eta^{-1/2}).
+\end{equation}
+The ordinary squared length of $t$ equals the covariance-weighted physical
+length of $r$:
+\begin{equation}
+  \lVert t\rVert^2 = r C_{\rm keep}^{-1} r^{\mathsf T}.
+  \label{eq:whiten-chi2}
+\end{equation}
+This identity is why training in whitened space does not redefine the
+scientific metric.
+
+\subsection{Diagonal output families}
+
+Some families have one independent scale per output instead of a dense
+covariance rotation.  They use
+\begin{equation}
+  t_k=\frac{d_k-\bar d_k}{\sigma_k},
+  \qquad
+  d_k=t_k\sigma_k+\bar d_k.
+\end{equation}
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.19\textwidth}p{0.28\textwidth}p{0.43\textwidth}}
+\toprule
+Geometry & Coordinate axis & Stored physical facts \\
+\midrule
+\code{ScalarGeometry} & Named derived parameters & Output names, center,
+scale. \\
+CMB diagonal & Multipole $\ell$ & Spectrum, $\ell$, units,
+fiducial spectrum, cosmic-variance scale, amplitude law. \\
+\code{GridGeometry} & Redshift $z$ & Quantity, units, target law, offset,
+stored $z$ grid. \\
+\code{Grid2DGeometry} & Flattened $(z,k)$ surface & Quantity, units, target
+law, both axes, constant-point mask. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The axes and units are artifact facts.  A consumer reads them from the saved
+geometry rather than reconstructing them from a filename or a current code
+default.
+
+\subsection{The geometry acceptance test}
+
+A geometry is ready only when four numerical statements hold:
+\begin{enumerate}
+  \item Every scale is finite and representably nonzero in its stored dtype.
+  \item \code{decode(encode(raw))} returns the raw value within the declared
+        floating-point tolerance.
+  \item Saving and rebuilding the state leaves the transform unchanged.
+  \item The squared whitened residual agrees with a direct physical
+        covariance contraction.
+\end{enumerate}
+
+\section{The neural designs and their constructible specifications}
+\label{chap:models}
+
+Once the geometries exist, the program knows the model's input width and
+output width.  It can construct a neural network without embedding data-file
+knowledge in the network class.
+
+\subsection{A class is passed as data}
+
+The model configuration is a dictionary whose \code{cls} entry holds a class
+object and whose remaining entries are constructor arguments:
+\begin{verbatim}
+model_opts = {"cls":         ResMLP,
+              "int_dim_res": 256,
+              "n_blocks":    4,
+              "block_opts":  block_opts}
+\end{verbatim}
+A class object is callable.  Calling \code{ResMLP(...)} creates a new module.
+\code{make\_model} removes the bookkeeping entries, injects the data-dependent
+input and output dimensions, constructs the module, and moves it to the
+selected device.
+
+The same pattern constructs the optimizer and scheduler.  Computed values
+such as batch-scaled learning rate and device-dependent fused behavior are
+injected by the factory instead of being stored as stale configuration facts.
+
+\subsection{Factories create distinct submodules}
+
+Residual blocks receive activation and normalization factories.  A factory is
+a callable such as \code{act(width)} that returns a new \code{nn.Module}.
+Calling it once per layer gives every layer its own learnable activation
+parameters.  Passing one already-created activation instance would share its
+parameters across layers.
+
+Parameter-free activations do not need the width, but they still obey the
+same interface:
+\begin{verbatim}
+def relu_factory(dim):
+    return nn.ReLU()
+\end{verbatim}
+The argument is intentionally unused.  The uniform interface lets the model
+construction loop treat learnable and fixed activations identically.
+
+\subsection{Registration: why ModuleList matters}
+
+PyTorch discovers trainable parameters by walking registered child modules.
+\code{nn.Sequential} and \code{nn.ModuleList} register their contents.  A bare
+Python list does not.  A plain list is safe only as a temporary builder that
+is immediately expanded into \code{nn.Sequential(*layers)} or copied into
+\code{nn.ModuleList(layers)}.
+
+Registration controls four operations:
+\begin{enumerate}
+  \item inclusion in \code{model.parameters()},
+  \item movement by \code{model.to(device)},
+  \item inclusion in \code{state\_dict()}, and
+  \item switching between training and evaluation modes.
+\end{enumerate}
+
+\subsection{ResMLP: the baseline map}
+
+The baseline network is
+\begin{equation*}
+\begin{array}{c}
+X\;(B\times P_{\rm enc})\\
+\downarrow\quad\text{input linear layer}\\
+H\;(B\times W)\\
+\downarrow\quad\text{$N_{\rm block}$ residual blocks}\\
+H'\;(B\times W)\\
+\downarrow\quad\text{output linear layer and affine map}\\
+\widehat T\;(B\times K).
+\end{array}
+\end{equation*}
+
+A residual block learns a correction $F(h)$ and returns $h+F(h)$.  The skip
+path gives gradients a direct route through a deep network.  The final affine
+module supplies a learnable output scale and offset.
+
+\subsection{Structured correction heads}
+
+\code{ResCNN} and \code{ResTRF} retain the ResMLP trunk and add a correction
+head.  The trunk predicts every kept output.  The head reshapes that output
+into physical bins, learns local or cross-bin structure, and adds a gated
+correction:
+\begin{equation}
+  \widehat T = T_{\rm trunk} + g\,T_{\rm correction}.
+\end{equation}
+
+The convolutional head treats tomographic bins as channels and angular
+positions as the one-dimensional coordinate.  The transformer head treats
+bins as tokens.  A token is one row presented to attention; attention mixes
+information between token rows.
+
+Ragged bins have different lengths.  The implementation scatters them into a
+rectangle of width equal to the longest bin.  Padding positions require an
+explicit validity mask because convolution, affine modulation, and attention
+can turn an initial zero into a nonzero hidden value.
+
+The correction is initialized to zero, so the initial structured model equals
+its trunk.  A nonzero outer gate lets gradients reach the zero-initialized
+last correction layer on the first optimizer step.  An activation placed
+after a zero-initialized layer must have a nonzero derivative at zero, or the
+head can remain permanently asleep.
+
+\subsection{Factored intrinsic-alignment designs}
+
+The factored models do not ask the network to learn known polynomial
+dependence on intrinsic-alignment amplitudes.  The input geometry appends the
+raw amplitudes after the whitened non-amplitude parameters.  The model reads
+only the non-amplitude block and emits $T$ templates:
+\begin{equation*}
+  X \longmapsto
+  \left(\widehat t_1,\ldots,\widehat t_T\right),
+  \qquad \widehat t_j\in\mathbb{R}^{K}.
+\end{equation*}
+The loss reads the appended amplitudes and combines the templates with the
+known coefficients.  This separation keeps the exact amplitude law outside
+the neural approximation.
+
+\section{The loss: where network error becomes a scientific error}
+\label{chap:loss}
+
+The model emits network coordinates.  The loss decides whether their error is
+acceptable in the physical likelihood.  It is therefore not an interchangeable
+training convenience.
+
+\subsection{Plain covariance-weighted loss}
+
+For a prediction $\widehat t$ and encoded truth $t$, the geometry can return
+both to physical kept coordinates.  Their residual is
+\begin{equation}
+  r = \widehat d_{\rm keep}-d_{\rm keep}.
+\end{equation}
+The per-sample statistic is
+\begin{equation}
+  \Delta\chi^2=r^{\mathsf T}C_{\rm keep}^{-1}r.
+  \label{eq:dchi2}
+\end{equation}
+It must be finite and nonnegative, apart from a small negative roundoff band
+derived from floating-point precision and contraction width.
+
+When the geometry is whitened exactly, Eq.~\eqref{eq:whiten-chi2} reduces this
+to a sum of squared whitened residuals.  The direct physical contraction
+remains the independent reference used to verify that reduction.
+
+\subsection{The training objective and the reported metric are distinct}
+
+The program may transform $\Delta\chi^2$ before averaging it over a minibatch.
+For example, a square-root objective reduces the influence of catastrophic
+rows during optimization.  This transformation changes how gradients vote;
+it does not change the reported per-sample $\Delta\chi^2$.
+
+The training reduction must handle an exact fit without producing the
+undefined derivative $0/0$.  A safe square-root implementation preserves the
+forward value and defines the exact-fit gradient as zero.  A negative or
+nonfinite input is rejected before the transformation.
+
+\subsection{Physics-aware loss wrappers}
+
+Several wrappers modify how a prediction is assembled before the same
+scientific metric is evaluated.
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.22\textwidth}p{0.67\textwidth}}
+\toprule
+Wrapper & Operation before the final residual \\
+\midrule
+Analytic rescaling & Divide out a known approximate cosmology dependence for
+training and multiply it back before scoring. \\
+Factored IA & Combine neural templates with exact amplitude-polynomial
+coefficients. \\
+CMB amplitude law & Apply the persisted amplitude and optical-depth law before
+comparing physical spectra. \\
+NPCE residual & Evaluate a polynomial-chaos base and add or multiply the
+network correction. \\
+Transfer loss & Combine a saved base emulator with a new correction network. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The rule is the same in every case: the reported $\Delta\chi^2$ must refer to
+the final physical prediction.  A preprocessing amplitude is not allowed to
+multiply the metric accidentally.
+
+\subsection{Frozen bases and packed targets}
+
+A frozen base need not run during every optimizer step.  During staging, the
+loss evaluates the base under \code{torch.no\_grad()}, which tells PyTorch not
+to record operations for backward differentiation.  It packs the base output
+beside the truth:
+\begin{equation*}
+  \code{target}=[\code{base};\code{truth}].
+\end{equation*}
+The minibatch loss unpacks both pieces and evaluates only the small correction
+network with gradients enabled.  In a refine stage the base becomes live,
+enters the computation graph, and receives its own optimizer parameter group.
+
+\subsection{The finite contract}
+
+A NaN comparison with a positive threshold is false.  Without an explicit
+guard, a diverged row can therefore be counted as below every error threshold
+and appear perfect.  The code rejects nonfinite losses, gradients, validation
+rows, reductions, and parity comparisons before they can rank or save a
+model.
+
+The ordering is important:
+\begin{enumerate}
+  \item compute the loss,
+  \item reject a nonfinite loss,
+  \item run backward,
+  \item inspect unscaled gradients for finiteness,
+  \item clip finite gradients when clipping is enabled,
+  \item update parameters,
+  \item apply any anchor, and
+  \item update the exponential moving average.
+\end{enumerate}
+If a step is rejected, none of the later state may advance.
+
+\section{Loaders, minibatches, and the training loop}
+\label{chap:training}
+
+The staged source is a host-side description.  The training loop needs fixed
+size tensors on the model's device.  Loaders bridge those representations.
+
+\subsection{A loader is a closure}
+
+A closure is a function that retains values from the scope in which it was
+created.  \code{build\_loaders} returns functions with the interface
+\begin{equation*}
+  \code{load(rows)}\longrightarrow\text{device tensor}.
+\end{equation*}
+The closure remembers whether its source is GPU-resident, in host RAM, or
+file-backed.  The training loop does not branch on storage.
+
+There are two loaders per source.  \code{load\_C} returns encoded parameter
+rows.  \code{load\_dv} returns encoded targets.  Both accept row indices and
+return tensors on the compute device.
+
+\subsection{Three storage regimes}
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.20\textwidth}p{0.25\textwidth}p{0.45\textwidth}}
+\toprule
+Regime & Persistent storage & Work performed for a minibatch \\
+\midrule
+Device resident & Encoded parameters and targets on GPU/MPS & Gather rows by
+device indexing. \\
+Host RAM stream & Encoded parameters resident; raw targets in a NumPy array &
+Copy selected target rows to the device and encode them. \\
+Disk stream & Encoded parameters resident; raw targets in a memmap & Read a
+bounded host block, copy it to the device, and encode it. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+On CUDA, a host tensor may be pinned before transfer.  Pinned memory cannot be
+paged out by the operating system, which allows an asynchronous device copy.
+Pinning is a host-memory property; it does not move the tensor to the GPU.
+
+\subsection{Fixed batch shapes}
+
+Compiled PyTorch graphs work best with stable tensor shapes.  Training uses
+full batches.  Validation pads its final short batch with copies of a valid
+row, runs the fixed-size graph, and discards the padded scores.  Padding is not
+allowed to enter the reported median, mean, or threshold fractions.
+
+For one batch,
+\begin{equation*}
+\begin{aligned}
+  X_b&=\code{load\_C(rows)},&
+  T_b&=\code{load\_dv(rows)},\\
+  \widehat T_b&=\code{model}(X_b).&&
+\end{aligned}
+\end{equation*}
+\code{model(X\_b)} uses positional syntax because the tensor is the direct
+subject of the call.  Configuration-heavy calls use named arguments.
+
+\subsection{Optimizer and scheduler}
+
+The optimizer owns parameter updates.  Parameters are divided by module role:
+true linear and convolutional weight matrices may receive weight decay;
+biases, affine gains, and activation-shape parameters do not.
+
+The scheduler changes learning rates.  \code{ReduceLROnPlateau} requires a
+validation metric in \code{scheduler.step(metric)}.  A scheduler with a
+different protocol cannot be substituted merely because its constructor fits
+the same factory.
+
+\subsection{One optimizer step}
+
+For a normal full-precision batch, the executed sequence is
+\begin{verbatim}
+optimizer.zero_grad()
+prediction = model(inputs)
+loss = lossfn.loss(
+    prediction,
+    target=targets,
+    ...)
+loss.backward()
+optimizer.step()
+\end{verbatim}
+\code{zero\_grad} clears gradients accumulated by earlier backward calls.
+\code{backward} traverses the recorded computation graph and adds each
+parameter's derivative to its \code{.grad} field.  Gradients accumulate by
+default, so omitting \code{zero\_grad} changes the algorithm.
+
+Mixed-precision float16 training requires loss scaling.  Scaling makes small
+gradients representable during backward.  The gradients are unscaled before
+finiteness checks and clipping.  Bfloat16 has a wider exponent range and does
+not automatically use the float16 scaling protocol.
+
+\subsection{Epoch metrics and model selection}
+
+After every epoch, \code{eval\_val} produces one $\Delta\chi^2$ per validation
+row.  It then reports a median, mean, and the fraction above each configured
+threshold.  The even-sample median is the ordinary 50th percentile, not the
+lower of the two central samples.
+
+The best epoch is selected by the primary threshold fraction, with the median
+as the tie-breaker.  The saved best record must contain the exact weights that
+produced the recorded metrics.  If an exponential moving average is used,
+evaluation, selection, restoration, and persistence must all refer to that
+same averaged state.
+
+\subsection{Two-phase training}
+
+A model with a correction head can run two phases.  The trunk phase bypasses
+and freezes the head.  The head phase may freeze the trunk or train trunk and
+head jointly, according to the resolved configuration.  Each phase receives
+its own optimizer and learning-rate schedule.  A frozen parameter has
+\code{requires\_grad=False}; PyTorch does not construct its gradient.
+
+The phase boundary is a state transition, not merely a banner.  Tests count
+trainable trunk and head parameters and verify which weights can change.
+
+\section{The five output families}
+\label{chap:families}
+
+The training machinery is shared, but the physical object predicted by the
+network changes by family.
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.16\textwidth}p{0.26\textwidth}p{0.23\textwidth}p{0.24\textwidth}}
+\toprule
+Family & Raw target & Output axis & Physical reconstruction \\
+\midrule
+Cosmic shear & Masked $3\times2$-point data vector & Probe block and angular
+bins & Dense covariance geometry; optional IA templates. \\
+Scalar & Named derived parameters & Output-name list & Per-output center and
+scale. \\
+CMB & One spectrum $C_\ell$ & Multipole $\ell$ & Per-$\ell$ covariance scale
+and amplitude law. \\
+Background & $H(z)$ or $D_M(z)$ & Redshift $z$ & Target-law inverse; distances
+derived from $H(z)$. \\
+Matter power & $P_{\rm lin}(z,k)$ or nonlinear boost & Stored $(z,k)$ grid &
+Target-law inverse and analytic-base multiplication. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Cosmic shear}
+
+The cosmic-shear geometry reads a likelihood covariance, mask, data-vector
+center, and probe layout.  A model predicts only the unmasked entries.  The
+loss scatters their residual into the full vector and contracts the kept
+covariance block.  Structured heads use the persisted angular/bin map.
+
+\subsection{Scalar derived parameters}
+
+For scalar emulation, both input and target columns come from one parameter
+table.  Names, rather than a fixed slice, locate the outputs.  The prediction
+API returns a dictionary from output name to physical value.
+
+\subsection{CMB spectra}
+
+One artifact predicts one spectrum type.  The geometry stores the exact
+multipole sequence, units, fiducial spectrum, and diagonal uncertainty.  The
+adapter may assemble several independently trained spectra, but it must prove
+their requested multipole layouts rather than assuming equal widths imply
+equal axes.
+
+\subsection{Background functions}
+
+The background network predicts a function on a stored redshift grid.  For an
+$H(z)$ artifact, the shared physics module computes
+\begin{align}
+  \chi(z)&=\int_0^z\frac{c}{H(z')}\,dz',\\
+  D_A(z)&=\frac{\chi(z)}{1+z},&
+  D_L(z)&=\chi(z)(1+z).
+\end{align}
+for a flat model.  These derived quantities are deterministic physics, not
+additional neural outputs.  Queries are valid only inside the trained domain
+recorded by the artifact.
+
+\subsection{Matter-power surfaces}
+
+The matter-power target has shape $(N,N_z,N_k)$ and is flattened with redshift
+as the outer coordinate.  A target law may divide by a known analytic base and
+take a logarithm.  Staging performs this transformation in bounded row chunks
+and may thin the $k$ axis before materializing the final width.
+
+At inference, the predictor reshapes the network row to $(N_z,N_k)$.  The
+consumer multiplies the persisted law's analytic base back.  Constant low-$k$
+boost points may be pinned only when the quantity, coordinates, and law make
+that constant physically valid.
+
+\section{Saving, rebuilding, and predicting}
+\label{chap:artifacts}
+
+Training ends with a live Python object on one machine.  Inference needs a
+self-contained record that can rebuild the same computation later.
+
+\subsection{The two-file artifact}
+
+The current format uses
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.21\textwidth}p{0.68\textwidth}}
+\toprule
+File & Contents \\
+\midrule
+\code{root.emul} & The model \code{state\_dict}: parameter and registered-buffer
+names mapped to CPU tensors. \\
+\code{root.h5} & Input/output geometry state, model recipe, resolved
+configuration, histories, physical metadata, and optional NPCE/transfer base. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+A \code{state\_dict} is not a model object.  It contains numerical state but
+not the Python constructor that gives those tensors meaning.  The HDF5 model
+recipe supplies the class name, dimensions, and constructor options.
+
+\subsection{Moving tensors into storage}
+
+For a model tensor $w$,
+\code{w.detach()} returns a tensor disconnected from gradient history.
+\code{w.cpu()} moves its storage to host memory when necessary.
+\code{w.numpy()} presents CPU tensor storage as a NumPy array when the dtype is
+compatible.  Saving CPU tensors lets a machine without the training GPU open
+the artifact.
+
+HDF5 uses groups, datasets, and attributes.  A group is a directory-like
+container.  A dataset is an array payload.  An attribute is scalar metadata
+attached to a group or file.  Nested geometry dictionaries become nested
+groups through a recursive writer.
+
+\subsection{Rebuilding the geometry class}
+
+Each geometry group stores a class string such as
+\code{emulator.geometries.parameter.ParamGeometry}.  Rebuilding performs four
+steps:
+\begin{enumerate}
+  \item split the string into module path and class name,
+  \item import the module,
+  \item retrieve the class object, and
+  \item call that class's \code{from\_state} constructor.
+\end{enumerate}
+Using the persisted class prevents a factored or logarithmic geometry from
+silently rebuilding as its simpler base class.
+
+\subsection{Rebuilding the model}
+
+The model recipe stores factory choices as names because a Python callable
+cannot be represented directly in YAML.  Rebuilding translates those names
+back into activation and normalization factories, constructs the eager model,
+and loads the weights with \code{strict=True}.  Strict loading rejects both
+missing and unexpected keys.
+
+A compiled model wraps the eager module and may prefix state keys with
+\code{\_orig\_mod.}.  Saving removes that wrapper prefix.  Rebuilding loads the
+plain state first and compiles afterward when requested and supported.
+
+\subsection{Prediction}
+
+\code{EmulatorPredictor.predict} performs
+\begin{equation*}
+\begin{array}{c}
+\text{parameter dictionary}\\
+\downarrow\quad\text{order by saved parameter names}\\
+\Theta\;(1\times P)\\
+\downarrow\quad\text{parameter geometry encode}\\
+X\;(1\times P_{\rm enc})\\
+\downarrow\quad\text{model in evaluation mode under no-grad}\\
+\widehat T\\
+\downarrow\quad\text{physics-aware loss decoder and output geometry}\\
+\widehat d\text{ in physical units.}
+\end{array}
+\end{equation*}
+
+Evaluation mode disables training-only behavior.  \code{torch.no\_grad()}
+avoids constructing a backward graph, reducing memory and latency.  The
+artifact's parameter names, axes, units, and laws determine the result; the
+caller does not redeclare them.
+
+\section{Cobaya adapters: presenting the emulator as a theory component}
+\label{chap:adapters}
+
+Cobaya asks a theory component for named quantities at a sampled cosmology.
+The adapters in \code{cobaya\_theory/} translate that lifecycle into an
+\code{EmulatorPredictor} call.
+
+\subsection{Lifecycle methods}
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.22\textwidth}p{0.66\textwidth}}
+\toprule
+Method & Responsibility \\
+\midrule
+\code{initialize} & Validate options, choose device, load artifacts, and cache
+immutable metadata. \\
+\code{get\_requirements} & Declare sampled or provider-supplied inputs needed
+by the prediction. \\
+\code{must\_provide} & Validate the requested output coordinates and record
+what the likelihood asks for. \\
+\code{calculate} & Build the parameter mapping, call the predictor, validate
+the returned payload, and place it in the current state. \\
+Getter methods & Return named arrays from the accepted current state. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The adapter is a boundary between untyped configuration values and numerical
+code.  Boolean, integer, float, path, and list options require explicit value
+validation; Python truthiness and numeric coercion must not reinterpret quoted
+strings or NaN.
+
+\subsection{Requested coordinates are part of the contract}
+
+An output width is not an axis.  Two multipole arrays can have equal length
+and different values.  Two redshift grids can have equal length and different
+sampling.  \code{must\_provide} validates the complete requested coordinate
+sequence against the persisted artifact sequence before any calculation can
+return a value.
+
+When several artifacts contribute blocks to one output vector, the adapter
+must prove that the layouts are compatible and the destination blocks do not
+overlap.  Blind concatenation is not a layout proof.
+
+\subsection{State ownership}
+
+One \code{calculate} call corresponds to one sampled cosmology.  A rejected
+external calculation must not expose arrays cached by an earlier cosmology.
+The acceptance verdict is checked before any provider getter is called, and
+the current state is replaced only by payloads produced for the current point.
+
+\section{Gates: executable evidence that the pipeline still means what it says}
+\label{chap:gates}
+
+A gate is a test whose failure blocks acceptance of a program unit.  The board
+is the ordered list of gates.  Each entry names its dependencies, required
+software or hardware, owning documentation, and executable check.
+
+\subsection{Identity checks and smoke checks}
+
+An identity check isolates mathematics and serialization with small synthetic
+inputs.  A smoke check runs a short real external pipeline, such as CAMB or
+CosmoLike, and proves that the components connect on the production path.
+Neither substitutes for the other.
+
+An identity check should contain four named pieces:
+\begin{enumerate}
+  \item the production function or public boundary under test,
+  \item a small fixture, meaning a constructed input with known properties,
+  \item an independently calculated expected answer, and
+  \item a deliberately broken form that the check must reject.
+\end{enumerate}
+
+The deliberately broken form establishes catch power: the assertion is not
+merely true of both correct and incorrect implementations.
+
+\subsection{Test doubles}
+
+A test double replaces an expensive or unavailable collaborator.  A stub
+returns predetermined values.  A fake implements a small working substitute.
+A monkeypatch temporarily replaces the referenced function or class during a
+test.  Every double must state which behavior it reproduces and which external
+behavior it cannot prove.
+
+An independently known answer cannot be computed by the same helper that
+produces the value under test.  Shared code would reproduce the same defect on
+both sides of the comparison.
+
+\subsection{Exit status and the board}
+
+Each check records failures and exits nonzero when any assertion fails.  The
+board judges the subprocess exit status and required output.  Printing a skip
+message while returning zero is not a skip; without a distinct board status it
+is a pass.
+
+Board resume records are valid only for the executable surface that produced
+them.  If a gate, its imported production code, or its fixture changes, a
+stored pass cannot certify the new tree without a matching executable digest.
+
+Hardware-specific PyTorch evidence belongs in a board-listed gate.  CPU-only
+checks can prove pure validation and algebra.  CUDA compilation, GPU dtype,
+and accelerator-specific behavior require execution on the corresponding
+workstation.
+
+\section{One complete row through the program}
+\label{chap:trace}
+
+The entire pipeline can now be read as one sequence.  Consider generated row
+$i$, containing cosmology $\btheta_i$ and target $\bd_i$.
+
+\begin{enumerate}
+  \item The path resolver converts YAML file names to absolute paths.
+  \item The experiment validates the selected family and records parameter
+        names from the covariance header.
+  \item Staging opens the data-vector dump lazily, loads the parameter table,
+        verifies row counts, applies physical cuts, and selects row $i$ as
+        part of a seeded subset.
+  \item The source dictionary records how to address row $i$ in resident or
+        file-backed storage.
+  \item The parameter geometry transforms $\btheta_i$ into whitened input
+        $x_i$.
+  \item The output geometry and any target law transform $\bd_i$ into target
+        $t_i$.
+  \item A loader returns $x_i$ and $t_i$ on the model device as
+        \code{float32} tensors.
+  \item The model predicts $\widehat t_i$.
+  \item The loss reconstructs the final physical prediction, forms the
+        residual, and computes $\Delta\chi_i^2$.
+  \item Backward differentiation computes parameter gradients.  The finite
+        checks, optional clipping, optimizer, anchor, and moving average act in
+        their defined order.
+  \item Validation scores every held-out row and selects a best epoch whose
+        weights and metrics refer to the same state.
+  \item Saving writes model tensors plus the resolved recipe and geometries.
+  \item Rebuilding reconstructs the eager model, loads weights strictly, and
+        restores physical metadata from the artifact.
+  \item The predictor accepts a named cosmology, repeats the saved encode,
+        model, and decode chain, and returns physical units.
+  \item A Cobaya adapter exposes that result under the requested theory-product
+        name and coordinate grid.
+  \item Identity and smoke gates prove the mathematical, serialization, and
+        external-pipeline boundaries independently.
+\end{enumerate}
+
+The network is only one step in this chain.  Most silent scientific failures
+occur at the boundaries: a mismatched row, an unnamed axis, a scale that
+underflows in storage, a target law applied on only one side, a stale external
+provider result, or a saved recipe that does not describe the weights.  The
+architecture matters, but the program is trustworthy only when every boundary
+states and checks what its numbers mean.
 
 \end{document}
