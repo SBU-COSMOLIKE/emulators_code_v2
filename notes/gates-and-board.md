@@ -5452,3 +5452,56 @@ adjudications remain exclusively mine, and the Implementer may
 spot-review campaign landings (the role swap, for adversarial
 coverage). The anti-self-audit rule: the red team never certifies
 its own campaign work green — my audit is the acceptance.
+
+## USER REASSIGNMENT, EXTENDED: three more transfers to the red team (Fable, 2026-07-13)
+
+The user directed moving everything SAFELY movable beyond the
+didactics campaign. Three items pass the safety test (standalone
+surface, red-team-executable locally, no machinery or one-owner
+coupling); each was red-team-filed with executed witnesses:
+
+1. THE UNIT-13 COVARIANCE PACKAGE: the 25M-08/11/12 trio
+   (stencil-factor representability; the 2x2 noise PSD inequality +
+   assembled-PSD check; beam-exponent representability + postcompute
+   finiteness) PLUS the 45M-01 params-block schema amendment — the
+   whole compute_cmb_covariance.py validator campaign, under the
+   recorded Planck-LCDM byte-identity control. Pure-CPU legs, all
+   executable in the red team's environment. Constraint: the legs
+   live in a covariance-owned check module (new or existing
+   covariance-specific); touching any SHARED gates/checks file
+   needs my coordination first.
+2. UNIT 90 (the BSN independent quadrature reference +
+   Simpson-weights mutation): a bounded addition to bsn_identity —
+   a file no gauntlet batch touches, collision-safe. The torch-
+   dependent execution is workstation-owed as always; an
+   Implementer spot-run on the Mac cocoa interpreter may
+   pre-validate.
+3. UNIT 94's BOUNDARY-INTERIOR HALF (25M-01): the named
+   interval-coordinate helper (nextafter interior), the
+   pre-sampling validation and refusal, and the CPU red legs in
+   generator_core.py's uniform branch. THE SEAM, binding: the
+   requested+resolved support PERSISTENCE clause stays with unit 8
+   (the Implementer's run-control/identity machine); the red team
+   lands the helper FIRST and unit 8 rebases on it — same file,
+   disjoint regions, that landing order.
+
+EXAMINED AND KEPT WITH THE IMPLEMENTER, with reasons: unit 92
+(emulator/training.py production — collision rule); unit 93 (CUDA-
+only execution, pairs with 77/80's Torch legs); unit 95 (spans
+staging/experiment/sweep drivers — design-wide); unit 96 (artifact
+core, interlocks 3/76/41); the 25M-06 .ranges fix (unit 82's ONE
+canonical decimal representation must not gain a second owner); the
+D3/D4/D5 gauntlet (critical path, torch-dependent fixtures,
+Implementer momentum); 27/28 + queue 2 (machinery); the queue-3
+reopen 32/33/34 (emulator/data_staging production); unit-21's
+publication PSD (couples to the D3/56 publication predicate); the
+wave-4/EMUL2 chain and both design proposals.
+
+The red team's implementation surfaces now total: the four READMEs
++ named docstring surfaces + unit 91's new module + texnotes
+(campaign), compute_data_vectors/compute_cmb_covariance.py + its
+check module (unit 13), gates/checks/bsn_identity.py (unit 90), and
+generator_core.py's uniform branch (unit 94 half, landing before
+unit 8). Everything else remains Implementer territory. Governance
+unchanged: every landing Architect-audited pre-merge; the red team
+never self-certifies; adjudications stay mine.
