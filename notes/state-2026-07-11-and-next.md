@@ -2098,6 +2098,15 @@ census (law, rescaling, transfer roughness) audited under the same
 discipline. Blocks production hyperparameter sweeps over loss
 blocks. Spec: gates-and-board.md "20M-25 adjudication".
 
+BATCH-5A AUDIT + POPULATION GO (2026-07-13, Fable): `fddf05f` PASS —
+geo-paths rc 0 with the live find_spec probe, 74-leg selftest,
+15-gate --list, and the declaration proven REQUIRED (the rootless
+closure reaches both waived files). Batches 4 (gate_data schema as
+ruled) and 5b (cli-strict reviewed waiver entries) are GO; their
+landing completes the 1b population and unblocks queue 2. Spec:
+gates-and-board.md "Batch 5a (geo-paths) — pre-merge Architect
+audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

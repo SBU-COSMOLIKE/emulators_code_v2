@@ -2549,3 +2549,28 @@ under one discipline. -> NEW UNIT 89 (training-stack.md), the
 loss-object sibling of unit 55's repeated-training isolation class,
 distinct from unit 79's family eligibility; blocks production
 hyperparameter sweeps over loss blocks.
+
+### Batch 5a (geo-paths) — pre-merge Architect audit (Fable, 2026-07-13): PASS; batches 4 + 5b are GO — population completes on their landing
+
+Commit `fddf05f` audited (it landed just before the find_spec ruling
+committed — the crossing resolved correctly, the code matches the
+approved option (a) exactly). Evidence, re-executed from a clean
+checkout of the branch tip: geo-paths rc 0 with the find_spec probe
+live ("all 6 absent from the import system") and the census leg
+green; board-selftest 74 legs ALL PASS; `--list` rc 0 over the
+15-gate populated board. Declaration truthfulness verified beyond
+sufficiency: the Architect derived geo-paths' closure WITHOUT its
+declared roots — it reaches BOTH waived files (results.py +
+warmstart.py), so the designs+losses roots are REQUIRED by the
+dynamic-import census, not gratuitous.
+
+GO (answers the crossed handoff; both rulings were issued in
+`39ee40e`): batch 4 (the 12 driver gates) proceeds under the
+gate_data schema exactly as ruled — the paste-ready block shape,
+dotted gate_data.<gate-id>.<label> keys, the existing resolution
+ladder, resolve-not-exist semantics; batch 5b (cli-strict) proceeds
+under the reviewed-waiver lane — _DYNAMIC_IMPORT_WAIVERS entries for
+cli_strict.py's bounded entry-point driver imports, naming the driver
+roots the gate then declares. Their landing COMPLETES the 1b
+population; queue 2 (the evidence rollout) unblocks at that merge.
+The populated board's real reruns remain the first queue-5 exhibit.
