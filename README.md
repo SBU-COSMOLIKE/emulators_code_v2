@@ -81,8 +81,6 @@ edit for a given change — lives in [`emulator/README.md`](emulator/README.md).
 
 ## Contents
 
-- **Code map** (layout, file roles, change X → edit Y): [`emulator/README.md`](emulator/README.md)
-
 1. [Run it](#1-run-it)
     1. [Setup: where it runs, and the three path flags](#setup-where-it-runs-and-the-three-path-flags)
     2. [One training run](#one-training-run)
@@ -190,15 +188,10 @@ This writes the trained emulator under `--root/chains` as a `.emul` / `.h5`
 pair: the `.emul` holds the best-epoch weights, and the `.h5` carries both
 whitening geometries, the per-epoch histories, and the fully resolved config
 (schema v2). Because the HDF5 record stores the resolved configuration,
-rebuild does not silently adopt a later configuration default. That is
-configuration self-containment, not immunity to implementation changes:
-current artifacts do not yet bind an implementation manifest or the exact
-`.h5`/`.emul` pair. `rebuild_emulator` in `emulator/results.py` reads the
-stored recipe rather than current defaults. Known integrity gap (fix queued): the `.h5`
-does not yet carry a digest of its `.emul`, and saving the pair is not a
-two-file transaction. Do not mix files from different path roots or overwrite
-a trusted artifact in place until the binding lands; the exact contract is in
-`notes/artifacts-inference-warmstart.md`.
+`rebuild_emulator` in `emulator/results.py` reads the stored recipe rather than
+later configuration defaults. Keep the two files together: do not mix files
+from different path roots or overwrite only one member of a trusted `.h5` /
+`.emul` pair.
 
 ### Run the saved emulator in a Cobaya MCMC
 
