@@ -1034,6 +1034,80 @@ def check_manifest_riders():
            run_board.validate_manifests([g], cfg)[0], "the key names a real file")
 
 
+def check_input_owner_resolution():
+    """1b hardening (25M-19): one owner-specific resolver per input namespace,
+    NO process-CWD candidate, shared by the manifest writer and the gate
+    consumer -- so the hashed path is the executed path from any cwd, and a
+    repo-owned input that fails to resolve reds instead of hashing None.
+
+    Drives the REAL _resolve_config_path / RunContext.evaluate_yaml /
+    validate_manifests over the live board_config.
+    """
+    import os
+    import tempfile
+    cfg = run_board._load_config()
+
+    # owner dispatch: each namespace resolves under its reviewed owner.
+    report("25M-19 owner dispatch (evaluate_yaml=repo, gate_configs=yaml_dir, "
+           "deploy_data=machine)",
+           run_board._input_owner("evaluate_yaml") == "repo"
+           and run_board._input_owner("gate_configs.ema-smoke-config") == "yaml_dir"
+           and run_board._input_owner("deploy_data.lsst_y1_ggl_dataset") == "machine",
+           "one owner per namespace")
+
+    # two-cwd identity: resolution is a function of the owner, not the shell cwd.
+    here = os.getcwd()
+    p1 = run_board._resolve_config_path("evaluate_yaml", cfg)
+    tmp = tempfile.mkdtemp(prefix="owner-cwd-")
+    try:
+        os.chdir(tmp)
+        p2 = run_board._resolve_config_path("evaluate_yaml", cfg)
+    finally:
+        os.chdir(here)
+    report("25M-19 two-cwd identity: same resolved path from any cwd",
+           p1 == p2 and p1 is not None, str(p1))
+
+    # collision-ignored: a decoy of the same relative name in the cwd is NOT
+    # picked up -- proof there is no process-CWD candidate (the CWD-first
+    # mutation the old resolver carried is gone).
+    decoy_root = Path(tempfile.mkdtemp(prefix="owner-decoy-"))
+    (decoy_root / "gates" / "configs").mkdir(parents=True)
+    (decoy_root / "gates" / "configs"
+     / "cobaya-adapter-evaluate.yaml").write_text("DECOY\n")
+    try:
+        os.chdir(decoy_root)
+        p3 = run_board._resolve_config_path("evaluate_yaml", cfg)
+    finally:
+        os.chdir(here)
+    report("25M-19 collision-ignored: a cwd decoy is not chosen (no CWD candidate)",
+           p3 == p1 and "DECOY" not in Path(p3).read_text(),
+           "the owner base wins over a same-named file in the cwd")
+
+    # executed == hashed: the RunContext consumer resolves the SAME path the
+    # manifest writer hashes (the executed path is the hashed path).
+    ctx = run_board.RunContext(cfg=cfg, dry=False, log_fh=None, env={},
+                               debug=False)
+    report("25M-19 executed == hashed: consumer path == manifest-writer path",
+           ctx.evaluate_yaml() == run_board._resolve_config_path("evaluate_yaml",
+                                                                 cfg),
+           str(ctx.evaluate_yaml()))
+
+    # repo-owned refuse-None-sha: a repo input pointing at an absent repo file
+    # reds (a repo file must resolve, never hash None); the mutation restores an
+    # absent path and must red.
+    bad = dict(cfg)
+    bad["evaluate_yaml"] = "gates/configs/does-not-exist.yaml"
+    ca = [g for g in BOARD if g.id == "cobaya-adapter"][0]
+    ok, errs = run_board.validate_manifests([ca], bad)
+    report("25M-19 repo-owned input that fails to resolve reds (refuse None sha)",
+           (not ok) and any("does not resolve to a repo file" in e for e in errs),
+           "an absent repo file is a resolution bug, not a dev-box gap")
+    # control: the real evaluate_yaml resolves and the gate validates.
+    report("25M-19 the real repo-owned input resolves and clears (control)",
+           run_board.validate_manifests([ca], cfg)[0],
+           "evaluate_yaml resolves under _REPO on any machine")
+
+
 def check_manifest_persistence():
     """1b phase 2: a declared gate persists its resolved manifest members, its
     digest IS the member digest, a changed member reads stale-code (named), a
@@ -1238,6 +1312,8 @@ def main():
     check_runtime_loader_census()
     print("\n-- manifest riders (root schema, dir expansion, input keys) --")
     check_manifest_riders()
+    print("\n-- input owner resolution (owner base, no cwd, executed==hashed) --")
+    check_input_owner_resolution()
     print("\n-- manifest persistence (resolved members, digest, pre-manifest) --")
     check_manifest_persistence()
     print("\n-- child environment (sh injects the certified ROOTDIR) --")

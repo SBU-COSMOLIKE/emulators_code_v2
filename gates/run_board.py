@@ -410,14 +410,18 @@ class RunContext:
     return path
 
   def evaluate_yaml(self):
-    """The cobaya evaluate YAML for cobaya-adapter (repo-relative or absolute)."""
+    """The cobaya evaluate YAML for cobaya-adapter (repo-owned input).
+
+    Delegates to the module-level owner resolver (_resolve_config_path) -- the
+    SAME resolver the manifest writer hashes -- so the executed path is exactly
+    the hashed path, from any working directory (25M-19).
+    """
     value = self.cfg.get("evaluate_yaml")
     if value is None:
       if self.dry:
         return Path("<UNSET:evaluate_yaml>")
       raise GateFailure("board_config.json evaluate_yaml is unset")
-    path = Path(value)
-    return path if path.is_absolute() else self.repo / path
+    return _resolve_config_path("evaluate_yaml", self.cfg)
 
   def rootdir(self):
     """The cocoa $ROOTDIR (cwd for cobaya-run), or a dry placeholder.
@@ -1167,11 +1171,23 @@ def validate_manifests(gates, cfg):
       errors.append("gate '" + gate.id + "' manifest: declared code root '"
                     + root + "' is not a repo .py file or a directory")
 
-    # (r3) every declared input key resolves against board_config.
+    # (r3) every declared input key resolves against board_config to a string;
+    # a REPO-owned input additionally must resolve to an existing repo file (a
+    # None sha would be the resolution bug 25M-19 witnessed, not a dev-box gap).
+    # Machine / yaml_dir inputs may be absent on a numpy-only box, so only a
+    # repo-owned input refuses a missing file.
     for key in sorted(man.inputs):
       if _config_key_value(key, cfg) is None:
         errors.append("gate '" + gate.id + "' manifest: input key '" + key
                       + "' does not resolve against board_config")
+        continue
+      if _input_owner(key) == "repo":
+        resolved = _resolve_config_path(key, cfg)
+        if resolved is None or not resolved.is_file():
+          errors.append("gate '" + gate.id + "' manifest: repo-owned input '"
+                        + key + "' does not resolve to a repo file ("
+                        + str(resolved) + ") -- a repo input must resolve and "
+                        "hash, never record a None sha")
 
     covered = _manifest_seeds(gate)     # expanded roots + check scripts + harness
 
@@ -1522,30 +1538,75 @@ def _gate_code_manifest(gate):
   return members
 
 
+# The resolution owner of each board_config input namespace (25M-19): one owner
+# per namespace, shared by the manifest writer AND the gate consumer, so the
+# path the manifest hashes is exactly the path the gate runs. There is NO
+# generic process-CWD candidate -- resolution is a function of the reviewed
+# owner, never of the shell's working directory (the false currency the audit
+# witnessed: from an unrelated cwd the old resolver recorded a None sha while
+# the gate executed the real repo file).
+#   repo     -> a file the repo always ships, resolved against _REPO (the actual
+#               checkout, machine-independent); it MUST resolve, so a None sha is
+#               a resolution bug, not a dev-box gap (refuse it).
+#   yaml_dir -> a driver / smoke YAML under the configured yaml_dir.
+#   machine  -> a deploy-machine data file, resolved against rootdir; it may be
+#               absent on a numpy-only dev box (rider r3's resolve-not-exist).
+_INPUT_OWNERS = {"gate_configs": "yaml_dir",
+                 "deploy_data":  "machine",
+                 "gate_data":    "machine"}
+_REPO_OWNED_INPUTS = ("evaluate_yaml",)
+
+
+def _input_owner(key):
+  """The reviewed resolution owner of a board_config input key, or None.
+
+  A top-level repo input (evaluate_yaml) is repo-owned; a dotted key's owner is
+  keyed on its namespace head (gate_configs / deploy_data / gate_data).
+  """
+  if key in _REPO_OWNED_INPUTS:
+    return "repo"
+  return _INPUT_OWNERS.get(key.split(".")[0])
+
+
 def _resolve_config_path(key, cfg):
-  """Resolve a dotted board_config key to a file Path, or None.
+  """Resolve a board_config input key to a Path under its reviewed owner (25M-19).
 
   The key walks cfg (e.g. "gate_configs.stage_ram" -> cfg["gate_configs"]
-  ["stage_ram"]); the resolved string is tried absolute, then rootdir-relative,
-  then yaml_dir-relative, and the first that is a file wins. So a declared gate
-  names its specific input by a stable config key, never a machine path.
+  ["stage_ram"]); the resolved string is then placed by its OWNER, with no
+  process-CWD candidate, so the resolved path is the same from any working
+  directory and the manifest hashes exactly what the gate executes. Existence is
+  NOT checked here (the caller hashes the bytes and validate_manifests enforces
+  that a repo-owned input actually resolves); an absolute value is honored as-is.
+
+  Arguments:
+    key = the dotted board_config input key.
+    cfg = the resolved board_config.
+
+  Returns:
+    the Path the owner resolves the value to, or None when the key does not
+    resolve to a string or its namespace has no reviewed owner.
   """
   value = _config_key_value(key, cfg)
   if value is None:
     return None
-  tries = [Path(value)]
-  if not Path(value).is_absolute():
-    if cfg.get("rootdir"):
-      tries.append(Path(cfg["rootdir"]) / value)
+  path = Path(value)
+  if path.is_absolute():
+    return path
+  owner = _input_owner(key)
+  if owner == "repo":
+    return _REPO / value
+  if owner == "yaml_dir":
     ydir = cfg.get("yaml_dir")
-    if ydir:
-      base = Path(ydir)
-      if not base.is_absolute() and cfg.get("rootdir"):
-        base = Path(cfg["rootdir"]) / ydir
-      tries.append(base / value)
-  for cand in tries:
-    if cand.is_file():
-      return cand
+    if not ydir:
+      return None
+    base = Path(ydir)
+    if not base.is_absolute() and cfg.get("rootdir"):
+      base = Path(cfg["rootdir"]) / ydir
+    return base / value
+  if owner == "machine":
+    if cfg.get("rootdir"):
+      return Path(cfg["rootdir"]) / value
+    return path
   return None
 
 
