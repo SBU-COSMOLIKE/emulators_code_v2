@@ -2717,9 +2717,11 @@ rows.  \code{load\_dv} returns encoded targets.  Both accept row indices and
 return tensors on the compute device.
 
 A common transfer line has the form
+\begin{small}
 \begin{verbatim}
 t_tr = torch.from_numpy(C_tr).float().to(device)
 \end{verbatim}
+\end{small}
 Read it left to right.  \code{torch.from\_numpy(C\_tr)} creates a CPU tensor
 that initially shares storage with the NumPy array when its dtype is already
 compatible.  \code{.float()} requests PyTorch \code{float32}; it allocates a
@@ -3326,42 +3328,32 @@ a width-three nonconstant band exercises the projection stencil.
 
 CMB spectra contain a strong approximate dependence on primordial amplitude
 and optical depth.  The family can factor a known law from the training target
-so the network learns a gentler residual.  In the currently executed
-\code{as\_exp2tau} path, the code decodes named physical parameters and forms
+so the network learns a gentler residual.  The executed
+\code{as\_exp2tau\_ref} law uses named finite reference values and forms
 \begin{equation*}
-  g(\btheta)=\frac{\exp(2\tau)}{A_s}.
+ g(\btheta)
+ =\frac{A_{s,{\rm ref}}}{A_s}
+  \exp\!\left[2(\tau-\tau_{\rm ref})\right],
 \end{equation*}
+so the factor is dimensionless and equals one at the reference cosmology.
 Training and decoding use inverse operations:
 \begin{equation*}
   t=\mathcal G\!\left(gC\right),\qquad
   \widehat C=\frac{\mathcal G^{-1}(\widehat t)}{g},
 \end{equation*}
-where \(\mathcal G\) is the remaining geometry transform.
+where \(\mathcal G\) is centering and diagonal whitening.  The artifact
+persists the amplitude parameterization, parameter names, and both reference
+values.  The retired \code{as\_exp2tau} law used
+\(\exp(2\tau)/A_s\), a dimensionful factor of order \(10^8\); loading an
+artifact that names it raises with a retraining instruction because metadata
+cannot repair weights fitted in the old target space.
 
-The physical metric must compare \(\widehat C\) with \(C\).  If the loss
-scores the factored residual without dividing the factor out, the reported
-quantity acquires an unwanted \(g^2\) and changes when only
-\(A_s\) or \(\tau\) changes.  The artifact stores the resolved amplitude
-parameterization because raw \(A_s\) and logarithmic amplitude are not
-interchangeable.
-
-\paragraph{Current gap.}
-Raw \(A_s\) is of order \(10^{-9}\), so the present \(g\) is of order
-\(10^8\).  Although encode/decode are inverses and the physical chi-square now
-divides this factor back out, the target scaling is dimensionful and its
-reference convention is not persisted as an artifact fact.
-
-\paragraph{Required closure.}
-A dimensionless reference law uses named finite values
-\begin{equation*}
- g_{\rm ref}(\btheta)
- =\frac{A_{s,{\rm ref}}}{A_s}
-  \exp\!\left[2(\tau-\tau_{\rm ref})\right],
-\end{equation*}
-so the factor equals one at the reference cosmology.  The artifact persists
-the amplitude parameterization and both reference values, loading refuses
-artifacts governed by the old law, and the affected spectra are retrained.
-Changing only metadata cannot repair weights fitted in the old target space.
+The physical metric must compare \(\widehat C\) with \(C\).  Since encoded
+prediction and truth both carry \(g\), their encoded difference also carries
+\(g\); subtraction does not cancel a common multiplicative factor.  The loss
+therefore divides the residual by \(g\) before summing squares.  Omitting that
+step would report \(g^2\Delta\chi^2\) and make model selection depend on
+\(A_s\) and \(\tau\) even at fixed physical error.
 
 \subsection{Roughness penalty}
 
@@ -4013,10 +4005,15 @@ message while returning zero is not a skip; without a distinct board status it
 is a pass.
 
 Board resume records are scientifically valid only for the executable surface
-that produced them.  The present runner records status and the Git tip but
-does not yet bind a pass to a digest of the complete executable surface.  A
-resumed PASS must therefore be treated as provisional after relevant files
-change; force-rerun is the current manual safeguard.
+that produced them.  The present runner records status, a digest of the gate
+body and directly named check scripts, an input/configuration digest, and a
+digest of the immutable raw log.  A changed gate, fixture check, board config,
+or YAML therefore invalidates the stored PASS automatically.
+
+The code digest is not yet a transitive digest of every imported production
+module, generator, adapter, and analytic base.  A production-only change can
+therefore leave that digest unchanged.  Force-rerun remains the manual
+safeguard after an affected production boundary changes.
 
 Hardware-specific PyTorch evidence belongs in a board-listed gate.  CPU-only
 checks can prove pure validation and algebra.  CUDA compilation, GPU dtype,
@@ -4074,10 +4071,11 @@ states and checks what its numbers mean.
 \section{The gate board, one executable claim at a time}
 \label{app:gates}
 
-This appendix explains every gate currently registered in
-\code{gates/board.py}.  A first-time contributor needs to know not only what a
-gate is called, but what production path it executes, what its fixture means,
-which value determines the verdict, and which plausible defect it can catch.
+This appendix explains all forty gates currently registered in
+\code{gates/board.py}, in exact board order.  A first-time contributor needs
+to know not only what a gate is called, but what production path it executes,
+what its fixture means, which value determines the verdict, and which
+plausible defect it can catch.
 
 \subsection{How to read each gate description}
 
@@ -4177,36 +4175,34 @@ pass belongs to the full surface.
 \subsection{Selection, tiers, dependencies, and resume}
 
 The runner can select gate identifiers, a tier, or all gates at and after a
-named entry.
-
-\paragraph{Current gap.}
-An unknown \code{--gate} or \code{--from} name currently warns and can exit
-zero with no tests executed; an unknown \code{--force-rerun} identifier is
-ignored.  Automation must compare requested names with \code{--list} until
-the runner makes this a nonzero selection error.  An empty green run is not
-evidence.
-
-\paragraph{Required closure.}
-Selection is validated against the registry before execution.  A misspelled
-identifier, an empty selected set, or an invalid force-rerun target fails
-before preflight or GPU work.
+named entry.  Selection is validated against the registry before execution.
+A misspelled \code{--gate}, \code{--from}, or \code{--force-rerun}
+identifier produces a nonzero usage error with nearby-name suggestions.  The
+board self-test drives these public arguments and proves that an empty or
+dependency-skipped selection cannot report success.
 
 A dependency states that one gate consumes an artifact or boundary produced
 by another.  For example, adapter parity depends on successful save/rebuild.
 A dependency is not merely earlier list order: the runner confirms its verdict
 before the dependent body proceeds.
 
+Resume skips a prior pass only when the currently implemented gate-code and
+input digests still match.  It distinguishes stale code, stale inputs,
+interruption, failure, and dependency skip; only current PASS is green.
+Force-rerun invalidates selected records without deleting unrelated logs.
+
 \paragraph{Current gap.}
-Resume currently skips a stored PASS by status rather than by executable
-digest.  A descendant Git commit satisfies the ancestry check even when it
-changed the gate, fixture, producer, or adapter.  Use \code{--force-rerun} for
-every affected gate and read the new raw log.
+The gate-code digest covers the gate function and check scripts named
+literally inside it, not the complete transitive imported production surface.
+The dirty-tree watch is likewise narrower than the full scientific surface.
+Consequently, a change only in an imported adapter or generator can still
+require an explicit force-rerun even when resume calls the stored gate current.
 
 \paragraph{Required closure.}
-Resume skips a prior pass only when its canonical executable-surface digest
-still matches.  Force-rerun invalidates selected records without deleting
-unrelated logs.  This lets a long board recover from one late failure while
-preventing an old pass from certifying new code.
+One canonical executable-surface definition is shared by dirty preflight and
+resume identity.  It includes every imported production module, driver,
+adapter, generator, analytic base, fixture, and gate body that can affect the
+claim.
 
 \begin{figure*}[t]
 \centering
@@ -4457,6 +4453,126 @@ per-row width, not width squared.
 a materially negative production-width score as perfect.  Finite-only
 validation lets NaN comparisons evade threshold counts.  On a supported
 compile lane, an exception is failure rather than a green skip.
+
+\subsubsection{\code{board-selftest}: the runner reports what actually ran}
+
+\textbf{Claim and path.}  The board's own selection, dependency, resume,
+atomic-status, and evidence-map machinery cannot manufacture a green command
+from an empty, skipped, stale, or interrupted run.  The pure-Python check
+drives the real \code{run\_board.main}, \code{select\_gates}, and resume
+helpers with small fake Gate objects.
+
+\textbf{Fixture and verdict.}  Fake gates pass, fail, skip through a failed
+dependency, or raise an uncaught interruption.  Unknown selectors and force
+targets must return nonzero with a suggestion.  Mutating a gate body,
+referenced YAML, input config, evidence anchor, or cited log must invalidate
+the corresponding record.  The shipped forty-entry evidence map must resolve
+to real note anchors with unique identifiers.
+
+\textbf{Catch power.}  A status-only resume rule, warning-only selector, log
+overwrite, or board row whose note anchor does not exist makes one of the
+fake scenarios falsely green and is rejected.  This gate tests harness
+control flow; it does not prove any scientific gate body.
+
+\subsubsection{\code{generator-seed}: sampling owns one recorded random stream}
+
+\textbf{Claim and path.}  Generator sampling is reproducible from one required
+integer seed.  The seed constructs an owned NumPy \code{Generator} that is
+threaded through uniform draws, walker initialization, sampler moves, and
+thinning rather than reading process-global \code{np.random} state.
+
+\textbf{Fixture and verdict.}  Two runs with the same seed produce identical
+draws and the chain header records that seed.  Invalid seed types fail before
+sampling.  A monkeypatch of global random functions must not affect the owned
+stream.
+
+\textbf{Catch power.}  One leftover global draw changes the same-seed result
+or triggers the monkeypatch.  The pure gate proves ownership and local
+reproducibility; append/restart replay and MPI worker-count invariance require
+their generator smoke legs.
+
+\subsubsection{\code{cli-strict}: misspelled flags stop before expensive work}
+
+\textbf{Claim and path.}  Every public executable uses strict argument
+parsing.  The check performs a source census and drives representative driver
+\code{main} functions through their real parsers while replacing the
+expensive training boundary with an instrumented stub.
+
+\textbf{Fixture and verdict.}  A valid command reaches the stub exactly once.
+The misspelling \code{--activaton} exits nonzero, names the unrecognized
+argument, and reaches the stub zero times.  All public entry points must use
+\code{parse\_args}, not \code{parse\_known\_args}.
+
+\textbf{Catch power.}  Silently retaining unknown arguments or manually
+discarding parser leftovers lets the misspelled option train a default model;
+the zero-call assertion exposes that behavior.
+
+\subsubsection{\code{family-first}: each driver owns one data family}
+
+\textbf{Claim and path.}  A direct driver selects one physical data-block
+family before experiment construction.  The cosmic-shear driver cannot
+become a CMB, scalar, background, or matter-power run merely because the YAML
+contains that block, while each thin family wrapper accepts its own block.
+
+\textbf{Fixture and verdict.}  Wrong-family configurations fail at startup
+with both expected and received families.  A clean cosmic-shear configuration
+reaches training, and the four family wrappers reach their matching boundary.
+A census verifies that every cosmic-shear campaign pins the same family.
+
+\textbf{Catch power.}  Restoring automatic family dispatch makes a
+wrong-driver fixture run.  Pinning only the single-run driver leaves a sweep
+or search census failure, which is why the gate covers the driver family, not
+one filename.
+
+\subsubsection{\code{stage-ram}: the memory decision counts every copy}
+
+\textbf{Claim and path.}  \code{stage\_source} budgets the compact parameter
+copy, compact target copy, and row-reindex storage before choosing resident or
+file-backed staging.  Parameter and target widths and dtypes are counted
+separately.
+
+\textbf{Fixture and verdict.}  A narrow target with a wide parameter table is
+chosen so target bytes alone fit but the coordinated copies exceed the
+budget.  The real stage function must stay disk-backed.  Resident and
+disk-backed controls return byte-identical selected rows, including an
+unequal-dtype case.
+
+\textbf{Catch power.}  A mutation restoring the old target-only estimate
+selects resident storage and fails the regime verdict even though its returned
+numbers remain correct.  This separates resource truth from numerical truth.
+
+\subsubsection{\code{artifact-readback}: stored values keep their types}
+
+\textbf{Claim and path.}  Artifact Boolean attributes are parsed by an
+explicit typed reader, not Python truthiness.  The check exercises the shared
+reader and scans every artifact Boolean read site.
+
+\textbf{Fixture and verdict.}  A native Boolean is accepted, an absent key
+uses its named default, and string or integer lookalikes---including the
+truthy string \code{\"False\"}---raise with file and schema context.  The
+census requires all read sites to use the shared boundary.
+
+\textbf{Catch power.}  Replacing the reader with \code{bool(value)} turns
+\code{\"False\"} into true and can select drifted transfer weights.  This
+pure gate proves type parsing and source coverage; the live save/forge/rebuild
+artifact leg remains a separate workstation obligation.
+
+\subsubsection{\code{diagnostics-domain}: invalid scores do not become reports}
+
+\textbf{Claim and path.}  Diagnostic producers apply the same finite,
+nonnegative chi-square boundary as training and evaluation before converting
+scores into coverage fractions or residual summaries.  The check calls the
+real local-linear floor and CMB residual diagnostic and censes grid-family
+producer sites.
+
+\textbf{Fixture and verdict.}  Valid scores pass byte-identically; negative
+roundoff inside the width-derived band becomes exact zero; materially negative,
+NaN, and infinite values raise with boundary, rows, and band.  A reachable
+one-coordinate negative floor is refused before \code{f\_floor} is formed.
+
+\textbf{Catch power.}  Bypassing the screen recreates the former false
+\code{f\_floor=0} ``perfect'' result.  A valid diagnostic control prevents the
+repair from converting all small or difficult results into errors.
 
 \subsubsection{\code{berhu-loss}: the objective matches its piecewise law}
 
@@ -4942,6 +5058,48 @@ tolerance, parity, and compile arms.  Print the offending row count and
 minimum.  Do not weaken the predicate until the valid ill-conditioned control
 and the production-width negative mutation have been evaluated together.
 
+\paragraph{\code{board-selftest}.}
+Classify the failure as selection, dependency, resume digest, interruption,
+log atomicity, or evidence-map integrity.  Inspect the fake gate's call count
+before the stored status: a body that did not run can never supply scientific
+evidence.  For digest failures, change one input at a time and confirm which
+stale category the runner reports.
+
+\paragraph{\code{generator-seed}.}
+Compare the first differing draw and identify which sampling stage owns it.
+A difference before the sampler implicates uniform or walker initialization;
+a later difference implicates moves or thinning.  Search for process-global
+random calls only after confirming the seed reached the owned generator.
+
+\paragraph{\code{cli-strict}.}
+Record parser exit status and expensive-boundary call count together.  A
+nonzero traceback after the stub ran is too late; the typo must be rejected by
+argument parsing.  A source-census failure names the executable that still
+accepts unknown flags.
+
+\paragraph{\code{family-first}.}
+Read the requested driver family beside the YAML's detected data block.  If a
+wrong-family run reaches experiment construction, the driver omitted its pin.
+If a correct thin wrapper fails, inspect only its explicit family argument
+before changing shared dispatch.
+
+\paragraph{\code{stage-ram}.}
+Recalculate parameter bytes, target bytes, index bytes, and budget separately.
+If values agree but the regime does not, the defect is accounting rather than
+staging algebra.  Compare resident and disk row coordinates before comparing
+payloads.
+
+\paragraph{\code{artifact-readback}.}
+Print the stored HDF5 type and value before conversion.  A string that looks
+like a Boolean is invalid, not a spelling to coerce.  If the pure reader passes
+but a live rebuild fails, locate the read site that bypassed it.
+
+\paragraph{\code{diagnostics-domain}.}
+Identify the producer and its declared reduction width.  Compare the raw score
+with the derived band before any plotting or availability logic.  A within-
+band negative should normalize to zero; a material negative or nonfinite
+value should never reach a statistic.
+
 \paragraph{\code{berhu-loss}.}
 Identify the analytic region containing the first mismatch.  A value mismatch
 at a knot suggests branch selection; a value match with gradient mismatch
@@ -5418,22 +5576,25 @@ leave executable evidence that the same failure class will be caught later.
 The board can also be read horizontally, by the boundary each gate protects.
 At the configuration boundary, \code{single-phase-demotion},
 \code{head-scheduler-override}, \code{loss-schema-equivalence},
-\code{head-activation-pin}, and \code{relu-tanh-norm} prove that text becomes
-the intended constructible objects.  Their common risk is a value that is
-accepted or printed but does not control construction.
+\code{head-activation-pin}, \code{relu-tanh-norm}, \code{cli-strict}, and
+\code{family-first} prove that commands and text become the intended
+constructible objects for the intended physical family.  Their common risk is
+a value that is accepted or printed but does not control construction.
 
-At the data-selection boundary, \code{param-window-cuts},
-\code{triangle-shading}, and \code{production-diagnostic} connect the
-physical support declared in configuration to staged rows and the human
-coverage report.  The plot gate does not establish row selection by itself,
-but it ensures the report teaches the same domain that selection enforced.
+At the generation and data-selection boundary, \code{generator-seed},
+\code{stage-ram}, \code{param-window-cuts}, \code{triangle-shading}, and
+\code{production-diagnostic} connect reproducible cosmology draws, physical
+support, staged rows, resource policy, and the human coverage report.  The
+plot gate does not establish row selection by itself, but it ensures the
+report teaches the same domain that selection enforced.
 
 At the objective boundary, \code{berhu-loss},
 \code{berhu-anneal}, \code{finite-contract}, and
-\code{eval-batch-invariance} protect the meaning of a score.  They distinguish
-the per-row physical metric from its training transform, and they ensure
-batching, invalid values, or schedule position cannot redefine which epoch
-looks best.
+\code{eval-batch-invariance} protect the meaning of a score.
+\code{diagnostics-domain} extends the same boundary to post-training
+estimators.  They distinguish the per-row physical metric from its training
+transform, and they ensure batching, invalid values, or schedule position
+cannot redefine which epoch looks best.
 
 At the optimizer-state boundary, \code{ema-off-identity},
 \code{ema-smoke}, \code{ema-anneal}, \code{weight-decay-census},
@@ -5455,10 +5616,16 @@ publishes.  Their central invariant is that reuse starts from a known function
 rather than merely from loadable tensors.
 
 At the publication boundary, \code{save-rebuild-drift} proves that the saved
-recipe owns reconstruction, while \code{cobaya-adapter} proves that the
-external consumer sees the same function.  Family smokes add repeated
+recipe owns reconstruction, \code{artifact-readback} protects typed metadata,
+and \code{cobaya-adapter} proves that the external consumer sees the same
+function.  Family smokes add repeated
 lifecycle calls.  These gates close the final gap between an in-memory result
 and a theory product used by inference.
+
+Finally, \code{board-selftest} protects the evidence-control boundary itself:
+selection, dependency, status, digest, log, and note-map machinery.  It cannot
+make a scientific claim true, but it prevents the harness from reporting a
+claim as executed when it was empty, skipped, stale, or interrupted.
 
 This horizontal reading reveals coverage gaps.  A new component that changes
 configuration, representation, training state, and publication needs evidence
@@ -5518,16 +5685,17 @@ The landing record names both.  If source changes after the run, the old logs
 remain historical evidence and a new run is required for the new executable
 identity.
 
-When a gate needs CUDA or another workstation-only capability, the red-team
-or architect supplies the check under \code{gates/checks}, registers it in the
+When a gate needs CUDA or another workstation-only capability, the repository
+maintainer supplies the check under \code{gates/checks}, registers it in the
 board, and gives the operator an exact selection command.  The operator is not
 asked to paste an untracked Python snippet into a GPU shell.  Keeping the
 check in the repository makes its source part of the watched evidence surface
 and lets later board runs repeat it.
 
 The final handoff reports counts only after excluding skips and unexecuted
-gates.  A phrase such as \(33/33\) means thirty-three registered required
-gates executed and passed on the recorded surface.  If the environment lacks
+gates.  On the board described by this appendix, a phrase such as \(40/40\)
+means forty registered required gates executed and passed on the recorded
+surface.  If the environment lacks
 a required lane, the honest result is fewer certified claims plus an explicit
 outstanding capability, not a smaller denominator silently presented as a
 complete board.
