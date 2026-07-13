@@ -1309,25 +1309,43 @@ def check_optimizer_schema():
   guards do not catch. The optimizer spec now rejects a zero (or non-finite) eps
   before the optimizer is built, along with a non-finite / negative weight
   decay, a non-positive / non-finite learning rate, and a beta outside [0, 1).
-  (Validating the parameters an optimizer step actually produces is the
-  workstation companion to this schema check.)
+  Each control is validated by type, not made valid by coercion: a bool (a
+  subclass of int) and a numeric string would both pass a float()-then-range
+  check, so both are refused at the boundary. (Validating the parameters an
+  optimizer step actually produces is the workstation companion to this schema
+  check.)
   """
   base = {"cls": torch.optim.AdamW, "weight_decay": 0.0}
-  # valid controls pass.
+  # valid controls pass, including a genuine int learning rate.
   try:
     _validate_optimizer_opts(base, 1e-3)
     _validate_optimizer_opts(dict(base, eps=1e-8, betas=(0.9, 0.999)), 1e-3)
-    report("optimizer schema: valid AdamW opts pass", True, "accepted")
+    _validate_optimizer_opts(dict(base), 1)
+    report("optimizer schema: valid AdamW opts pass (incl int lr)", True,
+           "accepted")
   except ValueError as exc:
-    report("optimizer schema: valid AdamW opts pass", False, str(exc))
-  # each out-of-range kwarg is refused.
+    report("optimizer schema: valid AdamW opts pass (incl int lr)", False,
+           str(exc))
+  # each out-of-range OR wrong-type kwarg is refused. The bool and string legs
+  # are the coercion arms: float(True) is 1.0 and float("0.1") is 0.1, so a
+  # coercing check would silently accept them.
   cases = [("eps = 0 (the 0/0 zero-gradient trap)", dict(base, eps=0.0), 1e-3),
            ("non-finite eps", dict(base, eps=float("inf")), 1e-3),
            ("negative weight_decay", dict(base, weight_decay=-1.0), 1e-3),
            ("non-positive lr", dict(base), 0.0),
            ("non-finite lr", dict(base), float("nan")),
            ("beta2 == 1.0", dict(base, betas=(0.9, 1.0)), 1e-3),
-           ("single beta", dict(base, betas=(0.9,)), 1e-3)]
+           ("single beta", dict(base, betas=(0.9,)), 1e-3),
+           ("boolean lr (True)", dict(base), True),
+           ("boolean lr (False)", dict(base), False),
+           ("boolean eps (True)", dict(base, eps=True), 1e-3),
+           ("boolean weight_decay (False)", dict(base, weight_decay=False),
+            1e-3),
+           ("boolean beta (True)", dict(base, betas=(True, 0.999)), 1e-3),
+           ("string lr ('0.1')", dict(base), "0.1"),
+           ("string eps ('1e-8')", dict(base, eps="1e-8"), 1e-3),
+           ("string weight_decay ('0')", dict(base, weight_decay="0"), 1e-3),
+           ("string betas ('0.9')", dict(base, betas="0.9"), 1e-3)]
   for label, opts, lr in cases:
     refused = False
     try:

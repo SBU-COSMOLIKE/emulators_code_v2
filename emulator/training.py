@@ -165,6 +165,27 @@ def make_model(model_opts, input_dim, output_dim, device,
   return model
 
 
+def _is_finite_real(value):
+  """True only for a finite, non-boolean real number (a plain int or float).
+
+  A public numeric control is validated by type, never made valid by
+  coercion. Two values would slip through a float()-then-range check: bool is
+  a subclass of int (float(True) is 1.0), and a numeric string converts
+  (float("0.1") is 0.1). This admits only a genuine int or float that is not a
+  bool and whose value is finite, so True / False / "0.1" / NaN / inf are all
+  rejected at the boundary rather than silently accepted.
+
+  Arguments:
+    value = the candidate configuration value.
+
+  Returns:
+    True when value is a finite int or float and not a bool.
+  """
+  if isinstance(value, bool) or not isinstance(value, (int, float)):
+    return False
+  return math.isfinite(value)
+
+
 def _validate_optimizer_opts(opt_opts, lr):
   """Validate an optimizer spec's protocol-bearing numeric kwargs.
 
@@ -188,38 +209,39 @@ def _validate_optimizer_opts(opt_opts, lr):
   Raises:
     ValueError naming the offending kwarg and the range it must fall in.
   """
-  lr_value = float(lr)
-  if not (math.isfinite(lr_value) and lr_value > 0.0):
+  if not (_is_finite_real(lr) and lr > 0.0):
     raise ValueError(
-      "optimizer lr must be finite and positive; got " + repr(lr))
+      "optimizer lr must be a finite positive real (not a bool or string); "
+      "got " + repr(lr))
   weight_decay = opt_opts.get("weight_decay", 0.0)
-  if not (math.isfinite(float(weight_decay)) and float(weight_decay) >= 0.0):
+  if not (_is_finite_real(weight_decay) and weight_decay >= 0.0):
     raise ValueError(
-      "optimizer weight_decay must be finite and nonnegative; got "
-      + repr(weight_decay))
+      "optimizer weight_decay must be a finite nonnegative real (not a bool "
+      "or string); got " + repr(weight_decay))
   if "eps" in opt_opts:
-    eps_value = float(opt_opts["eps"])
-    if not (math.isfinite(eps_value) and eps_value > 0.0):
+    eps = opt_opts["eps"]
+    if not (_is_finite_real(eps) and eps > 0.0):
       raise ValueError(
-        "optimizer eps must be finite and strictly positive; an Adam-family "
-        "eps of 0 forms 0 / (sqrt(0) + 0) at a zero-gradient exact-fit row, a "
-        "non-finite update the loss and gradient guards do not catch. Got "
-        + repr(opt_opts["eps"]))
+        "optimizer eps must be a finite strictly positive real (not a bool or "
+        "string); an Adam-family eps of 0 forms 0 / (sqrt(0) + 0) at a "
+        "zero-gradient exact-fit row, a non-finite update the loss and "
+        "gradient guards do not catch. Got " + repr(eps))
   if "betas" in opt_opts:
+    # a string ("0.9") tuples into single characters, so a non-pair (including
+    # a string) is rejected here before the per-element real check.
     try:
       pair = tuple(opt_opts["betas"])
     except TypeError:
       pair = ()
-    if len(pair) != 2:
+    if len(pair) != 2 or isinstance(opt_opts["betas"], str):
       raise ValueError(
         "optimizer betas must be a pair (beta1, beta2); got "
         + repr(opt_opts["betas"]))
     for index, beta in enumerate(pair):
-      beta_value = float(beta)
-      if not (math.isfinite(beta_value) and 0.0 <= beta_value < 1.0):
+      if not (_is_finite_real(beta) and 0.0 <= beta < 1.0):
         raise ValueError(
-          "optimizer beta" + str(index + 1) + " must be finite in [0, 1); got "
-          + repr(beta))
+          "optimizer beta" + str(index + 1) + " must be a finite real in "
+          "[0, 1) (not a bool or string); got " + repr(beta))
 
 
 def make_optimizer(model, opt_opts, lr, device):

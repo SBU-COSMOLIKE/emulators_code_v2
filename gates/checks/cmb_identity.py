@@ -1336,6 +1336,59 @@ def check_covariance_oracle():
            last_weight == 0.0, "per_band_weight[-1] = %r" % last_weight)
 
 
+def check_cmb_ref_schema():
+    """validate_cmb admits only a finite non-boolean real as_ref / tau_ref.
+
+    The fiducial reference values feed the amplitude factor
+    (As_ref / A_s) exp(2(tau - tau_ref)); a boolean or a numeric string that a
+    float() coercion would silently accept becomes a wrong-magnitude fiducial
+    and a scaled target. validate_cmb now validates them by type, the same
+    finite non-boolean real predicate the optimizer schema and the other public
+    scientific controls use. Control: a valid reference config passes. Red
+    legs: as_ref / tau_ref as True, False, a numeric string, NaN, infinity, a
+    zero or negative as_ref (the divide-by boundary) each raise.
+    """
+    def cfg():
+        return {"data": {"cmb": {"spectrum": "tt", "covariance": "cov.npz",
+                                 "amplitude_law": "as_exp2tau_ref",
+                                 "as_name": "As", "tau_name": "tau",
+                                 "as_ref": AS_REF_FIXTURE,
+                                 "tau_ref": TAU_REF_FIXTURE},
+                         "train_dv": "t.npy", "val_dv": "v.npy",
+                         "train_params": "t.txt", "val_params": "v.txt",
+                         "train_covmat": "cm.npz"},
+                "train_args": {"nepochs": 1}}
+
+    try:
+        validate_cmb(cfg(), {"nepochs": 1})
+        report("CMB ref schema: a valid finite as_ref / tau_ref passes",
+               True, "accepted")
+    except Exception as exc:
+        report("CMB ref schema: a valid finite as_ref / tau_ref passes",
+               False, repr(exc))
+
+    cases = [("as_ref", True, "boolean as_ref (True)"),
+             ("as_ref", False, "boolean as_ref (False)"),
+             ("as_ref", "2.1e-9", "string as_ref"),
+             ("as_ref", float("nan"), "NaN as_ref"),
+             ("as_ref", float("inf"), "infinite as_ref"),
+             ("as_ref", 0.0, "zero as_ref (divide-by boundary)"),
+             ("as_ref", -1.0, "negative as_ref"),
+             ("tau_ref", True, "boolean tau_ref (True)"),
+             ("tau_ref", "0.05", "string tau_ref"),
+             ("tau_ref", float("nan"), "NaN tau_ref")]
+    for key, value, label in cases:
+        config = cfg()
+        config["data"]["cmb"][key] = value
+        refused = False
+        try:
+            validate_cmb(config, {"nepochs": 1})
+        except ValueError:
+            refused = True
+        report("CMB ref schema: " + label + " is refused", refused,
+               "ValueError")
+
+
 def main():
     """Run the cmb-identity checks in a tempdir; exit non-zero on failure."""
     print("cmb-identity: geometry + law + round-trip + roughness "
@@ -1344,6 +1397,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         check_ruled_constants(device)
         check_state_roundtrip(device)
+        check_cmb_ref_schema()
         check_law(tmp, device)
         check_roundtrip(tmp, device, law="none")
         check_roundtrip(tmp, device, law="as_exp2tau_ref")
