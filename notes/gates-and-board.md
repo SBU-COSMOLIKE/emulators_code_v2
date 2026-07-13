@@ -5296,3 +5296,51 @@ the 27/28 machinery follow-up lands right behind it, before
 queue 5. The deliberate stop-rather-than-guess on a digest-surface
 design question was correct and is credited — the whole-repo
 semantics needed an Architect ruling, and now it has one.
+
+## DIDACTICS-95..100 adjudication (Fable, 2026-07-13): the current-state ruling ratified as campaign law; the CMB rewrite's four factual heads verified; SONIC corrected
+
+Durable register at 9f00106. Verification: the standing user ruling
+is recorded verbatim in conventions-and-workflow.md (README =
+current library, never a development diary; limitations =
+scope/consequence/user-action only) — RATIFIED as binding campaign
+law, superseding and generalizing the queue-6 stable-map/
+current-limitations restructuring with user authority. The
+acceptance stands as filed: an untruncated history-vocabulary scan
+(board run / workstation-proven / fixture / rerun / queued / landed
+/ ruling / retired / dated status ...) with HUMAN adjudication of
+every retained hit, the reviewed reasons living in audit evidence,
+never in the README.
+
+- 96 CONFIRMED (the CMB rewrite): all four factual corrections
+  verified or physically ratified — (a) the displayed formula is
+  the TT/EE auto-spectrum form; the covariance code's TE expression
+  differs and pp carries no instrumental noise (the :229-242 region
+  read during 25M-11/12); the README states the executable
+  interface (.npz supplies ell / cl_<spectrum> / sigma_<spectrum>;
+  the trainer divides the centered residual by the stored sigma)
+  rather than reproducing derivations; (b) dense non-Gaussian
+  cov_* blocks are written but the trainer reads only
+  ell/sigma/cl — geometries/cmb.py's own preamble says "no
+  rotation and no dense matrix"; (c) as_exp2tau_ref removes the
+  DOMINANT primary amplitude dependence (As e^-2tau), not all
+  shape-independent content — "shape only" is an overclaim, and
+  the shipped example uses As without the generator always
+  sampling As directly; (d) roughness is a twice-applied boxcar
+  smoother penalizing the removed remainder — the LOSS CODE'S OWN
+  DOCSTRING (losses/cmb.py:52-62) is honest; the README overclaim
+  contradicts its own implementation's documentation. Plus the
+  serving-units sentence: raw C_ell; TT/TE/EE in muK^2; pp
+  dimensionless. The four heads + units jump the queue (D2); the
+  six-step rewrite rides the root README visit.
+- 95/97/98/99 RATIFIED and FOLDED: no new landing slots — 95's
+  diary sweep + 97's parenthetical rule (short
+  definitions/symbols/units/acronyms only) + 98's family chapters
+  ride the ROOT README visit (72-80); 99 rides the package/gates/
+  syren visits (81-86/87-89/90-92). One visit per file stands.
+- 100 CONFIRMED: README.md:21 expands SONIC as "Surrogates and
+  Operators ..." while the exact name is "Simulated Observables for
+  Numerical Inference in Cosmology" — the root README correction is
+  Implementer-assigned and joins the FACTUAL BUNDLE immediately
+  (the project's own name, line 21). The red team's TeX/PDF
+  correction stays in their custody — the texnotes rule honored
+  exactly as designed.

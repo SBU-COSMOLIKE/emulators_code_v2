@@ -2676,3 +2676,20 @@ its scan enumerator (one shared function); set-equality +
 byte-edit-any-file fixture. Queue 2 at full 9/9. Spec:
 gates-and-board.md "Hardening 8.5/9 pre-merge audit + the 19
 narrowing and data-read rulings".
+
+DIDACTICS-95..100 (2026-07-13, Fable): the USER RULING (README =
+current library, not a diary; limitations = scope/consequence/user-
+action) RATIFIED as campaign law — recorded in conventions,
+generalizing the queue-6 restructuring with user authority;
+acceptance = untruncated history-vocabulary scan + human
+adjudication of retained hits. 96's four CMB factual heads all
+verified (TT/EE-only formula; dense blocks written-not-consumed —
+the geometry preamble says so itself; as_exp2tau removes the
+dominant amplitude, not all non-shape content; roughness = boxcar
+twice + remainder penalty per the loss's own docstring) + the
+serving-units sentence — heads jump to D2, the rewrite rides the
+root visit. 97/98/99 fold into the four standing file visits; 100
+(SONIC = Simulated Observables for Numerical Inference in
+Cosmology; README says Surrogates and Operators) joins the factual
+bundle NOW. Spec: gates-and-board.md "DIDACTICS-95..100
+adjudication".
