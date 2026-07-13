@@ -3,32 +3,12 @@
 \usepackage{amsmath,amssymb,mathtools}
 \usepackage{booktabs}
 \usepackage[T1]{fontenc}
-\usepackage{xcolor}
-\usepackage{tikz}
-\usetikzlibrary{arrows.meta,calc,fit,positioning,shapes.geometric}
-\usepackage{pgfplots}
-\usepgfplotslibrary{groupplots}
-\pgfplotsset{compat=1.18}
+\usepackage{graphicx}
 
-\definecolor{codegray}{RGB}{245,245,245}
-\definecolor{stageblue}{RGB}{45,105,170}
-\definecolor{transformgold}{RGB}{210,145,35}
-\definecolor{modelgreen}{RGB}{50,145,95}
-\definecolor{sciencepurple}{RGB}{120,80,155}
-\definecolor{guardred}{RGB}{185,70,65}
 \newcommand{\code}[1]{\texttt{#1}}
 \newcommand{\shape}[1]{\ensuremath{\mathtt{#1}}}
 \newcommand{\btheta}{\boldsymbol{\theta}}
 \newcommand{\bd}{\mathbf{d}}
-\tikzset{
-  flowbox/.style={draw,rounded corners=2pt,thick,align=center,
-    minimum height=8mm,inner sep=4pt,font=\small},
-  flowarrow/.style={-{Latex[length=2.2mm]},thick},
-  note/.style={align=left,font=\scriptsize,text width=2.7cm},
-  tensor/.style={draw,thick,fill=stageblue!10,minimum width=9mm,
-    minimum height=6mm,font=\scriptsize,align=center},
-  decision/.style={diamond,draw,thick,aspect=2,align=center,font=\scriptsize}
-}
 
 \begin{document}
 
@@ -252,48 +232,8 @@ run, not a function call.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[x=1cm,y=1cm]
-  \node[flowbox,fill=stageblue!10,text width=3.15cm] (files) at (0,2.2)
-    {\textbf{1. Input files}\\YAML mapping; parameter table
-     $C\!:\!(N,P)$; data-vector dump $V\!:\!(N,D)$};
-  \node[flowbox,fill=stageblue!10,text width=3.15cm] (run) at (4.25,2.2)
-    {\textbf{2. Validated run description}\\absolute paths, one family,
-     requested rows, and named scientific options};
-  \node[flowbox,fill=stageblue!10,text width=3.15cm] (source) at (8.5,2.2)
-    {\textbf{3. Staged source dictionaries}\\NumPy arrays or memmaps plus
-     row coordinates and training means};
-  \node[flowbox,fill=transformgold!13,text width=3.15cm] (geometry) at (12.75,2.2)
-    {\textbf{4. Scientific coordinates}\\parameter encoder, output
-     encoder/decoder, and physical loss};
-
-  \node[flowbox,fill=sciencepurple!11,text width=3.15cm] (product) at (0,-1.7)
-    {\textbf{8. Likelihood-facing product}\\requested theory quantity on
-     the validated physical coordinate axis};
-  \node[flowbox,fill=transformgold!13,text width=3.15cm] (predictor) at (4.25,-1.7)
-    {\textbf{7. Rebuilt predictor}\\strictly loaded model and a physical
-     prediction for a named cosmology};
-  \node[flowbox,fill=sciencepurple!11,text width=3.15cm] (artifact) at (8.5,-1.7)
-    {\textbf{6. Published artifact pair}\\weight file plus HDF5 recipe,
-     geometry state, coordinates, and provenance};
-  \node[flowbox,fill=modelgreen!12,text width=3.15cm] (training) at (12.75,-1.7)
-    {\textbf{5. Training state}\\device tensors, model, optimizer,
-     scheduler, validation record, and histories};
-
-  \draw[flowarrow] (files) -- node[above,font=\scriptsize,align=center]
-    {resolve} (run);
-  \draw[flowarrow] (run) -- node[above,font=\scriptsize,align=center]
-    {stage rows} (source);
-  \draw[flowarrow] (source) -- node[above,font=\scriptsize]
-    {build maps} (geometry);
-  \draw[flowarrow] (geometry) -- node[right,font=\scriptsize]{train}
-    (training);
-  \draw[flowarrow] (training) -- node[above,font=\scriptsize]{save}
-    (artifact);
-  \draw[flowarrow] (artifact) -- node[above,font=\scriptsize]{rebuild}
-    (predictor);
-  \draw[flowarrow] (predictor) -- node[above,font=\scriptsize]{serve}
-    (product);
-\end{tikzpicture}
+\includegraphics[width=0.96\textwidth]
+  {texnotes/figures/fig01_ownership_chain.pdf}
 \vspace{2mm}
 \begin{tabular}{p{0.10\textwidth}p{0.31\textwidth}p{0.49\textwidth}}
 \toprule
@@ -418,7 +358,7 @@ The command uses three different path concepts.
   \item \code{--yaml} is a bare file name inside \code{--fileroot}; it is not
   interpreted relative to the current terminal directory.
 \end{enumerate}
-Thus the configuration file in the example is conceptually
+The configuration file in the example is conceptually
 \begin{equation*}
 \code{ROOTDIR}/\code{--root}/\code{--fileroot}/\code{--yaml}.
 \end{equation*}
@@ -567,20 +507,14 @@ reader does not need to reconstruct inheritance from several YAML locations.
 
 \subsection{Validation precedes expensive work}
 
-The safe execution order is
-\begin{equation*}
-\begin{array}{c}
-\text{command line}\\
-\downarrow\\
-\text{resolved paths and parsed YAML}\\
-\downarrow\\
-\text{validated schema and component specifications}\\
-\downarrow\\
-\text{opened data and staged rows}\\
-\downarrow\\
-\text{model allocation}.
-\end{array}
-\end{equation*}
+The safe execution order has five named states:
+\begin{enumerate}
+  \item parse the command-line strings;
+  \item resolve paths and parse the YAML mapping;
+  \item validate the schema and component specifications;
+  \item open the accepted files and stage rows; and
+  \item allocate the model only after the preceding states succeed.
+\end{enumerate}
 This order makes a misspelled key or invalid schedule a cheap error.  It also
 ensures that artifact metadata describes accepted values rather than merely
 echoing unvalidated user text.
@@ -693,43 +627,8 @@ fixed.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}
-\begin{groupplot}[
- group style={group size=2 by 1,horizontal sep=1.6cm},
- width=.42\textwidth,height=.26\textwidth,
- tick label style={font=\scriptsize},
- label style={font=\small},
- legend style={font=\scriptsize,draw=black!20,fill=white,
-   fill opacity=.92,text opacity=1},
- every axis plot/.append style={thick,mark size=1.7pt}
-]
-\nextgroupplot[
- title={Training-size learning curve},
- xlabel={\(N_{\rm train}\)},ylabel={failure fraction},
- xmode=log,log basis x=10,
- xmin=800,xmax=130000,ymin=0,ymax=.55,
- legend pos=north east]
- \addplot[stageblue,mark=*] coordinates
-   {(1000,.48)(3000,.34)(10000,.20)(30000,.12)(100000,.08)};
- \addlegendentry{\(H\)}
- \addplot[sciencepurple,mark=square*] coordinates
-   {(1000,.50)(3000,.31)(10000,.16)(30000,.09)(100000,.06)};
- \addlegendentry{multi-gate}
- \addplot[modelgreen,mark=triangle*] coordinates
-   {(1000,.53)(3000,.37)(10000,.19)(30000,.10)(100000,.065)};
- \addlegendentry{power}
-\nextgroupplot[
- title={One-knob sweep},
- xlabel={learning rate},ylabel={failure fraction},
- xmode=log,log basis x=10,
- xmin=.00008,xmax=.02,ymin=.08,ymax=.45]
- \addplot[transformgold,mark=*] coordinates
-   {(.0001,.38)(.0003,.25)(.001,.14)(.003,.10)(.01,.29)};
- \draw[guardred,dashed] (axis cs:.003,.08)--(axis cs:.003,.45);
- \node[font=\scriptsize,anchor=south west] at (axis cs:.0032,.34)
-   {best tested point};
-\end{groupplot}
-\end{tikzpicture}
+\includegraphics[width=0.94\textwidth]
+  {texnotes/figures/fig02_campaigns.pdf}
 \caption{How campaign curves are read.  The illustrative activation curves
 compare data efficiency under fixed context.  The one-knob curve changes only
 the learning rate; its minimum does not become a universal default outside
@@ -810,25 +709,8 @@ for turning their scale into finite box boundaries.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[x=1cm,y=1cm]
-  \draw[->,thick] (0,0)--(5.3,0) node[right] {\(\theta_1\)};
-  \draw[->,thick] (0,0)--(0,3.7) node[above] {\(\theta_2\)};
-  \fill[transformgold!12,rotate around={25:(2.4,1.7)}] (2.4,1.7)
-       ellipse[x radius=2.35,y radius=1.05];
-  \draw[transformgold,thick,dashed,rotate around={25:(2.4,1.7)}] (2.4,1.7)
-       ellipse[x radius=2.35,y radius=1.05];
-  \fill[stageblue!28,rotate around={25:(2.4,1.7)}] (2.4,1.7)
-       ellipse[x radius=2.0,y radius=.45];
-  \draw[stageblue,thick,rotate around={25:(2.4,1.7)}] (2.4,1.7)
-       ellipse[x radius=2.0,y radius=.45];
-  \node[note,text width=3.6cm] at (7.5,2.6) {\color{stageblue}Posterior-like
-  density: concentrated along the degeneracy.};
-  \node[note,text width=3.6cm] at (7.5,1.3) {\color{transformgold}Tempered,
-  correlation-limited training density: wider along and across the ridge.};
-  \node[flowbox,fill=modelgreen!10,minimum width=3.8cm] at (12.0,2.0)
-       {validation/test cloud\\inside training support};
-  \draw[flowarrow] (9.3,2.0)--(10.0,2.0);
-\end{tikzpicture}
+\includegraphics[width=0.88\textwidth]
+  {texnotes/figures/fig03_training_cloud.pdf}
 \caption{Conceptual two-parameter coverage.  Temperature widens the proposal;
 correlation control fills directions across the posterior degeneracy.
 Validation belongs inside the trained support so its score measures
@@ -1027,23 +909,76 @@ names explicitly through the \code{.paramnames} sidecar.
 \subsection{Control path: resolving a run before touching the rows}
 
 The single-run driver is \code{cosmic\_shear\_train\_emulator.py}.  Its
-family siblings call the same package layer.  The startup chain is
-\begin{equation*}
-\begin{array}{c}
-\text{command-line strings}\\
-\downarrow\quad \code{resolve\_cocoa\_config}\\
-\text{parsed YAML with absolute data paths}\\
-\downarrow\quad \code{EmulatorExperiment.from\_config}\\
-\text{validated family, model class, device, and run settings}\\
-\downarrow\quad \code{exp.run()}\\
-\text{stage train, stage validation, build geometries, train.}
-\end{array}
-\end{equation*}
+family siblings call the same package layer.  Table~\ref{tab:startup-control}
+shows the startup chain as changes of program state.  The left object in a row
+already exists.  The owner in the middle validates or constructs the object
+on the right.  A row does not silently perform work assigned to a later row.
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.05\textwidth}p{0.22\textwidth}p{0.24\textwidth}
+                p{0.38\textwidth}}
+\toprule
+Step & Object before the call & Code owner & Object after the call \\
+\midrule
+1 & Shell strings such as \code{--root}, \code{--fileroot}, and
+    \code{--yaml}
+  & The family driver and its strict argument parser
+  & Named Python strings.  Unknown command-line options have already raised;
+    no YAML or array is open. \\
+2 & One YAML file name plus the Cocoa roots
+  & \code{resolve\_cocoa\_config}
+  & A nested Python mapping whose declared file paths are absolute.  Values
+    remain ordinary Python values; this step does not create tensors. \\
+3 & The resolved mapping
+  & \code{EmulatorExperiment.}\newline\code{from\_config}
+  & One \code{EmulatorExperiment} with exactly one output family, one model
+    recipe, a device policy, validated run controls, and empty slots for
+    arrays, geometries, and a model. \\
+4 & The experiment plus resolved training and validation file names
+  & \code{stage\_train}, then \code{stage\_val}
+  & Two host-side source dictionaries.  Their arrays are NumPy objects or
+    read-only file mappings; they are not yet CUDA or MPS tensors. \\
+5 & The staged training source and the declared covariance or target law
+  & \code{build\_geometry}
+  & Reversible parameter and output transforms plus the physical loss.  No
+    optimizer step has occurred. \\
+6 & Staged sources, geometries, and validated model/training recipes
+  & \code{train}, reached through \code{exp.run()}
+  & Loaders, model, optimizer, scheduler, and histories.  The experiment now
+    owns the trained state that \code{save\_emulator} may publish. \\
+\bottomrule
+\end{tabular}
+\caption{Startup control path.  \code{exp.run()} is an orchestrator: it calls
+the named stages in order.  It is not one opaque operation that parses paths,
+opens arrays, fits geometries, and trains simultaneously.}
+\label{tab:startup-control}
+\end{table*}
 
 The path resolver reads the environment variable \code{ROOTDIR}.  It joins
 the project name and the \code{chains} directory to each relative data-file
 name.  An absolute path remains absolute.  This step changes strings in a
 Python dictionary.  It does not load the large arrays.
+
+For example, suppose the shell supplies
+\begin{verbatim}
+ROOTDIR=/data/cocoa
+--root projects/lsst_y1
+--fileroot emulators/training_scripts
+--yaml cosmic_shear_train_emulator.yaml
+\end{verbatim}
+The YAML may name \code{train\_dv: train.npy}.  The resolver constructs the
+training-vector path under the project's \code{chains} directory.  It does
+not call \code{os.chdir}; the process working directory cannot change the
+meaning of \code{train.npy} halfway through a run.  The resolved mapping is a
+copy of the run description with path values replaced.  The file contents
+remain unopened until staging.
+
+The split gives an error a useful time and place.  A misspelled configuration
+key fails while the objects are small.  A missing data file fails before GPU
+allocation.  A row-count or shape mismatch fails while staging the matching
+arrays.  The loss cannot hide any of these errors because it does not exist
+yet.
 
 \code{EmulatorExperiment.from\_config} is an alternative constructor.  A
 \code{classmethod} receives the class as its first argument, conventionally
@@ -1291,40 +1226,8 @@ training-selection order from efficient disk-read order.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[x=1cm,y=1cm]
-  \node[flowbox,fill=stageblue!10,text width=2.8cm] (selected) at (0,0)
-    {\textbf{Selected global rows}\\\code{idx = [9, 2, 5]}\\These numbers
-     address the original files.};
-  \node[flowbox,fill=stageblue!10,text width=2.8cm] (rows) at (3.8,0)
-    {\textbf{Sequential disk order}\\\code{rows = [2, 5, 9]}\\
-     \code{unique} removes repeats; sorting orders reads.};
-  \node[flowbox,fill=transformgold!13,text width=2.5cm] (fits) at (7.5,0)
-    {\textbf{Storage decision}\\Do both compact arrays and the reindex fit
-     the host-RAM budget?};
-
-  \node[flowbox,fill=modelgreen!12,text width=3.6cm] (resident) at (11.5,1.45)
-    {\textbf{Yes: resident representation}\\
-     \code{C[rows]} and \code{dv[rows]} are eager copies.\\
-     Compact rows $[0,1,2]$ contain disk rows $[2,5,9]$.\\
-     \code{idx\_src = [0, 1, 2]} is local.};
-  \node[flowbox,fill=guardred!8,text width=3.6cm] (disk) at (11.5,-1.45)
-    {\textbf{No: disk-backed representation}\\
-     $C$ remains the already-loaded full array.\\
-     \code{dv} remains a read-only memmap.\\
-     \code{idx\_src = [9, 2, 5]} is global.};
-
-  \node[flowbox,fill=sciencepurple!10,text width=3.5cm] (dump) at (3.8,-3.0)
-    {\textbf{Coordinate sidecar}\\\code{dump\_rows = [2, 5, 9]}\\Always
-     names original rows for a row-aligned base dump.};
-
-  \draw[flowarrow] (selected) -- (rows);
-  \draw[flowarrow] (rows) -- (fits);
-  \draw[flowarrow] (fits) -- node[above,sloped,font=\scriptsize]{yes}
-    (resident);
-  \draw[flowarrow] (fits) -- node[below,sloped,font=\scriptsize]{no}
-    (disk);
-  \draw[flowarrow] (rows) -- (dump);
-\end{tikzpicture}
+\includegraphics[width=0.94\textwidth]
+  {texnotes/figures/fig04_row_coordinates.pdf}
 \caption{One selection, two storage representations, and two coordinate
 systems.  A global row addresses the original files; a local row addresses a
 compact copy.  \code{idx\_src} must be interpreted with the returned
@@ -1542,6 +1445,62 @@ must therefore verify
 over representative rows, with an error consistent with the stored
 \code{float32} representation.
 
+\subsubsection{Worked whitening example with two parameters}
+
+Consider two input parameters with different physical units: an amplitude
+parameter measured in dimensionless units and an expansion rate measured in
+${\rm km}\,{\rm s}^{-1}{\rm Mpc}^{-1}$.  Suppose their training-set mean is
+\begin{equation*}
+  \boldsymbol\mu=(0.30,70.0),
+\end{equation*}
+and the covariance eigenvectors and square-root eigenvalues are
+\begin{equation*}
+ Q=\frac{1}{\sqrt{2}}
+ \begin{pmatrix}1&1\\-1&1\end{pmatrix},
+ \qquad
+ (s_1,s_2)=(1,3).
+\end{equation*}
+The numerical values are illustrative; the program obtains these arrays from
+the actual training covariance.
+
+Take one raw cosmology
+\begin{equation*}
+  \boldsymbol\theta=(0.32,73.0).
+\end{equation*}
+Encoding first subtracts the mean.  The offset row is
+$(0.02,3.0)$.  It then multiplies that row on the right by $Q$:
+\begin{align*}
+ (0.02,3.0)Q
+ &=\left(\frac{0.02-3.0}{\sqrt{2}},
+          \frac{0.02+3.0}{\sqrt{2}}\right)\\
+ &\simeq(-2.107,2.135).
+\end{align*}
+This multiplication forms two new coordinates.  Each new coordinate is a
+linear combination of both raw parameters; it is not ``the normalized first
+column'' or ``the normalized second column.''  Finally, division by
+$(s_1,s_2)$ gives the network input
+\begin{equation*}
+  x\simeq(-2.107,0.712).
+\end{equation*}
+The encoded numbers are dimensionless.  The eigenvectors combine the original
+units only after the covariance has supplied the corresponding conversion and
+scale information.
+
+Decoding uses the stored operations in reverse.  Multiplying by the scales
+gives $(-2.107,2.135)$.  Right-multiplying by $Q^{\mathsf T}$ returns the raw
+offset $(0.02,3.0)$, and adding $\boldsymbol\mu$ returns $(0.32,73.0)$.  A
+decoder that applies $Q$ instead of $Q^{\mathsf T}$ would have the correct
+shape and the wrong cosmology.  This is why the identity test compares values,
+not only dimensions.
+
+For a batch, the same operations act on every row.  NumPy and PyTorch
+broadcast the one-dimensional mean across the batch dimension: a stored
+mean with shape $(P,)$ is subtracted from an input with shape $(B,P)$ as if
+the same mean row had been written $B$ times.  Broadcasting does not allocate
+those repeated rows.  The matrix multiply then maps all $B$ rows in one
+operation, but its mathematical meaning is still the row-by-row calculation
+shown above.
+
 \paragraph{Alternative constructors.}
 The method \code{from\_covmat} reads and diagonalizes the training
 covariance.  The method \code{from\_state} rebuilds the object from saved
@@ -1605,6 +1564,19 @@ length of $r$:
 \end{equation}
 This identity is why training in whitened space does not redefine the
 scientific metric.
+
+For example, let a two-coordinate physical residual be $r=(0.5,3.0)$ and let
+the covariance be diagonal with variances $(0.25,9.0)$.  Its inverse is
+$C^{-1}=\mathrm{diag}(4,1/9)$, so
+\begin{equation*}
+ rC^{-1}r^{\mathsf T}
+ =0.5^2\times4+3.0^2\times\frac{1}{9}=2.
+\end{equation*}
+Whitening divides the two residuals by their standard deviations $(0.5,3)$,
+which gives $t=(1,1)$.  The ordinary squared length is again
+$1^2+1^2=2$.  The direct contraction and the whitened sum use different code
+paths to express the same scientific distance; comparing them gives an
+independent check of the geometry.
 
 \subsection{Diagonal output families}
 
@@ -1755,22 +1727,57 @@ Registration controls four operations:
 
 \subsection{ResMLP: the baseline map}
 
-The baseline network is
-\begin{equation*}
-\begin{array}{c}
-X\;(B\times P_{\rm enc})\\
-\downarrow\quad\text{input linear layer}\\
-H\;(B\times W)\\
-\downarrow\quad\text{$N_{\rm block}$ residual blocks}\\
-H'\;(B\times W)\\
-\downarrow\quad\text{output linear layer and affine map}\\
-\widehat T\;(B\times K).
-\end{array}
-\end{equation*}
+Table~\ref{tab:resmlp-shapes} separates the two rectangular projections from
+the width-preserving trunk.  A dense layer does not automatically preserve
+dimension: \code{nn.Linear(in\_features,out\_features)} returns exactly
+\code{out\_features} values.  Only the dense layers inside \code{ResBlock}
+are required to be square.
 
-A residual block learns a correction $F(h)$ and returns $h+F(h)$.  The skip
-path gives gradients a direct route through a deep network.  The final affine
-module supplies a learnable output scale and offset.
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.17\textwidth}p{0.18\textwidth}p{0.30\textwidth}
+                p{0.16\textwidth}p{0.10\textwidth}}
+\toprule
+Stage & Input shape & Operation & Output shape & Inside a
+\code{ResBlock}? \\
+\midrule
+Entry projection & $(B,P_{\rm enc})$
+  & \code{Linear(P\_enc,W)} mixes the encoded parameters and changes the
+    feature width.
+  & $(B,W)$ & No \\
+Residual trunk & $(B,W)$
+  & Apply $N_{\rm block}$ independent residual blocks.  Every internal dense
+    layer is \code{Linear(W,W)}.
+  & $(B,W)$ & Yes \\
+Exit projection & $(B,W)$
+  & \code{Linear(W,K)} changes hidden features into the $K$ encoded target
+    coordinates.
+  & $(B,K)$ & No \\
+Final affine & $(B,K)$
+  & Multiply by one learned gain and add one learned bias.  Broadcasting
+    preserves the target shape.
+  & $(B,K)$ & No \\
+\bottomrule
+\end{tabular}
+\caption{Shape contract of the baseline \code{ResMLP}.  The rectangular entry
+and exit projections change feature count.  A residual block begins only
+after the entry projection has established width $W$, and it ends before the
+exit projection changes $W$ to $K$.}
+\label{tab:resmlp-shapes}
+\end{table*}
+
+For a batch of $B=256$ cosmologies, $P_{\rm enc}=12$, $W=128$, and $K=780$,
+the entry projection reads a \shape{(256,12)} tensor and returns
+\shape{(256,128)}.  Every residual block reads and returns
+\shape{(256,128)}.  The exit projection alone produces
+\shape{(256,780)}.  Calling the entry projection a residual-block layer would
+erase this defining equal-width condition.
+
+The library's residual block is not the bare formula $h+F(h)$ followed
+immediately by return.  It contains $L$ internal dense layers.  The skip is
+added to the final dense layer's output; that sum then passes through the
+final normalization and activation.  Figure~\ref{fig:resblock} and the
+recurrence below state the exact order.
 
 \subsection{Structured correction heads}
 
@@ -1849,36 +1856,56 @@ adapter.
 
 \subsection{A residual block, operation by operation}
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
-\begin{tikzpicture}[node distance=4.5mm]
-  \node[tensor,fill=stageblue!14] (h) {$h$\\ \shape{B\times W}};
-  \node[flowbox,fill=modelgreen!10,below=of h] (l1) {linear\\$W\!\to\!W$};
-  \node[flowbox,fill=transformgold!12,below=of l1] (n1) {normalization};
-  \node[flowbox,fill=sciencepurple!10,below=of n1] (a1) {activation};
-  \node[flowbox,fill=modelgreen!10,below=of a1] (l2) {linear\\$W\!\to\!W$};
-  \node[draw,circle,thick,below=5mm of l2,inner sep=1pt] (plus) {$+$};
-  \node[tensor,fill=stageblue!14,below=5mm of plus] (out) {$h+F(h)$\\ \shape{B\times W}};
-  \draw[flowarrow] (h)--(l1);
-  \draw[flowarrow] (l1)--(n1);
-  \draw[flowarrow] (n1)--(a1);
-  \draw[flowarrow] (a1)--(l2);
-  \draw[flowarrow] (l2)--(plus);
-  \draw[flowarrow] (plus)--(out);
-  \draw[flowarrow] (h.east) -- ++(9mm,0) |- (plus.east);
-  \node[note,right=11mm of a1] {The side path is the learned correction
-  $F(h)$.  The outer path is an unchanged copy, not a second computation.};
-\end{tikzpicture}
-\caption{A residual block.  Both paths have the same shape, so addition is
-coordinate by coordinate.  The skip path gives the gradient a direct route
-around the learned correction.}
+\includegraphics[width=0.96\textwidth]
+  {texnotes/figures/fig05_residual_block.pdf}
+\caption{The exact residual-block order used by the library.  Every dense
+layer inside the dashed boundary maps width $W$ to the same width $W$.  The
+skip is added after the final internal dense layer and before that layer's
+normalization and activation.  The rectangular model-entry and model-exit
+projections change dimensions, but they are not part of a residual block.}
 \label{fig:resblock}
-\end{figure}
+\end{figure*}
 
-Figure~\ref{fig:resblock} names the two paths.  The \emph{skip path} is a
-reference to the input tensor used by the final addition.  The learned path
-computes $F(h)$.  The output is $h+F(h)$, not a concatenation.  Concatenation
-would append columns and change the width; addition preserves the width.
+Figure~\ref{fig:resblock} names the two paths.  Let $h_0$ be the block input,
+and let the block contain $L$ internal dense layers.  For every nonfinal layer
+$i=1,\ldots,L-1$, the executed recurrence is
+\begin{align}
+ z_i &= A_i h_{i-1}+a_i,\nonumber\\
+ h_i &= \phi_i\!\left(N_i(z_i)\right).
+ \label{eq:resblock-interior}
+\end{align}
+$A_i$ is a square $W\times W$ weight matrix, $a_i$ is a length-$W$ bias,
+$N_i$ is that layer's independently constructed normalization module, and
+$\phi_i$ is that layer's independently constructed activation module.  Every
+array in Eq.~\eqref{eq:resblock-interior} has shape $(B,W)$ after the batch
+matrix multiplication.
+
+The last layer has a different order:
+\begin{align}
+ z_L &= A_L h_{L-1}+a_L,\nonumber\\
+ s_L &= z_L+h_0,\nonumber\\
+ h_{\rm out} &= \phi_L\!\left(N_L(s_L)\right).
+ \label{eq:resblock-final}
+\end{align}
+The addition therefore lands after the final internal dense layer.  With the
+default $L=2$, it lands after the second dense layer.  It lands before the
+second layer's normalization and activation.  The result returned by the
+library is $\phi_L(N_L(z_L+h_0))$; describing it as a bare $h_0+F(h_0)$ would
+omit two executed operations.
+
+The skip path bypasses the internal dense calculation that forms $z_L$.
+Backward differentiation still passes through the final $N_L$ and $\phi_L$
+because they follow the addition.  This is a shorter gradient route, not a
+claim that the complete block derivative contains an untouched identity from
+output to input.
+
+The sum is coordinate by coordinate.  Entry $(b,j)$ of $z_L$ is added only to
+entry $(b,j)$ of $h_0$.  Concatenation would append feature columns and return
+shape $(B,2W)$; addition returns $(B,W)$.  This is why every dense layer inside
+the block must preserve width.  A rectangular $P_{\rm enc}\to W$ or $W\to K$
+projection belongs outside the block.
 
 The input is not modified in place.  Operations construct new tensors whose
 autograd records point back to their parents.  \emph{Autograd} is PyTorch's
@@ -1949,31 +1976,8 @@ kept output into a declared rectangle position.  It is not a learned layer.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[x=1cm,y=1cm]
-  \node[flowbox,fill=stageblue!10,minimum width=3.0cm] (flat) at (0,0)
-    {trunk output\\flat kept vector};
-  \node[flowbox,fill=transformgold!12,minimum width=3.0cm] (scatter) at (4,0)
-    {fixed scatter\\coordinate map};
-  \node[flowbox,fill=modelgreen!10,minimum width=3.0cm] (rect) at (8,0)
-    {bin--angle rectangle\\plus validity mask};
-  \node[flowbox,fill=sciencepurple!10,minimum width=3.1cm] (conv) at (12,0)
-    {convolution blocks\\local angular mixing};
-  \node[flowbox,fill=guardred!9,minimum width=3.0cm] (mask) at (8,-1.8)
-    {zero invalid cells\\after every mixing step};
-  \node[flowbox,fill=transformgold!12,minimum width=3.0cm] (gather) at (4,-1.8)
-    {fixed gather\\return kept order};
-  \node[flowbox,fill=modelgreen!10,minimum width=3.0cm] (sum) at (0,-1.8)
-    {trunk $+$ gate\\$\times$ correction};
-  \draw[flowarrow] (flat)--node[above,font=\scriptsize]{\shape{B\times K}}(scatter);
-  \draw[flowarrow] (scatter)--(rect);
-  \draw[flowarrow] (rect)--(conv);
-  \draw[flowarrow] (conv) |- (mask);
-  \draw[flowarrow] (mask)--(gather);
-  \draw[flowarrow] (gather)--(sum);
-  \node[note,text width=3.8cm,below=5mm of sum] {The validity mask is a fact
-  about physical coordinates.  A zero value alone cannot identify padding:
-  physical data may also be exactly zero.};
-\end{tikzpicture}
+\includegraphics[width=0.94\textwidth]
+  {texnotes/figures/fig06_cnn_head.pdf}
 \caption{The convolutional correction-head path.  Reshaping and
 scatter/gather operations are fixed coordinate transformations.  Only the
 convolution blocks and outer gate contain learned values.}
@@ -2361,46 +2365,8 @@ and makes an activation bake-off more important.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}
-\begin{groupplot}[
-  group style={group size=3 by 1,horizontal sep=1.15cm},
-  width=0.30\textwidth,height=0.25\textwidth,
-  domain=-4:4,samples=161,
-  axis lines=middle,
-  xlabel={\(x\)},ylabel={\(f(x)\)},
-  xmin=-4,xmax=4,
-  tick label style={font=\scriptsize},
-  label style={font=\small},
-  legend style={font=\scriptsize,draw=black!20,fill=white,
-    fill opacity=.92,text opacity=1,inner sep=1.5pt,
-    legend cell align=left},
-  every axis plot/.append style={thick}
-]
-\nextgroupplot[title={Baseline \(H\)}]
-  \addplot[stageblue] {(0.15+(1-0.15)/(1+exp(-2*x)))*x};
-  \addlegendentry{\(\gamma=.15,\beta=2\)}
-  \addplot[transformgold,dashed] {0.5*x};
-  \addlegendentry{initial \(x/2\)}
-  \addplot[black!55,dotted] {x};
-  \addlegendentry{identity}
-\nextgroupplot[title={Bulk generalization}]
-  \addplot[sciencepurple]
-    {(0.10+0.35/(1+exp(-2.2*(x+1)))+
-      0.55/(1+exp(-2.2*(x-1))))*x};
-  \addlegendentry{two gates}
-  \addplot[stageblue,dashed]
-    {(0.15+(1-0.15)/(1+exp(-2*x)))*x};
-  \addlegendentry{\(H\)}
-\nextgroupplot[title={Tail generalization}]
-  \addplot[modelgreen]
-    {(0.15+(1-0.15)/(1+exp(-2*x)))*
-     (x>=0 ? 1 : -1)*((1+abs(x))^1.4-1)/1.4};
-  \addlegendentry{\(p=1.4\)}
-  \addplot[stageblue,dashed]
-    {(0.15+(1-0.15)/(1+exp(-2*x)))*x};
-  \addlegendentry{\(p=1\), hence \(H\)}
-\end{groupplot}
-\end{tikzpicture}
+\includegraphics[width=0.96\textwidth]
+  {texnotes/figures/fig07_activations.pdf}
 \caption{Representative activation curves.  Multiple gates can introduce
 more than one transition in the bulk.  The bounded power changes the tail law
 while preserving the local slope of the signed transform at zero.  The
@@ -2540,6 +2506,30 @@ The training reduction must handle an exact fit without producing the
 undefined derivative $0/0$.  A safe square-root implementation preserves the
 forward value and defines the exact-fit gradient as zero.  A negative or
 nonfinite input is rejected before the transformation.
+
+\subsubsection{Worked batch: three scientific scores, two summaries}
+
+Suppose a minibatch contains three valid per-row scores
+\begin{equation*}
+  (\Delta\chi_1^2,\Delta\chi_2^2,\Delta\chi_3^2)
+  =(0.04,1,9).
+\end{equation*}
+The mean physical score is $(0.04+1+9)/3\simeq3.347$, and the median physical
+score is $1$.  Neither number is the square-root training objective.  If the
+configured reduction averages $\sqrt{\Delta\chi^2}$, the optimizer receives
+\begin{equation*}
+  \frac{\sqrt{0.04}+\sqrt{1}+\sqrt{9}}{3}
+  =\frac{0.2+1+3}{3}=1.4.
+\end{equation*}
+The largest row therefore contributes $3/1.4$ units to the numerator of the
+training mean rather than $9/3.347$ units to the physical-score mean.  The
+transformation changes how rows compete for one optimizer step.  It does not
+authorize reporting $1.4$ as a median or as a chi-square.
+
+The tensor holding the three row scores retains one element per sample until
+the reduction.  That distinction matters for optional trim and focus: those
+features change which row values enter the scalar objective, while validation
+continues to publish the complete, untrimmed physical-score distribution.
 
 \subsection{Physics-aware loss wrappers}
 
@@ -2734,6 +2724,27 @@ justify ignoring the removed rows forever.  A nonzero final floor is an
 explicit robust-objective choice, and the untrimmed validation distribution
 reveals whether those hard rows remained scientifically unacceptable.
 
+\subsection*{Worked trim example}
+
+Take a four-row minibatch with differentiable losses
+$(0.2,0.4,1.0,8.0)$ and a trim fraction $q=0.25$.  The configured rounding
+rule keeps three rows, so the detached ranking excludes the row whose current
+loss is $8.0$.  The scalar loss for backward is
+\begin{equation*}
+  (0.2+0.4+1.0)/3\simeq0.533.
+\end{equation*}
+``Detached ranking'' has a narrow meaning.  PyTorch does not differentiate
+through the decision that chose indices $0$, $1$, and $2$.  It does retain
+the computation graphs attached to the selected loss values, so those three
+rows update the network.  The fourth row receives no gradient from this
+minibatch.  A common wrong reading is that detachment removes gradients from
+all four losses; it removes gradients only from the ranking calculation.
+
+The excluded row remains part of validation.  If its score is still $8.0$ at
+the end of the epoch, it appears in the validation median, mean, and threshold
+fractions.  Trim changes training votes, not the definition of held-out
+accuracy.
+
 \section{Focus: smoothly weight samples by hardness}
 \label{sec:focus}
 
@@ -2758,6 +2769,25 @@ Focus and BerHu can both emphasize a tail.  Using them together is a deliberate
 composition, not two independent defaults.  The resolved configuration and
 banner state both effects so a sweep can distinguish a changed loss curve from
 a changed sample-weight curve.
+
+\subsection*{Worked focus example}
+
+Let $\kappa=1$ and $\gamma=1$.  Rows with scores $c=(0.1,1,9)$ receive
+detached weights
+\begin{equation*}
+ w=\left(\frac{0.1}{1.1},\frac{1}{2},\frac{9}{10}\right)
+ \simeq(0.091,0.5,0.9).
+\end{equation*}
+The high-error row gets nearly ten times the voting weight of the low-error
+row.  The loss value for a row still depends on the model output, so backward
+can lower it.  The current weight is treated as a numerical coefficient: its
+derivative is not added to the gradient.
+
+At $\gamma=0$, each positive base is raised to zero and becomes one.  The
+ordinary mean is recovered.  A zero score requires an explicit zero-exponent
+convention because the symbolic expression $0^0$ is indeterminate; the
+finite-contract implementation owns that boundary rather than relying on a
+backend default.
 
 \section{Exponential moving average: a second, smoothed model state}
 \label{sec:ema}
@@ -2784,27 +2814,29 @@ point, the horizon grows toward its requested value.  Saving, rewind, and
 resume treat \(\theta\), optimizer state, and \(\bar\theta\) as one coordinated
 training record.
 
+For a concrete scale, let the horizon be $H=10$ epochs and let one epoch
+execute $S=100$ optimizer steps.  Equation~\eqref{eq:ema} gives
+$\beta=1-1/1000=0.999$.  If one scalar parameter has averaged value
+$\bar\theta=0$ and the accepted live step changes it to $\theta=2$, then the
+new average is
+\begin{equation*}
+  0.999\times0+0.001\times2=0.002.
+\end{equation*}
+The live parameter is still $2$; EMA does not replace the optimizer update.
+It changes only the separately stored averaged copy.  Repeating many accepted
+steps moves that copy toward the trajectory while suppressing step-to-step
+noise.
+
+The step count $S$ means executed optimizer updates, not the number of source
+rows divided by a nominal batch size when ragged chunks discard data.  If the
+storage regime changes the number of executed steps, using the nominal count
+would change the physical EMA horizon.  The resolved record therefore needs
+the effective rows and effective steps that actually reached the optimizer.
+
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[node distance=7mm and 9mm]
-  \node[flowbox,fill=stageblue!10] (batch) {load minibatch};
-  \node[flowbox,fill=modelgreen!10,right=of batch] (forward) {forward\\and loss};
-  \node[flowbox,fill=transformgold!12,right=of forward] (back) {backward\\gradients};
-  \node[decision,fill=guardred!8,right=of back] (finite) {finite?};
-  \node[flowbox,fill=sciencepurple!10,below=of finite] (clip) {unscale\\and clip};
-  \node[flowbox,fill=modelgreen!10,left=of clip] (step) {optimizer step};
-  \node[flowbox,fill=transformgold!12,left=of step] (anchor) {optional anchor};
-  \node[flowbox,fill=stageblue!10,left=of anchor] (ema) {EMA update};
-  \draw[flowarrow] (batch)--(forward);
-  \draw[flowarrow] (forward)--(back);
-  \draw[flowarrow] (back)--(finite);
-  \draw[flowarrow] (finite)--node[right,font=\scriptsize]{yes}(clip);
-  \draw[flowarrow] (clip)--(step);
-  \draw[flowarrow] (step)--(anchor);
-  \draw[flowarrow] (anchor)--(ema);
-  \draw[flowarrow,guardred] (finite.east)--++(9mm,0)
-    node[right,font=\scriptsize,align=left]{no: clear gradients;\\advance no state};
-\end{tikzpicture}
+\includegraphics[width=0.94\textwidth]
+  {texnotes/figures/fig08_training_step.pdf}
 \caption{One accepted training step.  The order is part of the algorithm.
 Finiteness is checked before any persistent state advances; EMA is last
 because it summarizes the accepted post-step parameters.}
@@ -2886,6 +2918,57 @@ For one batch,
 \code{model(X\_b)} uses positional syntax because the tensor is the direct
 subject of the call.  Configuration-heavy calls use named arguments.
 
+\subsection{One minibatch across the host--device boundary}
+
+Assume the staged source contains $P=12$ cosmological parameters, the encoded
+target width is $K=780$, and the training batch size is $B=256$.  The epoch
+permutation supplies a one-dimensional integer tensor or array named
+\code{rows} with shape $(256,)$.  Each value is a row coordinate in the
+staged source.  It is an eager collection of indices, not a generator: all
+256 integers already exist when the loader is called.
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.14\textwidth}p{0.22\textwidth}p{0.19\textwidth}p{0.34\textwidth}}
+\toprule
+Stage & Object and shape & Storage & Operation \\
+\midrule
+Selection & \code{rows}, $(256,)$ & CPU or device integers & Names the staged
+rows in the seeded epoch order. \\
+Parameter gather & raw $C_b$, $(256,12)$ & NumPy host array or device tensor &
+Reads the selected cosmologies without changing their order. \\
+Parameter encode & $X_b$, $(256,12)$ & Model device, \code{float32} & Centers,
+rotates, and scales each row with the parameter geometry. \\
+Target gather & raw $D_b$, $(256,D)$ & NumPy host array, memmap slice, or device
+tensor & Reads physical targets; $D$ may include columns later masked. \\
+Target encode & $T_b$, $(256,780)$ & Model device, \code{float32} & Applies the
+family mask, target law, centering, and whitening. \\
+Forward & $\widehat T_b$, $(256,780)$ & Model device, \code{float32} & Calls the
+network once for the whole batch. \\
+Score & $c_b$, $(256,)$ & Model device; reductions use declared precision &
+Produces one physical scientific error per row before trim, focus, or mean. \\
+\bottomrule
+\end{tabular}
+\caption{One full minibatch.  The table separates a row coordinate from the
+row payload and separates a physical target from its encoded network target.}
+\end{table*}
+
+On a disk-streaming path, indexing a memmap reads the requested target values
+from the file into a bounded host array.  Converting that array to
+\code{float32} and moving it to CUDA or MPS creates device storage.  The
+output geometry then transforms the device tensor.  On a device-resident path,
+the already encoded tensor is gathered directly.  Both paths must return the
+same rows in the same order; storage location is not allowed to change the
+training sample.
+
+The two loaders are closures because they remember this storage policy and
+the geometry objects.  Calling a closure is still an ordinary synchronous
+function call unless the implementation explicitly starts an asynchronous
+device transfer.  Python does not postpone the body merely because the
+function was returned by another function.  This distinction separates a
+closure, which retains surrounding values, from a generator, which contains
+\code{yield} and produces values lazily across repeated iteration.
+
 \subsection{Optimizer and scheduler}
 
 The optimizer owns parameter updates.  Parameters are divided by module role:
@@ -2927,6 +3010,13 @@ graph inside its context.  Evaluation uses both \code{eval()} and
 \code{no\_grad()}: the first chooses inference behavior, and the second avoids
 retaining activations that no backward pass will consume.  Returning to
 \code{train()} before the next epoch restores training behavior.
+
+For the $(256,780)$ example, \code{lossfn.loss} first returns one score for
+each of the 256 rows.  The configured reduction produces a scalar.  Calling
+\code{backward()} on that scalar uses the chain rule to accumulate derivatives
+through the reduction, loss, and model.  It does not compute gradients for the
+NumPy files, the integer row indices, or frozen geometry statistics.  Those
+objects are data, not trainable \code{Parameter} objects.
 
 \paragraph{Current gap.}
 The current Apple MPS branch selects float16 autocast but does not construct a
@@ -3084,7 +3174,7 @@ Fine-tune preparation changes the loaded source parameter geometry to its live
 device state and does not restore the original representation afterward.  A
 family sweep reuses one experiment across points, and the next point clones
 the source as it currently exists rather than reloading an immutable source.
-Thus point order can affect later warm starts even though every point names
+Point order can therefore affect later warm starts even though every point names
 the same artifact.
 
 \paragraph{Required closure.}
@@ -3157,28 +3247,8 @@ the wrong future formula if implementation identity is ignored.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[node distance=8mm and 10mm]
-  \node[flowbox,fill=stageblue!10] (src) {source artifact};
-  \node[flowbox,fill=transformgold!12,above right=of src] (fine)
-    {fine-tune\\expand source model};
-  \node[flowbox,fill=sciencepurple!10,below right=of src] (base)
-    {transfer\\freeze source base};
-  \node[flowbox,fill=modelgreen!10,right=of fine] (all)
-    {all inherited weights\\trainable};
-  \node[flowbox,fill=modelgreen!10,right=of base] (corr)
-    {new correction\\trainable};
-  \node[flowbox,fill=guardred!8,right=15mm of all] (parity)
-    {epoch-zero parity\\before any step};
-  \node[flowbox,fill=stageblue!10,below=of parity] (publish)
-    {self-contained\\new artifact};
-  \draw[flowarrow] (src)--(fine);
-  \draw[flowarrow] (src)--(base);
-  \draw[flowarrow] (fine)--(all);
-  \draw[flowarrow] (base)--(corr);
-  \draw[flowarrow] (all)--(parity);
-  \draw[flowarrow] (corr.east)--++(7mm,0)|-(parity.south);
-  \draw[flowarrow] (parity)--(publish);
-\end{tikzpicture}
+\includegraphics[width=0.92\textwidth]
+  {texnotes/figures/fig09_warmstart.pdf}
 \caption{The two warm-start strategies.  They differ in which parameters may
 move, but both must reproduce the source function before training and publish
 a self-contained result afterward.}
@@ -3210,6 +3280,54 @@ Target-law inverse and analytic-base multiplication. \\
 \bottomrule
 \end{tabular}
 \end{table*}
+
+The word \emph{family} identifies the meaning and shape of one target row.  It
+does not select a separate optimizer or a separate definition of a minibatch.
+All five families use the same high-level order: resolve files, stage rows,
+build an input geometry, build an output geometry, construct a model, train,
+validate, and save.  The family hooks supply the output-specific facts that
+the shared order cannot infer.
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.15\textwidth}p{0.24\textwidth}p{0.25\textwidth}p{0.25\textwidth}}
+\toprule
+Family & Example meaning of one column & Why column order matters & Decoder's
+last scientific job \\
+\midrule
+Cosmic shear & One probe/bin/angular-bin entry & The covariance and likelihood
+mask refer to those exact positions & Scatter kept entries and restore the
+dense-covariance coordinates. \\
+Scalar & One named quantity such as a derived parameter & Equal width does not
+prove equal output names & Restore each named center and scale. \\
+CMB & One $C_\ell$ value for one spectrum and multipole & Adjacent columns
+represent distinct multipoles; holes are not zeros & Undo the target transform
+and persisted amplitude law. \\
+Background & One $H(z_j)$ or $D_M(z_j)$ value & A value belongs to a declared
+redshift and trained window & Undo the target law; derive distances only on a
+trained, valid domain. \\
+Matter power & One point on a flattened $(z_i,k_j)$ surface & Reshaping with
+the wrong flattening order transposes scientific coordinates & Undo the law
+and apply the analytic base at the same $(z,k)$ point. \\
+\bottomrule
+\end{tabular}
+\caption{The family-specific part of a target column.  Every column requires a
+coordinate identity in addition to a numerical value.}
+\end{table*}
+
+Suppose two target files both have 780 columns.  One may be a cosmic-shear
+vector ordered by probe and angular bin, while the other may be a CMB spectrum
+covering 780 multipoles.  Their shapes agree, but no operation can interpret
+one as the other.  The same problem occurs within a family: a CMB array for
+$\ell=2,\ldots,781$ has the same width as one for
+$\ell=10,\ldots,789$.  A sidecar or artifact axis distinguishes them.
+
+The shared trainer receives only encoded tensors after a family has established
+that identity.  It can therefore remain ignorant of multipoles, redshift,
+wavenumber, and probe names.  Conversely, a family adapter may not infer a
+missing scientific axis from the generic trainer's output width.  This split
+is an ownership rule: generic code owns optimization mechanics; family code
+owns the physical interpretation of coordinates.
 
 \section{Cosmic shear: a masked, covariance-coupled data vector}
 \label{sec:cosmic-shear}
@@ -4029,25 +4147,72 @@ plain state first and compiles afterward when requested and supported.
 
 \subsection{Prediction}
 
-\code{EmulatorPredictor.predict} performs
-\begin{equation*}
-\begin{array}{c}
-\text{parameter dictionary}\\
-\downarrow\quad\text{order by saved parameter names}\\
-\Theta\;(1\times P)\\
-\downarrow\quad\text{parameter geometry encode}\\
-X\;(1\times P_{\rm enc})\\
-\downarrow\quad\text{model in evaluation mode under no-grad}\\
-\widehat T\\
-\downarrow\quad\text{physics-aware loss decoder and output geometry}\\
-\widehat d\text{ in physical units.}
-\end{array}
-\end{equation*}
+\code{EmulatorPredictor.predict} performs the five transitions in
+Table~\ref{tab:prediction-trace}.  The table separates the source of each fact
+from the object produced by the transition.
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.08\textwidth}p{0.24\textwidth}p{0.27\textwidth}p{0.30\textwidth}}
+\toprule
+Step & Input & Operation and owner & Output \\
+\midrule
+1 & Parameter dictionary & Order values by the parameter names stored in the
+artifact, refusing missing or unexpected names & Raw row
+$\Theta\in\mathbb{R}^{1\times P}$. \\
+2 & Raw parameter row & Parameter geometry centers, rotates, and scales &
+Encoded row $X\in\mathbb{R}^{1\times P_{\rm enc}}$ on the model device. \\
+3 & Encoded row & Eager or compiled model in evaluation mode under
+\code{no\_grad} & Network output $\widehat T$ in encoded coordinates. \\
+4 & Encoded network output & Physics-aware loss composition restores any
+analytic base, amplitude law, or transfer correction & Final encoded family
+prediction. \\
+5 & Final encoded prediction & Output geometry decodes and restores the saved
+axis/layout & $\widehat d$ in physical units with named coordinates. \\
+\bottomrule
+\end{tabular}
+\caption{One prediction from a named cosmology.  The caller supplies parameter
+values; the artifact supplies their order and every output-side scientific
+fact.}
+\label{tab:prediction-trace}
+\end{table*}
 
 Evaluation mode disables training-only behavior.  \code{torch.no\_grad()}
 avoids constructing a backward graph, reducing memory and latency.  The
 artifact's parameter names, axes, units, and laws determine the result; the
 caller does not redeclare them.
+
+\subsection{Rebuild ledger: which file answers each question?}
+
+Loading an artifact is not equivalent to unpickling one object.  Rebuilding
+constructs new Python objects and then fills them with validated stored facts.
+The sequence is:
+\begin{enumerate}
+  \item open the HDF5 record and validate its schema and pair identity;
+  \item rebuild input and output geometries from their named classes and
+        stored arrays;
+  \item resolve the model, activation, normalization, and loss classes from
+        the stored recipe;
+  \item instantiate an eager model with the persisted dimensions;
+  \item read the tensor mapping from \code{root.emul} onto the CPU;
+  \item load every expected key with \code{strict=True};
+  \item move the complete predictor to the requested device; and
+  \item compile only after eager reconstruction when compilation is requested
+        and supported.
+\end{enumerate}
+
+Each step has a different refusal.  An unknown geometry class fails before a
+network is built.  A missing tensor key fails strict loading.  A CMB axis that
+has the right width and the wrong multipoles fails coordinate validation.  A
+weight file with a different pair digest fails before its apparently
+compatible tensors can be used.  These are not redundant errors: each names
+the first boundary that can identify a particular inconsistency.
+
+The reconstructed model is a new owner of its tensors.  Moving it to CUDA or
+MPS copies CPU state to the accelerator; the HDF5 datasets and the NumPy
+objects used during loading do not become live device parameters.  The
+predictor retains the geometry and model objects it needs.  Closing the HDF5
+file therefore does not invalidate a correctly rebuilt predictor.
 
 \section{Cobaya adapters: presenting the emulator as a theory component}
 \label{chap:adapters}
@@ -4142,6 +4307,67 @@ performs zero getters and publishes no state.  Acceptance is recorded before
 the first getter, and a two-call stale-cache fixture tags generations so any
 payload inherited from the previous cosmology fails visibly.
 
+\subsection{Worked lifecycle: one CMB likelihood request}
+
+Assume the configuration loads one temperature-spectrum artifact whose stored
+axis is $\ell=2,\ldots,2500$.  Initialization opens the two artifact files,
+rebuilds the predictor, records that it provides \code{tt}, and takes the
+union of the predictor's saved parameter names.  That union becomes the
+dictionary returned by \code{get\_requirements}.  No sampled cosmology has
+been evaluated yet.
+
+A likelihood can then declare a request equivalent to
+\begin{verbatim}
+Cl:
+  tt: 2000
+\end{verbatim}
+Cobaya forwards this declaration to \code{must\_provide}.  The method checks
+that a loaded artifact provides \code{tt} and that the requested maximum does
+not exceed 2500.  This is request negotiation: it happens when Cobaya assembles
+the component graph, before the first Markov-chain point.  A request for
+\code{ee}, or for \code{tt} through 3000, is refused here rather than becoming
+a truncated prediction.
+
+For one accepted sampled point, Cobaya calls \code{calculate} with a mutable
+\code{state} dictionary and named parameter values.  The adapter passes those
+values to the predictor.  It allocates a \code{float64} array covering
+$0,\ldots,2500$, writes predicted values at the artifact's multipoles, and
+stores the completed mapping under \code{state["Cl"]}.  The zeros below
+$\ell=2$ are conventional storage positions, not neural-network predictions.
+
+Finally, the likelihood calls \code{get\_Cl}.  The getter reads
+\code{self.current\_state["Cl"]}, which Cobaya associates with the current
+sample.  It refuses an unrequested unit or plotting-factor conversion rather
+than silently changing the training convention.  The getter does not call the
+network again.
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.18\textwidth}p{0.21\textwidth}p{0.29\textwidth}p{0.21\textwidth}}
+\toprule
+Lifecycle time & Method & State it may change & Failure meaning \\
+\midrule
+Component construction & \code{initialize} & Immutable predictors, axes,
+requirements & Artifact or option cannot define a component. \\
+Graph negotiation & \code{must\_provide} & Recorded output request & A
+downstream likelihood asks for an unsupported product or coordinate. \\
+One sampled point & \code{calculate} & The supplied current-point state & The
+named cosmology cannot produce a valid current payload. \\
+Likelihood read & \code{get\_Cl} or family getter & No numerical state; reads
+the current payload & The consumer asks for an unsupported serving convention. \\
+\bottomrule
+\end{tabular}
+\caption{Cobaya lifecycle time is part of ownership.  Validation at one row
+cannot substitute for validation at component construction or request
+negotiation.}
+\end{table*}
+
+The present CMB adapter negotiates by spectrum name and maximum multipole.  It
+does not yet prove that an arbitrary interior coordinate sequence exactly
+matches the artifact.  The earlier coordinate-contract subsection records
+that open boundary.  The worked example explains current execution without
+mistaking the current maximum-only check for the stronger queued rule.
+
 \section{Gates: executable evidence that the pipeline still means what it says}
 \label{chap:gates}
 
@@ -4190,19 +4416,30 @@ Board resume records are scientifically valid only for the executable surface
 that produced them.  The present runner records status, a digest of the gate
 body and directly named check scripts, an input/configuration digest, and a
 digest of the raw log.  A changed gate, directly named check script, board
-configuration, or YAML therefore invalidates the stored PASS automatically.
+configuration, YAML, or raw-log payload therefore invalidates the stored PASS
+automatically.
 
-The code digest is not yet a transitive digest of every imported production
-module, generator, adapter, and analytic base.  A production-only change can
-therefore leave that digest unchanged.  Force-rerun remains the manual
-safeguard after an affected production boundary changes.
+Before a run, preflight also requires a clean executable surface.  It watches
+\code{emulator/}, \code{gates/}, \code{compute\_data\_vectors/},
+\code{cobaya\_theory/}, \code{syren/}, and the top-level Python drivers.  A
+dirty generator or adapter is therefore refused just like a dirty training
+module.  This check establishes that the evidence can be tied to a committed
+tree; it does not decide which committed files belong to one particular gate.
 
-The raw-log digest is currently checked only while rendering the summary
-table.  It is not part of the resume decision.  If a raw log is deleted,
-truncated, or edited, the summary can print a mismatch warning while the
-runner still treats the stored result as a current pass and skips execution.
-Until log integrity participates in resume, a reviewer must open every cited
-log and force-rerun any gate whose log is missing or mismatched.
+The per-gate code digest is not yet a reviewed transitive manifest of every
+production module, generator, adapter, analytic base, and input that one gate
+executes.  A committed production-only change can therefore leave a stored
+per-gate digest unchanged.  Force-rerun remains the manual safeguard after an
+affected production boundary changes until the queued executable/input
+manifest assigns exact owners.
+
+Raw-log integrity no longer has that asymmetry.  The resume decision and the
+display use the same predicate.  A PASS whose cited log is absent, lacks a
+stored digest, or has edited bytes becomes \code{stale-log}; it neither skips
+the selected gate nor satisfies a downstream dependency.  The board self-test
+drives the real resume function through deletion, truncation, edit, and
+missing-digest cases and includes a tamper arm that flips a current PASS to
+\code{stale-log}.
 
 Hardware-specific PyTorch evidence belongs in a board-listed gate.  CPU-only
 checks can prove pure validation and algebra.  CUDA compilation, GPU dtype,
@@ -4256,6 +4493,82 @@ provider result, or a saved recipe that does not describe the weights.  The
 architecture matters, but the program is trustworthy only when every boundary
 states and checks what its numbers mean.
 
+\subsection{Object ledger for the same row}
+
+The symbol $i$ does not have one universal coordinate meaning throughout the
+program.  Before staging, it can denote an original dump row.  After a sorted
+unique RAM gather, the same physical cosmology has a local compact-array
+coordinate.  During an epoch it has a position in a new seeded permutation.
+The row payload is unchanged only if the coordinate maps are applied
+correctly.
+
+\begin{table*}[t]
+\centering
+\begin{tabular}{p{0.17\textwidth}p{0.22\textwidth}p{0.26\textwidth}p{0.24\textwidth}}
+\toprule
+Boundary & Object before & Object after & Equality that should hold \\
+\midrule
+Row staging & Original dump row coordinate & Resident-local or disk-global
+coordinate plus \code{dump\_rows} & Parameter row and every sibling target
+come from the same original row. \\
+Parameter geometry & $\theta_i$ in physical units & $x_i$ in dimensionless
+network coordinates & \code{decode(encode(theta\_i))} returns $\theta_i$. \\
+Output geometry & $d_i$ on a named physical axis & $t_i$ in target coordinates
+& Decode returns $d_i$ on the identical axis. \\
+Model and loss & $(x_i,t_i)$ & $(\widehat t_i,\Delta\chi_i^2)$ & Whitened and
+direct physical contractions agree. \\
+Artifact & Live classes and tensors & Weight payload plus HDF5 recipe & Rebuilt
+eager prediction matches the live eager prediction. \\
+Adapter & Named cosmology and requested axis & Current Cobaya theory product &
+Getter readback equals the predictor output in the declared serving convention. \\
+\bottomrule
+\end{tabular}
+\caption{Six identities for one row.  A shape check alone proves none of
+them.}
+\end{table*}
+
+Take a cosmic-shear row as a concrete example.  The original parameter table
+might store 17 cosmological and nuisance parameters, while a physical cut
+retains 12 as the model input and a likelihood mask retains 780 of a larger
+data vector.  Staging first proves that the parameter row and target row share
+one original coordinate.  The parameter geometry returns a $(1,12)$ tensor.
+The output geometry returns a $(1,780)$ target.  The model preserves the batch
+dimension and predicts another $(1,780)$ tensor.  The output geometry and
+loss use the persisted mask and covariance to give one scalar
+$\Delta\chi_i^2$.
+
+Neither $(1,12)$ nor $(1,780)$ states which cosmology, mask, or axis was used.
+The row-coordinate maps, parameter names, destination indices, and covariance
+owner provide that meaning.  Saving those facts is therefore part of saving
+the model, even though none is a learned weight.
+
+\subsection{Rebuilding every vector figure}
+
+Every figure in this manuscript is generated by
+\code{texnotes/make\_figures.py}.  The script has one named function per
+figure and writes vector PDF files under \code{texnotes/figures/}.  Vector
+output stores lines, text, and curves as drawing instructions, so labels
+remain sharp when the paper is enlarged.  No screenshot is the source of a
+manuscript figure.
+
+From the repository root, rebuild the complete set with
+\begin{verbatim}
+python3 texnotes/make_figures.py
+\end{verbatim}
+and then rebuild the paper.  The script prints one \code{wrote} line for each
+expected figure.  It does not import the emulator package or require PyTorch;
+the diagrams explain fixed program structure, and the activation curves use
+their formulas directly.  Keeping figure generation independent of training
+prevents an unavailable GPU from blocking documentation builds.
+
+The residual-block figure is tied to the executed operation order documented
+in Sec.~\ref{chap:models}: every internal dense layer maps $W$ to $W$, the
+skip is added after the final internal dense layer, and the final normalization
+and activation follow the addition.  The activation figure places each legend
+outside its data rectangle so no label hides a curve.  Regenerating the
+figures after a structural code change is necessary but not sufficient; the
+caption and implementation must still be compared during review.
+
 \appendix
 \section{The gate board, one executable claim at a time}
 \label{app:gates}
@@ -4275,29 +4588,8 @@ establishes catch power.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[node distance=7mm and 7mm]
-  \node[flowbox,fill=stageblue!10,minimum width=2.75cm] (pre)
-    {preflight\\tree, imports, paths};
-  \node[flowbox,fill=transformgold!12,minimum width=2.75cm,right=of pre] (select)
-    {selection\\tier, gate, resume};
-  \node[flowbox,fill=modelgreen!10,minimum width=2.75cm,right=of select] (run)
-    {gate body\\check or short run};
-  \node[flowbox,fill=sciencepurple!10,minimum width=2.75cm,right=of run] (raw)
-    {raw log\\commands and values};
-  \node[decision,fill=guardred!8,below=12mm of raw] (judge)
-    {all required\\claims true?};
-  \node[flowbox,fill=modelgreen!13,left=11mm of judge] (pass) {PASS\\record digest};
-  \node[flowbox,fill=guardred!13,right=11mm of judge] (fail) {FAIL\\nonzero verdict};
-  \draw[flowarrow] (pre)--(select);
-  \draw[flowarrow] (select)--(run);
-  \draw[flowarrow] (run)--(raw);
-  \draw[flowarrow] (raw)--(judge);
-  \draw[flowarrow] (judge)--node[above,font=\scriptsize]{yes}(pass);
-  \draw[flowarrow] (judge)--node[above,font=\scriptsize]{no}(fail);
-  \node[note,text width=4.7cm,below=5mm of select] {The board summary is an
-  index.  The raw per-gate log is the evidence because it records the command,
-  values, and process exit status.};
-\end{tikzpicture}
+\includegraphics[width=0.94\textwidth]
+  {texnotes/figures/fig10_board_flow.pdf}
 \caption{The board's evidence flow.  Preflight and selection determine what
 is eligible to run; the gate body produces evidence; the board converts all
 required claims into one explicit verdict.}
@@ -4421,7 +4713,7 @@ Force-rerun invalidates selected records without deleting unrelated logs.
 The gate-code digest covers the gate function and check scripts named
 literally inside it, not the complete transitive imported production surface.
 The dirty-tree watch is likewise narrower than the full scientific surface.
-Consequently, a change only in an imported adapter or generator can still
+A change only in an imported adapter or generator can still
 require an explicit force-rerun even when resume calls the stored gate current.
 The raw-log digest is also informational: a missing or changed log annotates
 the board table but does not make the resume state non-green.
@@ -4436,22 +4728,8 @@ selected gate to run again.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[node distance=8mm and 11mm]
-  \node[flowbox,fill=stageblue!10] (identity) {family identity\\analytic fixture};
-  \node[flowbox,fill=transformgold!12,right=of identity] (save)
-    {save/rebuild\\artifact parity};
-  \node[flowbox,fill=modelgreen!10,right=of save] (adapter)
-    {adapter parity\\direct evaluate};
-  \node[flowbox,fill=sciencepurple!10,right=of adapter] (sample)
-    {short sampling\\repeated lifecycle};
-  \node[flowbox,fill=stageblue!10,below=of save] (smoke)
-    {family smoke\\real provider};
-  \draw[flowarrow] (identity)--(save);
-  \draw[flowarrow] (save)--(adapter);
-  \draw[flowarrow] (adapter)--(sample);
-  \draw[flowarrow] (identity)|-(smoke);
-  \draw[flowarrow] (smoke)-|(adapter);
-\end{tikzpicture}
+\includegraphics[width=0.90\textwidth]
+  {texnotes/figures/fig11_gate_dependencies.pdf}
 \caption{A common evidence dependency.  Identity establishes local
 mathematics, smoke establishes the real provider path, save/rebuild
 establishes persistence, and adapter/sampling gates establish external use.}
@@ -5468,7 +5746,7 @@ input ordering and encoding.
 \paragraph{\code{cmb-smoke}.}
 Follow generator, covariance, training, rebuild, adapter, and diagnostics
 markers in order.  The first absent marker locates the interface boundary.
-Use \code{cmb-identity}, not the smoke's generated covariance, to adjudicate a
+Use \code{cmb-identity}, not the smoke's generated covariance, to judge a
 normalization disagreement.
 
 \paragraph{\code{bsn-smoke}.}
@@ -5688,7 +5966,7 @@ same relationship.
 
 The optional golden-worktree commit identifies a comparison tree for a
 no-change claim.  It is not a general expected-answer source.  If a feature is
-new, an older commit lacks the behavior and cannot adjudicate its mathematics.
+new, an older commit lacks the behavior and cannot establish its mathematics.
 The gate instead uses analytic, mutation, or real-provider evidence.
 
 Inside the body, \code{ctx.run\_check(path)} launches a repository check script

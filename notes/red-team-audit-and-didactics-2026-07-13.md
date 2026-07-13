@@ -1,7 +1,8 @@
 # Red-team audit of the landed batch and didactic repair queue (2026-07-13)
 
 This is the Red Team's independent review of the Implementer's handoff at
-`bd60a9f`, rechecked from the current merged tree at `a93f417`.  It is a
+`bd60a9f`, first rechecked from the merged tree at `a93f417` and followed up
+against `8e8e59b` below.  It is a
 repair specification, not a claim that the listed work is already complete.
 The Fable Architect's role and queue ownership are unchanged.
 
@@ -26,6 +27,91 @@ python3 gates/checks/generator_seed.py
 `psutil`, or `yaml`, so the new torch-importing checks were reviewed
 statically rather than counted as executed.  Their live acceptance remains a
 workstation obligation; absence of a local dependency is not a green result.
+
+## Follow-up audit of the Implementer's four completed units at `8e8e59b`
+
+This section supersedes the status, but not the historical evidence, in the
+earlier findings below.  The Red Team read the diffs and current call paths,
+then reran:
+
+```
+python3 gates/run_board.py --list
+PYTHONPATH=. python3 gates/checks/board_selftest.py
+python3 -m py_compile emulator/training.py emulator/experiment.py \
+  gates/run_board.py gates/checks/board_selftest.py \
+  gates/checks/cmb_identity.py gates/checks/finite_contract.py
+```
+
+`--list` returned zero and showed the 40 registered gates.
+`board-selftest` passed all 39 reported assertions.  The raw-log tests drive
+the real `_resume_state`, including valid evidence, truncation, deletion,
+missing digest, byte edit, dependency refusal, and a load-bearing tamper arm.
+The local Python still has no torch, so the optimizer and CMB schema gates
+remain workstation evidence rather than local greens.
+
+### RT-IMPL-01 — raw-log resume trust is accepted on the CPU path
+
+Commit `b6cfd87` uses one `_log_stale` predicate from `_resume_state`.
+Execution skip, dependency acceptance, `--list`, and `BOARD.md` all obtain
+their verdict through that state.  A stale log cannot remain a current PASS.
+No repair is requested for this unit.
+
+### RT-IMPL-02 — executable-surface preflight is reopened on one exact exclusion
+
+Commit `7f69c35` correctly adds `compute_data_vectors/`, `cobaya_theory/`, and
+`syren/` to the dirty-tree watch.  It does not implement its stated
+`board_config.json` exclusion.  `_EXECUTABLE_DIRS` contains the directory
+`"gates"`, and the executed command is equivalent to
+
+```
+git status --porcelain -- emulator gates compute_data_vectors \
+  cobaya_theory syren <root drivers>
+```
+
+`gates/board_config.json` is a tracked file below `gates/`, so Git includes it
+in that pathspec.  The comments at `gates/run_board.py:716-727`, the config
+dump text near line 1242, and `notes/gates-and-board.md` all say it is
+excluded.  A portable local deployment override therefore makes preflight
+red even though the documented contract says it may vary.
+
+Required repair:
+
+- construct the watched pathspec with an explicit exclusion for exactly
+  `gates/board_config.json`; do not exclude the rest of `gates/`;
+- add a preflight self-test that modifies only that file in an isolated fake
+  or temporary Git tree and proves the dirty-tree decision stays green;
+- in the same test, modify `gates/board.py` and prove the decision turns red,
+  so an over-broad exclusion cannot pass;
+- keep the existing generator, adapter, syren, and root-driver probes; and
+- make the printed watched surface derive from the same list the command uses.
+
+This is an amendment to the completed preflight unit, not a new parallel
+manifest design.  The per-gate executable/input manifest remains separately
+open.
+
+### RT-IMPL-03 — typed numeric schemas are structurally accepted; live lane owed
+
+Commit `c9ace04` wires `_validate_optimizer_opts` into both optimizer
+factories and validates CMB `as_ref`/`tau_ref` before range comparison.
+Boolean and numeric-string coercion is removed at those paths.  The pure
+control and red-leg sets cover the values named in the repair spec.  The
+workstation still owes the board-listed finite-contract Part J path and the
+post-step parameter/optimizer-state check; source review cannot promote those
+lanes to green.
+
+The commit introduced the same semantic helper twice, at
+`emulator/training.py:168` and `emulator/experiment.py:701`.  This duplication
+does not invalidate the schema repair, but it belongs in the code-ownership
+cleanup below so later finite-real rules cannot drift.
+
+### RT-IMPL-04 — README factual repair is accepted
+
+Commit `dce3d69` removes the hard-coded 32-gate count, the selector
+warn-and-proceed claim, the public internal ledger token, and the retired
+grid2d full-materialization blocker.  An untruncated scan of both READMEs found
+no residual instance of those exact stale claims.  The larger first-time-user
+documentation campaign remains open and must not be conflated with this
+bounded factual correction.
 
 ## Binding rulings for the structured evidence-map rollout
 
@@ -56,6 +142,11 @@ missing id, a duplicate id, an unknown emitted id, a check-script crash before
 its manifest, or a conditionally omitted leg makes the gate red.  External
 check scripts therefore need a small machine-readable assertion record; the
 gate's aggregate subprocess exit code is not enough.
+
+The Fable Architect ratified these rulings without modification and added one
+verdict constraint: when the module's own acceptance table defines one
+in-code verdict, the rollout records one verdict rather than manufacturing a
+second parallel verdict from the same execution.
 
 ## Correctness review of the landed batch
 
@@ -221,11 +312,14 @@ it with a compressed file inventory.
 
 ## In-file documentation audit for a first-time ML reader
 
-An untruncated scan of `emulator/` and `gates/` found 48 lines in 16 Python
-files containing internal unit numbers, dated rulings, or reviewer biography.
-Examples include `unit 60`, `unit 14(f)`, “Architect confirms,” and dated
-“symmetry ruling” comments.  The prior cleanup searched only for the literal
-`45M` token and therefore did not satisfy the no-internal-bookkeeping rule.
+The Fable Architect's broader untruncated scan of `emulator/` and `gates/`
+found 108 lines in about 25 Python files containing internal unit numbers,
+dated rulings, reviewer biography, or design-ledger identifiers.  The pattern
+family includes `45M`, `unit N`, `increment`, `Architect`, `Implementer`,
+`ruling`, `adjudicat-`, `D-*`, and `POL-*`.  Examples include `unit 60`,
+`unit 14(f)`, “Architect confirms,” and dated “symmetry ruling” comments.  The
+prior cleanup searched only for the literal `45M` token and therefore did not
+satisfy the no-internal-bookkeeping rule.
 
 Required cleanup:
 
@@ -235,7 +329,9 @@ Required cleanup:
   by executable compatibility may remain as identifiers, but human prose
   around them must use plain language.
 - Completion is an untruncated zero-hit scan over the full pattern family,
-  not only `45M`.  Record the exact patterns and scope in the gate output.
+  not only `45M`.  Record the exact patterns, scope, and a reviewed allowlist
+  of identifiers whose spelling is required by executable compatibility in
+  the gate output.
 - Correct existing punctuation defects while touching those passages, such
   as `unit 14(f),, clause 4` and the duplicated score-boundary sentence in
   `gates/board.py`.
@@ -336,23 +432,197 @@ strip docstrings and comments from the AST before and after, compile the
 files, and scan for stale phrases.  Behavioral changes discovered during the
 rewrite become separate implementation units with their own gates.
 
+## Code-ownership and bloat review
+
+This review does not use line count as a target.  Shortening comments,
+putting several function arguments on one line, replacing named loops with
+dense NumPy indexing, or inlining a one-use teaching helper would fail the
+user's readability rules.  A consolidation is justified only when several
+places own the same behavior or when a function is unreachable.
+
+The findings in this section were produced after the Fable Architect returned.
+They are submitted to the Architect for adjudication.  The Implementer does
+not start them from this note alone, and the Architect retains queue-number
+ownership.
+
+The AST census at `8e8e59b` measured:
+
+| Tree | Python lines | Functions/methods | Classes |
+|---|---:|---:|---:|
+| `emulator/` | 25,478 | 447 | 48 |
+| `compute_data_vectors/` | 3,268 | 62 | 5 |
+| `cobaya_theory/` | 1,605 | 55 | 6 |
+
+A repository-wide token-reference pass found no module-level function in
+these trees that appears only at its definition.  Dynamic class loading means
+that even this scan could not prove deletion by itself.  There is therefore
+no accepted bulk-deletion list.
+
+### BLOAT-01 — `emulator/`: one small consolidation, no broad compression
+
+The new `_is_finite_real` implementation is duplicated in
+`training.py:168-186` and `experiment.py:701-720`.  Give the predicate one
+owner and import it at the other boundary.  Preserve its full didactic
+docstring at the owner and use a short comment at the consumer naming why a
+boolean is not a numeric control.  The unit's existing schema legs must run
+unchanged afterward.
+
+Two unused-import candidates are mechanically supported:
+`validate_loss` in the import list at `experiment.py:152` and `torch` at
+`losses/scalar.py:23`.  Remove them only in a bounded cleanup with import,
+compile, and gate checks; they are low priority and do not justify a separate
+campaign.
+
+Keep the following even where a lexical scan shows only one call:
+
+- plotting helpers such as `_coverage_panels`, `_floor_panel`,
+  `_hard_direction_panels`, and `_save_pages`; their names divide a long
+  figure workflow into teachable operations;
+- per-class `encode`, `decode`, `from_state`, and `chi2` methods; these are the
+  explicit geometry/loss protocols and often carry different physical
+  owners despite similar bodies;
+- family-specific `attach_head_coords` methods; their persisted axes are not
+  interchangeable; and
+- factory functions such as `make_scalar_chi2`; the call site should continue
+  to say which constructible object is being made.
+
+The very long `build_geometry`, `from_config`, `run_emulator`, and
+`training_loop_batched` functions are review hotspots, but their length does
+not prove redundant behavior.  If they are decomposed, extract named state
+transitions with one argument per line.  Do not reduce total lines by hiding
+family branches in anonymous dictionaries, clever array expressions, or
+metaprogramming.
+
+### BLOAT-02 — `compute_data_vectors/`: one multi-array store owns 449 repeated lines
+
+The background, CMB, and MPS generator subclasses each reimplement the same
+seven storage hooks:
+
+```
+_dv_chk_files  _dv_load_chk  _dv_save  _dv_append
+_dv_alloc      _dv_write     _dv_zero
+```
+
+Those suites occupy 152, 143, and 154 lines respectively.  Their repeated
+mechanics are RAM accounting, RAM-versus-memmap selection, temporary-file
+publication, row append, row write, row zeroing, and row/width validation.
+Only the ordered quantity names and widths differ.  This is genuine duplicated
+ownership: a payload-finiteness or transactional fix can land in one family
+and be missed in the other two.
+
+Required design proposal before editing:
+
+- keep the current single-array defaults in `GeneratorCore` for the lensing
+  driver;
+- introduce one plainly named multi-array store owner in
+  `generator_core.py`;
+- let a family supply an ordered list of quantity names and an explicit width
+  for each quantity;
+- use ordinary `for quantity in quantities` loops for allocation, validation,
+  append, save, write, and zero operations;
+- keep family physics, sidecar creation, and `_compute_dvs_from_sample` in the
+  family driver;
+- do not encode CMB's array payload and background/MPS dictionary payload in
+  a dense indexing trick--use one explicit payload accessor whose arguments
+  are named; and
+- preserve one argument per line for long signatures and calls.
+
+Acceptance must exercise the real public generator path for all four
+families: new allocation, checkpoint reload, append, forced RAM path, forced
+memmap path, failed-row zeroing, nonfinite/wrong-shape refusal before success
+is recorded, exact sidecar retention, and byte-identical valid payloads.
+Append replay and worker-count invariance remain workstation evidence.  This
+refactor should follow the active generator-integrity repairs so it consumes
+their final contract instead of racing them.
+
+The driver files also contain small safe cleanup candidates: unused `sys` and
+`traceback` imports in the background/CMB/lensing drivers, unused `traceback`
+in MPS, and unused `sys` in `compute_cmb_covariance.py`.  Batch those with the
+store consolidation or documentation cleanup; do not create a unit for six
+imports.
+
+### BLOAT-03 — `cobaya_theory/`: centralize mechanics, retain family lifecycle prose
+
+Every adapter contains an exactly identical 19-line `_pick_device` body.
+Every adapter also repeats the unknown-`extra_args` loop, ROOTDIR-relative
+path expansion, and `bool(extra_args.get("compile"))`.  The repeated block is
+already a correctness boundary: the queued adapter-contract work requires
+typed booleans, explicit roots, and non-coercing requested values.
+
+Consolidate these mechanics when that boundary lands:
+
+- one helper validates `device` as an allowed string and resolves availability;
+- one helper validates `compile` as an actual boolean;
+- one helper rejects unknown option keys while accepting the family name and
+  its plain-language retired-key explanation for the error;
+- one helper resolves an absolute artifact root and refuses a missing ROOTDIR
+  for relative roots; and
+- all five adapters use those helpers before loading an artifact.
+
+Do not generalize the five `initialize` or `calculate` methods into a large
+parameterized base-class template.  Their spectrum assembly, scalar-name
+publication, redshift windows, and matter-power composition are different
+scientific operations.  Likewise, keep the one-line `get_requirements`
+methods visible: they are Cobaya protocol methods, not needless wrappers.
+
+The consolidation gate calls the public lifecycle of all five adapters and
+includes a mutation arm that restores one local `bool(...)` or `str(...)`
+coercion.  It also scans for zero remaining local `_pick_device` definitions,
+so a sixth rule cannot appear by drift.
+
+### BLOAT-04 — documentation in the two newly reviewed trees
+
+The four `dataset_generator_*.py` files place their long introductions after
+imports as comments, so Python exposes no module docstring for them.  Move the
+introduction before imports and rewrite it as a present-state module
+docstring.  Define rank zero, worker rank, MPI message, checkpoint, memmap,
+append, and sidecar before the implementation uses those words.  Replace
+audit-history prose such as “MOVED VERBATIM,” “DONT REMOVE THIS,” and
+“SOME WEIRD BEHAVIOR” with the current mechanism and a reproducible condition.
+
+The Cobaya adapter module docstrings are stronger, but their repeated helper
+comments still assume prior framework knowledge.  Each adapter's class
+docstring should define the four lifecycle times used in the manuscript:
+construction, requirement negotiation, one-sample calculation, and getter
+readback.  Define `state` as Cobaya's mutable result dictionary for one
+sample, not as model weights.  Keep the vendored interpolator attribution,
+but state the local validation and extrapolation differences next to the
+methods that implement them.
+
+Reformat long public signatures so each argument occupies its own line.  This
+is a readability change, not a line-reduction target.  Documentation-only
+commits carry AST-with-docstrings/comments-stripped identity, compile checks,
+and untruncated scans for the retired phrase families.
+
 ## Ordered Implementer queue from this review
 
-1. Resume trust: make the raw-log digest part of the skip verdict; unify and
-   expose executable/input manifests; extend preflight watch coverage.
-2. Evidence rollout: apply the rulings above, then reconcile declared and
-   executed assertion ids across all gates and check scripts.
-3. Staging truth: make the seeded training/minibatch order independent of the
+1. Submit preflight finding `RT-IMPL-02` to the Fable Architect: the executed
+   pathspec does not implement its stated exclusion.  If adjudicated in,
+   exclude exactly
+   `gates/board_config.json` from the dirty-tree pathspec and prove both the
+   exclusion and a nearby watched control.  Then propose the reviewed
+   per-gate executable/input manifest.  Raw-log resume trust is closed on the
+   CPU path; do not reopen it without a counterexample.
+2. Staging truth: make the seeded training/minibatch order independent of the
    RAM branch, correct the banner, define equality policy, and prove the real
    downstream sequence in both storage regimes.
-4. Public numeric schema: remove optimizer and CMB reference-value coercions;
-   complete the post-step finite workstation gate.
+3. Evidence rollout: apply the rulings above, then reconcile declared and
+   executed assertion ids across all gates and check scripts.  This follows
+   staging truth under the Architect's re-pinned order.
+4. Complete the post-step finite workstation gate.  The optimizer and CMB
+   reference-value type schemas are structurally closed, subject to their live
+   board lanes.
 5. Workstation evidence already owed: generator replay/worker invariance,
    live scalar fine-tune parity, artifact save/forge/rebuild, and the full
    40-gate board.
-6. README current-state repair, followed by the in-file teaching campaign in
-   the priority order above.  Documentation-only batches carry AST-identity,
+6. Continue the in-file teaching campaign in the priority order above,
+   including `compute_data_vectors/` and `cobaya_theory/`.  The bounded README
+   stale-fact repair is closed.  Documentation-only batches carry AST-identity,
    compile, and untruncated stale-pattern evidence.
+7. Submit BLOAT-01 through BLOAT-03 to the Fable Architect.  If adjudicated
+   in, execute them only after active correctness campaigns stabilize their
+   contracts.  BLOAT-02 requires a design proposal before code because it
+   touches generator checkpoint and append behavior.
 
 Do not mark any item closed from a source-text census alone when the claimed
 behavior has an executable public boundary.  The landing handoff must name
