@@ -2369,6 +2369,22 @@ NOW: narrow/offset uniform intervals unsafe; --chain 1 on
 full-dataset stems unsafe. Spec: gates-and-board.md "25M-01..06
 adjudication".
 
+PHASE-3 LANDING + DEPLOY_DATA SIGN-OFF (2026-07-13, Fable): 774bf3d
+GO (9 no-schema gates, 24 declared; the board_selftest live-board
+leg was VACUOUS against its stub cfg — the Implementer's fix
+reconciles against the real board_config; a vacuous-pass caught in
+our own machinery). deploy_data APPROVED (22-config census
+re-verified: six identical fixtures; role-named keys ratified) with
+ONE amendment: the .dataset pointer's referenced siblings are
+outside the hash surface — blind spot named in _help, hardening
+option (r2-expand or pin members) queued for queue-5. Census regex
+hardening APPROVED and widened: (?!\w) at run_board.py:1054 AND
+:975 (phantom ctx.py live-reproduced; .pyc class closed), with
+pinned selftest legs. Next increment completes population 40/40;
+queue 2 opens at that merge. Spec: gates-and-board.md "Phase-3
+landing audit + deploy_data sign-off + the census word-boundary
+ruling".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

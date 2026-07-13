@@ -3769,3 +3769,64 @@ pre-queue-5 gate-truth gauntlet); 25M-02/03 land with unit 8's
 run-control machine; nothing preempts batches 4/5b -> D3 -> D4 ->
 D5. The 25M series joins the registry namespace with the
 durable-record rule honored (fafc122 landed before the chat copy).
+
+## Phase-3 landing audit + deploy_data sign-off + the census word-boundary ruling (Fable, 2026-07-13)
+
+LANDING 774bf3d AUDITED — GO. Nine no-schema gates populated
+(15 -> 24 declared, ok=True; selftest ALL PASS with and without
+$ROOTDIR; py_compile clean). Both flagged deviations ratified:
+
+- The board_selftest live-board fix is an UPGRADE, not merely a
+  repair: the old leg validated the live BOARD against a stub cfg
+  and was vacuous by construction ("all manifest-less ... no-op");
+  the new leg reconciles every declared manifest against the REAL
+  board_config via _load_config (safe with $ROOTDIR unset) and
+  prints the declared count. The Implementer caught a latent
+  vacuous-pass in OUR OWN acceptance machinery — the exact class the
+  gate-truth campaign hunts; recorded as such.
+- The three smoke-gate docstring rewords (bare generator .py tokens
+  -> prose) follow the diagnostics-domain precedent.
+
+DEPLOY_DATA SIGN-OFF — APPROVED WITH ONE AMENDMENT. The census claim
+was mechanically re-verified: an untruncated uniq -c over ALL gate
+configs finds exactly 22 occurrences of each of the six file names —
+every batch-4 config names the identical six fixtures, and the val
+role genuinely consumes the cs_8 files (role-named keys over
+file-named paths is honest and ratified). Paths match the resolution
+rule (train/val under --root/chains; the dataset under
+$ROOTDIR/external_modules/data/<cosmolike_data_dir>).
+cosmolike_data_dir itself is correctly omitted (a directory, not a
+leaf member). THE AMENDMENT — a recorded blind spot: the .dataset
+file is a POINTER; the sibling files it references (data vector,
+covariance, mask, n(z)) are NOT in the hash surface, so a changed
+mask leaves a green manifest. The _help entry gains one sentence
+naming this boundary, and a board-listed HARDENING OPTION is queued
+for the queue-5 window: measure the hashing cost there, then either
+r2-expand the data directory or pin the referenced members. V1
+lands as proposed; the blind spot is documented, not silent
+(scope-and-blind-spot law).
+
+CENSUS WORD-BOUNDARY RULING — APPROVED, WIDENED TO BOTH UNANCHORED
+SITES. The phantom was live-reproduced by the Architect:
+re.findall(r"[\w./-]+\.py", "cmd=[ctx.python, ...]") captures
+"ctx.py". The hardened form [\w./-]+\.py(?!\w) captures nothing
+there, still captures a real sentence-final mention
+("... gates/run_board.py."), and stops the latent .pyc/.pyx false
+captures. Apply (?!\w) to run_board.py:1054 (the general census)
+AND :975 (the gates/checks-prefixed census — same .pyc class);
+:1057's quoted driver form is bounded by quotes and stays. Pinned
+acceptance (selftest legs): production-diagnostic validates (the
+phantom is gone); a control keeps a real .py mention captured
+including sentence-final; "x.pyc" yields nothing; "ctx.python"
+yields nothing. This is the one authorized edit to the
+validate_manifests machinery; the Implementer lands it with
+production-diagnostic's population.
+
+param-window-cuts' ctx.log reword (geometries.output.py -> "the
+geometries output module") is approved at its population
+(diagnostics-domain precedent).
+
+Result: the next increment lands the deploy_data block + 15 gate
+inputs= + the census hardening + production-diagnostic, completing
+population 40/40 — queue 2 opens at that merge. The full-board Mac
+validation and the review handoff remain the acceptance.
