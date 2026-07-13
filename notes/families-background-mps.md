@@ -996,5 +996,6 @@ reproduced). No renamed legacy product and no dual serving: one
 product, one convention, named sigma8. Implementation rides the
 wave-4 MPS visit (units 16 + 63 + the entry-2 sigma8 half, under
 UNIT 2 EXTENDED's domain-totality contract); the guide's Current-gap
-paragraph (texnotes/emulator_code_guide.tex ~:3885) updates in the
-SAME landing per the currency rule in conventions-and-workflow.md.
+paragraph (texnotes/emulator_code_guide.tex ~:3885) is then
+RED-TEAM-owed — only the red team edits the guide (USER RULE
+2026-07-13; custody rule in conventions-and-workflow.md).

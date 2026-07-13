@@ -595,21 +595,28 @@ all 20 against HEAD:
 - TWO are STALE — the code already moved: :4691 (dirty-tree watch
   scope; queue 1c landed _EXECUTABLE_DIRS covering all five
   executable roots) and the raw-log half of :4723 (queue 1a made
-  stale-log a first-class non-green resume state). The refresh rides
-  the next board-harness landing.
+  stale-log a first-class non-green resume state). The refresh is
+  RED-TEAM work under the custody rule below.
 - TWO are IN FLIGHT: the digest half of :4723 is queue 1b (building
   now); :4666 declared-vs-executed reconciliation is queue 2 (next).
 - ONE was blocked on the user and is now RESOLVED: :3885 sigma8
   radius — USER RULING 2026-07-13 = R = 8 Mpc/h (recorded in
   families-background-mps.md "USER RULING (2026-07-13)").
 
-THE CURRENCY RULE (binding; the queue-3 staging-passage precedent
-generalized): any landing that changes behavior taught by a
-Current-gap paragraph updates that paragraph in the SAME commit —
-closing a gap rewrites the passage to the new behavior; narrowing
-one rewrites it to the remaining gap. A Current-gap paragraph is a
-contract surface, not decoration: a stale "gap" teaches a defect the
-code no longer has, which is the same falsehood as documenting a
-feature that does not exist. The queued full line-by-line guide
-review (a separate Architect item) verifies the remaining paragraphs
-against code as one of its legs.
+THE CURRENCY RULE + GUIDE CUSTODY (binding; ownership corrected by
+USER RULE the same day): texnotes/emulator_code_guide.tex is
+RED-TEAM-OWNED — neither the Architect nor the Implementer edits it
+(user instruction, 2026-07-13). A landing that changes behavior
+taught by a Current-gap paragraph therefore does NOT carry the guide
+edit itself; instead the landing's notes entry NAMES the affected
+paragraph(s), the Architect carries the owed delta into the next
+ARCHITECT_HANDOFF_FOR_THE_RED_TEAM block, and the RED TEAM updates
+the guide — closing a gap rewrites the passage to the new behavior;
+narrowing one rewrites it to the remaining gap. A Current-gap
+paragraph is a contract surface, not decoration: a stale "gap"
+teaches a defect the code no longer has, which is the same falsehood
+as documenting a feature that does not exist. The queued full
+line-by-line guide review (a separate Architect item) verifies the
+remaining paragraphs against code and hands its findings to the red
+team the same way — the Architect reads and audits the guide, only
+the red team writes it.
