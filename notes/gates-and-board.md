@@ -1793,6 +1793,68 @@ queue 2 — 69 is EMUL2-critical (a real Cobaya consumer gets wrong
 science by default today), 70 corrupts worst-row selection and
 overlays in the shipped CMB example.
 
+## 1b phase-3 batch-1 DONE (Opus, 2026-07-13): three pure-integrity gates populated; family-first re-categorized (proposal correction)
+
+Approved batch-1 landed, but with a correction the implementation forced.
+board-selftest, generator-seed, and stage-ram now declare
+`manifest=Manifest(code=(), inputs=())`. Verified on the Mac (cocoa-torch):
+`validate_manifests(BOARD, cfg)` ok=True / 0 errors; board-selftest ALL PASS
+(74 legs); `run_board --list` rc 0; `compileall emulator gates` clean. The
+resolved closures (strictly broader than the legacy gate-body digest, all
+dynamic-clean):
+
+- board-selftest -> {gates/board.py, gates/checks/board_selftest.py,
+  gates/run_board.py}; the harness is now hashed.
+- generator-seed -> {gates/board.py, gates/checks/generator_seed.py,
+  gates/run_board.py}.
+- stage-ram -> {emulator/batching.py, emulator/data_staging.py,
+  gates/board.py, gates/checks/stage_ram.py, gates/run_board.py}; the
+  stage_source surface the gate tests is hashed.
+
+CORRECTION to the approved proposal (I mis-categorized family-first as a
+pure board-integrity gate). Populating it with `code=()` fails validation,
+for THREE reasons the batch-1 probe exposed, each a real dependency the
+manifest machinery cannot infer on its own:
+
+1. Literal-path census: gate_family_first's docstring names
+   `cosmic_shear_train_emulator.py` as prose, and the census reads the whole
+   gate source (the phase-1 awareness note's "reword or declare" case). Here
+   the right answer is DECLARE, not reword -- the gate genuinely depends on
+   that driver.
+2. Root-driver imports are not auto-derived. gates/checks/family_first.py does
+   `from cosmic_shear_train_emulator import require_family_block`, but
+   `_module_to_repo_paths` resolves only imports whose top-level name is in
+   `_EXECUTABLE_DIRS` ("emulator", "gates", "compute_data_vectors", ...). A
+   repo-ROOT driver module is not under a package dir, so the closure deriver
+   returns [] for it -- BY DESIGN (root drivers are declared, like _DRIVER in
+   the literal census), not a bug. family_first.py's diagnostic closure is
+   only 3 files; the driver never enters it until declared.
+3. `open().read()` dependencies are invisible to every census.
+   family_first.py READS the source of all four cosmic_shear drivers
+   (family_first.py:88,99) to census their `family="cosmolike"` default. A
+   file read is neither an import (closure-invisible) nor a `.py` literal in
+   the GATE body (literal-census-invisible), so nothing flags those three
+   extra drivers -- only a human declaration covers them.
+
+So family-first's honest manifest is a driver-census declaration, not
+empty. Recommended (verify at population -- declaring the driver seeds its
+closure, which reaches emulator/results.py's model-recipe dynamic site, so
+census (b) will then require a covering root):
+
+    manifest=Manifest(code=("cosmic_shear_train_emulator.py",
+                            "cosmic_shear_sweep_hyperparam_emulator.py",
+                            "cosmic_shear_sweep_ntrain_emulator.py",
+                            "cosmic_shear_tune_emulator.py",
+                            "emulator/designs"),
+                      inputs=())
+
+family-first therefore moves OUT of batch 1 and into the driver-gate wave
+(batch 4 shape: driver roots + a model-recipe cover), even though it launches
+no driver -- its dependency profile is a driver gate's. Batch 1 as landed is
+the three genuinely-clean gates. This is the kind of per-gate surprise the
+propose-first ruling anticipated; the machinery behaved correctly (it refused
+a manifest that would have hashed nothing for a real dependency).
+
 ## 20M-03..06 adjudication (Fable, 2026-07-13): all four CONFIRMED — the real-consumer protocol cluster, units 71-74; EMUL2 acceptance now formally blocked on it
 
 All four verified by the Architect (code reads + probes on the
