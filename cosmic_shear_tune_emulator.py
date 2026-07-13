@@ -214,7 +214,7 @@ def _tune_worker(gpu_id, n_trials, cfg, rescale, activation,
                  callbacks=[log_trial])
 
 
-def main(prog="cosmic_shear_tune_emulator", family=None):
+def main(prog="cosmic_shear_tune_emulator", family="cosmolike"):
   parser = argparse.ArgumentParser(prog=prog)
   # --root / --fileroot / --yaml: the cocoa project layout (data under
   # --root, YAML under --fileroot; train_args may carry [default, min,
@@ -272,19 +272,19 @@ def main(prog="cosmic_shear_tune_emulator", family=None):
                       help="suppress all stdout (per-trial lines "
                            "and the final summary)",
                       action="store_true")
-  args, unknown = parser.parse_known_args()
+  # strict parse: a misspelled flag (--sav, --activaton, --diagnostc) is a
+  # usage error naming the token and exiting nonzero, never silently ignored
+  # and then run at a default (which could publish to the wrong --save root).
+  args = parser.parse_args()
 
   # resolve_cocoa_config (cocoa.py): resolve the cocoa layout (data under
   # $ROOTDIR/<root>, YAML under <fileroot>), load the YAML, and make its data
   # paths absolute. The fileroot also hosts the parallel path's journal file.
   cfg, fileroot, _ = resolve_cocoa_config(args)
-  # a thin per-family driver passes its family (the DATA-BLOCK key:
-  # outputs / cmb / grid / grid2d); the dispatching driver passes
-  # None. require_family_block (cosmic_shear_train_emulator.py): a
-  # wrong-family YAML fails here NAMING the right driver.
-  if family is not None:
-    from cosmic_shear_train_emulator import require_family_block
-    require_family_block(data=cfg["data"], family=family, prog=prog)
+  # reject a wrong-family YAML at startup (family is always a real identity:
+  # a per-family wrapper passes its key, a direct run owns "cosmolike").
+  from cosmic_shear_train_emulator import require_family_block
+  require_family_block(data=cfg["data"], family=family, prog=prog)
   # per-family studies own their name (one journal file can never
   # mix families); the cosmic-shear study keeps its historic name.
   study_name = STUDY_NAME if family is None else prog

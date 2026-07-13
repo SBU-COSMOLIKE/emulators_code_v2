@@ -543,3 +543,25 @@ Acceptance combines the zero-audit-code scan, the existing board behavior,
 and a reviewer exercise: starting from one identity file alone, a new reader
 can say what would fail if the production formula were replaced by the
 mutation without consulting a note ledger.
+
+## Structured evidence map — gate contract anchors (45M-72 foundation)
+
+The board's structured evidence map (`Gate.evidence`) pins each migrated
+gate to a stable, runner-validated anchor in its home note; the mechanism
+and the audited rollout are documented in `gates-and-board.md`. The two
+workflow-side gates anchor here:
+
+<a id="cli-a-strict-cli"></a>
+**cli-strict (CLI-A) — every public executable rejects a misspelled flag.**
+All eight public entry points parse with `parse_args` (never
+`parse_known_args`), and two representative driver mains reject a misspelled
+flag (`--activaton`) with a nonzero exit before the expensive boundary,
+while a valid command line reaches it.
+
+<a id="fam-a-family-first"></a>
+**family-first (FAM-A) — every driver owns exactly one data-block family.**
+A direct cosmic_shear run owns the cosmolike data-vector family and rejects
+a CMB / grid / grid2d / scalar YAML naming its driver; a clean cosmic-shear
+YAML trains; the per-family wrappers accept their own block. The census
+confirms the four cosmic_shear drivers default `family=cosmolike`, always
+check, and drop the dispatcher prose.

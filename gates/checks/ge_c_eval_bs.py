@@ -28,7 +28,8 @@ Home note: training-stack.md:202-300.
 import time
 import numpy as np
 import torch
-from emulator.training import eval_val, derive_eval_bs, _EVAL_BS_TARGET
+from emulator.training import (eval_val, derive_eval_bs, _EVAL_BS_TARGET,
+                               ordinary_median)
 
 torch.manual_seed(0)
 DEV = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -96,7 +97,9 @@ print(f"device {DEV}, target {_EVAL_BS_TARGET}, derived bs "
 
 print("\n=== Part 1: partition invariance (rtol 1e-6) ===")
 ref_c = per_row_chi2(N_VAL)
-ref_med, ref_mean = ref_c.median().item(), ref_c.mean().item()
+# the reference matches eval_val's published reductions: the ordinary median
+# (unit 60) and the float64 mean (unit 14(f)).
+ref_med, ref_mean = ordinary_median(ref_c), ref_c.to(torch.float64).mean().item()
 ref_frac = (ref_c[:, None] > thresholds.cpu()[None, :]).float().mean(0)
 ok = True
 for bs in (32, 517, 1000, 2048):
@@ -110,6 +113,72 @@ for bs in (32, 517, 1000, 2048):
     ok &= row_ok and met_ok
     print(f"  bs={bs:5d}  per-row allclose={row_ok}  metrics={met_ok}")
 print("Part 1:", "PASS" if ok else "FAIL")
+
+
+print("\n=== Part 1b: ordinary median (unit 60) ===")
+
+
+class _ColChi2:
+    """chi2 = the first target column: a preset per-row score, so a chosen
+    validation set drives eval_val's median through the REAL reduction."""
+    needs_params = False
+
+    def chi2(self, pred, target):
+        return target[:, 0].clone()
+
+
+def fixed_data(vals):
+    """A tiny val set whose per-row chi2 is exactly `vals` (via _ColChi2)."""
+    n = len(vals)
+    Cf = torch.zeros(n, N_IN, device=DEV)
+    DVf = torch.zeros(n, N_OUT, device=DEV)
+    DVf[:, 0] = torch.tensor(vals, device=DEV)
+    data = {"load_C": lambda rows: Cf[rows],
+            "load_dv": lambda rows: DVf[rows],
+            "idx": np.arange(n)}
+    return data, _ColChi2()
+
+
+u60_ok = True
+# helper parity: even N -> the arithmetic mean of the two central values,
+# odd N -> the central value; torch.median takes the LOWER middle for even N.
+even = torch.tensor([0.0, 1.0, 9.0, 10.0])
+odd = torch.tensor([0.0, 1.0, 9.0])
+helper_ok = (ordinary_median(even) == 5.0 and float(even.median()) == 1.0
+             and ordinary_median(odd) == 1.0 and float(odd.median()) == 1.0)
+u60_ok &= helper_ok
+print(f"  helper: even ordinary={ordinary_median(even)} "
+      f"(Tensor.median={float(even.median())}), odd ordinary={ordinary_median(odd)}")
+
+# through the REAL eval_val: [0,1,9,10] -> 5 (not the lower-middle 1), and
+# the odd control [0,1,9] -> 1 exactly (byte-identity for odd N).
+d4, l4 = fixed_data([0.0, 1.0, 9.0, 10.0])
+med4, _, _ = eval_val(model=model, lossfn=l4, data=d4, load=4, bs=4,
+                      thresholds=thresholds)
+d3, l3 = fixed_data([0.0, 1.0, 9.0])
+med3, _, _ = eval_val(model=model, lossfn=l3, data=d3, load=3, bs=3,
+                      thresholds=thresholds)
+eval_ok = (med4 == 5.0 and med3 == 1.0)
+u60_ok &= eval_ok
+print(f"  real eval_val: even median={med4} (want 5), odd median={med3} (want 1)")
+
+# batch/chunk invariance: the median is a property of the data, not the
+# batching, for any even-N split of the preset set.
+inv_ok = True
+for bs in (1, 2, 3, 4):
+    m, _, _ = eval_val(model=model, lossfn=l4, data=d4, load=4, bs=bs,
+                       thresholds=thresholds)
+    inv_ok &= (m == 5.0)
+u60_ok &= inv_ok
+print(f"  batch invariance of the median across bs 1..4: {inv_ok}")
+
+# mutation arm: retaining Tensor.median() would report 1 for the even set —
+# the reduction eval_val no longer uses, proving the fix is load-bearing.
+mut_ok = (float(even.median()) == 1.0 and ordinary_median(even) != float(even.median()))
+u60_ok &= mut_ok
+print(f"  mutation (Tensor.median) reports {float(even.median())} not 5: caught={mut_ok}")
+print("Part 1b:", "PASS" if u60_ok else "FAIL")
+ok &= u60_ok
 
 print("\n=== Part 2: eval timing, training bs vs derived bs ===")
 if DEV.type == "cuda":

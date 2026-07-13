@@ -182,7 +182,7 @@ def _hyper_job(gpu_id, exp, payload, extra):
   return (idx, f, gpu_id, time.time() - t0)
 
 
-def main(prog="cosmic_shear_sweep_hyperparam_emulator", family=None,
+def main(prog="cosmic_shear_sweep_hyperparam_emulator", family="cosmolike",
          out_default="hyperparam_sweep"):
   parser = argparse.ArgumentParser(prog=prog)
   # --root / --fileroot / --yaml: the cocoa project layout (data under
@@ -240,7 +240,10 @@ def main(prog="cosmic_shear_sweep_hyperparam_emulator", family=None,
                       help="suppress all stdout (txt / pdf still "
                            "written)",
                       action="store_true")
-  args, unknown = parser.parse_known_args()
+  # strict parse: a misspelled flag (--sav, --activaton, --diagnostc) is a
+  # usage error naming the token and exiting nonzero, never silently ignored
+  # and then run at a default (which could publish to the wrong --save root).
+  args = parser.parse_args()
   # --out absent -> the driver's own default (the family
   # wrappers pass their per-family name through out_default).
   if args.out is None:
@@ -253,13 +256,10 @@ def main(prog="cosmic_shear_sweep_hyperparam_emulator", family=None,
   # resolve_cocoa_config (cocoa.py): load the YAML and make its data paths
   # absolute under $ROOTDIR/<root>; fileroot receives the sweep outputs.
   cfg, fileroot, _ = resolve_cocoa_config(args)
-  # a thin per-family driver passes its family (the DATA-BLOCK key:
-  # outputs / cmb / grid / grid2d); the dispatching driver passes
-  # None. require_family_block (cosmic_shear_train_emulator.py): a
-  # wrong-family YAML fails here NAMING the right driver.
-  if family is not None:
-    from cosmic_shear_train_emulator import require_family_block
-    require_family_block(data=cfg["data"], family=family, prog=prog)
+  # reject a wrong-family YAML at startup (family is always a real identity:
+  # a per-family wrapper passes its key, a direct run owns "cosmolike").
+  from cosmic_shear_train_emulator import require_family_block
+  require_family_block(data=cfg["data"], family=family, prog=prog)
   param, values, act_mode = read_sweep_block(cfg)
   if act_mode and args.activation is not None:
     raise ValueError(

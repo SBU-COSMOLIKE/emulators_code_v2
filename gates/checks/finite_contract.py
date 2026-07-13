@@ -32,30 +32,30 @@ The parts, in order:
   E. build_transfer_start parity — a non-finite epoch-0 surface raises with the
      finite-contract message (never "not the frozen base bitwise"); a valid
      zero-init keeps its "[ok] transfer parity" line.
-  F. the safe-sqrt producer (45M-24) — the objective must STOP producing the
+  F. the safe-sqrt producer — the objective must STOP producing the
      0/0 = NaN gradient at an exact fit (c == 0), not merely detect it: an
      exact-fit row has a finite, zero gradient in every sqrt mode (sqrt, both
      berhu lower branches, the anneal arm, and the berhu_capped region-3
      sqrt(t2*c) where-mask leak); positives agree analytically with sqrt; a
      materially negative / non-finite chi2 is refused (a non-finite loss);
      eager and torch.compile agree.
-  G. epoch-reduction finite truth (45M-47) — a finite per-batch loss near the
+  G. epoch-reduction finite truth — a finite per-batch loss near the
      float32 max yields a finite epoch mean (accumulated on the host in
      float64), where the old device-float32 loss*bs product would overflow to
      Inf and publish it.
-  H. the chi2-domain boundary (45M-53 / 45M-60) — eval_val and eval_source_chi2
+  H. the chi2-domain boundary — eval_val and eval_source_chi2
      RAISE on a finite negative chi2 (which training folds), so a corrupted row
      can never rank as "perfect": the finite-only check would crown it; an
      exact zero is accepted; the scale-aware band tolerates roundoff and
      refuses corruption on both edges; the same fold is compile-safe. The band
-     scales with the per-row reduction DEPTH = kept width w (45M-60), not w^2:
+     scales with the per-row reduction DEPTH = kept width w, not w^2:
      a production-width (>= 780) leg through a REAL CosmolikeChi2 subclass
      refuses -2 / -4 and both sides of the actual float32 band; restoring the
      retired w^2 rule (a mutation arm) lets -2 through; ScalarChi2 declares
      n_out; a mechanical subclass census proves no family overrides the width
      rule; and an ill-conditioned SPD control shows genuine roundoff near zero
      falls inside the band. The band derives from the dtype the chi2 was
-     COMPUTED in, never a storage upcast (the 45M-60 second addendum): _reduce,
+     COMPUTED in, never a storage upcast (the): _reduce,
      eval_val, and eval_source_chi2 give ONE verdict on a value between the
      1e-6 floor and the float32 band, a restored .double() upcast would split
      them, and a genuinely float64-computed loss still gets the tight float64
@@ -89,10 +89,26 @@ from emulator.losses.scalar import ScalarChi2
 from emulator.losses.transfer import TransferChi2
 from emulator.results import save_emulator
 from emulator.training import (eval_val, eval_source_chi2,
-                               training_loop_batched, _global_grad_norm)
+                               training_loop_batched, _global_grad_norm,
+                               ordinary_median, _validate_optimizer_opts)
 
 FAILURES = []
+# set True when a required check lane could not run for a missing capability
+# (the torch.compile backward lane). It is NOT a pass and NOT a failure of a
+# tested assertion; main turns it into a distinct exit code so the board can
+# report a non-green result instead of certifying a gate whose mandatory lane
+# never executed.
+LANE_UNAVAILABLE = []
 DEV = torch.device("cpu")            # CPU only: the contract legs need no GPU
+
+# exit codes main returns, read by the board's gate wrapper:
+#   0 = every leg ran and passed;
+#   1 = a tested assertion failed;
+#   2 = every leg that ran passed, but a mandatory lane could not run for a
+#       missing capability (a non-green result, never a silent PASS).
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_LANE_UNAVAILABLE = 2
 
 
 def report(label, ok, detail):
@@ -155,8 +171,10 @@ def check_eval_val():
   # the reference reduction, computed straight (no batching, no guard).
   with torch.no_grad():
     ref_c = ((model(C) - DV) ** 2).sum(dim=1)
-  ref_med = ref_c.median().item()
-  ref_mean = ref_c.mean().item()
+  # the reference reduction matches eval_val's published reductions (unit 60
+  # ordinary median + unit 14(f) float64 mean), so the finite control agrees.
+  ref_med = ordinary_median(ref_c)
+  ref_mean = ref_c.to(torch.float64).mean().item()
   ref_frac = (ref_c[:, None] > thresholds[None, :]).float().mean(0)
 
   # control: the guard does not move the finite result.
@@ -651,7 +669,7 @@ def check_transfer_parity(source, pgeom_x, extras_x, C_x):
 
 
 # ==========================================================================
-# Part F: the safe-sqrt producer (45M-24) -- an exact fit never NaNs the step.
+# Part F: the safe-sqrt producer -- an exact fit never NaNs the step.
 # ==========================================================================
 
 def _reduce_obj():
@@ -687,7 +705,7 @@ def _exact_fit_grad(obj, mode, berhu_s=None):
 def _can_compile():
   """True iff this box can build AND run a torch.compile'd backward.
 
-  The 45M-53 capability probe: compile a trivial function and run its
+  The capability probe: compile a trivial function and run its
   backward. A compiler-less dev box fails here, so the mandatory compile legs
   are gated on a real capability -- never on a broad except that would green a
   genuine Inductor / backward regression.
@@ -738,7 +756,7 @@ def check_safe_sqrt():
            not bool(torch.isfinite(loss)), "loss = " + repr(loss.item()))
 
   # eager + compiled: the exact-fit gradient stays finite under torch.compile.
-  # 45M-53 addendum: capability detection FIRST. A broad except that greened
+  # capability detection FIRST. A broad except that greened
   # on ANY exception turned a real Inductor / backward regression into a green
   # skip -- the exact failure class the leg exists to catch. On a
   # compile-capable box the leg is MANDATORY (an exception is RED, with the
@@ -773,13 +791,18 @@ def check_safe_sqrt():
            "cannot green on a compile failure)", raised,
            "compile failure surfaces as an exception, not a green skip")
   else:
-    print("  [SKIP-DEP] safe-sqrt: torch.compile unavailable on this box "
-          "(no compiler) — the compile lane is workstation-owed and never "
-          "counts toward 33/33 closure.")
+    # the compile lane is mandatory; when the box cannot run a compiled
+    # backward, record the lane as unavailable so main returns a non-green
+    # exit code. A printed skip line alone would let the board read the
+    # process's success and certify a gate whose mandatory lane never ran.
+    LANE_UNAVAILABLE.append("safe-sqrt torch.compile backward")
+    print("  [LANE UNAVAILABLE] safe-sqrt: torch.compile could not run a "
+          "backward on this box; the compile lane is mandatory, so this gate "
+          "reports a non-green result (run on a compile-capable workstation).")
 
 
 # ==========================================================================
-# Part G: epoch-reduction finite truth (45M-47) -- a finite per-batch loss
+# Part G: epoch-reduction finite truth -- a finite per-batch loss
 #         must not publish an Inf epoch mean.
 # ==========================================================================
 
@@ -836,7 +859,7 @@ def check_epoch_reduction():
 
 
 # ==========================================================================
-# Part H: the chi2-domain boundary (45M-53) -- eval / diagnostic reject a
+# Part H: the chi2-domain boundary -- eval / diagnostic reject a
 #         finite NEGATIVE chi2 that training folds; no false "perfect" row.
 # ==========================================================================
 
@@ -891,7 +914,7 @@ def check_chi2_domain():
   # positive control: the domain check is inert on all-positive scores.
   with torch.no_grad():
     ref_c = ((model(C) - DV) ** 2).sum(dim=1)
-  ref_med = ref_c.median().item()
+  ref_med = ordinary_median(ref_c)
   med, _, _ = eval_val(model=model, lossfn=PoisonChi2(),
                        data=_val_data(C, DV), load=N_VAL, bs=N_VAL,
                        thresholds=thresholds)
@@ -952,7 +975,7 @@ def check_chi2_domain():
 
 
 # ==========================================================================
-# Part H (production band, 45M-60): the band scales with the kept WIDTH,
+# Part H (production band): the band scales with the kept WIDTH,
 #         not w^2 -- a realistic dense width refuses a chi2 = -2 the retired
 #         w^2 rule crowned as perfect (band 34.3 at w = 3000).
 # ==========================================================================
@@ -985,7 +1008,7 @@ class _WidthChi2(CosmolikeChi2):
 
 
 class _WidthChi2Wsq(_WidthChi2):
-  """MUTATION control (45M-60): restore the retired w^2 rule. At width 780 the
+  """MUTATION control: restore the retired w^2 rule. At width 780 the
   float32 band balloons to 2.32 and SWALLOWS a chi2 = -2, so eval_val no longer
   raises -- proving the width rule is load-bearing (a w^2 regression reopens the
   false-crowning hole). Named so the subclass census can exclude it."""
@@ -998,7 +1021,7 @@ class _WidthChi2Wsq(_WidthChi2):
 class _WidthSrcChi2(CosmolikeChi2):
   """A diagnostic (encode-identity) CosmolikeChi2 with a declared dense width, a
   settable per-row value, and a chosen COMPUTE dtype -- for the (g) second-
-  addendum band-dtype-provenance legs (45M-60 second addendum).
+  addendum band-dtype-provenance legs.
 
   chi2 emits its per-row values in _dtype, so eval_source_chi2 derives the band
   from the dtype the chi2 was COMPUTED in; _chi2_n_terms (inherited) is the
@@ -1025,7 +1048,7 @@ class _WidthSrcChi2(CosmolikeChi2):
 
 
 def _all_subclasses(cls):
-  """Every subclass of cls, transitively (the loss-family census, 45M-60)."""
+  """Every subclass of cls, transitively (the loss-family census)."""
   found = []
   for sub in cls.__subclasses__():
     found.append(sub)
@@ -1071,7 +1094,7 @@ def _spd_roundoff_min(width, seed=0):
 
 
 def check_chi2_band_production():
-  """Part H (45M-60): the chi2-domain band at realistic dense WIDTHS.
+  """Part H: the chi2-domain band at realistic dense WIDTHS.
 
   The shipped negative / band-edge legs above use PoisonChi2 (no
   _chi2_n_terms), so eval_val falls back to n_terms = 1 and only the 1e-6 floor
@@ -1175,7 +1198,7 @@ def check_chi2_band_production():
 
 
 def check_chi2_band_dtype_provenance():
-  """Part H (45M-60 second addendum): the band derives from the COMPUTE dtype.
+  """Part H: the band derives from the COMPUTE dtype.
 
   eval_source_chi2 formerly upcast the per-row chi2 to float64 before deriving
   the band, flooring it to 1e-6 -- so it REFUSED a roundoff negative that
@@ -1277,6 +1300,43 @@ def _short(msg):
   return line
 
 
+def check_optimizer_schema():
+  """Part J: the optimizer spec validates its protocol-bearing numeric kwargs.
+
+  The finite objective supports an exact-fit row with a finite, zero gradient;
+  a freshly initialized Adam state at zero gradient then forms 0 / (sqrt(0) +
+  eps) = 0 / 0 when eps is 0, a non-finite update the pre-step loss and gradient
+  guards do not catch. The optimizer spec now rejects a zero (or non-finite) eps
+  before the optimizer is built, along with a non-finite / negative weight
+  decay, a non-positive / non-finite learning rate, and a beta outside [0, 1).
+  (Validating the parameters an optimizer step actually produces is the
+  workstation companion to this schema check.)
+  """
+  base = {"cls": torch.optim.AdamW, "weight_decay": 0.0}
+  # valid controls pass.
+  try:
+    _validate_optimizer_opts(base, 1e-3)
+    _validate_optimizer_opts(dict(base, eps=1e-8, betas=(0.9, 0.999)), 1e-3)
+    report("optimizer schema: valid AdamW opts pass", True, "accepted")
+  except ValueError as exc:
+    report("optimizer schema: valid AdamW opts pass", False, str(exc))
+  # each out-of-range kwarg is refused.
+  cases = [("eps = 0 (the 0/0 zero-gradient trap)", dict(base, eps=0.0), 1e-3),
+           ("non-finite eps", dict(base, eps=float("inf")), 1e-3),
+           ("negative weight_decay", dict(base, weight_decay=-1.0), 1e-3),
+           ("non-positive lr", dict(base), 0.0),
+           ("non-finite lr", dict(base), float("nan")),
+           ("beta2 == 1.0", dict(base, betas=(0.9, 1.0)), 1e-3),
+           ("single beta", dict(base, betas=(0.9,)), 1e-3)]
+  for label, opts, lr in cases:
+    refused = False
+    try:
+      _validate_optimizer_opts(opts, lr)
+    except ValueError:
+      refused = True
+    report("optimizer schema: " + label + " is refused", refused, "ValueError")
+
+
 def main():
   """Run every part of the finite contract; return 1 if any leg failed."""
   print("== finite-contract ==")
@@ -1298,24 +1358,32 @@ def main():
   pgeom_x, extras_x, C_x = check_finetune_parity(source, tmp)
   print("\n-- Part E: build_transfer_start parity --")
   check_transfer_parity(source, pgeom_x, extras_x, C_x)
-  print("\n-- Part F: the safe-sqrt producer (45M-24) --")
+  print("\n-- Part F: the safe-sqrt producer --")
   check_safe_sqrt()
-  print("\n-- Part G: epoch-reduction finite truth (45M-47) --")
+  print("\n-- Part G: epoch-reduction finite truth --")
   check_epoch_reduction()
-  print("\n-- Part H: the chi2-domain boundary (45M-53) --")
+  print("\n-- Part H: the chi2-domain boundary --")
   check_chi2_domain()
-  print("\n-- Part H: the chi2-domain band at production widths (45M-60) --")
+  print("\n-- Part H: the chi2-domain band at production widths --")
   check_chi2_band_production()
   print("\n-- Part H: the chi2-domain band's compute-dtype provenance "
-        "(45M-60 second addendum) --")
+        " --")
   check_chi2_band_dtype_provenance()
 
+  print("\n-- Part J: the optimizer-kwarg schema (zero-eps guard) --")
+  check_optimizer_schema()
+
   print("")
-  if len(FAILURES) == 0:
-    print("finite-contract: ALL PASS")
-    return 0
-  print("finite-contract: " + str(len(FAILURES)) + " FAILURE(S)")
-  return 1
+  if len(FAILURES) > 0:
+    print("finite-contract: " + str(len(FAILURES)) + " FAILURE(S)")
+    return EXIT_FAIL
+  if len(LANE_UNAVAILABLE) > 0:
+    print("finite-contract: NON-GREEN -- a mandatory lane could not run: "
+          + ", ".join(LANE_UNAVAILABLE)
+          + " (run on a compile-capable box)")
+    return EXIT_LANE_UNAVAILABLE
+  print("finite-contract: ALL PASS")
+  return EXIT_PASS
 
 
 if __name__ == "__main__":

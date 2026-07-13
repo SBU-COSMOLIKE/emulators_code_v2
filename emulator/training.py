@@ -35,6 +35,7 @@ loaded whole.
 """
 
 import copy
+import math
 import time
 
 import numpy as np
@@ -46,7 +47,7 @@ from torch.optim import lr_scheduler
 from .batching import build_loaders
 from .designs.plain import ResMLP
 from .designs.blocks import Affine, BinLinear
-from .losses.core import anneal_value, _chi2_neg_band, _chi2_domain
+from .losses.core import anneal_value, screen_chi2
 
 
 def pick_device(name=None):
@@ -164,6 +165,63 @@ def make_model(model_opts, input_dim, output_dim, device,
   return model
 
 
+def _validate_optimizer_opts(opt_opts, lr):
+  """Validate an optimizer spec's protocol-bearing numeric kwargs.
+
+  The optimizer spec forwards arbitrary kwargs into the constructor, so a
+  config can set an Adam-family epsilon of 0. The finite objective deliberately
+  supports an exact-fit row with a finite, zero gradient; a freshly initialized
+  Adam state at zero gradient then forms 0 / (sqrt(0) + eps) = 0 / 0 when eps is
+  0, a non-finite update the pre-step guards (the scalar loss and the gradient
+  norm) do not catch because both are finite. This validates the numeric kwargs
+  before the optimizer is built: the learning rate finite and positive, the
+  weight decay finite and nonnegative, an Adam-family eps finite and strictly
+  positive, and each beta finite in the half-open range 0 to 1. Validating the
+  parameters and optimizer state produced by each step is the workstation
+  companion to this schema check.
+
+  Arguments:
+    opt_opts = the optimizer spec dict (the class, the weight decay, and any
+               forwarded constructor kwargs such as eps / betas).
+    lr       = the resolved base learning rate.
+
+  Raises:
+    ValueError naming the offending kwarg and the range it must fall in.
+  """
+  lr_value = float(lr)
+  if not (math.isfinite(lr_value) and lr_value > 0.0):
+    raise ValueError(
+      "optimizer lr must be finite and positive; got " + repr(lr))
+  weight_decay = opt_opts.get("weight_decay", 0.0)
+  if not (math.isfinite(float(weight_decay)) and float(weight_decay) >= 0.0):
+    raise ValueError(
+      "optimizer weight_decay must be finite and nonnegative; got "
+      + repr(weight_decay))
+  if "eps" in opt_opts:
+    eps_value = float(opt_opts["eps"])
+    if not (math.isfinite(eps_value) and eps_value > 0.0):
+      raise ValueError(
+        "optimizer eps must be finite and strictly positive; an Adam-family "
+        "eps of 0 forms 0 / (sqrt(0) + 0) at a zero-gradient exact-fit row, a "
+        "non-finite update the loss and gradient guards do not catch. Got "
+        + repr(opt_opts["eps"]))
+  if "betas" in opt_opts:
+    try:
+      pair = tuple(opt_opts["betas"])
+    except TypeError:
+      pair = ()
+    if len(pair) != 2:
+      raise ValueError(
+        "optimizer betas must be a pair (beta1, beta2); got "
+        + repr(opt_opts["betas"]))
+    for index, beta in enumerate(pair):
+      beta_value = float(beta)
+      if not (math.isfinite(beta_value) and 0.0 <= beta_value < 1.0):
+        raise ValueError(
+          "optimizer beta" + str(index + 1) + " must be finite in [0, 1); got "
+          + repr(beta))
+
+
 def make_optimizer(model, opt_opts, lr, device):
   """
   Build the optimizer from a spec dict.
@@ -222,6 +280,7 @@ def make_optimizer(model, opt_opts, lr, device):
       decay.append(p)
     else:
       no_decay.append(p)
+  _validate_optimizer_opts(opt_opts, lr)
   wd    = opt_opts.get("weight_decay", 0.0)
   cls   = opt_opts["cls"]
   # forward every key except cls / weight_decay to the constructor.
@@ -397,6 +456,7 @@ def make_refine_optimizer(correction, base, opt_opts, lr, base_lr_scale,
   Returns:
     the optimizer with the four groups.
   """
+  _validate_optimizer_opts(opt_opts, lr)
   wd  = opt_opts.get("weight_decay", 0.0)
   cls = opt_opts["cls"]
   extra = {}
@@ -1342,37 +1402,6 @@ def _report_nonfinite(side, quantity, n_bad, n_total, positions):
     "run, never score it (no sentinel, never counted below threshold).")
 
 
-def _report_chi2_domain(side, n_bad, n_total, positions, min_value, band):
-  """Raise the chi2-domain error, one message shape for the eval sites.
-
-  The evaluation / diagnostic boundaries (eval_val, eval_source_chi2) RAISE
-  on a non-finite or materially-negative per-sample chi2 (45M-53) -- a
-  negative would compare False to every positive threshold and rank a
-  corrupted model as PERFECT, flipping best-epoch selection. Training folds
-  the same value to NaN through the shared _chi2_domain predicate; here the
-  boundary refuses loudly instead.
-
-  Arguments:
-    side      = "validation" or "diagnostic" (the boundary at fault).
-    n_bad     = how many per-sample chi2 are non-finite or materially neg.
-    n_total   = the total scored.
-    positions = the first few offending source-row indices (a Python list).
-    min_value = the minimum offending chi2 (how far out of domain).
-    band      = the allowed roundoff band; a chi2 below -band is corruption.
-
-  Raises:
-    ValueError, always.
-  """
-  raise ValueError(
-    "chi2 domain contract [" + side + "]: " + str(int(n_bad)) + " of "
-    + str(int(n_total)) + " per-sample chi2 are non-finite or materially "
-    "negative (minimum " + repr(min_value) + ", below the allowed roundoff "
-    "band of -" + repr(band) + "). First offending positions: "
-    + str(positions) + ". A chi2 is non-negative; a negative or non-finite "
-    "score would rank a corrupted model as perfect — fix the run, never "
-    "score it (training rejects the same value).")
-
-
 def _global_grad_norm(params):
   """The L2 norm of all parameter gradients, READ-ONLY (None grads
   skipped, the frozen trunk in a head phase).
@@ -1397,6 +1426,74 @@ def _global_grad_norm(params):
   if not parts:
     return torch.zeros(())
   return torch.linalg.vector_norm(torch.stack(parts))
+
+
+def ordinary_median(values):
+  """The ordinary 50th-percentile median (unit 60).
+
+  The center value for odd N, the arithmetic MEAN of the two center values
+  for even N -- the standard estimator every prose, plot, history, and gate
+  surface already names "median". torch.median returns the LOWER of the two
+  central ordered values for even N (a lower-median), which biases the
+  plateau-scheduler feed, the equal-fraction best-epoch tie-break, and the
+  persisted / plotted history low; torch.quantile(., 0.5) is the ordinary
+  median on both parities and is byte-identical to torch.median for odd N.
+  Computed in float64 so an extreme-scale even-N midpoint cannot overflow
+  (the reduction unit 14(f) hardens); the values already live on the CPU.
+
+  This is the ONE shared median reduction: eval_val, the scheduler feed, the
+  tie-break, the saved histories, and the five gate reference sites all use
+  it, so repaired production code and the gates cannot disagree.
+
+  torch.quantile caps its input at about 2^24 elements; every n_val here
+  (board runs 200, the shipped placeholder 5000) sits far below that, and a
+  larger validation set raises from torch.quantile loudly rather than
+  rounding silently.
+
+  Arguments:
+    values = a 1-D tensor of per-sample values (the validation chi2).
+
+  Returns:
+    a Python float: the ordinary median.
+  """
+  v = values.reshape(-1).to(torch.float64)
+  return float(torch.quantile(v, 0.5))
+
+
+def _validate_published_reductions(mean, median, frac):
+  """Refuse a non-finite PUBLISHED reduction (unit 14(f),, clause 4).
+
+  eval_val's row guard validates the per-sample chi2, but the reductions it
+  publishes (the mean, the median, the threshold fractions) are appended to
+  histories, plotted, persisted, and stepped into the plateau scheduler. A
+  reduction that is non-finite (a mean that overflowed, a NaN that slipped in)
+  must be a REFUSED evaluation, not a sentinel or a big number that silently
+  ranks or reschedules. The mean is the vulnerable reduction (float32 overflow
+  before the float64 fix); the median (order statistic) and the fractions
+  (bounded by 1) cannot overflow, but the one-line check covers all three.
+
+  Arguments:
+    mean   = the published mean (a Python float).
+    median = the published median (a Python float).
+    frac   = the published per-threshold fractions (a tensor).
+
+  Raises:
+    ValueError naming the reduction, the side ("validation"), and the value
+    when any published reduction is non-finite.
+  """
+  for name, value in (("mean", mean), ("median", median)):
+    if not math.isfinite(value):
+      raise ValueError(
+        "published reduction [validation]: the " + name + " is "
+        + repr(value) + ", not finite. A reduction that overflowed or went "
+        "NaN must not rank, reschedule, or ship a model -- fix the run "
+        "(the per-sample rows passed the domain guard; the reduction "
+        "itself is out of range).")
+  if not bool(torch.isfinite(frac).all()):
+    raise ValueError(
+      "published reduction [validation]: a threshold fraction is not "
+      "finite (" + repr(frac.tolist()) + "); a fraction is bounded in "
+      "[0, 1], so a non-finite value signals a corrupted reduction.")
 
 
 def eval_val(model, lossfn, data, load, bs, thresholds,
@@ -1515,35 +1612,35 @@ def eval_val(model, lossfn, data, load, bs, thresholds,
   c = torch.cat(chi2s).cpu() # per-sample chi2; the one D2H copy
   # chi2-domain contract (the single validation chokepoint: the baseline,
   # the raw eval, and the ema eval all pass through here, so best-epoch
-  # selection only ever compares valid scores). A non-finite OR materially
-  # negative per-sample chi2 must never reach the median / mean / threshold
-  # fractions — a negative compares False to every positive threshold and
-  # would rank a corrupted model as PERFECT (45M-53). The SAME predicate and
-  # band the training reduction uses run here, but raise instead of folding;
-  # within-band roundoff negatives normalize to exact 0.
-  # a production loss (a CosmolikeChi2 subclass) always declares its
-  # contraction's per-row term count; a bare test double defaults to 1 (the
-  # band's 1e-6 floor), which still rejects the out-of-domain values a double
-  # injects.
-  n_terms = lossfn._chi2_n_terms() if hasattr(lossfn, "_chi2_n_terms") else 1
-  band = _chi2_neg_band(c.dtype, n_terms)
-  c_norm, bad = _chi2_domain(c, band)
-  if bool(bad.any()):
-    idx   = np.nonzero(bad.numpy())[0]
-    order = np.concatenate(order_rows)
-    _report_chi2_domain(side="validation", n_bad=int(idx.size),
-                        n_total=int(c.numel()),
-                        positions=order[idx][:8].tolist(),
-                        min_value=float(c.min()), band=band)
-  c = c_norm   # within-band roundoff negatives are now exact 0
-  mean   = c.mean().item()
-  median = c.median().item()
+  # selection only ever compares valid scores). The shared score-domain
+  # boundary raises on a non-finite OR materially negative per-sample chi2
+  # (a negative compares False to every positive threshold and would rank a
+  # corrupted model as PERFECT), naming the offending validation
+  # rows; within-band roundoff negatives normalize to exact 0, the same rule
+  # the training reduction folds to NaN. c is already the compute-dtype tensor
+  # (no .double() before this), so the band matches the accumulated roundoff.
+  c = screen_chi2(c, loss=lossfn, label="validation",
+                  positions=np.concatenate(order_rows))
+  # published reductions in float64 (unit 14(f)): a float32 mean of
+  # rows near the float32 max overflows to Inf AFTER the row guard passed
+  # (the sum exceeds float32 range in any order), so the mean is formed in
+  # float64. The median is the ordinary 50th-percentile estimator (unit 60,
+  #) -- torch.median's lower-middle sample for even n_val biased the
+  # plateau-scheduler feed, the equal-fraction tie-break, and the persisted
+  # history; ordinary_median (float64, torch.quantile 0.5) fixes all four at
+  # once because they all consume this returned median.
+  mean   = c.to(torch.float64).mean().item()
+  median = ordinary_median(c)
 
   # c[:, None] (Nval, 1) and thresholds[None, :] (1, T) broadcast
   # into a (Nval, T) boolean grid: entry [i, j] = "is point i's
   # chi2 above threshold j?". mean(0) over samples -> the fraction
   # past each threshold. ([:, None] is the numpy/torch unsqueeze.)
   frac = (c[:, None] > thresholds[None, :]).float().mean(0)
+  # clause 4 (unit 14(f)): every PUBLISHED reduction must be finite before it
+  # is returned, appended to histories, plotted, and stepped into the
+  # scheduler -- an infinite mean is a REFUSED evaluation, never a sentinel.
+  _validate_published_reductions(mean=mean, median=median, frac=frac)
   return median, mean, frac
 
 
@@ -1606,31 +1703,20 @@ def eval_source_chi2(model,
       chunks.append(c.cpu())
 
   c_compute = torch.cat(chunks)          # per-row chi2 in the COMPUTE dtype
-  # chi2-domain contract (45M-53 / 45M-60 second addendum): a diverged model's
+  # chi2-domain contract: a diverged model's
   # non-finite OR materially negative per-row chi2 must not be published as a
   # diagnostic metric (a silent NaN, or a negative delta-chi2, in the
-  # parameter-space plots). The SAME predicate + band the training reduction
-  # uses run here, but raise instead of folding; within-band roundoff negatives
-  # normalize to exact 0. The band derives from the dtype the chi2 was COMPUTED
-  # in (normally float32), NEVER a storage upcast: an earlier .double() here
-  # relabelled the dtype to float64 and floored the band to 1e-6, so this
-  # diagnostic scorer REFUSED a roundoff negative that _reduce / eval_val (the
-  # float32 band, ~3e-3 at w = 780) normalize to exact 0 -- one score, two
-  # verdicts. The upcast cannot undo float32 contraction roundoff, it only
-  # relabels the dtype. So: validate / normalize in the compute dtype; the
-  # ACCEPTED result is cast to float64 for reporting only. (The diagnostics' own
-  # NaN-from-finite-input is a separate unit; this guards the MODEL output that
-  # feeds them.) (see eval_val: production losses declare _chi2_n_terms; a bare
-  # double defaults to 1, the band floor.)
-  n_terms = chi2fn._chi2_n_terms() if hasattr(chi2fn, "_chi2_n_terms") else 1
-  band = _chi2_neg_band(c_compute.dtype, n_terms)
-  c_norm, bad = _chi2_domain(c_compute, band)
-  if bool(bad.any()):
-    idx = np.nonzero(bad.numpy())[0]
-    _report_chi2_domain(side="diagnostic", n_bad=int(idx.size),
-                        n_total=int(c_compute.numel()),
-                        positions=rows[idx][:8].tolist(),
-                        min_value=float(c_compute.min()), band=band)
+  # parameter-space plots). The shared score-domain boundary raises here (it
+  # folds to NaN in training), naming the offending source rows; within-band
+  # roundoff negatives normalize to exact 0. The band derives from the dtype
+  # the chi2 was COMPUTED in (normally float32), NEVER a storage upcast: an
+  # earlier .double() here relabelled the dtype to float64 and floored the
+  # band to 1e-6, so this diagnostic scorer REFUSED a roundoff negative that
+  # _reduce / eval_val (the float32 band, ~3e-3 at w = 780) normalize to exact
+  # 0 -- one score, two verdicts. So screen in the compute dtype; the ACCEPTED
+  # result is cast to float64 for reporting only.
+  c_norm = screen_chi2(c_compute, loss=chi2fn, label="diagnostic",
+                       positions=rows)
   dchi2 = c_norm.double().numpy()        # accepted result -> float64 to report
   return params, dchi2
 
@@ -2074,7 +2160,7 @@ def training_loop_batched(nepochs,
                              steps_per_epoch=steps_per_epoch)
 
     # epoch training loss, accumulated on-device
-    # 45M-47: accumulate the epoch loss on the HOST as a python float
+    # accumulate the epoch loss on the HOST as a python float
     # (float64 on every backend, MPS included), not a device float32 sum.
     # A finite per-batch loss near the float32 max, times bs, overflows a
     # float32 product to Inf before it reaches the accumulator (and on MPS
@@ -2156,13 +2242,13 @@ def training_loop_batched(nepochs,
         # weights (the shipped model).
         if anchor is not None:
           anchor.apply(optimizer)
-        # host float64 accumulation (45M-47): read the scalar loss to the
+        # host float64 accumulation: read the scalar loss to the
         # host and multiply by bs there, so the product cannot overflow a
         # float32 before the sum. loss is already finite (the guard above).
         run_sum += float(loss.detach()) * bs
         run_n   += bs
     train_loss = run_sum / run_n
-    # 45M-47: a reduction's result must be checked -- finite per-batch
+    # a reduction's result must be checked -- finite per-batch
     # operands do not prove a finite epoch mean. Refuse to publish (append,
     # print, persist) a non-finite epoch loss; name the epoch.
     if not np.isfinite(train_loss):

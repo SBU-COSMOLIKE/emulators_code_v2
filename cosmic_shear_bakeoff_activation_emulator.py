@@ -320,7 +320,10 @@ def main():
                       dest="quiet",
                       help="suppress all stdout (txt / pdf still written)",
                       action="store_true")
-  args, unknown = parser.parse_known_args()
+  # strict parse: a misspelled flag (--sav, --activaton, --diagnostc) is a
+  # usage error naming the token and exiting nonzero, never silently ignored
+  # and then run at a default (which could publish to the wrong --save root).
+  args = parser.parse_args()
 
   # validate activations up front (fail before training): parse --activations
   # into a clean name list.

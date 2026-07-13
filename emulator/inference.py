@@ -205,7 +205,9 @@ class EmulatorPredictor:
       else:
         self._decode = self._build_cmb_decoder(law=info["amplitude_law"],
                                                as_name=info["as_name"],
-                                               tau_name=info["tau_name"])
+                                               tau_name=info["tau_name"],
+                                               as_ref=info["as_ref"],
+                                               tau_ref=info["tau_ref"])
       self._dtype = self.pgeom.center.dtype
       return
     self.dest_idx   = self.geom.dest_idx
@@ -313,24 +315,27 @@ class EmulatorPredictor:
     # predictor's (pred, x_enc) decoder convention.
     return chi2.decode
 
-  def _build_cmb_decoder(self, law, as_name, tau_name):
+  def _build_cmb_decoder(self, law, as_name, tau_name, as_ref, tau_ref):
     """Pick the whitened-output -> physical-C_ell map for a CMB emulator.
 
     Reconstructs the same loss object training used, purely for its
-    decode (the amplitude law multiplied back for "as_exp2tau", the
+    decode (the amplitude law multiplied back for "as_exp2tau_ref", the
     plain un-whiten for "none"), so the law math keeps one definition
     (losses/cmb.py). Mirrors _build_decoder for the data-vector kinds.
 
     Arguments:
       law      = the imposed amplitude-law name the artifact persisted
-                 ("none" / "as_exp2tau"); make_cmb_chi2 rejects an
-                 unknown name loudly.
+                 ("none" / "as_exp2tau_ref"); make_cmb_chi2 rejects an
+                 unknown name loudly and refuses the retired "as_exp2tau".
       as_name  = the raw linear amplitude column name ("" for "none").
       tau_name = the optical-depth column name ("" for "none").
+      as_ref   = the fiducial A_s_ref the order-one law measures A_s
+                 against (a persisted float; None for "none").
+      tau_ref  = the fiducial tau_ref (a persisted float; None for "none").
 
     Returns:
       a callable (pred, x_enc) -> (1, n_ell) physical C_ell; the "none"
-      closure ignores x_enc, the "as_exp2tau" decode reads A_s / tau
+      closure ignores x_enc, the "as_exp2tau_ref" decode reads A_s / tau
       from it through the saved param geometry.
     """
     from .losses.cmb import make_cmb_chi2
@@ -345,7 +350,9 @@ class EmulatorPredictor:
                          law=law,
                          param_geometry=self.pgeom,
                          as_name=as_name,
-                         tau_name=tau_name)
+                         tau_name=tau_name,
+                         as_ref=as_ref,
+                         tau_ref=tau_ref)
     # CmbFactoredChi2.decode(pred, params_whitened) already matches the
     # predictor's (pred, x_enc) decoder convention.
     return chi2.decode

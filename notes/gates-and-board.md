@@ -286,3 +286,187 @@ control (the current owed rerun list already follows it).
 Placement: unit 4 (harness/CLI truth), where queued — no new
 number. USER-VISIBLE: BOARD.md gains STALE; a green board
 certifies the current tree only.
+
+## RED-TEAM BOARD-TRUTH + INTEGRITY BATCH — Opus IMPLEMENTED (2026-07-12, Architect asleep, user-authorized direct implement)
+
+Seven reproduced red-team defects implemented on the branch (batch grant;
+merge/push to main stays user-only). Each self-committed with a board-listed
+CPU gate; all green on the Mac (no torch for the harness ones, Cocoa torch for
+the module ones). Board gate count 33 -> 38 (+board-selftest, +artifact-readback,
++stage-ram, +family-first, and the earlier diagnostics-domain).
+
+- 45M-73 / 45M-77 / 45M-82 (commit d786975): the board runner reports the truth
+  about what ran. run_selection returns a categorized summary (passed / resume /
+  failed / skipped_dep) + "incomplete"; main exits nonzero unless EVERY selected
+  gate is current PASS (a dependency-skipped gate that ran no body no longer
+  exits 0). select_gates validates every --gate / --from id (SelectionError with
+  suggestions, not a warning-then-subset); main validates --force-rerun ids and
+  refuses an empty real-run selection; --gate/--tier/--from are mutually
+  exclusive; the resolved selection is printed. finite_contract returns exit
+  code 2 (LANE_UNAVAILABLE) when its mandatory torch.compile lane cannot run,
+  and the board wrapper maps any nonzero to non-PASS. Gate: board-selftest
+  (BRD-A) 17/17.
+- 45M-76 (commit 53334f0): results.py read transfer_refined with
+  bool(f.attrs.get(...)) -> the string "False" is truthy and would load drifted
+  weights. New _read_native_bool parses by type (native bool accepted, absent ->
+  default, string/int refused naming the file + native-boolean schema). Gate:
+  artifact-readback (ARB-A). Live save/forge/rebuild is workstation-owed.
+- 45M-84 (commit 0ec1879): stage_source counted only the dv[rows] bytes but
+  materializes BOTH C[rows] and dv[rows]; a narrow-output scalar dump chose RAM
+  when the two copies didn't fit. Now sums params + dv (each own dtype/width) +
+  the reindex array; prints the predicted bytes + branch. Gate: stage-ram
+  (SRM-A) 6/6 (mocked memory).
+- 45M-79 (commit 48aac94): scalar_train_emulator omitted the rescale attr, so
+  warmstart.load_source refused the scalar driver's own artifact as a fine-tune
+  source. Now stamps rescale="none" (resolved fact); load_source unchanged.
+  Census leg in artifact-readback. Fuller shared-provenance-assembler is the
+  unit-24 amendment.
+- 45M-80 (commit e9943bc): the direct cosmic_shear drivers passed family=None,
+  skipping require_family_block; a wrong-family YAML trained under the wrong
+  identity (a scalar YAML died later at run_tag KeyError). The cosmolike family
+  now has an explicit "cosmolike" validator identity (owns no data-block key,
+  rejects any other family's block naming its driver); the four cosmic_shear
+  drivers default family="cosmolike" and always check; dispatcher prose deleted.
+  Gate: family-first (FAM-A) 15/15.
+
+STILL OPEN from the red-team batch (queued, not yet implemented, each large):
+45M-71 (resume input-digest + atomic RUNNING), 45M-74 (atomic per-attempt log +
+temp-file status/BOARD.md publication) -- one board state-machine visit; 45M-72
+(structured assertion-ID -> note-anchor evidence map, only 2/33 spec_codes occur
+in their home notes); 45M-78 (strict parse_args across 8 CLI entry points); 45M-81
+(generator sampling seed + replayable RNG); the documentation batch 45M-85 (strip
+audit codes from Python prose -- note: the code committed this session ADDED some,
+so that sweep must include gates/checks/board_selftest.py, diagnostics_domain.py,
+etc.) + 45M-83 (row-coordinate glossary) + 45M-86..90 (lifecycle / warmstart /
+gates-teach / diagnostics / save-rebuild didactics). 45M-75 is a workstation
+confirmation-request (post-optimizer-step finite boundary; eps=0 AdamW).
+
+## RED-TEAM BATCH continued — Opus (2026-07-12, user-authorized "do them ALL")
+
+Second wave of the red-team batch implemented on the branch (batch grant;
+merge/push to main stays user-only). Board now 40 gates. All CPU-verifiable
+legs green on the Mac (Cocoa torch where the module needs it).
+
+- 45M-71 + 45M-74 (commit 5947a05): board resume trusts BOTH an
+  executable-surface digest and an input digest; a config change / mutated
+  referenced YAML / interrupted attempt reruns and never satisfies a
+  dependency. A RUNNING record is persisted (atomically) before any gate code;
+  each attempt writes its own immutable per-attempt log (temp + os.replace);
+  board_status.json + BOARD.md go through temp + os.replace; --list / BOARD.md
+  distinguish current PASS / stale-code / stale-input / interrupted; a
+  status/log digest mismatch is loud. Gate board-selftest (BRD-A) now 26/26
+  (33/33 after the 45M-72 evidence-map foundation adds seven legs).
+- 45M-75 schema half (commit 7b4e4ec): _validate_optimizer_opts rejects a
+  zero / non-finite Adam eps, a non-finite / negative weight_decay, a
+  non-positive / non-finite lr, and a beta outside [0,1) before the optimizer
+  is built (the 0/0 zero-gradient trap). finite-contract Part J. The post-step
+  finite boundary remains the workstation confirmation half.
+- 45M-78 (commit 0139b1a): all eight public entry points parse with strict
+  parse_args (no parse_known_args) -- a misspelled flag exits nonzero before
+  any data / artifact / CAMB / worker / output-root work. Gate cli-strict
+  (CLI-A) 14/14.
+- 45M-80 (commit e9943bc): the direct cosmic_shear drivers own an explicit
+  "cosmolike" family identity and reject a wrong-family YAML naming the right
+  driver (family=None no longer skips the check). Gate family-first (FAM-A).
+- 45M-79 (commit 48aac94): the scalar driver stamps rescale="none" so its own
+  artifact is a valid fine-tune source. Census in artifact-readback.
+- 45M-76 (commit 53334f0): _read_native_bool parses transfer_refined by type
+  (the truthy "False" no longer loads drifted weights). Gate artifact-readback
+  (ARB-A).
+- 45M-84 (commit 0ec1879): stage_source counts BOTH compact copies (params +
+  target). Gate stage-ram (SRM-A).
+- 45M-81 (commit 80315c3): required integer --seed owns a numpy Generator
+  threaded through the four sampling sites + emcee; recorded in the chain
+  header. Gate generator-seed (GEN-A). Append-replay + worker-invariance +
+  full RNG-state manifest are the workstation remainder.
+- 45M-85 (commit 2807d3f): all 84 internal 45M-* audit codes stripped from
+  emulator/ + gates/ Python (comments / docstrings / gate descriptions /
+  printed headings); 11 of 14 files AST-identical, the other 3 differ only in a
+  human-facing runtime string; zero 45M remain.
+- 45M-83 (commit 4dc0779): the data_staging row-coordinate glossary (disk /
+  compact / loader rows + the dump_rows[j] invariant + the [9,2,9,5] example +
+  the discarded param_stats scale + grid2d moment order); AST byte-identical.
+
+STILL OPEN:
+- 45M-72: FOUNDATION LANDED this session (the Assertion schema + Gate.evidence
+  field, validate_evidence run on every invocation, the seven red-team gates
+  migrated with one headline assertion each + their home-note <a id> anchors,
+  and the board-selftest evidence-map legs proving the validator rejects a bad
+  anchor / missing note / duplicate id / malformed anchor; board-selftest
+  26/26 -> 33/33). Additive: the other 33 gates are untouched and still run on
+  their maps= prose. The AUDITED ROLLOUT (per-leg ids threaded through all 58
+  ctx.expect sites + 27 check-script leg manifests + the runner's declared-vs-
+  executed reconciliation + note anchors per leg + reconciling each gate's
+  home= with the note that documents it) is specified in "The audited rollout"
+  subsection above, held for Architect audit before it lands (a codebase-wide
+  refactor of the verification harness itself).
+- 45M-86 / 87 / 88 / 89 / 90: DONE (the didactic documentation batch; each
+  doc-only, py_compile clean + AST-with-docstrings-stripped identical per
+  file). 86 = experiment.py module docstring gains the six-stage family run
+  lifecycle diagram (with legend) + the family decision table (keys +
+  validators read from from_config) (a9834fe). 87 = warmstart.py
+  transfer_state_dict gains the tensor-by-tensor shape-flow diagram, matched
+  vs grown keys, zero-padding, the rank-3 FiLM case (b37b5d2). 88 = board.py
+  module docstring gains "How a gate teaches its evidence" (the four records
+  a reviewer reads) + the assertion / evidence glossary terms (bf62114). 89 =
+  diagnostics.py gains the estimator-vs-verdict split (only 2 of 7 carry an
+  in-code verdict: coverage_limited + local_linear_floor) (b1a375a). 90 =
+  results.py save_emulator gains the reversible map pairing every saved value
+  with its rebuild read site + the labelled provenance-only keys (1c3821c).
+  The four experiment/warmstart/diagnostics/results units were drafted by
+  gated sub-agents under a strict AST-identity check, then independently
+  re-verified (compile + AST + falsifiable-fact spot-checks) before commit.
+
+## Structured evidence map — gate contract anchors (45M-72 foundation)
+
+The board carries a structured evidence map (`Gate.evidence`, a tuple of
+`Assertion(aid, anchor)`): each migrated gate names, in code, the stable
+assertion id it proves and the home-note anchor that documents it. The
+runner validates the whole map statically before any gate runs — every
+anchor must resolve to an explicit `<a id="...">` marker in `notes/`, and
+no two assertions anywhere on the board may share an id — so the free-form
+`maps=` prose can no longer drift from the note it cites (the gap this
+increment closes: before it, almost none of the board's tests named a note
+passage the note still carried). Each anchor below is that marker; a gate
+whose home note is elsewhere carries its anchor in that note, not here.
+
+This foundation migrates the seven red-team gates with one headline
+assertion each; the per-acceptance-leg ids (every `ctx.expect` and every
+external check leg emitting a unique id the runner reconciles against the
+declared set) are the audited rollout specified below.
+
+<a id="brd-a-board-truth"></a>
+**board-selftest (BRD-A) — the wrapper reports the truth about what ran.**
+A dependency-skipped selected gate exits nonzero and runs no test body; an
+unknown `--gate` / `--from` / `--force-rerun` id is a usage error with a
+suggestion and a nonzero exit; the run selectors are mutually exclusive;
+and the finite-contract compile-lane skip is a distinct non-green exit code
+the board wrapper maps to non-PASS. Proven by `gate_board_selftest` /
+`gates/checks/board_selftest.py`.
+
+### The audited rollout (45M-72 remainder, for Architect audit)
+
+The foundation above lands the schema (`Assertion` + `Gate.evidence`), the
+static validator (`validate_evidence` in `run_board.py`, run on every
+invocation), the seven migrated gates, and the mutation leg in
+board-selftest that proves the validator rejects a missing anchor and a
+duplicate id. It is additive: a gate with no `evidence` is untouched, so
+the other 33 gates still run on their `maps=` prose. The remaining work,
+which touches all 40 gates + 58 `ctx.expect` sites + 27 check scripts + the
+home notes and so warrants an Architect audit before it lands:
+
+1. **Per-leg ids.** Give `RunContext.expect` an `aid=` argument, and give
+   every gate one `Assertion` per acceptance leg (not one headline). The
+   context records each executed aid.
+2. **Executed-vs-declared reconciliation.** After a gate runs, the runner
+   compares the set of aids the body actually emitted against the set the
+   gate declared in `evidence`; a leg that was declared but never executed
+   (a silently-dropped check) fails the gate.
+3. **External-script leg manifests.** Each `gates/checks/*.py` prints a
+   machine-readable manifest of the leg ids it ran (one line per leg); the
+   runner parses it and folds those ids into the executed set, so an
+   external check's dropped leg is caught the same way.
+4. **Note anchors for every leg.** Each home note gains an `<a id>` marker
+   per acceptance leg, and each gate's `home=` is reconciled with the note
+   that actually documents it (several red-team gates are written up here in
+   `gates-and-board.md` while their `home=` names a domain note).

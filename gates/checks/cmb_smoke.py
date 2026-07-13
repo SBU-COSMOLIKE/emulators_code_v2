@@ -7,7 +7,7 @@ two tiny dumps are ~400 serial CAMB calls at low accuracy):
 
   1  dataset_generator_cmb.py writes a TINY training dump (200 rows,
      l = 2..350, probe cmblensed, uniform sampling over As / tau / omch2 —
-     As sampled LINEARLY, so the as_exp2tau law reads a raw amplitude
+     As sampled LINEARLY, so the as_exp2tau_ref law reads a raw amplitude
      column) and a second dump for validation. This leg also gates the
      generator itself: four per-spectrum dv files + the chain
      sidecars must land with the documented names.
@@ -20,7 +20,7 @@ two tiny dumps are ~400 serial CAMB calls at low accuracy):
      (3 per-spectrum + 3 cross), symmetric + PSD + off-diagonals alive,
      the stencil step study and the fractional-amplitude contraction
      keys in the provenance (the weight fix, notes/families-scalar-cmb.md).
-  3  a data.cmb training run (spectrum tt, amplitude_law as_exp2tau)
+  3  a data.cmb training run (spectrum tt, amplitude_law as_exp2tau_ref)
      trains a small ResMLP; the collapse bar is RELATIVE to the staged
      mean predictor (best val median < 0.5x its median chi2), so a dead
      network that only learns the training mean fails the gate
@@ -46,6 +46,7 @@ import numpy as np
 import torch
 
 from emulator.experiment import EmulatorExperiment
+from emulator.training import ordinary_median
 from emulator.results import save_emulator
 from emulator.inference import EmulatorPredictor
 
@@ -67,7 +68,7 @@ def gen_yaml():
     """The generator YAML: low-accuracy CAMB, three sampled params.
 
     As is sampled LINEARLY (the endorsed decision 5 ruling: the
-    as_exp2tau law reads a raw amplitude column, so the dump carries As
+    as_exp2tau_ref law reads a raw amplitude column, so the dump carries As
     itself, never logA).
     """
     return (
@@ -177,7 +178,7 @@ def check_generate(rootdir, rel_root):
             ["--root", rel_root, "--fileroot", "emul", "--yaml", "gen.yaml",
              "--datavsfile", "dvs_" + tag, "--paramfile", "params_" + tag,
              "--failfile", "failed_" + tag, "--chain", "0",
-             "--nparams", str(NROWS), "--unif", "1", "--temp", "2"],
+             "--nparams", str(NROWS), "--unif", "1", "--temp", "2", "--seed", "1234"],
             rootdir)
         stem = os.path.join(chains, "params_%s_cmblensed_unifs" % tag)
         dv = os.path.join(chains, "dvs_%s_cmblensed_unifs_tt.npy" % tag)
@@ -322,9 +323,14 @@ def build_cfg(paths):
         "data": {
             "cmb": {"spectrum": "tt",
                     "covariance": paths["cov"],
-                    "amplitude_law": "as_exp2tau",
+                    "amplitude_law": "as_exp2tau_ref",
                     "as_name": "As",
-                    "tau_name": "tau"},
+                    "tau_name": "tau",
+                    # the fiducial reference pair (the sampling ref values):
+                    # the order-one factor is 1 at (As, tau) == (2.1e-9,
+                    # 0.055) and stays order-one over the sampled box.
+                    "as_ref": 2.1e-9,
+                    "tau_ref": 0.055},
             "train_dv":     paths["train"]["dv"],
             "val_dv":       paths["val"]["dv"],
             "train_params": paths["train"]["params"] + ".1.txt",
@@ -386,7 +392,7 @@ def check_train(paths, tmp, device):
     else:
         tw = exp.chi2fn.encode(dv)
     c_mean = exp.chi2fn.chi2(pred=torch.zeros_like(tw), target=tw)
-    mean_median = float(c_mean.median())
+    mean_median = ordinary_median(c_mean)  # unit 60: the ordinary median
     best_median = min(float(m) for m in medians)
     report("val collapses below the mean predictor (relative bar)",
            best_median < 0.5 * mean_median,

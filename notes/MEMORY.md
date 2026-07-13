@@ -73,3 +73,5 @@ the topic file your task touches.
   not an open queue). Side-finding: the june2026/claude_skills copy of
   pytorch-teaching-style was stale; the live skill lives in
   ~/data/claude_skills/.
+- [Red-team board-truth + integrity batch](gates-and-board.md) — all reproduced defects implemented 2026-07-12 (71/73/74/75-schema/76/77/78/79/80/81/82/83/84/85 + the 86-90 didactic batch + the 45M-72 evidence-map foundation); board 40 gates, board-selftest 33/33. Only 45M-72's full rollout (per-leg ids across all gates + check manifests) is open, held for Architect audit; 45M-75's post-step-finite half is workstation-owed.
+- [Red-team Implementer handoff (2026-07-13)](red-team-implementer-handoff-2026-07-13.md) — single-page 45M inventory + per-unit commits/files/gates + the "audit hardest here" guidance (86-90 vs the Architect specs now on main, and the five 45M-72 design decisions to rule on); the review brief for the Architect audit pass. Landed on origin/main via merge 8ce72a9.

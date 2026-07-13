@@ -19,7 +19,9 @@ with a state-dict transfer that copies the source weights verbatim and pads
 the extra input columns with exact zeros, this makes epoch 0 compute the
 source emulator's own function, bit for bit, independent of the extra
 parameters' values. Fine-tuning then moves away from a proven starting point
-instead of a scrambled one.
+instead of a scrambled one. Those extra columns are the last columns of dim 1
+in every input-consumer weight; transfer_state_dict carries the per-tensor
+shape flow (which rows and columns copy, which stay zero).
 
 The functions here are called by experiment.py at three points: config
 validation (validate_finetune_config, resolve_source_root, load_source),
@@ -697,6 +699,37 @@ def transfer_state_dict(source_state, template_state, n_extra):
   parameters, and they meet zero weights, so epoch 0 computes the source
   function. With n_extra = 0 every shape matches and the transfer is a
   verbatim strict load.
+
+  Per-tensor shape flow, the two cases one key can fall into:
+
+    matched key (bias, norm buffer, any hidden-layer weight):
+       source T_s, shape S            template T_t, shape S (equal)
+          │                              │
+          ▼                              ▼
+          └──────── T_new = T_s.clone() ────────► shape S (verbatim copy)
+
+    grown key (an input-consumer weight, dim 1 = input width):
+       source W_s               template W_t
+        shape (m, n_s)           shape (m, n_s + n_x)
+       ┌────────────┐           ┌────────────┬──────┐
+       │  n_s cols  │  m rows   │  n_s cols  │ n_x  │  m rows
+       └────────────┘           └────────────┴──────┘
+          │                        │              │
+          │  W_new = zeros(m, n_s + n_x)          │
+          ▼                        ▼              ▼
+       copy W_s into           source columns   extra columns
+       cols 0..n_s-1  ───────► kept verbatim    stay exact zero
+       (all m rows copied; dim 0 never grows)
+
+  (legend: T_s / T_t / T_new = the source tensor, the template tensor, and
+   the built tensor for one state_dict key; S = a shape the source and
+   template share exactly (any rank); W_s / W_t / W_new = the same for an
+   input-consumer weight whose dim 1 is the encoded input width; m = that
+   weight's dim-0 size (output rows, unchanged by the transfer); n_s / n_x =
+   the source input width and the number of appended extra columns
+   (n_x = n_extra); n_s + n_x = the new input width; cols = columns along
+   dim 1; a rank-3 FiLM generator grows the same way, its trailing axes
+   copied position for position.)
 
   Arguments:
     source_state   = the source model's state_dict (name -> tensor).

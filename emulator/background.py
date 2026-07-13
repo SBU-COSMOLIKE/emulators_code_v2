@@ -11,7 +11,7 @@ so the integration convention can never fork between the two doors.
        │  z_step = linspace(0, z_max, 2*NZ + 1)   (odd point count)
        ▼
     chi(z) = integral_0^z c/H dz'      cumulative Simpson (composite
-       │                               even + one-interval odd; 45M-12)
+       │ even + one-interval odd)
        ▼
     flat conversions:  D_C = chi           comoving distance
                        D_A = chi / (1+z)   angular diameter
@@ -52,7 +52,7 @@ def cumulative_simpson(z, y):
   approximates integral_{z[0]}^{z[i]} y dz at every grid point: exact on
   cubics at the even nodes and on quadratics at the odd nodes.
 
-  REOPENED 2026-07-12 (45M-12): the original port computed the odd node as
+  REOPENED 2026-07-12: the original port computed the odd node as
   dz/6 * (y[i-1] + 4*y[i] + y[i+1]) -- HALF the two-interval Simpson total
   (the integral over the whole [z[i-1], z[i+1]] chunk), not the one-interval
   integral, a first-order h^2/2 error that the earlier "O(dz^3),
@@ -93,7 +93,7 @@ def cumulative_simpson(z, y):
   # quadratic through the three samples (y[i-1], y[i], y[i+1]) — exact on
   # quadratics. h/12 * (5*y[i-1] + 8*y[i] - y[i+1]). NOT dz/6 * (1,4,1),
   # which is HALF the two-interval Simpson total (integral over the whole
-  # [z[i-1], z[i+1]] chunk) and a first-order h^2/2 error (45M-12 reopen;
+  # [z[i-1], z[i+1]] chunk) and a first-order h^2/2 error (reopen;
   # see families-background-mps.md).
   for i in range(1, n, 2):
     C[i] = C[i - 1] + dz / 12 * (5 * y[i - 1] + 8 * y[i] - y[i + 1])

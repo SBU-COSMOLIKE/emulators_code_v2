@@ -77,6 +77,11 @@ class CmbDiagonalGeometry:
       the two parameter columns it reads (empty strings for "none") —
       persisted HERE because the artifact records its law; the
       chi2 wrapper in losses/cmb.py executes it.
+    - as_ref / tau_ref: the fiducial (A_s_ref, tau_ref) the order-one
+      "as_exp2tau_ref" law measures the sampled (A_s, tau) against, so
+      the amplitude factor is 1 at the fiducial. Resolved floats
+      persisted with the artifact (None for "none"); the geometry only
+      carries them — the loss reads them through make_cmb_chi2.
 
   Build from an analytic fiducial C_ell + the training-mean target at
   training time (from_fiducial) or from saved tensors at inference time
@@ -97,7 +102,9 @@ class CmbDiagonalGeometry:
                units,
                law,
                as_name,
-               tau_name):
+               tau_name,
+               as_ref=None,
+               tau_ref=None):
     """Place the diagonal geometry tensors on the device.
 
     Plain constructor: stores fields only; from_fiducial builds them
@@ -124,18 +131,31 @@ class CmbDiagonalGeometry:
       units       = C_ell units string ("muK2" / "dimensionless").
       law         = the imposed amplitude-law name (a key of
                     losses/cmb.py's AMPLITUDE_LAWS registry:
-                    "none" or "as_exp2tau"), persisted here because
+                    "none" or "as_exp2tau_ref"), persisted here because
                     the LAW is an artifact fact; the chi2
                     wrapper (losses/cmb.py) is its executor.
       as_name     = the raw linear amplitude column name the law
                     reads ("" for the "none" law).
       tau_name    = the optical-depth column name ("" for "none").
+      as_ref      = the fiducial linear amplitude A_s_ref the order-one
+                    "as_exp2tau_ref" law measures A_s against (a resolved
+                    float, persisted; None for "none", which has no
+                    reference). The law's chi2 wrapper reads it through
+                    make_cmb_chi2 at build / rebuild.
+      tau_ref     = the fiducial optical depth tau_ref (a resolved float;
+                    None for "none").
     """
     self.spectrum = str(spectrum)
     self.units    = str(units)
     self.law      = str(law)
     self.as_name  = str(as_name)
     self.tau_name = str(tau_name)
+    # the order-one law's fiducial reference pair: a resolved float when
+    # the law carries one, None for the "none" law (no reference). Stored
+    # here only so it PERSISTS with the artifact (state / from_state); this
+    # geometry never uses it — the loss's _factor reads it via make_cmb_chi2.
+    self.as_ref  = None if as_ref  is None else float(as_ref)
+    self.tau_ref = None if tau_ref is None else float(tau_ref)
     self.ell = torch.as_tensor(ell,
                                dtype=torch.long,
                                device=device)
@@ -167,7 +187,9 @@ class CmbDiagonalGeometry:
                     units,
                     law,
                     as_name="",
-                    tau_name=""):
+                    tau_name="",
+                    as_ref=None,
+                    tau_ref=None):
     """Build the diagonal geometry from an analytic fiducial C_ell.
 
     The cosmic-variance precision is the diagonal (the covinv RULING,
@@ -196,11 +218,15 @@ class CmbDiagonalGeometry:
                     positive), the cosmic-variance diagonal's source.
       center      = (n_ell,) per-multipole training-mean target.
       units       = C_ell units string ("muK2" / "dimensionless").
-      law         = the amplitude-law name ("none" / "as_exp2tau";
+      law         = the amplitude-law name ("none" / "as_exp2tau_ref";
                     an artifact fact, never defaulted by a consumer).
       as_name     = the amplitude column the law reads ("" for
                     "none").
       tau_name    = the tau column the law reads ("" for "none").
+      as_ref      = the fiducial linear amplitude A_s_ref the
+                    "as_exp2tau_ref" law measures A_s against (a resolved
+                    float; None for "none").
+      tau_ref     = the fiducial optical depth tau_ref (None for "none").
 
     Returns:
       a CmbDiagonalGeometry whose whiten scales by the cosmic variance.
@@ -245,16 +271,26 @@ class CmbDiagonalGeometry:
                units=units,
                law=law,
                as_name=as_name,
-               tau_name=tau_name)
+               tau_name=tau_name,
+               as_ref=as_ref,
+               tau_ref=tau_ref)
 
   @classmethod
   def from_state(cls, device, state):
-    """Rebuild from a saved state dict (inference path).
+    """Rebuild from a saved state dict (inference / h5-rebuild path).
 
     state's keys match __init__ (spectrum / ell / center / sigma /
-    fiducial_cl / units), so cls(device, **state) reconstructs the
+    fiducial_cl / units / law / as_name / tau_name, plus as_ref / tau_ref
+    for the order-one law), so cls(device, **state) reconstructs the
     transform with no fiducial reread. cls (not the class name) keeps a
     subclass correct.
+
+    This is the artifact READ boundary, so it enforces the amplitude-law
+    contract: a persisted retired law is refused with its retrain
+    instruction, and an "as_exp2tau_ref" artifact missing either persisted
+    reference is refused (the never-trust-defaults proof — the loss reads
+    the reference with no code fallback, so a file lacking it must not
+    rebuild).
 
     Arguments:
       device = device to place the rebuilt tensors on.
@@ -262,22 +298,66 @@ class CmbDiagonalGeometry:
 
     Returns:
       a CmbDiagonalGeometry (or subclass, via cls).
+
+    Raises:
+      ValueError on a persisted retired law, or an "as_exp2tau_ref" state
+      missing as_ref / tau_ref.
     """
-    return cls(device, **state)
+    kwargs = dict(state)
+    # strings ride some h5 round-trips as 1-element lists; normalize each
+    # back (the sibling geometries' scalar-field pattern).
+    for key in ("spectrum", "units", "law", "as_name", "tau_name"):
+      val = kwargs.get(key)
+      if isinstance(val, (list, tuple)):
+        kwargs[key] = val[0]
+    # the fiducial reference pair rides as 0-d float64 tensors (state()
+    # writes them only for the order-one law); read each back to a Python
+    # float so __init__ stores a scalar, exactly the grid offset pattern.
+    for key in ("as_ref", "tau_ref"):
+      val = kwargs.get(key)
+      if isinstance(val, torch.Tensor):
+        kwargs[key] = float(val.reshape(-1)[0])
+    law = str(kwargs.get("law", ""))
+    # the retired raw-factor law is refused at rebuild with its retrain
+    # instruction: one message source, the loss registry's adjudicator
+    # (imported lazily so this module stays importable torch-light).
+    from ..losses.cmb import reject_retired_amplitude_law
+    reject_retired_amplitude_law(law)
+    # the order-one law reads its persisted reference with NO fallback, so a
+    # rebuilt state missing either half is refused rather than silently
+    # defaulted (the artifact must record the numbers).
+    if law == "as_exp2tau_ref":
+      for key in ("as_ref", "tau_ref"):
+        if kwargs.get(key) is None:
+          raise ValueError(
+            "CmbDiagonalGeometry.from_state: the 'as_exp2tau_ref' law needs "
+            "the persisted fiducial " + repr(key) + ", but the rebuilt state "
+            "lacks it. The amplitude factor reads the reference with no code "
+            "default, so a file missing it is refused — re-save the run (or "
+            "retrain) so the artifact records the number.")
+    return cls(device, **kwargs)
 
   def state(self):
     """Tensors to save; keys match __init__ (dest_idx / total_size are
     derived from ell, so they are not persisted). ell rides as a long
-    tensor, spectrum / units as strings; the h5 writer handles each."""
-    return {"spectrum":    self.spectrum,
-            "ell":         self.ell.cpu(),
-            "center":      self.center.cpu(),
-            "sigma":       self.sigma.cpu(),
-            "fiducial_cl": self.fiducial_cl.cpu(),
-            "units":       self.units,
-            "law":         self.law,
-            "as_name":     self.as_name,
-            "tau_name":    self.tau_name}
+    tensor, spectrum / units as strings; the h5 writer handles each. The
+    fiducial reference pair rides as 0-d float64 tensors, written ONLY for
+    the order-one law that carries one (the "none" law has no reference, so
+    its artifact records none — resolved values, never a placeholder)."""
+    st = {"spectrum":    self.spectrum,
+          "ell":         self.ell.cpu(),
+          "center":      self.center.cpu(),
+          "sigma":       self.sigma.cpu(),
+          "fiducial_cl": self.fiducial_cl.cpu(),
+          "units":       self.units,
+          "law":         self.law,
+          "as_name":     self.as_name,
+          "tau_name":    self.tau_name}
+    if self.as_ref is not None:
+      st["as_ref"] = torch.tensor(self.as_ref, dtype=torch.float64)
+    if self.tau_ref is not None:
+      st["tau_ref"] = torch.tensor(self.tau_ref, dtype=torch.float64)
+    return st
 
   def attach_head_coords(self):
     """Attach the conv/TRF heads' channel/token split.

@@ -1854,6 +1854,54 @@ Placement: (f) rides the SAME eval_val visit as unit 60, in the
 pipeline slot 50(+60+14f), after queue 43. Unit 14's closure claim
 (a-e) stands for its increments; the unit stays open on (f) only.
 
+#### Units 60 + 14(f) COMPLETE resume (2026-07-12, Opus) — committed 4846fdd, eval_val half of the 50-bundle
+
+Units 60 + 14(f) self-committed on the branch as 4846fdd (batch grant,
+pending audit) as ONE eval_val visit (the RULING's "same visit -- do not
+build two helpers").
+
+- Unit 60 (45M-57): `ordinary_median(values)` in training.py is the ONE
+  shared 50th-percentile reduction (torch.quantile(., 0.5) in float64 --
+  the mean of the two central values for even N, byte-identical to
+  torch.median for odd N, with the ~2^24 element cap documented). eval_val's
+  `median = c.median().item()` -> `ordinary_median(c)`; the scheduler feed,
+  the tie-break, and the histories consume this returned median, so the one
+  fix propagates to all four (no separate edits at those sites).
+- Unit 14(f) (45M-58): eval_val computes the mean in float64
+  (`c.to(torch.float64).mean()`) -- a float32 mean of rows near the float32
+  max overflowed to Inf AFTER the row guard -- and
+  `_validate_published_reductions` refuses any non-finite published mean /
+  median / fraction before return (clause 4). Row-level guards (a/b/e/h)
+  untouched.
+- The five gate reference sites migrated in this unit: ge_c_eval_bs.py (the
+  Part 1 reference + a NEW Part 1b with the unit-60 red legs), finite_contract.py
+  (two references + the float64 mean), cmb_smoke / bsn_smoke / mps_smoke (the
+  mean-predictor reference). `import math` added to training.py.
+
+Gate (unit 60 red legs, in ge_c_eval_bs.py Part 1b, board-run): helper parity
+(even ordinary=5 vs Tensor.median=1; odd=1), the REAL eval_val even-median 5 /
+odd-median 1, batch invariance across bs 1..4, the Tensor.median mutation
+caught. Part 1 (partition invariance) reference migrated so it still passes.
+
+Verified on Cocoa torch (CPU): probe_median_reductions.py 11/11 (helper
+parity, real eval_val even=5/odd=1, batch invariance, the float64 mean finite
+at 1e38 scale where float32 overflows, the post-reduction guard refusing an
+Inf mean / NaN median / non-finite fraction); ge_c_eval_bs Part 1 + Part 1b
+PASS on CPU.
+
+USER-VISIBLE, declared: even-n_val medians and means change (reported,
+persisted, plotted); plateau timing / tie-breaks can shift; odd-n_val medians
+exactly unchanged; ordinary-scale means differ at ~1e-7 rounding level.
+
+Workstation owed (user-run): finite-contract + the family smoke gate reruns
+(need cosmolike / real CAMB -- cannot import on Mac).
+
+REMAINING in the 50-bundle: unit 50 (45M-38, epoch truth under VRAM chunking,
+notes/training-stack.md:1131 -- CRITICAL, the training_loop_batched epoch
+reduction, a DISTINCT surface from eval_val) is NOT in this commit. Queue
+after 50: 52 (propose-first head-padding) -> 55 (45M-46) -> 22(+20) ->
+13(+01, label 45M-01).
+
 ## UNIT 14 REOPENED (45M-60 + addendum, twelfth batch): increment (g) — the chi2-domain band scales with the contraction WIDTH, not the product count
 
 Post-landing audit of 420bce2, CONFIRMED. Landed state:
@@ -2222,3 +2270,80 @@ unit rather than a second diagnostic implementation:
 This amendment is both scientific and didactic: a novice must learn what the
 diagnostic measures, while an expert must be able to see which part is a
 measurement and which part is an interpretation.
+
+#### Increment (h) COMPLETE resume (2026-07-12, Opus) — committed 3f47d86, diagnostics-domain gate green
+
+Increment (h) self-committed on the branch as 3f47d86 (batch grant, pending
+Architect audit). The diagnostic score boundary now goes through ONE shared
+public helper.
+
+Contract delivered whole (the seven clauses):
+- `screen_chi2(chi2, loss, label, positions=None)` in losses/core.py beside
+  `_chi2_domain`: derives the band from `loss._chi2_n_terms()` (increment (g),
+  getattr default 1) and the chi2 COMPUTE dtype (the (g) second addendum --
+  the tensor is passed pre-.double()), applies `_chi2_domain`, RAISES naming
+  the boundary + rows + minimum + band, or returns the within-band-normalized
+  c_norm (exact 0). It raises rather than converting to "unavailable" (unit 9)
+  and is applied regardless of any upstream geometry check (unit 11 defense in
+  depth). Valid positive output byte-identical.
+- Consolidation: eval_val + eval_source_chi2 (training.py) now CALL screen_chi2;
+  the private `_report_chi2_domain` is retired (its message is preserved
+  byte-for-byte inside screen_chi2, so finite_contract's message assertions
+  still hold).
+- diagnostics.py: local_linear_floor (:262) screens the floor in its compute
+  dtype BEFORE f_floor / median_floor (its `.double()` ordering fixed); the
+  three residual producers (cmb/grid/grid2d) accumulate the compute-dtype chi2
+  per chunk and screen after concat through `_screen_diag_chi2` (a thin DRY
+  wrapper that calls screen_chi2), never a per-chunk `.double()`.
+
+Gate (NEW, board-listed): gates/checks/diagnostics_domain.py (DIAG-A, torch
+CPU, no cosmolike/CAMB) + gate_diagnostics_domain + the Gate() entry in
+board.py. 20/20 GREEN on Cocoa torch:
+- screen_chi2 unit: valid byte-identical, within-band roundoff -> exact 0,
+  materially negative / NaN / +Inf / -Inf refused naming row + band, the
+  fallback-1 band floor still rejects, and the term count widens the band
+  (no silent fallback-1);
+- the REAL local_linear_floor: valid control returns finite f_floor; a
+  reachable negative floor (a _FloorOnlyNegChi2 corrupting call #1 = the floor,
+  the model arm valid) REFUSED before f_floor naming "local-linear floor"; a
+  NaN floor refused; the mutation arm (diagnostics.screen_chi2 monkeypatched to
+  a passthrough) recreates the false f_floor = 0, median_floor = -1e3;
+- the REAL cmb_residual_diagnostic: valid control + a corrupt-score refusal
+  naming "cmb residual";
+- a source census (AST): cmb/grid/grid2d residual all route through
+  _screen_diag_chi2, local_linear_floor calls screen_chi2, _screen_diag_chi2
+  delegates to screen_chi2, and no residual producer keeps the raw
+  .double().cpu().numpy() chi2 path.
+
+Scope note (honestly flagged): the grid / grid2d residual LIVE corrupt-score
+refusals are covered by the CENSUS leg (identical _screen_diag_chi2 path,
+proven live for CMB) rather than a separate live fixture -- the shared boundary
+is exercised live once and the other two are proven to route through it. If the
+Architect wants grid/grid2d live refusals too, they are a small add (build a
+GridGeometry + Grid2DGeometry + ScalarChi2 fixture).
+
+Workstation owed (user-run): the finite-contract gate rerun (Part A/C/H
+eval_val / eval_source_chi2 now route through screen_chi2, message unchanged --
+cannot import on Mac: geometries.output -> cosmolike) and the family smoke
+gates (residual internal accumulation changed; valid output identical).
+
+Unit 14 stays OPEN on (f) 45M-58 (float64 published reductions; rides unit 50).
+Next in the queue: 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01).
+
+## Structured evidence map — gate contract anchors (45M-72 foundation)
+
+The board's structured evidence map (`Gate.evidence`) pins each migrated
+gate to a stable, runner-validated anchor in its home note; the mechanism
+and the audited rollout are documented in `gates-and-board.md`. The
+diagnostics gate anchors here:
+
+<a id="diag-a-diagnostics-domain"></a>
+**diagnostics-domain (DIAG-A) — the diagnostic score-domain boundary.** The
+shared `screen_chi2` helper (valid input byte-identical, within-band
+roundoff pulled to exact 0, a materially negative / NaN / +-Inf score
+refused naming the boundary + rows + band, the fallback-1 floor, the
+width-scaled band); the real `local_linear_floor` (a reachable negative
+floor refused before `f_floor`, a NaN floor refused, a valid control, and
+the guard-bypassed mutation that recreates the false `f_floor = 0`); the
+real `cmb_residual_diagnostic` (corrupt-score refusal + valid control); and
+the grid / grid2d producer census through the one shared boundary.

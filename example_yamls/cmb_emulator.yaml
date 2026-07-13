@@ -23,15 +23,23 @@ data:
     # from this file; the dump and the file must share one ell grid.
     covariance: cmbcov_lcdm.npz
 
-    # the imposed amplitude law. "as_exp2tau" imposes
-    # target = C_ell * exp(2 tau) / A_s in closed form, so the network
-    # learns only the SHAPE and the primary amplitude generalizes for
-    # free; it reads the two named RAW parameter columns below (As must
-    # be the linear amplitude — the generator samples it linearly).
-    # "none" learns the raw C_ell directly and forbids the two names.
-    amplitude_law: as_exp2tau
+    # the imposed amplitude law. "as_exp2tau_ref" imposes
+    # target = C_ell * (A_s_ref / A_s) * exp(2 (tau - tau_ref)) in closed
+    # form, so the network learns only the SHAPE and the primary amplitude
+    # generalizes for free; it reads the two named RAW parameter columns
+    # below (As must be the linear amplitude — the generator samples it
+    # linearly) and measures them against the fiducial (as_ref, tau_ref)
+    # so the factor is dimensionless and order-one (exactly 1 at the
+    # fiducial). as_ref / tau_ref are REQUIRED for this law, validated
+    # (finite, as_ref > 0), and persisted with the artifact by value; the
+    # recommended values are the covariance's own fiducial (A_s, tau).
+    # "none" learns the raw C_ell directly and forbids the four extra
+    # keys. The retired "as_exp2tau" (raw exp(2 tau) / A_s) is refused.
+    amplitude_law: as_exp2tau_ref
     as_name:       As
     tau_name:      tau
+    as_ref:        2.1e-9
+    tau_ref:       0.0544
 
   # the dumps (dataset_generator_cmb.py): the chosen spectrum's dv files
   # plus the chain sidecars; the covmat header names the input parameters

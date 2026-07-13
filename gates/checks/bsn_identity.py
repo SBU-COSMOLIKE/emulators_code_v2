@@ -7,7 +7,7 @@ and every grid-path loud error — torch + scipy, no CAMB.
 Legs:
   - cumulative_simpson: EVEN doubled-grid points exact on cubics (the
     original z grid sits there), the odd node the correct one-interval
-    integral (exact on quadratics, 45M-12; the old half-chunk form is the
+    integral (exact on quadratics,; the old half-chunk form is the
     mutation control that must fail the linear / quadratic legs), the
     even-point-count guard;
   - the distance pipeline (real scipy cubic) against a closed-form flat
@@ -81,7 +81,7 @@ def lcdm_h(z, H0=67.36, om=0.315):
 
 
 def _old_odd_simpson(z, y):
-    """The pre-45M-12 odd-node rule (dz/6 * (y[i-1] + 4*y[i] + y[i+1])).
+    """The pre- odd-node rule (dz/6 * (y[i-1] + 4*y[i] + y[i+1])).
 
     A mutation control: this is HALF the two-interval Simpson total, so it
     must fail the linear / quadratic known-answer legs by a wide margin (a
@@ -100,7 +100,7 @@ def _old_odd_simpson(z, y):
 
 
 def check_simpson():
-    # 45M-12: known-answer integrals at EVERY node. The one-interval odd
+    # known-answer integrals at EVERY node. The one-interval odd
     # rule h/12*(5,8,-1) is exact on quadratics, so even AND odd nodes hit
     # machine precision on constant / linear / quadratic; the cubic keeps
     # even exact (composite Simpson) with a small bounded odd error. The

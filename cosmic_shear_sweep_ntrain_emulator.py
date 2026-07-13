@@ -303,7 +303,7 @@ def _run_parallel(cfg, sizes, n_workers, args, log):
   return fracs
 
 
-def main(prog="cosmic_shear_sweep_ntrain_emulator", family=None,
+def main(prog="cosmic_shear_sweep_ntrain_emulator", family="cosmolike",
          out_default="ntrain_sweep"):
   parser = argparse.ArgumentParser(prog=prog)
   # --root / --fileroot / --yaml: the cocoa project layout (data under
@@ -378,7 +378,10 @@ def main(prog="cosmic_shear_sweep_ntrain_emulator", family=None,
                       dest="quiet",
                       help="suppress all stdout (txt / pdf still written)",
                       action="store_true")
-  args, unknown = parser.parse_known_args()
+  # strict parse: a misspelled flag (--sav, --activaton, --diagnostc) is a
+  # usage error naming the token and exiting nonzero, never silently ignored
+  # and then run at a default (which could publish to the wrong --save root).
+  args = parser.parse_args()
   # --out absent -> the driver's own default (the family
   # wrappers pass their per-family name through out_default).
   if args.out is None:
@@ -395,13 +398,10 @@ def main(prog="cosmic_shear_sweep_ntrain_emulator", family=None,
   # to each GPU process; absolute paths mean every spawned worker reads the
   # same files.
   cfg, fileroot, _ = resolve_cocoa_config(args)
-  # a thin per-family driver passes its family (the DATA-BLOCK key:
-  # outputs / cmb / grid / grid2d); the dispatching driver passes
-  # None. require_family_block (cosmic_shear_train_emulator.py): a
-  # wrong-family YAML fails here NAMING the right driver.
-  if family is not None:
-    from cosmic_shear_train_emulator import require_family_block
-    require_family_block(data=cfg["data"], family=family, prog=prog)
+  # reject a wrong-family YAML at startup (family is always a real identity:
+  # a per-family wrapper passes its key, a direct run owns "cosmolike").
+  from cosmic_shear_train_emulator import require_family_block
+  require_family_block(data=cfg["data"], family=family, prog=prog)
 
   # build the experiment on the real compute device (CUDA, or Apple MPS on the
   # dev machine); pool size and model name are read off it, and the serial path

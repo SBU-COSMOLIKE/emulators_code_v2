@@ -1937,18 +1937,29 @@ network learn that known scaling, the training can impose it: with
   cmb:
     spectrum: tt
     covariance: cmbcov_lcdm.npz
-    amplitude_law: as_exp2tau
+    amplitude_law: as_exp2tau_ref
     as_name:       As
     tau_name:      tau
+    as_ref:        2.1e-9      # fiducial A_s (must be > 0)
+    tau_ref:       0.0544      # fiducial tau
 ```
 
-the target the network sees is C_ell * exp(2 tau) / A_s — the SHAPE
-only — and the emulator multiplies the law back on the way out. A_s and
-tau are read from named parameter columns of the training dump (As must
-be the linear amplitude, which the generator samples directly). Set
-`amplitude_law: none` to learn the raw C_ell instead (and drop the two
-names). The law is stored in the artifact by name, so a saved emulator
-always knows its own convention.
+the target the network sees is
+C_ell * (A_s_ref / A_s) * exp(2 (tau - tau_ref)) — the SHAPE only — and
+the emulator multiplies the law back on the way out. Measuring A_s and
+tau against a fiducial reference (`as_ref`, `tau_ref`) makes the factor a
+dimensionless order-one number that is exactly 1 at the fiducial, so the
+target keeps a sane float32 scale (the earlier raw `exp(2 tau) / A_s`,
+about 5e8 at the fiducial, wrecked the conditioning and is retired — a
+saved artifact naming the old `as_exp2tau` law is refused with a retrain
+instruction). A_s and tau are read from named parameter columns of the
+training dump (`As` must be the linear amplitude, which the generator
+samples directly); `as_ref` / `tau_ref` are required for this law,
+validated (finite, `as_ref` > 0), and persisted with the artifact. The
+recommended reference is the covariance's own fiducial (A_s, tau). Set
+`amplitude_law: none` to learn the raw C_ell instead (and drop the four
+extra keys). The law and its reference are stored in the artifact by
+value, so a saved emulator always knows its own convention.
 
 ### The roughness penalty (optional)
 

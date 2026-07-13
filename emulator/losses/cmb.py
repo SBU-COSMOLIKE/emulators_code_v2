@@ -12,15 +12,20 @@ through).
 
 Two laws share this file. The "none" law (CmbDiagonalChi2) is the plain
 diagonal chi2: the network learns the raw C_ell shape directly. The
-"as_exp2tau" law (CmbFactoredChi2) imposes the primary amplitude scaling
-rather than learning it: the target the network sees is the
-amplitude-rescaled spectrum target' = C_ell * exp(2 tau) / A_s, and the
+"as_exp2tau_ref" law (CmbFactoredChi2) imposes the primary amplitude
+scaling rather than learning it: the target the network sees is the
+amplitude-rescaled spectrum
+target' = C_ell * (A_s_ref / A_s) * exp(2 (tau - tau_ref)), and the
 decode multiplies the law back so the emulator returns physical C_ell.
-A_s and tau are read from named input columns (the factored-IA
-philosophy: an exactly-known scaling is imposed in closed form, not
-fit), so only the shape is learned and the amplitude generalizes for
-free. AMPLITUDE_LAWS is the small registry (persisted by name in the
-artifact, never a code default); make_cmb_chi2 builds the right loss.
+A_s and tau are read from named input columns, measured against the
+persisted fiducial (A_s_ref, tau_ref) so the factor is a dimensionless
+order-one number (exactly 1 at the fiducial) rather than the retired
+raw exp(2 tau)/A_s ~ 5e8 that wrecked the float32 conditioning (the
+factored-IA philosophy: an exactly-known scaling is imposed in closed
+form, not fit, so only the shape is learned and the amplitude
+generalizes for free). AMPLITUDE_LAWS is the small registry (persisted
+by name in the artifact, never a code default); make_cmb_chi2 builds the
+right loss and refuses the retired law name.
 
 PS: a whitened residual is (pred - target) after each multipole has been
 put in units of its cosmic-variance error bar (see geometries.cmb's PS);
@@ -28,10 +33,12 @@ its square summed over the multipoles is the per-sample chi2 this loss
 reduces. "The loop interface" is the small set of methods the training
 loop calls on the loss object: encode (raw target -> network space),
 decode (its inverse), chi2 (per-sample metric), and loss (the scalar
-objective). needs_params (True only for as_exp2tau) is the flag the loop
-reads to decide whether to hand the loss the whitened input params (the
-law reads A_s / tau from them); it mirrors RescaledChi2's contract.
+objective). needs_params (True only for as_exp2tau_ref) is the flag the
+loop reads to decide whether to hand the loss the whitened input params
+(the law reads A_s / tau from them); it mirrors RescaledChi2's contract.
 """
+
+import math
 
 import torch
 
@@ -124,12 +131,49 @@ class ResidualRoughness:
 # The imposed-amplitude-law registry: law name -> the extra config keys
 # it needs (persisted by name in the artifact, resolved values, never a
 # code default). "none" learns the raw C_ell shape and needs nothing;
-# "as_exp2tau" imposes target' = C_ell * exp(2 tau) / A_s and needs the
-# two named input columns it reads A_s and tau from.
+# "as_exp2tau_ref" imposes the DIMENSIONLESS order-one factor
+# f = (A_s_ref / A_s) * exp(2 (tau - tau_ref)), f == 1 at the persisted
+# fiducial, and needs the two named input columns it reads A_s /
+# tau from PLUS the two reference values (as_ref, tau_ref).
 AMPLITUDE_LAWS = {
-  "none":       (),
-  "as_exp2tau": ("as_name", "tau_name"),
+  "none":           (),
+  "as_exp2tau_ref": ("as_name", "tau_name", "as_ref", "tau_ref"),
 }
+
+# The retired raw-factor law: f = exp(2 tau) / A_s carried an
+# arbitrary ~1e9-scale normalization (raw A_s ~ 2.1e-9), so its encoded
+# target and float32 conditioning were unit-porting defects. A config or a
+# persisted artifact naming it is refused with the retrain instruction --
+# never silently reinterpreted under the new order-one convention.
+_RETIRED_AMPLITUDE_LAWS = {
+  "as_exp2tau": "the raw-factor law exp(2 tau)/A_s carried an arbitrary "
+                "1e9-scale normalization; retrain under 'as_exp2tau_ref' "
+                "(the dimensionless (A_s_ref/A_s) exp(2 (tau - tau_ref)), "
+                "f == 1 at the fiducial), supplying data.cmb.as_ref and "
+                "data.cmb.tau_ref.",
+}
+
+
+def reject_retired_amplitude_law(law):
+  """Refuse a retired amplitude law with its retrain instruction.
+
+  The shared adjudicator, called wherever a law name is resolved: the config
+  build (make_cmb_chi2 below), the geometry h5 rebuild
+  (geometries/cmb.py CmbDiagonalGeometry.from_state), and the staging /
+  prediction dispatch. One message source so an old-convention name is a loud,
+  identical error at every boundary, never a silent reinterpretation.
+
+  Arguments:
+    law = the amplitude-law name (from a config or a persisted artifact).
+
+  Raises:
+    ValueError naming the retired law and how to retrain; returns None for a
+    live or unknown-here name (the caller's own registry check handles those).
+  """
+  if law in _RETIRED_AMPLITUDE_LAWS:
+    raise ValueError(
+      "amplitude law " + repr(law) + " is retired: "
+      + _RETIRED_AMPLITUDE_LAWS[law])
 
 
 class CmbDiagonalChi2(CosmolikeChi2):
@@ -208,7 +252,7 @@ class CmbDiagonalChi2(CosmolikeChi2):
 
     The plain diagonal residual pred - target is already physical, so this
     returns it unchanged. The imposed-amplitude subclass overrides it to
-    divide the per-row factor out, keeping the penalty law-neutral (45M-21).
+    divide the per-row factor out, keeping the penalty law-neutral.
     """
     return pred - target
 
@@ -216,7 +260,7 @@ class CmbDiagonalChi2(CosmolikeChi2):
   # length-n_ell (= kept width) diagonal reduction, the SAME depth as the
   # base dense r^T Cinv r. So the chi2-domain band's per-row term count
   # (_chi2_n_terms = the kept width w) is inherited from CosmolikeChi2
-  # unchanged; 45M-60 retired the redundant override that returned the same
+  # unchanged; retired the redundant override that returned the same
   # width.
 
   def loss(self, pred, target, mode="sqrt", trim=0.05,
@@ -254,22 +298,26 @@ class CmbDiagonalChi2(CosmolikeChi2):
 
 class CmbFactoredChi2(CmbDiagonalChi2):
   """
-  Diagonal chi2 with the imposed amplitude law (the "as_exp2tau" law).
+  Diagonal chi2 with the imposed amplitude law (the "as_exp2tau_ref" law).
 
   The network learns the SHAPE of the spectrum, not its primary
   amplitude: the target it sees is the amplitude-rescaled spectrum
 
-      target' = C_ell * exp(2 tau) / A_s
+      target' = C_ell * (A_s_ref / A_s) * exp(2 (tau - tau_ref))
 
-  a per-row scalar factor f = exp(2 tau) / A_s multiplied into every
-  multipole (A_s and tau are the same for all l of one cosmology). encode
+  a per-row scalar factor f = (A_s_ref / A_s) * exp(2 (tau - tau_ref))
+  multiplied into every multipole (A_s and tau are the same for all l of
+  one cosmology). Measuring against the persisted fiducial (A_s_ref,
+  tau_ref) makes f a dimensionless order-one number, exactly 1 at the
+  fiducial, so the encoded target keeps A_s_ref-scale conditioning
+  instead of the retired raw exp(2 tau)/A_s ~ 5e8. encode
   bakes f into the target before the geometry centers and whitens it;
   decode divides f back out, so the emulator returns physical C_ell. The
   chi2 also DIVIDES the per-row factor back out of the whitened residual
   before summing, so the reported metric is the physical cosmic-variance
   chi2 -- pred and target of one row share the same f, so a plain sum
   would carry f^2 (not cancel) and bias delta-chi2, the threshold
-  fractions, and selection by cosmology (45M-21).
+  fractions, and selection by cosmology.
 
   This mirrors RescaledChi2 (losses/core.py) with a per-row scalar factor
   in place of the per-element analytic R, and, like RescaledChi2, divides
@@ -278,7 +326,8 @@ class CmbFactoredChi2(CmbDiagonalChi2):
   chi2 / loss the whitened input params; _factor decodes them to physical
   through the param geometry and reads A_s / tau by column. Build by
   wrapping a geometry, CmbFactoredChi2(geom), then configure_law(...) to
-  attach the param geometry and the A_s / tau column names.
+  attach the param geometry, the A_s / tau column names, and the fiducial
+  reference pair (as_ref, tau_ref).
   """
 
   # capability flag the loop reads (getattr default False elsewhere): this
@@ -290,27 +339,29 @@ class CmbFactoredChi2(CmbDiagonalChi2):
   # keeps the RescaledChi2 shape and documents the contract.
   _params = None
 
-  def configure_law(self, param_geometry, as_name, tau_name):
+  def configure_law(self, param_geometry, as_name, tau_name, as_ref, tau_ref):
     """Attach the amplitude-law state (call once, after wrapping geom).
 
-    Resolves the A_s and tau column positions in the raw parameter
-    vector by name off the param geometry, so _factor can read them from
-    the decoded physical params. A name the geometry does not carry is a
-    loud error naming it and the available columns.
+    Resolves the A_s and tau column positions in the raw parameter vector by
+    name off the param geometry, so _factor can read them from the decoded
+    physical params, and stores the fiducial reference pair (as_ref, tau_ref)
+    that makes the factor dimensionless and order-one. A name the geometry
+    does not carry is a loud error naming it and the available columns; a
+    non-finite reference, or a non-positive as_ref, is refused.
 
     Arguments:
-      param_geometry = ParamGeometry whose decode maps the whitened
-                       model inputs back to physical params (what the
-                       law reads); the same object passed to
-                       run_emulator.
-      as_name        = the raw linear amplitude column name (e.g.
-                       "As"); the law divides the target by it. A run
-                       that samples logA materializes a raw A_s column
-                       in the generator, so the law always reads a
-                       linear amplitude (the simpler ruling; recorded
-                       in notes/families-scalar-cmb.md).
-      tau_name       = the optical-depth column name (e.g. "tau"); the
-                       law multiplies the target by exp(2 tau).
+      param_geometry = ParamGeometry whose decode maps the whitened model
+                       inputs back to physical params (what the law reads);
+                       the same object passed to run_emulator.
+      as_name        = the raw linear amplitude column name (e.g. "As"). A
+                       run that samples logA materializes a raw A_s column
+                       in the generator, so the law always reads a linear
+                       amplitude (recorded in families-scalar-cmb.md).
+      tau_name       = the optical-depth column name (e.g. "tau").
+      as_ref         = the fiducial linear amplitude A_s_ref (> 0, finite):
+                       the reference the factor is measured against, so
+                       f == 1 at (A_s, tau) == (as_ref, tau_ref).
+      tau_ref        = the fiducial optical depth tau_ref (finite).
 
     Returns:
       self (so make_cmb_chi2 can build and configure in one expression).
@@ -322,26 +373,44 @@ class CmbFactoredChi2(CmbDiagonalChi2):
         raise ValueError(
           "CmbFactoredChi2.configure_law: the " + role + " column "
           + repr(nm) + " is not among the parameter columns "
-          + repr(names) + "; the as_exp2tau law reads A_s and tau from "
+          + repr(names) + "; the as_exp2tau_ref law reads A_s and tau from "
           "named input columns.")
+    as_ref_f  = float(as_ref)
+    tau_ref_f = float(tau_ref)
+    if not (math.isfinite(as_ref_f) and math.isfinite(tau_ref_f)):
+      raise ValueError(
+        "CmbFactoredChi2.configure_law: the fiducial reference pair must be "
+        "finite; got as_ref=" + repr(as_ref) + ", tau_ref=" + repr(tau_ref)
+        + " (data.cmb.as_ref / data.cmb.tau_ref).")
+    if as_ref_f <= 0.0:
+      raise ValueError(
+        "CmbFactoredChi2.configure_law: as_ref must be a positive linear "
+        "amplitude; got " + repr(as_ref) + " (data.cmb.as_ref).")
     self.param_geometry = param_geometry
     self.as_name  = as_name
     self.tau_name = tau_name
     self.as_idx   = names.index(as_name)
     self.tau_idx  = names.index(tau_name)
+    self.as_ref   = as_ref_f
+    self.tau_ref  = tau_ref_f
     return self
 
   def _factor(self, params_whitened):
-    """Per-row amplitude factor f = exp(2 tau) / A_s for whitened inputs.
+    """Per-row DIMENSIONLESS amplitude factor for whitened inputs.
 
-    Decodes the whitened params to physical (the form the closed law
-    reads), then reads A_s and tau by their resolved column positions.
-    The factor is the same for every multipole of one cosmology, so it
-    is returned as a column to broadcast across the multipole axis.
+    Decodes the whitened params to physical, reads A_s and tau by their
+    resolved column positions, and forms the order-one factor
+
+        f = (A_s_ref / A_s) * exp(2 (tau - tau_ref))
+
+    which is exactly 1 at the persisted fiducial (as_ref, tau_ref), so the
+    encoded target keeps A_s_ref-scale conditioning instead of the retired
+    raw exp(2 tau)/A_s (~5e8 at fiducial). The factor is the same for every
+    multipole of one cosmology, returned as a column to broadcast.
 
     Arguments:
-      params_whitened = (B, n_param) whitened model inputs (the tensor
-                        the model consumes; the loop / predictor pass it).
+      params_whitened = (B, n_param) whitened model inputs (the tensor the
+                        loop / predictor pass).
 
     Returns:
       f = (B, 1) amplitude factor on the params' device.
@@ -349,7 +418,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     phys = self.param_geometry.decode(params_whitened)
     a_s  = phys[:, self.as_idx]
     tau  = phys[:, self.tau_idx]
-    f    = torch.exp(2.0 * tau) / a_s
+    f    = (self.as_ref / a_s) * torch.exp(2.0 * (tau - self.tau_ref))
     return f.reshape(-1, 1)
 
   def encode(self, dv, params_whitened):
@@ -394,7 +463,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     whitened residual). A plain sum of its squares would therefore report
     f^2 * chi2_physical -- and since f = f(A_s, tau) varies by cosmology,
     that biases delta-chi2, every threshold fraction, and best-epoch
-    selection toward small-f cosmologies at a FIXED physical error (45M-21;
+    selection toward small-f cosmologies at a FIXED physical error (
     the old "cancels in the residual" claim was false -- pred and target of
     one row share the same f, so it does not cancel, it squares). This
     DIVIDES the factor back out of the residual before summing, so the
@@ -431,7 +500,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
     The roughness penalty must see the PHYSICAL residual, not the
     f-scaled one -- without the division the penalty would carry f^2 like
     the uncorrected chi2 did, so it would depend on (A_s, tau) at a fixed
-    physical roughness (45M-21). Reads the parameters loss stashed (the
+    physical roughness. Reads the parameters loss stashed (the
     roughness term runs only inside loss, after the stash).
     """
     return (pred - target) / self._factor(self._params)
@@ -439,7 +508,7 @@ class CmbFactoredChi2(CmbDiagonalChi2):
   def loss(self, pred, target, params_whitened, *args, **kwargs):
     """Training loss: the inherited reduction, params stashed for the metric.
 
-    The amplitude factor is NOT neutral in the metric (45M-21): the chi2
+    The amplitude factor is NOT neutral in the metric: the chi2
     divides it back out of the residual, and the roughness penalty (when
     present) measures the same factor-corrected residual. loss stashes
     params_whitened so both -- the chi2 the reduction calls without params,
@@ -462,32 +531,40 @@ class CmbFactoredChi2(CmbDiagonalChi2):
 
 
 def make_cmb_chi2(geom, law, param_geometry=None, as_name=None,
-                  tau_name=None):
+                  tau_name=None, as_ref=None, tau_ref=None):
   """
   Build the CMB chi2fn (loss + geometry wrapper) for run_emulator.
 
   The CMB analogue of make_chi2 / make_scalar_chi2: it dispatches on the
-  imposed amplitude law (persisted by name in the artifact). The "none"
-  law needs only the geometry; the "as_exp2tau" law also needs the param
-  geometry and the two named input columns it reads A_s and tau from.
+  imposed amplitude law (persisted by name in the artifact). The "none" law
+  needs only the geometry; the "as_exp2tau_ref" law also needs the param
+  geometry, the two named input columns it reads A_s / tau from, and the
+  fiducial reference pair (as_ref, tau_ref) that makes the factor order-one.
+  The retired raw-factor law "as_exp2tau" is refused with the retrain
+  instruction.
 
   Arguments:
-    geom           = CmbDiagonalGeometry for the spectrum (its .state()
-                     is what save_emulator persists; pass the geometry,
-                     not a chi2fn).
-    law            = the amplitude-law name, a key of AMPLITUDE_LAWS
-                     ("none" or "as_exp2tau").
+    geom           = CmbDiagonalGeometry for the spectrum (its .state() is
+                     what save_emulator persists; pass the geometry, not a
+                     chi2fn).
+    law            = the amplitude-law name, a key of AMPLITUDE_LAWS ("none"
+                     or "as_exp2tau_ref").
     param_geometry = ParamGeometry whose decode maps whitened inputs to
-                     physical params; required for "as_exp2tau" (the law
-                     reads A_s / tau from it), unused for "none".
+                     physical params; required for "as_exp2tau_ref", unused
+                     for "none".
     as_name        = the raw amplitude column name; required for
-                     "as_exp2tau".
-    tau_name       = the tau column name; required for "as_exp2tau".
+                     "as_exp2tau_ref".
+    tau_name       = the tau column name; required for "as_exp2tau_ref".
+    as_ref         = the fiducial linear amplitude A_s_ref (> 0); required
+                     for "as_exp2tau_ref".
+    tau_ref        = the fiducial optical depth tau_ref; required for
+                     "as_exp2tau_ref".
 
   Returns:
     a CmbDiagonalChi2 ("none") or a configured CmbFactoredChi2
-    ("as_exp2tau") to pass to run_emulator as chi2fn.
+    ("as_exp2tau_ref") to pass to run_emulator as chi2fn.
   """
+  reject_retired_amplitude_law(law)              # as_exp2tau -> retrain error
   if law not in AMPLITUDE_LAWS:
     raise ValueError(
       "unknown amplitude law " + repr(law) + "; the CMB law registry has "
@@ -495,19 +572,24 @@ def make_cmb_chi2(geom, law, param_geometry=None, as_name=None,
       "artifact, never a default).")
   if law == "none":
     return CmbDiagonalChi2(geom=geom)
-  # as_exp2tau: the imposed primary-amplitude scaling.
+  # as_exp2tau_ref: the imposed order-one primary-amplitude scaling.
   missing = []
   for nm, val in (("param_geometry", param_geometry),
                   ("as_name", as_name),
-                  ("tau_name", tau_name)):
+                  ("tau_name", tau_name),
+                  ("as_ref", as_ref),
+                  ("tau_ref", tau_ref)):
     if val is None:
       missing.append(nm)
   if missing:
     raise ValueError(
-      "amplitude law 'as_exp2tau' needs " + repr(missing) + "; it reads "
-      "A_s and tau from named input columns through the param geometry.")
+      "amplitude law 'as_exp2tau_ref' needs " + repr(missing) + "; it reads "
+      "A_s and tau from named input columns through the param geometry and "
+      "measures them against the fiducial (as_ref, tau_ref) so f == 1 there.")
   chi2fn = CmbFactoredChi2(geom=geom)
   chi2fn.configure_law(param_geometry=param_geometry,
                        as_name=as_name,
-                       tau_name=tau_name)
+                       tau_name=tau_name,
+                       as_ref=as_ref,
+                       tau_ref=tau_ref)
   return chi2fn

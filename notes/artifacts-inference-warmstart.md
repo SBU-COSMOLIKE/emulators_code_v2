@@ -998,3 +998,19 @@ campaign:
 Completion includes concise docstrings for the nested helpers.  The goal is
 not to repeat 270 lines in prose; it is to give the reader one reversible map
 with enough mechanics to verify every branch.
+
+## Structured evidence map — gate contract anchors (45M-72 foundation)
+
+The board's structured evidence map (`Gate.evidence`) pins each migrated
+gate to a stable, runner-validated anchor in its home note; the mechanism
+and the audited rollout are documented in `gates-and-board.md`. The
+artifact-side gate anchors here:
+
+<a id="arb-a-artifact-readback"></a>
+**artifact-readback (ARB-A) — saved attributes are parsed by type, not
+truthiness.** The shared typed reader accepts a native boolean, returns the
+default for an absent key, and refuses every string / integer (the truthy
+`"False"` that would otherwise load drifted transfer weights) naming the
+file and the schema; a source census confirms no artifact boolean is
+truthiness-coerced. The live save / forge / rebuild proof is
+workstation-owed.

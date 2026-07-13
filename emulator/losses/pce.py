@@ -370,7 +370,7 @@ class PCEResidualDiagChi2(CmbDiagonalChi2):
       refiner per-element leverage, and on the log-law grids a
       whitened residual IS a multiplicative correction in linear
       space. validate_pce rejects form "ratio" for these families.
-    - CMB amplitude law "none" only. The as_exp2tau law's loss owns
+    - CMB amplitude law "none" only. The as_exp2tau_ref law's loss owns
       the target construction (CmbFactoredChi2), the same
       one-at-a-time exclusivity as pce vs rescale / model.ia;
       validate_cmb rejects the combination.
