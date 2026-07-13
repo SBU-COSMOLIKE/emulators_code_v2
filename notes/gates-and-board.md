@@ -1481,3 +1481,63 @@ workstation-owed (queue 5).
 
 Remaining: phase 3 (per-gate `manifest=` population, each a rerun, gate by
 gate); queue 2 (evidence rollout) stays blocked until 1b fully lands.
+
+### 1b phase 2 — post-merge Architect audit (Fable, 2026-07-13): PASS; phase-3 flow approved
+
+Commit `24ed07a` (on main via `6f3f54f`) audited post-merge. Evidence,
+re-executed by the Architect from a clean detached checkout of merged
+main on the cocoa interpreter: board-selftest 67 legs ALL PASS (rc 0),
+`run_board --list` rc 0.
+
+Contract-true on the phase-2 spec AND all three phase-1-audit riders:
+
+- The digest rewrite: a declared gate's code digest is the digest of
+  its RESOLVED sorted members ({path, sha256} over the derived
+  closure); its input digest hashes only the specific files its
+  inputs= keys resolve to (the whole-yaml_dir hash retires for it);
+  a manifest-less gate keeps both legacy digests. One structural
+  improvement beyond the spec, VERIFIED: `_manifest_seeds` is the ONE
+  owner feeding validation and digest, so they can never disagree
+  about a gate's dependency set.
+- Riders: r1 typo'd root reds (Architect probe re-run: reds); r2
+  directory roots expand recursively (probe: emulator/designs
+  contributes 5 members to the closure) and a zero-member directory
+  reds (probe with a genuinely empty in-repo dir: reds — the
+  Architect's first "texnotes should red" probe was a FALSE ALARM,
+  texnotes/make_figures.py legitimately expands); r3 an unresolvable
+  inputs key reds and a resolving one clears (probe: both
+  directions). r3's semantics are deliberately resolve-not-exist:
+  the key must navigate board_config to a string, but the file may
+  legitimately be absent on the Mac (workstation deploy data) — the
+  None-sha member records the absence honestly instead of breaking
+  cross-machine --list. Verified and RIGHT.
+- Pre-manifest: the REAL `_resume_state` returns "pre-manifest" for a
+  declared gate whose stored PASS carries no manifest block
+  (Architect probe: confirmed), the run loop reruns it, and the
+  BOARD.md log cell carries the state — one `_resume_state`, every
+  consumer (the 1a lesson held).
+- Member-level naming: `_stale_member` names the first changed
+  member (probe: a perturbed stored sha256 named
+  "code:emulator/activations.py"); surfaced in the BOARD.md detail.
+- Determinism (delta 3): two independent resolutions byte-identical,
+  members sorted by path (probe: confirmed).
+
+Minor notes, no rework: `_stale_member` names only members present in
+the STORED block — a newly-ADDED member (a new import) yields a
+generic stale-code with no member named; best-effort naming, the
+digest verdict is still correct. The persisted manifest is computed
+at launch, consistent with the verdict-bound digests + the clean-tree
+preflight.
+
+Phase-3 flow (RULING): propose-first, approved as the Implementer
+suggested — the population ORDER plus the FIRST gate's declared
+roots/inputs come to the Architect as a notes proposal before any
+population lands; each populated gate is a rerun. PLACEMENT AMENDED
+for queue 1d: population may begin on Mac-runnable gates once the
+proposal is approved, but 1d (child-environment identity, with the
+RT-04 rider) must land BEFORE the first WORKSTATION rerun — a
+populated gate re-certified on the box must execute under an injected,
+recorded ROOTDIR, not an inherited ambiguous one. Queue 2 stays
+blocked until 1b fully lands (population complete). Guide gap
+handling verified: the phase-2 notes entry NAMES ~:4723's digest half
+(narrowed), no guide edit — custody honored.

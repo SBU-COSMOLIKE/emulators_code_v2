@@ -1755,6 +1755,21 @@ date: the landing-divergence incident diagnosed (merge commits never
 flowed back to the branch) and the resync ritual recorded in
 conventions-and-workflow.md "Landing-block resync ritual".
 
+1B PHASE 2 POST-MERGE AUDIT (2026-07-13, Fable): `24ed07a` PASS —
+board-selftest 67 legs ALL PASS + --list rc 0 re-executed from a
+clean checkout of merged main 6f3f54f; all three phase-1 riders
+probe-verified live (typo root reds; directory roots expand — the
+texnotes probe was an Architect false alarm, make_figures.py is a
+real member; empty dir reds; inputs keys resolve-not-exist, the
+right cross-machine call); pre-manifest via the REAL _resume_state;
+stale members named; resolutions deterministic and sorted;
+_manifest_seeds is the one owner behind validation AND digest.
+Phase-3 flow APPROVED propose-first (population order + first gate's
+roots reviewed before landing); queue-1d placement AMENDED: 1d lands
+before the first WORKSTATION rerun of any populated gate; queue 2
+blocked until 1b population completes. Spec: gates-and-board.md
+"1b phase 2 — post-merge Architect audit".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
