@@ -888,3 +888,45 @@ repair, red-team's call in their build pipeline: stop tracking the
 PDF and build on demand (pdflatex exists on the dev Mac), or add a
 freshness check (PDF vs .tex digest) to the board's doc lane. Until
 one lands, the rebuild is owed whenever the .tex changes.
+
+### 1c-bis + BLOAT-01 DONE (Opus, 2026-07-13)
+
+1c-bis (the first-porcelain-line strip misparse): `_git` gains a
+`strip` parameter (default True, so every single-value caller -- commit
+hash, ancestor check -- is unchanged); preflight (b) reads the watch
+with `strip=False`, so `_dirty_lines` receives every porcelain line with
+its two-column status prefix intact and `line[3:]` is uniform. One owner
+for the executed watch: `_WATCH_EXCLUDE = "gates/board_config.json"`
+lives beside `_EXECUTABLE_DIRS`; `_watched_paths()` owns the pathspec;
+`_dirty_lines` excludes `_WATCH_EXCLUDE`; and the preflight `[ok]` surface
+text prints that same constant -- pathspec, exclusion, and surface text
+can no longer drift. No production behavior changes for a clean tree; the
+fix only stops the config from false-red-ing when it is the head entry.
+
+Legs (`board_selftest.check_dirty_watch`, 7, driving the REAL
+`_dirty_lines` / `_git` / `_watched_paths`): config-only head-line stays
+clean; config + neighbor reds only the neighbor; neighbor-only reds; the
+empty-porcelain clean control; a mutation arm that restores the global
+strip (feeds the stripped head line) and must -- and does -- false-red the
+config; `_git(strip=False)` proven to preserve the raw transport while
+`strip=True` trims; and the one-owner pathspec/exclusion coverage. Live
+proof on a real dirty tree (pathspec pinned to the config so it is the
+head line): `strip=False` excludes it (clean), the retired global strip
+leaks `M gates/board_config.json` (false red); the config's bytes were
+restored and the tree re-verified clean.
+
+BLOAT-01 (queue-4 dedup): `emulator/experiment.py`'s `_is_finite_real`
+copy is deleted and imported from the `emulator/training.py` owner (the
+import direction the in-repo constraint already pins; experiment already
+imports from `.training`). Verified one object
+(`experiment._is_finite_real is training._is_finite_real`), the predicate
+still rejects bool / numeric-string / non-finite, and `cmb-identity`
+(which exercises `validate_cmb` -> `_is_finite_real`) reran all green.
+finite-contract Part J (optimizer schema) rides the workstation, unchanged
+by a pure move.
+
+Verification (Mac, cocoa-torch): `compileall emulator gates` clean;
+`board-selftest` ALL PASS (now with the clean-tree-watch legs);
+`run_board --list` rc 0; `cmb-identity` all green; the live head-line
+proof PASS. Next: the queue-1b manifest PROPOSAL (design only), under the
+seven pre-answered constraints above.
