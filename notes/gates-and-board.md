@@ -4312,3 +4312,38 @@ remains green against both defects is the point — the current legs
 exercise the selector function, not main()'s action-mode ordering.
 Consistent with the standing lesson; the new legs run the real
 main().
+
+## DIDACTICS-94 adjudication (Fable, 2026-07-13): CONFIRMED with one sharpening — the decoupled anchor is live for refine, queued for finetune
+
+Durable register at c020c84. Verified: README.md:1748 carries the
+compressed "(a pull back toward the saved weights) is planned"
+one-liner; the decoupled post-step mechanism is REAL and documented
+in the code itself (training.py:324-356: "decoupled L2-SP anchor: a
+post-step pull toward a reference W_0 ... AdamW-decoupling argument
+... kept OUT of the loss"); the masked zero-init extra columns
+story is executed (warmstart.py anchor_masks: ones on source
+columns, zeros on the n_extra carriers; training.py:343). The
+scalar example's arithmetic checks: 2.4 - 0.01*0.5*(2.4-2.0) =
+2.398.
+
+RATIFIED as filed, with ONE SHARPENING the prose must carry: the
+decoupled anchor is a LIVE mechanism for the transfer REFINE stage
+(refine.anchor is a validated key, experiment.py:1488-1501); it is
+the ordinary-FINETUNE train_args.finetune.anchor key that is queued
+and currently refused. The README teaches: (1) the conceptual L2-SP
+form R(W) = (lambda/2) sum_j ||M_j o (W_j - W_j0)||_F^2 with every
+symbol defined and the weight-decay distinction (decay pulls toward
+ZERO and fights the warm start; the anchor pulls toward the SOURCE
+weights); (2) the executed decoupled update W+ = Wopt - eta*lambda*
+M o (Wopt - W0), kept out of the reported scientific loss, with the
+recorded scalar example; (3) which weights anchor and why the
+zero-initialized new-parameter columns are masked FREE; (4) the
+current-state adjacency: live for refine, queued for finetune
+(unit 24's contract), so ordinary fine-tuning is currently
+unanchored.
+
+Placement per campaign law: the teaching lands with the ROOT README
+visit (the 72-80 batch's fine-tuning section); the 2.398 scalar
+example is an executable documentation fixture -> UNIT 91; the
+current-state sentence follows the stable prose per the
+limitations-adjacent rule.

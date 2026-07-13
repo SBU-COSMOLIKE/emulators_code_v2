@@ -2489,6 +2489,15 @@ exclusive action modes with usage-error exits; named optional start
 included first; real-main() legs + selector fixture, restoration
 mutations red). Spec: gates-and-board.md "25M-24/25 adjudication".
 
+DIDACTICS-94 (2026-07-13, Fable): CONFIRMED — the README's one-line
+anchor prose becomes the full L2-SP teaching (conceptual form +
+the EXECUTED decoupled post-step update kept out of the loss +
+masked-free new-parameter columns + the 2.398 scalar example), with
+one sharpening: the mechanism is LIVE for transfer-refine
+(validated refine.anchor) and QUEUED for finetune (unit 24). Rides
+the root README visit; the scalar example joins unit 91. Spec:
+gates-and-board.md "DIDACTICS-94 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue
