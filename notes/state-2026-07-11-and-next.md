@@ -2216,6 +2216,23 @@ multiline/semantic-capable scans. All routed to the model/loss/
 geometry family batches; worked examples to unit 91. Spec:
 gates-and-board.md "DIDACTICS-34..41 adjudication".
 
+DIDACTICS-42..57 BATCH (2026-07-13, Fable): sixteen items. FIVE
+gate-truth defects (46 golden byte-identity greens on empty
+selections — live-reproduced by the Architect through the real
+helper; 47 mps-smoke's vacuous filtered .all() passes an all-zero
+dump; 48 production-diagnostic never checks the PDF exists; 52 the
+OR-joined absence census — the Architect's own deep-pass rider 3,
+deferral upgraded to NOW; 53 six-block claim, TT-only checks —
+RULING: extend, not narrow) become ONE gate-truth repair batch
+BEFORE queue 5. UNIT 92 born (device-audit totality: recursive
+traversal, raise-regardless-of-silent, CUDA lane workstation).
+Factual bundle grows (42 package intro, 43 set_device + interleave,
+49 the .h5/.emul REVERSAL + stage_train claim, 50 factored width).
+51's signature-vs-Arguments AST census joins the standing
+acceptance; 45 merged into DIDACTICS-11; the 40-addendum extends the
+direction census to exception strings. Spec: gates-and-board.md
+"DIDACTICS-42..57 adjudication".
+
 ### Continued red-team findings — ADJUDICATED (Fable, at the merge)
 
 Every item below is verified and placed; none opens a new queue

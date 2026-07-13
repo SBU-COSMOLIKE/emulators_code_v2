@@ -3024,3 +3024,79 @@ Verdicts + Architect deltas:
   path Linear->norm->act->...->final Linear->ADD SKIP->final
   norm->final act; rectangular projections outside the block) with
   the named shape trace.
+
+## DIDACTICS-42..57 adjudication (Fable, 2026-07-13): five gate-truth defects become one repair batch before queue 5; unit 92 born; the doc items routed
+
+Architect verification: the vacuous-truth mechanisms are live —
+logscan.byte_identity('', '', pattern) and noise-vs-noise BOTH return
+(True, '') through the real helper (46); mps_smoke:144's
+(arr[arr.sum(axis=1) != 0] > 0).all() filters the rows the claim must
+reject (47); diagnostics_domain:304-305 joins its two absence
+predicates with OR (52) — the sharpened form of the Architect's own
+deep-pass ROLLOUT RIDER 3, whose when-next-touched deferral is hereby
+UPGRADED to now; experiment.py:88-89 states ".h5 weights + .emul
+recipe", the exact reversal (49).
+
+GATE-TRUTH REPAIR BATCH (46 + 47 + 48 + 52 + 53): five false-green /
+overclaim lanes in existing gates land as ONE repair increment
+BEFORE queue 5, beside the unit-28 fixture repair — the workstation
+evidence comes from repaired gates or it means less than it claims.
+- 46: selection success separated from selection equality; nonempty
+  both sides at minimum, caller-declared line classes preferred;
+  zero-match failures name side/pattern/count; the label becomes
+  "character equality of a declared subset", never byte identity;
+  the empty/one-sided/noise mutants red through the REAL _golden_leg
+  board path.
+- 47 (rider on the unit-56 payload contract): exact declared row
+  count asserted; the canonical publication predicate proves every
+  row; finiteness after the storage cast; strict positivity on every
+  stored P_lin element; NO pre-filtering of suspected failures
+  before a whole-dataset verdict; the empty-array.all() convention
+  taught.
+- 48: the diagnostics PDF is resolved from the producer's own path
+  helper, asserted to exist, nonempty, parseable, with the expected
+  pages; the visual claim stays explicitly manual; "produced /
+  opened / contains pages / looks correct" are four different
+  claims; the rc-zero-no-PDF fake is the load-bearing mutation.
+- 52: the OR verdict is replaced by the AST/data-flow census over
+  every diagnostic chi2 producer (compute-dtype score reaches the
+  screen before any float64 conversion), with single-mutation red
+  legs for each forbidden path alone; De Morgan taught in place.
+- 53 RULING: EXTEND, not narrow — the six-block covariance is
+  science-bearing (the Motloch-Hu off-diagonal work), so every block
+  gains finiteness, every same-spectrum block symmetry + PSD, every
+  cross block its placement/known-answer relation, per-block
+  evidence in the raw log; the corrupt-only-cov_ee and
+  corrupt-one-cross mutations must red.
+
+UNIT 92 (54, device-audit totality): audit_devices promises every
+tensor but walks only vars() one level deep and demotes mismatches to
+silent-gated performance prints. Contract ratified: cycle-safe
+recursive traversal (nested modules, containers, composed
+geometry/loss owners), alias deduplication by identity with ownership
+paths, a REAL mismatch raises regardless of silent (only formatting
+is quiet-gated), device type and index documented separately; CPU
+traversal legs + the workstation CUDA lane proving a nested CPU
+tensor cannot enter a CUDA loss silently; the shallow-vars mutation
+must red.
+
+Documentation routing: 42 (the package intro still calls the
+five-family library cosmic-shear-only), 43 (set_device does NOT
+retarget default-device ops; worker streams CAN interleave), 49 (the
+artifact reversal + the stage_train loader claim + the cosmic-shear
+headline on the five-family class), and 50 (factored encode does NOT
+increase width — the property computes n_param exactly) join the
+FACTUAL BUNDLE. 44, 55, 56, 57 join the family batches with their
+censuses (whitening names its random quantity and covariance
+assumption; association language replaces causal/optimal claims;
+state_dict membership = registered parameters incl. frozen + persistent
+buffers, one canonical definition reused; decode is the inverse on
+the kept subspace only, with the three precise identities). 51 is
+ratified and its AST census (public signature names vs Arguments:
+entries; declared returns vs the executed tuple/dict surface) JOINS
+THE STANDING ACCEPTANCE BATTERY. 45 duplicates the already-ruled
+DIDACTICS-11 (_analytic_R dtype contract — same anchors, same
+repair): MERGED, no second unit. The 40-ADDENDUM is accepted: the
+direction census covers docstrings, comments, AND exception strings
+(printed errors are user documentation), adding the cmb.py:207/:245
+and scalar.py:121-128 reversal sites to the multiline scan.
