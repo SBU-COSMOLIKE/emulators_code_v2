@@ -42,18 +42,39 @@ import subprocess
 import sys
 import time
 
-MAILBOX = os.path.join("notes", "mailbox")
+# All work and all mailbox traffic live in the SHARED WORKTREE (the branch
+# the agents actually develop on), never the bare main-repo checkout.
+WORKTREE = ("/Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2"
+            "/.claude/worktrees/amazing-keller-e798b6")
+
+MAILBOX = os.path.join(WORKTREE, "notes", "mailbox")
 DONE = os.path.join(MAILBOX, "done")
-RELAY_DIR = os.path.join("notes", "relay")
+RELAY_DIR = os.path.join(WORKTREE, "notes", "relay")
 
 # One headless command per lane. Each receives the message text as its
-# prompt argument (appended by dispatch()).
+# prompt argument (appended by dispatch()). --permission-mode acceptEdits
+# lets a headless turn edit files without a human at the prompt; shell
+# commands still obey the project permission settings (git push stays
+# deniable there -- the user owns that policy file).
 AGENT_COMMANDS = {
-    "fable": ["claude", "-p", "--model", "claude-fable-5"],
-    "opus": ["claude", "-p", "--model", "claude-opus-4-8"],
+    "fable": ["claude", "-p", "--model", "claude-fable-5",
+              "--permission-mode", "acceptEdits"],
+    "opus": ["claude", "-p", "--model", "claude-opus-4-8",
+             "--permission-mode", "acceptEdits"],
     # Adjust to the Codex CLI's headless invocation on this machine:
     "sol": ["codex", "exec"],
 }
+
+# The working directory each dispatched agent starts in.
+AGENT_CWD = {
+    "fable": WORKTREE,
+    "opus": WORKTREE,
+    "sol": WORKTREE,
+}
+
+# A message still carrying template placeholders has no job in it; refuse
+# it instead of burning a live headless turn (learned from dispatch 0001).
+PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>"]
 
 PREAMBLE = (
     "You are invoked headlessly by tools/mailbox_daemon.py (no human is\n"
@@ -114,17 +135,25 @@ def dispatch(path, dry_run):
     agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
     with open(path, encoding="utf-8") as f:
         message = f.read()
+    for marker in PLACEHOLDER_MARKERS:
+        if marker in message:
+            print("REFUSED " + name + ": the body still contains the "
+                  "template placeholder '" + marker + "' -- fill in the "
+                  "real note path/section and re-send.")
+            return False
     command = AGENT_COMMANDS[agent] + [PREAMBLE + message]
 
     if dry_run:
         print("[dry-run] would dispatch " + name + " -> "
-              + " ".join(AGENT_COMMANDS[agent]))
+              + " ".join(AGENT_COMMANDS[agent])
+              + "  (cwd " + AGENT_CWD[agent] + ")")
         return True
 
     print("dispatching " + name + " -> " + agent + " ...")
     proc = subprocess.run(command,
                           capture_output=True,
-                          text=True)
+                          text=True,
+                          cwd=AGENT_CWD[agent])
     os.makedirs(RELAY_DIR, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = os.path.join(RELAY_DIR, stamp + "-dispatch-" + agent + ".log")
@@ -135,6 +164,10 @@ def dispatch(path, dry_run):
         f.write("\n--- stderr ---\n")
         f.write(proc.stderr)
     print("  rc=" + str(proc.returncode) + "  log -> " + log_path)
+    # show the reply's tail on the terminal so activity is visible live.
+    reply_lines = proc.stdout.strip().splitlines()
+    for line in reply_lines[-8:]:
+        print("  | " + line)
 
     os.makedirs(DONE, exist_ok=True)
     os.rename(path, os.path.join(DONE, name))
