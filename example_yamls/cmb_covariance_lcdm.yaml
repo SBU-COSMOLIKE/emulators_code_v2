@@ -36,6 +36,9 @@ params:
   omegach2: 0.1200
   tau:      0.0544
   mnu:      0.06
+  omk:      0.0
+  w:        -1.0
+  wa:       0.0
 
 cov_args:
   lmax: 5000              # covariance multipole range 2..lmax

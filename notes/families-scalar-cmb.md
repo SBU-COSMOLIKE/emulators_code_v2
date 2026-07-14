@@ -2008,3 +2008,41 @@ left uncommitted with it rather than sweeping foreign mid-unit work into
 an audit commit; it rides the adapter-half audit commit or the user's next
 notes commit. The register receipt, backlog annotation, and MEMORY line
 carry the committed pointer trail meanwhile.
+
+## Unit-13 wiring delta and current-main landing audit (Codex recovery, 2026-07-14): GO
+
+The temporary user recovery directive transferred the pending delta audit to
+Codex. The frozen source was verified at `7583019`, directly above the
+substance-GO tip `2fd8a9d`; the delta changes only
+`redteam_covariance_params_witness.py` and adds four real-`main()` refusal
+legs.
+
+All five CPU witnesses pass at the frozen tip and again after the two commits
+are ported to current `main`. The current-main results are:
+
+```text
+redteam_covariance_finite_witness.py    rc 0
+redteam_covariance_params_witness.py    rc 0
+redteam_covariance_psd_witness.py       rc 0
+redteam_covariance_schema_witness.py    rc 0
+redteam_covariance_stencil_witness.py   rc 0
+py_compile (producer + five witnesses)  rc 0
+gates/board.py --self-test              rc 0
+```
+
+The held production-coupling question was re-probed independently in a clean
+scratch clone. Each validator was removed or bypassed one at a time. Every
+mutation made the params witness return 1 at its exact named boundary:
+
+```text
+validate_cov_args bypass          cov_args schema violation accepted
+validate_lcdm_params bypass       params schema violation accepted
+validate_signal_noise_psd delete  post-signal PSD violation accepted
+require_finite_arrays delete      non-finite sigma_pp output accepted
+```
+
+After restoring the producer, `git status` was clean and the params control
+returned 0. The four calls are therefore load-bearing through the real entry
+point, closing the only held delta. CPU substance is GO. The Torch
+`cmb-identity` wrapper and real-CAMB byte-identity run remain explicitly
+workstation-owed and are not represented as green here.

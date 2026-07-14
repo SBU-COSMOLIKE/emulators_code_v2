@@ -81,8 +81,7 @@ formula is in the same units. "Band" = one multipole L of the lensing
 potential whose amplitude is perturbed to measure dC_l/dC^phiphi_L
 (band width > 1 trades exactness for speed; the width is a knob and
 is persisted). fsky rescales every covariance by 1/fsky (the standard
-mode-counting approximation); the default is 1 (full sky) and it is
-always recorded, never silent.
+mode-counting approximation); it is explicit and always recorded.
 
 Example (run from $ROOTDIR; the YAML holds theory + params + cov_args):
 
@@ -120,6 +119,9 @@ params:          # fiducial flat LCDM, every parameter FIXED
   omegach2: 0.1200
   tau:      0.0544
   mnu:      0.06
+  omk:      0.0
+  w:       -1.0
+  wa:       0.0
 
 cov_args:
   lmax: 5000             # covariance multipole range 2..lmax
@@ -164,6 +166,385 @@ LCDM_ALLOWED = ("As", "logA", "ns", "H0", "thetastar", "cosmomc_theta",
 LCDM_FIXED_ONLY = {"omk": 0.0,
                    "w": -1.0,
                    "wa": 0.0}
+
+COV_KEYS = ("lmax", "fsky", "noise", "nongaussian")
+NOISE_KEYS = ("delta_tt", "delta_ee", "delta_te", "beam_fwhm")
+NONGAUSSIAN_KEYS = ("enabled", "lens_lmax", "band_width", "step_fracs",
+                    "converge_rtol")
+LCDM_AMPLITUDE_KEYS = ("As", "logA")
+LCDM_EXPANSION_KEYS = ("H0", "thetastar", "cosmomc_theta")
+LCDM_REQUIRED_KEYS = ("ns", "omegabh2", "omegach2", "tau", "mnu",
+                      "omk", "w", "wa")
+PSD_ROUNDING_ULPS = 32.0
+
+
+def _finite_real(value, label):
+  """Return one finite, non-boolean real as float.
+
+  Arguments:
+    value = object to validate.
+    label = user-facing location named in a refusal.
+
+  Returns:
+    the validated value converted to float.
+
+  Raises:
+    ValueError when value is boolean, non-numeric, or non-finite.
+  """
+  if isinstance(value, bool) or not isinstance(value, (int, float)):
+    raise ValueError(label + " must be a finite, non-boolean number")
+  out = float(value)
+  if not math.isfinite(out):
+    raise ValueError(label + " must be finite, got " + repr(value))
+  return out
+
+
+def _required_mapping(mapping, label):
+  """Require a plain mapping used as one YAML configuration block.
+
+  Arguments:
+    mapping = candidate configuration block.
+    label   = user-facing block location.
+
+  Returns:
+    the validated mapping.
+
+  Raises:
+    ValueError when mapping is not a dictionary.
+  """
+  if not isinstance(mapping, dict):
+    raise ValueError(label + " must be a mapping")
+  return mapping
+
+
+def _validate_exact_keys(mapping, allowed, label):
+  """Require every schema key exactly once and reject unknown keys.
+
+  Arguments:
+    mapping = configuration mapping to inspect.
+    allowed = complete tuple of required key names.
+    label   = user-facing block location.
+
+  Returns:
+    None.
+
+  Raises:
+    ValueError naming missing or unknown keys and the allowed set.
+  """
+  unknown = []
+  for key in mapping:
+    if key not in allowed:
+      unknown.append(key)
+  missing = []
+  for key in allowed:
+    if key not in mapping:
+      missing.append(key)
+  if unknown:
+    raise ValueError(
+      label + " has unknown key(s) " + repr(sorted(unknown))
+      + "; allowed keys are " + repr(list(allowed)))
+  if missing:
+    raise ValueError(label + " is missing required key(s) "
+                     + repr(missing))
+
+
+def stencil_factors(step_frac):
+  """Build the four ordered float64 multipliers for one stencil step.
+
+  Arguments:
+    step_frac = positive fractional step s_step.
+
+  Returns:
+    tuple for offsets (-2, -1, +1, +2), in that order.
+
+  Raises:
+    ValueError when the step is not positive, finite, or representable as
+    four distinct ordered perturbations around one.
+  """
+  step = _finite_real(step_frac, "cov_args.nongaussian.step_fracs value")
+  if step <= 0.0:
+    raise ValueError("cov_args.nongaussian.step_fracs values must be > 0")
+  factors = (np.float64(1.0 - 2.0 * step),
+             np.float64(1.0 - step),
+             np.float64(1.0 + step),
+             np.float64(1.0 + 2.0 * step))
+  if not (factors[0] < factors[1] < 1.0 < factors[2] < factors[3]):
+    lower = np.nextafter(np.float64(1.0), np.float64(-np.inf))
+    upper = np.nextafter(np.float64(1.0), np.float64(np.inf))
+    raise ValueError(
+      "cov_args.nongaussian step " + repr(step_frac)
+      + " does not make four ordered float64 perturbations around one; "
+      + "the adjacent representable values are " + repr(float(lower))
+      + " and " + repr(float(upper)))
+  return factors
+
+
+def scaled_lensing_band(clpp_fid, band_lo, band_hi, factor):
+  """Scale one inclusive lensing band and count changed float64 values.
+
+  Arguments:
+    clpp_fid = full fiducial lensing-potential array.
+    band_lo  = inclusive first band index.
+    band_hi  = inclusive final band index.
+    factor   = representable float64 stencil multiplier.
+
+  Returns:
+    tuple (scaled copy, changed value count).
+  """
+  scaled = np.asarray(clpp_fid, dtype="float64").copy()
+  before = scaled[band_lo:band_hi + 1].copy()
+  scaled[band_lo:band_hi + 1] *= np.float64(factor)
+  after = scaled[band_lo:band_hi + 1]
+  changed = int(np.count_nonzero(after != before))
+  nonzero = int(np.count_nonzero(before != 0.0))
+  if nonzero > 0 and changed != nonzero:
+    raise ValueError(
+      "stencil multiplier " + repr(float(factor)) + " changed "
+      + str(changed) + " of " + str(nonzero)
+      + " nonzero lensing-band values; the perturbation is not "
+      + "representable in the stored float64 values")
+  return scaled, changed
+
+
+def validate_noise_psd(delta_tt, delta_te, delta_ee):
+  """Require the configured two-field instrumental noise to be PSD.
+
+  Arguments:
+    delta_tt = T-noise amplitude in muK-arcmin.
+    delta_te = correlated T/E-noise amplitude in muK-arcmin.
+    delta_ee = E-noise amplitude in muK-arcmin.
+
+  Returns:
+    None.
+
+  Raises:
+    ValueError when delta_te squared exceeds delta_tt times delta_ee beyond
+    the next representable float64 boundary.
+  """
+  tt = _finite_real(delta_tt, "cov_args.noise.delta_tt")
+  te = _finite_real(delta_te, "cov_args.noise.delta_te")
+  ee = _finite_real(delta_ee, "cov_args.noise.delta_ee")
+  lhs = np.float64(te) * np.float64(te)
+  rhs = np.float64(tt) * np.float64(ee)
+  limit = np.nextafter(rhs, np.float64(np.inf))
+  if lhs > limit:
+    raise ValueError(
+      "cov_args.noise is not positive semidefinite: delta_te^2 = "
+      + repr(float(lhs)) + " exceeds delta_tt*delta_ee = "
+      + repr(float(rhs)))
+
+
+def validate_signal_noise_psd(cls, noise):
+  """Require the total T/E spectrum to be PSD at every multipole.
+
+  Arguments:
+    cls   = mapping with tt, te, and ee signal arrays.
+    noise = mapping with tt, te, and ee noise arrays.
+
+  Returns:
+    None.
+
+  Raises:
+    ValueError naming the first array index whose total 2-by-2 spectrum is
+    not positive semidefinite within one float64 rounding step.
+  """
+  tt = np.asarray(cls["tt"], dtype="float64") + noise["tt"]
+  te = np.asarray(cls["te"], dtype="float64") + noise["te"]
+  ee = np.asarray(cls["ee"], dtype="float64") + noise["ee"]
+  lhs = te * te
+  rhs = tt * ee
+  limit = np.nextafter(rhs, np.full(rhs.shape, np.inf, dtype="float64"))
+  bad = np.flatnonzero(lhs > limit)
+  if bad.size:
+    index = int(bad[0])
+    raise ValueError(
+      "signal plus noise is not positive semidefinite at array index "
+      + str(index) + ": (Cte+Nte)^2 = " + repr(float(lhs[index]))
+      + " exceeds (Ctt+Ntt)(Cee+Nee) = " + repr(float(rhs[index])))
+
+
+def validate_covariance_psd(covariance, name="covariance"):
+  """Require one assembled symmetric covariance to be finite and PSD.
+
+  Arguments:
+    covariance = square covariance matrix.
+    name       = user-facing matrix name for diagnostics.
+
+  Returns:
+    None.
+
+  Raises:
+    ValueError when the matrix is non-square, non-finite, asymmetric, or
+    has an eigenvalue below the owned scale-aware float64 tolerance.
+  """
+  matrix = np.asarray(covariance, dtype="float64")
+  if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+    raise ValueError(name + " must be a square matrix")
+  require_finite_arrays({name: matrix})
+  scale = max(np.finfo("float64").tiny,
+              float(np.max(np.abs(matrix))))
+  tolerance = (PSD_ROUNDING_ULPS * np.finfo("float64").eps
+               * max(1, matrix.shape[0]) * scale)
+  if not np.allclose(matrix, matrix.T, rtol=0.0, atol=tolerance):
+    raise ValueError(name + " is not symmetric within tolerance "
+                     + repr(float(tolerance)))
+  eigenvalues = np.linalg.eigvalsh((matrix + matrix.T) * 0.5)
+  if float(eigenvalues[0]) < -tolerance:
+    raise ValueError(
+      name + " is not positive semidefinite: minimum eigenvalue "
+      + repr(float(eigenvalues[0])) + " is below tolerance "
+      + repr(float(tolerance)))
+
+
+def validate_beam_representability(lmax, noise_cfg, fsky=1.0):
+  """Prove beam-amplified noise and its covariance square fit float64.
+
+  Arguments:
+    lmax      = largest requested covariance multipole.
+    noise_cfg = mapping with delta_tt, delta_ee, delta_te, and beam_fwhm.
+    fsky      = observed sky fraction used by Gaussian covariance.
+
+  Returns:
+    None.
+
+  Raises:
+    ValueError when the resolved endpoint exponent, noise, or largest
+    Gaussian noise product cannot be represented in float64.
+  """
+  beam = _finite_real(noise_cfg["beam_fwhm"],
+                      "cov_args.noise.beam_fwhm")
+  sky = _finite_real(fsky, "cov_args.fsky")
+  theta = beam * C_ARCMIN_TO_RAD
+  exponent = (float(lmax) * (float(lmax) + 1.0) * theta * theta
+              / (8.0 * math.log(2.0)))
+  largest_delta = 0.0
+  for key in ("delta_tt", "delta_ee", "delta_te"):
+    delta = abs(_finite_real(noise_cfg[key], "cov_args.noise." + key))
+    largest_delta = max(largest_delta, delta)
+  if largest_delta == 0.0:
+    return
+  delta_rad = largest_delta * C_ARCMIN_TO_RAD
+  log_noise = 2.0 * math.log(delta_rad) + exponent
+  log_limit = math.log(np.finfo("float64").max)
+  if not math.isfinite(log_noise) or log_noise > log_limit:
+    raise ValueError(
+      "beam-amplified noise at lmax " + str(lmax)
+      + " is not representable in float64: log(noise) = "
+      + repr(float(log_noise)) + ", limit = " + repr(float(log_limit)))
+  log_covariance = (math.log(2.0) + 2.0 * log_noise
+                    - math.log(2.0 * float(lmax) + 1.0) - math.log(sky))
+  if not math.isfinite(log_covariance) or log_covariance > log_limit:
+    raise ValueError(
+      "beam-amplified covariance product at lmax " + str(lmax)
+      + " is not representable in float64: log(product) = "
+      + repr(float(log_covariance)) + ", limit = "
+      + repr(float(log_limit)))
+
+
+def require_finite_arrays(arrays):
+  """Require every value in each named output array to be finite.
+
+  Arguments:
+    arrays = mapping from persisted output key to an array-like value.
+
+  Returns:
+    None.
+
+  Raises:
+    ValueError naming the first key, index, and value that is non-finite.
+  """
+  for key, value in arrays.items():
+    array = np.asarray(value)
+    bad = np.argwhere(~np.isfinite(array))
+    if bad.size:
+      index_values = []
+      for item in bad[0]:
+        index_values.append(int(item))
+      index_tuple = tuple(index_values)
+      bad_value = array[index_tuple]
+      raise ValueError(
+        "non-finite covariance output " + repr(key) + " at index "
+        + repr(index_tuple) + ": " + repr(float(bad_value)))
+
+
+def validate_cov_args(cov):
+  """Validate the complete covariance experiment schema before CAMB.
+
+  Arguments:
+    cov = cov_args mapping with lmax, fsky, noise, and nongaussian; noise
+          contains delta_tt, delta_ee, delta_te, and beam_fwhm;
+          nongaussian contains enabled, lens_lmax, band_width, step_fracs,
+          and converge_rtol.
+
+  Returns:
+    the same validated mapping, so consumed and persisted values share one
+    object.
+
+  Raises:
+    ValueError naming the first schema, type, range, representation, or
+    physical-noise violation.
+  """
+  cov = _required_mapping(cov, "cov_args")
+  _validate_exact_keys(cov, COV_KEYS, "cov_args")
+  lmax = cov["lmax"]
+  if isinstance(lmax, bool) or not isinstance(lmax, int) or lmax < 2:
+    raise ValueError("cov_args.lmax must be a non-boolean integer >= 2")
+  fsky = _finite_real(cov["fsky"], "cov_args.fsky")
+  if fsky <= 0.0 or fsky > 1.0:
+    raise ValueError("cov_args.fsky must satisfy 0 < fsky <= 1")
+
+  noise = _required_mapping(cov["noise"], "cov_args.noise")
+  _validate_exact_keys(noise, NOISE_KEYS, "cov_args.noise")
+  for key in ("delta_tt", "delta_ee", "delta_te"):
+    value = _finite_real(noise[key], "cov_args.noise." + key)
+    if value < 0.0:
+      raise ValueError("cov_args.noise." + key + " must be >= 0")
+  beam = _finite_real(noise["beam_fwhm"],
+                      "cov_args.noise.beam_fwhm")
+  if beam <= 0.0:
+    raise ValueError("cov_args.noise.beam_fwhm must be > 0")
+  validate_noise_psd(delta_tt=noise["delta_tt"],
+                     delta_te=noise["delta_te"],
+                     delta_ee=noise["delta_ee"])
+  validate_beam_representability(lmax=lmax, noise_cfg=noise, fsky=fsky)
+
+  ng_cfg = _required_mapping(cov["nongaussian"],
+                             "cov_args.nongaussian")
+  _validate_exact_keys(ng_cfg, NONGAUSSIAN_KEYS,
+                       "cov_args.nongaussian")
+  if not isinstance(ng_cfg["enabled"], bool):
+    raise ValueError("cov_args.nongaussian.enabled must be a real boolean")
+  lens_lmax = ng_cfg["lens_lmax"]
+  if (isinstance(lens_lmax, bool) or not isinstance(lens_lmax, int)
+      or lens_lmax < 2):
+    raise ValueError(
+      "cov_args.nongaussian.lens_lmax must be a non-boolean integer >= 2")
+  band_width = ng_cfg["band_width"]
+  if (isinstance(band_width, bool) or not isinstance(band_width, int)
+      or band_width < 1):
+    raise ValueError(
+      "cov_args.nongaussian.band_width must be a non-boolean integer >= 1")
+  converge_rtol = _finite_real(
+    ng_cfg["converge_rtol"], "cov_args.nongaussian.converge_rtol")
+  if converge_rtol <= 0.0:
+    raise ValueError("cov_args.nongaussian.converge_rtol must be > 0")
+  steps = ng_cfg["step_fracs"]
+  if not isinstance(steps, (list, tuple)) or len(steps) < 2:
+    raise ValueError(
+      "cov_args.nongaussian.step_fracs must contain at least two values")
+  previous = None
+  for index, step_frac in enumerate(steps):
+    step = _finite_real(
+      step_frac, "cov_args.nongaussian.step_fracs[" + str(index) + "]")
+    if step <= 0.0:
+      raise ValueError(
+        "cov_args.nongaussian.step_fracs values must be strictly positive")
+    if previous is not None and step <= previous:
+      raise ValueError(
+        "cov_args.nongaussian.step_fracs must be strictly increasing")
+    stencil_factors(step)
+    previous = step
+  return cov
 
 
 def noise_spectrum(ell, delta_arcmin, beam_fwhm_arcmin):
@@ -243,25 +624,28 @@ def gaussian_blocks(ell, cls, noise, fsky):
   return out
 
 
-def stencil_derivative(f_m2, f_m1, f_p1, f_p2, h):
+def stencil_derivative(f_m2, f_m1, f_p1, f_p2, step_frac):
   """First derivative by the 5-point central stencil.
 
-    f'(0) ~ [ f(-2h) - 8 f(-h) + 8 f(+h) - f(+2h) ] / (12 h)
+    f'(0) ~ [f(-2s_step) - 8f(-s_step) + 8f(+s_step)
+             - f(+2s_step)] / (12s_step)
 
   (the center point drops out of the first-derivative stencil; the
-  five points are -2h, -h, 0, +h, +2h). Error is O(h^4), which is why
-  the convergence study across several h is meaningful.
+  five points are -2s_step, -s_step, 0, +s_step, +2s_step). Error is
+  O(s_step^4), which is why the convergence study across several steps is
+  meaningful.
 
   Arguments:
-    f_m2, f_m1, f_p1, f_p2 = f evaluated at -2h, -h, +h, +2h; arrays
-                             of one shape.
-    h                      = the step (a scalar, same units as the
-                             perturbation amplitude).
+    f_m2, f_m1, f_p1, f_p2 = f evaluated at -2s_step, -s_step, +s_step,
+                             +2s_step; arrays of one shape.
+    step_frac              = the fractional step (a scalar, same units as
+                             the perturbation amplitude).
 
   Returns:
     the derivative estimate, same shape as the inputs.
   """
-  return (f_m2 - 8.0 * f_m1 + 8.0 * f_p1 - f_p2) / (12.0 * h)
+  return ((f_m2 - 8.0 * f_m1 + 8.0 * f_p1 - f_p2)
+          / (12.0 * step_frac))
 
 
 def band_windows(lmin, lmax, band_width):
@@ -332,50 +716,61 @@ def assemble_lensing_blocks(deriv, w):
 
 
 def validate_lcdm_params(params):
-  """Loud check: the params block is plain flat LCDM, every value fixed.
-
-  The covariance is only ever computed on a fiducial LCDM cosmology
-  (user directive). Three rules: (1) every entry must be a plain
-  number (a FIXED value — no priors, no derived lambdas: this script
-  evaluates one cosmology); (2) only LCDM_ALLOWED names may appear;
-  (3) the geometry/dark-energy names, if present, must sit at their
-  LCDM values (omk 0, w -1, wa 0).
+  """Require one complete fixed flat-LCDM fiducial parameter mapping.
 
   Arguments:
     params = the YAML params mapping.
 
+  Returns:
+    the same validated mapping used by both Cobaya and provenance.
+
   Raises:
-    ValueError naming the offending key(s) and the rule broken.
+    ValueError naming an unknown, missing, non-fixed, non-finite,
+    ambiguous, or non-LCDM entry.
   """
-  bad_type, bad_name, bad_value = [], [], []
+  params = _required_mapping(params, "params")
+  bad_name = []
   for name, value in params.items():
-    if not isinstance(value, (int, float)):
-      bad_type.append(name)
-      continue
     if name not in LCDM_ALLOWED:
       bad_name.append(name)
       continue
+    _finite_real(value, "params." + name)
     if name in LCDM_FIXED_ONLY:
       if abs(float(value) - LCDM_FIXED_ONLY[name]) > 1e-12:
-        bad_value.append(name)
-  problems = []
-  if bad_type:
-    problems.append(
-      "non-fixed entries " + repr(sorted(bad_type)) + " (every parameter "
-      "must be a plain number; this script evaluates ONE fiducial "
-      "cosmology, never samples)")
+        raise ValueError(
+          "params." + name + " must equal its flat-LCDM value "
+          + repr(LCDM_FIXED_ONLY[name]))
   if bad_name:
-    problems.append(
-      "non-LCDM parameter name(s) " + repr(sorted(bad_name)) + " (allowed: "
-      + repr(list(LCDM_ALLOWED)) + ")")
-  if bad_value:
-    problems.append(
-      "parameter(s) " + repr(sorted(bad_value)) + " not at their LCDM "
-      "value (omk 0, w -1, wa 0)")
-  if problems:
     raise ValueError(
-      "the covariance is ALWAYS computed on a fiducial flat LCDM "
-      "cosmology; the params block breaks that: " + "; ".join(problems))
+      "params has non-LCDM key(s) " + repr(sorted(bad_name))
+      + "; allowed keys are " + repr(list(LCDM_ALLOWED)))
+
+  missing = []
+  for name in LCDM_REQUIRED_KEYS:
+    if name not in params:
+      missing.append(name)
+  if missing:
+    raise ValueError("params is missing required flat-LCDM key(s) "
+                     + repr(missing))
+
+  amplitude = []
+  for name in LCDM_AMPLITUDE_KEYS:
+    if name in params:
+      amplitude.append(name)
+  if len(amplitude) != 1:
+    raise ValueError(
+      "params must contain exactly one amplitude key from "
+      + repr(list(LCDM_AMPLITUDE_KEYS)) + "; found " + repr(amplitude))
+
+  expansion = []
+  for name in LCDM_EXPANSION_KEYS:
+    if name in params:
+      expansion.append(name)
+  if len(expansion) != 1:
+    raise ValueError(
+      "params must contain exactly one expansion key from "
+      + repr(list(LCDM_EXPANSION_KEYS)) + "; found " + repr(expansion))
+  return params
 
 
 def fiducial_spectra(info, lmax):
@@ -469,12 +864,13 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   assembles the dense blocks with the phi Gaussian variance
   Cov^phiphi_LL = 2 (C^phiphi_L)^2 / ((2L+1) fsky):
 
-      for each band b, each step h in step_fracs:
-        eps in {-2h, -h, +h, +2h}  ->  re-lens  ->  Cl^XY(eps)
+      for each band b, each s_step in step_fracs:
+        eps in {-2s_step, -s_step, +s_step, +2s_step}
+          -> re-lens -> Cl^XY(eps)
         dCl^XY/dA_b = stencil(...) / 1          (A_b = the band scale)
-      convergence: the h-to-h relative spread per band must sit below
+      convergence: the step-to-step relative spread per band must sit below
       converge_rtol (loud otherwise); the kept derivative is the
-      smallest-h estimate.
+      smallest-step estimate.
       N^(phi)XY,WZ_{ll'} = sum_b dCl^XY_l/dA_b * w_b * dCl^WZ_l'/dA_b
       with the eq-6 contraction weight
         w_b = [sum_{L in b} 2 C^phiphi_L^2/((2L+1) fsky)]
@@ -514,21 +910,32 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   """
   lmax = int(ell[-1])
   lens_lmax = int(ng_cfg["lens_lmax"])
-  band_width = int(ng_cfg.get("band_width", 20))
+  band_width = int(ng_cfg["band_width"])
   step_fracs = list(ng_cfg["step_fracs"])
-  rtol = float(ng_cfg.get("converge_rtol", 0.05))
+  rtol = float(ng_cfg["converge_rtol"])
   if len(step_fracs) < 2:
     raise ValueError(
       "cov_args.nongaussian.step_fracs needs >= 2 step sizes: the "
       "convergence of the 5-point stencil vs step size is the point of "
       "the study, one step proves nothing.")
 
+  factor_lists = []
+  for step_frac in step_fracs:
+    factors = stencil_factors(step_frac)
+    factor_list = []
+    for factor in factors:
+      factor_list.append(float(factor))
+    factor_lists.append(factor_list)
+
   # The phi Gaussian variance below needs the RAW C^phiphi_L over the
   # banded range; the re-lensing call needs CAMB's own scaled
   # convention at FULL length.
-  pp_raw = np.zeros(lens_lmax + 1, dtype="float64")
-  n_have = min(len(cls["pp"]), lens_lmax + 1)
-  pp_raw[:n_have] = cls["pp"][:n_have]
+  if len(cls["pp"]) <= lens_lmax:
+    raise ValueError(
+      "raw lensing spectrum is too short: need maximum L "
+      + str(lens_lmax) + ", available maximum is "
+      + str(len(cls["pp"]) - 1))
+  pp_raw = np.asarray(cls["pp"][:lens_lmax + 1], dtype="float64")
   # get_lens_potential_cls(raw_cl=False) column 0 is
   # [L(L+1)]^2 C^phiphi_L / 2pi over L = 0..Params.max_l — the exact
   # array get_lensed_cls_with_spectrum demands ("clpp must go to at
@@ -538,6 +945,11 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   # fiducial; only the band [b_lo, b_hi] may differ from fiducial.
   clpp_fid = np.asarray(
     cambdata.get_lens_potential_cls(raw_cl=False)[:, 0], dtype="float64")
+  if len(clpp_fid) <= lens_lmax:
+    raise ValueError(
+      "scaled lensing spectrum is too short: need maximum L "
+      + str(lens_lmax) + ", available maximum is "
+      + str(len(clpp_fid) - 1))
 
   bands = band_windows(lmin=2, lmax=lens_lmax, band_width=band_width)
   spectra = ("tt", "te", "ee")
@@ -547,6 +959,7 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   for s in spectra:
     deriv[s] = np.zeros((len(bands), n_ell), dtype="float64")
   spreads = np.zeros(len(bands), dtype="float64")
+  changed_value_counts = []
 
   ell_lo = int(ell[0])
   for b, (b_lo, b_hi) in enumerate(bands):
@@ -555,21 +968,30 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
     est = {}
     for s in spectra:
       est[s] = []
-    for h in step_fracs:
+    band_counts = []
+    for step_index, step_frac in enumerate(step_fracs):
       lensed = {}
-      for eps_mult in (-2.0, -1.0, 1.0, 2.0):
-        eps = eps_mult * h
-        clpp = clpp_fid.copy()
-        clpp[b_lo:b_hi + 1] *= (1.0 + eps)
+      step_counts = []
+      factors = factor_lists[step_index]
+      offset_multipliers = (-2.0, -1.0, 1.0, 2.0)
+      for offset_index, eps_mult in enumerate(offset_multipliers):
+        clpp, changed = scaled_lensing_band(
+          clpp_fid=clpp_fid,
+          band_lo=b_lo,
+          band_hi=b_hi,
+          factor=factors[offset_index])
+        step_counts.append(changed)
         lensed[eps_mult] = lensed_cls_with_clpp(cambdata=cambdata,
                                                 clpp=clpp, lmax=lmax)
+      band_counts.append(step_counts)
       for s in spectra:
         d = stencil_derivative(f_m2=lensed[-2.0][s][ell_lo:lmax + 1],
                                f_m1=lensed[-1.0][s][ell_lo:lmax + 1],
                                f_p1=lensed[1.0][s][ell_lo:lmax + 1],
                                f_p2=lensed[2.0][s][ell_lo:lmax + 1],
-                               h=h)
+                               step_frac=step_frac)
         est[s].append(d)
+    changed_value_counts.append(band_counts)
     # convergence across the steps: pooled over the three spectra, the
     # max relative spread against the smallest-step estimate (guarded
     # by the estimate's own scale so near-zero derivatives don't fake
@@ -635,8 +1057,13 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
     band_weight_policy = "exact eq 6"
   else:
     band_weight_policy = "smooth-response band projection"
-  study = {"bands": [[int(a), int(b)] for a, b in bands],
+  band_records = []
+  for band_lo, band_hi in bands:
+    band_records.append([int(band_lo), int(band_hi)])
+  study = {"bands": band_records,
            "step_fracs": step_fracs,
+           "factor_lists": factor_lists,
+           "per_band_changed_value_counts": changed_value_counts,
            "band_width": band_width,
            "per_band_relative_spread": spreads.tolist(),
            "converge_rtol": rtol,
@@ -680,17 +1107,17 @@ def main():
       raise KeyError("covariance YAML missing the required block "
                      + repr(key) + ": " + yaml_path)
 
-  validate_lcdm_params(info["params"])
-
-  cov = info["cov_args"]
+  info["params"] = validate_lcdm_params(info["params"])
+  cov = validate_cov_args(info["cov_args"])
   lmax = int(cov["lmax"])
-  fsky = float(cov.get("fsky", 1.0))
+  fsky = float(cov["fsky"])
   noise_cfg = cov["noise"]
-  ng_cfg = cov.get("nongaussian", {"enabled": False})
+  ng_cfg = cov["nongaussian"]
+  request_lmax = max(lmax, int(ng_cfg["lens_lmax"]))
 
   print("compute_cmb_covariance: fiducial LCDM evaluation (one CAMB "
         "solve, high accuracy)...")
-  cls_full, cambdata = fiducial_spectra(info=info, lmax=lmax)
+  cls_full, cambdata = fiducial_spectra(info=info, lmax=request_lmax)
 
   ell = np.arange(2, lmax + 1, dtype="int64")
   cls = {}
@@ -704,10 +1131,24 @@ def main():
   noise["ee"] = noise_spectrum(ell=ell, delta_arcmin=noise_cfg["delta_ee"],
                                beam_fwhm_arcmin=beam)
   noise["te"] = noise_spectrum(ell=ell,
-                               delta_arcmin=noise_cfg.get("delta_te", 0.0),
+                               delta_arcmin=noise_cfg["delta_te"],
                                beam_fwhm_arcmin=beam)
 
+  validate_signal_noise_psd(cls=cls, noise=noise)
   g = gaussian_blocks(ell=ell, cls=cls, noise=noise, fsky=fsky)
+
+  for index in range(len(ell)):
+    gaussian_joint = np.asarray(
+      [[g["var_tt"][index], g["gauss_tt_te"][index],
+        g["gauss_tt_ee"][index]],
+       [g["gauss_tt_te"][index], g["var_te"][index],
+        g["gauss_te_ee"][index]],
+       [g["gauss_tt_ee"][index], g["gauss_te_ee"][index],
+        g["var_ee"][index]]],
+      dtype="float64")
+    validate_covariance_psd(
+      covariance=gaussian_joint,
+      name="Gaussian TT/TE/EE covariance at ell " + str(int(ell[index])))
 
   out = {}
   out["ell"] = ell
@@ -726,7 +1167,7 @@ def main():
   out["cl_pp"] = cls["pp"]
 
   study = None
-  if bool(ng_cfg.get("enabled", False)):
+  if ng_cfg["enabled"]:
     print("non-Gaussian lens-induced part (eq 6): 5-point stencil over "
           + str(len(ng_cfg["step_fracs"])) + " step sizes...")
     blocks, study = nongaussian_blocks(cambdata=cambdata, cls=cls_full,
@@ -738,14 +1179,34 @@ def main():
       # the full covariance = Gaussian diagonal + N^(phi); persisted
       # dense only under the flag (the Gaussian-only file stays small).
       dense[diag_idx, diag_idx] += g["var_" + s]
-      out["cov_" + s] = dense
+      blocks["cov_" + s] = dense
     for pair in ("tt_te", "tt_ee", "te_ee"):
       dense = blocks["cov_" + pair]
       # the cross-spectrum blocks: the eq 3 Gaussian cross-covariance
       # is l-diagonal, so it lands on the dense block's diagonal; the
       # eq 6 lens-induced part fills the off-diagonals.
       dense[diag_idx, diag_idx] += g["gauss_" + pair]
-      out["cov_" + pair] = dense
+      blocks["cov_" + pair] = dense
+
+    joint_top = np.concatenate(
+      (blocks["cov_tt"], blocks["cov_tt_te"], blocks["cov_tt_ee"]),
+      axis=1)
+    joint_middle = np.concatenate(
+      (blocks["cov_tt_te"].T, blocks["cov_te"],
+       blocks["cov_te_ee"]),
+      axis=1)
+    joint_bottom = np.concatenate(
+      (blocks["cov_tt_ee"].T, blocks["cov_te_ee"].T,
+       blocks["cov_ee"]),
+      axis=1)
+    joint_covariance = np.concatenate(
+      (joint_top, joint_middle, joint_bottom),
+      axis=0)
+    validate_covariance_psd(
+      covariance=joint_covariance,
+      name="assembled dense TT/TE/EE covariance")
+    for key, value in blocks.items():
+      out[key] = value
 
   provenance = {
     "paper": "Motloch & Hu 1709.03599 eqs 1-7 (N^(E) recorded, skipped)",
@@ -755,13 +1216,14 @@ def main():
     "fsky": fsky,
     "noise": {"delta_tt": noise_cfg["delta_tt"],
               "delta_ee": noise_cfg["delta_ee"],
-              "delta_te": noise_cfg.get("delta_te", 0.0),
+              "delta_te": noise_cfg["delta_te"],
               "beam_fwhm_arcmin": beam},
-    "nongaussian_enabled": bool(ng_cfg.get("enabled", False)),
+    "nongaussian_enabled": ng_cfg["enabled"],
     "stencil_study": study,
     "pp_noise_n0": "not included (V1 cosmic variance only; N0 is a "
                    "recorded future knob)",
   }
+  require_finite_arrays(out)
   out["provenance"] = json.dumps(provenance)
 
   os.makedirs(root + "/chains", exist_ok=True)
