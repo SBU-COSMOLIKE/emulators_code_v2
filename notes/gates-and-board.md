@@ -7212,3 +7212,43 @@ interpreter), which reproduced every filed number to the digit:
 VERDICT: GO; merged into this branch. The gauntlet is now: fan-out
 (in flight) -> D4 (claims + wrapper legs) -> D5 (62/59/64/70). The
 21 trigger remains D3(done)+56(Implementer).
+
+## D6 triangle-half audit (Fable, 2026-07-13): 11b7932 content GO — four amended aids RATIFIED; integration routed to the Implementer
+
+The strengthened triangle gate audited (codex/d6-triangle-cleanup):
+
+- MY RUN: 4/4 green under the cocoa interpreter, the child emitting
+  ##AID lines with the AMENDED names; the AST scan confirms zero
+  comprehensions/generators (the Alien-Python rule honored in new
+  check code).
+- The DIDACTICS-29/65 acceptance is implemented exactly: an
+  independent (x parameter, y parameter, physical window) reference
+  from a gate-owned formula table; every triangle Axes identified;
+  real cut masks traced; all ten expected artists with per-artist
+  color; exactly two excluded intervals on the omegamh2 diagonal;
+  and the ruled mutation (a real artist moved to the wrong Axes)
+  leaves the old count-only summary IDENTICAL while the exact-owner
+  predicate reports three errors and rejects it — the count-summary
+  vacuity proven live.
+- The board-wrapper attempt is honestly reported as stopped at
+  preflight (no false green claim).
+- FOUR AMENDED AID NAMES RATIFIED (they carry exact-owner
+  semantics): figure-produced (kept), panel-window-set-exact,
+  all-cut-artists-use-shared-gray, omegamh2-marginal-bands-exact —
+  these SUPERSEDE the three original draft names for this gate.
+
+SEQUENCING: the branch predates fan-out batch 1 (b9244cf is NOT an
+ancestor), so gt_b_triangle.py has two divergent versions — batch
+1's (old legs + old aids) and this one (strengthened legs + amended
+aids). Merging now would red triangle-shading via reconciliation
+(declared != executed) — the machinery would catch it, and we do
+not land known-red. INTEGRATION ROUTED TO THE IMPLEMENTER (the
+gates/checks owner during fan-out): adopt the strengthened child,
+keep the ##AID emission per the ratified convention, update the
+gate's evidence= to the four amended names; the home-note block is
+already amended. The branch HOLDS unmerged until that integration
+commit exists; delta audit then clears both together.
+
+The mkdtemp half's deferral is ACCEPTED as recorded — the nine
+sites live in files under active fan-out ownership; they land when
+their files quiet, per the one-owner rule.

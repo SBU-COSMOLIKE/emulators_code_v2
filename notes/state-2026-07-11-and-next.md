@@ -3088,3 +3088,13 @@ nine-aid scalar-smoke block amended, board.py untouched (sync item
 rides the fan-out migration). Merged. Gauntlet: fan-out -> D4 ->
 D5; the 21 trigger waits only on 56. Spec: gates-and-board.md "D3
 + DIDACTICS-60/63 audit".
+
+D6 TRIANGLE HALF (2026-07-13, Fable): 11b7932 content GO — my run
+4/4 green with the amended ##AID names, AST comprehension-free, the
+exact-owner acceptance implemented to the ruling with the
+count-vacuity mutation proven live; FOUR amended aids ratified
+(supersede three draft names). Branch predates batch 1 ->
+gt_b_triangle.py diverges; integration routed to the Implementer
+(strengthened child + amended evidence=), branch HELD until then;
+mkdtemp-half deferral accepted. Spec: gates-and-board.md "D6
+triangle-half audit".
