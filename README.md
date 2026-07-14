@@ -3483,3 +3483,65 @@ schema-v2 replacement requires retraining. [Section
 Claude Code assisted development in the `dev` folder. Prof. Miranda directed
 the scientific contracts, model architecture, public interface, testing
 requirements and Python readability conventions.
+
+### How the code is tested and repaired over time
+
+Development runs as three cooperating sessions. Each has a separate job, so
+that no single agent both writes a change and approves it. The table names the
+three.
+
+| Session     | Job |
+| ----------- | --- |
+| Architect   | Writes the specification for each change, and audits every finished change against the raw command output it produced before that change is allowed to merge. It also has the final word on design. |
+| Implementer | Turns a specification into complete code and runs the validation gates on it. |
+| Red team    | A separate model whose only job is to break the code. A red team is an adversarial reviewer. It hunts for bugs, weak tests, and documentation that has drifted out of date, and it files what it finds. |
+
+A red-team finding is never applied on its own. It is input to the architect's
+review, which decides whether and how to act on it.
+
+### Durable records make it long-term
+
+Substantive work, such as a specification, a finding, a verdict, or a repair
+plan, is written to a file under `notes/` before any chat message is sent. The
+chat message is a short pointer to that file, and if the two ever disagree, the
+file is the record that counts. Agent sessions forget everything between runs.
+The notes do not, so any later session, or a human, can resume from the notes
+alone.
+
+### The life of a reported bug
+
+A bug found by the red team follows a fixed path from report to permanent
+protection:
+
+1. The finding is filed with the file and line it points to.
+2. The architect reproduces the bug independently before any fix is written.
+3. The implementer writes the repair within a scope the architect set.
+4. The repair ships with a regression test that re-introduces the original
+   defect on purpose and shows the check now fails on it. The test proves it
+   can catch the bug, rather than merely asserting that it can.
+5. The architect re-runs that evidence personally before the change merges.
+6. The gates board re-runs every check on every later run, so the protection
+   stays live long after everyone has forgotten the original bug.
+
+Two real examples give the shape. A data file written in a units format that
+the file parser could not read was caught once a check exercised that parser on
+a realistic file. A test that compared the code against a reference was found to
+share its numerical integrator with the code under test, so the two agreed for
+the wrong reason until the reference was made independent.
+
+### The objectivity anchor
+
+Validation gates are run by the machine, not asserted by an agent. The board
+(`gates/run_board.py`) and the individual check scripts execute the tests, and
+the relay tooling runs them locally and keeps the raw logs. A pass or fail
+claim from any session is not accepted without the command output behind it.
+
+### The tools
+
+Two small programs carry messages between the three sessions.
+`tools/handoff_router.py` relays a handoff from one session to the next, and
+with `--status` it reports the state of the loop by reading git and the notes.
+`tools/mailbox_daemon.py` is a file mailbox under `notes/mailbox/`, dispatched
+without a human in the loop, so the sessions can hand off without anyone copying
+text by hand. Merges to the main branch are performed only by the human
+maintainer.
