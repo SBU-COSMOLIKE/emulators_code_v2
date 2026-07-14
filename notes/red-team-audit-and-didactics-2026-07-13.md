@@ -2329,15 +2329,9 @@ has not landed here.  Its eventual code landing must update that README
 sentence in the same change so the public current-state description never
 leads or trails the implementation.
 
-The final untruncated censuses report zero matches for all of the following:
+The final untruncated census records a zero-match editorial pass against
+private standards.  It also reports zero matches for:
 
-- self-reference formulas, AI limitation disclaimers, knowledge-cutoff
-  phrases, chatbot openings and bot closers;
-- inflated-importance words, vague expert attribution, copula substitutes,
-  banned verbs, banned adjectives, banned nouns, banned adverbs and canned
-  transitions specified by the user;
-- corrective negation, negative parallelism, self-posed questions,
-  fake-suspense questions, fake-depth participles and generic conclusions;
 - em dash, en dash, curly quotation mark, Unicode ellipsis, semicolon,
   question mark and comma followed by `and` or `or`; and
 - bold-first list items and inline-header list items.
