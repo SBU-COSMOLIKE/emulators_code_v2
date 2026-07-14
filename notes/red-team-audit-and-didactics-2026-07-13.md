@@ -2336,3 +2336,97 @@ revise definitions, citations, named owners, and gate-claim precision.  The
 file-study itinerary should remain detailed; its list structure helps a new
 reader.  A complete compile, PDF render, visual inspection, link scan, and
 repeat public-prose census are required after the edits.
+
+## TEX-PROSE-01 and TEX-PROSE-02 implementation evidence
+
+The landing edits `texnotes/emulator_code_guide.tex`.  TEX-PROSE-03 diary
+removal and the TEX-PROSE-04 gate-appendix refactor remain separate work.
+Mechanical TEX-PROSE-02 edits apply throughout the source, including prose
+inside those later sections, but their structure and evidence fields remain
+unchanged.
+
+The malformed background-function units now render as
+`70 km s^-1 Mpc^-1`, `13296.826 Mpc` and `15538.408 Mpc`.  The source uses
+explicit roman unit expressions.  Rendered page 50 has no stray `m` prefix.
+
+The repeated census produced these counts for guide prose:
+
+- unescaped semicolon characters: 0
+- Unicode em dash, en dash, ellipsis and curly quote characters: 0
+- TeX prose `---` sequences: 0
+- question marks: 0
+- multiline `,\s+(and|or)` candidates: 9 after adjudication; the 21 serial
+  lists were repaired and the retained candidates join independent clauses or
+  two objects separated by an appositive
+- editorial pass against private standards: zero matches
+- bold-first instructional bullets: 0
+
+Remaining double-hyphen sequences belong to literal command-line options.
+Escaped backslash-plus-semicolon sequences are TeX math-spacing commands,
+which remain outside the punctuation count.
+The repeated bold evidence labels in the gate appendix remain queued under
+TEX-PROSE-04.
+
+Preservation checks compared the edited guide with its pre-edit version.  The
+ordered equation-environment sequence is identical.  Label, equation-reference
+and included-figure counts are identical.  The numeric-token multiset is
+identical after normalizing the old TeX range spelling.  Equation bodies have
+three intended text-level changes: the two punctuation removals and one
+`bin-angle` spelling repair.  Brace balance is zero and `git diff --check`
+passes.
+
+Two `pdflatex` passes completed in `/tmp/tex-prose-0102`.  The final PDF has
+84 pages.  Its log has no LaTeX warning, unresolved reference, overfull box,
+multiply defined label or undefined control sequence.  Existing underfull-box
+diagnostics remain.  Raster inspection covered the title page, activation
+figure and comparison table, the repaired unit page and representative gate
+appendix pages.  The final sample comprised pages 1, 3, 6, 12, 18, 24, 28,
+35, 41, 44, 50, 55, 62, 68, 73, 80 and 84.  The inspected pages have complete
+text, intact equations and no clipping or overlap introduced by this landing.
+
+The tracked `texnotes/emulator_code_guide.pdf` was rebuilt from the edited
+source.  A first invocation from inside `texnotes/` failed before page 1
+because the manuscript names its artwork relative to the repository root.
+The successful two-pass invocation therefore ran from the repository root,
+which is the required build context.  The failed attempt is recorded here so
+the evidence does not imply that both working directories are supported.  A
+second mechanical source census after that build found no remaining listed
+token patterns.  The independent audit below later found semantic defects
+that this mechanical scan could not detect.  The scan also confirmed that the
+ordered labels, references, environments, equation environments and
+numeric-token multiset still equal the pre-edit source.
+
+### Independent-audit hold and repair
+
+The first candidate was held after an independent source and rendered-page
+audit.  Five prose edits had changed scientific or Python meaning.  The held
+text said that reshape preserves axes, described the chi-square form rather
+than the rejected width-squared tolerance, turned a weight-decay exemption
+into frozen parameters, separated focus weights from the errors that define
+them and grouped epoch loss with gradients and parameter deltas.  The repair
+now states the exact invariant or owner in each case.
+
+The same audit found duplicated phrases in the Stage-1 file-study table and a
+stray word in the EMA description.  Both visible defects are repaired in the
+source.  The initial line-local comma scan had also missed conjunctions on the
+next line.  A whole-file multiline scan found 30 candidates.  Human
+adjudication identified 21 serial lists and nine grammatical false positives.
+The 21 final serial commas are removed.  The nine retained candidates connect
+independent clauses or separate two objects around an appositive, so they are
+outside the Oxford-comma rule.  The repeated scan uses the exact pattern
+`,\s+(and|or)\b` over the complete TeX source.
+
+This repair record preserves the failed first audit rather than replacing it.
+The branch remains implementation evidence for Architect review and does not
+certify the manuscript.
+
+After the repair, two `pdflatex` passes from the repository root wrote
+`tmp/pdfs/tex-prose-repair/emulator_code_guide.pdf`.  The output has 84 pages
+and 3,929,660 bytes.  The final log has zero LaTeX warnings, undefined
+references, multiply defined labels, overfull boxes, undefined control
+sequences or fatal errors.  The 291 existing underfull-box diagnostics remain.
+Rendered pages 6, 35, 38, 39, 40, 50, 66, 73, 81 and 84 were inspected after
+the semantic and table repairs.  Text is complete and the repaired Stage-1
+table has no repeated phrases or overlap.  The tracked PDF and the fresh build
+share SHA-256
+`3c32568093dfba956565163a10ebc01df497e60122a548bc08071c80968d9f17`.
