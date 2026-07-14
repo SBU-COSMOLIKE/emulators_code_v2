@@ -8737,3 +8737,93 @@ section (the af4533a audit).
 MILESTONE: one self-commit under the grant; reply to fable via
 the mailbox for the delta audit (prose + figure-content + palette
 compliance).
+
+## TEX-PROSE-03 audit (Fable, 2026-07-13): 5011c9d GO — the diary layer removed with every warning re-homed; merge printed, not run (permission-blocked headless turn); one owed recompile
+
+Audited codex/tex-prose-current-state at 9314ec5 (implementation
+5011c9d; main 2a83e77 is the merge base — verified). Scope clean:
+exactly three files (guide tex, guide pdf, register-note append);
+no gate surface touched — the gate-integrity screen passes by
+construction.
+
+Re-verified at the machinery, my own runs:
+
+- CENSUS: my grep on 2a83e77 finds exactly 58 diary headings
+  (31 `\paragraph{Current...}` + 27 `\paragraph{Required...}`),
+  line-for-line equal to the register map's original-paragraph
+  column (918 ... 6229); the post-edit source has ZERO, and no
+  residual "Required closure / Current gap / future repair /
+  this landing / T03-" phrasing anywhere in the revised tex.
+- RIDER (a still-open defect never loses its warning): sampled
+  homes verified against their old paragraphs — configuration
+  surface (:917, incomplete key census + resolved-record action),
+  PCE all-rejected (:3033, force-kept mode zero + treat-as-failed
+  ruling), MPS float16 (:4158, underflow consequence + AMP-off
+  action), sigma8 adapter (:5107, 8 vs 8/h Mpc + do-not-request
+  action), transfer-refinement (:4355), structured-evidence
+  coverage (:6008 region). Consequence + safe action preserved in
+  every sample; the map routing is accurate.
+- CURRENT-STATE CORRECTIONS both TRUE at the source: the refine
+  stage unfreezes and trains the shared base in place
+  (emulator/training.py:3117-3133) while fine-tune/transfer enters
+  a fresh model via copied state (emulator/warmstart.py:947,
+  load_state_dict copies, never aliases) — the withdrawn
+  fine-tune attribution was right to withdraw; the
+  stale-dependency resume state is live in gates/run_board.py
+  (:2102-:2130, :2381, :2657).
+- MY UNSCRIPTED PROBE: the guide's eight aggregate-only gates
+  equal the machinery exactly — 8 of 40 registered gates in
+  gates/board.py carry no evidence= tuple, and the sets match
+  member-for-member (finite-contract, finetune-identity,
+  transfer-identity, save-rebuild-drift, cobaya-adapter,
+  finetune-smoke, transfer-smoke, scalar-smoke). scalar-smoke is
+  CORRECTLY still listed: the nine-aid child landed (2a83e77) but
+  the board-side tuple has not — the guide teaches today's board,
+  not the in-flight state.
+- TEX-PROSE-02 REGRESSION: zero em/en dashes and zero suspicious
+  bare `--` outside CLI syntax in the revised source.
+- STRUCTURE: 30 sections / 179 subsections / 71 subsubsections
+  identical old-to-new; paragraph count 153 -> 125 arithmetic
+  closes exactly (−58 diary headings, +30 warning homes).
+- PDF: the committed artifact hashes to the register's SHA-256
+  (230be607...bed6c6), 3,926,309 bytes, page-tree /Count 83,
+  CreationDate 2026-07-13 23:33 (pdfTeX 1.40.25) — a fresh render
+  of this landing, not a stale binary.
+- REGISTER: the no-self-certification line is present; the
+  editorial-pass phrasing is compliant.
+
+OWED (recorded, not waived): my independent two-pass recompile.
+pdflatex exists on this Mac but the command is permission-blocked
+in this headless daemon turn (auto-deny; I did not route around
+the denial). The red team's clean-log claim therefore stands as
+THEIR evidence; the user (or my next interactive turn) re-runs
+before or at the main landing:
+
+    pdflatex -interaction=nonstopmode -output-directory texnotes texnotes/emulator_code_guide.tex
+    pdflatex -interaction=nonstopmode -output-directory texnotes texnotes/emulator_code_guide.tex
+    grep -nE "Warning|Overfull|Undefined|multiply|Emergency|Fatal" texnotes/emulator_code_guide.log
+
+Expected: second pass log clean, "Output written ... (83 pages".
+
+NON-BLOCKING residues, routed to the red team's continuing
+TEX-PROSE sequence (fold into the next unit, no separate lane):
+five before/after narration sites remain in the rewritten board
+region (guide :6009/:6011 "now includes / now preserves", :6016
+"previously shifted", :6064/:6088 "now declares") — the mild form
+of the diary voice; and the register-note append abuts the next
+`##` heading without a blank line (cosmetic, fix on next append).
+
+VERDICT: GO. The ruling-2 rider is satisfied: 51 of 58 removed
+paragraphs have named warning homes verified by sample, and the
+seven "no warning needed" closures are all machinery-confirmed
+board-hardening landings I audited in the 1b campaign. Merge and
+landing are printed here because this turn cannot run them:
+
+    # working-branch merge (Fable's on an interactive turn, or the user):
+    git merge --no-ff codex/tex-prose-current-state \
+      -m "Merge branch 'codex/tex-prose-current-state' into claude/amazing-keller-e798b6"
+
+    # main landing (the user's alone, after the owed recompile):
+    git checkout main
+    git merge claude/amazing-keller-e798b6
+    git push origin main
