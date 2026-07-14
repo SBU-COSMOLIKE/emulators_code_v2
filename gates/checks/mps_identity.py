@@ -115,6 +115,35 @@ K6 = np.logspace(-4, 0.0, 6)
 # the same label does.
 ADAPTER_PAIR_LABEL = "mps-identity/adapter-power-pair"
 
+# The region the doubles this gate PREDICTS THROUGH declare they stand for.
+#
+# An emulator may only be asked about a point inside the region it was trained
+# over: outside it the network does not fail, it extrapolates, and it returns a
+# power spectrum of the right shape and the right sign that is wrong. So a
+# double the gate predicts through has to declare the box a real matter-power
+# emulator of this shape would have been drawn from, and it must contain the
+# points the gate asks about.
+#
+# There are TWO boxes because the two call sites hand the emulator its amplitude
+# in two different units, and a record declares the region the emulator may be
+# ASKED about. The round-trip / head / NPCE fixtures build their parameter
+# geometry around As = 2.1 -- the 1e-9-scaled amplitude the syren formulas take
+# -- and ask about As = 2.15. The adapter is driven the way cobaya drives it,
+# with the cosmology's own As = 2.1e-9. Each box is therefore written in the
+# units its own call site asks in; H0 and omch2 are the same physical interval
+# in both, and both boxes contain the synthetic training rows.
+#
+# A double that is only saved, rebuilt, or refused -- never asked a question --
+# declares NO support instead. That is the honest record for it, and
+# check_domain_law proves such a double answers nothing.
+GRID2D_SUPPORT = {"As":    (1.6, 2.6),
+                  "H0":    (60.0, 76.0),
+                  "omch2": (0.09, 0.15)}
+
+ADAPTER_SUPPORT = {"As":    (1.6e-9, 2.6e-9),
+                   "H0":    (60.0, 76.0),
+                   "omch2": (0.09, 0.15)}
+
 
 def report(label, ok, detail):
     mark = "PASS" if ok else "FAIL"
@@ -997,7 +1026,35 @@ def save_synthetic_grid2d(
         z=Z4,
         k=K6,
         seed=0,
-        pin_low_k=False):
+        pin_low_k=False,
+        support=None):
+    """Build, then save, a tiny synthetic grid2d emulator under `root`.
+
+    `support` is the region the double stands for, as a mapping name -> (low,
+    high). A double the gate PREDICTS through declares one -- the box a real
+    emulator of this shape would have been drawn from -- because a prediction is
+    refused unless the point lies inside the declared region. A double that is
+    only saved, rebuilt or refused declares none: it is a test double, it is
+    never asked a point, and the record says so.
+
+    Arguments:
+      root      = the path root the artifact is saved under.
+      device    = the torch device the geometries and the model are built on.
+      tmp       = the tempdir the fixture covmat is written into.
+      label     = what this double is for; it fixes the record's identity.
+      quantity  = the grid2d quantity the double serves ("pklin" / "boost").
+      units     = the quantity's units, as the record carries them.
+      law       = the target law the geometry was built under.
+      z, k      = the (z, k) grid the surface lives on.
+      seed      = the fixture seed (the covmat and the synthetic rows).
+      pin_low_k = pin the first wavenumber of every redshift row to one (the
+                  valid low-k boost identity).
+      support   = the box the double declares, or None for no support at all.
+
+    Returns:
+      (pgeom, geom, model, covmat): the sources the caller compares against, and
+      the covmat path the finetune legs re-read.
+    """
     covmat = os.path.join(tmp, "g2_%d.covmat" % seed)
     write_covmat(covmat, IN_NAMES, seed=seed + 1)
     pgeom = ParamGeometry.from_covmat(
@@ -1055,7 +1112,8 @@ def save_synthetic_grid2d(
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
-                      family="grid2d"),
+                      family="grid2d",
+                      support=support),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
 
@@ -1163,7 +1221,7 @@ def check_roundtrip(tmp, device, law):
     root = os.path.join(tmp, "emul_g2_" + law)
     pgeom, geom, model, _ = save_synthetic_grid2d(
         root, device, tmp, label="mps-identity/round-trip-" + law,
-        law=law, seed=30)
+        law=law, seed=30, support=GRID2D_SUPPORT)
     theta = np.array([[2.15, 68.0, 0.121]])
     x = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
     with torch.no_grad():
@@ -1186,6 +1244,62 @@ def check_roundtrip(tmp, device, law):
            and info["grid_law"] is None,
            "law %s" % info["grid2d_law"])
     return root
+
+
+def check_domain_law(tmp, device):
+    """The domain law at the predictor's door, on a saved grid2d artifact.
+
+    An emulator asked outside the region it was trained over does not fail. It
+    extrapolates: a surface of the right shape, positive everywhere, and no
+    warning of any kind. predict() therefore proves the point lies inside the
+    region the artifact's own record declares before any number reaches the
+    network, and these two arms drive both halves of that law through a real
+    save + rebuild.
+
+    Both arms read the WORDS of the refusal. They have to: float("n/a") raises
+    the same ValueError class every refusal here raises, so an arm that only
+    asked "did it raise?" would stay green while the law it names was broken.
+    """
+    # a double that declares no support: an emulator generated by nobody, valid
+    # over nowhere. It saves, it rebuilds -- and it answers nothing.
+    root_none = os.path.join(tmp, "emul_g2_undeclared")
+    save_synthetic_grid2d(root_none, device, tmp,
+                          label="mps-identity/undeclared-double",
+                          law="none", seed=150)
+    pred_none = EmulatorPredictor(root_none, device, compile_model=False)
+    try:
+        pred_none.predict({"As": 2.15, "H0": 68.0, "omch2": 0.121})
+        report("an undeclared double refuses every prediction", False,
+               "a test double answered a question")
+    except ValueError as e:
+        report_refusal("an undeclared double refuses every prediction", e,
+                       needle="declares no support",
+                       law="the domain law (no declared support)")
+
+    # a double that declares its box: a point inside is served, a point outside
+    # is refused. The served point proves the arm below is not vacuously green
+    # (a predictor that refused everything would pass an outside-the-box arm
+    # while serving nothing at all).
+    root_box = os.path.join(tmp, "emul_g2_boxed")
+    save_synthetic_grid2d(root_box, device, tmp,
+                          label="mps-identity/boxed-double",
+                          law="none", seed=160,
+                          support=GRID2D_SUPPORT)
+    pred_box = EmulatorPredictor(root_box, device, compile_model=False)
+    inside = pred_box.predict({"As": 2.15, "H0": 68.0, "omch2": 0.121})
+    report("a point inside the declared box is served",
+           inside["pklin"].shape == (Z4.size, K6.size),
+           "surface %s" % (inside["pklin"].shape,))
+    # H0 = 100 is far outside the box the record declares. Nothing about the
+    # power spectrum the network would return there would look wrong.
+    try:
+        pred_box.predict({"As": 2.15, "H0": 100.0, "omch2": 0.121})
+        report("a point outside the declared box refuses", False,
+               "extrapolated without a word")
+    except ValueError as e:
+        report_refusal("a point outside the declared box refuses", e,
+                       needle="which is outside it",
+                       law="the domain law (outside the declared box)")
 
 
 def grid2d_head_recipe(width):
@@ -1320,7 +1434,8 @@ def check_head(tmp, device):
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label="mps-identity/correction-head",
-                      family="grid2d"),
+                      family="grid2d",
+                      support=GRID2D_SUPPORT),
                   attrs={"rescale": "none", "quantity": "pklin"})
     theta = np.array([[2.15, 68.0, 0.121]])
     x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
@@ -1426,7 +1541,8 @@ def check_npce(tmp, device):
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label="mps-identity/npce-power",
-                      family="grid2d"),
+                      family="grid2d",
+                      support=GRID2D_SUPPORT),
                   attrs={"rescale": "none", "quantity": "pklin"})
     theta = np.array([[2.15, 68.0, 0.121]])
     x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
@@ -1490,12 +1606,14 @@ def check_adapter(tmp, device):
     root_p = os.path.join(tmp, "ad_pklin")
     save_synthetic_grid2d(root_p, device, tmp, label=ADAPTER_PAIR_LABEL,
                           quantity="pklin",
-                          units="Mpc3", law="syren_linear", seed=40)
+                          units="Mpc3", law="syren_linear", seed=40,
+                          support=ADAPTER_SUPPORT)
     root_b = os.path.join(tmp, "ad_boost")
     save_synthetic_grid2d(root_b, device, tmp, label=ADAPTER_PAIR_LABEL,
                           quantity="boost",
                           units="dimensionless", law="syren_halofit",
-                          seed=50)
+                          seed=50,
+                          support=ADAPTER_SUPPORT)
 
     # synthetic base stubs: closed forms the assembly must reproduce
     # EXACTLY (the real syren formulas are the workstation/EMUL2 story).
@@ -1674,7 +1792,10 @@ def check_adapter(tmp, device):
                            law="the duplicate-quantity law")
         root_bad = os.path.join(tmp, "ad_badgrid")
         # a boost emulator on a wavenumber grid the linear artifact does not
-        # share, built to be refused: a different run, so its own identity.
+        # share, built to be refused: a different run, so its own identity. One
+        # generator dump has ONE grid, so a double with a different grid could
+        # not honestly carry the pair's label -- it would model a dataset that
+        # cannot exist.
         save_synthetic_grid2d(root_bad, device, tmp,
                               label="mps-identity/adapter-mismatched-grid",
                               quantity="boost",
@@ -1690,6 +1811,32 @@ def check_adapter(tmp, device):
             report_refusal("grid mismatch raises", e,
                            needle="trained on different (z, k) grids",
                            law="the shared-grid law")
+        # the dataset-identity law: the linear spectrum and the boost are
+        # multiplied into one nonlinear spectrum, so they must come from ONE
+        # generator dump. This pair is topologically PERFECT -- one 'pklin', one
+        # 'boost', on the SAME (z, k) grid -- so every configuration law the
+        # adapter runs first passes, and the refusal that fires is the identity
+        # one. The only thing wrong with the pair is what the arm is about: the
+        # boost double was saved under a label of its own, so its record carries
+        # a different dataset identity, and a boost fitted to one draw does not
+        # correct a linear spectrum fitted to another however well the grids and
+        # the axes line up.
+        root_b2 = os.path.join(tmp, "ad_boost_other")
+        save_synthetic_grid2d(root_b2, device, tmp,
+                              label="mps-identity/adapter-other-dataset",
+                              quantity="boost",
+                              units="dimensionless", law="syren_halofit",
+                              seed=120)
+        try:
+            t5 = cls()
+            t5.extra_args = {"device": "cpu",
+                             "emulators": [root_p, root_b2]}
+            t5.initialize()
+            report("two datasets served together raise", False, "no raise")
+        except ValueError as e:
+            report_refusal("two datasets served together raise", e,
+                           needle="different datasets",
+                           law="the dataset-identity law")
     finally:
         mod.syren_base.base_pklin, mod.syren_base.base_boost = saved
 
@@ -1845,6 +1992,10 @@ def main():
         before = len(FAILURES)
         check_roundtrip(tmp, device, law="syren_linear")
         check_roundtrip(tmp, device, law="none")
+        # the domain arms ride this leg: they are the same saved artifact,
+        # rebuilt and asked a question, and the question is the one predict()
+        # refuses. They emit no aid of their own.
+        check_domain_law(tmp, device)
         check_head(tmp, device)
         check_npce(tmp, device)
         emit_leg("mps-identity.saved-model-variants", before)

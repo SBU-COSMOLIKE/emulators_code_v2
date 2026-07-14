@@ -190,6 +190,142 @@ def chain_digest(chain_path):
   return "sha256:" + digest.hexdigest()
 
 
+def _plain_fact(value):
+  """Reduce one value read off the resolved model to a plain, storable fact.
+
+  The model hands its values back in whatever type cobaya, CAMB, or the YAML
+  parser produced: a Python float, a numpy scalar, an integer, a string, a
+  boolean. The record is written as YAML and later copied into an HDF5 file,
+  and both of those store plain values, so a fact is reduced once here rather
+  than at each of the places that write it.
+
+  A value that is neither a number, a string, nor a boolean is recorded as the
+  text the model would print for it. It is still recorded: a fact the writer
+  dropped and a fact the family does not have read the same way on the way back
+  in, and only one of the two is safe to read.
+
+  Arguments:
+    value = one value as the resolved model handed it back.
+
+  Returns:
+    the plain bool, float, or str the record stores.
+  """
+  # booleans are tested before numbers on purpose: in Python True equals 1, so a
+  # flag tested as a number would be stored as the float 1.0 and read back as a
+  # number that was never a flag.
+  if isinstance(value, bool):
+    return value
+  if isinstance(value, str):
+    return value
+  try:
+    return float(value)
+  except (TypeError, ValueError):
+    return repr(value)
+
+
+def _theory_components(model):
+  """List the components of the resolved model that carry theory settings.
+
+  The record's second source of a fixed fact is the theory block's extra_args:
+  the settings a run hands the Boltzmann code directly (the neutrino splitting,
+  the radiation temperature, the effective number of species) rather than
+  through the params block. Those settings live on the component object cobaya
+  built, so they are read from the model, never from the YAML.
+
+  Two ways in are tried, because a cobaya that does not expose one of them must
+  leave a fact unresolved rather than kill a run whose data vectors are already
+  computed: the model's own theory collection, and the component walk the
+  per-sample drivers already use (dataset_generator_cmb.py finds its Boltzmann
+  code that way).
+
+  Arguments:
+    model = the resolved Cobaya model. It is duck-typed, never imported: this
+            module reads the surfaces named below and nothing else, so it stays
+            free of cobaya just as it stays free of torch.
+
+  Returns:
+    the list of components that carry an extra_args mapping, possibly empty.
+  """
+  found = []
+  try:
+    theory = model.theory
+    for name in theory:
+      found.append(theory[name])
+  except Exception:
+    found = []
+  if len(found) == 0:
+    try:
+      for component, _ in model._component_order.items():
+        found.append(component)
+    except Exception:
+      found = []
+
+  components = []
+  for component in found:
+    extra = getattr(component, "extra_args", None)
+    if isinstance(extra, dict):
+      components.append(component)
+  return components
+
+
+def resolved_constants(model):
+  """Read every value the resolved Cobaya model pins to a constant.
+
+  The YAML is the request; the model is the fact. A default the YAML left
+  unstated has been materialized by the time get_model returns, and it is that
+  materialized value the dataset was generated under. Two sources are read, in
+  this order:
+
+    the params block   parameterization.constant_params(): every parameter the
+                       run wrote as a number (or as value: <number>). A
+                       parameter given as a function of other parameters is not
+                       a constant, and is deliberately absent here: its value
+                       changes with the sample, so it is not a fixed fact.
+    the theory block   each theory component's extra_args: the settings the run
+                       hands the Boltzmann code directly.
+
+  The params block wins a name both blocks state, because it is the model's own
+  parameterization of the cosmology. Between two theory components that state
+  one name (a configuration nothing in this program produces), the first
+  component the model lists wins.
+
+  Every lookup is wrapped: a cobaya that does not expose one of these surfaces
+  leaves the facts it would have supplied unresolved, and they are published as
+  "n/a" rather than crashing a run whose data vectors are already computed.
+
+  There is one reader, and it lives here rather than in the generator, because
+  the generator is not its only caller. The producer reads the model to WRITE
+  the record; each cobaya adapter reads the model to CHECK an artifact's record
+  against the cosmology the chain is sampling. Those two must read the model the
+  same way, down to which block wins a name both blocks state. A second copy of
+  this function would be a second author of the same scientific fact, and two
+  authors of one fact are how the two halves of that fact drift apart.
+
+  Arguments:
+    model = the resolved Cobaya model (cobaya.model.get_model's return value),
+            duck-typed rather than imported.
+
+  Returns:
+    a mapping of name to plain value, holding every constant the model states.
+    It is a superset of the coordinates the record reports on; the caller reads
+    the names it needs.
+  """
+  pinned = {}
+  for component in _theory_components(model=model):
+    extra = component.extra_args
+    for key in extra:
+      if key not in pinned:
+        pinned[key] = _plain_fact(value=extra[key])
+
+  try:
+    constants = model.parameterization.constant_params()
+  except Exception:
+    constants = {}
+  for key in constants:
+    pinned[key] = _plain_fact(value=constants[key])
+  return pinned
+
+
 def format_value(value):
   """Write one parameter value as text, under the one decimal policy.
 
@@ -333,7 +469,7 @@ def build_sidecar(dataset_id,
                         sort_keys=False)
 
 
-def synthetic_sidecar(names, label, family=NOT_APPLICABLE):
+def synthetic_sidecar(names, label, family=NOT_APPLICABLE, support=None):
   """Compose the record for an emulator with no producer dataset behind it.
 
   The gates build emulators in memory, out of hand-made geometries and a few
@@ -343,11 +479,27 @@ def synthetic_sidecar(names, label, family=NOT_APPLICABLE):
   say so, because the alternative is a file that carries no record at all, and
   a file with no record is exactly what this whole design exists to refuse.
 
-  So a test double declares itself one. Its generator is "synthetic", its
-  domain announces that it has no declared support rather than claiming an
-  infinite one, and every cosmological fact reads "n/a". A consumer comparing
-  it against a real model finds facts that do not match and refuses it, which
-  is the correct answer: a test double must never be served to a likelihood.
+  So a test double declares itself one. Its generator is "synthetic" and every
+  cosmological fact reads "n/a". A consumer comparing it against a real model
+  finds facts that do not match and refuses it, which is the correct answer: a
+  test double must never be served to a likelihood.
+
+  What the double says about its SUPPORT depends on what the double is for, and
+  the two answers are both honest:
+
+    support=None   the double declares no support at all. Its bounds are not
+                   wide, they are absent, and every prediction asked of it is
+                   refused. This is the double that exists to be round-tripped
+                   through a file and compared byte for byte, never asked a
+                   question.
+
+    support given  the double declares the box it stands for, and may be asked
+                   about a point inside it. A gate that PREDICTS through a
+                   double is standing that double in for a real emulator, and a
+                   real emulator was drawn from an interval. The bounds are
+                   written by format_value, the same decimal policy the
+                   generator publishes under, because a support written by any
+                   other hand would be a second author of the interval.
 
   The identity is derived from the caller's label, so two doubles built for
   different purposes carry different identities and a pair built to match on
@@ -355,20 +507,34 @@ def synthetic_sidecar(names, label, family=NOT_APPLICABLE):
   of a chain, and the "synthetic" generator says as much.
 
   Arguments:
-    names  = the sampled parameter names, in the order the emulator's input
-             geometry holds them. They must equal that geometry's names.
-    label  = what this double is for. Two doubles with the same label carry the
-             same identity; two with different labels do not.
-    family = the output family the double stands in for, when it stands in for
-             one; "n/a" otherwise.
+    names   = the sampled parameter names, in the order the emulator's input
+              geometry holds them. They must equal that geometry's names.
+    label   = what this double is for. Two doubles with the same label carry the
+              same identity; two with different labels do not.
+    family  = the output family the double stands in for, when it stands in for
+              one; "n/a" otherwise.
+    support = the interval each sampled name stands for, as a mapping
+              name -> (low, high) of numbers, or None for a double that
+              declares no support and refuses every point.
 
   Returns:
     the sidecar's text, as build_sidecar returns it.
+
+  Raises:
+    ValueError when a declared support does not cover exactly the sampled names
+    (build_sidecar's law, unchanged: a support is a per-name contract).
   """
   fixed = {}
   for key in COSMOLOGY_FIXED_KEYS:
     if key not in names:
       fixed[key] = NOT_APPLICABLE
+
+  if support is None:
+    bounds     = _undeclared_support(names=names)
+    constraint = "undeclared"
+  else:
+    bounds     = dict(support)
+    constraint = "box"
 
   digest = hashlib.sha256(label.encode("utf-8")).hexdigest()
   text = build_sidecar(dataset_id="sha256:" + digest,
@@ -382,10 +548,10 @@ def synthetic_sidecar(names, label, family=NOT_APPLICABLE):
                        cl_units=NOT_APPLICABLE,
                        base_identity=NOT_APPLICABLE,
                        names=names,
-                       requested=_undeclared_support(names=names),
-                       resolved=_undeclared_support(names=names),
+                       requested=bounds,
+                       resolved=bounds,
                        source="synthetic",
-                       constraint="undeclared")
+                       constraint=constraint)
   return text
 
 
@@ -809,7 +975,7 @@ def domain_bounds(blocks, name):
 
   Legal on a "box" constraint only. A record that declares no support has no
   interval to read, and its two bounds are the string "n/a"; float("n/a") is
-  a crash, not a refusal. The domain law below reads the constraint FIRST and
+  a crash, not a refusal. compile_support below reads the constraint FIRST and
   never reaches this function on an undeclared record.
 
   Arguments:
@@ -1019,26 +1185,77 @@ def check_horizontal(blocks_a, blocks_b, where_a, where_b):
       "union of the two. Regenerate both halves from one generator run.")
 
 
-def check_domain(blocks, point, where):
-  """May this artifact be asked about this point?
+def compile_support(blocks, where):
+  """Read the artifact's support once, into the form a point is compared against.
+
+  The record stores its bounds as TEXT, under the one decimal policy, because
+  the file a cosmologist reads and the number the code compares against must be
+  the same value. Turning that text back into numbers costs a parse per bound,
+  and the domain law now runs on every prediction: parsing six strings on every
+  step of a chain, to compare against numbers that cannot change while the chain
+  runs, would be paid a million times over for no information.
+
+  So the text is read ONCE, here, and the result is what the law compares
+  against afterwards. The compiled form is a plain mapping and carries
+  everything a refusal needs to name, so that the comparison and its words stay
+  in this module and the caller holds nothing but the parse it was handed.
+
+  Nothing is refused here. A double that declares no support must still LOAD (a
+  gate saves one, rebuilds it, and compares it byte for byte); what it may not
+  do is answer a question, and that is check_support's refusal, not this one.
+  Compiling a record is not asking it anything.
+
+  Arguments:
+    blocks = the artifact's two blocks, as validate accepts them.
+    where  = the artifact's identity, carried into every refusal the compiled
+             support later raises.
+
+  Returns:
+    the compiled support: a mapping with the artifact's identity, its
+    constraint, its generator, its sampled names in order, and the low/high
+    bound of each name as Python floats (empty when the constraint is not a
+    box).
+  """
+  domain   = blocks[INPUT_DOMAIN_GROUP]
+  compiled = {"where":      where,
+              "constraint": domain["constraint"],
+              "generator":  blocks[FIXED_FACTS_GROUP]["generator"],
+              "names":      list(domain["names"]),
+              "low":        {},
+              "high":       {}}
+  # the constraint is read FIRST, and only a box has intervals to parse. An
+  # undeclared record's bounds are the string "n/a", and float("n/a") is a
+  # crash, not a refusal.
+  if compiled["constraint"] == "box":
+    for name in compiled["names"]:
+      low, high = domain_bounds(blocks=blocks, name=name)
+      compiled["low"][name]  = low
+      compiled["high"][name] = high
+  return compiled
+
+
+def check_support(compiled, point):
+  """May this artifact be asked about this point? The law, on a compiled support.
 
   An emulator interpolates inside the region it was trained over, and outside
   it, it extrapolates: it returns a number of the right shape, with the right
   sign, and no warning. Nothing in a saved emulator used to record the region
-  at all, so nothing could refuse. This is the refusal.
+  at all, so nothing could refuse. This is the refusal, and it is the ONE author
+  of it: check_domain below and predict() in emulator/inference.py both arrive
+  here, so a point cannot be refused in one place and served in another, and the
+  words a cosmologist reads are the same words whichever door was walked
+  through.
 
   The constraint is read FIRST, because it says whether there is an interval to
-  compare against. A record that declares no support ("undeclared") cannot be
-  asked about any point: its bounds are not wide, they are absent, and reading
-  them as numbers would crash rather than refuse. That is the shape of a test
-  double, and a test double must never be served.
+  compare against at all. A record that declares no support ("undeclared")
+  cannot be asked about any point: its bounds are not wide, they are absent.
+  That is the shape of a test double, and a test double must never be served.
 
   Arguments:
-    blocks = the artifact's two blocks, as validate accepts them.
-    point  = the point being asked about, a mapping name -> value. Only the
-             sampled coordinates are read; a mapping that carries more (a
-             cobaya parameter block, say) is fine.
-    where  = the artifact's identity, named in any refusal.
+    compiled = the artifact's support, from compile_support.
+    point    = the point being asked about, a mapping name -> value. Only the
+               sampled coordinates are read; a mapping that carries more (a
+               cobaya parameter block, say) is fine.
 
   Returns:
     None. The function is called for its refusals.
@@ -1047,13 +1264,13 @@ def check_domain(blocks, point, where):
     ValueError naming the coordinate, the artifact's interval, the requested
     value, and the remediation.
   """
-  domain     = blocks[INPUT_DOMAIN_GROUP]
-  constraint = domain["constraint"]
+  where      = compiled["where"]
+  constraint = compiled["constraint"]
 
   if constraint == "undeclared":
     raise ValueError(
       where + " declares no support: it was generated by "
-      + repr(blocks[FIXED_FACTS_GROUP]["generator"]) + " and records no "
+      + repr(compiled["generator"]) + " and records no "
       "interval for any coordinate, so there is no region it may be asked "
       "about. An emulator with no declared support is a test double, not a "
       "prediction, and it must not be served. Serve an emulator generated by "
@@ -1066,14 +1283,17 @@ def check_domain(blocks, point, where):
       "knows are 'box' (a per-coordinate interval) and 'undeclared'. A support "
       "whose shape is unknown is refused rather than guessed at. " + MIGRATION)
 
-  for name in domain["names"]:
+  # the accept path: one dictionary lookup and two float compares per sampled
+  # coordinate, and not one string parsed. This runs on every prediction.
+  for name in compiled["names"]:
     if name not in point:
       raise ValueError(
         where + " was trained over " + name + " and cannot be asked about a "
         "point that does not say what " + name + " is. The point carries "
         + repr(sorted(point)) + ". Hand in every coordinate the emulator "
         "sampled.")
-    low, high = domain_bounds(blocks=blocks, name=name)
+    low   = compiled["low"][name]
+    high  = compiled["high"][name]
     value = float(point[name])
     if value < low or value > high:
       raise ValueError(
@@ -1084,6 +1304,31 @@ def check_domain(blocks, point, where):
         "extrapolates, and it returns a confident number that is wrong. The "
         "region is the contract the dataset was generated under. Sample inside "
         "it, or generate a dataset that covers the region you mean to sample.")
+
+
+def check_domain(blocks, point, where):
+  """May this artifact be asked about this point? The law, from the raw blocks.
+
+  The same law as check_support, for a caller that holds the record and has
+  compiled nothing: it compiles the support and applies it, in that order. A
+  caller that asks this question more than once (a predictor, a sampler) keeps
+  the compiled support instead and calls check_support, so the record's text is
+  parsed once rather than once per point.
+
+  Arguments:
+    blocks = the artifact's two blocks, as validate accepts them.
+    point  = the point being asked about, a mapping name -> value.
+    where  = the artifact's identity, named in any refusal.
+
+  Returns:
+    None. The function is called for its refusals.
+
+  Raises:
+    ValueError naming the coordinate, the artifact's interval, the requested
+    value, and the remediation — check_support's refusals, unchanged.
+  """
+  check_support(compiled=compile_support(blocks=blocks, where=where),
+                point=point)
 
 
 def served_support(blocks_a, blocks_b, where_a, where_b):

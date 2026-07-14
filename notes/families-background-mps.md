@@ -95,6 +95,18 @@ base-plus-network prediction after save/rebuild.
 warm-start parity check, and rejects metadata and quantity mismatches before
 staging.
 
+<a id="bsn-identity-missing-quantity-refused"></a>
+`bsn-identity.missing-quantity-refused` covers the adapter guard that had no leg:
+`emul_baosn` serves the expansion history from exactly two artifacts, one
+`Hubble` (the SN range) and one `D_M` (the recombination window), and the guard
+that refuses a pair with neither of those quantities present was unreachable from
+every fixture the gate built — a one-root list is refused by the exactly-TWO law
+before any artifact is even loaded, so the message a reader would expect never
+fires. The leg builds the fixture that DOES reach it: two valid grid artifacts of
+distinct quantities with no `D_M` among them, sharing one dataset identity so the
+identity law does not refuse them first, needled on the real guard's own words.
+Added 2026-07-14 as a binding rider on the fixed-facts adapter half.
+
 ### Unit 90 implementation evidence for Architect audit
 
 The transferred Unit 90 change is confined to

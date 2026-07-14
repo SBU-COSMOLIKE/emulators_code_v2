@@ -47,6 +47,8 @@ from scipy import interpolate
 # the training package `emulator` imports (the emul_cosmic_shear prepend).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from emulator.inference import EmulatorPredictor      # noqa: E402
+from emulator.inference import (check_artifacts_belong_to,      # noqa: E402
+                                check_artifacts_pair_up)
 from emulator.background import distance_interpolators, C_KMS  # noqa: E402
 
 # The only extra_args the schema-v2 convention accepts (the legacy ord /
@@ -170,6 +172,47 @@ class emul_baosn(Theory):
                 "dimensionally wrong, so it is not reproduced)")
 
         self._req = req
+
+        # horizontal law, LAST: the pair is one 'Hubble' + one 'D_M', in the
+        # right units, on disjoint windows -- every configuration law above
+        # has passed. Only now is it worth asking whether the two artifacts
+        # are ONE dataset.
+        check_artifacts_pair_up(predictors=[self.p_h, self.p_dm])
+
+    def initialize_with_provider(self, provider):
+        """Prove both served emulators were generated for THIS cosmology.
+
+        Cobaya hands a theory its provider exactly once, when the chain is set
+        up, and the provider carries the resolved model -- the same object the
+        dataset generator read when it wrote the record these two emulators
+        were fitted to. So the question is asked once, here, before the first
+        sampled point, and never again per point: the facts a chain holds fixed
+        (the physics it is not sampling) cannot change while it runs.
+
+        It matters because an emulator generated under a different cosmology
+        does not fail. It answers every point, confidently, and every answer is
+        wrong. The expansion history is where that does the most damage: H(z)
+        and the comoving distance set the distance ladder every BAO and SN
+        likelihood measures against, so a background built under the wrong
+        fixed physics shifts the whole ladder by a smooth, plausible-looking
+        amount -- exactly the amount a chain would rather attribute to the
+        parameters it is sampling.
+
+        Arguments:
+          provider = the cobaya Provider, carrying the resolved global model.
+
+        Returns:
+          None. The method is called for its refusal.
+
+        Raises:
+          ValueError when the provider cannot hand over the model, or when a
+          served artifact was generated under a cosmology this chain is not
+          sampling.
+        """
+        super().initialize_with_provider(provider)
+        check_artifacts_belong_to(predictors=[self.p_h, self.p_dm],
+                                  provider=provider,
+                                  adapter="emul_baosn")
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""

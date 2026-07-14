@@ -64,6 +64,39 @@ ADAPTER_PAIR_LABEL = "scalar-identity/adapter-derived-pair"
 # purpose, so it is one double with one identity, named once here.
 DATA_VECTOR_DOUBLE_LABEL = "scalar-identity/data-vector-double"
 
+# The region a double this gate PREDICTS THROUGH declares. An emulator now
+# refuses any point outside the interval its record was drawn over, so a double
+# the gate asks a question of has to stand in for a real emulator's region: a
+# double that declares none is refused at the door, which is the correct answer
+# for a double nobody may ask anything.
+#
+# This double's inputs are whitened around a standard-normal center and the
+# points the gate asks about are standard-normal draws, so the region a real
+# emulator of this shape would have been drawn from is the five-sigma box of
+# that design. The box is the DESIGN's interval, never the smallest box the
+# asked points happen to fall in: a support is the contract the dataset was
+# generated under, not an observation of where the questions landed.
+ROUND_TRIP_SUPPORT = {"omegabh2":  (-5.0, 5.0),
+                      "omegach2":  (-5.0, 5.0),
+                      "thetastar": (-5.0, 5.0)}
+
+# A point that box does NOT contain, for the arm proving predict refuses
+# outside it. It leaves the box on ONE coordinate: a point outside on every
+# coordinate would also be refused by a box law that only ever looked at the
+# first one.
+OUTSIDE_ROUND_TRIP_BOX = {"omegabh2":  12.0,
+                          "omegach2":  0.24,
+                          "thetastar": -1.66}
+
+# The NPCE double is sampled on physical cosmological scales (the C columns
+# check_npce draws), so its region is the five-sigma box of THAT design: each
+# column's mean +- 5 sigma, which is the interval a prior over these
+# coordinates would have declared. It contains the point that leg predicts at,
+# (0.0225, 0.121, 1.0412).
+NPCE_SUPPORT = {"omegabh2":  (0.0214, 0.0234),
+                "omegach2":  (0.110, 0.130),
+                "thetastar": (1.036, 1.046)}
+
 
 def report(label, ok, detail):
     """Print one PASS/FAIL line and remember any failure."""
@@ -160,7 +193,7 @@ def scalar_recipe():
 
 
 def save_synthetic_scalar(root, device, covmat_path, label, seed=0,
-                          in_names=None, out_names=None):
+                          in_names=None, out_names=None, support=None):
     """Build, then save, a tiny synthetic scalar emulator under `root`.
 
     A ParamGeometry over the written covmat (inputs), a ScalarGeometry over
@@ -170,6 +203,13 @@ def save_synthetic_scalar(root, device, covmat_path, label, seed=0,
     `label` is what this double is for. It fixes the identity of the scientific
     record the saved file carries; the comment at the save below says why the
     file carries one at all.
+
+    `support` is the region the double stands for, as a mapping name -> (low,
+    high). A double the gate PREDICTS THROUGH declares one, because a real
+    emulator was drawn from an interval and is refused outside it. A double
+    that is only saved, rebuilt, compared, or offered to an adapter that turns
+    it away declares None, and then refuses every prediction — which is the
+    honest record for a double nobody asks a question of, not a gap in one.
 
     Returns:
       (pgeom, geom, model): the source geometries + the pre-save model, for
@@ -226,7 +266,8 @@ def save_synthetic_scalar(root, device, covmat_path, label, seed=0,
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
-                      family="scalar"),
+                      family="scalar",
+                      support=support),
                   # rescale rides the run-identity attrs so the artifact is
                   # a valid finetune source (load_source refuses an
                   # ambiguous one — the never-trust-defaults rule).
@@ -277,6 +318,152 @@ def check_state(root, device, geom):
            "names/center/scale equal")
     report("rebuild info['scalar'] is True", bool(info.get("scalar")),
            "info scalar = %s" % (info.get("scalar"),))
+
+
+def check_domain_law(root, tmp, device):
+    """predict() refuses a point the artifact's record does not cover.
+
+    Two refusals, because a record can fail to cover a point in two different
+    ways and only one of them is about the point:
+
+      no support    the record declares no interval for any coordinate. Its
+                    bounds are not wide, they are absent, so there is no region
+                    it may be asked about at all. That is the shape of a test
+                    double, and a test double must never answer a likelihood.
+
+      outside it    the record declares a box, and the point is outside it. The
+                    emulator would not fail there; it would extrapolate, and
+                    return a confident number of the right shape and the wrong
+                    value.
+
+    Both arms are read by their WORDS. float("n/a") raises the same ValueError
+    class a refusal raises, so an arm that only asked "did it raise?" would go
+    green on a record that crashed instead of refusing, and the law it exists
+    to prove would never have run.
+
+    Arguments:
+      root   = the round-trip double's path root. It declares ROUND_TRIP_SUPPORT
+               and is the artifact the outside-the-box arm asks off its region.
+      tmp    = the tempdir this gate's fixtures live in.
+      device = the torch device to rebuild on.
+    """
+    pred = EmulatorPredictor(str(root), device, compile_model=False)
+    try:
+        pred.predict(OUTSIDE_ROUND_TRIP_BOX)
+        report("a point outside the declared box is refused",
+               False, "did not raise")
+    except ValueError as e:
+        report_refusal("a point outside the declared box is refused", e,
+                       needle="which is outside it",
+                       law="the domain law (the point leaves the box)")
+
+    # a double that declares no support: saved, rebuilt, and then asked a
+    # question it has no region to answer in.
+    root_undeclared = os.path.join(tmp, "emul_undeclared")
+    save_synthetic_scalar(root_undeclared, device,
+                          os.path.join(tmp, "undeclared.covmat"),
+                          label="scalar-identity/undeclared-support",
+                          seed=300)
+    pred_undeclared = EmulatorPredictor(str(root_undeclared), device,
+                                        compile_model=False)
+    inside = {}
+    for name in IN_NAMES:
+        inside[name] = 0.0
+    try:
+        pred_undeclared.predict(inside)
+        report("a double that declares no support refuses every predict",
+               False, "did not raise")
+    except ValueError as e:
+        report_refusal(
+            "a double that declares no support refuses every predict", e,
+            needle="declares no support",
+            law="the domain law (no region was ever declared)")
+
+
+def check_prediction_names(root, device):
+    """predict() proves the NAMES of a point before it whitens one number.
+
+    A bare row of numbers cannot say which parameter each number is, and a
+    permutation of one has exactly the right length: it passes the only test a
+    length is able to make, is whitened against the wrong parameter's columns,
+    and is answered confidently and wrongly. Nothing about the numbers looks
+    unusual afterwards. That is why the proof belongs at the door of predict()
+    rather than in the eye of whoever later reads the chain.
+
+    The two forms that carry their names are accepted here and shown to agree
+    bitwise, and the three that cannot say what they mean are refused. Each
+    refusal is read by its WORDS, not by "did it raise": the same call also
+    passes through the domain law, which refuses in the same exception class,
+    so a bare catch would let a name law go untested the day the point drifted
+    outside the box.
+
+    Arguments:
+      root   = the round-trip double's path root (it declares
+               ROUND_TRIP_SUPPORT, so the point below is servable and the name
+               laws are the only ones this leg can be reading).
+      device = the torch device to rebuild on.
+    """
+    pred = EmulatorPredictor(str(root), device, compile_model=False)
+    # inside the declared box, so a refusal here can only be a name refusal.
+    point = {"omegabh2": -0.8, "omegach2": 0.24, "thetastar": -1.66}
+    values = []
+    for name in pred.names:
+        values.append(point[name])
+
+    by_mapping = pred.predict(point)
+    finite = len(by_mapping) == len(OUT_NAMES)
+    for name in OUT_NAMES:
+        finite = finite and name in by_mapping \
+            and bool(np.isfinite(by_mapping[name]))
+    report("a mapping predicts (the control)", finite,
+           "outputs %s" % (sorted(by_mapping),))
+
+    by_pair = pred.predict((list(pred.names), values))
+    same = set(by_pair) == set(by_mapping)
+    for name in by_mapping:
+        same = same and by_pair[name] == by_mapping[name]
+    report("an ordered (names, values) pair is the mapping's answer, bitwise",
+           same, "%d output(s) identical" % len(by_mapping))
+
+    # this one arm cannot use report_refusal: a row that carries no names at
+    # all is not a bad value, it is the wrong KIND of input, so predict refuses
+    # it with a TypeError and report_refusal's PASS line would announce a
+    # ValueError that never happened. The needle is the same idea by hand — the
+    # words of this law and no other law's.
+    try:
+        pred.predict(values)
+        report("a bare row of numbers is refused", False, "did not raise")
+    except TypeError as e:
+        text = str(e)
+        if "carries no parameter names" in text:
+            report("a bare row of numbers is refused", True,
+                   "TypeError names the unnamed-row law")
+        else:
+            report("a bare row of numbers is refused", False,
+                   "refused the WRONG law: " + text)
+
+    # this emulator's own names, in the wrong order, beside values that are in
+    # the right one: the permutation the length can never catch.
+    permuted = [pred.names[1], pred.names[0], pred.names[2]]
+    try:
+        pred.predict((permuted, values))
+        report("this emulator's own names, permuted, are refused",
+               False, "did not raise")
+    except ValueError as e:
+        report_refusal("this emulator's own names, permuted, are refused", e,
+                       needle="in a different order",
+                       law="the parameter-order law")
+
+    foreign = ["sigma8", "ns", "tau"]
+    try:
+        pred.predict((foreign, values))
+        report("names this emulator was never trained on are refused",
+               False, "did not raise")
+    except ValueError as e:
+        report_refusal(
+            "names this emulator was never trained on are refused", e,
+            needle="not the parameters this emulator was trained on",
+            law="the wrong-parameters law")
 
 
 def check_from_targets_errors(device):
@@ -467,6 +654,29 @@ def check_adapter(tmp, device):
         report_refusal("wrong-kind (dv artifact) raises", e,
                        needle="not a scalar",
                        law="the wrong-kind law")
+
+    # two artifacts fitted to DIFFERENT datasets -> loud. The served set is
+    # unioned into one theory block, so it has to be one dataset; two runs that
+    # agree on every fact and every bound still drew different points, and only
+    # the identity can tell them apart.
+    #
+    # The pair handed over is topologically VALID on purpose: distinct outputs,
+    # no input that is another's output, both scalar. The adapter runs those
+    # configuration laws FIRST, so a pair that also broke one of them would be
+    # refused by the earlier law and this arm's needle would be naming a law
+    # that never ran.
+    root_e = os.path.join(tmp, "emul_e")
+    save_synthetic_scalar(root_e, device, os.path.join(tmp, "e.covmat"),
+                          label="scalar-identity/adapter-foreign-dataset",
+                          seed=50, in_names=["omegabh2", "omegach2"],
+                          out_names=["rdrag"])
+    try:
+        _build(cls, [root_a, root_e])
+        report("mismatched dataset identity raises", False, "no raise")
+    except ValueError as e:
+        report_refusal("mismatched dataset identity raises", e,
+                       needle="different datasets",
+                       law="the dataset-identity law")
 
 
 def _save_tiny_dv(root, device):
@@ -690,7 +900,8 @@ def check_npce(tmp, device):
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label="scalar-identity/npce-derived",
-                      family="scalar"),
+                      family="scalar",
+                      support=NPCE_SUPPORT),
                   attrs={"outputs": " ".join(OUT_NAMES),
                          "rescale": "none"})
     theta = np.array([[0.0225, 0.121, 1.0412]])
@@ -718,16 +929,21 @@ def main():
     device = torch.device("cpu")
     with tempfile.TemporaryDirectory() as tmp:
         root = os.path.join(tmp, "emul")
+        # this double is predicted through, so it declares the region it stands
+        # for; the doubles that are only saved, rebuilt, or refused by an
+        # adapter declare none.
         pgeom, geom, model = save_synthetic_scalar(
             root, device, os.path.join(tmp, "src.covmat"),
-            label="scalar-identity/round-trip", seed=0)
+            label="scalar-identity/round-trip", seed=0,
+            support=ROUND_TRIP_SUPPORT)
         # Each drafted leg emits ONE ##AID line at its aggregation point (a
         # check_* function or a guard cluster). n0 = the FAILURES count just
         # before the leg, so emit_aid reads the leg's own verdict, not the
-        # board-wide one; the five aids match the note's drafted anchor block.
+        # board-wide one; the six aids match the note's drafted anchor block.
         n0 = len(FAILURES)
         check_roundtrip(root, device, pgeom, geom, model)
         check_state(root, device, geom)
+        check_domain_law(root, tmp, device)
         emit_aid("scalar-identity.artifact-round-trip", n0)
 
         n0 = len(FAILURES)
@@ -747,6 +963,10 @@ def main():
         n0 = len(FAILURES)
         check_finetune(tmp, device)
         emit_aid("scalar-identity.finetune-parity", n0)
+
+        n0 = len(FAILURES)
+        check_prediction_names(root, device)
+        emit_aid("scalar-identity.prediction-names-are-proved", n0)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): " + ", ".join(FAILURES))
         sys.exit(1)

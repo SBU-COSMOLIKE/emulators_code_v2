@@ -13627,3 +13627,120 @@ was closed today that was not already closed months of subjective loop
 time ago). Lesson attached to the ledger rule: when a line is created
 from a historical queue snapshot, each entry must be checked against the
 audit record BEFORE it becomes countable demand.
+
+## Units 84+85 audit (Architect, 2026-07-14): PASS — every gate re-run and reproduced on this Mac, the verbatim-move claim proved at the AST level, an independent unscripted mutation probe of the horizontal law; both deviations APPROVED; the v2-fixture defect class routed as ONE repair unit; committed on the branch
+
+Audit of the Implementer's units 84+85 return (the fixed-facts adapter half,
+RULINGS 3+4+5 plus all four riders; mailbox 0158-era dispatch 0140), against
+the section above. Every command below was executed by this auditing turn on
+this Mac.
+
+### What I re-ran and reproduced (all counts byte-for-byte with the return)
+
+CPU (`python3`, `PYTHONPATH=.`): `fixed_facts_schema` 88 PASS / 0 FAIL, ends
+`fixed-facts-schema: ALL PASS`, the new `resolved-model-read-once` aid PASS;
+`board_selftest` 213 PASS, `board-selftest: ALL PASS`; `generator_seed`
+ALL PASS; `generator_ranges` the IDENTICAL single known red ("the retired
+header breaks one parameter while the wider control hides it");
+`run_board.py --list` 42 gates, every anchor resolving; `py_compile` over all
+17 touched code files plus the new gate: clean.
+
+TORCH (`/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python`,
+torch 2.6.0): `scalar_identity` 32/0 (incl. the rider-F1 aid
+`prediction-names-are-proved` PASS); `bsn_identity` 44/0 (incl.
+`missing-quantity-refused` PASS); `cmb_identity` 82/0; `mps_identity` 73/0;
+`artifact_readback` 16/0; `transfer_identity` 56/1, the SAME known hollow
+`cross-family-base-refusal` leg and no other red; the NEW
+`cs_adapter_identity` 11/0, `cs-adapter-identity: ALL PASS`. Every floor met
+or exceeded; the board's only two reds are the two pre-existing known ones.
+
+### The verbatim-move claim, proved rather than trusted
+
+I extracted `_plain_fact` / `_theory_components` / `_resolved_constants` from
+HEAD's `compute_data_vectors/generator_core.py` and compared them to
+`emulator/fixed_facts.py` at the AST level with docstrings stripped:
+`_plain_fact` is AST-EQUAL; the other two differ ONLY at the mechanical
+extraction sites (`self.model` becomes the `model` parameter; the helper call
+gains the explicit `model=` keyword a free function needs). Every textual
+difference is docstring reflow or the new `Arguments:` blocks. Combined with
+the new behavioral leg `fixed-facts-schema.resolved-model-read-once` (the
+precedence pinned over a duck-typed model), "moved VERBATIM" is a verified
+statement.
+
+### Gate-surface screen (rule 7b)
+
+`git diff` over `gates/` was read deletion-by-deletion: every removed line is
+a fixture-helper signature reflow (the `support=` parameter arriving), a
+superseded comment, or a board anchor line REPLACED by the same anchor plus a
+new one (verified line-by-line for the three amended Gate entries; `--list`
+proves all five new anchors resolve). No assertion, needle, threshold, golden
+value, or leg name moved. The eight named gate-surface changes each carry
+their authorizing ruling and all eight check out. One diff hunk in `gates/`
+is NOT this unit's: `redteam_unit41_policy_witness.py` — see tree state below.
+
+### My own unscripted mutation probe (deliberately DIFFERENT from the Implementer's)
+
+The Implementer's probe cut the domain law out of `predict()`. Mine gutted the
+OTHER new surface, the horizontal law: `check_artifacts_pair_up`'s loop body
+in `emulator/inference.py` replaced with `pass`. Result: `scalar_identity`
+reds "mismatched dataset identity raises (no raise)", `mps_identity` reds
+"two datasets served together raise (no raise)", `cs_adapter_identity` reds
+"two emulators off different dumps are refused as a pair (no raise)" — the
+RULING-5 arms are load-bearing on the shared site, not on adapter-local
+copies. `inference.py` restored and verified byte-identical
+(`filecmp.cmp(shallow=False)` True); the control runs reproduce ALL PASS.
+
+### Adjudication
+
+- **Substance: PASS.** RULINGS 3, 4, and 5 and all four riders implemented as
+  ruled. House style holds across the five adapters and both emulator files
+  (named parameters, formal `Arguments:` blocks, didactic docstrings in the
+  house voice, explicit loops).
+- **Deviation 1 APPROVED (the two module-level sites in `inference.py`).**
+  One author of one refusal is this design's own organizing principle; five
+  adapter-local copies would have been the exact failure mode RULING 4
+  exists to refuse. My mutation probe demonstrates the arms bite at the
+  shared site.
+- **Deviation 2 APPROVED (the new `cs-adapter-identity` board gate).** The
+  gap was real (no gate instantiated `emul_cosmic_shear`); a torch-only
+  fifth identity gate is the family-parity shape the board already teaches.
+  The gate is censused, anchored, and its 11 legs re-ran green here.
+- **The compiled-support split (RULING 4 left the shape to the Implementer):
+  ACCEPTED.** `compile_support` reads text bounds once and refuses nothing;
+  `check_support` is the one author of the four refusals; `check_domain`
+  compiles-then-delegates. The accept path is dict lookups and float
+  compares — no string parsing per point. This is the right split.
+- **Findings routed, ONE repair unit (the schema-v2 fixture class):**
+  `geo-paths` (red on HEAD before this unit, reproduced by the Implementer at
+  `5fa3be8`) plus the four smoke gates (`scalar_smoke`, `cmb_smoke`,
+  `bsn_smoke`, `mps_smoke`) all save fixtures with no `facts_yaml` and rebuild
+  through the v3-only reader. Per convergence mode this is recorded as a
+  RIDER on units 84+85, not a fresh discovery line, and it dispatches as one
+  unit: every fixture gains `facts_yaml` AND `support=` in the same touch
+  (one repair, both requirements — a record without a declared box would
+  still refuse at the first `predict()`). Dispatched to the Implementer
+  (mailbox 0161). Acceptance: `geo-paths` green on the cocoa interpreter;
+  the four smokes stay workstation-owed but their fixture code carries both
+  fields, line-cited.
+- **Finding 3 becomes a standing floor-list rule:** `geo-paths` joins the
+  torch re-run floor list for every future audit that touches the artifact
+  schema or `predict()`; a torch gate nobody re-runs is an invisible red.
+- **RULING 3's live lifecycle pair stays WORKSTATION-OWED** (recorded, not
+  certified), with `gct_parity`, the smokes, and the live generator run.
+
+### Commit scope (the pre-squash foreign-commit discipline, applied to files)
+
+The shared tree carries TWO foreign deltas that are NOT in this commit: the
+unit 41-REPAIR witness delta (`gates/checks/redteam_unit41_policy_witness.py`,
+Sol's 0159 return — it awaits its OWN audit next turn) and the concurrent-lane
+edit to `notes/mailbox-daemon-incident-2026-07-14.md`. Committed here: the
+Implementer's 18 unit files, the three anchor-block notes, this note (whose
+other new sections are ledger records and certify nothing), the `MEMORY.md`
+index line, and the mailbox routing copies.
+
+No self-certification is claimed beyond this audit's own probes; merge and
+push to main remain the user's alone. Landing block for the user:
+
+    git checkout main
+    git merge --ff-only claude/amazing-keller-e798b6
+    git push origin main

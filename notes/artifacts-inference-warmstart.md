@@ -1329,12 +1329,59 @@ the block that is compared by equality.
 `fixed-facts-schema.comparison-laws-are-load-bearing` is the arm that gives the
 four legs above their teeth: a law that cannot go red proves nothing. Each law is
 broken on purpose in the SHIPPED module and the leg that guards it is required to
-red — the horizontal law with its `dataset_id` comparison skipped (the re-run
-leg reds), the domain law with its constraint ignored (the undeclared-record leg
-reds), the domain law accepting any point (the outside-the-box leg reds), and the
-pair's support UNIONED instead of intersected (the disjoint-pair leg reds). Each
-arm restores the real function and a control confirms the faithful code still
-passes.
+red — the vertical law with the coordinate the model is silent about SKIPPED
+rather than refused (the silent-model leg reds), the horizontal law with its
+`dataset_id` comparison skipped (the re-run leg reds), the domain law with its
+constraint ignored (the undeclared-record leg reds), the domain law accepting any
+point (the outside-the-box leg reds), and the pair's support UNIONED instead of
+intersected (the disjoint-pair leg reds). Each arm restores the real function and
+a control confirms the faithful code still passes. The vertical arm (2026-07-14,
+audit finding F2) closed the one law that had refusal legs but no mutation arm:
+its legs were load-bearing all along, and now that is checked rather than
+believed.
+
+<a id="fixed-facts-schema-resolved-model-read-once"></a>
+`fixed-facts-schema.resolved-model-read-once` proves the ONE reader of the
+resolved Cobaya model. The producer reads the model to WRITE the record; each
+cobaya adapter reads the same model, at chain setup, to CHECK an artifact's
+record against the cosmology being sampled. If those two readings ever disagreed
+about which block wins a name that both the params block and a theory component
+state, the producer would write a fact the adapter would refuse, and an emulator
+would be unservable in the chain it was generated for. So there is one
+`fixed_facts.resolved_constants(model)` and both call it. The leg drives it over
+a duck-typed model (no cobaya, which is why it runs on a bare numpy interpreter)
+and pins the precedence the generator has always used: a theory component's
+`extra_args` fill first, the params block OVERWRITES a name both state, the first
+component wins a name two components state, a flag stays a flag while a number
+becomes a float, and a model that cannot be walked degrades to ABSENCE — the
+record publishes "n/a" — rather than crashing a run whose data vectors are
+already computed.
+
+<a id="cs-adapter-identity-adapter-contract"></a>
+`cs-adapter-identity.adapter-contract` proves the cosmic-shear adapter reads its
+configuration from the artifacts: the parameters it requires of the chain are the
+emulator's own stored geometry names, and the vector it serves is the section the
+stored geometry declares (`dv_return: 3x2pt` scatters into the full layout with
+zeros off the mask). A wrong-kind artifact — a scalar emulator, which returns a
+{name: value} dict rather than a vector — is refused by name, pointing at the
+adapter it belongs in. This is the adapter of the five whose only other board gate
+(`cobaya-adapter`) needs CosmoLike and a GPU, so until this gate existed its loud
+errors were exercised nowhere at all.
+
+<a id="cs-adapter-identity-record-laws-refuse"></a>
+`cs-adapter-identity.record-laws-refuse` proves the record's three comparison laws
+fire at the cosmic-shear adapter's own site. Two emulators off one dump are served
+together; two fitted to different datasets are refused as a pair (the horizontal
+law, at the END of initialize, after every configuration law — a misconfigured set
+must be refused as a misconfiguration first). An artifact generated under another
+cosmology is refused when cobaya hands over the provider (the vertical law, once
+per chain, before the first sampled point), and a provider that cannot reach the
+model is refused LOUDLY rather than skipped: a law that skips itself when it
+cannot run is not a law. A point outside the sampled region is refused at
+`predict`, and every point of a double that declares no region is refused there
+too. Each leg needles the WORDS of its own law, because `float("n/a")` raises the
+same ValueError class every refusal in this program does — a leg that asked only
+"did it raise?" would stay green through a broken law.
 
 <a id="artifact-readback-typed-bool"></a>
 **artifact-readback (ARB-A) — saved attributes are parsed by type, not

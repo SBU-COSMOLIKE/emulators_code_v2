@@ -37,6 +37,8 @@ from cobaya.theory import Theory
 # it prepends its parent (the repo root beside emulator/) explicitly.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from emulator.inference import EmulatorPredictor  # noqa: E402
+from emulator.inference import (check_artifacts_belong_to,      # noqa: E402
+                                check_artifacts_pair_up)
 
 # The only extra_args the schema-v2 convention accepts. The legacy ord /
 # extrapar / extra / file keys are retired (see the module docstring); an
@@ -133,6 +135,48 @@ class emul_cosmic_shear(Theory):
             for name in names:
                 req[name] = None
         self._req = req
+
+        # horizontal law, LAST: every configuration law above has passed, so
+        # the served set is a well-formed one (data-vector artifacts, nothing
+        # from another family). Only now is it worth asking whether those
+        # artifacts are ONE dataset.
+        check_artifacts_pair_up(predictors=self.predictors)
+
+    def initialize_with_provider(self, provider):
+        """Prove every served emulator was generated for THIS cosmology.
+
+        Cobaya hands a theory its provider exactly once, when the chain is set
+        up, and the provider carries the resolved model -- the same object the
+        dataset generator read when it wrote the record these emulators were
+        fitted to. So the question is asked once, here, before the first
+        sampled point, and never again per point: the facts a chain holds fixed
+        (the physics it is not sampling) cannot change while it runs.
+
+        It matters because an emulator generated under a different cosmology
+        does not fail. It answers every point, confidently, and every answer is
+        wrong. A data vector is the worst place for it: the served vector goes
+        straight into a chi2 against the measured one, so an emulator trained
+        under fixed physics this chain is not assuming produces a smooth,
+        entirely reasonable-looking shear signal that is simply the wrong
+        universe's -- and the sampler absorbs the difference into the
+        cosmological parameters it is allowed to move, which are the answer the
+        analysis is for.
+
+        Arguments:
+          provider = the cobaya Provider, carrying the resolved global model.
+
+        Returns:
+          None. The method is called for its refusal.
+
+        Raises:
+          ValueError when the provider cannot hand over the model, or when a
+          served artifact was generated under a cosmology this chain is not
+          sampling.
+        """
+        super().initialize_with_provider(provider)
+        check_artifacts_belong_to(predictors=self.predictors,
+                                  provider=provider,
+                                  adapter="emul_cosmic_shear")
 
     def _check_extra_args(self):
         """Reject any extra_args key outside the v2 convention, loudly."""

@@ -918,13 +918,15 @@ _DYNAMIC_IMPORT_WAIVERS = {
 # gate must declare a root covering each (validate_manifests census (c)), so the
 # adapter whose bytes decide the verdict is seeded into the closure AND digested.
 # A loader site in a file NOT listed here is unreviewed and fails validation.
-# The four identity checks load their family adapter by spec_from_file_location
+# The five identity checks load their family adapter by spec_from_file_location
 # (cmb also loads the covariance oracle); the four smokes run the same adapters
 # through Cobaya's python_path. Verified against the sites (scalar_identity.py:294,
-# cmb_identity.py:569 + :1043, bsn_identity.py:396, mps_identity.py:1215; the
-# smokes' python_path blocks).
+# cmb_identity.py:569 + :1043, bsn_identity.py:396, mps_identity.py:1215,
+# cs_adapter_identity.py's load_emul_cosmic_shear_stubbed; the smokes'
+# python_path blocks).
 _RUNTIME_LOADER_COVERS = {
   "gates/checks/scalar_identity.py": ("cobaya_theory/emul_scalars.py",),
+  "gates/checks/cs_adapter_identity.py": ("cobaya_theory/emul_cosmic_shear.py",),
   "gates/checks/cmb_identity.py":    ("cobaya_theory/emul_cmb.py",
                                       "compute_data_vectors/compute_cmb_covariance.py"),
   "gates/checks/bsn_identity.py":    ("cobaya_theory/emul_baosn.py",),

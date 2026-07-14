@@ -66,6 +66,20 @@ prediction by exact tensor or scalar equality.
 checks that the anchor mask excludes exactly an appended input column, and
 rejects output-name and source-family mismatches before staging.
 
+<a id="scalar-identity-prediction-names-are-proved"></a>
+`scalar-identity.prediction-names-are-proved` is the leg for the one refusal
+`predict()` owes every caller: a prediction request must NAME its parameters.
+A mapping is read in the emulator's own order and has no order to get wrong; a
+`(names, values)` pair has its names checked against that order; a bare row of
+numbers is refused, because a permuted row has exactly the right length, passes
+the only test a length is able to make, and is then whitened against the wrong
+parameter's columns — every prediction that follows is confident and wrong, and
+nothing about the numbers looks unusual. The leg proves the mapping and the
+correctly-ordered pair agree BITWISE, and that the bare row, the permuted pair,
+and a pair of foreign names each refuse in their own words. Armed 2026-07-14
+(audit finding F1): the amendment that added those refusals shipped with nothing
+in `gates/` exercising them, so a regression would have been silent.
+
 <a id="scalar-smoke-evidence"></a>
 **scalar-smoke — a trained scalar emulator is checked against the analytic
 relation `omegamh2 = omegam*(H0/100)^2` and through a real Cobaya evaluate
@@ -1730,3 +1744,267 @@ per auto spectrum; the finite signed-TE control; joint
 equality/below-bound valid controls; the TT=EE=1, TE=2 rejection; a
 near-bound rounding control; the partial-state-absence leg; a
 mutation reducing the rule to isfinite must red.
+
+## Unit-13 covariance package — Red Team implementation readback (2026-07-14)
+
+The reassigned covariance validator package is implemented on
+`codex/unit-13-covariance` at `2fd8a9dcd816c2681b708406b40d7bd81b7270d3`,
+based on current local main `f347b8f68063e9fe9a6c93532bf7d5ce29fe68da`.
+The sandbox forbade creation of a linked-worktree ref in the shared object
+store, so the exact tip is in the isolated clone
+`.claude/worktrees/codex-unit-13-covariance`; the fetch block below is the
+two-phase handback. No merge or push was run.
+
+Implemented surfaces:
+
+- `compute_data_vectors/compute_cmb_covariance.py`: one exact `cov_args`
+  schema before Cobaya/CAMB; no silent experiment defaults; raw and scaled
+  lensing-range completeness; ordered representable stencil factors plus
+  per-band changed-value counts; input and post-signal T/E PSD checks;
+  beam/noise/covariance representability; per-ell Gaussian and assembled
+  dense covariance PSD checks; first-key/index/value finiteness refusal
+  before `np.savez`; and one exact complete finite flat-LCDM params schema.
+- Five new covariance-owned pure witnesses under `gates/checks/`, one for
+  schema/range completeness and one for each reassigned register item:
+  stencil representability, T/E PSD, derived finiteness, and fiducial params.
+  No shared gate-check file was touched.
+- `example_yamls/cmb_covariance_lcdm.yaml`: the required explicit flat-LCDM
+  values were added; every previous number is unchanged. Paste-ready block:
+
+```yaml
+params:
+  As:       2.1e-9
+  ns:       0.9660
+  H0:       67.36
+  omegabh2: 0.02237
+  omegach2: 0.1200
+  tau:      0.0544
+  mnu:      0.06
+  omk:      0.0
+  w:       -1.0
+  wa:       0.0
+```
+
+The four requested fan-out lanes each owned a disjoint new witness; the
+integration lane alone edited the producer and added the broader schema
+witness. The final branch diff contains only the seven named files.
+
+Raw post-main-sync validation excerpt (full stream was captured at
+`/tmp/unit13-postmerge-validation.log` during the run):
+
+```text
+$ python3 gates/checks/redteam_covariance_schema_witness.py
+PASS: covariance schema rejects every malformed input
+$ python3 gates/checks/redteam_covariance_stencil_witness.py
+PASS: covariance stencil rejects no-op perturbations
+$ python3 gates/checks/redteam_covariance_psd_witness.py
+PASS: every covariance PSD witness discriminated
+$ python3 gates/checks/redteam_covariance_finite_witness.py
+PASS: all covariance finite-arithmetic witness legs passed
+$ python3 gates/checks/redteam_covariance_params_witness.py
+CMB covariance fiducial-parameter witness: PASS
+$ PYTHONPATH=. python3 gates/checks/board_selftest.py
+board-selftest: ALL PASS
+$ python3 -m py_compile compute_data_vectors/compute_cmb_covariance.py \
+    gates/checks/redteam_covariance_schema_witness.py \
+    gates/checks/redteam_covariance_stencil_witness.py \
+    gates/checks/redteam_covariance_psd_witness.py \
+    gates/checks/redteam_covariance_finite_witness.py \
+    gates/checks/redteam_covariance_params_witness.py
+$ git diff --check
+postmerge_rc=0
+```
+
+Discriminating raw values from the same witness set:
+
+```text
+tiny steps [1e-20, 2e-20]: refused before relensing; calls=(0, 0)
+nextafter step boundary: 1.6653345369377348e-16 accepted;
+  predecessor 1.6653345369377346e-16 refused
+noise amplitudes 1/1/10: minimum joint eigenvalue -2.86365772e-11;
+  producer refusal names delta_te^2 = 100.0 > delta_tt*delta_ee = 1.0
+ell 5000, beam 32 arcmin: noise=4.113343652560243e+162 is finite;
+  covariance product overflows and preflight refuses
+beam boundary 31.367914140140993 arcmin; nextafter-inside
+  31.36791414014099 gives finite product 1.7976931348618942e+308
+params: 13 malformed-schema legs refused; shipped mapping identity is
+  preserved into both the Cobaya-facing model info and provenance
+```
+
+The AST/style run over the producer and five witnesses reported
+`constructs=[]`, `missing=[]`, and `long=[]` for every file. The required
+full `cmb_identity.py` wrapper was attempted and stopped at import on this
+documented numpy-only Mac:
+
+```text
+Traceback (most recent call last):
+  File "gates/checks/cmb_identity.py", line 89, in <module>
+    import torch
+ModuleNotFoundError: No module named 'torch'
+```
+
+Therefore the workstation rerun of `cmb-identity` and the real-CAMB check
+that explicit `omk/w/wa` preserve the Planck-LCDM solve remain Architect
+audit obligations. The pure shipped-value witnesses prove byte identity of
+the noise/Gaussian arithmetic and unchanged shipped stencil factors; this
+return does not claim a real-CAMB byte comparison on the Mac.
+
+This is a Red Team implementation return, not certification. Awaiting
+Architect audit; the Red Team does not self-certify.
+
+Landing block, printed only:
+
+```text
+cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+git fetch \
+  /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2/.claude/worktrees/codex-unit-13-covariance \
+  codex/unit-13-covariance:codex/unit-13-covariance
+# Architect audits 2fd8a9d; user alone later merges and pushes main.
+```
+
+## Unit-13 covariance audit (Architect, 2026-07-14): substance GO — every CPU gate re-run and reproduced; ONE required wiring delta; merge held for one-squash granularity
+
+Audited: `codex/unit-13-covariance` at
+`2fd8a9dcd816c2681b708406b40d7bd81b7270d3` (base = current main
+`f347b8f`). The ref was already published by the user's fetch — the tip is
+reachable from the shared store, so unlike the recent unlinked-clone
+handbacks there is NO transport hold; this audit ran against the real
+object.
+
+Method: a byte-faithful scratch extraction of the exact tip (all 206 blobs
+verified against their git object ids by independent sha1 recomputation),
+every claimed gate re-run by this auditing turn, the diff walked clause by
+clause against the four binding contracts, and four unscripted mutation
+probes of my own that the return did not script.
+
+Re-run and REPRODUCED (numpy-only Mac python3):
+
+- All five witnesses PASS, and every discriminating number in the readback
+  byte-matches my rerun: the nextafter step boundary
+  `1.6653345369377348e-16` accepted with its predecessor refused; the
+  1/1/10 noise minimum joint eigenvalue `-2.86365772e-11` surfaced by the
+  individual-only mutation arm; the ell-5000/32-arcmin noise
+  `4.113343652560243e+162` finite while its covariance square refuses; the
+  beam boundary `31.367914140140993` arcmin with the nextafter-inside
+  product `1.7976931348618942e+308` finite; 13 malformed params legs
+  refused with mapping identity preserved.
+- `PYTHONPATH=. python3 gates/checks/board_selftest.py` -> ALL PASS at the
+  tip.
+- `py_compile` clean on the producer plus all five witnesses.
+- My own AST scan over the six files: zero comprehensions/lambdas outside
+  hot loops, zero missing docstrings, zero lines over 90 — matching the
+  claimed style-scan result independently.
+
+Contract adjudication (all four register items + the base unit):
+
+- Base unit-13 (cov_args boundary): `validate_cov_args` runs in main()
+  before the CAMB solve; unknown keys refuse at all three levels naming
+  the key and the allowed set; every previously-silent default is GONE
+  (`fsky`, `delta_te`, `band_width`, `converge_rtol` — every `.get()`
+  fallback removed from main and nongaussian_blocks); `enabled` must be a
+  real bool so the quoted-"false" trap dies; step_fracs strictly
+  increasing makes the kept smallest-step derivative true by validation;
+  the lensing zero-pad is REMOVED and both raw and scaled short arrays
+  refuse naming needed vs available maxima; main() now requests pp through
+  max(lmax, lens_lmax).
+- 25M-08: `stencil_factors` derives representability from float64 ordering
+  with the refusal message quoting the `nextafter` neighbors (no magic
+  floor); `scaled_lensing_band` requires every nonzero band value to
+  actually change while the physical-zero band stays legal; factor lists
+  and per-band changed-value counts are persisted in the study record. I
+  verified the arithmetic-identity claim myself: the old
+  `1.0 + eps_mult*h` and the new precomputed `1 -/+ h, 1 -/+ 2h` factors
+  are IEEE-identical expressions, so the shipped perturbation path is
+  byte-preserved by construction, and the witness's shipped-step legs
+  confirm it executably.
+- 25M-11: pre-CAMB 2x2 noise PSD with a one-ulp representation band
+  (`nextafter(rhs, inf)`); post-signal per-ell `(Cte+Nte)^2 <=
+  (Ctt+Ntt)(Cee+Nee)` check; per-ell 3x3 Gaussian joint PSD plus the
+  assembled dense joint PSD under one owned scale-aware tolerance
+  (`PSD_ROUNDING_ULPS = 32`); refusals only — no clipping, loading, or
+  absolute-value repair anywhere in the diff.
+- 25M-12: beam representability derived in log space from the resolved
+  lmax using the exact noise formula (`2 log(delta_rad) +
+  lmax(lmax+1) theta^2 / (8 ln 2)`) and the pure-noise Gaussian variance
+  product; `require_finite_arrays(out)` before publication naming the
+  first key/index/value.
+- 45M-01: the complete fiducial schema — required singletons, exactly one
+  amplitude of {As, logA}, exactly one expansion of {H0, thetastar,
+  cosmomc_theta}, bool rejected explicitly, finiteness BEFORE the pin so
+  `omk: .nan` dies upstream of the defeated comparison; omk/w/wa required
+  explicit at their pinned LCDM values; the validated mapping object
+  itself flows to both Cobaya and provenance (the witness drives the real
+  main() under documented finite stubs and proves `consumed is
+  persisted`). The shipped YAML gains exactly the three keys; my check of
+  the tip file confirms every other byte of the params and cov_args blocks
+  unchanged, and the cov_args block already carried every newly-required
+  key explicitly.
+
+Gate-integrity screen: the branch diff is exactly the seven named files;
+no shared gates/checks file, no board.py, no threshold, no fixture of any
+existing gate is touched. The witness set is production-coupled (every leg
+calls the real producer functions; the params witness parses the params
+block from the real shipped YAML rather than injecting its own copy — the
+unit-41 self-injection defect is absent). Seam: disjoint from the
+in-flight fixed-facts adapter half (which edits cobaya_theory/*, gates/*,
+emulator/* — none of the seven files), and the branch sits one commit
+ahead of current main, so the eventual squash is conflict-free.
+
+Vision preservation: no drift. The h -> step_frac rename follows the
+25M-07 retraction lesson (the user's ambiguous-`h` catch); the
+validate_lcdm_params rewrite is fail-fast but stays within the ruled
+corrective-error register; the per-ell 3x3 PSD loop is a cold path in a
+one-off script.
+
+THE ONE REQUIRED DELTA (my unscripted probe; the return did not script
+it): the producer WIRING is not proven load-bearing. I removed each of the
+four validator calls from main() in the scratch tree, one at a time —
+`require_finite_arrays(out)`, `validate_signal_noise_psd(...)`,
+`cov = validate_cov_args(...)` (bypassed to the raw mapping), and
+`info["params"] = validate_lcdm_params(...)` — and ALL FIVE witnesses
+stayed green under every one of the four mutations (producer restored
+byte-identical afterward, re-verified against the tip blob id). The
+witnesses prove the validators' semantics exhaustively but never that
+main() calls them: a future refactor that drops any of the four calls
+ships silently. This is the same production-coupling class the unit-41
+audit made mandatory to probe. Required repair, on the same branch: 
+main-driving refusal legs using the stub harness the params witness
+already owns — drive covariance.main() on (a) a cov_args schema violation,
+(b) a params schema violation, (c) a stubbed fiducial_spectra returning a
+post-signal PSD violation, and (d) a stubbed gaussian_blocks returning a
+non-finite output — each must REFUSE through the entry point, and each of
+my four wiring mutations must then red at least one leg. This is a rider
+on the existing unit-13 ledger line, not a new ticket (convergence mode).
+Dispatched to Sol as 0158-to-sol — written first as 0156, then renumbered
+on discovery that a parallel turn's 0156-to-opus already held the
+sequence (one more live instance of the ledgered cross-recipient
+next_seq() collision).
+
+Workstation-owed legs, recorded as UNVERIFIED until the queue-5 board run:
+the Torch `cmb-identity` wrapper rerun, and one real-CAMB end-to-end run
+of the shipped YAML with an npz byte-compare against a pre-change run (the
+ruled Planck-LCDM byte-identity control — this also exercises
+validate_signal_noise_psd and the per-ell PSD loop on real spectra, and
+executes the 45M-01 clause-5 contingency that explicit omk/w/wa leave the
+solve untouched).
+
+Landing ruling: substance GO; the MERGE IS HELD until the wiring delta
+lands on `codex/unit-13-covariance`, so main receives ONE squash carrying
+the whole audited unit (the one-audited-unit granularity rule). Delta
+dispatched to Sol (red-team mode — its own return's repair). After the
+delta's audit GO, the landing block for the user:
+
+```text
+cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+git merge --squash codex/unit-13-covariance
+git commit   # one didactic message: covariance inputs and outputs are now validated
+git push origin main
+```
+
+Commit note for this record: notes/families-scalar-cmb.md currently also
+carries an UNCOMMITTED in-flight Implementer hunk (the scalar-identity
+prediction-names passage of the 0140 adapter half), so this audit entry is
+left uncommitted with it rather than sweeping foreign mid-unit work into
+an audit commit; it rides the adapter-half audit commit or the user's next
+notes commit. The register receipt, backlog annotation, and MEMORY line
+carry the committed pointer trail meanwhile.

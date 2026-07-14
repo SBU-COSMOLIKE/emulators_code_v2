@@ -289,6 +289,29 @@ Two further user rules (2026-07-14) on the same doctrine:
   change, not the process that produced it. Fine-grained/process
   detail stays in notes/ and the branch history.
 
+### Ledger hygiene: the backlog is the user's dashboard (user rule, 2026-07-14)
+
+`notes/backlog.md` is how the user sees what is going on — "you need to
+keep updating the backlog so I can have an idea", said after five GHOST
+lines (units 74/76/77/78/80, implemented and audited 2026-07-12) sat
+inflating the demand count for days. Standing duties, every Architect
+turn that touches a unit:
+
+- **Every state change updates its line THE SAME TURN**: dispatched,
+  return received, audited GO/delta, landed, blocked/unblocked — the
+  line always says where the unit actually is and what it waits on.
+- **A GO retires the line immediately** — in the same commit as the
+  audit record, never "later".
+- **Periodic reconciliation**: whenever the printed demand number feels
+  wrong (and at least once per working session), walk the "- OPEN" lines
+  against the audit records and `git merge-base --is-ancestor`; a line
+  describing landed+audited work is retired on the spot with a note
+  entry naming the evidence. A line created from any historical snapshot
+  is checked against the audit record BEFORE it becomes countable
+  demand.
+- The ledger stays countable one-liners; the story lives in the notes
+  each line names.
+
 ### Second-Implementer assignments (user rule, 2026-07-14)
 
 When the execution queue saturates, [S] becomes the **second

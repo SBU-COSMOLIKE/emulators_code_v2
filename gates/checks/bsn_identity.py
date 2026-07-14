@@ -69,6 +69,45 @@ N_IN = len(IN_NAMES)
 # carry one identity, which is what handing them the same label does.
 ADAPTER_PAIR_LABEL = "bsn-identity/adapter-background-pair"
 
+# The missing-quantity leg's pair: two grid artifacts declaring neither of the
+# quantities this adapter serves. They are one fixture, built for one purpose,
+# so they carry one identity — and a pair with one identity leaves the
+# dataset-identity law nothing to say, so the guard this leg targets is the one
+# that speaks.
+MISSING_QUANTITY_LABEL = "bsn-identity/missing-quantity-pair"
+
+# The region every grid double this gate PREDICTS THROUGH declares. An emulator
+# now refuses any point outside the interval its record was drawn over, so a
+# double the gate asks a question of has to stand in for a real emulator's
+# region; a double that is only saved, rebuilt, or refused by the adapter
+# declares none, and refuses every point, which is the honest record for it.
+#
+# The box is the design these doubles are built around: the whitening center is
+# (omegam, H0, w) = (0.31, 67, -1), and the NPCE leg draws its training columns
+# as normals about that center with sigmas (0.01, 2.0, 0.05). Five sigma each
+# way is the interval a prior over these coordinates would have declared, and it
+# is what a real background emulator of this shape would have been drawn from.
+# It contains every point this gate asks about: the round-trip and NPCE point
+# (0.32, 68.0, -0.98) and the adapter's point (0.31, 67.0, -1.0).
+GRID_SUPPORT = {"omegam": (0.26, 0.36),
+                "H0":     (57.0, 77.0),
+                "w":      (-1.25, -0.75)}
+
+# A point that box does NOT contain, for the arm proving predict refuses
+# outside it. It leaves the box on ONE coordinate: a point outside on every
+# coordinate would also be refused by a box law that only ever looked at the
+# first one.
+OUTSIDE_GRID_BOX = {"omegam": 0.31,
+                    "H0":     90.0,
+                    "w":      -1.0}
+
+# A point well inside the box, for the arms that must reach the network (and
+# for the undeclared double, whose refusal must be about its missing record and
+# not about where the point sits).
+INSIDE_GRID_BOX = {"omegam": 0.31,
+                   "H0":     67.0,
+                   "w":      -1.0}
+
 # The production distance pipeline has historically promised relative
 # agreement at 1e-6.  scipy.integrate.quad also returns an absolute error
 # estimate for its independent reference.  The comparison band adds ten
@@ -547,7 +586,20 @@ def grid_recipe(nz):
 
 def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
                         units="km/s/Mpc", law="log_offset", offset=1.0,
-                        z=None, seed=0):
+                        z=None, seed=0, support=None):
+    """Build, then save, a tiny synthetic grid emulator under `root`.
+
+    `label` fixes the identity of the scientific record the file carries:
+    doubles that belong to one dataset are handed the same label, doubles that
+    must be told apart are handed different ones.
+
+    `support` is the region the double stands for, as a mapping name -> (low,
+    high). A double the gate PREDICTS THROUGH declares one, because a real
+    emulator was drawn from an interval and is refused outside it. A double
+    that is only saved, rebuilt, compared, or offered to an adapter that turns
+    it away declares None, and then refuses every prediction — the honest
+    record for a double nobody asks a question of, not a gap in one.
+    """
     if z is None:
         z = np.linspace(0.001, 3.0, 64)
     covmat = os.path.join(tmp, "grid_%d.covmat" % seed)
@@ -596,7 +648,8 @@ def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
-                      family="grid"),
+                      family="grid",
+                      support=support),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
 
@@ -604,9 +657,10 @@ def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
 def check_roundtrip(tmp, device, law):
     root = os.path.join(tmp, "emul_grid_" + law)
     off = 1.0 if law == "log_offset" else 0.0
+    # predicted through, so it declares the region it stands for.
     pgeom, geom, model, _ = save_synthetic_grid(
         root, device, tmp, label="bsn-identity/round-trip-" + law,
-        law=law, offset=off, seed=30)
+        law=law, offset=off, seed=30, support=GRID_SUPPORT)
     theta = np.array([[0.32, 68.0, -0.98]])
     x = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
     with torch.no_grad():
@@ -628,6 +682,63 @@ def check_roundtrip(tmp, device, law):
            "law %s, amplitude_law %s" % (info["grid_law"],
                                          info["amplitude_law"]))
     return root
+
+
+def check_domain_law(root, tmp, device):
+    """predict() refuses a point the artifact's record does not cover.
+
+    Two refusals, because a record can fail to cover a point in two different
+    ways and only one of them is about the point:
+
+      no support    the record declares no interval for any coordinate. Its
+                    bounds are not wide, they are absent, so there is no region
+                    it may be asked about at all. That is the shape of a test
+                    double, and a test double must never answer a likelihood.
+
+      outside it    the record declares a box, and the point is outside it. The
+                    emulator would not fail there; it would extrapolate, and
+                    hand back a confident H(z) of the right shape and the wrong
+                    value — which is the quietest way to move a distance ladder.
+
+    Both arms are read by their WORDS. float("n/a") raises the same ValueError
+    class a refusal raises, so an arm that only asked "did it raise?" would go
+    green on a record that crashed instead of refusing, and the law it exists to
+    prove would never have run.
+
+    Arguments:
+      root   = the round-trip double's path root. It declares GRID_SUPPORT, and
+               is the artifact the outside-the-box arm asks off its region.
+      tmp    = the tempdir this gate's fixtures live in.
+      device = the torch device to rebuild on.
+    """
+    pred = EmulatorPredictor(root, device, compile_model=False)
+    try:
+        pred.predict(OUTSIDE_GRID_BOX)
+        report("a point outside the declared box is refused",
+               False, "did not raise")
+    except ValueError as e:
+        report_refusal("a point outside the declared box is refused", e,
+                       needle="which is outside it",
+                       law="the domain law (the point leaves the box)")
+
+    # a double that declares no support: saved, rebuilt, and then asked a
+    # question it has no region to answer in.
+    root_undeclared = os.path.join(tmp, "emul_grid_undeclared")
+    save_synthetic_grid(root_undeclared, device, tmp,
+                        label="bsn-identity/undeclared-support",
+                        quantity="Hubble", units="km/s/Mpc",
+                        law="log_offset", offset=1.0, seed=100)
+    pred_undeclared = EmulatorPredictor(root_undeclared, device,
+                                        compile_model=False)
+    try:
+        pred_undeclared.predict(INSIDE_GRID_BOX)
+        report("a double that declares no support refuses every predict",
+               False, "did not raise")
+    except ValueError as e:
+        report_refusal(
+            "a double that declares no support refuses every predict", e,
+            needle="declares no support",
+            law="the domain law (no region was ever declared)")
 
 
 def check_npce(tmp, device):
@@ -704,7 +815,8 @@ def check_npce(tmp, device):
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label="bsn-identity/npce-hubble",
-                      family="grid"),
+                      family="grid",
+                      support=GRID_SUPPORT),
                   attrs={"rescale": "none", "quantity": "Hubble"})
     theta = np.array([[0.32, 68.0, -0.98]])
     x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
@@ -749,16 +861,20 @@ def _build(cls, roots):
 
 def check_adapter(tmp, device):
     cls = _load_emul_baosn_stubbed()
+    # both halves are served, so both are predicted through (calculate runs
+    # each of them on every point): both declare the region they stand for.
     root_h = os.path.join(tmp, "ad_h")
     save_synthetic_grid(root_h, device, tmp, label=ADAPTER_PAIR_LABEL,
                         quantity="Hubble",
                         units="km/s/Mpc", law="log_offset", offset=1.0,
-                        z=np.linspace(0.001, 3.0, 64), seed=40)
+                        z=np.linspace(0.001, 3.0, 64), seed=40,
+                        support=GRID_SUPPORT)
     root_dm = os.path.join(tmp, "ad_dm")
     save_synthetic_grid(root_dm, device, tmp, label=ADAPTER_PAIR_LABEL,
                         quantity="D_M",
                         units="Mpc", law="none", offset=0.0,
-                        z=np.linspace(1000.0, 1200.0, 24), seed=50)
+                        z=np.linspace(1000.0, 1200.0, 24), seed=50,
+                        support=GRID_SUPPORT)
 
     t = _build(cls, [root_h, root_dm])
     report("pair layout: SN window + rec window",
@@ -872,9 +988,10 @@ def check_adapter(tmp, device):
         # quantity 'D_M'" (:134) is never reached from here. Needling that
         # message would demand text this call site cannot produce; needling the
         # one that does fire is what makes the leg refuse an identity error.
-        # The missing-quantity guard itself has no leg of its own: reaching it
-        # needs a TWO-root list of distinct quantities with no D_M among them,
-        # which no fixture in this gate builds.
+        # The missing-quantity guard has a leg of its own (the
+        # check_missing_quantity leg below): reaching it needs a TWO-root list
+        # of distinct quantities with no D_M among them, which is exactly the
+        # fixture that leg builds.
         report_refusal("missing D_M raises", e,
                        needle="exactly TWO",
                        law="the pair-count law")
@@ -898,6 +1015,74 @@ def check_adapter(tmp, device):
         report_refusal("duplicate quantity raises", e,
                        needle="two artifacts both declare quantity",
                        law="the duplicate-quantity law")
+
+    # two artifacts fitted to DIFFERENT datasets -> loud. The pair is combined
+    # into ONE expansion history, so it has to come from one dataset: two runs
+    # of the same YAML agree on every fixed fact and every bound and still drew
+    # different points, and only the identity can tell them apart.
+    #
+    # The pair handed over is topologically VALID on purpose -- one 'Hubble' and
+    # one 'D_M', the units each half is served in, windows that do not overlap
+    # -- because the adapter runs those laws FIRST. Hand it a pair that also
+    # broke one of them and the earlier law would fire, and the needle below
+    # would be naming a law that never ran.
+    root_h_other = os.path.join(tmp, "ad_h_other")
+    save_synthetic_grid(root_h_other, device, tmp,
+                        label="bsn-identity/adapter-foreign-dataset",
+                        quantity="Hubble",
+                        units="km/s/Mpc", law="log_offset", offset=1.0,
+                        z=np.linspace(0.001, 3.0, 64), seed=110)
+    try:
+        _build(cls, [root_h_other, root_dm])
+        report("mismatched dataset identity raises", False, "no raise")
+    except ValueError as e:
+        report_refusal("mismatched dataset identity raises", e,
+                       needle="different datasets",
+                       law="the dataset-identity law")
+
+
+def check_missing_quantity(tmp, device):
+    """emul_baosn refuses a pair that declares neither quantity it serves.
+
+    The adapter serves exactly two quantities, one 'Hubble' and one 'D_M', and
+    a set that carries neither of them cannot be assembled into an expansion
+    history at all. That guard (cobaya_theory/emul_baosn.py:134) has never been
+    reached from this gate, and the reason is worth stating, because it is the
+    same trap the missing-D_M leg's comment describes: a ONE-root list is
+    refused by the "exactly TWO" law before a single artifact is loaded, so no
+    fixture that hands over one root can ever arrive here.
+
+    The fixture is therefore TWO valid grid artifacts with distinct quantities,
+    neither of them one the adapter serves. They pass the count law (two roots),
+    the wrong-kind law (both grid), and the duplicate law (distinct quantities),
+    and then die on the law this leg exists to prove. They share one label, so
+    they are one dataset: a pair with one identity leaves the dataset-identity
+    law nothing to refuse, and the guard this leg targets is the one that
+    speaks.
+
+    Arguments:
+      tmp    = the tempdir this gate's fixtures live in.
+      device = the torch device to save + rebuild on.
+    """
+    cls = _load_emul_baosn_stubbed()
+    # never predicted through (initialize refuses the set), so neither declares
+    # a support: that is the honest record for a double nobody may ask anything.
+    root_dv = os.path.join(tmp, "mq_dv")
+    save_synthetic_grid(root_dv, device, tmp, label=MISSING_QUANTITY_LABEL,
+                        quantity="D_V", units="Mpc", law="none", offset=0.0,
+                        z=np.linspace(0.001, 3.0, 64), seed=130)
+    root_dh = os.path.join(tmp, "mq_dh")
+    save_synthetic_grid(root_dh, device, tmp, label=MISSING_QUANTITY_LABEL,
+                        quantity="D_H", units="Mpc", law="none", offset=0.0,
+                        z=np.linspace(1000.0, 1200.0, 24), seed=140)
+    try:
+        _build(cls, [root_dv, root_dh])
+        report("a pair declaring neither served quantity raises",
+               False, "no raise")
+    except ValueError as e:
+        report_refusal("a pair declaring neither served quantity raises", e,
+                       needle="no loaded artifact declares quantity",
+                       law="the missing-quantity law")
 
 
 def check_finetune(tmp, device):
@@ -983,10 +1168,10 @@ def main():
     # unreproducible run to run (the run-10 flake).
     torch.manual_seed(0)
     device = torch.device("cpu")
-    # Each of the six declared board legs brackets its block with a FAILURES
-    # snapshot and emits exactly one '##AID' line (emit_aid). The declared
-    # evidence set (gates/board.py Gate id="bsn-identity") is exactly these
-    # six aids -- one per bracket, no stray manifest line for a sub-check.
+    # Each declared board leg brackets its block with a FAILURES snapshot and
+    # emits exactly one '##AID' line (emit_aid). The declared evidence set
+    # (gates/board.py Gate id="bsn-identity") is exactly these aids -- one per
+    # bracket, no stray manifest line for a sub-check.
     with tempfile.TemporaryDirectory() as tmp:
         n = len(FAILURES)
         check_simpson()
@@ -998,8 +1183,9 @@ def main():
 
         n = len(FAILURES)
         check_geometry(device)
-        check_roundtrip(tmp, device, law="log_offset")
+        root = check_roundtrip(tmp, device, law="log_offset")
         check_roundtrip(tmp, device, law="none")
+        check_domain_law(root, tmp, device)
         emit_aid("bsn-identity.geometry-and-artifact-round-trip", n)
 
         n = len(FAILURES)
@@ -1013,6 +1199,10 @@ def main():
         n = len(FAILURES)
         check_finetune(tmp, device)
         emit_aid("bsn-identity.finetune-parity", n)
+
+        n = len(FAILURES)
+        check_missing_quantity(tmp, device)
+        emit_aid("bsn-identity.missing-quantity-refused", n)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))

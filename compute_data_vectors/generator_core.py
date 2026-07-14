@@ -235,38 +235,6 @@ CMB_CL_UNITS = "muK2"
 NEUTRINO_CONVENTION_KEY = "neutrino_hierarchy"
 
 
-def _plain_fact(value):
-  """
-  Reduce one value read off the resolved model to a plain, storable fact.
-
-  The model hands its values back in whatever type cobaya, CAMB, or the YAML
-  parser produced: a Python float, a numpy scalar, an integer, a string, a
-  boolean. The record is written as YAML and later copied into an HDF5 file,
-  and both of those store plain values, so a fact is reduced once here rather
-  than at each of the places that write it.
-
-  A value that is neither a number, a string, nor a boolean is recorded as the
-  text the model would print for it. It is still recorded: a fact the writer
-  dropped and a fact the family does not have read the same way on the way back
-  in, and only one of the two is safe to read.
-
-  Arguments:
-    value = one value as the resolved model handed it back.
-
-  Returns:
-    the plain bool, float, or str the record stores.
-  """
-  # booleans are tested before numbers on purpose: in Python True equals 1, so a
-  # flag tested as a number would be stored as the float 1.0 and read back as a
-  # number that was never a flag.
-  if isinstance(value, bool):
-    return value
-  if isinstance(value, str):
-    return value
-  try:
-    return float(value)
-  except (TypeError, ValueError):
-    return repr(value)
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Class Definition
@@ -776,74 +744,18 @@ class GeneratorCore:
   #-----------------------------------------------------------------------------
   # the dataset's scientific record (schema: emulator/fixed_facts.py)
   #-----------------------------------------------------------------------------
-  def _theory_components(self):
-    """
-    List the components of the resolved model that carry theory settings.
-
-    The record's second source of a fixed fact is the theory block's extra_args:
-    the settings a run hands the Boltzmann code directly (the neutrino
-    splitting, the radiation temperature, the effective number of species)
-    rather than through the params block. Those settings live on the component
-    object cobaya built, so they are read from the model, never from the YAML.
-
-    Two ways in are tried, because a cobaya that does not expose one of them
-    must leave a fact unresolved rather than kill a run whose data vectors are
-    already computed: the model's own theory collection, and the component walk
-    the per-sample drivers already use (dataset_generator_cmb.py finds its
-    Boltzmann code that way).
-
-    Arguments:
-      none.
-
-    Returns:
-      the list of components that carry an extra_args mapping, possibly empty.
-    """
-    found = []
-    try:
-      theory = self.model.theory
-      for name in theory:
-        found.append(theory[name])
-    except Exception:
-      found = []
-    if len(found) == 0:
-      try:
-        for component, _ in self.model._component_order.items():
-          found.append(component)
-      except Exception:
-        found = []
-
-    components = []
-    for component in found:
-      extra = getattr(component, "extra_args", None)
-      if isinstance(extra, dict):
-        components.append(component)
-    return components
-
   def _resolved_constants(self):
     """
     Read every value the resolved Cobaya model pins to a constant.
 
-    The YAML is the request; the model is the fact. A default the YAML left
-    unstated has been materialized by the time get_model returns, and it is that
-    materialized value the dataset was generated under. Two sources are read, in
-    this order:
-
-      the params block   parameterization.constant_params(): every parameter the
-                         run wrote as a number (or as value: <number>). A
-                         parameter given as a function of other parameters is not
-                         a constant, and is deliberately absent here: its value
-                         changes with the sample, so it is not a fixed fact.
-      the theory block   each theory component's extra_args: the settings the run
-                         hands the Boltzmann code directly.
-
-    The params block wins a name both blocks state, because it is the model's own
-    parameterization of the cosmology. Between two theory components that state
-    one name (a configuration nothing in this program produces), the first
-    component the model lists wins.
-
-    Every lookup is wrapped: a cobaya that does not expose one of these surfaces
-    leaves the facts it would have supplied unresolved, and they are published as
-    "n/a" rather than crashing a run whose data vectors are already computed.
+    The reading itself belongs to emulator/fixed_facts.py, and this method is
+    one of its callers. The generator is not the only code that has to read the
+    model this way: each cobaya adapter reads the same model, at the start of a
+    chain, to check a saved emulator's record against the cosmology now being
+    sampled. The producer WRITES the fixed facts, the adapters CHECK them, and
+    the two must read them identically — down to which block wins a name that
+    both the params block and a theory component state. A copy of the reader
+    living here would be a second author of that fact.
 
     Arguments:
       none.
@@ -853,20 +765,7 @@ class GeneratorCore:
       It is a superset of the coordinates the record reports on; the caller reads
       the names it needs.
     """
-    pinned = {}
-    for component in self._theory_components():
-      extra = component.extra_args
-      for key in extra:
-        if key not in pinned:
-          pinned[key] = _plain_fact(value=extra[key])
-
-    try:
-      constants = self.model.parameterization.constant_params()
-    except Exception:
-      constants = {}
-    for key in constants:
-      pinned[key] = _plain_fact(value=constants[key])
-    return pinned
+    return fixed_facts.resolved_constants(model=self.model)
 
   def _syren_base_identity(self):
     """

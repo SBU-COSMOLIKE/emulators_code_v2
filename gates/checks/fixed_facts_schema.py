@@ -88,7 +88,8 @@ LEG_AIDS = ("fixed-facts-schema.record-round-trip",
             "fixed-facts-schema.horizontal-law-enforced",
             "fixed-facts-schema.domain-law-enforced",
             "fixed-facts-schema.served-support-is-the-intersection",
-            "fixed-facts-schema.comparison-laws-are-load-bearing")
+            "fixed-facts-schema.comparison-laws-are-load-bearing",
+            "fixed-facts-schema.resolved-model-read-once")
 
 NAMES = ["omegam", "H0", "ns", "logA", "w"]
 
@@ -1208,6 +1209,45 @@ def check_served_support():
 # ---------------------------------------------------------------------------
 
 
+def weakened_vertical(blocks, resolved_model, where):
+    """The vertical law that compares only what both sides happen to state.
+
+    This is the law as it gets written when "compare the pinned coordinates"
+    is read as "compare the coordinates they have in common": a coordinate the
+    model never mentions is skipped instead of refused. It is the plausible
+    weakening, and it is the dangerous one. The artifact pins mnu because its
+    dataset was generated at that neutrino mass; a chain whose model never
+    resolves mnu is not agreeing with the artifact, it is silent about it, and
+    silence is not agreement. The emulator answers every point of that chain
+    anyway, and the answers are about a universe nobody asked for.
+
+    Arguments:
+      blocks         = the artifact's two blocks.
+      resolved_model = the sampled cosmology, as a plain mapping.
+      where          = the artifact's identity, named in any refusal.
+
+    Returns:
+      None.
+
+    Raises:
+      ValueError only when the two states of a coordinate disagree; never when
+      the model is silent about one.
+    """
+    held = blocks[fixed_facts.FIXED_FACTS_GROUP]["cosmology_fixed"]
+    for name in sorted(held):
+        if name not in resolved_model:
+            # the removed guard. Everything below is the shipped law.
+            continue
+        artifact_value = held[name]
+        sampled_value = resolved_model[name]
+        if artifact_value != sampled_value:
+            raise ValueError(
+                where + " was generated with " + name + " held fixed at "
+                + repr(artifact_value) + ", but the cosmology being sampled has "
+                + name + " = " + repr(sampled_value) + ". Serve an emulator "
+                "generated under this cosmology.")
+
+
 def weakened_horizontal(blocks_a, blocks_b, where_a, where_b):
     """The horizontal law with the identity comparison taken out.
 
@@ -1506,6 +1546,33 @@ def check_comparison_mutations():
            caught is not None and "do not overlap" in caught,
            "the disjoint pair refuses again")
 
+    # ARM FIVE: the vertical law that skips a coordinate the model is silent
+    # about. The other three laws each had an arm from the day they landed; this
+    # one did not, and its refusal legs were load-bearing all the same. The arm
+    # is what makes that checkable rather than believed.
+    silent = dict(SAMPLED_MODEL)
+    del silent["mnu"]
+    real_vertical = fixed_facts.check_vertical
+    fixed_facts.check_vertical = weakened_vertical
+    try:
+        leaked = refusal_of(
+            lambda: fixed_facts.check_vertical(blocks=blocks,
+                                               resolved_model=silent,
+                                               where="an emulator pinning mnu"))
+    finally:
+        fixed_facts.check_vertical = real_vertical
+    report("mutation: a vertical law that skips what the model omits reds its leg",
+           leaked is None,
+           "a chain silent about mnu was served an emulator pinned at 0.06")
+
+    caught = refusal_of(
+        lambda: fixed_facts.check_vertical(blocks=blocks,
+                                           resolved_model=silent,
+                                           where="an emulator pinning mnu"))
+    report("the silent-coordinate refusal is back after the mutation",
+           caught is not None and "does not say what mnu is" in caught,
+           "silence is refused again, and named")
+
     # the closing control. Every law is restored, and the faithful record still
     # passes all four: the arms red the mutation, not the record.
     twin = blocks_of(sample_sidecar(dataset_id=first_dump))
@@ -1531,6 +1598,134 @@ def check_comparison_mutations():
            ok_pair is None and ok_model is None and ok_point is None
            and ok_region is None,
            "the arms red the mutation, not the record")
+
+
+# ---------------------------------------------------------------------------
+# The resolved model, and the one reader of it.
+#
+# The producer reads the resolved Cobaya model to WRITE the record; each cobaya
+# adapter reads the same model, at chain setup, to CHECK an artifact's record
+# against the cosmology now being sampled. Those two readings must agree down to
+# which block wins a name that two blocks state, so there is ONE reader and both
+# call it.
+#
+# The doubles below are the smallest thing that reader accepts. They are not
+# cobaya: the reader duck-types the model, which is exactly why the module can
+# stay free of cobaya (and of torch), and why this leg runs on a bare numpy
+# interpreter.
+# ---------------------------------------------------------------------------
+
+
+class FakeParameterization:
+    """The params block of a resolved model: the constants it states."""
+
+    def __init__(self, constants):
+        self._constants = constants
+
+    def constant_params(self):
+        """The parameters this run wrote as a plain number."""
+        return self._constants
+
+
+class FakeComponent:
+    """One theory component of a resolved model, carrying its extra_args."""
+
+    def __init__(self, extra_args):
+        self.extra_args = extra_args
+
+
+class FakeModel:
+    """A resolved model, exposing the two surfaces the reader reads.
+
+    Arguments:
+      components = the theory components, in the order the model lists them.
+      constants  = the params block's constants.
+    """
+
+    def __init__(self, components, constants):
+        self.theory = {}
+        for i in range(len(components)):
+            self.theory["component" + str(i)] = components[i]
+        self.parameterization = FakeParameterization(constants=constants)
+
+
+class ModelWithoutTheory:
+    """A model whose theory collection cannot be walked at all.
+
+    A cobaya that does not expose one of these surfaces must leave the facts it
+    would have supplied unresolved, not kill a generator run whose data vectors
+    are already computed. The reader wraps every lookup for that reason, and this
+    double is what proves the wrapping is real: reading .theory raises.
+    """
+
+    def __init__(self, constants):
+        self.parameterization = FakeParameterization(constants=constants)
+
+    @property
+    def theory(self):
+        raise RuntimeError("this cobaya does not expose a theory collection")
+
+
+def check_resolved_constants():
+    """One reader of the resolved model, and the precedence it reads under.
+
+    The record's facts come from two places in the resolved model, and they can
+    both state one name. Which one wins is a scientific decision, not a detail:
+    the params block is the model's own parameterization of the cosmology, so it
+    wins over a setting handed to the Boltzmann code. If the producer and the
+    adapters ever disagreed about that, one of them would write a fact the other
+    would refuse, and the emulator would be unservable in the chain it was
+    generated for.
+
+    Returns:
+      None.
+    """
+    camb = FakeComponent(extra_args={"nnu": 3.044, "mnu": 0.1, "halofit": "mead"})
+    second = FakeComponent(extra_args={"mnu": 0.2, "TCMB": 2.7255})
+
+    resolved = fixed_facts.resolved_constants(
+        model=FakeModel(components=[camb, second],
+                        constants={"mnu": 0.06, "w": -1.0}))
+
+    report("a theory component's extra_args reach the record",
+           resolved.get("halofit") == "mead",
+           "halofit = " + repr(resolved.get("halofit")))
+    report("the params block wins a name both blocks state",
+           resolved.get("mnu") == 0.06,
+           "the model pins mnu at 0.06; the theory block asked for 0.1")
+    report("the first component wins a name two components state",
+           resolved.get("TCMB") == 2.7255,
+           "the second component's mnu = 0.2 never displaced the first's 0.1 "
+           "before the params block overwrote both")
+    report("every constant the params block states is read",
+           resolved.get("w") == -1.0,
+           "w = " + repr(resolved.get("w")))
+
+    # the values are reduced to plain facts on the way in, because the record is
+    # written as YAML and copied into HDF5, and both store plain values. A
+    # boolean is tested before a number: in Python True equals 1, and a flag
+    # stored as the float 1.0 reads back as a number that was never a flag.
+    flags = fixed_facts.resolved_constants(
+        model=FakeModel(components=[FakeComponent(extra_args={"lensing": True})],
+                        constants={"nnu": 3, "share_delta_neff": False}))
+    report("a flag stays a flag and a number becomes a number",
+           flags["lensing"] is True and flags["share_delta_neff"] is False
+           and flags["nnu"] == 3.0 and isinstance(flags["nnu"], float),
+           "lensing = True, nnu = 3.0")
+
+    # a cobaya that cannot be walked leaves the facts it would have supplied
+    # ABSENT, rather than crashing a run whose data vectors are already computed.
+    # Absent is a fact the record publishes as "n/a"; a crash is a lost run.
+    degraded = fixed_facts.resolved_constants(
+        model=ModelWithoutTheory(constants={"mnu": 0.06}))
+    report("a model that cannot be walked degrades to absence, not to a crash",
+           degraded == {"mnu": 0.06},
+           "the theory block was unreadable; the params block still resolved")
+
+    empty = fixed_facts.resolved_constants(model=ModelWithoutTheory(constants={}))
+    report("a model that resolves nothing resolves nothing, quietly",
+           empty == {},
+           "no facts, no crash — the record publishes 'n/a' for each of them")
 
 
 def main():
@@ -1636,6 +1831,14 @@ def main():
         n0 = len(FAILURES)
         check_comparison_mutations()
         aid = "fixed-facts-schema.comparison-laws-are-load-bearing"
+        if not emit_leg(aid, n0):
+            blocker = aid
+        emitted.add(aid)
+
+        print("\n-- the resolved model is read by one reader --")
+        n0 = len(FAILURES)
+        check_resolved_constants()
+        aid = "fixed-facts-schema.resolved-model-read-once"
         if not emit_leg(aid, n0):
             blocker = aid
         emitted.add(aid)

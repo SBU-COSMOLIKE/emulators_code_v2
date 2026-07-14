@@ -1836,9 +1836,9 @@ def gate_fixed_facts_schema(ctx):
   a REAL emulator with trained weights survives the same round trip needs torch
   and is owned by the save/rebuild gate (spec: gates-and-board.md).
   """
-  # the seven legs are asserted IN the child, which emits one ##AID each; this
-  # rc check is the child's single aggregate verdict, so it carries no aid of
-  # its own (a wrapper cannot re-claim what the child proved).
+  # the legs are asserted IN the child, which emits one ##AID each; this rc
+  # check is the child's single aggregate verdict, so it carries no aid of its
+  # own (a wrapper cannot re-claim what the child proved).
   rc, out = ctx.run_check("gates/checks/fixed_facts_schema.py")
   if ctx.dry:
     return
@@ -1846,6 +1846,38 @@ def gate_fixed_facts_schema(ctx):
              ok=(rc == 0),
              detail="check exit code " + str(rc)
                     + " (gates/checks/fixed_facts_schema.py)")
+
+
+def gate_cs_adapter_identity(ctx):
+  """cs-adapter-identity: the cosmic-shear adapter's contract + the record laws.
+
+  WHAT: a torch-only check of cobaya_theory/emul_cosmic_shear.py over synthetic
+  data-vector artifacts, with cobaya stubbed. WHY: this is the one adapter of the
+  five whose only board gate (cobaya-adapter / GCT-C) needs a real CosmoLike
+  install and a GPU, so its LOUD ERRORS -- the refusals a misconfigured chain
+  must hit before it computes a single chi2 -- were exercised nowhere at all,
+  while its four siblings each have a torch-only gate that exercises theirs. HOW:
+  the adapter derives its required parameters from the artifact's stored geometry
+  names and serves the section the geometry declares; a wrong-kind (scalar)
+  artifact is refused by name; and the record's three comparison laws are proved
+  to fire at this adapter's own site -- two emulators fitted to different
+  datasets are refused as a pair, an artifact generated under another cosmology
+  is refused when cobaya hands over the provider (and a provider that cannot
+  reach the model is refused loudly rather than skipped), and a point outside the
+  sampled region is refused at predict, as is every point of a double that
+  declares no region. Each refusal leg needles the WORDS of its own law: a leg
+  that asks only "did it raise?" cannot tell a refusal from a crash, because
+  float("n/a") raises the same ValueError class every refusal here does. The real
+  cobaya lifecycle and the chi2 parity stay with cobaya-adapter (spec:
+  gates-and-board.md, RULING 5 + the cs rider).
+  """
+  rc, out = ctx.run_check("gates/checks/cs_adapter_identity.py")
+  if ctx.dry:
+    return
+  ctx.expect(label="cs-adapter-identity child completed",
+             ok=(rc == 0),
+             detail="check exit code " + str(rc)
+                    + " (gates/checks/cs_adapter_identity.py)")
 
 
 def gate_generator_seed(ctx):
@@ -2326,11 +2358,42 @@ BOARD = [
                  Assertion("fixed-facts-schema.served-support-is-the-intersection",
                            "artifacts-inference-warmstart.md#fixed-facts-schema-served-support-is-the-intersection"),
                  Assertion("fixed-facts-schema.comparison-laws-are-load-bearing",
-                           "artifacts-inference-warmstart.md#fixed-facts-schema-comparison-laws-are-load-bearing")),
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-comparison-laws-are-load-bearing"),
+                 Assertion("fixed-facts-schema.resolved-model-read-once",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-resolved-model-read-once")),
        run=gate_fixed_facts_schema,
        manifest=Manifest(code=("emulator/fixed_facts.py",),
                          inputs=()),
        needs=()),
+  Gate(id="cs-adapter-identity",
+       spec_code="GCT-D",
+       title="Cosmic-shear adapter contract + the record's three laws",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="artifacts-inference-warmstart",
+       maps="the cosmic-shear adapter's own refusals, torch-only: it reads its "
+            "required parameters and its served section from the artifact "
+            "rather than from the YAML, refuses a wrong-kind artifact by name, "
+            "and runs the record's three comparison laws at its own site -- a "
+            "pair fitted to different datasets is refused, an artifact "
+            "generated under another cosmology is refused when cobaya hands "
+            "over the provider (and a provider that cannot reach the model is "
+            "refused loudly, never skipped), and a point outside the sampled "
+            "region is refused at predict, as is every point of a double that "
+            "declares no region. This adapter's other gate (cobaya-adapter) "
+            "needs CosmoLike and a GPU, so until now its loud errors were "
+            "exercised nowhere; its four siblings each have a torch-only gate "
+            "that exercises theirs. Every refusal leg needles the WORDS of its "
+            "law, because float('n/a') raises the same ValueError class a "
+            "refusal does",
+       evidence=(Assertion("cs-adapter-identity.adapter-contract",
+                           "artifacts-inference-warmstart.md#cs-adapter-identity-adapter-contract"),
+                 Assertion("cs-adapter-identity.record-laws-refuse",
+                           "artifacts-inference-warmstart.md#cs-adapter-identity-record-laws-refuse")),
+       run=gate_cs_adapter_identity,
+       manifest=Manifest(code=("emulator/designs", "emulator/losses",
+                               "cobaya_theory/emul_cosmic_shear.py"),
+                         inputs=()),
+       needs=("torch",)),
   Gate(id="artifact-readback",
        spec_code="ARB-A",
        title="Saved attributes parsed by type, not truthiness",
@@ -2698,7 +2761,9 @@ BOARD = [
                  Assertion("scalar-identity.npce-composition",
                            "families-scalar-cmb.md#scalar-identity-npce-composition"),
                  Assertion("scalar-identity.finetune-parity",
-                           "families-scalar-cmb.md#scalar-identity-finetune-parity")),
+                           "families-scalar-cmb.md#scalar-identity-finetune-parity"),
+                 Assertion("scalar-identity.prediction-names-are-proved",
+                           "families-scalar-cmb.md#scalar-identity-prediction-names-are-proved")),
        run=gate_spe_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses",
                                "cobaya_theory/emul_scalars.py"),
@@ -2754,7 +2819,9 @@ BOARD = [
                  Assertion("bsn-identity.npce-composition",
                            "families-background-mps.md#bsn-identity-npce-composition"),
                  Assertion("bsn-identity.finetune-parity",
-                           "families-background-mps.md#bsn-identity-finetune-parity")),
+                           "families-background-mps.md#bsn-identity-finetune-parity"),
+                 Assertion("bsn-identity.missing-quantity-refused",
+                           "families-background-mps.md#bsn-identity-missing-quantity-refused")),
        run=gate_bsn_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses",
                                "cobaya_theory/emul_baosn.py"),
