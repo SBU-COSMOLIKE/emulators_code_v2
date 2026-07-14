@@ -586,14 +586,17 @@ def gate_ge_c(ctx):
 
   WHAT: the eval batch size, decoupled from the training batch. WHY:
   changing how the eval set is chunked must not move any metric. HOW: a
-  torch-only script emits four per-leg ##AID terminals (partition-invariance:
-  real eval_val's aggregate median/mean/fractions and a per-row loop agree
-  across eval batch sizes 32/517/1000/2048 to rtol 1e-6; ordinary-median: the
-  helper and real eval_val return the arithmetic midpoint for an even sample,
-  stay batch-invariant, and catch the lower-middle Tensor.median mutation;
-  cuda-timing and production-timing-claim: informational, so UNAVAILABLE on
-  this run -- CUDA durations carry no acceptance bound and the production
-  speedup is a documented sentence, not a measurement)
+  torch-only script emits four per-leg ##AID terminals. Partition-invariance:
+  the production diagnostic scorer supplies distinct row-aligned scores, and
+  real eval_val's screened rows, mean, median, fractions, returned histories,
+  and scheduler input agree with an independent float64 calculation for one
+  full batch, equal batches, and a ragged final batch. A permuted row fixture
+  plus dropped-batch and score-reassociation mutations must red.
+  Ordinary-median: the helper and real eval_val return the arithmetic midpoint
+  for an even sample, stay batch-invariant, and catch the lower-middle
+  Tensor.median mutation. CUDA timing and production-timing-claim remain
+  informational, so they are UNAVAILABLE because the durations have no
+  acceptance bound and the gate makes no production-run speed claim.
   (spec: training-stack.md#eval-batch-invariance-evidence).
 
   The check-script rc expect stays aid-less: the child exit is the aggregate

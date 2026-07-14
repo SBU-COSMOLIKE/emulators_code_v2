@@ -1692,11 +1692,19 @@ independent of how the same rows are divided into batches.**
 
 - files: uses synthetic in-memory Torch tensors; it reads no scientific data
   file and writes no persistent product.
-- subprocess: `gates/checks/ge_c_eval_bs.py`.
-- metric: per-leg. Per-row and fraction tensors use `rtol=1e-6` and
-  `atol=1e-6`; scalar median/mean comparisons use
-  `abs(got-ref) <= 1e-6*abs(ref) + 1e-6`. Ordinary-median controls are exact,
-  and printed timing observations are `UNAVAILABLE`.
+- subprocess: `gates/checks/ge_c_eval_bs.py`; the child drives the real
+  `eval_val`, `eval_source_chi2`, and one-epoch `training_loop_batched`
+  entry points.
+- metric: per-leg. The independent float64 reference over the twelve
+  distinct float32 fixture scores is median `1.5`, mean
+  `3.941666666728755`, and threshold fractions
+  `[0.833333333, 0.583333333, 0.25]`. Metrics use `rtol=1e-6` and
+  `atol=1e-7`; row identities, row order, and per-row scores are exact. Each
+  row's known score is stored once in the model-input feature and once in the
+  target; the fixture loss averages those two copies. A parameter/target row
+  reassociation therefore changes the score instead of passing through a
+  target-only test double. Ordinary-median controls are exact, and printed
+  timing observations are `UNAVAILABLE`.
 - legs: 4, named `eval-batch-invariance.partition-invariance`,
   `eval-batch-invariance.ordinary-median`,
   `eval-batch-invariance.cuda-timing`, and
@@ -1711,11 +1719,18 @@ independent of how the same rows are divided into batches.**
 
 <a id="eval-batch-invariance-partition-invariance"></a>
 `eval-batch-invariance.partition-invariance` compares real `eval_val`'s
-aggregate median, mean, and threshold fractions with a full-batch reference
-for batch sizes 32, 517, 1000, and 2048. Separately, a copied batch loop named
-`per_row_chi2` compares per-row tensors with its full-batch result. The stated
-relative and absolute tolerances apply; this does not prove row association or
-ordering inside production `eval_val`, which publishes only aggregates.
+score-domain boundary's RETURNED tensor, source-row positions, aggregate
+median, mean, and threshold fractions with the independent reference for one
+full batch, three equal batches, and a ragged final batch. Capturing the
+returned tensor means a normalization or ordering defect inside the boundary
+cannot hide behind its correct input. The same values must reach the real
+one-epoch median/mean/fraction histories, and the median must reach the real
+plateau-scheduler input. The per-row reference is the existing production
+diagnostic scorer, `eval_source_chi2`; there is no gate-side copy of the
+batched score formula. The source row list is permuted and every score is
+distinct. A mutation that drops the middle equal batch and a mutation that
+reverses its scores under unchanged row labels must both fail while the
+diagnostic reference remains unchanged.
 
 <a id="eval-batch-invariance-ordinary-median"></a>
 `eval-batch-invariance.ordinary-median` requires the helper and real
@@ -1728,9 +1743,8 @@ odd-sample control, remain batch-invariant, and catch the lower-middle
 printed but are not compared with an acceptance bound.
 
 <a id="eval-batch-invariance-production-timing-claim"></a>
-`eval-batch-invariance.production-timing-claim` is `UNAVAILABLE`: the claimed
-production speedup is a hard-coded sentence, not a measurement made by the
-gate.
+`eval-batch-invariance.production-timing-claim` is `UNAVAILABLE`: the gate
+makes no production-run speed claim and has no production timing protocol.
 
 <a id="finite-contract-evidence"></a>
 **finite-contract — the child contains finite-value and score-domain checks,
