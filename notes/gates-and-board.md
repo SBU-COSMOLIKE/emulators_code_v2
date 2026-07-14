@@ -12639,3 +12639,142 @@ record; this section exists only for the transport datum below.
   `notes/mailbox-daemon-incident-2026-07-14.md` (the clean-turn archival
   failure + the head-blocked-lane consequence); outbound `0145-to-user.md`
   (non-firing) reports the closure and the hand-archive.
+
+## Unit 41-REPAIR implementation return (second Implementer, 2026-07-14): policy and sweep records GREEN; Architect audit requested; Git publication blocked by sandbox
+
+Source contract: the units 41+53 adjudication above and the 25M-05 record in
+`notes/training-stack.md`.  The user explicitly assigned Sol as second
+Implementer for this unit and required two subagents: one built the persisted
+AMP-policy half and one built the sweep-product half.  I integrated and read
+back both halves before running the combined witness.
+
+Production result:
+
+- `emulator/training.py`: `run_emulator` now owns the executed autocast dtype
+  and scaler policy.  Both ordinary and transfer-refine passes consume those
+  values, and `resolved_train` persists `amp_dtype` and `scaler_policy` into
+  `config_resolved_yaml`.  The loop-local device re-derivation is gone.  This
+  landing records the current executed policy (`float16` on MPS,
+  `bfloat16` elsewhere, `unscaled`); it does not annex unit 45M-39's separate
+  gradient-scaling repair.
+- `emulator/family_drivers.py`: one immutable tuple record owns model identity,
+  family, rescale, resolved activation and gate count, head pin and gate count,
+  threshold, worker count and the relevant training-size fact.  An activation
+  sweep additionally records `activation: swept` and the ordered values.
+- Both cosmic-shear sweep drivers construct that record once before the
+  serial/pooled split.  Worker setup, saved tables, banner labels and figure
+  labels consume it; neither pooled path transports the raw optional
+  `args.activation`.  N-train now retains `exp.model_name`, including
+  `rescnn_nla`.
+- `emulator/plotting.py` accepts the resolved design label for an ordinary
+  sweep figure.  The acceptance witness was changed by name and intent from a
+  negative review witness to positive acceptance.  This is the named
+  gate-surface change required by its own pre-repair header and the handoff:
+  every old defect assertion is now a positive arm, with controls that remove
+  the policy fields, restore a loop-local owner, restore the raw optional
+  activation, and reverse the activation-family order.
+
+RED-before, run against the untouched production tree with
+`PYTHONPATH=. /Users/vivianmiranda/miniforge/envs/cosmology/bin/python3
+gates/checks/redteam_unit41_policy_witness.py` (rc 0 meant the negative review
+witness reproduced every defect):
+
+```text
+unit 41 persisted-policy and sweep-product witnesses
+  [PASS] artifact omits the resolved AMP dtype and scaler policy
+  [PASS] AMP dtype is locally re-derived outside the record owner
+  [PASS] default H is published as activation=None in the N-train table
+  [PASS] a YAML power selection is published as activation=None
+  [PASS] the explicit CLI override is the control that happens to agree
+  [PASS] sweep products omit the resolved head activation pin
+  [PASS] activation-family value order survives as a categorical table control
+  [PASS] activation-family metadata has no immutable resolved-value record
+  [PASS] both pooled paths transport the raw optional flag for re-resolution
+  [PASS] the figure label omits activation and the head pin
+  [PASS] the ordinary-sweep figure receives no resolved design metadata
+  [PASS] N-train drops the composed IA identity from its product name
+ALL CURRENT DEFECTS REPRODUCED (review witness, not acceptance)
+```
+
+GREEN-after, same interpreter and path after integration (rc 0):
+
+```text
+unit 41 persisted-policy and sweep-product acceptance
+  [PASS] artifact persists the resolved AMP dtype and scaler policy
+  [PASS] dropping both resolved policy fields is rejected
+  [PASS] the resolved policy has one owner beside the artifact record
+  [PASS] restoring a loop-local AMP dtype owner is rejected
+  [PASS] default H is published as the activation that ran
+  [PASS] a YAML power selection is published as the activation that ran
+  [PASS] an explicit activation override is preserved
+  [PASS] sweep products carry the resolved head activation pin
+  [PASS] activation-family value order survives as a categorical table control
+  [PASS] activation-family metadata carries one immutable ordered record
+  [PASS] both pooled paths transport the shared resolved activation
+  [PASS] the figure label carries model, activation, and head pin
+  [PASS] the ordinary-sweep figure receives resolved design metadata
+  [PASS] N-train preserves the composed IA identity in its product name
+  [PASS] restoring the raw optional activation is rejected
+  [PASS] reversing the activation-family order changes the record
+unit41-policy: ALL PASS
+```
+
+Additional gates:
+
+```text
+py_compile: PASS on all six touched Python files
+git diff --check: PASS
+plot-design-label: PASS (real PDF writer, categorical activation values)
+```
+
+Touched Python files: `emulator/training.py`, `emulator/family_drivers.py`,
+`emulator/plotting.py`, `cosmic_shear_sweep_ntrain_emulator.py`,
+`cosmic_shear_sweep_hyperparam_emulator.py`, and
+`gates/checks/redteam_unit41_policy_witness.py`.
+
+Publication blocker: this managed turn can write the worktree but `.git` and
+`.git/worktrees/amazing-keller-e798b6` are read-only.  The requested
+`git switch -c codex/unit-41-repair main` failed before any edit with
+`Unable to create .../index.lock: Operation not permitted`; the same boundary
+prevents `git add` and `git commit`.  Therefore no SHA exists and none is
+invented.  The working tree remains on `claude/amazing-keller-e798b6`; the
+Architect must audit this exact diff, then materialize it on the named branch
+or grant a writable Git turn.
+
+This is second-Implementer evidence awaiting independent Architect audit.  It
+is not self-certification and does not authorize a merge.
+
+Landing block (print only; merge and push remain the user's alone):
+
+```text
+# First preserve this exact working diff, then apply it in a writable clone or
+# worktree created from current main as codex/unit-41-repair.
+git add emulator/training.py emulator/family_drivers.py emulator/plotting.py
+git add cosmic_shear_sweep_ntrain_emulator.py
+git add cosmic_shear_sweep_hyperparam_emulator.py
+git add gates/checks/redteam_unit41_policy_witness.py
+git add notes/gates-and-board.md notes/training-stack.md notes/backlog.md
+git add notes/MEMORY.md notes/mailbox/0147-to-fable.md
+git commit -m "emulators: persist the numerical policy and sweep design"
+# After Fable's independent audit only:
+git checkout main
+git merge --ff-only codex/unit-41-repair
+git push origin main
+```
+
+## TEX-PROSE-07 + TEX-PROSE-08: CANCELLED by user ruling (2026-07-14)
+
+The user cancelled both units before their audit ("you can cancel them
+to audit (we are running out of credits) - audit the latex is not
+priority"). Standing record:
+
+- Sol's implementation exists at tip f085260 on an unlinked clone
+  (transport HOLD was already user-owed). It stays UNAUDITED and
+  UNMERGED; nothing further is spent on it. If the guide's prose is
+  revisited later, that tip is the starting point and a fresh audit is
+  owed before any merge.
+- Both "- OPEN" lines leave notes/backlog.md as CANCELLED, not as GO:
+  the ledger counts work still owed execution and audit, and the user
+  has ruled none is owed here.
+- The register entries in the red-team note stay as written (history
+  is never rewritten); this section is the closing pointer.

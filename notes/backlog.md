@@ -25,12 +25,10 @@ deliberately just countable lines.
 - OPEN unit 62 (D5 remainder): see didactics register
 - OPEN units 64/70 (D5 remainder): see didactics register
 - OPEN staging reopen (unit 32 successor): needs Architect ruling
-- OPEN TEX-PROSE-07: passive prose / owning boundary — red-team register
-- OPEN TEX-PROSE-08: see register
 - OPEN unit-93 hold resolution (83e4507)
 - OPEN daemon: --dry-run mutates (placeholder check precedes the dry_run branch, mailbox_daemon.py 236-247) — repair rides the tools-review daemon-repair unit; adjudicated in the README-DELTA audit, notes/gates-and-board.md 2026-07-14
 - OPEN daemon: user-facing prints violate the register (` -- ` + all-caps emphasis) — RULED in the README-DELTA audit (notes/gates-and-board.md 2026-07-14): fix the prints in the tools-review repair unit and refresh the README's quoted lines in the same series; the verbatim quotes stand until then
-- OPEN unit 41-REPAIR: persist amp_dtype/scaler_policy + sweep-product metadata (witness: gates/checks/redteam_unit41_policy_witness.py) — UNBLOCKED 2026-07-14 (fixed-facts landing 1 audited GO); Sol's second-Implementer candidate per gates-and-board.md:10718
+- OPEN unit 41-REPAIR, awaiting Architect audit/publication: persisted amp_dtype/scaler_policy + one immutable sweep-product record are implemented; the positive witness is 16/16 GREEN and all touched Python compiles (register: gates-and-board.md, "Unit 41-REPAIR implementation return"). Git publication is blocked only by this turn's read-only linked-worktree metadata, so no SHA exists yet.
 - OPEN unit 53-REPAIR: canonical study manifest + digest + name resolver (witness: gates/checks/redteam_unit53_manifest_witness.py) — UNBLOCKED 2026-07-14 (fixed-facts landing 1 audited GO)
 - OPEN gate defect: generator_ranges retired-header mutation arm is hollow on GetDist 1.6.2 (comment lines skipped; red on HEAD, proven pre-existing) — notes/gates-and-board.md landing-1 audit 2026-07-14
 - OPEN gate defect: transfer-identity.cross-family-base-refusal is hollow (fixture config lacks n_train, the leg dies before the rule it names; red on HEAD on any torch machine) — notes/gates-and-board.md landing-1 audit 2026-07-14
