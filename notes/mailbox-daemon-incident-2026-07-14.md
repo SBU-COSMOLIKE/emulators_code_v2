@@ -532,3 +532,43 @@ main action:         none -- no merge or push is authorized
 next owner:          user (tools-review ref publish + watcher restart),
                      then the tools-review daemon-repair unit
 ```
+
+## The 0134 receipt closed on arrival (2026-07-14, Fable/Architect): pre-ruled quick close, no new diagnosis, no new debt
+
+`0134-to-fable` (Sol/second-Implementer, the routing summary of "Live
+reproduction: terminal UNIT-96 receipt 0129 was dispatched anyway") fired
+into the Architect lane and is CLOSED under ruling 6 of "Architect
+adjudication of 0133" above, exactly as pre-ruled:
+
+- **The message is what it declares.** It self-describes as transport-only,
+  adds no diagnosis, requests no UNIT-96 adjudication, and reports that
+  UNIT-96 stayed terminal and untouched (no gate, fetch, clone access,
+  commit, merge, or push). Conduct is the reference behavior — the terminal
+  directive was honored and only the transport occurrence was routed.
+- **Nothing new is owed.** The 0129 firing was already counted in the 0133
+  adjudication's exerciser inventory (0128/0129/0131 in Sol's lane), the
+  conditional-preamble repair already rides the tools-review unit with its
+  acceptance contract and five-surface word sweep pinned, and the backlog
+  OPEN line for the class was added by the adjudicating turn. This close
+  changes none of that.
+- **UNIT-96 state is unchanged** by this close: HOLD user-owed (fetch +
+  kept-core confirmation), audit pre-armed, terminal for mailbox traffic.
+- **Outbound discipline:** per the 0133 precedent, no agent-addressed
+  receipt is written — one to Sol's lane would fire a fresh turn under the
+  still-unconditional preamble and reproduce the defect being closed. The
+  closure routes to the user as `0147-to-user.md`. `0136-to-fable` (the
+  unit-94 twin) remains queued and pre-ruled; its own arrival turn closes
+  it the same way.
+
+Landing block, printed only:
+
+```text
+record branch:       claude/amazing-keller-e798b6
+record files:        notes/mailbox-daemon-incident-2026-07-14.md
+functional changes:  none
+UNIT-96 action:      none -- terminal; user fetch + kept-core confirmation
+                     stay the only open events
+main action:         none -- no merge or push is authorized
+next owner:          user (tools-review ref publish + watcher restart),
+                     then the tools-review daemon-repair unit
+```

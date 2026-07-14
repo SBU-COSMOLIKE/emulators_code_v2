@@ -12681,18 +12681,18 @@ witness reproduced every defect):
 
 ```text
 unit 41 persisted-policy and sweep-product witnesses
-  [PASS] artifact omits the resolved AMP dtype and scaler policy
-  [PASS] AMP dtype is locally re-derived outside the record owner
-  [PASS] default H is published as activation=None in the N-train table
-  [PASS] a YAML power selection is published as activation=None
-  [PASS] the explicit CLI override is the control that happens to agree
-  [PASS] sweep products omit the resolved head activation pin
-  [PASS] activation-family value order survives as a categorical table control
-  [PASS] activation-family metadata has no immutable resolved-value record
-  [PASS] both pooled paths transport the raw optional flag for re-resolution
-  [PASS] the figure label omits activation and the head pin
-  [PASS] the ordinary-sweep figure receives no resolved design metadata
-  [PASS] N-train drops the composed IA identity from its product name
+  [PASS] artifact omits the resolved AMP dtype and scaler policy  (readback keys=['bs', 'clip', 'device', 'ema', 'eval_bs', 'focus', 'freeze_trunk', 'head', 'loss', 'lr', 'nepochs', 'optimizer', 'rewind', 'scheduler', 'seed', 'thresholds', 'trim', 'trunk', 'trunk_epochs', 'use_amp'])
+  [PASS] AMP dtype is locally re-derived outside the record owner  (assignments=[('amp_dtype', 'training_loop_batched', 1953)]; record owner=run_emulator)
+  [PASS] default H is published as activation=None in the N-train table  (metadata={'model': 'ResCNN', 'family': 'cosmolike', 'rescale': 'none', 'activation': None, 'threshold': 0.2, 'pool': 20, 'n_gpus': 1})
+  [PASS] a YAML power selection is published as activation=None  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': None, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] the explicit CLI override is the control that happens to agree  (metadata={'model': 'ResCNN', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'power', 'threshold': 0.2, 'pool': 20, 'n_gpus': 1})
+  [PASS] sweep products omit the resolved head activation pin  (missing=['head_activation', 'head_activation_n_gates'])
+  [PASS] activation-family value order survives as a categorical table control  (value header preserved)
+  [PASS] activation-family metadata has no immutable resolved-value record  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'swept', 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] both pooled paths transport the raw optional flag for re-resolution  (N-train=None; hyper=None; executed YAML fixture=power)
+  [PASS] the figure label omits activation and the head pin  (label='ResCNN (none)')
+  [PASS] the ordinary-sweep figure receives no resolved design metadata  (keywords=['param', 'values', 'fracs', 'threshold', 'savepath'])
+  [PASS] N-train drops the composed IA identity from its product name  (selected='TemplateResCNN'; resolved='rescnn_nla')
 ALL CURRENT DEFECTS REPRODUCED (review witness, not acceptance)
 ```
 
@@ -12700,22 +12700,22 @@ GREEN-after, same interpreter and path after integration (rc 0):
 
 ```text
 unit 41 persisted-policy and sweep-product acceptance
-  [PASS] artifact persists the resolved AMP dtype and scaler policy
-  [PASS] dropping both resolved policy fields is rejected
-  [PASS] the resolved policy has one owner beside the artifact record
-  [PASS] restoring a loop-local AMP dtype owner is rejected
-  [PASS] default H is published as the activation that ran
-  [PASS] a YAML power selection is published as the activation that ran
-  [PASS] an explicit activation override is preserved
-  [PASS] sweep products carry the resolved head activation pin
-  [PASS] activation-family value order survives as a categorical table control
-  [PASS] activation-family metadata carries one immutable ordered record
-  [PASS] both pooled paths transport the shared resolved activation
-  [PASS] the figure label carries model, activation, and head pin
-  [PASS] the ordinary-sweep figure receives resolved design metadata
-  [PASS] N-train preserves the composed IA identity in its product name
-  [PASS] restoring the raw optional activation is rejected
-  [PASS] reversing the activation-family order changes the record
+  [PASS] artifact persists the resolved AMP dtype and scaler policy  (readback policy={'amp_dtype': 'torch.float16', 'scaler_policy': 'unscaled'})
+  [PASS] dropping both resolved policy fields is rejected  (mutation keys=['bs', 'clip', 'device', 'ema', 'eval_bs', 'focus', 'freeze_trunk', 'head', 'loss', 'lr', 'nepochs', 'optimizer', 'rewind', 'scheduler', 'seed', 'thresholds', 'trim', 'trunk', 'trunk_epochs', 'use_amp'])
+  [PASS] the resolved policy has one owner beside the artifact record  (assignments=[('amp_dtype', 'run_emulator', 2746), ('scaler_policy', 'run_emulator', 2748)])
+  [PASS] restoring a loop-local AMP dtype owner is rejected  (mutated owners=[('amp_dtype', 'run_emulator'), ('scaler_policy', 'run_emulator'), ('amp_dtype', 'training_loop_batched')])
+  [PASS] default H is published as the activation that ran  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'H', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] a YAML power selection is published as the activation that ran  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'power', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] an explicit activation override is preserved  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'power', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] sweep products carry the resolved head activation pin  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'H', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] activation-family value order survives as a categorical table control  (value header preserved)
+  [PASS] activation-family metadata carries one immutable ordered record  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'swept', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'activation_values': ('H', 'power'), 'n_train': 20, 'n_gpus': 2})
+  [PASS] both pooled paths transport the shared resolved activation  (N-train='power'; hyper='power')
+  [PASS] the figure label carries model, activation, and head pin  (label='rescnn_nla (none; activation H, n_gates 5; head gated_power, n_gates 7)')
+  [PASS] the ordinary-sweep figure receives resolved design metadata  (keywords=['param', 'values', 'fracs', 'threshold', 'design_label', 'savepath'])
+  [PASS] N-train preserves the composed IA identity in its product name  (selected='rescnn_nla'; resolved='rescnn_nla')
+  [PASS] restoring the raw optional activation is rejected  (raw=None; resolved='H')
+  [PASS] reversing the activation-family order changes the record  (mutated values=('power', 'H'))
 unit41-policy: ALL PASS
 ```
 
@@ -12778,3 +12778,19 @@ priority"). Standing record:
   has ruled none is owed here.
 - The register entries in the red-team note stay as written (history
   is never rewritten); this section is the closing pointer.
+
+## All remaining LaTeX-guide work: CANCELLED by user ruling (2026-07-14)
+
+Follow-on to the TEX-PROSE-07/08 cancellation ("tex notes also
+cancel"): every remaining ledger line whose deliverable is the LaTeX
+guide is cancelled to conserve credits.
+
+- TEX-PROSE-04/05/06 republish + held audit: Sol's delivered work
+  stays parked at its recorded tips, UNAUDITED and UNMERGED; the
+  guide keeps its current text on main.
+- texnotes routing (guide :5399, prediction-trace Step 1 pair form +
+  bare-row refusal): the gap stays NAMED here and in the landings-2+3
+  audit record, so it is findable if the guide is ever revisited; no
+  unit is owed for it now.
+- Standing rule unchanged: texnotes/ remains red-team-only; nothing
+  here transfers guide custody.
