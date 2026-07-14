@@ -47,6 +47,12 @@ The gate commands default to the board's cheap surfaces and can be replaced
 with the unit's own validation gate:
 
     --gate-cmd "PYTHONPATH=. <cocoa-python> gates/checks/<child>.py"
+
+Lost between manual handoffs? Run the status sweep -- no clipboard, no
+waiting, just the current program state read mechanically from git and the
+notes:
+
+    python tools/handoff_router.py --status
 """
 
 import argparse
@@ -179,11 +185,112 @@ def run_gates(commands, seq):
     return (log_path, all_green)
 
 
+def _git(args_list):
+    """Run one git command and return its stdout text (empty on failure).
+
+    Arguments:
+      args_list = the git arguments, e.g. ["log", "--oneline", "-1", "main"].
+    """
+    proc = subprocess.run(["git"] + args_list,
+                          capture_output=True,
+                          text=True)
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout.strip()
+
+
+def status_report():
+    """Print where the program stands, read mechanically from git + notes.
+
+    No clipboard, no waiting. The output is itself a valid re-orientation
+    text: paste it into any of the three sessions and the agent can pick up
+    from the notes it names.
+    """
+    print("== HANDOFF STATUS (mechanical sweep) ==\n")
+
+    # 1. the working branch vs main: is a landing block pending?
+    main_tip = _git(["log", "--oneline", "-1", "main"])
+    print("main tip:            " + main_tip)
+    branches = _git(["branch", "--list", "claude/*", "codex/*",
+                     "--format=%(refname:short) %(committerdate:unix)"])
+    working = ""
+    newest = 0
+    for line in branches.splitlines():
+        parts = line.rsplit(" ", 1)
+        if len(parts) != 2 or not parts[0].startswith("claude/"):
+            continue
+        if int(parts[1]) > newest:
+            newest = int(parts[1])
+            working = parts[0]
+    if working:
+        tip = _git(["log", "--oneline", "-1", working])
+        ahead = _git(["rev-list", "--count", "main.." + working])
+        print("working branch:      " + tip)
+        if ahead != "0":
+            print("  -> " + ahead + " commit(s) not on main. Landing block:")
+            print("     git merge --no-edit " + working
+                  + " && git push origin main")
+        else:
+            print("  -> main is current; no landing block pending.")
+
+    # 2. red-team / backup branches: integrated or awaiting Fable?
+    print("\ncodex/* branches:")
+    any_open = False
+    for line in branches.splitlines():
+        parts = line.rsplit(" ", 1)
+        if len(parts) != 2 or not parts[0].startswith("codex/"):
+            continue
+        name = parts[0]
+        merged = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", name, working],
+            capture_output=True)
+        if merged.returncode == 0:
+            state = "integrated"
+        else:
+            state = "OPEN -- awaiting Fable audit/merge (or still in work)"
+            any_open = True
+        tip = _git(["log", "--oneline", "-1", name])
+        print("  [" + state + "] " + tip)
+    if not any_open:
+        print("  (none open)")
+
+    # 3. the newest adjudication records (their titles carry the verdicts).
+    print("\nlatest records in notes/gates-and-board.md:")
+    gb = os.path.join(NOTES_DIR, "gates-and-board.md")
+    if os.path.isfile(gb):
+        heads = []
+        with open(gb, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("## "):
+                    heads.append(line.rstrip())
+        for head in heads[-6:]:
+            print("  " + head)
+
+    # 4. the newest relay transport copies, if the router has run.
+    if os.path.isdir(RELAY_DIR):
+        names = sorted(os.listdir(RELAY_DIR))
+        if names:
+            print("\nnewest relay transport copies (non-authoritative):")
+            for name in names[-3:]:
+                print("  notes/relay/" + name)
+
+    print("\nNext action, in order of precedence:")
+    print("  1. any OPEN codex branch above -> relay its handoff (or this")
+    print("     status text) to the Fable session for audit + merge.")
+    print("  2. a pending landing block -> run it (it is printed above).")
+    print("  3. otherwise -> the loop is idle; start the next unit with")
+    print("     --note, or paste this status into any session and ask.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Clipboard relay for the Fable/Opus/Sol loop")
+    parser.add_argument("--status",
+                        action="store_true",
+                        help="print the mechanical program status (branches, "
+                             "pending landing block, latest records) and exit")
     parser.add_argument("--note",
-                        required=True,
+                        required=False,
                         help="notes/ file carrying the ARCHITECT handoff "
                              "(the substance; the prompt only points here)")
     parser.add_argument("--section",
@@ -204,6 +311,12 @@ def main():
                              "default board surfaces")
     args = parser.parse_args()
 
+    if args.status:
+        status_report()
+        return 0
+    if not args.note:
+        print("either --status or --note is required (see --help)")
+        return 1
     if not os.path.isfile(args.note):
         print("no such note: " + args.note)
         return 1
