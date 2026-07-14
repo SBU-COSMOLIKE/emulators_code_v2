@@ -38,6 +38,11 @@ Usage:
     python tools/mailbox_daemon.py --watch          # poll every 20 s
     python tools/mailbox_daemon.py --send opus --unit "notes/<spec>.md ..."
                                                     # drop a first message
+    python tools/mailbox_daemon.py --send sol --ticket-kind closure \
+        --unit "Close the existing ledger item in notes/<spec>.md."
+                                                    # classify every Sol send
+    python tools/mailbox_daemon.py --watch --fix-only Yes
+                                                    # close existing work only
     python tools/mailbox_daemon.py --watch --opus-effort high
                                                     # dial one agent's effort
         --fable-effort / --opus-effort take low|medium|high|xhigh|max
@@ -172,6 +177,20 @@ def positive_int(value):
     return parsed
 
 
+def truthy_fix_only(value):
+    """Parse the deliberately forgiving truthy value for ``--fix-only``.
+
+    The user explicitly allowed capitalization mistakes and surrounding
+    whitespace.  Other supplied values are errors rather than silently
+    disabling a safety mode because of a typo.
+    """
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes"}:
+        return True
+    raise argparse.ArgumentTypeError(
+        "value must be 1, true, or yes (capitalization is ignored)")
+
+
 def build_agent_commands(fable_effort, opus_effort, sol_effort,
                          sol_context_budget):
     """Assemble the per-agent headless CLI commands at the given settings.
@@ -260,6 +279,11 @@ PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
 # dispatch rate).
 SECOND_IMPLEMENTER_THRESHOLD = 10
 BACKLOG_LEDGER = os.path.join(WORKTREE, "notes", "backlog.md")
+SOL_TICKET_KINDS = ("closure", "discovery")
+SOL_DISPATCH_TICKET_KINDS = SOL_TICKET_KINDS + ("transport",)
+SOL_TICKET_HEADER = "MAILBOX-TICKET: "
+FIX_ONLY_ENVIRONMENT = "MAILBOX_FIX_ONLY"
+FIX_ONLY_LOCK_NAME = ".fix-only.lock"
 
 # One landed milestone = ONE FULL AUDIT TRAIL: the feature, its
 # witness/gate leg, and the notes audit record — a few hundred changed
@@ -310,6 +334,14 @@ PREAMBLE = (
     "THIS EXACT DIRECTORY (your cwd may differ -- a relative notes/mailbox\n"
     "path is wrong unless it resolves here):\n"
     "    " + MAILBOX + "\n"
+    "Every work outbound addressed to Sol must start with exactly one of\n"
+    "these classification lines:\n"
+    "    MAILBOX-TICKET: closure\n"
+    "    MAILBOX-TICKET: discovery\n"
+    "Use closure only for work that retires an existing - OPEN ledger line;\n"
+    "use discovery when the product is new findings. The daemon refuses to\n"
+    "guess a class from prose. The daemon's exact no-work transport ping is\n"
+    "the sole reserved MAILBOX-TICKET: transport exception.\n"
     "Narrow exception: if and only if the inbound's binding instruction\n"
     "explicitly says the thread is TERMINAL and no reply is owed, write no\n"
     "outbound merely to satisfy this wrapper. Ambiguity follows the ordinary\n"
@@ -346,6 +378,103 @@ def pending_messages():
             found.append(path)
     found.sort(key=message_sequence)
     return found
+
+
+def total_open_demand(backlog=None):
+    """Return queued messages plus literal open lines in the ledger."""
+    if backlog is None:
+        backlog = pending_messages()
+    return len(backlog) + backlog_ledger_count()
+
+
+def sol_ticket_kind(message):
+    """Return a Sol message's exact first-line class, or ``None``.
+
+    Free-form prose is deliberately never classified.  LF and CRLF are both
+    accepted as physical line endings, but whitespace, aliases, and a header
+    appearing later in the body do not count.
+    """
+    match = re.match(
+        r"\A" + re.escape(SOL_TICKET_HEADER)
+        + r"(" + "|".join(map(re.escape, SOL_DISPATCH_TICKET_KINDS))
+        + r")(?:\r?\n|\Z)",
+        message)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def sol_ticket_body(message):
+    """Return the body after a valid Sol classification line."""
+    match = re.match(
+        r"\A" + re.escape(SOL_TICKET_HEADER)
+        + r"(?:" + "|".join(map(re.escape, SOL_DISPATCH_TICKET_KINDS))
+        + r")(?:\r?\n|\Z)",
+        message)
+    if match is None:
+        return message
+    return message[match.end():]
+
+
+def transport_ping_text(agent):
+    """Return the one no-work transport payload reserved for ``--ping``."""
+    return (
+        "RELAY CONFIRMATION PING for " + agent + ". This is a "
+        "transport test only; no unit is assigned and no repository "
+        "file may change. Reply by creating ONE new file,\n"
+        "notes/mailbox/<next-sequence>-to-user.md, whose entire body "
+        "is one line:\n\n"
+        "    PONG " + agent + " from <your model name>\n\n"
+        "Then stop. (Files addressed -to-user are read by the human; "
+        "the daemon never dispatches them.)\n")
+
+
+def sol_ticket_payload(ticket_kind, text):
+    """Build the byte-stable persisted envelope for a Sol message."""
+    payload = SOL_TICKET_HEADER + ticket_kind + "\n\n" + text
+    if not payload.endswith("\n"):
+        payload = payload + "\n"
+    return payload
+
+
+def valid_sol_transport(message):
+    """Return whether ``message`` is exactly the daemon's Sol ping."""
+    return message == sol_ticket_payload(
+        ticket_kind="transport", text=transport_ping_text(agent="sol"))
+
+
+def fix_only_environment_active():
+    """Return whether this send inherited a fix-only watch contract."""
+    value = os.environ.get(FIX_ONLY_ENVIRONMENT)
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes"}
+
+
+def sol_ticket_refusal(ticket_kind, total, fix_only,
+                       transport_valid=False):
+    """Return the binding refusal reason for a Sol ticket, or ``None``."""
+    if ticket_kind == "transport":
+        if transport_valid:
+            return None
+        return ("MAILBOX-TICKET: transport is reserved for the daemon's "
+                "exact --ping sol payload")
+    if ticket_kind not in SOL_TICKET_KINDS:
+        return ("missing or invalid first line; every Sol ticket must start "
+                "with exactly 'MAILBOX-TICKET: closure' or "
+                "'MAILBOX-TICKET: discovery'")
+    if fix_only and ticket_kind != "closure":
+        return ("fix-only watch is closing-only; discovery tickets and new "
+                "backlog lines are forbidden until the watch is restarted "
+                "without --fix-only")
+    if (ticket_kind == "discovery"
+            and total >= SECOND_IMPLEMENTER_THRESHOLD):
+        return ("total open demand is " + str(total) + ", at or past "
+                + str(SECOND_IMPLEMENTER_THRESHOLD)
+                + "; append this discovery ticket to the END of "
+                "notes/backlog.md instead and wait until total demand "
+                "falls below the threshold")
+    return None
 
 
 def inflight_lane_blockers():
@@ -592,7 +721,8 @@ def exact_duration(value):
     return format(value, ".17g")
 
 
-def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes):
+def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
+                    fix_only=False):
     """Build the mechanical pre-preamble hint for a live dispatch."""
     lines = [
         "--- DISPATCH CURRENCY (mechanical hint only) ---",
@@ -607,6 +737,10 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes):
             "this dispatch previously ran for "
             + exact_duration(value=previous_timeout_minutes)
             + " minutes and was killed")
+    if fix_only:
+        lines.append(
+            "fix-only watch: active; close existing ledger lines only; "
+            "create no discovery tickets or new backlog lines.")
     lines.append("--- END DISPATCH CURRENCY ---")
     return "\n".join(lines) + "\n\n"
 
@@ -698,34 +832,29 @@ def mailbox_path_is_unredirected(mailbox):
     return os.path.realpath(candidate) == expected
 
 
-def dispatch_lock_is_live_watch(mailbox):
-    """Return whether ``mailbox`` has a lock held by a tagged watch loop.
+def held_lock_probe(mailbox, lock_name):
+    """Probe a regular exact-path lock and its bounded owner metadata.
 
-    Diagnosis is deliberately read-only.  In particular, opening the lock
-    must never create a missing file: ``--send --dry-run`` relies on this
-    helper while promising to leave the filesystem byte-for-byte alone.  A
-    shared nonblocking probe coexists with other senders doing the same check,
-    but is refused by the exclusive lock held by a real dispatch loop.  Only
-    exact ``watch pid N`` metadata counts; an unlocked stale lock, a transient
-    ``once`` owner, and legacy or malformed contents do not prove that anyone
-    is polling the mailbox.
-
-    Arguments:
-      mailbox = absolute or relative path to a mailbox directory.
+    The probe is deliberately read-only.  Opening a missing lock must never
+    create it because both ``--send --dry-run`` and a refused discovery promise
+    zero filesystem mutation.  A shared nonblocking probe coexists with other
+    diagnostics but is refused by the exclusive lock held by the real owner.
 
     Returns:
-      True only while a regular, non-symlink ``.dispatch.lock`` is held and
-      contains an exact watch-loop owner tag.
+      ``(held, owner)``. ``held`` is true only when the exact regular inode is
+      actively locked. ``owner`` is its bounded ASCII text, or ``None`` when
+      held metadata is malformed. Symlinks, redirected parents, stale files,
+      replacements, and devices never count as held.
     """
-    lock_path = os.path.join(mailbox, ".dispatch.lock")
+    lock_path = os.path.join(mailbox, lock_name)
     descriptor = None
     probe_acquired = False
     try:
         if not mailbox_path_is_unredirected(mailbox=mailbox):
-            return False
+            return False, None
         before = os.lstat(lock_path)
         if not stat.S_ISREG(before.st_mode):
-            return False
+            return False, None
         flags = os.O_RDONLY | os.O_NONBLOCK
         flags = flags | getattr(os, "O_CLOEXEC", 0)
         flags = flags | getattr(os, "O_NOFOLLOW", 0)
@@ -734,14 +863,14 @@ def dispatch_lock_is_live_watch(mailbox):
         if (not stat.S_ISREG(opened.st_mode)
                 or (opened.st_dev, opened.st_ino)
                 != (before.st_dev, before.st_ino)):
-            return False
+            return False, None
         try:
             # A watch/once loop owns an exclusive flock.  SH is intentional:
             # simultaneous send diagnostics can all acquire it, so they can
             # never mistake one another for a live watcher.
             fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
             probe_acquired = True
-            return False
+            return False, None
         except BlockingIOError:
             pass
         # The path may have been replaced after open().  A lock on an
@@ -751,18 +880,19 @@ def dispatch_lock_is_live_watch(mailbox):
         if (not stat.S_ISREG(current.st_mode)
                 or (current.st_dev, current.st_ino)
                 != (opened.st_dev, opened.st_ino)):
-            return False
+            return False, None
         # Bound the read so a corrupt/sparse lock cannot consume unbounded
         # memory.  os.pread leaves the descriptor offset untouched.
         owner_bytes = os.pread(descriptor, 129, 0)
         if len(owner_bytes) > 128:
-            return False
-        owner = owner_bytes.decode("ascii")
-        return WATCH_LOCK_OWNER_RE.fullmatch(owner) is not None
-    except (OSError, UnicodeError):
-        # This warning is advisory.  A disappearing or unreadable lock must
-        # read as "not proven live", never make --send fail or hang.
-        return False
+            return True, None
+        try:
+            owner = owner_bytes.decode("ascii")
+        except UnicodeError:
+            return True, None
+        return True, owner
+    except OSError:
+        return False, None
     finally:
         if descriptor is not None:
             if probe_acquired:
@@ -774,6 +904,36 @@ def dispatch_lock_is_live_watch(mailbox):
                 os.close(descriptor)
             except OSError:
                 pass
+
+
+def held_lock_owner(mailbox, lock_name):
+    """Return valid owner text for an actively held exact-path lock."""
+    held, owner = held_lock_probe(mailbox=mailbox, lock_name=lock_name)
+    if not held:
+        return None
+    return owner
+
+
+def dispatch_lock_is_live_watch(mailbox):
+    """Return whether ``mailbox`` has an exact held ``watch pid N`` lock."""
+    owner = held_lock_owner(mailbox=mailbox, lock_name=".dispatch.lock")
+    if owner is None:
+        return False
+    return WATCH_LOCK_OWNER_RE.fullmatch(owner) is not None
+
+
+def fix_only_watch_is_active(mailbox=None):
+    """Return whether this mailbox's reserved mode lock is actively held.
+
+    Owner text is diagnostic, not authority: once the exact-path regular lock
+    is held, malformed or concurrently damaged metadata must fail closed as
+    fix-only.  Unlocked stale files still read inactive.
+    """
+    if mailbox is None:
+        mailbox = MAILBOX
+    held, _ = held_lock_probe(
+        mailbox=mailbox, lock_name=FIX_ONLY_LOCK_NAME)
+    return held
 
 
 def mailbox_candidates():
@@ -874,12 +1034,106 @@ def release_dispatch_lock(lock_file):
     lock_file.close()
 
 
-def dispatch(path, dry_run):
+def acquire_fix_only_lock_while_sequence_locked():
+    """Create the mode marker after the caller serializes publishers."""
+    if not mailbox_path_is_unredirected(mailbox=MAILBOX):
+        print("cannot activate fix-only mode on a redirected mailbox path")
+        return None
+    lock_path = os.path.join(MAILBOX, FIX_ONLY_LOCK_NAME)
+    flags = os.O_RDWR | os.O_CREAT | os.O_NONBLOCK
+    flags = flags | getattr(os, "O_CLOEXEC", 0)
+    flags = flags | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        print("cannot activate fix-only mode: " + str(exc))
+        return None
+    lock_file = os.fdopen(descriptor, "r+", encoding="utf-8")
+
+    def path_still_names_opened_inode(opened):
+        """Return whether the public mode path still names this descriptor."""
+        try:
+            current = os.lstat(lock_path)
+        except OSError:
+            return False
+        return (stat.S_ISREG(current.st_mode)
+                and (opened.st_dev, opened.st_ino)
+                == (current.st_dev, current.st_ino))
+
+    try:
+        opened = os.fstat(lock_file.fileno())
+        if (not stat.S_ISREG(opened.st_mode)
+                or not path_still_names_opened_inode(opened=opened)):
+            print("cannot activate fix-only mode: mode lock is not an "
+                  "unchanged regular file")
+            lock_file.close()
+            return None
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError) as exc:
+        print("cannot activate fix-only mode: its mode lock is already held "
+              "or unreadable (" + str(exc) + ")")
+        lock_file.close()
+        return None
+    if not path_still_names_opened_inode(opened=opened):
+        print("cannot activate fix-only mode: mode lock path changed while "
+              "its lock was acquired")
+        release_fix_only_lock(lock_file=lock_file)
+        return None
+    try:
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write("fix-only watch pid " + str(os.getpid()))
+        lock_file.flush()
+        os.fsync(lock_file.fileno())
+    except OSError as exc:
+        print("cannot activate fix-only mode: could not publish its owner ("
+              + str(exc) + ")")
+        release_fix_only_lock(lock_file=lock_file)
+        return None
+    if not path_still_names_opened_inode(opened=opened):
+        print("cannot activate fix-only mode: mode lock path changed while "
+              "its owner was published")
+        release_fix_only_lock(lock_file=lock_file)
+        return None
+    return lock_file
+
+
+def acquire_fix_only_lock():
+    """Atomically activate fix-only mode relative to message publication.
+
+    Sol senders perform their final policy check while holding the same
+    sequence lock.  Therefore a concurrent sender either publishes wholly
+    before activation or observes the held mode marker and refuses; it cannot
+    publish after the watch has become fix-only.
+    """
+    os.makedirs(MAILBOX, exist_ok=True)
+    sequence_path = os.path.join(MAILBOX, ".sequence.lock")
+    try:
+        with open(sequence_path, "a+", encoding="utf-8") as sequence_file:
+            fcntl.flock(sequence_file.fileno(), fcntl.LOCK_EX)
+            try:
+                return acquire_fix_only_lock_while_sequence_locked()
+            finally:
+                fcntl.flock(sequence_file.fileno(), fcntl.LOCK_UN)
+    except OSError as exc:
+        print("cannot activate fix-only mode: sequence lock failed ("
+              + str(exc) + ")")
+        return None
+
+
+def release_fix_only_lock(lock_file):
+    """Release a lock returned by ``acquire_fix_only_lock``."""
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+
+
+def dispatch(path, dry_run, fix_only=False):
     """Send one message file to its addressee's headless CLI.
 
     Arguments:
       path    = the mailbox message file.
-      dry_run = True to print the would-be command without running it.
+      dry_run  = True to print the would-be command without running it.
+      fix_only = True when the owning watch may launch declared closures only.
 
     Returns:
       True when the dispatch ran (or would run) cleanly.
@@ -889,6 +1143,20 @@ def dispatch(path, dry_run):
     if agent_match is None:
         raise ValueError("not a pending agent message: " + path)
     agent = agent_match.group(1)
+    # Take one policy snapshot before claim_message() removes this candidate.
+    # Dispatch evaluates all OTHER current demand: the already-published
+    # candidate must not turn an authorized 9 -> send into a self-refusal at
+    # 10.  New concurrent work still counts, so a ticket can be deferred when
+    # other demand independently reaches the threshold before launch.
+    demand_before_claim = None
+    if agent == "sol":
+        pending_before_claim = pending_messages()
+        demand_before_claim = total_open_demand(
+            backlog=pending_before_claim)
+        candidate = os.path.abspath(path)
+        if any(os.path.abspath(item) == candidate
+               for item in pending_before_claim):
+            demand_before_claim = max(0, demand_before_claim - 1)
     dispatch_path = path
     currency = None
     prior_timeout = None
@@ -935,7 +1203,31 @@ def dispatch(path, dry_run):
                   "inspect inflight/ and failed/.")
         return False
 
-    marker = placeholder_in(message=message)
+    ticket_kind = None
+    if agent == "sol":
+        ticket_kind = sol_ticket_kind(message=message)
+        reason = sol_ticket_refusal(
+            ticket_kind=ticket_kind,
+            total=demand_before_claim,
+            fix_only=fix_only,
+            transport_valid=valid_sol_transport(message=message))
+        if reason is not None:
+            if dry_run:
+                print("[dry-run] would refuse " + name + ": " + reason
+                      + "; no file changed.")
+                return False
+            if park_failed_message(dispatch_path=dispatch_path):
+                print("refused " + name + ": " + reason
+                      + "; parked in failed/.")
+            else:
+                print("refused " + name + ": " + reason
+                      + "; failed-state move was not verified; inspect "
+                      "inflight/ and failed/.")
+            return False
+
+    placeholder_body = (sol_ticket_body(message=message)
+                        if agent == "sol" else message)
+    marker = placeholder_in(message=placeholder_body)
     if marker is not None:
         if dry_run:
             print("[dry-run] would refuse " + name
@@ -975,7 +1267,8 @@ def dispatch(path, dry_run):
     banner = dispatch_banner(
         store_max=currency[0],
         newer_in_lane=currency[1],
-        previous_timeout_minutes=prior_timeout)
+        previous_timeout_minutes=prior_timeout,
+        fix_only=fix_only)
     # The dynamic banner precedes the byte-unchanged PREAMBLE. Consequently
     # PREAMBLE's --- MESSAGE --- delimiter remains immediately before the
     # exact raw mailbox body, and the body remains the prompt's exact suffix.
@@ -1006,6 +1299,10 @@ def dispatch(path, dry_run):
         # growing to the native 1M-token window.
         env = os.environ.copy()
         env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(CLAUDE_CONTEXT_BUDGET)
+        if fix_only:
+            env[FIX_ONLY_ENVIRONMENT] = "1"
+        else:
+            env.pop(FIX_ONLY_ENVIRONMENT, None)
         try:
             proc = subprocess.Popen(command,
                                     stdout=f,
@@ -1246,16 +1543,17 @@ def archive_consumed_message(dispatch_path):
     return True
 
 
-def drain_lane(paths, dry_run):
+def drain_lane(paths, dry_run, fix_only=False):
     """Dispatch ONE agent's pending messages, in order (a worker body).
 
     Arguments:
       paths   = this agent's message files, already sorted by sequence.
-      dry_run = True to print the would-be commands without running them.
+      dry_run  = True to print the would-be commands without running them.
+      fix_only = True to launch only declared Sol closures.
     """
     all_consumed = True
     for path in paths:
-        if not dispatch(path=path, dry_run=dry_run):
+        if not dispatch(path=path, dry_run=dry_run, fix_only=fix_only):
             all_consumed = False
             # A false result can mean the head is still inflight because its
             # archive or failed-state move was ambiguous. Do not release later
@@ -1264,7 +1562,7 @@ def drain_lane(paths, dry_run):
     return all_consumed
 
 
-def process_backlog(dry_run):
+def process_backlog(dry_run, fix_only=False):
     """Dispatch the whole backlog: lanes in PARALLEL, each lane in order.
 
     The three agents are independent sessions, so Opus can execute a unit
@@ -1276,7 +1574,8 @@ def process_backlog(dry_run):
     is the cwd: Fable+Opus (same worktree) serialize; Sol runs alongside.
 
     Arguments:
-      dry_run = True to print the would-be commands without running them.
+      dry_run  = True to print the would-be commands without running them.
+      fix_only = True when a watch is closing existing ledger work only.
 
     Returns:
       None when there was no backlog, True when every message was consumed
@@ -1310,10 +1609,11 @@ def process_backlog(dry_run):
     lane_outcomes = {}
     outcome_lock = threading.Lock()
 
-    def drain_and_record(cwd, paths, dry_run):
+    def drain_and_record(cwd, paths, dry_run, fix_only):
         """Run one cwd lane and retain failure even if its worker raises."""
         try:
-            consumed = drain_lane(paths=paths, dry_run=dry_run)
+            consumed = drain_lane(
+                paths=paths, dry_run=dry_run, fix_only=fix_only)
         except Exception as exc:
             print("  !! dispatch lane failed: " + str(exc)
                   + "; lane is not consumed.")
@@ -1333,7 +1633,8 @@ def process_backlog(dry_run):
         worker = threading.Thread(target=drain_and_record,
                                   kwargs={"cwd": cwd,
                                           "paths": lanes[cwd],
-                                          "dry_run": dry_run})
+                                          "dry_run": dry_run,
+                                          "fix_only": fix_only})
         worker.start()
         workers.append(worker)
     for worker in workers:
@@ -1361,7 +1662,7 @@ def report_demand(backlog):
         agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
         depth[agent] = depth[agent] + 1
     ledger = backlog_ledger_count()
-    total = len(backlog) + ledger
+    total = total_open_demand(backlog=backlog)
     print("queue depth: opus=" + str(depth["opus"])
           + " sol=" + str(depth["sol"])
           + " fable=" + str(depth["fable"])
@@ -1416,21 +1717,53 @@ def report_landing_debt():
               "(.claude/FABLE_ROLE.md, Landing granularity).")
 
 
-def send(agent, text, dry_run):
+def send(agent, text, dry_run, ticket_kind=None):
     """Drop a new message into the mailbox (the loop's entry point).
 
     Arguments:
       agent   = "fable", "opus", or "sol".
       text    = the routing summary (point at notes/; do not inline specs).
-      dry_run = True to print the file that WOULD be queued and write
-                nothing. Rehearsing --send used to queue a real message
-                (main() returned before the dry-run branch ever ran), so a
-                junk body became a live dispatched turn as soon as a watch
-                picked it up -- the 0022 audit's unrunnable gate leg.
+      dry_run    = True to print the file that would be queued and write
+                   nothing. Rehearsing --send used to queue a real message
+                   (main() returned before the dry-run branch ever ran), so a
+                   junk body became a live dispatched turn as soon as a watch
+                   picked it up -- the 0022 audit's unrunnable gate leg.
+      ticket_kind = ``closure`` or ``discovery`` for public Sol work.  The
+                    exact internal Sol ping alone uses ``transport``.
 
     Returns:
       True when the message was queued, or would be queued in a dry run.
     """
+    def refusal_now():
+        """Return a current Sol-send refusal without changing disk."""
+        if agent != "sol":
+            return None
+        transport_valid = (
+            ticket_kind == "transport"
+            and text == transport_ping_text(agent="sol"))
+        return sol_ticket_refusal(
+            ticket_kind=ticket_kind,
+            total=total_open_demand(),
+            fix_only=(fix_only_environment_active()
+                      or fix_only_watch_is_active()),
+            transport_valid=transport_valid)
+
+    reason = refusal_now()
+    if reason is not None:
+        print("refused --send sol: " + reason + ".")
+        return False
+
+    payload = text
+    if agent == "sol":
+        if ticket_kind in SOL_DISPATCH_TICKET_KINDS:
+            payload = sol_ticket_payload(
+                ticket_kind=ticket_kind, text=text)
+        else:
+            # refusal_now() already handles this path. Keep the invariant
+            # explicit in case its policy is refactored later.
+            print("refused --send sol: invalid ticket classification.")
+            return False
+
     if dry_run:
         print("[dry-run] would queue "
               + os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md"))
@@ -1441,6 +1774,13 @@ def send(agent, text, dry_run):
     with open(lock_path, "a+", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         try:
+            # Concurrent senders can both observe threshold-minus-one before
+            # either takes the sequence lock. Recheck while serialized so at
+            # most one publishes across the boundary.
+            reason = refusal_now()
+            if reason is not None:
+                print("refused --send sol: " + reason + ".")
+                return False
             for _ in range(20):
                 path = os.path.join(
                     MAILBOX,
@@ -1450,8 +1790,8 @@ def send(agent, text, dry_run):
                     dir=MAILBOX)
                 try:
                     with os.fdopen(handle, "w", encoding="utf-8") as f:
-                        f.write(text)
-                        if not text.endswith("\n"):
+                        f.write(payload)
+                        if not payload.endswith("\n"):
                             f.write("\n")
                         f.flush()
                         os.fsync(f.fileno())
@@ -1494,6 +1834,11 @@ def main():
                         help="process the current backlog and exit")
     parser.add_argument("--watch", action="store_true",
                         help="poll the mailbox every 20 seconds")
+    parser.add_argument("--fix-only", metavar="value", type=truthy_fix_only,
+                        default=None,
+                        help="with --watch, close existing ledger work only; "
+                             "the value accepts 1, true, or yes in any "
+                             "capitalization")
     parser.add_argument("--send", metavar="AGENT",
                         choices=["fable", "opus", "sol"],
                         help="queue a message to this agent and exit")
@@ -1505,6 +1850,10 @@ def main():
     parser.add_argument("--unit", default="",
                         help="the message text for --send (a routing "
                              "summary pointing at notes/)")
+    parser.add_argument("--ticket-kind", choices=SOL_TICKET_KINDS,
+                        help="required with --send sol: declare whether the "
+                             "unit closes existing work or seeks new "
+                             "findings")
     parser.add_argument("--fable-effort", default=DEFAULT_FABLE_EFFORT,
                         choices=CLAUDE_EFFORT_CHOICES,
                         help="claude CLI reasoning effort for Fable "
@@ -1539,6 +1888,36 @@ def main():
                              + str(DEFAULT_SOL_CONTEXT_BUDGET) + ")")
     args = parser.parse_args()
 
+    if args.fix_only is not None:
+        conflicting_action = (
+            not args.watch or args.once or args.send is not None
+            or args.ping is not None or args.dry_run)
+        if conflicting_action:
+            print("--fix-only is valid only with --watch by itself")
+            return 1
+    if args.ticket_kind is not None and args.send != "sol":
+        print("--ticket-kind is valid only with --send sol")
+        return 1
+    if args.send == "sol" and args.ticket_kind is None:
+        print("--send sol needs --ticket-kind closure or discovery; "
+              "the daemon will not guess from prose")
+        return 1
+    primary_actions = sum((
+        bool(args.once),
+        bool(args.watch),
+        args.send is not None,
+        args.ping is not None,
+    ))
+    if primary_actions > 1:
+        print("choose only one primary action: --once, --watch, --send, "
+              "or --ping")
+        return 1
+    if args.watch and args.dry_run:
+        print("--dry-run is finite and cannot be combined with --watch")
+        return 1
+
+    fix_only = args.fix_only is True
+
     DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
     CLAUDE_CONTEXT_BUDGET = args.claude_context
 
@@ -1559,23 +1938,23 @@ def main():
               + " tokens (a turn compacts at its budget)")
 
     if args.ping:
-        ping_text = (
-            "RELAY CONFIRMATION PING for " + args.ping + ". This is a "
-            "transport test only; no unit is assigned and no repository "
-            "file may change. Reply by creating ONE new file,\n"
-            "notes/mailbox/<next-sequence>-to-user.md, whose entire body "
-            "is one line:\n\n"
-            "    PONG " + args.ping + " from <your model name>\n\n"
-            "Then stop. (Files addressed -to-user are read by the human; "
-            "the daemon never dispatches them.)\n")
-        queued = send(agent=args.ping, text=ping_text, dry_run=args.dry_run)
+        ping_text = transport_ping_text(agent=args.ping)
+        queued = send(
+            agent=args.ping,
+            text=ping_text,
+            dry_run=args.dry_run,
+            ticket_kind="transport" if args.ping == "sol" else None)
         return 0 if queued else 1
 
     if args.send:
         if not args.unit:
             print("--send needs --unit with the routing-summary text")
             return 1
-        queued = send(agent=args.send, text=args.unit, dry_run=args.dry_run)
+        queued = send(
+            agent=args.send,
+            text=args.unit,
+            dry_run=args.dry_run,
+            ticket_kind=args.ticket_kind)
         return 0 if queued else 1
 
     if args.dry_run:
@@ -1610,9 +1989,18 @@ def main():
         dispatch_lock = acquire_dispatch_lock(mode="watch")
         if dispatch_lock is None:
             return 1
+        fix_only_lock = None
+        if fix_only:
+            fix_only_lock = acquire_fix_only_lock()
+            if fix_only_lock is None:
+                release_dispatch_lock(lock_file=dispatch_lock)
+                return 1
         print("watching " + MAILBOX + " (Ctrl-C to stop; safe only "
               "between dispatches; killing a dispatch mid-flight dooms "
               "the agent's turn)")
+        if fix_only:
+            print("fix-only watch active: closing existing ledger work "
+                  "only; no discovery tickets or new backlog lines")
         # a daemon fix is a no-op for the loop already running (the
         # 2026-07-14 placeholder incident): watch our own source and
         # exit when it changes, so stale code can never keep dispatching.
@@ -1621,7 +2009,10 @@ def main():
         source_stamp = os.path.getmtime(os.path.abspath(__file__))
         try:
             while True:
-                process_backlog(dry_run=False)
+                if fix_only:
+                    process_backlog(dry_run=False, fix_only=True)
+                else:
+                    process_backlog(dry_run=False)
                 if os.path.getmtime(os.path.abspath(__file__)) \
                         != source_stamp:
                     print("daemon source changed on disk; exiting so "
@@ -1629,6 +2020,8 @@ def main():
                     return 0
                 time.sleep(20)
         finally:
+            if fix_only_lock is not None:
+                release_fix_only_lock(lock_file=fix_only_lock)
             release_dispatch_lock(lock_file=dispatch_lock)
 
     print("choose one of --dry-run / --once / --watch / --send (see --help)")

@@ -14427,3 +14427,73 @@ git diff --check                                        rc 0
 This closes only the dead-mailbox send/ping warning. The fix-only deferral
 guard, global safe-kill rendezvous, and automatic landing-debt correction
 remain open and separately countable.
+
+## Daemon Sol-ticket deferral and fix-only watch audit (Codex, 2026-07-14): GO
+
+Every public Sol work send now declares `--ticket-kind closure|discovery`,
+and the exact declaration is persisted as the message's first physical line.
+Free-form prose, a later or malformed header, and a missing declaration all
+fail closed. Discovery is refused when other queued messages plus literal
+OPEN ledger lines already total ten; the refusal directs the coordinator to
+append the deferred work at the END of the ledger and wait below the
+threshold, but the daemon never edits the ledger itself. Dispatch rechecks
+current other demand without counting its already-published candidate, so a
+discovery admitted at nine remains launchable when it becomes item ten.
+
+`--watch --fix-only` accepts only `1`, `true`, or `yes` after strip-and-lower
+normalization. The watch adds a binding prompt banner, exports
+`MAILBOX_FIX_ONLY=1` to child turns, and rechecks every persisted Sol class
+before launch. It also holds a dedicated per-mailbox mode lock. Activation is
+serialized through the same sequence lock as send publication: a sender
+either publishes entirely before activation or performs its final check after
+activation and refuses with zero writes. The mode writer proves the public
+regular-file inode before and after flock and again after fsynced owner
+publication. Mode authority is deliberately fail-closed: malformed,
+non-ASCII, or oversized metadata on the exact held lock remains active, while
+an unlocked stale file is inactive. Dead-mailbox liveness retains its stricter
+exact `watch pid N` owner rule.
+
+Sol's no-work transport check is not falsely called a closure. The daemon
+reserves internal `MAILBOX-TICKET: transport` for the byte-exact generated
+`--ping sol` body; the public class option cannot select it, and altered,
+appended, duplicate-header, CRLF, or wrong-agent variants refuse. Primary
+actions (`--once`, `--watch`, `--send`, and `--ping`) are mutually exclusive,
+and help/README text records the classification, threshold, mode, and
+transport rules.
+
+The first independent audit exposed external-send and candidate-self-counting
+defects. Repaired review then exposed activation/publication and mode-path
+substitution races. Each became a permanent runtime arm and load-bearing
+source mutation before both final independent reviewers reported GO.
+
+```text
+python3 tests/tools_mailbox_daemon_fix_only_repro.py      rc 0  14/14 runtime arms PASS
+focused source mutations                                  rc 0  20/20 killed
+python3 tests/tools_mailbox_daemon_dead_mailbox_repro.py rc 0  9/9 + 7/7 mutations
+python3 tests/tools_mailbox_daemon_redteam_repro.py      rc 0  8/8 arms PASS
+python3 tests/tools_mailbox_daemon_output_style_repro.py rc 0  8/8 checks PASS
+python3 -m unittest tests/test_mailbox_conditional_preamble.py rc 0  4/4 green
+python3 tests/tools_mailbox_daemon_staleness_repro.py    rc 0  18/18 + 9/9 mutations
+py_compile                                                 rc 0
+git diff --check                                           rc 0
+```
+
+Rollout remains explicit rather than silently rewriting a live queue. The old
+Claude-worktree pending files `0165-to-sol.md` and `0166-to-sol.md` predate the
+header contract. The latter is legitimate closure work and needs the exact
+closure header before a guarded daemon processes it. The former is a stale
+terminal/no-action message, neither public work nor the canonical transport
+ping, and should be manually archived or adjudicated rather than mislabeled.
+The intended watch must be restarted after landing because an older watch
+self-exits when its source changes.
+
+The cooperative mailbox protocol cannot defend against a hostile process with
+workspace write authority unlinking an already-held lock pathname; such a
+process could also write a mailbox file directly. Acquisition races,
+substitution, malformed state, crash release, and concurrent documented
+senders are covered; destructive same-user interference is the explicit
+threat boundary, not a release blocker.
+
+This closes only the Sol discovery-deferral and fix-only-watch rider. The
+global safe-kill rendezvous and automatic landing-debt correction remain OPEN
+and separately countable.

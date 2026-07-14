@@ -193,8 +193,9 @@ it. If this document ever ages out of step with the code, the help output is
 the authority and this section is not. Here is what the command prints:
 
 ```
-usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch] [--send AGENT]
-                         [--ping AGENT] [--unit UNIT]
+usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch]
+                         [--fix-only value] [--send AGENT] [--ping AGENT]
+                         [--unit UNIT] [--ticket-kind {closure,discovery}]
                          [--fable-effort {low,medium,high,xhigh,max}]
                          [--opus-effort {low,medium,high,xhigh,max}]
                          [--sol-effort {none,low,medium,high,xhigh}]
@@ -211,12 +212,17 @@ options:
                         writing it
   --once                process the current backlog and exit
   --watch               poll the mailbox every 20 seconds
+  --fix-only value      with --watch, close existing ledger work only; the
+                        value accepts 1, true, or yes in any capitalization
   --send AGENT          queue a message to this agent and exit
   --ping AGENT          queue a transport-confirmation ping to this agent (its
                         reply lands as a -to-user.md file the daemon never
                         dispatches)
   --unit UNIT           the message text for --send (a routing summary
                         pointing at notes/)
+  --ticket-kind {closure,discovery}
+                        required with --send sol: declare whether the unit
+                        closes existing work or seeks new findings
   --fable-effort {low,medium,high,xhigh,max}
                         claude CLI reasoning effort for Fable dispatches
                         (default: xhigh)
@@ -242,17 +248,65 @@ behave.
 
 ### What the daemon does
 
-These six options are the verbs. Each one is described at length elsewhere in
-this document, so the table below is only a reminder of which is which.
+These eight options choose or qualify an action. Each one is described at
+length elsewhere in this document, so the table below is only a reminder of
+which is which.
 
 | Option | What it does |
 | ------ | ------------ |
 | `--dry-run` | Prints what would happen and changes nothing on disk. Pending dispatches are shown instead of run, and `--send` or `--ping` print the message file they would write instead of writing it. |
 | `--once` | Processes whatever is sitting in the mailbox right now, then exits. |
 | `--watch` | Stays alive and looks in the mailbox every 20 seconds, dispatching anything new. This is the mode the loop runs in. |
-| `--send AGENT` | Writes one new message addressed to `fable`, `opus` or `sol`, then exits. The text of the message comes from `--unit`, which is required with `--send`. It also warns when no live `--watch` loop is polling this checkout's mailbox. |
+| `--fix-only value` | Works only with `--watch`. Values `1`, `true`, and `yes`, in any capitalization and with surrounding whitespace ignored, make the watch close existing ledger lines only. Any other supplied value is rejected instead of silently disabling the safety mode. |
+| `--send AGENT` | Writes one new message addressed to `fable`, `opus` or `sol`, then exits. The text of the message comes from `--unit`, which is required with `--send`. A Sol unit also requires `--ticket-kind`. The command warns when no live `--watch` loop is polling this checkout's mailbox. |
 | `--ping AGENT` | Writes a transport test message to `fable`, `opus` or `sol`. The agent answers with a short file addressed to the human, which confirms the delivery path works without assigning any real work. It uses the same dead-mailbox warning as `--send`. |
 | `--unit UNIT` | The body of the message that `--send` queues, normally a short routing summary that points the agent at a note under `notes/`. |
+| `--ticket-kind {closure,discovery}` | Required for `--send sol`. A closure retires existing ledger work; discovery seeks new findings. The daemon persists this exact declaration as the message's first line and never guesses it from prose. |
+
+`--once`, `--watch`, `--send`, and `--ping` are mutually exclusive primary
+actions. Supplying more than one is an error instead of silently choosing one
+by precedence. `--dry-run` remains a modifier for the finite actions.
+
+### Sol ticket classes and fix-only watches
+
+Every Sol unit has a mechanical class. Use `closure` only when the unit works
+an existing `- OPEN` line in `notes/backlog.md`; use `discovery` when its
+product is a new review finding, sweep result, or probe. For example:
+
+```bash
+python tools/mailbox_daemon.py --send sol --ticket-kind closure \
+  --unit "Close the existing manifest item described in notes/backlog.md."
+```
+
+The queued file begins with the exact line `MAILBOX-TICKET: closure` (or
+`MAILBOX-TICKET: discovery`). A missing, misspelled, indented, or later header
+is not inferred from the message body and is refused before Sol launches. The
+daemon's exact no-work `--ping sol` payload uses the reserved internal line
+`MAILBOX-TICKET: transport`; the public `--ticket-kind` option cannot select
+it, and a hand-written or altered transport body fails closed.
+
+When queued messages plus open ledger lines already total ten or more before
+the candidate is added,
+`--send sol --ticket-kind discovery` fails without queueing a file. Its error
+tells the coordinator to append the deferred ticket to the end of
+`notes/backlog.md` and wait until demand is below the threshold. The daemon
+does not edit the ledger itself. A closure remains dispatchable because it
+reduces the work already owed. Dispatch rechecks all other current demand but
+does not count the already-published candidate against itself: demand nine can
+admit a discovery that becomes the tenth queued item, while current demand ten
+refuses one.
+
+Starting `--watch --fix-only Yes` makes the whole watch closing-only,
+regardless of demand. Its child turns receive a binding banner and environment
+marker. The watch also holds an exact per-mailbox `.fix-only.lock`, so a
+separate terminal's Sol send sees the active mode and refuses discovery before
+writing anything. The watch checks the persisted class again before launch so
+a hand-written or already queued discovery cannot bypass the rule. Such
+invalid pending Sol messages are parked in `failed/` for inspection. Only
+declared closures and the exact no-work transport ping launch. Omit
+`--fix-only` for ordinary operation; the option is rejected with `--once`,
+`--send`, `--ping`, or a dry run. The kernel releases both held locks if the
+watch crashes; an unlocked stale mode file does not activate fix-only mode.
 
 ### The dead-mailbox warning
 
@@ -466,7 +520,7 @@ like this:
 ```bash
 python tools/mailbox_daemon.py --send opus \
   --unit "Add a --version flag to the training script, as described in notes/version-flag.md."
-python tools/mailbox_daemon.py --send sol \
+python tools/mailbox_daemon.py --send sol --ticket-kind discovery \
   --unit "Try to break the new --version flag, as described in notes/version-flag-attack.md."
 python tools/mailbox_daemon.py --watch
 ```

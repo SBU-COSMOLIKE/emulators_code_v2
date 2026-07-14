@@ -256,12 +256,18 @@ Two further user rules (2026-07-14) on the same doctrine:
   demand at or past the threshold), the Architect checks every
   Sol-bound ticket BEFORE sending: if it is attack/discovery work — a
   review, sweep, or probe, anything whose product is new findings
-  rather than a closed ledger line — it is NOT dispatched. It is
-  appended to the END of notes/backlog.md as a deferred line and waits
-  until total demand falls below the threshold. Close first, add
-  later. A daemon-side guard on `--send sol` enforcing this is owed as
-  its own ledger line; the code edit waits for an idle watch, since
-  the watch self-retires whenever its source file changes.
+  rather than a closed ledger line — it is NOT dispatched. The Architect
+  appends it to the END of notes/backlog.md as a deferred line, and it waits
+  until total demand falls below the threshold. Close first, add later. The
+  daemon gives that instruction but never edits the ledger itself. It
+  enforces the boundary without guessing from prose: every
+  `--send sol` supplies `--ticket-kind closure|discovery`, and every
+  directly written Sol outbound starts with the exact corresponding
+  first line `MAILBOX-TICKET: closure` or `MAILBOX-TICKET: discovery`.
+  At or past the threshold a declared discovery is refused with the
+  END-of-ledger instruction; a missing or malformed class fails closed. The
+  daemon's exact no-work `--ping sol` body alone uses its reserved internal
+  `MAILBOX-TICKET: transport` class; arbitrary transport bodies fail closed.
 - **`--fix-only` watch flag (user rule, 2026-07-14, second
   directive).** The daemon grows a `--fix-only` option on `--watch`:
   when set truthy, the loop is closing-only — the Architect sends Sol
@@ -269,12 +275,14 @@ Two further user rules (2026-07-14) on the same doctrine:
   regardless of demand; only existing ledger lines are worked. Truthy
   parsing is forgiving: accept 1/true/yes in any capitalization
   (normalize with `.strip().lower()`), because "the user can make
-  mistakes in capitalization" — never an exact-string compare. Document
-  the flag in `--help` and the notes/ README options section. Same
-  deferral as the guard above: the code edit waits for an idle watch
-  and rides the tools-review daemon-repair series (ledger line updated
-  2026-07-14). Until the flag exists, the Architect applies the
-  behavior manually whenever the user asks for a fix-only run.
+  mistakes in capitalization" — never an exact-string compare. Other
+  supplied values fail instead of silently disabling the mode. The
+  watch carries the rule into every child turn through its binding banner and
+  environment, publishes a separately held per-mailbox mode lock so sends
+  from other terminals also refuse discovery, and rechecks the persisted Sol
+  class before launch. Only declared closures and the exact no-work transport
+  ping run. The option and behavior are documented in `--help` and the notes/
+  README options section.
 - **Main commit messages are written for HUMANS (user rule,
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo

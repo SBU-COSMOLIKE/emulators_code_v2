@@ -43,6 +43,7 @@ def scratch_daemon():
         daemon.MAILBOX = str(root / "notes" / "mailbox")
         daemon.DONE = str(root / "notes" / "mailbox" / "done")
         daemon.RELAY_DIR = str(root / "notes" / "relay")
+        daemon.BACKLOG_LEDGER = str(root / "notes" / "backlog.md")
         daemon.PREAMBLE = "SCRATCH MESSAGE\n"
         daemon.AGENT_COMMANDS = {
             "fable": ["/usr/bin/printf", "%s"],
@@ -309,7 +310,8 @@ def arm_hostile_bodies_are_parked():
 def arm_literal_marker_is_not_a_placeholder():
     """Check that discussing a marker does not refuse a real review."""
     with scratch_daemon() as (daemon, _):
-        body = "Review why the literal <unit> marker was refused.\n"
+        body = ("MAILBOX-TICKET: closure\n\n"
+                "Review why the literal <unit> marker was refused.\n")
         path = write_message(daemon, "0001-to-sol.md", body)
         calls = []
 

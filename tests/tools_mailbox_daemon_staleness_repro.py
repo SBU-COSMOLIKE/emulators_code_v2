@@ -536,7 +536,8 @@ def arm_cross_pass_inflight_blocks_only_its_cwd():
         shared_name = "0101-to-opus.md"
         sol_name = "0102-to-sol.md"
         shared_body = "SHARED LANE MUST WAIT\n"
-        sol_body = "INDEPENDENT SOL MAY RUN\n"
+        sol_body = ("MAILBOX-TICKET: closure\n\n"
+                    "INDEPENDENT SOL MAY RUN\n")
         write_message(daemon, inflight_name, "unresolved prior turn\n",
                       directory=os.path.join(daemon.MAILBOX, "inflight"))
         write_message(daemon, shared_name, shared_body)
