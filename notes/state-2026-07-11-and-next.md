@@ -3286,3 +3286,14 @@ issued: the scalar-smoke nine-aid CHILD-side migration
 (scalar_smoke.py only, board.py stays with [O], wiring-only, the
 nine drafted names verbatim, green + nine terminals on cocoa).
 Spec: gates-and-board.md "BACKUP-IMPLEMENTER ASSIGNMENT 1".
+
+TEX-PROSE-01/02 + B6/B7 (2026-07-14, Fable): the manuscript
+repairs GO — invariance censuses (labels/refs/equations/figures/
+captions/1,487 numeric tokens) all identical, the units fix real,
+register framing consistent with the accepted 01..08 vocabulary,
+my rebuild 84 pages with zero warnings, PDF sha matches; merged
+0649d94; 01+02 CLOSE. Batch 6 (b74d81b, retro via the log walk)
+GO — 7+4+5 names==drafts, my child runs green, honest UNAVAILABLE
+on the CUDA legs. Batch 7 (0e3ff10) GO — 4+4+6 names==drafts,
+board surfaces green. 30/40 gates carry evidence. Spec:
+gates-and-board.md "TEX-PROSE-01/02 + batches 6-7 audit".

@@ -8109,3 +8109,49 @@ migrated. The drafted fan-out queue is down to joint-training +
 production-diagnostic; after that pair the remaining gates are the
 Implementer's hand-do set (finite-contract, scalar-smoke) and the six
 wrapper-family gates.
+
+## TEX-PROSE-01/02 + batches 6-7 audit (Fable, 2026-07-14): all three GO — the manuscript repair sequence opens clean; 30/40 gates carry evidence
+
+TEX-PROSE-01/02 (codex/tex-prose-audit, core 3302f29, tip 7c16524;
+merged 0649d94): the first two manuscript repairs, audited with
+MECHANICAL INVARIANCE CENSUSES over the 3,772-line .tex diff — 88
+labels, 28 refs, 158 equation environments, 12 figures, 42
+captions, and ALL 1,487 numeric tokens identical before and after
+(the change is provably prose-only). 01 verified at the diff: the
+malformed split \rm constructs (rendering stray "m km" text)
+replaced by explicit roman \mathrm units with every numeric value
+preserved. 02's register framing CONSISTENT with my 01..08
+acceptance, where its census vocabulary was verified
+publicly-stateable with correct exclusions; the private-standards
+pass stays a separate opaque zero-match line (the fcf68ec breach
+class — attribution TO the private checklists — does not occur).
+MY REBUILD (pdflatex, from the repo root — my first attempt
+failed on MY OWN wrong cwd, recorded): two clean passes, 84 pages
+(their claim exactly), zero LaTeX warnings / overfull boxes /
+undefined refs / multiply-defined labels. The tracked PDF's
+SHA-256 matches the handoff's value. Their record preserving the
+FAILED first candidate (five meaning changes caught by their own
+independent semantic audit before commit) is noted with approval —
+that is the loop working inside their lane. TEX-PROSE-01 and -02
+CLOSE; the sequence continues with 03 (current-state doctrine +
+riders) per the standing adjudication.
+
+BATCH 6 (b74d81b, retro — it rode a landing-block run, caught by
+the log walk exactly as the sharpened mitigation intends):
+cmb-identity 7 + eval-batch-invariance 4 + weight-decay-census 5,
+names==drafts exactly. MY RUNS: cmb_identity child 7/7 PASS
+terminals; gwd_census child 4/4 PASS + the golden leg
+wrapper-side via _golden_leg(aid=) (the ratified hybrid);
+ge_c_eval_bs emits its two real legs plus cuda-timing and
+production-timing-claim as honest manifest UNAVAILABLE with
+reasons (the CPU lane) — the ##AID grammar used exactly as
+designed. compile/--list/selftest green.
+
+BATCH 7 (0e3ff10): bsn-smoke 4 + mps-smoke 4 + cmb-smoke 6,
+names==drafts exactly; live smoke runs stay workstation-owed; my
+compile/--list/selftest green at the merged tip and the
+in-process invariant sweep (prefix, transform, uniqueness) holds
+across all 30 evidence-bearing gates. VERDICT: GO x3. Remaining:
+the wrapper-family six, scalar-smoke (child with [S] as backup
+Implementer, tuple with [O]), finite-contract (+ Part D/E
+folding), joint-training, production-diagnostic.
