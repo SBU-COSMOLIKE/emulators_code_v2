@@ -3098,3 +3098,15 @@ gt_b_triangle.py diverges; integration routed to the Implementer
 (strengthened child + amended evidence=), branch HELD until then;
 mkdtemp-half deferral accepted. Spec: gates-and-board.md "D6
 triangle-half audit".
+
+INDEX SWEEP RECORDED (2026-07-13, Fable): my a5db5c5 notes commit
+swept the Implementer's STAGED local merge of the sizing branch
+into the commit (git add + commit consumes the shared index) — the
+swept content verified byte-identical to the content-GO'd 3031d02
+(batching.py, tests, training-stack section; 6/6 tests green on
+the branch). Nothing unaudited landed, but the branch tip now
+carries the sizing production code WITHOUT the stage-ram fixture
+repair, so the LANDING BLOCK IS WITHHELD until that repair commits
+(else stage-ram reds on main). New practice, binding on me: notes
+commits in the shared worktree use PATHSPEC COMMITS (git commit --
+<paths>), which ignore the pre-existing index.
