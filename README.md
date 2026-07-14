@@ -3596,3 +3596,72 @@ daemon deliberately leaves in place instead of dispatching onward, so a
 transport check cannot start a chain of turns.
 
 Merges to the main branch are performed only by the human maintainer.
+
+### Running the sessions in parallel
+
+Three words are worth fixing before the mechanics. A *turn* is one complete run
+of one session on one message: it reads the message, does the work, and writes
+its reply. To *dispatch* a message is to hand it to the session it is addressed
+to and run that turn. A *lane* is a queue of messages that must be dispatched
+one after another, never at the same time.
+
+The daemon sorts every pending message into lanes and then drains the lanes at
+the same time, one worker per lane. Inside a lane the order is strict: messages
+run in the order of the sequence number in their filename, and the next one
+starts only after the previous turn has finished. Across lanes there is no
+ordering at all, and the turns overlap.
+
+What defines a lane is the part that is easy to get wrong. A lane is not a
+session. A lane is a **working directory**.
+
+The reason is git. Two sessions committing at the same time inside one working
+tree share a single staged index, so they race each other: one session can
+sweep the other's half-finished edit into its own commit, and neither of them
+did anything wrong. Sessions that share a working tree must therefore take
+turns. Sessions that work in separate directories cannot collide this way, so
+they can run side by side. In this repository the architect and the implementer
+develop in the same checkout, which places them in one lane and serializes
+them, while the red team works from a different directory and so runs alongside
+both.
+
+That is what makes the loop faster than one session at a time. The coordinator,
+which is the architect, is the loop's only serial stage: it writes every
+specification, audits every finished unit against the raw command output behind
+it, and performs every commit, and nothing else in the loop can do those jobs.
+If it sent one message and then waited for that turn to come back, the whole
+loop would advance one turn at a time and the coordinator would sit idle for
+most of it. Instead it dispatches ahead: it queues several units at once,
+spread across the lanes, and then audits and commits work that has already come
+back while the queued turns are still running. Picture eight queued messages
+draining on two tracks. The implementer lane works through its units in order
+on one track, the red team attacks on the other, and in the gaps between them
+the architect is reading the evidence from the turns that have already landed.
+The lanes stay busy, the audits happen in between, and the coordinator stops
+being the bottleneck.
+
+Queueing two units for two different lanes and then starting the daemon looks
+like this:
+
+```bash
+python tools/mailbox_daemon.py --send opus \
+  --unit "Implement the finite-contract emission per notes/gates-and-board.md, section 'RULING: finite-contract Part F scope and emission shape'."
+python tools/mailbox_daemon.py --send sol \
+  --unit "Attack the scalar-smoke gate per notes/gates-and-board.md, section 'BLUEPRINT: scalar-smoke evidence tuple'."
+python tools/mailbox_daemon.py --watch
+```
+
+The first two commands only queue a file each and exit; the third one starts
+dispatching. The two messages are addressed to sessions that work in different
+directories, so they land in different lanes, and the daemon starts both turns
+at once:
+
+```
+dispatching 0033-to-opus.md -> opus ...
+dispatching 0034-to-sol.md -> sol ...
+```
+
+Both lines print back to back, before either turn has produced a result. That
+is the visible signature of concurrency: each turn's exit status and log path
+arrive later, whenever that turn finishes. Had both messages been addressed to
+the same lane, the second `dispatching` line would not have appeared until the
+first turn had finished and printed its `rc=` line.

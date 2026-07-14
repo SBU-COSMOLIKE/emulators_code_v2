@@ -9751,3 +9751,143 @@ micro-addendum.
 VERDICT: GO. Queue-2 evidence rollout COMPLETE: 40/40 gates carry
 evidence=, 187 unique aids board-wide, reconciliation armed on every
 gate. Remaining board debt is workstation-owed lanes only.
+
+## README section 24 addendum (Opus, 2026-07-14): parallel-lane dispatch LANDED (96adacb), gate green except one unrunnable leg
+
+Executed 'BLUEPRINT: README section 24 addendum -- parallel-lane
+dispatch (Fable, 2026-07-14)', dispatched as mailbox 0032. One commit,
+96adacb, README.md only, 69 insertions. It extends the section-24 tools
+passage the 0012 unit landed (3e763de) with a new subsection, "Running
+the sessions in parallel".
+
+WHAT THE PASSAGE SAYS. Terms defined in place before any mechanics, for a
+reader who has never seen the protocol: a TURN is one complete run of one
+session on one message; to DISPATCH is to hand a message to its addressee
+and run that turn; a LANE is a queue of messages that must run one after
+another. Then the model: the daemon sorts pending messages into lanes and
+drains the lanes concurrently, one worker per lane; inside a lane the
+order is strict (sequence number order, next turn starts only when the
+previous one finished); across lanes there is no ordering and the turns
+overlap. Then the invariant, given its own one-line paragraph because it
+is the part a reader gets wrong: a lane is not a session, a lane is a
+WORKING DIRECTORY. Then its reason, didactically: two sessions committing
+inside one working tree share one staged index and race, so one can sweep
+the other's half-finished edit into its own commit; sessions sharing a
+tree take turns, sessions in separate directories run side by side. In
+this repo that means architect+implementer serialize (same checkout) and
+the red team runs alongside. Then the throughput argument: the
+coordinator is the loop's only serial stage (it alone specifies, audits
+against raw output, and commits), so a coordinator that sends one message
+and waits makes the loop advance one turn at a time; a coordinator that
+dispatches ahead queues several units across lanes and audits and commits
+returned work WHILE the queued turns run. The eight-messages-on-two-
+tracks illustration is in prose, as specified, and the passage closes on
+"the coordinator stops being the bottleneck".
+
+FACTUAL RECONCILIATION INSIDE THE BLUEPRINT (named, not silently
+resolved). Contract item 1 says "a lane is one conversation partner";
+item 2 says "the parallel unit is the WORKING DIRECTORY, not the agent".
+The code makes item 2 the truth: process_backlog() keys its lane dict on
+AGENT_CWD[agent], not on the agent, so fable and opus (same WORKTREE
+constant) are ONE lane and serialize against each other, and sol (repo
+root) is a second lane. Item 1's phrasing holds only in a world where
+each partner has its own tree, which is not this repo. I wrote the
+accurate version (lane = working directory) because item 2 states it
+explicitly, so the blueprint is self-correcting and no halt was needed;
+flagging it here so the audit sees the choice was deliberate.
+
+GATE, leg by leg, with what actually ran.
+
+  1. DASH CENSUS 0/0/0 on the new text: GREEN. Counted on the added
+     lines of the diff only (git diff -U0, '+' lines):
+         added lines: 69
+         em(u2014): 0   en(u2013): 0   minus(u2212): 0
+         non-ascii chars in new text: none
+     Whole-file README em-dash count remains 0.
+  2. RENDERS WITHOUT RAW HTML: GREEN. Regex for HTML tags over the added
+     text returns none; the passage is GitHub-native markdown (one ###
+     heading, italics for the three defined terms, one bold phrase, one
+     bash fence, one plain output fence, backticked flags).
+  3. THE EXAMPLE'S COMMANDS RUN AS WRITTEN: GREEN on the flags, by
+     `python3 tools/mailbox_daemon.py --help` (rc 0): --send AGENT,
+     --unit UNIT and --watch all exist, and --send's choices are
+     {fable,opus,sol}, so `--send opus` and `--send sol` are valid.
+  4. "verify --send with a throwaway body against --dry-run": NOT
+     RUNNABLE AS SPECIFIED, and I did not fake it. --dry-run does not
+     gate --send: main() handles args.send at line 333 and RETURNS at
+     338, before the dry_run branch at 340, so `--send X --unit Y
+     --dry-run` writes a real message file into the live mailbox. With a
+     --watch running (one dispatched THIS turn), that queued junk becomes
+     a live dispatched turn to another session, which is exactly what the
+     blueprint's own parenthesis says not to do. So the flag behavior is
+     evidenced from --help plus the argparse/send() source, as the 0012
+     unit did, and this leg is reported as unrunnable rather than passed.
+     If the Architect wants an executable leg here, the daemon needs a
+     one-line change (honor dry_run in the --send branch); that is a
+     tools/ change this unit was not authorized to make.
+
+  5. THE CONCURRENCY CLAIM ITSELF: GREEN, and this is the leg that
+     matters, because the README asserts a runtime behavior. Scratch
+     probe .probe_lanes.py (run, then DELETED, never committed): the
+     module's MAILBOX/DONE/RELAY_DIR globals repointed at a temp dir so
+     the LIVE mailbox is never touched, subprocess.run replaced by a stub
+     that sleeps 0.6 s instead of launching a CLI, then the REAL
+     process_backlog() / drain_lane() / dispatch() ran over three queued
+     files: 0033-to-opus, 0034-to-sol, 0035-to-opus. Result:
+
+         dispatching 0033-to-opus.md -> opus ...
+         dispatching 0034-to-sol.md -> sol ...
+           rc=0  log -> .../20260714-015634-dispatch-opus.log
+           rc=0  log -> .../20260714-015634-dispatch-sol.log
+         dispatching 0035-to-opus.md -> opus ...
+           rc=0  log -> .../20260714-015634-dispatch-opus.log
+
+         event timeline (seconds from start):
+           start opus  t=0.00
+           start sol   t=0.00
+           end   opus  t=0.60
+           end   sol   t=0.60
+           start opus  t=0.61
+           end   opus  t=1.21
+
+         wall clock          : 1.21 s
+         if fully serialized : 1.80 s
+         lanes ran in parallel : True
+         first two turns started: ['opus', 'sol'] (one per lane)
+         the two opus turns serialized in file order: True
+
+     Both lanes start at t=0.00 (concurrent), the two opus messages
+     serialize in sequence order (0035 starts only at 0.61, when 0033
+     ends), and the wall clock is 1.21 s against 1.80 s if the three
+     turns had been serialized. The two back-to-back "dispatching" lines
+     in the README's sample-output fence are TRANSCRIBED FROM THIS RUN,
+     not invented. This proves the real dispatch path; it does not launch
+     a real agent, and it is labeled a probe, not a board gate.
+
+DEVIATION OF RECORD (one). The blueprint says "one commit, README.md
+only", and that is exactly what 96adacb is. This notes entry is therefore
+a SECOND, separate commit (notes/gates-and-board.md only), because
+constraint 7 requires the substance in the note before the handoff and it
+cannot ride the README-only commit. No other file was touched; the
+notes/conventions-and-workflow.md modification present in the worktree
+predates this turn and is not mine.
+
+LANDING BLOCK (for the user; I do not merge or push):
+
+    git checkout main
+    git merge --ff-only claude/amazing-keller-e798b6
+    git push origin main
+
+## README parallel-lane addendum audit (Fable, 2026-07-14): 96adacb GO
+
+Interactive audit of the Implementer's 0022 turn (96adacb README-only
++69, a59c445 notes). Re-verified: dash census 0 on added lines, scope
+exact, the fenced example matches the daemon's real output shape, and
+the lane-definition reconciliation is ACCEPTED — the working-directory
+keying is the accurate invariant; the blueprint's "one conversation
+partner" line was my shorthand and the Implementer was right to write
+the true version (the factual-error carve-out working as designed).
+RULING on the unrunnable gate leg: the argparse-plus-source evidence
+is accepted for this unit (the 0012 precedent); honoring --dry-run in
+send() folds into the 0026 portability unit rather than a new unit.
+VERDICT: GO.

@@ -207,6 +207,23 @@ commits WHILE their turns run, not between them. A ruling only you can
 issue (a scope question, a design adjudication) is a lane blocker:
 issue it before it idles anyone, ahead of lower-value work of your own.
 
+Two further user rules (2026-07-14) on the same doctrine:
+
+- **Stimulate subagent fan-outs in EVERY handoff** — Implementer and
+  red team alike. Each handoff names the unit's parallelizable
+  deliverables and asks the receiving session to fan them out to its
+  own subagents (same acceptance, re-verified, audit unchanged). A
+  handoff that hands one serial lump to a session that could split it
+  is leaving speed on the table.
+- **Squash landings to main.** Main history stays coarse: one squash
+  commit per landed unit (or coherent batch), carrying the feature AND
+  its audit record together — `git merge --squash <branch>` in the
+  main checkout, one commit message naming unit + audit verdict, push.
+  Immediately after, merge main back into the working branch so the
+  next squash carries only new work. The branch keeps its fine-grained
+  history locally (it is never pushed); main reads as a sequence of
+  audited units.
+
 ### Backup-Implementer assignments (user rule, 2026-07-14)
 
 When the execution queue saturates ([O] backlogged and the backlog must
