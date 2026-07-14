@@ -2,8 +2,9 @@
 
 This module decides where each source's data lives and hands the
 training loop two closures (rows -> whitened param inputs, rows ->
-encoded targets) that hide it. compute_batch_size_bytes, compute_model_size_bytes, and
-batches_per_load estimate per-batch and resident memory.
+encoded targets) that hide it. compute_batch_byte_terms names every
+per-batch buffer, compute_batch_size_bytes sums those terms, and
+compute_model_size_bytes and batches_per_load plan resident and chunk memory.
 _build_loaders_one picks one of three regimes against a VRAM budget
 (pre-encode the target set on the GPU, stream from RAM, or stream from a
 disk memmap) and reports the bytes it made resident. build_loaders runs it
@@ -61,14 +62,22 @@ import numpy as np
 import torch
 
 
-def compute_batch_size_bytes(model, bs, sample_dims, dv_len=3000):
+def compute_batch_byte_terms(
+    model,
+    bs,
+    sample_dims,
+    dv_len=3000,
+    target_dim=None,
+    target_dtype=None):
   """
-  Estimate the GPU bytes one training batch costs.
+  Name every GPU-memory term owned by one training batch.
 
   Measures the autograd-saved activations of a real forward pass
   (a spy pair of saved-tensor hooks, see the body) and adds the
   batch input/output buffers and the chi2's per-batch float64
-  scratch. Only shapes matter, so the probe runs on zeros.
+  scratch. The target is a separate term because packed-target
+  losses can stage more values than the model predicts. Only shapes
+  matter, so the probe runs on zeros.
 
   Arguments:
     model       = the network; probed with one dummy forward.
@@ -77,10 +86,15 @@ def compute_batch_size_bytes(model, bs, sample_dims, dv_len=3000):
                   cosmo param vector: (Ncosmo,)).
     dv_len      = full dv length the chi2 un-squeezes to (~3000
                   is conservative; avoids a cosmolike query).
+    target_dim  = number of staged target values per row. None means
+                  the target has the model output's element count.
+    target_dtype = dtype used by the target-staging boundary. None
+                   means the target has the model output's dtype.
 
   Returns:
-    estimated bytes per batch (saved activations + I/O buffers +
-    chi2 scratch).
+    A dictionary whose integer values are the named byte terms. A
+    separate entry for each buffer makes a wider target visible in
+    reports and tests.
   """
   # model.parameters() iterates the weight tensors; next() grabs
   # the first. Its .device is where it lives; put x there too.
@@ -121,13 +135,28 @@ def compute_batch_size_bytes(model, bs, sample_dims, dv_len=3000):
     # instant model(x) returns.
     out = model(x)
 
-  # device buffers tied to this batch: input x, model output,
-  # and the target (matches the output's shape/dtype, so another
-  # out_bytes). element_size() = bytes per element (float32 -> 4,
+  # Device buffers tied to this batch include the input and the model
+  # output. element_size() = bytes per element (float32 -> 4,
   # float64 -> 8).
   in_bytes  = x.numel() * x.element_size()
   out_bytes = out.numel() * out.element_size()
-  io = in_bytes + 2 * out_bytes
+
+  # The ordinary target has the same number of elements and the same
+  # dtype as the output. A packed-target loss passes its real width and
+  # staging dtype explicitly. The staging boundary owns those values;
+  # this function only converts them to a byte count.
+  if target_dim is None:
+    target_elements = out.numel()
+  else:
+    target_elements = bs * target_dim
+
+  if target_dtype is None:
+    target_element_size = out.element_size()
+  else:
+    target_element_size = torch.empty(
+      (),
+      dtype=target_dtype).element_size()
+  target_bytes = target_elements * target_element_size
 
   # the chi2 runs outside model(x), so the hook never sees it.
   # Per batch it builds a few full-length float64 buffers (the
@@ -135,7 +164,38 @@ def compute_batch_size_bytes(model, bs, sample_dims, dv_len=3000):
   # saves for backward), budget three (bs, dv_len) doubles.
   chi2 = 3 * bs * dv_len * 8
 
-  return total + io + chi2
+  return {
+    "saved_activations": total,
+    "input": in_bytes,
+    "model_output": out_bytes,
+    "target": target_bytes,
+    "chi2_scratch": chi2,
+  }
+
+
+def compute_batch_size_bytes(
+    model,
+    bs,
+    sample_dims,
+    dv_len=3000,
+    target_dim=None,
+    target_dtype=None):
+  """
+  Return the total GPU bytes owned by one training batch.
+
+  The arguments have the same meaning as compute_batch_byte_terms.
+  Keeping this integer-returning wrapper preserves the original public
+  call for ordinary targets. The named-term function is the single
+  owner of the arithmetic.
+  """
+  terms = compute_batch_byte_terms(
+    model=model,
+    bs=bs,
+    sample_dims=sample_dims,
+    dv_len=dv_len,
+    target_dim=target_dim,
+    target_dtype=target_dtype)
+  return sum(terms.values())
 
 
 def compute_model_size_bytes(model):
@@ -169,17 +229,20 @@ def compute_model_size_bytes(model):
   # weights(1) + grads(1) + opt_state buffers
   return p * esize * (2 + opt_state)
 
-def batches_per_load(model,
-                     bs,
-                     sample_shape,
-                     budget,
-                     dv_len=3000):
+def batches_per_load(
+    model,
+    bs,
+    sample_shape,
+    budget,
+    dv_len=3000,
+    target_dim=None,
+    target_dtype=None):
   """
   Batches per streamed chunk that fit the VRAM budget.
 
-  resident = model (weights + grads + optimizer state) + the
-  chi2 precision matrix Cinv; the chunk gets what is left of
-  0.8 * budget, divided by one batch's cost.
+  Resident memory keeps the established model-plus-precision-matrix
+  definition. The streamed chunk gets what is left of 0.8 * budget,
+  divided by one batch's cost.
 
   Arguments:
     model        = the network (sizes the resident + probe cost).
@@ -190,27 +253,49 @@ def batches_per_load(model,
                    class).
     dv_len       = full dv length (sizes Cinv and the chi2
                    scratch).
+    target_dim   = staged target width. None preserves the ordinary
+                   output-shaped target calculation.
+    target_dtype = dtype used to stage the target. None preserves the
+                   ordinary output-dtype calculation.
 
   Returns:
-    number of bs-row batches per streamed chunk (at least 1).
+    number of bs-row batches per streamed chunk.
+
+  Raises:
+    MemoryError if the planning allowance cannot hold the resident
+    state and one complete batch.
   """
-  cinv     = dv_len * dv_len * 8
-  # resident = model (weights + grads + optimizer state) + Cinv.
-  # Honest accounting, both directions (the shared-budget rule): the
-  # caller's already-staged encoded params (enc_params in
-  # _build_loaders_one) are resident too but are not passed here, so
-  # this under-counts resident and over-estimates the free VRAM (the
-  # unsafe direction, not the reassuring one). enc_params is small
-  # (ncosmo floats per used row) next to one dv chunk, so the chunk
-  # is at most slightly over-sized; thread enc_params in if a tight
-  # card OOMs on the streaming regimes.
+  cinv = dv_len * dv_len * 8
   resident = compute_model_size_bytes(model) + cinv
-  free = 0.8 * budget - resident
-  per  = compute_batch_size_bytes(model=model,
-                                  bs=bs,
-                                  sample_dims=sample_shape,
-                                  dv_len=dv_len)
-  return max(1, int(free // per))
+
+  # The planner reserves 20 percent of the declared budget for the
+  # allocator. Keep the existing 0.8 calculation so an ordinary-target
+  # run has the same chunk boundary as before this repair. The integer
+  # value is used only in the human-readable error report.
+  planning_allowance = 0.8 * budget
+  available = int(planning_allowance)
+  free = planning_allowance - resident
+
+  terms = compute_batch_byte_terms(
+    model=model,
+    bs=bs,
+    sample_dims=sample_shape,
+    dv_len=dv_len,
+    target_dim=target_dim,
+    target_dtype=target_dtype)
+  per_batch = sum(terms.values())
+  required = resident + per_batch
+
+  if required > planning_allowance:
+    term_text = ", ".join(
+      name + "=" + str(value)
+      for name, value in terms.items())
+    raise MemoryError(
+      "streaming plan cannot hold resident state and one complete batch: "
+      f"required={required}, available={available}, resident={resident}, "
+      + term_text)
+
+  return int(free // per_batch)
 
 
 def _build_loaders_one(device, C, dv, idx,
@@ -290,6 +375,15 @@ def _build_loaders_one(device, C, dv, idx,
   #, the same opt-in pattern as needs_params below.
   tgt_dim   = getattr(chi2fn, "target_dim", out_dim)
 
+  # Every target entering this loader is converted to float32 before
+  # chi2fn.encode runs. Keep that dtype in one named value and pass it
+  # to the memory planner, so the planner charges the same
+  # representation that the loader stages.
+  target_dtype = torch.float32
+  target_element_size = torch.empty(
+    (),
+    dtype=target_dtype).element_size()
+
   # used_rows = the distinct rows this source loads. np.unique
   # drops duplicates (idx may name a row twice) and returns them
   # sorted, so each row is staged once and in active storage order: what
@@ -332,16 +426,21 @@ def _build_loaders_one(device, C, dv, idx,
   def load_C(rows):
     return C_used[slots(rows)]
 
-  enc_dvs = n_used * tgt_dim * 4
+  enc_dvs = n_used * tgt_dim * target_element_size
   fits    = enc_dvs + resident < 0.8 * budget
 
   if fits:
     # Regime 1: pre-encode every target, hold it on the GPU.
-    dv_used = torch.empty(n_used, tgt_dim, device=device)
+    dv_used = torch.empty(
+      n_used,
+      tgt_dim,
+      dtype=target_dtype,
+      device=device)
     for start in range(0, n_used, CHUNK):
       block = used_rows[start:start + CHUNK]
       # raw dvs for this block, on the device.
-      dv_t = torch.from_numpy(dv[block]).float().to(device)
+      dv_t = torch.from_numpy(dv[block]).to(
+        dtype=target_dtype).to(device)
       if rescaled:
         # rescaled target: encode also needs this block's params.
         # C_used is in used_rows order, so the block is the local
@@ -355,7 +454,9 @@ def _build_loaders_one(device, C, dv, idx,
     def load_dv(rows):
       return dv_used[slots(rows)]
 
-    bytes_per_row = (tgt_dim + ncosmo) * 4
+    bytes_per_row = (
+      tgt_dim * target_element_size
+      + ncosmo * C_used.element_size())
     vram_left     = 0.8 * budget - resident - enc_dvs
     fit_rows = max(bs, int(vram_left // bytes_per_row))
     load = min(len(idx), fit_rows)
@@ -363,7 +464,7 @@ def _build_loaders_one(device, C, dv, idx,
   elif not isinstance(dv, np.memmap):
     # Regime 2: dvs live in CPU RAM.
     def load_dv(rows):
-      cpu = torch.from_numpy(dv[rows]).float()
+      cpu = torch.from_numpy(dv[rows]).to(dtype=target_dtype)
       if device.type == "cuda":
         cpu = cpu.pin_memory()
       gpu = cpu.to(device)
@@ -375,11 +476,13 @@ def _build_loaders_one(device, C, dv, idx,
                                  bs=bs,
                                  sample_shape=C.shape[1:],
                                  budget=budget,
-                                 dv_len=dv_len)
+                                 dv_len=dv_len,
+                                 target_dim=tgt_dim,
+                                 target_dtype=target_dtype)
   else:
     # Regime 3: dvs exceed RAM, read from the memmap.
     def load_dv(rows):
-      host = torch.from_numpy(dv[rows]).float()
+      host = torch.from_numpy(dv[rows]).to(dtype=target_dtype)
       gpu  = host.to(device)
       if rescaled:
         return chi2fn.encode(dv=gpu, params_whitened=load_C(rows))
@@ -389,7 +492,9 @@ def _build_loaders_one(device, C, dv, idx,
                                  bs=bs,
                                  sample_shape=C.shape[1:],
                                  budget=budget,
-                                 dv_len=dv_len)
+                                 dv_len=dv_len,
+                                 target_dim=tgt_dim,
+                                 target_dtype=target_dtype)
 
   used = enc_params + (enc_dvs if fits else 0)
   return load_C, load_dv, load, used

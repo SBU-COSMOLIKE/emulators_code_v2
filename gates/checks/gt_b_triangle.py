@@ -28,10 +28,15 @@ from emulator import plotting
 FAILURES = []
 
 
-def report(label, ok, detail):
+def report(label, ok, detail, aid=None):
   """Print one acceptance line and record a failure."""
   mark = "PASS" if ok else "FAIL"
   print("  [" + mark + "] " + label + "  (" + detail + ")")
+  # (queue 2) the per-leg assertion manifest the board folds into this gate's
+  # executed set: one reserved '##AID <aid> <result>' line per acceptance leg.
+  # The child's exit status stays the single aggregate verdict, not a leg.
+  if aid is not None:
+    print("##AID " + aid + " " + mark)
   if not ok:
     FAILURES.append(label)
 
@@ -120,7 +125,8 @@ def main():
                                     cuts=cuts)
   report("the triangle figure was produced",
          fig is not None,
-         "fig is None means < 2 LCDM columns recognized")
+         "fig is None means < 2 LCDM columns recognized",
+         aid="triangle-shading.figure-produced")
   if fig is None:
     print("\ntriangle-shading: 1 FAILURE(S)")
     return 1
@@ -154,13 +160,16 @@ def main():
 
   report("grey fills appear on the 2-D panels",
          shaded_panels > 0,
-         "shaded panels " + str(shaded_panels))
+         "shaded panels " + str(shaded_panels),
+         aid="triangle-shading.shading-layer-present")
   report("every cut fill uses the one shared rgba (_CUT_GREY)",
          off_grey == 0,
-         "off-grey filled artists " + str(off_grey))
+         "off-grey filled artists " + str(off_grey),
+         aid="triangle-shading.all-shading-fills-use-shared-gray")
   report("the omh2 1-D marginal carries an axvspan band",
          span_bands > 0,
-         "axvspan patches " + str(span_bands))
+         "axvspan patches " + str(span_bands),
+         aid="triangle-shading.zorder-zero-span-present")
 
   print("")
   if len(FAILURES) == 0:
