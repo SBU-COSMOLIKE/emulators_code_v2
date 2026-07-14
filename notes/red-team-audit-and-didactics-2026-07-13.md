@@ -2647,6 +2647,75 @@ gates/checks/scalar_smoke.py` returns zero and ends
 also pass.  This is implementation evidence for Architect review, not Red
 Team certification.
 
+## Unit 63 reopen implementation claim: the mask is a required state fact
+
+The Architect transferred the `25M-17` reopen to the Red Team in Wave 5.
+This bounded visit owns `Grid2DGeometry` state and readback.  A current save
+will carry `const_mask` for every grid2d geometry.  An unpinned geometry will
+carry an explicit all-false mask, while a pinned geometry will carry its true
+entries.  `from_state` will refuse a missing mask with a migration instruction
+instead of choosing the unpinned policy from key absence.
+The direct constructor also requires the argument.  Explicit `None` remains
+the deliberate all-false convenience, while omission raises `TypeError`.
+
+The reopen validates only the persisted representation: the mask is a
+one-dimensional boolean or uint8 array, its length is `nz*nk`, and every uint8
+value is zero or one.  The original unit-63 scientific-admissibility clauses
+for quantity, law-space identity and low-wavenumber coordinates remain with
+their existing owner.  This branch does not implement or weaken them.  The
+no-policy-version ruling remains intact because the mask itself carries the
+fact.
+
+`gates/checks/mps_identity.py` is under the separate `25M-36` repair while
+this claim starts.  This branch will therefore place the pure CPU mutation
+legs in `tests/test_grid2d_const_mask.py` and record the exact existing-gate
+integration debt.  The owning gate must absorb the explicit-unpinned,
+pinned-round-trip and missing-key mutation legs after that file becomes quiet.
+Its module preamble must also stop saying that the round trip has seven keys;
+the explicit mask makes the current state eight keys.  No board registry file
+or active check script is edited in this visit.
+
+The implementation changes `emulator/geometries/grid2d.py`, updates the
+grid2d pin banner in `emulator/experiment.py`, corrects the affected
+`emulator/README.md` file-map entry, adds
+`tests/test_grid2d_const_mask.py`, and records the readback in
+`notes/families-background-mps.md`. The focused command
+`PYTHONPATH=. ../cocoa/Cocoa/.local/bin/python -m unittest -v
+tests.test_grid2d_const_mask` passes five tests. The omission leg proves that
+the direct constructor cannot infer unpinned state. The deletion mutation
+proves the catch power numerically: the intact raw-boost pin serves `1.0`,
+while the retired missing-key branch serves `1.25`; current `from_state`
+raises with a re-save instruction. Shape, dtype and binary-value refusals run
+on CPU.
+
+The repo-wide direct-constructor census finds no production call outside the
+class: `from_stats` already passes the computed mask, and `from_state` now
+requires and passes the stored one. The only direct calls are the two focused
+test fixtures. The complete `tests/` discovery run is 11/11 green.
+
+The `mps-identity` child was owned by `25M-36` when this branch started, so its
+focused persistence-leg integration was initially held. After that repair
+landed and current main was merged, the file became quiet. The Red Team then
+claimed it only for this unit's three legs and the seven-to-eight-key preamble
+correction. The package README's affected file-map entry is also updated so it
+does not describe the retired omit-when-unpinned behavior. The wider package
+teaching visit remains separate.
+
+The experiment-side banner now tests the mask's value rather than its
+presence: it logs only when the explicit mask contains at least one true
+entry. An unpinned geometry therefore keeps the previous no-banner behavior
+after its in-memory `None` becomes an all-false array.
+
+The amended complete child reports eight state keys. Its new HDF5 checks cover
+an explicit all-false unpinned artifact, a valid pinned boost whose first
+wavenumber is pinned in all four redshift rows and deletion of the required
+mask from that valid pinned file. The intact pin survives save and rebuild.
+The deletion raises before prediction and names both `const_mask` and the
+re-save action. The full child ends `PASS: mps-identity all checks green`.
+
+The add-or-toggle case against a declared unmasked artifact remains unit 96's
+authenticity interlock. This bounded reopen does not edit
+`emulator/results.py` and does not claim that wider proof.
 ## Red Team implementation record: DIDACTICS-67 and DIDACTICS-68 warm-start visit
 
 The Architect transferred the warm-start visit to the Red Team in the Wave 4

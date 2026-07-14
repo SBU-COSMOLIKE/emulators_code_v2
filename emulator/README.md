@@ -322,7 +322,16 @@ covariance. The only file importing cosmolike.
 ### `emulator/geometries/grid2d.py` <a name="apx-geometries_grid2d"></a>
 
 - `TARGET_LAWS_2D` — `{none, syren_linear, syren_halofit}` (names only: the cosmology-dependent base is the consumer's multiply, through `syren_base.py`).
-- `Grid2DGeometry` — a flattened (z-outer) surface standardized in LAW space; persists quantity / units / law / z / k (the stored k IS the thinned grid) + the `const_mask` when pins exist (law-space columns constant across cosmologies — the boost's low-k B = 1 tail, under ANY law: scale 1, decode returns the training constant; a wholly constant surface stays a loud error — the dead-dump signature).
+- `Grid2DGeometry` stores a function on a two-dimensional grid. Redshift is the
+  outer index and wavenumber is the inner index. The geometry standardizes the
+  flattened values after applying the selected target law. Its saved state
+  records the quantity, units, law and both axes. It also always records a
+  `const_mask`. A false entry leaves that network output active. A true entry
+  marks a value that is constant across every training cosmology, such as the
+  low-wavenumber $B=1$ tail of a boost. Decode returns the stored training
+  constant at those entries. An all-false mask explicitly records that no
+  entries are pinned. A surface that is constant everywhere remains an error
+  because it is the signature of a dead data dump.
 - `attach_head_coords()` — the heads' split: one bin PER Z SLICE, length nk (conv channels / TRF tokens = z slices).
 
 ### `emulator/background.py` <a name="apx-background"></a>

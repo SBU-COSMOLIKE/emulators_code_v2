@@ -302,9 +302,10 @@ variants, adapter assembly, config validation, and fine-tuning.**
   exposes only the aggregate child exit code, and the synthetic assembly leg
   is not evidence for the real Syren formulas. Diagnostic print lines inside
   a failed config check remain logged-only.
-- owed: Architect audit of the Red Team repair and queue-2 wiring of the
-  existing `mps-identity.bounded-staging-values` logical aid. The new
-  mean-before-cast mutation stays inside that same leg. The registry models
+- owed: Architect audit of the unit-63 Red Team repair and queue-2 wiring of
+  the logical aids. The HDF5 mask-state checks belong to
+  `mps-identity.geometry-laws-and-pins`. The mean-before-cast mutation stays
+  inside `mps-identity.bounded-staging-values`. The registry models
   only CPU PyTorch: missing SciPy can crash the dynamically loaded adapter,
   while a missing installed Cobaya base API reaches explicit protocol
   failures. Those are red or missing evidence rather than seven
@@ -314,7 +315,9 @@ variants, adapter assembly, config validation, and fine-tuning.**
 <a id="mps-identity-geometry-laws-and-pins"></a>
 `mps-identity.geometry-laws-and-pins` checks float32 transform round trips,
 exact grid-state values, width/law guards, exact constant-column pins under
-both laws, and refusal of a wholly constant surface.
+both laws, and refusal of a wholly constant surface. It also saves and rebuilds
+explicit unpinned and valid low-k-pinned HDF5 states, then deletes the required
+mask and requires a re-save error before prediction.
 
 <a id="mps-identity-bounded-staging-values"></a>
 `mps-identity.bounded-staging-values` compares stored row values and their
@@ -1095,6 +1098,54 @@ mps-identity), BEFORE the EMUL2 acceptance. USER-VISIBLE: dumps
 with stale constant columns now refuse loudly at geometry build
 (previously they trained "green" and served corrupted science);
 existing valid boost artifacts rebuild unchanged.
+
+### Unit 63 reopen implementation readback (Red Team, 2026-07-13)
+
+The Wave-5 implementation claim is bounded to the grid2d geometry, its one
+pin-count banner in `emulator/experiment.py`, plus a pure CPU test file.
+`state()` now always writes `const_mask` as uint8 zeros and ones. The unpinned
+state is an all-false array of length `nz*nk`. `from_state()` requires the
+member and gives an explicit re-save instruction when it is absent. Direct
+construction may still pass `None`; the constructor converts that value
+immediately into the same all-false in-memory mask, so any subsequent save is
+current-schema. Omitting the constructor argument is a `TypeError`, so absence
+cannot select the unpinned policy through either construction path.
+The banner counts true entries and stays silent for an all-false mask, which
+preserves the former unpinned output.
+
+The reopened state boundary checks the representation before decode can
+consume it. The accepted storage types are boolean and uint8. The mask must be
+one-dimensional, have exactly `nz*nk` entries and contain only zeros and ones.
+The original unit-63 quantity, identity-value and low-k-prefix clauses remain
+outside this reopen and are unchanged. No policy or version field was added.
+
+The command
+`PYTHONPATH=. ../cocoa/Cocoa/.local/bin/python -m unittest -v
+tests.test_grid2d_const_mask` runs five CPU tests. They prove a required direct
+constructor argument, an explicit all-false unpinned round-trip, an existing
+two-redshift low-k pin round-trip, shape/type/binary-value refusal and the
+key-deletion mutation. In
+the mutation witness, the intact `boost/none` pin serves exactly `1.0`; the
+retired presence-inferred branch serves `1.25`. Current `from_state` refuses
+the deleted key before that wrong value can be served.
+
+The `mps-identity` child was not edited while the concurrent `25M-36` repair
+owned it. After that repair landed and current main was merged, the file became
+quiet and the Red Team claimed it for this unit's three persistence legs. Its
+preamble now states that grid2d geometry has eight state keys. The package
+README also states the current always-present mask behavior. Its wider
+scheduled teaching visit remains separate. This is implementation evidence for
+the Architect's audit, not Red Team certification.
+
+The amended complete CPU child reports eight state keys. Its new HDF5 legs
+prove an explicit all-false unpinned state, a valid low-k boost pin at flat
+indices 0, 6, 12 and 18 and a missing-mask refusal that names `const_mask` plus
+the re-save action. The full child ends
+`PASS: mps-identity all checks green`.
+
+The add-or-toggle-against-declared-unmasked case remains the unit-96
+artifact-authenticity interlock. This branch does not edit
+`emulator/results.py` or claim that wider artifact proof.
 
 ## UNIT 62 EXTENDED (45M-66, sixteenth batch, 2026-07-12): log_offset totality — a +Inf offset passes both guards and builds an all-NaN background target
 
