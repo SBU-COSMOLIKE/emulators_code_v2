@@ -14269,3 +14269,64 @@ git diff --check                                             rc 0
 This audit closes only the const-mask authenticity interlock. The broader
 Unit 96 composition-mode enum and its two-way group validation remain OPEN;
 none of the three files in this slice implements or claims that contract.
+
+## Unit 53 current-main repair landing audit (Codex, 2026-07-14): GO
+
+The reopened candidate now has one current scientific identity owner for all
+five tuner families. Stable family names are resolved independently of program
+labels. The canonical manifest records fixed and searched configuration,
+objective/selection rules, exact scientific file digests, fine-tune and
+transfer artifact pairs, and the CosmoLike objective dataset's five members
+plus its transitive `INCLUDE`/`DEFAULT` closure. Runtime-resolved dataset facts
+are materialized separately, so an unchanged INI using an environment
+placeholder cannot reuse trials after its resolved value changes.
+
+Implementation compatibility follows unit 37 rather than raw source bytes.
+The versioned registry names twelve shared semantic components—study protocol,
+experiment resolution, staging/target law, training/optimizer/scheduler,
+model design, activation/normalization, parameter/output geometry/decoder,
+loss composition, warm-start/transfer, analytic base, numeric runtime, and
+dataset-parser runtime—plus the selected family objective. Comments,
+formatting, checkout paths, unrelated files, git IDs, and raw package-release
+strings are not compatibility identity; a scientific repo or dependency
+change advances the responsible retained registry version.
+
+Strict creation is the only source of manifest-initialization authority.
+Loaded empty and nonempty legacy studies refuse rather than being blessed;
+partial, corrupt, and noncanonical stored identity also refuses. The parent
+authenticates before enqueue/spawn, each worker independently rebuilds and
+authenticates before staging, the default control carries its own marker and
+is queued once, and any failed worker aborts before an old winner is reported.
+The final report prints both stable study name and manifest digest.
+
+The second audit found one production-real defect after the first GO:
+`EmulatorExperiment.DEFAULT_THRESHOLDS` is a five-element Torch tensor, while
+the first canonicalizer tried scalar `.item()` before `.tolist()`. That crashed
+before a study could open. The repaired converter materializes vector-like
+values first and scalar-like values second. Both auditors then reran the exact
+current snapshot independently.
+
+```text
+Cocoa Torch witness                                      rc 0  34/34 PASS; ALL PASS
+real EmulatorExperiment.DEFAULT_THRESHOLDS               rc 0  canonical JSON array
+NumPy/Torch scalar leaves                                rc 0  canonical finite values
+NumPy NaN + Torch Inf vectors                            rc 0  both refuse at thresholds[1]
+old item-first conversion mutation                       rc 1  vector arm red
+10 critical/coupling mutations                           rc 1  each intended arm red
+env n_theta 20 -> 21, identical files                    rc 0  digest changes; resume refuses
+semantic model/base version bumps                        rc 0  named implementation fields refuse
+missing current registry pointer                         rc 0  registry refuses
+comment/unrelated source mutations                       rc 0  identity unchanged
+py_compile (ten Python surfaces)                         rc 0
+git diff --check                                         rc 0
+```
+
+The ten mutation set covers stable-name binding, both parent authentication
+sites, default-control semantics, reachable worker identity and failed-worker
+refusals, loaded-empty legacy refusal, fine-tune/transfer coupling, objective
+dataset coupling, semantic-registry wiring, INI dependency closure, and
+resolved-value wiring (some probes combine adjacent couplings). Both auditors
+report GO with no remaining blocker. A real Optuna-journal smoke is
+environment-owed because the available Cocoa audit runtime has Torch, NumPy,
+GetDist, and HDF5 but not Optuna; the strict creation/load behavior is covered
+with API-faithful doubles and load-bearing AST/mutation arms.
