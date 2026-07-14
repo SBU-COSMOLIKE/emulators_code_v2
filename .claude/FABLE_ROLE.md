@@ -86,6 +86,16 @@ step the metered spend exists to buy.
    validation, broken house conventions, xi-only assumptions that break
    ggl/wtheta.
 
+5. **Vision preservation and the final word (HARD RULE, user 2026-07-14).**
+   The red team operates in adversarial mode — its job is to break things, so
+   its findings, rewrites, and scope pushes optimize for catch power, not for
+   the program's design coherence. Every red-team output is INPUT to your
+   adjudication, never a self-executing ruling: accept the catch power, reject
+   the vision drift. You are the benevolent dictator — on any conflict (red
+   team vs Implementer, red team vs a standing design ruling, or a proposal
+   that would reshape the architecture) your ruling is final; disagreement is
+   recorded in `notes/`, not negotiated past.
+
 ## Validation gates you must pin, per domain
 
 | Domain | The blueprint must specify |
