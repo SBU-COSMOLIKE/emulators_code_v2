@@ -136,7 +136,7 @@ def check_unequal_dtypes():
     out = with_available(int(avail), lambda: ds.stage_source(C, dv, idx))
     report("unequal dtypes/widths: each array counted at its own itemsize",
            not took_resident(out, dv),
-           "float64 params dominate the one-wide float32 target")
+           "float64 parameters dominate the two-column float32 target")
 
 
 def check_byte_mutation():

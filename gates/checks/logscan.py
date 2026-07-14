@@ -19,6 +19,7 @@ compare only ``^(phase|epoch|best)`` lines, not timestamps); byte
 identity = two line lists equal to the character.
 """
 
+import math
 import re
 
 
@@ -160,8 +161,9 @@ def decreasing(values, *, tol=0.0):
 
   A lenient "loss descends" check for smoke runs: the home notes ask
   that a short training's loss go down, not that it fall monotonically
-  (mini-batch noise makes strict monotonicity false). So the rule is
-  the last value sits below the first by more than a tolerance.
+  because mini-batch noise makes strict monotonicity false. The rule
+  compares only the two endpoints. Both endpoints must be finite. The
+  last value must sit below the first by more than a tolerance.
 
   Arguments:
     values = the ordered numeric series (e.g. per-epoch train loss).
@@ -169,15 +171,22 @@ def decreasing(values, *, tol=0.0):
              any strict decrease passes).
 
   Returns:
-    (ok, detail). ok is True when values is non-empty and
-    first - last > tol. detail names the first / last values (and the
-    drop) so the log shows the trajectory, or reports too-few points.
+    (ok, detail). ok is True only when values has at least two points,
+    both endpoints are finite and first - last > tol. detail names the
+    endpoint values and the drop. A rejected non-finite endpoint is
+    named before subtraction, so an exploded run cannot look like a
+    successful decrease.
   """
   if len(values) < 2:
     return (False, "need at least two points, got " + str(len(values)))
 
   first = values[0]
   last = values[-1]
+  if not math.isfinite(first) or not math.isfinite(last):
+    detail = ("need finite endpoints: first " + repr(first)
+              + ", last " + repr(last))
+    return (False, detail)
+
   drop = first - last
   detail = ("first " + repr(first) + " -> last " + repr(last)
             + " (drop " + repr(drop) + ")")
