@@ -7846,3 +7846,40 @@ REQUIRED REPAIR (one of, before commit-for-merge):
 
 Everything else in the landing is pre-cleared: on the repair, the
 follow-up commit needs only a delta audit of the changed sentences.
+
+## Unit-29 landing audit (Fable, 2026-07-14): 09f00ef GO — merged; the 25M-14 before-construction contract is live on all three constructor paths
+
+The committed landing (codex/unit29-token-width-v2, tip a64a405 =
+09f00ef + a main merge with the register both-retained) audited
+against my scope ruling and the 25M-14 amendment. SCOPE EXACT:
+six files vs main; the committed ia.py change is line-identical
+to the approved candidate (verified against both bases); plain.py
+mirrors the same shape for ResTRF (token layout resolved, the
+shared validator called, THEN the MLP stack allocates) with
+in-region didactic renames; blocks.py holds the ONE validator
+definition (didactic refusal: LayerNorm over a width-one token
+subtracts the coordinate itself) plus the TRFBlock-internal
+defense-in-depth call. No accepted-width behavior changes.
+
+THE TEST FILE (tests/test_trf_token_width.py, 5 arms) is the
+model of an executable contract:
+1+2. Both public constructors refuse width-one BEFORE allocation —
+   proven by patching nn.Linear itself to raise if reached.
+3. The NECESSITY arm: with only the early ia.py call disabled, a
+   counted nn.Linear shows >0 allocations before the late block
+   guard raises — the scope extension proven load-bearing, exactly
+   the mutation from the approval request.
+4. The HARM arm: the retired width-one block reconstructed with
+   deterministic nonzero weights produces IDENTICAL corrections
+   for two distinct inputs and a ZERO correction Jacobian — the
+   silent-demotion physics made executable.
+5. The BOUNDARY control: the adjacent width-two configuration
+   builds on all three paths and its correction is provably
+   input-dependent.
+
+MY RUNS (cocoa-torch): focused 5/5 under ordinary Python AND
+python -O (the guard is a raise, not an assert — it survives
+optimization, checked deliberately); discovery 27/27;
+cmb_identity.py fully green (the family that constructs
+TemplateResTRF); compile clean. VERDICT: GO; merged (88a326f).
+Unit 29 / the 25M-14 amendment CLOSES.

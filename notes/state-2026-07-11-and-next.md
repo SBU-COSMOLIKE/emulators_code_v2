@@ -3233,3 +3233,13 @@ source or reframe the 10,000 as an explicitly labeled example
 scale with the documented ~3.9 MB per-row cost. Structure, voice,
 action, and register hygiene all pre-cleared; delta audit on the
 repair. Spec: gates-and-board.md "README diagnostic-memory audit".
+
+UNIT-29 LANDING (2026-07-14, Fable): 09f00ef GO — six files exact,
+ia.py line-identical to the approved candidate, one shared
+validator + defense in depth; the five-arm test file proves
+refusal-before-allocation on both constructors, the necessity of
+the ia.py call (counted allocations under the disabled early
+call), the retired width-one harm (identical corrections, zero
+Jacobian), and the width-two boundary; my runs 5/5 (+ -O), 27/27,
+cmb-identity green; merged 88a326f. Unit 29 CLOSED. Spec:
+gates-and-board.md "Unit-29 landing audit".
