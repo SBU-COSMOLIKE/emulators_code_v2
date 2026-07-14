@@ -3371,3 +3371,12 @@ rooted at the repo, which contains every worktree). All three
 lanes are now mailbox-capable; the loop can run end-to-end with
 no human relay, merges/pushes excepted (user-only, and git push
 stays deniable in the user's permission policy).
+
+BACKUP UNIT 1 (2026-07-14, Fable): Sol's scalar-smoke nine-aid
+child (77a1572) GO — wiring-only (+68/-0), D3 bars untouched,
+branch-exclusive double emissions verified, my run 9 terminals
+exactly-once ALL PASS; reconciliation confirmed inert until the
+tuple (call-site guard), so merged now; the Implementer wires the
+nine Assertions at the wrapper-family seam. The backup lane is
+validated end to end. Spec: gates-and-board.md
+"Backup-Implementer unit 1 audit".
