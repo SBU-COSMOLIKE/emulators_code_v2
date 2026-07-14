@@ -2512,6 +2512,42 @@ fixture red.  Finite-contract returns one at the Part F fixture crash after
 the import repair lets it reach the check body.  These are implementation
 readbacks for Architect audit, not self-certification.
 
+## Red Team implementation record: 25M-36 stored-payload reference order
+
+The Architect confirmed `25M-36` and transferred its bounded
+`gates/checks/mps_identity.py` repair to the Red Team. The producer remains
+unchanged. The check now creates its independent reference in the same
+representation order the producer owns: calculate the law in float64, store
+each row in float32, promote those stored rows for a float64 column mean and
+convert the final mean to the persisted float32 dtype. Both staging fixtures
+use this order, which removes a second copy of the same pre-cast reference
+pattern from the smaller fixture.
+
+The production-width fixture keeps the stored values and their mean as
+separate exact assertions. It also computes the old mean-before-cast result as
+a mutation control. The correct stored-payload reference is array-equal to the
+producer center. The old ordering differs by `5.960464478e-08`, so replacing
+the repaired reference with that ordering makes the exact mean assertion red.
+
+A direct Cocoa Torch 2.6.0 CPU run before the edit ended with one failure,
+`bounded staging: streamed mean equals the known answer`. The same complete
+child after the edit reports the old-order discrimination and ends
+`PASS: mps-identity all checks green`. The existing logical aid
+`mps-identity.bounded-staging-values` remains the owner of the added internal
+assertion. No `board.py` or runner file was touched. Queue 2 still owns the
+machine wiring of that aid.
+
+The executed command from the isolated worktree was:
+
+```text
+PYTHONPATH=. MPLBACKEND=Agg Cocoa/.local/bin/python gates/checks/mps_identity.py
+```
+
+The Cocoa interpreter compiled the edited check, `git diff --check` returned
+zero and the scoped diff contains only the check, its MPS home note and this
+durable register. This record presents evidence to the Architect and does not
+certify the landing.
+
 ## D3 implementation blocker: disjoint fixtures expose the existing thin smoke margin
 
 The transferred scalar-smoke visit now has a provisional implementation of
