@@ -782,7 +782,6 @@ class GeneratorCore:
         hd  = ["weights","lnp"] + names
         rows = [(str(n),float(l),float(h)) for n,l,h in zip(names,bds[:,0],bds[:,1])]
         with open(f"{self.paramsf}.ranges", "w") as f:
-          f.write(f"# {' '.join(hd)}\n")
           f.writelines(f"{n} {l:.5e} {h:.5e}\n" for n, l, h in rows)
 
         # save chain begins ----------------------------------------------------
