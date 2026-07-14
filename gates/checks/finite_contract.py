@@ -76,12 +76,23 @@ The parts, in order:
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
+The board reads more than that one exit code. Each part above is one declared
+ACCEPTANCE LEG -- a single named claim this gate makes -- and the check prints
+one reserved manifest line per leg, "##AID finite-contract.<leg> <verdict>",
+which gates/run_board.py reconciles against the fourteen legs the board
+declares for this gate. All fourteen lines print on EVERY run, including a run
+that crashes partway through: the leg that raised is FAIL, and the legs after
+it are UNAVAILABLE naming the leg that blocked them, because a leg that never
+ran did not fail. A declared leg that prints no line at all is a wiring defect,
+and the board reds the gate for it.
+
 Home note: training-stack.md (the "NaN scores as a perfect emulator" section
 and its pre-training parity clause: this is the finite-contract gate they name).
 """
 
 import sys
 import tempfile
+import traceback
 import types
 from pathlib import Path
 
@@ -121,6 +132,152 @@ DEV = torch.device("cpu")            # CPU only: the contract legs need no GPU
 EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_LANE_UNAVAILABLE = 2
+
+# --------------------------------------------------------------------------
+# The acceptance-leg manifest.
+#
+# An acceptance leg is one named claim the gate makes. gates/board.py declares
+# the same fourteen leg ids below in this gate's evidence= tuple, and
+# gates/run_board.py reconciles that declaration against the "##AID" lines this
+# check prints: a declared leg that prints no line reds the gate. So the
+# manifest is printed on EVERY exit path, a crashing one included -- main runs
+# the parts inside a wrapper that marks the leg that raised FAIL and every leg
+# it blocked UNAVAILABLE, naming the blocker. A crash must cost the board the
+# one leg that broke, never the other thirteen verdicts.
+# --------------------------------------------------------------------------
+AID_PREFIX = "finite-contract."
+
+# the fourteen legs, in the order the parts run them.
+LEGS = ["validation",              # Part A: eval_val
+        "train-step",              # Part B: the real training step
+        "diagnostic",              # Part C: eval_source_chi2
+        "finetune-parity",         # Part D: build_warm_start
+        "transfer-parity",         # Part E: build_transfer_start
+        "safe-sqrt-eager",         # Part F: the eager sqrt sites
+        "safe-sqrt-compiled",      # Part F: the same sites under torch.compile
+        "epoch-mean",              # Part G: the epoch reduction
+        "chi2-domain-boundary",    # Part H: the negative-chi2 fold
+        "chi2-width-band",         # Part H: the width-scaled band
+        "chi2-compute-dtype-band", # Part H: the band's compute dtype
+        "extreme-scale-reduction", # Part I: near-overflow validation rows
+        "optimizer-schema",        # Part J: the optimizer-kwarg schema
+        "optimizer-post-step"]     # Part K: post-step finiteness
+
+# The two legs whose evidence needs a capability a dev box may not have. Key =
+# the leg id; value = the LANE_UNAVAILABLE entry its part appends when the lane
+# could not run here. Both lanes are MANDATORY for closure, so a run that skips
+# one is non-green (EXIT_LANE_UNAVAILABLE) whatever the other legs did, and the
+# leg itself is UNAVAILABLE rather than PASS: half its evidence -- the half only
+# a compile-capable / CUDA box can produce -- does not exist in such a run, and
+# PASS would claim evidence this run never had.
+LEG_LANES = {"safe-sqrt-compiled": "safe-sqrt torch.compile backward",
+             "extreme-scale-reduction": "extreme-scale validation CUDA"}
+
+LANE_REASONS = {
+  "safe-sqrt torch.compile backward":
+    "this box cannot run a torch.compile backward, so the mandatory compile "
+    "lane did not execute (run the gate on a compile-capable box)",
+  "extreme-scale validation CUDA":
+    "CUDA is absent on this box, so the mandatory CUDA mirror of the "
+    "extreme-scale fixture did not execute (its CPU arm did run)"}
+
+# leg id -> (verdict, reason). Filled in as each part finishes; every leg is
+# present by the time the manifest prints, on every path through main.
+LEG_MARKS = {}
+
+# The leg whose part is running right now, and the failure count when it
+# opened: the pair the crash wrapper needs to name the leg that raised.
+CURRENT_LEG = None
+CURRENT_LEG_FAILURES = 0
+
+
+def begin_leg(leg):
+  """Open the leg the next part asserts, remembering its failure baseline.
+
+  Arguments:
+    leg = the leg id, without the shared "finite-contract." prefix.
+  """
+  global CURRENT_LEG
+  global CURRENT_LEG_FAILURES
+  CURRENT_LEG = leg
+  CURRENT_LEG_FAILURES = len(FAILURES)
+
+
+def end_leg():
+  """Close the open leg: it passed iff its part appended no failure.
+
+  A leg whose mandatory lane could not run on this box mints UNAVAILABLE with
+  that lane's reason instead. The run produced no evidence for such a leg
+  either way, and UNAVAILABLE says exactly that, where PASS would claim a
+  verdict that was never reached.
+  """
+  global CURRENT_LEG
+  leg = CURRENT_LEG
+  baseline = CURRENT_LEG_FAILURES
+  CURRENT_LEG = None
+  lane = LEG_LANES.get(leg)
+  if lane is not None and lane in LANE_UNAVAILABLE:
+    LEG_MARKS[leg] = ("UNAVAILABLE", LANE_REASONS[lane])
+    return
+  if len(FAILURES) == baseline:
+    LEG_MARKS[leg] = ("PASS", "")
+  else:
+    LEG_MARKS[leg] = ("FAIL", "")
+
+
+def record_crash(detail):
+  """Fold an exception that escaped a part into the leg manifest.
+
+  The leg that was open when the exception escaped is marked FAIL, and its
+  label also enters FAILURES so the process still exits non-zero. Every leg
+  after it never ran, so each is UNAVAILABLE naming the leg that blocked it: a
+  leg that never ran did not fail, and marking it FAIL would assert a test
+  result this run never produced.
+
+  Arguments:
+    detail = the one-line summary of the exception (its last traceback line).
+  """
+  blocker = CURRENT_LEG
+  if blocker is None:
+    # the exception escaped between two parts, with no leg open: attribute it
+    # to the first leg still without a verdict, so the manifest names a real
+    # leg rather than inventing one.
+    for leg in LEGS:
+      if leg not in LEG_MARKS:
+        blocker = leg
+        break
+  if blocker is None:
+    FAILURES.append("finite-contract: an exception escaped after every "
+                    "declared leg had already reported")
+    return
+  FAILURES.append("the " + blocker + " leg raised: " + detail)
+  LEG_MARKS[blocker] = ("FAIL", "")
+  for leg in LEGS:
+    if leg not in LEG_MARKS:
+      LEG_MARKS[leg] = ("UNAVAILABLE",
+                        "never ran: blocked by the " + blocker
+                        + " leg, which raised " + detail)
+
+
+def emit_manifest():
+  """Print the one reserved ##AID line per declared leg, in declaration order.
+
+  A leg with no recorded verdict is a defect in this file's own wiring rather
+  than a result, so it prints FAIL saying so (and counts as a failure) instead
+  of going silently missing.
+  """
+  print("")
+  for leg in LEGS:
+    if leg in LEG_MARKS:
+      verdict, reason = LEG_MARKS[leg]
+    else:
+      verdict = "FAIL"
+      reason = "the check recorded no verdict for this declared leg"
+      FAILURES.append("declared leg " + leg + " reported no verdict")
+    line = "##AID " + AID_PREFIX + leg + " " + verdict
+    if reason != "":
+      line = line + " " + reason
+    print(line)
 
 
 def report(label, ok, detail):
@@ -845,7 +1002,21 @@ def check_safe_sqrt():
   report("safe-sqrt harness: the real reduction read its contraction width",
          obj.geom.width_read_count > 0,
          "dest_idx reads " + str(obj.geom.width_read_count))
+  return obj
 
+
+def check_safe_sqrt_compiled(obj):
+  """Part F, the compile lane: the same exact-fit gradient under torch.compile.
+
+  The board declares this a leg of its own (safe-sqrt-compiled), separate from
+  the eager sites above, because it is the one lane a compiler-less box cannot
+  run: keeping it separate lets the manifest say UNAVAILABLE about exactly the
+  lane that did not execute instead of clouding the eager verdict.
+
+  Arguments:
+    obj = the instrumented CosmolikeChi2 the eager part built and asserted, so
+          the compiled arm reduces through the same object the eager arm did.
+  """
   # eager + compiled: the exact-fit gradient stays finite under torch.compile.
   # capability detection FIRST. A broad except that greened
   # on ANY exception turned a real Inductor / backward regression into a green
@@ -854,7 +1025,6 @@ def check_safe_sqrt():
   # traceback); a genuinely compiler-less box emits an explicit non-green
   # SKIP-DEP that can never count toward closure.
   if _can_compile():
-    import traceback
     try:
       compiled = torch.compile(lambda cc: _reduce_loss(obj, cc, "sqrt"))
       rows = torch.zeros(4, 3)
@@ -1765,46 +1935,109 @@ def check_optimizer_post_step():
          state_detail)
 
 
-def main():
-  """Run every part of the finite contract; return 1 if any leg failed."""
-  print("== finite-contract ==")
-  print("device " + str(DEV) + " (torch only, no cosmolike, no GPU)")
-  torch.manual_seed(0)
+def run_contract():
+  """Run every part of the contract in order, closing the leg each one asserts.
 
+  Each begin_leg / end_leg pair brackets exactly the probes of one declared
+  leg, so the leg's verdict is the truth about those probes and nothing else.
+  Part D's region opens before the source fixture is written because that
+  fixture IS the finetune-parity leg's setup: a fixture that fails to build
+  fails the leg that needed it, rather than escaping as an unattributed crash.
+  """
+  begin_leg("validation")
   print("\n-- Part A: eval_val --")
   check_eval_val()
+  end_leg()
+
+  begin_leg("train-step")
   print("\n-- Part B: the train step --")
   check_train_step()
+  end_leg()
+
+  begin_leg("diagnostic")
   print("\n-- Part C: eval_source_chi2 --")
   check_source_chi2()
+  end_leg()
 
+  begin_leg("finetune-parity")
   tmp = tempfile.mkdtemp(prefix="finite-")
   root = Path(tmp) / "source"
   _save_source(root)
   source = warmstart.load_source(root=str(root), device=DEV)
   print("\n-- Part D: build_warm_start parity --")
   pgeom_x, extras_x, C_x = check_finetune_parity(source, tmp)
+  end_leg()
+
+  begin_leg("transfer-parity")
   print("\n-- Part E: build_transfer_start parity --")
   check_transfer_parity(source, pgeom_x, extras_x, C_x)
+  end_leg()
+
+  begin_leg("safe-sqrt-eager")
   print("\n-- Part F: the safe-sqrt producer --")
-  check_safe_sqrt()
+  obj = check_safe_sqrt()
+  end_leg()
+
+  begin_leg("safe-sqrt-compiled")
+  print("\n-- Part F: the safe-sqrt producer under torch.compile --")
+  check_safe_sqrt_compiled(obj)
+  end_leg()
+
+  begin_leg("epoch-mean")
   print("\n-- Part G: epoch-reduction finite truth --")
   check_epoch_reduction()
+  end_leg()
+
+  begin_leg("chi2-domain-boundary")
   print("\n-- Part H: the chi2-domain boundary --")
   check_chi2_domain()
+  end_leg()
+
+  begin_leg("chi2-width-band")
   print("\n-- Part H: the chi2-domain band at production widths --")
   check_chi2_band_production()
+  end_leg()
+
+  begin_leg("chi2-compute-dtype-band")
   print("\n-- Part H: the chi2-domain band's compute-dtype provenance "
         " --")
   check_chi2_band_dtype_provenance()
+  end_leg()
 
+  begin_leg("extreme-scale-reduction")
   print("\n-- Part I: extreme-scale validation reductions --")
   check_extreme_scale_reductions()
+  end_leg()
 
+  begin_leg("optimizer-schema")
   print("\n-- Part J: the optimizer-kwarg schema (zero-eps guard) --")
   check_optimizer_schema()
+  end_leg()
+
+  begin_leg("optimizer-post-step")
   print("\n-- Part K: optimizer post-step finiteness --")
   check_optimizer_post_step()
+  end_leg()
+
+
+def main():
+  """Run every part of the finite contract; return 1 if any leg failed."""
+  print("== finite-contract ==")
+  print("device " + str(DEV) + " (torch only, no cosmolike, no GPU)")
+  torch.manual_seed(0)
+
+  try:
+    run_contract()
+  except Exception:
+    # The crash wrapper. A part that raises is a real finding, so the traceback
+    # is printed in full -- but it must cost the board only the leg that broke,
+    # not the manifest. record_crash marks that leg FAIL (which also makes this
+    # run exit non-zero) and marks the legs it blocked UNAVAILABLE naming it, so
+    # the manifest below is still complete and every verdict in it is honest.
+    traceback.print_exc()
+    record_crash(_short(traceback.format_exc().splitlines()[-1]))
+
+  emit_manifest()
 
   print("")
   if len(FAILURES) > 0:

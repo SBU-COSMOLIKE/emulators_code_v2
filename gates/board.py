@@ -1732,21 +1732,28 @@ def gate_finite_contract(ctx):
   cosmolike, no GPU (spec: training-stack.md, the "NaN scores as a perfect
   emulator" section and its pre-training parity + +
  clauses).
+
+  The fourteen declared legs are asserted IN the child, which folds one
+  '##AID <leg> <PASS|FAIL|UNAVAILABLE>' terminal per leg into this wrapper's
+  executed set on every run, a crashing run included. The rc check below is the
+  child's aggregate verdict and carries no aid of its own.
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/finite_contract.py")
   if not ctx.dry:
     # exit code 0 = every leg ran and passed; 2 = a mandatory lane (the
-    # torch.compile backward) could not run on this box, a non-green result
-    # rather than a silent PASS; any other nonzero = a tested assertion
-    # failed. Both nonzero codes make the gate non-PASS.
+    # torch.compile backward, or the CUDA mirror of the extreme-scale fixture)
+    # could not run on this box, a non-green result rather than a silent PASS;
+    # any other nonzero = a tested assertion failed. Both nonzero codes make the
+    # gate non-PASS, and the child's manifest names which lane went missing.
     if rc == 2:
-      reason = ("a mandatory lane could not run (torch.compile backward "
-                "unavailable); run this gate on a compile-capable box")
+      reason = ("a mandatory lane could not run (the torch.compile backward or "
+                "the CUDA extreme-scale mirror); run this gate on a "
+                "compile-capable CUDA box")
     else:
       reason = "check exit code " + str(rc)
     ctx.expect(
-      label="finite-contract eval/train/diagnostic/parity/safe-sqrt legs",
+      label="finite-contract child completed",
       ok=(rc == 0),
       detail=reason + " (gates/checks/finite_contract.py)")
 
@@ -2105,6 +2112,34 @@ BOARD = [
             "w^2-restoring mutation arm, a scalar-width leg, a subclass "
             "census, and an ill-conditioned SPD roundoff control); the red "
             "legs plus the finite controls",
+       evidence=(Assertion("finite-contract.validation",
+                           "training-stack.md#finite-contract-validation"),
+                 Assertion("finite-contract.train-step",
+                           "training-stack.md#finite-contract-train-step"),
+                 Assertion("finite-contract.diagnostic",
+                           "training-stack.md#finite-contract-diagnostic"),
+                 Assertion("finite-contract.finetune-parity",
+                           "training-stack.md#finite-contract-finetune-parity"),
+                 Assertion("finite-contract.transfer-parity",
+                           "training-stack.md#finite-contract-transfer-parity"),
+                 Assertion("finite-contract.safe-sqrt-eager",
+                           "training-stack.md#finite-contract-safe-sqrt-eager"),
+                 Assertion("finite-contract.safe-sqrt-compiled",
+                           "training-stack.md#finite-contract-safe-sqrt-compiled"),
+                 Assertion("finite-contract.epoch-mean",
+                           "training-stack.md#finite-contract-epoch-mean"),
+                 Assertion("finite-contract.chi2-domain-boundary",
+                           "training-stack.md#finite-contract-chi2-domain-boundary"),
+                 Assertion("finite-contract.chi2-width-band",
+                           "training-stack.md#finite-contract-chi2-width-band"),
+                 Assertion("finite-contract.chi2-compute-dtype-band",
+                           "training-stack.md#finite-contract-chi2-compute-dtype-band"),
+                 Assertion("finite-contract.extreme-scale-reduction",
+                           "training-stack.md#finite-contract-extreme-scale-reduction"),
+                 Assertion("finite-contract.optimizer-schema",
+                           "training-stack.md#finite-contract-optimizer-schema"),
+                 Assertion("finite-contract.optimizer-post-step",
+                           "training-stack.md#finite-contract-optimizer-post-step")),
        run=gate_finite_contract,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),

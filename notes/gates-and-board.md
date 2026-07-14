@@ -9566,3 +9566,160 @@ independent and the comparison is load-bearing in both directions.
 
 VERDICT: GO. Merged into the working branch; D5 shrinks per the
 transfer plan (62 + 64/70 remain in that block).
+
+## Queue 2 increment 5 — finite-contract: the fourteen-leg evidence tuple + the always-emit crash wrapper (Opus, 2026-07-14): 40/40, THE FAN-OUT CLOSES
+
+Executed the 0020 blueprint (re-cut): the RULING 'finite-contract Part F
+scope + emission shape' (shape (B), always-emit crash wrapper) wired
+against the REPAIRED red-team child (0abc300, merged 908c3b2), per the
+audit's sequencing consequence. Files: `gates/checks/finite_contract.py`
+(the emission wrapper), `gates/board.py` (the evidence tuple + wrapper
+prose), `notes/training-stack.md` (the fourteen anchors + the gate's
+evidence block).
+
+**The board's evidence fan-out is now COMPLETE: 40 of 40 gates carry
+`evidence=`, 187 declared aids, all unique, every anchor the aid under the
+one `.` -> `-` transform.** finite-contract was the last gate without a
+tuple.
+
+**The fourteen declared legs** (the ruling's names, unchanged):
+`validation`, `train-step`, `diagnostic`, `finetune-parity`,
+`transfer-parity`, `safe-sqrt-eager`, `safe-sqrt-compiled`, `epoch-mean`,
+`chi2-domain-boundary`, `chi2-width-band`, `chi2-compute-dtype-band`,
+`extreme-scale-reduction`, `optimizer-schema`, `optimizer-post-step`.
+
+### Shape (B) as built
+
+`main()` now runs the parts inside `run_contract()`, wrapped in one
+`try / except Exception`. Each part is bracketed by `begin_leg(leg)` /
+`end_leg()`, so a leg's verdict is the truth about exactly its own probes
+(`end_leg` compares the FAILURES count against the baseline the leg
+opened with). `emit_manifest()` then prints one `##AID` line per declared
+leg on EVERY exit path. On a crash, `record_crash()` marks the open leg
+FAIL (and enters it in FAILURES, so the process still exits non-zero) and
+marks every leg after it UNAVAILABLE with a reason NAMING the blocking leg
+— the skipped-leg doctrine exactly: a leg that never ran did not fail.
+Part D's leg region opens BEFORE its source fixture is written, because
+that fixture is the finetune-parity leg's setup; a fixture that fails to
+build now fails the leg that needed it instead of escaping unattributed.
+
+Two legs are lane-gated (`LEG_LANES`): `safe-sqrt-compiled` needs a working
+`torch.compile` backward, `extreme-scale-reduction` needs CUDA for the
+mirror of its CPU fixture. When a mandatory lane cannot run, the leg mints
+UNAVAILABLE with that lane's reason rather than PASS — half its evidence
+does not exist in such a run — and the child's rc 2 (non-green) is
+unchanged.
+
+### PREMISE CORRECTION (evidence, not a design challenge — constraint 8)
+
+The blueprint predicted "compiled/CUDA lanes UNAVAILABLE with their
+reasons". On THIS box only the CUDA lane is unavailable: the cocoa
+interpreter's `torch.compile` **can** build and run a backward, so
+`_can_compile()` returns True and `safe-sqrt-compiled` mints a REAL PASS
+(log line: `[PASS] safe-sqrt: exact-fit gradient finite under torch.compile
+(MANDATORY on the compile lane)`). The wrapper computes every mark at
+runtime from `LANE_UNAVAILABLE`, so the shape is unaffected — but the
+expected mark table in the audit is one leg optimistic about what is
+missing, and the gate's remaining workstation debt is the CUDA mirror
+ALONE, not the compile lane. The child's own final line already said so
+(`a mandatory lane could not run: extreme-scale validation CUDA`); its
+parenthetical still advises "run on a compile-capable box", which is now
+the wrong machine to name. Flagged, not touched: it is the red team's
+child prose, and it is a one-line wording fix for whoever owns the next
+pass.
+
+### NAMED gate-surface changes (constraint 7b)
+
+1. **Wrapper label narrowed**, `gates/board.py` `gate_finite_contract`:
+   `"finite-contract eval/train/diagnostic/parity/safe-sqrt legs"` ->
+   `"finite-contract child completed"`. The rc `ok=(rc == 0)` assertion is
+   UNTOUCHED; the claims now live on the fourteen per-leg aids. Same
+   DIDACTICS-27 wrapper-falsehood repair the five sibling wrappers already
+   took (1c2f706, b30427c) — the label used to claim leg-level knowledge
+   the rc alone never had.
+2. **rc-2 reason text widened**, same wrapper: it named only the
+   torch.compile backward; the child has TWO mandatory lanes and the one
+   actually missing here is CUDA. It now names both and says
+   "compile-capable CUDA box". No threshold, no bar, no exit-code mapping
+   changed.
+3. **Part F split into two functions**, `check_safe_sqrt()` (eager, now
+   `return obj`) + new `check_safe_sqrt_compiled(obj)` (the compile lane,
+   moved verbatim). Pure code motion: the assertions, their text, their
+   order, and the `obj` they reduce through are character-identical, and
+   the same `_reduce_obj()` instance is threaded into the compiled arm so
+   behaviour is bit-for-bit what it was. Required by the ruling's own leg
+   list, which declares `safe-sqrt-eager` and `safe-sqrt-compiled` as two
+   separate legs: they cannot carry separate verdicts from one function.
+   Proof it changed nothing: the assertion count is **78 [PASS] before and
+   78 [PASS] after**, zero [FAIL] in both.
+
+NO fixture, prefix, geometry, threshold, bar, or golden base was touched.
+The red team's 0abc300 repairs are untouched.
+
+### Gate results (all live on the cocoa interpreter, this session)
+
+- `PYTHONPATH=. <cocoa python> gates/checks/finite_contract.py`: **rc 2**,
+  **78 [PASS], zero [FAIL]**, **14 declared == 14 ##AID emitted == 14
+  distinct**, 13 PASS + 1 UNAVAILABLE. Final line: `finite-contract:
+  NON-GREEN -- a mandatory lane could not run: extreme-scale validation
+  CUDA`. The UNAVAILABLE leg carries its reason:
+  `##AID finite-contract.extreme-scale-reduction UNAVAILABLE CUDA is absent
+  on this box, so the mandatory CUDA mirror of the extreme-scale fixture did
+  not execute (its CPU arm did run)`.
+- `run_board.py --list`: **rc 0** — `validate_evidence` ran, so all fourteen
+  new anchors resolve to real `<a id>` markers in `training-stack.md` and no
+  aid collides board-wide.
+- `gates/checks/board_selftest.py`: **176 PASS / 0 FAIL**, `board-selftest:
+  ALL PASS` — unchanged from increment 4, no regression.
+- Board census (imported, not eyeballed): **40 gates, 40 carrying
+  `evidence=`, 187 aids, 187 unique**, every anchor == its aid under the
+  `.` -> `-` transform.
+- Declared-vs-emitted reconciliation against the live log: declared 14,
+  emitted 14, distinct 14, declared-not-emitted `[]`, emitted-not-declared
+  `[]`, and the emission ORDER matches the declaration order.
+
+### The crash wrapper is verified BY A CRASH, not by inspection
+
+The whole point of shape (B) is the manifest that survives a regressed
+fixture, and the repaired child no longer crashes — so a passing run cannot
+prove the wrapper works. I ran a **tamper arm** on a scratch copy
+(`_fc_crashprobe.py`, deleted; never staged): `check_epoch_reduction()`
+raises the exact pre-repair `AttributeError: 'CosmolikeChi2' object has no
+attribute 'geom'`. Result: **rc 1**, traceback printed in full, and the
+manifest STILL complete at 14 lines —
+
+```
+##AID finite-contract.epoch-mean FAIL
+##AID finite-contract.chi2-domain-boundary UNAVAILABLE never ran: blocked by the epoch-mean leg, which raised AttributeError: 'CosmolikeChi2' object has no attribute 'geom'
+... (chi2-width-band, chi2-compute-dtype-band, extreme-scale-reduction, optimizer-schema, optimizer-post-step: the same)
+```
+
+— the seven legs upstream of the crash keep their real PASS verdicts, the
+crashing leg is FAIL, and the six it blocked are UNAVAILABLE naming it.
+That is the ruling's shape (B) reproduced against the failure mode it was
+written for.
+
+### WORKSTATION-OWED (honest, not a green)
+
+Whole-gate closure needs a **CUDA** box: `extreme-scale-reduction`'s CUDA
+mirror is mandatory and cannot run on the Mac, so the child exits 2 and the
+gate is correctly NON-PASS here. Nothing in this increment mints a green
+for it. The compile lane, by contrast, is NOT owed — it ran and passed here
+(see the premise correction).
+
+**Landing block (merge/push to main is the user's alone).**
+
+```
+branch:  claude/amazing-keller-e798b6
+commit:  <this increment's sha — see the handoff>
+files:   gates/board.py, gates/checks/finite_contract.py,
+         notes/training-stack.md, notes/gates-and-board.md
+gates:   finite_contract.py LIVE on the cocoa interpreter: rc 2 (mandatory
+         CUDA lane absent -- honest non-green), 78 [PASS], zero [FAIL],
+         14 declared == 14 ##AID emitted, 13 PASS + 1 UNAVAILABLE(CUDA).
+         Crash tamper arm: rc 1, 14 still emitted, blocked legs UNAVAILABLE
+         naming the blocker. --list rc 0 (14 anchors resolve, no collision);
+         board-selftest 176 PASS / 0 FAIL ALL PASS. Board 40/40 carrying
+         evidence=, 187 aids -- THE FAN-OUT IS COMPLETE.
+         Owed to a CUDA box: the extreme-scale CUDA mirror.
+```

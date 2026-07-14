@@ -3460,6 +3460,140 @@ the guard-bypassed mutation that recreates the false `f_floor = 0`); the
 real `cmb_residual_diagnostic` (corrupt-score refusal + valid control); and
 the grid / grid2d producer census through the one shared boundary.
 
+<a id="finite-contract-evidence"></a>
+**finite-contract (FIN-A) — a NaN or Inf never ranks, selects, or ships a
+model.**
+
+- files: none. The check builds every fixture in memory (plus one temporary
+  saved source root for the two parity legs) and reads no deploy data.
+- subprocess: `gates/checks/finite_contract.py`, run by the wrapper. Every leg
+  drives the real functions from `emulator/training.py`,
+  `emulator/warmstart.py`, and `emulator/losses/`; torch only, no CosmoLike, no
+  GPU required.
+- metric: per-leg. Each leg injects exactly one non-finite (or out-of-domain)
+  value into a real code path and requires a loud abort, while its finite
+  control keeps its ordinary metrics; the mutation arms require the retired
+  behaviour to be caught, so no leg can pass on a dead assertion.
+- legs: 14, named `finite-contract.validation`, `finite-contract.train-step`,
+  `finite-contract.diagnostic`, `finite-contract.finetune-parity`,
+  `finite-contract.transfer-parity`, `finite-contract.safe-sqrt-eager`,
+  `finite-contract.safe-sqrt-compiled`, `finite-contract.epoch-mean`,
+  `finite-contract.chi2-domain-boundary`, `finite-contract.chi2-width-band`,
+  `finite-contract.chi2-compute-dtype-band`,
+  `finite-contract.extreme-scale-reduction`,
+  `finite-contract.optimizer-schema`, and
+  `finite-contract.optimizer-post-step`.
+- evidence: each claim is asserted inside the child, which prints one `##AID`
+  terminal per leg on every run, a crashing run included: a leg that raises is
+  `FAIL`, and the legs it blocked are `UNAVAILABLE` naming it, so the manifest
+  the board reconciles is complete whether or not a fixture regresses.
+- owed: two lanes are mandatory for closure and cannot run on a CPU dev box.
+  `safe-sqrt-compiled` needs a working `torch.compile` backward, and
+  `extreme-scale-reduction` needs CUDA for the mirror of its CPU fixture. Each
+  mints `UNAVAILABLE` naming its missing lane, and the child exits 2 (non-green)
+  rather than reporting a pass, so whole-gate closure is owed to a
+  compile-capable CUDA workstation.
+
+<a id="finite-contract-validation"></a>
+`finite-contract.validation` requires `eval_val` to raise on a single NaN and on
+a `+/-Inf` among otherwise good validation rows, naming the validation side and
+the offending row, and requires an all-finite control to reproduce the reference
+median, mean, and threshold fractions unchanged.
+
+<a id="finite-contract-train-step"></a>
+`finite-contract.train-step` requires the real `training_loop_batched` step to
+raise on a NaN scalar loss BEFORE backward and on a non-finite gradient BEFORE
+`optimizer.step`, with the weights bitwise unchanged in both, and requires a
+finite control run to complete with `_global_grad_norm` read-only.
+
+<a id="finite-contract-diagnostic"></a>
+`finite-contract.diagnostic` requires `eval_source_chi2` to raise on a diverged
+model's non-finite per-row chi2, naming the diagnostic side and the source rows,
+and requires a finite control to return its metrics.
+
+<a id="finite-contract-finetune-parity"></a>
+`finite-contract.finetune-parity` requires `build_warm_start` to raise the
+finite-contract message on a no-extra both-arms NaN, a one-arm NaN, an Inf, and
+an extras-present NaN, never the misleading "extras leaked" or tolerance
+verdict, and requires a valid source to keep its `[ok] finetune parity` line.
+
+<a id="finite-contract-transfer-parity"></a>
+`finite-contract.transfer-parity` requires `build_transfer_start` to raise the
+finite-contract message on a non-finite epoch-0 surface, never "not the frozen
+base bitwise", and requires a valid zero-init to keep its `[ok] transfer parity`
+line.
+
+<a id="finite-contract-safe-sqrt-eager"></a>
+`finite-contract.safe-sqrt-eager` requires an exact-fit row (chi2 == 0) to have
+a finite, zero gradient in every sqrt mode — sqrt, both berhu lower branches,
+the anneal arm, and the `berhu_capped` region-3 where-mask — instead of the
+0/0 = NaN it used to produce; positives must agree analytically with sqrt; a
+materially negative, NaN, or Inf chi2 must be refused with a non-finite loss;
+the reduction must really read its contraction width; and a geometry-free loss
+must still crash (the harness mutation arm).
+
+<a id="finite-contract-safe-sqrt-compiled"></a>
+`finite-contract.safe-sqrt-compiled` requires the same exact-fit gradient to
+stay finite and zero through a `torch.compile`d reduction, with a raising
+compiled callable detected so the arm cannot green on a compile failure. The
+lane is MANDATORY: a box that cannot run a compiled backward mints
+`UNAVAILABLE` and a non-green exit, never a pass.
+
+<a id="finite-contract-epoch-mean"></a>
+`finite-contract.epoch-mean` requires a finite per-batch loss near the float32
+max to yield a finite epoch mean through host float64 accumulation, and requires
+the retired device-float32 `loss * bs` product to overflow to Inf on the
+mutation arm.
+
+<a id="finite-contract-chi2-domain-boundary"></a>
+`finite-contract.chi2-domain-boundary` requires `eval_val` and
+`eval_source_chi2` to raise on a finite NEGATIVE chi2 that training folds, so a
+corrupted row can never rank as perfect; an exact zero is accepted; the
+scale-aware band tolerates roundoff and refuses corruption on both edges; and
+the same fold is compile-safe. The finite-only check would crown the corrupted
+row, and that mutation arm must be caught.
+
+<a id="finite-contract-chi2-width-band"></a>
+`finite-contract.chi2-width-band` requires the negative-chi2 band to scale with
+the per-row reduction DEPTH — the kept width w, not w^2. A production-width
+(>= 780) leg through a real `CosmolikeChi2` subclass must refuse -2 and -4 and
+both sides of the actual float32 band; a mutation arm restoring the retired w^2
+rule must be caught letting -2 through; `ScalarChi2` must declare `n_out`; a
+mechanical subclass census must show no family overriding the width rule; and an
+ill-conditioned SPD control must show genuine roundoff near zero falling inside
+the band.
+
+<a id="finite-contract-chi2-compute-dtype-band"></a>
+`finite-contract.chi2-compute-dtype-band` requires the band to derive from the
+dtype the chi2 was COMPUTED in, never a storage upcast: `_reduce`, `eval_val`,
+and `eval_source_chi2` must give ONE verdict on a value between the 1e-6 floor
+and the float32 band, a restored `.double()` upcast must split them (the
+mutation arm), and a genuinely float64-computed loss must still get the tight
+float64 band.
+
+<a id="finite-contract-extreme-scale-reduction"></a>
+`finite-contract.extreme-scale-reduction` requires eight individually finite
+float32 scores near 1e38 to publish a finite float64 mean, ordinary median, and
+threshold fractions through the real `eval_val`, with the returned mean being
+the value appended to the real training history, and requires the restored
+float32 mean to overflow on the CPU mutation arm. The CUDA mirror of the same
+fixture is MANDATORY for closure: a box without CUDA mints `UNAVAILABLE` and a
+non-green exit, never a pass on the CPU arm alone.
+
+<a id="finite-contract-optimizer-schema"></a>
+`finite-contract.optimizer-schema` requires every public numeric optimizer
+control to be validated by type and range BEFORE the optimizer is built — a zero
+or non-finite eps, a non-finite or negative weight decay, a non-positive or
+non-finite learning rate, and a beta outside [0, 1) are each rejected — because
+a zero eps forms 0 / (sqrt(0) + 0) at an exact-fit row, a non-finite update the
+loss and gradient guards do not catch.
+
+<a id="finite-contract-optimizer-post-step"></a>
+`finite-contract.optimizer-post-step` requires every model parameter and
+optimizer-state tensor to be finite after a real AdamW update, and requires the
+same inspection to detect a deliberately poisoned parameter and a deliberately
+poisoned optimizer moment (the two mutation arms).
+
 ## UNIT 79 (20M-12, 2026-07-13): roughness is a CMB-family capability — eligibility by explicit family, never by inheritance
 
 Finding (red team, CONFIRMED; witness reproduced through the shipped
