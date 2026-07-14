@@ -29,6 +29,13 @@ and the anneal blend is plain sqrt at s = 0 and the full berhu shape at
 s = 1. It repeats everything at a non-default knot and cap. Every value is
 printed; any mismatch exits non-zero.
 
+The probes roll up into three board-declared evidence legs (queue 2):
+reference-values (every value-vs-reference probe), join-derivatives (the
+autograd-slope probes at the t1 and t2 joins), and anneal-endpoints (the
+s = 0 / s = 1 blend probes). The script prints one reserved
+'##AID <aid> <PASS|FAIL>' line per leg at the end; the exit status stays the
+single aggregate verdict, not a leg.
+
 _reduce is a method but reads no instance state (only the tensor and the
 knots passed in), so it is called unbound with self = None.
 
@@ -46,19 +53,51 @@ _reduce = CosmolikeChi2._reduce
 
 FAILURES = []
 
+# (queue 2) the three board-declared evidence legs this check emits. Every
+# report() call names the leg it belongs to; a leg reds if ANY of its probes
+# fail. The script prints exactly one '##AID <leg-aid> <PASS|FAIL>' line per
+# leg at the end (emit_aids), one terminal per declared leg -- NOT one per
+# probe, because many probes (both knot pairs) roll up into each leg. The
+# child's exit status stays the single aggregate verdict, not a leg.
+LEG_AIDS = {
+    "reference-values": "berhu-loss.reference-values",
+    "join-derivatives": "berhu-loss.join-derivatives",
+    "anneal-endpoints": "berhu-loss.anneal-endpoints",
+}
+# leg name -> True once any probe on that leg fails.
+LEG_FAILED = {leg: False for leg in LEG_AIDS}
 
-def report(label, ok, detail):
-  """Print one acceptance line and record a failure.
+
+def report(label, ok, detail, leg):
+  """Print one acceptance line and record a failure against its evidence leg.
 
   Arguments:
     label  = what is being checked.
-    ok      = the boolean verdict.
+    ok     = the boolean verdict.
     detail = the values behind the verdict (always printed).
+    leg    = the LEG_AIDS key this probe rolls up into ("reference-values",
+             "join-derivatives", or "anneal-endpoints"); a False verdict
+             reds the whole leg's single ##AID terminal.
   """
   mark = "PASS" if ok else "FAIL"
   print("  [" + mark + "] " + label + "  (" + detail + ")")
   if not ok:
     FAILURES.append(label)
+    LEG_FAILED[leg] = True
+
+
+def emit_aids():
+  """Print the one reserved '##AID <aid> <result>' line per declared leg.
+
+  One terminal per board-declared evidence leg (reference-values,
+  join-derivatives, anneal-endpoints), aggregating every probe that rolled
+  up into it: PASS only when the leg had no failing probe. run_board folds
+  these into the gate's executed set and reconciles them against the
+  declared evidence map.
+  """
+  for leg, aid in LEG_AIDS.items():
+    mark = "FAIL" if LEG_FAILED[leg] else "PASS"
+    print("##AID " + aid + " " + mark)
 
 
 def transform(c_value, mode, knot, cap, s=None):
@@ -177,7 +216,8 @@ def check_knots(t1, t2, tol, dtol):
   vs = transform(probe_lo, "sqrt", t1, t2)
   report("berhu == sqrt below the knot (c = " + repr(probe_lo) + ")",
          abs(vb - vs) < tol,
-         "berhu " + repr(vb) + " vs sqrt " + repr(vs))
+         "berhu " + repr(vb) + " vs sqrt " + repr(vs),
+         leg="reference-values")
 
   # berhu matches the manual reference on both sides of the knot.
   points = []
@@ -189,7 +229,8 @@ def check_knots(t1, t2, tol, dtol):
     want = ref_berhu(c, t1)
     report("berhu(" + repr(c) + ") matches the reference",
            abs(got - want) < tol,
-           "got " + repr(got) + " want " + repr(want))
+           "got " + repr(got) + " want " + repr(want),
+           leg="reference-values")
 
   # berhu_capped == berhu strictly below the cap.
   probe_mid = (t1 + t2) * 0.5
@@ -197,7 +238,8 @@ def check_knots(t1, t2, tol, dtol):
   vbe = transform(probe_mid, "berhu", t1, t2)
   report("berhu_capped == berhu below the cap (c = " + repr(probe_mid) + ")",
          abs(vc - vbe) < tol,
-         "capped " + repr(vc) + " vs berhu " + repr(vbe))
+         "capped " + repr(vc) + " vs berhu " + repr(vbe),
+         leg="reference-values")
 
   # berhu_capped matches the manual reference across all three regions.
   cap_points = []
@@ -209,7 +251,8 @@ def check_knots(t1, t2, tol, dtol):
     want = ref_berhu_capped(c, t1, t2)
     report("berhu_capped(" + repr(c) + ") matches the reference",
            abs(got - want) < tol,
-           "got " + repr(got) + " want " + repr(want))
+           "got " + repr(got) + " want " + repr(want),
+           leg="reference-values")
 
   # analytic-derivative check at the knot (berhu): at t1 +- 1e-3 the
   # shipped value matches the manual reference (tol) and the shipped
@@ -223,12 +266,14 @@ def check_knots(t1, t2, tol, dtol):
     vr = ref_berhu(c, t1)
     report("berhu value == reference at c = " + repr(c),
            abs(vg - vr) < tol,
-           "got " + repr(vg) + " want " + repr(vr))
+           "got " + repr(vg) + " want " + repr(vr),
+           leg="reference-values")
     dg = slope(c, "berhu", t1, t2)
     dr = ref_berhu_deriv(c, t1)
     report("berhu slope == analytic derivative at c = " + repr(c),
            abs(dg - dr) < dtol,
-           "slope " + repr(dg) + " ref " + repr(dr))
+           "slope " + repr(dg) + " ref " + repr(dr),
+           leg="join-derivatives")
 
   # analytic-derivative check at the cap (berhu_capped): the same probe at
   # t2 +- 1e-3, against the capped reference and its piecewise derivative
@@ -238,12 +283,14 @@ def check_knots(t1, t2, tol, dtol):
     vr = ref_berhu_capped(c, t1, t2)
     report("berhu_capped value == reference at c = " + repr(c),
            abs(vg - vr) < tol,
-           "got " + repr(vg) + " want " + repr(vr))
+           "got " + repr(vg) + " want " + repr(vr),
+           leg="reference-values")
     dg = slope(c, "berhu_capped", t1, t2)
     dr = ref_berhu_capped_deriv(c, t1, t2)
     report("berhu_capped slope == analytic derivative at c = " + repr(c),
            abs(dg - dr) < dtol,
-           "slope " + repr(dg) + " ref " + repr(dr))
+           "slope " + repr(dg) + " ref " + repr(dr),
+           leg="join-derivatives")
 
   # anneal endpoints: s = 0 is plain sqrt, s = 1 is the full berhu shape.
   above = t1 * 2.0
@@ -253,10 +300,12 @@ def check_knots(t1, t2, tol, dtol):
   v_full = transform(above, "berhu", t1, t2)
   report("berhu anneal s = 0 is plain sqrt (c = " + repr(above) + ")",
          abs(v_s0 - v_sqrt) < tol,
-         "s0 " + repr(v_s0) + " sqrt " + repr(v_sqrt))
+         "s0 " + repr(v_s0) + " sqrt " + repr(v_sqrt),
+         leg="anneal-endpoints")
   report("berhu anneal s = 1 is the full berhu (c = " + repr(above) + ")",
          abs(v_s1 - v_full) < tol,
-         "s1 " + repr(v_s1) + " full " + repr(v_full))
+         "s1 " + repr(v_s1) + " full " + repr(v_full),
+         leg="anneal-endpoints")
 
 
 def main():
@@ -272,6 +321,11 @@ def main():
   check_knots(t1=0.2, t2=10.0, tol=1.0e-9, dtol=1.0e-6)
   # non-default knots (the same shape must hold).
   check_knots(t1=0.5, t2=5.0, tol=1.0e-9, dtol=1.0e-6)
+
+  # (queue 2) one ##AID terminal per board-declared evidence leg, after every
+  # probe on both knot pairs has run (so a leg reds if it failed at EITHER
+  # pair). This is the manifest run_board reconciles against the evidence map.
+  emit_aids()
 
   print("")
   if len(FAILURES) == 0:

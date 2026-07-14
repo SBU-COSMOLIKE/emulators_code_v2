@@ -7420,3 +7420,35 @@ artifacts-inference-warmstart.md "Warm-start source reads and
 perturbed finite values"; they ride the finite-contract file's
 owner — the fan-out migration or a post-migration claim). The
 focused suite is implementation evidence, not the board.
+
+## Queue 2 increment 3 — fan-out batch 2: ema-off-identity + head-scheduler-override + berhu-loss (Opus, 2026-07-13)
+
+Second fan-out batch (3 subagents, isolated worktrees; applied + independently
+re-verified + self-committed). No objections. Built on top of the D6 triangle merge
+(5a194e9) and the sizing/warmstart merges already in-branch; all three diffs applied
+CLEAN against the current HEAD.
+
+- **ema-off-identity**: one `_golden_leg` leg, base configured so ASSERTED (not
+  null-base UNAVAILABLE); maps= de-hardcoded to a taught sentence.
+- **head-scheduler-override**: 3 shared-helper legs (`_golden_leg` +
+  `_smoke_driver`) + 1 `ctx.unavailable` (the lr-cut cadence is a logged
+  instruction the draft requires UNAVAILABLE); docstring HOW narrowed.
+- **berhu-loss**: HYBRID — 3 child `##AID` numerics legs (`gb_c_berhu_reduce.py`
+  gains `LEG_AIDS`/`emit_aids()`: each declared leg aggregates many per-probe
+  `report()`s into ONE `##AID`, avoiding a duplicate-emit red) + 3 wrapper legs
+  (golden/smoke/banners). rc-expect aid-less.
+
+Independent re-verify (Mac): compile clean; `--list` rc 0 (all new anchors resolve +
+transform + unique board-wide); board-selftest ALL PASS; declared==drafted (import
+board) True for all three (1 + 4 + 6 legs).
+
+PRE-EXISTING out-of-scope defect surfaced (NOT from this migration, reproduces on
+HEAD): `gb_c_berhu_reduce.py` crashes before `emit_aids()` because its
+`_reduce(None, ...)` unbound-call assumption breaks on the finite-contract
+`_chi2_n_terms()` (`emulator/losses/core.py:540`). So berhu-loss's live child `##AID`
+run is WORKSTATION-OWED until a `self=None` harness fix lands; the `emit_aids` logic
+and declared==emitted are static-verified. Routed to the Architect for ownership.
+
+Migrated so far: 8 of 27 drafted gates (geo-paths, single-phase-demotion [serial];
+loss-schema-equivalence, triangle-shading [now via 5a194e9], param-window-cuts [batch 1];
+ema-off-identity, head-scheduler-override, berhu-loss [batch 2]).

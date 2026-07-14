@@ -392,7 +392,8 @@ def gate_gm_c(ctx):
   _golden_leg(ctx=ctx,
               gate_id="ema-off-identity",
               config_key="ema-off-identity-golden",
-              grep_pattern="^(epoch|best epoch)")
+              grep_pattern="^(epoch|best epoch)",
+              aid="ema-off-identity.golden-selected-text-equality")
 
 
 def gate_gm_d(ctx):
@@ -516,25 +517,32 @@ def gate_gh_e(ctx):
   """head-scheduler-override: the head phase cuts the lr on its own patience.
 
   WHAT: a head: scheduler block with patience 10 against a run default
-  of 25. WHY: the override must act on that phase only. HOW: the banner
-  shows "[head overrides: scheduler]" and the head phase's first lr cut
-  lands on the patience-10 cadence; plus a golden no-phase-blocks run
+  of 25. WHY: the override must act on that phase only. HOW: the override
+  smoke exits zero and prints the "[head overrides: scheduler]" banner; the
+  golden no-phase-blocks selected-text equality is UNAVAILABLE while
+  golden_bases has no configured base, and the patience-10 lr-cut cadence is
+  UNAVAILABLE (logged instruction only, no cadence comparison)
   (spec: training-stack.md:262-279).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="head-scheduler-override",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best)")
+              grep_pattern="^(phase|epoch|best)",
+              aid="head-scheduler-override.golden-selected-text-equality")
   out = _smoke_driver(ctx=ctx,
                       config_key="head-scheduler-override-config",
-                      required_banners=["[head overrides: scheduler]"])
+                      required_banners=["[head overrides: scheduler]"],
+                      exit_aid="head-scheduler-override.driver-exit-zero",
+                      banner_aid="head-scheduler-override.override-banner-present")
   if ctx.dry:
     return
-  ctx.log("head-scheduler-override cadence: the head phase's first lr "
-          "cut should land on the patience-10 cadence (vs 25); confirm "
-          "from the lr-cut epoch spacing in the log "
-          "(training-stack.md:265).")
+  ctx.unavailable(aid="head-scheduler-override.lr-cut-cadence",
+                  label="head-scheduler-override lr-cut cadence",
+                  reason="the head phase's first lr cut should land on the "
+                         "patience-10 cadence (vs 25), but the gate only prints "
+                         "an instruction to inspect the lr-cut epoch spacing "
+                         "(training-stack.md:265) and runs no cadence comparison")
 
 
 def gate_ge_c(ctx):
@@ -564,11 +572,19 @@ def gate_gb_c(ctx):
   WHAT: the berHu loss (a robust sqrt below a knot, capped above a cap)
   as a head-only loss under the nested loss schema. WHY: the two loss
   blocks must resolve independently per phase. HOW: a torch-only script
-  checks the berHu numerics (berhu == sqrt below the knot, capped ==
-  berhu below the cap, gradient continuous at both knots), then a run
-  shows "loss_mode sqrt" on the trunk and "loss_mode berhu_capped (knot
-  0.2, cap 10)" on the head; plus a golden non-berhu run
-  (spec: training-stack.md:148-153, 290-314).
+  checks the berHu numerics and emits three per-leg ##AID terminals
+  (reference-values: values match the piecewise analytic reference;
+  join-derivatives: the autograd slopes match the analytic derivatives at
+  the t1 and t2 joins; anneal-endpoints: the blend is plain sqrt at s = 0
+  and full berHu at s = 1). Then a run shows "loss_mode sqrt" on the trunk
+  and "loss_mode berhu_capped (knot 0.2, cap 10)" on the head (smoke-exit-
+  zero + loss-banners), plus a golden non-berhu run (golden-selected-text-
+  equality, UNAVAILABLE while its base is null)
+  (spec: training-stack.md#berhu-loss-evidence).
+
+  The check-script rc expect stays aid-less: the child exit is the aggregate
+  verdict, and its three ##AID lines carry the numerics legs (the geo-paths
+  check-script template).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   rc, out = ctx.run_check("gates/checks/gb_c_berhu_reduce.py")
@@ -581,11 +597,14 @@ def gate_gb_c(ctx):
   _golden_leg(ctx=ctx,
               gate_id="berhu-loss",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best)")
+              grep_pattern="^(phase|epoch|best)",
+              aid="berhu-loss.golden-selected-text-equality")
   _smoke_driver(ctx=ctx,
                 config_key="berhu-loss-config",
                 required_banners=["loss_mode sqrt",
-                                  "loss_mode berhu_capped (knot 0.2, cap 10)"])
+                                  "loss_mode berhu_capped (knot 0.2, cap 10)"],
+                exit_aid="berhu-loss.smoke-exit-zero",
+                banner_aid="berhu-loss.loss-banners")
 
 
 def gate_gl_d(ctx):
@@ -1693,7 +1712,11 @@ BOARD = [
        title="EMA off-mode byte-identity",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="98-101 (byte-identity gate); 229-238 (the epoch-line diff recipe)",
+       maps="the current and pre-EMA drivers produce matching epoch and "
+            "best-epoch log lines once the trailing wall-clock field is "
+            "stripped, run against the configured historical base",
+       evidence=(Assertion("ema-off-identity.golden-selected-text-equality",
+                           "training-stack.md#ema-off-identity-golden-selected-text-equality"),),
        run=gate_gm_c,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.ema-off-identity-golden",) + _CS_DEPLOY_DATA),
@@ -1749,7 +1772,17 @@ BOARD = [
        title="Head scheduler override",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="262-267 (head override banner + cadence); 269-279 (golden diff)",
+       maps="the head-scheduler override driver exits zero and prints its "
+            "override banner, while the golden selected-text equality and the "
+            "lr-cut cadence remain conditional evidence",
+       evidence=(Assertion("head-scheduler-override.golden-selected-text-equality",
+                           "training-stack.md#head-scheduler-override-golden-selected-text-equality"),
+                 Assertion("head-scheduler-override.driver-exit-zero",
+                           "training-stack.md#head-scheduler-override-driver-exit-zero"),
+                 Assertion("head-scheduler-override.override-banner-present",
+                           "training-stack.md#head-scheduler-override-override-banner-present"),
+                 Assertion("head-scheduler-override.lr-cut-cadence",
+                           "training-stack.md#head-scheduler-override-lr-cut-cadence")),
        run=gate_gh_e,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.head-scheduler-override-config",) + _CS_DEPLOY_DATA),
@@ -1937,8 +1970,21 @@ BOARD = [
        title="berHu head loss",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="148-153 (leg 1: berhu/_reduce numerics + autograd continuity); "
-            "290-314 (leg 2: golden + head-berhu banners)",
+       maps="the shipped berHu transform matches its analytic values and "
+            "join derivatives and its anneal endpoints, and the berHu training "
+            "smoke exits zero and prints the trunk-sqrt and head-berHu banners",
+       evidence=(Assertion("berhu-loss.reference-values",
+                           "training-stack.md#berhu-loss-reference-values"),
+                 Assertion("berhu-loss.join-derivatives",
+                           "training-stack.md#berhu-loss-join-derivatives"),
+                 Assertion("berhu-loss.anneal-endpoints",
+                           "training-stack.md#berhu-loss-anneal-endpoints"),
+                 Assertion("berhu-loss.golden-selected-text-equality",
+                           "training-stack.md#berhu-loss-golden-selected-text-equality"),
+                 Assertion("berhu-loss.smoke-exit-zero",
+                           "training-stack.md#berhu-loss-smoke-exit-zero"),
+                 Assertion("berhu-loss.loss-banners",
+                           "training-stack.md#berhu-loss-loss-banners")),
        run=gate_gb_c,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.berhu-loss-config",) + _CS_DEPLOY_DATA),
