@@ -2781,6 +2781,30 @@ written. An untruncated owner census located the crossed insertion, and the
 candidate now calls the predicate only from `ResTRF`, `TemplateResTRF` and
 `TRFBlock`. This record reports implementation evidence and does not certify
 the landing.
+
+## README diagnostic-memory explanation
+
+The root README previously warned that the local-linear diagnostic forms an
+array with axes `validation rows x 40 neighbours x output coordinates`.  That
+shape was accurate, but it did not explain why a small PDF needs a large
+numerical workspace.  The current rewrite separates the calculation from its
+rendered output.  It teaches that the diagnostic first gathers the complete
+target vector from 40 neighbouring training cosmologies for every validation
+cosmology, then fits the local linear comparison, and only afterward draws the
+PDF page.
+
+The documented matter-power facts establish the per-row cost: 40 neighbours
+times 24,522 retained `(z, k)` outputs, stored as float32.  One validation row
+therefore needs 3.92352 MB (3.74176 MiB) for this gathered tensor.  Total
+memory scales linearly with the validation-row count.  At an explicit example
+scale of 10,000 validation rows, the tensor would require 39.2352 GB
+(36.54 GiB) before the CPU copy, least-squares solution and other staged
+arrays.  The README rounds these values to 3.9 MB per row and 39 GB for the
+example.  The user-facing action remains current and direct: omit
+`--diagnostic` for a production-width matter-power run until this calculation
+is memory-bounded.  This is implementation evidence for Architect audit, not
+self-certification.
+
 ## Red Team implementation claim: berHu analytic-child bound loss harness
 
 The Architect reproduced a check-side crash after the production chi-square
