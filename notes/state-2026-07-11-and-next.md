@@ -3250,3 +3250,18 @@ arithmetic matches), 10,000 rows explicitly an example scale,
 zero documented-to-10,000 coupling in either surface; merged
 e350b65. The hold CLOSES. Spec: gates-and-board.md "README
 diagnostic-memory repair audit".
+
+BATCH 5 PARTIAL + UNIT 90 (2026-07-14, Fable): c374c49
+(scalar-identity 5 + bsn-identity 6, the emit_aid bracketing
+template) GO RETROACTIVELY — it rode the user's landing-block run
+unaudited (the block is a snapshot; future blocks name the
+audited tip); my runs green, names==drafts. Unit 90 (8264334)
+content-GO — the independent quad reference (no shared weights or
+grid, band = allowance + 10x quad error), the retained control
+honestly relabeled resolution-only, the finiteness hold closed,
+the blindness-vs-rejection mutation pair reproduced exactly (1e4
+bands) and my neutralization probe reds only the rejection arm;
+MERGE HELD for the red team's rebase onto the migrated child (new
+legs fold inside distance-pipeline-consistency; declared set
+stays six). Spec: gates-and-board.md "Batch-5 partial (retro) +
+unit-90 audit".
