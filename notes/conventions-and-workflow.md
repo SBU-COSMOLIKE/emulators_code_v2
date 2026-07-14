@@ -294,7 +294,11 @@ substance to `notes/` first, then writes the routing handoff to the next
 numbered mailbox file. Pasted chat text does not substitute for the mailbox;
 chat may report the queued or dispatched filename to the user. A direct
 status intended only for the user may use `NNN-to-user.md`, which the daemon
-does not dispatch. Merges and pushes to main remain the user's alone.
+does not dispatch. Merges and pushes to main remain the user's alone. The only
+outbound exception is an inbound whose binding instruction explicitly says
+the thread is TERMINAL and no reply is owed; honor that instruction without
+manufacturing a receipt. Ambiguity follows the ordinary rule and requires an
+outbound.
 
 ### Mandatory-mailbox binding record (2026-07-13)
 

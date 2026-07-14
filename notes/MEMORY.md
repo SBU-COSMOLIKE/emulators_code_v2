@@ -20,8 +20,11 @@ Implementer and the Red Team is written under `notes/` before a chat relay is
 sent. Chat handoffs are summaries that cite the durable note. See
 `conventions-and-workflow.md`, "Notes-first inter-agent communication." The
 same rule governs `notes/mailbox/` dispatches: a mailbox file is a routing
-summary, and a mailbox-started turn writes its outbound block to the next
-numbered mailbox file after recording the substance under `notes/`.
+summary, and a mailbox-started turn with a relayable result writes its outbound
+block to the next numbered mailbox file after recording the substance under
+`notes/`. The explicit binding TERMINAL/no-reply exception and ambiguity rule
+are canonical in `conventions-and-workflow.md`, "Notes-first inter-agent
+communication."
 
 - [State + chronological ledger](state-2026-07-11-and-next.md) — the
   historical run trail, adjudication batches, queue changes, retractions, and

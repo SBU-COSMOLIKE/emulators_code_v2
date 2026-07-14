@@ -14178,3 +14178,31 @@ This closes the explicit `--dry-run mutates` ledger line and lands the audited
 tools-review daemon core. It does not claim the later prompt/staleness/style,
 dead-mailbox, fix-only, rendezvous, or automatic-landing riders; those remain
 individually countable in the backlog.
+
+## Conditional terminal-preamble recovery audit (Codex, 2026-07-14): GO
+
+The daemon remains a transport and does not parse or suppress terminal
+messages. Its complete dispatch prompt now states the ordinary notes-first
+outbound rule, then a narrow exception: only an inbound whose binding
+instruction explicitly says the thread is TERMINAL and no reply is owed ends
+without an outbound. Ambiguity follows the ordinary rule.
+
+The ruled wording sweep covers the daemon module prose and `PREAMBLE`, both
+unconditional clauses in `.claude/OPUS_ROLE.md`, the `notes/MEMORY.md` header,
+and the canonical sentence in `notes/conventions-and-workflow.md`. The already
+result-conditioned Red Team role remains unchanged. The focused test constructs
+the full `PREAMBLE + message` prompt for ordinary and terminal bodies and scans
+that complete prompt for a second unconditional wrapper instruction.
+
+```text
+python3 -B tests/test_mailbox_conditional_preamble.py  rc 0  4/4 tests green
+python3 -B tests/tools_mailbox_daemon_redteam_repro.py rc 0  8/8 arms PASS
+remove ordinary outbound imperative mutation           rc 1  ordinary arm red
+invert terminal no-outbound exception mutation         rc 1  terminal arm red
+py_compile                                              rc 0
+git diff --check                                        rc 0
+```
+
+This closes only the terminal-preamble ledger item. Staleness, output style,
+dead-mailbox discovery, fix-only behavior, rendezvous, and landing-debt riders
+remain open and separately countable.

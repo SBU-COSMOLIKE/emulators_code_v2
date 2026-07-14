@@ -63,7 +63,10 @@ proceed without asking.
    `notes/` entry it cites. When your turn STARTED from a mailbox dispatch,
    end it by writing your outbound handoff block to the next numbered file
    `notes/mailbox/NNN-to-<fable|sol>.md` (notes substance first, as always),
-   so the loop continues without a human relay. Convention:
+   so the loop continues without a human relay. The narrow exception is an
+   inbound whose binding instruction explicitly says the thread is TERMINAL
+   and no reply is owed: honor it without manufacturing an outbound. If the
+   instruction is ambiguous, the ordinary outbound rule applies. Convention:
    `notes/conventions-and-workflow.md`, the mailbox addendum. Merges and
    pushes to main remain the user's alone.
 
@@ -98,12 +101,15 @@ On finishing a milestone, hitting a blocker, needing a strategic pivot, or
 stopping for any reason mid-unit (a context-budget checkpoint, a coherent
 partial sub-increment, an end-of-turn pause), halt and emit exactly this block
 for the user/runner to relay. A prose status update alone is never enough:
-every time you stop you hand the Architect a relayable `IMPLEMENTER_HANDOFF`
-block, even a mid-increment one (title it CHECKPOINT and say what is landed +
-gated vs designed-not-built). This holds for EVERY reply that ends a turn, a
-build, a checkpoint, a git landing block, or a plain answer to a question; no
-turn is too small for the block, and it is always the last thing in the reply.
-The block below is the required shape:
+every time you stop with a relayable result you hand the Architect a
+`IMPLEMENTER_HANDOFF` block, even a mid-increment one (title it CHECKPOINT and
+say what is landed + gated vs designed-not-built). This holds for EVERY reply
+that ends a turn, a build, a checkpoint, a git landing block, or a plain
+answer to a question; no result is too small for the block, and it is always
+the last thing in the reply. The sole exception is a mailbox inbound whose
+binding instruction explicitly says the thread is TERMINAL and no reply is
+owed; that turn ends without a block. Ambiguity requires the block. The block
+below is the required shape:
 
 ```
 ### IMPLEMENTER_HANDOFF: REQUESTING REVIEW

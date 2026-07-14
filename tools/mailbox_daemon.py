@@ -11,9 +11,11 @@ invoking each agent's CLI headlessly when a message addressed to it appears.
 
 A message file is a ROUTING SUMMARY (the notes-first rule holds: the
 substance lives in the `notes/` entry the message cites). Each dispatched
-agent is asked to end its turn by (1) writing its substance to `notes/` and
-(2) dropping its outbound handoff as the NEXT numbered message file — so the
-loop continues without a human relay.
+agent with a relayable result is asked to end its turn by (1) writing its
+substance to `notes/` and (2) dropping its outbound handoff as the NEXT
+numbered message file, so the loop continues without a human relay. An
+inbound whose binding instruction explicitly says TERMINAL and no reply is
+owed ends without an outbound; ambiguity follows the ordinary outbound rule.
 
 What stays manual, on purpose:
   - merges/pushes to main are ALWAYS the user's (the daemon never runs git);
@@ -271,13 +273,18 @@ PREAMBLE = (
     "You are invoked headlessly by tools/mailbox_daemon.py (no human is\n"
     "watching this turn). Resolve your role per CLAUDE.md from the block\n"
     "below. The substance is in the notes/ entries the message cites --\n"
-    "read them first. Do the work per your role file. End your turn by\n"
+    "read them first. Do the work per your role file. Ordinary rule: end\n"
+    "your turn by\n"
     "(1) writing your substance to the appropriate notes/ entry and\n"
     "(2) writing your outbound handoff block to a NEW file\n"
     "<seq>-to-<fable|opus|sol>.md using the next sequence number, INSIDE\n"
     "THIS EXACT DIRECTORY (your cwd may differ -- a relative notes/mailbox\n"
     "path is wrong unless it resolves here):\n"
     "    " + MAILBOX + "\n"
+    "Narrow exception: if and only if the inbound's binding instruction\n"
+    "explicitly says the thread is TERMINAL and no reply is owed, write no\n"
+    "outbound merely to satisfy this wrapper. Ambiguity follows the ordinary\n"
+    "rule: record the substance and write the outbound.\n"
     "Merges and pushes to main remain\n"
     "the user's alone -- print a landing block in the note instead of\n"
     "running one.\n\n"
