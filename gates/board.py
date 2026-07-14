@@ -237,7 +237,7 @@ class Gate:
 # --------------------------------------------------------------------------
 
 def _golden_leg(ctx, gate_id, grep_pattern, *, yaml_name=None,
-                config_key=None):
+                config_key=None, aid=None):
   """Run a gate's golden run, or skip it with a logged note.
 
   Trains the same config on the current tree and on the gate's pinned
@@ -256,9 +256,25 @@ def _golden_leg(ctx, gate_id, grep_pattern, *, yaml_name=None,
                    (ema-off-identity's short golden run). Both legs use
                    the same resolved path; pass exactly one of
                    yaml_name / config_key.
+    aid          = the structured-evidence assertion id this golden leg
+                   proves (queue 2), or None for a gate not yet migrated
+                   to the map. When given, a configured base emits the
+                   byte-identity expect under this aid; a NULL base emits
+                   an explicit UNAVAILABLE under it (not a silent drop),
+                   so the leg the gate declared is reconciled every run.
   """
   base = ctx.golden_base(gate_id)
   if base is None:
+    if aid is not None:
+      # the gate DECLARED this leg: a null base is the honest UNAVAILABLE
+      # terminal (fork D1-ii), not a silent skip that reds reconciliation.
+      ctx.unavailable(aid=aid,
+                      label=gate_id + " golden byte-identity",
+                      reason="no base commit in board_config.json "
+                             "golden_bases['" + gate_id + "']; the golden "
+                             "byte-identity leg needs a configured historical "
+                             "base (schema equivalence is unproven here)")
+      return
     ctx.log("golden byte-identity leg: no base commit configured in "
             "board_config.json golden_bases['" + gate_id + "']. On the "
             "merged tip a git-stash diff is a no-op, so this dev-time "
@@ -309,12 +325,14 @@ def _golden_leg(ctx, gate_id, grep_pattern, *, yaml_name=None,
   ok = (len(reasons) == 0)
   status = ("rc pre=" + str(pre_rc) + " cur=" + str(cur_rc)
             + "; selected pre=" + str(n_pre) + " cur=" + str(n_cur))
-  ctx.expect(label=gate_id + " golden byte-identity (" + base + " vs tip)",
+  ctx.expect(aid=aid,
+             label=gate_id + " golden byte-identity (" + base + " vs tip)",
              ok=ok,
              detail=status + ("" if ok else "; " + "; ".join(reasons)))
 
 
-def _smoke_driver(ctx, config_key, required_banners, *, extra=()):
+def _smoke_driver(ctx, config_key, required_banners, *, extra=(),
+                  exit_aid=None, banner_aid=None):
   """Run one training smoke and require its banners in the output.
 
   Arguments:
@@ -324,6 +342,13 @@ def _smoke_driver(ctx, config_key, required_banners, *, extra=()):
     required_banners = the literal banner substrings that must all
                        appear (quoted verbatim from the home note).
     extra            = extra driver flags (e.g. ("--activation=power",)).
+    exit_aid         = the structured-evidence assertion id for the
+                       exit-zero leg (queue 2), or None for a gate not
+                       yet migrated to the map.
+    banner_aid       = the structured-evidence assertion id for the
+                       banner-presence leg (queue 2), or None. This
+                       helper emits TWO legs, so a migrated caller names
+                       both aids; an unmigrated caller leaves both None.
 
   Returns:
     the captured run output, for further checks by the caller.
@@ -334,11 +359,13 @@ def _smoke_driver(ctx, config_key, required_banners, *, extra=()):
   if ctx.dry:
     return out
 
-  ctx.expect(label=config_key + " run completes (rc 0)",
+  ctx.expect(aid=exit_aid,
+             label=config_key + " run completes (rc 0)",
              ok=(rc == 0),
              detail="driver exit code " + str(rc))
   ok, missing = logscan.contains_all(text=out, needles=required_banners)
-  ctx.expect(label=config_key + " banners present",
+  ctx.expect(aid=banner_aid,
+             label=config_key + " banners present",
              ok=ok,
              detail="missing: " + repr(missing))
   return out
@@ -565,19 +592,25 @@ def gate_gl_d(ctx):
   """loss-schema-equivalence: the new loss schema changes config, not physics.
 
   WHAT: the nested loss: block that replaced the old flat keys. WHY: a
-  config-layer rename must reproduce the old run exactly. HOW: a golden
-  run in the new schema matches the pre-change epoch lines to the
-  character, reusing the head-berhu config as the production shape
+  config-layer rename should reproduce the old run exactly. HOW: the
+  nested-loss smoke exits zero and prints the berHu-capped banner
+  (reusing the head-berhu config as the production shape); the golden
+  byte-identity leg would match the pre-change epoch lines to the
+  character, but it is UNAVAILABLE while golden_bases has no historical
+  base configured, so schema equivalence is not yet proven here
   (spec: training-stack.md:237-244).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="loss-schema-equivalence",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best)")
+              grep_pattern="^(phase|epoch|best)",
+              aid="loss-schema-equivalence.golden-selected-text-equality")
   _smoke_driver(ctx=ctx,
                 config_key="berhu-loss-config",
-                required_banners=["loss_mode berhu_capped (knot 0.2, cap 10)"])
+                required_banners=["loss_mode berhu_capped (knot 0.2, cap 10)"],
+                exit_aid="loss-schema-equivalence.smoke-exit-zero",
+                banner_aid="loss-schema-equivalence.berhu-banner")
 
 
 def gate_gba_c(ctx):
@@ -643,17 +676,23 @@ def gate_item27(ctx):
   rc, out = ctx.run_driver(yaml_path=window_yaml, allow_fail=True)
   if ctx.dry:
     return
-  ctx.expect(label="param-window-cuts tight-window run completes",
+  ctx.expect(aid="param-window-cuts.driver-exit-zero",
+             label="param-window-cuts tight-window run completes",
              ok=(rc == 0),
              detail="run exit code " + str(rc))
-  ctx.expect(label="param-window-cuts pool shrinkage banner ('used N of P cut rows')",
+  ctx.expect(aid="param-window-cuts.cut-count-banner-present",
+             label="param-window-cuts pool shrinkage banner ('used N of P cut rows')",
              ok=logscan.search(text=out,
                                pattern=r"used\s+\d+\s+of\s+\d+\s+cut rows"),
-             detail="the banner cut count must match the pool shrinkage")
-  ctx.log("param-window-cuts ci.init_probes A/B: the duplicate init_probes call in "
-          "the geometries output module is inspected with this run's evidence "
-          "(data-generation-and-cuts.md:248); a manual A/B, not an "
-          "automatable assertion.")
+             detail="stream carries one 'used N of P cut rows' line "
+                    "(broad presence, not a compared-count claim)")
+  ctx.unavailable(aid="param-window-cuts.init-probes-inspection",
+                  label="param-window-cuts ci.init_probes A/B inspection",
+                  reason="the duplicate init_probes call in the geometries "
+                         "output module is a manual A/B eye check "
+                         "(data-generation-and-cuts.md:248); the gate prints "
+                         "the inspection instruction and runs no executable "
+                         "comparison")
 
 
 def gate_gt_b(ctx):
@@ -1907,7 +1946,15 @@ BOARD = [
        title="Nested loss-schema equivalence",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="237-244 (new-schema reproduces pre-change epoch lines)",
+       maps="the nested-loss smoke exits zero and prints the berHu-capped "
+            "banner, while the golden byte-identity equivalence to the earlier "
+            "schema remains conditional on a configured historical base",
+       evidence=(Assertion("loss-schema-equivalence.golden-selected-text-equality",
+                           "training-stack.md#loss-schema-equivalence-golden-selected-text-equality"),
+                 Assertion("loss-schema-equivalence.smoke-exit-zero",
+                           "training-stack.md#loss-schema-equivalence-smoke-exit-zero"),
+                 Assertion("loss-schema-equivalence.berhu-banner",
+                           "training-stack.md#loss-schema-equivalence-berhu-banner")),
        run=gate_gl_d,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.berhu-loss-config",) + _CS_DEPLOY_DATA),
@@ -1937,9 +1984,14 @@ BOARD = [
        title="Parameter-window cuts",
        tier=TIER_BACKLOG,
        home="data-generation-and-cuts",
-       maps="125-126 (tight window: pool shrinkage matches count); "
-            "data-generation-and-cuts.md:94-95 (nested block normal banner); "
-            "248 (ci.init_probes A/B inspection)",
+       maps="the configured training driver runs and reports that a "
+            "parameter-window cut was applied",
+       evidence=(Assertion("param-window-cuts.driver-exit-zero",
+                           "data-generation-and-cuts.md#param-window-cuts-driver-exit-zero"),
+                 Assertion("param-window-cuts.cut-count-banner-present",
+                           "data-generation-and-cuts.md#param-window-cuts-cut-count-banner-present"),
+                 Assertion("param-window-cuts.init-probes-inspection",
+                           "data-generation-and-cuts.md#param-window-cuts-init-probes-inspection")),
        run=gate_item27,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.param-window-cuts-config",) + _CS_DEPLOY_DATA),
@@ -1949,7 +2001,17 @@ BOARD = [
        title="Triangle cut shading",
        tier=TIER_BACKLOG,
        home="data-generation-and-cuts",
-       maps="72-75 (synthetic four-window triangle: artist-list fills + band)",
+       maps="a synthetic corner plot contains gray artists on its z-order-zero "
+            "shading layer, every shading fill uses the one shared gray, and the "
+            "omh2 marginal carries a z-order-zero span",
+       evidence=(Assertion("triangle-shading.figure-produced",
+                           "data-generation-and-cuts.md#triangle-shading-figure-produced"),
+                 Assertion("triangle-shading.shading-layer-present",
+                           "data-generation-and-cuts.md#triangle-shading-shading-layer-present"),
+                 Assertion("triangle-shading.all-shading-fills-use-shared-gray",
+                           "data-generation-and-cuts.md#triangle-shading-all-shading-fills-use-shared-gray"),
+                 Assertion("triangle-shading.zorder-zero-span-present",
+                           "data-generation-and-cuts.md#triangle-shading-zorder-zero-span-present")),
        run=gate_gt_b,
        optional=True,
        manifest=Manifest(code=(), inputs=()),

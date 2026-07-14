@@ -77,12 +77,19 @@ run.**
 - subprocess: `gates/checks/scalar_smoke.py`; that child additionally runs
   `python -m cobaya run` for the evaluate leg, while training, prediction,
   and diagnostics execute in-process.
-- metric: per-leg — validation median below `0.3`, off-center analytic
-  relative error below `0.05`, diagnostics page/file-shape assertions, and
-  Cobaya-derived-value relative error below `0.05` after a zero exit code.
-- legs: 4, named `scalar-smoke.training-collapse`,
-  `scalar-smoke.analytic-prediction`, `scalar-smoke.diagnostics-output`, and
-  `scalar-smoke.cobaya-evaluate`.
+- metric: exact float32 row identities and target alignment; an independent
+  parameter-window mask and selected-row order; validation median below half
+  the staged mean-predictor median; direct and Cobaya relative errors below
+  the recorded honest-error margin; and diagnostics page/file-shape
+  assertions.
+- legs: 9, named `scalar-smoke.fixture-rows-disjoint-and-aligned`,
+  `scalar-smoke.same-seed-overlap-refused`,
+  `scalar-smoke.window-banner-and-rows-match`,
+  `scalar-smoke.banner-only-mutation-rejected`,
+  `scalar-smoke.training-beats-mean-predictor`,
+  `scalar-smoke.analytic-prediction`,
+  `scalar-smoke.dead-network-rejected`,
+  `scalar-smoke.diagnostics-output`, and `scalar-smoke.cobaya-evaluate`.
 - evidence: each claim is asserted inside the child; the board wrapper
   currently exposes only the aggregate child exit code, and diagnostic text
   printed after a failed readback is troubleshooting output rather than a
@@ -93,15 +100,45 @@ run.**
   becoming capability-`UNAVAILABLE`. No GPU, CosmoLike, or CAMB result is
   claimed.
 
-<a id="scalar-smoke-training-collapse"></a>
-`scalar-smoke.training-collapse` asserts only that the best validation median
-after two training epochs is below `0.3`. The child comment motivates that bar
-with the theoretical chi-square-one median; it neither computes an initial
-median nor evaluates the fixture's mean predictor for this leg.
+<a id="scalar-smoke-fixture-rows-disjoint-and-aligned"></a>
+`scalar-smoke.fixture-rows-disjoint-and-aligned` requires 4,000 training rows
+from generator seed 1234 and 1,000 validation rows from seed 5678. Every stored
+target must equal the value computed from its own float32 `H0` and `omegam`
+row, neither source may repeat a physical row, and the two selected row sets
+must have zero overlap before geometry construction or training.
+
+<a id="scalar-smoke-same-seed-overlap-refused"></a>
+`scalar-smoke.same-seed-overlap-refused` regenerates validation with seed 1234
+and requires the fixture boundary to refuse its 1,000 overlapping rows before
+training.
+
+<a id="scalar-smoke-window-banner-and-rows-match"></a>
+`scalar-smoke.window-banner-and-rows-match` computes the physical-window mask
+and seeded selection order independently, then requires the production banner
+and staged row identities to report the same three rows from five eligible
+rows.
+
+<a id="scalar-smoke-banner-only-mutation-rejected"></a>
+`scalar-smoke.banner-only-mutation-rejected` supplies a plausible fixed banner
+with three wrong staged rows. The joint count-and-identity predicate must
+reject it.
+
+<a id="scalar-smoke-training-beats-mean-predictor"></a>
+`scalar-smoke.training-beats-mean-predictor` evaluates a zero network output
+through the staged validation target and production scalar metric. The
+two-epoch trained median must fall below half that measured baseline. The
+current fixture records baseline `0.489362046123`, collapse bar
+`0.244681023061`, and trained median `0.196647360921`.
 
 <a id="scalar-smoke-analytic-prediction"></a>
 `scalar-smoke.analytic-prediction` compares an off-center saved prediction
-with the analytic `omegamh2` value and requires relative error below `0.05`.
+with the analytic `omegamh2` value. The bar is the recorded honest two-epoch
+error `0.074595841408` multiplied by 1.5, giving `0.111893762112`.
+
+<a id="scalar-smoke-dead-network-rejected"></a>
+`scalar-smoke.dead-network-rejected` applies both measured bars to the
+mean-only predictor. Its median is the baseline above and its off-center
+relative error is `0.136626311478`, so both comparisons must fail.
 
 <a id="scalar-smoke-diagnostics-output"></a>
 `scalar-smoke.diagnostics-output` asserts three scalar diagnostic pages and
@@ -111,7 +148,8 @@ scientific content of the plots.
 <a id="scalar-smoke-cobaya-evaluate"></a>
 `scalar-smoke.cobaya-evaluate` requires the Cobaya subprocess to exit zero
 and its derived `omegamh2` readback to agree with the analytic value within
-relative error `0.05`; subprocess exit alone is not the leg's evidence.
+the same `0.111893762112` measured bar; subprocess exit alone is not the leg's
+evidence.
 
 - Design: ScalarGeometry (geometries/scalar.py) — names/center/scale
   per-output standardization from training targets; from_targets =

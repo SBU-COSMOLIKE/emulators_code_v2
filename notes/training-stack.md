@@ -971,7 +971,7 @@ an NPCE/loss-resident fixture flips the placement decision at a
 deliberately tight budget; mutation controls prove the first-dtype
 multiplication and the buffer omission fail.
 
-## 25M-15 (Red Team CONFIRMED, awaiting Architect adjudication): the streaming planner charges a packed target as if it had model-output width
+## 25M-15 (Architect CONFIRMED; implementation awaits audit): the streaming planner charges a packed target as if it had model-output width
 
 `batching.py:121-128` computes transient batch I/O as the encoded input plus
 two copies of the model output: one output and an assumed same-width target.
@@ -1013,6 +1013,57 @@ packed-target loss in a streaming regime, retain an ordinary-target control,
 and include a mutation that restores `2*out_bytes` and must red. A second
 boundary leg supplies less than one corrected batch and proves loud refusal;
 restoring the `max(1, ...)` fallback must red.
+
+### 25M-15 implementation candidate and CPU evidence (Red Team, 2026-07-13; awaiting Architect audit)
+
+Branch `codex/unit25m15-sizing` implements the bounded arithmetic repair in
+`emulator/batching.py`. `compute_batch_byte_terms` is the one owner of the
+saved-activation, input, model-output, actual-target, and chi2-scratch terms.
+The integer-returning `compute_batch_size_bytes` wrapper sums that record, so
+its ordinary-target call stays compatible. `_build_loaders_one` supplies the
+resolved `tgt_dim` and the float32 dtype it actually stages to
+`batches_per_load`. The planner now raises when the 80-percent allowance
+cannot hold its established model-plus-precision-matrix resident state and one
+complete batch. Its error names `required`, `available`, `resident`, and every
+per-batch term.
+
+The independent pre-commit audit caught one scope expansion in the first
+candidate. That draft also threaded the encoded-parameter tensor into the
+resident term. Doing so could change an ordinary-target chunk boundary and
+would violate this amendment's byte-identity clause. It also overlaps the
+separate full resource-sizing contract already recorded above. The final
+candidate keeps the pre-amendment resident formula exactly and changes only
+the staged-target term plus the below-one-batch refusal.
+
+Focused CPU evidence lives in `tests/test_batching_sizing.py` and runs with:
+
+```
+/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  -m unittest tests.test_batching_sizing -v
+```
+
+All six tests pass. They prove the exact 84-byte packed-target difference, the
+old two-batch versus corrected one-batch boundary, loud refusal four bytes
+below one complete batch, unchanged ordinary-target arithmetic, target-dtype
+accounting, and the real streaming loader boundary with ordinary and doubled
+stand-in targets. A direct main-versus-candidate comparison with
+`Linear(2, 7, bias=False)`, batch size 3, and `dv_len=1` returns 288 bytes per
+ordinary batch on both versions. At budgets 2000, 5000, and 10000, both
+versions choose 4, 12, and 26 ordinary batches respectively.
+
+One pre-existing foundation-gate fixture now exposes the repaired refusal.
+`gates/checks/stage_ram.py` uses a literal 200-byte device budget only to force
+its disk-stream row-order path. That allowance is smaller than resident state
+plus one batch, so the corrected planner raises with `required=944` and
+`available=160`. The Red Team did not edit the gate because that file has a
+different owner. Raising only its budget cannot preserve streaming because the
+current eight-row encoded set is cheaper than one transient batch. Its owner
+must enlarge the selected-row fixture while retaining the same unsorted seeded
+order assertions, then choose an allowance between resident-plus-one-batch and
+resident-plus-the-full-encoded-set. With the fixture's current widths, more
+than 9 selected rows creates that interval. The real `PCERatioChi2` or
+`TransferChi2` streaming integration and the adjusted foundation-gate run
+remain workstation evidence.
 
 ## make_chi2 turns every unknown rescale mode into the residual algorithm (red-team 45M-15, 2026-07-12, Architect-VERIFIED; queue 39)
 
