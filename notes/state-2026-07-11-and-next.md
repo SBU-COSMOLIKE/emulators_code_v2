@@ -3043,3 +3043,9 @@ bar; all numbers + margins printed and registered; dead-network arm
 reds against the new bars). Two-seed 1234/5678 form adopted; no
 production change. D5 drops the item. Spec: gates-and-board.md "D3
 control-interaction ruling".
+
+REDACTION DELTA (2026-07-13, Fable): fcf68ec GO — the three
+private-category bullets replaced by the sanctioned phrase, public
+evidence retained, whole-register rescan zero hits at 8d103a9. The
+prose-hardening landing is COMPLETE and merged into the branch.
+Spec: gates-and-board.md "Redaction delta audit".

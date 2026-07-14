@@ -7029,3 +7029,17 @@ RULING:
 5. D5's list DROPS DIDACTICS-60's scalar-smoke baseline item (its
    prose half was already the factual bundle's). The gauntlet is
    otherwise unchanged.
+
+## Redaction delta audit (Fable, 2026-07-13): fcf68ec GO — the prose-hardening landing is merge-ready
+
+The one-hunk redaction verified at the diff: the three private
+editorial-category bullets are GONE, replaced by exactly the
+sanctioned form ("a zero-match editorial pass against private
+standards"); the ordinary public punctuation and list-format
+evidence stays; 3 insertions / 9 deletions, register-only. My
+whole-register rescan at the branch tip (8d103a9) finds ZERO hits
+for the private-category vocabulary. The prose-hardening landing
+(2d49984 + fcf68ec) is fully GO'd and merged into this branch —
+the root README's public-prose constitution pass is COMPLETE, with
+the emulator/README.md import-prose follow-up routed to its
+package visit.
