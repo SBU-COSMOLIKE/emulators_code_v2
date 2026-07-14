@@ -122,6 +122,24 @@ def report(label, ok, detail):
         FAILURES.append(label)
 
 
+def emit_aid(aid, n_before):
+    """Emit ONE '##AID <aid> <PASS|FAIL>' line for a whole acceptance leg.
+
+    (queue 2) The board's run_check folds these reserved lines into the gate's
+    executed set: one per drafted leg, at the leg's aggregation point, not per
+    sub-check. A leg groups several report() calls (one or more check_*
+    functions); the leg's verdict is FAIL if that group appended any label to
+    the module-level FAILURES list since it started. The child's exit status
+    stays the single aggregate verdict; these lines add no new judgement.
+
+    Arguments:
+      aid      = the drafted board-unique leg id, "cmb-identity.<leg>".
+      n_before = len(FAILURES) captured immediately before the leg's checks ran.
+    """
+    mark = "PASS" if len(FAILURES) == n_before else "FAIL"
+    print("##AID " + aid + " " + mark)
+
+
 def spd(n, seed):
     """A random symmetric positive-definite matrix (n x n)."""
     g = np.random.default_rng(seed)
@@ -1451,18 +1469,42 @@ def main():
           "+ finetune + adapter + covariance known-answer legs")
     device = torch.device("cpu")
     with tempfile.TemporaryDirectory() as tmp:
+        # Each drafted leg emits ONE ##AID line at its aggregation point (a
+        # contiguous group of check_* functions). n0 = the FAILURES count just
+        # before the leg, so emit_aid reads the leg's own verdict, not the
+        # board-wide one; the seven aids match the note's drafted anchor block.
+        n0 = len(FAILURES)
         check_ruled_constants(device)
         check_state_roundtrip(device)
         check_cmb_ref_schema()
+        emit_aid("cmb-identity.geometry-and-reference-schema", n0)
+
+        n0 = len(FAILURES)
         check_law(tmp, device)
+        emit_aid("cmb-identity.amplitude-law-and-score", n0)
+
+        n0 = len(FAILURES)
         check_roundtrip(tmp, device, law="none")
         check_roundtrip(tmp, device, law="as_exp2tau_ref")
+        check_adapter(tmp, device)
+        emit_aid("cmb-identity.artifact-and-adapter-round-trip", n0)
+
+        n0 = len(FAILURES)
+        check_roughness(device)
+        emit_aid("cmb-identity.roughness-contract", n0)
+
+        n0 = len(FAILURES)
         check_head(tmp, device)
         check_npce(tmp, device)
-        check_adapter(tmp, device)
-        check_roughness(device)
+        emit_aid("cmb-identity.model-variant-composition", n0)
+
+        n0 = len(FAILURES)
         check_finetune(tmp, device)
+        emit_aid("cmb-identity.finetune-parity", n0)
+
+        n0 = len(FAILURES)
         check_covariance_oracle()
+        emit_aid("cmb-identity.covariance-known-answer", n0)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))
