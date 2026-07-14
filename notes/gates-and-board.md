@@ -7531,3 +7531,25 @@ fan-out reaches it, folds the warmstart Part D + Part E legs
 (artifacts-inference-warmstart.md "Warm-start source reads and
 perturbed finite values") into its wiring rather than leaving them
 orphaned.
+
+FAN-OUT BATCH 4 (2cf5621) GO: berhu-anneal (golden null-base
+UNAVAILABLE + smoke exit/banner + the logged-only schedule-behavior
+converted to ctx.unavailable), ema-anneal (golden UNAVAILABLE + smoke
+exit/two-banner + the orphan live-point-metrics leg forward-declared
+UNAVAILABLE -- the note describes it, the gate asserts no metric
+comparison), npce-training (nine legs: golden UNAVAILABLE + residual
++ ratio smoke pairs + two exclusivity refusals + the sweep line +
+rebuild-vs-base owed to the check-script set). 21/40 migrated.
+
+PROCESS ERROR banked (batch 4): the three subagents were launched
+WITHOUT isolation:worktree, so they ran concurrently in the shared
+main tree and edited the one board.py live. It happened to verify
+clean (disjoint gate regions, staggered writes), but that is luck.
+RULE: every fan-out subagent gets its own worktree
+(isolation:worktree). The safeguard that made the landing sound was
+the INDEPENDENT final-tree re-verify -- compile, --list rc0, board-
+selftest ALL PASS, declared==emitted 4/4/9, and a regression probe
+proving all 18 prior-migrated gates survived the concurrent editing
+(total 21). A subagent's own self-check is unreliable here because
+its --list/selftest ran against a tree its siblings were still
+mutating; only the Implementer's final-state verify is authoritative.
