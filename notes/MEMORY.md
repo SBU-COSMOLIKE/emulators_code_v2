@@ -37,6 +37,9 @@ numbered mailbox file after recording the substance under `notes/`.
   the loud no-alias migration pattern; open red-team details include
   the dead validation-safe chunk, the unbounded wide-output
   diagnostics path, and activation-bakeoff process liveness.
+- [DIDACTICS-59 real-evaluation return](training-stack.md#didactics-59-red-team-return-2026-07-14)
+  — real `eval_val` over full/equal/ragged partitions, production per-row
+  diagnostics, histories/scheduler, and drop/reassociation catch-power.
 - [Models + designs](models-and-designs.md) — ResMLP/ResCNN/ResTRF,
   the correction-head philosophy, zero-init identity discipline,
   factored IA, activations/norms, FiLM, NPCE, the science doctrine

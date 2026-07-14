@@ -1746,6 +1746,89 @@ printed but are not compared with an acceptance bound.
 `eval-batch-invariance.production-timing-claim` is `UNAVAILABLE`: the gate
 makes no production-run speed claim and has no production timing protocol.
 
+<a id="didactics-59-red-team-return-2026-07-14"></a>
+#### DIDACTICS-59 red-team return: real evaluation across three partitions (2026-07-14)
+
+The fan-out-complete transfer was executed on branch
+`codex/didactics59-real-eval`. The implementation checkpoint is `f3900ec`;
+the branch was then synchronized with local `main` at `7f4b769` by merge
+checkpoint `8ccaf07`. This is a red-team implementation return for Fable's
+independent audit, not self-certification.
+
+Named gate-surface scope: `gates/checks/ge_c_eval_bs.py` is replaced with the
+ratified real-entry-point check; `gates/board.py` changes only the GE-C prose
+that states the new observations; this evidence-map passage records the
+current check. `emulator/training.py`, `gates/run_board.py`, production
+thresholds, production fixtures, golden bases, and `texnotes/` are unchanged.
+The five mild TEX-PROSE narration residues remain queued for the next
+TEX-PROSE unit; this check-script unit does not consume them.
+
+The production proof now has these surfaces:
+
+- twelve distinct float32 scores and a permuted source-row list are driven
+  through real `eval_source_chi2`, real `eval_val`, and one real
+  `training_loop_batched` epoch;
+- each known score is present in both the model-input feature and target, and
+  the fixture loss averages the two. A wrong parameter/target association
+  therefore changes the score;
+- the observer records the tensor RETURNED by production `screen_chi2`, not
+  its input. Real reductions, exact source-row association, and normalized
+  rows are compared with the independent float64 calculation for a single
+  full batch, three equal batches, and a 5+5+2 ragged partition;
+- median, mean, all three threshold fractions, returned histories, and the
+  value passed to the real plateau scheduler are compared. The tolerances are
+  `rtol=1e-6`, `atol=1e-7`; row identities, row order, and row scores compare
+  exactly;
+- the shipped catch-power arms remove the middle equal batch and reverse its
+  scores under unchanged row labels. Both preserve the independent
+  diagnostic reference and both must be rejected. The ordinary-median arm
+  remains intact.
+
+Composed-tip evidence, Cocoa Torch 2.6.0 CPU interpreter:
+
+- child rc 0. The independent reference printed median `1.5`, mean
+  `3.94166667`, and fractions `[0.833333333, 0.583333333, 0.25]`.
+  All three production partitions printed `eval=True histories=True`; each
+  history printed the same values and scheduler input `[1.5]`;
+- exact observed row orders were
+  `[0,1,2,3,4,5,6,7,8,9,10,11]`,
+  `[0,2,7,10,1,5,9,11,3,4,6,8]`, and
+  `[0,2,5,7,10,1,4,8,9,11,3,6]`;
+- the shipped drop mutation printed `caught=True`, eight observed rows, and
+  changed mean `2.6125`; the shipped reassociation mutation printed
+  `caught=True` with middle rows `[1,5,9,11]` carrying reversed scores;
+- an extra, unshipped attack changed the tensor RETURNED by `screen_chi2`
+  after its normal logic. It printed
+  `returned-boundary reorder accepted=False`. A separately rolled target
+  tensor printed `parameter/target reassociation accepted=False`;
+- manifest probe: child rc 0; declared and emitted ids were the same four in
+  the same order; results were `[PASS, PASS, UNAVAILABLE, UNAVAILABLE]`; no
+  malformed line. The timing legs stay honestly unavailable;
+- `compileall emulator gates` rc 0; `gates/run_board.py --list` rc 0;
+  `gates/checks/board_selftest.py` ended `board-selftest: ALL PASS`;
+  `git diff --check origin/main...HEAD` rc 0.
+
+Raw local logs are `/tmp/didactics59-child-composed.log`,
+`/tmp/didactics59-independent-attack-composed.log`,
+`/tmp/didactics59-manifest-composed.log`,
+`/tmp/didactics59-list-composed.log`, and
+`/tmp/didactics59-selftest-composed.log` (446 lines, terminal `ALL PASS`).
+CUDA is absent on this machine. The child keeps thresholds on CPU because
+production moves validation scores to CPU before threshold reduction, fixing
+the inherited draft's CUDA device-mismatch risk. The wrapper still requires
+the GPU capability, and the CUDA timing and any production-timing claim remain
+workstation-owed by design.
+
+LANDING BLOCK (merge and push to `main` remain the user's alone):
+
+```bash
+cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+git fetch .claude/worktrees/codex-didactics59-real-eval \
+  codex/didactics59-real-eval
+git merge --ff-only FETCH_HEAD
+git push
+```
+
 <a id="finite-contract-evidence"></a>
 **finite-contract — the child contains finite-value and score-domain checks,
 but its current execution is red before all declared checks can run.**
