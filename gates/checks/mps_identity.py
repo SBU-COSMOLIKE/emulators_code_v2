@@ -115,6 +115,44 @@ def report(label, ok, detail):
         FAILURES.append(label)
 
 
+# (queue 2) the seven board-declared evidence legs this check emits, in the
+# main() order. Each leg rolls up one contiguous group of check_* functions;
+# a leg's single '##AID <aid> <PASS|FAIL>' terminal aggregates every report()
+# its group made WITHOUT threading a per-report leg argument (the FAILURES
+# snapshot in main() does the roll-up). One terminal per declared leg -- NOT
+# one per probe. The child's exit status stays the single aggregate verdict.
+# run_board folds these seven lines into the gate's executed set and
+# reconciles them against gate_mps_a's declared evidence map. Note: the
+# unit-63 const-mask real-artifact checks (check_const_mask_artifact) fold
+# under geometry-laws-and-pins per the binding batch-5 seam ruling.
+LEG_AIDS = [
+    "mps-identity.geometry-laws-and-pins",
+    "mps-identity.bounded-staging-values",
+    "mps-identity.stable-streamed-moments",
+    "mps-identity.staging-file-lifecycle",
+    "mps-identity.saved-model-variants",
+    "mps-identity.adapter-assembly-and-defaults",
+    "mps-identity.config-and-finetune",
+]
+
+
+def emit_leg(aid, failures_before):
+    """Print the one reserved '##AID <aid> <result>' line for a leg group.
+
+    Called in main() right after a leg's group of check_* functions returns.
+    The leg PASSes only when no report() in that group appended to FAILURES
+    since the snapshot; any failing probe in the group reds this one terminal.
+
+    Arguments:
+      aid             = the board-declared assertion id for this leg (a member
+                        of LEG_AIDS).
+      failures_before = len(FAILURES) captured immediately before the leg's
+                        group of check_* calls ran.
+    """
+    mark = "FAIL" if len(FAILURES) > failures_before else "PASS"
+    print("##AID " + aid + " " + mark)
+
+
 def write_covmat(path, names, seed):
     g = np.random.default_rng(seed)
     a = g.standard_normal((len(names), len(names)))
@@ -1697,20 +1735,47 @@ def main():
     # every run (a red must reproduce — the run-10 bsn lesson).
     torch.manual_seed(0)
     device = torch.device("cpu")
+    # Emit one '##AID <leg> <PASS|FAIL>' per board-declared leg (LEG_AIDS), in
+    # this order. Each leg wraps a contiguous group of check_* calls; the
+    # FAILURES snapshot taken before a group and read after it rolls that
+    # group's probes into the leg's single terminal (see emit_leg). The
+    # const-mask real-artifact checks run adjacent to check_geometry so they
+    # fold under geometry-laws-and-pins (batch-5 seam ruling), not as their
+    # own leg.
     with tempfile.TemporaryDirectory() as tmp:
+        before = len(FAILURES)
         check_geometry(device)
+        check_const_mask_artifact(tmp, device)
+        emit_leg("mps-identity.geometry-laws-and-pins", before)
+
+        before = len(FAILURES)
         check_staging(tmp)
         check_bounded_staging(tmp)
+        emit_leg("mps-identity.bounded-staging-values", before)
+
+        before = len(FAILURES)
         check_stable_moments(tmp, device)
+        emit_leg("mps-identity.stable-streamed-moments", before)
+
+        before = len(FAILURES)
         check_staging_lifecycle(tmp)
-        check_const_mask_artifact(tmp, device)
+        emit_leg("mps-identity.staging-file-lifecycle", before)
+
+        before = len(FAILURES)
         check_roundtrip(tmp, device, law="syren_linear")
         check_roundtrip(tmp, device, law="none")
         check_head(tmp, device)
         check_npce(tmp, device)
+        emit_leg("mps-identity.saved-model-variants", before)
+
+        before = len(FAILURES)
         check_adapter(tmp, device)
+        emit_leg("mps-identity.adapter-assembly-and-defaults", before)
+
+        before = len(FAILURES)
         check_validate()
         check_finetune(tmp, device)
+        emit_leg("mps-identity.config-and-finetune", before)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))
