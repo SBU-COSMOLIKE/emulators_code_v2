@@ -9416,3 +9416,111 @@ verbatim; board untouched.
 
 MILESTONE: one commit (README.md + tools/mailbox_daemon.py), handoff
 to fable via mailbox.
+
+## Queue 2 increment 4 — scalar-smoke's nine-Assertion tuple (Opus, 2026-07-14): 39/40; the 0017 premise was half stale
+
+Dispatched from mailbox `0017-to-opus.md`. **Half its premise was stale and is
+corrected here with proof** (constraint 8: a factual error in the handoff's
+premise is reported before proceeding, not silently absorbed). 0017 names the
+remaining rollout as "the six wrapper-family gates, scalar-smoke's tuple, and
+finite-contract":
+
+- The **six wrapper-family gates are already landed and audited GO** — commit
+  `1c2f706`, Architect verdict "GO. Unit closed; 38/40" in the section
+  "Wrapper-family evidence migration audit (Fable, 2026-07-14)" above. There
+  was nothing left to do there; I did not redo it.
+- **finite-contract** has a newer, more specific handoff (`0020-to-opus.md`,
+  re-cut against the repaired child `0abc300`) still pending dispatch. I did
+  NOT pre-empt it — wiring it from 0017's older description would have wired
+  against the pre-repair 3-FAIL table that 0020 explicitly says not to use.
+- That leaves **scalar-smoke** as the one owed item in 0017, and it is what
+  this increment delivers.
+
+**The unit.** Sol's nine-aid child (`codex/scalar-smoke-nine-aids-child`) was
+already merged onto this branch — `git branch --contains` puts its tip in
+`claude/amazing-keller-e798b6` and `HEAD..<branch>` is empty — but
+`Gate(id="scalar-smoke")` in `gates/board.py` still carried no `evidence=`.
+This increment wires the nine-`Assertion` tuple against that merged child,
+re-diffed against the CURRENT file per the check-script seam rule. The board
+goes to **39 of 40 gates carrying `evidence=`**, 173 declared aids; the only
+gate still without one is `finite-contract`, i.e. exactly the pending 0020.
+
+**Named gate-surface change (constraint 7b — it weakens nothing).** ONE: the
+wrapper rc-expect label `"scalar-smoke fixture train + off-center predict +
+cobaya evaluate"` became `"scalar-smoke child completed"`. This is the same
+DIDACTICS-27 wrapper falsehood, and the same repair, that the four sibling
+wrappers took in `1c2f706` under the ratified precedent — the label was
+re-claiming in the wrapper's voice what only the child proves. The `rc == 0`
+assertion itself is untouched; the three claims it used to make now live on the
+child's own nine per-leg aids, which is strictly more evidence, not less. No
+threshold, bar, fixture, or golden base was touched anywhere in this diff.
+
+**Gate results (this session).**
+- `py_compile` on `gates/board.py` + `gates/checks/scalar_smoke.py`: clean.
+- `run_board.py --list`: rc 0 — `validate_evidence` ran, so all nine new
+  anchors resolve to real `<a id>` markers in `families-scalar-cmb.md` and no
+  aid collides board-wide.
+- `gates/checks/board_selftest.py`: **176 PASS / 0 FAIL**, final line
+  `board-selftest: ALL PASS` — same count as increment 3, no regression.
+- Static declared-vs-emitted census: **9 declared == 9 distinct emitted == 9
+  note anchors**, every anchor is its aid under the one `.`->`-` transform,
+  zero orphan aids in the child, board-unique.
+- **LIVE GREEN — the child ran here, no workstation debt.** Unlike the four
+  cosmolike/GPU wrapper gates, scalar-smoke is cosmolike-free and needs only
+  torch + cobaya, both of which the cocoa interpreter carries
+  (`.../june2026/cocoa/Cocoa/.local/bin/python`: torch 2.6.0, cobaya 3.6.2).
+  `gates/checks/scalar_smoke.py` on that interpreter: **rc 0, 9 `##AID`
+  emitted, 9 PASS, zero `[FAIL]`**, final line `PASS: scalar-smoke all checks
+  green`. Declared 9 == emitted 9 **live**, not merely statically. Real
+  numbers from the run: trained median `0.196647360921` vs collapse bar
+  `0.244681023061`; off-center predict rel-err `0.074595841408` vs accuracy bar
+  `0.111893762112`; the mean-predictor mutation fails BOTH bars (median
+  `0.489362046123`, rel-err `0.136626311478`) — the dead-network rule holds.
+  Cobaya evaluate returns omegamh2 `0.157807` (want `0.17052800`, rel-err
+  `0.0745977200225182`). `--list` rc 0 and `board_selftest` ALL PASS re-confirmed
+  under this same interpreter.
+
+  **A false claim I caught before it shipped, recorded because the discipline is
+  the point:** my first pass reported this leg WORKSTATION-OWED, on the evidence
+  of an `rc 127` from `.../june2026/Cocoa/.local/bin/python`. That was **my own
+  path typo** — I dropped the lowercase `cocoa/` segment the memory note
+  actually records — not a moved interpreter. The lesson is the one the honest-
+  reporting rule already implies but is worth stating: an *absence* of evidence
+  (a 127, an ImportError) is itself a claim, and it needs the same
+  before-you-ship verification as a green. Had I not re-read the recorded path,
+  a fabricated "owed" would have entered the record and a genuinely green gate
+  would have been reported as unrun.
+
+**FINDING, reported not chased (constraint 8, one line for the Architect to
+route).** The merged child's emission is NOT crash-safe:
+`check_train_and_predict` has two early `return None, None` paths
+(`scalar_smoke.py:639`, `:673`), and `main()` guards the cobaya leg behind
+`if root is not None`. On either bail the child emits only a PREFIX of the
+nine aids — `window-banner-and-rows-match`, `banner-only-mutation-rejected`,
+`analytic-prediction`, `dead-network-rejected`, `diagnostics-output` and
+`cobaya-evaluate` never print at all, so declared != emitted on every red
+path and the manifest silently loses six legs exactly when a leg has failed.
+This is the same class the standing skipped-leg doctrine covers (always-emit +
+UNAVAILABLE naming the upstream blocker), and the same shape as the (B)
+crash-wrapper the finite-contract ruling mandates. I did NOT repair it: the
+child is the red team's (0abc300 lane) and the blueprint scoped me to the
+board.py tuple. It folds naturally into **the skipped-leg manifest consistency
+sweep already APPROVED as queued** (bsn-smoke's backfill FAIL->UNAVAILABLE;
+mps/cmb-smoke gain the finally backfill; one board-selftest arm proving a
+skipped leg shows UNAVAILABLE naming its upstream) — scalar-smoke is now a
+fourth member of that sweep. Architect's call whether the sweep repairs it or
+it goes back to Sol.
+
+**Landing block (merge/push to main is the user's alone).**
+
+```
+branch:  claude/amazing-keller-e798b6
+commit:  <this increment's sha — see the handoff>
+files:   gates/board.py, notes/gates-and-board.md
+gates:   scalar_smoke.py LIVE on the cocoa interpreter: rc 0, 9 ##AID emitted,
+         9 PASS, zero [FAIL], "PASS: scalar-smoke all checks green".
+         --list rc 0 (nine anchors resolve, no collision); board-selftest
+         176 PASS / 0 FAIL ALL PASS; census 9 declared == 9 emitted == 9
+         anchors, zero orphans; board now 39/40 carrying evidence=, 173 aids.
+         No workstation debt on this gate.
+```

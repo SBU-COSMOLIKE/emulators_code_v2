@@ -1372,7 +1372,7 @@ def gate_spe_b(ctx):
   rc, out = ctx.run_check("gates/checks/scalar_smoke.py")
   if not ctx.dry:
     ctx.expect(
-      label="scalar-smoke fixture train + off-center predict + cobaya evaluate",
+      label="scalar-smoke child completed",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
              + " (gates/checks/scalar_smoke.py)")
@@ -2793,6 +2793,24 @@ BOARD = [
        home="families-scalar-cmb",
        maps="128-134 (fixture train + collapse + off-center predict + "
             "cobaya evaluate through emul_scalars)",
+       evidence=(Assertion("scalar-smoke.fixture-rows-disjoint-and-aligned",
+                           "families-scalar-cmb.md#scalar-smoke-fixture-rows-disjoint-and-aligned"),
+                 Assertion("scalar-smoke.same-seed-overlap-refused",
+                           "families-scalar-cmb.md#scalar-smoke-same-seed-overlap-refused"),
+                 Assertion("scalar-smoke.window-banner-and-rows-match",
+                           "families-scalar-cmb.md#scalar-smoke-window-banner-and-rows-match"),
+                 Assertion("scalar-smoke.banner-only-mutation-rejected",
+                           "families-scalar-cmb.md#scalar-smoke-banner-only-mutation-rejected"),
+                 Assertion("scalar-smoke.training-beats-mean-predictor",
+                           "families-scalar-cmb.md#scalar-smoke-training-beats-mean-predictor"),
+                 Assertion("scalar-smoke.analytic-prediction",
+                           "families-scalar-cmb.md#scalar-smoke-analytic-prediction"),
+                 Assertion("scalar-smoke.dead-network-rejected",
+                           "families-scalar-cmb.md#scalar-smoke-dead-network-rejected"),
+                 Assertion("scalar-smoke.diagnostics-output",
+                           "families-scalar-cmb.md#scalar-smoke-diagnostics-output"),
+                 Assertion("scalar-smoke.cobaya-evaluate",
+                           "families-scalar-cmb.md#scalar-smoke-cobaya-evaluate")),
        run=gate_spe_b,
        manifest=Manifest(code=("emulator/designs", "emulator/losses",
                                "cobaya_theory/emul_scalars.py"),
