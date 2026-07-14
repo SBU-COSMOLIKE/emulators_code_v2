@@ -278,6 +278,7 @@ LANDING_DEBT_LINE_LIMIT = 400
 # hand-made hold directories still claim their sequence numbers.
 MESSAGE_SEQUENCE_RE = re.compile(r"(\d+)[a-z]?-to-")
 PENDING_MESSAGE_RE = re.compile(r"\d+-to-(fable|opus|sol)\.md$")
+WATCH_LOCK_OWNER_RE = re.compile(r"watch pid [1-9]\d*$")
 STATE_GUARD_SUFFIX = ".state-guard"
 
 
@@ -676,12 +677,171 @@ def claim_message(path):
     return claimed
 
 
-def acquire_dispatch_lock():
+def mailbox_path_is_unredirected(mailbox):
+    """Return whether ``mailbox`` stays inside its lexical repository path.
+
+    ``O_NOFOLLOW`` protects the final lock file, but would still follow a
+    symlink used as an earlier ``notes`` or ``mailbox`` component.  Compare
+    real paths relative to the repository's own real path so symlinks *above*
+    the checkout remain harmless while redirects *inside* it are rejected.
+    """
+    repository = os.path.abspath(REPO_ROOT)
+    candidate = os.path.abspath(mailbox)
+    try:
+        if os.path.commonpath([repository, candidate]) != repository:
+            return False
+        relative = os.path.relpath(candidate, repository)
+    except (OSError, ValueError):
+        return False
+    expected = os.path.normpath(os.path.join(
+        os.path.realpath(repository), relative))
+    return os.path.realpath(candidate) == expected
+
+
+def dispatch_lock_is_live_watch(mailbox):
+    """Return whether ``mailbox`` has a lock held by a tagged watch loop.
+
+    Diagnosis is deliberately read-only.  In particular, opening the lock
+    must never create a missing file: ``--send --dry-run`` relies on this
+    helper while promising to leave the filesystem byte-for-byte alone.  A
+    shared nonblocking probe coexists with other senders doing the same check,
+    but is refused by the exclusive lock held by a real dispatch loop.  Only
+    exact ``watch pid N`` metadata counts; an unlocked stale lock, a transient
+    ``once`` owner, and legacy or malformed contents do not prove that anyone
+    is polling the mailbox.
+
+    Arguments:
+      mailbox = absolute or relative path to a mailbox directory.
+
+    Returns:
+      True only while a regular, non-symlink ``.dispatch.lock`` is held and
+      contains an exact watch-loop owner tag.
+    """
+    lock_path = os.path.join(mailbox, ".dispatch.lock")
+    descriptor = None
+    probe_acquired = False
+    try:
+        if not mailbox_path_is_unredirected(mailbox=mailbox):
+            return False
+        before = os.lstat(lock_path)
+        if not stat.S_ISREG(before.st_mode):
+            return False
+        flags = os.O_RDONLY | os.O_NONBLOCK
+        flags = flags | getattr(os, "O_CLOEXEC", 0)
+        flags = flags | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(lock_path, flags)
+        opened = os.fstat(descriptor)
+        if (not stat.S_ISREG(opened.st_mode)
+                or (opened.st_dev, opened.st_ino)
+                != (before.st_dev, before.st_ino)):
+            return False
+        try:
+            # A watch/once loop owns an exclusive flock.  SH is intentional:
+            # simultaneous send diagnostics can all acquire it, so they can
+            # never mistake one another for a live watcher.
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            probe_acquired = True
+            return False
+        except BlockingIOError:
+            pass
+        # The path may have been replaced after open().  A lock on an
+        # unlinked/orphaned inode does not protect the filename a future watch
+        # would use, so it cannot suppress the warning.
+        current = os.lstat(lock_path)
+        if (not stat.S_ISREG(current.st_mode)
+                or (current.st_dev, current.st_ino)
+                != (opened.st_dev, opened.st_ino)):
+            return False
+        # Bound the read so a corrupt/sparse lock cannot consume unbounded
+        # memory.  os.pread leaves the descriptor offset untouched.
+        owner_bytes = os.pread(descriptor, 129, 0)
+        if len(owner_bytes) > 128:
+            return False
+        owner = owner_bytes.decode("ascii")
+        return WATCH_LOCK_OWNER_RE.fullmatch(owner) is not None
+    except (OSError, UnicodeError):
+        # This warning is advisory.  A disappearing or unreadable lock must
+        # read as "not proven live", never make --send fail or hang.
+        return False
+    finally:
+        if descriptor is not None:
+            if probe_acquired:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def mailbox_candidates():
+    """Return every mailbox whose watcher could serve this repository.
+
+    The current mailbox and the main checkout are always included.  Worktree
+    discovery uses scandir instead of ``glob('*')`` so a legal hidden
+    worktree name is not silently missed.  Paths are absolute, de-duplicated,
+    and sorted to keep warning output deterministic.
+    """
+    candidates = {
+        os.path.abspath(MAILBOX),
+        os.path.abspath(os.path.join(REPO_ROOT, "notes", "mailbox")),
+    }
+    worktrees = os.path.join(REPO_ROOT, ".claude", "worktrees")
+    try:
+        if not mailbox_path_is_unredirected(mailbox=worktrees):
+            return sorted(candidates)
+        worktrees_state = os.lstat(worktrees)
+        if not stat.S_ISDIR(worktrees_state.st_mode):
+            return sorted(candidates)
+        with os.scandir(worktrees) as entries:
+            for entry in entries:
+                try:
+                    if not entry.is_dir(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                candidates.add(os.path.abspath(os.path.join(
+                    entry.path, "notes", "mailbox")))
+    except OSError:
+        pass
+    return sorted(candidates)
+
+
+def warn_if_mailbox_unwatched():
+    """Warn when a send targets a mailbox with no live watch loop.
+
+    The warning is advisory: callers continue to publish (or rehearse) the
+    message.  Other watched mailboxes are reported as recovery clues, not as
+    alternative destinations; the daemon never silently reroutes a send.
+    """
+    own_mailbox = os.path.abspath(MAILBOX)
+    if dispatch_lock_is_live_watch(mailbox=own_mailbox):
+        return
+    print("  !! warning: no active watch is polling this mailbox: "
+          + own_mailbox)
+    for candidate in mailbox_candidates():
+        if candidate == own_mailbox:
+            continue
+        if dispatch_lock_is_live_watch(mailbox=candidate):
+            print("  !! warning: another mailbox under this repository has "
+                  "a live watch: " + candidate)
+
+
+def acquire_dispatch_lock(mode="unknown"):
     """Acquire the process-wide dispatch-loop lock without a PID race.
+
+    Arguments:
+      mode = ``watch`` or ``once`` for command-line loops.  The default keeps
+             older direct callers compatible but is deliberately not treated
+             as proof of an active watcher by send diagnostics.
 
     Returns:
       An open locked file, or None when another loop owns the lock.
     """
+    if mode not in ("watch", "once"):
+        mode = "unknown"
     os.makedirs(MAILBOX, exist_ok=True)
     lock_path = os.path.join(MAILBOX, ".dispatch.lock")
     lock_file = open(lock_path, "a+", encoding="utf-8")
@@ -691,12 +851,12 @@ def acquire_dispatch_lock():
         lock_file.seek(0)
         owner = lock_file.read().strip()
         lock_file.close()
-        print("another dispatch loop is already running (pid "
-              + (owner or "unknown") + "); refusing to overlap it.")
+        print("another dispatch loop is already running ("
+              + (owner or "owner unknown") + "); refusing to overlap it.")
         return None
     lock_file.seek(0)
     lock_file.truncate()
-    lock_file.write(str(os.getpid()))
+    lock_file.write(mode + " pid " + str(os.getpid()))
     lock_file.flush()
     return lock_file
 
@@ -1274,6 +1434,7 @@ def send(agent, text, dry_run):
     if dry_run:
         print("[dry-run] would queue "
               + os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md"))
+        warn_if_mailbox_unwatched()
         return True
     os.makedirs(MAILBOX, exist_ok=True)
     lock_path = os.path.join(MAILBOX, ".sequence.lock")
@@ -1302,6 +1463,7 @@ def send(agent, text, dry_run):
                     except FileExistsError:
                         continue
                     print("queued " + path)
+                    warn_if_mailbox_unwatched()
                     report_demand(backlog=pending_messages())
                     return True
                 finally:
@@ -1427,7 +1589,7 @@ def main():
         return 0
 
     if args.once:
-        dispatch_lock = acquire_dispatch_lock()
+        dispatch_lock = acquire_dispatch_lock(mode="once")
         if dispatch_lock is None:
             return 1
         try:
@@ -1445,7 +1607,7 @@ def main():
         # --once and --watch share one kernel-released lock. This closes both
         # the check-then-write race between watchers and the older gap where
         # --once could overlap a live watcher in the same working directory.
-        dispatch_lock = acquire_dispatch_lock()
+        dispatch_lock = acquire_dispatch_lock(mode="watch")
         if dispatch_lock is None:
             return 1
         print("watching " + MAILBOX + " (Ctrl-C to stop; safe only "

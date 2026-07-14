@@ -250,9 +250,34 @@ this document, so the table below is only a reminder of which is which.
 | `--dry-run` | Prints what would happen and changes nothing on disk. Pending dispatches are shown instead of run, and `--send` or `--ping` print the message file they would write instead of writing it. |
 | `--once` | Processes whatever is sitting in the mailbox right now, then exits. |
 | `--watch` | Stays alive and looks in the mailbox every 20 seconds, dispatching anything new. This is the mode the loop runs in. |
-| `--send AGENT` | Writes one new message addressed to `fable`, `opus` or `sol`, then exits. The text of the message comes from `--unit`, which is required with `--send`. |
-| `--ping AGENT` | Writes a transport test message to `fable`, `opus` or `sol`. The agent answers with a short file addressed to the human, which confirms the delivery path works without assigning any real work. |
+| `--send AGENT` | Writes one new message addressed to `fable`, `opus` or `sol`, then exits. The text of the message comes from `--unit`, which is required with `--send`. It also warns when no live `--watch` loop is polling this checkout's mailbox. |
+| `--ping AGENT` | Writes a transport test message to `fable`, `opus` or `sol`. The agent answers with a short file addressed to the human, which confirms the delivery path works without assigning any real work. It uses the same dead-mailbox warning as `--send`. |
 | `--unit UNIT` | The body of the message that `--send` queues, normally a short routing summary that points the agent at a note under `notes/`. |
+
+### The dead-mailbox warning
+
+Every checkout has its own `notes/mailbox` directory.  A message sent from the
+main checkout therefore does not reach a watch loop running in a Claude
+worktree: the file can be valid and completely published while no process ever
+polls the directory that contains it.  After `--send` or `--ping` publishes a
+message (or prints the file a dry run would queue), the daemon checks the
+current mailbox's existing `.dispatch.lock`.  If no live `--watch` process
+holds that lock, it prints a warning that names the current mailbox.  It also
+lists, in sorted order, every other mailbox with a live watcher in the main
+checkout or under `.claude/worktrees/`, which makes it clear where the active
+loop actually is.  The daemon does not reroute the message: the warning is
+advisory, and a real send still publishes atomically to the mailbox selected by
+the checkout where the command ran.
+
+A held lock is not enough by itself.  Dispatch locks now identify their mode as
+`watch pid N` or `once pid N`, and only an exact, currently held `watch pid N`
+tag proves that a process is polling.  An unlocked stale file, the transient
+lock held by `--once`, a legacy bare PID, malformed text, or a symlink is not
+accepted as a watcher.  Diagnosis opens existing regular lock files read-only,
+without following symlinks, and probes them nonblocking; it never creates or
+rewrites a lock.  This is why `--dry-run --send ...` and `--dry-run --ping ...`
+can print the same warning while preserving the dry-run guarantee of zero
+filesystem writes.
 
 ### The tuning dials
 

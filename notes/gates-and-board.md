@@ -14380,3 +14380,50 @@ This closes only the dispatch-currency/staleness, timeout-history, and
 archive-truth ledger item. Dead-mailbox discovery, fix-only behavior, the
 global safe-kill rendezvous, and automatic landing-debt correction remain open
 and separately countable.
+
+## Daemon dead-mailbox send-warning audit (Codex, 2026-07-14): GO
+
+Dispatch-loop locks now carry an exact mode declaration: `watch pid N`, `once
+pid N`, or the conservative unknown form used by legacy direct callers. A send
+accepts only a presently held exclusive lock with the exact bounded `watch pid
+N` payload as proof that its own mailbox is being polled. Presence, a stale
+unlocked tag, a held once/unknown/legacy lock, malformed whitespace, non-ASCII
+bytes, and oversized metadata all remain unproven and therefore warn.
+
+Diagnosis never opens a lock for writing or creates a missing path. It opens an
+existing final component read-only, nonblocking, and no-follow; proves the
+pre-open, opened, and current regular-file device/inode identity; then uses a
+shared nonblocking flock probe. Shared probing is load-bearing: simultaneous
+send diagnostics coexist, while only a dispatch loop's exclusive lock blocks
+them. Final lock symlinks, FIFO nodes, intermediate `notes` redirects, and a
+redirected `.claude/worktrees` base are rejected conservatively rather than
+followed outside the repository.
+
+After a successful atomic send publication—or after the corresponding dry-run
+would-queue line—the daemon prints its absolute mailbox when no live watch is
+proven. It then scans the main mailbox and every real direct child of
+`.claude/worktrees`, including hidden names, and prints every other exact live
+watch in deterministic sorted order. It never reroutes the file and never
+turns the warning into a failed send. `--ping` passes through the same send
+path. A live own watch suppresses the entire warning block, and dry-run against
+a nonexistent mailbox leaves the complete scratch tree unchanged.
+
+Two independent reviewers report GO on the final unchanged snapshot. The
+focused mutation set proves exact owner classification, shared-vs-exclusive
+diagnosis, dry-run warning placement, other-mailbox enumeration, whitespace
+strictness, and explicit `main()` wiring for both once and watch modes.
+
+```text
+python3 tests/tools_mailbox_daemon_dead_mailbox_repro.py rc 0  9/9 runtime arms PASS
+source mutations                                        rc 0  7/7 killed
+python3 tests/tools_mailbox_daemon_redteam_repro.py     rc 0  8/8 arms PASS
+python3 tests/tools_mailbox_daemon_output_style_repro.py rc 0 8/8 checks PASS
+python3 -m unittest tests/test_mailbox_conditional_preamble.py rc 0 4/4 green
+python3 tests/tools_mailbox_daemon_staleness_repro.py   rc 0 18/18 + 9/9 mutations
+py_compile                                              rc 0
+git diff --check                                        rc 0
+```
+
+This closes only the dead-mailbox send/ping warning. The fix-only deferral
+guard, global safe-kill rendezvous, and automatic landing-debt correction
+remain open and separately countable.
