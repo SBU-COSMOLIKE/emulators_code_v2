@@ -302,9 +302,10 @@ variants, adapter assembly, config validation, and fine-tuning.**
   exposes only the aggregate child exit code, and the synthetic assembly leg
   is not evidence for the real Syren formulas. Diagnostic print lines inside
   a failed config check remain logged-only.
-- owed: Architect audit of the Red Team repair and queue-2 wiring of the
-  existing `mps-identity.bounded-staging-values` logical aid. The new
-  mean-before-cast mutation stays inside that same leg. The registry models
+- owed: Architect audit of the unit-63 Red Team repair and queue-2 wiring of
+  the logical aids. The HDF5 mask-state checks belong to
+  `mps-identity.geometry-laws-and-pins`. The mean-before-cast mutation stays
+  inside `mps-identity.bounded-staging-values`. The registry models
   only CPU PyTorch: missing SciPy can crash the dynamically loaded adapter,
   while a missing installed Cobaya base API reaches explicit protocol
   failures. Those are red or missing evidence rather than seven
@@ -314,7 +315,9 @@ variants, adapter assembly, config validation, and fine-tuning.**
 <a id="mps-identity-geometry-laws-and-pins"></a>
 `mps-identity.geometry-laws-and-pins` checks float32 transform round trips,
 exact grid-state values, width/law guards, exact constant-column pins under
-both laws, and refusal of a wholly constant surface.
+both laws, and refusal of a wholly constant surface. It also saves and rebuilds
+explicit unpinned and valid low-k-pinned HDF5 states, then deletes the required
+mask and requires a re-save error before prediction.
 
 <a id="mps-identity-bounded-staging-values"></a>
 `mps-identity.bounded-staging-values` compares stored row values and their
@@ -1126,23 +1129,21 @@ the mutation witness, the intact `boost/none` pin serves exactly `1.0`; the
 retired presence-inferred branch serves `1.25`. Current `from_state` refuses
 the deleted key before that wrong value can be served.
 
-The existing `mps-identity` child is intentionally not edited in this branch
-because its file was owned by the concurrent `25M-36` repair when this work
-started. The owning gate must absorb the three persistence legs and update its
-seven-key preamble after that file becomes quiet. The package README now states
-the current always-present mask behavior. Its wider scheduled teaching visit
-remains separate. This is implementation evidence for the Architect's audit,
-not Red Team certification.
+The `mps-identity` child was not edited while the concurrent `25M-36` repair
+owned it. After that repair landed and current main was merged, the file became
+quiet and the Red Team claimed it for this unit's three persistence legs. Its
+preamble now states that grid2d geometry has eight state keys. The package
+README also states the current always-present mask behavior. Its wider
+scheduled teaching visit remains separate. This is implementation evidence for
+the Architect's audit, not Red Team certification.
 
-After the `25M-36` repair landed on current main, its unmodified complete CPU
-child was rerun against this branch's geometry code. It reports eight state
-keys and ends `PASS: mps-identity all checks green`. That pass covers the
-existing checks only. It does not contain the three new persistence and
-missing-key legs, so it cannot close this reopen.
+The amended complete CPU child reports eight state keys. Its new HDF5 legs
+prove an explicit all-false unpinned state, a valid low-k boost pin at flat
+indices 0, 6, 12 and 18 and a missing-mask refusal that names `const_mask` plus
+the re-save action. The full child ends
+`PASS: mps-identity all checks green`.
 
-The three board-listed persistence and missing-key legs are now unblocked on
-the quiet `mps-identity` file and remain the final integration step. The
-add-or-toggle-against-declared-unmasked case remains the unit-96
+The add-or-toggle-against-declared-unmasked case remains the unit-96
 artifact-authenticity interlock. This branch does not edit
 `emulator/results.py` or claim that wider artifact proof.
 

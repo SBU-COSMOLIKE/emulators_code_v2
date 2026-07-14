@@ -2681,28 +2681,29 @@ class: `from_stats` already passes the computed mask, and `from_state` now
 requires and passes the stored one. The only direct calls are the two focused
 test fixtures. The complete `tests/` discovery run is 11/11 green.
 
-The `mps-identity` child was owned by `25M-36` when this branch started, so the
-branch records its focused persistence-leg integration as a hold instead of
-creating a second owner. The package README's one affected file-map entry is
-updated here so it does not describe the retired omit-when-unpinned behavior.
-The wider package teaching visit remains separate. No whole-gate claim is made
-from the pre-integration test file.
+The `mps-identity` child was owned by `25M-36` when this branch started, so its
+focused persistence-leg integration was initially held. After that repair
+landed and current main was merged, the file became quiet. The Red Team then
+claimed it only for this unit's three legs and the seven-to-eight-key preamble
+correction. The package README's affected file-map entry is also updated so it
+does not describe the retired omit-when-unpinned behavior. The wider package
+teaching visit remains separate.
 
 The experiment-side banner now tests the mask's value rather than its
 presence: it logs only when the explicit mask contains at least one true
 entry. An unpinned geometry therefore keeps the previous no-banner behavior
 after its in-memory `None` becomes an all-false array.
 
-After `25M-36` landed on current main, the unmodified complete child was rerun
-against this branch's geometry code. It reports eight state keys and ends
-`PASS: mps-identity all checks green`. That existing-child pass does not
-contain the three new persistence and missing-key legs. The gate file is now
-quiet, so their single-owner integration is unblocked.
+The amended complete child reports eight state keys. Its new HDF5 checks cover
+an explicit all-false unpinned artifact, a valid pinned boost whose first
+wavenumber is pinned in all four redshift rows and deletion of the required
+mask from that valid pinned file. The intact pin survives save and rebuild.
+The deletion raises before prediction and names both `const_mask` and the
+re-save action. The full child ends `PASS: mps-identity all checks green`.
 
-The board-listed HDF5 save/delete/rebuild evidence remains with that gate
-owner. The add-or-toggle case against a declared unmasked artifact remains
-unit 96's authenticity interlock. This bounded reopen does not edit
-`emulator/results.py` and does not claim either wider proof.
+The add-or-toggle case against a declared unmasked artifact remains unit 96's
+authenticity interlock. This bounded reopen does not edit
+`emulator/results.py` and does not claim that wider proof.
 ## Red Team implementation record: DIDACTICS-67 and DIDACTICS-68 warm-start visit
 
 The Architect transferred the warm-start visit to the Red Team in the Wave 4
