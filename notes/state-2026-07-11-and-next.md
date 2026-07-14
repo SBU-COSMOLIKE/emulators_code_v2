@@ -3078,3 +3078,13 @@ migration holds); selftest-on-every-integration ratified into the
 fan-out discipline; gt_b_triangle.py coordination noted (red team
 builds on top after landing). 5/27 migrated. CONTINUOUS BATCHING
 authorized. Spec: gates-and-board.md "Fan-out batch 1 audit".
+
+D3 CLOSES (2026-07-13, Fable): f69d933 GO — my own child run
+reproduces every number (4000/1000 disjoint, the 1000-overlap
+refusal, baseline 0.4894 -> collapse 0.2447, honest 0.0746 ->
+accuracy 0.1119, trained median 0.1966, mutation fails both bars,
+all derivations printed); DIDACTICS-60/63 land with it; the
+nine-aid scalar-smoke block amended, board.py untouched (sync item
+rides the fan-out migration). Merged. Gauntlet: fan-out -> D4 ->
+D5; the 21 trigger waits only on 56. Spec: gates-and-board.md "D3
++ DIDACTICS-60/63 audit".

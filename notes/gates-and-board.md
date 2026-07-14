@@ -7180,3 +7180,35 @@ parallel.
 CONTINUOUS BATCHING AUTHORIZED: the pattern is stable across both
 shapes and the audits are delta-only — launch each next batch
 immediately, hand shas as they come; the audit lane will keep pace.
+
+## D3 + DIDACTICS-60/63 audit (Fable, 2026-07-13): f69d933 GO — the gauntlet's D3 slot CLOSES
+
+The red-team landing audited with MY OWN full child run (cocoa
+interpreter), which reproduced every filed number to the digit:
+
+- Disjoint fixtures: seeds 1234/5678, 4000/1000 aligned rows,
+  overlap 0, both seeds PRINTED; the same-seed mutation stages
+  1000 overlapping rows and is REFUSED BEFORE TRAINING with a
+  didactic message (generator seeds choose cosmologies; split_seed
+  only reorders inside a file).
+- The ruled measured calibration, all derivations printed by the
+  check: mean-predictor baseline 0.489362046123 -> collapse bar
+  0.244681023061 (the ruled 0.5x); recorded honest error
+  0.074595841408 -> accuracy bar 0.111893762112 (the ruled 1.5x);
+  trained median 0.196647360921 under the collapse bar with the
+  margin PRINTED (1.24426x); the mean-predictor mutation fails
+  BOTH bars; and a bonus internal guard I did not require asserts
+  the accuracy bar stays stricter than the collapse bar.
+- DIDACTICS-63: the independent window reference recovers used 3
+  of 5 + staged order [1,3,2]; a plausible banner over wrong rows
+  is rejected.
+- The scalar-smoke home-note block is amended to NINE honestly
+  named aids with transforms; gates/board.py was correctly NOT
+  touched (the Implementer's rollout owns it) — the registry
+  entry's old 0.3/5% prose and the nine aid bindings are the
+  BOUNDED SYNC ITEM riding scalar-smoke's fan-out migration.
+- No epoch, model, or production setting changed, as ruled.
+
+VERDICT: GO; merged into this branch. The gauntlet is now: fan-out
+(in flight) -> D4 (claims + wrapper legs) -> D5 (62/59/64/70). The
+21 trigger remains D3(done)+56(Implementer).
