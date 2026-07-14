@@ -13820,3 +13820,188 @@ The arm is production-coupled; the dead-gate class is closed for this
 witness. Unit 41 (production c224a79 + this witness delta) leaves the
 ledger in this commit. No self-certification: built by Sol as second
 Implementer (0153), audited independently here.
+
+## TOOLS-REVIEW substance audit (Architect, 2026-07-14): GO — every repro arm re-run at the published tip, red-before proven against the exact base, two unscripted mutation probes fire, the gate-surface edit verified authorized; merge = a PORT, dispatched as the daemon-repair series
+
+Trigger: the ratified one-line delta arrived (mailbox `0154-to-fable`
+routing copy): `codex/tools-review reachable at 96e5f26`. Tamper screen
+first, this turn: `git rev-parse refs/heads/codex/tools-review` prints
+`96e5f26a778f759b665292c1bb35c74ee17daf3c` — the exact frozen tip pinned
+in the register's protected-tips table. Base verified:
+`git merge-base main codex/tools-review` = `204748e`, and the branch's
+merge commit `824a96b` is a no-op sync (its second parent IS `204748e`),
+so the branch = base + ONE code commit (`c484ef4`) + the review record
+(`96e5f26`, notes-only: +252 register lines, +29 gates-and-board lines,
+one MEMORY.md index-line widening — read in full, consistent with the
+delivery).
+
+This closes the substance half the earlier HOLD (register, "Tools-review
+Architect adjudication: HOLD") left open: that turn confirmed all
+fourteen CLAIMED defects against reachable code; this turn audits the
+FIXES at the now-reachable tip.
+
+### What was re-run (all by this auditing turn, on this Mac, homebrew python3)
+
+Every tip file was materialized from the object database (`git show
+c484ef4:<path>` into a scratch tree; the shared working tree, which
+carries other lanes' uncommitted work, was never used as the audit
+substrate; scratch trees deleted after the run).
+
+1. **Daemon repro at the tip: 8/8 ARM PASS** (`tests/
+   tools_mailbox_daemon_redteam_repro.py`): dry-run-read-only,
+   atomic-dispatch-claim (inflight/ + skip-duplicate), dispatch-loop-lock,
+   atomic-send-publication (temp-name + rename), cross-recipient-sequence
+   (0001-to-fable / 0002-to-opus — distinct numbers), five-digit ordering
+   (9999 before 10000), hostile-bodies (invalid UTF-8 REFUSED+parked, NUL
+   REFUSED+parked, E2BIG caught as "dispatch could not start ... parked" —
+   zero uncaught exceptions), literal-marker (a body DISCUSSING `<unit>`
+   dispatches; only a whole-body placeholder refuses). SUMMARY failures=[].
+2. **Router repro at the tip: ALL SCRATCH ROUTER REPRODUCTIONS PASS**
+   (`tests/tools_handoff_router_repro.py`): cwd anchoring (repo-derived
+   paths from a foreign cwd), collision-free run-sequence reservations
+   (8 of 8 unique, payloads preserved), one-owner clipboard lock (second
+   concurrent start refused; lock reacquirable), real-header capture
+   (token prose REJECTED, real heading captured), loud pbpaste failure
+   (raises instead of reading as empty), integrated-status correctness
+   (squash-landed codex branch reads integrated via main ancestry).
+3. **Red-before, executed not quoted**: the SAME tip test files were run
+   against the EXACT base (`git show 204748e:tools/...` into a second
+   scratch tree). Daemon: **8/8 ARM FAIL** — each arm reds on the exact
+   defect it names (the base output stream is the defect catalogue:
+   dry-run parked the placeholder, both dispatch threads ran the stub,
+   `acquire_dispatch_lock` absent, a half-written send visible to the
+   poll, the 0001/0001 cross-recipient pair, lexicographic 10000-first,
+   all three hostile bodies uncaught or mis-parked, the literal-marker
+   review refused). Router: exit 1 against the base (the arms drive the
+   patched API, absent at base). Every arm is load-bearing by execution.
+4. **HEAD coupling check (audit's own, unscripted)**: the tip arms were
+   also run against the CURRENT branch daemon (753 lines, thirteen
+   commits past the base): **8/8 FAIL** — the live loop still carries
+   every one of the eight daemon defects, and NONE of the thirteen
+   post-base feature commits overlaps a fix (no double-fix risk in the
+   port). Corroborating live evidence found this turn: the mailbox root
+   holds a fresh `0161-to-fable` / `0161-to-opus` same-number pair —
+   the cross-recipient collision fired in production AGAIN today.
+5. **Two unscripted mutation probes (mine, not Sol's)**, each reverting
+   one tip fix in scratch: (a) `pending_messages` sort key back to
+   lexicographic → exactly `five-digit-sequence-order` FAIL, 7 others
+   PASS; (b) placeholder equality check widened back to substring →
+   exactly `literal-marker` FAIL. Both restored; the arms are
+   production-coupled, not self-satisfying.
+
+### Gate-integrity screen
+
+The diff `204748e..c484ef4` touches ONE gate-surface file:
+`gates/checks/finite_contract.py`, a single string — the non-green
+summary parenthetical "(run on a compile-capable box)" → "(run on a
+compile-capable CUDA box)". No threshold, no exit code, no fixture, no
+golden base. The change is NAMED in the handoff AND pre-authorized:
+this note's own finite-contract premise-correction section (:9626)
+flagged that exact parenthetical as "the wrong machine to name … a
+one-line wording fix for whoever owns the next pass". Its witness
+(`tests/finite_contract_cuda_wording_repro.py`) passes at the tip and
+the branch record pins it red-before. Not tampering; ACCEPTED.
+
+### The two Architect extras from the HOLD
+
+1. `proc.stdout` None-crash on failed dispatch: **FIXED at the tip** —
+   `dispatch()` now runs `capture_output=True`, writes stdout/stderr to
+   the relay log itself, parks nonzero-rc messages in `failed/`, and the
+   logged-out hint path is reachable. Confirmed by inspection of the tip
+   dispatch body plus the hostile-body arm exercising the park path.
+2. Retired "backup Implementer" vocabulary in the router: **NOT fixed**
+   (`BACKUP_MODE_SENTENCE` :86, `--mode backup` :449-512 at the tip) —
+   expected, the branch predates the f37652d rename; it returns as a
+   named DELTA riding the repair series (rename the flag value and the
+   sentence to the ruled second-Implementer declaration), per the HOLD's
+   own fold-in clause.
+
+### Design adjudications (constraint 5)
+
+- The `inflight/` parking design (visible, human-adjudicated, never
+  auto-redelivered) is ACCEPTED — it matches the no-duplicate-turn
+  doctrine and the hold/intervention precedent, and the atomic-claim arm
+  proves it.
+- The whole-body-equality placeholder rule is ACCEPTED as the ruled
+  semantics (a review may quote the daemon's own markers).
+- No vision drift found: the branch hardens the two tools without
+  reshaping the loop's architecture; the review record explicitly
+  declines self-certification and merge authority.
+
+### VERDICT: GO on substance. The landing is a PORT, not a merge.
+
+`tools/mailbox_daemon.py` diverged: the tip hardens the 614-line base
+daemon, while the branch has since grown thirteen feature commits
+(context budgets, compaction, turn timeouts, effort flags, demand meter,
+second-Implementer rename, heartbeat, path derivation…). Router, tests,
+and the gate file have ZERO post-base drift (verified: `git log
+204748e..HEAD` over those paths is empty) — they can carry over nearly
+verbatim. So the audited GO transfers the branch's SEMANTICS, and the
+repair series re-expresses the daemon fixes onto the current daemon with
+the 8-arm repro as the acceptance gate (arms 8/8 PASS on the ported
+daemon, and 8/8 FAIL when any single fix is reverted — the mutation
+probes above are the template). No `git merge` of `codex/tools-review`
+into the shared branch is authorized: it would conflict across the
+daemon and three notes files and un-granularize the landing. The branch
+stays frozen at `96e5f26` as the audited source of record.
+
+Repair-series dispatch: `0162-to-opus` (this turn), carrying the ledger
+lines it retires and the idle-watch sequencing (the daemon-source commit
+is the unit's LAST action; the watch self-retiring on it is expected and
+its restart is already user-owed per the incident note). No
+self-certification: reviewed by Sol (red team), audited independently
+here; the port will be audited again on return.
+
+## Direct backlog recovery authority checkpoint (user directive, 2026-07-14)
+
+The user reported that Fable and Opus credits are exhausted and explicitly
+directed Codex to take over the pending `notes/backlog.md` work, ignore the
+ordinary separation-of-roles restriction for this recovery, merge accepted
+repairs to `main`, and push them. This is a temporary, task-scoped authority
+override; it does not erase the repository's substantive contracts.
+
+For this recovery, Codex therefore owns specification readback,
+implementation, independent re-execution of the pinned gates, backlog
+reconciliation, one-audited-unit-at-a-time landing, and push. The guardrails
+that remain binding are: pure-emulator scope; no CAMB Fortran or direct
+CosmoLike C edits; no weakened thresholds, fixtures, golden bases, or hollow
+mutation arms; raw evidence before a ledger line closes; pre-landing foreign
+commit walks; preservation of unrelated in-flight work; and human-readable
+main commit messages. Already-implemented transport holds are checked against
+their recorded SHA and audit evidence before landing; unaudited work is not
+promoted merely because the transport restriction was lifted.
+
+Recovery order: reconcile stranded audited units first, then close the daemon
+repair cluster in reviewable pieces, then close the remaining scientific,
+staging, reader, and gate defects. The final v1.0beta1 hygiene unit remains
+last and its destructive tracking changes still require the keep-list review
+specified in the ledger.
+
+## Gate-integrity pair recovery audit (Codex, 2026-07-14): GO
+
+Two pre-existing hollow checks from the fixed-facts audit were repaired as one
+small gate-integrity unit. `generator_ranges.py` no longer depends on a
+GetDist-version accident: it asserts the producer's actual contract, exactly
+one three-token bounds row per sampled parameter in order. The exact retired
+`# weights lnp ...` mutation is rejected even on GetDist 1.6.2, which accepts
+that comment. The existing `%.5e` mutation still collapses both narrow decimal
+witnesses while the broad control parses, so no catch power was traded away.
+
+`transfer_identity.py` now gives its Grid2D fixture valid `n_train` and
+`n_val`, allowing the candidate to reach the family-kind check. The refusal is
+required to include `a transfer never crosses families`, and the observed
+exception does. Codex then removed those two fixture keys as an independent
+negative control: the gate returned 1, the named aid alone reported FAIL, and
+the old early `data is missing ... n_train` error reappeared. Restoring the
+fixture returned the full gate to green.
+
+```text
+cocoa python: generator_ranges.py                    rc 0  6 PASS; ALL PASS
+cocoa-torch python: transfer_identity.py             rc 0  8 AIDs; ALL PASS
+transfer fixture-deletion control                    rc 1  named aid FAIL
+py_compile (both checks)                             rc 0
+git diff --check                                     rc 0
+```
+
+No threshold, production file, golden base, board registration, or unrelated
+fixture changed. Both ledger defects close in the commit carrying this entry.

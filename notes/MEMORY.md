@@ -96,6 +96,10 @@ numbered mailbox file after recording the substance under `notes/`.
   — the Python/docs/README/plots/terminal/YAML house rules, the
   dual-agent workflow, git discipline, the Mac evidence pattern,
   machines and ROOTDIR.
+- [Direct backlog recovery authority checkpoint](gates-and-board.md#direct-backlog-recovery-authority-checkpoint-user-directive-2026-07-14)
+  — temporary user override for Codex to implement, independently verify,
+  land one accepted unit at a time to main, and push while Fable/Opus credits
+  are exhausted; substantive emulator and gate-integrity contracts remain.
 - [User didactics + Python voice](user-didactics-and-python-voice.md)
   — who the reader is (C coder; cosmologist audience), how she likes
   to be taught (show-never-describe, define-or-drop, run-first), and

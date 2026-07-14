@@ -986,16 +986,19 @@ def check_diagonal(device, tmp):
                      "val_dv": "v.npy",
                      "train_params": "t.1.txt",
                      "val_params": "v.1.txt",
-                     "train_covmat": "c.covmat"},
+                     "train_covmat": "c.covmat",
+                     "n_train": 2,
+                     "n_val": 1},
             "transfer": {"from": str(plain_root), "form": "sum"},
             "train_args": {"nepochs": 1, "bs": 8}}
   try:
     EmulatorExperiment.from_config(g2_cfg, device=torch.device("cpu"))
     report("cross-family transfer base raises", False, "no raise")
   except ValueError as e:
+    message = str(e)
     report("cross-family transfer base raises",
-           "never" in str(e) and "families" in str(e),
-           "ValueError names the rule")
+           "a transfer never crosses families" in message,
+           message)
   emit_aid("transfer-identity.cross-family-base-refusal", n_cross)
 
 

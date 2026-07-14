@@ -226,8 +226,51 @@ def _write_and_parse(
     expected=expected)
 
 
+def _rows_only_contract(
+    path,
+    expected_names):
+  """Return whether the sidecar is exactly one bound row per parameter.
+
+  GetDist versions disagree about whether a leading comment is harmless in a
+  one-parameter ``.ranges`` file.  The generator's own format does not need
+  that parser accident: it publishes exactly the sampled-parameter rows, in
+  order, and nothing else.  Checking the raw rows makes that contract stable
+  across GetDist versions while the parser checks above still prove that the
+  file is consumable.
+
+  Arguments:
+    path           = ranges sidecar to inspect.
+    expected_names = sampled-parameter names in required row order.
+
+  Returns:
+    pair of the rows-only verdict and the raw lines read from the sidecar.
+  """
+  lines = []
+  with open(
+      path,
+      encoding="utf-8") as handle:
+    for line in handle:
+      lines.append(line.rstrip("\n"))
+
+  tokens = []
+  row_names = []
+  rows_have_three_tokens = True
+  for line in lines:
+    row = line.split()
+    tokens.append(row)
+    if len(row) != 3:
+      rows_have_three_tokens = False
+    if len(row) != 0:
+      row_names.append(row[0])
+  rows_only = (
+    len(tokens) == len(expected_names)
+    and rows_have_three_tokens
+    and row_names == list(expected_names))
+  return rows_only, lines
+
+
 def check_repaired_writer(directory):
-  """Check one-parameter behavior and a wider control."""
+  """Check one-parameter behavior and a wider, rows-only control."""
   one_ok, one_detail = _write_and_parse(
     source_path=_GENERATOR,
     directory=directory,
@@ -235,10 +278,13 @@ def check_repaired_writer(directory):
     names=["H0"],
     bounds=[[60.0, 75.0]],
     expected={"H0": (60.0, 75.0)})
+  one_rows_ok, one_rows = _rows_only_contract(
+    path=os.path.join(directory, "one_parameter.ranges"),
+    expected_names=["H0"])
   report(
-    "the production one-parameter .ranges file parses with GetDist",
-    one_ok,
-    one_detail)
+    "the production one-parameter .ranges is one row and parses",
+    one_ok and one_rows_ok,
+    one_detail + "; rows=" + repr(one_rows))
 
   two_ok, two_detail = _write_and_parse(
     source_path=_GENERATOR,
@@ -253,14 +299,23 @@ def check_repaired_writer(directory):
       "H0": (60.0, 75.0),
       "ombh2": (0.020, 0.024),
     })
+  two_rows_ok, two_rows = _rows_only_contract(
+    path=os.path.join(directory, "two_parameters.ranges"),
+    expected_names=["H0", "ombh2"])
   report(
-    "the production two-parameter .ranges control still parses",
-    two_ok,
-    two_detail)
+    "the production two-parameter .ranges is rows-only and parses",
+    two_ok and two_rows_ok,
+    two_detail + "; rows=" + repr(two_rows))
 
 
 def check_retired_header_mutation(directory):
-  """Restore the retired header in a temporary source and prove it reds."""
+  """Restore the retired header and prove the rows-only contract catches it.
+
+  This intentionally does not claim that GetDist rejects the header: older
+  releases reject it in a one-parameter file while newer releases ignore it.
+  The invariant under test is the generator-owned file shape, which rejects
+  the exact retired line under either parser.
+  """
   with open(
       _GENERATOR,
       encoding="utf-8") as source_file:
@@ -291,27 +346,21 @@ def check_retired_header_mutation(directory):
     names=["H0"],
     bounds=[[60.0, 75.0]],
     expected={"H0": (60.0, 75.0)})
-  two_ok, two_detail = _write_and_parse(
-    source_path=mutated_path,
-    directory=directory,
-    stem="mutated_two_parameters",
-    names=["H0", "ombh2"],
-    bounds=[
-      [60.0, 75.0],
-      [0.020, 0.024],
-    ],
-    expected={
-      "H0": (60.0, 75.0),
-      "ombh2": (0.020, 0.024),
-    })
+  rows_ok, rows = _rows_only_contract(
+    path=os.path.join(directory, "mutated_one_parameter.ranges"),
+    expected_names=["H0"])
   mutation_ok = (
-    not one_ok
-    and "weights" in one_detail
-    and two_ok)
+    not rows_ok
+    and len(rows) == 2
+    and rows[0] == "# weights lnp H0"
+    and len(rows[1].split()) == 3
+    and rows[1].split()[0] == "H0")
+  parser_verdict = "accepts" if one_ok else "rejects"
   report(
-    "the retired header breaks one parameter while the wider control hides it",
+    "the rows-only contract catches the exact retired header",
     mutation_ok,
-    "one: " + one_detail + ". two: " + two_detail)
+    "GetDist " + parser_verdict + " it (" + one_detail + "); rows="
+    + repr(rows))
 
 
 def _record_resolved_text(
