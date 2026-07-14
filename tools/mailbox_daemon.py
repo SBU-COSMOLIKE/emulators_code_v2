@@ -88,7 +88,8 @@ AGENT_CWD = {
 
 # A message still carrying template placeholders has no job in it; refuse
 # it instead of burning a live headless turn (learned from dispatch 0001).
-PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>"]
+PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
+                       "your message here"]
 
 PREAMBLE = (
     "You are invoked headlessly by tools/mailbox_daemon.py (no human is\n"
