@@ -14143,3 +14143,38 @@ git diff --check                                     rc 0
 
 The broader tools-review ledger line remains open: this commit deliberately
 does not touch `tools/mailbox_daemon.py` or claim any of its later riders.
+
+## Current-daemon transport safety audit (Codex, 2026-07-14): GO
+
+The eight accepted `c484ef4` daemon repairs were re-expressed on the current
+daemon rather than merged from its obsolete 614-line base. The port preserves
+the newer `Popen` live log, minute heartbeat, timeout kill, demand and landing
+meters, effort flags, and Claude/Sol context budgets. A real dispatch now
+atomically hard-links its pending message into `inflight/` before launch;
+`--once` and `--watch` share a kernel-released loop lock; send writes, flushes,
+and fsyncs a temporary inode before atomically publishing its final name under
+a sequence lock; and pending names sort by numeric sequence.
+
+Malformed UTF-8, NUL bodies, and launch-time `OSError`/`ValueError` are parked
+without an uncaught exception. A placeholder refuses only when it is the whole
+trimmed body, so an audit discussing the literal `<unit>` still dispatches.
+Dry-run performs the same validation without claiming, moving, or writing any
+message state.
+
+The frozen witness was adapted only where the current daemon intentionally
+uses streaming `Popen` rather than buffered `subprocess.run`; its harmless
+process doubles exercise the real claim/log/state path. All eight scratch arms
+run outside the live mailbox.
+
+```text
+python3 tests/tools_mailbox_daemon_redteam_repro.py  rc 0  8/8 arms PASS
+numeric-sort -> lexicographic mutation                rc 1  only five-digit arm red
+whole-body -> substring placeholder mutation         rc 1  only literal-marker arm red
+py_compile                                            rc 0
+git diff --check                                      rc 0
+```
+
+This closes the explicit `--dry-run mutates` ledger line and lands the audited
+tools-review daemon core. It does not claim the later prompt/staleness/style,
+dead-mailbox, fix-only, rendezvous, or automatic-landing riders; those remain
+individually countable in the backlog.

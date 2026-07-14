@@ -53,11 +53,13 @@ Usage:
 
 import argparse
 import datetime
+import fcntl
 import glob
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -304,11 +306,129 @@ def next_seq():
 def pending_messages():
     """Return the sorted list of unprocessed message paths."""
     found = []
-    for path in sorted(glob.glob(os.path.join(MAILBOX, "*.md"))):
+    for path in glob.glob(os.path.join(MAILBOX, "*.md")):
         name = os.path.basename(path)
         if re.match(r"\d+-to-(fable|opus|sol)\.md$", name):
             found.append(path)
+    found.sort(key=message_sequence)
     return found
+
+
+def message_sequence(path):
+    """Return the numeric sequence at the start of a message filename.
+
+    Arguments:
+      path = a mailbox message path accepted by pending_messages().
+
+    Returns:
+      The integer before ``-to-`` in the filename.
+    """
+    name = os.path.basename(path)
+    return int(name.split("-to-", maxsplit=1)[0])
+
+
+def placeholder_in(message):
+    """Return a marker only when the whole body is an unfilled template.
+
+    A real audit may need to discuss a literal such as ``<unit>``. Treating
+    every substring occurrence as an unfilled template rejects that audit.
+
+    Arguments:
+      message = the decoded mailbox body.
+
+    Returns:
+      The matching marker, or None when the body carries real text.
+    """
+    body = message.strip()
+    for marker in PLACEHOLDER_MARKERS:
+        if body == marker:
+            return marker
+    return None
+
+
+def move_without_overwrite(path, directory):
+    """Move a message into a state directory without replacing history.
+
+    Arguments:
+      path      = the current message path.
+      directory = the destination directory.
+
+    Returns:
+      The destination path, or None when that name is already present or the
+      source was claimed first.
+    """
+    os.makedirs(directory, exist_ok=True)
+    destination = os.path.join(directory, os.path.basename(path))
+    try:
+        os.link(path, destination)
+    except FileExistsError:
+        print("  !! refusing to overwrite existing message state: "
+              + destination)
+        return None
+    except FileNotFoundError:
+        return None
+    os.unlink(path)
+    return destination
+
+
+def claim_message(path):
+    """Atomically remove a message from the pending queue before dispatch.
+
+    A claimed message remains in ``inflight/`` if the daemon is interrupted.
+    That ambiguous state requires a human decision and is never dispatched a
+    second time automatically.
+
+    Arguments:
+      path = the pending mailbox path.
+
+    Returns:
+      The inflight path, or None when another process claimed it first.
+    """
+    claimed = move_without_overwrite(
+        path=path,
+        directory=os.path.join(MAILBOX, "inflight"))
+    if claimed is None:
+        print("  note: " + os.path.basename(path)
+              + " was already claimed; skipping duplicate dispatch.")
+    return claimed
+
+
+def acquire_dispatch_lock():
+    """Acquire the process-wide dispatch-loop lock without a PID race.
+
+    Returns:
+      An open locked file, or None when another loop owns the lock.
+    """
+    os.makedirs(MAILBOX, exist_ok=True)
+    lock_path = os.path.join(MAILBOX, ".dispatch.lock")
+    lock_file = open(lock_path, "a+", encoding="utf-8")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.seek(0)
+        owner = lock_file.read().strip()
+        lock_file.close()
+        print("another dispatch loop is already running (pid "
+              + (owner or "unknown") + ") -- refusing to overlap it.")
+        return None
+    lock_file.seek(0)
+    lock_file.truncate()
+    lock_file.write(str(os.getpid()))
+    lock_file.flush()
+    return lock_file
+
+
+def release_dispatch_lock(lock_file):
+    """Release a lock returned by acquire_dispatch_lock().
+
+    Arguments:
+      lock_file = the open locked file.
+
+    Returns:
+      None.
+    """
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
 
 
 def dispatch(path, dry_run):
@@ -323,20 +443,53 @@ def dispatch(path, dry_run):
     """
     name = os.path.basename(path)
     agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
-    with open(path, encoding="utf-8") as f:
-        message = f.read()
-    for marker in PLACEHOLDER_MARKERS:
-        if marker in message:
-            # park it like a failed dispatch: a refusal's cause (the
-            # unfilled body) persists until a human edits the file, so
-            # leaving it in the mailbox would re-refuse it every poll.
-            failed_dir = os.path.join(MAILBOX, "failed")
-            os.makedirs(failed_dir, exist_ok=True)
-            os.rename(path, os.path.join(failed_dir, name))
-            print("REFUSED " + name + ": the body still contains the "
-                  "template placeholder '" + marker + "' -- parked in "
-                  "failed/; fill in the real text and requeue.")
+    dispatch_path = path
+    if not dry_run:
+        dispatch_path = claim_message(path=path)
+        if dispatch_path is None:
             return False
+    try:
+        with open(dispatch_path, encoding="utf-8") as f:
+            message = f.read()
+    except (OSError, UnicodeError) as exc:
+        if dry_run:
+            print("[dry-run] would refuse " + name + ": cannot read UTF-8: "
+                  + str(exc))
+            return False
+        move_without_overwrite(
+            path=dispatch_path,
+            directory=os.path.join(MAILBOX, "failed"))
+        print("REFUSED " + name + ": cannot read the body as UTF-8: "
+              + str(exc) + " -- parked in failed/.")
+        return False
+
+    marker = placeholder_in(message=message)
+    if marker is not None:
+        if dry_run:
+            print("[dry-run] would refuse " + name
+                  + ": the whole body is template placeholder '" + marker
+                  + "'; no file changed.")
+            return False
+        move_without_overwrite(
+            path=dispatch_path,
+            directory=os.path.join(MAILBOX, "failed"))
+        print("REFUSED " + name + ": the whole body is the template "
+              "placeholder '" + marker + "' -- parked in failed/; fill "
+              "in the real text and requeue.")
+        return False
+
+    if "\x00" in message:
+        if dry_run:
+            print("[dry-run] would refuse " + name
+                  + ": the body contains a NUL byte; no file changed.")
+            return False
+        move_without_overwrite(
+            path=dispatch_path,
+            directory=os.path.join(MAILBOX, "failed"))
+        print("REFUSED " + name + ": the body contains a NUL byte, which "
+              "cannot be a command argument -- parked in failed/.")
+        return False
+
     command = AGENT_COMMANDS[agent] + [PREAMBLE + message]
 
     if dry_run:
@@ -356,6 +509,8 @@ def dispatch(path, dry_run):
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = os.path.join(RELAY_DIR, stamp + "-dispatch-" + agent + ".log")
     started = time.time()
+    proc = None
+    launch_error = None
     with open(log_path, "w", encoding="utf-8") as f:
         f.write("$ " + " ".join(AGENT_COMMANDS[agent]) + " <message>\n")
         f.write("--- live output (stdout+stderr interleaved) ---\n")
@@ -366,38 +521,51 @@ def dispatch(path, dry_run):
         # growing to the native 1M-token window.
         env = os.environ.copy()
         env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(CLAUDE_CONTEXT_BUDGET)
-        proc = subprocess.Popen(command,
-                                stdout=f,
-                                stderr=subprocess.STDOUT,
-                                cwd=AGENT_CWD[agent],
-                                env=env)
-        next_beat = started + 60.0
-        deadline = started + DISPATCH_TIMEOUT_MINUTES * 60.0
-        while proc.poll() is None:
-            time.sleep(5)
-            if time.time() >= deadline:
-                # a hung CLI would hold this lane forever (seen live:
-                # a turn printed "Execution error" then produced
-                # nothing for 21 minutes). Kill it; the non-zero exit
-                # code below parks the message in failed/ untouched,
-                # so a requeue retries it and nothing is lost.
-                proc.kill()
-                proc.wait()
-                print("  TIMED OUT " + name + " after "
-                      + str(DISPATCH_TIMEOUT_MINUTES) + " min -- the "
-                      "turn was killed and the message parks in "
-                      "failed/; requeue it by moving it back to the "
-                      "mailbox (or relaunch with a larger "
-                      "--dispatch-timeout).")
-                break
-            if time.time() >= next_beat:
-                elapsed_min = (time.time() - started) / 60.0
-                log_kb = os.path.getsize(log_path) / 1024.0
-                print("  ... " + name + " still running "
-                      + "(%.0f min elapsed, log %.1f kB -- tail -f %s)"
-                      % (elapsed_min, log_kb, log_path))
-                next_beat += 60.0
-        f.write("\n--- rc=" + str(proc.returncode) + " ---\n")
+        try:
+            proc = subprocess.Popen(command,
+                                    stdout=f,
+                                    stderr=subprocess.STDOUT,
+                                    cwd=AGENT_CWD[agent],
+                                    env=env)
+        except (OSError, ValueError) as exc:
+            launch_error = exc
+            f.write("\n--- dispatch could not start: " + str(exc) + " ---\n")
+        if proc is not None:
+            next_beat = started + 60.0
+            deadline = started + DISPATCH_TIMEOUT_MINUTES * 60.0
+            while proc.poll() is None:
+                time.sleep(5)
+                if time.time() >= deadline:
+                    # a hung CLI would hold this lane forever (seen live:
+                    # a turn printed "Execution error" then produced
+                    # nothing for 21 minutes). Kill it; the non-zero exit
+                    # code below parks the claimed message in failed/.
+                    proc.kill()
+                    proc.wait()
+                    print("  TIMED OUT " + name + " after "
+                          + str(DISPATCH_TIMEOUT_MINUTES) + " min -- the "
+                          "turn was killed and the message parks in "
+                          "failed/; requeue it by moving it back to the "
+                          "mailbox (or relaunch with a larger "
+                          "--dispatch-timeout).")
+                    break
+                if time.time() >= next_beat:
+                    elapsed_min = (time.time() - started) / 60.0
+                    log_kb = os.path.getsize(log_path) / 1024.0
+                    print("  ... " + name + " still running "
+                          + "(%.0f min elapsed, log %.1f kB -- tail -f %s)"
+                          % (elapsed_min, log_kb, log_path))
+                    next_beat += 60.0
+            f.write("\n--- rc=" + str(proc.returncode) + " ---\n")
+
+    if launch_error is not None:
+        move_without_overwrite(
+            path=dispatch_path,
+            directory=os.path.join(MAILBOX, "failed"))
+        print("  !! dispatch could not start: " + str(launch_error)
+              + " -- message parked in failed/; log -> " + log_path)
+        return False
+
     print("  rc=" + str(proc.returncode) + "  log -> " + log_path)
     # show the reply's tail on the terminal so activity is visible live.
     with open(log_path, encoding="utf-8") as f:
@@ -409,9 +577,9 @@ def dispatch(path, dry_run):
         # a failed dispatch is NOT done: park it in failed/ so it is never
         # silently consumed, and never hot-retried while the cause persists.
         # Requeue after fixing the cause:  mv notes/mailbox/failed/<f> notes/mailbox/
-        failed_dir = os.path.join(MAILBOX, "failed")
-        os.makedirs(failed_dir, exist_ok=True)
-        os.rename(path, os.path.join(failed_dir, name))
+        move_without_overwrite(
+            path=dispatch_path,
+            directory=os.path.join(MAILBOX, "failed"))
         # the turn's output lives in the log file (it streams there;
         # proc.stdout is None under Popen with a file handle).
         if "Not logged in" in "\n".join(reply_lines):
@@ -422,15 +590,12 @@ def dispatch(path, dry_run):
                   "the log above.")
         return False
 
-    os.makedirs(DONE, exist_ok=True)
-    try:
-        os.rename(path, os.path.join(DONE, name))
-    except FileNotFoundError:
-        # someone quarantined the file by hand while its turn was in
-        # flight (the 2026-07-14 hold/ intervention): the turn already
-        # ran, so the message counts as handled wherever it now lives.
-        print("  note: " + name + " was moved by hand mid-dispatch; "
-              "leaving it where it is.")
+    done_path = move_without_overwrite(path=dispatch_path, directory=DONE)
+    if done_path is None:
+        # Someone quarantined the inflight file by hand, or a historical
+        # archive already owns the name. Never overwrite either state.
+        print("  note: " + name + " could not move to done/; leaving the "
+              "existing state untouched.")
     return True
 
 
@@ -572,30 +737,49 @@ def send(agent, text, dry_run):
                 picked it up -- the 0022 audit's unrunnable gate leg.
 
     Returns:
-      Nothing; the queued path (or the would-be path) is printed.
+      True when the message was queued, or would be queued in a dry run.
     """
     if dry_run:
         print("[dry-run] would queue "
               + os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md"))
-        return
+        return True
     os.makedirs(MAILBOX, exist_ok=True)
-    # O_EXCL claims the number atomically: a concurrent sender that
-    # computed the same sequence loses the race and retries on the next.
-    for _ in range(20):
-        path = os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md")
+    lock_path = os.path.join(MAILBOX, ".sequence.lock")
+    with open(lock_path, "a+", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         try:
-            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            continue
-        with os.fdopen(handle, "w", encoding="utf-8") as f:
-            f.write(text)
-            if not text.endswith("\n"):
-                f.write("\n")
-        print("queued " + path)
-        report_demand(backlog=pending_messages())
-        return
+            for _ in range(20):
+                path = os.path.join(
+                    MAILBOX,
+                    next_seq() + "-to-" + agent + ".md")
+                handle, temporary = tempfile.mkstemp(
+                    prefix=".message-",
+                    dir=MAILBOX)
+                try:
+                    with os.fdopen(handle, "w", encoding="utf-8") as f:
+                        f.write(text)
+                        if not text.endswith("\n"):
+                            f.write("\n")
+                        f.flush()
+                        os.fsync(f.fileno())
+                    try:
+                        # The same-directory link publishes a complete inode
+                        # atomically and refuses to replace a manually created
+                        # destination.
+                        os.link(temporary, path)
+                    except FileExistsError:
+                        continue
+                    print("queued " + path)
+                    report_demand(backlog=pending_messages())
+                    return True
+                finally:
+                    if os.path.isfile(temporary):
+                        os.remove(temporary)
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     print("could not claim a sequence number after 20 tries -- "
           "is something flooding the mailbox?")
+    return False
 
 
 def main():
@@ -690,39 +874,39 @@ def main():
             "    PONG " + args.ping + " from <your model name>\n\n"
             "Then stop. (Files addressed -to-user are read by the human; "
             "the daemon never dispatches them.)\n")
-        send(agent=args.ping, text=ping_text, dry_run=args.dry_run)
-        return 0
+        queued = send(agent=args.ping, text=ping_text, dry_run=args.dry_run)
+        return 0 if queued else 1
 
     if args.send:
         if not args.unit:
             print("--send needs --unit with the routing-summary text")
             return 1
-        send(agent=args.send, text=args.unit, dry_run=args.dry_run)
-        return 0
+        queued = send(agent=args.send, text=args.unit, dry_run=args.dry_run)
+        return 0 if queued else 1
 
-    if args.dry_run or args.once:
+    if args.dry_run:
         if not process_backlog(dry_run=args.dry_run):
             print("mailbox empty")
         return 0
 
+    if args.once:
+        dispatch_lock = acquire_dispatch_lock()
+        if dispatch_lock is None:
+            return 1
+        try:
+            if not process_backlog(dry_run=False):
+                print("mailbox empty")
+        finally:
+            release_dispatch_lock(lock_file=dispatch_lock)
+        return 0
+
     if args.watch:
-        # single-instance lock: a second concurrent watcher double-dispatches
-        # the same messages (the 2026-07-14 zombie-race incident). The lock
-        # file holds the owner's pid; a dead owner's lock is reclaimed.
-        lock_path = os.path.join(MAILBOX, ".watch.lock")
-        os.makedirs(MAILBOX, exist_ok=True)
-        if os.path.isfile(lock_path):
-            with open(lock_path, encoding="utf-8") as f:
-                old_pid = f.read().strip()
-            alive = subprocess.run(["kill", "-0", old_pid],
-                                   capture_output=True)
-            if alive.returncode == 0:
-                print("another watch is already running (pid " + old_pid
-                      + ") -- refusing to start a second one.")
-                return 1
-            print("reclaiming a dead watcher's lock (pid " + old_pid + ")")
-        with open(lock_path, "w", encoding="utf-8") as f:
-            f.write(str(os.getpid()))
+        # --once and --watch share one kernel-released lock. This closes both
+        # the check-then-write race between watchers and the older gap where
+        # --once could overlap a live watcher in the same working directory.
+        dispatch_lock = acquire_dispatch_lock()
+        if dispatch_lock is None:
+            return 1
         print("watching " + MAILBOX + " (Ctrl-C to stop; safe only "
               "BETWEEN dispatches -- killing a dispatch mid-flight dooms "
               "the agent's turn)")
@@ -742,8 +926,7 @@ def main():
                     return 0
                 time.sleep(20)
         finally:
-            if os.path.isfile(lock_path):
-                os.remove(lock_path)
+            release_dispatch_lock(lock_file=dispatch_lock)
 
     print("choose one of --dry-run / --once / --watch / --send (see --help)")
     return 1
