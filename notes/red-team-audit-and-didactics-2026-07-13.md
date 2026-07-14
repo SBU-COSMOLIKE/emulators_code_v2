@@ -3325,6 +3325,68 @@ prose dash character or unescaped semicolon in the revised guide. An editorial
 pass against private standards reports no match in the added prose.
 `git diff --check` is clean at the time of this record. This is implementation
 evidence for Architect audit. It does not certify or merge TEX-PROSE-03.
+
+## Red Team implementation return: finite-contract harness repairs
+
+Fable transferred the finite-contract child's owed fixture defects to the Red
+Team under the ruling in `notes/gates-and-board.md`, commit `f2f448c`. The
+candidate branch is `codex/finite-contract-harness`, based on main `5456133`.
+The executable diff owns only `gates/checks/finite_contract.py`. Production
+code, `gates/board.py`, the runner and `texnotes/` are unchanged. The detailed
+numerical readback is beside the child's 14 evidence anchors in
+`notes/training-stack.md`.
+
+The baseline Cocoa run returned 1. The real score-domain boundary raised the
+right ValueErrors, but Parts A and C recorded four failures because they
+expected the retired `finite contract` owner. Parts B, D and E passed. Part F
+then crashed at `CosmolikeChi2._reduce -> _chi2_n_terms` because the synthetic
+object had no geometry. The candidate centralizes the live
+`chi2 domain contract` expectation, binds the reduction to a counted
+three-coordinate geometry, and imports the `_chi2_domain` helper that the
+later dtype-band mutation already called without importing. That import is
+the previously adjudicated 25M-23 check-side prerequisite exposed only after
+the Part F crash was removed.
+
+Every repair has executable catch power. The retired prefix fails against the
+real message. A geometry-free loss reproduces the original AttributeError,
+while the repaired object records ten production width reads. Eight finite
+float32 scores near `1e38` publish the finite float64 mean
+`9.999999680285692e+37`, the same value reaches the real history append, and a
+restored float32 mean produces `inf`. A real AdamW update leaves two parameters
+and six state tensors finite; the shared inspection rejects a NaN parameter
+and, separately, an infinite `exp_avg` state tensor.
+
+The complete candidate child reaches Parts A through K with zero `[FAIL]`
+reports. It returns 2 rather than minting green: this Mac cannot run the
+mandatory compiled-backward lane or the mandatory CUDA extreme-scale mirror.
+Those are the only lane-unavailable results. The CUDA fixture exists and must
+be run on the workstation. The child branch is based on main before the
+Implementer's always-emit work; integration must retain the Implementer's
+14-terminal crash-wrapper while folding in these fixture changes. No
+red-team terminal declaration is substituted for that separate gate-surface
+half.
+
+`gates/run_board.py --list` returns 0. The full board self-test returns 0 and
+ends `board-selftest: ALL PASS`. Python compilation, the 90-column scan and
+`git diff --check` are clean. The exact child stream is in the turn-local
+`/tmp/finite_contract_candidate1.log`; its durable values and verdicts are
+reproduced above rather than relying on that temporary file. The existing
+temporary-directory cleanup debt is unchanged and remains outside scope.
+
+Landing block, printed only. The user retains the merge and push:
+
+```bash
+git -C /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2 fetch \
+  /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2/.claude/worktrees/codex-finite-contract-harness \
+  refs/heads/codex/finite-contract-harness:refs/heads/codex/finite-contract-harness
+git -C /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2 merge \
+  --ff-only codex/finite-contract-harness
+git -C /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2 push \
+  origin main
+```
+
+This record is implementation evidence submitted for Fable audit. It is not
+self-certification and does not authorize a merge.
 ## Backup-Implementer record: scalar-smoke nine-aid child
 
 Fable assigned the Red Team a bounded backup-Implementer unit on branch
