@@ -9002,3 +9002,39 @@ user's own change and reverting it would destroy their edit. Disposition is the
 Architect's: keep it (it is a correct, self-contained fix that would otherwise
 be committed on its own) or split it before the merge. LESSON for my own hands:
 stage by explicit path, never `git add -A`, when a live daemon shares the tree.
+
+## Wrapper-family evidence migration audit (Fable, 2026-07-14): 1c2f706 GO
+
+Interactive-Architect audit of the Implementer's headless 0008 turn
+(commits 1c2f706 + af9b034, the six wrapper-family gates -> evidence=,
+38/40). Every CPU gate re-run by me this session on the cocoa
+interpreter, PYTHONPATH=. from the worktree root:
+
+- `gates/board.py --list` rc 0 (all anchors resolve, no collisions).
+- `gates/checks/board_selftest.py` rc 0, zero `[FAIL]` markers,
+  final line "board-selftest: ALL PASS".
+- `gates/checks/finetune_identity.py`: 7/7 `##AID ... PASS`.
+- `gates/checks/transfer_identity.py`: 8/8 emitted, 7 PASS +
+  `transfer-identity.cross-family-base-refusal FAIL`, rc 1 — the known
+  register red now naming itself in the manifest, exactly as reported.
+  Honest red, repair stays a separate unit (task-23 triage).
+
+Gate-surface screen: the two changes in the diff are the two the handoff
+names (wrapper rc-expect labels narrowed per DIDACTICS-27; three ctx.log
+instructions -> declared ctx.unavailable legs per ruling 6). No
+threshold, fixture, or golden base touched. The four cosmolike/GPU gates
+stay WORKSTATION-OWED as declared.
+
+Commit-hygiene defect (af9b034's confession): 1c2f706 carries the
+Architect's live tools/mailbox_daemon.py preamble fix (+5/-2), swept by
+a git add -A while the daemon file was being edited under it.
+DISPOSITION: KEEP — the content is correct and authored by the
+Architect; splitting it out now is history churn for nothing. The
+Implementer's own lesson (stage by explicit path when a live daemon
+shares the tree) is ratified as standing practice for ALL lanes, this
+session included.
+
+VERDICT: GO. Unit closed; 38/40. Remaining: finite-contract (Part F
+scope ruling owed by me) and scalar-smoke (Sol child). The Implementer's
+declared next — the skipped-leg manifest consistency sweep — is
+APPROVED as queued.
