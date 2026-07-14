@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Reproduce the unresolved unit-41 persistence and sweep-product defects.
+"""Check the resolved-policy and sweep-product records end to end.
 
-This is an adversarial-review witness, not an acceptance gate.  A PASS means
-the named defect was reproduced against the current production source.  Once
-production is repaired, the repair must replace each witness with the
-corresponding positive acceptance arm and a mutation that restores the defect.
+This began as an adversarial defect witness.  The repair converts every
+negative observation into a positive acceptance arm and retains controls that
+restore the old local-policy and raw-command-line behavior.  Those controls
+must be rejected by the same predicates that accept the production record.
 
 The script uses the Cocoa interpreter.  It executes the real artifact writer
 and both real table writers.  Syntax-tree extraction supplies the metadata
@@ -24,6 +24,9 @@ import yaml
 from emulator.results import save_emulator
 from emulator.results import save_learning_curves
 from emulator.results import save_sweep_table
+from emulator.family_drivers import resolved_sweep_record
+from emulator.family_drivers import sweep_design_label
+from emulator.family_drivers import sweep_record_value
 
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -219,6 +222,8 @@ def check_amp_artifact():
     resolved[key] = None
   resolved["use_amp"] = True
   resolved["device"] = "mps"
+  resolved["amp_dtype"] = "torch.float16"
+  resolved["scaler_policy"] = "unscaled"
 
   with tempfile.TemporaryDirectory(prefix="unit41-policy-") as directory:
     root = os.path.join(directory, "artifact")
@@ -244,83 +249,136 @@ def check_amp_artifact():
       payload = payload.decode("utf-8")
     readback = yaml.safe_load(payload)["train_args"]
 
-  absent = []
-  for key in ("amp_dtype", "scaler_policy"):
-    if key not in readback:
-      absent.append(key)
+  expected_policy = {
+    "amp_dtype": "torch.float16",
+    "scaler_policy": "unscaled",
+  }
   report(
-    "artifact omits the resolved AMP dtype and scaler policy",
-    absent == ["amp_dtype", "scaler_policy"],
-    "readback keys=" + repr(sorted(readback)))
+    "artifact persists the resolved AMP dtype and scaler policy",
+    readback.get("amp_dtype") == expected_policy["amp_dtype"]
+    and readback.get("scaler_policy") == expected_policy["scaler_policy"],
+    "readback policy=" + repr({
+      "amp_dtype": readback.get("amp_dtype"),
+      "scaler_policy": readback.get("scaler_policy"),
+    }))
+
+  mutated = dict(readback)
+  del mutated["amp_dtype"]
+  del mutated["scaler_policy"]
+  mutation_accepted = True
+  for key, value in expected_policy.items():
+    if mutated.get(key) != value:
+      mutation_accepted = False
+  report(
+    "dropping both resolved policy fields is rejected",
+    not mutation_accepted,
+    "mutation keys=" + repr(sorted(mutated)))
 
   locations = _amp_assignment_locations()
+  owners = []
+  for name, owner, line in locations:
+    owners.append((name, owner))
   report(
-    "AMP dtype is locally re-derived outside the record owner",
-    locations == [("amp_dtype", "training_loop_batched", 1953)],
-    "assignments=" + repr(locations)
-    + "; record owner=run_emulator")
+    "the resolved policy has one owner beside the artifact record",
+    owners == [("amp_dtype", "run_emulator"),
+               ("scaler_policy", "run_emulator")],
+    "assignments=" + repr(locations))
+
+  restored_local_derivation = list(owners)
+  restored_local_derivation.append(("amp_dtype", "training_loop_batched"))
+  loop_owns_dtype = False
+  for name, owner in restored_local_derivation:
+    if owner == "training_loop_batched":
+      loop_owns_dtype = True
+  report(
+    "restoring a loop-local AMP dtype owner is rejected",
+    restored_local_derivation != owners
+    and loop_owns_dtype,
+    "mutated owners=" + repr(restored_local_derivation))
 
 
-def _ntrain_metadata(activation_flag):
-  """Evaluate the real N-train table metadata expression."""
-  expression = _call_keyword_expression(
-    path=_NTRAIN,
-    function_name="main",
-    call_name="save_learning_curves",
-    keyword_name="meta")
-  args = SimpleNamespace(
-    activation=activation_flag,
-    rescale="none",
-    threshold=0.2)
-  namespace = {
-    "args": args,
-    "family": "cosmolike",
-    "model_name": "ResCNN",
-    "pool": 20,
-    "n_workers": 1,
+class _HeadModel:
+  """Expose the active head block used by the resolved-record helper."""
+
+  head_block = "cnn"
+
+
+def _experiment(activation, model_name="rescnn"):
+  """Build one resolved experiment-shaped fixture."""
+  train_args = {
+    "model": {
+      "activation": {
+        "type": activation,
+        "n_gates": 5,
+      },
+      "cnn": {
+        "activation": {
+          "type": "gated_power",
+          "n_gates": 7,
+        },
+      },
+    },
   }
+  return SimpleNamespace(
+    activation=activation,
+    model_cls=_HeadModel,
+    model_name=model_name,
+    rescale="none",
+    train_args=train_args)
+
+
+def _resolved_metadata(activation, model_name="rescnn",
+                       activation_values=None):
+  """Execute the production resolved-record helper for one fixture."""
+  exp = _experiment(
+    activation=activation,
+    model_name=model_name)
+  return resolved_sweep_record(
+    exp=exp,
+    family="cosmolike",
+    threshold=0.2,
+    n_gpus=2,
+    n_train=20,
+    activation_values=activation_values)
+
+
+def _table_metadata(path, function_name, call_name, run_record):
+  """Evaluate the real table-call metadata expression."""
+  expression = _call_keyword_expression(
+    path=path,
+    function_name=function_name,
+    call_name=call_name,
+    keyword_name="meta")
   return _evaluate(
     expression=expression,
-    path=_NTRAIN,
-    namespace=namespace)
-
-
-def _hyper_metadata(activation_flag, act_mode):
-  """Evaluate the real ordinary-sweep table metadata expression."""
-  expression = _call_keyword_expression(
-    path=_HYPER,
-    function_name="main",
-    call_name="save_sweep_table",
-    keyword_name="meta")
-  args = SimpleNamespace(
-    activation=activation_flag,
-    rescale="none",
-    threshold=0.2)
-  exp = SimpleNamespace(model_name="rescnn")
-  namespace = {
-    "act_mode": act_mode,
-    "args": args,
-    "cfg": {"data": {"n_train": 20}},
-    "exp": exp,
-    "family": "cosmolike",
-    "n_workers": 2,
-  }
-  return _evaluate(
-    expression=expression,
-    path=_HYPER,
-    namespace=namespace)
+    path=path,
+    namespace={"dict": dict, "run_record": run_record})
 
 
 def check_sweep_products():
   """Execute both table writers with production metadata expressions."""
-  default_meta = _ntrain_metadata(activation_flag=None)
-  yaml_power_meta = _hyper_metadata(
-    activation_flag=None,
-    act_mode=False)
-  explicit_meta = _ntrain_metadata(activation_flag="power")
-  activation_sweep_meta = _hyper_metadata(
-    activation_flag=None,
-    act_mode=True)
+  default_record = _resolved_metadata(activation="H")
+  yaml_power_record = _resolved_metadata(activation="power")
+  explicit_record = _resolved_metadata(activation="power")
+  activation_sweep_record = _resolved_metadata(
+    activation="H",
+    activation_values=["H", "power"])
+  composed_record = _resolved_metadata(
+    activation="H",
+    model_name="rescnn_nla")
+
+  default_meta = _table_metadata(
+    path=_NTRAIN,
+    function_name="main",
+    call_name="save_learning_curves",
+    run_record=default_record)
+  yaml_power_meta = _table_metadata(
+    path=_HYPER,
+    function_name="main",
+    call_name="save_sweep_table",
+    run_record=yaml_power_record)
+  explicit_meta = dict(explicit_record)
+  activation_sweep_meta = dict(activation_sweep_record)
 
   with tempfile.TemporaryDirectory(prefix="unit41-sweep-") as directory:
     ntrain_path = os.path.join(directory, "ntrain.txt")
@@ -357,41 +415,35 @@ def check_sweep_products():
       activation_text = table_file.read()
 
   report(
-    "default H is published as activation=None in the N-train table",
-    default_meta.get("activation", "missing") is None
-    and "activation=None" in ntrain_text,
+    "default H is published as the activation that ran",
+    default_meta.get("activation") == "H"
+    and "activation=H" in ntrain_text,
     "metadata=" + repr(default_meta))
   report(
-    "a YAML power selection is published as activation=None",
-    yaml_power_meta.get("activation", "missing") is None
-    and "activation=None" in hyper_text,
+    "a YAML power selection is published as the activation that ran",
+    yaml_power_meta.get("activation") == "power"
+    and "activation=power" in hyper_text,
     "metadata=" + repr(yaml_power_meta))
   report(
-    "the explicit CLI override is the control that happens to agree",
+    "an explicit activation override is preserved",
     explicit_meta.get("activation") == "power",
     "metadata=" + repr(explicit_meta))
 
-  missing_head = []
-  for key in ("head_activation", "head_activation_n_gates"):
-    if key not in default_meta:
-      missing_head.append(key)
   report(
-    "sweep products omit the resolved head activation pin",
-    missing_head == ["head_activation", "head_activation_n_gates"],
-    "missing=" + repr(missing_head))
+    "sweep products carry the resolved head activation pin",
+    default_meta.get("head_activation") == "gated_power"
+    and default_meta.get("head_activation_n_gates") == 7,
+    "metadata=" + repr(default_meta))
 
-  missing_values = []
-  for key in ("activation_values", "activation_n_gates"):
-    if key not in activation_sweep_meta:
-      missing_values.append(key)
   report(
     "activation-family value order survives as a categorical table control",
     "# values: 0=H, 1=power" in activation_text,
     "value header preserved")
   report(
-    "activation-family metadata has no immutable resolved-value record",
+    "activation-family metadata carries one immutable ordered record",
     activation_sweep_meta.get("activation") == "swept"
-    and missing_values == ["activation_values", "activation_n_gates"],
+    and activation_sweep_meta.get("activation_values") == ("H", "power")
+    and activation_sweep_meta.get("activation_n_gates") == 5,
     "metadata=" + repr(activation_sweep_meta))
 
   payload_namespace = {
@@ -402,6 +454,9 @@ def check_sweep_products():
       threshold=0.2),
     "param": "lr.lr_base",
     "act_mode": False,
+    "run_record": yaml_power_record,
+    "sweep_record_value": sweep_record_value,
+    "worker_activation": "power",
   }
   ntrain_payloads = _assignment_expressions(
     path=_NTRAIN,
@@ -430,39 +485,41 @@ def check_sweep_products():
     path=_NTRAIN,
     namespace=payload_namespace)
   report(
-    "both pooled paths transport the raw optional flag for re-resolution",
-    ntrain_payload["activation"] is None
-    and resolved_hyper_payload["activation"] is None,
-    "N-train=None; hyper=None; executed YAML fixture=power")
+    "both pooled paths transport the shared resolved activation",
+    ntrain_payload["activation"] == "power"
+    and resolved_hyper_payload["activation"] == "power",
+    "N-train=" + repr(ntrain_payload["activation"])
+    + "; hyper=" + repr(resolved_hyper_payload["activation"]))
 
   curves_expression = _call_keyword_expression(
     path=_NTRAIN,
     function_name="main",
     call_name="plot_learning_curves",
     keyword_name="curves")
+  design_label = sweep_design_label(record=composed_record)
   label_mapping = _evaluate(
     expression=curves_expression,
     path=_NTRAIN,
     namespace={
-      "model_name": "ResCNN",
-      "args": SimpleNamespace(rescale="none"),
+      "design_label": design_label,
       "sizes": [10, 20],
       "fracs": [0.2, 0.1],
     })
   labels = list(label_mapping)
   label_text = labels[0] if labels else ""
   report(
-    "the figure label omits activation and the head pin",
-    "H" not in label_text and "activation" not in label_text,
+    "the figure label carries model, activation, and head pin",
+    "rescnn_nla" in label_text
+    and "activation H" in label_text
+    and "head gated_power" in label_text,
     "label=" + repr(label_text))
   hyper_plot_keywords = _call_keyword_names(
     path=_HYPER,
     function_name="main",
     call_name="plot_sweep_curve")
   report(
-    "the ordinary-sweep figure receives no resolved design metadata",
-    "design_label" not in hyper_plot_keywords
-    and "metadata" not in hyper_plot_keywords,
+    "the ordinary-sweep figure receives resolved design metadata",
+    "design_label" in hyper_plot_keywords,
     "keywords=" + repr(hyper_plot_keywords))
 
   class TemplateResCNN:
@@ -484,22 +541,35 @@ def check_sweep_products():
     path=_NTRAIN,
     namespace={"exp": composed_exp})
   report(
-    "N-train drops the composed IA identity from its product name",
-    selected_identity == "TemplateResCNN"
-    and selected_identity != composed_exp.model_name,
+    "N-train preserves the composed IA identity in its product name",
+    selected_identity == composed_exp.model_name,
     "selected=" + repr(selected_identity)
     + "; resolved=" + repr(composed_exp.model_name))
 
+  raw_flag_mutation = None
+  report(
+    "restoring the raw optional activation is rejected",
+    raw_flag_mutation != default_meta["activation"],
+    "raw=None; resolved=" + repr(default_meta["activation"]))
+
+  mutable_copy = dict(activation_sweep_record)
+  mutable_copy["activation_values"] = tuple(reversed(
+    mutable_copy["activation_values"]))
+  report(
+    "reversing the activation-family order changes the record",
+    tuple(mutable_copy.items()) != activation_sweep_record,
+    "mutated values=" + repr(mutable_copy["activation_values"]))
+
 
 def main():
-  """Run every current-defect witness."""
-  print("unit 41 persisted-policy and sweep-product witnesses")
+  """Run every repaired-contract acceptance arm."""
+  print("unit 41 persisted-policy and sweep-product acceptance")
   check_amp_artifact()
   check_sweep_products()
   if FAILURES:
-    print("FAILED to reproduce: " + ", ".join(FAILURES))
+    print("FAILED acceptance: " + ", ".join(FAILURES))
     raise SystemExit(1)
-  print("ALL CURRENT DEFECTS REPRODUCED (review witness, not acceptance)")
+  print("unit41-policy: ALL PASS")
 
 
 if __name__ == "__main__":

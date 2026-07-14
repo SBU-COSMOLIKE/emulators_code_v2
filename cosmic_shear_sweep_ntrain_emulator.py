@@ -100,6 +100,8 @@ from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.experiment import EmulatorExperiment
 from emulator.results import save_learning_curves
+from emulator.family_drivers import (
+  resolved_sweep_record, sweep_record_value, sweep_design_label)
 from emulator.scheduling import (
   lpt_assign, run_gpu_pool, GPU_TOKENS,
   estimate_train_vram_fraction, vram_tokens)
@@ -179,7 +181,7 @@ def _sweep_job(gpu_id, exp, N, extra):
   return (int(N), f, gpu_id, time.time() - t0)
 
 
-def _run_parallel(cfg, sizes, n_workers, args, log):
+def _run_parallel(cfg, sizes, n_workers, args, run_record, log):
   """
   Run the sweep across n_workers GPUs via run_gpu_pool, LPT-balanced.
 
@@ -203,6 +205,7 @@ def _run_parallel(cfg, sizes, n_workers, args, log):
     n_workers = number of GPUs to spread across.
     args      = the parsed CLI namespace (rescale / activation /
                 threshold / gpu_pack).
+    run_record = immutable resolved metadata shared with the serial path.
     log       = print function (no-op under --quiet).
 
   Returns:
@@ -264,8 +267,12 @@ def _run_parallel(cfg, sizes, n_workers, args, log):
     log(f"  gpu-pack on: tokens/4 per point  ->  {', '.join(toks)}")
 
   extra = {"cfg":        worker_cfg,
-           "rescale":    args.rescale,
-           "activation": args.activation,
+           "rescale":    sweep_record_value(
+             record=run_record,
+             key="rescale"),
+           "activation": sweep_record_value(
+             record=run_record,
+             key="activation"),
            "threshold":  args.threshold}
 
   # the parent logs each point as it lands (workers run quiet, so
@@ -417,7 +424,7 @@ def main(prog="cosmic_shear_sweep_ntrain_emulator", family="cosmolike",
       "no GPU found (need CUDA, or Apple MPS on the dev machine): this "
       "sweep trains one model per grid point and is not meant for CPU")
   log = exp.log
-  model_name = exp.model_cls.__name__
+  model_name = exp.model_name
 
   # N_train grid: geometric from n_min to the pool (or --n-max), clamped to the
   # physically-cut pool so every size is loadable; unique() drops int-cast
@@ -437,11 +444,22 @@ def main(prog="cosmic_shear_sweep_ntrain_emulator", family="cosmolike",
   n_request = n_cuda if args.n_gpus is None else min(args.n_gpus, n_cuda)
   n_workers = min(n_request, len(sizes))
 
+  # One immutable record supplies worker setup and every saved product. The
+  # experiment has already resolved command-line-over-YAML precedence.
+  run_record = resolved_sweep_record(
+    exp=exp,
+    family=family,
+    threshold=args.threshold,
+    n_gpus=n_workers,
+    pool=pool)
+  design_label = sweep_design_label(record=run_record)
+
   # print_design (experiment.py): the startup banner (the resolved
   # model block, run knobs, guards, every train_args sub-block, and the
   # physical cuts). A stale YAML here would waste a whole sweep, not one
   # training. Shared with the train / tune drivers.
   exp.print_design()
+  log("sweep design: " + design_label)
   log(f"pool {pool}  |  N_train grid: {sizes.tolist()}")
 
   # 1 worker (single GPU, or the MPS dev machine) -> serial on this one device,
@@ -474,6 +492,7 @@ def main(prog="cosmic_shear_sweep_ntrain_emulator", family="cosmolike",
                           sizes=sizes,
                           n_workers=n_pool,
                           args=args,
+                          run_record=run_record,
                           log=log)
 
   # cocoa_output (cocoa.py) joins the fileroot to each output name.
@@ -487,20 +506,14 @@ def main(prog="cosmic_shear_sweep_ntrain_emulator", family="cosmolike",
     path=out_txt,
     sizes=sizes,
     curves={"frac": fracs},
-    meta={"model": model_name,
-          "family": family or "cosmic_shear",
-          "rescale": args.rescale,
-          "activation": args.activation,
-          "threshold": args.threshold,
-          "pool": pool,
-          "n_gpus": n_workers})
+    meta=dict(run_record))
   log(f"saved curve data -> {out_txt}")
 
   # plot_learning_curves (plotting.py): one-curve figure (overlay several
   # <out>.txt yourself to compare).
   from emulator.plotting import plot_learning_curves
   plot_learning_curves(
-    curves={f"{model_name} ({args.rescale})": (sizes, fracs)},
+    curves={design_label: (sizes, fracs)},
     threshold=args.threshold,
     savepath=out_pdf)
   log(f"saved figure -> {out_pdf}")

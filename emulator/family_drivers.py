@@ -37,6 +37,127 @@ SWEEPABLE_TOP_KEYS = ("nepochs", "bs", "loss", "trunk_epochs",
 ACTIVATION_PATHS = ("model.activation", "model.activation.type")
 
 
+def resolved_sweep_record(exp,
+                          family,
+                          threshold,
+                          n_gpus,
+                          pool=None,
+                          n_train=None,
+                          activation_values=None):
+  """Build the immutable resolved identity shared by one sweep run.
+
+  The experiment has already applied command-line-over-YAML precedence, so
+  this function reads the values it will execute. A tuple of pairs keeps the
+  record immutable and pickle-safe while workers cross process boundaries.
+
+  Arguments:
+    exp               = the resolved EmulatorExperiment.
+    family            = the output-family identity.
+    threshold         = the delta-chi2 cutoff scored by the sweep.
+    n_gpus            = the resolved number of worker GPUs.
+    pool              = the available training-pool size for an N-train
+                        sweep, or None for an ordinary sweep.
+    n_train           = the fixed training-row count for an ordinary sweep,
+                        or None for an N-train sweep.
+    activation_values = the ordered activation-family values when that is
+                        the swept axis, or None for a fixed activation.
+
+  Returns:
+    a tuple of (key, value) pairs. ``dict(record)`` is ready for table I/O.
+  """
+  activation_block = exp.train_args["model"].get("activation")
+  activation_n_gates = 3
+  if isinstance(activation_block, dict):
+    activation_n_gates = int(activation_block.get("n_gates", 3))
+
+  head_activation = None
+  head_activation_n_gates = None
+  head_block = exp.model_cls.head_block
+  if head_block is not None:
+    head_pin = exp.train_args["model"].get(head_block, {}).get("activation")
+    if head_pin is None and isinstance(exp.train_args.get("head"), dict):
+      head_pin = exp.train_args["head"].get("activation")
+    if isinstance(head_pin, dict):
+      head_activation = str(head_pin["type"])
+      head_activation_n_gates = int(head_pin.get("n_gates", 3))
+    elif head_pin is not None:
+      head_activation = str(head_pin)
+      head_activation_n_gates = 3
+
+  activation = exp.activation
+  if activation_values is not None:
+    activation = "swept"
+
+  pairs = [("model", exp.model_name),
+           ("family", family or "cosmic_shear"),
+           ("rescale", exp.rescale),
+           ("activation", activation),
+           ("activation_n_gates", activation_n_gates),
+           ("head_activation", head_activation),
+           ("head_activation_n_gates", head_activation_n_gates),
+           ("threshold", threshold)]
+  if activation_values is not None:
+    pairs.append(("activation_values", tuple(activation_values)))
+  if pool is not None:
+    pairs.append(("pool", int(pool)))
+  if n_train is not None:
+    pairs.append(("n_train", int(n_train)))
+  pairs.append(("n_gpus", int(n_gpus)))
+  return tuple(pairs)
+
+
+def sweep_record_value(record, key):
+  """Read one named value from an immutable sweep record.
+
+  Arguments:
+    record = tuple returned by resolved_sweep_record.
+    key    = field name to read.
+
+  Returns:
+    the field value.
+
+  Raises:
+    KeyError when the record does not carry the requested field.
+  """
+  for field, value in record:
+    if field == key:
+      return value
+  raise KeyError("the resolved sweep record has no field " + repr(key))
+
+
+def sweep_design_label(record):
+  """Format the resolved model and activation facts for a figure legend.
+
+  Arguments:
+    record = tuple returned by resolved_sweep_record.
+
+  Returns:
+    one compact label naming model, rescale, activation, and any head pin.
+  """
+  model = sweep_record_value(record=record, key="model")
+  rescale = sweep_record_value(record=record, key="rescale")
+  activation = sweep_record_value(record=record, key="activation")
+  n_gates = sweep_record_value(record=record, key="activation_n_gates")
+  label = (f"{model} ({rescale}; activation {activation}, "
+           f"n_gates {n_gates}")
+  if activation == "swept":
+    values = sweep_record_value(record=record, key="activation_values")
+    value_text = []
+    for value in values:
+      value_text.append(str(value))
+    label += "; values " + ", ".join(value_text)
+  head_activation = sweep_record_value(
+    record=record,
+    key="head_activation")
+  if head_activation is not None:
+    head_n_gates = sweep_record_value(
+      record=record,
+      key="head_activation_n_gates")
+    label += (f"; head {head_activation}, "
+              f"n_gates {head_n_gates}")
+  return label + ")"
+
+
 def set_by_path(train_args, path, value):
   """
   A deep copy of train_args with one dotted-path leaf replaced.

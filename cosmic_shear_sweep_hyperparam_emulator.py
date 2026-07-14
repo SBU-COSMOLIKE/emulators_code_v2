@@ -105,7 +105,8 @@ from emulator.results import save_sweep_table
 # constants and block parser the per-family sweep drivers use.
 from emulator.family_drivers import (
   SWEEPABLE_TOP_KEYS, ACTIVATION_PATHS, set_by_path,
-  read_sweep_block)
+  read_sweep_block, resolved_sweep_record, sweep_record_value,
+  sweep_design_label)
 from emulator.scheduling import (
   even_assign, run_gpu_pool, GPU_TOKENS,
   estimate_train_vram_fraction, vram_tokens)
@@ -305,6 +306,19 @@ def main(prog="cosmic_shear_sweep_hyperparam_emulator", family="cosmolike",
                                                      n_cuda)
   n_workers = min(n_request, len(values))
 
+  # One immutable record supplies worker setup and every saved product. The
+  # experiment has already resolved command-line-over-YAML precedence.
+  activation_values = values if act_mode else None
+  run_record = resolved_sweep_record(
+    exp=exp,
+    family=family,
+    threshold=args.threshold,
+    n_gpus=n_workers,
+    n_train=cfg["data"]["n_train"],
+    activation_values=activation_values)
+  design_label = sweep_design_label(record=run_record)
+  log("sweep design: " + design_label)
+
   # payloads carry the position so results realign afterward.
   payloads = []
   for i, v in enumerate(values):
@@ -394,9 +408,19 @@ def main(prog="cosmic_shear_sweep_hyperparam_emulator", family="cosmolike",
       log(f"  gpu-pack on: est. {frac:.2f} of a GPU per point "
           f"-> {tokens} token(s)/4")
 
+    worker_activation = sweep_record_value(
+      record=run_record,
+      key="activation")
+    if worker_activation == "swept":
+      ordered_activations = sweep_record_value(
+        record=run_record,
+        key="activation_values")
+      worker_activation = ordered_activations[0]
     extra = {"cfg":        worker_cfg,
-             "rescale":    args.rescale,
-             "activation": args.activation,
+             "rescale":    sweep_record_value(
+               record=run_record,
+               key="rescale"),
+             "activation": worker_activation,
              "param":      param,
              "act_mode":   act_mode,
              "threshold":  args.threshold}
@@ -438,13 +462,7 @@ def main(prog="cosmic_shear_sweep_hyperparam_emulator", family="cosmolike",
     param=param,
     values=values,
     fracs=fracs,
-    meta={"model": exp.model_name,
-          "family": family or "cosmic_shear",
-          "rescale": args.rescale,
-          "activation": ("swept" if act_mode else args.activation),
-          "threshold": args.threshold,
-          "n_train": cfg["data"]["n_train"],
-          "n_gpus": n_workers})
+    meta=dict(run_record))
   log(f"saved sweep table -> {out_txt}")
 
   # plot_sweep_curve (plotting.py): render the value/frac sweep figure.
@@ -453,6 +471,7 @@ def main(prog="cosmic_shear_sweep_hyperparam_emulator", family="cosmolike",
                    values=values,
                    fracs=fracs,
                    threshold=args.threshold,
+                   design_label=design_label,
                    savepath=out_pdf)
   log(f"saved figure -> {out_pdf}")
 

@@ -12794,3 +12794,593 @@ guide is cancelled to conserve credits.
   unit is owed for it now.
 - Standing rule unchanged: texnotes/ remains red-team-only; nothing
   here transfers guide custody.
+## Unit 53-REPAIR return routed from the isolated Sol clone (2026-07-14)
+
+The second-Implementer code is commit
+`9cdb98ff20c71465c4abfd8a2425fc45bde0e2ff`; the handback branch tip,
+including its landing note, is
+`e198bc9f549f555c58370274bde477e307a38d21` on
+`codex/unit-53-repair`, based on main `14b416c`. The managed sandbox refused
+the requested linked-worktree creation because the parent `.git` is
+read-only, so the real branch and full durable implementation record live in
+the isolated clone `.claude/worktrees/codex-unit53-repair`. Its
+`notes/gates-and-board.md` entry "Unit 53-REPAIR second-Implementer return"
+contains the complete RED-before and GREEN-after streams, the three-way
+subagent fan-out, file-by-file implementation record, readback, gate-integrity
+statement, and fetch-based landing block. The final witness is 15/15 PASS;
+Cocoa-interpreter `py_compile` over all nine touched Python files and
+`git diff --check` return zero. This is implementation evidence awaiting Architect
+audit, not self-certification, and it does not authorize a merge.
+
+## Fixed-facts ADAPTER HALF (units 84+85, Implementer, 2026-07-14): the three laws wired at all five adapter sites; the domain law on the public door; the four riders armed — LANDED, every gate at or above its floor on this Mac
+
+Dispatch 0140 (RULINGS 3+4+5 + the four binding riders), against the audit
+section above. Base: `claude/amazing-keller-e798b6` at `5fa3be8` (landings 1–3
+already merged back via `cdfa5dc` / `aa0be09`). The tree is left UNCOMMITTED for
+the audit, per the :11702 standing rule.
+
+### What landed, by file
+
+**`emulator/fixed_facts.py`** — three additions; no existing law weakened:
+
+1. `resolved_constants(model)` plus its two helpers `_plain_fact` and
+   `_theory_components`, extracted from the producer VERBATIM (generator_core's
+   `_resolved_constants` / `_theory_components` / `_plain_fact`, semantics
+   character-faithful: theory `extra_args` fill first and the first component
+   wins a name two components state, then `parameterization.constant_params()`
+   overwrites, every lookup wrapped so an unexposed surface degrades to ABSENCE
+   rather than crashing a run whose data vectors are already computed). The
+   function imports nothing and duck-types the model, so the module stays
+   torch-free AND cobaya-free — which is exactly why its new gate leg runs on a
+   bare numpy interpreter.
+2. `synthetic_sidecar(names, label, family, support=None)` — RULING 4 clause 3.
+   `support=None` keeps the honest `undeclared` record (a double that is only
+   round-tripped, and must refuse every point); a mapping name -> (low, high)
+   declares the box the double stands for, and it is written through
+   `build_sidecar`, so the bounds go through `format_value` and no second hand
+   ever writes a bound.
+3. The compiled-support split (RULING 4 clause 2 — the design was left to me):
+   `compile_support(blocks, where)` reads the record's text bounds ONCE into a
+   plain mapping and refuses nothing (a double must still LOAD; compiling a
+   record is not asking it anything); `check_support(compiled, point)` is the law
+   and the ONE author of its four refusals; `check_domain(blocks, point, where)`
+   keeps its signature and now compiles-then-delegates. The accept path is one
+   dictionary lookup and two float compares per sampled coordinate, and not one
+   string parsed. `check_may_serve` / `served_support_with` are untouched
+   (RULING 4 clause 5).
+
+**`compute_data_vectors/generator_core.py`** — `_resolved_constants` is now a
+one-line delegation to `fixed_facts.resolved_constants(model=self.model)`, and
+the two moved helpers are DELETED here rather than left behind, because a
+derived copy is a second author of the science fact. −119 lines.
+
+**`emulator/inference.py`** — the public door, and the adapter sites:
+
+- `predict()` enforces the domain law on every call, unconditionally (RULING 4).
+  `_as_row` becomes `_ordered_values` (it hands back the values in the emulator's
+  own order rather than the tensor, because the domain law reads values, not
+  tensors); `predict` then builds the point, calls `fixed_facts.check_support`
+  against the support compiled once at load (`self._support`), and only then
+  builds the row through `_as_row_trusted`. There is NO public opt-out.
+- inference.py:483's "where a consumer is willing to be refused is the consumer's
+  decision" sentence is OUT, superseded by RULING 4; the class docstring's
+  "predict asks none of them" is corrected in the same pass.
+- TWO module-level sites, shared by all five adapters:
+  `check_artifacts_belong_to(predictors, provider, adapter)` (reaches
+  `provider.model`, resolves it through the one resolver, runs the vertical law
+  per artifact, and owns the loud API-drift refusal) and
+  `check_artifacts_pair_up(predictors)` (the horizontal law across the served
+  set). This is a design decision inside the latitude RULING 4 gave me, and it is
+  FLAGGED for audit: five adapters each carrying their own copy of the API-drift
+  refusal would be five authors of one refusal, which is the failure mode this
+  whole design exists to refuse. The site module is the one that already owns
+  "the SITE of a comparison" (its own words, :385).
+
+**The five adapters** (`cobaya_theory/emul_{scalars,baosn,cmb,mps,cosmic_shear}.py`)
+— purely additive, +213 lines, 0 deletions. Each gains
+`initialize_with_provider(provider)` (super() first, then the vertical law, once
+per chain and never per point: the facts cannot change while a chain runs), and a
+`check_artifacts_pair_up` call as the LAST statement of `initialize()`, after
+every configuration/topology law it already runs (RULING 5's binding order: a
+misconfigured served set is refused as a misconfiguration before any sibling
+comparison runs). Served sets: `self.predictors` (scalars, cmb, cosmic_shear),
+`[self.p_h, self.p_dm]` (baosn), `[self.p_lin, self.p_boost]` (mps).
+
+RULING 3's factual premise was re-verified BY ME against the installed cobaya
+3.6.2 rather than taken from the handoff: `Theory.initialize_with_provider(self,
+provider)` sets `self.provider`, and `Provider.__init__(self, model,
+requirement_providers)` stores `self.model`.
+
+### NAMED GATE-SURFACE CHANGES (rule 7b), each with its authorizing ruling
+
+1. **RULING 4 clause 4 (the blast radius becomes evidence).** Every test double
+   that is PREDICTED through now declares the box it stands for; a double that is
+   only saved / rebuilt / compared keeps `undeclared` and keeps refusing. Six
+   check files carry the fixture rewrite (scalar, bsn, cmb, mps, transfer, and
+   the new cs gate). No assertion, needle, threshold, golden value or leg name
+   moved anywhere. Every box is the interval a real emulator of that shape would
+   have been drawn from (a standard-normal design's five-sigma interval, a
+   fixture's fiducial ± 5σ), never the smallest box the asked points happen to
+   land in.
+2. **RULING 4 clause 4 (the arms).** Each identity gate GAINS an arm proving an
+   undeclared double refuses at `predict()` with the designed words, and one
+   proving a point outside the declared box refuses — both needled on the words,
+   never on "did it raise".
+3. **RULING 5 clause 3.** Each adapter gains an identity-refusal arm: a
+   topologically PERFECT pair whose only fault is two dataset identities, so every
+   configuration law passes first and the law the arm names is the one that fires.
+   The mps grid-mismatch double KEEPS its own label (the proposed relabel was
+   REJECTED and stays rejected), and the scalar no-chaining arm keeps its honest
+   different-names doubles.
+4. **Rider F1.** NEW declared leg `scalar-identity.prediction-names-are-proved`
+   (board Assertion + note anchor): the mapping and the correctly-ordered pair
+   agree BITWISE; a bare row, a permuted pair, and foreign names each refuse in
+   their own words. The :10954 amendment had shipped with nothing exercising it.
+5. **Rider F2.** ARM FIVE in `fixed_facts_schema.check_comparison_mutations`: the
+   vertical law weakened the plausible way (a coordinate the model is SILENT about
+   is skipped rather than refused) leaks the silent-model case, and the restored
+   law refuses it again, naming it. The board's "each law carries a mutation arm"
+   prose is now TRUE rather than edited down.
+6. **The bsn rider.** NEW declared leg `bsn-identity.missing-quantity-refused`
+   (board Assertion + note anchor): two valid grid artifacts of distinct
+   quantities (`D_V`, `D_H`) with no `D_M`, sharing one label so the identity law
+   does not fire first, needled on the real guard's own words. The guard at
+   `emul_baosn.py:134` was unreachable from every fixture the gate built — a
+   one-root list dies on the exactly-TWO law before an artifact is ever loaded.
+7. **The cs rider — a NEW BOARD GATE.** `emul_cosmic_shear` is exercised by NO
+   gate anywhere (grepped tree-wide): its only board home, `cobaya-adapter`
+   (GCT-C), needs CosmoLike and a GPU, so its loud errors were provable nowhere,
+   while its four siblings each have a torch-only identity gate.
+   `gates/checks/cs_adapter_identity.py` is the missing fifth — board gate
+   `cs-adapter-identity` (spec GCT-D, torch-only, two aids, a
+   `_RUNTIME_LOADER_COVERS` entry, and a Manifest naming the adapter). ELEVEN
+   legs, ALL PASS, including all three laws at the cs site and the API-drift
+   refusal.
+8. **A NEW CPU leg** `fixed-facts-schema.resolved-model-read-once`: the extracted
+   resolver's precedence, pinned over a duck-typed model (the params block wins a
+   name both blocks state, the first component wins a name two components state, a
+   flag stays a flag while a number becomes a float, and a model that cannot be
+   walked degrades to ABSENCE rather than to a crash). It is what makes "moved
+   VERBATIM" a checkable statement rather than a promise.
+
+### Gate results — every one re-run BY ME on this Mac
+
+CPU (`python3`, `PYTHONPATH=.`, worktree root):
+
+    fixed_facts_schema     rc=0   PASS=88   FAIL=0     (floor 79)
+    board_selftest         rc=0   PASS=213  FAIL=0     (floor 209)
+    generator_seed         rc=0   PASS=11   FAIL=0     (floor 11)
+    generator_ranges       rc=1   PASS=5    FAIL=1     (floor 5 / 1, and the FAIL
+      carries the IDENTICAL known label: "the retired header breaks one parameter
+      while the wider control hides it" — the GetDist-1.6.2 hollow arm already on
+      the ledger)
+    run_board.py --list    rc=0   (42 gates; all five new anchors resolve)
+    py_compile             18/18 clean
+
+TORCH (`cocoa/Cocoa/.local/bin/python`, torch 2.6.0):
+
+    scalar_identity        rc=0   PASS=32   FAIL=0     (floor 24)
+    bsn_identity           rc=0   PASS=44   FAIL=0     (floor 40)
+    cmb_identity           rc=0   PASS=82   FAIL=0     (floor 78)
+    mps_identity           rc=0   PASS=73   FAIL=0     (floor 69)
+    artifact_readback      rc=0   PASS=16   FAIL=0     (floor 16)
+    transfer_identity      rc=1   PASS=56   FAIL=1     (floor 55 / 1; the single
+      red is the SAME known hollow "cross-family transfer base raises" leg)
+    cs_adapter_identity    rc=0   PASS=11   FAIL=0     (NEW)
+
+Every floor is met or exceeded, and the only two reds on the board are the two
+known pre-existing ones, unchanged in identity.
+
+### My own mutation probe (unscripted — the new arms are not hollow)
+
+The domain law was removed from `predict()` (one line) and every gate re-run:
+TWELVE legs go red across SIX gates — scalar 2, bsn 2, cmb 2, mps 2, transfer 1,
+cs 2 — each naming the law it lost ("a test double answered a question",
+"extrapolated without a word"). `emulator/inference.py` was then restored and
+verified BYTE-IDENTICAL (`filecmp.cmp(shallow=False)` → True), and the control
+run reproduces the table above exactly. The arms red the mutation, not the
+record.
+
+### DEFECTS FOUND IN PASSING (one line each, for the Architect to route — not chased)
+
+1. **`geo-paths` is RED on HEAD, and was red before I touched anything.** It saves
+   its fixture with NO `facts_yaml` (so, schema v2) and then rebuilds it, and the
+   v3-only reader refuses: `ValueError: ... is written in schema version 2, and
+   this code reads version 3 only`. Raw traceback reproduced on the cocoa
+   interpreter at `5fa3be8`, before my first edit. Landing 1 made the record
+   mandatory; this gate's fixture never got one.
+2. **The same class hits FOUR MORE gates**, by line-cited inspection:
+   `scalar_smoke`, `cmb_smoke`, `bsn_smoke` and `mps_smoke` each call
+   `save_emulator(...)` with no `facts_yaml` and then hand the saved root to a
+   real cobaya run (or rebuild it in-process). They are workstation-owed, so I
+   cannot execute the proof — but the reader that refuses geo_paths is the same
+   reader, and the same 12 lines of code decide both. NOTE FOR WHOEVER REPAIRS
+   THEM: after this landing those fixtures need `support=` as well, or they will
+   carry a record and still refuse at the first `predict()`. One repair, both
+   requirements.
+3. The landings-2+3 audit's floor list (six torch gates) did not include
+   `geo-paths`, which is why the class stayed invisible: it is a torch gate that
+   nobody re-ran.
+
+### Deviations from the blueprint
+
+- **The two module-level sites in `inference.py`**, rather than the refusal being
+  restated inside each adapter (above). Reason: one author of one refusal. Flagged
+  for the audit rather than assumed.
+- **The cs rider needed a NEW BOARD GATE**, not arms in an existing one, because
+  no gate instantiates `emul_cosmic_shear` at all today. Declared, censused, and
+  named above.
+- Nothing else. RULINGS 3, 4 and 5 are implemented as written.
+
+### Tree state at handover (read this BEFORE `git status`)
+
+The tree is UNCOMMITTED (:11702), and it is NOT only mine. Two foreign deltas
+share it:
+
+- **Pre-existing at my session start (unit 41-REPAIR, second Implementer):**
+  `cosmic_shear_sweep_hyperparam_emulator.py`,
+  `cosmic_shear_sweep_ntrain_emulator.py`, `emulator/family_drivers.py`,
+  `emulator/plotting.py`, `emulator/training.py`,
+  `gates/checks/redteam_unit41_policy_witness.py`, `notes/MEMORY.md`,
+  `notes/training-stack.md`.
+- **Arrived DURING my turn, from a concurrent lane** (the unit-13 covariance
+  readback and the unit 53-REPAIR return): `notes/backlog.md`, the unit-53 section
+  appended to this note, `notes/red-team-audit-and-didactics-2026-07-13.md`, and
+  most of the new lines in `notes/families-scalar-cmb.md` (my part of that file is
+  the ONE `scalar-identity-prediction-names-are-proved` anchor block).
+
+MINE, and only mine (18 files): `emulator/fixed_facts.py`,
+`emulator/inference.py`, `compute_data_vectors/generator_core.py`, the five
+`cobaya_theory/emul_*.py`, `gates/board.py`, `gates/run_board.py`,
+`gates/checks/{fixed_facts_schema,scalar_identity,bsn_identity,cmb_identity,mps_identity,transfer_identity}.py`,
+the new `gates/checks/cs_adapter_identity.py`, the anchor blocks in
+`notes/artifacts-inference-warmstart.md`, `notes/families-background-mps.md` and
+`notes/families-scalar-cmb.md`, and this section.
+
+### WORKSTATION-OWED (unchanged, plus RULING 3's live pair)
+
+`gct_parity` (a real ROOTDIR); the three smoke gates (see defect 2 — they are red
+before they are owed); the live generator run; and RULING 3's live vertical-law
+lifecycle pair on `EXAMPLE_EMUL2_EVALUATE.yaml` (an agreeing pin runs; a
+mismatched pin refuses didactically, before any likelihood is evaluated). The
+torch gates were re-executed here this turn and are NOT owed.
+
+---
+
+## AI-loop documentation: the section moved out to `notes/README.md`, and the daemon's options got a passage (Implementer, 2026-07-14, mailbox dispatch riding 0045)
+
+The user's restructure directive in 0045 and the options directive in the
+dispatch that followed it are landed together in one commit, because the move
+was still owed when the second arrived: `notes/README.md` did not exist and
+README.md still carried the whole AI section as its section 24.
+
+### What changed
+
+`notes/README.md` (new, 602 lines) is now the loop's own document. It carries
+the entire former section 24, restructured as one document rather than a paste
+of fragments: the three sessions and what each is for, the durable-records
+rule, the life of a reported bug, the objectivity anchor, the tools
+(`handoff_router.py --status`, the mailbox, `--send`, `--watch`, `--ping`, the
+heartbeat), the new command-line-options section, the parallel-lane picture
+with the demand report and the second-implementer rule, and the
+reproduce-on-another-machine recipe. A short contents list heads it.
+
+README.md keeps `## 24. AI usage` as a heading, so the table-of-contents link
+`#24-ai-usage` at README.md:139 still resolves, but its body is now three
+sentences pointing at `notes/README.md`. README.md went from 3,907 to 3,490
+lines.
+
+The new section, "The command line options", is anchored on `--help`: it tells
+the reader that `python tools/mailbox_daemon.py --help` always prints the
+current options with their legal values and defaults and that the help output,
+not the document, is the authority; it quotes the real help output; it then
+gives the six verb flags one table row each (`--dry-run`, `--once`, `--watch`,
+`--send`, `--ping`, `--unit`) and the six tuning dials a paragraph each.
+`--fable-effort` / `--opus-effort` (low|medium|high|xhigh|max, defaults xhigh
+and max), `--sol-effort` (none|low|medium|high|xhigh, default xhigh, and the
+text says a Claude level such as `max` is rejected outright),
+`--dispatch-timeout MINUTES` (default 60, with the kill-and-park-in-`failed/`
+behavior and the requeue-by-moving-the-file-back recovery), and
+`--claude-context` / `--sol-context` (both default 500000), where compaction is
+explained from scratch for a reader who has never met the word and the two keys
+are justified by the two CLIs taking the budget by different mechanisms
+(`CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment for claude,
+`-c model_auto_compact_token_limit=<tokens>` inside the command for codex).
+
+### Verification (this Mac, this turn)
+
+Every value in the passage was read from the code as it stands now, not from
+any older quote: `CLAUDE_EFFORT_CHOICES` (:118), `CODEX_EFFORT_CHOICES` (:121,
+which really is none..xhigh because Sol's model rejects "minimal"),
+`DEFAULT_FABLE_EFFORT` / `DEFAULT_OPUS_EFFORT` / `DEFAULT_SOL_EFFORT` (:122-124),
+`DEFAULT_CLAUDE_CONTEXT_BUDGET` / `DEFAULT_SOL_CONTEXT_BUDGET` (:135-136),
+`DISPATCH_TIMEOUT_MINUTES` (:148), `build_agent_commands()` (:151-201), the
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` assignment in `dispatch()` (:368), the
+requeue-from-`failed/` comment (:411), and the argparse block (:608-661).
+
+The fenced help block is machine-checked against the real command, not eyeballed:
+
+    $ python3 - (extract the fenced block, diff against `--help` stdout)
+    help blocks found: 1
+    MATCHES REAL --help CHARACTER FOR CHARACTER: True
+
+Register checks: a dash scan over the prose (fenced blocks excluded, where
+` -- ` is legal) reports zero em/en dashes and zero prose asides in both files;
+the six hits it flags are markdown table separator rows and flag names inside
+backticks. The words "backup" and "DEFAULT" do not appear in the role or
+overflow language; every occurrence of "default" in `notes/README.md` is the
+CLI-value sense. The eight contents anchors match the eight `##` headings.
+
+### Deviations from the blueprint
+
+1. **The merge-authority sentence changed, on the blueprint's own order.** The
+   old section 24 said "Merges to the main branch are performed only by the
+   human maintainer." The 0045 fifth deliverable specifies the architect
+   "designs the units, audits every landing, and alone merges to main". The
+   blueprint is the contract, so `notes/README.md` now says the architect is
+   the session that merges and that neither the implementer nor the red team
+   pushes there. Flagged because it is a change to a stated fact, not a
+   rewording. If the old sentence is still the policy, this is a one-line fix.
+2. **The quoted command block is now `build_agent_commands()`, not
+   `AGENT_COMMANDS`.** The old README quoted a literal `AGENT_COMMANDS` dict
+   with the effort levels hardcoded. The code no longer looks like that: the
+   dict is built by `build_agent_commands(fable_effort, opus_effort,
+   sol_effort, sol_context_budget)` (:151), so the quote and the "one manual
+   edit" recipe step 6 were both re-pointed at that function. The quote is
+   verbatim, comments included.
+3. **Files beyond the two named.** The commit also carries this note section
+   and its `notes/MEMORY.md` index line, per the notes ritual and role rule 7
+   (notes-first). No other file is touched.
+
+### Findings for the Architect to route (not chased)
+
+- **No ledger line retires here.** Convergence mode says every unit closes an
+  existing `- OPEN` line, but the backlog has none for this move or for the
+  options passage; the unit came as a direct user directive through 0045 and
+  the dispatch that followed. The ledger, not the unit, is what needs
+  reconciling.
+- **`--fix-only` is documented nowhere, deliberately.** Backlog line 42 says
+  the flag will be "document[ed] in --help and the notes/ README options
+  section", and that section now exists, but the flag is not in the argparse
+  block yet, and the directive is that every stated value match the code as it
+  stands NOW. When the deferred code edit lands, the options section gains one
+  table row and the help block must be re-pasted from the real `--help`.
+- **The register defect in the daemon's own prints rides along unchanged.**
+  The demand-report and heartbeat quotes still contain ` -- ` and all-caps
+  emphasis, which is exactly what backlog line 30 records; the README-DELTA
+  ruling says verbatim quotes of shipped output stand until the prints
+  themselves are fixed. Those two fenced blocks are the ones to refresh in the
+  daemon-repair series.
+
+### Landing block (main is the user's alone)
+
+Committed on `claude/amazing-keller-e798b6`; nothing pushed, nothing merged.
+
+    git checkout main
+    git merge --ff-only claude/amazing-keller-e798b6
+    git push origin main
+
+## Unit 41-REPAIR audit (Architect, 2026-07-14): PASS on the production substance — every gate re-run and reproduced, the old adversarial witness re-run as an independent negative control, two unscripted mutation probes; ONE REQUIRED DELTA on the converted witness (its artifact arm is not production-coupled); committed on the branch
+
+Audit of the second-Implementer return above (mailbox 0147), against dispatch
+0142 and the units 41+53 adjudication. Every command below was executed by
+this auditing turn on this Mac with the same interpreter the return names
+(`PYTHONPATH=. /Users/vivianmiranda/miniforge/envs/cosmology/bin/python3`).
+The working tree is shared with the uncommitted units 84+85 landing; file
+ownership was verified DISJOINT from both sides (the return's six-file list
+and the 84+85 section's "Tree state at handover" list agree, and no file
+appears in both).
+
+### What I re-ran and reproduced
+
+- **GREEN-after, reproduced exactly:** `gates/checks/redteam_unit41_policy_witness.py`
+  → 16 PASS / 0 FAIL, terminal line `unit41-policy: ALL PASS`, rc 0. The
+  per-arm details match the pasted stream (owner lines 2746/2748, the
+  composed `rescnn_nla` label, the `('H', 'power')` ordered record).
+- **py_compile:** all six touched files, rc 0.
+- **`git diff --check`:** clean.
+- **Live figure probe (mine, unscripted):** drove `resolved_sweep_record` →
+  `sweep_design_label` → `plot_sweep_curve(design_label=...)` end to end on
+  the Agg backend with a swept activation record; a real 17,126-byte PDF was
+  written and the title carried the full design
+  (`rescnn_nla (none; activation swept, n_gates 5; values H, power; head
+  gated_power, n_gates 7)`).
+
+### The independent negative control (the strongest evidence here)
+
+I extracted the OLD committed adversarial witness from HEAD and ran it
+against the repaired tree. It now REDS, exactly as a real repair demands:
+
+- its "artifact omits the resolved AMP dtype and scaler policy" arm FAILS
+  with readback keys **including** `amp_dtype` and `scaler_policy` — and the
+  old witness builds its fixture purely from the `resolved_train` literal
+  keys it extracts from `emulator/training.py`, injecting nothing, so this
+  is production-coupled proof that the persistence half is real;
+- its "AMP dtype is locally re-derived" arm FAILS (assignments now only in
+  `run_emulator`);
+- it then CRASHES (`NameError: run_record`) evaluating the N-train driver's
+  metadata expression, because the raw-flag mapping it was written to indict
+  no longer exists — the drivers now publish `dict(run_record)`.
+
+### Unscripted mutation probes (both restored byte-exact afterward)
+
+1. **Persistence-line deletion — THE FINDING.** I deleted the two lines
+   `"amp_dtype": str(amp_dtype),` / `"scaler_policy": scaler_policy,` from
+   `resolved_train` in `emulator/training.py` and re-ran the CONVERTED
+   witness: **still ALL PASS (16/16, rc 0).** Its `check_amp_artifact`
+   builds the fixture from the extracted production keys but then INJECTS
+   `amp_dtype`/`scaler_policy` unconditionally (witness lines 225–226), so
+   the arm certifies that `save_emulator` round-trips fields handed to it —
+   never that production hands them. A one-revert regression of the unit's
+   central claim is invisible to its own acceptance gate. This is the
+   dead-network class (a gate a do-nothing production passes), and it is the
+   ONE REQUIRED DELTA below.
+2. **Driver-metadata revert.** I restored the N-train driver's old
+   handwritten `meta={...}` dict; the witness CRASHES (rc 1, `NameError`)
+   through its AST-extracted expression — the sweep-product half IS
+   load-bearing on production. Probe reverted.
+
+Also noted, not delta-blocking: three of the four "mutation controls" inside
+the converted witness are self-referential (they mutate a local copy and
+assert the copy differs — e.g. `raw_flag_mutation = None` at :549 can never
+fail while arm 5 passes). The real catch power lives in the AST extraction
+arms, which probe 2 proved live. The delta may drop or arm the decorative
+controls, but must not weaken the extraction arms.
+
+### Adjudication
+
+- **Production substance: PASS.** Both authorized halves implemented as
+  ruled; house style holds in all five production files (paren alignment,
+  named parameters, formal `Arguments:` blocks, explicit loops); no gate
+  threshold, fixture, or golden base outside the named witness conversion
+  was touched by this unit (the witness is not a board entry —
+  `gates/board.py` has no unit41 reference).
+- **Witness conversion: authorized and executed, ONE REQUIRED DELTA.** The
+  conversion itself was ordered by dispatch 0142 and the witness's own
+  pre-repair header. The delta (to Sol, second-Implementer mode, same unit):
+  `check_amp_artifact` must (a) assert `"amp_dtype"` and `"scaler_policy"`
+  are MEMBERS of the keys extracted from the production `resolved_train`
+  literal, and (b) stop injecting those two fields into the fixture — the
+  fixture carries only extracted keys, exactly the old witness's discipline
+  inverted to positive. Acceptance: the new arm reds under probe 1's
+  deletion and stays green on the repaired tree. Optionally retire or arm
+  the decorative controls; extraction arms untouched.
+- **Deviations approved.** (1) No `codex/unit-41-repair` branch: the sandbox
+  denial is proven environmental (same class as the four unlinked-clone
+  holds); re-cutting the diff onto a main-based branch from a tree shared
+  with 84+85 buys isolation nothing now — the SHA is created on
+  `claude/amazing-keller-e798b6` by this auditing turn, per the :11702
+  standing rule and the landing-1 precedent. (2) The recorded policy is the
+  executed `unscaled`; the 45M-39 gradient-scaling repair stays separate, as
+  the return states. The `scaler_policy != "unscaled"` guard in
+  `training_loop_batched` is the right refusal shape for that future unit.
+- **Commit content:** the six unit-41 files plus the ledger notes
+  (`gates-and-board.md`, `training-stack.md`, `backlog.md`, `MEMORY.md`) and
+  the 0147 mailbox routing copy. The 84+85 / unit-53 / unit-13 CODE stays
+  uncommitted awaiting its own audits; their note sections ride only as
+  ledger records inside the shared note files, which certify nothing.
+
+No self-certification is claimed for anything beyond this audit's own
+probes; merge and push to main remain the user's alone.
+
+### Landing block (main is the user's alone)
+
+Committed on `claude/amazing-keller-e798b6` (SHA in the commit below);
+nothing pushed, nothing merged. After the witness delta lands and is
+audited, unit 41-REPAIR closes fully; main lands by the usual squash:
+
+    git checkout main
+    git merge --squash claude/amazing-keller-e798b6
+    git commit   # one didactic message per the main-history rule
+    git push origin main
+
+## Unit 53-REPAIR adjudication (Architect, 2026-07-14): return ACCEPTED, transport HOLD — the tip is unreachable; RED-before reproduced from the exact base by the auditor; the audit is pre-armed
+
+Sol's second-Implementer return for unit 53-REPAIR (routing readback above,
+"Unit 53-REPAIR return routed from the isolated Sol clone") is adjudicated
+this turn. The verdict has two independent parts.
+
+**Part 1 — the return itself is ACCEPTED as a compliant phase-one handback.
+No strike.** The handoff names its base, both SHAs, the branch, the gate
+streams, the fan-out, and the no-self-certification line, and it deviated
+from the blueprint only where the environment forced it: the shared `.git`
+is read-only from Sol's sandbox, so the requested linked worktree could not
+be created and the work lives in an isolated clone. That is the same
+environmental blocker already ruled no-strike four times (tools-review,
+TEX-PROSE-04/06, TEX-PROSE-07/08, unit 96, unit 94), and it is bilaterally
+confirmed: no headless turn on this side can read the clone path or fetch
+from it either (re-probed this turn — the clone read stops at an approval
+gate).
+
+**Part 2 — the substance is UNADJUDICATED: transport HOLD.** Verified this
+turn from the home store:
+
+- `git cat-file -t e198bc9f549f555c58370274bde477e307a38d21` and
+  `git cat-file -t 9cdb98ff20c71465c4abfd8a2425fc45bde0e2ff` both fail —
+  neither the handback tip nor the code commit exists in the shared object
+  database.
+- `codex-unit53-repair` appears nowhere in `git worktree list` — it is an
+  UNLINKED clone, so the linked-worktree commit path used for 68f0e77 does
+  not apply. This is the unlinked-clone HOLD class: user-owed transport,
+  from both lanes.
+
+**What the auditor DID verify from the reachable side (the audit is
+pre-armed at publication):**
+
+1. **Base lineage.** `14b416c` is an ancestor of main `f347b8f` — Sol's
+   base is a real, current main commit.
+2. **RED-before reproduced independently.** The five tune drivers plus the
+   committed witness were extracted from `14b416c` into a scratch layout by
+   this turn's own `git show` calls and the witness run under python3: all
+   ten negative arms PASS (defect reproduced), terminal line
+   `ALL CURRENT DEFECTS REPRODUCED (review witness, not acceptance)`,
+   exit 0. This matches Sol's RED-before claim without using Sol's stream.
+   Raw output:
+
+       [PASS] no canonical study-manifest owner exists  (owner files=[])
+       [PASS] the driver writes only per-trial median attributes  (attribute calls=[('set_user_attr', 192), ('set_user_attr', 370)])
+       [PASS] the direct cosmolike default forks the historic study name  (selected='cosmic_shear_tune_emulator')
+       [PASS] wrapper naming depends on the mutable program label  (stable='scalar_tune_emulator'; renamed='renamed_scalar_cli')
+       [PASS] all five family routes accept a legacy no-manifest study  (routes=5)
+       [PASS] one old COMPLETE trial suppresses the manifest-owned default control  (enqueued defaults=[] on every route)
+       [PASS] an incomparable old trial is reported as every route's winner  (best params={'old_config': 'manifest-A'})
+       [PASS] workers stage scientific inputs before loading the journal  (calls before load=[('set_device', 153), ('device', 154), ('from_config', 156), ('stage_train', 161), ('stage_val', 162), ('build_geometry', 163), ('set_verbosity', 166)])
+       [PASS] failed workers plus an old COMPLETE trial still report success  (exitcodes=[1, 1])
+       [PASS] the final report names neither stable study name nor manifest digest  (final log='resuming study in /tmp/tune_journal.log: ...')
+       ALL CURRENT DEFECTS REPRODUCED (review witness, not acceptance)
+
+3. **The witness-conversion authorization is REAL.** Sol's handoff calls the
+   negative-to-positive rewrite "explicitly authorized"; the committed
+   witness's own docstring (lines 10-12) says exactly that: "Once production
+   is repaired, the repair must replace these negative witnesses with
+   positive manifest acceptance arms plus mutations that restore the observed
+   failures." The conversion is inside the ruled contract, not a gate
+   weakening — PROVIDED the mutations survive (probe list below).
+4. **The base witness digest is PINNED for the gate-integrity diff:**
+   sha256 `1ff10d6e62a8c89ca50a801e2259febcecf5652ae7ade8cc75d1c5e885b00084`
+   for `gates/checks/redteam_unit53_manifest_witness.py` at `14b416c` —
+   byte-identical at main `f347b8f`, at branch tip `c224a79`, and in this
+   working tree. At fetch, the branch's whole `gates/` diff must reduce to
+   the conversion of this one file; any OTHER gate-surface change is
+   unnamed tampering under audit rule 4.
+5. **The seam is conflict-free.** `git diff` over the six unit-53 surface
+   files (five tune drivers + the witness) is EMPTY between `14b416c` and
+   main, between `14b416c` and this branch tip, and in the working tree —
+   Sol's surface has not moved under it, and it is disjoint from the
+   in-flight fixed-facts adapter-half files (cobaya_theory/, inference.py,
+   fixed_facts.py, generator_core.py, the six identity checks).
+
+**Pre-armed probes for the post-fetch audit** (beyond re-running Sol's
+streams):
+
+- **Production-coupling probe — the unit-41 artifact-arm class.** The 41
+  audit caught the converted witness injecting the very fields it claimed
+  to check, so a reverted production stayed ALL PASS. Same probe here:
+  revert the manifest write / name resolver / default-control /
+  worker-refusal in production one at a time and demand the converted
+  witness reds each time. Any arm that stays green against a reverted
+  production is not load-bearing.
+- All ten original defect classes must survive as executable mutation arms
+  (the docstring's own condition), each re-run by the auditor.
+- The owner-file arm must have inverted honestly: production now ships a
+  study+manifest-named module that the old rglob arm would have found.
+- An unscripted renamed-prog probe of my own: run a route under a renamed
+  argv[0] and demand the SAME stable study name and manifest digest — the
+  name must be family-owned, not label-derived.
+- Scope: exactly nine touched Python files, all inside the unit (drivers +
+  witness + the manifest/digest/resolver modules); `git diff --stat
+  14b416c..e198bc9` shows nothing else.
+
+**User-owed transport** (the only open action; run from the main checkout):
+
+    cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+    git fetch .claude/worktrees/codex-unit53-repair codex/unit-53-repair:codex/unit-53-repair
+    git rev-parse codex/unit-53-repair
+    # must print e198bc9f549f555c58370274bde477e307a38d21
+
+Audit re-request trigger (same convention as tools-review):
+`codex/unit-53-repair reachable at e198bc9`. Until then the tip stays
+FROZEN — evidence gaps travel in delta messages, the tip is never
+rewritten (the RULING-A channel). This entry is an adjudication of the
+handback's transport and reachable evidence, not an audit PASS of the
+substance; nothing here authorizes a merge.

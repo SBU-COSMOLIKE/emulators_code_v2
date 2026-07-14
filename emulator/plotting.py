@@ -310,6 +310,7 @@ def plot_sweep_curve(param,
                      fracs,
                      threshold=0.2,
                      target=0.10,
+                     design_label=None,
                      savepath=None):
   """
   One-hyperparameter sweep figure: f(delta-chi2 > threshold) vs the
@@ -333,6 +334,8 @@ def plot_sweep_curve(param,
                 the y axis).
     target    = a horizontal guide at the target fraction (default
                 0.10); None to omit it.
+    design_label = resolved model and activation facts shown as the title;
+                   None omits the title.
     savepath  = if given, write the figure there and close; else
                 show.
   """
@@ -373,6 +376,8 @@ def plot_sweep_curve(param,
     ax.set_yscale("log")
   ax.set_xlabel(param)
   ax.set_ylabel(rf"$f(\Delta\chi^2 > {threshold:g})$")
+  if design_label is not None:
+    ax.set_title(design_label)
   if target is not None:
     ax.axhline(target, color="0.6", ls="--", lw=1,
                label=f"target {target:g}")

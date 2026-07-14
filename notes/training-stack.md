@@ -3877,3 +3877,38 @@ without claiming that study hashes validate `.ranges` semantics.
 
 This readback is independent Red Team evidence for Fable adjudication.  It is
 not self-certification, production-repair authorization or merge authority.
+
+## Unit 41-REPAIR second-Implementer readback (2026-07-14): positive witness GREEN; independent audit pending
+
+The repair implements the two contracts held above.  `run_emulator` is now
+the sole assignment owner for `amp_dtype` and `scaler_policy`; it passes those
+values into both training-loop call sites and persists them in
+`resolved_train`.  The current numerical behavior is recorded without being
+redesigned: MPS selects `torch.float16`, other devices select
+`torch.bfloat16`, and the existing no-scaler step is named `unscaled`.  The
+separate 45M-39 repair remains separate.
+
+The N-train and ordinary hyperparameter sweep paths now construct one
+immutable resolved record before choosing serial or pooled execution.  That
+record supplies worker activation/rescale, table metadata and figure/banner
+labels.  It carries the resolved shared activation and gate count, the head
+pin and its gate count, and the resolved composed model name.  An
+activation-family sweep instead carries `activation: swept` plus the ordered
+values; fixed sweeps carry the activation that actually ran.  The pooled
+fixtures read back `power` from both paths, and the composed fixture reads back
+`rescnn_nla` rather than the template class name.
+
+`gates/checks/redteam_unit41_policy_witness.py` is now a positive acceptance
+witness, as its original header required after repair.  Its 16 positive arms
+all pass, including four mutation/control checks: both persisted fields
+removed, loop-local dtype ownership restored, raw optional activation
+restored, and activation order reversed.  The full raw streams and command are
+in `notes/gates-and-board.md`, section "Unit 41-REPAIR implementation return".
+All six touched Python files compile; the real categorical plot writer also
+produced a nonempty PDF with the design label.
+
+Git publication is the only blocker: the sandbox denied the linked-worktree
+`index.lock`, so the requested branch and SHA could not be created.  The
+complete diff remains in the Architect worktree for readback and
+materialization.  This is second-Implementer evidence awaiting independent
+Architect audit.  It is not self-certification and does not authorize a merge.

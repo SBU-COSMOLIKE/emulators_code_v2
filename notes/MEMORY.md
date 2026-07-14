@@ -56,6 +56,10 @@ numbered mailbox file after recording the substance under `notes/`.
   script, roughness, diagnostics dispatch) + the D-CM12 SPEC AWAITING
   AUDIT and D-CM13 IMPLEMENTED (heads on every coordinate family,
   user-ordered 2026-07-11).
+- [Unit-13 covariance implementation return](families-scalar-cmb.md#unit-13-covariance-package--red-team-implementation-readback-2026-07-14)
+  — red-team-owned validator package at 2fd8a9d: five pure witnesses green,
+  explicit flat-LCDM params, full raw evidence and fetch block; awaiting
+  Architect audit, with the real-CAMB/Torch workstation legs honestly owed.
 - [Families: background + matter power](families-background-mps.md)
   — BSN (two-regime, imposed distances, flat-only, the Simpson
   finding) and MPS (correction-to-syren, D-MP2-A base-on-disk, the
@@ -170,3 +174,22 @@ numbered mailbox file after recording the substance under `notes/`.
   re-fire closed on arrival") proved archival fails after a CLEAN turn too and
   head-blocks the lane; 0132 was hand-archived to done/ to unwedge
   0133/0134/0136, watcher restart still user-owed.
+- [Unit 41-REPAIR second-Implementer return](gates-and-board.md#unit-41-repair-implementation-return-second-implementer-2026-07-14-policy-and-sweep-records-green-architect-audit-requested-git-publication-blocked-by-sandbox)
+  — persisted AMP dtype/scaler policy and one immutable sweep record now feed
+  both serial/pooled paths, tables, banners and figures; the converted positive
+  witness is 16/16 GREEN with mutation controls, all six Python files compile,
+  and a real design-labeled PDF writes. Independent audit is pending; the
+  managed turn could not create the requested branch/SHA because linked-worktree
+  Git metadata is read-only.
+- [AI-loop docs moved to notes/README.md + the daemon options passage](gates-and-board.md#ai-loop-documentation-the-section-moved-out-to-notesreadmemd-and-the-daemons-options-got-a-passage-implementer-2026-07-14-mailbox-dispatch-riding-0045) — the 0045 restructure and the options directive land in one commit: README.md section 24 is now a three-sentence pointer (the `#24-ai-usage` anchor is kept) and `notes/README.md` is the loop's own document, with a new `--help`-anchored options section covering all twelve flags (the fenced help block is machine-diffed byte-exact against the real command, and compaction plus the two separate context keys are explained from scratch). Three things for the Architect: the merge-authority sentence now says the architect merges (the 0045 fifth deliverable overrode the old "human maintainer only" line), no `- OPEN` ledger line retires here, and `--fix-only` stays undocumented until its code lands.
+- [Unit 41-REPAIR audit: PASS on substance; one required witness delta; committed on the branch](gates-and-board.md#unit-41-repair-audit-architect-2026-07-14-pass-on-the-production-substance--every-gate-re-run-and-reproduced-the-old-adversarial-witness-re-run-as-an-independent-negative-control-two-unscripted-mutation-probes-one-required-delta-on-the-converted-witness-its-artifact-arm-is-not-production-coupled-committed-on-the-branch)
+  — every gate re-run and reproduced (16/16, py_compile, diff --check, a live
+  design-labeled PDF probe); the OLD adversarial witness re-run as a negative
+  control REDS against the repaired tree, proving both halves production-real;
+  the audit's own deletion probe caught the converted witness's artifact arm
+  injecting the policy fields it claims to check (a reverted production stays
+  ALL PASS) — the one required delta, dispatched to Sol; both deviations
+  (no codex branch, unscaled-only policy) approved; the six unit-41 files +
+  ledger notes committed on claude/amazing-keller-e798b6, foreign uncommitted
+  code untouched.
+- [Unit 53-REPAIR return adjudicated: ACCEPTED; transport HOLD; audit pre-armed](gates-and-board.md#unit-53-repair-adjudication-architect-2026-07-14-return-accepted-transport-hold--the-tip-is-unreachable-red-before-reproduced-from-the-exact-base-by-the-auditor-the-audit-is-pre-armed) — Sol's second-Implementer return (tip `e198bc9` on `codex/unit-53-repair`, base `14b416c`) is a compliant handback in the known unlinked-clone class (environmental, no strike, sixth instance); the Architect reproduced RED-before 10/10 from a scratch extraction of the exact base, pinned the base witness digest `1ff10d6e...` (byte-identical on every reachable tip — the fetch-time gate diff must reduce to the one authorized witness conversion), verified the six-file seam conflict-free and disjoint from the in-flight adapter half, and pre-armed the production-coupling probe the unit-41 audit made mandatory; the user fetch printed in the entry is the only open action, re-request trigger `codex/unit-53-repair reachable at e198bc9`.

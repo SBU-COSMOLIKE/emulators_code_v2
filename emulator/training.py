@@ -1770,7 +1770,9 @@ def training_loop_batched(nepochs,
                           rewind=False,
                           ema=None,
                           berhu=None,
-                          anchor=None):
+                          anchor=None,
+                          amp_dtype=torch.bfloat16,
+                          scaler_policy="unscaled"):
   """
   Train the emulator, with a validation pass per epoch.
 
@@ -1810,6 +1812,10 @@ def training_loop_batched(nepochs,
                  focus_scale; default 1.0). None -> no focal
                  weighting (gamma = 0).
     thresholds = delta-chi2 cutoffs for the val fractions.
+    amp_dtype  = resolved autocast dtype selected by run_emulator.
+    scaler_policy = resolved gradient-scaling policy selected by
+                    run_emulator. "unscaled" preserves the current
+                    plain backward and optimizer step.
     warmup_epochs = epochs of linear lr ramp before the plateau
                     scheduler takes over (0 = none).
     silent     = if True, suppress all per-epoch and summary
@@ -1884,6 +1890,11 @@ def training_loop_batched(nepochs,
   # integer division up.
   nchunks = (ntrain + load - 1) // load
 
+  if scaler_policy != "unscaled":
+    raise ValueError(
+      "training_loop_batched supports scaler_policy 'unscaled'; got "
+      + repr(scaler_policy))
+
   if not silent:
     print(f"{load} rows/chunk, {nchunks} chunks/epoch, "
           f"amp={use_amp}, loss mode = {mode}")
@@ -1949,9 +1960,6 @@ def training_loop_batched(nepochs,
             f"metrics on the average, scheduler on the raw median)")
 
   train_losses, medians, means, fracs = [], [], [], []
-
-  amp_dtype = (torch.float16 if device.type == "mps"
-               else torch.bfloat16)
 
   # target lr per param group, captured before warmup ramps it;
   # warmup scales each group up to its own base.
@@ -2733,6 +2741,12 @@ def run_emulator(train_set,
   # re-resolves it below (a phase loss: full-replaces the top-level one).
   loss_top = validate_loss(loss, "train_args")
 
+  # Resolve the numerical AMP policy once, beside the artifact record that
+  # persists it. Every training pass consumes these same resolved values.
+  amp_dtype = (torch.float16 if device.type == "mps"
+               else torch.bfloat16)
+  scaler_policy = "unscaled"
+
   # the CMB residual-roughness term: configured once on the run's
   # loss object (the term is per-sample state on the chi2fn, not a per-pass
   # knob; validate_loss already restricted the block to the top level). A
@@ -3099,6 +3113,8 @@ def run_emulator(train_set,
                                  trim_opts=trim_pass,
                                  focus_opts=focus_pass,
                                  use_amp=use_amp,
+                                 amp_dtype=amp_dtype,
+                                 scaler_policy=scaler_policy,
                                  silent=silent,
                                  clip=clip_pass,
                                  rewind=rewind_pass,
@@ -3169,6 +3185,8 @@ def run_emulator(train_set,
                                  trim_opts=trim_pass,
                                  focus_opts=focus_pass,
                                  use_amp=use_amp,
+                                 amp_dtype=amp_dtype,
+                                 scaler_policy=scaler_policy,
                                  silent=silent,
                                  clip=clip_pass,
                                  rewind=rewind_pass,
@@ -3205,6 +3223,8 @@ def run_emulator(train_set,
     "seed": seed,
     "thresholds": [float(t) for t in thresholds],
     "use_amp": bool(use_amp),
+    "amp_dtype": str(amp_dtype),
+    "scaler_policy": scaler_policy,
     "clip": clip,
     "rewind": bool(rewind),
     "trunk_epochs": trunk_epochs,
