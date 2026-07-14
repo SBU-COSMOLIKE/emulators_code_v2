@@ -272,6 +272,15 @@ When a summary and its cited note disagree, the current note is the source of
 record. `notes/MEMORY.md` continues to tell a cold reader which topic note or
 registry to open first.
 
+Relay transport copies (Fable addendum, 2026-07-14): the clipboard router
+`tools/handoff_router.py` archives every captured chat block under
+`notes/relay/` and its local gate logs beside them. Those files are
+TRANSPORT COPIES for traceability only -- they are never the source of
+record, never cited as evidence, and never edited. The agent-written note a
+block cites remains the record; the router's gate log is corroborating
+input to the Architect's audit, which still performs its own re-runs.
+
+
 ## Environment
 
 - Mac M2 32 GB (dev): python3 is homebrew with numpy + stdlib ONLY —

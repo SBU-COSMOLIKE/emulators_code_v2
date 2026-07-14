@@ -3312,3 +3312,16 @@ evidence before subtraction; my six-probe sweep 6/6; the retired
 formula's falsely-true witness executable in the selftest). Spec:
 gates-and-board.md "Notes-first rule + unit-90 closure +
 DIDACTICS-61 + the gate-integrity doctrine".
+
+SKIPPED-LEG + ROUTER (2026-07-14, Fable): skipped-not-reached
+legs RULED always-emit + UNAVAILABLE naming the upstream leg
+(FAIL only for legs that ran; declared-not-executed becomes a
+pure wiring signal); applied as one post-fan-out sweep,
+Implementer custody. tools/handoff_router.py delivered
+(user-requested tooling exception): pointer-based relay
+(notes-first), machine-run local gates archived under
+notes/relay/ as non-authoritative transport copies (conventions
+addendum), role files govern, --mode backup inserts the explicit
+Sol declaration, the draft's self-capture bug fixed. Spec:
+gates-and-board.md "Skipped-leg manifest ruling + the handoff
+router".

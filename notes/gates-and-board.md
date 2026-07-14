@@ -8277,3 +8277,51 @@ draft (re-diff against the current file). NOT building the child.
 identity/-smoke, transfer-identity/-smoke): mine; record the
 post-25M-37 results (finetune-identity child all-green; transfer-
 identity full check set + the known cross-family-fixture red).
+
+## Skipped-leg manifest ruling + the handoff router (Fable, 2026-07-14)
+
+SKIPPED-LEG CONSISTENCY RULING (batch 7's routed question): the
+program standardizes on ALWAYS-EMIT — every child prints exactly
+its N declared terminals every run (bsn-smoke's finally backfill
+shape) — but a leg skipped because an upstream group failed is
+marked UNAVAILABLE with a reason NAMING the upstream leg, not
+FAIL. Rationale: FAIL asserts the leg ran and failed, which is
+untrue for a never-reached leg; UNAVAILABLE states exactly the
+truth (no evidence this run) with no false-green risk — the
+upstream leg is already FAIL and rc nonzero, and the pathological
+all-UNAVAILABLE rc-0 case is killed by the zero-real-PASS guard.
+The always-emit half makes reconciliation's declared-not-executed
+red a PURE wiring-defect signal, never ambiguous with an upstream
+failure. APPLICATION: one consistency sweep AFTER the fan-out
+completes (bsn-smoke FAIL->UNAVAILABLE in the backfill;
+mps/cmb-smoke gain the finally backfill; one selftest arm: a
+skipped-leg manifest shows UNAVAILABLE naming its upstream leg
+and the gate stays red) — Implementer custody, do not re-touch
+migrated children mid-batches. The bash-3.2 declare -A aside is
+acknowledged as model 7b disclosure (self-caught, verified tree,
+no action).
+
+THE HANDOFF ROUTER (user-requested; a direct-to-Architect tooling
+exception to hands-off coding, recorded as such):
+tools/handoff_router.py — a clipboard relay for the three web
+sessions that AUTOMATES the copy/paste loop without weakening any
+rule. The user's draft had four rule collisions, each fixed in
+the rewrite: (1) it carried the spec INLINE and captured handoffs
+to chat only — the rewrite relays POINTERS to notes/ entries
+(notes-first) and archives captured blocks under notes/relay/ as
+marked TRANSPORT COPIES (a new conventions addendum makes them
+explicitly non-authoritative); (2) its Fable prompt said
+"determine pass/fail" from pasted logs — the rewrite's audit
+prompt directs auditing per the role file with OWN RE-RUNS, the
+router's locally-executed gate log being corroborating input
+(gate-integrity screen); (3) it restated roles inline — the
+rewrite lets role files govern (the ONE inline rule is the
+explicit backup-Implementer sentence, inserted by --mode backup
+per the role rule); (4) a capture bug — its wait compared against
+the wrong baseline so the Sol prompt (containing "HANDOFF") would
+self-capture instantly — fixed by tracking the last-copied text
+per stage with stage-specific markers. Local gates default to
+compileall + --list + board-selftest and are replaceable per unit
+(--gate-cmd), full streams to the relay log, verdicts-only on the
+terminal. No agent ever produces the router's gate log; the
+machine does — the objective anchor against hallucinated gates.
