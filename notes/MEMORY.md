@@ -18,7 +18,10 @@ relevant topic note before implementation.
 Hard communication rule: the substantive exchange between Fable, the
 Implementer and the Red Team is written under `notes/` before a chat relay is
 sent. Chat handoffs are summaries that cite the durable note. See
-`conventions-and-workflow.md`, "Notes-first inter-agent communication."
+`conventions-and-workflow.md`, "Notes-first inter-agent communication." The
+same rule governs `notes/mailbox/` dispatches: a mailbox file is a routing
+summary, and a mailbox-started turn writes its outbound block to the next
+numbered mailbox file after recording the substance under `notes/`.
 
 - [State + chronological ledger](state-2026-07-11-and-next.md) — the
   historical run trail, adjudication batches, queue changes, retractions, and
