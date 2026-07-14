@@ -57,6 +57,26 @@ def report(label, ok, detail):
     FAILURES.append(label)
 
 
+def emit_aid(aid, n_before):
+  """Emit ONE '##AID <aid> <PASS|FAIL>' line for a whole acceptance leg.
+
+  (queue 2) The board's run_check folds these reserved lines into the gate's
+  executed set: one per declared leg, at the leg's aggregation point. This
+  child carries four legs — the predictor-vs-training parity and the
+  scattered-vector shape/mask group, for each of the plain and factored
+  variants. A leg's verdict is FAIL if its group appended a label to the
+  module-level FAILURES list; the child's exit status stays the single
+  aggregate verdict. The board gate's own evaluate legs are separate aids,
+  asserted in the wrapper, because this child does not run them.
+
+  Arguments:
+    aid      = the board-unique leg id, "cobaya-adapter.<leg>".
+    n_before = len(FAILURES) captured immediately before the leg's checks ran.
+  """
+  mark = "PASS" if len(FAILURES) == n_before else "FAIL"
+  print("##AID " + aid + " " + mark)
+
+
 def training_side(exp, probe, factored):
   """The training-stack physical data vectors on the probe rows.
 
@@ -80,17 +100,22 @@ def training_side(exp, probe, factored):
   return dv.detach().cpu()
 
 
-def run_parity(name, cfg, device, tmp, factored):
+def run_parity(name, cfg, device, tmp, factored, parity_aid, shape_aid):
   """Train + save one variant, then compare the predictor to training.
 
   Arguments:
-    name     = the variant label (plain / factored).
-    cfg      = the variant config dict.
-    device   = the torch device.
-    tmp      = the temp directory to save under.
-    factored = True for the ia run (selects the decode path).
+    name       = the variant label (plain / factored).
+    cfg        = the variant config dict.
+    device     = the torch device.
+    tmp        = the temp directory to save under.
+    factored   = True for the ia run (selects the decode path).
+    parity_aid = this variant's declared parity leg (the rtol 1e-6
+                 predictor-vs-training comparison).
+    shape_aid  = this variant's declared scattered-vector leg (the section
+                 length, the 3x2pt length, and the masked-zero positions).
   """
   save_root = Path(tmp) / ("emul_" + name)
+  n_parity = len(FAILURES)
   exp, probe, _ = train_save(cfg=cfg, device=device, save_root=save_root)
   ts = training_side(exp=exp, probe=probe, factored=factored)
 
@@ -127,8 +152,10 @@ def run_parity(name, cfg, device, tmp, factored):
   report(name + ": predictor matches the training side (rtol 1e-6)",
          worst <= 1.0e-6,
          "worst relative error " + repr(worst))
+  emit_aid(parity_aid, n_parity)
 
   # shape + masking assertions on one representative row.
+  n_shape = len(FAILURES)
   row0  = exp.val_set["C"][0]
   sec0  = torch.as_tensor(pred_sec.predict(row0), dtype=ts.dtype)
   full0 = torch.as_tensor(pred_full.predict(row0), dtype=ts.dtype)
@@ -145,6 +172,7 @@ def run_parity(name, cfg, device, tmp, factored):
   report(name + ": masked positions exactly 0.0 in the 3x2pt vector",
          nonzero_masked == 0,
          str(nonzero_masked) + " masked positions nonzero")
+  emit_aid(shape_aid, n_shape)
 
 
 def main():
@@ -167,12 +195,16 @@ def main():
              cfg=tiny_config(data_dir),
              device=device,
              tmp=tmp,
-             factored=False)
+             factored=False,
+             parity_aid="cobaya-adapter.plain-predictor-parity",
+             shape_aid="cobaya-adapter.plain-scattered-vector-shape-and-mask")
   run_parity(name="factored",
              cfg=tiny_config(data_dir, ia="nla"),
              device=device,
              tmp=tmp,
-             factored=True)
+             factored=True,
+             parity_aid="cobaya-adapter.factored-predictor-parity",
+             shape_aid="cobaya-adapter.factored-scattered-vector-shape-and-mask")
 
   print("")
   print("note: the example evaluate run (cobaya-run vs the lsst_y1 "

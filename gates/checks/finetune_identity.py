@@ -73,6 +73,25 @@ def report(label, ok, detail):
     FAILURES.append(label)
 
 
+def emit_aid(aid, n_before):
+  """Emit ONE '##AID <aid> <PASS|FAIL>' line for a whole acceptance leg.
+
+  (queue 2) The board's run_check folds these reserved lines into the gate's
+  executed set: one per declared leg, at the leg's aggregation point, not one
+  per sub-check. A leg here is one check_* function; its verdict is FAIL if
+  that function appended any label to the module-level FAILURES list while it
+  ran. The child's exit status stays the single aggregate verdict — these
+  lines add no new judgement, they only say WHICH declared leg each report
+  belonged to.
+
+  Arguments:
+    aid      = the board-unique leg id, "finetune-identity.<leg>".
+    n_before = len(FAILURES) captured immediately before the leg's checks ran.
+  """
+  mark = "PASS" if len(FAILURES) == n_before else "FAIL"
+  print("##AID " + aid + " " + mark)
+
+
 def spd(n, seed):
   """A random symmetric positive-definite matrix (n x n)."""
   g = np.random.default_rng(seed)
@@ -496,13 +515,37 @@ def main():
   cov_path = Path(tmp) / "new.covmat"
   write_covmat(cov_path, source_names() + EXTRAS, seed=12)
 
+  # Each declared leg emits ONE ##AID line at its aggregation point (here,
+  # one check_* function per leg). n0 = the FAILURES count just before the
+  # leg, so emit_aid reads that leg's own verdict, not the child-wide one;
+  # the seven aids are the seven the board declares in evidence=.
+  n0 = len(FAILURES)
   pgeom_new, extra_names = check_encoding(source, str(cov_path), device)
+  emit_aid("finetune-identity.extended-parameter-encoding", n0)
+
+  n0 = len(FAILURES)
   check_transfer(source, pgeom_new, device)
+  emit_aid("finetune-identity.weight-transfer-and-padding", n0)
+
+  n0 = len(FAILURES)
   check_parity(source, pgeom_new, extra_names, device)
+  emit_aid("finetune-identity.pre-train-parity", n0)
+
+  n0 = len(FAILURES)
   check_pin(source)
+  emit_aid("finetune-identity.output-geometry-pin", n0)
+
+  n0 = len(FAILURES)
   check_degenerate(source, tmp, device)
+  emit_aid("finetune-identity.degenerate-no-extras-identity", n0)
+
+  n0 = len(FAILURES)
   check_errors(source, tmp, device)
+  emit_aid("finetune-identity.loud-config-errors", n0)
+
+  n0 = len(FAILURES)
   check_anchor(source, pgeom_new, device)
+  emit_aid("finetune-identity.anchor-mask-and-freedom", n0)
 
   print("")
   if len(FAILURES) == 0:

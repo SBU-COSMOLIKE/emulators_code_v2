@@ -96,8 +96,11 @@ PREAMBLE = (
     "read them first. Do the work per your role file. End your turn by\n"
     "(1) writing your substance to the appropriate notes/ entry and\n"
     "(2) writing your outbound handoff block to a NEW file\n"
-    "notes/mailbox/<seq>-to-<fable|opus|sol>.md using the next sequence\n"
-    "number (see the mailbox directory). Merges and pushes to main remain\n"
+    "<seq>-to-<fable|opus|sol>.md using the next sequence number, INSIDE\n"
+    "THIS EXACT DIRECTORY (your cwd may differ -- a relative notes/mailbox\n"
+    "path is wrong unless it resolves here):\n"
+    "    " + MAILBOX + "\n"
+    "Merges and pushes to main remain\n"
     "the user's alone -- print a landing block in the note instead of\n"
     "running one.\n\n"
     "--- MESSAGE ---\n")

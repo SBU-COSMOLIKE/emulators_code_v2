@@ -1093,10 +1093,13 @@ def gate_gsv_c(ctx):
   artifacts-inference-warmstart.md:86-93; gates-and-board.md:66-71).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
+  # the seven legs are asserted IN the child, which emits one ##AID each; this
+  # rc check is the child's single aggregate verdict, so it carries no aid of
+  # its own (a wrapper cannot re-claim what the child proved).
   rc, out = ctx.run_check("gates/checks/gsv_bitwise_drift.py")
   if ctx.dry:
     return
-  ctx.expect(label="save-rebuild-drift save->rebuild bitwise + drift + v1-refusal",
+  ctx.expect(label="save-rebuild-drift child completed",
              ok=(rc == 0),
              detail="check exit code " + str(rc)
                     + " (gates/checks/gsv_bitwise_drift.py)")
@@ -1114,9 +1117,12 @@ def gate_gct_c(ctx):
   save-rebuild-drift (spec: artifacts-inference-warmstart.md:117-123, 234-238).
   """
   ctx.require_caps("torch", "cosmolike", "cobaya", "gpu")
+  # the four parity legs are asserted IN the child (one ##AID each); this rc
+  # check is its aggregate verdict and carries no aid. The evaluate legs below
+  # are the wrapper's own — the child does not run cobaya.
   rc, out = ctx.run_check("gates/checks/gct_parity.py")
   if not ctx.dry:
-    ctx.expect(label="cobaya-adapter parity probe (rtol 1e-6) + factored round-trip",
+    ctx.expect(label="cobaya-adapter parity child completed",
                ok=(rc == 0),
                detail="check exit code " + str(rc)
                       + " (gates/checks/gct_parity.py)")
@@ -1129,6 +1135,7 @@ def gate_gct_c(ctx):
     evaluate_h5 = (ctx.rootdir() / str(ctx.cfg.get("driver_root", ""))
                    / "chains" / "gates_emul_evaluate.h5")
     ctx.expect(
+      aid="cobaya-adapter.evaluate-emulator-present",
       label="evaluate emulator present (saved by save-rebuild-drift)",
       ok=evaluate_h5.exists(),
       detail="expected " + str(evaluate_h5) + "; a lone `--gate "
@@ -1143,12 +1150,21 @@ def gate_gct_c(ctx):
     allow_fail=True)
   if ctx.dry:
     return
-  ctx.expect(label="cobaya-adapter example evaluate run completes",
+  ctx.expect(aid="cobaya-adapter.example-evaluate-run-completes",
+             label="cobaya-adapter example evaluate run completes",
              ok=(rc_ev == 0),
              detail="cobaya-run exit code " + str(rc_ev))
-  ctx.log("cobaya-adapter MCMC smoke: a short-chain sampler run confirms the theory "
-          "block drives an MCMC (artifacts-inference-warmstart.md:123); run it with "
-          "an mcmc sampler override once the evaluate leg is green.")
+  # the MCMC smoke was a LOGGED INSTRUCTION, never an executed run: nothing
+  # here starts a sampler, so the declared leg mints UNAVAILABLE rather than
+  # riding the evaluate leg's green (ruling 6 — a wrapper cannot turn an
+  # instruction into evidence).
+  ctx.unavailable(
+    aid="cobaya-adapter.mcmc-smoke",
+    label="cobaya-adapter short-chain MCMC smoke",
+    reason="no sampler run is executed by this gate; the board runs the "
+           "evaluate YAML only. Proving the theory block drives an MCMC "
+           "needs a short-chain run with an mcmc sampler override, which "
+           "this gate does not perform.")
 
 
 def gate_ftw_a(ctx):
@@ -1164,10 +1180,12 @@ def gate_ftw_a(ctx):
   finetune-identity validation gate). torch only, no cosmolike.
   """
   ctx.require_caps("torch")
+  # the seven legs are asserted IN the child (one ##AID each); this rc check is
+  # the child's aggregate verdict and carries no aid of its own.
   rc, out = ctx.run_check("gates/checks/finetune_identity.py")
   if not ctx.dry:
     ctx.expect(
-      label="finetune-identity encode + transfer + parity + degenerate + errors",
+      label="finetune-identity child completed",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
              + " (gates/checks/finetune_identity.py)")
@@ -1191,21 +1209,32 @@ def gate_ftw_b(ctx):
   rc, out = ctx.run_driver(yaml_path=smoke_yaml, allow_fail=True)
   if ctx.dry:
     return
-  ctx.expect(label="finetune-smoke run completes",
+  ctx.expect(aid="finetune-smoke.run-completes",
+             label="finetune-smoke run completes",
              ok=(rc == 0),
              detail="finetune driver exit code " + str(rc))
   ctx.expect(
+    aid="finetune-smoke.parity-verdict-printed",
     label="finetune-smoke pre-train parity verdict printed",
     ok=logscan.search(text=out, pattern=r"finetune parity: max\|dv\|"),
     detail="the [ok] parity line proves epoch 0 reproduces the source")
   ctx.expect(
+    aid="finetune-smoke.warm-start-banner",
     label="finetune-smoke banner names the warm-start source",
     ok=logscan.search(text=out, pattern=r"finetune: from "),
     detail="print_design must announce the source artifact")
-  ctx.log("finetune-smoke save/rebuild + finetuned_from: the saved h5 carries "
-          "the finetuned_from root attr, and a rebuild_emulator round-trip "
-          "predicts identically to the in-memory model (the save-rebuild-drift "
-          "pattern); the Architect confirms these from the saved artifact.")
+  # the provenance + round-trip leg was a LOGGED INSTRUCTION for a human to
+  # confirm from the workstation artifact: this gate opens no saved file, so
+  # the declared leg mints UNAVAILABLE (ruling 6) instead of leaning on the
+  # run-completes green.
+  ctx.unavailable(
+    aid="finetune-smoke.artifact-provenance-and-round-trip",
+    label="finetune-smoke saved-artifact provenance + rebuild round-trip",
+    reason="this gate reads the driver's stdout only; nothing here opens the "
+           "saved .h5 to check the finetuned_from root attr, and no "
+           "rebuild_emulator round-trip is run. The mechanism is asserted by "
+           "finetune-identity; on THIS artifact it is confirmed by hand from "
+           "the workstation run.")
 
 
 def gate_tpe_a(ctx):
@@ -1227,10 +1256,12 @@ def gate_tpe_a(ctx):
   only, no cosmolike.
   """
   ctx.require_caps("torch")
+  # the eight legs are asserted IN the child (one ##AID each); this rc check is
+  # the child's aggregate verdict and carries no aid of its own.
   rc, out = ctx.run_check("gates/checks/transfer_identity.py")
   if not ctx.dry:
     ctx.expect(
-      label="transfer-identity slice + identity + packing + surgery + errors",
+      label="transfer-identity child completed",
       ok=(rc == 0),
       detail="check exit code " + str(rc)
              + " (gates/checks/transfer_identity.py)")
@@ -1254,32 +1285,41 @@ def gate_tpe_b(ctx):
   rc, out = ctx.run_driver(yaml_path=smoke_yaml, allow_fail=True)
   if ctx.dry:
     return
-  ctx.expect(label="transfer-smoke run completes",
+  ctx.expect(aid="transfer-smoke.run-completes",
+             label="transfer-smoke run completes",
              ok=(rc == 0),
              detail="transfer driver exit code " + str(rc))
   ctx.expect(
+    aid="transfer-smoke.parity-verdict-printed",
     label="transfer-smoke epoch-0 parity verdict printed",
     ok=logscan.search(text=out, pattern=r"transfer parity: epoch 0 == frozen base"),
     detail="the [ok] parity line proves epoch 0 is the frozen base")
   ctx.expect(
+    aid="transfer-smoke.transfer-banner",
     label="transfer-smoke banner names the base and form",
     ok=logscan.search(text=out, pattern=r"transfer: from "),
     detail="print_design must announce the base + form/space")
   # The transfer artifact lifecycle: the run SAVES a self-contained
-  # transfer artifact (the correction net + the embedded frozen base). Assert
-  # the save completed and its two output paths printed.
+  # transfer artifact (the correction net + the embedded frozen base). This leg
+  # reads the driver's own two save lines — it proves the save ran and printed
+  # both paths, NOT that the file reloads (that is the UNAVAILABLE leg below).
   ctx.expect(
+    aid="transfer-smoke.saved-artifact-paths-printed",
     label="transfer-smoke saved the transfer artifact",
     ok=logscan.search(text=out, pattern=r"saved emulator ->")
        and logscan.search(text=out, pattern=r"saved run record ->"),
     detail="the composed run persists a reloadable artifact "
            "(the saved file embeds its frozen base)")
-  ctx.log("transfer-smoke artifact provenance + round-trip: the saved .h5 "
-          "carries the transfer_from root attr + the embedded transfer_base "
-          "group, and rebuild_emulator -> composed predict reproduces the "
-          "in-memory composition bitwise (the transfer-identity lifecycle leg "
-          "proves the mechanism; the Architect confirms it on this artifact "
-          "from the workstation).")
+  # same disposition as finetune-smoke: a logged instruction, not a run leg.
+  ctx.unavailable(
+    aid="transfer-smoke.artifact-provenance-and-round-trip",
+    label="transfer-smoke saved-artifact provenance + rebuild round-trip",
+    reason="this gate reads the driver's stdout only; nothing here opens the "
+           "saved .h5 to check the transfer_from root attr and the embedded "
+           "transfer_base group, and no rebuild_emulator -> composed predict "
+           "round-trip is run. The mechanism is asserted by transfer-identity's "
+           "lifecycle leg; on THIS artifact it is confirmed by hand from the "
+           "workstation run.")
 
 
 # --------------------------------------------------------------------------
@@ -2469,7 +2509,24 @@ BOARD = [
        title="Fine-tune warm-start identity",
        tier=TIER_NEW_FEATURES,
        home="artifacts-inference-warmstart",
-       maps="256-273 (encode + transfer + parity + degenerate + error paths)",
+       maps="a synthetic source emulator, warm-started with two extra "
+            "parameters, keeps the source's own encoding and weights, "
+            "reproduces its predictions before the first training step, and "
+            "refuses the configurations that would break that promise",
+       evidence=(Assertion("finetune-identity.extended-parameter-encoding",
+                           "artifacts-inference-warmstart.md#finetune-identity-extended-parameter-encoding"),
+                 Assertion("finetune-identity.weight-transfer-and-padding",
+                           "artifacts-inference-warmstart.md#finetune-identity-weight-transfer-and-padding"),
+                 Assertion("finetune-identity.pre-train-parity",
+                           "artifacts-inference-warmstart.md#finetune-identity-pre-train-parity"),
+                 Assertion("finetune-identity.output-geometry-pin",
+                           "artifacts-inference-warmstart.md#finetune-identity-output-geometry-pin"),
+                 Assertion("finetune-identity.degenerate-no-extras-identity",
+                           "artifacts-inference-warmstart.md#finetune-identity-degenerate-no-extras-identity"),
+                 Assertion("finetune-identity.loud-config-errors",
+                           "artifacts-inference-warmstart.md#finetune-identity-loud-config-errors"),
+                 Assertion("finetune-identity.anchor-mask-and-freedom",
+                           "artifacts-inference-warmstart.md#finetune-identity-anchor-mask-and-freedom")),
        run=gate_ftw_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -2479,7 +2536,26 @@ BOARD = [
        title="Transfer frozen-base identity",
        tier=TIER_NEW_FEATURES,
        home="artifacts-inference-warmstart",
-       maps="204-219 (slice + 4x form/space identity + packing + surgery + errors)",
+       maps="a frozen base under a zero-output correction predicts the base "
+            "itself before the first training step — for a plain and a "
+            "factored base, in every form and space, on the diagonal "
+            "families, and through a save/rebuild round trip",
+       evidence=(Assertion("transfer-identity.plain-base-slice-and-identity",
+                           "artifacts-inference-warmstart.md#transfer-identity-plain-base-slice-and-identity"),
+                 Assertion("transfer-identity.factored-base-slice-and-identity",
+                           "artifacts-inference-warmstart.md#transfer-identity-factored-base-slice-and-identity"),
+                 Assertion("transfer-identity.zero-init-surgery",
+                           "artifacts-inference-warmstart.md#transfer-identity-zero-init-surgery"),
+                 Assertion("transfer-identity.loud-config-errors",
+                           "artifacts-inference-warmstart.md#transfer-identity-loud-config-errors"),
+                 Assertion("transfer-identity.artifact-lifecycle-round-trip",
+                           "artifacts-inference-warmstart.md#transfer-identity-artifact-lifecycle-round-trip"),
+                 Assertion("transfer-identity.refined-base-lifecycle",
+                           "artifacts-inference-warmstart.md#transfer-identity-refined-base-lifecycle"),
+                 Assertion("transfer-identity.diagonal-family-composition",
+                           "artifacts-inference-warmstart.md#transfer-identity-diagonal-family-composition"),
+                 Assertion("transfer-identity.cross-family-base-refusal",
+                           "artifacts-inference-warmstart.md#transfer-identity-cross-family-base-refusal")),
        run=gate_tpe_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -2614,8 +2690,25 @@ BOARD = [
        title="Save/rebuild bitwise + drift",
        tier=TIER_SAVE_AND_SAMPLE,
        home="artifacts-inference-warmstart",
-       maps="86-93 (bitwise + drift + v1 refusal); "
-            "gates-and-board.md:66-71 (one factored + one NPCE save)",
+       maps="an emulator rebuilt from its saved file alone reproduces the "
+            "live model's output exactly — for the plain, factored, "
+            "neural-PCE and conv-head variants — even when the code default "
+            "it was trained under has since changed, and a file the current "
+            "schema cannot honour is refused instead of guessed",
+       evidence=(Assertion("save-rebuild-drift.plain-rebuild-matches-live",
+                           "artifacts-inference-warmstart.md#save-rebuild-drift-plain-rebuild-matches-live"),
+                 Assertion("save-rebuild-drift.factored-rebuild-matches-live",
+                           "artifacts-inference-warmstart.md#save-rebuild-drift-factored-rebuild-matches-live"),
+                 Assertion("save-rebuild-drift.npce-rebuild-matches-live",
+                           "artifacts-inference-warmstart.md#save-rebuild-drift-npce-rebuild-matches-live"),
+                 Assertion("save-rebuild-drift.head-rebuild-matches-live",
+                           "artifacts-inference-warmstart.md#save-rebuild-drift-head-rebuild-matches-live"),
+                 Assertion("save-rebuild-drift.code-default-drift-ignored",
+                           "artifacts-inference-warmstart.md#save-rebuild-drift-code-default-drift-ignored"),
+                 Assertion("save-rebuild-drift.v1-schema-refusal",
+                           "artifacts-inference-warmstart.md#save-rebuild-drift-v1-schema-refusal"),
+                 Assertion("save-rebuild-drift.old-head-artifact-refusal",
+                           "artifacts-inference-warmstart.md#save-rebuild-drift-old-head-artifact-refusal")),
        run=gate_gsv_c,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=()),
@@ -2625,7 +2718,24 @@ BOARD = [
        title="Cobaya adapter parity",
        tier=TIER_SAVE_AND_SAMPLE,
        home="artifacts-inference-warmstart",
-       maps="117-123 (parity rtol 1e-6 + evaluate + MCMC); 234-238 (round-trip)",
+       maps="the predictor a cobaya theory block calls at sampling time "
+            "reproduces the training-side data vector to a relative 1e-6 and "
+            "scatters it into the 3x2pt layout the likelihood expects, and "
+            "the shipped evaluate run completes against lsst_y1",
+       evidence=(Assertion("cobaya-adapter.plain-predictor-parity",
+                           "artifacts-inference-warmstart.md#cobaya-adapter-plain-predictor-parity"),
+                 Assertion("cobaya-adapter.plain-scattered-vector-shape-and-mask",
+                           "artifacts-inference-warmstart.md#cobaya-adapter-plain-scattered-vector-shape-and-mask"),
+                 Assertion("cobaya-adapter.factored-predictor-parity",
+                           "artifacts-inference-warmstart.md#cobaya-adapter-factored-predictor-parity"),
+                 Assertion("cobaya-adapter.factored-scattered-vector-shape-and-mask",
+                           "artifacts-inference-warmstart.md#cobaya-adapter-factored-scattered-vector-shape-and-mask"),
+                 Assertion("cobaya-adapter.evaluate-emulator-present",
+                           "artifacts-inference-warmstart.md#cobaya-adapter-evaluate-emulator-present"),
+                 Assertion("cobaya-adapter.example-evaluate-run-completes",
+                           "artifacts-inference-warmstart.md#cobaya-adapter-example-evaluate-run-completes"),
+                 Assertion("cobaya-adapter.mcmc-smoke",
+                           "artifacts-inference-warmstart.md#cobaya-adapter-mcmc-smoke")),
        run=gate_gct_c,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
                          inputs=("evaluate_yaml",)),
@@ -2636,8 +2746,17 @@ BOARD = [
        title="Fine-tune warm-start smoke",
        tier=TIER_SAVE_AND_SAMPLE,
        home="artifacts-inference-warmstart",
-       maps="277-284 (names-equal fine-tune: parity line + banner + completes; "
-            "finetuned_from + save-rebuild round-trip are the workstation leg)",
+       maps="a real fine-tune run continues the board's own saved emulator: "
+            "the driver completes, announces the source it warm-started "
+            "from, and prints the pre-train parity verdict",
+       evidence=(Assertion("finetune-smoke.run-completes",
+                           "artifacts-inference-warmstart.md#finetune-smoke-run-completes"),
+                 Assertion("finetune-smoke.parity-verdict-printed",
+                           "artifacts-inference-warmstart.md#finetune-smoke-parity-verdict-printed"),
+                 Assertion("finetune-smoke.warm-start-banner",
+                           "artifacts-inference-warmstart.md#finetune-smoke-warm-start-banner"),
+                 Assertion("finetune-smoke.artifact-provenance-and-round-trip",
+                           "artifacts-inference-warmstart.md#finetune-smoke-artifact-provenance-and-round-trip")),
        run=gate_ftw_b,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.finetune-smoke-config",) + _CS_DEPLOY_DATA),
@@ -2648,8 +2767,20 @@ BOARD = [
        title="Transfer frozen-base smoke",
        tier=TIER_SAVE_AND_SAMPLE,
        home="artifacts-inference-warmstart",
-       maps="221-228 (names-equal gain transfer: parity + banner + completes; "
-            "transfer_from + embedded base + round-trip are the workstation leg)",
+       maps="a real transfer run composes a correction over the board's own "
+            "saved base: the driver completes, announces the base and form, "
+            "prints the epoch-0 parity verdict, and saves the composed "
+            "artifact",
+       evidence=(Assertion("transfer-smoke.run-completes",
+                           "artifacts-inference-warmstart.md#transfer-smoke-run-completes"),
+                 Assertion("transfer-smoke.parity-verdict-printed",
+                           "artifacts-inference-warmstart.md#transfer-smoke-parity-verdict-printed"),
+                 Assertion("transfer-smoke.transfer-banner",
+                           "artifacts-inference-warmstart.md#transfer-smoke-transfer-banner"),
+                 Assertion("transfer-smoke.saved-artifact-paths-printed",
+                           "artifacts-inference-warmstart.md#transfer-smoke-saved-artifact-paths-printed"),
+                 Assertion("transfer-smoke.artifact-provenance-and-round-trip",
+                           "artifacts-inference-warmstart.md#transfer-smoke-artifact-provenance-and-round-trip")),
        run=gate_tpe_b,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.transfer-smoke-config",) + _CS_DEPLOY_DATA),

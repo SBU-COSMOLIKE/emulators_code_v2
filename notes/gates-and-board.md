@@ -8897,3 +8897,96 @@ fold into the red team's next TEX-PROSE unit as recorded. Also
 noted with approval: the headless turn honored its permission
 denials and printed blocks instead of working around them — the
 harness rails and the role rules composed exactly as designed.
+
+## Queue 2 increment 3 — the six WRAPPER-FAMILY gates (Opus, 2026-07-14): the hand-do set's first half; 38 aids; three logged instructions demoted to UNAVAILABLE
+
+The fan-out is done (32/40 through batch 8); this is the first half of the
+eight-gate hand-do remainder, and it is the half nobody drafted for me. The
+throughput rebalance kept the six wrapper-family gates (`finetune-identity`,
+`transfer-identity`, `save-rebuild-drift`, `cobaya-adapter`, `finetune-smoke`,
+`transfer-smoke`) out of the red team's naming drafts and out of subagent hands,
+so the evidence blocks I wrote in `notes/artifacts-inference-warmstart.md`,
+section "Queue-2 evidence blocks: the six wrapper-family gates", ARE the naming
+spec — there was no draft to wire to, and no objection to file. 38 aids, taking
+the board to 38 of 40 gates carrying `evidence=`.
+
+**What each gate got.** The four check-script gates (finetune-identity 7,
+transfer-identity 8, save-rebuild-drift 7, cobaya-adapter 4-in-child) follow the
+ratified template exactly: the child gains `emit_aid` (the FAILURES-delta
+helper) and prints one `##AID <aid> PASS|FAIL` per declared leg at its
+aggregation point; the wrapper's rc check becomes the child's single aggregate
+verdict and carries NO aid. The two smoke gates are wrapper-asserted
+(finetune-smoke 4, transfer-smoke 5) — the driver's exit code plus the presence
+of its own printed lines. cobaya-adapter is the hybrid: 4 child parity aids +
+3 wrapper aids.
+
+**Named gate-surface changes (constraint 7b — neither weakens anything).**
+(1) The four wrapper rc-expect LABELS were narrowed: `"save-rebuild-drift
+save->rebuild bitwise + drift + v1-refusal"` became `"save-rebuild-drift child
+completed"`, and likewise for gct/ftw/tpe. This is the DIDACTICS-27 wrapper
+falsehood — the label was re-claiming, in the wrapper's voice, what only the
+child proves. The rc==0 assertion itself is untouched; the claims now live on
+the child's own per-leg aids, which is strictly more evidence, not less.
+(2) THREE `ctx.log` instructions became `ctx.unavailable` legs (ruling 6):
+`cobaya-adapter.mcmc-smoke` (this gate starts no sampler — "run it with an mcmc
+sampler override once evaluate is green" was an instruction to a human),
+`finetune-smoke.artifact-provenance-and-round-trip` and
+`transfer-smoke.artifact-provenance-and-round-trip` (the gate reads stdout and
+opens no saved file; the finetuned_from / transfer_from attrs and the rebuild
+round-trip were confirmed by hand from the workstation artifact). Each is now
+DECLARED, so reconciliation reports it every run with the reason naming what
+nobody executed. No threshold, bar, fixture or golden base was touched.
+
+**One deliberate split, and the red it exposes.** `check_diagonal` in
+transfer_identity.py carries two declared legs rather than one: the composition
+legs, and the cross-family refusal. The refusal is RED today — `from_config`
+raises the `ValueError`, but its message does not contain the words the leg
+greps for (`"never"` and `"families"`), a fixture/message mismatch already in
+the red-team register. Grouping it with the twelve green diagonal sub-checks
+would have hidden a real red inside a FAIL'd group; split out, the manifest line
+reads `##AID transfer-identity.cross-family-base-refusal FAIL` and the red names
+itself. I did NOT repair it (out of blueprint; lane separation) — the child, and
+so the gate, still exits non-zero while it stands. That is the honest state.
+
+**Gate results (this session, on cocoa-torch).**
+- `py_compile` on all five touched files: clean.
+- `run_board.py --list`: rc 0 — `validate_evidence` ran, so all 38 new anchors
+  resolve to real `<a id>` markers and no aid collides board-wide.
+- `gates/checks/board_selftest.py`: **176 PASS / 0 FAIL** (ALL PASS).
+- `finetune_identity.py` on cocoa-torch: ALL PASS, **7 `##AID` PASS**,
+  declared 7 == emitted 7.
+- `transfer_identity.py` on cocoa-torch: **8 `##AID`, 7 PASS + 1 FAIL**
+  (`cross-family-base-refusal`, the known register red), declared 8 == emitted
+  8; child exits 1, as it did before this pass.
+- Static declared-vs-emitted census (all six gates): 38/38 aids present as
+  literals in the code that must emit them; 38/38 anchors present in the home
+  note; every anchor is the aid under the one `.`->`-` transform; board-unique.
+- WORKSTATION-OWED: the live green of save-rebuild-drift, cobaya-adapter,
+  finetune-smoke and transfer-smoke. All four need cosmolike + GPU (+ cobaya,
+  + the deploy dumps), so they capability-skip on the Mac; their declared==emitted
+  is verified statically, per the batch-7 precedent. Never reported as passed.
+
+**REMAINING hand-do set (2 of 8):** `finite-contract` — still BLOCKED on the
+open scope question (is the Part F fixture crash, the geom/`_chi2_n_terms`
+class, mine or the red team's harness lane?); do not wire it until that answer
+lands. `scalar-smoke` — Sol's nine-aid child is building on
+`codex/scalar-smoke-nine-aids-child`; I wire the board.py `evidence=` tuple and
+integrate the child on its return (re-diffing against the CURRENT file per the
+check-script seam rule). Also now unblocked by fan-out-complete, and NOT yet
+done: the skipped-leg manifest consistency sweep (bsn-smoke's backfill
+FAIL->UNAVAILABLE; mps/cmb-smoke gain the finally backfill; one board-selftest
+arm proving a skipped leg shows UNAVAILABLE naming its upstream).
+
+**Landing block (merge/push to main is the user's alone).**
+
+```
+branch:  claude/amazing-keller-e798b6
+commit:  <this increment's sha — see the handoff>
+files:   gates/board.py, gates/checks/finetune_identity.py,
+         gates/checks/transfer_identity.py, gates/checks/gsv_bitwise_drift.py,
+         gates/checks/gct_parity.py, notes/artifacts-inference-warmstart.md,
+         notes/gates-and-board.md
+gates:   --list rc 0; board-selftest 176 PASS / 0 FAIL; finetune-identity 7/7
+         ##AID PASS; transfer-identity 8/8 ##AID emitted (1 FAIL: the known
+         cross-family register red); 38/38 static declared==emitted.
+```
