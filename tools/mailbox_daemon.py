@@ -30,11 +30,19 @@ needs enough tool permission to work unattended (set via the harness
 settings or the flags there).
 
 Usage:
+    python tools/mailbox_daemon.py --help           # all options + defaults
     python tools/mailbox_daemon.py --dry-run        # show what would run
     python tools/mailbox_daemon.py --once           # process backlog, exit
     python tools/mailbox_daemon.py --watch          # poll every 20 s
     python tools/mailbox_daemon.py --send opus --unit "notes/<spec>.md ..."
                                                     # drop a first message
+    python tools/mailbox_daemon.py --watch --opus-effort high
+                                                    # dial one agent's effort
+        --fable-effort / --opus-effort take low|medium|high|xhigh|max
+        (claude CLI; defaults xhigh and max); --sol-effort takes
+        minimal|low|medium|high|xhigh (codex CLI; default xhigh)
+    python tools/mailbox_daemon.py --watch --dispatch-timeout 90
+                                                    # allow longer turns
 """
 
 import argparse
@@ -106,6 +114,14 @@ CODEX_EFFORT_CHOICES = ["minimal", "low", "medium", "high", "xhigh"]
 DEFAULT_FABLE_EFFORT = "xhigh"
 DEFAULT_OPUS_EFFORT = "max"
 DEFAULT_SOL_EFFORT = "xhigh"
+
+# A dispatched turn that runs past this many minutes is killed and its
+# message parked in failed/ for inspection. The guard exists because a
+# claude turn once printed "Execution error" and then hung, holding its
+# lane for 21 minutes until a human Ctrl-C'd the watch (2026-07-14).
+# Long legitimate turns exist (a big review can run 20+ minutes), so
+# the default is generous; raise it per launch with --dispatch-timeout.
+DISPATCH_TIMEOUT_MINUTES = 60
 
 
 def build_agent_commands(fable_effort, opus_effort, sol_effort):
@@ -317,8 +333,24 @@ def dispatch(path, dry_run):
                                 stderr=subprocess.STDOUT,
                                 cwd=AGENT_CWD[agent])
         next_beat = started + 60.0
+        deadline = started + DISPATCH_TIMEOUT_MINUTES * 60.0
         while proc.poll() is None:
             time.sleep(5)
+            if time.time() >= deadline:
+                # a hung CLI would hold this lane forever (seen live:
+                # a turn printed "Execution error" then produced
+                # nothing for 21 minutes). Kill it; the non-zero exit
+                # code below parks the message in failed/ untouched,
+                # so a requeue retries it and nothing is lost.
+                proc.kill()
+                proc.wait()
+                print("  TIMED OUT " + name + " after "
+                      + str(DISPATCH_TIMEOUT_MINUTES) + " min -- the "
+                      "turn was killed and the message parks in "
+                      "failed/; requeue it by moving it back to the "
+                      "mailbox (or relaunch with a larger "
+                      "--dispatch-timeout).")
+                break
             if time.time() >= next_beat:
                 elapsed_min = (time.time() - started) / 60.0
                 log_kb = os.path.getsize(log_path) / 1024.0
@@ -341,7 +373,9 @@ def dispatch(path, dry_run):
         failed_dir = os.path.join(MAILBOX, "failed")
         os.makedirs(failed_dir, exist_ok=True)
         os.rename(path, os.path.join(failed_dir, name))
-        if "Not logged in" in proc.stdout:
+        # the turn's output lives in the log file (it streams there;
+        # proc.stdout is None under Popen with a file handle).
+        if "Not logged in" in "\n".join(reply_lines):
             print("  !! the headless CLI is LOGGED OUT -- run `claude` in a "
                   "terminal, type /login, then requeue from failed/.")
         else:
@@ -526,6 +560,11 @@ def send(agent, text, dry_run):
 
 
 def main():
+    # both are rebound below from the parsed command line; Python wants
+    # the global declaration before the first mention of either name.
+    global AGENT_COMMANDS
+    global DISPATCH_TIMEOUT_MINUTES
+
     parser = argparse.ArgumentParser(
         description="file mailbox + headless dispatch for the agent loop")
     parser.add_argument("--dry-run", action="store_true",
@@ -563,12 +602,19 @@ def main():
                         help="codex CLI reasoning effort for Sol "
                              "dispatches (default: "
                              + DEFAULT_SOL_EFFORT + ")")
+    parser.add_argument("--dispatch-timeout", metavar="MINUTES",
+                        type=int, default=DISPATCH_TIMEOUT_MINUTES,
+                        help="kill a dispatched turn that runs past "
+                             "this many minutes and park its message "
+                             "in failed/ (default: "
+                             + str(DISPATCH_TIMEOUT_MINUTES) + ")")
     args = parser.parse_args()
+
+    DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
 
     # Rebuild the dispatch commands at the requested efforts. The watch
     # start line echoes the levels so a terminal scroll-back always
     # shows what this loop instance was launched with.
-    global AGENT_COMMANDS
     AGENT_COMMANDS = build_agent_commands(fable_effort=args.fable_effort,
                                           opus_effort=args.opus_effort,
                                           sol_effort=args.sol_effort)
