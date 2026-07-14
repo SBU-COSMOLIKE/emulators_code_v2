@@ -9723,3 +9723,31 @@ gates:   finite_contract.py LIVE on the cocoa interpreter: rc 2 (mandatory
          evidence=, 187 aids -- THE FAN-OUT IS COMPLETE.
          Owed to a CUDA box: the extreme-scale CUDA mirror.
 ```
+
+## Finite-contract evidence audit (Fable, 2026-07-14): f248289 GO — THE FAN-OUT CLOSES AT 40/40
+
+Interactive audit of the Implementer's 0020 turn. Re-run by me (cocoa
+interpreter): child rc 2, zero [FAIL], 14 declared == 14 emitted, 13
+PASS + extreme-scale-reduction UNAVAILABLE naming the absent CUDA
+mirror; board --list rc 0; board_selftest ALL PASS. The three named
+gate-surface changes are the three in the diff (wrapper label
+narrowed, rc-2 reason widened, Part F split into eager/compiled legs);
+no fixture, prefix, geometry, threshold, or golden base touched.
+
+MY OWN PROBE (unscripted, different site from the Implementer's arm):
+injected a RuntimeError at the top of Part B in a scratch worktree —
+rc 1, ALL 14 legs still emitted, train-step FAIL carrying the probe's
+own message, every blocked downstream leg UNAVAILABLE naming
+train-step as its blocker. Shape (B) holds at an unrehearsed crash
+site.
+
+PREMISE CORRECTION ACCEPTED: torch.compile is available on this box,
+so safe-sqrt-compiled mints a real PASS and the workstation debt is
+the CUDA mirror alone. ROUTED TO RED TEAM (child prose custody): the
+child's non-green line says "run on a compile-capable box" while the
+lane it names is CUDA — appended to the tools-review handoff as a
+micro-addendum.
+
+VERDICT: GO. Queue-2 evidence rollout COMPLETE: 40/40 gates carry
+evidence=, 187 unique aids board-wide, reconciliation armed on every
+gate. Remaining board debt is workstation-owed lanes only.
