@@ -3013,3 +3013,21 @@ with the wrapper-aid clause (child-emitted legs -> aid-less wrapper
 expect; wrapper-headline aids only where the rc expect IS the leg).
 Gate 2 proceeds; batch audit delta-only. Spec: gates-and-board.md
 "Increment-3 serial-proof gate 1 audit".
+
+SERIAL-PROOF GATE 2 + FAN-OUT (2026-07-13, Fable): da2ac6a GO —
+the wrapper-emitted shape exact to the draft, the narrowed
+demotion claim propagated into the wrapper detail, own runs green
+(--list true rc 0; an earlier rc=1 was my shell artifact). Both
+shapes proven; THE FAN-OUT IS GREEN-LIT (subagents per gate, six
+wrapper-family + seven foundation stay first-hand). Spec:
+gates-and-board.md "Increment-3 serial-proof gate 2 audit".
+
+PROSE HARDENING (2026-07-13, Fable): 2d49984 content GO — my own
+scans match every mechanical claim (the one non-fence ellipsis is
+code notation); the roughness split verified at code; five factual
+repairs + preservation register-witnessed. ONE REQUIRED REDACTION
+before merge: the register's scanned-pattern bullets 1-3 name the
+private checklist's categories — collapse to "editorial pass
+against private standards" (results + punctuation/format bullets
+stay). Spec: gates-and-board.md "Root README public-prose
+hardening audit".
