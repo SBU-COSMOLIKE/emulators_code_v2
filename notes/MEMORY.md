@@ -15,6 +15,11 @@ Current sequencing comes from `gates-and-board.md`, "The consolidated
 DIDACTICS execution handoff" (D1--D10), and must be checked against the
 relevant topic note before implementation.
 
+Hard communication rule: the substantive exchange between Fable, the
+Implementer and the Red Team is written under `notes/` before a chat relay is
+sent. Chat handoffs are summaries that cite the durable note. See
+`conventions-and-workflow.md`, "Notes-first inter-agent communication."
+
 - [State + chronological ledger](state-2026-07-11-and-next.md) — the
   historical run trail, adjudication batches, queue changes, retractions, and
   topic-note routing. Do not promote any one historical run snapshot or queue

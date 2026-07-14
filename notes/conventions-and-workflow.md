@@ -254,6 +254,24 @@ quota.
   index line in the SAME turn, unprompted — an unrecorded milestone
   is unfinished work.
 
+### Notes-first inter-agent communication (hard user rule, 2026-07-13)
+
+The detailed message between Fable, the Implementer and the Red Team must be
+written to the appropriate `notes/` file before its chat handoff is emitted.
+The note contains the complete reasoning and execution record: the bounded
+scope, scientific or numerical evidence, counterexample, contract, file and
+line anchors, changed files, branch or commit identity, raw-test locations,
+open obligations and acceptance conditions. A chat handoff is a compact
+routing summary. It cites the note and says what changed, what is ready for
+review and what remains blocked. It does not duplicate the full record.
+
+This rule applies to findings, adjudications, implementation returns, audit
+holds, audit approvals, retractions and queue changes. A chat-only decision
+is not durable and cannot be treated as the program's current instruction.
+When a summary and its cited note disagree, the current note is the source of
+record. `notes/MEMORY.md` continues to tell a cold reader which topic note or
+registry to open first.
+
 ## Environment
 
 - Mac M2 32 GB (dev): python3 is homebrew with numpy + stdlib ONLY —

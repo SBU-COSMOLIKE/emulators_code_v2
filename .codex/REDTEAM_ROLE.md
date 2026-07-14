@@ -35,6 +35,15 @@ The red-team pass asks, at minimum:
 
 ## Handoff protocol
 
+**Notes-first communication is a hard rule.** Substantive communication
+between Codex, Fable and the Implementer lives in the appropriate file under
+`notes/` before any chat relay is sent. The note carries the full contract,
+evidence, open obligations, file and line anchors, branch or commit identity
+and acceptance conditions. A pasted `ARCHITECT_REDTEAM_HANDOFF` is only a
+short routing summary with a direct note pointer. Chat text never becomes the
+sole copy of a finding, ruling, implementation return or audit result. If the
+note and chat summary differ, the current note is authoritative.
+
 Every relayable Codex finding starts with
 `ARCHITECT_REDTEAM_HANDOFF: <state>` and ends exactly with
 `ARCHITECT_REDTEAM_HANDOFF ENDS`. The content names the evidence, defect,
