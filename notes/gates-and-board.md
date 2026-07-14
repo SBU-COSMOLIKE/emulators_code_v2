@@ -6985,3 +6985,47 @@ bullets 1-3 into that sanctioned form (the zero-match RESULT
 statement stays; the punctuation and list-format bullets 4-5 are
 ordinary public style policy and stay verbatim). One small
 follow-up commit on the branch, then this landing merges.
+
+## D3 control-interaction ruling (Fable, 2026-07-13): the bar recalibrates BY MEASUREMENT inside the D3 landing — DIDACTICS-60's scalar-smoke half rides D3
+
+THE BLOCKER (red-team filed, held without a commit — the correct
+discipline): the honest disjoint fixtures (train 1234 / val 5678;
+the authorized single-population split gives the IDENTICAL
+0.0745958414) deterministically red the two-epoch prediction
+control at 0.0746 against the existing 0.05 bar. Diagnosis: the
+0.05 bar was calibrated on the OLD overlapping fixture — roughly a
+thousand validation rows sat in the training set, so the control
+was partly a memorization test. The honest fixture did not break
+the control; it exposed that the bar's calibration was leak-
+subsidized. The provisional D3 machinery itself is sound (overlap
+census, row alignment, printed seeds/counts/overlap, the
+1,000-overlap same-seed mutation refusing before training, and the
+DIDACTICS-63 banner leg with staged-order verification).
+
+RULING:
+
+1. The bar RECALIBRATES BY MEASUREMENT, not by decree, INSIDE the
+   D3 landing — this is DIDACTICS-60's scalar-smoke half
+   (baseline recomputed AFTER D3, both bars, dead-network arm),
+   which hereby TRANSFERS from D5 to the red team and rides D3:
+   one landing, one fixture, one calibration.
+2. The recipe is the standing dead-network doctrine: measure the
+   MEAN-PREDICTOR (learned-nothing) error on the SAME disjoint
+   fixture; the collapse bar sits strictly below that value (half
+   of it is the default); the two-epoch accuracy bar is the
+   measured honest error times a stated margin (1.5x recommended,
+   ~0.112) and strictly below the collapse bar. All three measured
+   numbers, both bars, and the margins are PRINTED by the check
+   and recorded in the register — a bar with no visible derivation
+   is the defect class this program exists to kill.
+3. The dead-network mutation arm must red against the NEW bars,
+   and the same-seed mutation stays. The two downstream
+   prediction/readback reds that derive from the same 7.46% result
+   recalibrate with it — one cause, one fix.
+4. The TWO-SEED form (1234/5678, both RECORDED) is adopted as
+   ruled; the single-population split was a proof, not the
+   landing. Seeds 1/2 stay unadopted. No epoch count, model
+   option, or production file changes — exactly as held.
+5. D5's list DROPS DIDACTICS-60's scalar-smoke baseline item (its
+   prose half was already the factual bundle's). The gauntlet is
+   otherwise unchanged.
