@@ -3118,3 +3118,50 @@ the quiet save surface) and DIDACTICS-59 pre-authorized at the
 fan-out-complete seam (D5 shrinks to 62+64/70). The deep core
 re-examined and kept. Spec: gates-and-board.md "BACKLOG SNAPSHOT +
 WAVE 5".
+
+TRIANGLE INTEGRATION (2026-07-13, Fable): d3b1a62 GO — the red
+team resolved the gt_b_triangle conflict (report(aid=) retained,
+exact-owner legs, ratified names in all four surfaces); my runs:
+4 matching ##AID PASS + ALL PASS + --list rc 0 + selftest. Merged;
+D6's triangle half CLOSED. Boundary note recorded, not waived: the
+minimal machinery-forced board.py string swap accepted this once;
+cross-boundary conflicts are handed back or claimed BEFORE
+resolution. Spec: gates-and-board.md "D6 triangle integration
+audit".
+
+UNIT-93 RULING + 25M-38 (2026-07-13, Fable): 93's hold ruled via
+the separate-module trigger (red team writes a NEW standalone
+check child + evidence block; Implementer wires the board entry at
+the wrapper-family batch; CUDA workstation-owed). 25M-38 CONFIRMED
+and reproduced in-process (the 4-token .ranges header parses as
+data in GetDist; float("weights") raises; the 5-token two-param
+control hides it; the header is the chain layout, wrong file
+anyway) — repair ruled to the red team: delete the comment write,
+ParamBounds regression legs, unit 82 rebases, then replay closes
+DIDACTICS-79. Their self-caught diagnostic edit + byte-identical
+restore acknowledged. Spec: gates-and-board.md "Unit-93 hold
+ruling + 25M-38 adjudication".
+
+WARMSTART VISIT (2026-07-13, Fable): 6178bd8 GO — 68's guards on
+both arms with encode/output as separate named tensors (exceeds
+the ruling), 67's lifecycle prose with .ia documented; my runs
+11/11 + finetune-identity ALL PASS; finite_contract.py correctly
+untouched with the Part D/E leg specs recorded for its owner.
+Merged; closure held for the board-leg pairing. Spec:
+gates-and-board.md "Warmstart visit audit".
+
+25M-36 CLOSED (2026-07-13, Fable): bedf322 GO — the shared
+producer-order helper (store-then-accumulate), reference
+array-equal to the producer, the retired order rejected by a
+mutation leg at 5.96e-08; my own full child run green; merged.
+Spec: gates-and-board.md "25M-36 repair audit".
+
+STAGE-RAM + BATCH 2 (2026-07-13, Fable): a89e39c GO (20 rows, disk
+path asserted, allowance printed inside the ruled range, both
+boundary sides, my run ALL PASS) — THE LANDING BLOCK RETURNS;
+c452023 GO (ema-off-identity + head-scheduler-override + the first
+hybrid berhu-loss, names cross-checked, my runs green; 8/27). The
+gb_c self=None harness defect reproduced on HEAD (production's
+band line reads self._chi2_n_terms) — ruled check-side, red-team
+claimable; berhu-loss honestly red-if-run until the claim. Spec:
+gates-and-board.md "Stage-ram repair + fan-out batch 2 audit".

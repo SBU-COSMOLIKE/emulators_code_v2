@@ -348,7 +348,14 @@ def check_canonical_order():
     C = rng.standard_normal((n, ncosmo)).astype("float32")
     dv = rng.standard_normal((n, width)).astype("float32")
     # seeded selection order: distinct and unsorted (a permutation prefix).
-    idx = np.array([9, 2, 5, 7, 0, 3, 18, 11], dtype=np.int64)
+    # >= 10 rows (25M-15): the honest packed-target byte budget needs a
+    # non-empty disk-stream window [resident + one complete batch, resident +
+    # the full encoded set]. The full encoded set grows with the row count
+    # while one batch (bs=2) does not, so a wide-enough selection makes a
+    # streaming budget realisable; the old 8-row selection did not (one batch
+    # exceeded the full encoded set, so the pre-repair 200-byte budget refused).
+    idx = np.array([9, 2, 5, 7, 0, 3, 18, 11, 14, 6,
+                    21, 30, 1, 25, 33, 8, 17, 12, 29, 4], dtype=np.int64)
     rows = np.sort(np.unique(idx))
 
     # a real on-disk memmap for the disk-stream regime.
@@ -370,8 +377,32 @@ def check_canonical_order():
                both_branches, "resident fresh copy, disk memmap unchanged")
 
         # the real loaders for each regime (resident gather vs disk stream).
+        # the disk-stream budget is chosen against the honest packed-target
+        # planner (25M-15): its 0.8 allowance must sit INSIDE
+        # [resident + one complete batch, resident + the full encoded set] --
+        # large enough to stream one batch, too small to make the full encoded
+        # set resident. A budget below that window (the pre-repair 200) refuses
+        # with the named-terms MemoryError rather than silently mis-planning.
         loadC_r, loaddv_r = _train_loaders(Cr, dvr, ir, ncosmo, width, 10 ** 9)
-        loadC_d, loaddv_d = _train_loaders(Cd, dvd, idd, ncosmo, width, 200)
+        disk_budget = 1300                       # 0.8 * 1300 = 1040 allowance
+        too_small = 700                          # below resident + one batch
+        refused = False
+        try:
+            _train_loaders(Cd, dvd, idd, ncosmo, width, too_small)
+        except MemoryError:
+            refused = True
+        streamed = True
+        try:
+            loadC_d, loaddv_d = _train_loaders(Cd, dvd, idd, ncosmo, width,
+                                               disk_budget)
+        except MemoryError:
+            streamed = False
+        report("disk path taken at the honest budget; a too-small budget refuses",
+               streamed and refused,
+               "budget=%d streams (0.8*budget=%d allowance, inside "
+               "[resident+one batch, resident+full encoded set]); budget=%d "
+               "refuses (below resident+one batch)"
+               % (disk_budget, int(0.8 * disk_budget), too_small))
 
         # one shared epoch permutation, applied to each branch's own index.
         perm_r = _epoch_perm(ir, seed=1234)

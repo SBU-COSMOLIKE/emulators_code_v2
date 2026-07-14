@@ -133,6 +133,30 @@ def synth_rows(n, z=Z4, k=K6, seed=5):
     return rows.astype("float32")
 
 
+def stored_float32_reference(law_rows):
+    """Recreate the payload and mean that the staging code owns.
+
+    ``law_rows`` is the independent calculation in float64.  The producer
+    stores each law-space row as float32 before it computes normalization
+    statistics.  Converting before the mean matters because the conversion
+    rounds every element separately.  Taking a float64 mean first and
+    converting only the final answer performs the operations in a different
+    order and can produce different bits.
+
+    Returns:
+      stored_rows = the independent rows after the producer's float32
+                    storage conversion.
+      stored_mean = the column mean of those stored rows.  The accumulation
+                    uses float64, then the result returns to the float32
+                    dtype persisted in ``src["dv_mean"]``.
+    """
+    stored_rows = law_rows.astype("float32")
+    rows_for_accumulation = stored_rows.astype("float64")
+    mean_in_float64 = rows_for_accumulation.mean(axis=0)
+    stored_mean = mean_in_float64.astype("float32")
+    return stored_rows, stored_mean
+
+
 def check_geometry(device):
     Y = synth_rows(400)
     geom = Grid2DGeometry.from_targets(device=device, targets=Y, z=Z4,
@@ -263,17 +287,21 @@ def check_staging(tmp):
                                        np.array([nk - 1])]))
     cols_idx = (np.arange(nz)[:, None] * nk
                 + kept_k[None, :]).reshape(-1)
-    want = np.log(raw[dump_rows].astype("float64")
-                  / base[dump_rows].astype("float64"))[:, cols_idx]
-    ok = (np.allclose(src["dv"], want.astype("float32"), rtol=0, atol=0)
+    independent_law_rows = np.log(
+        raw[dump_rows].astype("float64")
+        / base[dump_rows].astype("float64")
+    )[:, cols_idx]
+    stored_reference_rows, stored_reference_mean = (
+        stored_float32_reference(independent_law_rows)
+    )
+    ok = (np.array_equal(src["dv"], stored_reference_rows)
           and np.array_equal(exp._grid2d_k, K6[kept_k])
           and src["dv"].shape == (40, nz * kept_k.size)
           and np.array_equal(src["idx"], np.arange(40))
           and (nk - 1) in kept_k)
     report("staging law transform: base-aligned + strided + top edge",
            ok, "shape %s" % (src["dv"].shape,))
-    ok2 = np.allclose(src["dv_mean"],
-                      want.mean(axis=0).astype("float32"))
+    ok2 = np.array_equal(src["dv_mean"], stored_reference_mean)
     report("staging recomputes dv_mean over law rows", ok2, "")
     # positivity guard
     bad = raw.copy()
@@ -398,11 +426,17 @@ def check_bounded_staging(tmp):
     base_path = os.path.join(tmp, "bs_base.npy")
     np.save(base_path, base_full)
 
-    # the known answer, computed DIRECTLY from the inputs (never through
-    # the staging path): log(raw / base) over the kept columns only.
-    want = np.log(raw_compact[:, cols].astype("float64")
-                  / base_full[dump_rows][:, cols].astype("float64"))
-    want_mean = want.mean(axis=0)
+    # The independent law formula uses float64 so its arithmetic does not
+    # borrow the producer's implementation.  The producer then stores the
+    # result as float32 before it calculates the mean.  The helper below
+    # repeats that representation order without calling the staging path.
+    independent_law_rows = np.log(
+        raw_compact[:, cols].astype("float64")
+        / base_full[dump_rows][:, cols].astype("float64")
+    )
+    stored_reference_rows, stored_reference_mean = (
+        stored_float32_reference(independent_law_rows)
+    )
 
     # shrink the per-chunk budget so 48 rows split into several chunks,
     # and size the guard bound to the code's derived chunk height.
@@ -447,11 +481,31 @@ def check_bounded_staging(tmp):
     report("bounded staging: 122 x 201 kept columns (24522 wide)",
            got.shape == (n_used, nz * kept_k.size) and kept_k.size == 201,
            "shape %s" % (got.shape,))
-    report("bounded staging: values equal the direct known answer",
-           np.allclose(got, want.astype("float32"), rtol=0, atol=0),
-           "max|d| %.1e" % float(np.abs(got - want.astype("float32")).max()))
-    report("bounded staging: streamed mean equals the known answer",
-           np.allclose(src["dv_mean"], want_mean.astype("float32")), "")
+    report(
+        "bounded staging: values equal the direct known answer",
+        np.array_equal(got, stored_reference_rows),
+        "max|d| %.1e"
+        % float(np.abs(got - stored_reference_rows).max()),
+    )
+    report(
+        "bounded staging: streamed mean equals the known answer",
+        np.array_equal(src["dv_mean"], stored_reference_mean),
+        "stored-float32 payload, float64 accumulation",
+    )
+    # Mutation control: the former reference reversed the two operations.
+    # It averaged the unrounded float64 formula rows first, then converted
+    # only the final mean to float32.  The seeded fixture must distinguish
+    # that wrong order from the mean of the rows the producer actually stores.
+    pre_cast_mean = independent_law_rows.mean(axis=0).astype("float32")
+    pre_cast_difference = np.abs(
+        src["dv_mean"].astype("float64")
+        - pre_cast_mean.astype("float64")
+    )
+    report(
+        "bounded staging: mean-before-cast mutation is rejected",
+        not np.array_equal(src["dv_mean"], pre_cast_mean),
+        "max|d| %.9e" % float(pre_cast_difference.max()),
+    )
     report("bounded staging: every raw + base read chunked and thinned",
            _reads_ok(raw_reads, bound, width)
            and _reads_ok(base_reads, bound, width),

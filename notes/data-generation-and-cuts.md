@@ -2306,20 +2306,25 @@ with `N` or `P`.
 prints a manual inspection instruction and executes no A/B comparison.
 
 <a id="triangle-shading-evidence"></a>
-**triangle-shading — a synthetic corner plot contains gray artists on its
-z-order-zero shading layer.**
+**triangle-shading: a synthetic corner plot places each physical-window
+artist on the exact parameter panel that determines that window.**
 
 - files: no external input or persistent output; the child constructs
   synthetic arrays and a Matplotlib figure in memory.
 - subprocess: `gates/checks/gt_b_triangle.py`.
-- metric: per-leg object-existence, positive-count, or complete census of
-  z-order-zero filled artists.
+- metric: figure existence; exact identity of every
+  `(x parameter, y parameter, window)` artist; a complete color census; and
+  exact ownership and interval bounds of the `omegamh2` marginal patches.
 - legs: 4, named `triangle-shading.figure-produced`,
-  `triangle-shading.shading-layer-present`,
-  `triangle-shading.all-shading-fills-use-shared-gray`, and
-  `triangle-shading.zorder-zero-span-present`.
-- evidence: all four legs are asserted in the child; the child's exit status
-  remains the single aggregate verdict and is not a fifth leg.
+  `triangle-shading.panel-window-set-exact`,
+  `triangle-shading.all-cut-artists-use-shared-gray`, and
+  `triangle-shading.omegamh2-marginal-bands-exact`.
+- evidence: all four legs are asserted in the child. The panel/window leg
+  derives its expected set and masks from a gate-owned formula table. Its
+  mutation moves one real filled collection to the wrong Axes while preserving
+  the former global artist, panel, color, and band counts; the exact-set
+  predicate rejects it. The child's exit status remains the single aggregate
+  verdict and is not a fifth leg.
 - owed: the board registry models CPU PyTorch only. The child also imports
   Matplotlib and GetDist; absence of either is a pre-leg red import failure,
   not an `UNAVAILABLE` capability disposition.
@@ -2328,18 +2333,21 @@ z-order-zero shading layer.**
 `triangle-shading.figure-produced` requires the plotting helper to return a
 figure for the synthetic sample and recognized parameter names.
 
-<a id="triangle-shading-shading-layer-present"></a>
-`triangle-shading.shading-layer-present` requires at least one figure axis to
-contain a gray z-order-zero artist. The counter includes collections and span
-patches, so this leg does not prove that a two-dimensional panel was shaded.
+<a id="triangle-shading-panel-window-set-exact"></a>
+`triangle-shading.panel-window-set-exact` maps every equal-size triangle Axes
+to its x and y parameter coordinates. It traces the boolean mask passed to
+each z-order-zero `contourf` call, identifies the physical window by an
+independent formula, and requires the observed tuple set and artist count to
+equal the gate-owned reference. A moved-artist mutation must fail while the
+former global counts remain equal.
 
-<a id="triangle-shading-all-shading-fills-use-shared-gray"></a>
-`triangle-shading.all-shading-fills-use-shared-gray` examines every filled
-artist on the shading layer and requires zero nontransparent fills outside the
-shared gray color.
+<a id="triangle-shading-all-cut-artists-use-shared-gray"></a>
+`triangle-shading.all-cut-artists-use-shared-gray` examines every collection
+and patch on the z-order-zero cut layer and requires each face color to match
+the shared `_CUT_GREY` RGBA value.
 
-<a id="triangle-shading-zorder-zero-span-present"></a>
-`triangle-shading.zorder-zero-span-present` requires at least one
-z-order-zero patch somewhere in the figure. The current child does not
-identify the owning axis, so this leg does not prove that the patch is on the
-`omegamh2` marginal.
+<a id="triangle-shading-omegamh2-marginal-bands-exact"></a>
+`triangle-shading.omegamh2-marginal-bands-exact` requires exactly two
+z-order-zero interval patches on the `(omegamh2, omegamh2)` diagonal Axes,
+none on another Axes, and endpoints equal to the lower and upper excluded
+intervals.

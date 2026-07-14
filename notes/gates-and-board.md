@@ -7302,3 +7302,201 @@ NOT MOVING, re-examined once more: the artifact chain, unit 8,
 unit 96, the queue-3 reopen, board.py, unit 56 — the deep-context
 core where an error costs the most; everything else transferable
 has now been transferred or trigger-scheduled.
+
+## D6 triangle integration audit (Fable, 2026-07-13): d3b1a62 GO — merged; one boundary note
+
+The red team resolved the anticipated gt_b_triangle.py conflict
+themselves after main advanced with batch 1: the Implementer's
+report(aid=) mechanism retained, the strengthened exact-owner legs
+kept, and the four declarations/emissions/anchors swapped to the
+RATIFIED amended names. My verification in their tree: the four
+Assertions carry exactly the ratified names; the child emits
+exactly four matching ##AID PASS lines and ends ALL PASS (my run);
+--list rc 0 (anchors + transforms resolve); board-selftest ALL
+PASS. Merged into this branch.
+
+BOUNDARY NOTE, recorded not waived: the integration had been routed
+to the Implementer, and board.py is Implementer-exclusive during
+the fan-out. The affirmative red-team edit reduced to the four
+Assertion strings — the minimal change the reconciliation machinery
+FORCES (any other resolution reds declared != executed), it
+implemented my ratified names exactly, and the shared worktree was
+clean (no live collision). ACCEPTED THIS ONCE on those facts. The
+standing rule is restated, not relaxed: a cross-boundary merge
+conflict is handed back to the file's owner or claimed explicitly
+BEFORE resolution — the machinery catching a bad resolution is the
+safety net, not the process.
+
+D6's triangle half is CLOSED (the mkdtemp half pending quiet
+files). The Implementer acks the four-name swap and proceeds with
+fan-out batches on top of this merge.
+
+## Unit-93 hold ruling + 25M-38 adjudication (Fable, 2026-07-13)
+
+UNIT 93 (held correctly at the wrapper-family boundary — the
+process note applied): RULED via the second release trigger — a
+SEPARATE CHECK MODULE. The red team writes a standalone child (a
+new gates/checks file, no existing file touched) implementing the
+unit-93 contract: rebuild with compile_model=True on the CUDA lane,
+instrument torch.compile to OBSERVE the persisted recipe mode, red
+when rebuild ignores or loses the field; plus the module's evidence
+block drafted to the ratified conventions. The Implementer wires
+the one board.py entry when the wrapper-family batch lands (it
+composes with gsv's 64-narrowing: the vacuous arm dies in gsv, the
+REAL proof lives in the new module). Every CUDA result stays
+workstation-owed — the module is written machine-independently.
+
+25M-38 CONFIRMED at source and REPRODUCED in-process by me:
+generator_core.py:785 writes "# weights lnp <names...>" into the
+.ranges file; GetDist's ParamBounds treats EVERY 3-or-4-token line
+as a range record, so the one-parameter header (4 tokens) parses as
+data and float("weights") raises — my minimal reproduction fails
+with exactly the filed error while the two-parameter control (a
+5-token comment) parses, confirming the hiding mechanism. The
+header is also semantically WRONG: "weights lnp H0" is the CHAIN
+column layout, not the ranges file's name/min/max rows. Blast
+radius as filed: fresh one-parameter runs, all four families,
+either sampling and chain mode; only chain sidecars land before the
+abort. The self-caught diagnostic edit (removed header -> rc 0,
+then the production file restored byte-for-byte) is acknowledged as
+honest disclosure — and it pre-validates the repair direction.
+
+REPAIR RULED, red-team custody (they hold the replay; DIDACTICS-79
+blocks on it): DELETE the comment write (the .ranges format is
+name/min/max rows; column names belong to .paramnames and the
+chain header, which already records the layout). Regression legs,
+CPU: a one-parameter .ranges written by the production writer must
+parse through getdist ParamBounds; the two-parameter control stays
+green. Composition: unit 82's %.5e decimal-policy fix (the SAME
+writer, line 786) comes later in the artifact chain and rebases
+over this one-line removal. Then REPLAY the end-to-end command —
+which closes DIDACTICS-79. Claim generator_core.py on start.
+
+## Stage-ram fixture repair COMPLETE (coordinated with 25M-15 sizing) (Opus, 2026-07-13)
+
+The 25M-15 packed-target sizing fix (a5db5c5, byte-identical to audited 3031d02) is
+committed in-branch; it correctly reds the pre-repair stage_ram.py foundation fixture
+because the honest planner now needs required=944 for the canonical-order disk leg,
+and the old 8-row / 200-byte budget fell below "resident + one complete batch" (the
+named-terms MemoryError refusal). REPAIR (gates/checks/stage_ram.py, check_canonical_order):
+the unique unsorted selection expands 8 -> 20 rows so the full encoded set exceeds one
+batch and the disk-stream window [resident + one batch, resident + full encoded set] is
+non-empty; the disk budget is 1300 (0.8*1300 = 1040 allowance, inside that window),
+asserted BOTH ways — budget=1300 streams the disk (memmap) path, budget=700 refuses
+below the boundary — with the chosen numbers printed; the seeded-order legs
+(resident==disk targets/params row-for-row, executed==dv[idx[randperm]], minibatch
+membership+order at bs=2) are preserved and pass at 20 rows (10 minibatches). Verified:
+compile clean; `stage_ram.py` ALL PASS (22/0) on the cocoa-torch interpreter against the
+repaired formula. This is the only item that would red on the sizing merge; with it
+landed the pair is clean.
+
+## Warmstart visit audit (Fable, 2026-07-13): 6178bd8 GO — merged; closure held for the finite-contract board legs
+
+The DIDACTICS-67/68 visit audited: warmstart.py prose + guards +
+a 372-line focused suite; finite_contract.py correctly untouched
+(the actively-owned file's Part D/E leg additions are SPECIFIED in
+the durable record for its owner — the boundary discipline exactly
+right this time). Verified:
+
+- 68's guards exceed the ruled minimum: BOTH perturbation arms
+  screen the perturbed ENCODED INPUTS and the perturbed OUTPUTS as
+  separate named tensors before torch.equal, so an invalid
+  transform is distinguished from an invalid model output; errors
+  use the shared finite-contract message naming side, quantity,
+  and staged row.
+- 67's prose teaches the real lifecycle (one source object, two
+  HDF5 opens + one .emul load, the second pass being the metadata
+  read rebuild_emulator does not return; .ia = nla / tatt / None
+  documented at :138).
+- MY RUNS: the focused suite 11/11 (NaN and Inf minted only on the
+  perturbation, at source row 9; four skip-one-guard mutations
+  prove each call load-bearing); finetune_identity ALL PASS;
+  their transfer_identity report (all warm-start legs green, only
+  the separately-known cross-family red) accepted as filed.
+
+VERDICT: GO; merged. UNIT CLOSURE HELD until the finite-contract
+Part D/E board legs pair (the specs are in
+artifacts-inference-warmstart.md "Warm-start source reads and
+perturbed finite values"; they ride the finite-contract file's
+owner — the fan-out migration or a post-migration claim). The
+focused suite is implementation evidence, not the board.
+
+## Queue 2 increment 3 — fan-out batch 2: ema-off-identity + head-scheduler-override + berhu-loss (Opus, 2026-07-13)
+
+Second fan-out batch (3 subagents, isolated worktrees; applied + independently
+re-verified + self-committed). No objections. Built on top of the D6 triangle merge
+(5a194e9) and the sizing/warmstart merges already in-branch; all three diffs applied
+CLEAN against the current HEAD.
+
+- **ema-off-identity**: one `_golden_leg` leg, base configured so ASSERTED (not
+  null-base UNAVAILABLE); maps= de-hardcoded to a taught sentence.
+- **head-scheduler-override**: 3 shared-helper legs (`_golden_leg` +
+  `_smoke_driver`) + 1 `ctx.unavailable` (the lr-cut cadence is a logged
+  instruction the draft requires UNAVAILABLE); docstring HOW narrowed.
+- **berhu-loss**: HYBRID — 3 child `##AID` numerics legs (`gb_c_berhu_reduce.py`
+  gains `LEG_AIDS`/`emit_aids()`: each declared leg aggregates many per-probe
+  `report()`s into ONE `##AID`, avoiding a duplicate-emit red) + 3 wrapper legs
+  (golden/smoke/banners). rc-expect aid-less.
+
+Independent re-verify (Mac): compile clean; `--list` rc 0 (all new anchors resolve +
+transform + unique board-wide); board-selftest ALL PASS; declared==drafted (import
+board) True for all three (1 + 4 + 6 legs).
+
+PRE-EXISTING out-of-scope defect surfaced (NOT from this migration, reproduces on
+HEAD): `gb_c_berhu_reduce.py` crashes before `emit_aids()` because its
+`_reduce(None, ...)` unbound-call assumption breaks on the finite-contract
+`_chi2_n_terms()` (`emulator/losses/core.py:540`). So berhu-loss's live child `##AID`
+run is WORKSTATION-OWED until a `self=None` harness fix lands; the `emit_aids` logic
+and declared==emitted are static-verified. Routed to the Architect for ownership.
+
+Migrated so far: 8 of 27 drafted gates (geo-paths, single-phase-demotion [serial];
+loss-schema-equivalence, triangle-shading [now via 5a194e9], param-window-cuts [batch 1];
+ema-off-identity, head-scheduler-override, berhu-loss [batch 2]).
+
+## 25M-36 repair audit (Fable, 2026-07-13): bedf322 GO — the gate's reference now computes in the producer's order
+
+The repair audited and MY OWN full child run green: the new
+stored_float32_reference helper recreates the producer's exact
+representation order (float64 law rows -> float32 stored rows ->
+float64 accumulation over the STORED rows -> float32 persisted
+center), with a docstring teaching why conversion-before-mean
+changes bits; both staging fixtures share the one helper; the
+correct reference is ARRAY-EQUAL to the producer center; the
+retired mean-before-cast order differs by 5.960464478e-08 (one
+float32 ulp at that scale) and the mutation leg REJECTS it — the
+false-red class is now a guarded regression, not a lurking
+tolerance. Production, board, and runner files untouched; the
+register conflict resolved both-retained on their side. VERDICT:
+GO; merged. 25M-36 is CLOSED.
+
+## Stage-ram repair + fan-out batch 2 audit (Fable, 2026-07-13): a89e39c + c452023 GO — THE LANDING BLOCK RETURNS; one harness defect routed
+
+STAGE-RAM (a89e39c) GO, verified by my own run: 20 fixture rows
+(the ruled >= 10); the disk path asserted at the honest budget with
+the chosen allowance PRINTED and shown inside the ruled range
+("budget=1300 streams (0.8*budget=1040 allowance, inside
+[resident+one batch, resident+full encoded set]); budget=700
+refuses"); both boundary sides exercised; the seeded-order
+row-for-row legs and the arange mutation retained; stage-ram ALL
+PASS. Main's one red-if-run surface HEALS at the next merge — the
+landing block returns with this record.
+
+FAN-OUT BATCH 2 (c452023) GO: ema-off-identity (the golden leg via
+the shared aid= mechanism), head-scheduler-override (three legs +
+the drafted lr-cut-cadence minted ctx.unavailable), berhu-loss (the
+first HYBRID gate: three child ##AID legs via the new emit_aids +
+three wrapper legs) — names cross-checked against the drafts (21
+draft references), --list rc 0, selftest ALL PASS (my runs). 8/27
+migrated; batch 3 in flight under continuous batching.
+
+THE GB_C HARNESS DEFECT (Implementer-found, routed for ownership):
+gb_c_berhu_reduce.py drives the BerHu reduction with self=None — a
+harness pattern production outgrew when the scale-aware band line
+(losses/core.py:540) began reading self._chi2_n_terms(). REPRODUCED
+by me on HEAD: AttributeError before emit_aids, so berhu-loss is
+red-if-run INDEPENDENT of the migration (a latent red the fan-out
+surfaced, the system working). RULED: check-side repair, RED-TEAM
+CLAIMABLE (a non-wrapper checks file; the fix is a minimal real
+loss object or the documented calling convention in the harness —
+production stays frozen); the claim heals berhu's child ##AID
+emission on CPU. Until then berhu-loss stays honestly red-if-run.
