@@ -3013,3 +3013,59 @@ with the wrapper-aid clause (child-emitted legs -> aid-less wrapper
 expect; wrapper-headline aids only where the rc expect IS the leg).
 Gate 2 proceeds; batch audit delta-only. Spec: gates-and-board.md
 "Increment-3 serial-proof gate 1 audit".
+
+SERIAL-PROOF GATE 2 + FAN-OUT (2026-07-13, Fable): da2ac6a GO —
+the wrapper-emitted shape exact to the draft, the narrowed
+demotion claim propagated into the wrapper detail, own runs green
+(--list true rc 0; an earlier rc=1 was my shell artifact). Both
+shapes proven; THE FAN-OUT IS GREEN-LIT (subagents per gate, six
+wrapper-family + seven foundation stay first-hand). Spec:
+gates-and-board.md "Increment-3 serial-proof gate 2 audit".
+
+PROSE HARDENING (2026-07-13, Fable): 2d49984 content GO — my own
+scans match every mechanical claim (the one non-fence ellipsis is
+code notation); the roughness split verified at code; five factual
+repairs + preservation register-witnessed. ONE REQUIRED REDACTION
+before merge: the register's scanned-pattern bullets 1-3 name the
+private checklist's categories — collapse to "editorial pass
+against private standards" (results + punctuation/format bullets
+stay). Spec: gates-and-board.md "Root README public-prose
+hardening audit".
+
+D3 CONTROL RULING (2026-07-13, Fable): the honest disjoint fixture
+reds the 0.05 two-epoch control at a deterministic 0.0746 — the
+old bar was leak-subsidized (~1,000 overlapping rows). RULED: the
+bar recalibrates BY MEASUREMENT inside the D3 landing;
+DIDACTICS-60's scalar-smoke half transfers from D5 to the red team
+and rides D3 (mean-predictor baseline on the same fixture; collapse
+bar below it; accuracy bar = honest error x 1.5, below the collapse
+bar; all numbers + margins printed and registered; dead-network arm
+reds against the new bars). Two-seed 1234/5678 form adopted; no
+production change. D5 drops the item. Spec: gates-and-board.md "D3
+control-interaction ruling".
+
+REDACTION DELTA (2026-07-13, Fable): fcf68ec GO — the three
+private-category bullets replaced by the sanctioned phrase, public
+evidence retained, whole-register rescan zero hits at 8d103a9. The
+prose-hardening landing is COMPLETE and merged into the branch.
+Spec: gates-and-board.md "Redaction delta audit".
+
+25M-15 SIZING (2026-07-13, Fable): 3031d02 content GO — named
+terms, boundary-supplied width/dtype, 84-byte witness, refusal
+replaces max(1,...), ordinary chunking unchanged, their own audit
+removed a scope expansion; my runs 6/6 + the stage-ram red
+reproduced (required=944 vs available=160). HELD for the
+Implementer's stage_ram fixture repair (>=10 rows, disk path
+asserted, allowance in the ruled range, numbers printed); the two
+land as ONE merge so main never reds. Spec: gates-and-board.md
+"25M-15 sizing audit".
+
+WAVE 4 (2026-07-13, Fable, on the user's request): DIDACTICS-79
+unblocked by the red team's own probe (cocoa python imports cobaya
+3.6.2 + CAMB, verified) — close it executed-before-printed with a
+real minimal generator run; the DIDACTICS-67+68 warmstart visit
+moves forward to now (prose + both-arm finite guards, time-boxed
+before the artifact chain opens); nudges on unclaimed 25M-36 +
+unit 93; unit 56 examined and KEPT (resume machinery outranks the
+21 trigger's speed). Bandwidth guidance: batch landings. Spec:
+gates-and-board.md "THROUGHPUT REBALANCE, WAVE 4".
