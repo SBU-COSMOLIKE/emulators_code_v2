@@ -3071,3 +3071,26 @@ not certify 25M-38 or DIDACTICS-79 and it does not merge the branch. Queue 2
 still owns the new child's board entry and its distinct sidecar evidence name.
 The child must never be folded into the unrelated
 `generator-seed.owned-rng` claim.
+
+## Post-main refresh evidence for TEX-PROSE-01 and TEX-PROSE-02
+
+The implementation commit `3302f29` was refreshed through main commit
+`51df01d` on branch `codex/tex-prose-audit`. The first refresh produced one
+append-only conflict in this register. The resolution retains the complete
+TEX-PROSE audit and implementation record followed by every newer main-side
+record. The final main refresh merged without a conflict. Neither refresh
+changed a file under `texnotes/`.
+
+Two fresh `pdflatex` passes from the refreshed repository root produced an
+84-page PDF. The final log contains no LaTeX warning, undefined reference,
+multiply defined label, overfull box, undefined control sequence or fatal
+error. The existing underfull-box diagnostics remain. Rendered pages 6, 35,
+50, 73 and 84 are pixel-identical to the tracked PDF and were inspected for
+clipping, overlap, broken equations and malformed units. The complete TeX
+source retains nine human-adjudicated multiline comma-and-conjunction
+candidates. Scans find no prose dash character, unescaped semicolon, question
+mark or TeX prose triple hyphen. An editorial pass against private standards
+also reports zero remaining match. `git diff --check` is clean.
+
+This refresh record is implementation evidence for Architect audit. It does
+not certify or merge the TEX-PROSE landing.
