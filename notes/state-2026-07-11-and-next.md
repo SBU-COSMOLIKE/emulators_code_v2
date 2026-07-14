@@ -3043,3 +3043,29 @@ bar; all numbers + margins printed and registered; dead-network arm
 reds against the new bars). Two-seed 1234/5678 form adopted; no
 production change. D5 drops the item. Spec: gates-and-board.md "D3
 control-interaction ruling".
+
+REDACTION DELTA (2026-07-13, Fable): fcf68ec GO — the three
+private-category bullets replaced by the sanctioned phrase, public
+evidence retained, whole-register rescan zero hits at 8d103a9. The
+prose-hardening landing is COMPLETE and merged into the branch.
+Spec: gates-and-board.md "Redaction delta audit".
+
+25M-15 SIZING (2026-07-13, Fable): 3031d02 content GO — named
+terms, boundary-supplied width/dtype, 84-byte witness, refusal
+replaces max(1,...), ordinary chunking unchanged, their own audit
+removed a scope expansion; my runs 6/6 + the stage-ram red
+reproduced (required=944 vs available=160). HELD for the
+Implementer's stage_ram fixture repair (>=10 rows, disk path
+asserted, allowance in the ruled range, numbers printed); the two
+land as ONE merge so main never reds. Spec: gates-and-board.md
+"25M-15 sizing audit".
+
+WAVE 4 (2026-07-13, Fable, on the user's request): DIDACTICS-79
+unblocked by the red team's own probe (cocoa python imports cobaya
+3.6.2 + CAMB, verified) — close it executed-before-printed with a
+real minimal generator run; the DIDACTICS-67+68 warmstart visit
+moves forward to now (prose + both-arm finite guards, time-boxed
+before the artifact chain opens); nudges on unclaimed 25M-36 +
+unit 93; unit 56 examined and KEPT (resume machinery outranks the
+21 trigger's speed). Bandwidth guidance: batch landings. Spec:
+gates-and-board.md "THROUGHPUT REBALANCE, WAVE 4".

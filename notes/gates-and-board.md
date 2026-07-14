@@ -7029,3 +7029,96 @@ RULING:
 5. D5's list DROPS DIDACTICS-60's scalar-smoke baseline item (its
    prose half was already the factual bundle's). The gauntlet is
    otherwise unchanged.
+
+## Redaction delta audit (Fable, 2026-07-13): fcf68ec GO — the prose-hardening landing is merge-ready
+
+The one-hunk redaction verified at the diff: the three private
+editorial-category bullets are GONE, replaced by exactly the
+sanctioned form ("a zero-match editorial pass against private
+standards"); the ordinary public punctuation and list-format
+evidence stays; 3 insertions / 9 deletions, register-only. My
+whole-register rescan at the branch tip (8d103a9) finds ZERO hits
+for the private-category vocabulary. The prose-hardening landing
+(2d49984 + fcf68ec) is fully GO'd and merged into this branch —
+the root README's public-prose constitution pass is COMPLETE, with
+the emulator/README.md import-prose follow-up routed to its
+package visit.
+
+## 25M-15 sizing audit (Fable, 2026-07-13): 3031d02 content GO — HELD for the coordinated stage-ram fixture repair (Implementer)
+
+The red team's sizing landing audited (codex/unit25m15-sizing;
+production batching.py + six CPU tests + notes; latest main merged):
+
+- compute_batch_byte_terms names every per-batch term
+  (saved_activations, input, model_output, target, chi2_scratch);
+  target width and float32 staging dtype are supplied by
+  _build_loaders_one FROM THE BOUNDARY THAT CREATES THE TARGET
+  (never-trust-defaults applied); the 84-byte witness is preserved
+  (out_dim=7, target_dim=14, bs=3); the crafted boundary flips two
+  batches -> one; the legacy max(1, ...) arm is a named-terms
+  MemoryError refusal; the 0.8 planning allowance is KEPT so
+  ordinary-target chunk boundaries are unchanged.
+- Their own audit caught and REMOVED a scope expansion (charging
+  resident encoded parameters — the separate resource-sizing
+  unit's territory); the pre-amendment resident formula is retained
+  exactly. Verified in the diff.
+- MY RUNS: 6/6 CPU tests pass (cocoa interpreter); the stage-ram
+  interaction REPRODUCED exactly — the repaired planner reds the
+  foundation fixture's 200-byte disk budget with "required=944,
+  available=160, resident=608, ..." and every term named.
+
+COORDINATION RULING: the stage_ram.py fixture repair belongs to the
+Implementer (foundation-gate owner; the red team correctly did not
+edit it). Spec, adopting the filing's recommendation: expand the
+unique unsorted selection to AT LEAST TEN rows so the raised budget
+still takes the DISK path (assert the path taken); preserve the
+seeded-order assertions; choose the allowance INSIDE
+[resident + one complete batch, resident + the full encoded set]
+and PRINT the chosen numbers. The sizing branch stays UNMERGED
+until that repair lands on amazing-keller; the two then merge in
+ONE landing so the board never reds on main. The packed-target
+streaming integration remains the workstation/queue-5 exhibit.
+
+## THROUGHPUT REBALANCE, WAVE 4 (Fable, 2026-07-13): DIDACTICS-79 unblocked by the probe; the warmstart visit moves forward; two nudges
+
+The user asked for further red-team transfers. Findings:
+
+1. DIDACTICS-79 IS NEWLY UNBLOCKED — by the red team's own torch
+   probe. The hold was "no shipped minimal generator configuration
+   can be executed in the available environment"; that premise is
+   now false: the cocoa interpreter their probe validated imports
+   cobaya 3.6.2 and CAMB cleanly (verified by me). ASSIGNED: close
+   79 under executed-before-printed — run a minimal CAMB-backed
+   generator command end-to-end (a scalar- or CMB-family config;
+   no cosmolike needed), record the executed command + the minimal
+   per-family YAML + the rank/worker/checkpoint teaching from the
+   REAL run, then print exactly what ran in the README. The
+   generator seeds/--unif requiredness proof they already hold
+   folds in.
+2. THE WARMSTART VISIT (DIDACTICS-67 + 68) MOVES FORWARD from
+   post-gauntlet lane-3 to NOW, red-team custody: the teaching
+   prose (the double .h5 open with its reason, object-count vs
+   file-open-count, ia = nla / tatt / None defined, the
+   FinetuneSource .ia attribute docstring gap) PLUS the small
+   production guard per the standing ruling — the shared finite
+   predicate applied to the perturbed encode and output tensors in
+   BOTH parity arms, with board legs minting NaN and Inf only on
+   the perturbation and the finite-contract error naming
+   quantity/side/row; removing either guard must red. TIME-BOX:
+   lands before the Implementer's artifact chain opens
+   (warmstart.py is quiet until then — the drift-metric code is a
+   different region, and one file has one owner at a time).
+3. NUDGES, already authorized but unclaimed: 25M-36
+   (mps_identity.py producer-order reference) and unit 93 (the
+   compile-mode CUDA lane — writing is machine-independent).
+4. KEPT with the Implementer, examined again and retained: unit 56
+   (checkpoint-ingress revalidation — training-resume production
+   machinery, deep-context; it also gates the 21 trigger, but
+   correctness outranks the trigger's speed), D5's remainder
+   (62/59/64/70 — board.py + gsv surfaces), the artifact chain,
+   units 8/24/63-reopen/96, the queue-3 reopen.
+
+BANDWIDTH NOTE, recorded as guidance: at current red-team velocity
+the emerging constraint is the AUDIT lane. Landings should batch —
+D6 + 61-finiteness as one handoff, the D4 file claims in pairs —
+so each round-trip carries more audited surface.
