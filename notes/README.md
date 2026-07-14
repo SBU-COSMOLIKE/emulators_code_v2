@@ -146,7 +146,7 @@ looks broken. So while a turn is in flight the daemon prints a heartbeat line
 once a minute. The path in it is shortened here; the daemon prints it in full.
 
 ```
-  ... 0046-to-opus.md still running (3 min elapsed, log 12.4 kB -- tail -f .../notes/relay/20260714-031840-dispatch-opus.log)
+  ... 0046-to-opus.md still running (3 min elapsed, log 12.4 kB; tail -f .../notes/relay/20260714-031840-dispatch-opus.log)
 ```
 
 The line means the turn is alive and being watched. The elapsed time always
@@ -364,7 +364,7 @@ lines:
 ```
 queued .../notes/mailbox/0046-to-opus.md
 queue depth: opus=2 sol=2 fable=0 | open backlog (notes/backlog.md): 22 | total demand: 26
-  hint: total open demand is at or past 10 units -- the red team is now the SECOND IMPLEMENTER: build units flow to it as well as to Opus (.claude/FABLE_ROLE.md, Second-Implementer assignments).
+  hint: total open demand is at or past 10 units; the red team is now the second implementer: build units flow to it as well as to Opus (.claude/FABLE_ROLE.md, Second-Implementer assignments).
 ```
 
 Read it one piece at a time. The mailbox path is shortened above; the daemon

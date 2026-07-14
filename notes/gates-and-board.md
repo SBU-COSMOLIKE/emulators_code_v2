@@ -14206,3 +14206,31 @@ git diff --check                                        rc 0
 This closes only the terminal-preamble ledger item. Staleness, output style,
 dead-mailbox discovery, fix-only behavior, rendezvous, and landing-debt riders
 remain open and separately countable.
+
+## Daemon terminal-output register recovery audit (Codex, 2026-07-14): GO
+
+The daemon's user-facing terminal lines now use semicolons instead of the
+prohibited prose ` -- ` separator and sentence case instead of shouting for
+ordinary emphasis. Binding protocol text, the complete `PREAMBLE`, command
+syntax, and genuine acronyms remain unchanged. The README's quoted demand
+hint and heartbeat are updated in the same slice and are exercised for exact
+runtime parity rather than accepted as free-standing documentation.
+
+The focused witness scans the actual `print` and argparse surfaces, exercises
+the refusal, demand-hint, and heartbeat paths in scratch repositories, and
+checks both quoted README lines. It deliberately excludes the binding
+`PREAMBLE`: that text is an agent contract, not terminal decoration, and was
+audited separately by the conditional-preamble recovery gate.
+
+```text
+python3 -B tests/tools_mailbox_daemon_output_style_repro.py  rc 0  8/8 checks PASS
+python3 -B tests/tools_mailbox_daemon_redteam_repro.py       rc 0  8/8 arms PASS
+separator-restoration mutation                              rc 1  focused witness red
+all-caps-restoration mutation                               rc 1  focused witness red
+py_compile                                                  rc 0
+git diff --check                                            rc 0
+```
+
+This closes only the output-style rider. Staleness, dead-mailbox discovery,
+fix-only behavior, rendezvous, and landing-debt riders remain open and
+separately countable.

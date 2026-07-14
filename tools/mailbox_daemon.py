@@ -416,7 +416,7 @@ def acquire_dispatch_lock():
         owner = lock_file.read().strip()
         lock_file.close()
         print("another dispatch loop is already running (pid "
-              + (owner or "unknown") + ") -- refusing to overlap it.")
+              + (owner or "unknown") + "); refusing to overlap it.")
         return None
     lock_file.seek(0)
     lock_file.truncate()
@@ -466,8 +466,8 @@ def dispatch(path, dry_run):
         move_without_overwrite(
             path=dispatch_path,
             directory=os.path.join(MAILBOX, "failed"))
-        print("REFUSED " + name + ": cannot read the body as UTF-8: "
-              + str(exc) + " -- parked in failed/.")
+        print("refused " + name + ": cannot read the body as UTF-8: "
+              + str(exc) + "; parked in failed/.")
         return False
 
     marker = placeholder_in(message=message)
@@ -480,8 +480,8 @@ def dispatch(path, dry_run):
         move_without_overwrite(
             path=dispatch_path,
             directory=os.path.join(MAILBOX, "failed"))
-        print("REFUSED " + name + ": the whole body is the template "
-              "placeholder '" + marker + "' -- parked in failed/; fill "
+        print("refused " + name + ": the whole body is the template "
+              "placeholder '" + marker + "'; parked in failed/; fill "
               "in the real text and requeue.")
         return False
 
@@ -493,8 +493,8 @@ def dispatch(path, dry_run):
         move_without_overwrite(
             path=dispatch_path,
             directory=os.path.join(MAILBOX, "failed"))
-        print("REFUSED " + name + ": the body contains a NUL byte, which "
-              "cannot be a command argument -- parked in failed/.")
+        print("refused " + name + ": the body contains a NUL byte, which "
+              "cannot be a command argument; parked in failed/.")
         return False
 
     command = AGENT_COMMANDS[agent] + [PREAMBLE + message]
@@ -549,8 +549,8 @@ def dispatch(path, dry_run):
                     # code below parks the claimed message in failed/.
                     proc.kill()
                     proc.wait()
-                    print("  TIMED OUT " + name + " after "
-                          + str(DISPATCH_TIMEOUT_MINUTES) + " min -- the "
+                    print("  timed out " + name + " after "
+                          + str(DISPATCH_TIMEOUT_MINUTES) + " min; the "
                           "turn was killed and the message parks in "
                           "failed/; requeue it by moving it back to the "
                           "mailbox (or relaunch with a larger "
@@ -560,7 +560,7 @@ def dispatch(path, dry_run):
                     elapsed_min = (time.time() - started) / 60.0
                     log_kb = os.path.getsize(log_path) / 1024.0
                     print("  ... " + name + " still running "
-                          + "(%.0f min elapsed, log %.1f kB -- tail -f %s)"
+                          + "(%.0f min elapsed, log %.1f kB; tail -f %s)"
                           % (elapsed_min, log_kb, log_path))
                     next_beat += 60.0
             f.write("\n--- rc=" + str(proc.returncode) + " ---\n")
@@ -570,7 +570,7 @@ def dispatch(path, dry_run):
             path=dispatch_path,
             directory=os.path.join(MAILBOX, "failed"))
         print("  !! dispatch could not start: " + str(launch_error)
-              + " -- message parked in failed/; log -> " + log_path)
+              + "; message parked in failed/; log -> " + log_path)
         return False
 
     print("  rc=" + str(proc.returncode) + "  log -> " + log_path)
@@ -590,10 +590,10 @@ def dispatch(path, dry_run):
         # the turn's output lives in the log file (it streams there;
         # proc.stdout is None under Popen with a file handle).
         if "Not logged in" in "\n".join(reply_lines):
-            print("  !! the headless CLI is LOGGED OUT -- run `claude` in a "
+            print("  !! the headless CLI is logged out; run `claude` in a "
                   "terminal, type /login, then requeue from failed/.")
         else:
-            print("  !! dispatch FAILED -- message parked in failed/, see "
+            print("  !! dispatch failed; message parked in failed/, see "
                   "the log above.")
         return False
 
@@ -684,8 +684,8 @@ def report_demand(backlog):
           + " | total demand: " + str(total))
     if total >= SECOND_IMPLEMENTER_THRESHOLD:
         print("  hint: total open demand is at or past "
-              + str(SECOND_IMPLEMENTER_THRESHOLD) + " units -- the red "
-              "team is now the SECOND IMPLEMENTER: build units flow to "
+              + str(SECOND_IMPLEMENTER_THRESHOLD) + " units; the red "
+              "team is now the second implementer: build units flow to "
               "it as well as to Opus "
               "(.claude/FABLE_ROLE.md, Second-Implementer assignments).")
     report_landing_debt()
@@ -714,7 +714,7 @@ def report_landing_debt():
         return
     stat = proc.stdout.strip()
     if stat == "":
-        print("landing debt: none -- the branch and main hold the "
+        print("landing debt: none; the branch and main hold the "
               "same content")
         return
     # --shortstat prints e.g. " 3 files changed, 120 insertions(+), 4
@@ -726,9 +726,9 @@ def report_landing_debt():
     if changed_lines > LANDING_DEBT_LINE_LIMIT:
         print("  hint: more than " + str(LANDING_DEBT_LINE_LIMIT)
               + " unlanded lines means at least one full audit trail "
-              "is overdue -- squash-land the audited unit(s) to main "
+              "is overdue; squash-land the audited unit(s) to main "
               "now, one unit per commit "
-              "(.claude/FABLE_ROLE.md, Landing GRANULARITY).")
+              "(.claude/FABLE_ROLE.md, Landing granularity).")
 
 
 def send(agent, text, dry_run):
@@ -784,7 +784,7 @@ def send(agent, text, dry_run):
                         os.remove(temporary)
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    print("could not claim a sequence number after 20 tries -- "
+    print("could not claim a sequence number after 20 tries; "
           "is something flooding the mailbox?")
     return False
 
@@ -915,7 +915,7 @@ def main():
         if dispatch_lock is None:
             return 1
         print("watching " + MAILBOX + " (Ctrl-C to stop; safe only "
-              "BETWEEN dispatches -- killing a dispatch mid-flight dooms "
+              "between dispatches; killing a dispatch mid-flight dooms "
               "the agent's turn)")
         # a daemon fix is a no-op for the loop already running (the
         # 2026-07-14 placeholder incident): watch our own source and
@@ -928,7 +928,7 @@ def main():
                 process_backlog(dry_run=False)
                 if os.path.getmtime(os.path.abspath(__file__)) \
                         != source_stamp:
-                    print("daemon source changed on disk -- exiting so "
+                    print("daemon source changed on disk; exiting so "
                           "the next start runs it (relaunch --watch).")
                     return 0
                 time.sleep(20)
