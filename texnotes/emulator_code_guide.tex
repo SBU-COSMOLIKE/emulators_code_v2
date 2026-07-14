@@ -734,20 +734,19 @@ physical transformation, they can drift while their local tests remain
 green.  The design therefore reuses geometry and loss decoding at inference
 through one prediction formula.
 
-\subsection{How this manuscript marks alpha-stage gaps}
+\subsection{How this manuscript states software limits}
 
-The repository identifies itself as alpha software.  An unqualified
-present-tense sentence in this manuscript describes the current executed
-path.  A paragraph labeled \emph{Current gap} describes behavior still present
-in the code.  A paragraph labeled \emph{Required closure} states the audited
-contract that must land before the gap is accepted as closed.  Required
-closures are included because they explain why a gate exists.  Their labels
-keep them separate from current features.
+The repository identifies itself as alpha software.  This manuscript describes
+the behavior a reader can execute in the current tree.  When that behavior has
+a known limit, the relevant section states the consequence and a safe way to
+use the present implementation.  Design proposals, repair queues and landing
+records live in \code{notes/}.  Keeping them out of the teaching text lets a
+reader learn one current program instead of reconstructing its development
+history.
 
-The executable gate log at a named commit is the final status authority.  This
-working manuscript can lag a same-day implementation.  When code lands, the
-corresponding current-gap paragraph is deleted only after its gate executes.
-The didactic explanation of the resulting behavior remains.
+The executable gate log at a named commit remains the status authority.  A
+warning is removed only after the corresponding behavior and gate have been
+audited.  The explanation of the resulting mechanism remains in the guide.
 
 \section{Starting a run: commands, paths and configuration}
 \label{sec:starting}
@@ -915,22 +914,16 @@ over reconstruction.  Operational facts such as the number of GPUs or whether
 progress printing was quiet can be reported separately.  They do not change
 the mathematical model.
 
-\paragraph{Current gap.}
-The family-specific validators reject unknown keys inside blocks such as
-\code{data.grid} and \code{data.cmb}, but the public configuration surface is
-still incomplete: several top-level and \code{train\_args} names can be ignored,
-coerced by Python truthiness or forwarded to a default.  A misspelled key can
-therefore select a different branch silently.  The cheap validation error
-described above never appears.
-
-\paragraph{Required closure.}
-Every public configuration namespace has an explicit allowlist and required
-set.  Booleans use native boolean values, validators refuse nonempty string
-lookalikes and finite-real controls reject NaN and infinity before ordered
-comparisons.  The resolved record contains the values consumed after
-validation.  This closure belongs
-at the configuration boundary.  A later finite-training check is defense in
-depth.  The configuration boundary must already reject an invalid recipe.
+\paragraph{Safe use of the current configuration surface.}
+Family validators reject unknown keys inside blocks such as
+\code{data.grid} and \code{data.cmb}.  The top level and the root of
+\code{train\_args} do not yet have complete key censuses.  A misspelled feature
+key can select a default branch, and some root controls still pass through
+Python truth-value rules.  Start from a shipped YAML file, change only keys
+documented for that driver and inspect the resolved run record before an
+expensive campaign.  Native booleans must remain unquoted.  The implemented
+numeric validators already reject nonfinite optimizer controls, but that
+protection does not make every configuration namespace total.
 
 \subsection{Factories turn specifications into live objects}
 
@@ -1022,18 +1015,16 @@ target ordering against which the current alpha implementation is audited.}
 \label{tab:validation-ladder}
 \end{table*}
 
-\paragraph{Current ordering deviation.}
-The current constructor selects a device and reads part of the covariance
-header before the whole recipe has passed a single total validator.  The
-ordinary \code{run} path then stages sources and builds geometries before
-\code{train} calls \code{build\_specs}, where some model and optimizer keys
-are finally rejected.  Thus the code has many real validators, but they do
-remain short of the complete early barrier shown in
-Table~\ref{tab:validation-ladder}.  A present-tense statement that ``all
-configuration errors are cheap'' would be false.  The purpose of the table is
-to make the remaining movement of validation explicit: schema and component
-checks must eventually precede device selection, covariance reads, staging,
-geometry fitting and model construction.
+\paragraph{Validation order in the current constructor.}
+The constructor selects a device and reads part of the covariance header before
+the whole recipe reaches one total validator.  The ordinary \code{run} path
+also stages sources and builds geometries before \code{train} calls
+\code{build\_specs}, where some model and optimizer keys are rejected.  The
+program therefore has many real validators but does not yet provide the full
+early barrier in Table~\ref{tab:validation-ladder}.  Review a recipe with the
+family validator and a dry, small-data construction before committing a large
+staging or accelerator run.  A late configuration error can occur after file
+I/O or device selection.
 
 \subsubsection{A type error that looks superficially reasonable}
 
@@ -1159,17 +1150,14 @@ Every point fits its own data-dependent geometry and analytic base from exactly
 its selected rows.  Borrowing geometry or a PCE fit from the largest point
 leaks information and invalidates the training-size effect measurement.
 
-\paragraph{Current gap.}
-The scalar, CMB, background and matter-power training-size wrappers currently
-call a pool counter that indexes a \code{param\_cuts} bound even when the
-documented optional block is absent.  The shipped no-cut examples can fail
-before the first sweep point.  A one-run success is therefore not evidence
-that the corresponding learning-curve driver is reachable.
-
-\paragraph{Required closure.}
-The shared counter treats an absent cut block as the complete available pool,
-uses the same selection order as staging and is exercised by every thin
-family wrapper both with and without physical cuts.
+\paragraph{Safe use of the training-size wrappers.}
+The scalar, CMB, background and matter-power wrappers call a pool counter that
+reads a \code{param\_cuts} bound even when that optional block is absent.  A
+no-cut configuration can therefore stop before the first sweep point even
+when its one-run driver succeeds.  Supply an explicit, valid
+\code{param\_cuts} block for these wrappers or run the requested row counts as
+separate one-run jobs.  Compare the reported available-pool count with the
+rows selected by staging before interpreting the learning curve.
 
 \subsection{One-knob sweep}
 
@@ -1198,22 +1186,15 @@ The objective function returns the declared validation statistic from one
 complete trial.  Trial status is part of the result: a failed trial carries
 failure status without a finite score or completion record.
 
-\paragraph{Current gap.}
-The parallel study parent does not yet require successful current worker exit
-or a positive count of new completed trials before reporting the best
-historical trial.
-
-\paragraph{Required closure.}
-A resumable study carries a canonical manifest: objective identity, resolved
-fixed configuration, search-space schema, data digests, family/law facts and
-implementation identity.  Operational controls such as timeout, worker count
-or requested total trials do not change the objective and may vary on resume.
-A journal is accepted only when its manifest matches.  This rule keeps trials
-from different scientific questions in separate studies.
-
-The current journal does not yet persist and compare this manifest.  Until it
-does, resume is safe only after manually verifying that objective, fixed
-configuration, search ranges, data and implementation are unchanged.
+\paragraph{Safe use of a parallel study.}
+The parent process can report the best historical trial without proving that a
+current worker exited successfully or that the current invocation added a
+completed trial.  Its journal also lacks a complete scientific manifest.
+After every parallel invocation, inspect each worker's return status and the
+before-and-after count of completed trials.  Resume an existing journal only
+after manually comparing the objective, fixed configuration, search ranges,
+data identities, family laws and implementation.  Start a new journal when
+any of those facts changes.
 
 \subsection{Activation bake-off}
 
@@ -1251,17 +1232,15 @@ fraction of device memory.  Tokens limit concurrent jobs so their total
 estimate stays inside policy.  Packing improves throughput but makes
 per-epoch timing noisier, so timing comparisons run without it.
 
-\paragraph{Required closure.}
-Worker lifecycle includes setup, staging and the training loop.  A
-worker reports a success or failure result through a finally-protected
-channel.  The parent has a bounded wait and checks process exit status.  A
-crash before the first epoch must not leave the parent waiting forever or
-allow an old result table to be reported as the current campaign.
-
-\paragraph{Current gap.}
-The multi-GPU activation bake-off can currently wait indefinitely when a
-worker dies before emitting a result.  Run it under an external timeout until
-the bounded parent/worker protocol is gate-proven.
+\paragraph{Safe use of pooled GPU campaigns.}
+The shared GPU pool can wait indefinitely when one live worker never produces
+its result, and it does not yet validate every token or lane assignment before
+launch.  The activation bake-off has a second exposure: setup and staging run
+outside its worker exception handler, while the parent waits for a fixed count
+of queue results.  A failure before the first epoch can therefore leave either
+parent waiting.  Run pooled campaigns under an external timeout, retain every
+worker log and require one explicit success record per requested point before
+using the result table.
 
 \section{Generating the cosmologies and targets}
 \label{sec:generation}
@@ -1375,20 +1354,15 @@ and a mixed checkpoint is invalid.  A manifest records file identities, coordina
 counts, dtypes and digests.  A mismatch blocks resume and preserves the
 existing roots.  A load exception cannot authorize a fresh run at those roots.
 
-\paragraph{Current gap.}
-The generators do not yet enforce that full contract.  A run can preserve
-failed-row flags while still exiting successfully.  The trainer does not use
-the failure sidecar as a mandatory readiness verdict.  Several checkpoint
-sets omit parameter-name or coordinate-axis sidecars and a checkpoint-load
-exception can fall through to a fresh run at the same output roots.  A file
-that exists is therefore not, by itself, a certified training set.
-
-\paragraph{Required closure.}
-Transactional publication and one canonical manifest bind generator identity,
-ordered parameter names, coordinate axes, completed rows, storage dtype,
-failure state and file digests.  Resume compares that manifest before any
-write and a nonempty failure set produces a nonzero process result.  Training
-independently revalidates the same facts at ingress.
+\paragraph{Safe use of generated file sets.}
+The generators do not yet certify this complete relation.  A run can retain
+failed-row flags and still return success, while training does not treat the
+failure sidecar as a mandatory readiness verdict.  Some checkpoint sets omit
+parameter-name or coordinate sidecars.  A checkpoint-load exception can also
+restart generation at the same output roots.  Before training, require an
+empty failure set, compare row counts across every sibling file and verify the
+parameter names and physical axes directly.  Preserve the existing roots when
+checkpoint loading fails.  File existence alone supplies no readiness verdict.
 
 \subsection{Sidecars carry scientific meaning}
 
@@ -1405,18 +1379,13 @@ actual redshift and wavenumber values.  The artifact can then state that its
 axis was verified against the generated dump.  That dump is the axis source,
 while the unrelated covariance has no authority over it.
 
-\paragraph{Current presentation-metadata gap.}
-Cobaya permits a sampled parameter without an optional \code{latex} display
-label.  The generator currently reads that key unconditionally only after
-sampling and chain publication, so a valid model can fail late with
-\code{KeyError}.  The numerical parameter name already supplies an unambiguous
-fallback label.
-
-\paragraph{Required closure.}
-When \code{latex} is absent, the \code{.paramnames} writer uses the parameter
-name as its display label.  Optional typography never becomes a late numerical
-precondition.  A real-Cobaya no-label fixture must complete and its sidecar must
-remain readable by GetDist.
+\paragraph{Safe use of parameter display labels.}
+Cobaya permits a sampled parameter without a \code{latex} display label, but
+the generator currently reads that key unconditionally after sampling and
+chain publication.  A missing label can therefore raise \code{KeyError} late
+in an otherwise valid run.  Give every sampled parameter an explicit
+\code{latex} value.  The numerical parameter name is a clear fallback for a
+plain-text label, but the writer does not yet apply that fallback itself.
 
 \subsection{The handoff to training}
 
@@ -2292,27 +2261,18 @@ A geometry is ready only when four numerical statements hold:
         covariance contraction.
 \end{enumerate}
 
-These four statements are the acceptance contract.  The following gap records
-which current constructors still violate it.
+These four statements are the acceptance contract.
 
-\paragraph{Current gap.}
-Three live construction paths can violate the first statement before a later
-round-trip is attempted.  One covariance constructor takes a square root of a
-numerically negative eigenvalue without first rejecting it and produces NaN.
-A block-diagonal path clips a negative eigenvalue to zero and later divides by
-the resulting zero scale.  Diagonal families can also accept a positive
-\code{float64} scale that underflows to exact zero when stored as
-\code{float32}.  A finite check before the storage-dtype conversion does not
-cover that last case.
-
-\paragraph{Required closure.}
-Every geometry constructor and \code{from\_state} readback applies one shared
-post-conversion check: centers, factors and scales are finite and every
-divisor is representably nonzero in the dtype that encode will use.
-Covariance paths also refuse a non-positive spectrum with a typed explanation
-and preserve it without irreversible clipping.  Identity gates exercise the
-real constructors, storage conversion, encode/decode round trip and direct
-physical-score equality.
+\paragraph{Safe use of current geometry constructors.}
+Three construction paths can violate the first statement before a round trip
+is attempted.  One covariance path takes the square root of a numerically
+negative eigenvalue and produces NaN.  A block-diagonal path clips a negative
+eigenvalue to zero and later divides by the zero scale.  A diagonal family can
+also accept a positive \code{float64} scale that becomes exact zero after
+storage as \code{float32}.  After fitting or rebuilding a geometry, inspect
+centers and stored factors in their final dtype, require every divisor to be
+finite and nonzero and run both the encode/decode round trip and the direct
+physical-score comparison before training.
 
 \section{The neural designs and their constructible specifications}
 \label{chap:models}
@@ -3070,16 +3030,13 @@ the base.  Rejected modes are left for the neural refiner.  Reconstruction is
 This mode-first design directs polynomial capacity toward the dominant smooth
 directions of the covariance-whitened target.
 
-\paragraph{Current gap.}
-If every attempted mode misses \code{loo\_max}, the current fit nevertheless
-force-keeps mode zero.  That fallback contradicts the threshold rule and can
-insert a demonstrably poor base into the neural composition.
-
-\paragraph{Required closure.}
-The all-rejected state either constructs a clean no-base/refiner-only path or
-follows an explicitly named and validated fallback policy.  It never labels a
-threshold failure as an accepted polynomial mode merely to keep the coefficient
-matrix nonempty.
+\paragraph{Safe use when every PCE mode fails selection.}
+If every attempted mode misses \code{loo\_max}, the current fit force-keeps
+mode zero.  The selected base can therefore violate the threshold that the
+artifact reports.  Inspect every per-mode leave-one-out score before accepting
+an NPCE fit.  Use the artifact only when each retained mode satisfies the
+declared threshold.  An all-rejected fit must be treated as failed rather than
+as a usable mode-zero base.
 
 Selection maintains a set of distinct active indices.  When every term is
 active, no candidate remains and the loop terminates.  Filling unavailable
@@ -3133,11 +3090,13 @@ approximation, its bounds are stored and reporting identifies a clamped
 request.  If the model is valid only inside its training domain, prediction
 raises outside it.  Coefficient values alone cannot reveal this policy.
 
-\paragraph{Current gap.}
-The current predictor clamps each mapped coordinate to \([-1,1]\) through an
-unversioned implementation rule.  The artifact lacks a named domain-policy
-field.  The preceding paragraph states the required closure.  Current
-artifacts still lack an explicit clamp-or-refusal distinction.
+\paragraph{Safe use of the current NPCE domain.}
+The predictor clamps every mapped coordinate to \([-1,1]\), while the artifact
+does not name that policy.  Distinct points beyond one fitted boundary can
+therefore produce the same polynomial-base input.  Restrict prediction to the
+persisted fitted box and refuse an out-of-box request in the calling code.
+Clamped extrapolation should not be interpreted as a measured property of the
+trained model.
 
 \section{Learnable activation functions and their generalizations}
 \label{sec:activations}
@@ -3254,10 +3213,12 @@ multiplies by \code{torch.sign(x)} and evaluates \code{abs(x)}.  PyTorch uses
 zero subgradients for these primitives at exactly zero, so autograd currently
 reports a zero derivative there.  Forward values still satisfy
 $\psi_1(x)=x$, but a zero-initialized correction can encounter the backward
-exception before any feature moves away from zero.  The required liveness
-contract therefore checks the derivative of the executed tensor expression
-along with Eq.~\eqref{eq:psi}.  A repaired expression must retain the stated
-forward law and transmit a finite nonzero first gradient at zero.
+exception before any feature moves away from zero.  A forward-curve plot cannot
+show this autograd behavior.  Before using a power activation in a
+zero-initialized correction head, evaluate the derivative of the executed
+tensor expression at zero and require a finite nonzero result.  The current
+expression fails that check, so this activation should be kept out of that
+specific head configuration.
 
 The exponent is trained through a bounded parameter.  The stored
 parameter \(\rho\) is mapped through a sigmoid:
@@ -3288,7 +3249,7 @@ changes where and how the gate transitions in the central region.
 The analytic function \(\psi_p\) changes the tail-growth law while keeping
 unit slope in its mathematical limit at the origin.  The current
 \code{sign}/\code{abs} tensor expression has the zero-backward exception
-described above until its required liveness repair lands.
+described above.
 The combined activation is
 \begin{equation}
   GP_G(x)=g_G(x)\psi_p(x).
@@ -3709,20 +3670,14 @@ exempt from weight decay.  Module role supplies ownership more reliably than ten
 activation parameter is still a curve-control value and a custom weight
 owner may not match a generic rank heuristic.
 
-\paragraph{Current gap.}
-The optimizer factories currently overwrite an explicit \code{fused: false}
-with \code{fused=True} on CUDA and forward that keyword without proving the
-selected optimizer supports it.  They also accept a class whose
-\code{step()} requires a closure even though the training loop always calls
-\code{step()} with no argument.  Constructor compatibility is not execution-
-protocol compatibility.
-
-\paragraph{Required closure.}
-The public surface is bounded to the supported closure-free Adam/AdamW family,
-or validates an equivalent protocol before data staging.  Device-specific
-\code{fused} injection occurs only when the selected class supports it and an
-explicit user value is preserved.  The resolved record reports the class and
-executed fused state.
+\paragraph{Safe use of the current optimizer factory.}
+On CUDA, the optimizer factory overwrites an explicit \code{fused: false} with
+\code{fused=True} and forwards that keyword without checking the selected
+class's constructor.  It can also construct an optimizer whose \code{step()}
+requires a closure, while the training loop always calls \code{step()} with no
+argument.  Use the shipped AdamW configuration and leave its fused setting to
+the current device policy.  A different optimizer class needs a separate
+one-step protocol check before staging a full data set.
 
 \subsection{Plateau scheduling and rewind}
 
@@ -3807,18 +3762,14 @@ increasing schedule is valid only if the owner intends it.  The validator
 checks start, end, durations and shape before training so a NaN cannot disable
 the branch through a false ordered comparison.
 
-\paragraph{Current gap.}
-The shared stepped schedule currently applies \code{max(end, floored\_value)}.
-That expression is correct only for a decreasing ramp.  For an increasing
-zero-to-one ramp, it returns the final value at the first live epoch and skips
-the intended anneal.  The same helper is reused by trim, BerHu and EMA, so
-the owner must be tested in both directions.
-
-\paragraph{Required closure.}
-The validator requires strictly increasing step fractions and the evaluator
-quantizes then clamps according to the sign of \code{end-start}.  Decreasing
-shipped schedules remain byte-identical.  Increasing fixtures prove that the
-intermediate steps are actually visited.
+\paragraph{Safe use of stepped schedules.}
+The shared stepped evaluator applies \code{max(end, floored\_value)}.  A
+decreasing ramp follows the intended staircase, while an increasing ramp jumps
+to its final value at the first live epoch.  This helper is shared by trim,
+BerHu and EMA.  Use the step shape only for a decreasing schedule.  Use the
+linear or cosine shape for an increasing schedule, inspect the printed values
+at intermediate epochs and supply finite durations and strictly ordered step
+fractions.
 
 Trim protects early optimization from a small contaminated tail.  It does not
 justify ignoring the removed rows forever.  A nonzero final floor is an
@@ -4195,28 +4146,21 @@ through the reduction, loss and model.  NumPy files, integer row indices and
 frozen geometry statistics remain data outside the trainable
 \code{Parameter} set.
 
-\paragraph{Current contract deviations.}
-The current loop checks the scalar loss and gradient norm, but the
-post-optimizer parameter-and-moment check in the listing remains workstation
-evidence.  The live anchor path also updates EMA before applying the decoupled
-anchor.  The served-state contract requires optimizer, then anchor, then EMA.
-The listing gives the required canonical order and describes two
-queued repairs.  When the
-anchor is absent, the order distinction disappears and existing training
-behavior is retained.
+\paragraph{Limits of the current update chain.}
+The loop checks the scalar loss and gradient norm.  A complete live proof of
+post-optimizer parameter and moment finiteness is still owed on the
+workstation.  The anchor path also updates EMA before it applies the decoupled
+anchor, so the averaged state can differ from the state served immediately
+after the anchor.  Runs without an anchor avoid this order dependence.  For an
+anchored run, compare the live, anchored and EMA predictions before accepting
+the saved state.
 
-\paragraph{Current gap.}
-The current Apple MPS branch selects float16 autocast but does not construct a
-gradient scaler.  Small early gradients, especially those produced by
-zero-start correction heads and soft gates, can underflow to exact zero while
-all losses remain finite.  CUDA bfloat16 leaves this distinct float16 path
-untested.
-
-\paragraph{Required closure.}
-An MPS float16 run either uses a supported scaler with the order scale,
-backward, unscale, finite check, clip, step, anchor, EMA or refuses the mode
-with a teaching error.  No persistent state advances after a skipped/nonfinite
-step.  The resolved artifact records compute dtype and scaler policy.
+The Apple MPS branch selects float16 autocast without a gradient scaler.  Small
+early gradients from zero-start correction heads and soft gates can underflow
+to exact zero while the loss remains finite.  Disable automatic mixed
+precision for MPS training until the executed path supplies a scaler or an
+explicit refusal.  CUDA bfloat16 behavior does not establish the safety of the
+MPS float16 branch.
 
 \subsection{Epoch metrics and model selection}
 
@@ -4349,36 +4293,17 @@ $w_j^{\rm opt}=2.3$, $\eta=0.01$, $\lambda=4$ and $m_j=1$, then
 \end{equation*}
 With $m_j=0$, the anchor leaves the optimizer result at 2.3.  Adam's first-
 and second-moment buffers retain the optimizer step's own values because the
-anchor follows AdamW.  It precedes EMA so the averaged model records the state that later
-prediction can actually serve.  The mask is created by canonical parameter
-names.  Reporting distinguishes matched, masked, frozen and unexpected keys.
+anchor follows AdamW.  The current loop updates EMA before applying the anchor,
+so the averaged state does not include that same step's pull toward the source.
+The mask is created by canonical parameter names.  Reporting distinguishes
+matched, masked, frozen and unexpected keys.
 
-\paragraph{Current gap.}
-The public fine-tune validator currently refuses \code{finetune.anchor} before
-training begins.  The downstream mask and update machinery exists, but it is
-unavailable while its configuration door is closed.  Unanchored
-fine-tuning is the current public path.  \code{transfer.refine.anchor} is a
-different control owned by transfer refinement.
-
-\paragraph{Required closure.}
-Opening the key requires an executed from-config test, finite nonnegative
-validation, canonical source-to-new parameter mapping, honest matched/masked/
-frozen/unexpected reporting and save/rebuild proof of the executed anchor.
-The preceding post-step equation describes that closure.  The current
-fine-tune YAML rejects the key.
-
-\paragraph{Current sweep-lifecycle gap.}
-Fine-tune preparation changes the loaded source parameter geometry to its live
-device state and does not restore the original representation afterward.  A
-family sweep reuses one experiment across points and the next point clones
-the source in its current mutable representation.  Point order can therefore
-affect later warm starts even though every point names the same artifact.
-
-\paragraph{Required closure.}
-Each point receives the same immutable source snapshot.  Any temporary
-in-place device/liveness transition is restored in a \code{finally} path
-before the next point and a digest plus two-point forward/reverse-order gate
-proves order independence.
+\paragraph{Fine-tune anchor availability.}
+The public validator refuses \code{finetune.anchor} before training begins.
+The downstream mask and update machinery exists but is unreachable through
+the fine-tune configuration.  Use unanchored fine-tuning, or use the separate
+\code{transfer.refine.anchor} control when transfer refinement is the intended
+mode.  Adding \code{finetune.anchor} to a YAML file produces an error.
 
 \subsection{Transfer keeps the base frozen}
 
@@ -4427,24 +4352,33 @@ has converged.  The optimizer then contains separate groups: correction
 parameters at the run learning rate and base parameters at a scaled rate.  A
 base anchor limits drift from the original source.
 
-The executed update order is optimizer, base anchor, then EMA.  Moving EMA
-before the anchor would average a state that is never actually served.  The
-artifact records original base tensors, refined tensors and a truthful drift
-metric computed over the named trainable parameter set.  Buffers and padding
-indices are not silently diluted into a quantity labeled weight drift.
+\paragraph{Safe use in a transfer-refinement sweep.}
+Refinement changes the shared transfer base in place.  A family sweep that
+reuses one experiment can start a later point from weights and mode state
+changed by an earlier point.  Construct a fresh experiment from the same
+source artifact for every refinement point.  A forward-versus-reverse order
+comparison is independent only when both directions rebuild that source before
+each point.
+
+The current update order is optimizer, EMA, then base anchor.  The averaged
+state can therefore include a pre-anchor value that is never served as the
+live post-step base.  Compare the live anchored prediction with the EMA
+prediction before accepting an anchored refinement artifact.  The artifact
+records original base tensors and refined tensors.  Treat its reported drift
+as provisional unless it was computed over the named trainable parameter set,
+without buffers or padding indices.
 
 \subsection{Artifact self-containment}
 
 A transfer artifact embeds the base facts it needs at inference and removes
-dependence on an external path that may later point to different weights.  That
-embedding makes the recipe self-contained with respect to the source path, but
-the current two-file publication lacks pair binding: a
-same-shaped weight file can be mixed with the wrong HDF5 recipe without a
-shared payload digest refusing it.  The required closure adds two distinct
-facts.  Pair integrity binds the exact weight bytes to the HDF5 recipe.
-Implementation identity records the executable law required to interpret
-them.  Even a correctly paired artifact could be interpreted by the wrong
-future formula if implementation identity were ignored.
+dependence on an external path that may later point to different weights.  The
+current two-file publication still lacks pair binding.  A same-shaped weight
+file can be mixed with the wrong HDF5 recipe because neither file carries a
+shared payload identity.  Keep the two files together under one immutable
+root, refuse partial copies and run a save/rebuild prediction comparison after
+moving them.  The stored recipe also lacks a complete identity for every
+executable law, so retain the source commit used to train and rebuild the
+artifact.
 
 \begin{figure*}[t]
 \centering
@@ -4640,17 +4574,14 @@ prediction.  Reordering templates can preserve tensor shape while changing
 the physical function, so template identity belongs in artifact state and
 round-trip gates.
 
-\paragraph{Current persistence gap.}
-The artifact currently stores only the design label \code{tatt}.  The ten labels
-and monomials above are absent.  Rebuild looks up the current \code{tatt} registry entry
-and therefore assumes that its implementation still uses the training-time
-order.  The numerical tensors alone cannot prove that assumption.
-
-\paragraph{Required closure.}
-The artifact either persists and validates the ordered template identities or
-binds the exact implementation identity that defines them.  A readback gate
-reorders two equal-shaped templates and must reject the artifact before a
-prediction is served.
+\paragraph{Safe use of a saved TATT artifact.}
+The artifact stores the design label \code{tatt} but omits the ten ordered
+template labels and monomials above.  Rebuild uses the current registry entry,
+so equal-shaped templates can be interpreted in a different order without a
+tensor-shape failure.  Keep the training checkout with the artifact, record its
+source commit and compare the registry's ordered coefficient list before
+serving a rebuilt TATT prediction.  A label match by itself does not establish
+implementation identity.
 
 \subsection{Training and diagnostic readouts}
 
@@ -4948,13 +4879,15 @@ The target law is owned by the geometry and reused at inference.  The adapter
 reads that geometry-owned transform, keeping save/rebuild and direct
 prediction on the same formula.
 
-\paragraph{Current flat-only gap.}
-The producer currently requests radial $\chi$ and labels it $D_M$, while the
-adapter's curvature refusal inspects only parameter names stored in the two
-artifacts.  A fixed or separately consumed nonzero global Cobaya curvature can
-therefore bypass the check.  In curved geometry, $D_M$ is a sine- or
-sinh-mapping of $\chi$.  Equality with $\chi$ applies only in flat geometry,
-so the result remains finite but is scientifically mislabeled.
+\paragraph{Flat-only use of the current background artifact.}
+The producer requests radial $\chi$ and labels it $D_M$, while the adapter's
+curvature check inspects only parameter names stored in the two artifacts.  A
+fixed or separately consumed nonzero global Cobaya curvature can bypass that
+check.  In curved geometry, $D_M$ is a sine or sinh mapping of $\chi$.
+Equality with $\chi$ applies only in flat geometry, so a returned value can be
+finite and scientifically mislabeled.  Use this V1 background path only when
+the complete Cobaya model fixes $\Omega_k$ to exact zero.  Use a
+curvature-aware provider for every nonflat model.
 
 For positive curvature parameter \(\Omega_k>0\), the open-geometry mapping is
 \begin{equation*}
@@ -4969,12 +4902,6 @@ $D_M=15538.408\,\mathrm{Mpc}$, a $16.858\%$
 difference.  Both numbers are finite, positive and smooth.  A check that asks
 only whether the returned distance looks numerical cannot detect the wrong
 physical label.
-
-\paragraph{Required closure.}
-Generation and consumption share one persisted flat-only fact.  Sampled or
-fixed nonzero curvature is refused before provider work and before prediction
-until a curvature-capable artifact law is implemented.  The check reads the
-global Cobaya model composition together with the emulator's sampled-input names.
 
 \subsection{Piecewise trained windows and the desert}
 
@@ -5007,19 +4934,14 @@ therefore checks every interval needed by the
 public distance getters, including the anchor at zero when the formula needs
 it.
 
-\paragraph{Current gap.}
-The current adapter can load a positive-minimum \(H(z)\) grid and extrapolate
-both \(H\) and the integral below the trained domain.  The extrapolated values
-can remain smooth, finite, positive and monotonic, so value-only checks do not
-detect that the requested interval was never trained.  Until the load-time
-domain refusal is gate-proven, a background artifact used for distances must
-be inspected manually for coverage from the required zero anchor.
-
-\paragraph{Required closure.}
-Artifact loading refuses a grid whose trained domain cannot support every
-advertised distance integral.  This domain verdict occurs before constructing
-interpolators or exposing getters and is separate from checking that returned
-numbers happen to look physical.
+\paragraph{Safe use of the current positive-minimum grid.}
+The public generator requires its first redshift node to be positive.  The
+adapter can then extrapolate both $H$ and the distance integrand from that node
+down to zero.  Smooth, finite and monotonic output does not show that this
+interval was absent from training.  Use the artifact for $H(z)$ only at or
+above its first stored node.  Obtain $\chi$, $D_A$ and $D_L$ from a
+non-emulated provider because every one of those integrals needs the missing
+interval from zero to the first node.
 
 An odd number of intervals requires the quadrature's explicit endpoint rule.
 The identity fixture uses low-degree polynomials whose integrals are known
@@ -5182,21 +5104,14 @@ $h=H_0/(100\,{\rm km\,s^{-1}\,Mpc^{-1}})$.  If the stored wavenumber is in
 ${\rm Mpc}^{-1}$, the numerical radius entering $kR$ is therefore
 $8/h$ Mpc.  A radius of 8 Mpc computes a different observable.
 
-\paragraph{Current gap.}
-The adapter's derived \(\sigma_8\) helper currently combines \(k\) in
-Mpc\(^{-1}\) with a radius of 8 Mpc, so it calculates \(\sigma(8\,\mathrm{Mpc})\).
-The conventional quantity requires \(\sigma(8/h\,\mathrm{Mpc})\).  Matter-power
-serving itself is unaffected.  The adapter also advertises products through
+\paragraph{Safe use of the current matter-power adapter.}
+The derived \(\sigma_8\) helper combines \(k\) in Mpc\(^{-1}\) with a radius
+of 8 Mpc, so it calculates \(\sigma(8\,\mathrm{Mpc})\).  The conventional
+quantity needs \(R=8/h\) Mpc.  The adapter also advertises this product through
 the wrong Cobaya support hook and narrows the shared \(A_s\)/\(A_{s,9}\)
-amplitude rule.  Do not request the derived scalar or treat the stubbed
-adapter identity as an EMUL2 dependency-resolution verdict.
-
-\paragraph{Required closure.}
-The ruled radius is the conventional $R=8\,h^{-1}{\rm Mpc}$ with no legacy
-rename or dual serving.  Radius and wavenumber units are derived together, product registration
-uses Cobaya's output boundary and the amplitude requirement follows the
-artifact's resolved parameterization.  A real Cobaya lifecycle gate requests
-each product and reads it through the public provider.
+amplitude rule.  Matter-power surface prediction is unaffected.  Do not
+request \(\sigma_8\) from this adapter.  Use another provider or a direct,
+verified integral with \(R=8/h\) Mpc and sufficient stored \(k\) support.
 
 The request boundary validates the full \(k\) and \(z\) sequences.  It requires
 a complete requested grid and rejects unsupported holes.  Every calculate
@@ -5296,21 +5211,17 @@ uses a separately defined signed transformation.  Labels state estimator,
 units, mask and threshold.  A multipage writer saves completed figure objects
 and closes them so long campaigns do not accumulate GUI and array state.
 
-\paragraph{Current gap.}
-Several diagnostic functions can currently publish NaN from empty classes,
-zero-variance references, constant features, an unguarded standard deviation
-or a fractional residual at a truth zero.  Some smoke fixtures construct
-finite diagnostic dictionaries by hand and bypass those producer functions.
-Those tests prove plotting layout only.  Estimator totality requires the
-producer functions.
-
-\paragraph{Required closure.}
-Every estimator validates finite inputs and its own denominator/rank/sample
-preconditions, returns value plus status/reason and is executed directly by
-at least one board-listed diagnostic gate.  The save-before-diagnostics order
-preserves a successfully trained artifact when reporting fails.  The report
-must identify numerical corruption as a failure.  A green ``unavailable''
-status is reserved for valid inputs whose diagnostic prerequisites are absent.
+\paragraph{Safe interpretation of current diagnostics.}
+Several estimators can publish NaN for an empty class, a zero-variance
+reference, a constant feature, an unguarded standard deviation or a
+fractional residual whose truth is zero.  Some smoke fixtures exercise the
+plot layout with hand-built finite dictionaries and do not call these
+estimators.  Treat every nonfinite diagnostic value as an unavailable or failed
+calculation, never as evidence that a model passed.  Save-before-diagnostics
+preserves the trained artifact when reporting fails.  For a production-width
+matter-power output, omit the generic local-neighbour diagnostic and use an
+explicitly bounded or subsampled analysis so the validation-rows by neighbours
+by output-width array does not exhaust host memory.
 
 \section{Saving, rebuilding and predicting}
 \label{chap:artifacts}
@@ -5412,19 +5323,15 @@ does not infer an optional component from shape.  Its named group and required
 facts must be present.}
 \end{table*}
 
-\paragraph{Current gap.}
-The two current files are written independently.  The HDF5 record does not
-carry a digest of the weight file and publication lacks a two-file transaction.
-Replacing one file, mixing roots or interrupting an overwrite
-can therefore create a pair that exists but was never published together.
-
-\paragraph{Required closure.}
-The pair is staged under temporary names, validated and published as one
-logical unit.  Each side binds the same artifact identity and the HDF5 record
-binds the exact weight payload and implementation identity.  Pre-existing
-trusted roots cause refusal and remain untouched.  Strict tensor
-loading remains necessary, while matching tensor names and shapes alone leave
-pair identity unverified.
+\paragraph{Safe handling of the current two-file artifact.}
+The two files are written independently.  The HDF5 record carries no digest of
+the weight file and publication has no two-file transaction.  Replacing one
+file, mixing roots or interrupting an overwrite can create a pair that exists
+but was never published together.  Keep both members under one immutable root,
+copy or move them as a pair and never overwrite one member of a trusted pair.
+After transport, rebuild the artifact and compare a known prediction with its
+source.  Strict tensor loading checks names and shapes but cannot prove pair
+identity.
 
 \subsection{Moving tensors into storage}
 
@@ -5519,23 +5426,14 @@ avoids constructing a backward graph and reduces memory and latency.  The
 artifact's parameter names, axes, units and laws determine the result.  The
 caller does not redeclare them.
 
-\paragraph{Current returned-array ownership gap.}
+\paragraph{Safe handling of returned arrays.}
 For a CPU background prediction, the returned NumPy \code{z} array can share
-storage with the geometry's cached PyTorch axis.  A caller that changes
-\code{result["z"]} in place can therefore change the predictor's saved axis,
-and the next prediction can report the mutated coordinates.  The corresponding
-MPS axis conversion currently copies, so the same caller mutation has
-device-dependent consequences.  Views of derived cached tensors have the same
-aliasing problem as named geometry attributes.
-
-\paragraph{Required closure.}
-Public prediction and diagnostic dictionaries own their returned numerical
-arrays.  Every axis and value array is a defensive copy after detaching and
-moving to the CPU.  A gate mutates each returned array in place, calls the same
-predictor again and proves that geometry state and the second result are
-unchanged on CPU, MPS and CUDA where supported.  The implementation census
-starts with \code{.numpy()} calls but also follows helper functions that return
-views of cached tensors.
+storage with the geometry's cached PyTorch axis.  Changing
+\code{result["z"]} in place can therefore change the predictor's saved axis
+and affect the next result.  Other devices and derived tensors do not all share
+storage in the same way.  Treat every array and container returned by
+prediction or diagnostics as read-only.  Make an owned copy before an in-place
+unit conversion, mask, calibration or plotting transformation.
 
 \subsection{Rebuild ledger: fact ownership by file}
 
@@ -5561,13 +5459,11 @@ A CMB axis that has the right width and the wrong multipoles fails coordinate
 validation.  Each error names the first current boundary that can identify a
 particular inconsistency.
 
-Current boundaries omit pair identity.  Under the required closure above, a
-weight file with a different digest would fail before its
-apparently compatible tensors were loaded.  Today, mixing two artifacts with
-the same expected tensor names and shapes can pass strict loading because the
-HDF5 file does not bind the exact \code{.emul} bytes.  This is why the
-two-file gap remains a scientific-integrity defect.  A documentation label
-cannot close it.
+Current boundaries omit pair identity.  Mixing two artifacts with the same
+expected tensor names and shapes can pass strict loading because the HDF5 file
+does not bind the exact \code{.emul} bytes.  This remains a scientific-integrity
+defect even when both files load cleanly.  Apply the pair-handling rules above
+before using a rebuilt prediction.
 
 The reconstructed model is a new owner of its tensors.  Moving it to CUDA or
 MPS copies CPU state to the accelerator.  The HDF5 datasets and the NumPy
@@ -5613,19 +5509,15 @@ code.  Boolean, integer, float, path and list options require explicit value
 validation.  Python truthiness and numeric coercion must not reinterpret quoted
 strings or NaN.
 
-\paragraph{Current gap.}
+\paragraph{Safe use of current adapter options.}
 The five adapters do not yet share a total value-schema boundary.  Several
-options are interpreted with \code{bool(value)}, relative roots can inherit an
-empty environment default and some requested coordinates are coerced before
-validation.  The scalar adapter also does not yet exercise its real
-\code{state["derived"]} publication path in the existing identity double.
-
-\paragraph{Required closure.}
-One shared validator checks actual booleans, finite numeric controls, explicit
-path roots, exact requested coordinates and family-compatible artifact
-assembly before any artifact is loaded or provider result is published.  A
-gate calls the public Cobaya lifecycle and the predictor helper, then reads the
-value back through the same getter a likelihood uses.
+options pass through \code{bool(value)}, a relative root can inherit an empty
+environment default and the CMB maximum multipole is coerced with
+\code{int(value)} before validation.  Use native booleans, explicit absolute or
+\code{ROOTDIR}-resolved unique artifact roots, list or tuple collections and a
+non-boolean integer maximum multipole.  In full-vector cosmic-shear mode, use
+one predictor unless block compatibility and destination disjointness have
+been checked independently.
 
 \subsection{Requested coordinates are part of the contract}
 
@@ -5635,19 +5527,16 @@ sampling.  \code{must\_provide} validates the complete requested coordinate
 sequence against the persisted artifact sequence before any calculation can
 return a value.
 
-\paragraph{Current gap.}
-That exact-sequence sentence states the required contract.  Current adapters
-implement only part of it.  The CMB adapter presently checks a maximum multipole and can
-scatter a request containing interior holes into a zero-filled array.  CMB
-training dumps also lack an authoritative multipole sidecar, so equal width
-can silently relabel shifted columns.  Other family adapters have analogous
-range-versus-identity gaps.
-
-\paragraph{Required closure.}
-The generator publishes the exact coordinate sequence.  Staging verifies it.
-The artifact persists the verified sequence and \code{must\_provide}
-requires exact ordered coordinates or a separately defined subset policy.
-Missing interior coordinates never become physical zeros.
+\paragraph{Safe use of current coordinate checks.}
+Current adapters implement only part of this exact-sequence contract.  The CMB
+adapter checks a maximum multipole and can scatter a request with interior
+holes into a zero-filled array.  Its training dump also lacks an authoritative
+multipole sidecar, so equal width can silently relabel shifted columns.  Before
+serving CMB, independently verify that the dump columns, covariance and
+artifact all use the same contiguous sequence from $\ell=2$ through the named
+maximum.  Do not request interior holes or interpret their inserted zeros as
+physical values.  Only the conventional storage positions at $\ell=0,1$ are
+expected zeros.
 
 When several artifacts contribute blocks to one output vector, the adapter
 must prove that the layouts are compatible and the destination blocks do not
@@ -5660,18 +5549,14 @@ acceptance verdict is checked before any provider getter is called.  Current
 state is then replaced only by payloads produced for the accepted current
 point, which prevents reuse of an earlier cosmology's cache.
 
-\paragraph{Current gap.}
-The preceding ordering currently varies across generators and adapters.
-Several paths infer rejection by scanning text or read a provider payload
-before establishing the current calculation's finite verdict.  A stale cached
-array can therefore look successful.  A fake that always returns a fresh
-payload does not exercise this failure mode.
-
-\paragraph{Required closure.}
-One verdict-first helper handles the real provider return object.  Rejection
-performs zero getters and publishes no state.  Acceptance is recorded before
-the first getter and a two-call stale-cache fixture tags generations so any
-payload inherited from the previous cosmology fails visibly.
+\paragraph{Safe use of provider-backed generation and references.}
+Provider-backed generator and reference paths do not all check the current
+provider verdict before reading a getter.  Some paths discard the returned
+posterior object or infer rejection from text.  A cached payload from a
+previous cosmology can therefore look successful.  Treat a rejected or
+nonfinite provider verdict as a failed row, call no getters after it and
+publish no payload.  A production run needs a two-call stale-cache check whose
+arrays identify the cosmology that produced them.
 
 \subsection{Worked lifecycle: one CMB likelihood request}
 
@@ -5728,11 +5613,10 @@ cannot substitute for validation at component construction or request
 negotiation.}
 \end{table*}
 
-The present CMB adapter negotiates by spectrum name and maximum multipole.  An
-arbitrary interior coordinate sequence still lacks an exact artifact match.
-The earlier coordinate-contract subsection records
-that open boundary.  The worked example explains current execution without
-mistaking the current maximum-only check for the stronger queued rule.
+The present CMB adapter negotiates by spectrum name and maximum multipole.  It
+does not compare an arbitrary interior coordinate sequence with the artifact.
+The safe-use paragraph above therefore limits this worked example to a
+contiguous request on the independently verified stored axis.
 
 \section{Gates: executable evidence that the pipeline still means what it says}
 \label{chap:gates}
@@ -5778,11 +5662,11 @@ board judges the subprocess exit status and required output.  A skip requires a
 distinct board status, while a zero return otherwise records a pass.
 
 Board resume records are scientifically valid only for the executable surface
-that produced them.  The present runner records status, a digest of the gate
-body and directly named check scripts, an input/configuration digest and a
-digest of the raw log.  A changed gate, directly named check script, board
-configuration, YAML or raw-log payload therefore invalidates the stored PASS
-automatically.
+that produced them.  Every live gate declares an executable manifest.  The
+runner resolves its declared roots, transitive repository imports, named check
+scripts, shared runner code, reviewed dynamic-import coverage and named input
+keys.  It records per-member hashes, an input digest and a raw-log digest.  A
+change to any declared member invalidates the stored PASS automatically.
 
 Before a run, preflight also requires a clean executable surface.  It watches
 \code{emulator/}, \code{gates/}, \code{compute\_data\_vectors/},
@@ -5792,15 +5676,12 @@ module.  This check establishes that the evidence can be tied to a committed
 tree.  Each gate's executable manifest separately declares which committed
 files belong to that gate.
 
-The per-gate code digest now has two regimes.  A gate that declares an
-executable manifest digests its resolved membership: the declared root
-modules, every repo-local file they import transitively, the check scripts
-its body names and the shared runner, member by member.  A gate that
-declares nothing keeps the narrower legacy digest of its body and directly
-named check scripts.  Every live gate is currently in the second regime, so
-a committed production-only change can still leave its stored digest
-unchanged.  Force-rerun remains the manual safeguard for those gates until
-per-gate population assigns exact owners.
+Manifest membership is revalidated on every runner invocation.  A dynamic
+import assembled from a string appears in a reviewed waiver entry whose roots
+cover the imported code.  A subprocess target that the import graph cannot
+find is a declared root.  A stored pass that predates manifest membership is
+classified as \code{pre-manifest} and must run again under the declared
+surface.
 
 Raw-log integrity uses one symmetric predicate.  The resume decision and the
 display use the same predicate.  A PASS whose cited log is absent, lacks a
@@ -5936,10 +5817,9 @@ The compiled \code{texnotes/emulator\_code\_guide.pdf} remains tracked so a
 reader can open the guide without installing LaTeX.  That convenience creates
 a freshness obligation: after any change to this source or a numbered figure,
 the PDF must be rebuilt and visually inspected before the change lands.  The
-present landing follows that rule.  A future documentation lane should compare
-the tracked PDF with a clean rebuild and fail on different bytes.  Until that
-check exists, the rebuild is a required manual acceptance step.  The
-\code{.tex} timestamp supplies no acceptance evidence.
+board does not currently perform that comparison, so the clean rebuild and
+rendered-page inspection are manual acceptance steps.  The \code{.tex}
+timestamp supplies no acceptance evidence.
 
 The residual-block figure is tied to the executed operation order documented
 in Sec.~\ref{chap:models}: every internal dense layer maps $W$ to $W$, the
@@ -6100,17 +5980,16 @@ used by migrated gate bodies: \code{label} names the leg and \code{condition}
 is the boolean verdict.  A false condition records failure and controls the
 gate result.
 
-\paragraph{Current gap.}
-Only a small migrated subset of gates carries structured headline evidence.
-The runner verifies anchor existence and global identifier uniqueness, but it
-does not yet reconcile each declared leg with a result emitted by
-\code{ctx.expect} or by an external check script.
-
-\paragraph{Required closure.}
-Every gate uses a human-readable \code{<gate-id>.<leg-name>} identifier, every
-anchor belongs to the gate's declared home note and every run emits exactly
-one terminal result per leg.  Unknown, duplicate and missing executed ids all
-fail before the gate can be recorded as passed.
+\paragraph{Structured-evidence coverage.}
+For a gate that declares structured evidence, the runner checks that every
+human-readable \code{<gate-id>.<leg-name>} has one home-note anchor and exactly
+one terminal result.  Unknown, duplicate and missing identifiers make that
+gate red.  Eight gates still report one aggregate verdict without per-leg
+terminals: \code{finite-contract}, \code{finetune-identity},
+\code{transfer-identity}, \code{save-rebuild-drift},
+\code{cobaya-adapter}, \code{finetune-smoke}, \code{transfer-smoke} and
+\code{scalar-smoke}.  For these gates, inspect the complete forced-rerun log
+and verify every advertised check before making a leg-specific claim.
 
 \subsection{Preflight protects expensive evidence}
 
@@ -6126,7 +6005,7 @@ Opening a Cocoa data directory proves deployment availability.  Adapter
 request correctness requires a separate executed check of the physical
 quantity.
 
-\paragraph{Current watched-tree status.}
+\paragraph{Watched-tree behavior.}
 The watched directory list now includes \code{emulator/}, \code{gates/},
 \code{compute\_data\_vectors/}, \code{cobaya\_theory/}, \code{syren/} and the
 root drivers.  The porcelain-status parser now preserves Git's leading
@@ -6137,34 +6016,18 @@ which the permitted config file is the first status line, because a whole-
 output \code{strip()} previously shifted that line alone.  This clean-tree
 surface is shared by the report and the executed preflight decision.
 
-\paragraph{Current execution-root gap.}
-The runner resolves and prints the project root selected by board
-configuration, but a launched child can still inherit an older shell
-\code{ROOTDIR}.  A check run whose report names root B can therefore open data
-below root A.  The mismatch is especially easy to miss when a check resolves a
-path before the runner's intended environment-injection point: subsequent
-logging cannot change the already chosen file.
+\paragraph{One project root for every child.}
+The runner resolves the project root from board configuration and injects it
+as \code{ROOTDIR} before launching a check or driver.  It refuses an unresolved
+root and records the executed value in the raw log.  The board self-test starts
+with one shell root and a different configured root, then verifies that the
+child opens files only below the configured root.
 
-\paragraph{Required execution-root closure.}
-One runner boundary supplies the resolved root in both the child argument list
-and child environment before any check or driver resolves a data path.  The
-raw log records that executed value.  A self-test starts with shell root A and
-board root B, launches an instrumented child and proves that every file comes
-from B.  Additional adversarial arms cover a child that rereads or mutates its
-own environment and a check that attempts path resolution before injection.
-Mixed roots produce a non-green report in both arms.
-
-\paragraph{Current warning-leg gap.}
-One head-activation check asks a subprocess to emit a teaching warning and
-tests only that the warning text appeared.  The return status is absent from
-that predicate.  A program can print the expected warning, crash immediately
-afterward and still satisfy that isolated leg.
-
-\paragraph{Required warning-leg closure.}
-The verdict is the conjunction of successful return status and the expected
-warning content.  The raw log records both facts.  A mutation fixture prints
-the correct warning and then raises.  It must make the leg and its owning gate
-red.  A printed warning alone supplies no passing evidence.
+\paragraph{A warning leg also checks process success.}
+The head-activation warning leg requires both a zero subprocess return status
+and the expected warning text.  Its mutation fixture prints the correct
+warning and then raises, which makes the leg red.  A printed phrase by itself
+is therefore insufficient evidence.
 
 \subsection{Selection, tiers, dependencies and resume}
 
@@ -6180,10 +6043,11 @@ by another.  For example, adapter parity depends on successful save/rebuild.
 A dependency combines earlier list order with a confirmed verdict before the
 dependent body proceeds.
 
-Resume skips a prior pass only when the currently implemented gate-code and
-input digests still match.  It distinguishes stale code, stale inputs,
-interruption, failure and dependency skip.  Only current PASS is green.
-Force-rerun invalidates selected records without deleting unrelated logs.
+Resume skips a prior pass only when the executable and input digests, raw log
+and direct-dependency attempt lineage still match.  It distinguishes stale
+code, stale inputs, stale dependencies, interruption, failure and dependency
+skip.  Only current PASS is green.  Force-rerun invalidates selected records
+without deleting unrelated logs.
 
 \begin{table*}[t]
 \centering
@@ -6202,6 +6066,8 @@ PASS predates it & Rerun.  The old record's narrower digest cannot certify
 the declared surface.  \\
 Stale log & The raw log is absent, truncated, edited or fails its digest &
 Rerun.  A database status cannot substitute for its evidence.  \\
+Stale dependency & The stored pass consumed an older attempt of a direct
+prerequisite & Rerun the child after the current prerequisite is green.  \\
 Interrupted & The body began but did not write a terminal gate verdict &
 Rerun the interrupted gate.  Earlier independent current passes may remain
 reusable.  \\
@@ -6218,24 +6084,14 @@ support identity, while a mismatch proves that at least one byte changed.}
 \label{tab:resume-states}
 \end{table*}
 
-\paragraph{Current gap.}
-The manifest machinery is landed but no live gate declares one yet.  Until a
-gate is populated, its stored digest covers only the gate function and the
-check scripts named literally inside it and a committed change in an
-imported adapter or generator leaves that digest unchanged.  Population is
-per gate and a populated gate's earlier PASS reads as pre-manifest and
-reruns, so the migration proceeds incrementally one gate at a time.
-
-\paragraph{Required closure.}
-One canonical executable-surface definition is shared by dirty preflight and
-resume identity.  Most of it is current behavior now.  A declared gate's
-membership is derived from its roots, persisted beside the digest as
-per-file hashes and revalidated on every invocation.  A dynamic import
-assembled from a string must sit in a reviewed waiver table naming the roots
-that cover it.  A subprocess target that no import graph shows must be a
-declared root.  A missing, truncated or digest-mismatched raw log is
-stale-log and reruns.  The remaining closure is population: each gate's
-declared roots and named input keys, reviewed one gate at a time.
+\paragraph{Executable manifests on the live board.}
+Every registered gate now declares an executable manifest.  The runner derives
+membership from reviewed roots, persists per-file hashes and revalidates that
+membership on every invocation.  Dynamic imports use reviewed waiver entries
+and subprocess targets outside the import graph appear as declared roots.  A
+missing, truncated or digest-mismatched raw log becomes \code{stale-log}.  A
+stored pass that predates its manifest becomes \code{pre-manifest}.  Both
+states require a rerun.
 
 \begin{figure*}[t]
 \centering
@@ -7064,13 +6920,11 @@ assembly mathematics.  This smoke proves the real CAMB and Cobaya interfaces.
 
 The first response to a red gate is to locate the smallest executed claim that
 failed.  A tolerance change requires a numerical derivation.  A rerun follows
-diagnosis.  A migrated gate exposes a
-stable structured leg identifier.  A gate that has not yet joined that rollout
-may expose only its check-script label or a line in the raw log.  Until the
-rollout is complete, those textual labels remain supplementary.  Reconciled
-declared-versus-executed identifiers provide the structured evidence.  The
-following guide identifies the first evidence to inspect for every board
-entry.
+diagnosis.  A gate with structured evidence exposes stable leg identifiers and
+the runner reconciles them with its declared set.  For an aggregate-only gate,
+the check-script labels and raw log are the available evidence, so inspect the
+whole log before attributing a pass to one internal leg.  The following guide
+identifies the first evidence to inspect for every board entry.
 
 \paragraph{\code{ema-off-identity}.}
 Diff the first unequal epoch line and determine whether the difference begins
@@ -7621,9 +7475,9 @@ wrong, the record states that the acceptance is reopened and replaces its
 reference with independently justified truth.
 
 After the repair, run the direct gate, its mutation arm, dependent family
-identity and the relevant smoke.  Then run the complete board according to
-the unit's risk.  The landing record names the exact commit and raw logs.  A
-reviewer can therefore reconstruct this chain:
+identity and the relevant smoke.  Then run the complete board when the changed
+surface can affect other families.  Record the exact source commit beside the
+raw logs.  A reviewer can then reconstruct this chain:
 \begin{align*}
  \text{counterexample}&\rightarrow\text{root cause}\\
  &\rightarrow\text{bounded change}\\
@@ -7743,7 +7597,7 @@ whose last executed check happened to be green.
 Logs are committed only after the operator verifies that they name the
 intended commit and contain no unrelated workstation secrets.  The log commit
 adds evidence metadata while leaving the tested source commit fixed.  The
-landing record names both.  If source changes after the run, the old logs
+evidence note names both commits.  If source changes after the run, the old logs
 remain historical evidence and a new run is required for the new executable
 identity.
 
@@ -8126,8 +7980,8 @@ combined with the neural refiner.
 Read source resolution and validation first.  Then read recipe reconstruction,
 input-geometry extension, weight transfer, output pinning and epoch-zero
 parity.  Read anchor-mask machinery as a mapping of named source/new
-parameters.  Remember that the public fine-tune anchor key is currently
-refused until its queued contract lands.
+parameters.  The public fine-tune anchor key is refused by the current
+validator, so examples using that key stop before training.
 
 \paragraph{25.  \code{emulator/losses/transfer.py}.}
 Follow frozen base, correction, composition form and composition space.  Read
@@ -8172,8 +8026,8 @@ adapter that later relies on it.
 \paragraph{32.  Shared generator core.}
 Open \code{compute\_data\_vectors/generator\_core.py}.  Read command parsing,
 parameter sampling, master/worker distribution,
-checkpoint load/save and failure masks.  Mark the current manifest and
-failure-exit gaps before assuming a dump is training-ready.
+checkpoint load/save and failure masks.  Identify which checkpoint members
+and failure verdicts are revalidated before treating a dump as training-ready.
 
 \paragraph{33.  Family generator files.}
 Read \code{dataset\_generator\_lensing.py},
@@ -8215,7 +8069,8 @@ nonzero failure exit.  Family identity checks precede family smokes.
 \paragraph{38.  \code{gates/run\_board.py}.}
 Read this last.  The scientific claims already live in \code{board.py}.  The
 runner owns preflight, selection, subprocess capture, logs and resume.  Compare
-current behavior with the current-gap notes in Appendix~\ref{app:gates}.
+its branches with the structured-evidence coverage paragraph, the resume-state
+table and the safe-use warnings in Appendix~\ref{app:gates}.
 
 \subsection{Three shorter routes}
 
