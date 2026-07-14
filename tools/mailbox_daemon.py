@@ -110,10 +110,21 @@ RELAY_DIR = os.path.join(WORKTREE, "notes", "relay")
 # tier). Override per launch with --fable-effort / --opus-effort /
 # --sol-effort.
 CLAUDE_EFFORT_CHOICES = ["low", "medium", "high", "xhigh", "max"]
-CODEX_EFFORT_CHOICES = ["minimal", "low", "medium", "high", "xhigh"]
+# Sol's model rejects "minimal" (API 400, verified live 2026-07-14);
+# its legal set is the one below.
+CODEX_EFFORT_CHOICES = ["none", "low", "medium", "high", "xhigh"]
 DEFAULT_FABLE_EFFORT = "xhigh"
 DEFAULT_OPUS_EFFORT = "max"
 DEFAULT_SOL_EFFORT = "xhigh"
+
+# Context budget per dispatched turn (USER 2026-07-14: no bot runs with
+# a context window above 500k tokens). Neither CLI takes a hard cap, so
+# both are told to COMPACT (summarize their own history and continue)
+# at this budget instead of growing toward their native 1M windows:
+# the claude CLI reads CLAUDE_CODE_AUTO_COMPACT_WINDOW from the
+# environment; the codex CLI takes -c model_auto_compact_token_limit
+# (accepted live, 2026-07-14).
+CONTEXT_TOKEN_BUDGET = 500000
 
 # A dispatched turn that runs past this many minutes is killed and its
 # message parked in failed/ for inspection. The guard exists because a
@@ -165,6 +176,8 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort):
                 "--model", "gpt-5.6-sol",
                 "-c", "model_reasoning_effort=" + sol_effort,
                 "-c", "service_tier=standard",
+                "-c", ("model_auto_compact_token_limit="
+                       + str(CONTEXT_TOKEN_BUDGET)),
                 "--sandbox", "workspace-write",
                 "--cd", REPO_ROOT],
     }
@@ -328,10 +341,17 @@ def dispatch(path, dry_run):
         f.write("$ " + " ".join(AGENT_COMMANDS[agent]) + " <message>\n")
         f.write("--- live output (stdout+stderr interleaved) ---\n")
         f.flush()
+        # the claude CLI takes its context budget from the environment
+        # (Sol's rides its own -c flag in the command instead): compact
+        # at CONTEXT_TOKEN_BUDGET rather than growing to the native
+        # 1M-token window.
+        env = os.environ.copy()
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(CONTEXT_TOKEN_BUDGET)
         proc = subprocess.Popen(command,
                                 stdout=f,
                                 stderr=subprocess.STDOUT,
-                                cwd=AGENT_CWD[agent])
+                                cwd=AGENT_CWD[agent],
+                                env=env)
         next_beat = started + 60.0
         deadline = started + DISPATCH_TIMEOUT_MINUTES * 60.0
         while proc.poll() is None:
