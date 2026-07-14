@@ -13263,6 +13263,143 @@ controls, but must not weaken the extraction arms.
 No self-certification is claimed for anything beyond this audit's own
 probes; merge and push to main remain the user's alone.
 
+### Unit 41-REPAIR witness delta implementation (second Implementer, 2026-07-14): production-coupled arm GREEN; awaiting Architect audit
+
+The one required delta from the audit above is implemented in
+`gates/checks/redteam_unit41_policy_witness.py`, with no production change.
+`check_amp_artifact` now reports a dedicated arm requiring `amp_dtype` and
+`scaler_policy` to be members of the literal keys extracted from production's
+`resolved_train`.  Its artifact fixture is populated only while iterating
+those extracted keys; policy values are no longer added to `resolved` after
+the extraction.  Missing policy keys use `.get()` / `.pop(..., None)` in the
+readback and negative-control legs so the witness reports a proper red rather
+than crashing.  All existing AST extraction arms are unchanged.  The
+optional decorative controls were left unchanged because this delta needed
+only the production-coupled artifact arm.
+
+GREEN on the repaired production tree, rc 0:
+
+```text
+unit 41 persisted-policy and sweep-product acceptance
+  [PASS] production resolved_train declares both resolved policy fields  (production keys=['amp_dtype', 'bs', 'clip', 'device', 'ema', 'eval_bs', 'focus', 'freeze_trunk', 'head', 'loss', 'lr', 'nepochs', 'optimizer', 'rewind', 'scaler_policy', 'scheduler', 'seed', 'thresholds', 'trim', 'trunk', 'trunk_epochs', 'use_amp'])
+  [PASS] artifact persists the resolved AMP dtype and scaler policy  (readback policy={'amp_dtype': 'torch.float16', 'scaler_policy': 'unscaled'})
+  [PASS] dropping both resolved policy fields is rejected  (mutation keys=['bs', 'clip', 'device', 'ema', 'eval_bs', 'focus', 'freeze_trunk', 'head', 'loss', 'lr', 'nepochs', 'optimizer', 'rewind', 'scheduler', 'seed', 'thresholds', 'trim', 'trunk', 'trunk_epochs', 'use_amp'])
+  [PASS] the resolved policy has one owner beside the artifact record  (assignments=[('amp_dtype', 'run_emulator', 2746), ('scaler_policy', 'run_emulator', 2748)])
+  [PASS] restoring a loop-local AMP dtype owner is rejected  (mutated owners=[('amp_dtype', 'run_emulator'), ('scaler_policy', 'run_emulator'), ('amp_dtype', 'training_loop_batched')])
+  [PASS] default H is published as the activation that ran  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'H', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] a YAML power selection is published as the activation that ran  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'power', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] an explicit activation override is preserved  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'power', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] sweep products carry the resolved head activation pin  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'H', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] activation-family value order survives as a categorical table control  (value header preserved)
+  [PASS] activation-family metadata carries one immutable ordered record  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'swept', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'activation_values': ('H', 'power'), 'n_train': 20, 'n_gpus': 2})
+  [PASS] both pooled paths transport the shared resolved activation  (N-train='power'; hyper='power')
+  [PASS] the figure label carries model, activation, and head pin  (label='rescnn_nla (none; activation H, n_gates 5; head gated_power, n_gates 7)')
+  [PASS] the ordinary-sweep figure receives resolved design metadata  (keywords=['param', 'values', 'fracs', 'threshold', 'design_label', 'savepath'])
+  [PASS] N-train preserves the composed IA identity in its product name  (selected='rescnn_nla'; resolved='rescnn_nla')
+  [PASS] restoring the raw optional activation is rejected  (raw=None; resolved='H')
+  [PASS] reversing the activation-family order changes the record  (mutated values=('power', 'H'))
+unit41-policy: ALL PASS
+```
+
+Production-coupling probe: temporarily deleted exactly
+`"amp_dtype": str(amp_dtype),` and `"scaler_policy": scaler_policy,` from
+`emulator/training.py`, then ran the same command.  It REDS with rc 1:
+
+```text
+unit 41 persisted-policy and sweep-product acceptance
+  [FAIL] production resolved_train declares both resolved policy fields  (production keys=['bs', 'clip', 'device', 'ema', 'eval_bs', 'focus', 'freeze_trunk', 'head', 'loss', 'lr', 'nepochs', 'optimizer', 'rewind', 'scheduler', 'seed', 'thresholds', 'trim', 'trunk', 'trunk_epochs', 'use_amp'])
+  [FAIL] artifact persists the resolved AMP dtype and scaler policy  (readback policy={'amp_dtype': None, 'scaler_policy': None})
+  [PASS] dropping both resolved policy fields is rejected  (mutation keys=['bs', 'clip', 'device', 'ema', 'eval_bs', 'focus', 'freeze_trunk', 'head', 'loss', 'lr', 'nepochs', 'optimizer', 'rewind', 'scheduler', 'seed', 'thresholds', 'trim', 'trunk', 'trunk_epochs', 'use_amp'])
+  [PASS] the resolved policy has one owner beside the artifact record  (assignments=[('amp_dtype', 'run_emulator', 2746), ('scaler_policy', 'run_emulator', 2748)])
+  [PASS] restoring a loop-local AMP dtype owner is rejected  (mutated owners=[('amp_dtype', 'run_emulator'), ('scaler_policy', 'run_emulator'), ('amp_dtype', 'training_loop_batched')])
+  [PASS] default H is published as the activation that ran  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'H', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] a YAML power selection is published as the activation that ran  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'power', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] an explicit activation override is preserved  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'power', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] sweep products carry the resolved head activation pin  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'H', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'n_train': 20, 'n_gpus': 2})
+  [PASS] activation-family value order survives as a categorical table control  (value header preserved)
+  [PASS] activation-family metadata carries one immutable ordered record  (metadata={'model': 'rescnn', 'family': 'cosmolike', 'rescale': 'none', 'activation': 'swept', 'activation_n_gates': 5, 'head_activation': 'gated_power', 'head_activation_n_gates': 7, 'threshold': 0.2, 'activation_values': ('H', 'power'), 'n_train': 20, 'n_gpus': 2})
+  [PASS] both pooled paths transport the shared resolved activation  (N-train='power'; hyper='power')
+  [PASS] the figure label carries model, activation, and head pin  (label='rescnn_nla (none; activation H, n_gates 5; head gated_power, n_gates 7)')
+  [PASS] the ordinary-sweep figure receives resolved design metadata  (keywords=['param', 'values', 'fracs', 'threshold', 'design_label', 'savepath'])
+  [PASS] N-train preserves the composed IA identity in its product name  (selected='rescnn_nla'; resolved='rescnn_nla')
+  [PASS] restoring the raw optional activation is rejected  (raw=None; resolved='H')
+  [PASS] reversing the activation-family order changes the record  (mutated values=('power', 'H'))
+FAILED acceptance: production resolved_train declares both resolved policy fields, artifact persists the resolved AMP dtype and scaler policy
+probe rc=1
+```
+
+Restoration and auxiliary validation:
+
+```text
+shasum -a 256 emulator/training.py
+0116f7f31582f6ed3134827821abe2dc38c05753ec4bd802df4eea591dc0ec00  emulator/training.py
+git diff -- emulator/training.py
+# no output
+py_compile gates/checks/redteam_unit41_policy_witness.py: PASS
+AST comprehension/lambda/90-column scan: PASS
+git diff --check gates/checks/redteam_unit41_policy_witness.py: PASS
+```
+
+The exact code diff awaiting commit is limited to the authorized witness:
+
+```diff
+@@ check_amp_artifact
++  expected_policy = {
++    "amp_dtype": "torch.float16",
++    "scaler_policy": "unscaled",
++  }
++  policy_keys_declared = True
++  for key in expected_policy:
++    if key not in keys:
++      policy_keys_declared = False
++  report(
++    "production resolved_train declares both resolved policy fields",
++    policy_keys_declared,
++    "production keys=" + repr(sorted(keys)))
++
++  fixture_values = {
++    "use_amp": True,
++    "device": "mps",
++    "amp_dtype": expected_policy["amp_dtype"],
++    "scaler_policy": expected_policy["scaler_policy"],
++  }
+   resolved = {}
+   for key in keys:
+-    resolved[key] = None
+-  resolved["use_amp"] = True
+-  resolved["device"] = "mps"
+-  resolved["amp_dtype"] = "torch.float16"
+-  resolved["scaler_policy"] = "unscaled"
++    resolved[key] = fixture_values.get(key)
+@@
+-  expected_policy = {
+-    "amp_dtype": "torch.float16",
+-    "scaler_policy": "unscaled",
+-  }
+@@
+-  del mutated["amp_dtype"]
+-  del mutated["scaler_policy"]
++  mutated.pop("amp_dtype", None)
++  mutated.pop("scaler_policy", None)
+```
+
+This is second-Implementer evidence awaiting independent Architect audit.  It
+is not self-certification and does not authorize a merge.
+
+Landing block (print only; merge and push remain the user's alone):
+
+```text
+git add gates/checks/redteam_unit41_policy_witness.py
+git add notes/gates-and-board.md notes/backlog.md
+git add notes/mailbox/0159-to-fable.md
+git commit -m "Couple the policy witness to the production record"
+# After Fable's independent audit only:
+git checkout main
+git merge --squash claude/amazing-keller-e798b6
+git commit
+git push origin main
+```
+
 ### Landing block (main is the user's alone)
 
 Committed on `claude/amazing-keller-e798b6` (SHA in the commit below);
@@ -13461,3 +13598,32 @@ repair series). Disposition of each recovered message, executed this turn:
 
 All eleven files are moved to the main checkout's notes/mailbox/done/ so
 they cannot fire twice.
+
+## Five ghost ledger lines retired: units 74/76/77/78/80 were already landed and audited (2026-07-14)
+
+The user asked why the artifact-chain lines at the top of the backlog "have
+been there for ages". Investigation: they were never live. The ledger was
+created (39fa0c2) from a stale snapshot of the red-team batch's queue; the
+five units had already been implemented in the 2026-07-12 "do them ALL"
+batch, audited in this file's 45M sections, and are ancestors of main,
+verified this turn with `git merge-base --is-ancestor`:
+
+- unit 74 (45M-74) — 5947a05, immutable per-attempt logs + atomic
+  status/BOARD.md publication (with 45M-71); board-selftest lineage 26/26.
+- unit 77 (45M-77) — the selector hardening in the same batch:
+  select_gates raises SelectionError with suggestions, never
+  warn-then-subset; `SelectionError` live on HEAD (run_board.py:59).
+- unit 80 (45M-80) — e9943bc, explicit "cosmolike" family identity on the
+  direct cosmic_shear drivers; family-first (FAM-A) 15/15.
+- unit 76 (45M-76) — 53334f0, _read_native_bool (the truthy "False"
+  transfer_refined). Its live save/forge/rebuild leg stays
+  WORKSTATION-OWED via the board queue, as recorded in its own entry —
+  that is a board run, not an open build unit.
+- unit 78 (45M-78) — 0139b1a, strict parse_args across the eight entry
+  points; cli-strict (CLI-A) 14/14.
+
+Open ledger count drops 31 -> 26 at a stroke (the honest number; nothing
+was closed today that was not already closed months of subjective loop
+time ago). Lesson attached to the ledger rule: when a line is created
+from a historical queue snapshot, each entry must be checked against the
+audit record BEFORE it becomes countable demand.

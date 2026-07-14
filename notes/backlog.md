@@ -10,11 +10,6 @@ list when it lands and its audit records GO — not when it is
 dispatched. Details live in the notes each line names; this file is
 deliberately just countable lines.
 
-- OPEN unit 74 (artifact chain, CRITICAL): immutable per-attempt logs + atomic status/board publication — notes/red-team-audit-and-didactics-2026-07-13.md
-- OPEN unit 77 (artifact chain, CRITICAL): unknown/mixed selector handling — same register
-- OPEN unit 80 (artifact chain, CRITICAL): see register
-- OPEN unit 76 (artifact chain): see register
-- OPEN unit 78 (artifact chain): see register
 - OPEN unit 84 (artifact chain, fixed-facts adapter half): re-dispatched 0140 under rulings 3+4+5 + riders (F1 amendment leg, F2 vertical arm, bsn missing-quantity leg, cs refusal arms) — notes/gates-and-board.md landings-2+3 audit 2026-07-14
 - OPEN unit 85 (artifact chain, fixed-facts adapter half): re-dispatched 0140 with unit 84 — same audit entry
 - OPEN unit 96: add-or-toggle vs declared unmasked artifact — ruled contract in notes/families-background-mps.md:1217 + red-team register :2897 (the training-stack.md section arrives with the codex/unit-96 landing; transport HOLD adjudicated in the register, 2026-07-14)
