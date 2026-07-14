@@ -7043,3 +7043,38 @@ for the private-category vocabulary. The prose-hardening landing
 the root README's public-prose constitution pass is COMPLETE, with
 the emulator/README.md import-prose follow-up routed to its
 package visit.
+
+## 25M-15 sizing audit (Fable, 2026-07-13): 3031d02 content GO — HELD for the coordinated stage-ram fixture repair (Implementer)
+
+The red team's sizing landing audited (codex/unit25m15-sizing;
+production batching.py + six CPU tests + notes; latest main merged):
+
+- compute_batch_byte_terms names every per-batch term
+  (saved_activations, input, model_output, target, chi2_scratch);
+  target width and float32 staging dtype are supplied by
+  _build_loaders_one FROM THE BOUNDARY THAT CREATES THE TARGET
+  (never-trust-defaults applied); the 84-byte witness is preserved
+  (out_dim=7, target_dim=14, bs=3); the crafted boundary flips two
+  batches -> one; the legacy max(1, ...) arm is a named-terms
+  MemoryError refusal; the 0.8 planning allowance is KEPT so
+  ordinary-target chunk boundaries are unchanged.
+- Their own audit caught and REMOVED a scope expansion (charging
+  resident encoded parameters — the separate resource-sizing
+  unit's territory); the pre-amendment resident formula is retained
+  exactly. Verified in the diff.
+- MY RUNS: 6/6 CPU tests pass (cocoa interpreter); the stage-ram
+  interaction REPRODUCED exactly — the repaired planner reds the
+  foundation fixture's 200-byte disk budget with "required=944,
+  available=160, resident=608, ..." and every term named.
+
+COORDINATION RULING: the stage_ram.py fixture repair belongs to the
+Implementer (foundation-gate owner; the red team correctly did not
+edit it). Spec, adopting the filing's recommendation: expand the
+unique unsorted selection to AT LEAST TEN rows so the raised budget
+still takes the DISK path (assert the path taken); preserve the
+seeded-order assertions; choose the allowance INSIDE
+[resident + one complete batch, resident + the full encoded set]
+and PRINT the chosen numbers. The sizing branch stays UNMERGED
+until that repair lands on amazing-keller; the two then merge in
+ONE landing so the board never reds on main. The packed-target
+streaming integration remains the workstation/queue-5 exhibit.

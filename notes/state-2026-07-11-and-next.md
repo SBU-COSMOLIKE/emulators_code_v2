@@ -3049,3 +3049,13 @@ private-category bullets replaced by the sanctioned phrase, public
 evidence retained, whole-register rescan zero hits at 8d103a9. The
 prose-hardening landing is COMPLETE and merged into the branch.
 Spec: gates-and-board.md "Redaction delta audit".
+
+25M-15 SIZING (2026-07-13, Fable): 3031d02 content GO — named
+terms, boundary-supplied width/dtype, 84-byte witness, refusal
+replaces max(1,...), ordinary chunking unchanged, their own audit
+removed a scope expansion; my runs 6/6 + the stage-ram red
+reproduced (required=944 vs available=160). HELD for the
+Implementer's stage_ram fixture repair (>=10 rows, disk path
+asserted, allowance in the ruled range, numbers printed); the two
+land as ONE merge so main never reds. Spec: gates-and-board.md
+"25M-15 sizing audit".
