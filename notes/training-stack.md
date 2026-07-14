@@ -1911,6 +1911,17 @@ capped transform at `t1`.
 `berhu-loss.anneal-endpoints` requires blend value zero to reproduce plain
 square root and blend value one to reproduce the full berHu transform.
 
+Harness repair readback, 2026-07-13: the analytic child now calls
+`CosmolikeChi2._reduce` as a bound method on a real loss object. Its small
+harness geometry supplies one kept-coordinate index, the exact instance fact
+the production chi-square-domain screen reads through `_chi2_n_terms()`.
+The harness counts those `dest_idx` reads and folds a positive-read assertion
+into `berhu-loss.reference-values`. Restoring the former unbound
+`CosmolikeChi2._reduce(None, ...)` call raises `AttributeError` before any
+evidence terminal, while the repaired CPU child reports 44 width reads, emits
+each of its three declared `##AID` terminals exactly once as `PASS` and ends
+`berhu-loss numerics: ALL PASS`. Production loss code is unchanged.
+
 <a id="berhu-loss-golden-selected-text-equality"></a>
 `berhu-loss.golden-selected-text-equality` requires selected current and
 historical log-line lists to match after the timing field is removed; it is

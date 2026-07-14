@@ -36,10 +36,12 @@ s = 0 / s = 1 blend probes). The script prints one reserved
 '##AID <aid> <PASS|FAIL>' line per leg at the end; the exit status stays the
 single aggregate verdict, not a leg.
 
-_reduce is a method but reads no instance state (only the tensor and the
-knots passed in), so it is called unbound with self = None.
+_reduce is a method on a real CosmolikeChi2 object.  The transform probes do
+not need a full output geometry, but the production chi-square-domain screen
+does need the contraction width supplied by ``loss._chi2_n_terms()``.  The
+small harness geometry below owns that one required fact.
 
-Home note: training-stack.md:148-153.
+Home note: notes/training-stack.md#berhu-loss-evidence.
 """
 
 import sys
@@ -47,9 +49,6 @@ import sys
 import torch
 
 from emulator.losses.core import CosmolikeChi2
-
-# _reduce reads no self state, so bind it once and call with self=None.
-_reduce = CosmolikeChi2._reduce
 
 FAILURES = []
 
@@ -66,6 +65,36 @@ LEG_AIDS = {
 }
 # leg name -> True once any probe on that leg fails.
 LEG_FAILED = {leg: False for leg in LEG_AIDS}
+
+
+class HarnessGeometry:
+  """Supply the one geometry fact read by ``CosmolikeChi2._reduce``.
+
+  The analytic probes pass their chi-square values directly to ``_reduce``.
+  They therefore do not need encode, decode, covariance, or whitening
+  methods.  The production domain screen still scales its negative-roundoff
+  band by the number of terms in one chi-square contraction.  ``dest_idx``
+  carries that width in every real geometry.
+
+  ``width_read_count`` is test instrumentation.  Its final assertion proves
+  that the shipped reduction reached the production width lookup.  Restoring
+  the former unbound ``self=None`` call crashes before that assertion and
+  before the three evidence terminals.
+  """
+
+  def __init__(
+      self,
+      reduction_width):
+    self._dest_idx = torch.arange(
+      reduction_width,
+      dtype=torch.long)
+    self.width_read_count = 0
+
+  @property
+  def dest_idx(self):
+    """Return the kept-coordinate indices and record the production read."""
+    self.width_read_count += 1
+    return self._dest_idx
 
 
 def report(label, ok, detail, leg):
@@ -100,7 +129,13 @@ def emit_aids():
     print("##AID " + aid + " " + mark)
 
 
-def transform(c_value, mode, knot, cap, s=None):
+def transform(
+    loss,
+    c_value,
+    mode,
+    knot,
+    cap,
+    s=None):
   """Read the shipped per-sample transform v(c) at one c value.
 
   With trim 0 (keep all) and focus 0 (unit weight), _reduce of a
@@ -108,6 +143,7 @@ def transform(c_value, mode, knot, cap, s=None):
   this reads v(c) directly from CosmolikeChi2._reduce.
 
   Arguments:
+    loss    = the bound ``CosmolikeChi2`` harness object.
     c_value = the chi2 value to probe (a python float).
     mode    = the loss mode ("sqrt" / "berhu" / "berhu_capped" / ...).
     knot    = t1 (a python float), passed as a 0-dim tensor.
@@ -121,22 +157,29 @@ def transform(c_value, mode, knot, cap, s=None):
   knot_t = torch.tensor(float(knot), dtype=torch.float64)
   cap_t = None if cap is None else torch.tensor(float(cap), dtype=torch.float64)
   s_t = None if s is None else torch.tensor(float(s), dtype=torch.float64)
-  out = _reduce(None,
-                c=c,
-                mode=mode,
-                trim=0.0,
-                focus=0.0,
-                focus_scale=1.0,
-                berhu_knot=knot_t,
-                berhu_cap=cap_t,
-                berhu_s=s_t)
+  out = loss._reduce(
+    c=c,
+    mode=mode,
+    trim=0.0,
+    focus=0.0,
+    focus_scale=1.0,
+    berhu_knot=knot_t,
+    berhu_cap=cap_t,
+    berhu_s=s_t)
   return float(out)
 
 
-def slope(c_value, mode, knot, cap, s=None):
+def slope(
+    loss,
+    c_value,
+    mode,
+    knot,
+    cap,
+    s=None):
   """The autograd derivative dv/dc of the transform at one c value.
 
   Arguments:
+    loss = the bound ``CosmolikeChi2`` harness object.
     c_value = the chi2 value to differentiate at.
     mode / knot / cap / s = as in transform().
 
@@ -147,15 +190,15 @@ def slope(c_value, mode, knot, cap, s=None):
   knot_t = torch.tensor(float(knot), dtype=torch.float64)
   cap_t = None if cap is None else torch.tensor(float(cap), dtype=torch.float64)
   s_t = None if s is None else torch.tensor(float(s), dtype=torch.float64)
-  out = _reduce(None,
-                c=c,
-                mode=mode,
-                trim=0.0,
-                focus=0.0,
-                focus_scale=1.0,
-                berhu_knot=knot_t,
-                berhu_cap=cap_t,
-                berhu_s=s_t)
+  out = loss._reduce(
+    c=c,
+    mode=mode,
+    trim=0.0,
+    focus=0.0,
+    focus_scale=1.0,
+    berhu_knot=knot_t,
+    berhu_cap=cap_t,
+    berhu_s=s_t)
   grad = torch.autograd.grad(out, c)[0]
   return float(grad[0])
 
@@ -199,10 +242,16 @@ def ref_berhu_capped_deriv(c, t1, t2):
   return t2 ** 0.5 / (2.0 * t1 ** 0.5 * c ** 0.5)
 
 
-def check_knots(t1, t2, tol, dtol):
+def check_knots(
+    loss,
+    t1,
+    t2,
+    tol,
+    dtol):
   """Run every berhu / berhu_capped check for one (knot, cap) pair.
 
   Arguments:
+    loss = the bound ``CosmolikeChi2`` harness object.
     t1   = the knot.
     t2   = the cap.
     tol  = the value tolerance (shipped value vs the reference).
@@ -212,8 +261,8 @@ def check_knots(t1, t2, tol, dtol):
 
   # berhu == sqrt strictly below the knot.
   probe_lo = t1 * 0.5
-  vb = transform(probe_lo, "berhu", t1, t2)
-  vs = transform(probe_lo, "sqrt", t1, t2)
+  vb = transform(loss, probe_lo, "berhu", t1, t2)
+  vs = transform(loss, probe_lo, "sqrt", t1, t2)
   report("berhu == sqrt below the knot (c = " + repr(probe_lo) + ")",
          abs(vb - vs) < tol,
          "berhu " + repr(vb) + " vs sqrt " + repr(vs),
@@ -225,7 +274,7 @@ def check_knots(t1, t2, tol, dtol):
   points.append(t1 * 2.0)
   points.append(t2 * 2.0)
   for c in points:
-    got = transform(c, "berhu", t1, t2)
+    got = transform(loss, c, "berhu", t1, t2)
     want = ref_berhu(c, t1)
     report("berhu(" + repr(c) + ") matches the reference",
            abs(got - want) < tol,
@@ -234,8 +283,8 @@ def check_knots(t1, t2, tol, dtol):
 
   # berhu_capped == berhu strictly below the cap.
   probe_mid = (t1 + t2) * 0.5
-  vc = transform(probe_mid, "berhu_capped", t1, t2)
-  vbe = transform(probe_mid, "berhu", t1, t2)
+  vc = transform(loss, probe_mid, "berhu_capped", t1, t2)
+  vbe = transform(loss, probe_mid, "berhu", t1, t2)
   report("berhu_capped == berhu below the cap (c = " + repr(probe_mid) + ")",
          abs(vc - vbe) < tol,
          "capped " + repr(vc) + " vs berhu " + repr(vbe),
@@ -247,7 +296,7 @@ def check_knots(t1, t2, tol, dtol):
   cap_points.append((t1 + t2) * 0.5)
   cap_points.append(t2 * 3.0)
   for c in cap_points:
-    got = transform(c, "berhu_capped", t1, t2)
+    got = transform(loss, c, "berhu_capped", t1, t2)
     want = ref_berhu_capped(c, t1, t2)
     report("berhu_capped(" + repr(c) + ") matches the reference",
            abs(got - want) < tol,
@@ -262,13 +311,13 @@ def check_knots(t1, t2, tol, dtol):
   # tolerances no smooth function meets: the gap was 2*eps*slope in value
   # and eps*curvature in slope, not a real discontinuity).
   for c in (t1 * (1.0 - 1.0e-3), t1 * (1.0 + 1.0e-3)):
-    vg = transform(c, "berhu", t1, t2)
+    vg = transform(loss, c, "berhu", t1, t2)
     vr = ref_berhu(c, t1)
     report("berhu value == reference at c = " + repr(c),
            abs(vg - vr) < tol,
            "got " + repr(vg) + " want " + repr(vr),
            leg="reference-values")
-    dg = slope(c, "berhu", t1, t2)
+    dg = slope(loss, c, "berhu", t1, t2)
     dr = ref_berhu_deriv(c, t1)
     report("berhu slope == analytic derivative at c = " + repr(c),
            abs(dg - dr) < dtol,
@@ -279,13 +328,13 @@ def check_knots(t1, t2, tol, dtol):
   # t2 +- 1e-3, against the capped reference and its piecewise derivative
   # (the linear slope just below, the sqrt-tail slope just above).
   for c in (t2 * (1.0 - 1.0e-3), t2 * (1.0 + 1.0e-3)):
-    vg = transform(c, "berhu_capped", t1, t2)
+    vg = transform(loss, c, "berhu_capped", t1, t2)
     vr = ref_berhu_capped(c, t1, t2)
     report("berhu_capped value == reference at c = " + repr(c),
            abs(vg - vr) < tol,
            "got " + repr(vg) + " want " + repr(vr),
            leg="reference-values")
-    dg = slope(c, "berhu_capped", t1, t2)
+    dg = slope(loss, c, "berhu_capped", t1, t2)
     dr = ref_berhu_capped_deriv(c, t1, t2)
     report("berhu_capped slope == analytic derivative at c = " + repr(c),
            abs(dg - dr) < dtol,
@@ -294,10 +343,10 @@ def check_knots(t1, t2, tol, dtol):
 
   # anneal endpoints: s = 0 is plain sqrt, s = 1 is the full berhu shape.
   above = t1 * 2.0
-  v_s0 = transform(above, "berhu", t1, t2, s=0.0)
-  v_sqrt = transform(above, "sqrt", t1, t2)
-  v_s1 = transform(above, "berhu", t1, t2, s=1.0)
-  v_full = transform(above, "berhu", t1, t2)
+  v_s0 = transform(loss, above, "berhu", t1, t2, s=0.0)
+  v_sqrt = transform(loss, above, "sqrt", t1, t2)
+  v_s1 = transform(loss, above, "berhu", t1, t2, s=1.0)
+  v_full = transform(loss, above, "berhu", t1, t2)
   report("berhu anneal s = 0 is plain sqrt (c = " + repr(above) + ")",
          abs(v_s0 - v_sqrt) < tol,
          "s0 " + repr(v_s0) + " sqrt " + repr(v_sqrt),
@@ -317,10 +366,33 @@ def main():
   any check failed, else 0.
   """
   print("== berhu-loss numerics ==")
+  # One kept coordinate is sufficient for these direct chi-square probes.
+  # A real loss object is still required because the production domain screen
+  # reads this width before it evaluates any transform.
+  geometry = HarnessGeometry(
+    reduction_width=1)
+  loss = CosmolikeChi2(
+    geom=geometry)
   # default knots (train_args.loss.berhu defaults: knot 0.2, cap 10.0).
-  check_knots(t1=0.2, t2=10.0, tol=1.0e-9, dtol=1.0e-6)
+  check_knots(
+    loss=loss,
+    t1=0.2,
+    t2=10.0,
+    tol=1.0e-9,
+    dtol=1.0e-6)
   # non-default knots (the same shape must hold).
-  check_knots(t1=0.5, t2=5.0, tol=1.0e-9, dtol=1.0e-6)
+  check_knots(
+    loss=loss,
+    t1=0.5,
+    t2=5.0,
+    tol=1.0e-9,
+    dtol=1.0e-6)
+
+  report(
+    "production reduction reads the harness contraction width",
+    geometry.width_read_count > 0,
+    "dest_idx reads " + str(geometry.width_read_count),
+    leg="reference-values")
 
   # (queue 2) one ##AID terminal per board-declared evidence leg, after every
   # probe on both knot pairs has run (so a leg reds if it failed at EITHER

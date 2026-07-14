@@ -2658,3 +2658,45 @@ verdicts, and uses four skip-one-guard mutations to prove that every new call
 is load-bearing.  Existing gate files remain untouched because their queue-2
 owner is active.  The owner note records the exact Part D, Part E, and future
 documentation-examples additions needed after that collision clears.
+
+## Red Team implementation claim: berHu analytic-child bound loss harness
+
+The Architect reproduced a check-side crash after the production chi-square
+domain contract became scale-aware. `CosmolikeChi2._reduce` now reads the
+per-row contraction width through `self._chi2_n_terms()`, while
+`gates/checks/gb_c_berhu_reduce.py` still called the method unbound with
+`self=None`. The child therefore raised `AttributeError` before it could
+execute the analytic probes or emit any of its three declared evidence
+terminals. Production loss code is frozen for this repair.
+
+The check now creates one real `CosmolikeChi2` object. A small harness geometry
+owns a one-element `dest_idx`, which is the only geometry fact the direct
+chi-square probes need. `transform` and `slope` receive that loss explicitly
+and call its bound `_reduce` method. The geometry counts reads of `dest_idx`;
+the child asserts that the count is positive before emitting the evidence
+terminals. This proves the production domain screen ran, instead of bypassing
+the instance-dependent line that exposed the stale harness.
+
+The complete CPU child reports 44 contraction-width reads. All default and
+non-default value, derivative and anneal probes pass. It emits exactly these
+terminals once:
+
+```text
+##AID berhu-loss.reference-values PASS
+##AID berhu-loss.join-derivatives PASS
+##AID berhu-loss.anneal-endpoints PASS
+```
+
+The final line is `berhu-loss numerics: ALL PASS`, and the process returns
+zero. The explicit old-call mutation
+`CosmolikeChi2._reduce(None, ...)` still raises
+`AttributeError: 'NoneType' object has no attribute '_chi2_n_terms'`, so it
+cannot reach the width-read assertion or the evidence terminals. This is the
+catch-power witness for the harness repair.
+
+The branch is `codex/berhu-loss-harness-self`. Its scoped implementation file
+is `gates/checks/gb_c_berhu_reduce.py`; the home-note readback is in
+`notes/training-stack.md` under the berHu evidence block. `gates/board.py`,
+`gates/run_board.py` and `emulator/losses/core.py` remain byte-identical. This
+record presents evidence for Architect audit and does not certify the
+landing.
