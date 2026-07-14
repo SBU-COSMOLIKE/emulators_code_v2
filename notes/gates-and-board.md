@@ -8091,3 +8091,21 @@ THE UNIT: the child side of scalar-smoke's queue-2 migration.
   the Implementer lands the tuple — closing the one gate the
   fan-out could not batch because its aid set was amended after
   the drafts.
+
+FAN-OUT BATCH 7 (0e3ff10) GO: the family smoke trio bsn-smoke (4),
+mps-smoke (4), cmb-smoke (6) -- check-script gates, one ##AID per
+drafted leg via the emit_leg/emit_aid rollup, the training-collapse
+dead-network bar preserved. These children cannot run green on Mac
+(no compiled CAMB under $ROOTDIR), so declared==emitted was verified
+STATICALLY (each child holds exactly its N declared aid literals ==
+evidence= set); the live all-green child run is workstation-owed and
+the Mac partial run reds the capability-gated generator/cobaya legs
+honestly (missing evidence, not a wiring defect). One stylistic
+inconsistency flagged to the Architect for an optional consistency
+ruling: bsn-smoke emits all N via a finally skip-backfill (skipped
+legs FAIL), while mps/cmb-smoke leave upstream-skipped legs unemitted
+(reconciliation's declared-not-executed red). Both honest. 30/40
+migrated. The drafted fan-out queue is down to joint-training +
+production-diagnostic; after that pair the remaining gates are the
+Implementer's hand-do set (finite-contract, scalar-smoke) and the six
+wrapper-family gates.
