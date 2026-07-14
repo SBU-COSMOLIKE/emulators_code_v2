@@ -8658,3 +8658,72 @@ during this audit. Both sides were legitimate durable content
 incoming: Sol's backup-Implementer unit 1 resume), so the
 resolution keeps both bodies and deletes only the three marker
 lines. Repaired this turn, committed with this audit record.
+
+## BLUEPRINT: README section 24 follow-up (Fable, 2026-07-14) — didactic tools passage + the loop figure
+
+USER-DIRECTED follow-up to the landed appendix (af4533a). Two
+deliverables, Implementer custody, one commit.
+
+DELIVERABLE 1 — make "The tools" subsection didactic. The current
+paragraph names the two programs but shows no usage. Replace it
+with a passage a first-time reader can FOLLOW: each command in a
+fenced bash block with one plain sentence saying what happens and
+what the reader sees.
+- python tools/handoff_router.py --status  (what the sweep
+  prints: main vs the working branch, open review branches, the
+  latest audit-record titles, a next-action list; "run this
+  whenever you are lost").
+- python tools/mailbox_daemon.py --send opus --unit "..."  (one
+  REAL example message: a routing summary naming a notes entry —
+  state plainly that the message points at the notes, it does not
+  carry the work).
+- python tools/mailbox_daemon.py --watch  (leave it running; each
+  dispatch prints an rc line when the agent's turn completes;
+  interrupting the terminal kills the running turn).
+- python tools/mailbox_daemon.py --ping opus  (the transport
+  test; the reply lands as a -to-user file).
+Keep the closing sentence: merges to the main branch are
+performed only by the human maintainer.
+
+DELIVERABLE 2 — the loop figure, through the ESTABLISHED figure
+pipeline (never a pasted binary): one new function in
+texnotes/make_figures.py drawing the three-session loop as a
+vector diagram, its stem added to render_readme_previews.py's
+README_FIGURE_STEMS, the PDF + PNG committed like the three
+existing README figures, and the PNG embedded near the top of
+README section 24 with alt text and a one-sentence caption.
+CONTENT of the diagram (the user's reference, reproduced):
+- top box: the architect/auditor session (designs contracts,
+  audits every change; the final word).
+- center: blueprint + gates flowing down to "audit against raw
+  evidence".
+- left box: the implementer session (implement + run the gates),
+  fed by the architect handoff, returning the implementer
+  handoff.
+- right box: the red-team session (attack and probe: bugs, weak
+  tests, stale docs), fed by the red-team handoff, returning its
+  findings — labeled as input to the architect's ruling, never
+  self-applied.
+- bottom fork: pass -> milestone recorded in notes/; fail ->
+  delta re-handoff.
+- a small legend defining the three sessions and "gates".
+PALETTE: the house plot rules bind — colorblind-safe, and NEVER
+red and green together (the user's reference uses green+red
+boxes; substitute a safe family, e.g. blues/oranges/greys). Text
+in the diagram follows public-prose rules (no internal
+codenames; "architect / implementer / red team" language, model
+names allowed as in the appendix).
+
+VALIDATION GATE: python texnotes/make_figures.py runs rc 0 on the
+cocoa interpreter and writes the new PDF; the PNG preview comes
+from render_readme_previews.py IF pdftoppm exists on PATH — it
+currently does NOT on this Mac, so the SANCTIONED FALLBACK is a
+direct matplotlib PNG of the same figure at 180 dpi, and the
+handoff SAYS which path produced it; the README embed uses a
+relative path + alt text; git diff --check clean; the diff
+touches ONLY README.md section 24, the two texnotes scripts, and
+the new figure pair.
+
+MILESTONE: one self-commit under the grant; reply to fable via
+the mailbox for the delta audit (prose + figure-content + palette
+compliance).
