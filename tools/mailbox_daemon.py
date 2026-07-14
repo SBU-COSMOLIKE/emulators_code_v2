@@ -40,6 +40,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 
 # All work and all mailbox traffic live in the SHARED WORKTREE (the branch
@@ -205,6 +206,57 @@ def dispatch(path, dry_run):
     return True
 
 
+def drain_lane(paths, dry_run):
+    """Dispatch ONE agent's pending messages, in order (a worker body).
+
+    Arguments:
+      paths   = this agent's message files, already sorted by sequence.
+      dry_run = True to print the would-be commands without running them.
+    """
+    for path in paths:
+        dispatch(path=path, dry_run=dry_run)
+
+
+def process_backlog(dry_run):
+    """Dispatch the whole backlog: lanes in PARALLEL, each lane in order.
+
+    The three agents are independent sessions, so Opus can execute a unit
+    while Sol attacks another -- but two messages to the SAME agent must
+    stay sequential (a lane is one conversation partner, not a pool), and
+    two agents sharing a WORKING DIRECTORY must too: concurrent turns in
+    one git tree race each other's index (the 2026-07-14 incident where a
+    live edit was swept into another agent's commit). So the parallel unit
+    is the cwd: Fable+Opus (same worktree) serialize; Sol runs alongside.
+
+    Arguments:
+      dry_run = True to print the would-be commands without running them.
+
+    Returns:
+      True when there was a backlog to process.
+    """
+    backlog = pending_messages()
+    if not backlog:
+        return False
+    lanes = {}
+    for path in backlog:
+        name = os.path.basename(path)
+        agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
+        cwd = AGENT_CWD[agent]
+        if cwd not in lanes:
+            lanes[cwd] = []
+        lanes[cwd].append(path)
+    workers = []
+    for cwd in sorted(lanes):
+        worker = threading.Thread(target=drain_lane,
+                                  kwargs={"paths": lanes[cwd],
+                                          "dry_run": dry_run})
+        worker.start()
+        workers.append(worker)
+    for worker in workers:
+        worker.join()
+    return True
+
+
 def send(agent, text):
     """Drop a new message into the mailbox (the loop's entry point).
 
@@ -264,12 +316,8 @@ def main():
         return 0
 
     if args.dry_run or args.once:
-        backlog = pending_messages()
-        if not backlog:
+        if not process_backlog(dry_run=args.dry_run):
             print("mailbox empty")
-            return 0
-        for path in backlog:
-            dispatch(path=path, dry_run=args.dry_run)
         return 0
 
     if args.watch:
@@ -295,8 +343,7 @@ def main():
               "the agent's turn)")
         try:
             while True:
-                for path in pending_messages():
-                    dispatch(path=path, dry_run=False)
+                process_backlog(dry_run=False)
                 time.sleep(20)
         finally:
             if os.path.isfile(lock_path):
