@@ -7,11 +7,14 @@ and every grid-path loud error — torch + scipy, no CAMB.
 Legs:
   - cumulative_simpson: EVEN doubled-grid points exact on cubics (the
     original z grid sits there), the odd node the correct one-interval
-    integral (exact on quadratics,; the old half-chunk form is the
+    integral (exact on quadratics; the old half-chunk form is the
     mutation control that must fail the linear / quadratic legs), the
     even-point-count guard;
-  - the distance pipeline (real scipy cubic) against a closed-form flat
-    LCDM reference at 1e-6 across the window;
+  - the distance pipeline (real scipy cubic) against an independent
+    adaptive-quadrature reference for flat LCDM; the same-integrator fine-grid
+    comparison retained as a resolution-only control; mutations proving that
+    a shared reference misses scaled Simpson weights and that a nonfinite
+    distance makes the scientific comparison fail;
   - GridGeometry: the log_offset law exact both ways (encode(decode) to
     float32 round-off), state round-trip byte-identical (strings and
     offset included), the un-standardizable / log-positivity /
@@ -40,8 +43,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from scipy import interpolate
+from scipy import integrate, interpolate
 
+from emulator import background as background_math
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
@@ -57,6 +61,29 @@ from emulator import warmstart
 FAILURES = []
 IN_NAMES = ["omegam", "H0", "w"]
 N_IN = len(IN_NAMES)
+
+# The production distance pipeline has historically promised relative
+# agreement at 1e-6.  scipy.integrate.quad also returns an absolute error
+# estimate for its independent reference.  The comparison band adds ten
+# times that estimate to the production allowance, so uncertainty in the
+# reference cannot create a false failure.
+PIPELINE_RELATIVE_TOLERANCE = 1.0e-6
+QUADRATURE_ERROR_MULTIPLIER = 10.0
+QUADRATURE_ABSOLUTE_TOLERANCE = 1.0e-10
+QUADRATURE_RELATIVE_TOLERANCE = 1.0e-12
+QUADRATURE_MAX_SUBDIVISIONS = 100
+
+PIPELINE_MIN_REDSHIFT = 0.001
+PIPELINE_MAX_REDSHIFT = 3.0
+PIPELINE_GRID_POINT_COUNT = 600
+PIPELINE_QUERY_REDSHIFTS = (0.1, 0.5, 1.0, 2.0, 2.9)
+FINE_REFERENCE_POINT_COUNT = 120001
+
+# Scaling the returned integral by this factor is algebraically identical to
+# scaling every Simpson weight by the same factor.  The 1% error is much wider
+# than the 1e-6 production allowance while remaining small enough that a
+# shared-function reference follows it almost exactly.
+SIMPSON_WEIGHT_MUTATION_SCALE = 0.99
 
 
 def report(label, ok, detail):
@@ -80,6 +107,11 @@ def lcdm_h(z, H0=67.36, om=0.315):
     return H0 * np.sqrt(om * (1 + z) ** 3 + (1 - om))
 
 
+def _lcdm_distance_integrand(redshift):
+    """Return c/H(z), the quantity whose integral is comoving distance."""
+    return C_KMS / lcdm_h(redshift)
+
+
 def _old_odd_simpson(z, y):
     """The pre- odd-node rule (dz/6 * (y[i-1] + 4*y[i] + y[i+1])).
 
@@ -97,6 +129,123 @@ def _old_odd_simpson(z, y):
     for i in range(1, n, 2):
         C[i] = C[i - 1] + dz / 6 * (y[i - 1] + 4 * y[i] + y[i + 1])
     return C
+
+
+def _scaled_simpson_weights(z, y):
+    """Mutation control that scales every production Simpson weight."""
+    return SIMPSON_WEIGHT_MUTATION_SCALE * cumulative_simpson(z, y)
+
+
+def _distance_pipeline_with_simpson(z_grid, h_grid, simpson_fn):
+    """Build the real distance pipeline with one temporary integrator.
+
+    comoving_distance_grid looks up cumulative_simpson in the
+    emulator.background module each time it runs.  Replacing that module
+    attribute therefore exercises the real pipeline with the mutation.  The
+    finally block restores the production function even if construction
+    raises, so later gate legs cannot inherit the deliberate defect.
+    """
+    production_simpson = background_math.cumulative_simpson
+    background_math.cumulative_simpson = simpson_fn
+    try:
+        return background_math.distance_interpolators(
+            z_grid=z_grid,
+            h_grid=h_grid,
+        )
+    finally:
+        background_math.cumulative_simpson = production_simpson
+
+
+def _independent_lcdm_distance(redshift):
+    """Integrate c/H(z) without any production Simpson code.
+
+    scipy.integrate.quad adaptively chooses its own evaluation points.  It
+    returns both the integral and an estimate of the absolute numerical
+    error.  The gate uses that estimate when it constructs its acceptance
+    band.
+    """
+    distance, error_estimate = integrate.quad(
+        _lcdm_distance_integrand,
+        0.0,
+        float(redshift),
+        epsabs=QUADRATURE_ABSOLUTE_TOLERANCE,
+        epsrel=QUADRATURE_RELATIVE_TOLERANCE,
+        limit=QUADRATURE_MAX_SUBDIVISIONS,
+    )
+    return distance, error_estimate
+
+
+def _comparison_band(reference, reference_error):
+    """Combine the production allowance with quad's error estimate."""
+    production_allowance = PIPELINE_RELATIVE_TOLERANCE * abs(reference)
+    reference_allowance = QUADRATURE_ERROR_MULTIPLIER * reference_error
+    return production_allowance + reference_allowance
+
+
+def _flat_distance_reference(comoving_distance, comoving_band, redshift):
+    """Return flat-distance reference values and their matching bands."""
+    one_plus_redshift = 1.0 + redshift
+    return {
+        "chi": (comoving_distance, comoving_band),
+        "da": (
+            comoving_distance / one_plus_redshift,
+            comoving_band / one_plus_redshift,
+        ),
+        "dl": (
+            comoving_distance * one_plus_redshift,
+            comoving_band * one_plus_redshift,
+        ),
+    }
+
+
+def _finite_difference_over_band(observed, reference, band):
+    """Return |observed-reference|/band, or infinity for invalid inputs.
+
+    The gate's decision is a comparison with a positive acceptance band.
+    NaN and infinity have no ordering that can establish agreement.  A zero
+    or negative band is not an acceptance interval.  Mapping every invalid
+    case to positive infinity makes the ordinary ``ratio < 1`` decision fail
+    without relying on Python's ordering behavior for NaN.
+    """
+    if not np.isfinite(observed):
+        return float("inf")
+    if not np.isfinite(reference):
+        return float("inf")
+    if not np.isfinite(band) or band <= 0.0:
+        return float("inf")
+    return abs(observed - reference) / band
+
+
+def _pipeline_ratios(pipeline, reference_table):
+    """Evaluate one pipeline against all named reference values and bands."""
+    ratios = []
+    for redshift in PIPELINE_QUERY_REDSHIFTS:
+        references = reference_table[redshift]
+        for quantity, reference_pair in references.items():
+            reference, band = reference_pair
+            observed = float(pipeline[quantity](redshift))
+            ratio = _finite_difference_over_band(
+                observed=observed,
+                reference=reference,
+                band=band,
+            )
+            ratios.append(ratio)
+    return ratios
+
+
+def _ratios_pass(ratios):
+    """Return True only when every finite comparison lies inside its band."""
+    if not ratios:
+        return False
+    for ratio in ratios:
+        if not np.isfinite(ratio) or ratio >= 1.0:
+            return False
+    return True
+
+
+def _nonfinite_distance(_redshift):
+    """Mutation control: one pipeline quantity returns no numeric distance."""
+    return float("nan")
 
 
 def check_simpson():
@@ -142,22 +291,153 @@ def check_simpson():
 
 
 def check_pipeline():
-    z_grid = np.linspace(0.001, 3.0, 600)
+    z_grid = np.linspace(
+        PIPELINE_MIN_REDSHIFT,
+        PIPELINE_MAX_REDSHIFT,
+        PIPELINE_GRID_POINT_COUNT,
+    )
     h_grid = lcdm_h(z_grid)
-    itp = distance_interpolators(z_grid=z_grid, h_grid=h_grid)
-    zr = np.linspace(0.0, 3.0, 120001)
-    chi_ref = cumulative_simpson(zr, C_KMS / lcdm_h(zr))
-    ok, detail = True, ""
-    for zq in (0.1, 0.5, 1.0, 2.0, 2.9):
-        want = np.interp(zq, zr, chi_ref)
-        rel = abs(float(itp["chi"](zq)) - want) / want
-        rel_da = abs(float(itp["da"](zq)) - want / (1 + zq)) \
-            / (want / (1 + zq))
-        rel_dl = abs(float(itp["dl"](zq)) - want * (1 + zq)) \
-            / (want * (1 + zq))
-        if max(rel, rel_da, rel_dl) > 1e-6:
-            ok, detail = False, "z=%s rel %.1e" % (zq, rel)
-    report("pipeline vs closed-form flat LCDM (cubic, 1e-6)", ok, detail)
+    pipeline = distance_interpolators(
+        z_grid=z_grid,
+        h_grid=h_grid,
+    )
+
+    # This reference shares neither the production integration rule nor its
+    # evaluation grid.  For each redshift, quad integrates the analytic LCDM
+    # c/H(z) function directly from zero to that redshift.
+    independent_reference_table = {}
+    for redshift in PIPELINE_QUERY_REDSHIFTS:
+        chi_reference, chi_reference_error = _independent_lcdm_distance(
+            redshift,
+        )
+        chi_band = _comparison_band(
+            reference=chi_reference,
+            reference_error=chi_reference_error,
+        )
+        independent_reference_table[redshift] = _flat_distance_reference(
+            comoving_distance=chi_reference,
+            comoving_band=chi_band,
+            redshift=redshift,
+        )
+    independent_ratios = _pipeline_ratios(
+        pipeline=pipeline,
+        reference_table=independent_reference_table,
+    )
+    report(
+        "pipeline vs independent adaptive quadrature",
+        _ratios_pass(independent_ratios),
+        "largest difference/band %.3e" % max(independent_ratios),
+    )
+
+    # The same-integrator fine-grid calculation remains useful as a resolution
+    # control.  It checks that the 600-point production grid resolves the same
+    # curve as a 120001-point grid.  Because both sides call cumulative_simpson,
+    # this assertion makes no claim about the scientific normalization of the
+    # integration weights.
+    fine_redshift_grid = np.linspace(
+        0.0,
+        float(z_grid[-1]),
+        FINE_REFERENCE_POINT_COUNT,
+    )
+    fine_chi_reference = cumulative_simpson(
+        fine_redshift_grid,
+        C_KMS / lcdm_h(fine_redshift_grid),
+    )
+    fine_reference_table = {}
+    for redshift in PIPELINE_QUERY_REDSHIFTS:
+        chi_reference = float(np.interp(
+            redshift,
+            fine_redshift_grid,
+            fine_chi_reference,
+        ))
+        chi_band = PIPELINE_RELATIVE_TOLERANCE * abs(chi_reference)
+        fine_reference_table[redshift] = _flat_distance_reference(
+            comoving_distance=chi_reference,
+            comoving_band=chi_band,
+            redshift=redshift,
+        )
+    fine_ratios = _pipeline_ratios(
+        pipeline=pipeline,
+        reference_table=fine_reference_table,
+    )
+    report(
+        "pipeline vs same-integrator fine grid (resolution only)",
+        _ratios_pass(fine_ratios),
+        "largest difference/band %.3e" % max(fine_ratios),
+    )
+
+    # Mutation catch power.  Scaling every Simpson weight on BOTH sides leaves
+    # the shared-function resolution control green.  The adaptive integral
+    # retains the physical normalization and rejects the same pipeline.
+    mutated_pipeline = _distance_pipeline_with_simpson(
+        z_grid=z_grid,
+        h_grid=h_grid,
+        simpson_fn=_scaled_simpson_weights,
+    )
+    shared_mutated_chi = _scaled_simpson_weights(
+        fine_redshift_grid,
+        C_KMS / lcdm_h(fine_redshift_grid),
+    )
+    shared_mutated_reference_table = {}
+    for redshift in PIPELINE_QUERY_REDSHIFTS:
+        chi_reference = float(np.interp(
+            redshift,
+            fine_redshift_grid,
+            shared_mutated_chi,
+        ))
+        chi_band = PIPELINE_RELATIVE_TOLERANCE * abs(chi_reference)
+        shared_mutated_reference_table[redshift] = _flat_distance_reference(
+            comoving_distance=chi_reference,
+            comoving_band=chi_band,
+            redshift=redshift,
+        )
+    shared_mutated_ratios = _pipeline_ratios(
+        pipeline=mutated_pipeline,
+        reference_table=shared_mutated_reference_table,
+    )
+    report(
+        "Simpson-weight mutation: shared fine-grid reference is blind",
+        _ratios_pass(shared_mutated_ratios),
+        "largest difference/band %.3e" % max(shared_mutated_ratios),
+    )
+
+    independent_mutated_ratios = _pipeline_ratios(
+        pipeline=mutated_pipeline,
+        reference_table=independent_reference_table,
+    )
+    independent_mutation_is_finite = all(
+        np.isfinite(ratio) for ratio in independent_mutated_ratios
+    )
+    independent_mutation_misses_every_band = (
+        min(independent_mutated_ratios) > 1.0
+    )
+    report(
+        "Simpson-weight mutation: independent quadrature rejects it",
+        independent_mutation_is_finite
+        and independent_mutation_misses_every_band,
+        "smallest difference/band %.3e" % min(independent_mutated_ratios),
+    )
+
+    # Nonfinite catch power.  Replace only the comoving-distance callable,
+    # then evaluate the SAME acceptance predicate as the control.  The shared
+    # ratio helper maps NaN to infinity, so one invalid value makes the whole
+    # distance-pipeline verdict false instead of disappearing inside max().
+    nonfinite_pipeline = dict(pipeline)
+    nonfinite_pipeline["chi"] = _nonfinite_distance
+    nonfinite_ratios = _pipeline_ratios(
+        pipeline=nonfinite_pipeline,
+        reference_table=independent_reference_table,
+    )
+    nonfinite_pipeline_passes = _ratios_pass(nonfinite_ratios)
+    nonfinite_value_reached_ratio_helper = any(
+        np.isinf(ratio) for ratio in nonfinite_ratios
+    )
+    report(
+        "nonfinite-distance mutation makes the pipeline comparison red",
+        not nonfinite_pipeline_passes
+        and nonfinite_value_reached_ratio_helper,
+        "acceptance verdict %s" % nonfinite_pipeline_passes,
+    )
 
 
 def check_geometry(device):

@@ -2658,3 +2658,56 @@ verdicts, and uses four skip-one-guard mutations to prove that every new call
 is load-bearing.  Existing gate files remain untouched because their queue-2
 owner is active.  The owner note records the exact Part D, Part E, and future
 documentation-examples additions needed after that collision clears.
+
+## Red Team implementation record: Unit 90 independent BAOSN distance reference
+
+The Architect transferred Unit 90 to the Red Team with production frozen.
+The bounded change adds `scipy.integrate.quad`, applied directly to analytic
+flat-LCDM `c/H(z)`, as the scientific reference. The shared-function fine-grid
+comparison remains as a separately reported resolution-only control. The
+tolerance retains the gate's `1e-6` production allowance and adds ten times
+the independent integrator's returned absolute-error estimate. The comparison
+covers comoving, angular-diameter, and luminosity distances at five redshifts
+inside the trained window.
+
+The mutation arm scales every Simpson weight by `0.99` through the real
+distance-pipeline construction and restores the production function in a
+`finally` block. The former fine-grid calculation uses the same mutated
+function and remains green at maximum relative difference `1.615e-12`. The
+independent calculation retains the physical normalization and rejects the
+mutation by at least `1.000e+04` acceptance bands. The unmodified control's
+largest difference is `1.617e-06` of its acceptance band.
+
+The full Cocoa Torch 2.6.0 CPU child returns zero and ends
+`PASS: bsn-identity all checks green`; `py_compile` and `git diff --check`
+also pass. Only `gates/checks/bsn_identity.py`, the BSN home note, and this
+register are changed. Production, board, and runner files remain
+byte-identical to the branch base. This record presents evidence to the
+Architect and does not certify the landing.
+
+### Parent-audit hold and amended Unit 90 candidate
+
+The parent audit held the first uncommitted candidate because it omitted the
+standalone unmutated fine-grid resolution report required by the Unit 90
+ruling. It also demonstrated a second defect in the candidate: Python's raw
+`max(0.0, NaN)` and `min(infinity, NaN)` updates preserved their initial
+values. A pipeline monkeypatched to return NaN therefore printed passing
+control and mutation reports.
+
+The amended candidate retains the adaptive-quadrature scientific reference
+and restores the same-integrator fine-grid comparison under the explicit
+`resolution only` label. One comparison helper now rejects nonfinite observed
+values, nonfinite references, nonfinite bands, and nonpositive bands. It maps
+each invalid comparison to an infinite ratio. The shared acceptance predicate
+requires every ratio to be finite and smaller than one. A built-in
+nonfinite-distance mutation applies that same predicate and proves a false
+verdict.
+
+After the repair, the full Cocoa child returns zero. The adaptive control,
+fine-grid control, shared-weight mutation, independent-weight mutation, and
+nonfinite mutation all report the expected verdicts. A separate all-NaN
+pipeline probe makes both unmutated controls red at an infinite ratio. A
+separate neutralized-weight probe makes exactly the independent mutation leg
+red. Board listing returns zero, board self-test ends `ALL PASS`, compilation
+passes, and the scoped diff is clean. This section preserves the hold and
+repair sequence for Architect review; it does not certify the landing.
