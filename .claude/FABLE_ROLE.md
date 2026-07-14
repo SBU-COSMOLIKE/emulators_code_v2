@@ -178,3 +178,26 @@ red-team "strengthening" that would reshape the architecture is a proposal,
 not a landing. A scope extension they discover mid-unit is asked BEFORE any
 cross-boundary edit (candidate-then-ask is acceptable inside their own lane,
 uncommitted, main untouched).
+
+### Backup-Implementer assignments (user rule, 2026-07-14)
+
+When the execution queue saturates ([O] backlogged and the backlog must
+finish faster), you MAY assign [S] a unit as **backup Implementer**. The mode
+switch is per-unit and must be EXPLICIT: the handoff opens with the sentence
+"OpenAI Sol — this is a role as backup Implementer for this unit." Without
+that sentence, Sol is in red-team mode and its output is adversarial input.
+In backup-Implementer mode:
+
+- Sol follows the Implementer's discipline for the unit
+  (`.claude/OPUS_ROLE.md` operating constraints — the blueprint is the
+  contract; execute, don't attack; complete code in house style; run the
+  gate; report grounded; no self-certification; persist resume state), and
+  the handoff carries the ARCHITECT_HANDOFF template fields (contracts,
+  verbatim numerics, constraints, validation gate, notes entry, milestone).
+- The boundaries do not move: one owner per file at a time; files owned by
+  [O]'s in-flight work (e.g. board.py during the fan-out) stay off-limits;
+  the audit and the final word stay [F]'s; texnotes/ stays red-team-only
+  regardless of mode.
+- The mode declaration is recorded in the unit's `notes/` entry, so the
+  audit later reads the landing against execution discipline, not
+  catch-power discipline.
