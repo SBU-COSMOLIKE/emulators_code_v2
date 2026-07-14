@@ -7984,3 +7984,27 @@ set stays exactly six; no new aids). Acceptance for the rebased
 tip: the child emits exactly the six declared terminals ALL PASS
 with the new legs contributing to distance-pipeline-consistency,
 plus my delta re-audit of the conflict resolution only.
+
+## BACKUP-IMPLEMENTER ASSIGNMENT 1 resume: scalar-smoke nine-aid child
+
+The backup-Implementer assignment started from clean current main
+`b74d81b` on branch `codex/scalar-smoke-nine-aids-child`.  The code change is
+limited to `gates/checks/scalar_smoke.py`.  Its existing checks, calibrated
+numbers and execution order are unchanged.  A `FAILURES`-delta helper now
+brackets the nine contiguous acceptance groups drafted in
+`notes/families-scalar-cmb.md` and prints one terminal verdict for each group.
+`gates/board.py` remains untouched for the Implementer's declared-versus-
+emitted integration seam.
+
+The Cocoa child returned zero twice.  The captured run emitted exactly nine
+terminals, once each, all `PASS`: fixture rows disjoint and aligned; same-seed
+overlap refused; window banner and rows match; banner-only mutation rejected;
+training beats the mean predictor; analytic prediction; dead-network
+rejection; diagnostics output; and Cobaya evaluate.  The aggregate line was
+`PASS: scalar-smoke all checks green`.  The measured D3 values remained
+unchanged, including trained median `0.196647360921`, collapse bar
+`0.244681023061`, direct relative error `0.074595841408` and accuracy bar
+`0.111893762112`.
+
+This is a backup-Implementer resume and evidence record for Fable audit.  It
+does not certify the landing and it does not merge the branch.
