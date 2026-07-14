@@ -2140,6 +2140,232 @@ path and red.  The direct release/idempotence legs remain useful helper tests,
 but may not substitute for the public driver call whose ordering is the
 claim.
 
+## 25M-38 (Red Team CONFIRMED, awaiting Architect adjudication): a one-parameter generator writes a parser-shaped ranges header and aborts
+
+A real two-rank background-generator run reached Cobaya 3.6.2 and CAMB
+1.6.7, wrote its first three parameter sidecars, then returned status 1 before
+it could write the covariance, failure flags, targets, or grid sidecars.  The
+interpreter carried GetDist 1.7.2.  `ROOTDIR` named a temporary directory with
+the normal CoCoA `.local`, CAMB, and emulator-repository paths.  The executed
+generator command was:
+
+```bash
+D=external_modules/code/emulators_code_v2
+mpirun -n 2 python $D/compute_data_vectors/dataset_generator_background.py \
+  --root projects/generator_example \
+  --fileroot generator \
+  --yaml background_minimal.yaml \
+  --datavsfile background_dvs \
+  --paramfile background_params \
+  --failfile background_failures \
+  --chain 0 \
+  --nparams 200 \
+  --unif 1 \
+  --temp 1 \
+  --seed 1234 \
+  --freqchk 1000 \
+  --loadchk 0 \
+  --append 0
+```
+
+No `--boundary` value was supplied, so the run used the full sampled support.
+The one-parameter YAML was:
+
+```yaml
+likelihood:
+  background_anchor:
+    external: "lambda _self: 0.0"
+    requires:
+      Hubble:
+        z: [0.1]
+        units: km/s/Mpc
+
+theory:
+  camb:
+    path: ./external_modules/code/CAMB
+
+params:
+  H0:
+    prior:
+      min: 60.0
+      max: 75.0
+    latex: H_0
+  ombh2:
+    value: 0.02237
+  omch2:
+    value: 0.1200
+  mnu:
+    value: 0.06
+  w:
+    value: -1.0
+
+train_args:
+  probe: background
+  ord:
+    - [H0]
+  z_sn: [0.1, 1.0, 8]
+  z_rec: [1000.0, 1200.0, 8]
+```
+
+The zero-valued likelihood gives Cobaya a real consumer for one background
+quantity during dependency construction.  The driver then adds the complete
+Hubble and comoving-distance requirements.  The configuration therefore
+reaches the generator's parameter-output path without CosmoLike.
+
+The decisive terminal output was:
+
+```text
+[0 : model] *WARNING* Ignored blocks/options: ['train_args']
+[1 : model] *WARNING* Ignored blocks/options: ['train_args']
+[0 : camb] `camb` module loaded successfully from <ROOTDIR>/external_modules/code/CAMB/camb
+[0 : background_anchor] Initialized external likelihood.
+[1 : background_anchor] Initialized external likelihood.
+ValueError: could not convert string to float: 'weights'
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+Errorcode: 1
+```
+
+Rank zero had written this 44-byte ranges file:
+
+```text
+# weights lnp H0
+H0 6.00000e+01 7.50000e+01
+```
+
+Its exact hexadecimal bytes were:
+
+```text
+23 20 77 65 69 67 68 74 73 20 6c 6e 70 20 48 30
+0a 48 30 20 36 2e 30 30 30 30 30 65 2b 30 31 20
+37 2e 35 30 30 30 30 65 2b 30 31 0a
+```
+
+`GeneratorCore.__run_mcmc` writes the comment before calling
+`loadMCSamples` to form the covariance.  GetDist 1.7.2 does not skip comments
+in a `.ranges` file.  It treats every three-token or four-token line as a
+range record.  The one-parameter header has four tokens, so GetDist treats
+`#` as a parameter name and tries to convert `weights` to a float.
+
+The blast radius is exact.  All four dataset drivers inherit this writer, so
+every fresh one-parameter lensing, CMB, background, or matter-power run can
+fail here.  Both uniform and tempered sampling take the path.  Both
+`--chain 0` and `--chain 1` take it.  A header for two or more sampled
+parameters has at least five tokens, which this GetDist version ignores.
+That token-count accident is why wider generator configurations can pass the
+same line.
+
+The failed run left only `.ranges`, `.paramnames`, and `.1.txt`.  It did not
+produce a complete checkpoint or a complete training result.  DIDACTICS-79
+therefore remains held.  A repair needs a GetDist-readable one-parameter
+range file plus a regression that drives the same covariance-loading call.
+The end-to-end command must then be replayed before it is printed as a working
+README command.
+
+## 25M-38 implementation and DIDACTICS-79 replay (Red Team, awaiting Architect audit)
+
+The bounded production change removes only the comment write from
+`GeneratorCore.__run_mcmc`. The writer still forms the same ordered
+`name lower upper` rows and still formats both bounds with `%.5e`. Unit 82 owns
+that decimal representation and remains untouched. The now-unused `hd`
+assignment also remains untouched so the production diff is the ruled one-line
+removal.
+
+The CPU regression lives in the dedicated
+`gates/checks/generator_ranges.py` child. The existing foundation
+`generator_seed.py` remains byte-identical because its evidence aid is
+specifically about random-number ownership. The new child parses
+`generator_core.py`, requires exactly one active `.ranges` writer and executes
+that writer's production syntax-tree statements with small bounds. This
+prevents a copied test-only writer from drifting away from production. It also
+lets a later cleanup remove the now-unused `hd` assignment. The extractor
+includes `hd` only when the writer actually reads it, as the retired-header
+mutation does. GetDist 1.7.2 `ParamBounds` then reads two cases:
+
+1. one sampled parameter, `H0` with bounds 60 and 75;
+2. two sampled parameters, `H0` and `ombh2`, as the wider control.
+
+Both cases pass on the repaired writer. The child itself restores the deleted
+line in a temporary copy of the producer. The one-parameter leg then fails with
+`ValueError: could not convert string to float: 'weights'`, the two-parameter
+control stays green and the mutation leg passes only when it observes that
+asymmetry. The production file is never modified by the mutation.
+
+The Cocoa CPU interpreter completed the repaired check with all assertions
+green. `py_compile` completed for the producer and check. The command was:
+
+```bash
+/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  gates/checks/generator_ranges.py
+```
+
+The README command was then executed verbatim in an isolated CoCoA-shaped
+tree at `/private/tmp/cocoa-sonic-readme-exact`. Its `.local`, CAMB and
+emulator-code paths were symlinks to the real Cocoa interpreter, CAMB checkout
+and this worktree. The YAML bytes matched the README block, including the
+relative CAMB path. The executed command was:
+
+```bash
+export ROOTDIR=/private/tmp/cocoa-sonic-readme-exact
+cd "$ROOTDIR"
+REPO="$ROOTDIR/external_modules/code/emulators_code_v2"
+PYTHON="$ROOTDIR/.local/bin/python"
+
+"$PYTHON" "$REPO/compute_data_vectors/dataset_generator_background.py" \
+  --root projects/generator_example \
+  --fileroot generator \
+  --yaml background_minimal.yaml \
+  --datavsfile background_dvs \
+  --paramfile background_params \
+  --failfile background_failures \
+  --chain 0 \
+  --nparams 200 \
+  --unif 1 \
+  --temp 1 \
+  --seed 1234 \
+  --freqchk 1000 \
+  --loadchk 0 \
+  --append 0
+```
+
+The command returned status zero after Cobaya 3.6.2 loaded CAMB 1.6.7. The
+serial invocation created one MPI rank. Rank zero sampled the table, evaluated
+all CAMB rows and wrote the files. There were no worker ranks. Since 200 is
+below the 1,000-row intermediate-checkpoint interval, the run wrote only the
+unconditional final checkpoint.
+
+The readback established:
+
+- the output file set had exactly the four parameter sidecars, two background
+  target arrays, two grid sidecars and one failure sidecar;
+- the `.ranges` bytes were exactly
+  `H0 6.00000e+01 7.50000e+01\n`;
+- real `ParamBounds` returned names `['H0']` and bounds 60 and 75;
+- the chain had shape `(200, 4)` and its first line recorded
+  `seed=1234 rng=numpy.default_rng`;
+- both target arrays had shape `(200, 8)`, dtype float32 and finite entries;
+- the first Hubble column had nonzero spread 14.100456237792969 and the first
+  distance column had nonzero spread 591.2666015625; and
+- the 200-entry failure sidecar contained zero failed rows.
+
+A second successful serial run used the same YAML, seed and options from a
+different temporary root. The chain, range, parameter-name, covariance and
+failure files were byte-identical across the two runs. Both target arrays were
+array-identical. This is a real same-seed serial replay. It does not replace
+the separately owed comparison across worker counts.
+
+The root README now prints this executed minimal YAML and command. It defines
+an MPI rank, distinguishes the one-rank serial path from rank-zero coordination
+with worker ranks and explains why this 200-row command has only a final
+checkpoint. This closes the implementation evidence for 25M-38 and the held
+DIDACTICS-79 command/process teaching. The Red Team does not certify either
+closure; both remain for Architect audit.
+
+The new child is deliberately not reported under
+`generator-seed.owned-rng`. Queue 2 still owns board registration and evidence
+mapping for foundation gates. Its owner must give the sidecar check a distinct,
+narrow claim before this branch can be called board-complete. This integration
+hold keeps a format failure from being mislabeled as an RNG failure.
+
 ## Queue-2 evidence draft: data-selection and triangle gates
 
 The blocks below are the note-side specification for the structured evidence

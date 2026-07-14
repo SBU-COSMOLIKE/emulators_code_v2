@@ -3165,3 +3165,61 @@ gb_c self=None harness defect reproduced on HEAD (production's
 band line reads self._chi2_n_terms) — ruled check-side, red-team
 claimable; berhu-loss honestly red-if-run until the claim. Spec:
 gates-and-board.md "Stage-ram repair + fan-out batch 2 audit".
+
+BERHU HARNESS + BATCH 3 (2026-07-13, Fable): 47e79a3 GO — the
+check binds _reduce to a real CosmolikeChi2 over an instrumented
+one-element HarnessGeometry; my runs: child ALL PASS with 44
+width reads, the parent version reproduces the filed crash with
+zero terminals, and my width-bypass tamper reds reference-values
+at rc 1; production untouched; merged 63a1a5e, gb_c CLOSED.
+70a484e (fan-out batch 3, found committed with resume 7d8afc3)
+GO — ema-smoke 3 + head-activation-pin 5 + relu-tanh-norm 5,
+names==drafts exactly, 18 gates now carry evidence, my
+compile/--list/selftest green at the merged tip; the stale-base
+lesson RATIFIED as batch discipline (subagent diffs apply
+gate-locally against their own base, never whole-file). Spec:
+gates-and-board.md "Berhu harness repair audit" + "Fan-out batch
+3 delta audit".
+
+BATCH 4 (2026-07-13, Fable): 2cf5621 GO — berhu-anneal 4 +
+ema-anneal 4 + npce-training 9, names==drafts, the three
+logged-only/owed legs forward-declared UNAVAILABLE with
+gap-stating reasons (D1-ii applied, nothing minted green); my
+compile/--list/selftest green at the tip, 21 evidence-bearing
+gates, the prior 18 confirmed intact. The no-isolation subagent
+launch adjudicated: accepted on the independent final-tree verify
++ honest disclosure; the SUBAGENT-ISOLATION RULE (each fan-out
+subagent in its own worktree) is now BINDING. Spec:
+gates-and-board.md "Fan-out batch 4 delta audit".
+
+25M-38 + 79 + UNIT 63 (2026-07-14, Fable): bc7e8e5 GO — the ruled
+one-line producer deletion + an AST-executing GetDist child (my
+run ALL PASS, retired-header mutation proves the hiding
+mechanism) + the README walkthrough; the end-to-end replay
+reproduced BY ME twice (rc 0, nine files, H0 bounds via GetDist,
+finite (200,8) targets, zero flags, byte/array-identical runs);
+merged a6aa7cc; 25M-38 and DIDACTICS-79 CLOSED; queue 2 owes the
+child its board entry. 473da76+06c9d8f GO — const_mask always
+persisted uint8, readback refuses absence with a re-save
+instruction, both constructor paths closed; three real-artifact
+legs through rebuild_emulator (pins serve exactly 1.0; deletion
+refuses); my probe restoring presence-inference reds at rc 1; my
+runs 5/5, 22/22, child 69 PASS; merged 8dc44f3 BEFORE batch 5's
+mps-identity hand-apply (seam ruling: integration lands on top,
+re-diff against the current file). Unit 63 CLOSED on the code.
+Spec: gates-and-board.md "25M-38 repair + DIDACTICS-79 replay
+audit" + "Unit-63 reopen audit".
+
+UNIT-29 SCOPE (2026-07-14, Fable): the red team's held candidate
+(codex/unit29-token-width-v2, uncommitted) needs one ia.py touch
+outside the transferred plain.py+blocks.py list — premise verified
+at the diff: TemplateResTRF allocates its template trunk before
+any TRFBlock, so a blocks-only guard cannot satisfy 25M-14's
+before-construction clause. APPROVED with bounds: the minimal
+shape only (moved bin-size calc + one early shared-validator
+call; TRFBlock guard stays as defense in depth; no behavior
+change on accepted widths; the necessity mutation ships
+executable). Commit, then the normal pre-merge audit.
+Candidate-then-ask accepted for own-lane scope extensions;
+ask-before-edit still binds on other-team files. Spec:
+gates-and-board.md "Unit-29 scope ruling".

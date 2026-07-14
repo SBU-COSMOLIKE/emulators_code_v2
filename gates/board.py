@@ -400,18 +400,22 @@ def gate_gm_d(ctx):
   """ema-smoke: EMA switched on works.
 
   WHAT: a short bs=64 run with ema.horizon_epochs=3. WHY: the identity
-  test proves EMA off is harmless, not that EMA on works. HOW: the
-  banner must read "ema: horizon 3 epochs" and a plateau lr cut must
-  print "rewound to best epoch"
-  (spec: training-stack.md:104-107, 240-251).
+  test proves EMA off is harmless, not that EMA on works. HOW: the smoke
+  exits zero (driver-exit-zero), its banner reads "ema: horizon 3 epochs"
+  (horizon-banner-present), and a plateau lr cut prints "rewound to best
+  epoch" (rewind-line-present)
+  (spec: training-stack.md#ema-smoke-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   out = _smoke_driver(ctx=ctx,
                       config_key="ema-smoke-config",
-                      required_banners=["ema: horizon 3 epochs"])
+                      required_banners=["ema: horizon 3 epochs"],
+                      exit_aid="ema-smoke.driver-exit-zero",
+                      banner_aid="ema-smoke.horizon-banner-present")
   if ctx.dry:
     return
-  ctx.expect(label="ema-smoke rewind line ('lr cut -> rewound to best epoch')",
+  ctx.expect(aid="ema-smoke.rewind-line-present",
+             label="ema-smoke rewind line ('lr cut -> rewound to best epoch')",
              ok=logscan.search(text=out, pattern=r"rewound to best epoch"),
              detail="training-stack.md:246-249: a rewind fires")
 
@@ -638,25 +642,32 @@ def gate_gba_c(ctx):
   WHAT: the berHu anneal (plain sqrt blending into berHu over a
   hold-then-ramp schedule). WHY: the tail votes should arrive after the
   trim schedule has absorbed the worst outliers, without a jolt at the
-  ramp start. HOW: the banner reads "anneal: hold 5 + 10 cosine", the
-  train loss is continuous at the hold boundary, and the shape is full
-  berHu by epoch 15; plus the golden no-anneal run
-  (spec: training-stack.md:199-221).
+  ramp start. HOW: a run shows the banner "anneal: hold 5 + 10 cosine"
+  (smoke-exit-zero + anneal-banner), plus a golden no-anneal run
+  (golden-selected-text-equality, UNAVAILABLE while its base is null).
+  The hold-boundary continuity and full-berHu-by-epoch-15 shape are named
+  by the note but not measured here, so schedule-behavior is UNAVAILABLE
+  (logged-only, no comparison runs)
+  (spec: training-stack.md#berhu-anneal-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="berhu-anneal",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best)")
-  out = _smoke_driver(ctx=ctx,
-                      config_key="berhu-anneal-config",
-                      required_banners=["anneal: hold 5 + 10 cosine"])
-  if ctx.dry:
-    return
-  ctx.log("berhu-anneal schedule: confirm the train loss is continuous at the "
-          "hold boundary (epoch 5->6) and s=1 (full berhu) by epoch 15; "
-          "the first ~5 epochs match a plain sqrt run "
-          "(training-stack.md:213-221).")
+              grep_pattern="^(phase|epoch|best)",
+              aid="berhu-anneal.golden-selected-text-equality")
+  _smoke_driver(ctx=ctx,
+                config_key="berhu-anneal-config",
+                required_banners=["anneal: hold 5 + 10 cosine"],
+                exit_aid="berhu-anneal.smoke-exit-zero",
+                banner_aid="berhu-anneal.anneal-banner")
+  ctx.unavailable(
+    aid="berhu-anneal.schedule-behavior",
+    label="berhu-anneal schedule continuity + full-shape epoch",
+    reason="the note names hold-boundary continuity (epoch 5->6) and "
+           "s=1 (full berHu) by epoch 15, but this gate runs no such "
+           "comparison -- the schedule inspection is logged-only, not "
+           "measured (training-stack.md#berhu-anneal-schedule-behavior)")
 
 
 def gate_gme_c(ctx):
@@ -664,20 +675,34 @@ def gate_gme_c(ctx):
 
   WHAT: the EMA anneal (the averaging window grows from zero over a
   hold-then-ramp schedule). WHY: averaging through the high-loss early
-  epochs would poison the shipped weights. HOW: the banner names the
-  horizon and "anneal: hold 5 + 10 cosine", and the average's metrics
-  first appear at the live point (epoch 6+); plus the golden no-anneal
-  run (spec: training-stack.md:180-197).
+  epochs would poison the shipped weights. HOW: the smoke exits zero
+  (smoke-exit-zero) and its banners name the horizon and the schedule --
+  both "ema: horizon 3 epochs" and "anneal: hold 5 + 10 cosine"
+  (ema-anneal-banners); the golden no-anneal selected-text equality
+  (golden-selected-text-equality) is UNAVAILABLE while golden_bases has
+  no configured base; and the average's first-live-point metrics
+  (live-point-metrics) are UNAVAILABLE -- described in the note (epoch
+  6+), but this gate parses and asserts no metric-appearance comparison
+  (spec: training-stack.md#ema-anneal-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="ema-anneal",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best|ema)")
+              grep_pattern="^(phase|epoch|best|ema)",
+              aid="ema-anneal.golden-selected-text-equality")
   _smoke_driver(ctx=ctx,
                 config_key="ema-anneal-config",
                 required_banners=["ema: horizon 3 epochs",
-                                  "anneal: hold 5 + 10 cosine"])
+                                  "anneal: hold 5 + 10 cosine"],
+                exit_aid="ema-anneal.smoke-exit-zero",
+                banner_aid="ema-anneal.ema-anneal-banners")
+  ctx.unavailable(aid="ema-anneal.live-point-metrics",
+                  label="ema-anneal averaged-metric first-live epoch",
+                  reason="the note describes the averaged metrics first "
+                         "appearing at the live point (epoch 6+), but this "
+                         "gate parses no metrics and runs no metric-appearance "
+                         "comparison (training-stack.md#ema-anneal-live-point-metrics)")
 
 
 def gate_item27(ctx):
@@ -793,19 +818,23 @@ def gate_gha_f(ctx):
   WHAT: a model.trf.activation pin (gated_power) for the frozen-trunk
   head. WHY: the pin must win over the --activation flag with a warning,
   and an illegal pin (unfrozen trunk) must error, not misbuild. HOW: the
-  "model spec:" banner shows the pinned activation; --activation power
-  prints the flag-vs-pin warning; the deliberately-invalid license YAML
+  pinned-head smoke exits zero and prints the gated_power text; --activation
+  power prints the flag-vs-pin warning; the deliberately-invalid license YAML
   makes build_specs exit with the frozen-trunk message; plus the golden
-  no-pin run (spec: models-and-designs.md:239-242, 405-430).
+  no-pin run, UNAVAILABLE while golden_bases has no configured base
+  (spec: models-and-designs.md#head-activation-pin-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="head-activation-pin",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best|model spec)")
+              grep_pattern="^(phase|epoch|best|model spec)",
+              aid="head-activation-pin.golden-selected-text-equality")
   out = _smoke_driver(ctx=ctx,
                       config_key="head-activation-pin-config",
-                      required_banners=["gated_power"])
+                      required_banners=["gated_power"],
+                      exit_aid="head-activation-pin.pinned-config-exit-zero",
+                      banner_aid="head-activation-pin.gated-power-text-present")
   # same pinned YAML, now with the flag, to trigger the warning.
   pin_yaml = ctx.require_config("head-activation-pin-config")
   rc_w, out_w = ctx.run_driver(yaml_path=pin_yaml,
@@ -816,6 +845,7 @@ def gate_gha_f(ctx):
   if ctx.dry:
     return
   ctx.expect(
+    aid="head-activation-pin.flag-vs-pin-warning",
     label="head-activation-pin flag-vs-pin warning",
     ok=(rc_w == 0 and logscan.contains(
       text=out_w,
@@ -824,6 +854,7 @@ def gate_gha_f(ctx):
            "the startup warning that the pin wins over --activation; a warning "
            "printed on a failed run does not count")
   ctx.expect(
+    aid="head-activation-pin.unfrozen-pin-refusal",
     label="head-activation-pin license error (freeze_trunk false + pin"
           " -> build_specs errors)",
     ok=(rc_l != 0 and logscan.search(text=out_l, pattern=r"(?i)frozen")),
@@ -837,21 +868,28 @@ def gate_gan_c(ctx):
   WHAT: the parameter-free relu/tanh activations plus the norm knob
   (per_feature / affine). WHY: tanh needs the per_feature saturation
   guard, and the classic affine baseline must still work. HOW: a tanh +
-  per_feature run and a tanh + affine run each name their norm in the
-  banner and descend in loss; plus the golden absent-key run
-  (spec: models-and-designs.md:99-101).
+  per_feature run and a tanh + affine run each exit zero and name their
+  norm in the banner; plus the golden absent-key run. The runs' epoch
+  histories are printed but no assertion compares their loss values, so
+  loss descent is logged-only, not asserted evidence
+  (spec: models-and-designs.md#relu-tanh-norm-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="relu-tanh-norm",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best)")
+              grep_pattern="^(phase|epoch|best)",
+              aid="relu-tanh-norm.golden-selected-text-equality")
   _smoke_driver(ctx=ctx,
                 config_key="relu-tanh-norm-per-feature",
-                required_banners=["per_feature"])
+                required_banners=["per_feature"],
+                exit_aid="relu-tanh-norm.per-feature-config-exit-zero",
+                banner_aid="relu-tanh-norm.per-feature-text-present")
   _smoke_driver(ctx=ctx,
                 config_key="relu-tanh-norm-affine",
-                required_banners=["affine"])
+                required_banners=["affine"],
+                exit_aid="relu-tanh-norm.affine-config-exit-zero",
+                banner_aid="relu-tanh-norm.affine-text-present")
 
 
 def gate_gwd_c(ctx):
@@ -882,22 +920,36 @@ def gate_gpc_c(ctx):
   WHAT: NPCE (a closed-form sparse-Legendre base under a trained
   refiner) in residual and ratio forms. WHY: both forms must train, the
   illegal combinations must error, and the base must refit per
-  training-set size. HOW: residual and ratio runs print the fit report
-  and descend; pce+ia (YAML) and pce+--rescale (flag) both exit with the
-  exclusivity error; a 2-point n_train sweep refits the base per point;
-  plus the golden absent-pce run (spec: models-and-designs.md:117-122).
+  training-set size. HOW: the residual and ratio runs each exit zero and
+  name their pce form in the banner (residual-config-exit-zero /
+  residual-pce-text-present, ratio-config-exit-zero /
+  ratio-pce-text-present); pce+ia (YAML) and pce+--rescale (flag) both
+  exit nonzero with the exclusivity error (pce-ia-refusal /
+  pce-rescale-refusal); a 2-point n_train sweep exits zero, prints both
+  result lines, and names its staging banner (sweep-result-lines-and-pce-
+  banner). The golden selected-text equality is UNAVAILABLE with no
+  configured base, and the save/rebuild/base(theta) round-trip
+  (rebuild-vs-base) is UNAVAILABLE and owed to the check-script set: this
+  wrapper logs that it belongs there but runs no comparison. No assertion
+  compares loss values, so loss descent is logged-only, not asserted
+  evidence (spec: models-and-designs.md#npce-training-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="npce-training",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best)")
+              grep_pattern="^(phase|epoch|best)",
+              aid="npce-training.golden-selected-text-equality")
   _smoke_driver(ctx=ctx,
                 config_key="npce-training-residual",
-                required_banners=["pce"])
+                required_banners=["pce"],
+                exit_aid="npce-training.residual-config-exit-zero",
+                banner_aid="npce-training.residual-pce-text-present")
   _smoke_driver(ctx=ctx,
                 config_key="npce-training-ratio",
-                required_banners=["pce"])
+                required_banners=["pce"],
+                exit_aid="npce-training.ratio-config-exit-zero",
+                banner_aid="npce-training.ratio-pce-text-present")
   # pce + ia fits in a YAML; pce + rescale needs the CLI flag.
   ia_yaml = ctx.require_config("npce-training-excl-ia")
   rc_ia, out_ia = ctx.run_driver(yaml_path=ia_yaml, allow_fail=True)
@@ -915,11 +967,13 @@ def gate_gpc_c(ctx):
   if ctx.dry:
     return
   ctx.expect(
+    aid="npce-training.pce-ia-refusal",
     label="npce-training exclusivity error (pce + ia)",
     ok=(rc_ia != 0 and logscan.search(text=out_ia, pattern=r"(?i)exclusive")),
     detail="pce + model.ia must exit nonzero with the exclusive message "
            "(rc " + str(rc_ia) + ")")
   ctx.expect(
+    aid="npce-training.pce-rescale-refusal",
     label="npce-training exclusivity error (pce + --rescale)",
     ok=(rc_rs != 0 and logscan.search(text=out_rs, pattern=r"(?i)exclusive")),
     detail="pce + --rescale=residual must exit nonzero with the exclusive "
@@ -933,16 +987,20 @@ def gate_gpc_c(ctx):
                                   pattern=r"N_train\s+\d+\s+f\(>0\.2\)")
   staged = logscan.search(text=out_s, pattern=r"^pce: form")
   ctx.expect(
+    aid="npce-training.sweep-result-lines-and-pce-banner",
     label="npce-training 2-point sweep_ntrain ran both points",
     ok=(rc_s == 0 and len(parent) >= 2 and staged),
     detail="rc " + str(rc_s) + "; parent N_train f(>0.2) lines "
            + str(len(parent)) + " (need >=2); pce staging banner "
            + ("present" if staged else "ABSENT") + " (need present)")
-  ctx.log("npce-training rebuild-vs-base probe: save -> the h5 pce group"
-          " -> from_state rebuild == base(theta) on a probe batch belongs"
-          " in the check-script set (save-rebuild-drift's NPCE save"
-          " round-trips the pce group; a standalone npce-training probe"
-          " if wanted). Named in the remainder (models-and-designs.md:117).")
+  ctx.unavailable(
+    aid="npce-training.rebuild-vs-base",
+    label="npce-training rebuild == base(theta) round-trip",
+    reason="this wrapper only logs that a save -> h5 pce group -> "
+           "from_state rebuild == base(theta) probe belongs in the "
+           "check-script set (save-rebuild-drift already round-trips the "
+           "NPCE save); it runs no such comparison here, so the leg is "
+           "owed to a standalone npce-training probe")
 
 
 # --------------------------------------------------------------------------
@@ -1727,8 +1785,15 @@ BOARD = [
        title="EMA on-mode smoke",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="104-107, 240-251 (on-mode smoke: horizon banner + metrics); "
-            "246-249 (the lr-cut rewind line)",
+       maps="the EMA-on training smoke exits zero, prints its resolved "
+            "\"ema: horizon 3 epochs\" banner, and reaches the logged "
+            "\"rewound to best epoch\" rewind line",
+       evidence=(Assertion("ema-smoke.driver-exit-zero",
+                           "training-stack.md#ema-smoke-driver-exit-zero"),
+                 Assertion("ema-smoke.horizon-banner-present",
+                           "training-stack.md#ema-smoke-horizon-banner-present"),
+                 Assertion("ema-smoke.rewind-line-present",
+                           "training-stack.md#ema-smoke-rewind-line-present")),
        run=gate_gm_d,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.ema-smoke-config",) + _CS_DEPLOY_DATA),
@@ -2012,7 +2077,17 @@ BOARD = [
        title="berHu anneal schedule",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="199-221 (golden no-anneal + anneal banner + continuity + s=1)",
+       maps="the configured berHu-anneal run exits clean and names its "
+            "anneal schedule banner; the schedule's continuity and "
+            "full-shape epoch are not measured here.",
+       evidence=(Assertion("berhu-anneal.golden-selected-text-equality",
+                           "training-stack.md#berhu-anneal-golden-selected-text-equality"),
+                 Assertion("berhu-anneal.smoke-exit-zero",
+                           "training-stack.md#berhu-anneal-smoke-exit-zero"),
+                 Assertion("berhu-anneal.anneal-banner",
+                           "training-stack.md#berhu-anneal-anneal-banner"),
+                 Assertion("berhu-anneal.schedule-behavior",
+                           "training-stack.md#berhu-anneal-schedule-behavior")),
        run=gate_gba_c,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.berhu-anneal-config",) + _CS_DEPLOY_DATA),
@@ -2022,7 +2097,17 @@ BOARD = [
        title="EMA anneal schedule",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="180-197 (golden no-anneal + anneal banner + live-point metrics)",
+       maps="the EMA-anneal training smoke exits zero and prints both its "
+            "\"ema: horizon 3 epochs\" horizon banner and its \"anneal: hold "
+            "5 + 10 cosine\" schedule banner",
+       evidence=(Assertion("ema-anneal.golden-selected-text-equality",
+                           "training-stack.md#ema-anneal-golden-selected-text-equality"),
+                 Assertion("ema-anneal.smoke-exit-zero",
+                           "training-stack.md#ema-anneal-smoke-exit-zero"),
+                 Assertion("ema-anneal.ema-anneal-banners",
+                           "training-stack.md#ema-anneal-ema-anneal-banners"),
+                 Assertion("ema-anneal.live-point-metrics",
+                           "training-stack.md#ema-anneal-live-point-metrics")),
        run=gate_gme_c,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.ema-anneal-config",) + _CS_DEPLOY_DATA),
@@ -2081,8 +2166,19 @@ BOARD = [
        title="Pinned head activation",
        tier=TIER_NEW_FEATURES,
        home="models-and-designs",
-       maps="239-242, 405-430 (model-spec banner + param count + warning); "
-            "429-430 (leg 4: freeze_trunk false + pin -> build_specs errors)",
+       maps="the pinned-head driver exits zero and prints its gated_power text, "
+            "the --activation flag run warns that the pin wins, and the invalid "
+            "unfrozen-head config is refused with a frozen-trunk message",
+       evidence=(Assertion("head-activation-pin.golden-selected-text-equality",
+                           "models-and-designs.md#head-activation-pin-golden-selected-text-equality"),
+                 Assertion("head-activation-pin.pinned-config-exit-zero",
+                           "models-and-designs.md#head-activation-pin-pinned-config-exit-zero"),
+                 Assertion("head-activation-pin.gated-power-text-present",
+                           "models-and-designs.md#head-activation-pin-gated-power-text-present"),
+                 Assertion("head-activation-pin.flag-vs-pin-warning",
+                           "models-and-designs.md#head-activation-pin-flag-vs-pin-warning"),
+                 Assertion("head-activation-pin.unfrozen-pin-refusal",
+                           "models-and-designs.md#head-activation-pin-unfrozen-pin-refusal")),
        run=gate_gha_f,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.head-activation-pin-config",
@@ -2093,7 +2189,19 @@ BOARD = [
        title="relu/tanh with the norm knob",
        tier=TIER_NEW_FEATURES,
        home="models-and-designs",
-       maps="99-101 (tanh+per_feature + tanh+affine + golden absent-key)",
+       maps="the tanh+per_feature and tanh+affine drivers each exit zero and "
+            "name their norm in the banner, while the golden selected-text "
+            "equality stays unavailable with no configured base",
+       evidence=(Assertion("relu-tanh-norm.golden-selected-text-equality",
+                           "models-and-designs.md#relu-tanh-norm-golden-selected-text-equality"),
+                 Assertion("relu-tanh-norm.per-feature-config-exit-zero",
+                           "models-and-designs.md#relu-tanh-norm-per-feature-config-exit-zero"),
+                 Assertion("relu-tanh-norm.per-feature-text-present",
+                           "models-and-designs.md#relu-tanh-norm-per-feature-text-present"),
+                 Assertion("relu-tanh-norm.affine-config-exit-zero",
+                           "models-and-designs.md#relu-tanh-norm-affine-config-exit-zero"),
+                 Assertion("relu-tanh-norm.affine-text-present",
+                           "models-and-designs.md#relu-tanh-norm-affine-text-present")),
        run=gate_gan_c,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.relu-tanh-norm-per-feature",
@@ -2113,7 +2221,29 @@ BOARD = [
        title="NPCE training",
        tier=TIER_NEW_FEATURES,
        home="models-and-designs",
-       maps="117-122, 201-204 (residual + ratio + rebuild + exclusivity + sweep)",
+       maps="the residual and ratio NPCE drivers each exit zero and name their "
+            "pce form, the pce+ia and pce+--rescale combinations are both "
+            "refused, and the two-point n_train sweep prints both result lines "
+            "with its staging banner; the golden selected-text equality and the "
+            "save/rebuild-vs-base round-trip both stay unavailable",
+       evidence=(Assertion("npce-training.golden-selected-text-equality",
+                           "models-and-designs.md#npce-training-golden-selected-text-equality"),
+                 Assertion("npce-training.residual-config-exit-zero",
+                           "models-and-designs.md#npce-training-residual-config-exit-zero"),
+                 Assertion("npce-training.residual-pce-text-present",
+                           "models-and-designs.md#npce-training-residual-pce-text-present"),
+                 Assertion("npce-training.ratio-config-exit-zero",
+                           "models-and-designs.md#npce-training-ratio-config-exit-zero"),
+                 Assertion("npce-training.ratio-pce-text-present",
+                           "models-and-designs.md#npce-training-ratio-pce-text-present"),
+                 Assertion("npce-training.pce-ia-refusal",
+                           "models-and-designs.md#npce-training-pce-ia-refusal"),
+                 Assertion("npce-training.pce-rescale-refusal",
+                           "models-and-designs.md#npce-training-pce-rescale-refusal"),
+                 Assertion("npce-training.sweep-result-lines-and-pce-banner",
+                           "models-and-designs.md#npce-training-sweep-result-lines-and-pce-banner"),
+                 Assertion("npce-training.rebuild-vs-base",
+                           "models-and-designs.md#npce-training-rebuild-vs-base")),
        run=gate_gpc_c,
        manifest=Manifest(code=_CS_TRAIN_CODE
                               + ("cosmic_shear_sweep_ntrain_emulator.py",),

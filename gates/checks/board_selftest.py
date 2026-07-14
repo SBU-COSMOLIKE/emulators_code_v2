@@ -1992,7 +1992,10 @@ class _GhaFakeCtx:
                     "the head keeps its model.trf.activation pin (gated_power)")
         return (1, "frozen")             # the invalid-license run (rc_l != 0)
 
-    def expect(self, *, label, ok, detail=""):
+    def expect(self, *, label, ok, detail="", aid=None):
+        # aid= accepted so this stub matches the real ctx.expect signature
+        # (gate_gha_f now names a queue-2 assertion id on each warning leg);
+        # the RT-04 checks still key on label.
         self.expects[label] = ok
 
 
