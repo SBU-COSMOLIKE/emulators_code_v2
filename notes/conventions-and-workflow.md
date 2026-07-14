@@ -280,6 +280,16 @@ record, never cited as evidence, and never edited. The agent-written note a
 block cites remains the record; the router's gate log is corroborating
 input to the Architect's audit, which still performs its own re-runs.
 
+The mailbox (Fable addendum, 2026-07-14): `notes/mailbox/` holds pending
+routing summaries as one file per message, `NNN-to-<fable|opus|sol>.md`;
+`tools/mailbox_daemon.py` dispatches each to its addressee's headless CLI
+and moves it to `notes/mailbox/done/`. Mailbox files are routing summaries
+under the notes-first rule — the substance stays in the cited note. An
+agent finishing a mailbox-dispatched turn writes its outbound handoff as
+the next mailbox file, so the loop continues without a human relay; merges
+and pushes to main remain the user's alone.
+
+
 
 ## Environment
 

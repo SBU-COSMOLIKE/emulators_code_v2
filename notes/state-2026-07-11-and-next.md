@@ -3325,3 +3325,13 @@ addendum), role files govern, --mode backup inserts the explicit
 Sol declaration, the draft's self-capture bug fixed. Spec:
 gates-and-board.md "Skipped-leg manifest ruling + the handoff
 router".
+
+MAILBOX DAEMON (2026-07-14, Fable): tools/mailbox_daemon.py — the
+no-copy/paste loop: notes/mailbox/ message files dispatched to each
+agent's headless CLI (claude -p per lane; the Sol command is
+configurable — no codex CLI found on this Mac yet), replies written
+back as the next mailbox file, full dispatch logs under
+notes/relay/, merges/pushes never automated (user-only). Convention
+appended to conventions-and-workflow.md. Smoke-tested send +
+dry-run; live dispatch awaits the user's permission-mode choice for
+headless turns.
