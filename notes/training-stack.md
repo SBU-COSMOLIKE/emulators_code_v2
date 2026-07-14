@@ -1692,11 +1692,19 @@ independent of how the same rows are divided into batches.**
 
 - files: uses synthetic in-memory Torch tensors; it reads no scientific data
   file and writes no persistent product.
-- subprocess: `gates/checks/ge_c_eval_bs.py`.
-- metric: per-leg. Per-row and fraction tensors use `rtol=1e-6` and
-  `atol=1e-6`; scalar median/mean comparisons use
-  `abs(got-ref) <= 1e-6*abs(ref) + 1e-6`. Ordinary-median controls are exact,
-  and printed timing observations are `UNAVAILABLE`.
+- subprocess: `gates/checks/ge_c_eval_bs.py`; the child drives the real
+  `eval_val`, `eval_source_chi2`, and one-epoch `training_loop_batched`
+  entry points.
+- metric: per-leg. The independent float64 reference over the twelve
+  distinct float32 fixture scores is median `1.5`, mean
+  `3.941666666728755`, and threshold fractions
+  `[0.833333333, 0.583333333, 0.25]`. Metrics use `rtol=1e-6` and
+  `atol=1e-7`; row identities, row order, and per-row scores are exact. Each
+  row's known score is stored once in the model-input feature and once in the
+  target; the fixture loss averages those two copies. A parameter/target row
+  reassociation therefore changes the score instead of passing through a
+  target-only test double. Ordinary-median controls are exact, and printed
+  timing observations are `UNAVAILABLE`.
 - legs: 4, named `eval-batch-invariance.partition-invariance`,
   `eval-batch-invariance.ordinary-median`,
   `eval-batch-invariance.cuda-timing`, and
@@ -1711,11 +1719,18 @@ independent of how the same rows are divided into batches.**
 
 <a id="eval-batch-invariance-partition-invariance"></a>
 `eval-batch-invariance.partition-invariance` compares real `eval_val`'s
-aggregate median, mean, and threshold fractions with a full-batch reference
-for batch sizes 32, 517, 1000, and 2048. Separately, a copied batch loop named
-`per_row_chi2` compares per-row tensors with its full-batch result. The stated
-relative and absolute tolerances apply; this does not prove row association or
-ordering inside production `eval_val`, which publishes only aggregates.
+score-domain boundary's RETURNED tensor, source-row positions, aggregate
+median, mean, and threshold fractions with the independent reference for one
+full batch, three equal batches, and a ragged final batch. Capturing the
+returned tensor means a normalization or ordering defect inside the boundary
+cannot hide behind its correct input. The same values must reach the real
+one-epoch median/mean/fraction histories, and the median must reach the real
+plateau-scheduler input. The per-row reference is the existing production
+diagnostic scorer, `eval_source_chi2`; there is no gate-side copy of the
+batched score formula. The source row list is permuted and every score is
+distinct. A mutation that drops the middle equal batch and a mutation that
+reverses its scores under unchanged row labels must both fail while the
+diagnostic reference remains unchanged.
 
 <a id="eval-batch-invariance-ordinary-median"></a>
 `eval-batch-invariance.ordinary-median` requires the helper and real
@@ -1728,9 +1743,91 @@ odd-sample control, remain batch-invariant, and catch the lower-middle
 printed but are not compared with an acceptance bound.
 
 <a id="eval-batch-invariance-production-timing-claim"></a>
-`eval-batch-invariance.production-timing-claim` is `UNAVAILABLE`: the claimed
-production speedup is a hard-coded sentence, not a measurement made by the
-gate.
+`eval-batch-invariance.production-timing-claim` is `UNAVAILABLE`: the gate
+makes no production-run speed claim and has no production timing protocol.
+
+<a id="didactics-59-red-team-return-2026-07-14"></a>
+#### DIDACTICS-59 red-team return: real evaluation across three partitions (2026-07-14)
+
+The fan-out-complete transfer was executed on branch
+`codex/didactics59-real-eval`. The implementation checkpoint is `f3900ec`;
+the branch was then synchronized with local `main` at `7f4b769` by merge
+checkpoint `8ccaf07`. This is a red-team implementation return for Fable's
+independent audit, not self-certification.
+
+Named gate-surface scope: `gates/checks/ge_c_eval_bs.py` is replaced with the
+ratified real-entry-point check; `gates/board.py` changes only the GE-C prose
+that states the new observations; this evidence-map passage records the
+current check. `emulator/training.py`, `gates/run_board.py`, production
+thresholds, production fixtures, golden bases, and `texnotes/` are unchanged.
+The five mild TEX-PROSE narration residues remain queued for the next
+TEX-PROSE unit; this check-script unit does not consume them.
+
+The production proof now has these surfaces:
+
+- twelve distinct float32 scores and a permuted source-row list are driven
+  through real `eval_source_chi2`, real `eval_val`, and one real
+  `training_loop_batched` epoch;
+- each known score is present in both the model-input feature and target, and
+  the fixture loss averages the two. A wrong parameter/target association
+  therefore changes the score;
+- the observer records the tensor RETURNED by production `screen_chi2`, not
+  its input. Real reductions, exact source-row association, and normalized
+  rows are compared with the independent float64 calculation for a single
+  full batch, three equal batches, and a 5+5+2 ragged partition;
+- median, mean, all three threshold fractions, returned histories, and the
+  value passed to the real plateau scheduler are compared. The tolerances are
+  `rtol=1e-6`, `atol=1e-7`; row identities, row order, and row scores compare
+  exactly;
+- the shipped catch-power arms remove the middle equal batch and reverse its
+  scores under unchanged row labels. Both preserve the independent
+  diagnostic reference and both must be rejected. The ordinary-median arm
+  remains intact.
+
+Composed-tip evidence, Cocoa Torch 2.6.0 CPU interpreter:
+
+- child rc 0. The independent reference printed median `1.5`, mean
+  `3.94166667`, and fractions `[0.833333333, 0.583333333, 0.25]`.
+  All three production partitions printed `eval=True histories=True`; each
+  history printed the same values and scheduler input `[1.5]`;
+- exact observed row orders were
+  `[0,1,2,3,4,5,6,7,8,9,10,11]`,
+  `[0,2,7,10,1,5,9,11,3,4,6,8]`, and
+  `[0,2,5,7,10,1,4,8,9,11,3,6]`;
+- the shipped drop mutation printed `caught=True`, eight observed rows, and
+  changed mean `2.6125`; the shipped reassociation mutation printed
+  `caught=True` with middle rows `[1,5,9,11]` carrying reversed scores;
+- an extra, unshipped attack changed the tensor RETURNED by `screen_chi2`
+  after its normal logic. It printed
+  `returned-boundary reorder accepted=False`. A separately rolled target
+  tensor printed `parameter/target reassociation accepted=False`;
+- manifest probe: child rc 0; declared and emitted ids were the same four in
+  the same order; results were `[PASS, PASS, UNAVAILABLE, UNAVAILABLE]`; no
+  malformed line. The timing legs stay honestly unavailable;
+- `compileall emulator gates` rc 0; `gates/run_board.py --list` rc 0;
+  `gates/checks/board_selftest.py` ended `board-selftest: ALL PASS`;
+  `git diff --check origin/main...HEAD` rc 0.
+
+Raw local logs are `/tmp/didactics59-child-composed.log`,
+`/tmp/didactics59-independent-attack-composed.log`,
+`/tmp/didactics59-manifest-composed.log`,
+`/tmp/didactics59-list-composed.log`, and
+`/tmp/didactics59-selftest-composed.log` (446 lines, terminal `ALL PASS`).
+CUDA is absent on this machine. The child keeps thresholds on CPU because
+production moves validation scores to CPU before threshold reduction, fixing
+the inherited draft's CUDA device-mismatch risk. The wrapper still requires
+the GPU capability, and the CUDA timing and any production-timing claim remain
+workstation-owed by design.
+
+LANDING BLOCK (merge and push to `main` remain the user's alone):
+
+```bash
+cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+git fetch .claude/worktrees/codex-didactics59-real-eval \
+  codex/didactics59-real-eval
+git merge --ff-only FETCH_HEAD
+git push
+```
 
 <a id="finite-contract-evidence"></a>
 **finite-contract — the child contains finite-value and score-domain checks,
