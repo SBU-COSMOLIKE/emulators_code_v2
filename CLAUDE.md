@@ -23,9 +23,14 @@ and are NOT worked on from here: this repo is a pure emulator library
 
 ## Dual-agent protocol
 
-Two Claude Code sessions cooperate: the **Architect** (Claude Fable 5,
-`.claude/FABLE_ROLE.md`) and the **Implementer** (Claude Opus 4.8,
-`.claude/OPUS_ROLE.md`). The user (or a runner script) relays the
+Two Claude Code sessions cooperate: the **Architect**
+(`.claude/FABLE_ROLE.md`, using Fable by default) and the **Implementer**
+(`.claude/OPUS_ROLE.md`, using Opus by default). The role files keep their
+legacy model-named paths, and mailbox messages keep the stable `to-fable` and
+`to-opus` route names, but neither name fixes the model. A mailbox watch may
+select another Claude model for either role with `--architect-model` and
+`--implementer-model`; for example, Opus may be the Architect while Sonnet is
+the Implementer. The user (or a runner script) relays the
 `### ARCHITECT_HANDOFF` / `### IMPLEMENTER_HANDOFF` blocks between them.
 Agent-emitted relays travel via the file mailbox (`notes/mailbox/`,
 dispatched by `tools/mailbox_daemon.py`) — mandatory per
@@ -43,12 +48,13 @@ mid-session:
    a handoff block, refuse to write code, or force the protocol onto an
    ordinary question.
 
-Sanity check when a role does apply: Architect work belongs on Fable 5
-(`claude-fable-5`), Implementer work on Opus 4.8 (`claude-opus-4-8`). If your
-model identity contradicts the role you were just assigned (e.g. a Fable
-session handed an `ARCHITECT_HANDOFF`), flag it before proceeding — the block
-was probably pasted into the wrong session, and silently absorbing the other
-role breaks the cost split and skips the audit.
+Model identity never assigns or vetoes a role. The explicit assignment or
+handoff block above does that, while the mailbox launch independently chooses
+which Claude model performs it. The defaults remain `claude-fable-5` for the
+Architect and `claude-opus-4-8` for the Implementer when no launch override is
+given. A model/role pairing such as Opus Architect or Sonnet Implementer is
+therefore valid; a conflict between two role assignments is still a routing
+error and must be flagged before proceeding.
 
 Role rules live in the role files only. This file does not restate them; on
 any conflict, the role file wins.

@@ -76,6 +76,8 @@ class ConditionalPreambleTest(unittest.TestCase):
                            encoding="utf-8")
         redteam_role = (ROOT / ".codex" / "REDTEAM_ROLE.md").read_text(
             encoding="utf-8")
+        architect_role = (ROOT / ".claude" / "FABLE_ROLE.md").read_text(
+            encoding="utf-8")
 
         self.assertIn("explicitly says TERMINAL and no reply is\nowed",
                       daemon_source)
@@ -84,8 +86,13 @@ class ConditionalPreambleTest(unittest.TestCase):
             opus_role.replace("\n", " "))
         self.assertIn("explicit binding TERMINAL/no-reply exception", memory)
         self.assertIn("only\noutbound exception", conventions)
-        self.assertIn("turn that has a\nresult for Fable or Opus",
+        self.assertIn("turn that has a\nresult for the Architect or Implementer",
                       redteam_role)
+        self.assertIn("audited GO or NO-GO + delta", architect_role)
+        self.assertIn(
+            "When asked to review a commit or change, attack that named "
+            "change", redteam_role.replace("\n", " "))
+        self.assertIn('"Do a widespread search for ..."', redteam_role)
 
 
 if __name__ == "__main__":

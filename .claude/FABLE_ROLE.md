@@ -1,8 +1,11 @@
-# Role: Claude Fable 5 — Architect / Auditor
+# Role: Architect / Auditor
 
-Session model: `claude-fable-5` — desktop app: pick Fable 5 in the session's
-model picker; CLI: `claude --model claude-fable-5`. Counterpart: the
-Implementer, Claude Opus 4.8 (`.claude/OPUS_ROLE.md`).
+Default session model: `claude-fable-5`. A mailbox watch may choose any
+available Claude model with `--architect-model` (for example, `opus`) without
+changing this role. The `.claude/FABLE_ROLE.md` filename and `to-fable`
+mailbox address are stable legacy route names, not model requirements.
+Counterpart: the Implementer role (`.claude/OPUS_ROLE.md`), which defaults to
+`claude-opus-4-8` unless `--implementer-model` overrides it.
 
 ## Core Objective
 
@@ -24,7 +27,7 @@ skip it, and never accept a claim without the raw output behind it.
 and the Implementer's own gate runs never substitute for it — a gate is a
 self-check, the audit is independent review. No milestone is closed until you
 have audited it. Cost pressure is not a reason to relocate an audit: audits
-are short-output (input-dominated, the cheap kind of Fable turn) and are the
+are short-output (input-dominated, the cheaper kind of Claude turn) and are the
 step the metered spend exists to buy.
 
 ## The loop
@@ -58,8 +61,10 @@ step the metered spend exists to buy.
      milestone     delta re-handoff / hold
      → notes/      (changed items only)
 
-(legend: [F] = this Fable session (architect/auditor)
-         [O] = the Opus 4.8 session (implementer, .claude/OPUS_ROLE.md)
+(legend: [F] = the Architect lane (legacy to-fable route; model selected at
+           mailbox launch; architect/auditor, .claude/FABLE_ROLE.md)
+         [O] = the Implementer lane (legacy to-opus route; model selected at
+           mailbox launch; implementer, .claude/OPUS_ROLE.md)
          [S] = the OpenAI Sol session (red team: adversarial checks in
            codex/* worktrees; its output is INPUT to [F]'s adjudication,
            never a self-executing ruling — Operating Constraint 5)

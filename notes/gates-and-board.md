@@ -14555,3 +14555,49 @@ Verdict: **GO**. This retires the global safe-kill rider only. The configurable
 Architect/Implementer model selector and automatic landing-debt correction
 remain separately OPEN. The unrelated pre-existing dirty incident note was
 excluded from this audit and landing.
+
+## Daemon configurable Claude role-model audit (Codex, 2026-07-14): GO
+
+The Architect and Implementer are now stable jobs rather than fixed model
+identities. `--architect-model MODEL` supplies the Claude alias or full model
+ID launched on the legacy `fable` route, and `--implementer-model MODEL` does
+the same on the legacy `opus` route. Omitting both options preserves the exact
+`claude-fable-5` Architect and `claude-opus-4-8` Implementer defaults. Thus a
+cost-oriented watch can run the explicitly requested combination:
+
+```text
+python tools/mailbox_daemon.py --watch --architect-model opus --implementer-model sonnet
+```
+
+The route filenames, lane serialization, effort controls, shared Claude
+context budget, Sol argv, prompt flow, and archive behavior do not depend on
+the chosen Claude models. Model values remain one argv element after
+`--model`; empty, whitespace-containing, NUL-containing, and non-string direct
+values refuse before backlog processing, message claim, or child launch.
+
+Role and command documentation now treats model choice as independent from
+assignment. Fable and Opus remain documented defaults rather than identity
+checks. The Architect's GO/NO-GO decision vocabulary remains explicit. The
+Red Team's own role file now directly limits commit/change review to the named
+delta and directly affected behavior; only an explicit request equivalent to
+“Do a widespread search for ...” authorizes a library-wide sweep. Both policy
+surfaces are regression-pinned.
+
+Independent final evidence on the unchanged snapshot:
+
+```text
+python3 -B tests/tools_mailbox_daemon_role_models_repro.py rc 0  5/5 runtime; 5/5 mutations killed
+python3 -B tests/tools_mailbox_daemon_rendezvous_repro.py  rc 0  9/9 runtime; 7/7 mutations killed
+python3 -B tests/tools_mailbox_daemon_staleness_repro.py   rc 0  18/18 runtime; 9/9 mutations killed
+python3 -B tests/tools_mailbox_daemon_dead_mailbox_repro.py rc 0  9/9 runtime; 7/7 mutations killed
+python3 -B tests/tools_mailbox_daemon_fix_only_repro.py    rc 0  14/14 runtime; 20/20 mutations killed
+python3 -B tests/tools_mailbox_daemon_redteam_repro.py     rc 0  8/8 arms
+python3 -B tests/tools_mailbox_daemon_output_style_repro.py rc 0  8/8 checks
+python3 -B -m unittest tests.test_mailbox_conditional_preamble rc 0  4/4
+python3 -B -m py_compile tools/mailbox_daemon.py tests/tools_mailbox_daemon_role_models_repro.py rc 0
+git diff --check                                            rc 0
+```
+
+Verdict: **GO**. The configurable Claude role-model backlog unit is closed.
+The automatic landing-debt correction remains separately OPEN. The unrelated
+pre-existing dirty incident note was excluded from this audit and landing.

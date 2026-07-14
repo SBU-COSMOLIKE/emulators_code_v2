@@ -30,8 +30,8 @@ three.
 
 | Session     | In this repository | Job |
 | ----------- | ------------------ | --- |
-| Architect   | Claude (Fable)     | Writes the specification for each change, and audits every finished change against the raw command output it produced before that change is allowed to merge. It also has the final word on design. |
-| Implementer | Claude (Opus 4.8)  | Turns a specification into complete code and runs the validation gates on it. |
+| Architect   | Claude (model selected per launch; Fable 5 default) | Writes the specification for each change, and audits every finished change against the raw command output it produced before that change is allowed to merge. It also has the final word on design. |
+| Implementer | Claude (model selected per launch; Opus 4.8 default) | Turns a specification into complete code and runs the validation gates on it. |
 | Red team    | OpenAI Sol         | A separate model whose only job is to break the code. A red team is an adversarial reviewer. It hunts for bugs, weak tests, and documentation that has drifted out of date, and it files what it finds. |
 
 Said in the order a change actually travels: the architect decides what is to
@@ -44,6 +44,21 @@ the red team pushes anything there.
 Using two different vendors' models is deliberate. The red team shares no
 weights with the sessions whose work it inspects, so it does not inherit the
 same blind spots.
+
+The Claude model and the job are deliberately independent. `fable` and `opus`
+remain the historical mailbox route names because existing messages, logs, and
+tests use them; they mean Architect and Implementer respectively, not a model
+identity check. A watch can therefore run Opus as Architect and Sonnet as
+Implementer without renaming a mailbox file:
+
+```bash
+python tools/mailbox_daemon.py --watch \
+  --architect-model opus --implementer-model sonnet
+```
+
+Omitting those flags preserves the historical Fable-Architect and
+Opus-Implementer defaults. The role files govern behavior whichever Claude
+model is selected.
 
 A red-team finding is never applied on its own. It is input to the architect's
 review, which decides whether and how to act on it. The red team reports; the
@@ -204,11 +219,12 @@ Every live turn also receives a dispatch-currency banner ahead of the ordinary
 prompt. Immediately after atomically claiming the message, the daemon takes one
 snapshot of every numbered markdown message anywhere under the mailbox. The
 banner names the largest sequence in that store and the number of newer root
-messages queued in the same working-directory lane. Fable and Opus share that
-lane; Sol has its own. Those numbers are a mechanical hint, not a verdict that
-the message is stale or superseded. The receiving turn still reads the mailbox
-and the cited notes first and decides what the current record means. A message
-body may have been completely accurate when it was written, which is why this
+messages queued in the same working-directory lane. The legacy fable/opus
+routes share that lane; Sol has its own. Those numbers are a mechanical hint,
+not a verdict that the message is stale or superseded. The receiving turn still
+reads the mailbox and the cited notes first and decides what the current record
+means. A message body may have been completely accurate when it was written,
+which is why this
 dispatch-time evidence lives in the banner rather than rewriting the body.
 
 To test the transport by itself, without handing anyone real work:
@@ -238,6 +254,7 @@ the authority and this section is not. Here is what the command prints:
 usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch]
                          [--fix-only value] [--send AGENT] [--ping AGENT]
                          [--unit UNIT] [--ticket-kind {closure,discovery}]
+                         [--architect-model MODEL] [--implementer-model MODEL]
                          [--fable-effort {low,medium,high,xhigh,max}]
                          [--opus-effort {low,medium,high,xhigh,max}]
                          [--sol-effort {none,low,medium,high,xhigh}]
@@ -265,12 +282,18 @@ options:
   --ticket-kind {closure,discovery}
                         required with --send sol: declare whether the unit
                         closes existing work or seeks new findings
+  --architect-model MODEL
+                        Claude model alias or full name for the Architect
+                        route (legacy fable address; default: claude-fable-5)
+  --implementer-model MODEL
+                        Claude model alias or full name for the Implementer
+                        route (legacy opus address; default: claude-opus-4-8)
   --fable-effort {low,medium,high,xhigh,max}
-                        claude CLI reasoning effort for Fable dispatches
-                        (default: xhigh)
+                        claude CLI reasoning effort for the Architect route
+                        (legacy fable address; default: xhigh)
   --opus-effort {low,medium,high,xhigh,max}
-                        claude CLI reasoning effort for Opus dispatches
-                        (default: max)
+                        claude CLI reasoning effort for the Implementer route
+                        (legacy opus address; default: max)
   --sol-effort {none,low,medium,high,xhigh}
                         codex CLI reasoning effort for Sol dispatches
                         (default: xhigh)
@@ -278,8 +301,9 @@ options:
                         kill a dispatched turn that runs past this many
                         minutes and park its message in failed/ (default: 60)
   --claude-context TOKENS
-                        Fable and Opus turns compact their context whenever it
-                        reaches this many tokens (default: 500000)
+                        Architect and Implementer Claude turns compact their
+                        context whenever it reaches this many tokens (default:
+                        500000)
   --sol-context TOKENS  Sol turns compact their context whenever it reaches
                         this many tokens (default: 500000)
 ```
@@ -377,16 +401,28 @@ filesystem writes.
 
 ### The tuning dials
 
-The remaining six options do not change what the daemon does. They change the
-terms under which each dispatched agent runs, and they are the ones worth
+The remaining eight options do not change what the daemon does. They change
+the terms under which each dispatched agent runs, and they are the ones worth
 understanding before you launch a long watch.
 
-`--fable-effort` and `--opus-effort` set how hard each of the two Claude agents
-is told to think on every turn it is given. Both options accept `low`,
-`medium`, `high`, `xhigh` and `max`. Fable defaults to `xhigh` and Opus
-defaults to `max`. A higher level buys more deliberation per turn and costs more
-tokens and more wall clock time, so lowering these is the first thing to try
-when a run is more expensive than the work in front of it deserves.
+`--architect-model MODEL` and `--implementer-model MODEL` choose the two
+Claude models by job. The value is passed as one argument to Claude Code's
+`--model` option and may be an alias such as `fable`, `opus`, or `sonnet`, or a
+full model name. Empty values, whitespace, and NUL are refused before any
+mailbox message can be claimed. The defaults remain `claude-fable-5` for the
+Architect and `claude-opus-4-8` for the Implementer, so existing launch
+commands do not change behavior. The stable `to-fable` and `to-opus` mailbox
+addresses continue to route to Architect and Implementer even when the
+selected model names are Opus and Sonnet.
+
+`--fable-effort` and `--opus-effort` are compatibility names for the effort of
+the Architect and Implementer routes. They set how hard each Claude turn is
+told to think. Both options accept `low`, `medium`, `high`, `xhigh`, and
+`max`. The Architect route defaults to `xhigh` and the Implementer route to
+`max`, regardless of which model each route launches. A higher level buys more
+deliberation per turn and costs more tokens and more wall clock time, so
+lowering these is the first thing to try when a run is more expensive than the
+work in front of it deserves.
 
 `--sol-effort` is the same dial for Sol, which runs on the codex command line
 program rather than on the claude one. Because that is a different program with
@@ -429,8 +465,9 @@ reported as consumed while silently re-firing or releasing work behind it.
 That stop persists across watch passes: before releasing any pending work, the
 daemon reads exact agent messages already under `inflight/` and holds every
 pending recipient that shares their working directory. Thus an unresolved
-Fable turn also holds Opus, while an independent Sol lane may continue. The
-diagnostic names the inflight blocker and how many pending messages are waiting;
+Architect-route turn also holds the Implementer route, while an independent
+Sol lane may continue. The diagnostic names the inflight blocker and how many
+pending messages are waiting;
 moving or otherwise resolving that blocker is the deliberate human decision
 that reopens the lane. Draining an unrelated lane does not hide the blocker: the
 overall backlog result remains unsuccessful. Even when no root message is
@@ -457,14 +494,15 @@ runs.
 
 There are two separate keys because the two command line programs take the same
 instruction in two different ways, and the daemon has to say it in each
-program's own language. Fable and Opus both run on the claude program, which
-reads its compaction threshold from an environment variable, so the daemon sets
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment of the process it starts,
-and the single value from `--claude-context` therefore governs both Claude
-agents. Sol runs on the codex program, which has no such environment variable
-and instead takes the threshold as a setting inside its own command, so the
-daemon passes `-c model_auto_compact_token_limit=<tokens>` from `--sol-context`
-when it builds Sol's command line. Two programs, two mechanisms, two keys.
+program's own language. The Architect and Implementer both run on the claude
+program, which reads its compaction threshold from an environment variable, so
+the daemon sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment of the
+process it starts, and the single value from `--claude-context` therefore
+governs both Claude agents. Sol runs on the codex program, which has no such
+environment variable and instead takes the threshold as a setting inside its
+own command, so the daemon passes
+`-c model_auto_compact_token_limit=<tokens>` from `--sol-context` when it
+builds Sol's command line. Two programs, two mechanisms, two keys.
 Setting one of them has no effect on the other, so to lower the budget
 everywhere you pass both.
 
@@ -530,7 +568,7 @@ lines:
 ```
 queued .../notes/mailbox/0046-to-opus.md
 queue depth: opus=2 sol=2 fable=0 | open backlog (notes/backlog.md): 22 | total demand: 26
-  hint: total open demand is at or past 10 units; the red team is now the second implementer: build units flow to it as well as to Opus (.claude/FABLE_ROLE.md, Second-Implementer assignments).
+  hint: total open demand is at or past 10 units; the red team is now the second implementer: build units flow to it as well as to the primary Implementer route (.claude/FABLE_ROLE.md, Second-Implementer assignments).
 ```
 
 Read it one piece at a time. The mailbox path is shortened above; the daemon
@@ -667,16 +705,18 @@ its command line program, so those commands are written out in a single block,
 returns, exactly as it ships:
 
 ```python
+    architect_model = validate_model_name(value=architect_model)
+    implementer_model = validate_model_name(value=implementer_model)
     commands = {
         # Absolute path: the user's conda shells resolve an OLDER claude
         # binary with a separate (logged-out) credential store; this one
         # is the logged-in v2.1.208 install (diagnosed 2026-07-14).
         "fable": ["/Users/vivianmiranda/.local/bin/claude", "-p",
-                  "--model", "claude-fable-5",
+                  "--model", architect_model,
                   "--effort", fable_effort,
                   "--permission-mode", "acceptEdits"],
         "opus": ["/Users/vivianmiranda/.local/bin/claude", "-p",
-                 "--model", "claude-opus-4-8",
+                 "--model", implementer_model,
                  "--effort", opus_effort,
                  "--permission-mode", "acceptEdits"],
         # Verified by the red team's read-only probe (codex-cli 0.144.2;
@@ -707,9 +747,10 @@ you replace the two program paths, which `which claude` and `which codex` will
 print for you, and you change nothing else. Everything else in the block is part
 of the design rather than of the machine, and it is copied across unchanged.
 `REPO_ROOT` is derived from the daemon's location like everything else, so it
-needs no attention. The names `fable_effort`, `opus_effort`, `sol_effort` and
-`sol_context_budget` are the settings the previous section described, which is
-how a value chosen on the command line reaches the dispatched turn.
+needs no attention. `architect_model` and `implementer_model` carry the two
+role-based launch choices. The names `fable_effort` and `opus_effort` remain
+compatibility route controls; `sol_effort` and `sol_context_budget` carry the
+red-team settings described above.
 
 **How hard each session thinks.** Both command line programs let the caller
 choose how much reasoning a turn may spend before it answers, and both apply a
@@ -720,8 +761,8 @@ when a vendor changes what its own default means.
 
 | Session | Effort it is dispatched at | Written as |
 | ------- | -------------------------- | ---------- |
-| Architect (Fable) | High, one step below the top of the scale | `--effort xhigh` |
-| Implementer (Opus) | The top tier the claude CLI offers | `--effort max` |
+| Architect route (legacy fable address) | High, one step below the top of the scale | `--effort xhigh` |
+| Implementer route (legacy opus address) | The top tier the claude CLI offers | `--effort max` |
 | Red team (Sol) | The top reasoning tier the codex CLI offers | `-c model_reasoning_effort=xhigh` |
 
 Those three levels are the defaults, which is what a watch launched with no
@@ -751,8 +792,9 @@ repository:
 2. Install both command line programs and log each of them in: Claude Code,
    which runs the architect and the implementer, and the codex CLI, which runs
    the red team.
-3. Open three sessions: Claude Code on Fable as the architect, Claude Code on
-   Opus as the implementer, and the codex CLI as the red team.
+3. Choose the two Claude role models. The historical defaults are Fable as the
+   Architect and Opus as the Implementer; a cost-oriented launch can instead
+   select Opus and Sonnet. Open the codex CLI as the red team.
 4. Ask each session, in its opening message, to create and work from its own git
    worktree, using the sentences given above.
 5. Pick one of the two Claude worktrees to be the coordination worktree. Any of
@@ -764,4 +806,6 @@ repository:
    the working directories it reports back. They should all be inside the clone
    you just made.
 8. Start the loop: queue the first unit with `--send`, then leave
-   `python tools/mailbox_daemon.py --watch` running in that terminal.
+   `python tools/mailbox_daemon.py --watch` running in that terminal. Add
+   `--architect-model opus --implementer-model sonnet` (or any other Claude
+   aliases/full IDs) when those are the role choices for this watch.

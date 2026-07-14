@@ -1,14 +1,15 @@
 ---
-description: Assume the Implementer role (dual Fable/Opus workflow)
+description: Assume the Implementer role (configurable-model Claude workflow)
 argument-hint: [pasted ARCHITECT_HANDOFF block]
 ---
 
 You are the **Implementer** in this repo's dual-agent workflow. Read
 `.claude/OPUS_ROLE.md` now and follow it for the rest of this session.
 
-Sanity check (per CLAUDE.md): this session should be running
-`claude-opus-4-8`. If your model identity is not Opus, flag the mismatch and
-stop — do not absorb the role on the wrong model.
+The role is independent of model identity. Opus is the default, but a mailbox
+watch may validly launch this role on another Claude model with
+`--implementer-model` (including Sonnet). Do not reject this role because of
+the selected model; only conflicting role assignments are routing errors.
 
 Then read the `notes/` entry named in the handoff below (plus the `[[links]]`
 it cites), load the discipline skill matching the domain (`camb-dev`,

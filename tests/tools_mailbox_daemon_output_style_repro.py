@@ -190,7 +190,8 @@ def main():
     expected_hint = (
         "  hint: total open demand is at or past 10 units; the red team is "
         "now the second implementer: build units flow to it as well as to "
-        "Opus (.claude/FABLE_ROLE.md, Second-Implementer assignments).")
+        "the primary Implementer route (.claude/FABLE_ROLE.md, "
+        "Second-Implementer assignments).")
     refusal = runtime_refusal_line()
     expected_refusal = (
         "refused 0001-to-opus.md: the whole body is the template placeholder "

@@ -4,8 +4,8 @@
 The medium is a directory of message files; the wake-up is this daemon
 invoking each agent's CLI headlessly when a message addressed to it appears.
 
-    notes/mailbox/NNN-to-fable.md      -> dispatched to the Fable CLI
-    notes/mailbox/NNN-to-opus.md       -> dispatched to the Opus CLI
+    notes/mailbox/NNN-to-fable.md      -> Architect route (legacy address)
+    notes/mailbox/NNN-to-opus.md       -> Implementer route (legacy address)
     notes/mailbox/NNN-to-sol.md        -> dispatched to the Sol (Codex) CLI
     notes/mailbox/done/                -> processed messages move here
 
@@ -47,15 +47,19 @@ Usage:
                                                     # dial one agent's effort
         --fable-effort / --opus-effort take low|medium|high|xhigh|max
         (claude CLI; defaults xhigh and max); --sol-effort takes
-        minimal|low|medium|high|xhigh (codex CLI; default xhigh)
+        none|low|medium|high|xhigh (codex CLI; default xhigh)
+    python tools/mailbox_daemon.py --watch --architect-model opus \
+                                           --implementer-model sonnet
+                                                    # choose Claude models by role
     python tools/mailbox_daemon.py --watch --dispatch-timeout 90
                                                     # allow longer turns
     python tools/mailbox_daemon.py --watch --claude-context 400000 \
                                            --sol-context 300000
                                                     # context budgets: a turn
         compacts (summarizes its own history and continues) whenever its
-        live context reaches the budget; --claude-context covers Fable
-        and Opus, --sol-context covers Sol; both default to 500000
+        live context reaches the budget; --claude-context covers the
+        Architect and Implementer, --sol-context covers Sol; both default
+        to 500000
 """
 
 import argparse
@@ -123,10 +127,10 @@ RELAY_DIR = os.path.join(WORKTREE, "notes", "relay")
 # deniable there -- the user owns that policy file).
 # The reasoning-effort levels each CLI accepts, and the defaults the
 # loop runs at when --watch is launched with no effort flags
-# (USER 2026-07-14): Fable audits at "xhigh"; Opus builds at "max" (the
-# claude CLI's top tier); Sol runs at "xhigh" (the codex CLI's top
-# tier). Override per launch with --fable-effort / --opus-effort /
-# --sol-effort.
+# (USER 2026-07-14): the Architect route audits at "xhigh"; the Implementer
+# route builds at "max" (the claude CLI's top tier); Sol runs at "xhigh"
+# (the codex CLI's top tier). The historical --fable-effort and
+# --opus-effort names remain stable route controls.
 CLAUDE_EFFORT_CHOICES = ["low", "medium", "high", "xhigh", "max"]
 # Sol's model rejects "minimal" (API 400, verified live 2026-07-14);
 # its legal set is the one below.
@@ -135,12 +139,19 @@ DEFAULT_FABLE_EFFORT = "xhigh"
 DEFAULT_OPUS_EFFORT = "max"
 DEFAULT_SOL_EFFORT = "xhigh"
 
+# Model choice is independent of role. The fable/opus mailbox addresses are
+# stable legacy route keys, while these defaults preserve existing launches.
+# Any non-whitespace Claude alias or full model ID accepted by
+# `claude --model` can override them per invocation.
+DEFAULT_ARCHITECT_MODEL = "claude-fable-5"
+DEFAULT_IMPLEMENTER_MODEL = "claude-opus-4-8"
+
 # Context budgets per dispatched turn (USER 2026-07-14: no bot runs
 # with a context window above X tokens, where X is a command-line key
 # and Sol's key is separate). Neither CLI takes a hard cap, so both are
 # told to COMPACT (summarize their own history and continue) whenever
 # the live context reaches the budget, instead of growing toward their
-# native 1M windows: the claude CLI (Fable, Opus) reads
+# native 1M windows: the Claude Architect/Implementer routes read
 # CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment; the codex CLI
 # (Sol) takes -c model_auto_compact_token_limit (accepted live,
 # 2026-07-14). Override per launch with --claude-context / --sol-context.
@@ -425,35 +436,52 @@ def truthy_fix_only(value):
         "value must be 1, true, or yes (capitalization is ignored)")
 
 
+def validate_model_name(value):
+    """Accept one Claude model alias or full ID without shell ambiguity."""
+    if (not isinstance(value, str) or not value or "\x00" in value
+            or any(character.isspace() for character in value)):
+        raise argparse.ArgumentTypeError(
+            "Claude model must be one non-whitespace alias or full name")
+    return value
+
+
 def build_agent_commands(fable_effort, opus_effort, sol_effort,
-                         sol_context_budget):
+                         sol_context_budget,
+                         architect_model=DEFAULT_ARCHITECT_MODEL,
+                         implementer_model=DEFAULT_IMPLEMENTER_MODEL):
     """Assemble the per-agent headless CLI commands at the given settings.
 
     Arguments:
-      fable_effort       = claude CLI effort level for Fable dispatches
-                           (one of CLAUDE_EFFORT_CHOICES).
-      opus_effort        = claude CLI effort level for Opus dispatches
-                           (one of CLAUDE_EFFORT_CHOICES).
+      fable_effort       = claude CLI effort level for the Architect route
+                           (legacy fable address; CLAUDE_EFFORT_CHOICES).
+      opus_effort        = claude CLI effort level for the Implementer route
+                           (legacy opus address; CLAUDE_EFFORT_CHOICES).
       sol_effort         = codex CLI reasoning-effort level for Sol
                            dispatches (one of CODEX_EFFORT_CHOICES).
       sol_context_budget = tokens of live context at which a Sol turn
                            compacts (the claude sessions' budget rides
                            the environment instead -- see dispatch()).
+      architect_model    = Claude alias or full ID launched on the legacy
+                           fable route.
+      implementer_model  = Claude alias or full ID launched on the legacy
+                           opus route.
 
     Returns:
       dict mapping "fable"/"opus"/"sol" to the argv list dispatch()
       appends the message to.
     """
+    architect_model = validate_model_name(value=architect_model)
+    implementer_model = validate_model_name(value=implementer_model)
     commands = {
         # Absolute path: the user's conda shells resolve an OLDER claude
         # binary with a separate (logged-out) credential store; this one
         # is the logged-in v2.1.208 install (diagnosed 2026-07-14).
         "fable": ["/Users/vivianmiranda/.local/bin/claude", "-p",
-                  "--model", "claude-fable-5",
+                  "--model", architect_model,
                   "--effort", fable_effort,
                   "--permission-mode", "acceptEdits"],
         "opus": ["/Users/vivianmiranda/.local/bin/claude", "-p",
-                 "--model", "claude-opus-4-8",
+                 "--model", implementer_model,
                  "--effort", opus_effort,
                  "--permission-mode", "acceptEdits"],
         # Verified by the red team's read-only probe (codex-cli 0.144.2;
@@ -486,10 +514,10 @@ AGENT_COMMANDS = build_agent_commands(
     sol_effort=DEFAULT_SOL_EFFORT,
     sol_context_budget=DEFAULT_SOL_CONTEXT_BUDGET)
 
-# The working directory each dispatched agent starts in. Fable and Opus
-# develop in this worktree; Sol works from the repository root (its command
-# carries the same root in its own --cd), which is what puts it in a
-# different lane -- see process_backlog().
+# The working directory each dispatched agent starts in. The Architect and
+# Implementer routes (legacy fable/opus keys) develop in this worktree; Sol
+# works from the repository root (its command carries the same root in its own
+# --cd), which is what puts it in a different lane -- see process_backlog().
 AGENT_CWD = {
     "fable": WORKTREE,
     "opus": WORKTREE,
@@ -1941,7 +1969,7 @@ def report_demand(backlog):
         print("  hint: total open demand is at or past "
               + str(SECOND_IMPLEMENTER_THRESHOLD) + " units; the red "
               "team is now the second implementer: build units flow to "
-              "it as well as to Opus "
+              "it as well as to the primary Implementer route "
               "(.claude/FABLE_ROLE.md, Second-Implementer assignments).")
     report_landing_debt()
 
@@ -2124,15 +2152,27 @@ def main():
                         help="required with --send sol: declare whether the "
                              "unit closes existing work or seeks new "
                              "findings")
+    parser.add_argument("--architect-model", metavar="MODEL",
+                        type=validate_model_name,
+                        default=DEFAULT_ARCHITECT_MODEL,
+                        help="Claude model alias or full name for the "
+                             "Architect route (legacy fable address; "
+                             "default: " + DEFAULT_ARCHITECT_MODEL + ")")
+    parser.add_argument("--implementer-model", metavar="MODEL",
+                        type=validate_model_name,
+                        default=DEFAULT_IMPLEMENTER_MODEL,
+                        help="Claude model alias or full name for the "
+                             "Implementer route (legacy opus address; "
+                             "default: " + DEFAULT_IMPLEMENTER_MODEL + ")")
     parser.add_argument("--fable-effort", default=DEFAULT_FABLE_EFFORT,
                         choices=CLAUDE_EFFORT_CHOICES,
-                        help="claude CLI reasoning effort for Fable "
-                             "dispatches (default: "
+                        help="claude CLI reasoning effort for the Architect "
+                             "route (legacy fable address; default: "
                              + DEFAULT_FABLE_EFFORT + ")")
     parser.add_argument("--opus-effort", default=DEFAULT_OPUS_EFFORT,
                         choices=CLAUDE_EFFORT_CHOICES,
-                        help="claude CLI reasoning effort for Opus "
-                             "dispatches (default: "
+                        help="claude CLI reasoning effort for the Implementer "
+                             "route (legacy opus address; default: "
                              + DEFAULT_OPUS_EFFORT + ")")
     parser.add_argument("--sol-effort", default=DEFAULT_SOL_EFFORT,
                         choices=CODEX_EFFORT_CHOICES,
@@ -2147,8 +2187,8 @@ def main():
                              + str(DISPATCH_TIMEOUT_MINUTES) + ")")
     parser.add_argument("--claude-context", metavar="TOKENS",
                         type=int, default=DEFAULT_CLAUDE_CONTEXT_BUDGET,
-                        help="Fable and Opus turns compact their "
-                             "context whenever it reaches this many "
+                        help="Architect and Implementer Claude turns compact "
+                             "their context whenever it reaches this many "
                              "tokens (default: "
                              + str(DEFAULT_CLAUDE_CONTEXT_BUDGET) + ")")
     parser.add_argument("--sol-context", metavar="TOKENS",
@@ -2191,19 +2231,25 @@ def main():
     DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
     CLAUDE_CONTEXT_BUDGET = args.claude_context
 
-    # Rebuild the dispatch commands at the requested efforts. The watch
-    # start line echoes the levels so a terminal scroll-back always
-    # shows what this loop instance was launched with.
+    # Rebuild the dispatch commands at the requested models and efforts. The
+    # watch start lines echo both so terminal scroll-back identifies the exact
+    # role assignment independently of the legacy route filenames.
     AGENT_COMMANDS = build_agent_commands(
         fable_effort=args.fable_effort,
         opus_effort=args.opus_effort,
         sol_effort=args.sol_effort,
-        sol_context_budget=args.sol_context)
+        sol_context_budget=args.sol_context,
+        architect_model=args.architect_model,
+        implementer_model=args.implementer_model)
     if args.watch:
-        print("effort levels: fable=" + args.fable_effort
-              + " opus=" + args.opus_effort
+        print("role models: architect=" + args.architect_model
+              + " implementer=" + args.implementer_model
+              + " (legacy routes fable/opus)")
+        print("effort levels: architect/fable=" + args.fable_effort
+              + " implementer/opus=" + args.opus_effort
               + " sol=" + args.sol_effort)
-        print("context budgets: fable/opus=" + str(args.claude_context)
+        print("context budgets: architect/implementer="
+              + str(args.claude_context)
               + " sol=" + str(args.sol_context)
               + " tokens (a turn compacts at its budget)")
 
