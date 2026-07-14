@@ -1965,6 +1965,54 @@ No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and
 original evidence.
 
+### D6 triangle implementation record and temporary-directory ownership boundary
+
+Branch `codex/d6-triangle-cleanup` started from main `b3e91b8`. The Red Team
+claimed only `gates/checks/gt_b_triangle.py`, as permitted by the Wave-3
+transfer. The child now identifies every triangle Axes by its x and y
+parameter, traces the real z-order-zero `contourf` calls, identifies each mask
+from an independent physical-formula table, and compares the exact
+`(x parameter, y parameter, window)` set. It checks every collection and patch
+against `_CUT_GREY`. It also locates the `omegamh2` diagonal specifically and
+checks both excluded interval endpoints. The mutation moves the sole
+`omegabh2` artist from `(h0, omegab)` to the unshaded `(ns, h0)` panel. The old
+global summary remains exactly `(12 artists, 7 shaded panels, 12 gray
+artists)` before and after the move, while the exact-set predicate reports
+three errors and rejects the figure.
+
+Direct Mac/CPU evidence under the Cocoa interpreter: all four child legs pass,
+the mutation arm reports equal old counts and a rejected exact set,
+`py_compile` passes, and `git diff --check` is clean. A 130-dpi rendering was
+inspected: the six expected two-dimensional panels and the `omegamh2`
+diagonal carry the gray cut regions, while unrelated panels remain unshaded.
+The bounded C-reader follow-up replaced every new list/set/generator
+comprehension and every generator-based `extend` or `all` call with named
+ordinary loops. Multi-argument helper and acceptance calls put one argument
+on each line where practical. An AST scan has zero comprehension or generator
+nodes and zero generator-based `extend`, `all`, or `any` calls. The four gate
+results plus the mutation counts are unchanged.
+Queue-2 fan-out batch 1 later landed the original four aid bindings in
+`b9244cf`. This branch then merged that main-line change, retained its
+`report(aid=...)` mechanism and changed the four declarations, emissions and
+home-note anchors together to the exact-owner claims above. The direct child
+still passes all four legs after that merge. A board-wrapper attempt stopped
+in preflight because the Mac lacks CosmoLike, CUDA and a resolved ROOTDIR. No
+gate body ran, so a board-level verdict is not claimed.
+
+The D6 temporary-directory half did not enter this landing because its files
+have other active owners. The original nine-site contract is exact at the
+adjudication commit `cbd0a9c`: five sites are
+`finetune_identity.py` (`ftw-`), `gct_parity.py` (`gct-`),
+`gsv_bitwise_drift.py` (`gsv-`), and both `transfer_identity.py` sites
+(`tpe-e-`, `tpe-`). The other four are the then-present
+`board_selftest.py` sites with prefixes `board-selftest-`, `board-yaml-`, and
+`board-logtrust-`, plus the empty manifest-directory fixture created under
+`gates/`. Those files, along with `board.py` and `run_board.py`, were expressly
+outside this claim. Their owner must complete the nine-site context-manager or
+failure-safe cleanup landing and its injected-failure proof. Later additions
+to `board_selftest.py` require a fresh census by that same owner; they do not
+silently change which nine sites this contract names.
+
 Architect adjudication overlay for the first batch (received after commit
 `fafc122`): all six were confirmed. `25M-01` mints unit 94 and couples
 generation-side support truth to unit 84's inference side; `25M-02` and

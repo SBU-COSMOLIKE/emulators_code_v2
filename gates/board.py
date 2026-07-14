@@ -696,14 +696,16 @@ def gate_item27(ctx):
 
 
 def gate_gt_b(ctx):
-  """triangle-shading: the diagnostics triangle greys the right panels.
+  """triangle-shading: each physical cut shades its exact parameter panel.
 
   WHAT: the cut-window shading on the corner plot with all four density
   windows active. WHY: a wrongly shaded panel misleads a reader about
-  which region was cut. HOW: a synthetic-sample triangle must fill
-  exactly the coverage-table panels in one colour, plus the omh2
-  marginal band; optional (runs only when --gate names it), no
-  cosmolike needed (spec: data-generation-and-cuts.md:72-75).
+  which region was cut. HOW: a synthetic triangle must match an independent
+  panel-and-window reference, use one color for every cut artist and place
+  both excluded intervals on the omegamh2 diagonal. The child also moves one
+  real artist to a wrong panel and requires the exact-owner check to reject
+  that mutation. The gate is optional, runs only when --gate names it and
+  needs no CosmoLike data (spec: data-generation-and-cuts.md).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/gt_b_triangle.py")
@@ -2001,17 +2003,17 @@ BOARD = [
        title="Triangle cut shading",
        tier=TIER_BACKLOG,
        home="data-generation-and-cuts",
-       maps="a synthetic corner plot contains gray artists on its z-order-zero "
-            "shading layer, every shading fill uses the one shared gray, and the "
-            "omh2 marginal carries a z-order-zero span",
+       maps="a synthetic corner plot matches an independent panel/window "
+            "reference, every cut artist uses the shared gray, a moved-artist "
+            "mutation is rejected and the omegamh2 diagonal owns both bands",
        evidence=(Assertion("triangle-shading.figure-produced",
                            "data-generation-and-cuts.md#triangle-shading-figure-produced"),
-                 Assertion("triangle-shading.shading-layer-present",
-                           "data-generation-and-cuts.md#triangle-shading-shading-layer-present"),
-                 Assertion("triangle-shading.all-shading-fills-use-shared-gray",
-                           "data-generation-and-cuts.md#triangle-shading-all-shading-fills-use-shared-gray"),
-                 Assertion("triangle-shading.zorder-zero-span-present",
-                           "data-generation-and-cuts.md#triangle-shading-zorder-zero-span-present")),
+                 Assertion("triangle-shading.panel-window-set-exact",
+                           "data-generation-and-cuts.md#triangle-shading-panel-window-set-exact"),
+                 Assertion("triangle-shading.all-cut-artists-use-shared-gray",
+                           "data-generation-and-cuts.md#triangle-shading-all-cut-artists-use-shared-gray"),
+                 Assertion("triangle-shading.omegamh2-marginal-bands-exact",
+                           "data-generation-and-cuts.md#triangle-shading-omegamh2-marginal-bands-exact")),
        run=gate_gt_b,
        optional=True,
        manifest=Manifest(code=(), inputs=()),
