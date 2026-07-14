@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python*)",
+      "Bash(PYTHONPATH=*)",
+      "Bash(/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git merge-base*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(grep*)",
+      "Bash(ls*)",
+      "Bash(find*)",
+      "Bash(wc*)",
+      "Bash(head*)",
+      "Bash(tail*)",
+      "Bash(shasum*)",
+      "Bash(mkdir*)"
+    ],
+    "deny": [
+      "Bash(git push*)"
+    ]
+  }
+}
