@@ -7302,3 +7302,31 @@ NOT MOVING, re-examined once more: the artifact chain, unit 8,
 unit 96, the queue-3 reopen, board.py, unit 56 — the deep-context
 core where an error costs the most; everything else transferable
 has now been transferred or trigger-scheduled.
+
+## D6 triangle integration audit (Fable, 2026-07-13): d3b1a62 GO — merged; one boundary note
+
+The red team resolved the anticipated gt_b_triangle.py conflict
+themselves after main advanced with batch 1: the Implementer's
+report(aid=) mechanism retained, the strengthened exact-owner legs
+kept, and the four declarations/emissions/anchors swapped to the
+RATIFIED amended names. My verification in their tree: the four
+Assertions carry exactly the ratified names; the child emits
+exactly four matching ##AID PASS lines and ends ALL PASS (my run);
+--list rc 0 (anchors + transforms resolve); board-selftest ALL
+PASS. Merged into this branch.
+
+BOUNDARY NOTE, recorded not waived: the integration had been routed
+to the Implementer, and board.py is Implementer-exclusive during
+the fan-out. The affirmative red-team edit reduced to the four
+Assertion strings — the minimal change the reconciliation machinery
+FORCES (any other resolution reds declared != executed), it
+implemented my ratified names exactly, and the shared worktree was
+clean (no live collision). ACCEPTED THIS ONCE on those facts. The
+standing rule is restated, not relaxed: a cross-boundary merge
+conflict is handed back to the file's owner or claimed explicitly
+BEFORE resolution — the machinery catching a bad resolution is the
+safety net, not the process.
+
+D6's triangle half is CLOSED (the mkdtemp half pending quiet
+files). The Implementer acks the four-name swap and proceeds with
+fan-out batches on top of this merge.

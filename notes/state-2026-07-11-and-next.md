@@ -3118,3 +3118,13 @@ the quiet save surface) and DIDACTICS-59 pre-authorized at the
 fan-out-complete seam (D5 shrinks to 62+64/70). The deep core
 re-examined and kept. Spec: gates-and-board.md "BACKLOG SNAPSHOT +
 WAVE 5".
+
+TRIANGLE INTEGRATION (2026-07-13, Fable): d3b1a62 GO — the red
+team resolved the gt_b_triangle conflict (report(aid=) retained,
+exact-owner legs, ratified names in all four surfaces); my runs:
+4 matching ##AID PASS + ALL PASS + --list rc 0 + selftest. Merged;
+D6's triangle half CLOSED. Boundary note recorded, not waived: the
+minimal machinery-forced board.py string swap accepted this once;
+cross-boundary conflicts are handed back or claimed BEFORE
+resolution. Spec: gates-and-board.md "D6 triangle integration
+audit".
