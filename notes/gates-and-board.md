@@ -7901,3 +7901,28 @@ labeling, and the no-self-certification line. Scope vs main:
 README.md + the register only. VERDICT: GO; merged (e350b65,
 register both-retained). The README diagnostic-memory item is
 CLOSED.
+
+FAN-OUT BATCH 5 (c374c49) + 5b (2712a04) GO: the first CHECK-SCRIPT
+fan-out. scalar-identity (5) + bsn-identity (6) committed together as
+batch 5 -- each child emits one ##AID per drafted leg via an emit
+helper that reads the FAILURES delta over a contiguous check_* group,
+the wrapper rc-expect stays aid-less, and both children run green on
+cocoa-torch with child ##AID set == evidence= set. mps-identity (7)
+landed separately as 5b under the BINDING batch-5 seam ruling: unit-63
+(06c9d8f) had rewritten gates/checks/mps_identity.py (+127 lines,
+const-mask real-artifact legs) after the subagent branched from the
+stale base 233db22, so the subagent's CHILD patch was stale. I
+re-derived the ##AID wiring on the CURRENT child -- reusing the
+subagent's board.py evidence= and its LEG_AIDS/emit_leg idea -- and
+moved check_const_mask_artifact adjacent to check_geometry so the
+const-mask legs FOLD under geometry-laws-and-pins exactly as the
+ruling directs. Child runs 69 PASS/0 FAIL, seven ##AID, declared==
+emitted. 24/40 migrated.
+
+CHECK-SCRIPT INTEGRATION RULE banked: a subagent's isolated worktree
+branches from a stale base, so before applying its child edits, run
+`git log <base>..HEAD -- <child>`; if an intervening commit touched
+the child, RE-DERIVE the ##AID wiring on the current child rather than
+apply the stale child patch (the board.py evidence= hunk is usually
+still clean and applies gate-locally). This is the check-script analog
+of the batch-3 board.py gate-local-hunk lesson.
