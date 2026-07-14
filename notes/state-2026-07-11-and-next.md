@@ -3031,3 +3031,90 @@ private checklist's categories — collapse to "editorial pass
 against private standards" (results + punctuation/format bullets
 stay). Spec: gates-and-board.md "Root README public-prose
 hardening audit".
+
+D3 CONTROL RULING (2026-07-13, Fable): the honest disjoint fixture
+reds the 0.05 two-epoch control at a deterministic 0.0746 — the
+old bar was leak-subsidized (~1,000 overlapping rows). RULED: the
+bar recalibrates BY MEASUREMENT inside the D3 landing;
+DIDACTICS-60's scalar-smoke half transfers from D5 to the red team
+and rides D3 (mean-predictor baseline on the same fixture; collapse
+bar below it; accuracy bar = honest error x 1.5, below the collapse
+bar; all numbers + margins printed and registered; dead-network arm
+reds against the new bars). Two-seed 1234/5678 form adopted; no
+production change. D5 drops the item. Spec: gates-and-board.md "D3
+control-interaction ruling".
+
+REDACTION DELTA (2026-07-13, Fable): fcf68ec GO — the three
+private-category bullets replaced by the sanctioned phrase, public
+evidence retained, whole-register rescan zero hits at 8d103a9. The
+prose-hardening landing is COMPLETE and merged into the branch.
+Spec: gates-and-board.md "Redaction delta audit".
+
+25M-15 SIZING (2026-07-13, Fable): 3031d02 content GO — named
+terms, boundary-supplied width/dtype, 84-byte witness, refusal
+replaces max(1,...), ordinary chunking unchanged, their own audit
+removed a scope expansion; my runs 6/6 + the stage-ram red
+reproduced (required=944 vs available=160). HELD for the
+Implementer's stage_ram fixture repair (>=10 rows, disk path
+asserted, allowance in the ruled range, numbers printed); the two
+land as ONE merge so main never reds. Spec: gates-and-board.md
+"25M-15 sizing audit".
+
+WAVE 4 (2026-07-13, Fable, on the user's request): DIDACTICS-79
+unblocked by the red team's own probe (cocoa python imports cobaya
+3.6.2 + CAMB, verified) — close it executed-before-printed with a
+real minimal generator run; the DIDACTICS-67+68 warmstart visit
+moves forward to now (prose + both-arm finite guards, time-boxed
+before the artifact chain opens); nudges on unclaimed 25M-36 +
+unit 93; unit 56 examined and KEPT (resume machinery outranks the
+21 trigger's speed). Bandwidth guidance: batch landings. Spec:
+gates-and-board.md "THROUGHPUT REBALANCE, WAVE 4".
+
+FAN-OUT BATCH 1 (2026-07-13, Fable): b9244cf GO — three gates
+exact to their drafts incl. the first live ctx.unavailable
+(param-window-cuts.init-probes-inspection) and the null-base golden
+UNAVAILABLE disposition in the shared helper (defaults None, rolling
+migration holds); selftest-on-every-integration ratified into the
+fan-out discipline; gt_b_triangle.py coordination noted (red team
+builds on top after landing). 5/27 migrated. CONTINUOUS BATCHING
+authorized. Spec: gates-and-board.md "Fan-out batch 1 audit".
+
+D3 CLOSES (2026-07-13, Fable): f69d933 GO — my own child run
+reproduces every number (4000/1000 disjoint, the 1000-overlap
+refusal, baseline 0.4894 -> collapse 0.2447, honest 0.0746 ->
+accuracy 0.1119, trained median 0.1966, mutation fails both bars,
+all derivations printed); DIDACTICS-60/63 land with it; the
+nine-aid scalar-smoke block amended, board.py untouched (sync item
+rides the fan-out migration). Merged. Gauntlet: fan-out -> D4 ->
+D5; the 21 trigger waits only on 56. Spec: gates-and-board.md "D3
++ DIDACTICS-60/63 audit".
+
+D6 TRIANGLE HALF (2026-07-13, Fable): 11b7932 content GO — my run
+4/4 green with the amended ##AID names, AST comprehension-free, the
+exact-owner acceptance implemented to the ruling with the
+count-vacuity mutation proven live; FOUR amended aids ratified
+(supersede three draft names). Branch predates batch 1 ->
+gt_b_triangle.py diverges; integration routed to the Implementer
+(strengthened child + amended evidence=), branch HELD until then;
+mkdtemp-half deferral accepted. Spec: gates-and-board.md "D6
+triangle-half audit".
+
+INDEX SWEEP RECORDED (2026-07-13, Fable): my a5db5c5 notes commit
+swept the Implementer's STAGED local merge of the sizing branch
+into the commit (git add + commit consumes the shared index) — the
+swept content verified byte-identical to the content-GO'd 3031d02
+(batching.py, tests, training-stack section; 6/6 tests green on
+the branch). Nothing unaudited landed, but the branch tip now
+carries the sizing production code WITHOUT the stage-ram fixture
+repair, so the LANDING BLOCK IS WITHHELD until that repair commits
+(else stage-ram reds on main). New practice, binding on me: notes
+commits in the shared worktree use PATHSPEC COMMITS (git commit --
+<paths>), which ignore the pre-existing index.
+
+BACKLOG SNAPSHOT + WAVE 5 (2026-07-13, Fable): the three-phase
+remaining program recorded for the user; TWO final transfers —
+unit 63-reopen to the red team NOW (25M-17 contract, time-boxed on
+the quiet save surface) and DIDACTICS-59 pre-authorized at the
+fan-out-complete seam (D5 shrinks to 62+64/70). The deep core
+re-examined and kept. Spec: gates-and-board.md "BACKLOG SNAPSHOT +
+WAVE 5".

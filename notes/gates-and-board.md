@@ -6985,3 +6985,320 @@ bullets 1-3 into that sanctioned form (the zero-match RESULT
 statement stays; the punctuation and list-format bullets 4-5 are
 ordinary public style policy and stay verbatim). One small
 follow-up commit on the branch, then this landing merges.
+
+## D3 control-interaction ruling (Fable, 2026-07-13): the bar recalibrates BY MEASUREMENT inside the D3 landing — DIDACTICS-60's scalar-smoke half rides D3
+
+THE BLOCKER (red-team filed, held without a commit — the correct
+discipline): the honest disjoint fixtures (train 1234 / val 5678;
+the authorized single-population split gives the IDENTICAL
+0.0745958414) deterministically red the two-epoch prediction
+control at 0.0746 against the existing 0.05 bar. Diagnosis: the
+0.05 bar was calibrated on the OLD overlapping fixture — roughly a
+thousand validation rows sat in the training set, so the control
+was partly a memorization test. The honest fixture did not break
+the control; it exposed that the bar's calibration was leak-
+subsidized. The provisional D3 machinery itself is sound (overlap
+census, row alignment, printed seeds/counts/overlap, the
+1,000-overlap same-seed mutation refusing before training, and the
+DIDACTICS-63 banner leg with staged-order verification).
+
+RULING:
+
+1. The bar RECALIBRATES BY MEASUREMENT, not by decree, INSIDE the
+   D3 landing — this is DIDACTICS-60's scalar-smoke half
+   (baseline recomputed AFTER D3, both bars, dead-network arm),
+   which hereby TRANSFERS from D5 to the red team and rides D3:
+   one landing, one fixture, one calibration.
+2. The recipe is the standing dead-network doctrine: measure the
+   MEAN-PREDICTOR (learned-nothing) error on the SAME disjoint
+   fixture; the collapse bar sits strictly below that value (half
+   of it is the default); the two-epoch accuracy bar is the
+   measured honest error times a stated margin (1.5x recommended,
+   ~0.112) and strictly below the collapse bar. All three measured
+   numbers, both bars, and the margins are PRINTED by the check
+   and recorded in the register — a bar with no visible derivation
+   is the defect class this program exists to kill.
+3. The dead-network mutation arm must red against the NEW bars,
+   and the same-seed mutation stays. The two downstream
+   prediction/readback reds that derive from the same 7.46% result
+   recalibrate with it — one cause, one fix.
+4. The TWO-SEED form (1234/5678, both RECORDED) is adopted as
+   ruled; the single-population split was a proof, not the
+   landing. Seeds 1/2 stay unadopted. No epoch count, model
+   option, or production file changes — exactly as held.
+5. D5's list DROPS DIDACTICS-60's scalar-smoke baseline item (its
+   prose half was already the factual bundle's). The gauntlet is
+   otherwise unchanged.
+
+## Redaction delta audit (Fable, 2026-07-13): fcf68ec GO — the prose-hardening landing is merge-ready
+
+The one-hunk redaction verified at the diff: the three private
+editorial-category bullets are GONE, replaced by exactly the
+sanctioned form ("a zero-match editorial pass against private
+standards"); the ordinary public punctuation and list-format
+evidence stays; 3 insertions / 9 deletions, register-only. My
+whole-register rescan at the branch tip (8d103a9) finds ZERO hits
+for the private-category vocabulary. The prose-hardening landing
+(2d49984 + fcf68ec) is fully GO'd and merged into this branch —
+the root README's public-prose constitution pass is COMPLETE, with
+the emulator/README.md import-prose follow-up routed to its
+package visit.
+
+## 25M-15 sizing audit (Fable, 2026-07-13): 3031d02 content GO — HELD for the coordinated stage-ram fixture repair (Implementer)
+
+The red team's sizing landing audited (codex/unit25m15-sizing;
+production batching.py + six CPU tests + notes; latest main merged):
+
+- compute_batch_byte_terms names every per-batch term
+  (saved_activations, input, model_output, target, chi2_scratch);
+  target width and float32 staging dtype are supplied by
+  _build_loaders_one FROM THE BOUNDARY THAT CREATES THE TARGET
+  (never-trust-defaults applied); the 84-byte witness is preserved
+  (out_dim=7, target_dim=14, bs=3); the crafted boundary flips two
+  batches -> one; the legacy max(1, ...) arm is a named-terms
+  MemoryError refusal; the 0.8 planning allowance is KEPT so
+  ordinary-target chunk boundaries are unchanged.
+- Their own audit caught and REMOVED a scope expansion (charging
+  resident encoded parameters — the separate resource-sizing
+  unit's territory); the pre-amendment resident formula is retained
+  exactly. Verified in the diff.
+- MY RUNS: 6/6 CPU tests pass (cocoa interpreter); the stage-ram
+  interaction REPRODUCED exactly — the repaired planner reds the
+  foundation fixture's 200-byte disk budget with "required=944,
+  available=160, resident=608, ..." and every term named.
+
+COORDINATION RULING: the stage_ram.py fixture repair belongs to the
+Implementer (foundation-gate owner; the red team correctly did not
+edit it). Spec, adopting the filing's recommendation: expand the
+unique unsorted selection to AT LEAST TEN rows so the raised budget
+still takes the DISK path (assert the path taken); preserve the
+seeded-order assertions; choose the allowance INSIDE
+[resident + one complete batch, resident + the full encoded set]
+and PRINT the chosen numbers. The sizing branch stays UNMERGED
+until that repair lands on amazing-keller; the two then merge in
+ONE landing so the board never reds on main. The packed-target
+streaming integration remains the workstation/queue-5 exhibit.
+
+## THROUGHPUT REBALANCE, WAVE 4 (Fable, 2026-07-13): DIDACTICS-79 unblocked by the probe; the warmstart visit moves forward; two nudges
+
+The user asked for further red-team transfers. Findings:
+
+1. DIDACTICS-79 IS NEWLY UNBLOCKED — by the red team's own torch
+   probe. The hold was "no shipped minimal generator configuration
+   can be executed in the available environment"; that premise is
+   now false: the cocoa interpreter their probe validated imports
+   cobaya 3.6.2 and CAMB cleanly (verified by me). ASSIGNED: close
+   79 under executed-before-printed — run a minimal CAMB-backed
+   generator command end-to-end (a scalar- or CMB-family config;
+   no cosmolike needed), record the executed command + the minimal
+   per-family YAML + the rank/worker/checkpoint teaching from the
+   REAL run, then print exactly what ran in the README. The
+   generator seeds/--unif requiredness proof they already hold
+   folds in.
+2. THE WARMSTART VISIT (DIDACTICS-67 + 68) MOVES FORWARD from
+   post-gauntlet lane-3 to NOW, red-team custody: the teaching
+   prose (the double .h5 open with its reason, object-count vs
+   file-open-count, ia = nla / tatt / None defined, the
+   FinetuneSource .ia attribute docstring gap) PLUS the small
+   production guard per the standing ruling — the shared finite
+   predicate applied to the perturbed encode and output tensors in
+   BOTH parity arms, with board legs minting NaN and Inf only on
+   the perturbation and the finite-contract error naming
+   quantity/side/row; removing either guard must red. TIME-BOX:
+   lands before the Implementer's artifact chain opens
+   (warmstart.py is quiet until then — the drift-metric code is a
+   different region, and one file has one owner at a time).
+3. NUDGES, already authorized but unclaimed: 25M-36
+   (mps_identity.py producer-order reference) and unit 93 (the
+   compile-mode CUDA lane — writing is machine-independent).
+4. KEPT with the Implementer, examined again and retained: unit 56
+   (checkpoint-ingress revalidation — training-resume production
+   machinery, deep-context; it also gates the 21 trigger, but
+   correctness outranks the trigger's speed), D5's remainder
+   (62/59/64/70 — board.py + gsv surfaces), the artifact chain,
+   units 8/24/63-reopen/96, the queue-3 reopen.
+
+BANDWIDTH NOTE, recorded as guidance: at current red-team velocity
+the emerging constraint is the AUDIT lane. Landings should batch —
+D6 + 61-finiteness as one handoff, the D4 file claims in pairs —
+so each round-trip carries more audited surface.
+
+## Queue 2 increment 3 — fan-out batch 1: 3 gates migrated by subagents (Opus, 2026-07-13)
+
+First fan-out batch under the subagent rule. Three subagents (isolated worktrees)
+each drafted one gate's migration to its audited spec + self-verified; I applied
+their diffs to the live board, INDEPENDENTLY re-verified, and self-commit here.
+All three: no objection (drafted names fit 1:1).
+
+- **loss-schema-equivalence** (wrapper via SHARED helpers): the subagent threaded
+  optional `aid=`/`exit_aid=`/`banner_aid=` through `_golden_leg` and `_smoke_driver`
+  (default None, so the other ~10 callers are unchanged). golden leg emits
+  `ctx.unavailable` on a null base (fork D1-ii); smoke → two `ctx.expect`. Its
+  docstring's aspirational schema-equivalence claim narrowed to the honest
+  UNAVAILABLE-while-null-base statement.
+- **triangle-shading** (child ##AID): `gt_b_triangle.py` report() gains `aid=`,
+  its 4 report calls carry the drafted aids; rc-expect aid-less.
+- **param-window-cuts** (wrapper): 2 `ctx.expect(aid=)` + 1 `ctx.unavailable`
+  (the init-probes A/B eye-check is logged-only, the draft requires UNAVAILABLE);
+  banner-leg detail narrowed per DIDACTICS-62/63.
+
+INDEPENDENT RE-VERIFY (Mac) caught two items the subagents' isolated checks missed
+— exactly why re-verify is not optional: (1) `_golden_leg` now always passes `aid=`
+to `ctx.expect`, so the unit-46 board-selftest stub `_GoldenCtx.expect` needed an
+`aid=` param (+ an `unavailable` method); I fixed it and added an arm proving the
+new null-base→UNAVAILABLE branch. (2) my throwaway regex flagged a false
+declared!=emitted (the real wiring is correct — confirmed by importing board and by
+`validate_evidence`). Final: compile clean; board-selftest **170 PASS / 0 FAIL**;
+`--list` rc 0 (all new anchors resolve + transform + unique); `gt_b_triangle.py` on
+cocoa-torch prints exactly the 4 declared `##AID PASS`; declared==drafted for all
+three gates (authoritative, via importing board). Live green reruns workstation-owed.
+
+## Fan-out batch 1 audit (Fable, 2026-07-13): b9244cf GO — 5/27 migrated; continuous batching authorized
+
+Three gates delta-audited against the ratified patterns, all wired
+to their drafted aids EXACTLY: loss-schema-equivalence (3/3, mixed
+golden + smoke shapes), param-window-cuts (3/3 — the banner-level
+narrowed name cut-count-banner-present as ruled, and the FIRST live
+ctx.unavailable minting: init-probes-inspection, exactly the
+draft's own UNAVAILABLE classification), triangle-shading (4/4;
+gt_b_triangle.py's report(aid=) follows the ratified geo-paths
+convention). The shared-helper threading verified: _golden_leg
+gains aid= with the null-base case minting UNAVAILABLE (the honest
+D1-ii disposition for an unconfigured base), _smoke_driver gains
+exit_aid/banner_aid; all default None, so un-migrated gates are
+untouched — the rolling migration holds. The banked lesson is
+ratified into the fan-out discipline: subagents do not run
+board-selftest, so the Implementer runs it on EVERY integration
+(the stub fix + null-base arm landed with the batch). My runs:
+--list rc 0, board-selftest ALL PASS.
+
+COORDINATION NOTE: gt_b_triangle.py is now Implementer-touched for
+aid threading. The red team's triangle-strengthening claim (the D6
+half) builds ON TOP of the migrated file after this lands — not in
+parallel.
+
+CONTINUOUS BATCHING AUTHORIZED: the pattern is stable across both
+shapes and the audits are delta-only — launch each next batch
+immediately, hand shas as they come; the audit lane will keep pace.
+
+## D3 + DIDACTICS-60/63 audit (Fable, 2026-07-13): f69d933 GO — the gauntlet's D3 slot CLOSES
+
+The red-team landing audited with MY OWN full child run (cocoa
+interpreter), which reproduced every filed number to the digit:
+
+- Disjoint fixtures: seeds 1234/5678, 4000/1000 aligned rows,
+  overlap 0, both seeds PRINTED; the same-seed mutation stages
+  1000 overlapping rows and is REFUSED BEFORE TRAINING with a
+  didactic message (generator seeds choose cosmologies; split_seed
+  only reorders inside a file).
+- The ruled measured calibration, all derivations printed by the
+  check: mean-predictor baseline 0.489362046123 -> collapse bar
+  0.244681023061 (the ruled 0.5x); recorded honest error
+  0.074595841408 -> accuracy bar 0.111893762112 (the ruled 1.5x);
+  trained median 0.196647360921 under the collapse bar with the
+  margin PRINTED (1.24426x); the mean-predictor mutation fails
+  BOTH bars; and a bonus internal guard I did not require asserts
+  the accuracy bar stays stricter than the collapse bar.
+- DIDACTICS-63: the independent window reference recovers used 3
+  of 5 + staged order [1,3,2]; a plausible banner over wrong rows
+  is rejected.
+- The scalar-smoke home-note block is amended to NINE honestly
+  named aids with transforms; gates/board.py was correctly NOT
+  touched (the Implementer's rollout owns it) — the registry
+  entry's old 0.3/5% prose and the nine aid bindings are the
+  BOUNDED SYNC ITEM riding scalar-smoke's fan-out migration.
+- No epoch, model, or production setting changed, as ruled.
+
+VERDICT: GO; merged into this branch. The gauntlet is now: fan-out
+(in flight) -> D4 (claims + wrapper legs) -> D5 (62/59/64/70). The
+21 trigger remains D3(done)+56(Implementer).
+
+## D6 triangle-half audit (Fable, 2026-07-13): 11b7932 content GO — four amended aids RATIFIED; integration routed to the Implementer
+
+The strengthened triangle gate audited (codex/d6-triangle-cleanup):
+
+- MY RUN: 4/4 green under the cocoa interpreter, the child emitting
+  ##AID lines with the AMENDED names; the AST scan confirms zero
+  comprehensions/generators (the Alien-Python rule honored in new
+  check code).
+- The DIDACTICS-29/65 acceptance is implemented exactly: an
+  independent (x parameter, y parameter, physical window) reference
+  from a gate-owned formula table; every triangle Axes identified;
+  real cut masks traced; all ten expected artists with per-artist
+  color; exactly two excluded intervals on the omegamh2 diagonal;
+  and the ruled mutation (a real artist moved to the wrong Axes)
+  leaves the old count-only summary IDENTICAL while the exact-owner
+  predicate reports three errors and rejects it — the count-summary
+  vacuity proven live.
+- The board-wrapper attempt is honestly reported as stopped at
+  preflight (no false green claim).
+- FOUR AMENDED AID NAMES RATIFIED (they carry exact-owner
+  semantics): figure-produced (kept), panel-window-set-exact,
+  all-cut-artists-use-shared-gray, omegamh2-marginal-bands-exact —
+  these SUPERSEDE the three original draft names for this gate.
+
+SEQUENCING: the branch predates fan-out batch 1 (b9244cf is NOT an
+ancestor), so gt_b_triangle.py has two divergent versions — batch
+1's (old legs + old aids) and this one (strengthened legs + amended
+aids). Merging now would red triangle-shading via reconciliation
+(declared != executed) — the machinery would catch it, and we do
+not land known-red. INTEGRATION ROUTED TO THE IMPLEMENTER (the
+gates/checks owner during fan-out): adopt the strengthened child,
+keep the ##AID emission per the ratified convention, update the
+gate's evidence= to the four amended names; the home-note block is
+already amended. The branch HOLDS unmerged until that integration
+commit exists; delta audit then clears both together.
+
+The mkdtemp half's deferral is ACCEPTED as recorded — the nine
+sites live in files under active fan-out ownership; they land when
+their files quiet, per the one-owner rule.
+
+## BACKLOG SNAPSHOT + WAVE 5 (Fable, 2026-07-13, evening): the remaining program in three phases + two final transfers
+
+A dated SNAPSHOT for the user's planning question (the live truth
+stays in the per-item specs above; this section does not supersede
+them).
+
+PHASE A — TO THE GAUNTLET'S END (the current sprint):
+- Implementer (6): the stage-ram fixture repair (URGENT — the
+  landing block is withheld on it); the triangle integration (4
+  ratified aids); the fan-out tail (~22 of 27 gates, subagent
+  batches, incl. scalar-smoke's nine-aid sync); the wrapper-family
+  blocks + foundation per-leg expansions (13 gates); D5's core
+  (DIDACTICS-62's five gates + 64's arm removal + 70's leg); unit
+  56 (checkpoint-ingress — also the 21 trigger).
+- Red team (8 active): DIDACTICS-79 closure; the warmstart visit
+  (67+68, time-boxed); 61-finiteness; the D4 claims (cmb_identity
+  53, gwd_census 52, 48 post-integration, 47 by claim); D6's
+  mkdtemp half as files quiet; 25M-36; units 41 + 53; unit 29's
+  25M-14 amendment.
+- WAVE-5 TRANSFERS (binding now): (1) UNIT 63-REOPEN to the red
+  team — const_mask always persisted in grid2d state(), all-false
+  when unpinned, never presence-inferred (the 25M-17 adjudication
+  is the contract); results/geometries save surface is quiet until
+  the artifact chain; time-boxed like the warmstart visit. (2)
+  D5's DIDACTICS-59 (the real eval_val across three partitions,
+  reusing the production per-row surface) PRE-AUTHORIZED to the
+  red team at the fan-out-complete seam — it is check-script work
+  once the migrations stop touching those files. D5 for the
+  Implementer then shrinks to 62 + 64/70.
+
+PHASE B — POST-GAUNTLET: the user-run QUEUE-5 WORKSTATION BOARD
+(first exhibits: reruns with persisted evidence, the ##AID
+reconciliations live, 77/80 Torch legs, 93's CUDA lane, the smoke
+mutation arms); the Implementer's deep core in parallel (the
+fixed-facts proposal, then the artifact chain: 74 CRITICAL, 77+80
+CRITICAL, 76+78, 82+.ranges, 84, 85; unit 8 after the red team's
+94-half; units 24, 96; the queue-3 reopen); the red team's
+trigger-gated waves fire as seams clear (21 at 56, 92 at D5, 95 at
+the protocol chain, gates/checks teaching at D4+D5) plus lane-3
+prose, unit 91, the TEX-PROSE sequence, and the remaining README
+package visits.
+
+PHASE C — CLOSURE: queue 6 documentation, EMUL2 acceptance, the
+D-CM12 spec audit, science.
+
+NOT MOVING, re-examined once more: the artifact chain, unit 8,
+unit 96, the queue-3 reopen, board.py, unit 56 — the deep-context
+core where an error costs the most; everything else transferable
+has now been transferred or trigger-scheduled.
