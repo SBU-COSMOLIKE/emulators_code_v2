@@ -3297,3 +3297,18 @@ GO — 7+4+5 names==drafts, my child runs green, honest UNAVAILABLE
 on the CUDA legs. Batch 7 (0e3ff10) GO — 4+4+6 names==drafts,
 board surfaces green. 30/40 gates carry evidence. Spec:
 gates-and-board.md "TEX-PROSE-01/02 + batches 6-7 audit".
+
+NOTES-FIRST + U90 + 61 (2026-07-14, Fable): the notes-first hard
+rule GO'd and merged (21c3b32; chat = routing summary, the
+current note is the source of record) and twinned into both
+.claude role files (3c389ee) along with the GATE-INTEGRITY
+doctrine (unnamed gate-surface changes = tampering; honest reds
+respected; workstation-owed never "passed") — the structural
+answer to the Hallucinated-Gates question, five stacked defenses
+recorded. Unit 90 CLOSED (50f1c63 → ce99f87: six terminals, my
+neutralization probe reds exactly the folded leg). DIDACTICS-61
+CLOSED (46f35a8 → d7b2317: decreasing() refuses nonfinite/thin
+evidence before subtraction; my six-probe sweep 6/6; the retired
+formula's falsely-true witness executable in the selftest). Spec:
+gates-and-board.md "Notes-first rule + unit-90 closure +
+DIDACTICS-61 + the gate-integrity doctrine".

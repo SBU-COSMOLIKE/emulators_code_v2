@@ -8178,3 +8178,66 @@ amendment), and the six wrapper-family gates (cobaya-adapter,
 save-rebuild-drift, finetune-identity/-smoke, transfer-identity/
 -smoke). Fan-out-complete announced to the Architect for the
 DIDACTICS-59 / D5 trigger.
+
+## Notes-first rule + unit-90 closure + DIDACTICS-61 + the gate-integrity doctrine (Fable, 2026-07-14)
+
+NOTES-FIRST COMMUNICATION (21c3b32, codex branch): GO — merged.
+The red team's canonical statement in conventions-and-workflow.md
+is exactly the user's rule (the note carries the full record; the
+chat handoff is a routing summary citing it; the CURRENT NOTE
+wins on divergence), with cold-start routing in notes/MEMORY.md
+and their own role file bound. My role files are now TWINNED
+(3c389ee): FABLE constraint 3 upgraded to notes-first;
+OPUS_ROLE constraint 7 likewise. .claude files were correctly
+left to me by the red team.
+
+THE GATE-INTEGRITY DOCTRINE (the user's "Hallucinated Gates"
+question, answered structurally and codified in 3c389ee): the
+program already runs five stacked defenses — (1) my audit NEVER
+trusts pasted logs: everything CPU-runnable is re-run by me, on
+my interpreter, in their tree or a detached scratch worktree;
+(2) every landing is diffed against the GATE SURFACE (check
+scripts, thresholds, fixtures, golden bases) and cross-checked
+against the ratified aid sets and ruled bars, so a weakened check
+is visible as a diff line, not hidden in a log; (3) the evidence
+machinery itself is anti-fraud — declared==executed
+reconciliation, the manifest-FAIL-under-rc-0 red, malformed-line
+raises, and the one-verdict constraint mean a fake green must
+forge MULTIPLE coupled channels at once; (4) the measured-
+calibration doctrine forbids bar-lowering disguised as tuning (a
+bar moves only on printed measurement, per ruling); (5) the
+queue-5 workstation board re-executes every gate from scratch, so
+a Mac-side fabrication has a scheduled collision with reality.
+NEW RULES pinned: OPUS_ROLE 7b — gate surfaces are
+change-controlled; an UNNAMED gate-surface change in a diff is
+adjudicated as tampering regardless of intent; a failing gate
+honestly reported is a valid deliverable; workstation-owed greens
+are reported OWED, never passed. FABLE constraint 4 gains the
+matching audit screen. The cultural half matters as much as the
+mechanical half: the loop REWARDS honest reds (D3's hold, the
+stage-ram red, the no-isolation disclosure all advanced their
+authors' standing) — fraud grows where reds are punished, so reds
+stay respected here.
+
+UNIT 90 INTEGRATION (50f1c63): GO — merged (ce99f87); UNIT 90 is
+CLOSED. My delta re-run at their tip: the child emits exactly the
+six board-declared terminals ALL PASS with the same numbers as
+the content audit (independent band 1.617e-06, blind shared
+reference, rejection at 1.000e+04 bands); my neutralization probe
+reds EXACTLY bsn-identity.distance-pipeline-consistency at rc 1
+with the other five green — the quadrature legs folded into the
+existing bracket as ruled, no seventh aid; board.py and the
+runner untouched.
+
+DIDACTICS-61 (50e1d76, tip 46f35a8): GO — merged (d7b2317,
+register both-retained). logscan.decreasing() now refuses BEFORE
+subtracting: fewer than two points, a nonfinite endpoint, or a
+sub-tolerance drop all return named refusals, so an exploded run
+(+inf first loss) can no longer read as a successful descent —
+the retired subtraction-only formula provably calls that a
+decrease, and the selftest's load-bearing control computes that
+falsely-true verdict inline as the witness. MY OWN six-probe
+sweep (empty / singleton / NaN / inf-first / equal / honest drop)
+matches the claims 6-for-6; board-selftest, stage-ram (the
+two-column prose fix verified), --list, bsn-identity all green at
+the composed tip d7b2317. 61-finiteness CLOSES.
