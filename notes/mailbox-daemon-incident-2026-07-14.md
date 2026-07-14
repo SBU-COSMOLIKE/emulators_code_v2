@@ -136,3 +136,32 @@ Order matters: **restart the watcher first.** Until that happens, none of the
 guards already committed — placeholder refusal, worktree serialization — are
 actually protecting the loop, and any further fix committed to this file is
 equally inert.
+
+## Adjudication and landing (Architect, 2026-07-14 ~01:35)
+
+Claim-by-claim against the machinery:
+- 55eb256 absent from the running watch: CONFIRMED (watch 00:52, guard
+  00:53) -- and now moot, the watch died with the Thread-2 crash.
+- 50e9dbf absent from the running watch: REFUTED. The user's terminal
+  showed the parallel signature (two back-to-back "dispatching" lines)
+  and the crash traceback names drain_lane, which exists only in
+  50e9dbf. The 00:52 watch WAS the parallel daemon.
+- "the same-tree serialization guard did not hold": MISDIAGNOSIS. The
+  mid-turn committer was the INTERACTIVE Architect session, which the
+  daemon does not dispatch and cannot serialize. The guard held for its
+  scope. The real gap -- the interactive session as an unserialized
+  same-tree writer -- is handled procedurally: the Architect quarantines
+  the queue (hold/) before any merge window, and stages by explicit
+  path always (the ratified lesson from 1c2f706).
+
+All three proposed defects are ACCEPTED and landed, plus a fourth the
+turn could not see from inside: (1) the watch stats its own source each
+poll and exits when it changes; (2) refusals park in failed/ like
+non-zero dispatches; (3) next_seq scans every mailbox subdirectory
+recursively and send() claims its file O_EXCL with retry; (4) the
+done-archive rename tolerates a file quarantined by hand mid-flight
+(the exact crash that killed the opus-lane worker this pass).
+
+The incident note's operational headline stands and is now automatic:
+stale daemons self-retire. Custody: the daemon remains an Architect
+tool; the turn was right not to take it.

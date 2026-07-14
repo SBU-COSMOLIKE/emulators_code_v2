@@ -109,19 +109,17 @@ PREAMBLE = (
 
 
 def next_seq():
-    """Return the next zero-padded mailbox sequence number as a string."""
+    """Return the next zero-padded mailbox sequence number as a string.
+
+    Scans EVERY directory under the mailbox (root, done/, failed/, any
+    hand-made quarantine like hold/): a number parked anywhere is still
+    claimed, and handing it out twice makes two messages look like one.
+    """
     highest = 0
-    pattern = os.path.join(MAILBOX, "*.md")
-    for path in glob.glob(pattern):
+    pattern = os.path.join(MAILBOX, "**", "*.md")
+    for path in glob.glob(pattern, recursive=True):
         name = os.path.basename(path)
-        match = re.match(r"(\d+)-to-", name)
-        if match:
-            value = int(match.group(1))
-            if value > highest:
-                highest = value
-    for path in glob.glob(os.path.join(DONE, "*.md")):
-        name = os.path.basename(path)
-        match = re.match(r"(\d+)-to-", name)
+        match = re.match(r"(\d+)[a-z]?-to-", name)
         if match:
             value = int(match.group(1))
             if value > highest:
@@ -155,9 +153,15 @@ def dispatch(path, dry_run):
         message = f.read()
     for marker in PLACEHOLDER_MARKERS:
         if marker in message:
+            # park it like a failed dispatch: a refusal's cause (the
+            # unfilled body) persists until a human edits the file, so
+            # leaving it in the mailbox would re-refuse it every poll.
+            failed_dir = os.path.join(MAILBOX, "failed")
+            os.makedirs(failed_dir, exist_ok=True)
+            os.rename(path, os.path.join(failed_dir, name))
             print("REFUSED " + name + ": the body still contains the "
-                  "template placeholder '" + marker + "' -- fill in the "
-                  "real note path/section and re-send.")
+                  "template placeholder '" + marker + "' -- parked in "
+                  "failed/; fill in the real text and requeue.")
             return False
     command = AGENT_COMMANDS[agent] + [PREAMBLE + message]
 
@@ -203,7 +207,14 @@ def dispatch(path, dry_run):
         return False
 
     os.makedirs(DONE, exist_ok=True)
-    os.rename(path, os.path.join(DONE, name))
+    try:
+        os.rename(path, os.path.join(DONE, name))
+    except FileNotFoundError:
+        # someone quarantined the file by hand while its turn was in
+        # flight (the 2026-07-14 hold/ intervention): the turn already
+        # ran, so the message counts as handled wherever it now lives.
+        print("  note: " + name + " was moved by hand mid-dispatch; "
+              "leaving it where it is.")
     return True
 
 
@@ -266,12 +277,22 @@ def send(agent, text):
       text  = the routing summary (point at notes/; do not inline specs).
     """
     os.makedirs(MAILBOX, exist_ok=True)
-    path = os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
-        if not text.endswith("\n"):
-            f.write("\n")
-    print("queued " + path)
+    # O_EXCL claims the number atomically: a concurrent sender that
+    # computed the same sequence loses the race and retries on the next.
+    for _ in range(20):
+        path = os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md")
+        try:
+            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            continue
+        with os.fdopen(handle, "w", encoding="utf-8") as f:
+            f.write(text)
+            if not text.endswith("\n"):
+                f.write("\n")
+        print("queued " + path)
+        return
+    print("could not claim a sequence number after 20 tries -- "
+          "is something flooding the mailbox?")
 
 
 def main():
@@ -342,9 +363,20 @@ def main():
         print("watching " + MAILBOX + " (Ctrl-C to stop; safe only "
               "BETWEEN dispatches -- killing a dispatch mid-flight dooms "
               "the agent's turn)")
+        # a daemon fix is a no-op for the loop already running (the
+        # 2026-07-14 placeholder incident): watch our own source and
+        # exit when it changes, so stale code can never keep dispatching.
+        # Exiting (not self-reloading) is deliberate -- a restart is one
+        # keystroke and never picks up a half-saved edit.
+        source_stamp = os.path.getmtime(os.path.abspath(__file__))
         try:
             while True:
                 process_backlog(dry_run=False)
+                if os.path.getmtime(os.path.abspath(__file__)) \
+                        != source_stamp:
+                    print("daemon source changed on disk -- exiting so "
+                          "the next start runs it (relaunch --watch).")
+                    return 0
                 time.sleep(20)
         finally:
             if os.path.isfile(lock_path):
