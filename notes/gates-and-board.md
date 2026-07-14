@@ -9891,3 +9891,171 @@ RULING on the unrunnable gate leg: the argparse-plus-source evidence
 is accepted for this unit (the 0012 precedent); honoring --dry-run in
 send() folds into the 0026 portability unit rather than a new unit.
 VERDICT: GO.
+
+## Queue 2 increment 6 - daemon portability + the README bootstrap subsection (Opus, 2026-07-14): GREEN, and the 0022 unrunnable leg is now runnable
+
+Dispatched from mailbox `0026-to-opus.md`, executing the BLUEPRINT section
+"reproducing the three-agent setup on a new computer". Two halves, one unit,
+plus one item the 0022 audit explicitly folded into this unit.
+
+### CODE HALF - tools/mailbox_daemon.py
+
+Every path is now DERIVED from the daemon's own file location; nothing about
+this machine is hardcoded outside one named block.
+
+- `WORKTREE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))` -
+  the file lives at `<worktree>/tools/mailbox_daemon.py`, so the directory
+  above `tools/` is the worktree root. MAILBOX, DONE and RELAY_DIR hang off it
+  unchanged.
+- New `repo_root_of(worktree)`: a Claude Code worktree sits at
+  `<repo>/.claude/worktrees/<name>`, so the repo is three directories up. When
+  the segments `.claude/worktrees` are NOT above the worktree (an ordinary
+  checkout), the checkout IS the repository and is returned unchanged. That
+  fallback is why running the repo-root copy of the daemon does something
+  coherent instead of walking above the clone.
+- `AGENT_CWD` and Sol's `--cd` now use the derived `REPO_ROOT`.
+- `AGENT_COMMANDS` is now commented as THE ONE MACHINE-SPECIFIC BLOCK IN THIS
+  FILE (CLI binary paths cannot be derived), with the instruction that a new
+  machine edits the binary paths there and nothing else.
+
+RULED-IN SCOPE ADDITION (not a pivot - the Architect's own 0022 audit ruling,
+this note's section "README parallel-lane addendum audit ... 96adacb GO":
+"honoring --dry-run in send() folds into the 0026 portability unit rather than
+a new unit"). `send()` takes `dry_run` and, when set, PRINTS the message file
+it would queue and writes nothing; `main()` passes `args.dry_run` into both the
+`--send` and the `--ping` branches; the `--dry-run` help text now says so. Before
+this, `main()` returned from the `--send` branch before the dry-run branch was
+ever reached, so rehearsing a send queued a REAL message into the LIVE mailbox,
+and a running watch would dispatch that junk body as a live billed turn. That is
+exactly the leg the 0022 unit reported as unrunnable rather than faking; it is
+runnable now, and it is green (below).
+
+### README HALF - section 24, new subsection "Reproducing this setup on another computer"
+
+Five parts, per the blueprint: what a worktree is and why one session gets one
+(with the literal sentence a human types into a Claude Code session, and the
+codex CLI equivalent); the coordination worktree and the fact that the daemon
+derives it from the launch location rather than any setting; why the launch
+directory matters (the source self-retire check, and why a fix has no effect on
+the watch already running); the one manual edit, with the `AGENT_COMMANDS` block
+pasted exactly as it ships; and the eight-step bootstrap sequence a newcomer can
+follow end to end on a fresh machine.
+
+One in-scope wording repair in the same section: "Both are run from the
+repository root" (the "The tools" subsection) had become FALSE with this change -
+the daemon now coordinates whichever checkout it is launched from, so launching
+the repo-root copy would watch `<repo>/notes/mailbox`, a different mailbox. The
+sentence now says both live in `tools/` and are run from a checkout, and that
+which checkout you run the daemon from is itself meaningful, pointing at the new
+subsection.
+
+### GATE RESULTS (this session, raw)
+
+- `python3 -m py_compile tools/mailbox_daemon.py`: clean.
+- **--dry-run correct from ANY cwd** (the blueprint's gate), four working
+  directories, driven through `subprocess` with `cwd=` because this session's
+  shell is pinned to the worktree: cwd = the worktree, the repo root, `/tmp`,
+  and `/Users/vivianmiranda` -> **rc=0, 9 dispatch lines, 2 distinct target
+  cwds** in every one of the four. Identical output, and identical to the paths
+  the hardcoded constants used to produce (fable/opus -> the worktree, sol ->
+  the repo root).
+- **A fresh clone runs unedited.** An UNEDITED copy of the shipped file placed
+  at `/tmp/fake-clone-probe/.claude/worktrees/some-other-name/tools/` and
+  imported: `WORKTREE = /tmp/fake-clone-probe/.claude/worktrees/some-other-name`,
+  `REPO_ROOT = /tmp/fake-clone-probe`, `AGENT_CWD` = both Claude lanes in that
+  worktree and sol at that repo root; no live path leaked into any constant.
+  `--send opus` run in the clone from cwd `/tmp` queued
+  `/tmp/fake-clone-probe/.claude/worktrees/some-other-name/notes/mailbox/0001-to-opus.md`,
+  i.e. inside the DERIVED mailbox, not this machine's.
+- `repo_root_of(worktree="/tmp/plain")` (no `.claude/worktrees` segment) returns
+  `/tmp/plain`: the ordinary-checkout fallback holds.
+- **The 0022 unrunnable leg, now run against the LIVE mailbox:**
+  `--send opus --unit "THROWAWAY BODY..." --dry-run` -> rc=0, prints
+  `[dry-run] would queue .../notes/mailbox/0035-to-opus.md`, and the live mailbox
+  listing is byte-identical before and after (`mailbox unchanged: True`, `no new
+  file: True`). `--ping opus --dry-run` likewise prints and queues nothing. A
+  rehearsal can no longer become a billed turn.
+- **README register:** dash census on the new subsection = **em 0, en 0,
+  double-hyphen 0** (132 lines); the whole of section 24 remains em 0 / en 0.
+- **Snippet fidelity:** the README's `AGENT_COMMANDS` block compared
+  programmatically against the shipped block in `tools/mailbox_daemon.py` -
+  19 lines vs 19 lines, `VERBATIM MATCH: True`.
+- **Board untouched:** no file under `gates/` is in this diff.
+
+### FINDINGS, reported not chased (constraint 8)
+
+1. **The blueprint's one-agent-one-worktree invariant is not what the shipped
+   daemon does, and the README says the true thing.** The blueprint asks for
+   "each AI session works in its own git worktree so no two agents ever edit the
+   same checked-out tree". But `AGENT_CWD` maps BOTH `fable` and `opus` to the
+   coordination worktree, which is precisely why they share a lane and serialize
+   (the invariant the just-landed parallel-lane subsection states, and which the
+   Architect audited GO). Interactive sessions do each make their own worktree;
+   DISPATCHED turns of both Claude lanes run in the coordination worktree. I
+   wrote the README to match the shipped behavior (each session is asked to make
+   its own worktree; the daemon then starts the architect and implementer inside
+   the coordination worktree, which is why they take turns, while the red team
+   starts from the repo root and runs alongside). If the intent is genuinely one
+   worktree per agent, `AGENT_CWD` needs per-agent roots AND the parallel-lane
+   subsection needs a rewrite - a design change, the Architect's call, not mine.
+2. **OPERATIONAL, act on this first:** this commit edits `tools/mailbox_daemon.py`,
+   which trips the daemon's own source self-retire check. **The running `--watch`
+   will exit at its next poll** ("daemon source changed on disk"), and until it is
+   relaunched from the coordination worktree nothing in the mailbox is dispatched,
+   including my outbound handoff. Relaunch is the whole fix.
+
+### LANDING BLOCK (for the user; I do not merge or push)
+
+    git checkout main
+    git merge --ff-only claude/amazing-keller-e798b6
+    git push origin main
+
+## BLUEPRINT: README section 24 — humanize the command examples (Fable, 2026-07-14)
+
+USER DIRECTIVE, verbatim intent: the --send example messages in the
+AI section are "incredibly cryptic... Simple and didactic. Be basic!"
+
+TARGET: README.md section 24, every fenced --send example (the pair
+citing internal ruling/blueprint section titles, and any other example
+whose message body a newcomer could not parse).
+
+CONTENT CONTRACT: replace the message bodies with plain requests a
+first-time reader instantly understands, e.g. asking one session to
+add a small documented feature and the other to try to break it, each
+pointing at a short notes file by an OBVIOUS name (the pattern "the
+message is one sentence pointing at a note" must stay visible, but the
+sentence and the note name must be self-explanatory). No internal
+section titles, no gate names, no program jargon anywhere inside the
+example strings. Keep the surrounding prose unchanged unless it
+references the old bodies.
+
+VALIDATION GATE: dash census 0/0/0 on changed lines; the examples
+still copy-paste-run (argparse accepts them); GitHub-native rendering.
+
+PARALLELIZABLE DELIVERABLES: none — one file, a few strings; no
+subagent fan-out warranted for this unit.
+
+MILESTONE: one commit, README.md only, handoff to fable via mailbox.
+
+## Daemon portability + README bootstrap audit (Fable, 2026-07-14): 580fc39 GO
+
+Interactive audit of the Implementer's 0026 turn. Re-verified by me:
+--dry-run resolves the correct worktree mailbox from /tmp, from the
+repo root, and from the worktree (path derivation is from the file's
+own location, as specified); --send/--ping now honor --dry-run (queues
+nothing, prints the would-be path — the 0022 leg is green); dash
+census 0 on README additions; scope README + daemon only.
+
+RULING on finding 1 (one-agent-one-worktree vs shipped AGENT_CWD):
+shipped behavior ACCEPTED and now canonical. Both Claude lanes start
+in the coordination worktree BY DESIGN — that shared tree is what the
+per-directory lane serialization protects, and per-agent worktrees for
+the Claude lanes would fracture the single working branch. The
+one-agent-one-worktree invariant governs SESSIONS a human opens (each
+interactive/isolated session gets its own tree; the red team's clones
+are the model), not the headless lanes of the coordination loop. The
+README's wording states the true thing and stands.
+
+VERDICT: GO. (0034-to-fable was the user's humanize-examples
+directive, already cut interactively as unit 0036; 0035 was this
+unit's handoff — both neutralized.)

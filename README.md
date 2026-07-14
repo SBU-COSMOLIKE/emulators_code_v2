@@ -3542,8 +3542,10 @@ claim from any session is not accepted without the command output behind it.
 
 ### The tools
 
-Two small programs carry messages between the three sessions. Both are run from
-the repository root.
+Two small programs carry messages between the three sessions. Both live in
+`tools/` and are run from a checkout of this repository. Which checkout you run
+the second one from is itself meaningful, and the last subsection of this
+section explains why.
 
 The first one answers the question "where does the loop currently stand?". Run
 it whenever you are lost:
@@ -3665,3 +3667,136 @@ is the visible signature of concurrency: each turn's exit status and log path
 arrive later, whenever that turn finishes. Had both messages been addressed to
 the same lane, the second `dispatching` line would not have appeared until the
 first turn had finished and printed its `rc=` line.
+
+### Reproducing this setup on another computer
+
+Standing the same loop up on a different machine needs a clone of this
+repository, the two vendors' command line programs installed and logged in, and
+exactly one edit to a file. This subsection is that recipe, start to finish.
+
+**One session, one worktree.** A *worktree* is a second working directory
+checked out from the same repository, on its own branch, holding its own copy of
+every file. Git maintains as many as you ask for, all sharing one repository
+underneath, so a worktree is not a second clone and costs almost nothing.
+
+The previous subsection gave the reason each session wants one: sessions that
+share a working tree share a single staged git index, and a commit by one of
+them can sweep up a half finished edit by another. A session working in a tree
+of its own cannot collide with anybody.
+
+A Claude Code session creates its own worktree when asked, so on a fresh clone
+you ask it, in the first message of the session. This is the sentence to type,
+into the architect session and into the implementer session alike:
+
+```
+Create and work from your own git worktree for this task.
+```
+
+The session makes the worktree under `.claude/worktrees/<generated-name>` and
+works there for the rest of its life. The red team runs on the codex CLI, which
+is asked for the same thing in its own terms, naming the branch prefix that
+marks red team work in this repository:
+
+```
+Create your own git worktree, on a branch named codex/<topic>, and work from it.
+```
+
+**The coordination worktree.** One worktree does double duty: it is the one
+whose `notes/mailbox` directory the daemon watches, and this section calls it
+the coordination worktree.
+
+You never tell the daemon which worktree that is. Every path it uses, meaning
+the mailbox it polls, the `notes/relay/` directory it writes its logs into, and
+the working directory it starts each dispatched session in, is derived from the
+location of the daemon's own file, which sits at
+`<worktree>/tools/mailbox_daemon.py`. The copy you launch is the copy that
+decides. So the worktree you launch the watch from *is* the coordination
+worktree:
+
+```bash
+cd /path/to/emulators_code_v2/.claude/worktrees/<coordination-worktree>
+python tools/mailbox_daemon.py --watch
+```
+
+Before starting a watch on a new machine, it is worth checking that those
+derived paths came out where you expect. The following prints each pending
+message, the command it would run, and the working directory that session would
+start in, and it runs nothing:
+
+```bash
+python tools/mailbox_daemon.py --dry-run
+```
+
+Two of the three sessions are started by the daemon inside the coordination
+worktree: the architect and the implementer. That is precisely why they share a
+lane and take turns, as the previous subsection described. The red team is
+started from the repository root instead, which puts it in a lane of its own and
+lets it run alongside them.
+
+**Why the launch directory matters.** A running program keeps executing the code
+it loaded when it started. A repair to the daemon therefore has no effect on a
+watch that is already running, which would go on dispatching with the old code
+until a human noticed. To close that hole, the daemon checks the timestamp of
+its own file on every poll and exits when it changes, printing a line asking you
+to relaunch it.
+
+Launching the watch from the coordination worktree is what arms that check,
+because the coordination worktree is where repairs to the daemon are written and
+committed. The moment a fix lands there, the running watch retires itself, and
+the next start picks the fix up. Launch the watch from a tree where the daemon
+is never edited and it will never notice that a fix exists.
+
+**The one manual edit.** The daemon cannot derive where each vendor installed
+its command line program, so those commands are written out in a single block.
+This is that block, exactly as it ships:
+
+```python
+AGENT_COMMANDS = {
+    # Absolute path: the user's conda shells resolve an OLDER claude binary
+    # with a separate (logged-out) credential store; this one is the
+    # logged-in v2.1.208 install (diagnosed 2026-07-14).
+    "fable": ["/Users/vivianmiranda/.local/bin/claude", "-p",
+              "--model", "claude-fable-5",
+              "--permission-mode", "acceptEdits"],
+    "opus": ["/Users/vivianmiranda/.local/bin/claude", "-p",
+             "--model", "claude-opus-4-8",
+             "--permission-mode", "acceptEdits"],
+    # Verified by the red team's read-only probe (codex-cli 0.144.2; the
+    # conventions note records the probe): workspace-write sandbox rooted at
+    # the repo, which contains every worktree Sol works in.
+    "sol": ["/Applications/ChatGPT.app/Contents/Resources/codex",
+            "exec",
+            "--model", "gpt-5.6-sol",
+            "--sandbox", "workspace-write",
+            "--cd", REPO_ROOT],
+}
+```
+
+Each entry is one session's headless command: the program to run, the model it
+runs, and the permissions the turn is granted. On a new computer you replace the
+two program paths, which `which claude` and `which codex` will print for you,
+and you change nothing else. The models are named deliberately and are part of
+the design, not of the machine. `REPO_ROOT` is derived from the daemon's
+location like everything else, so it needs no attention.
+
+**The bootstrap sequence.** End to end, on a machine that has never seen this
+repository:
+
+1. Clone the repository.
+2. Install both command line programs and log each of them in: Claude Code,
+   which runs the architect and the implementer, and the codex CLI, which runs
+   the red team.
+3. Open three sessions: Claude Code on Fable as the architect, Claude Code on
+   Opus as the implementer, and the codex CLI as the red team.
+4. Ask each session, in its opening message, to create and work from its own git
+   worktree, using the sentences given above.
+5. Pick one of the two Claude worktrees to be the coordination worktree. Any of
+   them will do, provided it is the one where the daemon itself gets repaired.
+6. In that worktree, edit `AGENT_COMMANDS` in `tools/mailbox_daemon.py` so the
+   two program paths match this computer. This is the only edit the move
+   requires.
+7. From that worktree, run `python tools/mailbox_daemon.py --dry-run` and read
+   the working directories it reports back. They should all be inside the clone
+   you just made.
+8. Start the loop: queue the first unit with `--send`, then leave
+   `python tools/mailbox_daemon.py --watch` running in that terminal.

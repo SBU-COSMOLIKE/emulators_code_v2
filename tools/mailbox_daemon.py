@@ -20,10 +20,14 @@ What stays manual, on purpose:
   - the daemon only dispatches messages; it never edits code or notes itself;
   - every dispatch's full CLI output is archived under notes/relay/.
 
-The CLI commands below are configurable. `claude -p` runs one headless turn
-against the subscription; the session needs enough tool permission to work
-unattended (set via the harness settings or the flags here). Adjust SOL_CMD
-to the Codex CLI's headless form installed on this machine.
+Every path the daemon uses -- the mailbox, the relay logs, the working
+directory each agent starts in -- is DERIVED from this file's own location
+(it lives at <worktree>/tools/), so a clone on another computer runs
+unedited and the worktree you launch it from is the one it coordinates.
+AGENT_COMMANDS, the CLI binary paths, is the one machine-specific block.
+`claude -p` runs one headless turn against the subscription; the session
+needs enough tool permission to work unattended (set via the harness
+settings or the flags there).
 
 Usage:
     python tools/mailbox_daemon.py --dry-run        # show what would run
@@ -44,14 +48,48 @@ import threading
 import time
 
 # All work and all mailbox traffic live in the SHARED WORKTREE (the branch
-# the agents actually develop on), never the bare main-repo checkout.
-WORKTREE = ("/Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2"
-            "/.claude/worktrees/amazing-keller-e798b6")
+# the agents actually develop on), never the bare main-repo checkout. That
+# worktree is DERIVED, never configured: this file lives at
+# <worktree>/tools/mailbox_daemon.py, so the directory above tools/ is the
+# worktree root. A clone on a new machine therefore runs unedited, and the
+# worktree you launch the watch FROM is the one whose mailbox it watches.
+WORKTREE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def repo_root_of(worktree):
+    """Return the repository root that owns a given worktree directory.
+
+    A Claude Code worktree sits at <repo>/.claude/worktrees/<name>, so the
+    repository is three directories up. When the daemon is instead run from
+    an ordinary checkout (no .claude/worktrees/ segment above it), that
+    checkout IS the repository and is returned unchanged.
+
+    Arguments:
+      worktree = the worktree root, i.e. the directory holding tools/.
+
+    Returns:
+      The absolute path of the repository root.
+    """
+    worktrees_dir = os.path.dirname(worktree)          # <repo>/.claude/worktrees
+    claude_dir = os.path.dirname(worktrees_dir)        # <repo>/.claude
+    if (os.path.basename(worktrees_dir) == "worktrees"
+            and os.path.basename(claude_dir) == ".claude"):
+        return os.path.dirname(claude_dir)
+    return worktree
+
+
+REPO_ROOT = repo_root_of(worktree=WORKTREE)
 
 MAILBOX = os.path.join(WORKTREE, "notes", "mailbox")
 DONE = os.path.join(MAILBOX, "done")
 RELAY_DIR = os.path.join(WORKTREE, "notes", "relay")
 
+# THE ONE MACHINE-SPECIFIC BLOCK IN THIS FILE. Everything else derives from
+# the daemon's own location, so a fresh clone runs unedited; these CLI binary
+# paths cannot be derived, because they depend on where each vendor's CLI is
+# installed on this computer. On a new machine, edit the binary paths here and
+# nothing else (`which claude` and `which codex` find them).
+#
 # One headless command per lane. Each receives the message text as its
 # prompt argument (appended by dispatch()). --permission-mode acceptEdits
 # lets a headless turn edit files without a human at the prompt; shell
@@ -74,16 +112,17 @@ AGENT_COMMANDS = {
             "exec",
             "--model", "gpt-5.6-sol",
             "--sandbox", "workspace-write",
-            "--cd",
-            "/Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2"],
+            "--cd", REPO_ROOT],
 }
 
-# The working directory each dispatched agent starts in. Sol's command
-# carries its own --cd, so its subprocess cwd just matches that root.
+# The working directory each dispatched agent starts in. Fable and Opus
+# develop in this worktree; Sol works from the repository root (its command
+# carries the same root in its own --cd), which is what puts it in a
+# different lane -- see process_backlog().
 AGENT_CWD = {
     "fable": WORKTREE,
     "opus": WORKTREE,
-    "sol": "/Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2",
+    "sol": REPO_ROOT,
 }
 
 # A message still carrying template placeholders has no job in it; refuse
@@ -269,13 +308,25 @@ def process_backlog(dry_run):
     return True
 
 
-def send(agent, text):
+def send(agent, text, dry_run):
     """Drop a new message into the mailbox (the loop's entry point).
 
     Arguments:
-      agent = "fable", "opus", or "sol".
-      text  = the routing summary (point at notes/; do not inline specs).
+      agent   = "fable", "opus", or "sol".
+      text    = the routing summary (point at notes/; do not inline specs).
+      dry_run = True to print the file that WOULD be queued and write
+                nothing. Rehearsing --send used to queue a real message
+                (main() returned before the dry-run branch ever ran), so a
+                junk body became a live dispatched turn as soon as a watch
+                picked it up -- the 0022 audit's unrunnable gate leg.
+
+    Returns:
+      Nothing; the queued path (or the would-be path) is printed.
     """
+    if dry_run:
+        print("[dry-run] would queue "
+              + os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md"))
+        return
     os.makedirs(MAILBOX, exist_ok=True)
     # O_EXCL claims the number atomically: a concurrent sender that
     # computed the same sequence loses the race and retries on the next.
@@ -299,7 +350,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="file mailbox + headless dispatch for the agent loop")
     parser.add_argument("--dry-run", action="store_true",
-                        help="show pending dispatches without running them")
+                        help="show what would happen and change nothing: "
+                             "pending dispatches are printed, not run, and "
+                             "--send/--ping print the message file they "
+                             "would queue without writing it")
     parser.add_argument("--once", action="store_true",
                         help="process the current backlog and exit")
     parser.add_argument("--watch", action="store_true",
@@ -327,14 +381,14 @@ def main():
             "    PONG " + args.ping + " from <your model name>\n\n"
             "Then stop. (Files addressed -to-user are read by the human; "
             "the daemon never dispatches them.)\n")
-        send(agent=args.ping, text=ping_text)
+        send(agent=args.ping, text=ping_text, dry_run=args.dry_run)
         return 0
 
     if args.send:
         if not args.unit:
             print("--send needs --unit with the routing-summary text")
             return 1
-        send(agent=args.send, text=args.unit)
+        send(agent=args.send, text=args.unit, dry_run=args.dry_run)
         return 0
 
     if args.dry_run or args.once:

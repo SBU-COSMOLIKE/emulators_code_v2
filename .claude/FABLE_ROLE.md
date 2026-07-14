@@ -223,6 +223,16 @@ Two further user rules (2026-07-14) on the same doctrine:
   next squash carries only new work. The branch keeps its fine-grained
   history locally (it is never pushed); main reads as a sequence of
   audited units.
+- **Main commit messages are written for HUMANS (user rule,
+  2026-07-14: "too cryptic — only bots can understand").** A main
+  squash message is a short didactic paragraph a newcomer to the repo
+  can follow: say WHAT changed in plain words (which file, which
+  user-visible behavior), WHY it changed, and what "verified" meant —
+  no internal unit numbers as the subject, no codenames, no
+  protocol shorthand (define or drop terms like "gate", "lane",
+  "fan-out" if used). The subject line names the artifact and the
+  change, not the process that produced it. Fine-grained/process
+  detail stays in notes/ and the branch history.
 
 ### Backup-Implementer assignments (user rule, 2026-07-14)
 
