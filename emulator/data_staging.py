@@ -511,6 +511,50 @@ def read_param_names(covmat_path, comment="#"):
     return f.readline().lstrip(comment).split()
 
 
+def _sidecar_candidates(params_path, suffix):
+  """
+  Return sidecar paths paired with one parameter dump, in lookup order.
+
+  A generator dump ``X.txt`` owns sidecar ``X<suffix>``. A getdist/cobaya
+  chain ``X.1.txt`` first tries its exact stem and then the shared chain-root
+  sidecar ``X<suffix>``. Only an all-decimal final stem component is a chain
+  number: a legitimate dotted dataset such as ``lcdm.v2.txt`` keeps ``.v2``.
+
+  Arguments:
+    params_path = parameter dump path.
+    suffix      = complete sidecar suffix, including its leading dot.
+
+  Returns:
+    candidate path strings, exact stem first and numeric chain root second
+    when one exists.
+  """
+  base = os.path.splitext(os.fspath(params_path))[0]
+  candidates = [base + suffix]
+  root, chain_ext = os.path.splitext(base)
+  if chain_ext[1:].isdigit():
+    candidates.append(root + suffix)
+  return candidates
+
+
+def _find_sidecar(params_path, suffix):
+  """
+  Find the first existing sidecar paired with one parameter dump.
+
+  Arguments:
+    params_path = parameter dump path.
+    suffix      = complete sidecar suffix, including its leading dot.
+
+  Returns:
+    the first existing candidate from ``_sidecar_candidates``, or None when
+    the dataset has no such sidecar.
+  """
+  for candidate in _sidecar_candidates(params_path=params_path,
+                                        suffix=suffix):
+    if os.path.exists(candidate):
+      return candidate
+  return None
+
+
 def check_paramnames(sidecar_path, covmat_names):
   """
   Cross-check a getdist .paramnames sidecar against the covmat-header names.
@@ -559,6 +603,34 @@ def check_paramnames(sidecar_path, covmat_names):
   return sidecar
 
 
+def check_source_paramnames(params_path, covmat_names):
+  """
+  Cross-check a source's chain-root-aware .paramnames sidecar when present.
+
+  The ordinary data-vector staging path remains compatible with old datasets
+  that have no .paramnames sidecar: absence returns None and performs no
+  check. When a sidecar exists, numeric chain suffixes are resolved so
+  ``X.1.txt`` checks ``X.paramnames`` rather than silently skipping the
+  integrity check.
+
+  Arguments:
+    params_path  = parameter dump path (for example X.txt or X.1.txt).
+    covmat_names = covmat-header names in whitening order.
+
+  Returns:
+    the checked sidecar path, or None when no compatible sidecar exists.
+
+  Raises:
+    ValueError from ``check_paramnames`` when the sidecar and covmat names
+    disagree.
+  """
+  sidecar = _find_sidecar(params_path=params_path, suffix=".paramnames")
+  if sidecar is None:
+    return None
+  check_paramnames(sidecar_path=sidecar, covmat_names=covmat_names)
+  return sidecar
+
+
 def read_facts_sidecar(params_path):
   """
   Read the generator's scientific-record sidecar verbatim, or report none.
@@ -598,17 +670,11 @@ def read_facts_sidecar(params_path):
     "there is none", so the saved emulator records no science rather than a
     science that training invented for it.
   """
-  candidates = []
-  base = os.path.splitext(params_path)[0]
-  candidates.append(base + fixed_facts.SIDECAR_SUFFIX)
-  # the cobaya chain number, when the stem carries one: params.1 -> params.
-  root, chain_ext = os.path.splitext(base)
-  if chain_ext[1:].isdigit():
-    candidates.append(root + fixed_facts.SIDECAR_SUFFIX)
-  for cand in candidates:
-    if os.path.exists(cand):
-      with open(cand) as fh:
-        return fh.read()
+  sidecar = _find_sidecar(params_path=params_path,
+                          suffix=fixed_facts.SIDECAR_SUFFIX)
+  if sidecar is not None:
+    with open(sidecar) as fh:
+      return fh.read()
   return None
 
 
@@ -702,9 +768,7 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   # beside train_params, its non-derived first column must match the
   # covmat-header `names` (order included), else the whitening pairs wrong
   # columns with wrong covmat rows. Absent sidecar = no check.
-  sidecar = os.path.splitext(params_path)[0] + ".paramnames"
-  if os.path.exists(sidecar):
-    check_paramnames(sidecar, names)
+  check_source_paramnames(params_path=params_path, covmat_names=names)
   # the scientific record the generator published beside this chain, carried
   # into the staged source as text and copied from there into the saved
   # emulator, never re-derived on the way. None when the dataset predates the
@@ -946,16 +1010,9 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
   # number, so the pure-integer suffix must be stripped to find it. Try
   # the exact stem first, then the chain root; a miss names every
   # candidate tried.
-  base = os.path.splitext(params_path)[0]
-  candidates = [base + ".paramnames"]
-  root, chain_ext = os.path.splitext(base)
-  if chain_ext[1:].isdigit():
-    candidates.append(root + ".paramnames")
-  sidecar = None
-  for cand in candidates:
-    if os.path.exists(cand):
-      sidecar = cand
-      break
+  candidates = _sidecar_candidates(params_path=params_path,
+                                    suffix=".paramnames")
+  sidecar = _find_sidecar(params_path=params_path, suffix=".paramnames")
   if sidecar is None:
     raise ValueError(
       f"scalar training needs a getdist .paramnames sidecar beside "

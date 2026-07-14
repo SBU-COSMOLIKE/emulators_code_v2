@@ -14005,3 +14005,33 @@ git diff --check                                     rc 0
 
 No threshold, production file, golden base, board registration, or unrelated
 fixture changed. Both ledger defects close in the commit carrying this entry.
+
+## Numeric-chain `.paramnames` recovery audit (Codex, 2026-07-14): GO
+
+Ordinary data-vector staging formerly derived only the exact sidecar stem from
+the parameter dump. A real numbered chain such as `X.1.txt` therefore looked
+for `X.1.paramnames`, silently treated the miss as legacy absence, and never
+checked the producer's actual `X.paramnames` ordering against the covariance
+header. Staging now uses one exact-first, numeric-chain-root-second resolver
+for ordinary `.paramnames`, fixed-facts sidecars, and scalar `.paramnames`.
+Only an all-decimal final stem component is treated as a chain number, so a
+dataset named `lcdm.v2.txt` continues to own `lcdm.v2.paramnames`.
+
+Six focused tests cover numbered and plain dumps, nonnumeric dotted names,
+the allowed no-sidecar legacy case, a mismatched chain-root refusal, and the
+production loader refusing that mismatch before it reads arrays. As an
+independent catch-power control, Codex temporarily removed the numeric-root
+candidate: the suite returned nonzero with two failures and one error on the
+numbered-chain cases. Restoring the candidate returned all six tests and the
+existing host-RAM staging gate to green.
+
+```text
+cocoa-torch python: tests.test_data_staging_paramnames  rc 0  6/6 PASS
+cocoa-torch python: gates/checks/stage_ram.py           rc 0  ALL PASS
+numeric-root-deletion mutation                         rc 1  2 FAIL + 1 ERROR
+py_compile                                             rc 0
+git diff --check                                       rc 0
+```
+
+No compatibility rule, threshold, golden base, or unrelated staging path was
+weakened. The ledger defect closes in the commit carrying this entry.
