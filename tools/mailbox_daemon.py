@@ -177,9 +177,24 @@ def dispatch(path, dry_run):
     for line in reply_lines[-8:]:
         print("  | " + line)
 
+    if proc.returncode != 0:
+        # a failed dispatch is NOT done: park it in failed/ so it is never
+        # silently consumed, and never hot-retried while the cause persists.
+        # Requeue after fixing the cause:  mv notes/mailbox/failed/<f> notes/mailbox/
+        failed_dir = os.path.join(MAILBOX, "failed")
+        os.makedirs(failed_dir, exist_ok=True)
+        os.rename(path, os.path.join(failed_dir, name))
+        if "Not logged in" in proc.stdout:
+            print("  !! the headless CLI is LOGGED OUT -- run `claude` in a "
+                  "terminal, type /login, then requeue from failed/.")
+        else:
+            print("  !! dispatch FAILED -- message parked in failed/, see "
+                  "the log above.")
+        return False
+
     os.makedirs(DONE, exist_ok=True)
     os.rename(path, os.path.join(DONE, name))
-    return proc.returncode == 0
+    return True
 
 
 def send(agent, text):
