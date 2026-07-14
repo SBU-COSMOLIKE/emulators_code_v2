@@ -8325,3 +8325,47 @@ compileall + --list + board-selftest and are replaceable per unit
 (--gate-cmd), full streams to the relay log, verdicts-only on the
 terminal. No agent ever produces the router's gate log; the
 machine does — the objective anchor against hallucinated gates.
+
+FINITE-CONTRACT GROUND TRUTH (Implementer live run, cocoa-torch CPU,
+child rc 1) -- confirms the draft block exactly, NO drift:
+  Part A eval_val: THREE false-reds -- the NaN/+Inf/-Inf fixtures raise
+    the LIVE `chi2 domain contract [validation]` error but the child
+    still matches the retired `finite contract [validation]` prefix, so
+    the asserts report [FAIL] though production is correct.
+  Part B train step: PASS. Part C eval_source_chi2: ONE false-red (same
+    `chi2 domain contract [diagnostic]` vs retired-prefix mismatch).
+  Part D finetune parity: PASS. Part E transfer parity: PASS.
+  Part F check_safe_sqrt: CRASHES at core.py:540 _reduce ->
+    _chi2_n_terms() -> dest_idx -> self.geom, AttributeError
+    'CosmolikeChi2' object has no attribute 'geom' -- the SAME harness
+    class as the berhu gb_c defect the red team fixed (63a1a5e); the
+    synthetic _reduce_obj() lacks geom. Parts F-J never emit.
+  So the CURRENT honest per-leg state: validation + diagnostic = RED
+  (false-red prefix); train-step + finetune + transfer = PASS;
+  safe-sqrt-eager = RED (the crash site); safe-sqrt-compiled +
+  extreme-scale-validation-reduction + optimizer-post-step-finiteness =
+  UNAVAILABLE (compiled lane / owed-unimplemented fixtures per the
+  draft); epoch-mean + chi2-domain-boundary + chi2-width-band +
+  chi2-compute-dtype-band + optimizer-schema = declared-not-executed
+  (crash-blocked). NO whole-gate PASS -- the gate is honestly red.
+
+FINITE-CONTRACT DESIGN FORK (Architect ruling requested before I wire;
+this gate is design-sensitive and its child is owed repairs, so I do
+NOT guess):
+  (A) MINIMAL: add evidence=(14 aids); emit ##AID only for the five
+      pre-crash legs (2 FALSE-RED + 3 PASS); leave the nine crash-
+      blocked legs unemitted so run_board reconciliation reds on
+      declared-not-executed. Least child surgery; honest red.
+  (B) CRASH-WRAPPER: wrap main() so the Part F crash is caught and the
+      child still emits all 14 ##AID with per-leg honest marks (FAIL for
+      false-red/crash/declared-not-executed, UNAVAILABLE for the three
+      draft-UNAVAILABLE legs). Cleaner declared==emitted (14==14, still
+      honestly red via folded-FAIL). More child surgery.
+  In BOTH: I do NOT repair the child's owed defects (Parts A/C stale
+  prefix, the Part F geom/contraction-width fixture, the two
+  unimplemented legs) -- those are the "owed" list and, given the Part F
+  crash is the same berhu-class harness defect, MAY belong to the red
+  team's harness repair lane. SCOPE QUESTION: is the Part F fixture
+  repair mine (in which case the later legs would run and mint real
+  verdicts) or owed to the red team like berhu's 63a1a5e? And which of
+  (A)/(B) for the emission shape? Nothing minted green either way.
