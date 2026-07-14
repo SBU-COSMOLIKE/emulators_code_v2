@@ -216,13 +216,22 @@ Two further user rules (2026-07-14) on the same doctrine:
   handoff that hands one serial lump to a session that could split it
   is leaving speed on the table.
 - **Squash landings to main.** Main history stays coarse: one squash
-  commit per landed unit (or coherent batch), carrying the feature AND
-  its audit record together — `git merge --squash <branch>` in the
-  main checkout, one commit message naming unit + audit verdict, push.
-  Immediately after, merge main back into the working branch so the
-  next squash carries only new work. The branch keeps its fine-grained
-  history locally (it is never pushed); main reads as a sequence of
-  audited units.
+  commit per landed unit, carrying the feature AND its audit record
+  together — `git merge --squash <branch>` in the main checkout, one
+  commit message naming unit + audit verdict, push. Immediately after,
+  merge main back into the working branch so the next squash carries
+  only new work. The branch keeps its fine-grained history locally (it
+  is never pushed); main reads as a sequence of audited units.
+- **Landing GRANULARITY = one audited unit (user rule, 2026-07-14:
+  "one commit with 12 thousand lines changed - that is crazy").**
+  "Fewer commits" means feature+audit fused into ONE commit, never
+  units fused into one landing. Land at every audit-GO boundary, while
+  the batch is one unit deep; a landing that a human cannot review in
+  one sitting is too big. If several units are somehow GO at once,
+  land them as SEPARATE squash commits in dependency order (`git
+  merge --squash` up to each unit's last commit, commit, repeat).
+  The 2026-07-14 cdfa5dc landing (44 commits, ~12k lines, one commit)
+  is the named counterexample, not a precedent.
 - **Main commit messages are written for HUMANS (user rule,
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo
