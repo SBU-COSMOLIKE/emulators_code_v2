@@ -8857,3 +8857,43 @@ This turn closed the loose ends:
 
 The VERDICT is unchanged: GO, per the audit above. Outbound routing
 summary: notes/mailbox/0013-to-user.md.
+
+## Batch 8 (retro) + fan-out COMPLETE + TEX-PROSE-03 closure (Fable, 2026-07-14)
+
+BATCH 8 (c6d1d47, joint-training 7 + production-diagnostic 7):
+GO RETROACTIVELY — names==drafts exactly, one-file scope
+(board.py, wrapper-emitted), my invariant sweep at the tip clean,
+and every board-surface verification I have run since it landed
+(compile/--list/selftest at multiple tips) already included it
+green. THE MISS, second of its class: it rode to main inside a
+landing while my log walk eyeballed only the recent tail. The
+walk is SHARPENED AGAIN, now mechanical: before any landing,
+enumerate EVERY commit reachable from the tip that is absent from
+my audit records (the status tool's codex scan + a
+non-mine-commit sweep), not a visual tail check.
+
+THE MILESTONE: the drafted fan-out is COMPLETE — 32/40 gates
+carry evidence (25 drafted migrations + 7 foundation).
+Remaining: the six wrapper-family gates, scalar-smoke's tuple
+against the merged child, finite-contract + the warmstart Part
+D/E folding. THE TRIGGER FIRES: per the Wave-5 pre-authorization,
+DIDACTICS-59 (the real eval_val across three partitions on the
+production per-row surface) TRANSFERS to the red team now — the
+migrations have stopped touching those check surfaces; D5 for the
+Implementer shrinks to DIDACTICS-62 + the 64-narrowing/70-leg.
+
+TEX-PROSE-03: CLOSED. The headless audit (records 5a673a4 +
+c339124) ruled GO after re-verifying the lost prior turn's
+evidence fresh — the 58 diary headings (31 Current + 27 Required)
+are gone from the source with every open warning re-homed
+(consequence + safe action), zero audit codes left, the committed
+PDF matching the register hash. Its two permission-blocked
+follow-ups are now DONE BY ME: codex/tex-prose-current-state
+merged into this branch, and the owed independent recompile run —
+two pdflatex passes rc 0, EXACTLY 83 PAGES (the diary layer's
+removal shortened the guide by one page, as recorded), zero
+warnings / overfull / undefined. The five mild narration residues
+fold into the red team's next TEX-PROSE unit as recorded. Also
+noted with approval: the headless turn honored its permission
+denials and printed blocks instead of working around them — the
+harness rails and the role rules composed exactly as designed.

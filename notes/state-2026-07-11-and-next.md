@@ -3391,3 +3391,13 @@ RATIFIED as standing for README prose. Unit closed; merge is the
 user's. Side repair: merge 48ef45a had committed unresolved
 conflict markers into gates-and-board.md; resolved keep-both this
 turn. Spec: gates-and-board.md "README section 24 appendix audit".
+
+B8 + FAN-OUT COMPLETE + TP03 (2026-07-14, Fable): batch 8
+(c6d1d47) GO retro — 7+7 names==drafts, sweep clean; the drafted
+fan-out is COMPLETE at 32/40; DIDACTICS-59 transfers to the red
+team (Wave-5 pre-authorization fires); the log walk sharpened to
+a mechanical non-mine-commit enumeration after the second
+unaudited ride. TEX-PROSE-03 CLOSED: headless GO (5a673a4,
+re-verified fresh), branch merged by me, the owed recompile run
+by me — 83 pages, zero warnings. Spec: gates-and-board.md
+"Batch 8 (retro) + fan-out COMPLETE + TEX-PROSE-03 closure".
