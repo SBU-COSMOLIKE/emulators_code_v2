@@ -3359,3 +3359,15 @@ reply tail prints live; the Bash-permission policy block was
 handed to the user to apply (the classifier correctly stopped me
 self-granting it). The refusal itself is recorded as the
 discipline holding headlessly.
+
+MAILBOX BINDING (SOL) (2026-07-14, Fable): 1eee903 GO — the red
+team bound the mailbox protocol in .codex/REDTEAM_ROLE.md
+(mirrors Opus 7a), recorded the Sol command probe in the
+conventions note (codex-cli 0.144.2, exec, model gpt-5.6-sol,
+workspace-write sandbox), and correctly touched neither Claude
+role nor the daemon. Merged; the verified command is now wired
+into tools/mailbox_daemon.py AGENT_COMMANDS["sol"] (sandbox
+rooted at the repo, which contains every worktree). All three
+lanes are now mailbox-capable; the loop can run end-to-end with
+no human relay, merges/pushes excepted (user-only, and git push
+stays deniable in the user's permission policy).

@@ -61,15 +61,23 @@ AGENT_COMMANDS = {
               "--permission-mode", "acceptEdits"],
     "opus": ["claude", "-p", "--model", "claude-opus-4-8",
              "--permission-mode", "acceptEdits"],
-    # Adjust to the Codex CLI's headless invocation on this machine:
-    "sol": ["codex", "exec"],
+    # Verified by the red team's read-only probe (codex-cli 0.144.2; the
+    # conventions note records the probe): workspace-write sandbox rooted at
+    # the repo, which contains every worktree Sol works in.
+    "sol": ["/Applications/ChatGPT.app/Contents/Resources/codex",
+            "exec",
+            "--model", "gpt-5.6-sol",
+            "--sandbox", "workspace-write",
+            "--cd",
+            "/Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2"],
 }
 
-# The working directory each dispatched agent starts in.
+# The working directory each dispatched agent starts in. Sol's command
+# carries its own --cd, so its subprocess cwd just matches that root.
 AGENT_CWD = {
     "fable": WORKTREE,
     "opus": WORKTREE,
-    "sol": WORKTREE,
+    "sol": "/Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2",
 }
 
 # A message still carrying template placeholders has no job in it; refuse
