@@ -7371,3 +7371,21 @@ green. Composition: unit 82's %.5e decimal-policy fix (the SAME
 writer, line 786) comes later in the artifact chain and rebases
 over this one-line removal. Then REPLAY the end-to-end command —
 which closes DIDACTICS-79. Claim generator_core.py on start.
+
+## Stage-ram fixture repair COMPLETE (coordinated with 25M-15 sizing) (Opus, 2026-07-13)
+
+The 25M-15 packed-target sizing fix (a5db5c5, byte-identical to audited 3031d02) is
+committed in-branch; it correctly reds the pre-repair stage_ram.py foundation fixture
+because the honest planner now needs required=944 for the canonical-order disk leg,
+and the old 8-row / 200-byte budget fell below "resident + one complete batch" (the
+named-terms MemoryError refusal). REPAIR (gates/checks/stage_ram.py, check_canonical_order):
+the unique unsorted selection expands 8 -> 20 rows so the full encoded set exceeds one
+batch and the disk-stream window [resident + one batch, resident + full encoded set] is
+non-empty; the disk budget is 1300 (0.8*1300 = 1040 allowance, inside that window),
+asserted BOTH ways — budget=1300 streams the disk (memmap) path, budget=700 refuses
+below the boundary — with the chosen numbers printed; the seeded-order legs
+(resident==disk targets/params row-for-row, executed==dv[idx[randperm]], minibatch
+membership+order at bs=2) are preserved and pass at 20 rows (10 minibatches). Verified:
+compile clean; `stage_ram.py` ALL PASS (22/0) on the cocoa-torch interpreter against the
+repaired formula. This is the only item that would red on the sizing merge; with it
+landed the pair is clean.
