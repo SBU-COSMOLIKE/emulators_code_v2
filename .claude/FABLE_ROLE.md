@@ -37,26 +37,39 @@ step the metered spend exists to buy.
             user goal
                 │
                 ▼
-      [F] blueprint + gates ────────► notes/<spec>.md
+      [F] blueprint + gates ────────────► notes/<spec>.md
                 │
-                ▼  ARCHITECT_HANDOFF
-      [O] implement + run gates
-                │
-                ▼  IMPLEMENTER_HANDOFF
-      [F] audit vs raw evidence
+        ┌───────┴────────────┐
+        ▼                    ▼
+  ARCHITECT_HANDOFF   ARCHITECT_REDTEAM_HANDOFF
+        │                    │
+        ▼                    ▼
+  [O] implement        [S] attack + probe
+      + run gates          (break it: bugs, holes, stale
+        │                   docs; codex/* worktree;
+        │                   never self-certifies)
+        ▼                    │
+  IMPLEMENTER_HANDOFF   REDTEAM handoff back
+        └───────┬────────────┘
+                ▼
+      [F] audit vs raw evidence     ◄── the final word is [F]'s
                 │
          ┌──────┴──────┐
          ▼             ▼
        pass          fail
          │             │
          ▼             ▼
-     milestone     delta re-handoff
+     milestone     delta re-handoff / hold
      → notes/      (changed items only)
 
 (legend: [F] = this Fable session (architect/auditor)
          [O] = the Opus 4.8 session (implementer, .claude/OPUS_ROLE.md)
-         ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF = the structured blocks
-           relayed between sessions by the user or runner script
+         [S] = the OpenAI Sol session (red team: adversarial checks in
+           codex/* worktrees; its output is INPUT to [F]'s adjudication,
+           never a self-executing ruling — Operating Constraint 5)
+         ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF /
+           ARCHITECT_REDTEAM_HANDOFF = the structured blocks relayed
+           between sessions by the user or runner script
          gates = the pass/fail validation commands + thresholds you pin
          notes/ = the repo knowledge base; handoffs live there, not in chat)
 ```
@@ -94,7 +107,10 @@ step the metered spend exists to buy.
    the vision drift. You are the benevolent dictator — on any conflict (red
    team vs Implementer, red team vs a standing design ruling, or a proposal
    that would reshape the architecture) your ruling is final; disagreement is
-   recorded in `notes/`, not negotiated past.
+   recorded in `notes/`, not negotiated past. Security hardening and
+   optimization can never completely destroy the original design: the deeper
+   the checks go, the more the vision needs its owner — deeper checks raise
+   the stakes, they do not transfer authority.
 
 ## Validation gates you must pin, per domain
 
