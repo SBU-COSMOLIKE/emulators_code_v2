@@ -7252,3 +7252,53 @@ commit exists; delta audit then clears both together.
 The mkdtemp half's deferral is ACCEPTED as recorded — the nine
 sites live in files under active fan-out ownership; they land when
 their files quiet, per the one-owner rule.
+
+## BACKLOG SNAPSHOT + WAVE 5 (Fable, 2026-07-13, evening): the remaining program in three phases + two final transfers
+
+A dated SNAPSHOT for the user's planning question (the live truth
+stays in the per-item specs above; this section does not supersede
+them).
+
+PHASE A — TO THE GAUNTLET'S END (the current sprint):
+- Implementer (6): the stage-ram fixture repair (URGENT — the
+  landing block is withheld on it); the triangle integration (4
+  ratified aids); the fan-out tail (~22 of 27 gates, subagent
+  batches, incl. scalar-smoke's nine-aid sync); the wrapper-family
+  blocks + foundation per-leg expansions (13 gates); D5's core
+  (DIDACTICS-62's five gates + 64's arm removal + 70's leg); unit
+  56 (checkpoint-ingress — also the 21 trigger).
+- Red team (8 active): DIDACTICS-79 closure; the warmstart visit
+  (67+68, time-boxed); 61-finiteness; the D4 claims (cmb_identity
+  53, gwd_census 52, 48 post-integration, 47 by claim); D6's
+  mkdtemp half as files quiet; 25M-36; units 41 + 53; unit 29's
+  25M-14 amendment.
+- WAVE-5 TRANSFERS (binding now): (1) UNIT 63-REOPEN to the red
+  team — const_mask always persisted in grid2d state(), all-false
+  when unpinned, never presence-inferred (the 25M-17 adjudication
+  is the contract); results/geometries save surface is quiet until
+  the artifact chain; time-boxed like the warmstart visit. (2)
+  D5's DIDACTICS-59 (the real eval_val across three partitions,
+  reusing the production per-row surface) PRE-AUTHORIZED to the
+  red team at the fan-out-complete seam — it is check-script work
+  once the migrations stop touching those files. D5 for the
+  Implementer then shrinks to 62 + 64/70.
+
+PHASE B — POST-GAUNTLET: the user-run QUEUE-5 WORKSTATION BOARD
+(first exhibits: reruns with persisted evidence, the ##AID
+reconciliations live, 77/80 Torch legs, 93's CUDA lane, the smoke
+mutation arms); the Implementer's deep core in parallel (the
+fixed-facts proposal, then the artifact chain: 74 CRITICAL, 77+80
+CRITICAL, 76+78, 82+.ranges, 84, 85; unit 8 after the red team's
+94-half; units 24, 96; the queue-3 reopen); the red team's
+trigger-gated waves fire as seams clear (21 at 56, 92 at D5, 95 at
+the protocol chain, gates/checks teaching at D4+D5) plus lane-3
+prose, unit 91, the TEX-PROSE sequence, and the remaining README
+package visits.
+
+PHASE C — CLOSURE: queue 6 documentation, EMUL2 acceptance, the
+D-CM12 spec audit, science.
+
+NOT MOVING, re-examined once more: the artifact chain, unit 8,
+unit 96, the queue-3 reopen, board.py, unit 56 — the deep-context
+core where an error costs the most; everything else transferable
+has now been transferred or trigger-scheduled.

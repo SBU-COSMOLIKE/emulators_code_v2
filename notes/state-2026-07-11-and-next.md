@@ -3110,3 +3110,11 @@ repair, so the LANDING BLOCK IS WITHHELD until that repair commits
 (else stage-ram reds on main). New practice, binding on me: notes
 commits in the shared worktree use PATHSPEC COMMITS (git commit --
 <paths>), which ignore the pre-existing index.
+
+BACKLOG SNAPSHOT + WAVE 5 (2026-07-13, Fable): the three-phase
+remaining program recorded for the user; TWO final transfers —
+unit 63-reopen to the red team NOW (25M-17 contract, time-boxed on
+the quiet save surface) and DIDACTICS-59 pre-authorized at the
+fan-out-complete seam (D5 shrinks to 62+64/70). The deep core
+re-examined and kept. Spec: gates-and-board.md "BACKLOG SNAPSHOT +
+WAVE 5".
