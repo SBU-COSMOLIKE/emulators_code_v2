@@ -3069,3 +3069,12 @@ before the artifact chain opens); nudges on unclaimed 25M-36 +
 unit 93; unit 56 examined and KEPT (resume machinery outranks the
 21 trigger's speed). Bandwidth guidance: batch landings. Spec:
 gates-and-board.md "THROUGHPUT REBALANCE, WAVE 4".
+
+FAN-OUT BATCH 1 (2026-07-13, Fable): b9244cf GO — three gates
+exact to their drafts incl. the first live ctx.unavailable
+(param-window-cuts.init-probes-inspection) and the null-base golden
+UNAVAILABLE disposition in the shared helper (defaults None, rolling
+migration holds); selftest-on-every-integration ratified into the
+fan-out discipline; gt_b_triangle.py coordination noted (red team
+builds on top after landing). 5/27 migrated. CONTINUOUS BATCHING
+authorized. Spec: gates-and-board.md "Fan-out batch 1 audit".

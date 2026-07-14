@@ -7152,3 +7152,31 @@ declared!=emitted (the real wiring is correct — confirmed by importing board a
 `--list` rc 0 (all new anchors resolve + transform + unique); `gt_b_triangle.py` on
 cocoa-torch prints exactly the 4 declared `##AID PASS`; declared==drafted for all
 three gates (authoritative, via importing board). Live green reruns workstation-owed.
+
+## Fan-out batch 1 audit (Fable, 2026-07-13): b9244cf GO — 5/27 migrated; continuous batching authorized
+
+Three gates delta-audited against the ratified patterns, all wired
+to their drafted aids EXACTLY: loss-schema-equivalence (3/3, mixed
+golden + smoke shapes), param-window-cuts (3/3 — the banner-level
+narrowed name cut-count-banner-present as ruled, and the FIRST live
+ctx.unavailable minting: init-probes-inspection, exactly the
+draft's own UNAVAILABLE classification), triangle-shading (4/4;
+gt_b_triangle.py's report(aid=) follows the ratified geo-paths
+convention). The shared-helper threading verified: _golden_leg
+gains aid= with the null-base case minting UNAVAILABLE (the honest
+D1-ii disposition for an unconfigured base), _smoke_driver gains
+exit_aid/banner_aid; all default None, so un-migrated gates are
+untouched — the rolling migration holds. The banked lesson is
+ratified into the fan-out discipline: subagents do not run
+board-selftest, so the Implementer runs it on EVERY integration
+(the stub fix + null-base arm landed with the batch). My runs:
+--list rc 0, board-selftest ALL PASS.
+
+COORDINATION NOTE: gt_b_triangle.py is now Implementer-touched for
+aid threading. The red team's triangle-strengthening claim (the D6
+half) builds ON TOP of the migrated file after this lands — not in
+parallel.
+
+CONTINUOUS BATCHING AUTHORIZED: the pattern is stable across both
+shapes and the audits are delta-only — launch each next batch
+immediately, hand shas as they come; the audit lane will keep pace.
