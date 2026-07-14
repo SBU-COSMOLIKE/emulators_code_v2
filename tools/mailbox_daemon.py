@@ -57,9 +57,14 @@ RELAY_DIR = os.path.join(WORKTREE, "notes", "relay")
 # commands still obey the project permission settings (git push stays
 # deniable there -- the user owns that policy file).
 AGENT_COMMANDS = {
-    "fable": ["claude", "-p", "--model", "claude-fable-5",
+    # Absolute path: the user's conda shells resolve an OLDER claude binary
+    # with a separate (logged-out) credential store; this one is the
+    # logged-in v2.1.208 install (diagnosed 2026-07-14).
+    "fable": ["/Users/vivianmiranda/.local/bin/claude", "-p",
+              "--model", "claude-fable-5",
               "--permission-mode", "acceptEdits"],
-    "opus": ["claude", "-p", "--model", "claude-opus-4-8",
+    "opus": ["/Users/vivianmiranda/.local/bin/claude", "-p",
+             "--model", "claude-opus-4-8",
              "--permission-mode", "acceptEdits"],
     # Verified by the red team's read-only probe (codex-cli 0.144.2; the
     # conventions note records the probe): workspace-write sandbox rooted at
