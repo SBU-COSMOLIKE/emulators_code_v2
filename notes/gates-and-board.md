@@ -13384,3 +13384,49 @@ FROZEN — evidence gaps travel in delta messages, the tip is never
 rewritten (the RULING-A channel). This entry is an adjudication of the
 handback's transport and reachable evidence, not an audit PASS of the
 substance; nothing here authorizes a merge.
+
+## README restructure (0045/0141, commit 47ccec2) audited PASS — with a landing-procedure breach on the Architect (2026-07-14)
+
+The unit: move the AI-loop documentation out of the top-level README into
+`notes/README.md` and give the daemon's command line options their own
+passage. Audit ran interactively (this session), replacing the queued
+0152 dispatch, which is hand-archived to done/.
+
+Evidence, all re-run this turn:
+- The fenced `--help` block in notes/README.md (lines 185–227) is
+  byte-identical to live `python3 tools/mailbox_daemon.py --help` output
+  (whitespace-normalized diff empty; checked programmatically).
+- The fenced `build_agent_commands()` block is present VERBATIM in
+  tools/mailbox_daemon.py (substring check, exact).
+- README.md keeps `## 24. AI usage` and the ToC link `#24-ai-usage`
+  (README.md:139) resolves; the body is the three-sentence pointer the
+  blueprint ordered.
+- Stated values all match the code: claude effort set low..max with
+  fable=xhigh / opus=max defaults; Sol's own set none..xhigh (max rejected
+  pre-dispatch), default xhigh; timeout 60 min with kill+park-in-failed/;
+  both context budgets defaulting to 500000 with the two distinct
+  mechanisms (env CLAUDE_CODE_AUTO_COMPACT_WINDOW vs
+  -c model_auto_compact_token_limit) correctly attributed;
+  SECOND_IMPLEMENTER_THRESHOLD=10 named as the one place the number lives.
+- Register: the ` -- ` and all-caps fragments appear only inside verbatim
+  daemon-output quotes, which stand by the README-DELTA ruling until the
+  print repair lands.
+
+One defect, repaired inline as an audit rider: notes/README.md:12 carried
+a vestigial sentence from the old README ("Claude Code assisted
+development in the `dev` folder") — no such folder exists here. The
+sentence is deleted; the attribution sentence stays.
+
+**The breach this audit closes after the fact:** commit 24ac427 on main
+(the transport bookkeeping landing) swept 47ccec2 to main BEFORE this
+audit ran, because the Architect squashed the shared branch without
+walking `git log main..branch` for other lanes' commits first. The unit
+is now audited PASS, so main's content is sound, but the procedure
+failed: a squash landing certifies everything it carries. The rule that
+prevents a recurrence is added to .claude/FABLE_ROLE.md alongside the
+granularity rule: before every squash, walk the foreign commits and land
+only when each one is audited — otherwise land the audited subset by
+cherry-pick or wait.
+
+No self-certification: the unit was built by the Implementer (0141/0045);
+this entry is the independent audit.

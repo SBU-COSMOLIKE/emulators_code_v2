@@ -8,9 +8,8 @@ library that the loop builds is documented in the top level
 [`README.md`](../README.md); nothing here is needed in order to use the
 library.
 
-Claude Code assisted development in the `dev` folder. Prof. Miranda directed
-the scientific contracts, model architecture, public interface, testing
-requirements and Python readability conventions.
+Prof. Miranda directed the scientific contracts, model architecture, public
+interface, testing requirements and Python readability conventions.
 
 ## Contents
 

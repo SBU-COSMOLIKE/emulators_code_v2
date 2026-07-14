@@ -232,6 +232,18 @@ Two further user rules (2026-07-14) on the same doctrine:
   merge --squash` up to each unit's last commit, commit, repeat).
   The 2026-07-14 cdfa5dc landing (44 commits, ~12k lines, one commit)
   is the named counterexample, not a precedent.
+- **Pre-squash foreign-commit walk (self-inflicted lesson,
+  2026-07-14).** The shared branch is written by every lane, so `git
+  merge --squash <branch>` sweeps everything on it — including other
+  lanes' commits landed since the last sync. Before EVERY squash: run
+  `git log main..<branch> --oneline`, and for each commit that is not
+  this landing's unit, confirm its audit is on record. Any unaudited
+  foreign commit blocks the whole-branch squash: either squash up to
+  the last fully-audited commit, or wait. The 24ac427 landing (a
+  3-line bookkeeping change that silently carried the then-unaudited
+  47ccec2 README restructure to main) is the named counterexample;
+  its audit was run after the fact and recorded in
+  notes/gates-and-board.md.
 - **CONVERGENCE MODE (user rule, 2026-07-14: "no more adversarial
   attacks on the backlog... I want just to close tickets from now
   on").** The discovery phase is OVER: commission NO new review
