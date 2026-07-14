@@ -210,10 +210,28 @@ def main():
     parser.add_argument("--send", metavar="AGENT",
                         choices=["fable", "opus", "sol"],
                         help="queue a message to this agent and exit")
+    parser.add_argument("--ping", metavar="AGENT",
+                        choices=["fable", "opus", "sol"],
+                        help="queue a transport-confirmation ping to this "
+                             "agent (its reply lands as a -to-user.md file "
+                             "the daemon never dispatches)")
     parser.add_argument("--unit", default="",
                         help="the message text for --send (a routing "
                              "summary pointing at notes/)")
     args = parser.parse_args()
+
+    if args.ping:
+        ping_text = (
+            "RELAY CONFIRMATION PING for " + args.ping + ". This is a "
+            "transport test only; no unit is assigned and no repository "
+            "file may change. Reply by creating ONE new file,\n"
+            "notes/mailbox/<next-sequence>-to-user.md, whose entire body "
+            "is one line:\n\n"
+            "    PONG " + args.ping + " from <your model name>\n\n"
+            "Then stop. (Files addressed -to-user are read by the human; "
+            "the daemon never dispatches them.)\n")
+        send(agent=args.ping, text=ping_text)
+        return 0
 
     if args.send:
         if not args.unit:
