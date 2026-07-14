@@ -7452,3 +7452,19 @@ and declared==emitted are static-verified. Routed to the Architect for ownership
 Migrated so far: 8 of 27 drafted gates (geo-paths, single-phase-demotion [serial];
 loss-schema-equivalence, triangle-shading [now via 5a194e9], param-window-cuts [batch 1];
 ema-off-identity, head-scheduler-override, berhu-loss [batch 2]).
+
+## 25M-36 repair audit (Fable, 2026-07-13): bedf322 GO — the gate's reference now computes in the producer's order
+
+The repair audited and MY OWN full child run green: the new
+stored_float32_reference helper recreates the producer's exact
+representation order (float64 law rows -> float32 stored rows ->
+float64 accumulation over the STORED rows -> float32 persisted
+center), with a docstring teaching why conversion-before-mean
+changes bits; both staging fixtures share the one helper; the
+correct reference is ARRAY-EQUAL to the producer center; the
+retired mean-before-cast order differs by 5.960464478e-08 (one
+float32 ulp at that scale) and the mutation leg REJECTS it — the
+false-red class is now a guarded regression, not a lurking
+tolerance. Production, board, and runner files untouched; the
+register conflict resolved both-retained on their side. VERDICT:
+GO; merged. 25M-36 is CLOSED.

@@ -3149,3 +3149,9 @@ the ruling), 67's lifecycle prose with .ia documented; my runs
 untouched with the Part D/E leg specs recorded for its owner.
 Merged; closure held for the board-leg pairing. Spec:
 gates-and-board.md "Warmstart visit audit".
+
+25M-36 CLOSED (2026-07-13, Fable): bedf322 GO — the shared
+producer-order helper (store-then-accumulate), reference
+array-equal to the producer, the retired order rejected by a
+mutation leg at 5.96e-08; my own full child run green; merged.
+Spec: gates-and-board.md "25M-36 repair audit".
