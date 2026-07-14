@@ -62,6 +62,7 @@ if str(_GATES) not in sys.path:
 import run_board
 import board
 from board import BOARD, Assertion, Gate, GateFailure, Manifest, TIER_BACKLOG
+from checks import logscan
 
 FAILURES = []
 CALLS = {}                       # gate id -> how many times its body ran
@@ -2027,6 +2028,52 @@ def check_gha_f_warning():
         board._golden_leg, board._smoke_driver = saved_g, saved_s
 
 
+def check_decreasing_finiteness():
+    """The endpoint descent helper refuses missing or invalid evidence.
+
+    A smoke run uses the first and last logged losses to answer one narrow
+    question: did the final loss fall by more than the requested tolerance?
+    Two points are therefore the minimum evidence. Both endpoints must be
+    finite numbers. Positive infinity in the first slot is the load-bearing
+    control because subtraction without a finite-value check calls that a
+    decrease.
+    """
+    ok, detail = logscan.decreasing(values=[3.0, 1.0], tol=1.0)
+    report("decreasing accepts a finite drop above the tolerance",
+           ok and "drop 2.0" in detail,
+           detail)
+
+    ok, detail = logscan.decreasing(values=[])
+    report("decreasing refuses an empty series",
+           (not ok) and "at least two points" in detail,
+           detail)
+
+    ok, detail = logscan.decreasing(values=[3.0])
+    report("decreasing refuses a one-value series",
+           (not ok) and "at least two points" in detail,
+           detail)
+
+    ok, detail = logscan.decreasing(values=[3.0, float("nan")])
+    report("decreasing refuses a NaN endpoint",
+           (not ok) and "finite endpoints" in detail,
+           detail)
+
+    ok, detail = logscan.decreasing(values=[3.0, 3.0])
+    report("decreasing refuses equal endpoints",
+           (not ok) and "drop 0.0" in detail,
+           detail)
+
+    exploded = [float("inf"), 1.0]
+    old_formula_passes = (exploded[0] - exploded[-1]) > 0.0
+    ok, detail = logscan.decreasing(values=exploded)
+    report("decreasing refuses a positive-infinity first endpoint",
+           ((not ok)
+            and old_formula_passes
+            and "finite endpoints" in detail),
+           detail + ". Unguarded subtraction verdict="
+           + repr(old_formula_passes))
+
+
 def main():
     print("board-selftest (pure Python, no torch)")
     print("\n-- exit-code truth --")
@@ -2079,6 +2126,8 @@ def main():
     check_child_env()
     print("\n-- head-activation-pin warning leg (RT-04: rc_w == 0 required) --")
     check_gha_f_warning()
+    print("\n-- finite endpoint evidence for a logged decrease --")
+    check_decreasing_finiteness()
     print("")
     if FAILURES:
         print("board-selftest: %d FAILURE(S): %s"

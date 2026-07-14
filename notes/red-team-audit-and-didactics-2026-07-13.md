@@ -3164,3 +3164,39 @@ also reports zero remaining match. `git diff --check` is clean.
 
 This refresh record is implementation evidence for Architect audit. It does
 not certify or merge the TEX-PROSE landing.
+
+## Red Team implementation claim: DIDACTICS-61 finite descent evidence
+
+The Architect transferred DIDACTICS-61 to the Red Team after queue-2
+increment 2. The bounded visit claims exactly three code files:
+`gates/checks/logscan.py`, `gates/checks/stage_ram.py` and
+`gates/checks/board_selftest.py`. The first file owns the numerical predicate.
+The second owns the inaccurate two-column fixture description. The third owns
+the five required pure-Python controls. `gates/board.py` and
+`gates/run_board.py` remain with the Implementer and are outside this visit.
+
+The work is isolated on `codex/unit61-finiteness`, based on current main at
+`fe3589a`. This claim is recorded before the shared self-test is edited, as
+required by the one-owner rule.
+
+The implemented predicate preserves the strict comparison
+`first - last > tol`. It now rejects before subtraction unless both endpoint
+values are finite. Its detail names `first` and `last`, so the log shows which
+endpoint is invalid. The docstring also states that the helper compares only
+the endpoints. It does not claim that every intermediate mini-batch loss falls.
+
+`board_selftest.py` executes one ordinary finite-decrease control plus the five
+required refusal controls: empty, one value, NaN, equal endpoints and positive
+infinity in the first endpoint. The positive-infinity control also evaluates
+the unguarded subtraction formula and proves that it would return `True`.
+An independent run-time mutation replaced the repaired helper with that old
+subtraction-only body. The NaN and positive-infinity controls both turned red,
+while the valid-decrease, length and equal-value controls retained their
+expected verdicts.
+
+The complete pure-Python board self-test ends `board-selftest: ALL PASS`.
+The Cocoa Python run of `gates/checks/stage_ram.py` ends
+`stage-ram: ALL PASS` and prints the corrected fact, `float64 parameters
+dominate the two-column float32 target`. Compilation of all three edited Python
+files is clean. This is implementation evidence for Architect review. It does
+not certify the landing.
