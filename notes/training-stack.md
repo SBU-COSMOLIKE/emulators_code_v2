@@ -1880,6 +1880,60 @@ both unimplemented.
 workstation leg does not yet inspect parameters and optimizer state after a
 real update.
 
+### Red Team candidate readback: finite-contract harness repairs
+
+This candidate is isolated on `codex/finite-contract-harness`, based on main
+`5456133`. The only executable file in its scope is
+`gates/checks/finite_contract.py`. Production modules, `gates/board.py`, the
+runner and `texnotes/` are byte-untouched. The branch predates the
+Implementer's always-emit wiring, so its fixture hunks must be integrated
+with that separately audited child before the 14 board terminals can be read
+as one result.
+
+The unmodified child returned 1. Parts A and C produced four false-red reports
+because their expectations still named `finite contract` while the real
+validation and diagnostic boundary emitted `chi2 domain contract`. Parts B,
+D and E passed. Part F then raised `AttributeError: 'CosmolikeChi2' object has
+no attribute 'geom'`, so no later part executed.
+
+The candidate matches Parts A and C through one helper that requires the live
+owner, the requested side and the offending row. Its executable mutation
+restores the retired owner and proves that the real message rejects it. Part F
+now binds one real `CosmolikeChi2` to a three-coordinate harness geometry and
+records ten reads of `dest_idx`. Its mutation restores the geometry-free
+object and reproduces the original `AttributeError` before any numerical
+claim. Reaching the later dtype-band probe also exposed the already-confirmed
+25M-23 prerequisite: the script called `_chi2_domain` without importing it.
+The candidate adds that check-side import and changes no production message or
+numerical implementation.
+
+The extreme-scale fixture drives the real `eval_val` with eight finite
+float32 scores near `1e38`. On CPU it publishes mean and ordinary median
+`9.999999680285692e+37` with finite fractions `[1.0, 0.0]`. One real training
+epoch appends the identical mean to its history. The ordinary-scale mean is
+`4.5`. Restoring the raw float32 mean produces `inf`, so the mutation is
+load-bearing. The CUDA mirror is implemented but did not execute on this Mac;
+it remains honestly unavailable until the workstation run.
+
+The post-step fixture runs one real AdamW epoch, verifies that two model
+parameters changed, and inspects both parameters plus six optimizer-state
+tensors. Every value is finite. Poisoning the first parameter with NaN is
+detected as `parameter weight`; after restoration, poisoning the first Adam
+moment with positive infinity is detected as
+`optimizer state weight.exp_avg`. These are inspection mutations in the
+check, not a claim that production now owns a new post-step refusal boundary.
+
+The complete Cocoa CPU child reaches Parts A through K with zero `[FAIL]`
+reports and returns 2. Its only non-green causes are the mandatory compiled
+backward lane and the mandatory CUDA extreme-scale mirror, both named as lane
+unavailable. `gates/run_board.py --list` returns 0,
+`gates/checks/board_selftest.py` ends `board-selftest: ALL PASS`, compilation
+is clean and `git diff --check` is clean. The pre-existing temporary-directory
+cleanup debt remains outside this repair.
+
+This is implementation evidence for Architect audit. It does not certify the
+landing.
+
 <a id="berhu-loss-evidence"></a>
 **berhu-loss — the shipped berHu transform is compared with analytic values
 and derivatives, then its training configuration is smoke-tested.**

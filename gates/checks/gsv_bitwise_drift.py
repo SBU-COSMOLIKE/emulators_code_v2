@@ -65,6 +65,24 @@ def report(label, ok, detail):
     FAILURES.append(label)
 
 
+def emit_aid(aid, n_before):
+  """Emit ONE '##AID <aid> <PASS|FAIL>' line for a whole acceptance leg.
+
+  (queue 2) The board's run_check folds these reserved lines into the gate's
+  executed set: one per declared leg, at the leg's aggregation point. Every
+  leg here is a single report() call — one variant's rebuild, the drift proof,
+  or one refusal — so a leg's verdict is FAIL if that report appended a label
+  to the module-level FAILURES list. The child's exit status stays the single
+  aggregate verdict; the manifest only says WHICH declared leg each report is.
+
+  Arguments:
+    aid      = the board-unique leg id, "save-rebuild-drift.<leg>".
+    n_before = len(FAILURES) captured immediately before the leg's check ran.
+  """
+  mark = "PASS" if len(FAILURES) == n_before else "FAIL"
+  print("##AID " + aid + " " + mark)
+
+
 def repo_root():
   """The repo root (two levels above gates/checks/)."""
   return Path(__file__).resolve().parents[2]
@@ -263,13 +281,16 @@ def rebuilt_out(save_root, device, probe, *, compile_model=False):
     return model_r(pgeom_r.encode(probe)).detach().clone()
 
 
-def run_variant(name, cfg, device, tmp, persist_root=None):
+def run_variant(name, cfg, device, tmp, persist_root=None, aid=None):
   """Save-rebuild-bitwise one variant; return its (save_root, probe).
 
   persist_root (plain case only) is forwarded to train_save for the
   second, persistent save the cobaya-adapter evaluate leg loads.
+  aid is this variant's declared board leg (queue 2): the one report below
+  IS the leg, so the ##AID line is emitted right here.
   """
   save_root = Path(tmp) / ("emul_" + name)
+  n0 = len(FAILURES)
   exp, probe, live_out = train_save(cfg=cfg, device=device,
                                     save_root=save_root,
                                     persist_root=persist_root)
@@ -278,6 +299,8 @@ def run_variant(name, cfg, device, tmp, persist_root=None):
          torch.equal(live_out, reb_out),
          "max abs diff "
          + repr(float((live_out - reb_out).abs().max())))
+  if aid is not None:
+    emit_aid(aid, n0)
   return save_root, probe
 
 
@@ -306,16 +329,20 @@ def main():
   # (.h5 + .emul) so the board's cobaya-adapter evaluate leg can load it.
   evaluate_root = data_dir / "gates_emul_evaluate"
   plain_root, plain_probe = run_variant(
-    "plain", tiny_config(data_dir), device, tmp, persist_root=evaluate_root)
-  run_variant("factored", tiny_config(data_dir, ia="nla"), device, tmp)
-  run_variant("npce", tiny_config(data_dir, pce=True), device, tmp)
+    "plain", tiny_config(data_dir), device, tmp, persist_root=evaluate_root,
+    aid="save-rebuild-drift.plain-rebuild-matches-live")
+  run_variant("factored", tiny_config(data_dir, ia="nla"), device, tmp,
+              aid="save-rebuild-drift.factored-rebuild-matches-live")
+  run_variant("npce", tiny_config(data_dir, pce=True), device, tmp,
+              aid="save-rebuild-drift.npce-rebuild-matches-live")
   # the conv-head variant: training attaches the bin split
   # (build_shear_angle_map), the save persists it (bin_sizes / pm_kept
   # in the dv-geometry state), and the rebuild reconstructs the ResCNN
   # from the files alone — before the persistence this died in the
   # constructor's bin_sizes assert.
   head_root, _ = run_variant(
-    "head", tiny_config(data_dir, head=True), device, tmp)
+    "head", tiny_config(data_dir, head=True), device, tmp,
+    aid="save-rebuild-drift.head-rebuild-matches-live")
 
   # drift test: monkeypatch the telling default, make_activation's
   # n_gates (activations.py). If rebuild trusted the code default the
@@ -323,6 +350,7 @@ def main():
   # strict weight load / output would break; with the file-recorded
   # n_gates=3 it rebuilds unchanged. The compile-mode default is patched
   # too (a second, softer leg). The plain save uses gated_power (n_gates 3).
+  n_drift = len(FAILURES)
   base_reb = rebuilt_out(plain_root, device, plain_probe)
   saved_defaults = make_activation.__defaults__
   saved_compile = training.DEFAULT_COMPILE_MODE
@@ -337,9 +365,11 @@ def main():
          torch.equal(base_reb, drift_reb),
          "make_activation n_gates default 3 -> 7 patched; max abs diff "
          + repr(float((base_reb - drift_reb).abs().max())))
+  emit_aid("save-rebuild-drift.code-default-drift-ignored", n_drift)
 
   # v1 refusal: tamper schema_version, rebuild must raise loudly.
   import h5py
+  n_v1 = len(FAILURES)
   with h5py.File(str(plain_root) + ".h5", "r+") as f:
     f.attrs["schema_version"] = 1
   refused = False
@@ -350,7 +380,9 @@ def main():
   report("v1 refusal: rebuild raises on schema_version != 2",
          refused,
          "a v1 file must be refused with a clear message")
+  emit_aid("save-rebuild-drift.v1-schema-refusal", n_v1)
 
+  n_head = len(FAILURES)
   # pre-persistence head-artifact refusal: delete the persisted bin
   # split from the head save (simulating an artifact written before
   # 2026-07-11); rebuild must raise the loud KeyError naming the
@@ -371,6 +403,7 @@ def main():
          "persistence",
          refused_head and named,
          "a head file without bin_sizes must be refused, not guessed")
+  emit_aid("save-rebuild-drift.old-head-artifact-refusal", n_head)
 
   print("")
   if len(FAILURES) == 0:

@@ -1535,3 +1535,343 @@ absent.
 `geo-paths.legacy-reference-census` scans the complete repository Python-file
 set supplied by the shared board enumerator, excluding only the check that
 contains the search terms, and requires zero retired flat-module references.
+
+## Queue-2 evidence blocks: the six wrapper-family gates (Opus, 2026-07-14)
+
+These six gates had no red-team naming draft — the throughput rebalance left
+them to me to name — so the blocks below ARE their naming spec. All six live
+here because all six are artifact-lifecycle gates: two identity children that
+run on any torch box, two smoke wrappers that read a real driver's output, and
+the save/rebuild + cobaya pair that needs cosmolike and a GPU.
+
+Three of the legs below mint UNAVAILABLE by construction, not by accident.
+Each one was, before this pass, a `ctx.log` instruction addressed to a human —
+"the Architect confirms this from the saved artifact", "run the MCMC smoke once
+evaluate is green". A logged instruction is not an executed test, and the
+wrapper it sits in must not be allowed to green it (ruling 6): the leg is
+DECLARED, so it is reconciled every run, and it reports UNAVAILABLE with the
+reason naming what nobody executed. The alternative — dropping the leg — is how
+a board quietly stops claiming the thing it was built to claim.
+
+<a id="finetune-identity-evidence"></a>
+**finetune-identity — a warm-started emulator computes the source emulator's own
+function before the first training step, whatever new parameters were added.**
+
+- files: creates a temporary source artifact (`.h5` + `.emul`) and a temporary
+  covariance file under a `ftw-` temp directory; no cosmolike, no dataset.
+- subprocess: `gates/checks/finetune_identity.py`.
+- metric: exact tensor equality for the encoding, the transferred weights and
+  the degenerate state dict; the parity leg reads the warm-start verdict line
+  (`max|dv| = 0.000e+00` on 256 rows); the error legs require a raise.
+- legs: 7, named `finetune-identity.extended-parameter-encoding`,
+  `.weight-transfer-and-padding`, `.pre-train-parity`, `.output-geometry-pin`,
+  `.degenerate-no-extras-identity`, `.loud-config-errors`, and
+  `.anchor-mask-and-freedom`.
+- evidence: all seven are asserted in the child, which emits one `##AID` per
+  leg; the child's exit status stays the single aggregate verdict and is not an
+  eighth leg.
+- owed: none. The child runs green on a plain CPU torch box.
+
+<a id="finetune-identity-extended-parameter-encoding"></a>
+`finetune-identity.extended-parameter-encoding` requires the extra names to be
+`[w0, wa]` in covariance order, the shared coordinates to encode bit-identically
+to the source, and the extra coordinates to be unmoved by a shared-only shift.
+
+<a id="finetune-identity-weight-transfer-and-padding"></a>
+`finetune-identity.weight-transfer-and-padding` requires the padded keys to be
+exactly the input-consuming tensors, every unchanged tensor to be copied exactly,
+and each padded tensor to be the source columns followed by exact zeros.
+
+<a id="finetune-identity-pre-train-parity"></a>
+`finetune-identity.pre-train-parity` requires `build_warm_start` to pass and
+return its verdict line, and the returned `init_state` to load strict as a full
+state dict.
+
+<a id="finetune-identity-output-geometry-pin"></a>
+`finetune-identity.output-geometry-pin` requires a matching dataset/probe/width
+to reuse the source geometry object, and a data-vector width mismatch to raise.
+
+<a id="finetune-identity-degenerate-no-extras-identity"></a>
+`finetune-identity.degenerate-no-extras-identity` requires the no-extras case to
+leave the geometry tensors and the transferred state dict exactly equal to the
+source — the degenerate warm start is a copy.
+
+<a id="finetune-identity-loud-config-errors"></a>
+`finetune-identity.loud-config-errors` requires three raises: a non-superset
+parameter set (naming the missing source parameter), a `model:` block beside
+`finetune:`, and a `--rescale` other than `none`.
+
+<a id="finetune-identity-anchor-mask-and-freedom"></a>
+`finetune-identity.anchor-mask-and-freedom` requires the anchor mask to zero
+exactly the padded extra columns, the source columns to be pinned to the
+`init_state`, the padded extra columns to stay free, and `lambda 0` to be a
+no-op.
+
+<a id="transfer-identity-evidence"></a>
+**transfer-identity — a frozen base under a zero-output correction predicts the
+frozen base itself, in every form and space, and a saved composition reloads to
+the same prediction.**
+
+- files: creates a temporary plain base, factored base, grid base and composed
+  transfer artifact under a `tpe-` temp directory; no cosmolike, no dataset.
+- subprocess: `gates/checks/transfer_identity.py`.
+- metric: exact tensor equality for the epoch-0 identity, the base-encoding
+  slice and the save/rebuild composition; `1e-6` for the `EmulatorPredictor`
+  comparison; call counting for the base cache; a raise for each refusal.
+- legs: 8, named `transfer-identity.plain-base-slice-and-identity`,
+  `.factored-base-slice-and-identity`, `.zero-init-surgery`,
+  `.loud-config-errors`, `.artifact-lifecycle-round-trip`,
+  `.refined-base-lifecycle`, `.diagonal-family-composition`, and
+  `.cross-family-base-refusal`.
+- evidence: all eight are asserted in the child, one `##AID` each. The two
+  legs inside `check_diagonal` are emitted by that function rather than around
+  it, so the cross-family refusal reports under its own name.
+- owed: none, but `.cross-family-base-refusal` is RED today and is expected to
+  report FAIL until its fixture is repaired — the raised `ValueError` does not
+  carry the words the leg greps for. The red is in the red-team register; this
+  migration does not touch it, and the child (so the gate) exits non-zero while
+  it stands.
+
+<a id="transfer-identity-plain-base-slice-and-identity"></a>
+`transfer-identity.plain-base-slice-and-identity` requires, for a plain base:
+the extras to be `[w0, wa]`, the base encoding to be an exact column slice of
+the run's encoding, and for each of the four form x space combinations the
+target width, the base cache (one base encode, no chi2 recompute) and the
+epoch-0 identity with extras-independence.
+
+<a id="transfer-identity-factored-base-slice-and-identity"></a>
+`transfer-identity.factored-base-slice-and-identity` requires the same set for a
+factored (three-template) base.
+
+<a id="transfer-identity-zero-init-surgery"></a>
+`transfer-identity.zero-init-surgery` requires the correction's final `Linear`
+to be exactly zero (weight and bias) and every other tensor to be untouched.
+
+<a id="transfer-identity-loud-config-errors"></a>
+`transfer-identity.loud-config-errors` requires seven raises: an unknown
+`transfer.form`; transfer with `--rescale`; transfer with pce; transfer with
+finetune; transfer with `model.ia`; an incomplete `refine` block; and a
+non-superset parameter set.
+
+<a id="transfer-identity-artifact-lifecycle-round-trip"></a>
+`transfer-identity.artifact-lifecycle-round-trip` requires a rebuilt transfer
+artifact to return the embedded base with its form/space, its composed predict
+to equal the in-memory composition exactly, `EmulatorPredictor.predict` to
+agree to `1e-6`, and chaining (a transfer used as a base) to be refused.
+
+<a id="transfer-identity-refined-base-lifecycle"></a>
+`transfer-identity.refined-base-lifecycle` requires a refined artifact's composed
+predict to use the drifted base exactly, and a drifted state without its
+companion attribute to raise.
+
+<a id="transfer-identity-diagonal-family-composition"></a>
+`transfer-identity.diagonal-family-composition` requires, on the diagonal
+families: the epoch-0 identity through the log law for both forms, the packed
+target with an exact zero-correction chi2, the refusal of physical space, the
+transfer-validator resolutions and rejections, the family validators'
+acceptance matrix, and a saved grid transfer artifact predicting the composition
+exactly.
+
+<a id="transfer-identity-cross-family-base-refusal"></a>
+`transfer-identity.cross-family-base-refusal` requires `from_config` to raise a
+`ValueError` naming the never-across-families rule when a grid2d run points at a
+grid base. RED TODAY: the raise happens, but its message does not contain the
+words the leg tests for, so the leg reports FAIL. Repairing the fixture (or the
+message) is a separate unit; the leg keeps its own aid so the red names itself
+instead of hiding inside the composition group.
+
+<a id="save-rebuild-drift-evidence"></a>
+**save-rebuild-drift — an emulator rebuilt from its saved file alone reproduces
+the live model exactly, and a file the schema cannot honour is refused.**
+
+- files: trains and saves four tiny emulators under a `gsv-` temp directory, and
+  persists one of them (the plain variant) to
+  `<driver_root>/chains/gates_emul_evaluate` for the cobaya-adapter gate's
+  evaluate leg to load; reads the deploy dumps.
+- subprocess: `gates/checks/gsv_bitwise_drift.py`.
+- metric: exact tensor equality between the live and rebuilt outputs; a raise
+  (with the message named) for each refusal.
+- legs: 7, named `save-rebuild-drift.plain-rebuild-matches-live`,
+  `.factored-rebuild-matches-live`, `.npce-rebuild-matches-live`,
+  `.head-rebuild-matches-live`, `.code-default-drift-ignored`,
+  `.v1-schema-refusal`, and `.old-head-artifact-refusal`.
+- evidence: all seven are asserted in the child, one `##AID` each; the wrapper's
+  rc check is the child's aggregate verdict and carries no aid.
+- owed: the whole gate needs cosmolike, a GPU and the deploy dumps, so it is
+  capability-skipped on the Mac. Its live green is WORKSTATION-OWED.
+
+<a id="save-rebuild-drift-plain-rebuild-matches-live"></a>
+`save-rebuild-drift.plain-rebuild-matches-live` requires the plain variant's
+rebuilt output to equal the live model's output exactly on a probe.
+
+<a id="save-rebuild-drift-factored-rebuild-matches-live"></a>
+`save-rebuild-drift.factored-rebuild-matches-live` requires the same for an
+`nla` factored save.
+
+<a id="save-rebuild-drift-npce-rebuild-matches-live"></a>
+`save-rebuild-drift.npce-rebuild-matches-live` requires the same for a
+neural-PCE save.
+
+<a id="save-rebuild-drift-head-rebuild-matches-live"></a>
+`save-rebuild-drift.head-rebuild-matches-live` requires the same for a conv-head
+save, whose rebuild must reconstruct the ResCNN from the persisted bin split
+alone, with no dataset ini.
+
+<a id="save-rebuild-drift-code-default-drift-ignored"></a>
+`save-rebuild-drift.code-default-drift-ignored` monkeypatches
+`make_activation`'s `n_gates` default (3 -> 7) and the compile-mode default,
+rebuilds the plain save, and requires the output to be unchanged: the rebuild
+reads the file, not the code's current defaults.
+
+<a id="save-rebuild-drift-v1-schema-refusal"></a>
+`save-rebuild-drift.v1-schema-refusal` tampers `schema_version` to 1 and
+requires the rebuild to raise.
+
+<a id="save-rebuild-drift-old-head-artifact-refusal"></a>
+`save-rebuild-drift.old-head-artifact-refusal` deletes the persisted bin split
+from a head save (a pre-persistence artifact) and requires the rebuild to raise
+a `KeyError` naming the bin-split persistence — never to re-derive the split.
+
+<a id="cobaya-adapter-evidence"></a>
+**cobaya-adapter — the predictor a cobaya theory block calls at sampling time
+reproduces the training-side data vector and scatters it into the layout the
+likelihood expects.**
+
+- files: trains and saves two tiny emulators under a `gct-` temp directory;
+  loads the emulator save-rebuild-drift persisted at
+  `<driver_root>/chains/gates_emul_evaluate.h5`; runs the board's evaluate YAML.
+- subprocess: `gates/checks/gct_parity.py` (the parity legs), then `cobaya-run`
+  (the evaluate leg).
+- metric: worst relative error <= `1e-6` for parity (denominator `|want| +
+  1e-8`); set/length equality for the scattered-vector legs; process exit code
+  for the evaluate run.
+- legs: 7, named `cobaya-adapter.plain-predictor-parity`,
+  `.plain-scattered-vector-shape-and-mask`, `.factored-predictor-parity`,
+  `.factored-scattered-vector-shape-and-mask`, `.evaluate-emulator-present`,
+  `.example-evaluate-run-completes`, and `.mcmc-smoke`.
+- evidence: asserted — the four child parity legs (one `##AID` each) plus the
+  two wrapper evaluate legs; UNAVAILABLE — `.mcmc-smoke`, which no code in this
+  gate executes.
+- owed: cosmolike + cobaya + GPU, so the gate is capability-skipped on the Mac;
+  its live green is WORKSTATION-OWED. The MCMC leg is owed a real short-chain
+  run before it can mint anything but UNAVAILABLE.
+
+<a id="cobaya-adapter-plain-predictor-parity"></a>
+`cobaya-adapter.plain-predictor-parity` requires the `EmulatorPredictor` built
+from the saved plain file to match the training-side kept-entry data vector to a
+worst relative error of `1e-6` across the probe rows.
+
+<a id="cobaya-adapter-plain-scattered-vector-shape-and-mask"></a>
+`cobaya-adapter.plain-scattered-vector-shape-and-mask` requires, for the plain
+save, the section length to equal the stored `section_sizes[0]`, the 3x2pt
+length to equal `total_size`, and every position outside `dest_idx` to be
+exactly `0.0` in the scattered vector.
+
+<a id="cobaya-adapter-factored-predictor-parity"></a>
+`cobaya-adapter.factored-predictor-parity` requires the same parity bar for the
+factored (`nla`) save, whose decode path runs through the chi2 function.
+
+<a id="cobaya-adapter-factored-scattered-vector-shape-and-mask"></a>
+`cobaya-adapter.factored-scattered-vector-shape-and-mask` requires the same
+shape and masking set for the factored save.
+
+<a id="cobaya-adapter-evaluate-emulator-present"></a>
+`cobaya-adapter.evaluate-emulator-present` requires the emulator
+save-rebuild-drift persists to exist on disk before the evaluate run is spent on
+a missing file; a lone `--gate cobaya-adapter` invocation must run
+save-rebuild-drift once first.
+
+<a id="cobaya-adapter-example-evaluate-run-completes"></a>
+`cobaya-adapter.example-evaluate-run-completes` requires `cobaya-run` on the
+board's evaluate YAML (the lsst_y1 likelihood, `use_emulator 1`) to exit zero.
+It proves the run completes; the physics parity is the child's job.
+
+<a id="cobaya-adapter-mcmc-smoke"></a>
+`cobaya-adapter.mcmc-smoke` would prove the theory block drives a sampler, not
+just an evaluate. UNAVAILABLE: this gate starts no sampler. It was a logged
+instruction ("run it with an mcmc sampler override once the evaluate leg is
+green"), and an instruction is not a test — the leg stays declared, and reports
+UNAVAILABLE every run, until a short-chain run is actually executed here.
+
+<a id="finetune-smoke-evidence"></a>
+**finetune-smoke — a real fine-tune run continues the board's own saved
+emulator.**
+
+- files: reads the emulator save-rebuild-drift persists under the board
+  fileroot; the run writes its own outputs under the driver root.
+- subprocess: the cosmic-shear training driver, on the `finetune-smoke-config`
+  YAML.
+- metric: process exit code, plus selected-text presence of two driver lines
+  (the parity verdict, the warm-start banner).
+- legs: 4, named `finetune-smoke.run-completes`, `.parity-verdict-printed`,
+  `.warm-start-banner`, and `.artifact-provenance-and-round-trip`.
+- evidence: asserted — the first three, in the wrapper, from the driver's exit
+  code and its output; UNAVAILABLE — the provenance/round-trip leg, which this
+  gate does not execute.
+- owed: cosmolike + GPU, so capability-skipped on the Mac; its live green is
+  WORKSTATION-OWED.
+
+<a id="finetune-smoke-run-completes"></a>
+`finetune-smoke.run-completes` requires the fine-tune driver to exit zero.
+
+<a id="finetune-smoke-parity-verdict-printed"></a>
+`finetune-smoke.parity-verdict-printed` requires the driver's output to carry
+the pre-train parity line (`finetune parity: max|dv|`). This is a text-presence
+leg: it proves the driver ran the parity check and printed its verdict. The
+identity itself is asserted numerically by finetune-identity.
+
+<a id="finetune-smoke-warm-start-banner"></a>
+`finetune-smoke.warm-start-banner` requires the startup banner to announce the
+source artifact (`finetune: from `).
+
+<a id="finetune-smoke-artifact-provenance-and-round-trip"></a>
+`finetune-smoke.artifact-provenance-and-round-trip` would prove the saved `.h5`
+carries the `finetuned_from` root attribute and that a `rebuild_emulator` round
+trip predicts identically. UNAVAILABLE: this gate reads the driver's stdout and
+opens no file. The mechanism is asserted by finetune-identity; on THIS artifact
+the claim was a logged instruction for a human at the workstation, and it stays
+declared-and-unavailable until the gate opens the artifact itself.
+
+<a id="transfer-smoke-evidence"></a>
+**transfer-smoke — a real transfer run composes a correction over the board's own
+saved base.**
+
+- files: reads the plain base save-rebuild-drift persists under the board
+  fileroot; the run saves its own composed artifact under the driver root.
+- subprocess: the cosmic-shear training driver, on the `transfer-smoke-config`
+  YAML.
+- metric: process exit code, plus selected-text presence of four driver lines
+  (the epoch-0 parity verdict, the transfer banner, and the two save lines).
+- legs: 5, named `transfer-smoke.run-completes`, `.parity-verdict-printed`,
+  `.transfer-banner`, `.saved-artifact-paths-printed`, and
+  `.artifact-provenance-and-round-trip`.
+- evidence: asserted — the first four, in the wrapper, from the driver's exit
+  code and its output; UNAVAILABLE — the provenance/round-trip leg.
+- owed: cosmolike + GPU, so capability-skipped on the Mac; its live green is
+  WORKSTATION-OWED.
+
+<a id="transfer-smoke-run-completes"></a>
+`transfer-smoke.run-completes` requires the transfer driver to exit zero.
+
+<a id="transfer-smoke-parity-verdict-printed"></a>
+`transfer-smoke.parity-verdict-printed` requires the driver's output to carry
+the epoch-0 parity line (`transfer parity: epoch 0 == frozen base`). A
+text-presence leg, as in finetune-smoke; the identity itself is asserted
+numerically by transfer-identity.
+
+<a id="transfer-smoke-transfer-banner"></a>
+`transfer-smoke.transfer-banner` requires the startup banner to announce the
+base and its form/space (`transfer: from `).
+
+<a id="transfer-smoke-saved-artifact-paths-printed"></a>
+`transfer-smoke.saved-artifact-paths-printed` requires both save lines (`saved
+emulator ->` and `saved run record ->`) in the output. It proves the save ran
+and printed its two paths — NOT that the file reloads, which is the next leg.
+
+<a id="transfer-smoke-artifact-provenance-and-round-trip"></a>
+`transfer-smoke.artifact-provenance-and-round-trip` would prove the saved `.h5`
+carries the `transfer_from` root attribute and the embedded `transfer_base`
+group, and that `rebuild_emulator` -> composed predict reproduces the in-memory
+composition. UNAVAILABLE, for the same reason as its finetune twin: the gate
+reads stdout and opens no file. The mechanism is asserted by transfer-identity's
+lifecycle leg.

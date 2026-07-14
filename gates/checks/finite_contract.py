@@ -62,6 +62,17 @@ The parts, in order:
      band. The Part F compile arm is now capability-gated (mandatory-red on a
      compile-capable box, an explicit SKIP-DEP otherwise, plus a
      raising-callable control).
+  I. extreme-scale validation reductions — eight individually finite
+     float32 scores near 1e38 must publish a finite float64 mean, ordinary
+     median, and threshold fractions through the real eval_val. The returned
+     mean must also be the value appended to the real training history. A
+     restored float32 mean must overflow on the CPU mutation arm. The same
+     small fixture runs on CUDA when that mandatory lane is available.
+  J. optimizer schema — every public numeric optimizer control is validated
+     by type and range before construction.
+  K. post-step finiteness — after a real AdamW update, every model parameter
+     and optimizer-state tensor must be finite. Deliberately poisoning either
+     surface must be detected by the same inspection.
 Every checked value is printed; any failure prints a FAIL line and the run
 exits non-zero.
 
@@ -84,7 +95,8 @@ from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
 from emulator.geometries.output import DataVectorGeometry
 from emulator.geometries.parameter import ParamGeometry
-from emulator.losses.core import CosmolikeChi2, _chi2_neg_band
+from emulator.losses.core import (CosmolikeChi2, _chi2_domain,
+                                  _chi2_neg_band)
 from emulator.losses.scalar import ScalarChi2
 from emulator.losses.transfer import TransferChi2
 from emulator.results import save_emulator
@@ -121,6 +133,27 @@ def report(label, ok, detail):
   print("  [" + mark + "] " + label + "  (" + detail + ")")
   if not ok:
     FAILURES.append(label)
+
+
+def _matches_domain_error(message, side, row, owner="chi2 domain contract"):
+  """Match the live score-domain error owner, side, and source row.
+
+  The score-domain boundary replaced the older finite-only boundary. The
+  fixture must therefore match the current ``chi2 domain contract`` owner.
+  ``owner`` is explicit so the mutation arm can restore the retired
+  ``finite contract`` expectation and prove that it rejects the real error.
+
+  Arguments:
+    message = the ValueError text emitted by the real score-domain boundary.
+    side    = the expected boundary name (``validation`` or ``diagnostic``).
+    row     = the expected offending source-row number.
+    owner   = the expected message owner. The default is the live owner.
+
+  Returns:
+    True only when the owner, side, and row are all present.
+  """
+  prefix = owner + " [" + side + "]"
+  return prefix in message and str(int(row)) in message
 
 
 # ==========================================================================
@@ -194,8 +227,18 @@ def check_eval_val():
     lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
                      load=N_VAL, bs=N_VAL, thresholds=thresholds))
   report("eval_val: one NaN among good rows raises, naming the validation row",
-         raised and "finite contract [validation]" in msg and "41" in msg,
+         raised and _matches_domain_error(message=msg,
+                                          side="validation",
+                                          row=41),
          _short(msg))
+  retired_match = _matches_domain_error(message=msg,
+                                        side="validation",
+                                        row=41,
+                                        owner="finite contract")
+  report("eval_val: the retired finite-contract prefix expectation reds "
+         "(mutation)",
+         raised and not retired_match,
+         "live chi2-domain message does not satisfy the retired owner")
 
   # +Inf and -Inf both raise (they, too, would count below every threshold).
   for tag, val in (("+Inf", float("inf")), ("-Inf", float("-inf"))):
@@ -205,7 +248,9 @@ def check_eval_val():
       lambda: eval_val(model=model, lossfn=loss, data=_val_data(C, DV),
                        load=N_VAL, bs=N_VAL, thresholds=thresholds))
     report("eval_val: an " + tag + " chi2 raises",
-           raised and "finite contract [validation]" in msg and "7" in msg,
+           raised and _matches_domain_error(message=msg,
+                                            side="validation",
+                                            row=7),
            _short(msg))
 
 
@@ -431,7 +476,9 @@ def check_source_chi2():
                              chi2fn=_SrcChi2(), source=source, device=DEV,
                              bs=N_SRC))
   report("eval_source_chi2: a non-finite per-row chi2 raises (side diagnostic)",
-         raised and "finite contract [diagnostic]" in msg and "9" in msg,
+         raised and _matches_domain_error(message=msg,
+                                          side="diagnostic",
+                                          row=9),
          _short(msg))
 
 
@@ -672,8 +719,36 @@ def check_transfer_parity(source, pgeom_x, extras_x, C_x):
 # Part F: the safe-sqrt producer -- an exact fit never NaNs the step.
 # ==========================================================================
 
+class _ReduceGeometry:
+  """Supply and count the contraction-width reads made by ``_reduce``.
+
+  The direct reduction probes do not need covariance or whitening state. The
+  production score-domain screen does need the number of terms in one
+  contraction, which every real geometry supplies through ``dest_idx``.
+
+  Arguments:
+    reduction_width = the number of kept coordinates in one contraction.
+  """
+
+  def __init__(self, reduction_width):
+    self._dest_idx = torch.arange(int(reduction_width), dtype=torch.long)
+    self.width_read_count = 0
+
+  @property
+  def dest_idx(self):
+    """Return kept indices and record that production read the width."""
+    self.width_read_count += 1
+    return self._dest_idx
+
+
 def _reduce_obj():
-  """A bare CosmolikeChi2 (no __init__): _reduce uses only its arguments."""
+  """Build the real loss with the geometry fact its reduction now requires."""
+  geometry = _ReduceGeometry(reduction_width=3)
+  return CosmolikeChi2(geom=geometry)
+
+
+def _broken_reduce_obj():
+  """Restore the retired geometry-free harness for the crash mutation arm."""
   return CosmolikeChi2.__new__(CosmolikeChi2)
 
 
@@ -721,6 +796,18 @@ def _can_compile():
 
 def check_safe_sqrt():
   """Part F: the sqrt sites are grad-safe at an exact fit, in every mode."""
+  broken_raised = False
+  broken_detail = "geometry-free reduction did not raise"
+  try:
+    _reduce_loss(_broken_reduce_obj(), torch.tensor([1.0]), "sqrt")
+  except AttributeError as exc:
+    broken_raised = "geom" in str(exc)
+    broken_detail = str(exc)
+  report("safe-sqrt harness: a geometry-free loss still crashes "
+         "(mutation)",
+         broken_raised,
+         _short(broken_detail))
+
   obj = _reduce_obj()
   # (label, mode, berhu_s): the four sqrt sites -- sqrt mode, both berhu lower
   # branches, and the anneal arm -- plus the berhu_capped exact-fit row, which
@@ -754,6 +841,10 @@ def check_safe_sqrt():
     loss = _reduce_loss(obj, torch.tensor([1.0, bad, 2.0]), "sqrt")
     report("safe-sqrt: a " + tag + " chi2 is refused (non-finite loss)",
            not bool(torch.isfinite(loss)), "loss = " + repr(loss.item()))
+
+  report("safe-sqrt harness: the real reduction read its contraction width",
+         obj.geom.width_read_count > 0,
+         "dest_idx reads " + str(obj.geom.width_read_count))
 
   # eager + compiled: the exact-fit gradient stays finite under torch.compile.
   # capability detection FIRST. A broad except that greened
@@ -1280,6 +1371,193 @@ def check_chi2_band_dtype_provenance():
 
 
 # ==========================================================================
+# Part I: extreme-scale validation reductions remain finite after publication.
+# ==========================================================================
+
+class _PublishedScoreLoss:
+  """Drive training with a finite loss and publish target column zero as chi2.
+
+  The validation target stores an already-computed per-row score. Returning it
+  from ``chi2`` lets the fixture choose eight individually finite float32
+  values whose float32 sum overflows, while still driving the real ``eval_val``
+  reduction and the real training-history append.
+  """
+
+  needs_params = False
+
+  def loss(self, pred, target, mode="sqrt", trim=None, focus=None,
+           focus_scale=None, berhu_knot=None, berhu_cap=None, berhu_s=None):
+    """Return a finite differentiable scalar independent of the score target.
+
+    Arguments:
+      pred        = the model prediction tensor.
+      target      = the target tensor. Its first column stores published chi2.
+      mode        = the training loss mode. Unused by this finite fixture.
+      trim        = the trim fraction. Unused by this finite fixture.
+      focus       = the focal exponent. Unused by this finite fixture.
+      focus_scale = the focal scale. Unused by this finite fixture.
+      berhu_knot  = the berHu lower knot. Unused by this finite fixture.
+      berhu_cap   = the capped-berHu upper knot. Unused by this finite fixture.
+      berhu_s     = the berHu anneal value. Unused by this finite fixture.
+
+    Returns:
+      A finite scalar with a real gradient through ``pred``.
+    """
+    return (pred ** 2).mean()
+
+  def chi2(self, pred, target):
+    """Return the fixture's precomputed per-row validation scores.
+
+    Arguments:
+      pred   = the model prediction tensor. The score fixture ignores it.
+      target = the target tensor whose first column stores the score.
+
+    Returns:
+      The one-dimensional float32 score tensor.
+    """
+    return target[:, 0]
+
+
+def _score_data(scores, device):
+  """Build the loader dictionary used by the direct and history probes.
+
+  Arguments:
+    scores = a one-dimensional float32 tensor of per-row scores.
+    device = the device on which the real model and loss execute.
+
+  Returns:
+    A training-loop source dictionary with identical train and validation
+    rows. The validation target's first column carries ``scores``.
+  """
+  n_rows = int(scores.numel())
+  inputs = torch.linspace(-0.5, 0.5, n_rows, device=device).reshape(-1, 1)
+  targets = scores.to(device=device).reshape(-1, 1)
+  source = {
+    "load_C": lambda rows: inputs[rows],
+    "load_dv": lambda rows: targets[rows],
+    "idx": np.arange(n_rows),
+    "load": n_rows,
+  }
+  return {"train": dict(source), "val": dict(source)}
+
+
+def _drive_published_scores(scores, device):
+  """Run real evaluation and history publication for one score vector.
+
+  Arguments:
+    scores = a one-dimensional float32 CPU tensor of finite scores.
+    device = the execution device for the model, loss, and source tensors.
+
+  Returns:
+    ``(direct, history)`` where ``direct`` is the real eval_val triple and
+    ``history`` is the mean appended by one real training epoch.
+  """
+  data = _score_data(scores=scores, device=device)
+  model = nn.Linear(1, 1).to(device)
+  loss = _PublishedScoreLoss()
+  thresholds = torch.tensor([0.5e38, 1.5e38], dtype=torch.float32)
+  direct = eval_val(model=model,
+                    lossfn=loss,
+                    data=data["val"],
+                    load=int(scores.numel()),
+                    bs=int(scores.numel()),
+                    thresholds=thresholds)
+
+  optimizer = torch.optim.SGD(model.parameters(), lr=1.0e-3)
+  scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+  result = training_loop_batched(
+    nepochs=1,
+    optimizer=optimizer,
+    scheduler=scheduler,
+    model=model,
+    bs=int(scores.numel()),
+    lossfn=loss,
+    mode="sqrt",
+    data=data,
+    trim_opts=TRIM,
+    focus_opts=FOCUS,
+    thresholds=thresholds,
+    silent=True)
+  history_mean = result[2][0]
+  return direct, history_mean
+
+
+def _check_extreme_scale_device(device):
+  """Check published reductions and their mutation on one device.
+
+  Arguments:
+    device = the CPU or CUDA execution device.
+
+  Returns:
+    True when this backend's raw float32 mean overflows. A backend that does
+    not reproduce the overflow is reported as a control, as required by the
+    contract, while the CPU arm remains the mandatory mutation witness.
+  """
+  device_label = str(device)
+  scores = torch.full((8,), 1.0e38, dtype=torch.float32)
+  reference_mean = float(scores.to(torch.float64).mean())
+  reference_median = ordinary_median(scores)
+  direct, history_mean = _drive_published_scores(scores=scores,
+                                                  device=device)
+  median, mean, frac = direct
+  finite_outputs = (np.isfinite(mean)
+                    and np.isfinite(median)
+                    and bool(torch.isfinite(frac).all()))
+  reference_ok = (abs(mean - reference_mean)
+                  <= 1.0e-12 * abs(reference_mean)
+                  and median == reference_median)
+  report("extreme validation reductions: " + device_label
+         + " publishes finite float64 mean, median, and fractions",
+         finite_outputs and reference_ok,
+         "mean " + repr(mean) + "; median " + repr(median)
+         + "; frac " + repr(frac.tolist()))
+  report("extreme validation reductions: " + device_label
+         + " real history receives the returned mean",
+         history_mean == mean,
+         "returned " + repr(mean) + "; history " + repr(history_mean))
+
+  ordinary = torch.arange(1, 9, dtype=torch.float32)
+  ordinary_direct, _ = _drive_published_scores(scores=ordinary,
+                                                device=device)
+  ordinary_mean = ordinary_direct[1]
+  ordinary_reference = float(ordinary.to(torch.float64).mean())
+  report("extreme validation reductions: " + device_label
+         + " ordinary-scale control is unchanged",
+         abs(ordinary_mean - ordinary_reference) <= 1.0e-7,
+         "mean " + repr(ordinary_mean))
+
+  device_scores = scores.to(device=device)
+  mutated_mean = float(device_scores.mean().detach().cpu())
+  mutation_overflows = not np.isfinite(mutated_mean)
+  if mutation_overflows:
+    report("extreme validation reductions: " + device_label
+           + " float32-mean mutation overflows",
+           True,
+           "mutated mean " + repr(mutated_mean))
+  else:
+    print("  [CONTROL] extreme validation reductions: " + device_label
+          + " backend retained a finite float32 mean "
+          + repr(mutated_mean))
+  return mutation_overflows
+
+
+def check_extreme_scale_reductions():
+  """Part I: extreme finite rows publish finite reductions and history."""
+  cpu_overflow = _check_extreme_scale_device(device=torch.device("cpu"))
+  report("extreme validation reductions: the CPU mutation is load-bearing",
+         cpu_overflow,
+         "eight finite float32 scores overflow only in the retired reduction")
+
+  if torch.cuda.is_available():
+    _check_extreme_scale_device(device=torch.device("cuda"))
+  else:
+    LANE_UNAVAILABLE.append("extreme-scale validation CUDA")
+    print("  [LANE UNAVAILABLE] extreme validation reductions: CUDA is "
+          "mandatory for workstation closure; the CPU fixture ran, but the "
+          "CUDA mirror did not execute on this box.")
+
+
+# ==========================================================================
 # helpers + main
 # ==========================================================================
 
@@ -1355,6 +1633,138 @@ def check_optimizer_schema():
     report("optimizer schema: " + label + " is refused", refused, "ValueError")
 
 
+def _optimizer_surface_status(model, optimizer):
+  """Inspect every model parameter and tensor in the optimizer state.
+
+  Arguments:
+    model     = the model after a real optimizer update.
+    optimizer = the optimizer whose state belongs to that model and update.
+
+  Returns:
+    ``(ok, detail, n_parameters, n_state_tensors)``. ``ok`` is False when any
+    inspected tensor is non-finite. ``detail`` names every bad surface.
+  """
+  bad = []
+  n_parameters = 0
+  for name, parameter in model.named_parameters():
+    n_parameters += 1
+    if not bool(torch.isfinite(parameter.detach()).all()):
+      bad.append("parameter " + name)
+
+  n_state_tensors = 0
+  for parameter, state in optimizer.state.items():
+    parameter_name = "unknown"
+    for name, candidate in model.named_parameters():
+      if candidate is parameter:
+        parameter_name = name
+        break
+    for key, value in state.items():
+      if torch.is_tensor(value):
+        n_state_tensors += 1
+        if not bool(torch.isfinite(value.detach()).all()):
+          bad.append("optimizer state " + parameter_name + "." + str(key))
+      elif isinstance(value, (int, float)):
+        if not np.isfinite(value):
+          bad.append("optimizer state " + parameter_name + "." + str(key))
+
+  if len(bad) == 0:
+    detail = (str(n_parameters) + " parameters; "
+              + str(n_state_tensors) + " optimizer-state tensors")
+    return True, detail, n_parameters, n_state_tensors
+  return False, ", ".join(bad), n_parameters, n_state_tensors
+
+
+def _first_adam_moment(optimizer):
+  """Return the first Adam first-moment tensor for the mutation arm.
+
+  Arguments:
+    optimizer = a stepped Adam-family optimizer.
+
+  Returns:
+    The first ``exp_avg`` tensor, or None if the real update made no state.
+  """
+  for state in optimizer.state.values():
+    value = state.get("exp_avg")
+    if torch.is_tensor(value):
+      return value
+  return None
+
+
+def check_optimizer_post_step():
+  """Part K: inspect parameters and optimizer state after a real update."""
+  torch.manual_seed(23)
+  model = nn.Linear(N_IN, N_OUT)
+  optimizer = torch.optim.AdamW(model.parameters(),
+                                lr=1.0e-3,
+                                eps=1.0e-8,
+                                weight_decay=0.0)
+  scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+  before = {}
+  for name, value in model.state_dict().items():
+    before[name] = value.detach().clone()
+
+  result = training_loop_batched(
+    nepochs=1,
+    optimizer=optimizer,
+    scheduler=scheduler,
+    model=model,
+    bs=TRAIN_BS,
+    lossfn=DriveLoss(),
+    mode="sqrt",
+    data=_train_data(),
+    trim_opts=TRIM,
+    focus_opts=FOCUS,
+    thresholds=torch.tensor([0.2, 0.5, 1.0]),
+    silent=True)
+  changed = False
+  for name, value in model.state_dict().items():
+    if not torch.equal(value, before[name]):
+      changed = True
+      break
+
+  ok, detail, n_parameters, n_state_tensors = _optimizer_surface_status(
+    model=model,
+    optimizer=optimizer)
+  report("optimizer post-step: a real AdamW update leaves parameters and "
+         "state finite",
+         result is not None and changed and ok
+         and n_parameters > 0 and n_state_tensors > 0,
+         detail + "; parameters changed " + str(changed))
+
+  first_parameter = next(model.parameters())
+  parameter_snapshot = first_parameter.detach().clone()
+  with torch.no_grad():
+    first_parameter.reshape(-1)[0] = float("nan")
+  poisoned_ok, poisoned_detail, _, _ = _optimizer_surface_status(
+    model=model,
+    optimizer=optimizer)
+  report("optimizer post-step: a poisoned parameter is detected (mutation)",
+         not poisoned_ok and "parameter" in poisoned_detail,
+         poisoned_detail)
+  with torch.no_grad():
+    first_parameter.copy_(parameter_snapshot)
+
+  moment = _first_adam_moment(optimizer=optimizer)
+  moment_found = moment is not None
+  state_mutation_caught = False
+  state_detail = "real AdamW update made no exp_avg state"
+  if moment_found:
+    moment_snapshot = moment.detach().clone()
+    with torch.no_grad():
+      moment.reshape(-1)[0] = float("inf")
+    poisoned_ok, state_detail, _, _ = _optimizer_surface_status(
+      model=model,
+      optimizer=optimizer)
+    state_mutation_caught = (not poisoned_ok
+                             and "optimizer state" in state_detail)
+    with torch.no_grad():
+      moment.copy_(moment_snapshot)
+  report("optimizer post-step: poisoned optimizer state is detected "
+         "(mutation)",
+         moment_found and state_mutation_caught,
+         state_detail)
+
+
 def main():
   """Run every part of the finite contract; return 1 if any leg failed."""
   print("== finite-contract ==")
@@ -1388,8 +1798,13 @@ def main():
         " --")
   check_chi2_band_dtype_provenance()
 
+  print("\n-- Part I: extreme-scale validation reductions --")
+  check_extreme_scale_reductions()
+
   print("\n-- Part J: the optimizer-kwarg schema (zero-eps guard) --")
   check_optimizer_schema()
+  print("\n-- Part K: optimizer post-step finiteness --")
+  check_optimizer_post_step()
 
   print("")
   if len(FAILURES) > 0:

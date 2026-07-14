@@ -40,6 +40,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 
 # All work and all mailbox traffic live in the SHARED WORKTREE (the branch
@@ -87,7 +88,8 @@ AGENT_CWD = {
 
 # A message still carrying template placeholders has no job in it; refuse
 # it instead of burning a live headless turn (learned from dispatch 0001).
-PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>"]
+PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
+                       "your message here"]
 
 PREAMBLE = (
     "You are invoked headlessly by tools/mailbox_daemon.py (no human is\n"
@@ -96,27 +98,28 @@ PREAMBLE = (
     "read them first. Do the work per your role file. End your turn by\n"
     "(1) writing your substance to the appropriate notes/ entry and\n"
     "(2) writing your outbound handoff block to a NEW file\n"
-    "notes/mailbox/<seq>-to-<fable|opus|sol>.md using the next sequence\n"
-    "number (see the mailbox directory). Merges and pushes to main remain\n"
+    "<seq>-to-<fable|opus|sol>.md using the next sequence number, INSIDE\n"
+    "THIS EXACT DIRECTORY (your cwd may differ -- a relative notes/mailbox\n"
+    "path is wrong unless it resolves here):\n"
+    "    " + MAILBOX + "\n"
+    "Merges and pushes to main remain\n"
     "the user's alone -- print a landing block in the note instead of\n"
     "running one.\n\n"
     "--- MESSAGE ---\n")
 
 
 def next_seq():
-    """Return the next zero-padded mailbox sequence number as a string."""
+    """Return the next zero-padded mailbox sequence number as a string.
+
+    Scans EVERY directory under the mailbox (root, done/, failed/, any
+    hand-made quarantine like hold/): a number parked anywhere is still
+    claimed, and handing it out twice makes two messages look like one.
+    """
     highest = 0
-    pattern = os.path.join(MAILBOX, "*.md")
-    for path in glob.glob(pattern):
+    pattern = os.path.join(MAILBOX, "**", "*.md")
+    for path in glob.glob(pattern, recursive=True):
         name = os.path.basename(path)
-        match = re.match(r"(\d+)-to-", name)
-        if match:
-            value = int(match.group(1))
-            if value > highest:
-                highest = value
-    for path in glob.glob(os.path.join(DONE, "*.md")):
-        name = os.path.basename(path)
-        match = re.match(r"(\d+)-to-", name)
+        match = re.match(r"(\d+)[a-z]?-to-", name)
         if match:
             value = int(match.group(1))
             if value > highest:
@@ -150,9 +153,15 @@ def dispatch(path, dry_run):
         message = f.read()
     for marker in PLACEHOLDER_MARKERS:
         if marker in message:
+            # park it like a failed dispatch: a refusal's cause (the
+            # unfilled body) persists until a human edits the file, so
+            # leaving it in the mailbox would re-refuse it every poll.
+            failed_dir = os.path.join(MAILBOX, "failed")
+            os.makedirs(failed_dir, exist_ok=True)
+            os.rename(path, os.path.join(failed_dir, name))
             print("REFUSED " + name + ": the body still contains the "
-                  "template placeholder '" + marker + "' -- fill in the "
-                  "real note path/section and re-send.")
+                  "template placeholder '" + marker + "' -- parked in "
+                  "failed/; fill in the real text and requeue.")
             return False
     command = AGENT_COMMANDS[agent] + [PREAMBLE + message]
 
@@ -198,7 +207,65 @@ def dispatch(path, dry_run):
         return False
 
     os.makedirs(DONE, exist_ok=True)
-    os.rename(path, os.path.join(DONE, name))
+    try:
+        os.rename(path, os.path.join(DONE, name))
+    except FileNotFoundError:
+        # someone quarantined the file by hand while its turn was in
+        # flight (the 2026-07-14 hold/ intervention): the turn already
+        # ran, so the message counts as handled wherever it now lives.
+        print("  note: " + name + " was moved by hand mid-dispatch; "
+              "leaving it where it is.")
+    return True
+
+
+def drain_lane(paths, dry_run):
+    """Dispatch ONE agent's pending messages, in order (a worker body).
+
+    Arguments:
+      paths   = this agent's message files, already sorted by sequence.
+      dry_run = True to print the would-be commands without running them.
+    """
+    for path in paths:
+        dispatch(path=path, dry_run=dry_run)
+
+
+def process_backlog(dry_run):
+    """Dispatch the whole backlog: lanes in PARALLEL, each lane in order.
+
+    The three agents are independent sessions, so Opus can execute a unit
+    while Sol attacks another -- but two messages to the SAME agent must
+    stay sequential (a lane is one conversation partner, not a pool), and
+    two agents sharing a WORKING DIRECTORY must too: concurrent turns in
+    one git tree race each other's index (the 2026-07-14 incident where a
+    live edit was swept into another agent's commit). So the parallel unit
+    is the cwd: Fable+Opus (same worktree) serialize; Sol runs alongside.
+
+    Arguments:
+      dry_run = True to print the would-be commands without running them.
+
+    Returns:
+      True when there was a backlog to process.
+    """
+    backlog = pending_messages()
+    if not backlog:
+        return False
+    lanes = {}
+    for path in backlog:
+        name = os.path.basename(path)
+        agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
+        cwd = AGENT_CWD[agent]
+        if cwd not in lanes:
+            lanes[cwd] = []
+        lanes[cwd].append(path)
+    workers = []
+    for cwd in sorted(lanes):
+        worker = threading.Thread(target=drain_lane,
+                                  kwargs={"paths": lanes[cwd],
+                                          "dry_run": dry_run})
+        worker.start()
+        workers.append(worker)
+    for worker in workers:
+        worker.join()
     return True
 
 
@@ -210,12 +277,22 @@ def send(agent, text):
       text  = the routing summary (point at notes/; do not inline specs).
     """
     os.makedirs(MAILBOX, exist_ok=True)
-    path = os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
-        if not text.endswith("\n"):
-            f.write("\n")
-    print("queued " + path)
+    # O_EXCL claims the number atomically: a concurrent sender that
+    # computed the same sequence loses the race and retries on the next.
+    for _ in range(20):
+        path = os.path.join(MAILBOX, next_seq() + "-to-" + agent + ".md")
+        try:
+            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            continue
+        with os.fdopen(handle, "w", encoding="utf-8") as f:
+            f.write(text)
+            if not text.endswith("\n"):
+                f.write("\n")
+        print("queued " + path)
+        return
+    print("could not claim a sequence number after 20 tries -- "
+          "is something flooding the mailbox?")
 
 
 def main():
@@ -261,12 +338,8 @@ def main():
         return 0
 
     if args.dry_run or args.once:
-        backlog = pending_messages()
-        if not backlog:
+        if not process_backlog(dry_run=args.dry_run):
             print("mailbox empty")
-            return 0
-        for path in backlog:
-            dispatch(path=path, dry_run=args.dry_run)
         return 0
 
     if args.watch:
@@ -290,10 +363,20 @@ def main():
         print("watching " + MAILBOX + " (Ctrl-C to stop; safe only "
               "BETWEEN dispatches -- killing a dispatch mid-flight dooms "
               "the agent's turn)")
+        # a daemon fix is a no-op for the loop already running (the
+        # 2026-07-14 placeholder incident): watch our own source and
+        # exit when it changes, so stale code can never keep dispatching.
+        # Exiting (not self-reloading) is deliberate -- a restart is one
+        # keystroke and never picks up a half-saved edit.
+        source_stamp = os.path.getmtime(os.path.abspath(__file__))
         try:
             while True:
-                for path in pending_messages():
-                    dispatch(path=path, dry_run=False)
+                process_backlog(dry_run=False)
+                if os.path.getmtime(os.path.abspath(__file__)) \
+                        != source_stamp:
+                    print("daemon source changed on disk -- exiting so "
+                          "the next start runs it (relaunch --watch).")
+                    return 0
                 time.sleep(20)
         finally:
             if os.path.isfile(lock_path):

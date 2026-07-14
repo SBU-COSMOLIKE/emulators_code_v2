@@ -81,6 +81,25 @@ def report(label, ok, detail):
     FAILURES.append(label)
 
 
+def emit_aid(aid, n_before):
+  """Emit ONE '##AID <aid> <PASS|FAIL>' line for a whole acceptance leg.
+
+  (queue 2) The board's run_check folds these reserved lines into the gate's
+  executed set: one per declared leg, at the leg's aggregation point, not one
+  per sub-check. Most legs here are one check_* function; check_diagonal
+  carries two (the composition legs and the cross-family refusal), so it emits
+  its own pair. A leg's verdict is FAIL if its group appended any label to the
+  module-level FAILURES list while it ran; the child's exit status stays the
+  single aggregate verdict.
+
+  Arguments:
+    aid      = the board-unique leg id, "transfer-identity.<leg>".
+    n_before = len(FAILURES) captured immediately before the leg's checks ran.
+  """
+  mark = "PASS" if len(FAILURES) == n_before else "FAIL"
+  print("##AID " + aid + " " + mark)
+
+
 def spd(n, seed):
   g = np.random.default_rng(seed)
   a = g.standard_normal((n, n))
@@ -646,8 +665,14 @@ def check_diagonal(device, tmp):
   (cmb only under amplitude_law none), a transfer artifact rebuilds
   and predicts the composition bitwise, and a cross-family base is a
   loud from_config error.
+
+  This function carries TWO declared legs, so it emits its own aids rather
+  than being wrapped by one emit_aid in main: the composition legs, and the
+  cross-family refusal (a leg whose fixture is red in the register — it stays
+  its own aid so the red names itself instead of hiding inside a group).
   """
   from emulator.experiment import EmulatorExperiment
+  n_composition = len(FAILURES)
   names = ["p0", "p1", "p2"]
   pg = param_geometry(names, device, seed=90)
   z = np.linspace(0.001, 3.0, 32)
@@ -823,6 +848,9 @@ def check_diagonal(device, tmp):
   report("diag transfer artifact predicts the composition bitwise",
          np.array_equal(got["Hubble"], ref),
          "max|d| %.1e" % np.abs(got["Hubble"] - ref).max())
+  emit_aid("transfer-identity.diagonal-family-composition", n_composition)
+
+  n_cross = len(FAILURES)
   # a cross-family base is a loud from_config error (before staging).
   # FIXTURE: the base must be invalid ONLY in the way under test
   # (cross-family), so save a PLAIN grid base — this leg's base net +
@@ -871,6 +899,7 @@ def check_diagonal(device, tmp):
     report("cross-family transfer base raises",
            "never" in str(e) and "families" in str(e),
            "ValueError names the rule")
+  emit_aid("transfer-identity.cross-family-base-refusal", n_cross)
 
 
 def main():
@@ -893,12 +922,32 @@ def main():
   save_plain_base(plain_root, device)
   save_factored_base(factored_root, device)
 
+  # One ##AID per declared leg, at its aggregation point (see emit_aid).
+  # check_diagonal emits its own two aids, so it is not wrapped here.
+  n0 = len(FAILURES)
   check_base("plain", plain_root, device, tmp, factored=False)
+  emit_aid("transfer-identity.plain-base-slice-and-identity", n0)
+
+  n0 = len(FAILURES)
   check_base("factored", factored_root, device, tmp, factored=True)
+  emit_aid("transfer-identity.factored-base-slice-and-identity", n0)
+
+  n0 = len(FAILURES)
   check_zero_init(device)
+  emit_aid("transfer-identity.zero-init-surgery", n0)
+
+  n0 = len(FAILURES)
   check_errors(device, plain_root)
+  emit_aid("transfer-identity.loud-config-errors", n0)
+
+  n0 = len(FAILURES)
   check_lifecycle(device, tmp)
+  emit_aid("transfer-identity.artifact-lifecycle-round-trip", n0)
+
+  n0 = len(FAILURES)
   check_refined_lifecycle(device, tmp)
+  emit_aid("transfer-identity.refined-base-lifecycle", n0)
+
   check_diagonal(device, tmp)
 
   print("")

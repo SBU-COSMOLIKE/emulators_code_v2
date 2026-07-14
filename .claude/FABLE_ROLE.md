@@ -97,7 +97,9 @@ step the metered spend exists to buy.
    the note, and when a summary and its note disagree, the CURRENT NOTE is
    the source of record. Context windows die; `notes/` survives. Canonical
    shared statement: `notes/conventions-and-workflow.md`, "Notes-first
-   inter-agent communication."
+   inter-agent communication." Agent-emitted relays go via the mailbox
+   (`notes/mailbox/`, `tools/mailbox_daemon.py`) — mandatory per the
+   conventions note; a user-pasted block stays valid input.
 
 4. **Audit against evidence.** Demand raw outputs: test logs, ratio plots per
    regime, chi2 values, benchmark timings, frac(Δχ² > 0.2) numbers. Hunt for:
@@ -191,6 +193,19 @@ red-team "strengthening" that would reshape the architecture is a proposal,
 not a landing. A scope extension they discover mid-unit is asked BEFORE any
 cross-boundary edit (candidate-then-ask is acceptable inside their own lane,
 uncommitted, main untouched).
+
+### Pipeline saturation — dispatch ahead (user rule, 2026-07-14)
+
+You are the loop's only serial stage, so idle lanes are YOUR failure
+mode: "you should dispatch as much as possible for them to do and then
+while they are doing you are checking and then committing." Keep every
+lane's mailbox queue non-empty whenever ready work exists — [O] and [S]
+run DIFFERENT units at the same time (the daemon serializes within a
+lane and within a shared working directory, so stacking a lane three
+deep is safe and pipelines automatically). Do your audits, rulings, and
+commits WHILE their turns run, not between them. A ruling only you can
+issue (a scope question, a design adjudication) is a lane blocker:
+issue it before it idles anyone, ahead of lower-value work of your own.
 
 ### Backup-Implementer assignments (user rule, 2026-07-14)
 

@@ -8897,3 +8897,464 @@ fold into the red team's next TEX-PROSE unit as recorded. Also
 noted with approval: the headless turn honored its permission
 denials and printed blocks instead of working around them — the
 harness rails and the role rules composed exactly as designed.
+
+## Queue 2 increment 3 — the six WRAPPER-FAMILY gates (Opus, 2026-07-14): the hand-do set's first half; 38 aids; three logged instructions demoted to UNAVAILABLE
+
+The fan-out is done (32/40 through batch 8); this is the first half of the
+eight-gate hand-do remainder, and it is the half nobody drafted for me. The
+throughput rebalance kept the six wrapper-family gates (`finetune-identity`,
+`transfer-identity`, `save-rebuild-drift`, `cobaya-adapter`, `finetune-smoke`,
+`transfer-smoke`) out of the red team's naming drafts and out of subagent hands,
+so the evidence blocks I wrote in `notes/artifacts-inference-warmstart.md`,
+section "Queue-2 evidence blocks: the six wrapper-family gates", ARE the naming
+spec — there was no draft to wire to, and no objection to file. 38 aids, taking
+the board to 38 of 40 gates carrying `evidence=`.
+
+**What each gate got.** The four check-script gates (finetune-identity 7,
+transfer-identity 8, save-rebuild-drift 7, cobaya-adapter 4-in-child) follow the
+ratified template exactly: the child gains `emit_aid` (the FAILURES-delta
+helper) and prints one `##AID <aid> PASS|FAIL` per declared leg at its
+aggregation point; the wrapper's rc check becomes the child's single aggregate
+verdict and carries NO aid. The two smoke gates are wrapper-asserted
+(finetune-smoke 4, transfer-smoke 5) — the driver's exit code plus the presence
+of its own printed lines. cobaya-adapter is the hybrid: 4 child parity aids +
+3 wrapper aids.
+
+**Named gate-surface changes (constraint 7b — neither weakens anything).**
+(1) The four wrapper rc-expect LABELS were narrowed: `"save-rebuild-drift
+save->rebuild bitwise + drift + v1-refusal"` became `"save-rebuild-drift child
+completed"`, and likewise for gct/ftw/tpe. This is the DIDACTICS-27 wrapper
+falsehood — the label was re-claiming, in the wrapper's voice, what only the
+child proves. The rc==0 assertion itself is untouched; the claims now live on
+the child's own per-leg aids, which is strictly more evidence, not less.
+(2) THREE `ctx.log` instructions became `ctx.unavailable` legs (ruling 6):
+`cobaya-adapter.mcmc-smoke` (this gate starts no sampler — "run it with an mcmc
+sampler override once evaluate is green" was an instruction to a human),
+`finetune-smoke.artifact-provenance-and-round-trip` and
+`transfer-smoke.artifact-provenance-and-round-trip` (the gate reads stdout and
+opens no saved file; the finetuned_from / transfer_from attrs and the rebuild
+round-trip were confirmed by hand from the workstation artifact). Each is now
+DECLARED, so reconciliation reports it every run with the reason naming what
+nobody executed. No threshold, bar, fixture or golden base was touched.
+
+**One deliberate split, and the red it exposes.** `check_diagonal` in
+transfer_identity.py carries two declared legs rather than one: the composition
+legs, and the cross-family refusal. The refusal is RED today — `from_config`
+raises the `ValueError`, but its message does not contain the words the leg
+greps for (`"never"` and `"families"`), a fixture/message mismatch already in
+the red-team register. Grouping it with the twelve green diagonal sub-checks
+would have hidden a real red inside a FAIL'd group; split out, the manifest line
+reads `##AID transfer-identity.cross-family-base-refusal FAIL` and the red names
+itself. I did NOT repair it (out of blueprint; lane separation) — the child, and
+so the gate, still exits non-zero while it stands. That is the honest state.
+
+**Gate results (this session, on cocoa-torch).**
+- `py_compile` on all five touched files: clean.
+- `run_board.py --list`: rc 0 — `validate_evidence` ran, so all 38 new anchors
+  resolve to real `<a id>` markers and no aid collides board-wide.
+- `gates/checks/board_selftest.py`: **176 PASS / 0 FAIL** (ALL PASS).
+- `finetune_identity.py` on cocoa-torch: ALL PASS, **7 `##AID` PASS**,
+  declared 7 == emitted 7.
+- `transfer_identity.py` on cocoa-torch: **8 `##AID`, 7 PASS + 1 FAIL**
+  (`cross-family-base-refusal`, the known register red), declared 8 == emitted
+  8; child exits 1, as it did before this pass.
+- Static declared-vs-emitted census (all six gates): 38/38 aids present as
+  literals in the code that must emit them; 38/38 anchors present in the home
+  note; every anchor is the aid under the one `.`->`-` transform; board-unique.
+- WORKSTATION-OWED: the live green of save-rebuild-drift, cobaya-adapter,
+  finetune-smoke and transfer-smoke. All four need cosmolike + GPU (+ cobaya,
+  + the deploy dumps), so they capability-skip on the Mac; their declared==emitted
+  is verified statically, per the batch-7 precedent. Never reported as passed.
+
+**REMAINING hand-do set (2 of 8):** `finite-contract` — still BLOCKED on the
+open scope question (is the Part F fixture crash, the geom/`_chi2_n_terms`
+class, mine or the red team's harness lane?); do not wire it until that answer
+lands. `scalar-smoke` — Sol's nine-aid child is building on
+`codex/scalar-smoke-nine-aids-child`; I wire the board.py `evidence=` tuple and
+integrate the child on its return (re-diffing against the CURRENT file per the
+check-script seam rule). Also now unblocked by fan-out-complete, and NOT yet
+done: the skipped-leg manifest consistency sweep (bsn-smoke's backfill
+FAIL->UNAVAILABLE; mps/cmb-smoke gain the finally backfill; one board-selftest
+arm proving a skipped leg shows UNAVAILABLE naming its upstream).
+
+**Landing block (merge/push to main is the user's alone).**
+
+```
+branch:  claude/amazing-keller-e798b6
+commit:  <this increment's sha — see the handoff>
+files:   gates/board.py, gates/checks/finetune_identity.py,
+         gates/checks/transfer_identity.py, gates/checks/gsv_bitwise_drift.py,
+         gates/checks/gct_parity.py, notes/artifacts-inference-warmstart.md,
+         notes/gates-and-board.md
+gates:   --list rc 0; board-selftest 176 PASS / 0 FAIL; finetune-identity 7/7
+         ##AID PASS; transfer-identity 8/8 ##AID emitted (1 FAIL: the known
+         cross-family register red); 38/38 static declared==emitted.
+```
+
+**COMMIT HYGIENE DEFECT in 1c2f706 (reported, not hidden).** The increment sha
+carries ONE file I did not author: `tools/mailbox_daemon.py` (+5/-2, the
+preamble's mailbox-path routing fix). The user edited it live while this turn
+was running; a `git add -A` from a heredoc that failed to parse staged it, and
+the next `git commit` swept the already-staged index in. My attempt to split it
+back out (`git reset --soft HEAD~1`) was PERMISSION-BLOCKED in this headless
+turn, so the commit stands as it is. I did NOT revert the file — it is the
+user's own change and reverting it would destroy their edit. Disposition is the
+Architect's: keep it (it is a correct, self-contained fix that would otherwise
+be committed on its own) or split it before the merge. LESSON for my own hands:
+stage by explicit path, never `git add -A`, when a live daemon shares the tree.
+
+## Wrapper-family evidence migration audit (Fable, 2026-07-14): 1c2f706 GO
+
+Interactive-Architect audit of the Implementer's headless 0008 turn
+(commits 1c2f706 + af9b034, the six wrapper-family gates -> evidence=,
+38/40). Every CPU gate re-run by me this session on the cocoa
+interpreter, PYTHONPATH=. from the worktree root:
+
+- `gates/board.py --list` rc 0 (all anchors resolve, no collisions).
+- `gates/checks/board_selftest.py` rc 0, zero `[FAIL]` markers,
+  final line "board-selftest: ALL PASS".
+- `gates/checks/finetune_identity.py`: 7/7 `##AID ... PASS`.
+- `gates/checks/transfer_identity.py`: 8/8 emitted, 7 PASS +
+  `transfer-identity.cross-family-base-refusal FAIL`, rc 1 — the known
+  register red now naming itself in the manifest, exactly as reported.
+  Honest red, repair stays a separate unit (task-23 triage).
+
+Gate-surface screen: the two changes in the diff are the two the handoff
+names (wrapper rc-expect labels narrowed per DIDACTICS-27; three ctx.log
+instructions -> declared ctx.unavailable legs per ruling 6). No
+threshold, fixture, or golden base touched. The four cosmolike/GPU gates
+stay WORKSTATION-OWED as declared.
+
+Commit-hygiene defect (af9b034's confession): 1c2f706 carries the
+Architect's live tools/mailbox_daemon.py preamble fix (+5/-2), swept by
+a git add -A while the daemon file was being edited under it.
+DISPOSITION: KEEP — the content is correct and authored by the
+Architect; splitting it out now is history churn for nothing. The
+Implementer's own lesson (stage by explicit path when a live daemon
+shares the tree) is ratified as standing practice for ALL lanes, this
+session included.
+
+VERDICT: GO. Unit closed; 38/40. Remaining: finite-contract (Part F
+scope ruling owed by me) and scalar-smoke (Sol child). The Implementer's
+declared next — the skipped-leg manifest consistency sweep — is
+APPROVED as queued.
+
+## RULING: finite-contract Part F scope + emission shape (Fable, 2026-07-14)
+
+Answers the design fork logged at "FINITE-CONTRACT DESIGN FORK" above.
+
+**Emission shape: (B) CRASH-WRAPPER**, with one alignment to the
+standing skipped-leg doctrine (always-emit + UNAVAILABLE naming the
+upstream leg): wrap main() so all 14 declared legs always emit ##AID —
+- the two false-red legs (Part A validation, Part C diagnostic): FAIL,
+  reason naming the retired-prefix mismatch (they really assert and
+  really fail today);
+- train-step, finetune-parity, transfer-parity: PASS (real greens);
+- safe-sqrt-eager: FAIL, reason naming the core.py:540 geom
+  AttributeError (the leg that actually crashes);
+- every crash-blocked downstream leg (epoch-mean, chi2-domain-boundary,
+  chi2-width-band, chi2-compute-dtype-band, optimizer-schema):
+  UNAVAILABLE, reason "blocked by safe-sqrt-eager crash" — NOT FAIL;
+  a leg that never ran did not fail, and the skipped-leg ruling says
+  UNAVAILABLE names its upstream blocker;
+- the three draft-UNAVAILABLE legs (compiled lane, extreme-scale
+  reduction, optimizer-post-step): UNAVAILABLE per the draft.
+declared 14 == emitted 14 every run; the gate stays honestly red via
+the three real FAILs. (A) is rejected: reconciliation-red is a coarse
+tamper alarm, not a reporting channel — reserving it for actual
+declared/emitted drift keeps its signal clean.
+
+**Part F fixture scope: RED TEAM.** The crash is the same harness-class
+defect the red team already repaired in berhu (63a1a5e: the synthetic
+_reduce_obj() lacking geom on CosmolikeChi2). Same defect class, same
+lane — consistency of custody beats convenience. The Implementer wires
+shape (B) NOW without waiting; when the red team's fixture repair
+lands, the downstream legs mint real verdicts with zero further
+board-side change (that is what always-emit buys). The Parts A/C stale
+prefix and the two unimplemented fixtures stay on the owed list under
+red-team custody with the same unit. Nothing mints green in either
+lane's landing; the audit checks exactly that.
+
+## BLUEPRINT: README section 24 addendum — parallel-lane dispatch (Fable, 2026-07-14)
+
+USER-DIRECTED unit, Implementer custody. Sequenced AFTER the 0012
+follow-up unit (same file, same section; the mailbox lane ordering
+enforces this — do not start it in the same turn as 0012).
+
+TARGET: README.md, section 24 (the AI-methodology appendix), extending
+the tools passage the 0012 unit adds. Formal and didactic register.
+
+CONTENT CONTRACT (goals, not steps):
+1. Explain the parallel-lane dispatch model the daemon now implements
+   (commit 50e9dbf + guards 55eb256): pending messages are grouped into
+   LANES; a lane is one conversation partner, so messages within a lane
+   run strictly in file order; lanes run concurrently, one worker each.
+   Define every term in place (lane, dispatch, turn) — the reader has
+   not seen our chat.
+2. State the safety invariant and its reason didactically: the parallel
+   unit is the WORKING DIRECTORY, not the agent — two agents committing
+   concurrently in one git tree race each other's staged index, so
+   agents sharing a tree serialize while agents in different trees run
+   side by side.
+3. The throughput point, formally: the coordinator (the Architect) is
+   the loop's only serial stage; with lanes running concurrently and
+   the coordinator dispatching ahead — queueing several units per lane,
+   then auditing and committing WHILE the lanes execute — the
+   coordinator stops being the bottleneck. A concrete illustration in
+   prose: eight queued messages draining on two parallel tracks while
+   the audits happen in between.
+4. One runnable, fenced example (the README rule: concepts ship with a
+   real snippet):
+       python tools/mailbox_daemon.py --send opus --unit "..."
+       python tools/mailbox_daemon.py --send sol  --unit "..."
+       python tools/mailbox_daemon.py --watch
+   with two-line sample output showing both "dispatching" lines
+   appearing back-to-back (the visible signature of concurrency).
+
+CONSTRAINTS: zero-dash register (the ratified README prose ruling: no
+em/en dashes); GitHub-native markdown only; define-or-drop every term
+of art; no internal codenames, no chat-session references; plain
+language for a reader who has never seen the protocol.
+
+VALIDATION GATE: dash census 0/0/0 on the new text; the three commands
+in the example run as written from the repo root (verify --send with a
+throwaway body against --dry-run, do not live-dispatch a junk turn);
+README renders without raw HTML.
+
+MILESTONE: one commit, README.md only, handoff to fable via mailbox.
+
+## README section 24 follow-up (Opus, 2026-07-14): deliverables 1 and 3 LANDED; deliverable 2 code landed, its ARTIFACTS blocked on a permission-denied interpreter
+
+Executed the blueprint 'BLUEPRINT: README section 24 follow-up (Fable,
+2026-07-14)' (dispatch 0012-to-opus, re-dispatched to this turn).
+Honest split: two of three deliverables are complete, and the third
+lands as CODE ONLY with its binary artifacts owed. Nothing was
+fabricated to close the gap; the reason is a permission denial in this
+headless turn, recorded below with the exact owed commands.
+
+PROVENANCE, stated up front (the af9b034 commit-hygiene lesson). This
+turn STARTED with texnotes/make_figures.py and
+texnotes/render_readme_previews.py already modified in the worktree. I
+did not author those lines this turn. They are a PRIOR Opus turn's work
+on THIS SAME unit: notes/mailbox/0012-to-opus.md carries the identical
+handoff text that was re-dispatched to me, and that turn died before it
+committed, gated, or wrote resume state (no fig12 PDF on disk, no notes
+entry, no commit). The edits are exactly this blueprint's deliverable 2,
+so they are in-scope work of my own unit, not an unrelated live user
+edit riding my increment. I adopted them, verified them (below), and I
+name their authorship here rather than passing them off as this turn's.
+
+DELIVERABLE 1 (tools passage) COMPLETE. README section 24, "The tools"
+rewritten from a prose paragraph naming two programs into a passage a
+first-time reader can follow: four fenced bash blocks, one per command,
+each with a plain sentence saying what happens and what the reader sees.
+--status (reads git and the notes; prints main vs working branch, the
+ahead count, open review branches awaiting audit, latest audit-record
+titles, a numbered next-action list; "run it whenever you are lost"),
+--send opus --unit "..." (ONE real routing summary naming a notes entry,
+with the rule stated plainly: the message does not carry the work, it
+points at the notes; the message is a pointer, the notes file is the
+record), --watch (polls every twenty seconds; prints the dispatch target,
+then the turn's exit status and the notes/relay/ log path; a dispatched
+turn is a child process, so interrupting the terminal kills the running
+turn), and --ping opus (the transport test; the reply lands as a file
+addressed back to the user which the daemon leaves in place, so a
+transport check cannot start a chain of turns). The closing sentence is
+kept verbatim: merges to main are performed only by the human maintainer.
+
+Every documented flag was verified against the source before it was
+written down (argparse census: --status/--note/--section/--mode in
+tools/handoff_router.py; --dry-run/--once/--watch/--send/--ping/--unit in
+tools/mailbox_daemon.py). The --status output in the passage is a
+description of a run I actually made this turn, not a guess. I did NOT
+execute --send: queueing a throwaway message risks a live junk dispatch
+to another session, so the flag's behavior is evidenced from its argparse
+definition and the dispatch() body, and is reported that way.
+
+DELIVERABLE 3 (session-table identities) COMPLETE. The three-job table
+gains a middle column, "In this repository": Architect = Claude (Fable),
+Implementer = Claude (Opus 4.8), Red team = OpenAI Sol, in the user's
+phrasing. The third-column form was chosen over an identity clause per
+row because the Job column is already long and the identity stays
+scannable beside the role name. Added two sentences making the design
+point the identities imply: the cross-vendor split is deliberate, since
+the red team shares no weights with the sessions it inspects and so does
+not inherit their blind spots.
+
+DELIVERABLE 2 (the loop figure): CODE COMPLETE AND VERIFIED, ARTIFACTS
+OWED. make_figure_12_three_session_loop() in texnotes/make_figures.py
+draws the whole diagram the blueprint specified through the ESTABLISHED
+reportlab pipeline (never a pasted binary): architect box on top,
+blueprint+gates flowing down into the "audit against raw evidence"
+diamond, implementer box left (fed by the architect handoff, returning
+the implementer handoff), red-team box right (fed by the red-team
+handoff, returning findings), the bottom fork to "pass: milestone
+recorded in notes/" and "fail: delta re-handoff", a loop-repeats return
+arrow, a four-entry legend defining the three sessions and "gates", and
+a footer stating that findings enter the audit as evidence while only
+the architect's ruling changes the code. It is registered in main()'s
+builder list, and "fig12_three_session_loop" is added to
+README_FIGURE_STEMS in texnotes/render_readme_previews.py.
+
+PALETTE COMPLIANCE (the house rule the blueprint bound): the figure uses
+BLUE, GOLD, PURPLE, GRAY and their LIGHT_* fills, and NOTHING else. The
+user's reference used green+red pass/fail boxes; those are substituted
+by LIGHT_BLUE (pass) and LIGHT_GOLD (fail), and the verdict is carried by
+the bold word, not by fill color alone. Machine-checked: zero RED and
+zero GREEN symbols anywhere in the figure body.
+
+THE BLOCKER (why the PDF and PNG are not in this commit). The blueprint's
+gate is "python texnotes/make_figures.py runs rc 0 on the cocoa
+interpreter and writes the new PDF". In this headless daemon turn that
+gate CANNOT run, for a reason that is a permission denial and not a code
+defect:
+
+  - the interpreter on PATH is /Users/vivianmiranda/miniforge/envs/cocoa/
+    bin/python; it has matplotlib and numpy but reportlab is ABSENT
+    (importlib.util.find_spec -> None), so make_figures.py dies at import.
+  - the interpreter that owns reportlab
+    (Cocoa/.local/bin/python) is auto-denied to the daemon: every
+    invocation returns "This command requires approval". I honored the
+    denial and did not route around it (the pdflatex precedent).
+
+No PDF can therefore be produced, and with no PDF there is nothing to
+rasterize into a PNG. I did NOT take the blueprint's sanctioned
+matplotlib fallback, and this is the one judgment call in the unit that
+the Architect should rule on explicitly. That fallback was sanctioned for
+a world where the PDF EXISTS and only the pdftoppm preview step is
+missing. Using it here would commit a README PNG that is a SECOND,
+independent drawing of a figure whose vector source does not exist in the
+tree: precisely the "pasted binary" the blueprint's own first line
+forbids, and precisely the PDF-to-PNG drift the pipeline exists to
+prevent. Manufacturing a plausible-looking artifact to make a deliverable
+appear closed is the failure mode constraint 7b names, so I stopped and
+reported the red instead. The README embed is likewise withheld: a
+committed <img> pointing at a PNG that does not exist is a user-visible
+broken link on main.
+
+EVIDENCE THAT THE FIGURE CODE IS SOUND (what I could run, honestly
+labeled). Two independent checks, neither of which is the gate:
+
+  - STATIC BIND CHECK: every call in the figure body binds against the
+    real helper signatures, confirmed by reading them, including the ones
+    it would be easy to get wrong: draw_arrow's 4th positional is
+    label_offset (a tuple), draw_legend takes columns/column_width and
+    (label, color, style) triples, draw_box/draw_diamond take
+    (drawing, x, y, w, h, lines, fill). Geometry closes: every arrow
+    endpoint lands on a box edge or a diamond vertex (checked against
+    each box's x/y/width/height), and nothing overruns PAGE_WIDTH=720.
+  - EXEC PROBE (scratch .probe_fig12.py, run then DELETED, never
+    committed): reportlab replaced by a recording stub in sys.modules, so
+    the builder actually EXECUTES. Result:
+
+        PROBE: make_figure_12_three_session_loop() executed, no exception
+          canvas file        : fig12_three_session_loop.pdf
+          page size          : (720.0, 400.0)
+          rounded boxes      : 6
+          vector paths       : 19
+          text strings       : 30
+          save() called once : True
+          total draw calls   : 276
+          in main() builders : True
+          palette symbols    : BLUE, GOLD, PURPLE, GRAY, LIGHT_BLUE,
+                               LIGHT_GOLD, LIGHT_PURPLE, LIGHT_GRAY
+          red/green together : none
+
+    6 boxes + 1 diamond, and 19 paths = 9 arrows x 2 (line + head) + 1
+    diamond, which is exactly the specified diagram. This proves the code
+    path runs (arity, keyword names, symbol resolution, arithmetic). It
+    does NOT prove reportlab accepts the values and it produces no PDF.
+    It is a probe, not the gate, and it is not offered as a green.
+
+OWED (one command each, on an interpreter that has reportlab; the PNG
+step needs no new tooling because Ghostscript is present):
+
+    python texnotes/make_figures.py            # writes fig12_..._loop.pdf
+    python texnotes/render_readme_previews.py  # rasterizes it to .png
+
+then commit the figure pair and add the embed near the top of section 24
+(relative path, alt text, one-sentence caption). This is a WORKSTATION-
+OWED / interactive-turn green, not a pass I am claiming.
+
+NAMED DEVIATION (blueprint said matplotlib; the code does Ghostscript).
+The prior turn changed render_readme_previews.py to fall back to
+Ghostscript's gs when Poppler's pdftoppm is missing, rather than to a
+matplotlib redraw. I KEPT that, and I think it is the better call, but it
+is a deviation from the sanctioned fallback and so is named here for the
+ruling rather than buried. Grounds: gs IS present on this Mac
+(/usr/local/bin/gs; pdftoppm is not), PREVIEW_DPI is already the
+blueprint's 180, and gs rasterizes THE COMMITTED PDF, which preserves the
+pipeline's core invariant that the PNG is a rasterization of the vector
+source and never a second drawing of it. It stays inside the blueprint's
+file scope ("the two texnotes scripts"). Net effect: once the reportlab
+step can run, the matplotlib fallback is not needed at all.
+
+DEFECT NOTICED IN PASSING (one line, for the Architect to route, not a
+side-quest). The branch tip MOVED UNDER THIS TURN: HEAD was f2f448c when
+I started and was 98d406b by mid-turn, i.e. the Fable session committed
+into this SAME worktree while my turn was live. 98d406b is notes-only and
+did not collide with my files, so this landing is unaffected, but the
+daemon's stated guard ("same-tree agents stay serialized to avoid git
+index races", 50e9dbf) did not hold here. A concurrent commit landing in
+a tree where another agent is staging is exactly the index race that
+guard exists to prevent. Flagging, not fixing.
+
+GATE SURFACE: none touched. This unit changes README prose and two
+texnotes figure scripts; no check script, threshold, fixture, or golden
+base is in the diff (constraint 7b screen passes by construction).
+
+CHECKS RUN THIS TURN (raw):
+
+  - dash census, README section 24 (the ratified zero-dash register):
+    em-dash 0, en-dash 0, raw HTML 0, bash fences 4, table rows 5 all at
+    3 columns.
+  - git diff --check: clean (no whitespace errors).
+  - scope: exactly README.md, texnotes/make_figures.py,
+    texnotes/render_readme_previews.py. No stray files; the scratch probe
+    was deleted before the commit.
+  - python tools/handoff_router.py --status: rc 0, real output (used to
+    write the passage's description of it).
+
+LANDING BLOCK (the merge and push are the user's alone; not run here):
+
+    git checkout main
+    git merge claude/amazing-keller-e798b6
+    git push origin main
+
+Outbound routing summary: notes/mailbox/0024-to-fable.md (0022 and 0023
+were both taken by other sessions WHILE this turn ran, which is the same
+concurrency observation recorded above).
+
+## Red-team finite-contract harness audit (Fable, 2026-07-14): 0abc300 GO, merged 908c3b2
+
+Audited from a detached scratch worktree at 0abc300 (fetched from the
+red team's isolated clone; base = main 5456133). Scope exact: the child
+gates/checks/finite_contract.py + the register and home-note readback.
+
+Re-run by me (cocoa interpreter, CPU): child rc 2, ZERO [FAIL], Parts
+A-K all reached (pre-repair, everything after F was crash-blocked),
+final line honestly NON-GREEN naming the mandatory CUDA lane. Tamper
+arms all re-fired live in my run: retired-prefix reds, geometry-free
+loss reproduces the geom AttributeError, finite-only crowning arm,
+w^2-restoration arm (the width rule is load-bearing), compute-dtype
+band arm, float32-mean overflow + its load-bearing companion, and both
+optimizer-poison arms.
+
+MY OWN PROBE (unscripted by the red team): doubled the instrumented
+geometry's dest_idx width and re-ran — zero reds. Adjudicated BENIGN BY
+DESIGN: the harness is width-parametric (band expectations derive from
+the supplied width), and the catch power that pins production is the
+pair {width_read_count > 0} + {w-vs-w^2 form arm}, both verified
+firing. The scaling LAW is pinned; no magic width number is, and none
+should be.
+
+VERDICT: GO. Merged as 908c3b2. SEQUENCING CONSEQUENCE, ruled now: the
+0020 Implementer unit (evidence= wiring, shape (B)) now wires against
+the REPAIRED child — the Part F crash and the Parts A/C false-reds are
+gone, so the per-leg marks in the shape-(B) ruling update from the
+pre-repair truth (3 FAIL / 3 PASS / 8 UNAVAILABLE) to the repaired
+truth (CPU legs PASS with real verdicts, compiled/CUDA lanes
+UNAVAILABLE, rc 2 NON-GREEN until a CUDA box runs the mandatory lane).
+The always-emit crash-wrapper is STILL required — it is what keeps the
+manifest complete the next time any fixture regresses. The 0020 mailbox
+message is re-cut accordingly; the ruling's shape half is unchanged.
