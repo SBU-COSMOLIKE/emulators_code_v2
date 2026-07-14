@@ -5890,3 +5890,173 @@ per audited unit. Torch cmb-identity and the real-CAMB Planck-LCDM
 byte-identity control stay workstation-owed. Full record:
 `families-scalar-cmb.md`, "Unit-13 covariance audit (Architect,
 2026-07-14)".
+Caption deletion (Second Implementer/Sol, 2026-07-14): in `texnotes/emulator_code_guide.tex`, deleted “A Doctor-inspired science traveler uses a sonic tool to assemble a cosmological surrogate from measured coordinates, transformations and checks.”; the frontispiece and technical caption remainder are unchanged.
+
+Landing block (user only, after Architect audit):
+
+```bash
+git fetch /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2/.claude/worktrees/amazing-keller-e798b6/.claude/worktrees/codex-tex-caption-doctor-sol codex/tex-caption-doctor:codex/tex-caption-doctor
+git switch main
+git merge --ff-only codex/tex-caption-doctor
+git push origin main
+```
+
+### Unit-13 covariance wiring delta — Red Team return (2026-07-14)
+
+The one audit-held production-coupling delta is implemented at
+`7583019f6408363fa28f46e6e8b4aaacf7075137`, directly above audited unit tip
+`2fd8a9d`. Only `redteam_covariance_params_witness.py` changed. Its real-main
+harness now proves the `cov_args`, params, post-signal PSD, and final output
+finiteness calls load-bearing. All four entry-point refusal legs pass on the
+unmutated producer; bypassing each corresponding call makes its owned leg
+red with rc 1; the producer was restored to blob `f0819ae1...` afterward.
+All five covariance witnesses return rc 0, board-selftest reports ALL PASS,
+the touched file compiles, diff-check is clean, and the six-file AST/style
+scan is empty. Full raw evidence and the two-phase fetch block are in
+`families-scalar-cmb.md`, "Unit-13 covariance wiring delta — Red Team
+implementation readback". The Torch and real-CAMB legs remain
+workstation-owed. Architect audit is requested before merge.
+
+This is a Red Team delta implementation return, not certification. Awaiting
+Architect audit; the Red Team does not self-certify.
+
+## Unit-94 substance audit (Architect, 2026-07-14): GO — every gate re-run at the published tip, all pre-armed numerics byte-matched, one unscripted production-coupling probe fired, seam clean against record HEAD
+
+Trigger: the user fetch landed (`0155-to-fable`); this turn re-verified
+`refs/heads/codex/unit94-boundary-interior` = `a0a03a9f06541eaa8dfbbb4968f53dacfe9d4849`
+with parent exactly `204748e2389a079cbc0c70446a306a6daf9771a6` — the frozen
+tip and base the 0121 adjudication pinned. One commit, four files:
+`compute_data_vectors/generator_core.py` (+109/-6), NEW
+`gates/checks/redteam_unit94_boundary_witness.py` (+1010), and the two
+readbacks (register +124, `data-generation-and-cuts.md` +85). No existing
+gate, threshold, fixture, or golden base is touched — the gate-integrity
+screen is clean by construction.
+
+### Every gate re-run by this turn (full tip tree extracted to scratch)
+
+1. **Ordinary witness**: rc 0, **12 [PASS]**, terminal
+   `uniform-boundary-witness: ALL PASS`. The H0 retention
+   `0.9992369413375854`, the offset resolved support
+   `[1000.0000610351562, 1000.0099487304688]`, and the refusal messages all
+   BYTE-MATCH the 0121 pre-arm — including the f32-width-ratio pin (my
+   independent f32 implementation produced these exact digits; the f64
+   variant differs in the 8th digit, so the witness computes honestly).
+2. **All four mutation arms red at the claimed counts**:
+   endpoint-times-constant rc 1 / 4 failed arms (H0 retention
+   `0.29950401186943054` byte-exact = the minting defect restored);
+   request-validation-bypass rc 1 / 5; resolved-validation-bypass rc 1 / 1;
+   sampling-before-resolution rc 1 / 7. Exactly the 4/5/1/7 of the return.
+3. **py_compile**: both touched files compile clean.
+4. **Board self-test at tip**: rc 0, **176 [PASS] / 0 [FAIL]** — reconciled:
+   176 equals the 204748e base census (the 182 baseline belonged to the
+   record branch's fixed-facts additions), and no `redteam_*` witness has
+   ever been board-registered, so no wiring was owed. The witness is a
+   standalone gate script per the unit-41/53 pattern.
+5. **Unscripted production-coupling probe (mine, not scripted by Sol)**:
+   mutated the PRODUCTION helper's lower resolution outward
+   (`np.nextafter(low, low - 1.0)`) — the witness reds 5 arms (policy
+   surface, H0 interior, offset support, negative mirror, f32-adjacent
+   refusal) and restores green when reverted. The witness exercises the
+   real production code, not a private copy.
+
+### Contract clause-by-clause (the 25M-01 minting contract)
+
+ONE named helper `resolve_uniform_sampling_support(names, bounds)` at
+module level, policy `nextafter-toward-interval-interior-v1`, working in
+interval coordinates via `np.nextafter(low, high)` / `np.nextafter(high,
+low)` — the dispatch's preferred form verbatim. Finite, ordered,
+representably-nonempty interior validated BEFORE sampling: every refusal
+witness records **zero sampler calls**. The helper returns requested AND
+resolved per-name support plus the policy name, exposed at the named
+surface `self.uniform_sampling_support` before `rng.uniform` runs; the
+production branch samples from the resolved bounds. The fourth `bounds`
+key, flagged at 0121, is RULED an alias: it is the resolved array assigned
+from the same loop variables as `resolved` — one fact, one owner; its
+semantics are "the array form of `resolved`" and it must never be
+authored independently. Seam respected: no dataset identity/manifest code
+(unit 8's half), facts sidecar untouched (landing 1's surface),
+`confidence=0.9999994` untouched. House style holds (formal Arguments
+block, named parameters, explicit loop, no comprehensions).
+
+Call-site check beyond the pre-arm: `__run_mcmc` is invoked exactly once
+per GeneratorCore (from `__init__`, rank 0), so the
+`self.bounds = support["bounds"]` overwrite cannot compound across calls;
+a fresh process rebuilds `self.bounds` from config. The overwrite also
+implements persist-resolved (never-trust-defaults): downstream consumers
+of `self.bounds` see the support actually sampled.
+
+### Seam and merge-cleanliness at record HEAD
+
+At current record HEAD the endpoint-times-constant pre-image sits
+byte-intact at `generator_core.py:1048-1049` (displaced +302 by the
+fixed-facts landings), both insertion contexts (`# Free Functions` /
+`capture_native_output`) are intact, and
+`gates/checks/redteam_unit94_boundary_witness.py` does not exist — the
+unit-94 hunks apply with ZERO textual conflicts, satisfying sequencing
+clause 2 of the ruling-A entry.
+
+### VERDICT: GO
+
+Unit 94 is audited GO at `a0a03a9`. Consequences, executed this turn:
+
+- backlog line unit 94 RETIRED (GO recorded in this commit, per the
+  ledger-hygiene rule);
+- unit 8 UNBLOCKS: its line updated and the re-dispatch sent to the
+  Implementer lane (`0163-to-opus`), citing this entry as the landing
+  record 0103's premise required. The dispatch orders the Implementer to
+  first merge `a0a03a9` into the record branch (a branch merge, not main —
+  within agent authority) expecting ZERO generator_core.py conflicts, stop
+  and hand back on any conflict;
+- the codex branch stays frozen at `a0a03a9` as the audited source of
+  record.
+
+Landing block (printed only — merges and pushes to main stay the user's):
+
+```text
+record branch:       claude/amazing-keller-e798b6
+record file:         notes/red-team-audit-and-didactics-2026-07-13.md (this entry)
+audited tip:         codex/unit94-boundary-interior at a0a03a9f06541eaa8dfbbb4968f53dacfe9d4849 (frozen)
+branch action:       Implementer merges a0a03a9 into claude/amazing-keller-e798b6 (zero-conflict expectation) as step 1 of the unit-8 dispatch
+main action:         USER ONLY, at the next landing window — one squash commit for unit 94:
+                       git merge --squash a0a03a9   (from the main checkout)
+                       commit message: plain-words description of the uniform-bounds fix
+                       then merge main back into claude/amazing-keller-e798b6
+```
+
+Commit hygiene note: this notes-only commit necessarily carries two of
+Sol's uncommitted notes-first return records appended earlier today to
+shared note files (the unit-13 wiring-delta readback at `7583019` and the
+tex-caption deletion record) — records awaiting their own adjudication,
+named here per the pre-squash foreign-commit discipline; no code files are
+swept.
+
+No self-certification override: this GO is the Architect's independent
+audit — every gate re-run by this turn's own hands, all pre-armed numerics
+byte-matched, one unscripted probe beyond Sol's scripted arms.
+
+### Unit 94 current-main landing verification (Codex recovery, 2026-07-14)
+
+The user's temporary recovery authority was exercised after the frozen-source
+walk showed exactly one branch-only commit, `a0a03a9`, and no foreign commit.
+The production hunk, standalone witness, and home-note readback were ported to
+current `main`; the branch's stale register append was discarded because this
+newer independent GO entry already supersedes it.
+
+Codex re-ran the complete CPU acceptance surface on the integrated tree:
+
+```text
+ordinary witness                         rc 0  12 PASS; ALL PASS
+mutation endpoint-times-constant         rc 1  4 failed arms
+mutation request-validation-bypass       rc 1  5 failed arms
+mutation resolved-validation-bypass      rc 1  1 failed arm
+mutation sampling-before-resolution      rc 1  7 failed arms
+py_compile (production + witness)         rc 0
+gates/board.py --self-test                rc 0
+git diff --check                          rc 0
+```
+
+The positive numerics reproduce the audit pins exactly: retained H0 fraction
+`0.9992369413375854` and offset support
+`[1000.0000610351562, 1000.0099487304688]`. Every mutation reds only through
+the expected acceptance surface. Unit 94 is therefore safe to finalize as one
+main commit; unit 8 remains a separate open dependency consumer.

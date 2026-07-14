@@ -2456,3 +2456,88 @@ the shared `_CUT_GREY` RGBA value.
 z-order-zero interval patches on the `(omegamh2, omegamh2)` diagonal Axes,
 none on another Axes, and endpoints equal to the lower and upper excluded
 intervals.
+
+## Unit 94 implementation readback: uniform support resolves in interval coordinates
+
+This readback is the generation-side implementation return for 25M-01, routed
+by mailbox dispatch 0117. The candidate branch is
+`codex/unit94-boundary-interior`, based on main commit
+`204748e2389a079cbc0c70446a306a6daf9771a6`. Before branch creation, the bounded
+clone check ran `git worktree list --porcelain`, listed local and remote branch
+names matching unit 94 or boundary interior, scanned the visible `june2026`
+tree for Git repositories and matching directory names, inspected the
+standalone Codex clone's branches and tips, and searched every visible
+`compute_data_vectors/generator_core.py` below `.claude/worktrees` for
+`nextafter`. It found no unit-94 linked worktree, branch, named standalone
+clone, or generator-core `nextafter` implementation. The statement is limited
+to those visible clones and names.
+
+The executable scope is the uniform-branch margin region of
+`compute_data_vectors/generator_core.py` plus the new
+`gates/checks/redteam_unit94_boundary_witness.py`. The only additional files in
+the unit's claimed scope are this readback and the durable register in
+`notes/red-team-audit-and-didactics-2026-07-13.md`. The confidence-bound code,
+board registry, shared checks, fixed-facts files, and `texnotes/` are outside
+the unit.
+
+The named helper is `resolve_uniform_sampling_support(names, bounds)`. The
+constant `UNIFORM_BOUNDARY_INTERIOR_POLICY` names its rule as
+`nextafter-toward-interval-interior-v1`. For each interval, the lower endpoint
+moves one representable value toward the upper endpoint and the upper endpoint
+moves one representable value toward the lower endpoint. This policy depends
+on interval endpoints and representable spacing, not on either coordinate's
+distance from zero. The helper validates a finite, ordered requested interval
+and a finite, ordered, representably nonempty resolved interior before the
+uniform sampler is called. Empty, inverted, nonfinite, or representably empty
+requests refuse before sampling.
+
+The returned mapping has exactly `policy`, `requested`, `resolved`, and
+`bounds`. Requested and resolved support are per parameter name; `bounds` is
+the resolved array used for sampling. `GeneratorCore` publishes the mapping at
+`self.uniform_sampling_support` and makes `self.bounds` the resolved array.
+The mapping is the generation-side fact needed by both later consumers: unit
+8 persists requested and resolved support plus the policy in dataset identity,
+and the fixed-facts sidecar declares the same resolved support. Unit 94 writes
+neither persistence surface. The fixed-facts sidecar, its schema, the shared
+reader, and the 45M-68 named-column resolver remain untouched.
+
+The executable witness must green both original minting examples,
+`[70.0, 70.02]` and `[1000.0, 1000.01]`, plus the negative-endpoint mirror.
+It must also prove that an empty, inverted, nonfinite, or representably empty
+request refuses before a sampling sentinel runs. Every mutation arm must red
+the witness. The endpoint-times-constant restoration arm is required to
+recover the old translation-dependent shrink or inversion; separate arms must
+keep the returned support and pre-sampling refusal load-bearing.
+
+Root's final re-verification produced the following exact aggregate results:
+
+```text
+ordinary witness                rc 0  uniform-boundary-witness: ALL PASS
+endpoint-times-constant         rc 1  FAIL (4 failed arms)
+request-validation-bypass       rc 1  FAIL (5 failed arms)
+resolved-validation-bypass      rc 1  FAIL (1 failed arm)
+sampling-before-resolution      rc 1  FAIL (7 failed arms)
+board self-test                 rc 0  176 PASS / 0 FAIL; ALL PASS
+py_compile, both Python files   rc 0
+git diff --check                rc 0
+fixed-facts patch apply check   rc 0  no generator-core conflict
+```
+
+The ordinary production-dtype witnesses measured H0 retained fraction
+`0.9992369413375854` and resolved the offset interval to
+`[1000.0000610351562, 1000.0099487304688]`. Every invalid-request green arm
+recorded zero sampling calls. The request-validation mutation reached the
+sampler for both infinite-endpoint fixtures; the resolved-validation mutation
+reached it for the float32-adjacent fixture; and the call-order mutation
+reached it before all six refusals. The endpoint restoration recovered the
+old coordinate-scaled shrink and offset inversion.
+
+The branch's 176-pass board count is the exact `204748e` baseline. The 182-pass
+dispatch count included the separate fixed-facts work already present in the
+shared in-flight tree. This unit changes no shared self-test. The register
+entry in `notes/red-team-audit-and-didactics-2026-07-13.md` carries the exact
+turn-local log paths and the printed user-only fetch block. Fable still must
+re-run the evidence against the fetched branch tip. This readback contains no
+Architect verdict, GO, merge authorization, or push authorization.
+
+This is independent Red Team evidence submitted for Fable adjudication. It does not self-certify unit 94 and does not authorize a merge.

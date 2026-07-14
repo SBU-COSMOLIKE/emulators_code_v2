@@ -181,6 +181,103 @@ def make_cli_parser(prog):
 # Free Functions
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
+UNIFORM_BOUNDARY_INTERIOR_POLICY = "nextafter-toward-interval-interior-v1"
+
+
+def resolve_uniform_sampling_support(names, bounds):
+  """
+  Move each requested uniform-sampling endpoint one representable value inward.
+
+  The endpoint movement is defined in interval coordinates.  Its size therefore
+  does not depend on the interval's distance from zero.
+
+  Arguments:
+    names = ordered parameter names, one name for each row of bounds.
+    bounds = numeric array with shape (N, 2).  Each row is the requested
+             [lower, upper] endpoint pair for one parameter.
+
+  Returns:
+    a dictionary containing the policy name, requested per-name endpoints,
+    resolved per-name endpoints, and the resolved bounds array.
+
+  Raises:
+    ValueError = names and bounds do not have matching shapes, an endpoint is
+                 nonfinite, a requested interval is not ordered, or no strictly
+                 ordered representable interior remains.
+  """
+  try:
+    parameter_names = list(names)
+  except TypeError as exc:
+    raise ValueError("Uniform sampling parameter names must be an ordered "
+                     "collection.") from exc
+
+  try:
+    requested_bounds = np.asarray(bounds)
+  except (TypeError, ValueError) as exc:
+    raise ValueError("Uniform sampling bounds must be a numeric array with "
+                     "shape (N, 2).") from exc
+
+  if requested_bounds.ndim != 2 or requested_bounds.shape[1] != 2:
+    raise ValueError("Uniform sampling bounds must have shape (N, 2); got "
+                     f"{requested_bounds.shape}.")
+  if requested_bounds.shape[0] != len(parameter_names):
+    raise ValueError("Uniform sampling parameter names and bounds must have the "
+                     "same row count; got "
+                     f"{len(parameter_names)} names and "
+                     f"{requested_bounds.shape[0]} bounds rows.")
+
+  if not np.issubdtype(requested_bounds.dtype, np.floating):
+    try:
+      requested_bounds = np.asarray(bounds, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+      raise ValueError("Uniform sampling bounds must contain numeric endpoint "
+                       "values.") from exc
+  requested_bounds = np.array(requested_bounds, copy=True)
+  resolved_bounds = np.empty_like(requested_bounds)
+  requested_by_name = {}
+  resolved_by_name = {}
+
+  for index in range(len(parameter_names)):
+    name = parameter_names[index]
+    if name in requested_by_name:
+      raise ValueError(f"Uniform sampling parameter name '{name}' is repeated; "
+                       "each bounds row needs a unique parameter name.")
+
+    low = requested_bounds[index, 0]
+    high = requested_bounds[index, 1]
+    if not np.isfinite(low):
+      raise ValueError(f"Uniform sampling parameter '{name}' has a nonfinite "
+                       f"requested lower endpoint: {low}.")
+    if not np.isfinite(high):
+      raise ValueError(f"Uniform sampling parameter '{name}' has a nonfinite "
+                       f"requested upper endpoint: {high}.")
+    if not low < high:
+      raise ValueError(f"Uniform sampling parameter '{name}' needs a strictly "
+                       "ordered requested interval; got "
+                       f"[{low}, {high}].")
+
+    resolved_low = np.nextafter(low, high)
+    resolved_high = np.nextafter(high, low)
+    if not np.isfinite(resolved_low) or not np.isfinite(resolved_high):
+      raise ValueError(f"Uniform sampling parameter '{name}' has a nonfinite "
+                       "resolved boundary interior.")
+    if not resolved_low < resolved_high:
+      raise ValueError(f"Uniform sampling parameter '{name}' has no strictly "
+                       "ordered representable interior inside "
+                       f"[{low}, {high}].")
+
+    requested_by_name[name] = (float(low), float(high))
+    resolved_by_name[name] = (float(resolved_low), float(resolved_high))
+    resolved_bounds[index, 0] = resolved_low
+    resolved_bounds[index, 1] = resolved_high
+
+  support = {"policy":    UNIFORM_BOUNDARY_INTERIOR_POLICY,
+             "requested": requested_by_name,
+             "resolved":  resolved_by_name,
+             "bounds":    resolved_bounds}
+  return support
+
+
 @contextmanager
 def capture_native_output():
   """
@@ -1043,12 +1140,12 @@ class GeneratorCore:
                                f"Values: {dict(zip(self.sampled_params, x))}")
       else:
         nparams  = self.nparams
-        bds = self.bounds.copy()
-        # extra safety so logprior is not -infty --------------------
-        bds[:,0] = np.where(bds[:,0] > 0, 1.0001*self.bounds[:,0],0.9999*self.bounds[:,0])
-        bds[:,1] = np.where(bds[:,1] > 0, 0.9999*self.bounds[:,1],1.0001*self.bounds[:,1])
-        xf  = self.rng.uniform(low  = bds[:,0],
-                               high = bds[:,1],
+        self.uniform_sampling_support = resolve_uniform_sampling_support(
+            names=names,
+            bounds=self.bounds)
+        self.bounds = self.uniform_sampling_support["bounds"]
+        xf  = self.rng.uniform(low  = self.bounds[:,0],
+                               high = self.bounds[:,1],
                                size = (nparams,ndim))
         lnp = np.ones((nparams,1), dtype=self.dtype)
         # Double check that prior is not -infty --------------------------------

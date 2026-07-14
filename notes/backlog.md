@@ -13,8 +13,8 @@ deliberately just countable lines.
 - CLOSED unit 84 (artifact chain, fixed-facts adapter half): audited PASS and committed d3b9289 2026-07-14 — notes/gates-and-board.md units 84+85 audit; rider repair (schema-v2 gate fixtures) dispatched 0161
 - CLOSED unit 85 (artifact chain, fixed-facts adapter half): audited PASS with unit 84, same commit and audit entry
 - OPEN unit 96: add-or-toggle vs declared unmasked artifact — ruled contract in notes/families-background-mps.md:1217 + red-team register :2897 (the training-stack.md section arrives with the codex/unit-96 landing; transport HOLD adjudicated in the register, 2026-07-14)
-- OPEN unit 94 (boundary-interior half; blocks unit 8): interval-coordinate helper + pre-sampling refusal in generator_core.py's uniform branch — red-team-owned (f46166c), dispatched 0117 — notes/state-2026-07-11-and-next.md adjudication 2026-07-14; candidate FETCHED by the user 2026-07-14 (refs/heads/codex/unit94-boundary-interior verified at a0a03a9) — pre-armed audit triggered via 0155-to-fable
-- OPEN unit 8: rebased on unit 94's seam — BLOCKED until unit 94 lands and its audit records GO (halt adjudicated 2026-07-14) — notes/state-2026-07-11-and-next.md
+- CLOSED unit 94 (boundary-interior half): audited GO at a0a03a9 2026-07-14 — notes/red-team-audit-and-didactics-2026-07-13.md "Unit-94 substance audit"; user-owed main squash printed in the entry; codex branch frozen as the audited source
+- OPEN unit 8: UNBLOCKED 2026-07-14 (unit 94 audited GO) — dispatched to the Implementer 0163-to-opus; step 1 merges a0a03a9 into the record branch (zero-conflict expectation), then the identity manifest digests the resolved support — notes/state-2026-07-11-and-next.md + the unit-94 GO entry
 - OPEN unit 24: see state note
 - OPEN unit 56: resume machinery — kept, see state note
 - OPEN unit 62 (D5 remainder): see didactics register
