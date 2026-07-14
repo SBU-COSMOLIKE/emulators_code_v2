@@ -2412,6 +2412,18 @@ the production `from_cosmolike` boundary so constructor/from-state artifact
 use is genuinely independent; adding four gate-local stubs would preserve the
 false public import contract.
 
+The DIDACTICS-79 execution pass found `25M-38`, recorded in full in
+`data-generation-and-cuts.md`.  A real two-rank, one-parameter background run
+loads Cobaya and CAMB, then rank zero writes `# weights lnp H0` as the first
+line of its `.ranges` file.  GetDist 1.7.2 treats that four-token comment as a
+range record and raises while converting `weights` to a float.  The run
+returns status 1 before covariance or data-vector publication.  All four
+generator drivers inherit the writer.  The exact affected set is fresh
+one-parameter runs in either sampling mode and either chain mode.  Wider
+headers have five or more
+tokens and this GetDist version ignores them.  DIDACTICS-79 remains held until
+the new correctness finding is adjudicated and the real command is replayed.
+
 ## Red Team implementation record: 25M-37 evidence readback and Torch probe
 
 The audited production repair at `3ba8588` defers the optional geometry

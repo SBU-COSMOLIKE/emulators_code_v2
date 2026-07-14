@@ -2140,6 +2140,127 @@ path and red.  The direct release/idempotence legs remain useful helper tests,
 but may not substitute for the public driver call whose ordering is the
 claim.
 
+## 25M-38 (Red Team CONFIRMED, awaiting Architect adjudication): a one-parameter generator writes a parser-shaped ranges header and aborts
+
+A real two-rank background-generator run reached Cobaya 3.6.2 and CAMB
+1.6.7, wrote its first three parameter sidecars, then returned status 1 before
+it could write the covariance, failure flags, targets, or grid sidecars.  The
+interpreter carried GetDist 1.7.2.  `ROOTDIR` named a temporary directory with
+the normal CoCoA `.local`, CAMB, and emulator-repository paths.  The executed
+generator command was:
+
+```bash
+D=external_modules/code/emulators_code_v2
+mpirun -n 2 python $D/compute_data_vectors/dataset_generator_background.py \
+  --root projects/generator_example \
+  --fileroot generator \
+  --yaml background_minimal.yaml \
+  --datavsfile background_dvs \
+  --paramfile background_params \
+  --failfile background_failures \
+  --chain 0 \
+  --nparams 200 \
+  --unif 1 \
+  --temp 1 \
+  --seed 1234 \
+  --freqchk 1000 \
+  --loadchk 0 \
+  --append 0
+```
+
+No `--boundary` value was supplied, so the run used the full sampled support.
+The one-parameter YAML was:
+
+```yaml
+likelihood:
+  background_anchor:
+    external: "lambda _self: 0.0"
+    requires:
+      Hubble:
+        z: [0.1]
+        units: km/s/Mpc
+
+theory:
+  camb:
+    path: ./external_modules/code/CAMB
+
+params:
+  H0:
+    prior:
+      min: 60.0
+      max: 75.0
+    latex: H_0
+  ombh2:
+    value: 0.02237
+  omch2:
+    value: 0.1200
+  mnu:
+    value: 0.06
+  w:
+    value: -1.0
+
+train_args:
+  probe: background
+  ord:
+    - [H0]
+  z_sn: [0.1, 1.0, 8]
+  z_rec: [1000.0, 1200.0, 8]
+```
+
+The zero-valued likelihood gives Cobaya a real consumer for one background
+quantity during dependency construction.  The driver then adds the complete
+Hubble and comoving-distance requirements.  The configuration therefore
+reaches the generator's parameter-output path without CosmoLike.
+
+The decisive terminal output was:
+
+```text
+[0 : model] *WARNING* Ignored blocks/options: ['train_args']
+[1 : model] *WARNING* Ignored blocks/options: ['train_args']
+[0 : camb] `camb` module loaded successfully from <ROOTDIR>/external_modules/code/CAMB/camb
+[0 : background_anchor] Initialized external likelihood.
+[1 : background_anchor] Initialized external likelihood.
+ValueError: could not convert string to float: 'weights'
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+Errorcode: 1
+```
+
+Rank zero had written this 44-byte ranges file:
+
+```text
+# weights lnp H0
+H0 6.00000e+01 7.50000e+01
+```
+
+Its exact hexadecimal bytes were:
+
+```text
+23 20 77 65 69 67 68 74 73 20 6c 6e 70 20 48 30
+0a 48 30 20 36 2e 30 30 30 30 30 65 2b 30 31 20
+37 2e 35 30 30 30 30 65 2b 30 31 0a
+```
+
+`GeneratorCore.__run_mcmc` writes the comment before calling
+`loadMCSamples` to form the covariance.  GetDist 1.7.2 does not skip comments
+in a `.ranges` file.  It treats every three-token or four-token line as a
+range record.  The one-parameter header has four tokens, so GetDist treats
+`#` as a parameter name and tries to convert `weights` to a float.
+
+The blast radius is exact.  All four dataset drivers inherit this writer, so
+every fresh one-parameter lensing, CMB, background, or matter-power run can
+fail here.  Both uniform and tempered sampling take the path.  Both
+`--chain 0` and `--chain 1` take it.  A header for two or more sampled
+parameters has at least five tokens, which this GetDist version ignores.
+That token-count accident is why wider generator configurations can pass the
+same line.
+
+The failed run left only `.ranges`, `.paramnames`, and `.1.txt`.  It did not
+produce a complete checkpoint or a complete training result.  DIDACTICS-79
+therefore remains held.  A repair needs a GetDist-readable one-parameter
+range file plus a regression that drives the same covariance-loading call.
+The end-to-end command must then be replayed before it is printed as a working
+README command.
+
 ## Queue-2 evidence draft: data-selection and triangle gates
 
 The blocks below are the note-side specification for the structured evidence
