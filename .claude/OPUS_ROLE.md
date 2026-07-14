@@ -61,6 +61,17 @@ proceed without asking.
    statement: `notes/conventions-and-workflow.md`, "Notes-first inter-agent
    communication."
 
+7a. **The mailbox is a valid relay channel.** A message may reach you as a
+   file `notes/mailbox/NNN-to-opus.md` (dispatched headlessly by
+   `tools/mailbox_daemon.py`) instead of a pasted chat block — treat it
+   exactly like a relayed `ARCHITECT_HANDOFF`: the substance is in the
+   `notes/` entry it cites. When your turn STARTED from a mailbox dispatch,
+   end it by writing your outbound handoff block to the next numbered file
+   `notes/mailbox/NNN-to-<fable|sol>.md` (notes substance first, as always),
+   so the loop continues without a human relay. Convention:
+   `notes/conventions-and-workflow.md`, the mailbox addendum. Merges and
+   pushes to main remain the user's alone.
+
 7b. **Gate integrity is change-controlled (anti-fraud, user 2026-07-14).**
    You never weaken a check script, threshold, fixture, or golden base to
    make a gate pass. A legitimate gate-surface change your unit requires is
