@@ -3200,3 +3200,128 @@ The Cocoa Python run of `gates/checks/stage_ram.py` ends
 dominate the two-column float32 target`. Compilation of all three edited Python
 files is clean. This is implementation evidence for Architect review. It does
 not certify the landing.
+
+## TEX-PROSE-03 implementation map: diary prose to current-state guidance
+
+This work is isolated on `codex/tex-prose-current-state`. The source
+forward-walk and pre-edit inventory use main commit `114c339` as their
+current-state reference. The branch was refreshed through main commit
+`ff7cbf6`; those intervening main commits do not modify `texnotes/`. The
+pre-edit guide contained exactly 58 diary headings: 31 beginning with
+`Current` and 27 beginning with `Required`. The revised source contains none
+of those heading forms. Open limitations retain their consequence and safe
+action beside the mechanism they affect. Closed items become direct
+descriptions of current behavior. Repair specifications, queue placement and
+landing history remain in `notes/`.
+
+The map below is one row per removed diary paragraph. Original line numbers
+refer to `texnotes/emulator_code_guide.tex` at `114c339` before this edit.
+
+| Map id | Original paragraph | New guide home or reason no warning is needed |
+|---|---|---|
+| T03-001 | 918, configuration gap | `Safe use of the current configuration surface`; warns that top-level and root `train_args` key censuses remain incomplete and gives the shipped-YAML plus resolved-record action. |
+| T03-002 | 926, configuration closure | Future schema design removed from the guide; the same safe-use paragraph retains native-boolean and finite-control guidance. |
+| T03-003 | 1025, validation-order deviation | `Validation order in the current constructor`; states which expensive actions can precede late validation and recommends a small-data construction first. |
+| T03-004 | 1162, no-cut pool gap | `Safe use of the training-size wrappers`; retains the pre-first-point failure and supplies explicit-cuts or separate-run alternatives. |
+| T03-005 | 1169, no-cut pool closure | Future counter design removed; the warning home retains the selection-count readback action. |
+| T03-006 | 1201, parallel-study gap | `Safe use of a parallel study`; retains worker-exit and new-completed-trial consequences. |
+| T03-007 | 1206, study-manifest closure | Future manifest schema removed; the warning home requires a manual identity comparison or a fresh journal. |
+| T03-008 | 1254, pooled-worker closure | Future lifecycle design removed; `Safe use of pooled GPU campaigns` states the live unbounded-wait exposure and external-timeout action. |
+| T03-009 | 1261, activation-bakeoff gap | Folded into `Safe use of pooled GPU campaigns`; preserves the setup-before-handler failure path and one-result-per-point check. |
+| T03-010 | 1378, dataset-certification gap | `Safe use of generated file sets`; preserves failed-row, missing-sidecar and checkpoint-restart consequences. |
+| T03-011 | 1386, checkpoint closure | Future transaction design removed; the warning home lists the readiness checks a user can perform now. |
+| T03-012 | 1408, optional-LaTeX gap | `Safe use of parameter display labels`; preserves the late `KeyError` and explicit-label action. |
+| T03-013 | 1415, optional-LaTeX closure | Future fallback test removed; the warning home names the numerical parameter name as the intended plain label without claiming the writer applies it. |
+| T03-014 | 2298, geometry-totality gap | `Safe use of current geometry constructors`; preserves negative-eigenvalue, clipped-zero and post-cast-underflow paths. |
+| T03-015 | 2308, geometry closure | Future shared-validator design removed; the warning home gives final-dtype, round-trip and direct-score checks. |
+| T03-016 | 3073, all-rejected PCE gap | `Safe use when every PCE mode fails selection`; preserves force-kept mode zero and requires score readback. |
+| T03-017 | 3078, PCE closure | Alternatives removed; the warning home states the ruled current user action: treat an all-rejected fit as failed. |
+| T03-018 | 3136, NPCE-domain gap | `Safe use of the current NPCE domain`; preserves unversioned clamping and restricts calls to the persisted fitted box. |
+| T03-019 | 3712, optimizer-protocol gap | `Safe use of the current optimizer factory`; preserves forced fused mode and closure-required optimizer hazards. |
+| T03-020 | 3720, optimizer closure | Future factory design removed; the warning home limits safe use to the shipped AdamW path unless a one-step protocol check is run. |
+| T03-021 | 3810, increasing-step gap | `Safe use of stepped schedules`; preserves the immediate jump for increasing ramps. |
+| T03-022 | 3817, schedule closure | Future evaluator design removed; the warning home directs increasing ramps to linear or cosine and requires intermediate readback. |
+| T03-023 | 4198, update-chain deviation | `Limits of the current update chain`; preserves workstation-owed post-step finiteness and the live EMA-before-anchor order. |
+| T03-024 | 4208, MPS float16 gap | Same warning home; preserves unscaled small-gradient underflow. |
+| T03-025 | 4215, MPS closure | Future scaler protocol removed; the current safe action disables automatic mixed precision on MPS. |
+| T03-026 | 4356, fine-tune anchor gap | `Fine-tune anchor availability`; states that the public key is refused and identifies the currently usable alternatives. |
+| T03-027 | 4363, anchor closure | Future opening contract removed; the warning home states that adding the key stops before training. |
+| T03-028 | 4370, sweep-lifecycle gap | Original fine-tune attribution withdrawn after a source forward-walk. `Safe use in a transfer-refinement sweep` preserves the real shared-base mutation hazard under its correct owner. |
+| T03-029 | 4377, sweep-lifecycle closure | Future restore design removed; the transfer-refinement warning requires a fresh source reconstruction for every point. |
+| T03-030 | 4643, TATT persistence gap | `Safe use of a saved TATT artifact`; preserves the missing ordered-template identity and source-checkout action. |
+| T03-031 | 4649, TATT closure | Future artifact schema removed; the warning home requires registry-order comparison and a known-answer rerun after registry edits. |
+| T03-032 | 4951, flat-only gap | `Flat-only use of the current background artifact`; preserves the radial-distance relabeling under nonzero global curvature. |
+| T03-033 | 4973, flat-only closure | Future fixed-fact design removed; the warning home limits V1 to exact global flatness and directs nonflat models to another provider. |
+| T03-034 | 5010, positive-minimum distance gap | `Safe use of the current positive-minimum grid`; preserves extrapolation below trained support. |
+| T03-035 | 5018, zero-anchor closure | Future load refusal removed; the warning home narrows the artifact to `H(z)` at stored nodes and directs distance integrals elsewhere. |
+| T03-036 | 5185, sigma8 gap | `Safe use of the current matter-power adapter`; preserves the 8 Mpc versus 8/h Mpc mismatch and registration limitation. |
+| T03-037 | 5194, sigma8 closure | Future adapter design removed; the warning home forbids adapter sigma8 and names a verified direct integral as the safe alternative. |
+| T03-038 | 5299, diagnostic-totality gap | `Safe interpretation of current diagnostics`; preserves NaN-producing estimator cases and the smoke-double limitation. |
+| T03-039 | 5307, diagnostic closure | Future result schema removed; the warning home treats nonfinite output as unavailable or failed and retains save-before-reporting behavior. |
+| T03-040 | 5415, artifact-pair gap | `Safe handling of the current two-file artifact`; preserves independent writes and pair-mixing risk. |
+| T03-041 | 5421, artifact-pair closure | Future transaction design removed; the warning home requires immutable paired transport and save/rebuild readback. |
+| T03-042 | 5522, returned-array alias gap | `Safe handling of returned arrays`; preserves CPU storage sharing and device-dependent ownership. |
+| T03-043 | 5531, ownership closure | Future copy census removed; the warning home directs callers to make owned copies before mutation. |
+| T03-044 | 5616, adapter-schema gap | `Safe use of current adapter options`; preserves truth-value, empty-root and integer-coercion paths. |
+| T03-045 | 5623, adapter closure | Future shared-validator design removed; the warning home lists exact value forms and the one-predictor full-vector limit. |
+| T03-046 | 5638, coordinate-identity gap | `Safe use of current coordinate checks`; preserves maximum-only CMB validation and anonymous dump axes. |
+| T03-047 | 5646, coordinate closure | Future sidecar chain removed; the warning home requires an independently verified contiguous multipole sequence and forbids interior holes. |
+| T03-048 | 5663, verdict-order gap | `Safe use of provider-backed generation and references`; narrows the defect to the provider-backed paths that actually exhibit it. |
+| T03-049 | 5670, verdict closure | Future helper design removed; the warning home gives the current zero-getter, zero-payload action after rejection. |
+| T03-050 | 6103, evidence-rollout gap | `Structured-evidence coverage`; states that reconciliation is live and names the aggregate-only gates whose raw logs still require full inspection. |
+| T03-051 | 6109, evidence-rollout closure | Future universal-rollout wording removed; the same paragraph states the current unknown, duplicate and missing-id verdict. |
+| T03-052 | 6129, watched-tree status | No warning needed. Rewritten as `Watched-tree behavior` because the five executable roots, root drivers and exact config exception are implemented and self-tested. |
+| T03-053 | 6140, execution-root gap | No warning needed. Rewritten as `One project root for every child` because the runner injects the configured root before child execution. |
+| T03-054 | 6148, execution-root closure | No warning needed. The current-mechanics paragraph retains the mismatch self-test without narrating a future repair. |
+| T03-055 | 6157, warning-leg gap | No warning needed. Rewritten as `A warning leg also checks process success` because the leg now conjoins zero return status and text. |
+| T03-056 | 6163, warning-leg closure | No warning needed. The current-mechanics paragraph retains the print-then-raise mutation behavior. |
+| T03-057 | 6221, manifest-population gap | No warning needed. Rewritten as `Executable manifests on the live board` because every registered gate declares a manifest. |
+| T03-058 | 6229, manifest-population closure | No warning needed. The current paragraph teaches per-member hashes, reviewed dynamic-import coverage and stale/pre-manifest reruns. |
+
+Additional diary narration outside those headings was also converted:
+
+- the manuscript policy now states the current-state doctrine without teaching
+  the repair ledger;
+- the power-activation section keeps its exact-zero autograd warning and gives
+  a zero-start-head safe action without promising a later repair;
+- transfer self-containment and the rebuild ledger keep the open pair-binding
+  warning without describing its future schema;
+- the CMB lifecycle example states its present maximum-only negotiation and
+  points to the safe contiguous-axis use;
+- the board digest section now describes the fully populated manifest surface;
+- tracked-PDF prose states the current manual rebuild requirement without
+  narrating this landing or a future lane;
+- gate triage distinguishes structured evidence from aggregate raw-log
+  evidence without rollout history;
+- the file-study itinerary states the current fine-tune-anchor refusal and
+  points readers to named safe-use subsections.
+
+The edit also corrects two stale current-state claims found during the
+forward-walk. Ordinary fine-tuning does not mutate its shared source across
+sweep points; transfer refinement does. The guide now attributes that warning
+to transfer refinement. The board's resume table also adds the implemented
+`stale-dependency` state, whose child pass consumed an older prerequisite
+attempt.
+
+After the final main refresh, two consecutive `pdflatex` passes from the
+repository root produce an 83-page letter-size PDF. The second log contains no
+LaTeX warning, undefined reference, multiply defined label, overfull box,
+undefined control sequence, emergency stop or fatal error. The tracked PDF is
+3,926,309 bytes with SHA-256
+`230be6078fd492f44ceb5f501b4c777405db510a22a09478c0225ed9c2bed6c6`.
+All twelve included figure assets exist and are nonempty.
+
+Every PDF page was rendered at 100 dpi and reviewed in seven contact sheets.
+Pages 8, 38, 44, 54, 63, 73 and 79 were rendered again at 160 dpi and inspected
+at full size. The review found no clipped column, overlapped paragraph,
+displaced figure, orphaned heading or malformed table. Page 8 verifies the new
+current-state policy, page 44 samples the warm-start warnings, pages 54 and 63
+sample artifact and board tables, page 73 samples per-gate prose and page 79
+samples the file-study route.
+
+The source census reports all 58 map identifiers exactly once and no remaining
+`Current` or `Required` diary heading. It also reports no internal audit code,
+prose dash character or unescaped semicolon in the revised guide. An editorial
+pass against private standards reports no match in the added prose.
+`git diff --check` is clean at the time of this record. This is implementation
+evidence for Architect audit. It does not certify or merge TEX-PROSE-03.
