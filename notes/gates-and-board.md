@@ -14497,3 +14497,61 @@ threat boundary, not a release blocker.
 This closes only the Sol discovery-deferral and fix-only-watch rider. The
 global safe-kill rendezvous and automatic landing-debt correction remain OPEN
 and separately countable.
+
+## Daemon global safe-kill rendezvous and bounded role-language audit (Codex, 2026-07-14): GO
+
+The watch now owns one global admission gate across the shared Claude lane and
+the independent Sol lane. After five reaped child turns, or fifteen monotonic
+minutes during an uninterrupted busy epoch, the gate stops releasing new
+preparations. Already admitted preparations retain custody from before root
+claim through post-child state publication; successfully launched children
+remain registered until reaped regardless of exit code or archive outcome.
+Only the conjunction of zero active preparations and zero live children can
+open the safe window.
+
+The main watch thread prints exactly twenty all-idle lines from 19 through 0,
+sleeping one second after each and recomputing the root waiting count every
+time. A message arriving during the window is reported but stays untouched
+until release. The ordinary twenty-second empty-poll wait is also a real safe
+opportunity and resets the cadence epoch. Both kinds of interval flush the
+exact `safe interval ended; not safe to stop.` status before work can reopen,
+and each admitted preparation flushes another exact status before it can claim
+a root message: `dispatch preparation admitted; not safe to stop.` Live Popen
+children separately report the exact one-or-many in-flight count. Thus no
+expired all-clear remains visible through the claim-to-launch gap found by the
+first independent audit.
+
+The focused witness uses only disposable mailbox trees. It proves two-lane
+drain ordering, K and M cadence, dynamic queue counts, Ctrl-C byte
+preservation, ordinary-safe expiry before claim, mid-pass source-change
+refusal, finite-mode compatibility, and production dispatch's actual Popen
+lifecycle hooks. Seven source mutants independently remove or weaken the
+countdown, in-flight warning, pre-claim warning, start hook, finish hook,
+source admission check, and dynamic count; every one turns its named arm red.
+
+The same bounded audit reviewed `.claude/FABLE_ROLE.md`. Architect rulings,
+audits, and landing decisions now use explicit GO or NO-GO. A Red Team request
+to review a commit or change is limited to that named delta and directly
+affected behavior; only an explicit user request equivalent to “Do a
+widespread search for ...” authorizes a library-wide sweep. Unrelated
+observations remain unpursued candidates for later Architect adjudication.
+No other role or landing doctrine changed.
+
+Independent final evidence on the unchanged snapshot:
+
+```text
+python3 -B tests/tools_mailbox_daemon_rendezvous_repro.py rc 0  9/9 runtime; 7/7 mutations killed
+python3 -B tests/tools_mailbox_daemon_fix_only_repro.py  rc 0  14/14 runtime; 20/20 mutations killed
+python3 -B tests/tools_mailbox_daemon_dead_mailbox_repro.py rc 0  9/9 runtime; 7/7 mutations killed
+python3 -B tests/tools_mailbox_daemon_redteam_repro.py   rc 0  8/8 arms
+python3 -B tests/tools_mailbox_daemon_staleness_repro.py rc 0  18/18 runtime; 9/9 mutations killed
+python3 -B tests/tools_mailbox_daemon_output_style_repro.py rc 0  8/8 checks
+python3 -B -m unittest tests.test_mailbox_conditional_preamble rc 0  4/4
+python3 -m py_compile tools/mailbox_daemon.py tests/tools_mailbox_daemon_rendezvous_repro.py tests/tools_mailbox_daemon_staleness_repro.py rc 0
+git diff --check                                           rc 0
+```
+
+Verdict: **GO**. This retires the global safe-kill rider only. The configurable
+Architect/Implementer model selector and automatic landing-debt correction
+remain separately OPEN. The unrelated pre-existing dirty incident note was
+excluded from this audit and landing.

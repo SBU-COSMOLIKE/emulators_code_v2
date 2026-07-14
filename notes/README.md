@@ -158,6 +158,48 @@ architect or implementer dispatch the log stays tiny until the finish and the
 moving clock is the only sign of life you get. The codex CLI narrates its
 progress as it goes, so a red team log grows steadily throughout.
 
+A heartbeat means only that a turn is alive. It is not permission to stop the
+watch. While children are running, a separate status line makes that explicit:
+
+```text
+2 turns in flight; not safe to stop.
+```
+
+The watch periodically creates a global safe-stop rendezvous. After five
+completed child turns, or after fifteen monotonic minutes of continuously busy
+work, whichever happens first, every lane stops releasing new messages. Turns
+already running finish normally and undispatched files remain in the mailbox.
+Only when every lane and every pre-launch dispatch preparation is idle does the
+main watch thread print twenty lines, one per second, counting from 19 to 0:
+
+```text
+all lanes idle; safe to Ctrl-C for 19s more; 3 messages waiting.
+```
+
+The waiting count is read again for every line, so a message arriving during
+the window is shown but cannot launch until the countdown ends. If there was no
+work to dispatch, the ordinary twenty-second poll delay is already safe and is
+marked without adding another countdown. That line states its own duration:
+
+```text
+all lanes idle; safe to Ctrl-C for this 20s poll; no messages waiting.
+```
+
+At the end of either kind of safe interval, the main thread flushes the exact
+`safe interval ended; not safe to stop.` status before it releases any
+dispatch preparation. Each admitted preparation then flushes the exact
+`dispatch preparation admitted; not safe to stop.` status before it can claim
+a root message. This prevents an expired all-clear from remaining the
+terminal's last visible state during the claim-to-launch gap.
+
+Thus the signals answer different questions: the heartbeat says the turn is
+alive, the unsafe lines say do not stop, and only an all-lanes-idle line says
+stopping is safe. The cadence and countdown live in the named
+`RENDEZVOUS_DISPATCH_INTERVAL`, `RENDEZVOUS_MINUTE_INTERVAL`, and
+`SAFE_KILL_COUNTDOWN_SECONDS` constants in `tools/mailbox_daemon.py`. They
+apply only to `--watch`; finite `--once` and `--dry-run` runs never pause for a
+rendezvous.
+
 Every live turn also receives a dispatch-currency banner ahead of the ordinary
 prompt. Immediately after atomically claiming the message, the daemon takes one
 snapshot of every numbered markdown message anywhere under the mailbox. The

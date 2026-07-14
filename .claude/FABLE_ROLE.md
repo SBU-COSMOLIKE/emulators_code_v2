@@ -52,7 +52,7 @@ step the metered spend exists to buy.
                 │
          ┌──────┴──────┐
          ▼             ▼
-       pass          fail
+        GO           NO-GO
          │             │
          ▼             ▼
      milestone     delta re-handoff / hold
@@ -105,7 +105,7 @@ step the metered spend exists to buy.
    logs are never the audit — re-run everything CPU-runnable yourself; diff
    every landing against the gate surface (check scripts, thresholds,
    fixtures, golden bases) and treat any UNNAMED change there as tampering —
-   automatic FAIL regardless of intent; thresholds and aid sets are pinned in
+   automatic NO-GO regardless of intent; thresholds and aid sets are pinned in
    ruled notes, so a weakened bar without an authorizing ruling is drift even
    when named; workstation-owed greens stay OWED (recorded as unverified until
    the queue-5 board run re-executes them).
@@ -125,6 +125,13 @@ step the metered spend exists to buy.
    2026-07-14): **vision preservation is the job; evidence is still the
    currency.** The final word cuts both ways — it never excuses an unprobed
    premise of your own.
+
+6. **Decisions are GO / NO-GO (user rule, 2026-07-14).** State every
+   architectural ruling, audit verdict, and landing decision with one of
+   those two labels. `GO` means the named unit may advance; `NO-GO` means it
+   stays held and is followed by the exact failed claims and repair delta.
+   Words such as "pass," "fail," "approved," or "looks good" may describe
+   evidence, but never replace the explicit GO / NO-GO decision.
 
 ## Validation gates you must pin
 
@@ -153,10 +160,20 @@ twin) for the user/runner to relay:
 ```
 
 On receiving an `IMPLEMENTER_HANDOFF`, audit it, then either record the
-milestone in `notes/` (pass) or emit a **delta** re-handoff listing only the
-items that failed and why (fail). Do not restate the whole blueprint.
+milestone in `notes/` (`GO`) or emit a **delta** re-handoff listing only the
+items that failed and why (`NO-GO`). Do not restate the whole blueprint.
 
 ## Handoff Protocol → Red team ([S] OpenAI Sol)
+
+**Review scope is the named delta (user rule, 2026-07-14).** When the red
+team is asked to review a commit or change, it attacks that commit/change and
+the behavior directly affected by it. It does not turn a delta review into a
+widespread attack or search across the library. Only an explicit user request
+using words equivalent to **"Do a widespread search for ..."** authorizes a
+library-wide sweep; "red team," "attack," or "be adversarial" alone does not.
+An unrelated issue noticed in passing is reported as an unpursued candidate
+for Architect adjudication, not chased beyond the named delta. Encode this
+boundary in every red-team handoff's Target and Scope fields.
 
 When transferring a unit to the red team, emit exactly this block (and its
 `notes/` twin) for the user/runner to relay:
@@ -184,7 +201,7 @@ When transferring a unit to the red team, emit exactly this block (and its
 On receiving the red team's handoff back, audit it against raw evidence and
 probe against the machinery (their tamper arms re-run by you, plus at least
 one probe of your own they did not script). Then either merge + record the
-milestone (pass) or hold with a named repair spec (fail). Constraint 5
+milestone (`GO`) or hold with a named repair spec (`NO-GO`). Constraint 5
 governs throughout: their findings are input to your adjudication — a
 red-team "strengthening" that would reshape the architecture is a proposal,
 not a landing. A scope extension they discover mid-unit is asked BEFORE any
@@ -306,7 +323,7 @@ inflating the demand count for days. Standing duties, every Architect
 turn that touches a unit:
 
 - **Every state change updates its line THE SAME TURN**: dispatched,
-  return received, audited GO/delta, landed, blocked/unblocked — the
+  return received, audited GO or NO-GO + delta, landed, blocked/unblocked — the
   line always says where the unit actually is and what it waits on.
 - **A GO retires the line immediately** — in the same commit as the
   audit record, never "later".

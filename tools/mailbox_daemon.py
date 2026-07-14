@@ -162,6 +162,240 @@ MAX_DISPATCH_TIMEOUT_MINUTES = 1000000
 MAX_TIMEOUT_HISTORY_BYTES = 262144
 MAX_TIMEOUT_HISTORY_EVENTS = 1000
 
+# A watch periodically manufactures one GLOBAL safe-stop opportunity.  Five
+# completed child turns is frequent compared with the multi-minute turns this
+# daemon runs, while the time bound prevents a sparse or slow queue from going
+# indefinitely without an all-idle window.  These are watch-only: --once and
+# --dry-run retain their finite, delay-free behavior.
+RENDEZVOUS_DISPATCH_INTERVAL = 5
+RENDEZVOUS_MINUTE_INTERVAL = 15
+SAFE_KILL_COUNTDOWN_SECONDS = 20
+WATCH_POLL_SECONDS = 20
+
+
+def report_in_flight_status(count):
+    """Print the truthful unsafe status for one or more live children."""
+    noun = "turn" if count == 1 else "turns"
+    print(str(count) + " " + noun
+          + " in flight; not safe to stop.", flush=True)
+
+
+def report_admitted_status():
+    """Expire any earlier safe line before an attempt can claim its file."""
+    print("dispatch preparation admitted; not safe to stop.", flush=True)
+
+
+def report_safe_interval_closed():
+    """Invalidate a completed safe interval before admissions can reopen."""
+    print("safe interval ended; not safe to stop.", flush=True)
+
+
+class _RendezvousPermit:
+    """One watch-global release from before claim through state publication."""
+
+    def __init__(self):
+        self.launched = False
+        self.reaped = False
+        self.released = False
+
+
+class SafeKillRendezvous:
+    """Close watch admissions periodically and prove every lane is idle.
+
+    ``active_attempts`` deliberately covers more than live children.  A turn
+    that passed the admission gate but has not reached Popen can already have
+    claimed its mailbox file, so an advertised safe window must wait for that
+    whole attempt as well as for every launched child.
+    """
+
+    def __init__(self, source_path=None, source_stamp=None):
+        self._lock = threading.Condition()
+        self._active_attempts = 0
+        self._in_flight = 0
+        self._completed = 0
+        self._draining = False
+        self._deadline = self._next_deadline()
+        self._source_path = source_path
+        self._source_stamp = source_stamp
+        self._source_changed = False
+
+    @staticmethod
+    def _next_deadline():
+        return (time.monotonic()
+                + float(RENDEZVOUS_MINUTE_INTERVAL) * 60.0)
+
+    def _arm_if_due_locked(self):
+        if (self._completed >= RENDEZVOUS_DISPATCH_INTERVAL
+                or time.monotonic() >= self._deadline):
+            self._draining = True
+
+    def _stop_for_source_change_locked(self):
+        if self._source_path is None:
+            return
+        try:
+            changed = (os.path.getmtime(self._source_path)
+                       != self._source_stamp)
+        except OSError:
+            changed = True
+        if changed:
+            self._source_changed = True
+            self._draining = True
+
+    def begin_attempt(self):
+        """Return a release permit, or None once the global drain is armed."""
+        while True:
+            with self._lock:
+                self._stop_for_source_change_locked()
+                self._arm_if_due_locked()
+                if self._draining:
+                    return None
+                # Reserve cadence capacity across all cwd lanes.  A refusal
+                # or Popen failure later frees the reservation; a reaped child
+                # converts it into one completed turn.  This prevents a fast
+                # lane from starting turn K+1 while turn K is still live.
+                if (self._completed + self._active_attempts
+                        < RENDEZVOUS_DISPATCH_INTERVAL):
+                    permit = _RendezvousPermit()
+                    self._active_attempts = self._active_attempts + 1
+                else:
+                    self._lock.wait()
+                    continue
+            # This flushed transition happens before begin_attempt returns,
+            # so dispatch cannot claim the root message while an expired
+            # ordinary-poll or countdown line is still the visible status.
+            try:
+                report_admitted_status()
+            except BaseException:
+                # A broken output stream must not strand an unreturned permit
+                # and make the global gate appear permanently busy.
+                with self._lock:
+                    self._active_attempts = self._active_attempts - 1
+                    self._lock.notify_all()
+                raise
+            return permit
+
+    def source_changed(self):
+        """Return whether an admission observed a stale daemon source."""
+        with self._lock:
+            return self._source_changed
+
+    def turn_started(self, permit):
+        """Record a successful Popen and print the exact unsafe status."""
+        with self._lock:
+            if permit.launched:
+                raise RuntimeError("rendezvous permit launched twice")
+            permit.launched = True
+            self._in_flight = self._in_flight + 1
+            count = self._in_flight
+            report_in_flight_status(count=count)
+
+    def turn_finished(self, permit):
+        """Count one reaped child regardless of its exit or archive result."""
+        with self._lock:
+            if not permit.launched or permit.reaped:
+                raise RuntimeError("invalid rendezvous child completion")
+            permit.reaped = True
+            self._in_flight = self._in_flight - 1
+            self._completed = self._completed + 1
+            self._arm_if_due_locked()
+            count = self._in_flight
+            if count:
+                report_in_flight_status(count=count)
+            self._lock.notify_all()
+
+    def finish_attempt(self, permit):
+        """Release post-child state work and freeze on an unreaped child."""
+        with self._lock:
+            if permit.released:
+                raise RuntimeError("rendezvous permit released twice")
+            permit.released = True
+            self._active_attempts = self._active_attempts - 1
+            if permit.launched and not permit.reaped:
+                # Never advertise safety, or release later work, after losing
+                # truthful custody of a child process.
+                self._draining = True
+            self._arm_if_due_locked()
+            self._lock.notify_all()
+
+    def window_ready(self):
+        """Return True only for a due drain with no child or preparation."""
+        with self._lock:
+            self._arm_if_due_locked()
+            return (self._draining and self._active_attempts == 0
+                    and self._in_flight == 0)
+
+    def all_idle(self):
+        """Return whether no admitted attempt or launched child remains."""
+        with self._lock:
+            return self._active_attempts == 0 and self._in_flight == 0
+
+    def reset_after_safe_opportunity(self):
+        """Start a fresh cadence epoch after a proven all-idle interval."""
+        with self._lock:
+            if self._active_attempts != 0 or self._in_flight != 0:
+                raise RuntimeError("cannot reset a non-idle rendezvous")
+            self._completed = 0
+            self._draining = False
+            self._deadline = self._next_deadline()
+            self._lock.notify_all()
+
+
+# main() owns this only while a locked --watch is live.  Keeping the public
+# process_backlog()/drain_lane()/dispatch() call shapes unchanged preserves
+# finite callers and the existing focused reproduction suites.
+_ACTIVE_WATCH_RENDEZVOUS = None
+_RENDEZVOUS_LOCAL = threading.local()
+
+
+def _rendezvous_turn_started():
+    """Bind a successful Popen to this worker's active watch permit."""
+    controller = _ACTIVE_WATCH_RENDEZVOUS
+    permit = getattr(_RENDEZVOUS_LOCAL, "permit", None)
+    if controller is not None and permit is not None:
+        controller.turn_started(permit=permit)
+
+
+def _rendezvous_turn_finished():
+    """Bind a reaped child to this worker's active watch permit."""
+    controller = _ACTIVE_WATCH_RENDEZVOUS
+    permit = getattr(_RENDEZVOUS_LOCAL, "permit", None)
+    if controller is not None and permit is not None:
+        controller.turn_finished(permit=permit)
+
+
+def waiting_messages_text(count):
+    """Return a grammatically exact root-queue count for safe statuses."""
+    if count == 0:
+        return "no messages waiting"
+    noun = "message" if count == 1 else "messages"
+    return str(count) + " " + noun + " waiting"
+
+
+def run_safe_kill_countdown(controller):
+    """Print the main-thread 20-second all-idle window, then reopen work."""
+    if not controller.window_ready():
+        raise RuntimeError("safe-kill countdown requested before all-idle")
+    for seconds_more in range(SAFE_KILL_COUNTDOWN_SECONDS - 1, -1, -1):
+        waiting = len(pending_messages())
+        print("all lanes idle; safe to Ctrl-C for " + str(seconds_more)
+              + "s more; " + waiting_messages_text(count=waiting) + ".",
+              flush=True)
+        time.sleep(1)
+    report_safe_interval_closed()
+    controller.reset_after_safe_opportunity()
+
+
+def report_ordinary_safe_poll(controller):
+    """Mark the existing idle poll delay as an ordinary safe opportunity."""
+    if not controller.all_idle():
+        return False
+    waiting = len(pending_messages())
+    print("all lanes idle; safe to Ctrl-C for this "
+          + str(WATCH_POLL_SECONDS) + "s poll; "
+          + waiting_messages_text(count=waiting) + ".", flush=True)
+    controller.reset_after_safe_opportunity()
+    return True
+
 
 def positive_int(value):
     """Parse an argparse integer that must be strictly positive."""
@@ -1313,53 +1547,69 @@ def dispatch(path, dry_run, fix_only=False):
             launch_error = exc
             f.write("\n--- dispatch could not start: " + str(exc) + " ---\n")
         if proc is not None:
-            next_beat = started + 60.0
-            deadline = started + DISPATCH_TIMEOUT_MINUTES * 60.0
-            while proc.poll() is None:
-                time.sleep(5)
-                now = time.time()
-                if now >= deadline:
-                    # The child can finish naturally during sleep. Poll once
-                    # more at the deadline and kill only a process that is
-                    # still live now; otherwise a successful turn would be
-                    # mislabeled as timed out and poisoned with kill history.
-                    if proc.poll() is not None:
+            _rendezvous_turn_started()
+            try:
+                next_beat = started + 60.0
+                deadline = started + DISPATCH_TIMEOUT_MINUTES * 60.0
+                while proc.poll() is None:
+                    time.sleep(5)
+                    now = time.time()
+                    if now >= deadline:
+                        # The child can finish naturally during sleep. Poll
+                        # once more at the deadline and kill only a process
+                        # that is still live now; otherwise a successful turn
+                        # would be mislabeled as timed out and poisoned with
+                        # kill history.
+                        if proc.poll() is not None:
+                            break
+                        # a hung CLI would hold this lane forever (seen live:
+                        # a turn printed "Execution error" then produced
+                        # nothing for 21 minutes). Kill it; the non-zero exit
+                        # code below parks the claimed message in failed/.
+                        proc.kill()
+                        proc.wait()
+                        timed_out = True
+                        # The timeout setting is the stable killed-after
+                        # threshold promised to a later retry. The poll loop
+                        # can observe the child a fraction late; retain that
+                        # elapsed value for diagnostics without letting
+                        # scheduler jitter leak into the human-facing retry
+                        # sentence.
+                        killed_after_minutes = DISPATCH_TIMEOUT_MINUTES
+                        observed_elapsed_minutes = (now - started) / 60.0
+                        try:
+                            write_timeout_history(
+                                name=name,
+                                killed_after_minutes=killed_after_minutes,
+                                observed_elapsed_minutes=(
+                                    observed_elapsed_minutes))
+                        except (OSError, ValueError, json.JSONDecodeError,
+                                OverflowError, RecursionError) as exc:
+                            timeout_history_error = exc
+                        print("  timed out " + name + " after "
+                              + exact_duration(value=killed_after_minutes)
+                              + " min; the turn was killed; its recovery "
+                              "state will be verified after the log closes.")
                         break
-                    # a hung CLI would hold this lane forever (seen live:
-                    # a turn printed "Execution error" then produced
-                    # nothing for 21 minutes). Kill it; the non-zero exit
-                    # code below parks the claimed message in failed/.
-                    proc.kill()
-                    proc.wait()
-                    timed_out = True
-                    # The timeout setting is the stable killed-after
-                    # threshold promised to a later retry. The poll loop can
-                    # observe the child a fraction late; retain that elapsed
-                    # value for diagnostics without letting scheduler jitter
-                    # leak into the human-facing retry sentence.
-                    killed_after_minutes = DISPATCH_TIMEOUT_MINUTES
-                    observed_elapsed_minutes = (now - started) / 60.0
-                    try:
-                        write_timeout_history(
-                            name=name,
-                            killed_after_minutes=killed_after_minutes,
-                            observed_elapsed_minutes=(
-                                observed_elapsed_minutes))
-                    except (OSError, ValueError, json.JSONDecodeError,
-                            OverflowError, RecursionError) as exc:
-                        timeout_history_error = exc
-                    print("  timed out " + name + " after "
-                          + exact_duration(value=killed_after_minutes)
-                          + " min; the turn was killed; its recovery state "
-                          "will be verified after the log closes.")
-                    break
-                if now >= next_beat:
-                    elapsed_min = (now - started) / 60.0
-                    log_kb = os.path.getsize(log_path) / 1024.0
-                    print("  ... " + name + " still running "
-                          + "(%.0f min elapsed, log %.1f kB; tail -f %s)"
-                          % (elapsed_min, log_kb, log_path))
-                    next_beat += 60.0
+                    if now >= next_beat:
+                        elapsed_min = (now - started) / 60.0
+                        log_kb = os.path.getsize(log_path) / 1024.0
+                        print("  ... " + name + " still running "
+                              + "(%.0f min elapsed, log %.1f kB; tail -f %s)"
+                              % (elapsed_min, log_kb, log_path))
+                        next_beat += 60.0
+            finally:
+                # If an unexpected monitor/log exception occurs, do not leave
+                # an untracked child behind a future all-clear.  Reap it when
+                # possible; otherwise the rendezvous permit remains visibly
+                # in flight and permanently closes admissions.
+                try:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait()
+                finally:
+                    if proc.poll() is not None:
+                        _rendezvous_turn_finished()
             f.write("\n--- rc=" + str(proc.returncode) + " ---\n")
 
     if launch_error is not None:
@@ -1553,7 +1803,26 @@ def drain_lane(paths, dry_run, fix_only=False):
     """
     all_consumed = True
     for path in paths:
-        if not dispatch(path=path, dry_run=dry_run, fix_only=fix_only):
+        controller = (_ACTIVE_WATCH_RENDEZVOUS
+                      if not dry_run else None)
+        permit = None
+        if controller is not None:
+            permit = controller.begin_attempt()
+            if permit is None:
+                # A watch-global rendezvous is due.  Leave this exact root
+                # message untouched; main performs the safe window only after
+                # every lane worker has returned.
+                break
+            _RENDEZVOUS_LOCAL.permit = permit
+        try:
+            consumed = dispatch(path=path, dry_run=dry_run, fix_only=fix_only)
+        finally:
+            if controller is not None:
+                try:
+                    del _RENDEZVOUS_LOCAL.permit
+                finally:
+                    controller.finish_attempt(permit=permit)
+        if not consumed:
             all_consumed = False
             # A false result can mean the head is still inflight because its
             # archive or failed-state move was ambiguous. Do not release later
@@ -1822,6 +2091,7 @@ def main():
     global AGENT_COMMANDS
     global DISPATCH_TIMEOUT_MINUTES
     global CLAUDE_CONTEXT_BUDGET
+    global _ACTIVE_WATCH_RENDEZVOUS
 
     parser = argparse.ArgumentParser(
         description="file mailbox + headless dispatch for the agent loop")
@@ -1995,9 +2265,9 @@ def main():
             if fix_only_lock is None:
                 release_dispatch_lock(lock_file=dispatch_lock)
                 return 1
-        print("watching " + MAILBOX + " (Ctrl-C to stop; safe only "
-              "between dispatches; killing a dispatch mid-flight dooms "
-              "the agent's turn)")
+        print("watching " + MAILBOX + " (stop only when an all-lanes-idle "
+              "line says Ctrl-C is safe; never stop while a turn is in "
+              "flight)")
         if fix_only:
             print("fix-only watch active: closing existing ledger work "
                   "only; no discovery tickets or new backlog lines")
@@ -2006,20 +2276,48 @@ def main():
         # exit when it changes, so stale code can never keep dispatching.
         # Exiting (not self-reloading) is deliberate -- a restart is one
         # keystroke and never picks up a half-saved edit.
-        source_stamp = os.path.getmtime(os.path.abspath(__file__))
+        source_path = os.path.abspath(__file__)
+        source_stamp = os.path.getmtime(source_path)
+        rendezvous = SafeKillRendezvous(
+            source_path=source_path, source_stamp=source_stamp)
+        _ACTIVE_WATCH_RENDEZVOUS = rendezvous
+        first_pass = True
         try:
             while True:
+                # Preserve the existing first-pass call shape for finite
+                # witnesses, then check before every later release as well as
+                # after every joined pass.  A source edit during an idle safe
+                # interval therefore cannot receive one stale dispatch.
+                if (not first_pass
+                        and os.path.getmtime(source_path) != source_stamp):
+                    print("daemon source changed on disk; exiting so "
+                          "the next start runs it (relaunch --watch).")
+                    return 0
+                first_pass = False
                 if fix_only:
                     process_backlog(dry_run=False, fix_only=True)
                 else:
                     process_backlog(dry_run=False)
-                if os.path.getmtime(os.path.abspath(__file__)) \
-                        != source_stamp:
+                if (rendezvous.source_changed()
+                        or os.path.getmtime(source_path) != source_stamp):
                     print("daemon source changed on disk; exiting so "
                           "the next start runs it (relaunch --watch).")
                     return 0
-                time.sleep(20)
+                if rendezvous.window_ready():
+                    run_safe_kill_countdown(controller=rendezvous)
+                    # Queued work resumes immediately after the manufactured
+                    # window rather than paying an extra ordinary poll delay.
+                    continue
+                ordinary_safe = report_ordinary_safe_poll(
+                    controller=rendezvous)
+                time.sleep(WATCH_POLL_SECONDS)
+                if ordinary_safe:
+                    # The next loop may spawn lane workers.  Expire the
+                    # visible safe status in the main thread before any such
+                    # worker can receive an admission permit.
+                    report_safe_interval_closed()
         finally:
+            _ACTIVE_WATCH_RENDEZVOUS = None
             if fix_only_lock is not None:
                 release_fix_only_lock(lock_file=fix_only_lock)
             release_dispatch_lock(lock_file=dispatch_lock)

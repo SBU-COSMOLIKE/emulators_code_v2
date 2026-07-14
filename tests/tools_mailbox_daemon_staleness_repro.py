@@ -961,11 +961,11 @@ def arm_source_mutations():
         '        if AGENT_CWD[queued_agent] == AGENT_CWD[agent]:')
     same_agent_only = '        if queued_agent == agent:'
     timeout_write = (
-        '                        write_timeout_history(\n'
-        '                            name=name,\n'
-        '                            killed_after_minutes=killed_after_minutes,\n'
-        '                            observed_elapsed_minutes=(\n'
-        '                                observed_elapsed_minutes))')
+        '                            write_timeout_history(\n'
+        '                                name=name,\n'
+        '                                killed_after_minutes=killed_after_minutes,\n'
+        '                                observed_elapsed_minutes=(\n'
+        '                                    observed_elapsed_minutes))')
     timeout_read = '            history = timeout_events(name=name)'
     archive_return = (
         '    return archive_consumed_message(dispatch_path=dispatch_path)')
@@ -991,7 +991,7 @@ def arm_source_mutations():
          root_only_snapshot, currency_contract_probe),
         ("cwd-lane-not-recipient", cwd_lane, same_agent_only,
          currency_contract_probe),
-        ("timeout-history-write", timeout_write, '                        pass',
+        ("timeout-history-write", timeout_write, '                            pass',
          arm_timeout_history_and_retry_hint),
         ("timeout-history-read", timeout_read, '            history = []',
          arm_timeout_history_and_retry_hint),
