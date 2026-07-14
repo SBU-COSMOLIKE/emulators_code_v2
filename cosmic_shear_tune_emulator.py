@@ -93,10 +93,10 @@ from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.training import suggest_train_args, search_defaults
 from emulator.experiment import EmulatorExperiment, validate_sweep_paths
-from emulator.study_manifest import build_study_manifest, bind_study_manifest
-from emulator.study_manifest_digest import manifest_digest
-from emulator.study_implementation import study_implementation_identity
-from emulator.study_name import resolve_study_name
+from emulator.studies.manifest import build_study_manifest, bind_study_manifest
+from emulator.studies.manifest_digest import manifest_digest
+from emulator.studies.implementation import study_implementation_identity
+from emulator.studies.name import resolve_study_name
 
 def journal_storage(path):
   """

@@ -1,4 +1,4 @@
-"""Versioned semantic implementation identities for tuning studies.
+"""Semantic implementation identities keep tuning studies versioned.
 
 Source and package-version bytes are provenance, not compatibility: comments,
 formatting, checkout location, and operationally equivalent runtime builds do

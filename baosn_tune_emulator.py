@@ -24,7 +24,7 @@ Example:
 # study and the multi-GPU journal study. The wrapper only pins the
 # family: family="grid" makes a YAML without a data.grid block fail
 # at startup NAMING the right driver (require_family_block), and the
-# stable family name comes from emulator.study_name. Renaming this program
+# stable family name comes from emulator.studies.name. Renaming this program
 # label therefore does not fork or silently rename the Optuna study.
 from cosmic_shear_tune_emulator import main
 

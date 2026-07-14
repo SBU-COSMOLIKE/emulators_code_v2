@@ -17,16 +17,16 @@ import tempfile
 import numpy as np
 import torch
 
-import emulator.study_implementation as study_implementation_registry
-from emulator.study_manifest import (
+import emulator.studies.implementation as study_implementation_registry
+from emulator.studies.manifest import (
   STUDY_MANIFEST_ATTR,
   STUDY_MANIFEST_DIGEST_ATTR,
   bind_study_manifest,
   build_study_manifest,
 )
-from emulator.study_manifest_digest import canonical_json, manifest_digest
-from emulator.study_implementation import study_implementation_identity
-from emulator.study_name import resolve_study_name
+from emulator.studies.manifest_digest import canonical_json, manifest_digest
+from emulator.studies.implementation import study_implementation_identity
+from emulator.studies.name import resolve_study_name
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -364,6 +364,26 @@ def _minimal_manifest(additional_scientific_files=(),
 def main():
   """Run the positive study-identity acceptance and mutation arms."""
   print("unit 53 canonical study-manifest acceptance")
+  studies_dir = ROOT / "emulator" / "studies"
+  expected_study_modules = {
+    "implementation.py",
+    "manifest.py",
+    "manifest_digest.py",
+    "name.py",
+  }
+  present_study_modules = {
+    path.name for path in studies_dir.glob("*.py")
+    if path.name != "__init__.py"
+  }
+  flat_study_modules = sorted(
+    path.name for path in (ROOT / "emulator").glob("study_*.py"))
+  report(
+    "study identity owners use the studies package without flat duplicates",
+    present_study_modules == expected_study_modules
+    and flat_study_modules == [],
+    "package=" + repr(sorted(present_study_modules))
+    + "; flat=" + repr(flat_study_modules))
+
   expected_names = {
     "cosmolike": "cosmic_shear_tune",
     "outputs": "scalar_tune_emulator",

@@ -15,7 +15,7 @@ import math
 from collections.abc import Mapping
 from pathlib import Path
 
-from .study_manifest_digest import canonical_json, file_digest, manifest_digest
+from .manifest_digest import canonical_json, file_digest, manifest_digest
 
 
 MANIFEST_VERSION = 1

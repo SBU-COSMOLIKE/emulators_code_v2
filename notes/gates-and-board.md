@@ -14601,3 +14601,44 @@ git diff --check                                            rc 0
 Verdict: **GO**. The configurable Claude role-model backlog unit is closed.
 The automatic landing-debt correction remains separately OPEN. The unrelated
 pre-existing dirty incident note was excluded from this audit and landing.
+
+## Study support package move audit (Codex, 2026-07-14): GO
+
+All four flat modules with the repeated `study_` prefix moved together into a
+real package:
+
+```text
+emulator/study_implementation.py      -> emulator/studies/implementation.py
+emulator/study_manifest.py            -> emulator/studies/manifest.py
+emulator/study_manifest_digest.py     -> emulator/studies/manifest_digest.py
+emulator/study_name.py                -> emulator/studies/name.py
+```
+
+`emulator/studies/__init__.py` documents the four owners and deliberately
+re-exports nothing. Production tuning imports, the unit-53 gate, the four thin
+tuner-wrapper comments, and the package code map now use the new namespace.
+No compatibility shim or flat duplicate remains. Persisted names such as
+`study_manifest`, `study_manifest_sha256`, and `tuner.study_protocol`, plus all
+function names, registry constants, and journal fields, remain unchanged.
+
+The unit-53 witness now contains a structural arm requiring exactly
+`implementation.py`, `manifest.py`, `manifest_digest.py`, and `name.py` under
+`emulator/studies/`, with zero `emulator/study_*.py` files. The rest of the
+witness re-proves canonical manifests, semantic implementation identity,
+stable family names, parent/worker authentication order, legacy refusal,
+default-control ownership, and failure handling on the moved imports.
+
+Independent final evidence:
+
+```text
+PYTHONPATH=. /Users/vivianmiranda/miniforge/envs/cosmology/bin/python -B gates/checks/redteam_unit53_manifest_witness.py  rc 0  ALL PASS
+python3 -B -m py_compile emulator/studies/*.py cosmic_shear_tune_emulator.py gates/checks/redteam_unit53_manifest_witness.py  rc 0
+python3 -B gates/run_board.py --list                     rc 0
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python -B -m unittest discover -s tests -v  rc 0  44/44
+old emulator.study_* import/path search                 no matches
+old-module importlib probes                             rc 0  all absent
+git diff --check                                        rc 0
+```
+
+Verdict: **GO**. The study-support package move is closed. The unrelated
+pre-existing dirty incident note was excluded from this audit and landing.

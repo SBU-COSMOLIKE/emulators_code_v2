@@ -1,4 +1,4 @@
-"""Study manifests become stable bytes and digests through one strict writer.
+"""Give study manifests stable bytes and digests through one strict writer.
 
 Canonical JSON means UTF-8 JSON with object keys sorted, no optional spaces,
 and the ordinary JSON spellings for booleans and null. Only JSON-native data

@@ -1,4 +1,4 @@
-"""This module resolves stable Optuna study names from emulator families."""
+"""Resolve stable Optuna study names from emulator families."""
 
 
 def resolve_study_name(family):

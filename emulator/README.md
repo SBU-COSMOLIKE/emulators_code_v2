@@ -49,6 +49,11 @@ emulator/                              the library (torch; cosmolike only in geo
   experiment.py                        EmulatorExperiment: the whole setup as one object
   warmstart.py                         fine-tune / transfer sources: load, extend, transfer
   scheduling.py                        GPU job balancing + worker pool + VRAM packing
+  studies/                             Optuna study identity and journal contracts:
+    implementation.py                 semantic implementation-version registry
+    manifest.py                       scientific identity records + journal binding
+    manifest_digest.py                canonical JSON + SHA-256 helpers
+    name.py                           stable family-owned study names
   results.py                           save_learning_curves; save_emulator + rebuild_emulator
   inference.py                         EmulatorPredictor: rebuild + predict (every family)
   plotting.py                          history / curves / coverage / the diagnostics PDF
@@ -163,6 +168,10 @@ producer, the MPS adapter, and gates.
 | `experiment.py` | `EmulatorExperiment`: config → device → data → geometry → chi2 → spec → train as one reusable object (`from_yaml` / `from_config`). Holds every family's validator (`validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_param_cuts` / `validate_sizes`), the family branches of `from_config` / `build_geometry` (including the fine-tune geometry pins), and the grid2d staging law transform. The drivers compose it. |
 | `warmstart.py` | Fine-tune / transfer sources: `load_source` (validate a saved artifact), `extend_input_geometry` (block-extend for new parameters), `pin_output_geometry` (the cosmolike pin; the scalar/cmb/grid/grid2d pins live in their `build_geometry` branches), `build_warm_start` (transfer the weights + prove epoch-0 parity), `anchor_masks`. |
 | `scheduling.py` | GPU job balancing (`lpt_assign`, `even_assign`), the spawned worker pool (`run_gpu_pool`), and the `--gpu-pack` VRAM-token machinery. Known lifecycle gap (fix queued): early failures do not yet guarantee every sibling process is terminated/joined, and invalid token plans can wait forever; details in `notes/training-stack.md`. |
+| `studies/implementation.py` | The semantic implementation-version registry included in every tuning-study identity. |
+| `studies/manifest.py` | Builds complete scientific identity records and binds/verifies them on Optuna journal studies. |
+| `studies/manifest_digest.py` | Strict canonical JSON plus stable value and file SHA-256 helpers. |
+| `studies/name.py` | Resolves the stable family-owned Optuna study name independently of a wrapper filename. |
 | `results.py` | `save_learning_curves` / `save_sweep_table`; `save_emulator` writes CPU-normalized tensors to `.emul` and the recipe and geometry record to `.h5`; `rebuild_emulator` reads the pair and uses `map_location=device` to choose the destination device. Its `info` dictionary carries the family flags and family-specific artifact facts. |
 | `inference.py` | `EmulatorPredictor`: rebuild a saved emulator and predict — one `predict(params)` for every artifact kind: the dv section, the scalar `{name: value}` dict, the physical C_ell row, the background `{"z", quantity}` function, or the (z, k) law-space surface. Reuses the exact training decode per family. |
 | `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves, and the multipage diagnostics PDF with the per-family pages (`cmb=` / `scalar=` / `grid=` / `grid2d=`). |
@@ -240,6 +249,7 @@ other kinds' artifacts loudly, naming the right adapter)
 | how a saved emulator is served | the predictor branch in `inference.py`, then the thin adapter in `cobaya_theory/` |
 | a CLI driver (add/modify) | the `<family>_<verb>_emulator.py` beside `emulator/` (tune/sweep family versions and the CMB/BAOSN/MPS trainers are thin wrappers over the cosmic-shear mains; scalar train is the standalone, data-vector-free exception) |
 | which hyperparameters are searched | the driver YAML (`[default, min, max, kind]`) + resolvers in `training.py` |
+| tuning-study identity, journal authentication, or stable family name | the matching owner in `studies/` (`manifest.py`, `manifest_digest.py`, `implementation.py`, or `name.py`) |
 | multi-GPU balancing | `scheduling.py` |
 | the training-set sampling / checkpoints / MPI farm | `compute_data_vectors/generator_core.py` (all four generators inherit) |
 | one generator's physics | that generator's `_compute_dvs_from_sample` only |
@@ -440,6 +450,18 @@ routes through).
 - `lpt_assign` / `even_assign` — GPU job splits.
 - `run_gpu_pool(...)` — the spawned worker pool (one process per GPU lane).
 - `estimate_train_vram_fraction` / `vram_tokens` — the `--gpu-pack` machinery.
+
+### `emulator/studies/` (Optuna identity) <a name="apx-studies"></a>
+
+- `studies/implementation.py` — `study_implementation_identity`, backed by
+  the versioned registry of scientific tuner components.
+- `studies/manifest.py` — `build_study_manifest`, `bind_study_manifest`, and
+  `require_worker_identity`; the complete scientific identity and journal
+  authentication boundary.
+- `studies/manifest_digest.py` — `canonical_json`, `manifest_digest`, and
+  `file_digest`; strict canonical bytes and SHA-256 identities.
+- `studies/name.py` — `resolve_study_name`; stable names for all five emulator
+  families, independent of wrapper filenames.
 
 ### `emulator/results.py` <a name="apx-results"></a>
 
