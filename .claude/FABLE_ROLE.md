@@ -253,6 +253,19 @@ Two further user rules (2026-07-14) on the same doctrine:
   later. A daemon-side guard on `--send sol` enforcing this is owed as
   its own ledger line; the code edit waits for an idle watch, since
   the watch self-retires whenever its source file changes.
+- **`--fix-only` watch flag (user rule, 2026-07-14, second
+  directive).** The daemon grows a `--fix-only` option on `--watch`:
+  when set truthy, the loop is closing-only — the Architect sends Sol
+  NO adversarial discovery tickets and creates no new tickets at all,
+  regardless of demand; only existing ledger lines are worked. Truthy
+  parsing is forgiving: accept 1/true/yes in any capitalization
+  (normalize with `.strip().lower()`), because "the user can make
+  mistakes in capitalization" — never an exact-string compare. Document
+  the flag in `--help` and the notes/ README options section. Same
+  deferral as the guard above: the code edit waits for an idle watch
+  and rides the tools-review daemon-repair series (ledger line updated
+  2026-07-14). Until the flag exists, the Architect applies the
+  behavior manually whenever the user asks for a fix-only run.
 - **Main commit messages are written for HUMANS (user rule,
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo
