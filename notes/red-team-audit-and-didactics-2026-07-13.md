@@ -2297,6 +2297,187 @@ code, the board, or gate checks.
 
 These checks are implementation evidence for the Architect's pre-merge audit.
 They are not Red Team self-certification.
+## Red Team audit: manuscript public-prose and typesetting pass
+
+This is an audit record only.  It changes no TeX source, generated figure, or
+PDF.  The manuscript remains readable and detailed, but it is not ready to
+close under the public-prose constitution.  The following findings require an
+independent Architect ruling before implementation.
+
+### TEX-PROSE-01: one malformed unit expression survives compilation
+
+At `texnotes/emulator_code_guide.tex:4969-4974`, the source uses `\ {` before
+literal `m km...` and `m Mpc` text.  TeX accepts the source but renders stray
+`m` characters.  The quantities need explicit roman unit expressions such as
+`\,\mathrm{km\,s^{-1}\,Mpc^{-1}}` and `\,\mathrm{Mpc}`.  Acceptance requires a
+clean compile plus visual inspection of the affected PDF page.
+
+### TEX-PROSE-02: prose dashes and corrective-negation frames remain
+
+Prose dash candidates remain at source lines 206, 364, 530-533, 848, 1919,
+1995, 2085, 3160, 3444, 4061, 4213-4214, 4602, 4622-4624, 4759, 4912, 4919,
+and 6613-6614.  Command-line options beginning with `--` are syntax and are
+excluded.  Corrective-negation clusters remain at 62-68, 889-900, 1313-1317,
+1580-1584, 2027-2064, 2161-2166, 2619-2622, 2683-2685, 2994-3008,
+3253-3264, 3839-3844, 4197-4200, 4338-4358, 4554 onward, 4765-4771, 4993
+onward, 5083 onward, 6283-6295, 7381-7388, and 7598-7603.  Mathematical
+negation and direct refusal rules are outside this finding.  The repair states
+the positive scientific or operational claim directly.
+
+### TEX-PROSE-03: development-state narration interrupts the guide
+
+Approximately 58 paragraphs titled or introduced as `Current gap`, `Required
+closure`, or `Current deviation` remain between the first instance near
+919-927 and the final cluster near 6228-6237.  The manuscript should teach the
+current behavior, the consequence, and the safe action.  Queue history,
+future-repair specifications, rollout narration, and landing evidence belong
+in `notes/`.  The policy discussion at 738-751 and landing narration at
+5947-5950 are additional instances.
+
+### TEX-PROSE-04: the gate appendix repeats 120 inline pseudo-headings
+
+Lines 6411-7069 repeat `Claim and path`, `Fixture and verdict`, and `Catch
+power` for 40 gates.  The three fields are useful and must stay, but a single
+defined gate-description environment or compact table should own their
+typography.  Acceptance preserves every factual field while removing the
+repeated inline-heading cadence.
+
+### TEX-PROSE-05: several mathematical symbols enter before a stable definition
+
+- Lines 2814-2817 use PCE half-width `h_j`; the symbol should be renamed because
+  `h` already denotes the cosmological quantity `H_0/100`.
+- Lines 2862-2869 and 3004-3008 use `q` for both the PCE sparsity exponent and
+  the retained SVD rank; the rank needs a distinct symbol.
+- Line 4311 needs to define `e` as the epoch number.
+- Lines 4396-4405 need to define `y_0`, the residual `r`, and the composed
+  prediction `y` before using their composition equation.
+- Lines 4626-4642 need the physical meanings of `a_1`, `a_2`, and `b_{TA}`
+  before listing the TATT monomials.
+
+### TEX-PROSE-06: external algorithm claims lack an authoritative citation
+
+The source contains no `\cite` command.  Cobaya, CAMB, CosmoLike, ensemble
+moves, Legendre PCE, LARS/OMP, PRESS leverage, BerHu, AdamW, NLA/TATT, and
+Chan/Welford statistics are the priority citation surfaces.  A claim that is
+specific to this repository may instead be narrowed explicitly to `as
+implemented here`.
+
+### TEX-PROSE-07: passive prose hides the owning program boundary
+
+Representative sites are 913-916, 1367-1369, 1904, 3976, 4175-4177,
+4231-4234, 4926, 5429-5434, and 5633-5637.  Each repair names the class,
+function, adapter, or driver that validates or changes the state.
+
+### TEX-PROSE-08: broad gate verbs exceed the executed fixture
+
+The strongest clusters occur at 5755-5758, 5865-5874, 7592-7598,
+7642-7694, and 7778-7787.  Verbs such as `prove`, `ensure`, `close`, and
+`prevent` need to become the exact fixture and observed verdict, followed by
+the boundary the gate does not establish.
+
+### Recommended repair order
+
+Repair TEX-PROSE-01 and TEX-PROSE-02 first because they are mechanical hard
+failures.  Remove the diary layer next.  Then refactor the gate appendix and
+revise definitions, citations, named owners, and gate-claim precision.  The
+file-study itinerary should remain detailed; its list structure helps a new
+reader.  A complete compile, PDF render, visual inspection, link scan, and
+repeat public-prose census are required after the edits.
+
+## TEX-PROSE-01 and TEX-PROSE-02 implementation evidence
+
+The landing edits `texnotes/emulator_code_guide.tex`.  TEX-PROSE-03 diary
+removal and the TEX-PROSE-04 gate-appendix refactor remain separate work.
+Mechanical TEX-PROSE-02 edits apply throughout the source, including prose
+inside those later sections, but their structure and evidence fields remain
+unchanged.
+
+The malformed background-function units now render as
+`70 km s^-1 Mpc^-1`, `13296.826 Mpc` and `15538.408 Mpc`.  The source uses
+explicit roman unit expressions.  Rendered page 50 has no stray `m` prefix.
+
+The repeated census produced these counts for guide prose:
+
+- unescaped semicolon characters: 0
+- Unicode em dash, en dash, ellipsis and curly quote characters: 0
+- TeX prose `---` sequences: 0
+- question marks: 0
+- multiline `,\s+(and|or)` candidates: 9 after adjudication; the 21 serial
+  lists were repaired and the retained candidates join independent clauses or
+  two objects separated by an appositive
+- editorial pass against private standards: zero matches
+- bold-first instructional bullets: 0
+
+Remaining double-hyphen sequences belong to literal command-line options.
+Escaped backslash-plus-semicolon sequences are TeX math-spacing commands,
+which remain outside the punctuation count.
+The repeated bold evidence labels in the gate appendix remain queued under
+TEX-PROSE-04.
+
+Preservation checks compared the edited guide with its pre-edit version.  The
+ordered equation-environment sequence is identical.  Label, equation-reference
+and included-figure counts are identical.  The numeric-token multiset is
+identical after normalizing the old TeX range spelling.  Equation bodies have
+three intended text-level changes: the two punctuation removals and one
+`bin-angle` spelling repair.  Brace balance is zero and `git diff --check`
+passes.
+
+Two `pdflatex` passes completed in `/tmp/tex-prose-0102`.  The final PDF has
+84 pages.  Its log has no LaTeX warning, unresolved reference, overfull box,
+multiply defined label or undefined control sequence.  Existing underfull-box
+diagnostics remain.  Raster inspection covered the title page, activation
+figure and comparison table, the repaired unit page and representative gate
+appendix pages.  The final sample comprised pages 1, 3, 6, 12, 18, 24, 28,
+35, 41, 44, 50, 55, 62, 68, 73, 80 and 84.  The inspected pages have complete
+text, intact equations and no clipping or overlap introduced by this landing.
+
+The tracked `texnotes/emulator_code_guide.pdf` was rebuilt from the edited
+source.  A first invocation from inside `texnotes/` failed before page 1
+because the manuscript names its artwork relative to the repository root.
+The successful two-pass invocation therefore ran from the repository root,
+which is the required build context.  The failed attempt is recorded here so
+the evidence does not imply that both working directories are supported.  A
+second mechanical source census after that build found no remaining listed
+token patterns.  The independent audit below later found semantic defects
+that this mechanical scan could not detect.  The scan also confirmed that the
+ordered labels, references, environments, equation environments and
+numeric-token multiset still equal the pre-edit source.
+
+### Independent-audit hold and repair
+
+The first candidate was held after an independent source and rendered-page
+audit.  Five prose edits had changed scientific or Python meaning.  The held
+text said that reshape preserves axes, described the chi-square form rather
+than the rejected width-squared tolerance, turned a weight-decay exemption
+into frozen parameters, separated focus weights from the errors that define
+them and grouped epoch loss with gradients and parameter deltas.  The repair
+now states the exact invariant or owner in each case.
+
+The same audit found duplicated phrases in the Stage-1 file-study table and a
+stray word in the EMA description.  Both visible defects are repaired in the
+source.  The initial line-local comma scan had also missed conjunctions on the
+next line.  A whole-file multiline scan found 30 candidates.  Human
+adjudication identified 21 serial lists and nine grammatical false positives.
+The 21 final serial commas are removed.  The nine retained candidates connect
+independent clauses or separate two objects around an appositive, so they are
+outside the Oxford-comma rule.  The repeated scan uses the exact pattern
+`,\s+(and|or)\b` over the complete TeX source.
+
+This repair record preserves the failed first audit rather than replacing it.
+The branch remains implementation evidence for Architect review and does not
+certify the manuscript.
+
+After the repair, two `pdflatex` passes from the repository root wrote
+`tmp/pdfs/tex-prose-repair/emulator_code_guide.pdf`.  The output has 84 pages
+and 3,929,660 bytes.  The final log has zero LaTeX warnings, undefined
+references, multiply defined labels, overfull boxes, undefined control
+sequences or fatal errors.  The 291 existing underfull-box diagnostics remain.
+Rendered pages 6, 35, 38, 39, 40, 50, 66, 73, 81 and 84 were inspected after
+the semantic and table repairs.  Text is complete and the repaired Stage-1
+table has no repeated phrases or overlap.  The tracked PDF and the fresh build
+share SHA-256
+`3c32568093dfba956565163a10ebc01df497e60122a548bc08071c80968d9f17`.
+
 ## Red Team implementation record: second root-README public-prose pass
 
 The Architect cleared the preceding figure and didactic increment at `701d6f9`.
@@ -2890,3 +3071,26 @@ not certify 25M-38 or DIDACTICS-79 and it does not merge the branch. Queue 2
 still owns the new child's board entry and its distinct sidecar evidence name.
 The child must never be folded into the unrelated
 `generator-seed.owned-rng` claim.
+
+## Post-main refresh evidence for TEX-PROSE-01 and TEX-PROSE-02
+
+The implementation commit `3302f29` was refreshed through main commit
+`51df01d` on branch `codex/tex-prose-audit`. The first refresh produced one
+append-only conflict in this register. The resolution retains the complete
+TEX-PROSE audit and implementation record followed by every newer main-side
+record. The final main refresh merged without a conflict. Neither refresh
+changed a file under `texnotes/`.
+
+Two fresh `pdflatex` passes from the refreshed repository root produced an
+84-page PDF. The final log contains no LaTeX warning, undefined reference,
+multiply defined label, overfull box, undefined control sequence or fatal
+error. The existing underfull-box diagnostics remain. Rendered pages 6, 35,
+50, 73 and 84 are pixel-identical to the tracked PDF and were inspected for
+clipping, overlap, broken equations and malformed units. The complete TeX
+source retains nine human-adjudicated multiline comma-and-conjunction
+candidates. Scans find no prose dash character, unescaped semicolon, question
+mark or TeX prose triple hyphen. An editorial pass against private standards
+also reports zero remaining match. `git diff --check` is clean.
+
+This refresh record is implementation evidence for Architect audit. It does
+not certify or merge the TEX-PROSE landing.
