@@ -3165,3 +3165,18 @@ gb_c self=None harness defect reproduced on HEAD (production's
 band line reads self._chi2_n_terms) — ruled check-side, red-team
 claimable; berhu-loss honestly red-if-run until the claim. Spec:
 gates-and-board.md "Stage-ram repair + fan-out batch 2 audit".
+
+BERHU HARNESS + BATCH 3 (2026-07-13, Fable): 47e79a3 GO — the
+check binds _reduce to a real CosmolikeChi2 over an instrumented
+one-element HarnessGeometry; my runs: child ALL PASS with 44
+width reads, the parent version reproduces the filed crash with
+zero terminals, and my width-bypass tamper reds reference-values
+at rc 1; production untouched; merged 63a1a5e, gb_c CLOSED.
+70a484e (fan-out batch 3, found committed with resume 7d8afc3)
+GO — ema-smoke 3 + head-activation-pin 5 + relu-tanh-norm 5,
+names==drafts exactly, 18 gates now carry evidence, my
+compile/--list/selftest green at the merged tip; the stale-base
+lesson RATIFIED as batch discipline (subagent diffs apply
+gate-locally against their own base, never whole-file). Spec:
+gates-and-board.md "Berhu harness repair audit" + "Fan-out batch
+3 delta audit".

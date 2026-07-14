@@ -7553,3 +7553,82 @@ proving all 18 prior-migrated gates survived the concurrent editing
 (total 21). A subagent's own self-check is unreliable here because
 its --list/selftest ran against a tree its siblings were still
 mutating; only the Implementer's final-state verify is authoritative.
+
+## Berhu harness repair audit (Fable, 2026-07-13): 47e79a3 GO — merged; berhu-loss's red-if-run surface CLOSES
+
+The red team's repair of the gb_c self=None harness crash
+(codex/berhu-loss-harness-self, base = main at 233db22 — the user
+had run the landing block). Scope exact: gates/checks/
+gb_c_berhu_reduce.py + two notes; board.py, run_board.py, and
+emulator/losses/core.py byte-untouched, per the check-side ruling.
+
+THE SHAPE: the check builds one real CosmolikeChi2 bound to a
+minimal HarnessGeometry whose dest_idx property both supplies the
+contraction width (a one-element long tensor — the only geometry
+fact the direct chi2 probes need) and COUNTS production reads.
+That matches the production convention exactly (core.py:295
+__init__(geom); :311 dest_idx delegates to geom; :320 _chi2_n_terms
+= dest_idx.numel(); :540 the band line the old harness crashed on).
+transform()/slope() take the loss explicitly and call the bound
+method. A new assertion leg folds width_read_count > 0 into
+reference-values, so a reduction that bypasses the production width
+lookup reds the manifest — the crash class can never again pass
+silently.
+
+MY RUNS (cocoa-torch interpreter): the child rc 0, ALL PASS, the
+three declared ##AID terminals each exactly once, and dest_idx
+reads = 44 (their claimed count, reproduced). PROBE A (crash
+reproduction): the parent-version check run against the same tree
+dies with the exact filed AttributeError at core.py:540, rc 1,
+ZERO evidence terminals. PROBE B (catch power, my own tamper in a
+detached scratch worktree — their tree untouched): monkeypatching
+_chi2_n_terms to a constant bypasses dest_idx -> "dest_idx reads
+0", ##AID berhu-loss.reference-values FAIL, rc 1. --list rc 0,
+board-selftest ALL PASS, compile clean at the commit. Durable
+records verified: the training-stack.md readback sits inside the
+berhu evidence block, the register presents without certifying,
+and the docstring's new #berhu-loss-evidence pointer resolves.
+
+VERDICT: GO; merged (63a1a5e). The full berhu-loss gate run stays
+workstation-owed (torch+cosmolike+gpu); what closed here is the
+guaranteed-crash arm of its child. gb_c is CLOSED.
+
+## Fan-out batch 3 delta audit (Fable, 2026-07-13): 70a484e GO — 11/27 migrated; the stale-base integration lesson RATIFIED
+
+Found committed on the shared branch with its resume note
+(7d8afc3) when the berhu merge landed; audited before any landing
+block covers it. Three wrapper-emitted migrations (the ratified
+shape 2): ema-smoke (3 legs — _smoke_driver exit/banner aids + the
+direct rewind expect), head-activation-pin (5 — golden null-base
+UNAVAILABLE + smoke pair + the two inline warning/refusal
+expects), relu-tanh-norm (5 — golden + two smoke pairs). Verified
+at the diff: every body aid appears in its Gate's evidence tuple
+and vice versa (3/5/5); the maps= prose replaced with behavior
+statements; relu-tanh-norm's docstring HONESTLY narrows the claim
+("loss descent is logged-only, not asserted evidence" — the
+drafts' discipline applied to prose). The _GhaFakeCtx selftest
+stub gains aid=None with a comment keying the RT-04 checks on
+label — minimal, correct. My in-process check at the merged tip:
+all four current-batch gates' aids unique, gate-id-prefixed,
+dot->dash transform == anchor fragment; the three gates' note-side
+anchor sets match the declarations exactly (13 legs + 3
+headlines, no strays); 18 gates now carry evidence (11 migrated +
+7 foundation) — the resume's count confirmed. compile clean,
+--list rc 0, board-selftest ALL PASS (my runs, merged tip
+63a1a5e). Live green runs stay workstation-owed.
+
+THE INTEGRATION LESSON, ratified as batch discipline: the batch-3
+subagents branched from a pre-batch base, so their whole-file
+diffs showed batches 1-2's aids as REVERTS; a blind git apply
+would have silently undone landed work. The Implementer diffed
+each subagent against ITS OWN base and hand-applied only the
+gate-local hunks, letting Edit's exact-match re-check the "before"
+text. RULE for all remaining batches: a subagent diff is applied
+gate-locally against the subagent's own base, never as a
+whole-file patch against the live tree.
+
+VERDICT: GO. Batch 4 (berhu-anneal, ema-anneal with the
+live-point-metrics leg forward-declared UNAVAILABLE rather than
+invented, npce-training's nine) is in flight under continuous
+batching; the finite-contract Part D/E folding stands as
+previously confirmed.
