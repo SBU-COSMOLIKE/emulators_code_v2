@@ -56,12 +56,40 @@ REPO = Path(__file__).resolve().parents[2]
 LMAX = 350          # lrange upper edge = the covariance lmax
 NROWS = 200         # generator floor (--nparams >= 200)
 
+# (queue 2) the six board-declared evidence legs this check emits, in the
+# main() order. Each leg rolls up one contiguous group of report() calls; a
+# leg's single '##AID <aid> <PASS|FAIL>' terminal aggregates every report()
+# its group made WITHOUT threading a per-report leg argument (the FAILURES
+# snapshot in main() does the roll-up). One terminal per declared leg -- NOT
+# one per probe. The child's exit status stays the single aggregate verdict.
+# run_board folds these six lines into the gate's executed set and reconciles
+# them against gate_cme_b's declared evidence map (Gate id="cmb-smoke").
+LEG_AIDS = [
+    "cmb-smoke.generated-spectrum-dumps",
+    "cmb-smoke.gaussian-covariance",
+    "cmb-smoke.nondiagonal-covariance-structure",
+    "cmb-smoke.training-collapse",
+    "cmb-smoke.cobaya-serving",
+    "cmb-smoke.diagnostics-output",
+]
+
 
 def report(label, ok, detail):
     mark = "PASS" if ok else "FAIL"
     print("  [" + mark + "] " + label + "  (" + detail + ")")
     if not ok:
         FAILURES.append(label)
+
+
+def emit_aid(aid, n_before):
+    # (queue 2) the board folds one reserved '##AID <aid> <result>' line per
+    # DECLARED acceptance leg into this gate's executed set. A leg here bundles
+    # several human-readable report() sub-checks, so its aggregate verdict is
+    # PASS iff no sub-check appended to FAILURES since n_before (the failure
+    # count snapshotted before the leg's block ran). The child's exit status
+    # stays the single aggregate verdict; these lines carry the per-leg map.
+    mark = "PASS" if len(FAILURES) == n_before else "FAIL"
+    print("##AID " + aid + " " + mark)
 
 
 def gen_yaml():
@@ -162,7 +190,16 @@ def run_tool(script, arglist, rootdir):
 
 
 def check_generate(rootdir, rel_root):
-    """Legs 1 + 2: the CMB dump generator + the covariance script."""
+    """Leg 1 (generated-spectrum-dumps): the CMB dump generator.
+
+    Writes the two setup YAMLs (the generator and the Gaussian-covariance
+    configs), then runs dataset_generator_cmb.py twice (train + val) and
+    gates the four per-spectrum dv files + sidecars and the dump shape /
+    filled phiphi. Returns the path map the later legs (Gaussian covariance,
+    training) consume; the covariance report()s live in check_gaussian_cov
+    and check_cov_nondiagonal so main() can bracket each leg group with its
+    own FAILURES snapshot.
+    """
     emul_dir = os.path.join(rootdir, rel_root, "emul")
     os.makedirs(emul_dir, exist_ok=True)
     with open(os.path.join(emul_dir, "gen.yaml"), "w") as f:
@@ -171,7 +208,7 @@ def check_generate(rootdir, rel_root):
         f.write(cov_yaml())
 
     chains = os.path.join(rootdir, rel_root, "chains")
-    out = {}
+    out = {"emul_dir": emul_dir, "chains": chains}
     for tag in ("train", "val"):
         proc = run_tool(
             "dataset_generator_cmb.py",
@@ -205,6 +242,19 @@ def check_generate(rootdir, rel_root):
                    "tt %s, |pp|max %.2e" % (arr.shape, np.abs(pp).max()))
         out[tag] = {"params": stem, "dv": dv}
 
+    return out
+
+
+def check_gaussian_cov(rootdir, rel_root, paths):
+    """Leg 2 (gaussian-covariance): the Gaussian covariance script.
+
+    Runs compute_cmb_covariance.py once on the fixed fiducial LCDM (zero
+    noise, fsky 1) and gates the .npz: its multipole axis is exactly 2..LMAX
+    and its TT standard deviations are positive. The training path consumes
+    this REAL script-produced file (never from_fiducial), so the cov path is
+    recorded in the returned map for check_train.
+    """
+    chains = paths["chains"]
     proc = run_tool(
         "compute_cmb_covariance.py",
         ["--root", rel_root, "--fileroot", "emul", "--yaml", "cov.yaml",
@@ -222,10 +272,7 @@ def check_generate(rootdir, rel_root):
               and (cov["sigma_tt"] > 0).all())
         detail = "ell 2..%d, sigma_tt > 0" % LMAX
     report("covariance .npz (Gaussian, zero noise)", ok, detail)
-    out["cov"] = npz
-
-    check_cov_nondiagonal(rootdir, rel_root, emul_dir, chains)
-    return out
+    paths["cov"] = npz
 
 
 def check_cov_nondiagonal(rootdir, rel_root, emul_dir, chains):
@@ -518,13 +565,41 @@ def main():
     device = torch.device("cpu")
     rel_root = "tmp_gate_cmb_smoke_%d" % os.getpid()
     work = os.path.join(rootdir, rel_root)
+    # Each of the six declared board legs brackets its block with a FAILURES
+    # snapshot and emits exactly one '##AID' line (emit_aid). The declared
+    # evidence set (gates/board.py Gate id="cmb-smoke") is exactly these six
+    # aids -- one per bracket, no stray manifest line for a sub-check. The
+    # later legs depend on the earlier fixtures, so a failed generator /
+    # covariance leg short-circuits (via FAILURES) and leaves the training,
+    # cobaya, and diagnostics aids UNEMITTED -- a missing aid is a red-or-
+    # missing outcome, per the home note's "owed" paragraph.
     try:
         with tempfile.TemporaryDirectory() as tmp:
+            n = len(FAILURES)
             paths = check_generate(rootdir, rel_root)
+            emit_aid("cmb-smoke.generated-spectrum-dumps", n)
+
+            n = len(FAILURES)
+            check_gaussian_cov(rootdir, rel_root, paths)
+            emit_aid("cmb-smoke.gaussian-covariance", n)
+
+            n = len(FAILURES)
+            check_cov_nondiagonal(rootdir, rel_root,
+                                  paths["emul_dir"], paths["chains"])
+            emit_aid("cmb-smoke.nondiagonal-covariance-structure", n)
+
             if not FAILURES:
+                n = len(FAILURES)
                 exp, model, root = check_train(paths, tmp, device)
+                emit_aid("cmb-smoke.training-collapse", n)
+
+                n = len(FAILURES)
                 check_cobaya(root, device)
+                emit_aid("cmb-smoke.cobaya-serving", n)
+
+                n = len(FAILURES)
                 check_diagnostics(exp, model, tmp)
+                emit_aid("cmb-smoke.diagnostics-output", n)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     if FAILURES:

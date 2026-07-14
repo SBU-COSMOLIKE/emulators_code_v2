@@ -41,11 +41,44 @@ REPO = Path(__file__).resolve().parents[2]
 NROWS = 200
 
 
+# (queue 2) the four board-declared evidence legs this check emits, in the
+# main() order. Each leg rolls up one contiguous group of check_* functions;
+# a leg's single '##AID <aid> <PASS|FAIL>' terminal aggregates every report()
+# its group made WITHOUT threading a per-report leg argument (the FAILURES
+# snapshot in main() does the roll-up). One terminal per declared leg -- NOT
+# one per probe. The child's exit status stays the single aggregate verdict.
+# run_board folds these four lines into the gate's executed set and reconciles
+# them against gate_bsn_b's declared evidence map.
+LEG_AIDS = [
+    "bsn-smoke.generated-background-dumps",
+    "bsn-smoke.training-collapse",
+    "bsn-smoke.cobaya-vs-camb",
+    "bsn-smoke.diagnostics-output",
+]
+
+
 def report(label, ok, detail):
     mark = "PASS" if ok else "FAIL"
     print("  [" + mark + "] " + label + "  (" + detail + ")")
     if not ok:
         FAILURES.append(label)
+
+
+def emit_leg(aid, failures_before):
+    """Print the one reserved '##AID <aid> <result>' line for a leg group.
+
+    Called in main() right after a leg's group of check_* functions returns.
+    The leg PASSes only when no report() in that group appended to FAILURES
+    since the snapshot; any failing probe in the group reds this one terminal.
+
+    Arguments:
+      aid             = the board-declared assertion id for this leg (a member
+                        of LEG_AIDS).
+      failures_before = len(FAILURES) captured immediately before the leg's
+                        group of check_* calls ran.
+    """
+    mark = "FAIL" if len(FAILURES) > failures_before else "PASS"
+    print("##AID " + aid + " " + mark)
 
 
 def gen_yaml():
@@ -391,19 +424,50 @@ def main():
     device = torch.device("cpu")
     rel_root = "tmp_gate_bsn_smoke_%d" % os.getpid()
     work = os.path.join(rootdir, rel_root)
+    # Emit one '##AID <leg> <PASS|FAIL>' per board-declared leg (LEG_AIDS), in
+    # this order. The stages are sequentially dependent (training needs the
+    # generated dump; the cobaya + diagnostics legs need the trained
+    # artifacts), so an upstream failure SKIPS the later groups. A skipped
+    # group did not run to green, so its terminal is FAIL, not a false PASS
+    # from an unchanged FAILURES snapshot -- 'emitted' stays all four declared
+    # aids every run for run_board's reconciliation, and a skipped leg names
+    # itself red. The dump-variance stale-cache tripwire folds under
+    # generated-background-dumps per the drafted note anchor; the desert-loud
+    # refusal folds under cobaya-vs-camb.
+    emitted = set()
     try:
         with tempfile.TemporaryDirectory() as tmp:
+            before = len(FAILURES)
             paths = check_generate(rootdir, rel_root)
             if not FAILURES:
                 check_dump_variance(paths)
+            emit_leg("bsn-smoke.generated-background-dumps", before)
+            emitted.add("bsn-smoke.generated-background-dumps")
+
             if not FAILURES:
+                before = len(FAILURES)
                 exp_h, model_h, root_h = check_train(paths, tmp, device,
                                                      "Hubble")
                 _, _, root_dm = check_train(paths, tmp, device, "D_M")
+                emit_leg("bsn-smoke.training-collapse", before)
+                emitted.add("bsn-smoke.training-collapse")
+
+                before = len(FAILURES)
                 check_cobaya(root_h, root_dm, tmp)
+                emit_leg("bsn-smoke.cobaya-vs-camb", before)
+                emitted.add("bsn-smoke.cobaya-vs-camb")
+
+                before = len(FAILURES)
                 check_diagnostics(exp_h, model_h, tmp)
+                emit_leg("bsn-smoke.diagnostics-output", before)
+                emitted.add("bsn-smoke.diagnostics-output")
     finally:
         shutil.rmtree(work, ignore_errors=True)
+        # any leg whose group was skipped by an upstream failure did not run
+        # to green: emit its terminal as FAIL so declared == emitted holds.
+        for aid in LEG_AIDS:
+            if aid not in emitted:
+                print("##AID " + aid + " FAIL")
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))

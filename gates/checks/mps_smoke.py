@@ -16,15 +16,19 @@ workstation).
      through the real Pk_interpolator requirement (incl. the verbatim
      wants-Cl quirk).
   2  two data.grid2d trainings (pklin + boost, law none), each with the
-     dead-network-RELATIVE collapse bar (the dead-network rule); the boost
-     training also runs the diagnostics leg (the two grid2d pages build
-     and the plot_diagnostics PDF lands through the grid2d dispatch).
-  3  the real cobaya lifecycle through emul_mps: get_model +
+     dead-network-RELATIVE collapse bar (the dead-network rule).
+  3  the diagnostics leg on the boost training (the two grid2d pages
+     build and the plot_diagnostics PDF lands through the grid2d
+     dispatch).
+  4  the real cobaya lifecycle through emul_mps: get_model +
      add_requirements(Pk_grid) + logposterior; the served P_lin and
      P_nl (grid + interpolator) within 5% of CAMB's OWN P(k, z) at an
-     off-center point.
-  4  the sanity legs: the interpolator's extrapolation guard and
-     the nonlinear/linear state keys.
+     off-center point, plus the interpolator's extrapolation range guard.
+
+These four phases are the four board-declared evidence legs
+(generated-power-dumps, training-collapse, diagnostics-output,
+cobaya-vs-camb); main() folds each phase's report() group into one
+'##AID <leg> <PASS|FAIL>' terminal for run_board's executed set.
 """
 
 import os
@@ -51,6 +55,40 @@ def report(label, ok, detail):
     print("  [" + mark + "] " + label + "  (" + detail + ")")
     if not ok:
         FAILURES.append(label)
+
+
+# (queue 2) the four board-declared evidence legs this check emits, in the
+# main() order. Each leg rolls up one contiguous group of report() calls; a
+# leg's single '##AID <aid> <PASS|FAIL>' terminal aggregates every report() in
+# its group WITHOUT threading a per-report leg argument (the FAILURES snapshot
+# in main() does the roll-up). One terminal per declared leg -- NOT one per
+# probe. The child's exit status stays the single aggregate verdict. run_board
+# folds these four lines into the gate's executed set and reconciles them
+# against gate_mps_b's declared evidence map.
+LEG_AIDS = [
+    "mps-smoke.generated-power-dumps",
+    "mps-smoke.training-collapse",
+    "mps-smoke.diagnostics-output",
+    "mps-smoke.cobaya-vs-camb",
+]
+
+
+def emit_leg(aid, failures_before):
+    """Print the one reserved '##AID <aid> <result>' line for a leg group.
+
+    Called in main() right after a leg's group of check_* / report() calls
+    returns. The leg PASSes only when no report() in that group appended to
+    FAILURES since the snapshot; any failing probe in the group reds this one
+    terminal.
+
+    Arguments:
+      aid             = the board-declared assertion id for this leg (a member
+                        of LEG_AIDS).
+      failures_before = len(FAILURES) captured immediately before the leg's
+                        group of report() calls ran.
+    """
+    mark = "FAIL" if len(FAILURES) > failures_before else "PASS"
+    print("##AID " + aid + " " + mark)
 
 
 def gen_yaml():
@@ -207,10 +245,6 @@ def check_train(paths, tmp, device, quantity):
            best_median < 0.5 * mean_median,
            "best %.3g vs mean-predictor %.3g" % (best_median,
                                                  mean_median))
-    if quantity == "boost":
-        # the diagnostics leg rides ONE of the two trainings (the pages
-        # are quantity-agnostic; once is the evidence, twice is time).
-        check_diagnostics(exp, model, tmp)
     root = os.path.join(tmp, "emul_mps_" + quantity)
     save_emulator(path_root=root, model=model, param_geometry=exp.pgeom,
                   geometry=exp.geom, config=cfg,
@@ -223,7 +257,7 @@ def check_train(paths, tmp, device, quantity):
                   resolved_train=exp.resolved_train,
                   resolved_model=exp.resolved_model, transfer_base=None,
                   attrs={"rescale": "none", "quantity": quantity})
-    return root
+    return root, exp, model
 
 
 def check_diagnostics(exp, model, tmp):
@@ -410,13 +444,35 @@ def main():
     device = torch.device("cpu")
     rel_root = "tmp_gate_mps_smoke_%d" % os.getpid()
     work = os.path.join(rootdir, rel_root)
+    # Emit one '##AID <leg> <PASS|FAIL>' per board-declared leg (LEG_AIDS), in
+    # this order. Each leg wraps a contiguous group of report() calls; the
+    # FAILURES snapshot taken before a group and read after it rolls that
+    # group's probes into the leg's single terminal (see emit_leg). A failed
+    # generator leg leaves the downstream legs UNEMITTED on purpose (they never
+    # ran) -- run_board reds a declared-but-unemitted leg exactly like an
+    # emitted FAIL, so the gate cannot go green on a partial run.
     try:
         with tempfile.TemporaryDirectory() as tmp:
+            before = len(FAILURES)
             paths = check_generate(rootdir, rel_root)
+            emit_leg("mps-smoke.generated-power-dumps", before)
             if not FAILURES:
-                root_p = check_train(paths, tmp, device, "pklin")
-                root_b = check_train(paths, tmp, device, "boost")
+                before = len(FAILURES)
+                root_p, _, _ = check_train(paths, tmp, device, "pklin")
+                # the diagnostics leg rides ONE of the two trainings (the pages
+                # are quantity-agnostic; once is the evidence, twice is time):
+                # the boost training's exp + model feed check_diagnostics below.
+                root_b, exp_b, model_b = check_train(paths, tmp, device,
+                                                     "boost")
+                emit_leg("mps-smoke.training-collapse", before)
+
+                before = len(FAILURES)
+                check_diagnostics(exp_b, model_b, tmp)
+                emit_leg("mps-smoke.diagnostics-output", before)
+
+                before = len(FAILURES)
                 check_cobaya(root_p, root_b, tmp)
+                emit_leg("mps-smoke.cobaya-vs-camb", before)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     if FAILURES:

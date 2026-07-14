@@ -1349,8 +1349,24 @@ def gate_cme_b(ctx):
   fractional-amplitude contraction keys in the provenance (the
   normalization fix, notes/families-scalar-cmb.md). torch + cobaya + a
   compiled CAMB under $ROOTDIR; budget
-  several minutes (~400 serial low-accuracy CAMB calls) (spec:
-  notes/families-scalar-cmb.md).
+  several minutes (~400 serial low-accuracy CAMB calls).
+
+  HOW: the child (gates/checks/cmb_smoke.py) folds its many human-readable
+  sub-checks into SIX declared board legs, emitting one '##AID' manifest
+  line per leg — generated-spectrum-dumps (both generator subprocesses exit
+  zero, four dv files + sidecars land, the dump shape + filled phiphi),
+  gaussian-covariance (the Gaussian .npz ell axis 2..LMAX + positive TT
+  sigma), nondiagonal-covariance-structure (the eq-6 six dense blocks,
+  symmetry, diagonal growth, live off-diagonals, PSD, the stencil + weight
+  provenance keys), training-collapse (the best val median below half the
+  staged mean predictor — the dead-network bar), cobaya-serving (the real
+  in-process get_model + get_Cl equals the predictor's own C_ell at rtol
+  1e-6), and diagnostics-output (two CMB pages + the non-trivial PDF). The
+  later legs depend on the earlier fixtures, so a failed generator /
+  covariance leg leaves the training, cobaya, and diagnostics aids
+  unemitted. The wrapper's rc-check stays the single aggregate verdict; the
+  six ##AID lines carry the per-leg map
+  (spec: notes/families-scalar-cmb.md#cmb-smoke-evidence).
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("gates/checks/cmb_smoke.py")
@@ -1412,18 +1428,31 @@ def gate_bsn_a(ctx):
 def gate_bsn_b(ctx):
   """bsn-smoke: the BAOSN emulators end to end, checked against CAMB.
 
-  WHAT: the background dataset generator writes two tiny dumps (200
-  rows, one background-only CAMB evaluation per sample — fast) carrying
-  BOTH quantities + their _z.npy grid sidecars (one CAMB pass fills
-  both — the one-pass rule); two
-  data.grid training runs (Hubble/log_offset + D_M/none) each collapse
-  below 0.5x the staged mean predictor (the dead-network-relative bar);
-  the real cobaya lifecycle through emul_baosn serves H / D_A (SN
-  window) and D_M (recombination window) within 2% of CAMB's OWN
-  background at an off-center point — truth is available here, the
-  strongest smoke of the program; the desert stays loud through the
-  real lifecycle; the grid-family diagnostics pages build. torch + cobaya +
-  a compiled CAMB under $ROOTDIR (spec: notes/families-background-mps.md).
+  WHAT: the check gates the BAOSN background family through four evidence
+  legs, and it folds one '##AID <leg> <PASS|FAIL>' terminal per leg into
+  this gate's executed set (each leg aggregates its group of the child's
+  report() probes; the wrapper's rc-check below stays the single aggregate
+  verdict, not a leg):
+
+    - generated-background-dumps: the background dataset generator writes
+      two tiny dumps (200 rows, one background-only CAMB evaluation per
+      sample — fast) carrying BOTH quantities + their _z.npy grid sidecars
+      (one CAMB pass fills both — the one-pass rule), and every Hubble
+      column varies across cosmologies (the stale-cache tripwire, relative
+      spread > 1e-5);
+    - training-collapse: two data.grid training runs (Hubble/log_offset +
+      D_M/none) each collapse below 0.5x the staged mean predictor (the
+      dead-network-relative bar — a net that learned NOTHING fails it);
+    - cobaya-vs-camb: the real cobaya lifecycle through emul_baosn serves
+      H / D_A (SN window) and D_M (recombination window) within 2% of
+      CAMB's OWN background at an off-center point — truth is available
+      here, the strongest smoke of the program — and the desert stays loud
+      through the real lifecycle;
+    - diagnostics-output: the grid-family diagnostics build two pages and
+      the PDF lands.
+
+  torch + cobaya + a compiled CAMB under $ROOTDIR
+  (spec: notes/families-background-mps.md#bsn-smoke-evidence).
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("gates/checks/bsn_smoke.py")
@@ -1501,25 +1530,44 @@ def gate_mps_a(ctx):
 def gate_mps_b(ctx):
   """mps-smoke: the MPS emulators end to end on real CAMB (law none).
 
-  WHAT: the MPS dataset generator writes two tiny dumps (200 rows,
-  16 z x 40 k) through the real Pk_interpolator requirement (incl. the
-  verbatim wants-Cl quirk): pklin + boost + the grid sidecars; two
-  data.grid2d trainings (law none) each collapse below 0.5x the staged
-  mean predictor (the boost training also proves the grid2d diagnostics
-  pages: the two (z, k) figures build and the plot_diagnostics PDF
-  lands); the real cobaya lifecycle through emul_mps serves
-  P_lin and P_nl (grid + interpolator) within 5% of CAMB's OWN
-  P(k, z) at an off-center point; the interpolator range guard. The
-  syren-law path is exactly gated by mps-identity's stubbed legs (the
-  formulas themselves are vendored in syren/), and the full syren +
-  EMUL2 hybrid run is the unit's recorded acceptance experiment
+  WHAT: the MPS emulators run law-none end to end against CAMB's own
+  P(k, z): the generator writes tiny linear-power and boost dumps, two
+  grid2d networks train and collapse below their staged mean predictors,
+  the grid2d diagnostics path builds its pages and PDF, and the real
+  Cobaya provider agrees with CAMB inside 5%. The syren-law path is
+  exactly gated by mps-identity's stubbed legs (the formulas themselves
+  are vendored in syren/), and the full syren + EMUL2 hybrid run is the
+  unit's recorded acceptance experiment
   (cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml, user-run on the
-  workstation). torch + cobaya + a compiled CAMB under $ROOTDIR
-  (spec: notes/families-background-mps.md).
+  workstation).
+
+  HOW: gates/checks/mps_smoke.py runs four board-declared evidence legs,
+  and it folds one '##AID <leg> <PASS|FAIL>' terminal per leg into this
+  gate's executed set:
+    - generated-power-dumps: both MPS generator subprocesses exit zero
+      and write the linear-power and boost arrays plus both axis
+      sidecars (incl. the verbatim wants-Cl quirk), and the linear dump
+      has the expected shape with every nonfailed row positive.
+    - training-collapse: the linear-power and boost grid2d trainings
+      (law none) each reduce their best validation median below half
+      their own staged mean-predictor median (the dead-network bar).
+    - diagnostics-output: the boost training's grid2d diagnostic builds
+      the two (z, k) pages and lands a nonempty plot_diagnostics PDF
+      through the grid2d dispatch.
+    - cobaya-vs-camb: the real Cobaya lifecycle through emul_mps serves
+      P_lin and P_nl (grid + interpolator) within 5% of CAMB's OWN
+      P(k, z) at an off-center point, and an out-of-range interpolator
+      query raises.
+
+  torch + cobaya + a compiled CAMB under $ROOTDIR
+  (spec: notes/families-background-mps.md#mps-smoke-evidence).
   """
   ctx.require_caps("torch", "cobaya")
   rc, out = ctx.run_check("gates/checks/mps_smoke.py")
   if not ctx.dry:
+    # AID-LESS rc guard: the four per-leg verdicts are the '##AID' lines the
+    # child prints (folded into the executed set by run_check); this line only
+    # asserts the child's aggregate exit status, so it carries no aid.
     ctx.expect(
       label="mps-smoke generator + two trainings + cobaya-vs-CAMB",
       ok=(rc == 0),
@@ -2541,10 +2589,22 @@ BOARD = [
        title="CMB emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
        home="families-scalar-cmb",
-       maps="118-124 (end-to-end: generator + covariance + train + "
-            "cobaya lifecycle); 575-578 (the family diagnostics leg); "
-            "141-203 (leg 2b: the eq-6 non-diagonal blocks + the "
-            "fractional-amplitude weight-key provenance)",
+       maps="a small real-CAMB fixture drives the CMB spectrum generator, "
+            "the Gaussian and eq-6 non-diagonal covariance builders, the "
+            "training collapse bar, the real Cobaya provider, and the "
+            "family diagnostics pages end to end",
+       evidence=(Assertion("cmb-smoke.generated-spectrum-dumps",
+                           "families-scalar-cmb.md#cmb-smoke-generated-spectrum-dumps"),
+                 Assertion("cmb-smoke.gaussian-covariance",
+                           "families-scalar-cmb.md#cmb-smoke-gaussian-covariance"),
+                 Assertion("cmb-smoke.nondiagonal-covariance-structure",
+                           "families-scalar-cmb.md#cmb-smoke-nondiagonal-covariance-structure"),
+                 Assertion("cmb-smoke.training-collapse",
+                           "families-scalar-cmb.md#cmb-smoke-training-collapse"),
+                 Assertion("cmb-smoke.cobaya-serving",
+                           "families-scalar-cmb.md#cmb-smoke-cobaya-serving"),
+                 Assertion("cmb-smoke.diagnostics-output",
+                           "families-scalar-cmb.md#cmb-smoke-diagnostics-output")),
        run=gate_cme_b,
        manifest=Manifest(
            code=("emulator/designs", "emulator/losses",
@@ -2558,8 +2618,17 @@ BOARD = [
        title="BAOSN emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
        home="families-background-mps",
-       maps="128-136 (end-to-end vs CAMB's own background); "
-            "178-194 (the grid diagnostics leg)",
+       maps="the generated background dumps, the dead-network-relative "
+            "training collapse, the Cobaya-vs-CAMB comparison, and the "
+            "grid diagnostics output legs",
+       evidence=(Assertion("bsn-smoke.generated-background-dumps",
+                           "families-background-mps.md#bsn-smoke-generated-background-dumps"),
+                 Assertion("bsn-smoke.training-collapse",
+                           "families-background-mps.md#bsn-smoke-training-collapse"),
+                 Assertion("bsn-smoke.cobaya-vs-camb",
+                           "families-background-mps.md#bsn-smoke-cobaya-vs-camb"),
+                 Assertion("bsn-smoke.diagnostics-output",
+                           "families-background-mps.md#bsn-smoke-diagnostics-output")),
        run=gate_bsn_b,
        manifest=Manifest(
            code=("emulator/designs", "emulator/losses",
@@ -2572,8 +2641,17 @@ BOARD = [
        title="MPS emulator smoke",
        tier=TIER_SAVE_AND_SAMPLE,
        home="families-background-mps",
-       maps="the note's matter-power sections: the generator incl. the "
-            "wants-Cl quirk; the emul_mps lifecycle vs CAMB's own P(k, z)",
+       maps="the matter-power law-none smoke: generated linear-power and "
+            "boost dumps, both trainings collapsing, the grid2d diagnostics "
+            "output, and the emul_mps lifecycle vs CAMB's own P(k, z)",
+       evidence=(Assertion("mps-smoke.generated-power-dumps",
+                           "families-background-mps.md#mps-smoke-generated-power-dumps"),
+                 Assertion("mps-smoke.training-collapse",
+                           "families-background-mps.md#mps-smoke-training-collapse"),
+                 Assertion("mps-smoke.diagnostics-output",
+                           "families-background-mps.md#mps-smoke-diagnostics-output"),
+                 Assertion("mps-smoke.cobaya-vs-camb",
+                           "families-background-mps.md#mps-smoke-cobaya-vs-camb")),
        run=gate_mps_b,
        manifest=Manifest(
            code=("emulator/designs", "emulator/losses",
