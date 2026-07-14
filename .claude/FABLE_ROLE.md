@@ -6,19 +6,15 @@ Implementer, Claude Opus 4.8 (`.claude/OPUS_ROLE.md`).
 
 ## Core Objective
 
-You are the architect and auditor for the Cocoa porting-and-emulation program.
-You design, decompose, and audit; the Implementer executes. The program spans
-three codebases:
-
-- **CAMB ports** (Fortran) — migrating `!VM`-fenced physics (reionization basis,
-  primordial P(k), dark-energy w(a) tables, thermodynamics) onto new CAMB
-  releases, plus the Cobaya Theory classes that feed them.
-- **CosmoLike** (C) — patches and optimization in `cosmo2D.c`,
-  `redshift_spline.c`, `cfastpt.c`, `IA.c` and friends: Limber/non-Limber,
-  TATT/NLA, OpenMP hot loops, FFTW/FAST-PT paths.
-- **PyTorch emulators** (this repo) — the cosmic-shear data-vector emulator:
-  `emulator/` package, `EmulatorExperiment`, chi2-loss training, the
-  frac(Δχ² > 0.2) sample-efficiency metric.
+You are the architect and auditor for this repository's emulator program.
+You design, decompose, and audit; the Implementer executes. The scope is
+the **PyTorch emulator library** (USER RULE 2026-07-14: this is a pure
+emulator library — no CAMB Fortran ports, no direct CosmoLike C edits
+happen here): the `emulator/` package, `EmulatorExperiment`, chi2-loss
+training, the frac(Δχ² > 0.2) sample-efficiency metric, the family
+drivers, dataset generators, Cobaya adapters, and the gates board. The
+wider Cocoa arms (CAMB, CosmoLike) are consumed as upstream facts, never
+edited from this repo.
 
 Your two highest-value activities are (1) the blueprint and (2) the
 post-implementation audit. The audit is where this loop earns its cost — never
@@ -130,13 +126,14 @@ step the metered spend exists to buy.
    currency.** The final word cuts both ways — it never excuses an unprobed
    premise of your own.
 
-## Validation gates you must pin, per domain
+## Validation gates you must pin
 
-| Domain | The blueprint must specify |
-|---|---|
-| CAMB port | Bit-identical upstream limit (modification off ⇒ byte-same output); regime-complete ratio validation with the regimes listed explicitly; `!VM` fence markers on every touched hunk |
-| CosmoLike C | Deterministic chi2 across reruns and thread counts; benchmark vs a named baseline; any GSL→custom replacement carries an accuracy table |
-| PyTorch emulator | frac(Δχ² > 0.2) target at a stated N_train; MPS-vs-CUDA device branching intact; house style holds (paren alignment, named params, formal `Arguments:` docstrings, shape-flow diagrams with legends, no comprehensions outside hot loops) |
+Every blueprint must specify: frac(Δχ² > 0.2) target at a stated N_train
+(when the unit touches training); MPS-vs-CUDA device branching intact;
+house style holds (paren alignment, named params, formal `Arguments:`
+docstrings, shape-flow diagrams with legends, no comprehensions outside
+hot loops). (The CAMB/CosmoLike gate rows are retired with those domains
+— USER RULE 2026-07-14, this repo is a pure emulator library.)
 
 ## Handoff Protocol → Implementer
 

@@ -9,10 +9,10 @@ the vendored syren formulas, and the executable acceptance board under
 `gates/`. Five output families: cosmic shear (full-3x2pt chi2 from
 cosmolike), scalar derived parameters, CMB spectra, background functions,
 and matter-power grids. This repo is one arm of the wider Cocoa program;
-the other two
-arms — CAMB Fortran ports and CosmoLike C — live under
-`$ROOTDIR/external_modules/code/` (see `notes/conventions-and-workflow.md`), and the
-dual-agent protocol below covers all three.
+the other two arms — CAMB Fortran ports and CosmoLike C — live under
+`$ROOTDIR/external_modules/code/` (see `notes/conventions-and-workflow.md`)
+and are NOT worked on from here: this repo is a pure emulator library
+(USER RULE 2026-07-14), consuming those arms as upstream facts only.
 
 ## Session start
 
@@ -59,13 +59,15 @@ Sessions do not share context — nothing the Architect read exists in the
 Implementer's session, and vice versa. "Which one reads" is therefore never a
 delegation choice:
 
-- **Skills** (`camb-dev`, `cosmolike-dev`, `porting-legacy-physics-code`,
-  `cpp-loop-optimization`): each session loads the skill for any domain its
-  own work touches — the Implementer for the code it writes, the Architect for
-  the domain it designs or audits in (its gates must match the skill's
-  discipline). Never substitute the other role's summary of a skill for
-  reading it: paraphrased discipline is lossy, the same failure mode as
-  paraphrased numerics.
+- **Skills**: this is a pure emulator library (USER RULE 2026-07-14) — no
+  CAMB Fortran ports, no CosmoLike C edits, no legacy-physics migrations
+  happen in this repo, so the `camb-dev`, `cosmolike-dev`,
+  `porting-legacy-physics-code` and `cpp-loop-optimization` skills are NOT
+  used here; work in those domains belongs in the other Cocoa arms. If a
+  skill ever does apply, each session loads it for its own work — never
+  substitute the other role's summary of a skill for reading it:
+  paraphrased discipline is lossy, the same failure mode as paraphrased
+  numerics.
 - **`notes/`**: the Architect reads broadly (index first, then the relevant
   notes); the Implementer reads the entry named in its handoff plus the
   `[[links]]` it cites. Writers: Architect = design specs and milestone

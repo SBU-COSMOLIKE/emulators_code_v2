@@ -13430,3 +13430,34 @@ cherry-pick or wait.
 
 No self-certification: the unit was built by the Implementer (0141/0045);
 this entry is the independent audit.
+
+## Ten stranded user directives recovered from the main checkout's mailbox (2026-07-14)
+
+The user ran `--send` from the MAIN checkout early on 2026-07-14
+(02:27-03:42); that daemon copy wrote to the main checkout's
+notes/mailbox, which no watch polls, so messages 0002-0012 sat
+undelivered until the user asked why they were never seen. The daemon
+defect is ledgered (dead-mailbox --send warning, riding the tools-review
+repair series). Disposition of each recovered message, executed this turn:
+
+- 0002 (Opus relay, section-24 appendix blueprint): STALE — executed long
+  ago via the normal queue (b193849/96adacb lineage).
+- 0003 + 0005 + 0006 (section-24 editorial: verbosity, drop the cryptic
+  two-example passage, ~15% word cut): LIVE — retargeted to
+  notes/README.md (the section has moved) and dispatched as 0156-to-opus.
+- 0004 (stale "dev folder" sentence): ALREADY DONE — removed today as the
+  README-restructure audit rider (main 2e4c290).
+- 0007 + 0008 + 0009 (CLAUDE.md: the four skills are not used — pure
+  emulator library): DONE this turn — CLAUDE.md skills bullet rewritten
+  and the intro's "covers all three arms" sentence corrected.
+- 0010 (FABLE_ROLE: no CAMB ports / no direct CosmoLike C): DONE this
+  turn — the three-codebase header replaced with the emulator-library
+  scope, the per-domain gates table reduced to the emulator row.
+- 0011 (OPUS_ROLE: same): DONE this turn — core objective rescoped, the
+  CAMB/CosmoLike skill triggers retired, constraints renumbered.
+- 0012 (TeX figure-1 caption self-explanation is unnecessary): LIVE —
+  texnotes is red-team-owned, dispatched as the one-sentence deletion
+  0157-to-sol (not a reopening of the cancelled LaTeX series).
+
+All eleven files are moved to the main checkout's notes/mailbox/done/ so
+they cannot fire twice.
