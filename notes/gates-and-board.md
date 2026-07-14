@@ -14234,3 +14234,38 @@ git diff --check                                            rc 0
 This closes only the output-style rider. Staleness, dead-mailbox discovery,
 fix-only behavior, rendezvous, and landing-debt riders remain open and
 separately countable.
+
+## Unit 96 const-mask declaration rider audit (Codex, 2026-07-14): GO, narrow rider only
+
+Current saves derive a writer-owned SHA-256 declaration from the ordered
+one-dimensional uint8 Grid2D `const_mask`, including its length and every mask
+byte. The main declaration lives on the HDF5 root and an embedded transfer
+base's declaration lives on that group's attributes; neither is admitted
+through caller metadata or generic geometry state. Rebuild validates each
+declaration before output-geometry and model construction.
+
+The reader refuses a missing declaration on a current schema-v3 Grid2D
+artifact, either half of a mask/declaration pair in isolation, and even a
+matching pair attached to a non-Grid2D class. Equal-count moved-pin tampering
+therefore cannot hide behind a true-count check. The code and gate state the
+cryptographic boundary honestly: an unkeyed digest stored beside its mask
+catches one-surface drift, not an attacker that coordinates both rewrites.
+
+Independent audit used the Cocoa runtime with Torch 2.6.0, h5py 3.13.0, and
+NumPy 1.26.3. A separate transfer-declaration deletion probe refused before a
+constructor sentinel, supplementing the focused five-test file.
+
+```text
+PYTHONPATH=. Cocoa/.local/bin/python -m unittest \
+  tests.test_grid2d_const_mask tests.test_results_const_mask_declaration
+                                                              rc 0  10/10 tests green
+PYTHONPATH=. Cocoa/.local/bin/python gates/checks/mps_identity.py
+                                                              rc 0  7/7 AIDs green
+count-only digest mutation                                   rc 1  focused arm red
+validator-bypass mutation                                    rc 1  all 6 refusal arms red
+git diff --check                                             rc 0
+```
+
+This audit closes only the const-mask authenticity interlock. The broader
+Unit 96 composition-mode enum and its two-way group validation remain OPEN;
+none of the three files in this slice implements or claims that contract.

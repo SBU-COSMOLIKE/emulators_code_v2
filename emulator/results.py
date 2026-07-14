@@ -27,6 +27,7 @@ region it was sampled over. A sidecar is a small companion file written next
 to a data file and sharing its name stem.
 """
 
+import hashlib
 import os
 import subprocess
 import time
@@ -36,6 +37,142 @@ import torch
 import yaml
 
 from . import fixed_facts
+
+
+_GRID2D_CLASS = "emulator.geometries.grid2d.Grid2DGeometry"
+_GRID2D_MASK_DECLARATION = "dv_geometry_const_mask_sha256"
+
+
+def _grid2d_const_mask_digest(const_mask):
+  """Return the ordered-byte declaration for one persisted Grid2D mask.
+
+  The mask has one uint8 zero or one per flattened grid coordinate. Its length
+  and every byte in order are covered, so moving a pin changes the declaration
+  even when the number of true entries does not.
+
+  This is deliberately a NARROW single-surface integrity check. The digest is
+  unkeyed and stored in the same HDF5 file, so an editor that rewrites both the
+  mask and its declaration can still make them agree. Whole-file identity is a
+  separate manifest concern; this helper does not claim to provide it.
+
+  Arguments:
+    const_mask = one-dimensional uint8 numpy array or CPU tensor.
+
+  Returns:
+    the lowercase hexadecimal SHA-256 declaration.
+
+  Raises:
+    ValueError if the persisted representation is not one-dimensional uint8.
+  """
+  if torch.is_tensor(const_mask):
+    const_mask = const_mask.detach().cpu().numpy()
+  values = np.asarray(const_mask)
+  if values.ndim != 1 or values.dtype != np.dtype("uint8"):
+    raise ValueError(
+      "Grid2D const_mask declaration needs a one-dimensional uint8 array; "
+      "got shape " + repr(tuple(values.shape)) + " and dtype "
+      + str(values.dtype))
+  hasher = hashlib.sha256()
+  hasher.update(b"grid2d-const-mask-v1\0")
+  hasher.update(int(values.size).to_bytes(8, byteorder="little", signed=False))
+  hasher.update(values.tobytes(order="C"))
+  return hasher.hexdigest()
+
+
+def _write_grid2d_const_mask_declaration(
+    declaration_attrs,
+    state,
+    cls_path,
+    where):
+  """Write the declaration derived from an executed Grid2D state.
+
+  Arguments:
+    declaration_attrs = enclosing HDF5 attribute mapping receiving the digest.
+    state             = geometry state mapping already written into the group.
+    cls_path          = fully qualified persisted geometry class name.
+    where             = geometry location used in refusal messages.
+
+  Returns:
+    None after a non-Grid2D state or a written declaration.
+
+  Raises:
+    KeyError if a Grid2D state omits its required const_mask member.
+  """
+  if cls_path != _GRID2D_CLASS:
+    return
+  if "const_mask" not in state:
+    raise KeyError(
+      where + " Grid2DGeometry.state() is missing required const_mask state; "
+      "save_emulator cannot declare whether the run used pinned points")
+  declaration_attrs[_GRID2D_MASK_DECLARATION] = (
+    _grid2d_const_mask_digest(state["const_mask"]))
+
+
+def _validate_grid2d_const_mask_declaration(group, declaration_attrs, where):
+  """Validate one Grid2D mask declaration before geometry construction.
+
+  A current schema-v3 Grid2D artifact carries both the mask and this required
+  declaration. Older schema-v3 Grid2D files that predate the declaration are
+  refused with a re-save instruction; absence never selects an unpinned mode.
+  Non-Grid2D groups must carry neither half, including the paired mask+digest
+  case that would otherwise look internally consistent.
+
+  As documented by ``_grid2d_const_mask_digest``, this catches a change to one
+  saved surface while the other is intact. It cannot authenticate a coordinated
+  whole-file rewrite of both surfaces.
+
+  Arguments:
+    group             = HDF5 output-geometry group.
+    declaration_attrs = enclosing HDF5 attribute mapping carrying the digest.
+    where             = artifact location used in refusal messages.
+
+  Returns:
+    None after a non-Grid2D group with neither field, or a matching declaration.
+
+  Raises:
+    KeyError if either half of a Grid2D declaration is absent.
+    ValueError if fields occur on a non-Grid2D group, the declaration has the
+               wrong type, or the declaration does not match the mask.
+  """
+  cls_value = group.attrs.get("cls")
+  if isinstance(cls_value, bytes):
+    cls_value = cls_value.decode("utf-8")
+  is_grid2d = cls_value == _GRID2D_CLASS
+  has_mask = "const_mask" in group
+  has_declaration = _GRID2D_MASK_DECLARATION in declaration_attrs
+
+  if not is_grid2d:
+    if has_mask or has_declaration:
+      raise ValueError(
+        where + " is not a Grid2DGeometry but carries "
+        + ("const_mask" if has_mask else "no const_mask") + " and "
+        + (_GRID2D_MASK_DECLARATION if has_declaration
+           else "no mask declaration") + ". Remove the foreign Grid2D state "
+        "or restore and re-save the artifact from its executed geometry.")
+    return
+  if not has_declaration:
+    raise KeyError(
+      where + " is missing the required "
+      + repr(_GRID2D_MASK_DECLARATION) + " declaration. This schema-v3 "
+      "Grid2D artifact predates declared mask integrity; re-save it with the "
+      "current code before rebuilding.")
+  if not has_mask:
+    raise KeyError(
+      where + " declares " + repr(_GRID2D_MASK_DECLARATION)
+      + " but is missing const_mask. The mask and its declaration must both "
+      "be present; restore the intact artifact or re-save it from the run.")
+  declared = declaration_attrs[_GRID2D_MASK_DECLARATION]
+  if not isinstance(declared, str):
+    raise ValueError(
+      where + " " + repr(_GRID2D_MASK_DECLARATION)
+      + " must be a native HDF5 string, got " + repr(declared)
+      + ". Re-save the artifact with the current code.")
+  actual = _grid2d_const_mask_digest(group["const_mask"][()])
+  if declared != actual:
+    raise ValueError(
+      where + " const_mask does not match its saved declaration. The mask was "
+      "added, removed, moved, or toggled after save; restore the intact "
+      "artifact or re-save it from the completed run.")
 
 
 def save_learning_curves(path, sizes, curves, meta=None):
@@ -182,7 +319,9 @@ def save_emulator(path_root,
                      DataVectorGeometry.state() (total_size,
                      dest_idx, evecs, sqrt_ev, Cinv, center, dtype),
                      plus a "cls" attr, so from_state rebuilds the
-                     exact geometry class with no cosmolike.
+                     exact geometry class with no cosmolike. A Grid2D state
+                     also has a writer-derived ordered-mask SHA-256 declaration
+                     on the enclosing file attributes.
     pce/             (NPCE runs only) the frozen PCEEmulator base's
                      buffers (PCEEmulator.state(): lo / hi /
                      multi_index / C / Vk / Ybar) plus a "form" attr, so
@@ -194,7 +333,9 @@ def save_emulator(path_root,
                      dv_geometry/ states with cls markers, and form / space
                      attrs. The main model above is then the correction net and
                      the main geometries are the run's; rebuild composes the
-                     two. Self-contained: no reference to the base file.
+                     two. An embedded Grid2D base carries its mask declaration
+                     on the transfer_base attributes. Self-contained: no
+                     reference to the base file.
     history/         per-epoch training curves: train_losses,
                      val_medians, val_means, val_fracs (one row per
                      epoch, one column per threshold), thresholds.
@@ -249,8 +390,9 @@ def save_emulator(path_root,
       param_geometry/ group +       | _rebuild_geometry(f["param_geometry"])
         its "cls" attr              |   -> <cls>.from_state; "cls" is
                                     |   required (missing = loud re-save)
-      dv_geometry/ group +          | _rebuild_geometry(f["dv_geometry"])
-        its "cls" attr              |   -> <cls>.from_state; the info-dict
+      dv_geometry/ group +          | declaration validation, then
+        its "cls" attr + root       |   _rebuild_geometry(f["dv_geometry"])
+        Grid2D mask declaration     |   -> <cls>.from_state; the info-dict
                                     |   family flags and the CMB / grid /
                                     |   grid2d facts below are read off
                                     |   this rebuilt geometry object, not
@@ -262,8 +404,9 @@ def save_emulator(path_root,
         (transfer runs):            |   tb_recipe / tb_state / tb_pgeom /
         model_recipe, state/,       |   tb_geom rebuilt, then _rebuild_model
         param_geometry/,            |   builds the frozen base; form / space
-        dv_geometry/,               |   -> transfer_form / transfer_space
-        "form" + "space" attrs      |
+        dv_geometry/,               |   -> transfer_form / transfer_space;
+        "form" + "space" attrs,     |   an embedded Grid2D declaration is
+        Grid2D mask declaration     |   validated before its output geometry
       transfer_base/drifted_state/  | _read_group(tb["drifted_state"])
         (refined runs only) +       |   replaces tb_state; the root attr is
         root attr transfer_refined  |   read as a native bool by
@@ -320,7 +463,8 @@ def save_emulator(path_root,
     train_args     = the collapsed train_args the run actually used
                      (search ranges resolved), or None to omit.
     attrs          = optional mapping of scalar run metadata, each
-                     written as one h5 root attribute.
+                     written as one h5 root attribute. It may not replace the
+                     writer-owned Grid2D mask declaration.
     facts_yaml     = the producer sidecar's text, the generator's own
                      <paramsf>.facts.yaml, carried here verbatim by the
                      training loader (data_staging.read_facts_sidecar). Given,
@@ -335,6 +479,7 @@ def save_emulator(path_root,
     (emul_path, h5_path), the two files written.
 
   Raises:
+    KeyError when attrs tries to replace the writer-owned Grid2D declaration.
     ValueError when facts_yaml arrives without the resolved recipes (the file
     would say which cosmology it was trained under but not how to rebuild the
     network), when the sidecar breaks any law in fixed_facts.validate, or when
@@ -383,6 +528,12 @@ def save_emulator(path_root,
       geometry_names=param_geometry.state()["names"],
       blocks=record,
       where=path_root + ".h5")
+
+  if attrs is not None and _GRID2D_MASK_DECLARATION in attrs:
+    raise KeyError(
+      "save_emulator: attrs cannot set reserved key "
+      + repr(_GRID2D_MASK_DECLARATION) + ". Remove that key; save_emulator "
+      "derives the declaration from the executed Grid2D geometry.")
 
   # --- <root>.emul: the weights, cpu, unprefixed ---
   sd = {}
@@ -448,9 +599,16 @@ def save_emulator(path_root,
     # state keys but a different whitening, so the marker prevents a silent
     # wrong-transform decode).
     dv_group = f.create_group("dv_geometry")
-    write_state(dv_group, geometry.state())
-    dv_group.attrs["cls"] = (type(geometry).__module__ + "."
-                             + type(geometry).__qualname__)
+    dv_state = geometry.state()
+    write_state(dv_group, dv_state)
+    dv_cls = (type(geometry).__module__ + "."
+              + type(geometry).__qualname__)
+    dv_group.attrs["cls"] = dv_cls
+    _write_grid2d_const_mask_declaration(
+      declaration_attrs=f.attrs,
+      state=dv_state,
+      cls_path=dv_cls,
+      where="dv_geometry")
 
     # NPCE base (present only when the run used a pce: block): the frozen
     # PCEEmulator buffers keyed exactly as from_state expects, plus the
@@ -489,9 +647,16 @@ def save_emulator(path_root,
                              + type(base_pg).__qualname__)
       base_dv = transfer_base["dv_geometry"]
       dv_grp  = tb.create_group("dv_geometry")
-      write_state(dv_grp, base_dv.state())
-      dv_grp.attrs["cls"] = (type(base_dv).__module__ + "."
-                             + type(base_dv).__qualname__)
+      base_dv_state = base_dv.state()
+      write_state(dv_grp, base_dv_state)
+      base_dv_cls = (type(base_dv).__module__ + "."
+                     + type(base_dv).__qualname__)
+      dv_grp.attrs["cls"] = base_dv_cls
+      _write_grid2d_const_mask_declaration(
+        declaration_attrs=tb.attrs,
+        state=base_dv_state,
+        cls_path=base_dv_cls,
+        where="transfer_base dv_geometry")
       tb.attrs["form"]  = transfer_base["form"]
       tb.attrs["space"] = transfer_base["space"]
       # a refined run (transfer.refine): the DRIFTED base weights, kept
@@ -730,8 +895,10 @@ def rebuild_emulator(path_root, device, compile_model=True):
     ValueError from read_artifact_schema when the .h5 announces no schema
     version, announces one this code does not know, or breaks any law of the
     scientific record; ValueError when the rebuilt input geometry disagrees
-    with that record's sampled-parameter order; KeyError naming any missing
-    recipe / geometry / pce key (never a code-default fallback).
+    with that record's sampled-parameter order or a Grid2D mask differs from
+    its declaration; KeyError naming a missing current schema-v3 Grid2D mask
+    declaration or any missing recipe / geometry / pce key (never a
+    code-default fallback).
   """
   import importlib
   # h5py lives only here: the training machines (cocoa) ship it, the
@@ -811,6 +978,10 @@ def rebuild_emulator(path_root, device, compile_model=True):
       geometry_names=pgeom.names,
       blocks=record,
       where=path_root + ".h5")
+    _validate_grid2d_const_mask_declaration(
+      group=f["dv_geometry"],
+      declaration_attrs=f.attrs,
+      where=path_root + ".h5 dv_geometry")
     geom  = _rebuild_geometry(f["dv_geometry"], "dv_geometry group")
     pce_base = None
     pce_form = None
@@ -836,6 +1007,10 @@ def rebuild_emulator(path_root, device, compile_model=True):
       tb_state  = _read_group(tb["state"])
       tb_pgeom  = _rebuild_geometry(tb["param_geometry"],
                                     "transfer_base param_geometry group")
+      _validate_grid2d_const_mask_declaration(
+        group=tb["dv_geometry"],
+        declaration_attrs=tb.attrs,
+        where=path_root + ".h5 transfer_base dv_geometry")
       tb_geom   = _rebuild_geometry(tb["dv_geometry"],
                                     "transfer_base dv_geometry group")
       tb_form   = tb.attrs.get("form")

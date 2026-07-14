@@ -71,6 +71,7 @@ Legs:
 import importlib.util
 import inspect
 import os
+import shutil
 import sys
 import tempfile
 import types
@@ -90,6 +91,7 @@ try:
 except Exception:                                        # pragma: no cover
     _BASE_PK_SIGS = None
 
+import emulator.designs.plain as plain_designs
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
 from emulator.designs.plain import ResMLP
@@ -107,6 +109,20 @@ IN_NAMES = ["As", "H0", "omch2"]
 N_IN = len(IN_NAMES)
 Z4 = np.array([0.0, 0.5, 1.0, 2.0])
 K6 = np.logspace(-4, 0.0, 6)
+GRID2D_MASK_DECLARATION = "dv_geometry_const_mask_sha256"
+
+
+class MaskDeclarationModelConstructionReached(Exception):
+    """The const-mask artifact reader reached model construction."""
+
+
+class MaskDeclarationConstructionSentinel:
+    """Constructor sentinel proving declaration refusal happens first."""
+
+    def __init__(self, *args, **kwargs):
+        raise MaskDeclarationModelConstructionReached(
+            "changed mask reached model construction")
+
 
 # The adapter legs serve a linear-power artifact and a boost artifact side by
 # side, and multiply them into the one nonlinear spectrum: emul_mps refuses the
@@ -1027,7 +1043,8 @@ def save_synthetic_grid2d(
         k=K6,
         seed=0,
         pin_low_k=False,
-        support=None):
+        support=None,
+        transfer_base=None):
     """Build, then save, a tiny synthetic grid2d emulator under `root`.
 
     `support` is the region the double stands for, as a mapping name -> (low,
@@ -1050,6 +1067,7 @@ def save_synthetic_grid2d(
       pin_low_k = pin the first wavenumber of every redshift row to one (the
                   valid low-k boost identity).
       support   = the box the double declares, or None for no support at all.
+      transfer_base = optional embedded base mapping passed to save_emulator.
 
     Returns:
       (pgeom, geom, model, covmat): the sources the caller compares against, and
@@ -1109,6 +1127,7 @@ def save_synthetic_grid2d(
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=grid2d_recipe(z.size * k.size),
+                  transfer_base=transfer_base,
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
@@ -1118,13 +1137,42 @@ def save_synthetic_grid2d(
     return pgeom, geom, model, covmat
 
 
+def clone_emulator_artifact(source_root, destination_root):
+    """Copy both files of one saved emulator for a mutation arm."""
+    shutil.copy2(str(source_root) + ".h5", str(destination_root) + ".h5")
+    shutil.copy2(str(source_root) + ".emul", str(destination_root) + ".emul")
+
+
+def require_mask_declaration_refusal(root, device, label, expected_fragments):
+    """Require targeted refusal before the artifact constructs its model."""
+    original_class = plain_designs.ResMLP
+    plain_designs.ResMLP = MaskDeclarationConstructionSentinel
+    try:
+        rebuild_emulator(str(root), device, compile_model=False)
+        report(label, False, "changed artifact rebuilt without refusal")
+    except MaskDeclarationModelConstructionReached as error:
+        report(label, False, str(error))
+    except (KeyError, ValueError) as error:
+        message = str(error)
+        ok = all(fragment in message for fragment in expected_fragments)
+        report(label, ok,
+               type(error).__name__ + " names the declaration and repair")
+    except Exception as error:
+        report(label, False,
+               "unexpected " + type(error).__name__ + ": " + str(error))
+    finally:
+        plain_designs.ResMLP = original_class
+
+
 def check_const_mask_artifact(tmp, device):
-    """Prove the mask is explicit and required in a saved HDF5 artifact.
+    """Prove the mask and its narrow integrity declaration are load-bearing.
 
     An all-false mask records that every output coordinate is trainable. A
     true entry records that decode must serve the stored training constant at
     that coordinate. The two states have different scientific behavior, so a
-    missing dataset cannot select either one.
+    missing dataset cannot select either one. The co-located unkeyed digest
+    catches one-surface additions, toggles and moves; this gate does not call a
+    coordinated rewrite of both fields whole-file authentication.
     """
     unpinned_root = os.path.join(tmp, "emul_g2_mask_unpinned")
     save_synthetic_grid2d(
@@ -1141,6 +1189,8 @@ def check_const_mask_artifact(tmp, device):
             unpinned_root + ".h5",
             "r") as artifact:
         stored_unpinned = artifact["dv_geometry/const_mask"][()]
+        unpinned_declaration = artifact.attrs.get(
+            GRID2D_MASK_DECLARATION)
     _, _, unpinned_geometry, _ = rebuild_emulator(
         unpinned_root,
         device,
@@ -1149,12 +1199,45 @@ def check_const_mask_artifact(tmp, device):
         stored_unpinned.dtype == np.dtype("uint8")
         and stored_unpinned.shape == (Z4.size * K6.size,)
         and int(stored_unpinned.sum()) == 0
+        and isinstance(unpinned_declaration, str)
+        and len(unpinned_declaration) == 64
         and int(unpinned_geometry.const_mask.sum().item()) == 0)
     report(
         "const-mask artifact: unpinned state persists all-false",
         unpinned_ok,
         "stored dtype %s, true entries %d"
         % (stored_unpinned.dtype, int(stored_unpinned.sum())))
+
+    added_root = os.path.join(tmp, "emul_g2_mask_added")
+    clone_emulator_artifact(unpinned_root, added_root)
+    with h5py.File(added_root + ".h5", "r+") as artifact:
+        artifact["dv_geometry/const_mask"][0] = np.uint8(1)
+    require_mask_declaration_refusal(
+        added_root,
+        device,
+        "const-mask artifact: add against declared unmasked refuses early",
+        ("const_mask", "declaration", "restore"))
+
+    legacy_root = os.path.join(tmp, "emul_g2_mask_legacy_v3")
+    clone_emulator_artifact(unpinned_root, legacy_root)
+    with h5py.File(legacy_root + ".h5", "r+") as artifact:
+        del artifact.attrs[GRID2D_MASK_DECLARATION]
+    require_mask_declaration_refusal(
+        legacy_root,
+        device,
+        "const-mask artifact: older schema-v3 declaration absence refuses",
+        ("schema-v3", "re-save"))
+
+    foreign_root = os.path.join(tmp, "emul_g2_mask_foreign_class")
+    clone_emulator_artifact(unpinned_root, foreign_root)
+    with h5py.File(foreign_root + ".h5", "r+") as artifact:
+        artifact["dv_geometry"].attrs["cls"] = (
+            "emulator.geometries.scalar.ScalarGeometry")
+    require_mask_declaration_refusal(
+        foreign_root,
+        device,
+        "const-mask artifact: paired fields on non-Grid2D refuse early",
+        ("not a Grid2DGeometry", "restore"))
 
     pinned_root = os.path.join(tmp, "emul_g2_mask_pinned")
     save_synthetic_grid2d(
@@ -1172,6 +1255,7 @@ def check_const_mask_artifact(tmp, device):
             pinned_root + ".h5",
             "r") as artifact:
         stored_pinned = artifact["dv_geometry/const_mask"][()]
+        pinned_declaration = artifact.attrs.get(GRID2D_MASK_DECLARATION)
     _, _, pinned_geometry, _ = rebuild_emulator(
         pinned_root,
         device,
@@ -1186,6 +1270,8 @@ def check_const_mask_artifact(tmp, device):
     decoded = pinned_geometry.decode(probe).detach().cpu().numpy()[0]
     pinned_ok = (
         np.array_equal(stored_pinned, expected_pins)
+        and isinstance(pinned_declaration, str)
+        and len(pinned_declaration) == 64
         and np.array_equal(
             pinned_geometry.const_mask.cpu().numpy(),
             expected_pins.astype(bool))
@@ -1196,25 +1282,92 @@ def check_const_mask_artifact(tmp, device):
         pinned_ok,
         "stored pins %s" % np.flatnonzero(stored_pinned).tolist())
 
+    moved_root = os.path.join(tmp, "emul_g2_mask_moved_pin")
+    clone_emulator_artifact(pinned_root, moved_root)
+    with h5py.File(moved_root + ".h5", "r+") as artifact:
+        dataset = artifact["dv_geometry/const_mask"]
+        moved = dataset[()]
+        old_index = int(np.flatnonzero(moved)[0])
+        new_index = old_index + 1
+        moved[old_index] = np.uint8(0)
+        moved[new_index] = np.uint8(1)
+        dataset[...] = moved
+    require_mask_declaration_refusal(
+        moved_root,
+        device,
+        "const-mask artifact: moved pin with equal true-count refuses early",
+        ("const_mask", "declaration", "restore"))
+
+    base_root = os.path.join(tmp, "emul_g2_mask_transfer_base_source")
+    base_pgeom, base_geom, base_model, _ = save_synthetic_grid2d(
+        root=base_root,
+        device=device,
+        tmp=tmp,
+        label="mps-identity/const-mask-transfer-base-source",
+        quantity="pklin",
+        units="Mpc3",
+        law="none",
+        seed=139)
+    embedded_base = {
+        "recipe": grid2d_recipe(Z4.size * K6.size),
+        "state": base_model.state_dict(),
+        "param_geometry": base_pgeom,
+        "dv_geometry": base_geom,
+        "form": "gain",
+        "space": "physical",
+    }
+    transfer_root = os.path.join(tmp, "emul_g2_mask_transfer")
+    save_synthetic_grid2d(
+        root=transfer_root,
+        device=device,
+        tmp=tmp,
+        label="mps-identity/const-mask-transfer",
+        quantity="pklin",
+        units="Mpc3",
+        law="none",
+        seed=141,
+        transfer_base=embedded_base)
+    with h5py.File(transfer_root + ".h5", "r") as artifact:
+        transfer_group = artifact["transfer_base"]
+        transfer_declaration = transfer_group.attrs.get(
+            GRID2D_MASK_DECLARATION)
+        transfer_mask = transfer_group["dv_geometry/const_mask"][()]
+    _, _, _, transfer_info = rebuild_emulator(
+        transfer_root, device, compile_model=False)
+    rebuilt_base_mask = (
+        transfer_info["transfer_base"]["geom"].const_mask.cpu().numpy())
+    transfer_ok = (
+        isinstance(transfer_declaration, str)
+        and len(transfer_declaration) == 64
+        and np.array_equal(transfer_mask, rebuilt_base_mask)
+        and int(rebuilt_base_mask.sum()) == 0)
+    report(
+        "const-mask artifact: embedded transfer base writes and reads declaration",
+        transfer_ok,
+        "declaration=%s, true entries=%d"
+        % (isinstance(transfer_declaration, str),
+           int(rebuilt_base_mask.sum())))
+
+    transfer_changed_root = os.path.join(
+        tmp, "emul_g2_mask_transfer_changed")
+    clone_emulator_artifact(transfer_root, transfer_changed_root)
+    with h5py.File(transfer_changed_root + ".h5", "r+") as artifact:
+        artifact["transfer_base/dv_geometry/const_mask"][0] = np.uint8(1)
+    require_mask_declaration_refusal(
+        transfer_changed_root,
+        device,
+        "const-mask artifact: embedded transfer mask toggle refuses early",
+        ("transfer_base", "const_mask", "declaration", "restore"))
+
     with h5py.File(
             pinned_root + ".h5",
             "r+") as artifact:
         del artifact["dv_geometry/const_mask"]
-    try:
-        rebuild_emulator(
-            pinned_root,
-            device,
-            compile_model=False)
-        report(
-            "const-mask artifact: deleted required mask refuses",
-            False,
-            "rebuild accepted a missing scientific fact")
-    except KeyError as error:
-        message = str(error)
-        report(
-            "const-mask artifact: deleted required mask refuses",
-            "const_mask" in message and "Re-save" in message,
-            "KeyError names const_mask and the re-save action")
+    require_mask_declaration_refusal(
+        pinned_root,
+        device,
+        "const-mask artifact: deleted required mask refuses early",
+        ("const_mask", "declaration", "restore"))
 
 
 def check_roundtrip(tmp, device, law):
