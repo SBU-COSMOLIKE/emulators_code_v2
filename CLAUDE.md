@@ -27,6 +27,9 @@ Two Claude Code sessions cooperate: the **Architect** (Claude Fable 5,
 `.claude/FABLE_ROLE.md`) and the **Implementer** (Claude Opus 4.8,
 `.claude/OPUS_ROLE.md`). The user (or a runner script) relays the
 `### ARCHITECT_HANDOFF` / `### IMPLEMENTER_HANDOFF` blocks between them.
+Agent-emitted relays travel via the file mailbox (`notes/mailbox/`,
+dispatched by `tools/mailbox_daemon.py`) — mandatory per
+`notes/conventions-and-workflow.md`; a user-pasted block stays valid input.
 
 Resolve your role **once, at session start** — a role cannot change
 mid-session:

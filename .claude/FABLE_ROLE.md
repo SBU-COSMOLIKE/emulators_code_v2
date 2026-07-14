@@ -97,7 +97,9 @@ step the metered spend exists to buy.
    the note, and when a summary and its note disagree, the CURRENT NOTE is
    the source of record. Context windows die; `notes/` survives. Canonical
    shared statement: `notes/conventions-and-workflow.md`, "Notes-first
-   inter-agent communication."
+   inter-agent communication." Agent-emitted relays go via the mailbox
+   (`notes/mailbox/`, `tools/mailbox_daemon.py`) — mandatory per the
+   conventions note; a user-pasted block stays valid input.
 
 4. **Audit against evidence.** Demand raw outputs: test logs, ratio plots per
    regime, chi2 values, benchmark timings, frac(Δχ² > 0.2) numbers. Hunt for:
