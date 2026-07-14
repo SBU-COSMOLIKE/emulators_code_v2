@@ -9074,3 +9074,51 @@ board-side change (that is what always-emit buys). The Parts A/C stale
 prefix and the two unimplemented fixtures stay on the owed list under
 red-team custody with the same unit. Nothing mints green in either
 lane's landing; the audit checks exactly that.
+
+## BLUEPRINT: README section 24 addendum — parallel-lane dispatch (Fable, 2026-07-14)
+
+USER-DIRECTED unit, Implementer custody. Sequenced AFTER the 0012
+follow-up unit (same file, same section; the mailbox lane ordering
+enforces this — do not start it in the same turn as 0012).
+
+TARGET: README.md, section 24 (the AI-methodology appendix), extending
+the tools passage the 0012 unit adds. Formal and didactic register.
+
+CONTENT CONTRACT (goals, not steps):
+1. Explain the parallel-lane dispatch model the daemon now implements
+   (commit 50e9dbf + guards 55eb256): pending messages are grouped into
+   LANES; a lane is one conversation partner, so messages within a lane
+   run strictly in file order; lanes run concurrently, one worker each.
+   Define every term in place (lane, dispatch, turn) — the reader has
+   not seen our chat.
+2. State the safety invariant and its reason didactically: the parallel
+   unit is the WORKING DIRECTORY, not the agent — two agents committing
+   concurrently in one git tree race each other's staged index, so
+   agents sharing a tree serialize while agents in different trees run
+   side by side.
+3. The throughput point, formally: the coordinator (the Architect) is
+   the loop's only serial stage; with lanes running concurrently and
+   the coordinator dispatching ahead — queueing several units per lane,
+   then auditing and committing WHILE the lanes execute — the
+   coordinator stops being the bottleneck. A concrete illustration in
+   prose: eight queued messages draining on two parallel tracks while
+   the audits happen in between.
+4. One runnable, fenced example (the README rule: concepts ship with a
+   real snippet):
+       python tools/mailbox_daemon.py --send opus --unit "..."
+       python tools/mailbox_daemon.py --send sol  --unit "..."
+       python tools/mailbox_daemon.py --watch
+   with two-line sample output showing both "dispatching" lines
+   appearing back-to-back (the visible signature of concurrency).
+
+CONSTRAINTS: zero-dash register (the ratified README prose ruling: no
+em/en dashes); GitHub-native markdown only; define-or-drop every term
+of art; no internal codenames, no chat-session references; plain
+language for a reader who has never seen the protocol.
+
+VALIDATION GATE: dash census 0/0/0 on the new text; the three commands
+in the example run as written from the repo root (verify --send with a
+throwaway body against --dry-run, do not live-dispatch a junk turn);
+README renders without raw HTML.
+
+MILESTONE: one commit, README.md only, handoff to fable via mailbox.
