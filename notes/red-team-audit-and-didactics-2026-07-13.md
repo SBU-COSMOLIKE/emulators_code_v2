@@ -2249,6 +2249,139 @@ code, the board, or gate checks.
 
 These checks are implementation evidence for the Architect's pre-merge audit.
 They are not Red Team self-certification.
+## Red Team implementation record: second root-README public-prose pass
+
+The Architect cleared the preceding figure and didactic increment at `701d6f9`.
+This follow-up applies the public-prose constitution to the complete root
+README, so it requires a new Architect audit before the branch is merge-ready.
+
+The revision keeps the README's reference structure, equations, warnings,
+examples, and undergraduate-level explanations while changing the sentence
+forms that interrupted them.  In particular, it:
+
+- removes prose em and en dashes, curly quotation marks, canned conversational
+  phrases, and corrective-negation formulas;
+- replaces contrast-first explanations with direct definitions of data
+  staging, residual blocks, normalization features, attention, PCE modes,
+  warm starts, CMB conventions, background distances, grid2d target laws,
+  generator checkpoints, and the pipeline's storage coordinates;
+- turns the activation generalizations and saved-source choice into real
+  subsection headings, while retaining the equations and examples beneath
+  them;
+- states current warnings as the condition and safe user action, without
+  narrating rejected implementations or repair history;
+- distinguishes the network's hidden features from parameter, data-vector,
+  and batch axes in positive terms;
+- states that the saved artifact owns rebuild configuration and that the
+  sampling YAML supplies only the artifact root and runtime device;
+- gives the direct-programming appendix a schema-v2 description instead of a
+  historical comparison; and
+- replaces the vague authorship sentence with the concrete roles of Claude
+  Code and Prof. Miranda.
+
+### Evidence collected before Architect audit
+
+- the README preview renderer reproduced all three browser images, and Git
+  reports no image-content change;
+- `python3 -m py_compile texnotes/render_readme_previews.py` completed without
+  error;
+- the README contains 83 balanced fenced-code pairs;
+- all 11 relative file targets exist;
+- all 62 unique local fragment targets reconcile with explicit anchors or
+  established heading slugs;
+- all 44 Markdown tables retain a consistent column count;
+- untruncated scans find no prose em or en dash, curly quotation mark, listed
+  canned conversational phrase, or contrast formula using `rather than`,
+  `instead of`, `unlike`, `by contrast`, `not just`, or `not only`;
+- the two exact generator-move weights in the README were checked against
+  `compute_data_vectors/generator_core.py:713-714`; and
+- `git diff --check` reports no whitespace error.
+
+The remaining negative clauses are direct safety or exclusivity statements:
+the alpha warning, artifact-pair protection, and two mutually exclusive target
+constructions.  None introduces a corrective positive claim.  These checks
+are implementation evidence for the Architect's review, not Red Team
+self-certification.
+
+### Stricter public-prose follow-up
+
+The user expanded the public-prose rules after the preceding record was
+written.  This follow-up applies those rules to the complete root README.  It
+removes the remaining semicolons, Oxford commas, question-shaped diagram
+labels and typographic quotation or dash characters.  Independent clauses
+were split or joined with a precise relation.  The Oxford-comma pass was not a
+blind punctuation deletion.  Scientific lists such as TT, TE, EE and pp keep
+every required member.
+
+The same pass checks four broader prose classes.  It removes one banned
+importance word, `robustness`, and replaces it with the specific
+`outlier-control` description.  It rewrites trailing `allowing` and
+`Providing` clauses with named subjects.  It removes inline `Why:` and
+`Spellings:` labels in favor of ordinary sentences.  It also removes bold
+from warning-like declarations and numbered definitions when the typography
+did not identify a new technical term.  Bold remains for the SONIC acronym,
+the top alpha warning and first definitions of terms such as emulator,
+residual block and saturation.
+
+The Optuna journal sentence remains tied to the code in this branch: an
+existing journal resumes the named study.  Unit 53's study-manifest behavior
+has not landed here.  Its eventual code landing must update that README
+sentence in the same change so the public current-state description never
+leads or trails the implementation.
+
+The final untruncated census records a zero-match editorial pass against
+private standards.  It also reports zero matches for:
+
+- em dash, en dash, curly quotation mark, Unicode ellipsis, semicolon,
+  question mark and comma followed by `and` or `or`; and
+- bold-first list items and inline-header list items.
+
+Markdown checks find 166 fence delimiters, which form 83 pairs, and 44 tables
+with a consistent column count inside each table.  All nine unique relative
+file destinations exist.  The 62 unique local fragment destinations still
+resolve through explicit anchors or the established GitHub heading forms.
+`git diff --check` reports no whitespace error.  These results are
+implementation evidence for Architect review and do not certify the landing.
+
+### Independent factual review of the rewritten README
+
+A second agent compared every substantive README change with the current
+implementation.  That review found five scientific or code-contract
+regressions plus five ambiguous sentences.  All ten were corrected before
+the landing was presented for audit.
+
+The corrected scientific statements now say:
+
+- CMB roughness adds `lambda * c_rough` to the training score before the
+  configured loss transform, while evaluation reports the plain chi-square;
+- Syren artifacts store a law name without a formula digest, so an edit to a
+  vendored formula requires retraining existing artifacts;
+- crossing activation learning curves give a training-size-dependent ranking,
+  while coincident curves are a tie;
+- `p_max`, `r_max`, and `q` define the PCE candidate basis, `max_terms` limits
+  the tested active support, and `loo_max` accepts or rejects a mode; and
+- `trim` drops the worst-fit fraction while `focus` upweights difficult rows
+  that remain in the sample.
+
+The clarity repairs distinguish trainable LayerNorm affine parameters from
+the transformer's fixed choice of normalization type, define attention weights
+as functions of the current sample's tokens, restore a complete sentence in
+the shared-MLP paragraph, repair the basis-change diagram, and remove a
+tautological Optuna evidence item.
+
+The factual reviewer also found a separate deferred-import documentation
+follow-up in `emulator/README.md`: several lines still imply that importing
+`geometries/output.py` loads CosmoLike.  That file is outside this root-README
+landing.  Its package-README visit must state the landed `25M-37` boundary:
+the optional imports now occur inside `from_cosmolike` and
+`build_shear_angle_map`, while importing the module and using other geometry
+paths remain clean.
+
+Preservation evidence from the independent review: every display-math block
+is byte-identical to the pre-rewrite source, all fenced blocks retain their
+order and language, changed fence content is explanatory text rather than an
+executable command or YAML value, and `git diff --check` is clean.  The review
+is evidence for the Architect and does not certify the landing.
 ## Queue-2 note-side evidence draft and new correctness finding
 
 The Red Team drafted the A1-ii home-note surface for the 27 gates outside the
