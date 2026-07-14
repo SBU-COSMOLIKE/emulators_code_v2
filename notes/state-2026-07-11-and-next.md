@@ -3243,3 +3243,10 @@ call), the retired width-one harm (identical corrections, zero
 Jacobian), and the width-two boundary; my runs 5/5 (+ -O), 27/27,
 cmb-identity green; merged 88a326f. Unit 29 CLOSED. Spec:
 gates-and-board.md "Unit-29 landing audit".
+
+README DIAG-MEMORY REPAIR (2026-07-14, Fable): 2ddee42 GO — the
+per-row cost stated from the documented factors (3.92 MB/row, my
+arithmetic matches), 10,000 rows explicitly an example scale,
+zero documented-to-10,000 coupling in either surface; merged
+e350b65. The hold CLOSES. Spec: gates-and-board.md "README
+diagnostic-memory repair audit".

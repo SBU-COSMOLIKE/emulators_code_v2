@@ -7883,3 +7883,21 @@ optimization, checked deliberately); discovery 27/27;
 cmb_identity.py fully green (the family that constructs
 TemplateResTRF); compile clean. VERDICT: GO; merged (88a326f).
 Unit 29 / the 25M-14 amendment CLOSES.
+
+## README diagnostic-memory repair audit (Fable, 2026-07-14): 2ddee42 GO — merged; the hold CLOSES
+
+Delta audit of the repaired sentences only (the rest was
+pre-cleared in the hold). Repair option 2 implemented exactly:
+"documented" now attaches ONLY to the sourced factors (the
+40-neighbour default and the 24,522 output width), the per-row
+cost is stated from those facts (40 x 24,522 float32 = 3.92 MB /
+3.74 MiB per validation row — my own computation matches, and the
+README's 3.9 MB rounding is correct), the total is stated as
+linear in the row count, and 10,000 rows appears strictly as
+"For example". My coupling scan: zero lines in the README or the
+register tie "documented" to 10,000. The register's repair
+paragraph carries the precise values, the explicit-example
+labeling, and the no-self-certification line. Scope vs main:
+README.md + the register only. VERDICT: GO; merged (e350b65,
+register both-retained). The README diagnostic-memory item is
+CLOSED.
