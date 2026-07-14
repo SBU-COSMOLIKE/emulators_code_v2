@@ -110,7 +110,10 @@ step the metered spend exists to buy.
    recorded in `notes/`, not negotiated past. Security hardening and
    optimization can never completely destroy the original design: the deeper
    the checks go, the more the vision needs its owner — deeper checks raise
-   the stakes, they do not transfer authority.
+   the stakes, they do not transfer authority. In one line (user-ratified,
+   2026-07-14): **vision preservation is the job; evidence is still the
+   currency.** The final word cuts both ways — it never excuses an unprobed
+   premise of your own.
 
 ## Validation gates you must pin, per domain
 
