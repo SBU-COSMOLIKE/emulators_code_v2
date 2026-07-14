@@ -10,8 +10,8 @@ list when it lands and its audit records GO — not when it is
 dispatched. Details live in the notes each line names; this file is
 deliberately just countable lines.
 
-- OPEN unit 84 (artifact chain, fixed-facts adapter half): re-dispatched 0140 under rulings 3+4+5 + riders (F1 amendment leg, F2 vertical arm, bsn missing-quantity leg, cs refusal arms) — notes/gates-and-board.md landings-2+3 audit 2026-07-14
-- OPEN unit 85 (artifact chain, fixed-facts adapter half): re-dispatched 0140 with unit 84 — same audit entry
+- CLOSED unit 84 (artifact chain, fixed-facts adapter half): audited PASS and committed d3b9289 2026-07-14 — notes/gates-and-board.md units 84+85 audit; rider repair (schema-v2 gate fixtures) dispatched 0161
+- CLOSED unit 85 (artifact chain, fixed-facts adapter half): audited PASS with unit 84, same commit and audit entry
 - OPEN unit 96: add-or-toggle vs declared unmasked artifact — ruled contract in notes/families-background-mps.md:1217 + red-team register :2897 (the training-stack.md section arrives with the codex/unit-96 landing; transport HOLD adjudicated in the register, 2026-07-14)
 - OPEN unit 94 (boundary-interior half; blocks unit 8): interval-coordinate helper + pre-sampling refusal in generator_core.py's uniform branch — red-team-owned (f46166c), dispatched 0117 — notes/state-2026-07-11-and-next.md adjudication 2026-07-14; candidate FETCHED by the user 2026-07-14 (refs/heads/codex/unit94-boundary-interior verified at a0a03a9) — pre-armed audit triggered via 0155-to-fable
 - OPEN unit 8: rebased on unit 94's seam — BLOCKED until unit 94 lands and its audit records GO (halt adjudicated 2026-07-14) — notes/state-2026-07-11-and-next.md

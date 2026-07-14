@@ -13744,3 +13744,57 @@ push to main remain the user's alone. Landing block for the user:
     git checkout main
     git merge --ff-only claude/amazing-keller-e798b6
     git push origin main
+
+### Addendum to the units 84+85 audit: a mid-turn commit race, resolved with no loss
+
+Between this audit's commit `d3b9289` and its ledger-retirement amend, a
+concurrent lane landed three commits on the shared branch (the backlog-duty
+note `6214cb6`, the role-file ledger-hygiene rule `8d7982c`, and a merge of
+main, originally `c35f328`). The amend therefore rewrote the CONCURRENT
+lane's merge commit rather than `d3b9289`: `c35f328` became `f87a573`, with
+parents, message, and author verified IDENTICAL and the tree differing by
+exactly the two backlog lines retiring units 84 and 85 (the retirement the
+new ledger-hygiene rule requires at a GO). Nothing was dropped —
+`d3b9289` and both concurrent commits are intact ancestors of `f87a573` —
+but any reference the other lane holds to `c35f328` now points at an
+unreachable twin; the reachable equivalent is `f87a573`. Lesson applied
+going forward: on this shared tree, `--amend` is unsafe — a ledger
+retirement lands as its own commit immediately after the audit commit.
+
+## Units 84+85 (fixed-facts adapter half, d3b9289) audited PASS — after a second pre-squash breach by the Architect (2026-07-14)
+
+The breach first, honestly: landing 6214cb6 (the ledger-hygiene rule
+itself) swept the Implementer's then-unaudited d3b9289 to main. The
+pre-squash foreign-commit walk RAN and PRINTED the commit; the Architect
+read it and proceeded anyway. Same class as the 24ac427/47ccec2 breach,
+hours later, against a rule already written. The repair, as before, is
+the immediate audit; the rule stands, the second named counterexample
+now attached to it.
+
+The audit, all re-run independently this turn (cocoa interpreter, torch
+2.6.0, PYTHONPATH=repo):
+
+- py_compile: 17/17 touched files clean.
+- CPU: fixed_facts_schema ALL PASS.
+- Torch witnesses: scalar_identity, bsn_identity, cmb_identity,
+  mps_identity, cs_adapter_identity (NEW) all ALL PASS;
+  transfer_identity 1 FAIL = exactly the known pre-existing hollow
+  cross-family-base-refusal leg already on the ledger. Matches the
+  0151 return's table; no new reds.
+- Independent mutation probe: disabling the predict-path support law
+  (inference.py:1015) reds TWO legs in EACH of five gates (10 legs:
+  out-of-box refusal + undeclared-double refusal, per family);
+  inference.py restored byte-identical (filecmp shallow=False True) and
+  the control reproduces ALL PASS. The gates are production-coupled.
+- Rider finding (not chased, convergence): the reporting-half domain
+  call in check_may_serve (inference.py:603) is NOT gate-covered — my
+  first probe disabled it and every witness stayed green. Low severity
+  (predict-path enforcement is proven; :603 is the advisory API), left
+  as a recorded rider for the artifact-chain remainder.
+
+VERDICT: units 84+85 GO. The two blueprint deviations (module-level
+shared refusal sites; the NEW cs-adapter-identity gate because nothing
+else instantiates emul_cosmic_shear) are both accepted — each has one
+author for one law, which is the design's own principle. The 0151
+dispatch is consumed by this audit (hand-archived). geo-paths/smoke
+schema-v2 fixture findings stay with their existing ledger/board homes.
