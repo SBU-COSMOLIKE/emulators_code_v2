@@ -35,17 +35,21 @@ residual model, and fine-tune boundary.**
 - subprocess: `gates/checks/bsn_identity.py`; no nested subprocess, real
   CAMB, or real Cobaya process (the adapter uses a minimal `Theory` stub).
 - metric: per-leg — analytic polynomial tolerances for integration,
-  tolerance-bounded agreement with a dense path using the same integrator,
-  exact saved-state comparisons and typed refusal checks.
+  tolerance-bounded agreement with an independent adaptive-quadrature
+  calculation, a same-integrator fine-grid resolution control, exact
+  saved-state comparisons and typed refusal checks.
 - legs: 6, named `bsn-identity.simpson-polynomial-nodes`,
   `bsn-identity.distance-pipeline-consistency`,
   `bsn-identity.geometry-and-artifact-round-trip`,
   `bsn-identity.adapter-piecewise-contract`,
   `bsn-identity.npce-composition`, and `bsn-identity.finetune-parity`.
-- evidence: every listed claim is asserted inside the child; the board
-  wrapper currently exposes only its aggregate exit code, and the
-  distance-pipeline leg is deliberately named as consistency rather than an
-  independent numerical reference; no logged-only line is promoted.
+- evidence: every listed claim is asserted inside the child; the distance
+  calculation uses `scipy.integrate.quad` on analytic flat-LCDM `c/H(z)` and
+  its mutation control proves that a shared Simpson reference would miss a
+  one-percent weight-normalization error. A nonfinite-distance mutation proves
+  that NaN cannot satisfy either unmutated comparison. The board wrapper
+  currently exposes only the aggregate exit code; no logged-only line is
+  promoted.
 - owed: the board registry models CPU PyTorch only. SciPy is an eager child
   import; without it the child is red before reporting any leg, not six
   capability-`UNAVAILABLE` legs. No GPU, real-CAMB, or real-Cobaya evidence is
@@ -59,9 +63,14 @@ the linear and quadratic answers, and checks the odd-point-count guard.
 
 <a id="bsn-identity-distance-pipeline-consistency"></a>
 `bsn-identity.distance-pipeline-consistency` compares the interpolation
-pipeline with a very fine grid evaluated by the same cumulative integrator
-and requires relative agreement within `1e-6`; it does not claim an
-algorithmically independent cosmology calculation.
+pipeline with `scipy.integrate.quad` applied directly to analytic flat-LCDM
+`c/H(z)`. The acceptance band is the existing `1e-6` production allowance
+plus ten times `quad`'s returned absolute-error estimate. The original
+same-integrator fine-grid comparison remains as a separately reported
+resolution-only control. A mutation scales every Simpson weight by `0.99`:
+the shared-function control remains green while the independent comparison
+rejects it. A second mutation returns NaN for one distance and must make the
+ordinary pipeline acceptance predicate false.
 
 <a id="bsn-identity-geometry-and-artifact-round-trip"></a>
 `bsn-identity.geometry-and-artifact-round-trip` checks the log-offset
@@ -85,6 +94,68 @@ base-plus-network prediction after save/rebuild.
 `bsn-identity.finetune-parity` accepts a grid source, runs its epoch-zero
 warm-start parity check, and rejects metadata and quantity mismatches before
 staging.
+
+### Unit 90 implementation evidence for Architect audit
+
+The transferred Unit 90 change is confined to
+`gates/checks/bsn_identity.py` and these durable records. Production code,
+`gates/board.py`, and `gates/run_board.py` are unchanged. The independent
+reference uses adaptive quadrature with absolute tolerance `1e-10`, relative
+tolerance `1e-12`, and the error estimate returned by the integrator. It
+checks comoving, angular-diameter, and luminosity distances at redshifts
+`0.1`, `0.5`, `1.0`, `2.0`, and `2.9`.
+
+The direct Cocoa Torch CPU run reports a largest control difference equal to
+`1.617e-06` of its acceptance band. The deliberate `0.99` Simpson-weight
+normalization gives a largest relative difference of only `1.615e-12`
+against the former shared-function fine-grid reference, so that comparison is
+demonstrably blind. Against adaptive quadrature, the same mutation misses by
+at least `1.000e+04` acceptance bands. The full child ends
+`PASS: bsn-identity all checks green`. This is evidence for Architect review,
+not Red Team certification.
+
+#### Parent-audit hold and repair
+
+The first candidate was held for two reasons. It constructed the
+same-integrator fine grid only inside the weight mutation, so the original
+unmutated resolution control was no longer reported. Its raw `max` and `min`
+updates also allowed NaN to leave the initial extrema unchanged. A
+monkeypatched pipeline returning NaN therefore printed three passing reports,
+including a zero difference for the scientific reference.
+
+The amended candidate restores an explicit
+`pipeline vs same-integrator fine grid (resolution only)` report. Every
+distance comparison now passes through one helper that requires finite
+observed and reference values plus a finite positive band. Invalid inputs map
+to an infinite ratio, and the shared acceptance predicate requires every
+ratio to be finite and below one. A built-in mutation replaces the comoving
+distance with NaN and proves that predicate is false.
+
+The repaired full child remains green. The independent control reports
+`1.617e-06` of its band, the retained resolution control reports `1.615e-06`,
+the scaled-weight shared control reports `1.615e-06`, and the independent
+weight mutation misses by at least `1.000e+04` bands. An external
+all-distances-NaN pipeline makes both unmutated controls red with an infinite
+ratio. Neutralizing the weight mutation makes exactly its independent-
+rejection assertion red. The parent-audit findings and their original
+evidence remain recorded here rather than being erased.
+
+#### Batch-5 evidence-terminal integration
+
+Current `main` adds the queue-2 child-emitted evidence owner to
+`bsn_identity.py`. The Unit 90 pipeline call sits entirely between the
+`FAILURES` snapshot for `bsn-identity.distance-pipeline-consistency` and that
+aid's single `emit_aid` call. No Unit 90 sub-report mints another aid.
+
+The complete CPU child emits exactly the six identifiers declared by the
+board, each once, and every terminal is `PASS`. Its raw output places all five
+Unit 90 reports before the one distance-pipeline terminal. With the
+Simpson-weight mutation neutralized, the child still emits the same six
+identifiers exactly once and only
+`bsn-identity.distance-pipeline-consistency` becomes `FAIL`. This demonstrates
+that the independent quadrature reports contribute to the existing batch-5
+leg. The integration changes no declaration and does not self-certify the
+landing.
 
 <a id="bsn-smoke-evidence"></a>
 **bsn-smoke — a real-CAMB background fixture is generated, two grid
