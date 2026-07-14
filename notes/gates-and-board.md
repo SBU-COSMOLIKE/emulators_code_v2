@@ -8155,3 +8155,26 @@ across all 30 evidence-bearing gates. VERDICT: GO x3. Remaining:
 the wrapper-family six, scalar-smoke (child with [S] as backup
 Implementer, tuple with [O]), finite-contract (+ Part D/E
 folding), joint-training, production-diagnostic.
+
+FAN-OUT BATCH 8 (c6d1d47) GO -- DRAFTED FAN-OUT COMPLETE:
+joint-training (7) + production-diagnostic (7), the last two drafted
+gates, both wrapper-asserted (board.py only). Each: four asserted
+inline ctx.expect(aid=), the golden leg via _golden_leg(aid=)
+UNAVAILABLE on null base, and the remaining legs converted from
+ctx.log to ctx.unavailable exactly where the draft note marks them
+UNAVAILABLE (joint-training: epoch-time-order + handoff-loss-
+continuity; production-diagnostic: cut-row-selection + diagnostics-pdf
++ triangle-shading -- the last wired to THIS gate's own inline shaded-
+triangle check, not the standalone triangle-shading gate). Integrated
+board.py-only (disjoint gate regions), declared==emitted 7==7 for both
+by a null-base probe. 32/40 migrated.
+
+The subagent fan-out is now COMPLETE (all drafted gates carry
+evidence= across batches 1-8). The remaining eight gates are the
+Implementer's hand-do set, done first-hand (not fanned out):
+finite-contract (warmstart Part D/E fold + honest-mint of the draft's
+Part A/C false-red and Part F crash), scalar-smoke (nine-aid
+amendment), and the six wrapper-family gates (cobaya-adapter,
+save-rebuild-drift, finetune-identity/-smoke, transfer-identity/
+-smoke). Fan-out-complete announced to the Architect for the
+DIDACTICS-59 / D5 trigger.
