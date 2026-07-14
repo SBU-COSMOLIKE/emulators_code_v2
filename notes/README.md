@@ -1,88 +1,93 @@
-# The three AI development loop
+# The role-based AI development loop
 
-This repository is written by three AI sessions working together under one
-human maintainer. This document is the loop's own documentation: who the three
-sessions are, what each is for, the mailbox program that carries work between
-them, and how to stand the same setup up on another computer. The emulator
-library that the loop builds is documented in the top level
-[`README.md`](../README.md); nothing here is needed in order to use the
-library.
+This directory documents the development loop: who decides, who implements,
+who challenges a change, and how the mailbox carries work between them. The
+emulator library itself is documented in the top-level
+[`README.md`](../README.md).
 
-Prof. Miranda directed the scientific contracts, model architecture, public
-interface, testing requirements and Python readability conventions.
+Prof. Miranda directs the scientific contracts, model architecture, public
+interface, testing requirements, and Python readability conventions.
 
 ## Contents
 
-1. [The three sessions](#the-three-sessions)
-2. [Durable records make it long-term](#durable-records-make-it-long-term)
-3. [The life of a reported bug](#the-life-of-a-reported-bug)
-4. [The objectivity anchor](#the-objectivity-anchor)
-5. [The tools](#the-tools)
-6. [The command line options](#the-command-line-options)
-7. [Running the sessions in parallel](#running-the-sessions-in-parallel)
-8. [Reproducing this setup on another computer](#reproducing-this-setup-on-another-computer)
+1. [Start here: roles stay stable](#start-here-roles-stay-stable)
+2. [Durable records](#durable-records)
+3. [From finding to regression](#from-finding-to-regression)
+4. [Evidence before approval](#evidence-before-approval)
+5. [Mailbox and status tools](#mailbox-and-status-tools)
+6. [Command-line options](#command-line-options)
+7. [Parallel lanes](#parallel-lanes)
+8. [Reproducing the setup](#reproducing-the-setup)
 
-## The three sessions
+## Start here: roles stay stable
 
-Development runs as three cooperating sessions. Each has a separate job, so
-that no single agent both writes a change and approves it. The table names the
-three.
+The loop has three permanent jobs. A job is a **role**; the model that fills it
+is a launch choice. Changing a Claude model never transfers the role's
+authority or changes its mailbox address.
 
-| Session     | In this repository | Job |
-| ----------- | ------------------ | --- |
-| Architect   | Claude (model selected per launch; Fable 5 default) | Writes the specification for each change, and audits every finished change against the raw command output it produced before that change is allowed to merge. It also has the final word on design. |
-| Implementer | Claude (model selected per launch; Opus 4.8 default) | Turns a specification into complete code and runs the validation gates on it. |
-| Red team    | OpenAI Sol         | A separate model whose only job is to break the code. A red team is an adversarial reviewer. It hunts for bugs, weak tests, and documentation that has drifted out of date, and it files what it finds. |
+![Command-line flags select Claude models for stable Architect and Implementer roles. The Architect sends a specification to the Implementer and a bounded review to Sol; both return evidence to the Architect, who decides GO or NO-GO.](assets/role-model-agent-loop.svg)
 
-Said in the order a change actually travels: the architect decides what is to
-be built and writes the specification; the implementer builds every unit and
-runs its gates; the red team attacks what came out. The architect then audits
-the finished work against the evidence behind it, and the architect is the one
-session that merges a change into the main branch. Neither the implementer nor
-the red team pushes anything there.
+### Role boundaries
 
-Using two different vendors' models is deliberate. The red team shares no
-weights with the sessions whose work it inspects, so it does not inherit the
-same blind spots.
+| Role | Owns | Runtime binding | Stable route |
+| --- | --- | --- | --- |
+| **[A] Architect / Auditor** | Blueprint, acceptance gates, evidence audit, final design ruling, and landing | Claude via `--architect-model`; default `claude-fable-5`; `.claude/FABLE_ROLE.md` | `to-fable` |
+| **[I] Implementer** | The named implementation unit and its validation output | Claude via `--implementer-model`; default `claude-opus-4-8`; `.claude/OPUS_ROLE.md` | `to-opus` |
+| **[R] Independent Red Team** | Adversarial evidence about the named change | OpenAI Sol; `.codex/REDTEAM_ROLE.md` | `to-sol` |
 
-The Claude model and the job are deliberately independent. `fable` and `opus`
-remain the historical mailbox route names because existing messages, logs, and
-tests use them; they mean Architect and Implementer respectively, not a model
-identity check. A watch can therefore run Opus as Architect and Sonnet as
-Implementer without renaming a mailbox file:
+The letters identify roles, not models. The legacy route names remain stable
+because existing messages, logs, and tests depend on them.
+
+### Choose Claude models at launch
+
+This watch runs Opus as the Architect and Sonnet as the Implementer:
 
 ```bash
 python tools/mailbox_daemon.py --watch \
-  --architect-model opus --implementer-model sonnet
+  --architect-model opus \
+  --implementer-model sonnet
 ```
 
-Omitting those flags preserves the historical Fable-Architect and
-Opus-Implementer defaults. The role files govern behavior whichever Claude
-model is selected.
+Omit both flags to use the historical Fable-Architect and Opus-Implementer
+defaults. Aliases and full Claude model IDs are accepted.
 
-A red-team finding is never applied on its own. It is input to the architect's
-review, which decides whether and how to act on it. The red team reports; the
-architect rules.
+The role files govern behavior whichever model is selected. In particular,
+`--architect-model opus` gives Opus the Architect's rules and authority; it
+does not turn the Architect into an Implementer.
 
-One rule changes this picture when the project falls behind, and it is worth
-knowing early because the daemon prints a reminder of it. When the work the
-project owes reaches ten units, the red-team session becomes a **second
-implementer**: build units are sent to it as well as to the implementer, and
-they are held to the same acceptance bar and the same independent audit as any
-other unit. [Running the sessions in
-parallel](#running-the-sessions-in-parallel) explains how the count is taken
-and where the reminder appears.
+### Handoffs and decisions
 
-## Durable records make it long-term
+The Architect writes a blueprint and gates to `notes/`, then sends
+`ARCHITECT_HANDOFF` to the Implementer and
+`ARCHITECT_REDTEAM_HANDOFF` to the Red Team. The Implementer returns an
+`IMPLEMENTER_HANDOFF`; the Red Team returns findings and raw evidence.
 
-Substantive work, such as a specification, a finding, a verdict, or a repair
-plan, is written to a file under `notes/` before any chat message is sent. The
-chat message is a short pointer to that file, and if the two ever disagree, the
-file is the record that counts. Agent sessions forget everything between runs.
-The notes do not, so any later session, or a human, can resume from the notes
-alone.
+Only the Architect adjudicates. It records **GO** when the evidence satisfies
+the gates and **NO-GO** when a bounded delta must be repaired or held.
 
-## The life of a reported bug
+The Red Team reviews the named commit or change. It does not expand into a
+library-wide attack unless the user explicitly asks, using the words
+`Do a widespread search for ...`. A finding is input to the Architect, never a
+self-executing ruling.
+
+Using models from two vendors is deliberate. The Red Team does not share the
+same weights as the Claude roles whose work it challenges.
+
+> **Demand overload is an explicit exception.** At total open demand 10 or
+> higher, Sol can receive build units as a second Implementer. Such a ticket
+> must say so explicitly and binds Sol to the Implementer rules and acceptance
+> bar. [Parallel lanes](#parallel-lanes) explains the count.
+
+## Durable records
+
+Specifications, findings, verdicts, and repair plans are written under
+`notes/` before a mailbox message is sent. The message is a routing summary;
+the note is the source of record.
+
+If the two disagree, the note wins. Sessions forget between runs, while the
+notes let a later session or a human resume the work.
+
+## From finding to regression
 
 A bug found by the red team follows a fixed path from report to permanent
 protection:
@@ -103,18 +108,19 @@ a realistic file. A test that compared the code against a reference was found to
 share its numerical integrator with the code under test, so the two agreed for
 the wrong reason until the reference was made independent.
 
-## The objectivity anchor
+## Evidence before approval
 
 Validation gates are run by the machine, not asserted by an agent. The board
 (`gates/run_board.py`) and the individual check scripts execute the tests, and
 the relay tooling runs them locally and keeps the raw logs. A pass or fail
 claim from any session is not accepted without the command output behind it.
 
-## The tools
+## Mailbox and status tools
 
-Two small programs carry messages between the three sessions. Both live in
-`tools/` and are run from a checkout of this repository. Which checkout you run
-the second one from is itself meaningful, and the last section explains why.
+Two programs provide the loop's status and transport. Both live in `tools/`
+and run from a checkout of this repository.
+
+### Status router
 
 The first one answers the question "where does the loop currently stand?". Run
 it whenever you are lost:
@@ -128,6 +134,8 @@ branch each point at, how many commits the working branch is ahead of main,
 which review branches are still open and waiting on an audit, the titles of the
 most recent audit records in `notes/`, and a numbered list of what to do next.
 It changes nothing; it only reports.
+
+### Send and watch
 
 The second one is the mailbox: a directory of message files under
 `notes/mailbox/` that the sessions read and write, so that a handoff no longer
@@ -156,6 +164,8 @@ turn's exit status and the path of the log file that captured the whole run
 under `notes/relay/`. A dispatched turn is a child process of this command, so
 interrupting the terminal kills the turn that is running.
 
+### Heartbeats and logs
+
 A turn can run for many minutes, and a terminal that says nothing for that long
 looks broken. So while a turn is in flight the daemon prints a heartbeat line
 once a minute. The path in it is shortened here; the daemon prints it in full.
@@ -167,11 +177,15 @@ once a minute. The path in it is shortened here; the daemon prints it in full.
 The line means the turn is alive and being watched. The elapsed time always
 moves, and the log grows whenever the session produces output, so a log that is
 getting bigger is a session that is working. The command at the end follows that
-log live in another terminal window. One habit of the tools is worth knowing
-here: Claude Code prints a turn's reply only when the turn ends, so on an
-architect or implementer dispatch the log stays tiny until the finish and the
-moving clock is the only sign of life you get. The codex CLI narrates its
-progress as it goes, so a red team log grows steadily throughout.
+log live in another terminal window.
+
+One habit of the tools is worth knowing here: Claude Code prints a turn's
+reply only when the turn ends. On an Architect or Implementer dispatch, the log
+therefore stays tiny until the finish and the moving clock is the only sign of
+life.
+
+The codex CLI narrates its progress as it goes, so a Red Team log grows
+steadily throughout.
 
 A heartbeat means only that a turn is alive. It is not permission to stop the
 watch. While children are running, a separate status line makes that explicit:
@@ -179,6 +193,8 @@ watch. While children are running, a separate status line makes that explicit:
 ```text
 2 turns in flight; not safe to stop.
 ```
+
+### Safe-stop rendezvous
 
 The watch periodically creates a global safe-stop rendezvous. After five
 completed child turns, or after fifteen monotonic minutes of continuously busy
@@ -200,6 +216,17 @@ marked without adding another countdown. That line states its own duration:
 all lanes idle; safe to Ctrl-C for this 20s poll; no messages waiting.
 ```
 
+```mermaid
+stateDiagram-v2
+  [*] --> Busy
+  Busy --> FreezeAdmissions: 5 completed turns or 15 busy minutes
+  FreezeAdmissions --> DrainRunningTurns
+  DrainRunningTurns --> SafeCountdown: every lane and preparation is idle
+  SafeCountdown --> Busy: 20-second window expires
+  Busy --> SafePoll: ordinary idle poll
+  SafePoll --> Busy: 20-second poll expires
+```
+
 At the end of either kind of safe interval, the main thread flushes the exact
 `safe interval ended; not safe to stop.` status before it releases any
 dispatch preparation. Each admitted preparation then flushes the exact
@@ -215,17 +242,22 @@ stopping is safe. The cadence and countdown live in the named
 apply only to `--watch`; finite `--once` and `--dry-run` runs never pause for a
 rendezvous.
 
+### Dispatch currency
+
 Every live turn also receives a dispatch-currency banner ahead of the ordinary
 prompt. Immediately after atomically claiming the message, the daemon takes one
 snapshot of every numbered markdown message anywhere under the mailbox. The
 banner names the largest sequence in that store and the number of newer root
-messages queued in the same working-directory lane. The legacy fable/opus
-routes share that lane; Sol has its own. Those numbers are a mechanical hint,
-not a verdict that the message is stale or superseded. The receiving turn still
-reads the mailbox and the cited notes first and decides what the current record
-means. A message body may have been completely accurate when it was written,
-which is why this
-dispatch-time evidence lives in the banner rather than rewriting the body.
+messages queued in the same working-directory lane.
+
+The legacy fable/opus routes share that lane; Sol has its own. The counts are a
+mechanical hint, not a verdict that the message is stale or superseded.
+
+The receiving turn still reads the mailbox and the cited notes first. A
+message body may have been accurate when written, so dispatch-time evidence
+lives in the banner rather than rewriting the body.
+
+### Transport ping
 
 To test the transport by itself, without handing anyone real work:
 
@@ -237,18 +269,20 @@ The pinged session answers with a reply file addressed back to you, which the
 daemon deliberately leaves in place instead of dispatching onward, so a
 transport check cannot start a chain of turns.
 
-## The command line options
+## Command-line options
 
-The daemon carries its own manual. Running
+The daemon carries its own manual. Run:
 
 ```bash
 python tools/mailbox_daemon.py --help
 ```
 
-prints every option the tool accepts as it stands today, together with the
-legal values of each option and the value it falls back on when you do not pass
-it. If this document ever ages out of step with the code, the help output is
-the authority and this section is not. Here is what the command prints:
+The live help is authoritative if this document ever drifts. Its exact tested
+transcript is kept below for offline reference.
+
+<details>
+<summary>Exact current <code>--help</code> transcript</summary>
+
 
 ```
 usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch]
@@ -308,11 +342,13 @@ options:
                         this many tokens (default: 500000)
 ```
 
+</details>
+
 The options fall into two groups. The first group chooses what the daemon does
 on this run. The second group tunes how the agents it starts are allowed to
 behave.
 
-### What the daemon does
+### Actions
 
 These eight options choose or qualify an action. Each one is described at
 length elsewhere in this document, so the table below is only a reminder of
@@ -356,73 +392,89 @@ the candidate is added,
 `--send sol --ticket-kind discovery` fails without queueing a file. Its error
 tells the coordinator to append the deferred ticket to the end of
 `notes/backlog.md` and wait until demand is below the threshold. The daemon
-does not edit the ledger itself. A closure remains dispatchable because it
-reduces the work already owed. Dispatch rechecks all other current demand but
-does not count the already-published candidate against itself: demand nine can
-admit a discovery that becomes the tenth queued item, while current demand ten
-refuses one.
+does not edit the ledger itself.
+
+A closure remains dispatchable because it reduces work already owed. Dispatch
+rechecks all other current demand but does not count the already-published
+candidate against itself. Demand nine can admit the tenth item; demand ten
+refuses another discovery.
 
 Starting `--watch --fix-only Yes` makes the whole watch closing-only,
 regardless of demand. Its child turns receive a binding banner and environment
 marker. The watch also holds an exact per-mailbox `.fix-only.lock`, so a
 separate terminal's Sol send sees the active mode and refuses discovery before
-writing anything. The watch checks the persisted class again before launch so
-a hand-written or already queued discovery cannot bypass the rule. Such
-invalid pending Sol messages are parked in `failed/` for inspection. Only
-declared closures and the exact no-work transport ping launch. Omit
-`--fix-only` for ordinary operation; the option is rejected with `--once`,
+writing anything.
+
+The persisted class is checked again before launch. Hand-written or already
+queued discoveries cannot bypass the rule; invalid pending Sol messages are
+parked in `failed/`. Only declared closures and the exact no-work transport
+ping launch.
+
+Omit `--fix-only` for ordinary operation. It is rejected with `--once`,
 `--send`, `--ping`, or a dry run. The kernel releases both held locks if the
 watch crashes; an unlocked stale mode file does not activate fix-only mode.
 
 ### The dead-mailbox warning
 
-Every checkout has its own `notes/mailbox` directory.  A message sent from the
+Every checkout has its own `notes/mailbox` directory. A message sent from the
 main checkout therefore does not reach a watch loop running in a Claude
 worktree: the file can be valid and completely published while no process ever
-polls the directory that contains it.  After `--send` or `--ping` publishes a
+polls the directory that contains it.
+
+After `--send` or `--ping` publishes a
 message (or prints the file a dry run would queue), the daemon checks the
-current mailbox's existing `.dispatch.lock`.  If no live `--watch` process
-holds that lock, it prints a warning that names the current mailbox.  It also
+current mailbox's existing `.dispatch.lock`. If no live `--watch` process
+holds that lock, it prints a warning that names the current mailbox. It also
 lists, in sorted order, every other mailbox with a live watcher in the main
 checkout or under `.claude/worktrees/`, which makes it clear where the active
-loop actually is.  The daemon does not reroute the message: the warning is
+loop actually is.
+
+The daemon does not reroute the message. The warning is
 advisory, and a real send still publishes atomically to the mailbox selected by
 the checkout where the command ran.
 
-A held lock is not enough by itself.  Dispatch locks now identify their mode as
+A held lock is not enough by itself. Dispatch locks identify their mode as
 `watch pid N` or `once pid N`, and only an exact, currently held `watch pid N`
-tag proves that a process is polling.  An unlocked stale file, the transient
+tag proves that a process is polling.
+
+An unlocked stale file, the transient
 lock held by `--once`, a legacy bare PID, malformed text, or a symlink is not
-accepted as a watcher.  Diagnosis opens existing regular lock files read-only,
+accepted as a watcher. Diagnosis opens existing regular lock files read-only,
 without following symlinks, and probes them nonblocking; it never creates or
-rewrites a lock.  This is why `--dry-run --send ...` and `--dry-run --ping ...`
+rewrites a lock. This is why `--dry-run --send ...` and `--dry-run --ping ...`
 can print the same warning while preserving the dry-run guarantee of zero
 filesystem writes.
 
-### The tuning dials
+### Runtime controls
 
 The remaining eight options do not change what the daemon does. They change
 the terms under which each dispatched agent runs, and they are the ones worth
 understanding before you launch a long watch.
 
+#### Claude models
+
 `--architect-model MODEL` and `--implementer-model MODEL` choose the two
 Claude models by job. The value is passed as one argument to Claude Code's
 `--model` option and may be an alias such as `fable`, `opus`, or `sonnet`, or a
-full model name. Empty values, whitespace, and NUL are refused before any
-mailbox message can be claimed. The defaults remain `claude-fable-5` for the
-Architect and `claude-opus-4-8` for the Implementer, so existing launch
-commands do not change behavior. The stable `to-fable` and `to-opus` mailbox
-addresses continue to route to Architect and Implementer even when the
-selected model names are Opus and Sonnet.
+full model name.
+
+Empty values, whitespace, and NUL are refused before a message can be claimed.
+Defaults remain `claude-fable-5` for the Architect and `claude-opus-4-8` for
+the Implementer.
+
+The stable `to-fable` and `to-opus` addresses still mean Architect and
+Implementer when the selected models are Opus and Sonnet.
+
+#### Reasoning effort
 
 `--fable-effort` and `--opus-effort` are compatibility names for the effort of
 the Architect and Implementer routes. They set how hard each Claude turn is
 told to think. Both options accept `low`, `medium`, `high`, `xhigh`, and
 `max`. The Architect route defaults to `xhigh` and the Implementer route to
-`max`, regardless of which model each route launches. A higher level buys more
-deliberation per turn and costs more tokens and more wall clock time, so
-lowering these is the first thing to try when a run is more expensive than the
-work in front of it deserves.
+`max`, regardless of which model each route launches.
+
+A higher level buys more deliberation but costs more tokens and wall-clock
+time. Lower these first when a run is more expensive than its work deserves.
 
 `--sol-effort` is the same dial for Sol, which runs on the codex command line
 program rather than on the claude one. Because that is a different program with
@@ -431,134 +483,135 @@ a different model behind it, its legal values are its own: `none`, `low`,
 the Claude list, such as `max`, is rejected on the spot, before anything is
 dispatched.
 
+#### Timeout and archive truth
+
 `--dispatch-timeout MINUTES` is a safety net, and it defaults to 60 minutes. A
 dispatched turn normally finishes on its own, but a command line program can
 also hang: it prints nothing further and never exits, and for as long as it
-hangs it holds its lane, so no other message for that agent can go out. When a
-turn has been running longer than this many minutes, the daemon kills it and
-moves the message into the `failed/` directory inside the mailbox, where you can
-read it and decide what to do. Nothing is lost, because moving the file back out
-of `failed/` and into the mailbox queues it again. Legitimate turns can be
-long, so the default is deliberately generous. Raise it when the work genuinely
-takes hours, and lower it when you would rather a stuck lane freed itself
-quickly. The value must be a strictly positive integer; an invalid threshold is
-rejected before the daemon can claim or otherwise mutate a mailbox message.
+hangs it holds its lane.
+
+Past the timeout, the daemon kills the turn and moves its message to
+`failed/`. Moving that file back to the mailbox queues it again.
+
+The default is deliberately generous. Raise it for genuinely long work or
+lower it to free a stuck lane sooner. The value must be a positive integer;
+invalid thresholds are rejected before mailbox mutation.
 
 A timeout also appends an atomic sidecar under
 `notes/mailbox/.dispatch-history/<message-basename>.json`. That history is
-timeout-only: a command that simply exits with status 1 does not create it. If
-the failed message is requeued, its next dispatch banner says exactly, `this
-dispatch previously ran for N minutes and was killed`, using the killed-after
-threshold recorded by the daemon. The sidecar therefore survives the move
-through `failed/` and keeps a killed turn from presenting itself as a fresh
-delivery. The daemon writes the complete JSON to a temporary file, flushes it,
-and atomically replaces the sidecar; if that record cannot be secured, the
-message stays claimed in `inflight/` instead of becoming a marker-free retry.
+timeout-only: a command that exits with status 1 does not create it.
+
+When a failed message is requeued, its next banner says exactly, `this
+dispatch previously ran for N minutes and was killed`. The sidecar survives
+the move through `failed/`, so a killed turn cannot look like a fresh delivery.
+
+The daemon replaces the sidecar atomically. If the record cannot be secured,
+the message stays in `inflight/` instead of becoming a marker-free retry.
 
 A clean child exit is not enough by itself to consume a message. The daemon
 moves the claimed file into `done/`, then verifies both that the done archive is
 a regular file holding the exact same device-and-inode identity as the claimed
 source and that the inflight source path is gone. Only then does the dispatch
-and its enclosing backlog report success. An ambiguous archive stops later work
-in that same lane, and `--once` exits nonzero, so an unarchived head cannot be
-reported as consumed while silently re-firing or releasing work behind it.
-That stop persists across watch passes: before releasing any pending work, the
-daemon reads exact agent messages already under `inflight/` and holds every
-pending recipient that shares their working directory. Thus an unresolved
-Architect-route turn also holds the Implementer route, while an independent
-Sol lane may continue. The diagnostic names the inflight blocker and how many
-pending messages are waiting;
-moving or otherwise resolving that blocker is the deliberate human decision
-that reopens the lane. Draining an unrelated lane does not hide the blocker: the
-overall backlog result remains unsuccessful. Even when no root message is
-pending yet, an exact agent
-message under `inflight/` is unresolved mailbox state rather than an empty
-mailbox, so `--once` reports the blocker and exits nonzero.
+report success.
+
+An ambiguous archive stops later work in that lane, and `--once` exits nonzero.
+The stop persists across watch passes: exact agent messages under `inflight/`
+hold every pending recipient that shares their working directory.
+
+An unresolved Architect turn therefore holds the Implementer route, while the
+independent Sol lane may continue. The diagnostic names the blocker and the
+number of waiting messages.
+
+Resolving the blocker deliberately reopens the lane. Draining another lane
+does not hide it, and an inflight message still makes `--once` fail when the
+root queue is otherwise empty.
+
 `--dry-run` takes none of these state transitions: it does not claim a message,
 snapshot dispatch currency, create timeout history, or create relay, inflight,
 failed, or done state.
 
+#### Context budgets
+
 `--claude-context TOKENS` and `--sol-context TOKENS` are the context budgets,
-and both default to 500000 tokens. An agent's context is everything it is
-currently holding in its working conversation: the message it was sent, the
-files it has read, the output of every command it has run, and everything it has
-said so far. That pile grows steadily as the turn proceeds. The budget is the
-size at which the agent is told to **compact**. Compaction means the session
-pauses, writes a summary of its own conversation so far, discards the long
-original, and carries on from the summary. The summary is much smaller than what
-it replaced, so the live context drops sharply and then begins growing again;
-when it reaches the budget once more, the agent compacts once more, and so on
-for as long as the turn lasts. That is the whole point of the dial: no agent
-ever works with more live context than the budget you set, no matter how long it
-runs.
+and both default to 500000 tokens. Context includes the message, files read,
+command output, and conversation held by a live turn.
 
-There are two separate keys because the two command line programs take the same
-instruction in two different ways, and the daemon has to say it in each
-program's own language. The Architect and Implementer both run on the claude
-program, which reads its compaction threshold from an environment variable, so
-the daemon sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment of the
-process it starts, and the single value from `--claude-context` therefore
-governs both Claude agents. Sol runs on the codex program, which has no such
-environment variable and instead takes the threshold as a setting inside its
-own command, so the daemon passes
+At the budget, the session **compacts**: it summarizes the turn so far,
+discards the long original context, and continues from the smaller summary.
+Context then grows again and may compact repeatedly.
+
+The dial therefore bounds live context even during a long turn.
+
+The two command-line programs receive the same instruction differently. Claude
+Code reads `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, so `--claude-context` governs
+both the Architect and Implementer.
+
+Sol's codex CLI instead receives
 `-c model_auto_compact_token_limit=<tokens>` from `--sol-context` when it
-builds Sol's command line. Two programs, two mechanisms, two keys.
-Setting one of them has no effect on the other, so to lower the budget
-everywhere you pass both.
+builds the command line. One setting has no effect on the other; pass both to
+change the budget everywhere.
 
-## Running the sessions in parallel
+## Parallel lanes
 
-Three words are worth fixing before the mechanics. A *turn* is one complete run
-of one session on one message: it reads the message, does the work, and writes
-its reply. To *dispatch* a message is to hand it to the session it is addressed
-to and run that turn. A *lane* is a queue of messages that must be dispatched
-one after another, never at the same time.
+### Terms
 
-The daemon sorts every pending message into lanes and then drains the lanes at
-the same time, one worker per lane. Inside a lane the order is strict: messages
-run in the order of the sequence number in their filename, and the next one
-starts only after the previous turn has finished. Across lanes there is no
-ordering at all, and the turns overlap.
+| Term | Meaning |
+| --- | --- |
+| **Turn** | One session processes one message and writes its reply. |
+| **Dispatch** | The daemon hands a message to its addressed role and starts that turn. |
+| **Lane** | A working-directory queue whose turns must run one after another. |
 
-What defines a lane is the part that is easy to get wrong. A lane is not a
-session. A lane is a **working directory**.
+The daemon drains different lanes concurrently. Within one lane, filenames set
+strict sequence order; the next turn waits for the previous one to finish.
+
+```mermaid
+flowchart LR
+  Q["Pending mailbox messages"] --> C
+  Q --> R
+  subgraph C["Coordination worktree · serialized lane"]
+    direction LR
+    A["Architect turn"] --> I["Implementer turn"] --> A2["Architect audit"]
+  end
+  subgraph R["Independent Sol lane · parallel"]
+    direction LR
+    S["Red Team turn"] --> SR["Finding + evidence"]
+  end
+```
+
+### A lane is a working directory
 
 The reason is git. Two sessions committing at the same time inside one working
 tree share a single staged index, so they race each other: one session can
-sweep the other's half-finished edit into its own commit, and neither of them
-did anything wrong. Sessions that share a working tree must therefore take
-turns. Sessions that work in separate directories cannot collide this way, so
-they can run side by side. In this repository the architect and the implementer
-develop in the same checkout, which places them in one lane and serializes
-them, while the red team works from a different directory and so runs alongside
-both.
+sweep the other's unfinished edit into its own commit.
 
-That is what makes the loop faster than one session at a time. The coordinator,
-which is the architect, is the loop's only serial stage: it writes every
-specification, audits every finished unit against the raw command output behind
-it, and performs every commit, and nothing else in the loop can do those jobs.
-If it sent one message and then waited for that turn to come back, the whole
-loop would advance one turn at a time and the coordinator would sit idle for
-most of it. Instead it dispatches ahead: it queues several units at once,
-spread across the lanes, and then audits and commits work that has already come
-back while the queued turns are still running. Picture eight queued messages
-draining on two tracks. The implementer lane works through its units in order
-on one track, the red team attacks on the other, and in the gaps between them
-the architect is reading the evidence from the turns that have already landed.
-The lanes stay busy, the audits happen in between, and the coordinator stops
-being the bottleneck.
+Sessions sharing a worktree must take turns. Sessions in separate directories
+can run side by side.
+
+The Architect and Implementer share the coordination checkout, so they are one
+serialized lane. The Red Team runs from a different directory in parallel.
+
+### Dispatch ahead
+
+The Architect is the serial coordinator: it writes specifications, audits raw
+evidence, and lands accepted units.
+
+Waiting after every send would idle that coordinator. Instead, it queues units
+across the available lanes, then audits completed work while other turns run.
+
+The Implementer drains its ordered track. The Red Team challenges work on the
+other track. The Architect uses the gaps to adjudicate returned evidence.
+
+### Demand threshold
 
 Dispatching ahead has a limit, and the limit is the implementer lane. That lane
 runs its units one after another, so a long queue there is time the loop spends
-waiting rather than building. The daemon watches for exactly this, and it
-watches with a deliberately wide measure. It does not count the messages sitting
-in the implementer's lane. It counts the *total open demand*, which is every
-message already queued in the mailbox for any session, plus every job the
-project still owes but has not yet handed to anyone. That second number comes
-from `notes/backlog.md`, a ledger the architect keeps with one line per
-unfinished job, in which a line beginning `- OPEN` is a job still owed. Work
-that has not been assigned yet is still work waiting to be done, so the count
-includes it.
+waiting rather than building.
+
+The daemon therefore watches *total open demand*, not just Implementer
+messages. The count is every queued mailbox message plus every `- OPEN` unit in
+`notes/backlog.md`.
+
+Unassigned work is still owed work, so it belongs in the count.
 
 The daemon prints this report on every pass that finds work, and again every
 time a message is queued with `--send`, so the person adding a unit always sees
@@ -583,16 +636,15 @@ prints it in full.
 | the `hint:` line | It appears only when that total reaches ten, and it names what changes when it does. |
 
 Ten is the threshold, and it is set in one place, `SECOND_IMPLEMENTER_THRESHOLD`
-in `tools/mailbox_daemon.py`. The hint is telling the coordinator that one build
-track is no longer enough to drain what the project owes: from that point the
-red team session also works as a *second implementer* alongside the main one,
-and the architect sends build units to it as well as to the implementer, so the
-backlog drains on two tracks instead of one. A red team session handed a unit
-this way builds it as the implementer would, following the implementer's rules
-rather than its own, and every assignment of this kind says so in plain words,
-so a session never has to guess which set of rules it is working under. Being
-told in the assignment is what switches the mode. The printed number alone never
-switches it.
+in `tools/mailbox_daemon.py`. At or above it, one build track is not enough, so
+the Architect may send explicit second-Implementer units to Sol.
+
+For those units, Sol follows the Implementer rules and acceptance bar rather
+than the Red Team rules. The assignment must say so plainly.
+
+The printed demand number never switches a role by itself.
+
+### Concurrency example
 
 Queueing two units for two different lanes and then starting the daemon looks
 like this:
@@ -621,21 +673,26 @@ arrive later, whenever that turn finishes. Had both messages been addressed to
 the same lane, the second `dispatching` line would not have appeared until the
 first turn had finished and printed its `rc=` line.
 
-## Reproducing this setup on another computer
+## Reproducing the setup
 
 Standing the same loop up on a different machine needs a clone of this
 repository, the two vendors' command line programs installed and logged in, and
 exactly one edit to a file. This section is that recipe, start to finish.
 
-**One session, one worktree.** A *worktree* is a second working directory
+### Interactive-session worktrees
+
+A *worktree* is a second working directory
 checked out from the same repository, on its own branch, holding its own copy of
 every file. Git maintains as many as you ask for, all sharing one repository
 underneath, so a worktree is not a second clone and costs almost nothing.
 
-The previous section gave the reason each session wants one: sessions that
-share a working tree share a single staged git index, and a commit by one of
-them can sweep up a half finished edit by another. A session working in a tree
-of its own cannot collide with anybody.
+Use a dedicated worktree for independently launched interactive writers.
+Concurrent writers that share a tree share its staged index and can sweep up
+each other's edits.
+
+The daemon's Architect and Implementer are the deliberate exception: both run
+in the coordination worktree, but the daemon serializes them in one lane. They
+therefore never write there concurrently.
 
 A Claude Code session creates its own worktree when asked, so on a fresh clone
 you ask it, in the first message of the session. This is the sentence to type,
@@ -654,7 +711,9 @@ marks red team work in this repository:
 Create your own git worktree, on a branch named codex/<topic>, and work from it.
 ```
 
-**The coordination worktree.** One worktree does double duty: it is the one
+### The coordination worktree
+
+One worktree does double duty: it is the one
 whose `notes/mailbox` directory the daemon watches, and this document calls it
 the coordination worktree.
 
@@ -686,7 +745,9 @@ lane and take turns, as the previous section described. The red team is
 started from the repository root instead, which puts it in a lane of its own and
 lets it run alongside them.
 
-**Why the launch directory matters.** A running program keeps executing the code
+### Why the launch directory matters
+
+A running program keeps executing the code
 it loaded when it started. A repair to the daemon therefore has no effect on a
 watch that is already running, which would go on dispatching with the old code
 until a human noticed. To close that hole, the daemon checks the timestamp of
@@ -699,10 +760,15 @@ committed. The moment a fix lands there, the running watch retires itself, and
 the next start picks the fix up. Launch the watch from a tree where the daemon
 is never edited and it will never notice that a fix exists.
 
-**The one manual edit.** The daemon cannot derive where each vendor installed
+### Configure executable paths
+
+The daemon cannot derive where each vendor installed
 its command line program, so those commands are written out in a single block,
 `build_agent_commands()` in `tools/mailbox_daemon.py`. This is the block it
 returns, exactly as it ships:
+
+<details>
+<summary>Exact shipped <code>build_agent_commands()</code> block</summary>
 
 ```python
     architect_model = validate_model_name(value=architect_model)
@@ -740,19 +806,25 @@ returns, exactly as it ships:
     }
 ```
 
+</details>
+
 Each entry is one session's headless command: the program to run, the model it
 runs, how hard that model is told to think, the point at which a long turn
-summarizes itself, and the permissions the turn is granted. On a new computer
-you replace the two program paths, which `which claude` and `which codex` will
-print for you, and you change nothing else. Everything else in the block is part
-of the design rather than of the machine, and it is copied across unchanged.
+summarizes itself, and the permissions the turn is granted.
+
+On a new computer, replace only the two program paths. `which claude` and
+`which codex` print the installed paths. Everything else is design rather than
+machine configuration and stays unchanged.
+
 `REPO_ROOT` is derived from the daemon's location like everything else, so it
 needs no attention. `architect_model` and `implementer_model` carry the two
 role-based launch choices. The names `fable_effort` and `opus_effort` remain
 compatibility route controls; `sol_effort` and `sol_context_budget` carry the
 red-team settings described above.
 
-**How hard each session thinks.** Both command line programs let the caller
+### Effort defaults
+
+Both command line programs let the caller
 choose how much reasoning a turn may spend before it answers, and both apply a
 default when nobody chooses. The daemon never takes the vendor's default. Every
 turn it launches carries an effort level chosen for that session, so how hard a
@@ -766,7 +838,7 @@ when a vendor changes what its own default means.
 | Red team (Sol) | The top reasoning tier the codex CLI offers | `-c model_reasoning_effort=xhigh` |
 
 Those three levels are the defaults, which is what a watch launched with no
-effort flags runs at. [The command line options](#the-command-line-options)
+effort flags runs at. [Command-line options](#command-line-options)
 gives the flags that override them for a single launch, `--fable-effort`,
 `--opus-effort` and `--sol-effort`, and the legal values each one takes.
 
@@ -778,14 +850,17 @@ red team's level is written as a setting rather than as a flag.
 
 The red team's command pins one more setting the same way, `-c
 service_tier=standard`, which keeps the codex Fast Mode off for dispatched
-turns. Fast Mode returns an answer sooner but spends far more of the token quota
-to do it, and nobody is sitting in front of an unattended turn waiting for it,
-so the loop buys the cheaper tier and lets the turn take longer. It has to be
-pinned in the command because the codex configuration file on this computer,
-`~/.codex/config.toml`, asks for the faster tier, and a dispatched turn must not
-inherit that.
+turns.
 
-**The bootstrap sequence.** End to end, on a machine that has never seen this
+Fast Mode answers sooner but spends far more of the token quota. An unattended
+turn can use the cheaper standard tier and take longer.
+
+The command pins this because the local `~/.codex/config.toml` requests the
+faster tier; a dispatched turn must not inherit that preference.
+
+### Bootstrap checklist
+
+End to end, on a machine that has never seen this
 repository:
 
 1. Clone the repository.

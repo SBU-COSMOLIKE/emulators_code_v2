@@ -1,0 +1,224 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050"
+     viewBox="0 0 1600 1050" role="img"
+     aria-labelledby="title description">
+  <title id="title">Role-based AI development loop</title>
+  <desc id="description">Command-line flags select Claude models for stable
+  Architect and Implementer roles. The Architect sends a specification to the
+  Implementer and a bounded review to Sol; both return evidence to the
+  Architect, who decides GO or NO-GO.</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10"
+            refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#27364b"/>
+    </marker>
+    <marker id="blue-arrow" markerWidth="12" markerHeight="12" refX="10"
+            refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#1665a8"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5"
+                    flood-color="#1f2937" flood-opacity="0.14"/>
+    </filter>
+    <style>
+      .title { font: 700 42px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .subtitle { font: 500 23px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #4b5d75; }
+      .box-title { font: 700 25px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .body { font: 500 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #27364b; }
+      .small { font: 500 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3d4d63; }
+      .mono { font: 600 17px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #27364b; }
+      .edge { fill: none; stroke: #27364b; stroke-width: 3; marker-end: url(#arrow); }
+      .edge-blue { fill: none; stroke: #1665a8; stroke-width: 3; marker-end: url(#blue-arrow); }
+      .record { fill: none; stroke: #7a8798; stroke-width: 2.5; stroke-dasharray: 8 8; }
+      .edge-label { font: 700 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #27364b; letter-spacing: 0.3px; }
+      .pill { font: 600 15px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #27364b; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1050" fill="#f7f9fc"/>
+  <rect x="24" y="24" width="1552" height="1002" rx="30"
+        fill="#ffffff" stroke="#d9e1ec" stroke-width="2"/>
+
+  <text x="800" y="78" text-anchor="middle" class="title">
+    Role-based AI development loop
+  </text>
+  <text x="800" y="116" text-anchor="middle" class="subtitle">
+    Roles are stable. Claude models are launch choices.
+  </text>
+
+  <!-- Launch configuration -->
+  <rect x="280" y="145" width="1040" height="92" rx="18"
+        fill="#eef4fb" stroke="#8aa8c9" stroke-width="2"/>
+  <text x="800" y="176" text-anchor="middle" class="box-title">
+    ROLE ≠ MODEL
+  </text>
+  <text x="530" y="210" text-anchor="middle" class="mono">
+    --architect-model MODEL
+  </text>
+  <text x="1070" y="210" text-anchor="middle" class="mono">
+    --implementer-model MODEL
+  </text>
+  <line x1="800" y1="184" x2="800" y2="225" stroke="#b9c7d8"
+        stroke-width="2"/>
+
+  <!-- Notes source of record -->
+  <rect x="65" y="275" width="315" height="122" rx="16"
+        fill="#f4f6f8" stroke="#7a8798" stroke-width="2.5"
+        filter="url(#shadow)"/>
+  <text x="222" y="316" text-anchor="middle" class="box-title">
+    notes/ = source of record
+  </text>
+  <text x="222" y="349" text-anchor="middle" class="body">
+    contract • evidence • ruling
+  </text>
+  <text x="222" y="378" text-anchor="middle" class="small">
+    mailbox file = routing summary
+  </text>
+
+  <!-- Architect -->
+  <rect x="520" y="275" width="560" height="145" rx="18"
+        fill="#e9f3ff" stroke="#1665a8" stroke-width="3"
+        filter="url(#shadow)"/>
+  <text x="800" y="316" text-anchor="middle" class="box-title">
+    [A] ARCHITECT / AUDITOR
+  </text>
+  <text x="800" y="350" text-anchor="middle" class="body">
+    blueprint • acceptance gates • final adjudication
+  </text>
+  <text x="800" y="381" text-anchor="middle" class="small">
+    default: claude-fable-5 • role file: .claude/FABLE_ROLE.md
+  </text>
+  <rect x="702" y="393" width="196" height="30" rx="15"
+        fill="#d8eafb" stroke="#75a4cf"/>
+  <text x="800" y="414" text-anchor="middle" class="pill">
+    legacy route: to-fable
+  </text>
+
+  <!-- Implementer -->
+  <rect x="90" y="500" width="500" height="170" rx="18"
+        fill="#fff2dc" stroke="#c57b16" stroke-width="3"
+        filter="url(#shadow)"/>
+  <text x="340" y="541" text-anchor="middle" class="box-title">
+    [I] IMPLEMENTER
+  </text>
+  <text x="340" y="576" text-anchor="middle" class="body">
+    implement the named unit • run its gates
+  </text>
+  <text x="340" y="609" text-anchor="middle" class="small">
+    default: claude-opus-4-8
+  </text>
+  <text x="340" y="634" text-anchor="middle" class="small">
+    role file: .claude/OPUS_ROLE.md
+  </text>
+  <rect x="242" y="646" width="196" height="30" rx="15"
+        fill="#ffe5bd" stroke="#dba054"/>
+  <text x="340" y="667" text-anchor="middle" class="pill">
+    legacy route: to-opus
+  </text>
+
+  <!-- Red Team -->
+  <rect x="1010" y="500" width="500" height="170" rx="18"
+        fill="#f2ebff" stroke="#7251a5" stroke-width="3"
+        filter="url(#shadow)"/>
+  <text x="1260" y="541" text-anchor="middle" class="box-title">
+    [R] INDEPENDENT RED TEAM
+  </text>
+  <text x="1260" y="576" text-anchor="middle" class="body">
+    OpenAI Sol • attack the named change
+  </text>
+  <text x="1260" y="609" text-anchor="middle" class="small">
+    result is input to Architect adjudication
+  </text>
+  <text x="1260" y="634" text-anchor="middle" class="small">
+    role file: .codex/REDTEAM_ROLE.md
+  </text>
+  <rect x="1162" y="646" width="196" height="30" rx="15"
+        fill="#e4d8f8" stroke="#9b7ac5"/>
+  <text x="1260" y="667" text-anchor="middle" class="pill">
+    route: to-sol
+  </text>
+
+  <!-- Architect outbound arrows -->
+  <path d="M 625 420 C 565 458, 505 475, 445 500" class="edge"/>
+  <rect x="358" y="438" width="250" height="30" rx="10" fill="#ffffff"/>
+  <text x="483" y="459" text-anchor="middle" class="edge-label">
+    ARCHITECT_HANDOFF
+  </text>
+
+  <path d="M 975 420 C 1035 458, 1095 475, 1155 500" class="edge"/>
+  <rect x="987" y="438" width="328" height="30" rx="10" fill="#ffffff"/>
+  <text x="1151" y="459" text-anchor="middle" class="edge-label">
+    ARCHITECT_REDTEAM_HANDOFF
+  </text>
+
+  <!-- Notes links -->
+  <path d="M 380 322 C 432 310, 470 310, 520 320" class="record"/>
+  <path d="M 275 397 C 260 438, 272 462, 300 500" class="record"/>
+  <path d="M 380 372 C 650 475, 930 465, 1175 500" class="record"/>
+
+  <!-- Audit -->
+  <rect x="500" y="735" width="600" height="132" rx="18"
+        fill="#e9f3ff" stroke="#1665a8" stroke-width="3"
+        filter="url(#shadow)"/>
+  <text x="800" y="779" text-anchor="middle" class="box-title">
+    [A] AUDIT AGAINST RAW EVIDENCE
+  </text>
+  <text x="800" y="814" text-anchor="middle" class="body">
+    reproduce commands • inspect changed scope • decide
+  </text>
+  <text x="800" y="846" text-anchor="middle" class="small">
+    The Architect has the final word.
+  </text>
+
+  <!-- Returns to audit -->
+  <path d="M 430 670 C 500 705, 575 721, 650 735" class="edge-blue"/>
+  <rect x="400" y="687" width="262" height="30" rx="10" fill="#ffffff"/>
+  <text x="531" y="708" text-anchor="middle" class="edge-label">
+    IMPLEMENTER_HANDOFF
+  </text>
+
+  <path d="M 1170 670 C 1100 705, 1025 721, 950 735" class="edge-blue"/>
+  <rect x="960" y="687" width="268" height="30" rx="10" fill="#ffffff"/>
+  <text x="1094" y="708" text-anchor="middle" class="edge-label">
+    red-team result + evidence
+  </text>
+
+  <!-- Decisions -->
+  <path d="M 680 867 C 635 891, 585 907, 530 924" class="edge"/>
+  <rect x="548" y="883" width="78" height="34" rx="17"
+        fill="#d8eafb" stroke="#1665a8" stroke-width="2"/>
+  <text x="587" y="906" text-anchor="middle" class="edge-label">GO</text>
+  <rect x="300" y="924" width="300" height="72" rx="16"
+        fill="#eef4fb" stroke="#1665a8" stroke-width="2.5"/>
+  <text x="450" y="955" text-anchor="middle" class="box-title">
+    MILESTONE
+  </text>
+  <text x="450" y="983" text-anchor="middle" class="small">
+    record • land • close backlog
+  </text>
+
+  <path d="M 920 867 C 965 891, 1015 907, 1070 924" class="edge"/>
+  <rect x="970" y="883" width="112" height="34" rx="17"
+        fill="#eee9f7" stroke="#7251a5" stroke-width="2"/>
+  <text x="1026" y="906" text-anchor="middle" class="edge-label">
+    NO-GO
+  </text>
+  <rect x="1000" y="924" width="300" height="72" rx="16"
+        fill="#f5f2fa" stroke="#7251a5" stroke-width="2.5"/>
+  <text x="1150" y="955" text-anchor="middle" class="box-title">
+    DELTA RE-HANDOFF
+  </text>
+  <text x="1150" y="983" text-anchor="middle" class="small">
+    changed items only • hold
+  </text>
+
+  <!-- Scope note -->
+  <rect x="620" y="930" width="360" height="66" rx="14"
+        fill="#f7f2ff" stroke="#b49bd4" stroke-width="2"/>
+  <text x="800" y="956" text-anchor="middle" class="small">
+    Red Team: named change only.
+  </text>
+  <text x="800" y="981" text-anchor="middle" class="small">
+    Widespread search requires explicit user wording.
+  </text>
+</svg>
