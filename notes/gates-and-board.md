@@ -8827,3 +8827,33 @@ landing are printed here because this turn cannot run them:
     git checkout main
     git merge claude/amazing-keller-e798b6
     git push origin main
+
+## TEX-PROSE-03 re-dispatch turn (Fable, 2026-07-14): GO record committed; merge and recompile stay permission-blocked
+
+The TEX-PROSE-03 handoff arrived a second time — the original dispatch
+was one of the four consumed by the logged-out incident (0bc5871), and
+the first audit turn ended before its outbound mailbox file was
+written. The audit record above was still uncommitted in the worktree.
+This turn closed the loose ends:
+
+- Re-verified at the machinery (fresh runs, this turn): the pre-edit
+  source at 2a83e77 carries exactly 58 diary headings (31
+  `\paragraph{Current...}` + 27 `\paragraph{Required...}`); the revised
+  source at 9314ec5 carries zero, with zero residual `Current gap` /
+  `Required closure` / `T03-` phrasing. The committed PDF hashes to the
+  register's SHA-256 (230be607...bed6c6) at 3,926,309 bytes. The prior
+  turn's census scratch (.audit-tp03/pre.tex, post.tex) matches.
+- Committed the audit record as 5a673a4 (it had never entered a
+  commit; worktree edits that stay uncommitted block the user's
+  ff-merge — the 2026-07-12 lesson).
+- ATTEMPTED, permission-blocked again in this headless turn (denials
+  honored, not routed around): the working-branch merge of
+  codex/tex-prose-current-state, and the independent two-pass
+  pdflatex recompile (the binary exists at /Library/TeX/texbin/pdflatex;
+  the command is auto-denied for the daemon). Both stand exactly as
+  printed in the audit record above: the merge is Fable's on an
+  interactive turn or the user's; the recompile is owed before or at
+  the main landing.
+
+The VERDICT is unchanged: GO, per the audit above. Outbound routing
+summary: notes/mailbox/0013-to-user.md.
