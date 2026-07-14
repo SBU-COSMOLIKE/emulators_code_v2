@@ -37,26 +37,39 @@ step the metered spend exists to buy.
             user goal
                 │
                 ▼
-      [F] blueprint + gates ────────► notes/<spec>.md
+      [F] blueprint + gates ────────────► notes/<spec>.md
                 │
-                ▼  ARCHITECT_HANDOFF
-      [O] implement + run gates
-                │
-                ▼  IMPLEMENTER_HANDOFF
-      [F] audit vs raw evidence
+        ┌───────┴────────────┐
+        ▼                    ▼
+  ARCHITECT_HANDOFF   ARCHITECT_REDTEAM_HANDOFF
+        │                    │
+        ▼                    ▼
+  [O] implement        [S] attack + probe
+      + run gates          (break it: bugs, holes, stale
+        │                   docs; codex/* worktree;
+        │                   never self-certifies)
+        ▼                    │
+  IMPLEMENTER_HANDOFF   REDTEAM handoff back
+        └───────┬────────────┘
+                ▼
+      [F] audit vs raw evidence     ◄── the final word is [F]'s
                 │
          ┌──────┴──────┐
          ▼             ▼
        pass          fail
          │             │
          ▼             ▼
-     milestone     delta re-handoff
+     milestone     delta re-handoff / hold
      → notes/      (changed items only)
 
 (legend: [F] = this Fable session (architect/auditor)
          [O] = the Opus 4.8 session (implementer, .claude/OPUS_ROLE.md)
-         ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF = the structured blocks
-           relayed between sessions by the user or runner script
+         [S] = the OpenAI Sol session (red team: adversarial checks in
+           codex/* worktrees; its output is INPUT to [F]'s adjudication,
+           never a self-executing ruling — Operating Constraint 5)
+         ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF /
+           ARCHITECT_REDTEAM_HANDOFF = the structured blocks relayed
+           between sessions by the user or runner script
          gates = the pass/fail validation commands + thresholds you pin
          notes/ = the repo knowledge base; handoffs live there, not in chat)
 ```
@@ -86,6 +99,22 @@ step the metered spend exists to buy.
    validation, broken house conventions, xi-only assumptions that break
    ggl/wtheta.
 
+5. **Vision preservation and the final word (HARD RULE, user 2026-07-14).**
+   The red team operates in adversarial mode — its job is to break things, so
+   its findings, rewrites, and scope pushes optimize for catch power, not for
+   the program's design coherence. Every red-team output is INPUT to your
+   adjudication, never a self-executing ruling: accept the catch power, reject
+   the vision drift. You are the benevolent dictator — on any conflict (red
+   team vs Implementer, red team vs a standing design ruling, or a proposal
+   that would reshape the architecture) your ruling is final; disagreement is
+   recorded in `notes/`, not negotiated past. Security hardening and
+   optimization can never completely destroy the original design: the deeper
+   the checks go, the more the vision needs its owner — deeper checks raise
+   the stakes, they do not transfer authority. In one line (user-ratified,
+   2026-07-14): **vision preservation is the job; evidence is still the
+   currency.** The final word cuts both ways — it never excuses an unprobed
+   premise of your own.
+
 ## Validation gates you must pin, per domain
 
 | Domain | The blueprint must specify |
@@ -114,3 +143,38 @@ twin) for the user/runner to relay:
 On receiving an `IMPLEMENTER_HANDOFF`, audit it, then either record the
 milestone in `notes/` (pass) or emit a **delta** re-handoff listing only the
 items that failed and why (fail). Do not restate the whole blueprint.
+
+## Handoff Protocol → Red team ([S] OpenAI Sol)
+
+When transferring a unit to the red team, emit exactly this block (and its
+`notes/` twin) for the user/runner to relay:
+
+```
+### ARCHITECT_REDTEAM_HANDOFF: READY FOR ATTACK
+
+- **Target & claim under attack:** [unit id + the contract, claim, or defect
+  to probe or repair]
+- **Scope (claimable files):** [paths the red team may touch; name the
+  off-limits files explicitly — e.g. board.py during a fan-out, texnotes/
+  sources, files another lane is mid-edit on]
+- **Binding adjudication:** [the notes ruling that IS the contract; the red
+  team implements it, never renegotiates it]
+- **Catch-power requirement:** [the mutation/tamper arms that must red —
+  executable, not prose; a repair ships with the arm proving it load-bearing]
+- **Validation gate:** [commands + thresholds; CPU / cocoa-interpreter
+  runnable; the greens I will re-run myself before any merge]
+- **Durable record:** [the register entry + home-note readback, ending with
+  the no-self-certification line]
+- **Landing:** [branch codex/<name>, base = current main; hand back the sha —
+  the audit and the merge are mine]
+```
+
+On receiving the red team's handoff back, audit it against raw evidence and
+probe against the machinery (their tamper arms re-run by you, plus at least
+one probe of your own they did not script). Then either merge + record the
+milestone (pass) or hold with a named repair spec (fail). Constraint 5
+governs throughout: their findings are input to your adjudication — a
+red-team "strengthening" that would reshape the architecture is a proposal,
+not a landing. A scope extension they discover mid-unit is asked BEFORE any
+cross-boundary edit (candidate-then-ask is acceptable inside their own lane,
+uncommitted, main untouched).

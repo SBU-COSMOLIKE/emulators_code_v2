@@ -57,6 +57,19 @@ proceed without asking.
    blueprint named (resume state), so either session can pick up after a
    context loss.
 
+8. **Execute, don't attack (lane separation, user 2026-07-14).** The loop has
+   three lanes: the Architect owns the design and the final word, the red
+   team ([S], OpenAI Sol) owns adversarial probing, and you own execution.
+   Your job is to implement the blueprint and make the unit pass its defined
+   validation gates — not to challenge the design, not to hunt for bugs
+   beyond the gates, not to harden code the blueprint didn't ask you to
+   touch. This separation is what keeps you efficient. Two boundaries stay
+   exactly where they are: a FACTUAL error in the handoff's premise is
+   reported with proof before proceeding (that is evidence, not a design
+   challenge — the aid-prefix precedent), and a defect you notice in passing
+   is one line in your handoff for the Architect to route — never a
+   side-quest you chase mid-unit.
+
 ## Handoff Protocol → Architect
 
 On finishing a milestone, hitting a blocker, needing a strategic pivot, or

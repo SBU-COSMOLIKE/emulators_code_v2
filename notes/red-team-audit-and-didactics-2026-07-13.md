@@ -2793,6 +2793,88 @@ red. Board listing returns zero, board self-test ends `ALL PASS`, compilation
 passes, and the scoped diff is clean. This section preserves the hold and
 repair sequence for Architect review; it does not certify the landing.
 
+### Unit 90 integration with batch-5 evidence terminals
+
+The latest-main integration preserves batch 5's six declared BSN identity
+aids without adding a seventh. The full `check_pipeline()` call, including
+the adaptive reference, retained resolution control, scaled-weight
+discriminator, and nonfinite discriminator, runs inside the existing
+`FAILURES` snapshot for `bsn-identity.distance-pipeline-consistency`. Its
+single terminal is emitted after every Unit 90 sub-report.
+
+The complete Cocoa CPU child returns zero and emits exactly the board's six
+declared identifiers once apiece, all `PASS`. A neutralized-weight mutation
+returns the expected nonzero child verdict while preserving the same six
+terminals; only `bsn-identity.distance-pipeline-consistency` is `FAIL`. The
+final raw logs are `/tmp/unit90-final-control.log` and
+`/tmp/unit90-final-mutation.log`; the accompanying board self-test is
+`/tmp/unit90-final-selftest.log`. This is evidence for Architect review, not
+Red Team certification.
+
+## Red Team implementation candidate: Unit 29 width-one transformer refusal
+
+The Architect transferred the confirmed `25M-14` amendment to the Red Team.
+The candidate is isolated on `codex/unit29-token-width-v2`. The Architect
+approved its narrow `ia.py` scope correction before commit. The full
+contract and evidence are recorded in `models-and-designs.md` under the
+`25M-14` amendment.
+
+The initial transfer named `designs/plain.py` and `designs/blocks.py`, but the
+factored model boundary is `TemplateResTRF` in `designs/ia.py`. Testing a
+blocks-only guard demonstrated the ordering problem: after the model-level
+call was replaced with a no-op, at least one `nn.Linear` had already been
+allocated when the shared `TRFBlock` guard raised. The candidate therefore
+contains the minimal factored pre-allocation call. No other factored behavior
+is changed.
+
+Executed evidence from the isolated worktree:
+
+```text
+python3 -m py_compile emulator/designs/blocks.py emulator/designs/plain.py \
+  emulator/designs/ia.py tests/test_trf_token_width.py
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  tests/test_trf_token_width.py
+# Ran 5 tests ... OK
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  -O tests/test_trf_token_width.py
+# Ran 5 tests ... OK
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  -m unittest discover -s tests -v
+# Ran 22 tests ... OK
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  gates/checks/cmb_identity.py
+# PASS: cmb-identity all checks green
+```
+
+The first focused run caught a context-matched insertion in the neighboring
+`TemplateResCNN` class. The refusal tests failed before this record was
+written. An untruncated owner census located the crossed insertion, and the
+candidate now calls the predicate only from `ResTRF`, `TemplateResTRF` and
+`TRFBlock`. This record reports implementation evidence and does not certify
+the landing.
+
+## README diagnostic-memory explanation
+
+The root README previously warned that the local-linear diagnostic forms an
+array with axes `validation rows x 40 neighbours x output coordinates`.  That
+shape was accurate, but it did not explain why a small PDF needs a large
+numerical workspace.  The current rewrite separates the calculation from its
+rendered output.  It teaches that the diagnostic first gathers the complete
+target vector from 40 neighbouring training cosmologies for every validation
+cosmology, then fits the local linear comparison, and only afterward draws the
+PDF page.
+
+The documented matter-power facts establish the per-row cost: 40 neighbours
+times 24,522 retained `(z, k)` outputs, stored as float32.  One validation row
+therefore needs 3.92352 MB (3.74176 MiB) for this gathered tensor.  Total
+memory scales linearly with the validation-row count.  At an explicit example
+scale of 10,000 validation rows, the tensor would require 39.2352 GB
+(36.54 GiB) before the CPU copy, least-squares solution and other staged
+arrays.  The README rounds these values to 3.9 MB per row and 39 GB for the
+example.  The user-facing action remains current and direct: omit
+`--diagnostic` for a production-width matter-power run until this calculation
+is memory-bounded.  This is implementation evidence for Architect audit, not
+self-certification.
 ## Red Team implementation claim: berHu analytic-child bound loss harness
 
 The Architect reproduced a check-side crash after the production chi-square

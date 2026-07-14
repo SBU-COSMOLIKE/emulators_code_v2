@@ -7810,3 +7810,177 @@ uncommitted candidate lived entirely in their own worktree and
 main was untouched — extending a scope list inside their own lane.
 The stricter form (ask before ANY edit) continues to bind for
 files owned by the other team, e.g. board.py during the fan-out.
+
+## README diagnostic-memory audit (Fable, 2026-07-14): 450c248 HELD — one unsourced factor in the worked arithmetic
+
+The rewrite (codex/readme-diagnostic-memory) is structurally RIGHT:
+calculation separated from rendered output, the gather-then-fit
+sequence taught in plain language, the direct user action kept
+(omit --diagnostic at production width), no fix-queued diary in the
+public prose, and the register clean of private-standards
+enumeration with the no-self-certification line.
+
+MY VERIFICATION of the worked arithmetic 10,000 x 40 x 24,522
+float32 = 39.24 GB (36.54 GiB): the multiplication is exact and the
+README's rounding ("about 39 GB (36.5 GiB)") is correct. The 40
+(diagnostics.py:247 k_nn default; training-stack.md:241) and the
+24,522 (= 122 x 201 thinned MPS width; training-stack.md:241,
+data-generation-and-cuts.md:598) are both documented. THE 10,000 IS
+NOT: section 17 documents a 50,000-row production grid with NO
+train/val split; the README's other family examples use 5,000 and
+20,000; every gates config uses 5,000; the mps family note carries
+no n_val. Both the README ("the documented matter-power setup") and
+the register ("the documented matter-power configuration: 10,000
+validation rows") assert documentation that does not exist in the
+repository.
+
+REQUIRED REPAIR (one of, before commit-for-merge):
+1. If a documented matter-power n_val = 10,000 exists, cite it
+   (file + line) in the register and keep the sentence; or
+2. Reframe honestly: state the DOCUMENTED per-row cost (one
+   validation cosmology gathers 40 x 24,522 float32 values, about
+   3.9 MB) and present 10,000 rows as an explicitly labeled
+   example scale ("a 10,000-cosmology validation split needs about
+   39 GB"), removing the word "documented" from the unsourced
+   factor in BOTH the README and the register.
+
+Everything else in the landing is pre-cleared: on the repair, the
+follow-up commit needs only a delta audit of the changed sentences.
+
+## Unit-29 landing audit (Fable, 2026-07-14): 09f00ef GO — merged; the 25M-14 before-construction contract is live on all three constructor paths
+
+The committed landing (codex/unit29-token-width-v2, tip a64a405 =
+09f00ef + a main merge with the register both-retained) audited
+against my scope ruling and the 25M-14 amendment. SCOPE EXACT:
+six files vs main; the committed ia.py change is line-identical
+to the approved candidate (verified against both bases); plain.py
+mirrors the same shape for ResTRF (token layout resolved, the
+shared validator called, THEN the MLP stack allocates) with
+in-region didactic renames; blocks.py holds the ONE validator
+definition (didactic refusal: LayerNorm over a width-one token
+subtracts the coordinate itself) plus the TRFBlock-internal
+defense-in-depth call. No accepted-width behavior changes.
+
+THE TEST FILE (tests/test_trf_token_width.py, 5 arms) is the
+model of an executable contract:
+1+2. Both public constructors refuse width-one BEFORE allocation —
+   proven by patching nn.Linear itself to raise if reached.
+3. The NECESSITY arm: with only the early ia.py call disabled, a
+   counted nn.Linear shows >0 allocations before the late block
+   guard raises — the scope extension proven load-bearing, exactly
+   the mutation from the approval request.
+4. The HARM arm: the retired width-one block reconstructed with
+   deterministic nonzero weights produces IDENTICAL corrections
+   for two distinct inputs and a ZERO correction Jacobian — the
+   silent-demotion physics made executable.
+5. The BOUNDARY control: the adjacent width-two configuration
+   builds on all three paths and its correction is provably
+   input-dependent.
+
+MY RUNS (cocoa-torch): focused 5/5 under ordinary Python AND
+python -O (the guard is a raise, not an assert — it survives
+optimization, checked deliberately); discovery 27/27;
+cmb_identity.py fully green (the family that constructs
+TemplateResTRF); compile clean. VERDICT: GO; merged (88a326f).
+Unit 29 / the 25M-14 amendment CLOSES.
+
+## README diagnostic-memory repair audit (Fable, 2026-07-14): 2ddee42 GO — merged; the hold CLOSES
+
+Delta audit of the repaired sentences only (the rest was
+pre-cleared in the hold). Repair option 2 implemented exactly:
+"documented" now attaches ONLY to the sourced factors (the
+40-neighbour default and the 24,522 output width), the per-row
+cost is stated from those facts (40 x 24,522 float32 = 3.92 MB /
+3.74 MiB per validation row — my own computation matches, and the
+README's 3.9 MB rounding is correct), the total is stated as
+linear in the row count, and 10,000 rows appears strictly as
+"For example". My coupling scan: zero lines in the README or the
+register tie "documented" to 10,000. The register's repair
+paragraph carries the precise values, the explicit-example
+labeling, and the no-self-certification line. Scope vs main:
+README.md + the register only. VERDICT: GO; merged (e350b65,
+register both-retained). The README diagnostic-memory item is
+CLOSED.
+
+FAN-OUT BATCH 5 (c374c49) + 5b (2712a04) GO: the first CHECK-SCRIPT
+fan-out. scalar-identity (5) + bsn-identity (6) committed together as
+batch 5 -- each child emits one ##AID per drafted leg via an emit
+helper that reads the FAILURES delta over a contiguous check_* group,
+the wrapper rc-expect stays aid-less, and both children run green on
+cocoa-torch with child ##AID set == evidence= set. mps-identity (7)
+landed separately as 5b under the BINDING batch-5 seam ruling: unit-63
+(06c9d8f) had rewritten gates/checks/mps_identity.py (+127 lines,
+const-mask real-artifact legs) after the subagent branched from the
+stale base 233db22, so the subagent's CHILD patch was stale. I
+re-derived the ##AID wiring on the CURRENT child -- reusing the
+subagent's board.py evidence= and its LEG_AIDS/emit_leg idea -- and
+moved check_const_mask_artifact adjacent to check_geometry so the
+const-mask legs FOLD under geometry-laws-and-pins exactly as the
+ruling directs. Child runs 69 PASS/0 FAIL, seven ##AID, declared==
+emitted. 24/40 migrated.
+
+CHECK-SCRIPT INTEGRATION RULE banked: a subagent's isolated worktree
+branches from a stale base, so before applying its child edits, run
+`git log <base>..HEAD -- <child>`; if an intervening commit touched
+the child, RE-DERIVE the ##AID wiring on the current child rather than
+apply the stale child patch (the board.py evidence= hunk is usually
+still clean and applies gate-locally). This is the check-script analog
+of the batch-3 board.py gate-local-hunk lesson.
+
+## Batch-5 partial (retro) + unit-90 audit (Fable, 2026-07-14): c374c49 GO retroactively; 8264334 content-GO with a REBASE REQUIRED before merge
+
+BATCH 5 PARTIAL (c374c49: scalar-identity + bsn-identity; the
+mps-identity third rides the unit-63 seam, in progress): audited
+RETROACTIVELY — the commit landed on the shared branch between my
+printed landing block and the user's merge, so it reached main
+unaudited. The audit is green, so no harm followed, but the
+sequencing hazard is now named: A LANDING BLOCK IS A SNAPSHOT.
+Mitigation adopted: every future landing block names the audited
+tip sha so the user can see whether the branch has moved past the
+audit. The delta itself: the first check-script family migrations
+(two-file shape; the geo-paths emit_aid template with
+FAILURES-snapshot bracketing — one ##AID per declared leg, sub-
+checks folded, exit status the single verdict). Names==drafts
+exactly (scalar-identity 5, bsn-identity 6). MY RUNS at c374c49:
+both children rc 0 emitting exactly their declared sets, ALL
+PASS; compile, --list rc 0, board-selftest ALL PASS.
+
+UNIT 90 (codex/unit90-independent-quadrature, 8264334, tip
+065cc53, base pre-batch-5): the bsn distance pipeline finally has
+a reference that is INDEPENDENT of the production integrator —
+scipy.integrate.quad on the analytic flat-LCDM c/H(z), sharing
+neither Simpson weights nor evaluation grid, its acceptance band
+= the 1e-6 production allowance + 10x quad's own error estimate
+(reference uncertainty cannot mint a false red). The old
+120001-point same-integrator comparison is retained but RELABELED
+resolution-only, with the honest comment that it makes no claim
+about weight normalization. The prior finiteness HOLD is closed:
+_finite_difference_over_band maps nonfinite observations,
+references, and nonpositive bands to +inf (no reliance on NaN
+ordering), _ratios_pass refuses empty ratio lists, and the
+nonfinite-distance arm drives the SAME predicate red. The
+mutation architecture is the unit's teaching core: scaling every
+production Simpson weight 0.99 (injected through the real module
+attribute, restored in finally) leaves the shared fine-grid
+reference GREEN (blindness demonstrated executably) while the
+independent quadrature rejects it by >= 1e4 bands.
+
+MY RUNS (their tree): child rc 0, every claimed number reproduced
+EXACTLY (independent band 1.617e-06; resolution control
+1.615e-06; blind-reference 1.615e-06 green; minimum rejection
+1.000e+04 bands). MY PROBE (scratch worktree): neutralizing
+SIMPSON_WEIGHT_MUTATION_SCALE to 1.0 reds exactly the
+independent-rejection arm at rc 1 (smallest ratio 6.132e-07) —
+the arm is load-bearing, not decorative.
+
+VERDICT: content GO; MERGE HELD FOR A REBASE. The branch base
+predates batch 5, so bsn_identity.py conflicts with the migrated
+child. SEAM RULING: batch 5's edit is committed, so the file is
+claimable — the red team merges current main into their branch
+and resolves preserving BOTH the six-leg ##AID bracketing AND the
+new quadrature legs, which fold INSIDE the existing
+bsn-identity.distance-pipeline-consistency bracket (the declared
+set stays exactly six; no new aids). Acceptance for the rebased
+tip: the child emits exactly the six declared terminals ALL PASS
+with the new legs contributing to distance-pipeline-consistency,
+plus my delta re-audit of the conflict resolution only.

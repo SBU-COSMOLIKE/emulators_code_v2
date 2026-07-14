@@ -172,10 +172,18 @@ python $D/cosmic_shear_train_emulator.py \
   --yaml cosmic_shear_train_emulator.yaml --diagnostic diagnostic
 ```
 
-For a production-width matter-power run, omit `--diagnostic`. The
-generic local-linear diagnostic still forms an array with axes validation rows
-× 40 neighbours × output coordinates and can require tens of gigabytes.
-Training staging itself is bounded. [Section 17](#17-emulating-the-matter-power-spectrum-hybrid-inference-emul2)
+For a production-width matter-power run, omit `--diagnostic`. The PDF file is
+small. One calculation used to create it currently needs a large in-memory
+tensor. For each validation cosmology, the code finds the 40 nearest training
+cosmologies.
+It then gathers every model output for all 40 neighbours before fitting the
+local linear comparison. For the documented matter-power output width, one
+validation cosmology requires `40 × 24,522` float32 values. At four bytes per
+value, that is about 3.9 MB (3.7 MiB) per validation row. The total grows in
+direct proportion to the number of validation rows. For example, 10,000 rows
+would require about 39 GB (36.5 GiB) for this tensor alone. Other target arrays
+and the least-squares workspace require additional memory. Training staging
+itself is bounded. [Section 17](#17-emulating-the-matter-power-spectrum-hybrid-inference-emul2)
 explains its column-first, chunked path.
 
 This writes the trained emulator under `--root/chains` as a `.emul` / `.h5`

@@ -140,6 +140,23 @@ ratio. Neutralizing the weight mutation makes exactly its independent-
 rejection assertion red. The parent-audit findings and their original
 evidence remain recorded here rather than being erased.
 
+#### Batch-5 evidence-terminal integration
+
+Current `main` adds the queue-2 child-emitted evidence owner to
+`bsn_identity.py`. The Unit 90 pipeline call sits entirely between the
+`FAILURES` snapshot for `bsn-identity.distance-pipeline-consistency` and that
+aid's single `emit_aid` call. No Unit 90 sub-report mints another aid.
+
+The complete CPU child emits exactly the six identifiers declared by the
+board, each once, and every terminal is `PASS`. Its raw output places all five
+Unit 90 reports before the one distance-pipeline terminal. With the
+Simpson-weight mutation neutralized, the child still emits the same six
+identifiers exactly once and only
+`bsn-identity.distance-pipeline-consistency` becomes `FAIL`. This demonstrates
+that the independent quadrature reports contribute to the existing batch-5
+leg. The integration changes no declaration and does not self-certify the
+landing.
+
 <a id="bsn-smoke-evidence"></a>
 **bsn-smoke — a real-CAMB background fixture is generated, two grid
 emulators are trained, the Cobaya provider is compared with CAMB, and the

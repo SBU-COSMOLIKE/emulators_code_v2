@@ -485,7 +485,7 @@ controls build under ordinary Python AND python -O; and the
 demotion-proof leg — a model requested as ResCNN/ResTRF must contain
 at least one corresponding head block.
 
-### 25M-14 amendment (Red Team CONFIRMED, awaiting Architect adjudication): token width one makes a requested transformer correction input-independent
+### 25M-14 amendment (Architect CONFIRMED; approved implementation candidate awaits audit): token width one makes a requested transformer correction input-independent
 
 The public single-axis ResTRF path accepts `model.trf.n_tokens` from 2 through
 the full output length (`designs/plain.py:848-870`). Setting `n_tokens` equal
@@ -523,6 +523,39 @@ and a zero correction Jacobian with respect to `t0`; adjacent `n_tokens=3`
 constructs and has an input-dependent correction; plain and factored paths
 share the verdict; and a mutation restoring only the divisibility/range checks
 must green construction but red the behavioral witness.
+
+#### Red Team implementation candidate
+
+The transferred file estimate named `designs/plain.py` and
+`designs/blocks.py`. The factored constructor is actually
+`TemplateResTRF` in `designs/ia.py`. A guard inside `TRFBlock` catches the bad
+width, but that block is constructed after `TemplateResTRF` has allocated its
+template trunk. The adjudicated requirement says both model paths must refuse
+before any learnable layer is allocated. The candidate therefore includes one
+minimal `ia.py` call and moves the already-existing bin-size calculation ahead
+of the trunk. The Architect approved this narrow scope correction before the
+candidate was committed.
+
+One pure `validate_trf_token_width` function in `designs/blocks.py` owns the
+rule and its teaching error. `ResTRF` and `TemplateResTRF` supply the resolved
+physical output length, token count and maximum token width before building
+their trunks. `TRFBlock` repeats the check as defense in depth for direct
+construction. Accepted widths follow the existing constructors without a new
+embedding, padding rule or projection.
+
+The CPU companion `tests/test_trf_token_width.py` has five green tests under
+ordinary and optimized Python with Torch 2.6.0. It proves early refusal for
+the plain and factored models, shows
+that removing only the factored model-level call allocates trunk layers before
+the block-level guard raises, reconstructs the old width-one block and measures
+identical corrections plus a zero correction gradient for distinct inputs,
+and builds the adjacent width-two plain, factored and direct-block controls.
+The repository's full 22-test local suite is green. The unmodified
+`cmb_identity.py` check also ends
+`PASS: cmb-identity all checks green`, including its existing width-20 ResTRF
+save and rebuild leg. No board, runner or gate-check file is changed in this
+candidate. The commissioned board leg remains an integration item for its
+current owner.
 
 ## The science doctrine
 
