@@ -2046,7 +2046,7 @@ def main():
   if len(LANE_UNAVAILABLE) > 0:
     print("finite-contract: NON-GREEN -- a mandatory lane could not run: "
           + ", ".join(LANE_UNAVAILABLE)
-          + " (run on a compile-capable box)")
+          + " (run on a compile-capable CUDA box)")
     return EXIT_LANE_UNAVAILABLE
   print("finite-contract: ALL PASS")
   return EXIT_PASS

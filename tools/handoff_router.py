@@ -16,8 +16,8 @@ communication rules intact:
     router's log is corroborating input, not the audit.
   - ROLE FILES GOVERN: the prompts never restate role rules. Each session
     resolves its role from the handoff block it receives (see CLAUDE.md).
-    The one required mode sentence -- the backup-Implementer declaration --
-    is inserted verbatim when --mode backup is passed.
+    The one required mode sentence -- the second-Implementer declaration --
+    is inserted verbatim when --mode second-implementer is passed.
 
 Flow (one unit per run):
 
@@ -28,7 +28,8 @@ Flow (one unit per run):
     [2] capture IMPLEMENTER_HANDOFF       <- copy the block from Opus
     [3] run the local gates, archive log
     [4] copy the Sol routing prompt       -> paste into the Sol session
-        (red-team mode, or backup-Implementer mode with --mode backup;
+        (red-team mode, or second-Implementer mode with
+         --mode second-implementer;
          skipped entirely with --skip-redteam)
     [5] capture the Sol handoff           <- copy the block from Sol
     [6] copy the Fable routing prompt     -> paste into the Fable session
@@ -39,7 +40,8 @@ Flow (one unit per run):
 Usage:
 
     python tools/handoff_router.py --note notes/gates-and-board.md \\
-        --section "BACKUP-IMPLEMENTER ASSIGNMENT 1" --mode backup
+        --section "SECOND-IMPLEMENTER ASSIGNMENT 1" \\
+        --mode second-implementer
     python tools/handoff_router.py --note notes/<spec>.md            # full loop
     python tools/handoff_router.py --note notes/<spec>.md --skip-redteam
 
@@ -57,13 +59,22 @@ notes:
 
 import argparse
 import datetime
+import fcntl
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
-NOTES_DIR = "notes"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+NOTES_DIR = os.path.join(REPO_ROOT, "notes")
 RELAY_DIR = os.path.join(NOTES_DIR, "relay")
+RUN_RESERVATIONS_DIR = os.path.join(RELAY_DIR, ".router-runs")
+ROUTER_LOCK_PATH = os.path.join(
+    tempfile.gettempdir(),
+    "cocoa-handoff-router-" + str(os.getuid()) + ".lock",
+)
 
 COCOA_PYTHON = ("/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa"
                 "/.local/bin/python")
@@ -74,8 +85,8 @@ DEFAULT_GATE_COMMANDS = [
     "PYTHONPATH=. " + COCOA_PYTHON + " gates/checks/board_selftest.py",
 ]
 
-BACKUP_MODE_SENTENCE = ("OpenAI Sol -- this is a role as backup Implementer "
-                        "for this unit.")
+SECOND_IMPLEMENTER_MODE_SENTENCE = (
+    "OpenAI Sol — this is a role as second Implementer for this unit.")
 
 
 def copy_to_clipboard(text):
@@ -99,33 +110,156 @@ def read_clipboard():
     if sys.platform == "darwin":
         proc = subprocess.run(["pbpaste"],
                               capture_output=True)
+        if proc.returncode != 0:
+            raise RuntimeError("pbpaste failed")
         return proc.stdout.decode("utf-8", errors="replace")
     import pyperclip
     return pyperclip.paste()
 
 
-def wait_for_block(marker, last_copied):
-    """Block until the clipboard holds a NEW text containing the marker.
+def has_handoff_header(text, header):
+    """Return whether text contains the expected handoff heading.
 
-    The comparison baseline is the text THIS script last copied, so the
-    routing prompt itself (which may mention the marker) can never be
-    captured as the response.
+    A bare token in prose is not a handoff. The heading must begin its own
+    line, exactly as the role-file templates require.
 
     Arguments:
-      marker      = the substring that identifies the expected block,
-                    e.g. "IMPLEMENTER_HANDOFF".
+      text   = the clipboard text to inspect.
+      header = the complete Markdown heading prefix, including ``###``.
+
+    Returns:
+      True when the heading begins a line, otherwise False.
+    """
+    for line in text.splitlines():
+        if line.startswith(header):
+            return True
+    return False
+
+
+def wait_for_block(header, last_copied):
+    """Block until the clipboard holds a new handoff with the right heading.
+
+    The comparison baseline is the text THIS script last copied, so the
+    routing prompt itself cannot be captured as the response. Requiring a
+    Markdown heading also prevents ordinary prose that mentions the handoff
+    token from being mistaken for a return block.
+
+    Arguments:
+      header      = the complete heading prefix that identifies the block,
+                    e.g. "### IMPLEMENTER_HANDOFF:".
       last_copied = the exact string this script most recently placed on
                     the clipboard.
 
     Returns:
       the captured clipboard text.
     """
-    print("... waiting for a copied block containing '" + marker + "'")
+    print("... waiting for a copied block headed '" + header + "'")
     while True:
         current = read_clipboard()
-        if current != last_copied and marker in current:
+        if current != last_copied and has_handoff_header(current, header):
             return current
         time.sleep(0.5)
+
+
+def reserve_run_sequence(stamp=None):
+    """Atomically reserve a unique transport-copy sequence.
+
+    The former second-resolution timestamp let two router runs choose the
+    same filenames and silently overwrite one another. Each successful
+    ``mkdir`` below is a persistent reservation, so a later run cannot reuse
+    a sequence even after the first process exits.
+
+    Arguments:
+      stamp = optional timestamp text for a deterministic scratch probe. When
+              omitted, use the current local time to the second.
+
+    Returns:
+      the reserved sequence text used as the transport-copy filename prefix.
+    """
+    os.makedirs(RUN_RESERVATIONS_DIR, exist_ok=True)
+    if stamp is None:
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    suffix = 0
+    while True:
+        seq = stamp
+        if suffix > 0:
+            seq += "-" + str(suffix).zfill(2)
+        reservation = os.path.join(RUN_RESERVATIONS_DIR, seq)
+        try:
+            os.mkdir(reservation)
+            return seq
+        except FileExistsError:
+            suffix += 1
+
+
+def acquire_router_lock():
+    """Take the machine-wide lock that protects the shared clipboard.
+
+    ``flock`` belongs to the open file descriptor, so a killed process
+    releases it automatically. The persistent lock file therefore has no
+    stale-file failure mode. The path is machine-wide rather than worktree-
+    local because every worktree uses the same system clipboard.
+
+    Returns:
+      an open file object that must remain alive for the complete relay run.
+
+    Raises:
+      RuntimeError: another router process already owns the clipboard flow.
+    """
+    lock_file = open(ROUTER_LOCK_PATH, "a+", encoding="utf-8")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.seek(0)
+        holder = lock_file.read().strip()
+        lock_file.close()
+        detail = ""
+        if holder:
+            detail = " (holder " + holder + ")"
+        raise RuntimeError("another handoff router is already running" + detail)
+    lock_file.seek(0)
+    lock_file.truncate()
+    lock_file.write("pid=" + str(os.getpid()) + "\n")
+    lock_file.flush()
+    return lock_file
+
+
+def release_router_lock(lock_file):
+    """Release a lock returned by :func:`acquire_router_lock`.
+
+    Arguments:
+      lock_file = the open lock file returned by ``acquire_router_lock``.
+
+    Returns:
+      None.
+    """
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+
+
+def resolve_note_path(note):
+    """Resolve a note argument from the router's repository, not the shell.
+
+    Arguments:
+      note = an absolute path or a repository-relative note path.
+
+    Returns:
+      ``(path, display_path)`` with an absolute path for I/O and a compact
+      repository-relative path for prompts when the note is inside the repo.
+    """
+    if os.path.isabs(note):
+        path = os.path.abspath(note)
+    else:
+        path = os.path.abspath(os.path.join(REPO_ROOT, note))
+    try:
+        inside_repo = os.path.commonpath([REPO_ROOT, path]) == REPO_ROOT
+    except ValueError:
+        inside_repo = False
+    if inside_repo:
+        display_path = os.path.relpath(path, REPO_ROOT)
+    else:
+        display_path = path
+    return (path, display_path)
 
 
 def archive(seq, name, text):
@@ -145,7 +279,7 @@ def archive(seq, name, text):
         f.write(text)
         if not text.endswith("\n"):
             f.write("\n")
-    return path
+    return os.path.relpath(path, REPO_ROOT)
 
 
 def run_gates(commands, seq):
@@ -168,7 +302,8 @@ def run_gates(commands, seq):
         proc = subprocess.run(cmd,
                               shell=True,
                               capture_output=True,
-                              text=True)
+                              text=True,
+                              cwd=REPO_ROOT)
         verdict = "PASS" if proc.returncode == 0 else "FAIL"
         if proc.returncode != 0:
             all_green = False
@@ -193,7 +328,8 @@ def _git(args_list):
     """
     proc = subprocess.run(["git"] + args_list,
                           capture_output=True,
-                          text=True)
+                          text=True,
+                          cwd=REPO_ROOT)
     if proc.returncode != 0:
         return ""
     return proc.stdout.strip()
@@ -233,7 +369,7 @@ def status_report():
         else:
             print("  -> main is current; no landing block pending.")
 
-    # 2. red-team / backup branches: integrated or awaiting Fable?
+    # 2. red-team / second-Implementer branches: integrated or awaiting Fable?
     print("\ncodex/* branches:")
     any_open = False
     for line in branches.splitlines():
@@ -241,10 +377,19 @@ def status_report():
         if len(parts) != 2 or not parts[0].startswith("codex/"):
             continue
         name = parts[0]
-        merged = subprocess.run(
-            ["git", "merge-base", "--is-ancestor", name, working],
-            capture_output=True)
-        if merged.returncode == 0:
+        merge_targets = ["main"]
+        if working:
+            merge_targets.append(working)
+        is_integrated = False
+        for target in merge_targets:
+            merged = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", name, target],
+                capture_output=True,
+                cwd=REPO_ROOT)
+            if merged.returncode == 0:
+                is_integrated = True
+                break
+        if is_integrated:
             state = "integrated"
         else:
             state = "OPEN -- awaiting Fable audit/merge (or still in work)"
@@ -268,11 +413,17 @@ def status_report():
 
     # 4. the newest relay transport copies, if the router has run.
     if os.path.isdir(RELAY_DIR):
-        names = sorted(os.listdir(RELAY_DIR))
+        names = []
+        for name in os.listdir(RELAY_DIR):
+            path = os.path.join(RELAY_DIR, name)
+            if name.endswith(".md") and os.path.isfile(path):
+                names.append(name)
+        names.sort()
         if names:
             print("\nnewest relay transport copies (non-authoritative):")
             for name in names[-3:]:
-                print("  notes/relay/" + name)
+                print("  " + os.path.relpath(RELAY_DIR, REPO_ROOT)
+                      + "/" + name)
 
     print("\nNext action, in order of precedence:")
     print("  1. any OPEN codex branch above -> relay its handoff (or this")
@@ -297,9 +448,9 @@ def main():
                         default="",
                         help="section title inside the note (optional)")
     parser.add_argument("--mode",
-                        choices=["redteam", "backup"],
+                        choices=["redteam", "second-implementer"],
                         default="redteam",
-                        help="Sol's mode: adversarial (default) or backup "
+                        help="Sol's mode: adversarial (default) or second "
                              "Implementer (inserts the explicit declaration)")
     parser.add_argument("--skip-redteam",
                         action="store_true",
@@ -317,11 +468,17 @@ def main():
     if not args.note:
         print("either --status or --note is required (see --help)")
         return 1
-    if not os.path.isfile(args.note):
-        print("no such note: " + args.note)
+    note_path, note_display = resolve_note_path(args.note)
+    if not os.path.isfile(note_path):
+        print("no such note: " + note_path)
         return 1
-    seq = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    where = args.note
+    try:
+        router_lock = acquire_router_lock()
+    except RuntimeError as exc:
+        print(str(exc))
+        return 1
+    seq = reserve_run_sequence()
+    where = note_display
     if args.section:
         where += ' , section "' + args.section + '"'
 
@@ -338,7 +495,7 @@ def main():
           "session.")
 
     # [2] capture the Implementer's return.
-    opus_block = wait_for_block(marker="IMPLEMENTER_HANDOFF",
+    opus_block = wait_for_block(header="### IMPLEMENTER_HANDOFF:",
                                 last_copied=opus_prompt)
     path = archive(seq, "implementer", opus_block)
     print("      captured -> " + path)
@@ -353,8 +510,8 @@ def main():
     sol_block = ""
     if not args.skip_redteam:
         # [4] Sol routing prompt; the mode sentence is the ONLY inline rule.
-        if args.mode == "backup":
-            mode_line = BACKUP_MODE_SENTENCE + "\n\n"
+        if args.mode == "second-implementer":
+            mode_line = SECOND_IMPLEMENTER_MODE_SENTENCE + "\n\n"
         else:
             mode_line = ""
         sol_prompt = (
@@ -371,8 +528,9 @@ def main():
         copy_to_clipboard(sol_prompt)
         print("[3/4] Sol routing prompt copied (" + args.mode + " mode) -- "
               "paste it into the Sol session.")
-        sol_block = wait_for_block(marker="REDTEAM_HANDOFF",
-                                   last_copied=sol_prompt)
+        sol_block = wait_for_block(
+            header="### ARCHITECT_REDTEAM_HANDOFF:",
+            last_copied=sol_prompt)
         sol_path = archive(seq, "sol", sol_block)
         print("      captured -> " + sol_path)
 
@@ -393,6 +551,7 @@ def main():
     copy_to_clipboard(fable_prompt)
     print("[4/4] Fable routing prompt copied -- paste it into the Fable "
           "session for the verdict.")
+    release_router_lock(router_lock)
     return 0
 
 

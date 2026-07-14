@@ -14111,3 +14111,35 @@ workers rebuild current identity before staging; and add load-bearing
 production arms for parent binding order, live resolver assignment, default
 enqueue behavior, and reachable worker refusal. Only the repaired nine Python
 surfaces may later be ported; the stale clone notes remain non-authoritative.
+
+## Non-daemon relay-tools recovery audit (Codex, 2026-07-14): GO
+
+The drift-free `c484ef4` router and finite-contract slices were ported without
+the divergent daemon. The router now derives repository paths from its own
+file, reserves relay sequences atomically, owns the shared clipboard through a
+kernel-released per-user lock, accepts only exact line-start handoff headings,
+raises on `pbpaste` failure, and checks integration against `main` before an
+optional Claude working branch. Its status view excludes reservation metadata.
+
+The post-frozen vocabulary delta is included: `--mode second-implementer` is
+the only build-lane value, `backup` is rejected, and the Sol prompt carries the
+exact ruled declaration once. The integration-status claim is intentionally
+narrow: the witness proves ancestry-preserving merges into `main`; it does not
+claim to infer arbitrary squash or semantic-port equivalence.
+
+The finite-contract change is the previously authorized premise correction
+only: a non-green accelerator lane now directs the user to a compile-capable
+CUDA box. It changes no verdict, threshold, fixture, or evidence terminal.
+
+```text
+python3 tests/tools_handoff_router_repro.py          rc 0  7/7 arms PASS
+python3 tests/finite_contract_cuda_wording_repro.py  rc 0  PASS
+python3 tools/handoff_router.py --help               rc 0  only redteam/second-implementer
+header-token mutation                                rc 1  exact-header arm red
+remove CUDA wording mutation                         rc 1  wording witness red
+py_compile (four files)                              rc 0
+git diff --check                                     rc 0
+```
+
+The broader tools-review ledger line remains open: this commit deliberately
+does not touch `tools/mailbox_daemon.py` or claim any of its later riders.
