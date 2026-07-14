@@ -426,10 +426,20 @@ def gate_diag(ctx):
   WHAT: a production training run with the diagnostics PDF, exercising
   the dead-class census, a tight density-window cut, a nested param_cuts
   block, the absolute row counts, and the shaded triangle at once. WHY:
-  all five ride one ordinary run. HOW: the package imports with no dead
-  classes, the run finishes, the sizes line reads "used N of P cut
-  rows", and the PDF shades every hard sample edge (visual check).
-  Specs: the five home notes in this test's maps.
+  all five ride one ordinary run. HOW: seven declared legs.
+  retired-class-name-census: the literal NLATemplateMLP|NLAInputGeometry
+  search over repository *.py files (gates/, .git/ excluded) returns zero
+  hits. package-import: importing emulator, emulator.designs, and
+  emulator.losses exits zero. driver-exit-zero: the --diagnostic training
+  subprocess exits zero. sizes-banner: the stream carries a line matching
+  "used N of P cut rows" (shape, not integer truth). The final three legs
+  are UNAVAILABLE on this wrapper: cut-row-selection (the gate computes no
+  independent expected-row count and does not assert its YAML is the
+  intended tight-window fixture), diagnostics-pdf (the run requests the PDF
+  but the gate neither confirms the file exists nor reads it back), and
+  triangle-shading (the gate prints a visual-inspection instruction but
+  compares no plotted artists). Spec:
+  training-stack.md#production-diagnostic-evidence.
   """
   ctx.require_caps("cosmolike")
   ctx.log("dead-class census (NLATemplateMLP / NLAInputGeometry) "
@@ -462,25 +472,47 @@ def gate_diag(ctx):
     return
 
   # the dead-class census (grep 0 hits: grep exits 1 when it finds nothing).
-  ctx.expect(label="dead-class census -> 0 hits",
+  ctx.expect(aid="production-diagnostic.retired-class-name-census",
+             label="dead-class census -> 0 hits",
              ok=(rc_grep == 1 and out_grep.strip() == ""),
              detail="grep rc " + str(rc_grep) + ", output: "
                     + repr(out_grep.strip()[:200]))
-  ctx.expect(label="clean package import",
+  ctx.expect(aid="production-diagnostic.package-import",
+             label="clean package import",
              ok=(rc_imp == 0),
              detail="import rc " + str(rc_imp))
   # the window-cut / row-count / sizes banners (home lines named in `maps`).
-  ctx.expect(label="production-diagnostic production run completes",
+  ctx.expect(aid="production-diagnostic.driver-exit-zero",
+             label="production-diagnostic production run completes",
              ok=(rc_run == 0),
              detail="driver exit code " + str(rc_run))
-  ctx.expect(label="sizes line ('used N of P cut rows')",
+  ctx.expect(aid="production-diagnostic.sizes-banner",
+             label="sizes line ('used N of P cut rows')",
              ok=logscan.search(text=out_run,
                                pattern=r"used\s+\d+\s+of\s+\d+\s+cut rows"),
              detail="the sizes line must report used N of P cut rows")
+  # the last three declared legs are honestly UNAVAILABLE on this wrapper:
+  # the run exercises the machinery, but the gate reads back none of the
+  # diagnostic content, so none may go green (binding ruling 6 / fork D1-ii).
+  ctx.unavailable(aid="production-diagnostic.cut-row-selection",
+                  label="cut-row selection (independent expected-row count)",
+                  reason="the gate computes no independent expected retained-row "
+                         "count and does not assert its configured YAML is the "
+                         "intended tight-window fixture, so the sizes banner's "
+                         "integers are unchecked for truth")
+  ctx.unavailable(aid="production-diagnostic.diagnostics-pdf",
+                  label="diagnostics PDF exists and reads back",
+                  reason="the run requests --diagnostic=gates_diag but the gate "
+                         "neither confirms the PDF file exists nor reads it back")
   ctx.log("shaded triangle: the diagnostics PDF is a VISUAL check (the omh2 marginal "
           "at 0.20 and the (ns, omh2) diagonal corner at 0.17 must show "
           "adjoining grey); the harness confirms the run produced it, the "
           "Architect confirms the shading from the committed PDF/log.")
+  ctx.unavailable(aid="production-diagnostic.triangle-shading",
+                  label="shaded-triangle artist comparison",
+                  reason="the gate prints a visual-inspection instruction for the "
+                         "omh2 marginal and the (ns, omh2) corner shading but "
+                         "compares no plotted artists programmatically")
 
 
 def gate_gp_d(ctx):
@@ -778,16 +810,23 @@ def gate_gft_c(ctx):
 
   WHAT: freeze_trunk false, which fine-tunes trunk and head together in
   phase 2. WHY: the trunk backward must actually run, not silently stay
-  frozen. HOW: the run announces "two-phase: N trunk + M joint" and
-  "phase 'joint'", and its phase-2 epoch time sits visibly above a
-  freeze_trunk-true control; plus the golden absent-key run
-  (spec: training-stack.md:115-120, 211-228).
+  frozen. HOW: seven legs. The joint freeze_trunk:false run exits zero
+  (joint-exit-zero), announces "two-phase: N trunk" (two-phase-banner, N
+  matched by regex not pinned) and "phase 'joint'" (joint-phase-banner);
+  the freeze_trunk:true control run exits zero (control-exit-zero). The
+  golden absent-key selected-text equality (golden-selected-text-equality)
+  is UNAVAILABLE while golden_bases has no configured base. The phase-2
+  epoch-time ordering (epoch-time-order) and the handoff loss continuity
+  (handoff-loss-continuity) are UNAVAILABLE: both are printed for
+  inspection only, with no ordering or continuity comparison run
+  (spec: training-stack.md#joint-training-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="joint-training",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best|run:)")
+              grep_pattern="^(phase|epoch|best|run:)",
+              aid="joint-training.golden-selected-text-equality")
   joint_yaml = ctx.require_config("joint-training-config")
   rc_j, out = ctx.run_driver(yaml_path=joint_yaml, allow_fail=True)
   # run the control too, so the log carries both epoch times.
@@ -795,16 +834,20 @@ def gate_gft_c(ctx):
   rc_c, out_c = ctx.run_driver(yaml_path=control_yaml, allow_fail=True)
   if ctx.dry:
     return
-  ctx.expect(label="joint-training joint run completes",
+  ctx.expect(aid="joint-training.joint-exit-zero",
+             label="joint-training joint run completes",
              ok=(rc_j == 0),
              detail="joint exit code " + str(rc_j))
-  ctx.expect(label="joint-training two-phase banner (regex 'two-phase: \\d+ trunk')",
+  ctx.expect(aid="joint-training.two-phase-banner",
+             label="joint-training two-phase banner (regex 'two-phase: \\d+ trunk')",
              ok=logscan.search(text=out, pattern=r"two-phase: \d+ trunk"),
              detail="the trunk count is matched by regex, not pinned")
-  ctx.expect(label="joint-training phase 'joint' banner",
+  ctx.expect(aid="joint-training.joint-phase-banner",
+             label="joint-training phase 'joint' banner",
              ok=logscan.contains(text=out, needle="phase 'joint'"),
              detail="phase 2 must announce the joint pass")
-  ctx.expect(label="joint-training freeze_trunk:true control run completes",
+  ctx.expect(aid="joint-training.control-exit-zero",
+             label="joint-training freeze_trunk:true control run completes",
              ok=(rc_c == 0),
              detail="control exit code " + str(rc_c))
   joint_epochs = logscan.matching_lines(text=out, pattern=r"^epoch")
@@ -816,8 +859,18 @@ def gate_gft_c(ctx):
           "joint time ABOVE the control, the trunk backward returned):")
   ctx.log("  joint (freeze_trunk:false):  " + joint_last)
   ctx.log("  control (freeze_trunk:true): " + control_last)
-  ctx.log("loss continuous at the handoff (training-stack.md:"
-          "226-228); the two numbers above are the Architect's visual check.")
+  ctx.unavailable(aid="joint-training.epoch-time-order",
+                  label="joint-training phase-2 epoch-time order (joint > control)",
+                  reason="the joint phase-2 epoch time should sit visibly above "
+                         "the freeze_trunk:true control (the trunk backward ran), "
+                         "but the gate only prints the two last epoch lines "
+                         "(training-stack.md:211-228) and runs no ordering "
+                         "comparison")
+  ctx.unavailable(aid="joint-training.handoff-loss-continuity",
+                  label="joint-training handoff loss continuity",
+                  reason="loss continuity across the phase-1->phase-2 handoff "
+                         "(training-stack.md:226-228) is an inspection "
+                         "instruction, not a numerical assertion in this gate")
 
 
 def gate_gha_f(ctx):
@@ -1906,12 +1959,24 @@ BOARD = [
        title="Production diagnostic run",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="dead-class census conventions-and-workflow.md:232-234; "
-            "density-window cut data-generation-and-cuts.md:125-126; "
-            "nested cuts + absolute row counts "
-            "data-generation-and-cuts.md:94-95; sizes line "
-            "training-stack.md:110-112; shaded triangle "
-            "data-generation-and-cuts.md:76-79",
+       maps="one --diagnostic run asserts the retired-class census returns no "
+            "hits, the package imports cleanly, the driver exits zero, and the "
+            "sizes banner has the right shape, while the cut-row selection, the "
+            "diagnostics PDF, and the triangle shading stay unread evidence",
+       evidence=(Assertion("production-diagnostic.retired-class-name-census",
+                           "training-stack.md#production-diagnostic-retired-class-name-census"),
+                 Assertion("production-diagnostic.package-import",
+                           "training-stack.md#production-diagnostic-package-import"),
+                 Assertion("production-diagnostic.driver-exit-zero",
+                           "training-stack.md#production-diagnostic-driver-exit-zero"),
+                 Assertion("production-diagnostic.sizes-banner",
+                           "training-stack.md#production-diagnostic-sizes-banner"),
+                 Assertion("production-diagnostic.cut-row-selection",
+                           "training-stack.md#production-diagnostic-cut-row-selection"),
+                 Assertion("production-diagnostic.diagnostics-pdf",
+                           "training-stack.md#production-diagnostic-diagnostics-pdf"),
+                 Assertion("production-diagnostic.triangle-shading",
+                           "training-stack.md#production-diagnostic-triangle-shading")),
        run=gate_diag,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.production-diagnostic-config",)
@@ -2268,7 +2333,25 @@ BOARD = [
        title="freeze_trunk-false joint training",
        tier=TIER_NEW_FEATURES,
        home="training-stack",
-       maps="115-120, 211-228 (joint banners + continuity + epoch-time signal)",
+       maps="the joint freeze_trunk:false run and the freeze_trunk:true "
+            "control run each exit zero, the joint run prints its two-phase "
+            "and phase-'joint' banners, while the golden selected-text "
+            "equality, the phase-2 epoch-time ordering, and the handoff loss "
+            "continuity remain conditional or inspection-only evidence",
+       evidence=(Assertion("joint-training.golden-selected-text-equality",
+                           "training-stack.md#joint-training-golden-selected-text-equality"),
+                 Assertion("joint-training.joint-exit-zero",
+                           "training-stack.md#joint-training-joint-exit-zero"),
+                 Assertion("joint-training.two-phase-banner",
+                           "training-stack.md#joint-training-two-phase-banner"),
+                 Assertion("joint-training.joint-phase-banner",
+                           "training-stack.md#joint-training-joint-phase-banner"),
+                 Assertion("joint-training.control-exit-zero",
+                           "training-stack.md#joint-training-control-exit-zero"),
+                 Assertion("joint-training.epoch-time-order",
+                           "training-stack.md#joint-training-epoch-time-order"),
+                 Assertion("joint-training.handoff-loss-continuity",
+                           "training-stack.md#joint-training-handoff-loss-continuity")),
        run=gate_gft_c,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.joint-training-config",
