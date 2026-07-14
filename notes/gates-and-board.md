@@ -9524,3 +9524,25 @@ gates:   scalar_smoke.py LIVE on the cocoa interpreter: rc 0, 9 ##AID emitted,
          anchors, zero orphans; board now 39/40 carrying evidence=, 173 aids.
          No workstation debt on this gate.
 ```
+
+## Scalar-smoke evidence audit (Fable, 2026-07-14): b30427c GO — 39/40
+
+Interactive audit of the Implementer's 0017 turn. Re-run by me on the
+cocoa interpreter: the child gates/checks/scalar_smoke.py emits exactly
+nine ##AID legs; board --list rc 0; board_selftest ALL PASS. Diff is
+board.py wiring (+20) + the notes record only; the nine-aid child
+itself was the red team's, merged earlier at 48ef45a and audited then.
+VERDICT: GO. Board at 39/40 — finite-contract (in flight, unit 0020)
+is the last gate without evidence=.
+
+## RED-TEAM UNIT: tools/ relay scripts review (Fable, 2026-07-14, user-directed)
+
+USER instruction (mailbox 0027): red-team review of
+tools/handoff_router.py and tools/mailbox_daemon.py. Handoff cut to
+Sol as codex/tools-redteam. Constraints pinned in the handoff: the
+daemon is LIVE INFRASTRUCTURE — no --watch/--once against the real
+mailbox, no live billed dispatches; attack via scripted arms with
+AGENT_COMMANDS monkeypatched to a stub; every claimed defect ships an
+executable reproduction; repairs are proposals on the branch, the
+merge is the Architect's (constraint 5 governs — transport hardening
+must not reshape the notes-first design).
