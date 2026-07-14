@@ -2740,6 +2740,47 @@ is load-bearing.  Existing gate files remain untouched because their queue-2
 owner is active.  The owner note records the exact Part D, Part E, and future
 documentation-examples additions needed after that collision clears.
 
+## Red Team implementation candidate: Unit 29 width-one transformer refusal
+
+The Architect transferred the confirmed `25M-14` amendment to the Red Team.
+The candidate is isolated on `codex/unit29-token-width-v2`. The Architect
+approved its narrow `ia.py` scope correction before commit. The full
+contract and evidence are recorded in `models-and-designs.md` under the
+`25M-14` amendment.
+
+The initial transfer named `designs/plain.py` and `designs/blocks.py`, but the
+factored model boundary is `TemplateResTRF` in `designs/ia.py`. Testing a
+blocks-only guard demonstrated the ordering problem: after the model-level
+call was replaced with a no-op, at least one `nn.Linear` had already been
+allocated when the shared `TRFBlock` guard raised. The candidate therefore
+contains the minimal factored pre-allocation call. No other factored behavior
+is changed.
+
+Executed evidence from the isolated worktree:
+
+```text
+python3 -m py_compile emulator/designs/blocks.py emulator/designs/plain.py \
+  emulator/designs/ia.py tests/test_trf_token_width.py
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  tests/test_trf_token_width.py
+# Ran 5 tests ... OK
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  -O tests/test_trf_token_width.py
+# Ran 5 tests ... OK
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  -m unittest discover -s tests -v
+# Ran 22 tests ... OK
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  gates/checks/cmb_identity.py
+# PASS: cmb-identity all checks green
+```
+
+The first focused run caught a context-matched insertion in the neighboring
+`TemplateResCNN` class. The refusal tests failed before this record was
+written. An untruncated owner census located the crossed insertion, and the
+candidate now calls the predicate only from `ResTRF`, `TemplateResTRF` and
+`TRFBlock`. This record reports implementation evidence and does not certify
+the landing.
 ## Red Team implementation claim: berHu analytic-child bound loss harness
 
 The Architect reproduced a check-side crash after the production chi-square

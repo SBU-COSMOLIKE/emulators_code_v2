@@ -493,6 +493,35 @@ class BinLinear(nn.Module):
     return y + self.bias
 
 
+def validate_trf_token_width(
+    *,
+    output_length,
+    n_tokens,
+    token_width):
+    """Refuse a transformer token whose LayerNorm loses the input.
+
+    LayerNorm subtracts the mean across a token's feature coordinates. A
+    width-one token contains one coordinate, so that coordinate is also the
+    mean. The normalized value is zero for every input. Attention and the
+    token MLP can then add only an input-independent correction.
+
+    Arguments:
+      output_length = number of real output values represented by the tokens.
+      n_tokens      = number of token rows passed to the transformer.
+      token_width   = maximum number of feature coordinates in one token.
+    """
+    if token_width >= 2:
+        return
+
+    raise ValueError(
+        "a transformer correction head requires a maximum token width of "
+        "at least 2. The resolved output length is " + str(output_length)
+        + ", the token count is " + str(n_tokens)
+        + ", and the maximum token width is " + str(token_width)
+        + ". LayerNorm over one coordinate subtracts that coordinate "
+        "itself, so the transformer correction cannot depend on its input.")
+
+
 class TRFBlock(nn.Module):
   """
   One transformer block over tokens at their natural width: no
@@ -587,6 +616,10 @@ class TRFBlock(nn.Module):
                    (BinLinear). True: one fixed-width MLP shared by every
                    token through plain nn.Linear applied position-wise.
                    This changes weight sharing, not the hidden width.
+    output_length = number of real output values represented by the tokens.
+                    Model constructors provide this value. A direct block
+                    call may omit it when its token rectangle contains no
+                    padding.
 
   forward Arguments:
     x = input tensor of shape (B, G, dim); B = batch rows, G =
@@ -602,7 +635,14 @@ class TRFBlock(nn.Module):
                n_heads=2,
                n_mlp_blocks=2,
                act=activation_fcn,
-               shared_mlp=False):
+               shared_mlp=False,
+               output_length=None):
+    if output_length is None:
+      output_length = n_tokens * dim
+    validate_trf_token_width(
+      output_length=output_length,
+      n_tokens=n_tokens,
+      token_width=dim)
     super().__init__()
     assert dim % n_heads == 0, (
       f"the token width ({dim} = the padded bin length) must be "
