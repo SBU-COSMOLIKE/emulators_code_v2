@@ -3180,3 +3180,14 @@ lesson RATIFIED as batch discipline (subagent diffs apply
 gate-locally against their own base, never whole-file). Spec:
 gates-and-board.md "Berhu harness repair audit" + "Fan-out batch
 3 delta audit".
+
+BATCH 4 (2026-07-13, Fable): 2cf5621 GO — berhu-anneal 4 +
+ema-anneal 4 + npce-training 9, names==drafts, the three
+logged-only/owed legs forward-declared UNAVAILABLE with
+gap-stating reasons (D1-ii applied, nothing minted green); my
+compile/--list/selftest green at the tip, 21 evidence-bearing
+gates, the prior 18 confirmed intact. The no-isolation subagent
+launch adjudicated: accepted on the independent final-tree verify
++ honest disclosure; the SUBAGENT-ISOLATION RULE (each fan-out
+subagent in its own worktree) is now BINDING. Spec:
+gates-and-board.md "Fan-out batch 4 delta audit".

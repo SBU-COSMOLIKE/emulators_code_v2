@@ -7632,3 +7632,48 @@ live-point-metrics leg forward-declared UNAVAILABLE rather than
 invented, npce-training's nine) is in flight under continuous
 batching; the finite-contract Part D/E folding stands as
 previously confirmed.
+
+## Fan-out batch 4 delta audit (Fable, 2026-07-13): 2cf5621 GO — 21 gates carry evidence; the SUBAGENT-ISOLATION RULE is ratified as binding
+
+Landed on the branch (with resume b9d0ff0) while my batch-3 audit
+committed; audited before any landing block covers it. Three more
+wrapper-emitted migrations: berhu-anneal (4 — golden null-base
+UNAVAILABLE + smoke exit/banner + schedule-behavior), ema-anneal
+(4 — golden + smoke exit/two-banner + live-point-metrics),
+npce-training (9 — golden + residual and ratio smoke pairs + the
+two exclusivity refusals + the sweep line + rebuild-vs-base).
+
+THE HONEST-UNAVAILABLE PATTERN, applied three times and verified
+at the diff: a leg the note describes but the gate body does not
+assert is forward-declared via ctx.unavailable with a reason that
+STATES THE GAP ("this gate runs no such ...", "parses no metrics",
+"only logs that ... belongs in the check-script set") — never
+minted as a green expect. That is the D1-ii doctrine working as
+designed; the npce rebuild-vs-base reason routes the owed probe to
+the check-script set explicitly.
+
+MY RUNS at the tip (detached scratch worktree, cocoa-torch):
+compile clean; --list rc 0; board-selftest ALL PASS; in-process:
+all 21 evidence-bearing gates have unique, gate-id-prefixed,
+transform-valid aids (the 18 prior survived — the resume's
+regression claim confirmed); the three gates' note-side anchor
+sets match the declarations exactly (17 legs + 3 headlines).
+
+THE PROCESS ERROR, adjudicated: the three batch-4 subagents were
+launched WITHOUT worktree isolation and edited the one shared
+board.py concurrently. The landing is accepted because (a) the
+Implementer disclosed it unprompted, (b) the authoritative check
+was never the subagents' self-reports but the independent
+final-tree re-verify, which I have independently reproduced, and
+(c) the edit regions were disjoint. But the resume's own words are
+the ruling: clean-by-luck is not a process. RATIFIED AS BINDING
+for every remaining fan-out batch: each subagent runs in its own
+worktree (isolation: worktree); a subagent's self-run --list or
+selftest against a tree its siblings are mutating is evidence of
+NOTHING; the Implementer's final-state verification remains the
+only self-check that counts, and my delta audit stays on top.
+
+VERDICT: GO. 21 of 40 board gates carry evidence (14 migrated + 7
+foundation); the remaining fan-out = 13 drafted gates + the 6
+wrapper-family blocks, then scalar-smoke's nine-aid amendment and
+finite-contract's Part D/E folding at their seams.
