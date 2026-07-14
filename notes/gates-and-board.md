@@ -7677,3 +7677,100 @@ VERDICT: GO. 21 of 40 board gates carry evidence (14 migrated + 7
 foundation); the remaining fan-out = 13 drafted gates + the 6
 wrapper-family blocks, then scalar-smoke's nine-aid amendment and
 finite-contract's Part D/E folding at their seams.
+
+## 25M-38 repair + DIDACTICS-79 replay audit (Fable, 2026-07-14): bc7e8e5 GO — merged; BOTH items CLOSE
+
+The red team's codex/didactics79-generator, base main@233db22.
+Scope exact and the bounded hold RESPECTED: the production diff is
+the ruled ONE-LINE deletion (generator_core.py no longer writes the
+chain-column header into the .ranges file; the name/min/max rows
+and %.5e untouched — unit 82 keeps decimal-policy ownership; the
+now-dead hd list assignment left in place so the diff stays the
+ruled removal, flagged for unit 82's visit to the same writer); a
+NEW standalone child gates/checks/generator_ranges.py with NO
+##AID emission and NO board.py entry (queue 2 owns the wiring +
+the distinct sidecar evidence name; never folded under
+generator-seed.owned-rng); +115 README lines documenting the
+minimal background walkthrough; generator_seed.py byte-identical
+to main (verified, 0-line diff).
+
+THE CHILD (my run: ALL PASS): executes the production writer's own
+syntax-tree statements (AST-extracted with an exactly-one-writer
+census — a copied test writer cannot drift green), parses the
+result with real GetDist ParamBounds (one-parameter H0 file + the
+two-parameter control), and its retired-header mutation arm
+re-inserts the header into a temp copy and requires the exact
+hiding mechanism: one-parameter FAILS with float('weights'), the
+two-parameter control still parses. The hd requirement is
+conditional on the writer reading it, so the future dead-line
+cleanup cannot break the control.
+
+THE REPLAY (DIDACTICS-79, reproduced end-to-end by me, twice, in
+fresh roots — their run area was already cleaned up): the README's
+YAML + serial command under cobaya 3.6.2 / CAMB 1.6.7, rc 0 both
+runs; EXACTLY nine output files; the .ranges sidecar is the pure
+one-row bounds file ('H0 6.00000e+01 7.50000e+01') and GetDist
+reads H0 in [60, 75]; both targets finite float32 (200, 8) with
+nonzero spread; all 200 failure flags zero; all four text sidecars
+byte-identical and all four target arrays identical across my two
+serial runs. Honest note: my first attempt exited 1 on MY OWN
+unset ROOTDIR, not their code — the README correctly assumes the
+standard cocoa environment. Worker-count invariance stays a
+workstation obligation, as filed. Audit artifacts (two replay
+roots under projects/) removed after verification.
+
+VERDICT: GO; merged (a6aa7cc; append-append register conflict
+resolved both-retained). 25M-38 CLOSED. DIDACTICS-79 CLOSED. The
+Implementer's queue-2 lane owes the child its board entry with a
+narrow sidecar-format claim.
+
+## Unit-63 reopen audit (Fable, 2026-07-14): 473da76 + 06c9d8f GO — merged; the 25M-17 contract is LIVE in artifacts
+
+The red team's codex/unit63-const-mask, transferred under Wave 5
+with the 25M-17 adjudication as the contract — and the contract is
+implemented exactly: Grid2DGeometry.state() ALWAYS writes
+const_mask as explicit uint8 zeros/ones (all-false = explicitly
+unpinned); from_state REFUSES a missing key with the re-save
+instruction ("Key absence cannot choose pinned or unpinned
+science"); the direct constructor REQUIRES the argument (explicit
+None normalized to all-false immediately — both construction paths
+closed to presence-inference); _normalize_const_mask validates
+1-D, exact nz*nk length, bool/uint8 dtype, binary uint8 values;
+decode applies the mask unconditionally; the experiment banner
+counts true entries (silent all-false, loud pins). from_columns
+builds the explicit mask always. Never-trust-defaults honored on
+the save AND load surface.
+
+THE CHECK (06c9d8f, mps_identity.py +127): three real-artifact
+legs through the REAL rebuild_emulator on schema-v2 .h5/.emul
+pairs — the unpinned artifact persists an all-false uint8 mask of
+length 24; the valid boost/none artifact pins flat indices
+[0, 6, 12, 18] and serves EXACTLY 1.0 there after rebuild (the
+retired presence-inferred branch would serve 1.25); h5py surgery
+deleting only dv_geometry/const_mask makes rebuild raise before
+model construction, naming const_mask and the re-save action. The
+note-side amendment invents NO new aids — the ratified seven
+stand, the HDF5 checks assigned to the existing
+mps-identity.geometry-laws-and-pins leg, so batch 5's subagent
+contract is intact.
+
+MY RUNS: focused tests 5/5; repository discovery 22/22; the full
+mps-identity child rc 0 with 69 PASS legs including the three new
+ones; --list rc 0; compile clean. MY PROBE (scratch worktree):
+restoring presence-inference in from_state
+(state.setdefault("const_mask", None)) reds "deleted required
+mask refuses" at rc 1 with "rebuild accepted a missing scientific
+fact" — real catch power against the exact retired behavior.
+
+VERDICT: GO; merged (8dc44f3). The composed tip re-verified by my
+own runs: compile, --list rc 0, board-selftest ALL PASS, discovery
+22/22, both children ALL PASS. SEAM RULING (batch 5, binding):
+unit-63 was merged DELIBERATELY before the Implementer's
+mps-identity hand-apply reached gates/checks/mps_identity.py, so
+the batch-5 integration lands ON TOP of the unit-63 legs; the
+subagent draft predates them, so the hand-apply must re-diff
+against the CURRENT file (the ratified stale-base discipline) and
+the migrated child must emit its ##AID terminals with the three
+const-mask legs folded under geometry-laws-and-pins as the
+amendment records. Unit 63 is CLOSED on the code; its queue-2
+wiring rides batch 5.

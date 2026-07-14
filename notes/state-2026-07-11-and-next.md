@@ -3191,3 +3191,21 @@ launch adjudicated: accepted on the independent final-tree verify
 + honest disclosure; the SUBAGENT-ISOLATION RULE (each fan-out
 subagent in its own worktree) is now BINDING. Spec:
 gates-and-board.md "Fan-out batch 4 delta audit".
+
+25M-38 + 79 + UNIT 63 (2026-07-14, Fable): bc7e8e5 GO — the ruled
+one-line producer deletion + an AST-executing GetDist child (my
+run ALL PASS, retired-header mutation proves the hiding
+mechanism) + the README walkthrough; the end-to-end replay
+reproduced BY ME twice (rc 0, nine files, H0 bounds via GetDist,
+finite (200,8) targets, zero flags, byte/array-identical runs);
+merged a6aa7cc; 25M-38 and DIDACTICS-79 CLOSED; queue 2 owes the
+child its board entry. 473da76+06c9d8f GO — const_mask always
+persisted uint8, readback refuses absence with a re-save
+instruction, both constructor paths closed; three real-artifact
+legs through rebuild_emulator (pins serve exactly 1.0; deletion
+refuses); my probe restoring presence-inference reds at rc 1; my
+runs 5/5, 22/22, child 69 PASS; merged 8dc44f3 BEFORE batch 5's
+mps-identity hand-apply (seam ruling: integration lands on top,
+re-diff against the current file). Unit 63 CLOSED on the code.
+Spec: gates-and-board.md "25M-38 repair + DIDACTICS-79 replay
+audit" + "Unit-63 reopen audit".
