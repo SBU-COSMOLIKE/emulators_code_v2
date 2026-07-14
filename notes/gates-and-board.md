@@ -9324,3 +9324,37 @@ LANDING BLOCK (the merge and push are the user's alone; not run here):
 Outbound routing summary: notes/mailbox/0024-to-fable.md (0022 and 0023
 were both taken by other sessions WHILE this turn ran, which is the same
 concurrency observation recorded above).
+
+## Red-team finite-contract harness audit (Fable, 2026-07-14): 0abc300 GO, merged 908c3b2
+
+Audited from a detached scratch worktree at 0abc300 (fetched from the
+red team's isolated clone; base = main 5456133). Scope exact: the child
+gates/checks/finite_contract.py + the register and home-note readback.
+
+Re-run by me (cocoa interpreter, CPU): child rc 2, ZERO [FAIL], Parts
+A-K all reached (pre-repair, everything after F was crash-blocked),
+final line honestly NON-GREEN naming the mandatory CUDA lane. Tamper
+arms all re-fired live in my run: retired-prefix reds, geometry-free
+loss reproduces the geom AttributeError, finite-only crowning arm,
+w^2-restoration arm (the width rule is load-bearing), compute-dtype
+band arm, float32-mean overflow + its load-bearing companion, and both
+optimizer-poison arms.
+
+MY OWN PROBE (unscripted by the red team): doubled the instrumented
+geometry's dest_idx width and re-ran — zero reds. Adjudicated BENIGN BY
+DESIGN: the harness is width-parametric (band expectations derive from
+the supplied width), and the catch power that pins production is the
+pair {width_read_count > 0} + {w-vs-w^2 form arm}, both verified
+firing. The scaling LAW is pinned; no magic width number is, and none
+should be.
+
+VERDICT: GO. Merged as 908c3b2. SEQUENCING CONSEQUENCE, ruled now: the
+0020 Implementer unit (evidence= wiring, shape (B)) now wires against
+the REPAIRED child — the Part F crash and the Parts A/C false-reds are
+gone, so the per-leg marks in the shape-(B) ruling update from the
+pre-repair truth (3 FAIL / 3 PASS / 8 UNAVAILABLE) to the repaired
+truth (CPU legs PASS with real verdicts, compiled/CUDA lanes
+UNAVAILABLE, rc 2 NON-GREEN until a CUDA box runs the mandatory lane).
+The always-emit crash-wrapper is STILL required — it is what keeps the
+manifest complete the next time any fixture regresses. The 0020 mailbox
+message is re-cut accordingly; the ruling's shape half is unchanged.
