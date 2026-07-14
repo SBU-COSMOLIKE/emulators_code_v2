@@ -43,6 +43,12 @@ Usage:
         minimal|low|medium|high|xhigh (codex CLI; default xhigh)
     python tools/mailbox_daemon.py --watch --dispatch-timeout 90
                                                     # allow longer turns
+    python tools/mailbox_daemon.py --watch --claude-context 400000 \
+                                           --sol-context 300000
+                                                    # context budgets: a turn
+        compacts (summarizes its own history and continues) whenever its
+        live context reaches the budget; --claude-context covers Fable
+        and Opus, --sol-context covers Sol; both default to 500000
 """
 
 import argparse
@@ -117,14 +123,21 @@ DEFAULT_FABLE_EFFORT = "xhigh"
 DEFAULT_OPUS_EFFORT = "max"
 DEFAULT_SOL_EFFORT = "xhigh"
 
-# Context budget per dispatched turn (USER 2026-07-14: no bot runs with
-# a context window above 500k tokens). Neither CLI takes a hard cap, so
-# both are told to COMPACT (summarize their own history and continue)
-# at this budget instead of growing toward their native 1M windows:
-# the claude CLI reads CLAUDE_CODE_AUTO_COMPACT_WINDOW from the
-# environment; the codex CLI takes -c model_auto_compact_token_limit
-# (accepted live, 2026-07-14).
-CONTEXT_TOKEN_BUDGET = 500000
+# Context budgets per dispatched turn (USER 2026-07-14: no bot runs
+# with a context window above X tokens, where X is a command-line key
+# and Sol's key is separate). Neither CLI takes a hard cap, so both are
+# told to COMPACT (summarize their own history and continue) whenever
+# the live context reaches the budget, instead of growing toward their
+# native 1M windows: the claude CLI (Fable, Opus) reads
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment; the codex CLI
+# (Sol) takes -c model_auto_compact_token_limit (accepted live,
+# 2026-07-14). Override per launch with --claude-context / --sol-context.
+DEFAULT_CLAUDE_CONTEXT_BUDGET = 500000
+DEFAULT_SOL_CONTEXT_BUDGET = 500000
+
+# dispatch() reads this for the claude environment; main() rebinds it
+# from --claude-context. Sol's budget rides inside AGENT_COMMANDS.
+CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
 
 # A dispatched turn that runs past this many minutes is killed and its
 # message parked in failed/ for inspection. The guard exists because a
@@ -135,16 +148,20 @@ CONTEXT_TOKEN_BUDGET = 500000
 DISPATCH_TIMEOUT_MINUTES = 60
 
 
-def build_agent_commands(fable_effort, opus_effort, sol_effort):
-    """Assemble the per-agent headless CLI commands at the given efforts.
+def build_agent_commands(fable_effort, opus_effort, sol_effort,
+                         sol_context_budget):
+    """Assemble the per-agent headless CLI commands at the given settings.
 
     Arguments:
-      fable_effort = claude CLI effort level for Fable dispatches
-                     (one of CLAUDE_EFFORT_CHOICES).
-      opus_effort  = claude CLI effort level for Opus dispatches
-                     (one of CLAUDE_EFFORT_CHOICES).
-      sol_effort   = codex CLI reasoning-effort level for Sol dispatches
-                     (one of CODEX_EFFORT_CHOICES).
+      fable_effort       = claude CLI effort level for Fable dispatches
+                           (one of CLAUDE_EFFORT_CHOICES).
+      opus_effort        = claude CLI effort level for Opus dispatches
+                           (one of CLAUDE_EFFORT_CHOICES).
+      sol_effort         = codex CLI reasoning-effort level for Sol
+                           dispatches (one of CODEX_EFFORT_CHOICES).
+      sol_context_budget = tokens of live context at which a Sol turn
+                           compacts (the claude sessions' budget rides
+                           the environment instead -- see dispatch()).
 
     Returns:
       dict mapping "fable"/"opus"/"sol" to the argv list dispatch()
@@ -177,7 +194,7 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort):
                 "-c", "model_reasoning_effort=" + sol_effort,
                 "-c", "service_tier=standard",
                 "-c", ("model_auto_compact_token_limit="
-                       + str(CONTEXT_TOKEN_BUDGET)),
+                       + str(sol_context_budget)),
                 "--sandbox", "workspace-write",
                 "--cd", REPO_ROOT],
     }
@@ -186,9 +203,11 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort):
 
 # main() rebuilds this from the command-line flags; the module-level
 # value keeps imports and direct function calls working at the defaults.
-AGENT_COMMANDS = build_agent_commands(fable_effort=DEFAULT_FABLE_EFFORT,
-                                      opus_effort=DEFAULT_OPUS_EFFORT,
-                                      sol_effort=DEFAULT_SOL_EFFORT)
+AGENT_COMMANDS = build_agent_commands(
+    fable_effort=DEFAULT_FABLE_EFFORT,
+    opus_effort=DEFAULT_OPUS_EFFORT,
+    sol_effort=DEFAULT_SOL_EFFORT,
+    sol_context_budget=DEFAULT_SOL_CONTEXT_BUDGET)
 
 # The working directory each dispatched agent starts in. Fable and Opus
 # develop in this worktree; Sol works from the repository root (its command
@@ -343,10 +362,10 @@ def dispatch(path, dry_run):
         f.flush()
         # the claude CLI takes its context budget from the environment
         # (Sol's rides its own -c flag in the command instead): compact
-        # at CONTEXT_TOKEN_BUDGET rather than growing to the native
-        # 1M-token window.
+        # whenever the live context reaches the budget, rather than
+        # growing to the native 1M-token window.
         env = os.environ.copy()
-        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(CONTEXT_TOKEN_BUDGET)
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(CLAUDE_CONTEXT_BUDGET)
         proc = subprocess.Popen(command,
                                 stdout=f,
                                 stderr=subprocess.STDOUT,
@@ -584,6 +603,7 @@ def main():
     # the global declaration before the first mention of either name.
     global AGENT_COMMANDS
     global DISPATCH_TIMEOUT_MINUTES
+    global CLAUDE_CONTEXT_BUDGET
 
     parser = argparse.ArgumentParser(
         description="file mailbox + headless dispatch for the agent loop")
@@ -628,20 +648,37 @@ def main():
                              "this many minutes and park its message "
                              "in failed/ (default: "
                              + str(DISPATCH_TIMEOUT_MINUTES) + ")")
+    parser.add_argument("--claude-context", metavar="TOKENS",
+                        type=int, default=DEFAULT_CLAUDE_CONTEXT_BUDGET,
+                        help="Fable and Opus turns compact their "
+                             "context whenever it reaches this many "
+                             "tokens (default: "
+                             + str(DEFAULT_CLAUDE_CONTEXT_BUDGET) + ")")
+    parser.add_argument("--sol-context", metavar="TOKENS",
+                        type=int, default=DEFAULT_SOL_CONTEXT_BUDGET,
+                        help="Sol turns compact their context whenever "
+                             "it reaches this many tokens (default: "
+                             + str(DEFAULT_SOL_CONTEXT_BUDGET) + ")")
     args = parser.parse_args()
 
     DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
+    CLAUDE_CONTEXT_BUDGET = args.claude_context
 
     # Rebuild the dispatch commands at the requested efforts. The watch
     # start line echoes the levels so a terminal scroll-back always
     # shows what this loop instance was launched with.
-    AGENT_COMMANDS = build_agent_commands(fable_effort=args.fable_effort,
-                                          opus_effort=args.opus_effort,
-                                          sol_effort=args.sol_effort)
+    AGENT_COMMANDS = build_agent_commands(
+        fable_effort=args.fable_effort,
+        opus_effort=args.opus_effort,
+        sol_effort=args.sol_effort,
+        sol_context_budget=args.sol_context)
     if args.watch:
         print("effort levels: fable=" + args.fable_effort
               + " opus=" + args.opus_effort
               + " sol=" + args.sol_effort)
+        print("context budgets: fable/opus=" + str(args.claude_context)
+              + " sol=" + str(args.sol_context)
+              + " tokens (a turn compacts at its budget)")
 
     if args.ping:
         ping_text = (
