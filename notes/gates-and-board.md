@@ -9358,3 +9358,61 @@ UNAVAILABLE, rc 2 NON-GREEN until a CUDA box runs the mandatory lane).
 The always-emit crash-wrapper is STILL required — it is what keeps the
 manifest complete the next time any fixture regresses. The 0020 mailbox
 message is re-cut accordingly; the ruling's shape half is unchanged.
+
+## BLUEPRINT: reproducing the three-agent setup on a new computer (Fable, 2026-07-14)
+
+USER-DIRECTED unit, Implementer custody. Two halves, one unit: a
+portability repair in the daemon and the didactic README subsection
+that a fresh clone actually needs. Sequenced after 0022 (same README
+section).
+
+CODE HALF — tools/mailbox_daemon.py portability:
+- WORKTREE is hardcoded to this machine's absolute path. Derive it from
+  the daemon's own location instead: the file lives at
+  <worktree>/tools/mailbox_daemon.py, so the worktree root is two
+  dirnames up from __file__ (resolved absolute). Derive the REPO ROOT
+  from it (the worktree sits at <repo>/.claude/worktrees/<name>) and
+  build AGENT_CWD from those two, so a clone works unedited.
+- AGENT_COMMANDS stays as the ONE machine-specific block (CLI binary
+  paths differ per machine); mark it with a comment saying exactly
+  that: this is the only block a new machine edits.
+- Gate: python3 tools/mailbox_daemon.py --dry-run runs correctly from
+  ANY cwd (repo root, worktree, elsewhere); --send + --status paths all
+  land inside the derived worktree.
+
+README HALF — section 24 appendix, new subsection "Reproducing this
+setup on another computer" (formal, didactic, zero-dash register,
+define every term in place):
+1. One agent, one worktree: each AI session works in its own git
+   worktree so no two agents ever edit the same checked-out tree (the
+   same invariant the daemon enforces between lanes). On a fresh
+   clone the human ASKS each session to create its own worktree at
+   session start — give the literal phrasing to type into a Claude
+   Code session ("create and work from your own git worktree for this
+   task"; Claude Code places it under .claude/worktrees/<name>), and
+   for the codex CLI red team the equivalent (ask it to create its
+   own branch-scoped worktree or local clone; it works under codex/*
+   branches).
+2. One worktree is the COORDINATION worktree: the one whose
+   notes/mailbox the daemon watches — the daemon derives every path
+   from its own file location, so you always launch the watch FROM
+   that worktree. Show the two commands (cd + watch), fenced.
+3. Why launch location matters: the watch stats the file it was
+   launched from and exits when it changes; daemon fixes land in the
+   coordination worktree first, so launching there means fixes take
+   effect at the next restart, automatically prompted.
+4. The one manual edit on a new machine: AGENT_COMMANDS (the CLI
+   binary paths), with a fenced snippet of the block as shipped.
+5. Close with the bootstrap sequence as a numbered list a newcomer can
+   follow end to end: clone; open three agent sessions (Architect =
+   Fable, Implementer = Opus, red team = codex CLI); each creates its
+   worktree; pick the coordination worktree; edit AGENT_COMMANDS;
+   start the watch; drop the first message with --send.
+
+VALIDATION GATE: dash census 0/0/0 on the new README text; every
+fenced command tested (--dry-run from three different cwds pasted);
+the AGENT_COMMANDS snippet in the README matches the shipped file
+verbatim; board untouched.
+
+MILESTONE: one commit (README.md + tools/mailbox_daemon.py), handoff
+to fable via mailbox.
