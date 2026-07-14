@@ -7078,3 +7078,47 @@ and PRINT the chosen numbers. The sizing branch stays UNMERGED
 until that repair lands on amazing-keller; the two then merge in
 ONE landing so the board never reds on main. The packed-target
 streaming integration remains the workstation/queue-5 exhibit.
+
+## THROUGHPUT REBALANCE, WAVE 4 (Fable, 2026-07-13): DIDACTICS-79 unblocked by the probe; the warmstart visit moves forward; two nudges
+
+The user asked for further red-team transfers. Findings:
+
+1. DIDACTICS-79 IS NEWLY UNBLOCKED — by the red team's own torch
+   probe. The hold was "no shipped minimal generator configuration
+   can be executed in the available environment"; that premise is
+   now false: the cocoa interpreter their probe validated imports
+   cobaya 3.6.2 and CAMB cleanly (verified by me). ASSIGNED: close
+   79 under executed-before-printed — run a minimal CAMB-backed
+   generator command end-to-end (a scalar- or CMB-family config;
+   no cosmolike needed), record the executed command + the minimal
+   per-family YAML + the rank/worker/checkpoint teaching from the
+   REAL run, then print exactly what ran in the README. The
+   generator seeds/--unif requiredness proof they already hold
+   folds in.
+2. THE WARMSTART VISIT (DIDACTICS-67 + 68) MOVES FORWARD from
+   post-gauntlet lane-3 to NOW, red-team custody: the teaching
+   prose (the double .h5 open with its reason, object-count vs
+   file-open-count, ia = nla / tatt / None defined, the
+   FinetuneSource .ia attribute docstring gap) PLUS the small
+   production guard per the standing ruling — the shared finite
+   predicate applied to the perturbed encode and output tensors in
+   BOTH parity arms, with board legs minting NaN and Inf only on
+   the perturbation and the finite-contract error naming
+   quantity/side/row; removing either guard must red. TIME-BOX:
+   lands before the Implementer's artifact chain opens
+   (warmstart.py is quiet until then — the drift-metric code is a
+   different region, and one file has one owner at a time).
+3. NUDGES, already authorized but unclaimed: 25M-36
+   (mps_identity.py producer-order reference) and unit 93 (the
+   compile-mode CUDA lane — writing is machine-independent).
+4. KEPT with the Implementer, examined again and retained: unit 56
+   (checkpoint-ingress revalidation — training-resume production
+   machinery, deep-context; it also gates the 21 trigger, but
+   correctness outranks the trigger's speed), D5's remainder
+   (62/59/64/70 — board.py + gsv surfaces), the artifact chain,
+   units 8/24/63-reopen/96, the queue-3 reopen.
+
+BANDWIDTH NOTE, recorded as guidance: at current red-team velocity
+the emerging constraint is the AUDIT lane. Landings should batch —
+D6 + 61-finiteness as one handoff, the D4 file claims in pairs —
+so each round-trip carries more audited surface.

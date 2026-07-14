@@ -3059,3 +3059,13 @@ Implementer's stage_ram fixture repair (>=10 rows, disk path
 asserted, allowance in the ruled range, numbers printed); the two
 land as ONE merge so main never reds. Spec: gates-and-board.md
 "25M-15 sizing audit".
+
+WAVE 4 (2026-07-13, Fable, on the user's request): DIDACTICS-79
+unblocked by the red team's own probe (cocoa python imports cobaya
+3.6.2 + CAMB, verified) — close it executed-before-printed with a
+real minimal generator run; the DIDACTICS-67+68 warmstart visit
+moves forward to now (prose + both-arm finite guards, time-boxed
+before the artifact chain opens); nudges on unclaimed 25M-36 +
+unit 93; unit 56 examined and KEPT (resume machinery outranks the
+21 trigger's speed). Bandwidth guidance: batch landings. Spec:
+gates-and-board.md "THROUGHPUT REBALANCE, WAVE 4".
