@@ -2670,3 +2670,47 @@ verdicts, and uses four skip-one-guard mutations to prove that every new call
 is load-bearing.  Existing gate files remain untouched because their queue-2
 owner is active.  The owner note records the exact Part D, Part E, and future
 documentation-examples additions needed after that collision clears.
+
+## Red Team implementation record: 25M-38 and DIDACTICS-79
+
+The Architect transferred the one-parameter `.ranges` repair and the held
+generator teaching example to the Red Team. The production diff removes one
+line from `compute_data_vectors/generator_core.py`: the comment that copied
+the chain column layout into a GetDist range file. The name and bound rows stay
+byte-identical. Unit 82's later decimal policy is untouched.
+
+The CPU regression is a dedicated `gates/checks/generator_ranges.py` child.
+The Implementer-owned foundation `generator_seed.py` stays byte-identical and
+keeps its narrow RNG evidence claim. The new child requires exactly one active
+production writer, executes that writer's own syntax-tree statements and
+parses the result with GetDist 1.7.2 `ParamBounds`. The repaired writer passes
+for one and two sampled parameters. Its built-in temporary-source mutation
+restores the deleted header. The one-parameter case then fails with the
+original `weights` conversion error while the two-parameter control remains
+green. The production file is not modified by that mutation.
+
+The README's minimal YAML and serial command were then executed verbatim in a
+temporary CoCoA-shaped tree using the real Cocoa Python environment, Cobaya
+3.6.2 and CAMB 1.6.7. The command returned zero. Real `ParamBounds` read the
+one-row range file as `H0: [60, 75]`. Both `(200, 8)` float32 targets were
+finite with nonzero cosmology-to-cosmology spread. The 200-row failure sidecar
+contained no failure. The nine expected files and no extras were present. The
+chain header recorded seed 1234 and `numpy.default_rng`.
+
+The same serial configuration also completed in a second temporary root.
+Its five text sidecars were byte-identical to the first run and both target
+arrays were array-identical. This proves serial same-seed replay through CAMB.
+Worker-count invariance remains a separate workstation obligation.
+
+The added README passage defines the YAML-only keys, its anonymous Python
+function, a serial MPI rank, a worker rank and the checkpoint interval. It
+states why this 200-row command writes only the final checkpoint. It prints no
+untested command. The complete command, output readback and mutation evidence
+are retained in `notes/data-generation-and-cuts.md` under "25M-38
+implementation and DIDACTICS-79 replay".
+
+This filing is durable implementation evidence for Architect audit. It does
+not certify 25M-38 or DIDACTICS-79 and it does not merge the branch. Queue 2
+still owns the new child's board entry and its distinct sidecar evidence name.
+The child must never be folded into the unrelated
+`generator-seed.owned-rng` claim.

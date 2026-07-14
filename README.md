@@ -2624,6 +2624,121 @@ covariance named in its YAML. If `--boundary` is supplied, use a value strictly
 between zero and one. Paths depend on the local CoCoA checkout and the selected
 project. The argument parser in `generator_core.py` is the option reference.
 
+### A minimum CAMB-backed background run
+
+This example varies only $H_0$. CAMB computes the Hubble rate on one redshift
+grid and the comoving distance on a second grid. The small configuration makes
+the command useful for learning the generator before producing a large
+training set.
+
+Create the directory first:
+
+```bash
+mkdir -p "$ROOTDIR/projects/generator_example/generator"
+```
+
+Save the following content as
+`$ROOTDIR/projects/generator_example/generator/background_minimal.yaml`:
+
+```yaml
+likelihood:
+  background_anchor:
+    external: "lambda _self: 0.0"
+    requires:
+      Hubble:
+        z: [0.1]
+        units: km/s/Mpc
+
+theory:
+  camb:
+    path: ./external_modules/code/CAMB
+
+params:
+  H0:
+    prior:
+      min: 60.0
+      max: 75.0
+    latex: H_0
+  ombh2:
+    value: 0.02237
+  omch2:
+    value: 0.1200
+  mnu:
+    value: 0.06
+  w:
+    value: -1.0
+
+train_args:
+  probe: background
+  ord:
+    - [H0]
+  z_sn: [0.1, 1.0, 8]
+  z_rec: [1000.0, 1200.0, 8]
+```
+
+The expression `lambda _self: 0.0` creates a small unnamed Python function.
+Cobaya supplies its likelihood object through the `_self` parameter. The
+function returns zero, so it adds no penalty to the sampled points. Its
+`requires` block tells Cobaya that a consumer needs the Hubble rate. `ord`
+gives the column order for the sampled parameters. Each redshift entry has the
+form `[minimum redshift, maximum redshift, number of points]`.
+
+Run the serial form from the CoCoA root:
+
+```bash
+cd "$ROOTDIR"
+REPO="$ROOTDIR/external_modules/code/emulators_code_v2"
+PYTHON="$ROOTDIR/.local/bin/python"
+
+"$PYTHON" "$REPO/compute_data_vectors/dataset_generator_background.py" \
+  --root projects/generator_example \
+  --fileroot generator \
+  --yaml background_minimal.yaml \
+  --datavsfile background_dvs \
+  --paramfile background_params \
+  --failfile background_failures \
+  --chain 0 \
+  --nparams 200 \
+  --unif 1 \
+  --temp 1 \
+  --seed 1234 \
+  --freqchk 1000 \
+  --loadchk 0 \
+  --append 0
+```
+
+`--unif 1` draws uniformly within the finite parameter bounds. `--seed 1234`
+owns every random draw, so the same inputs reproduce the same parameter table.
+The command omits `--boundary`, which keeps the full sampled support. The
+minimum accepted row count is 200.
+
+An MPI *rank* is one independent Python process. The command above starts one
+rank. Rank 0 samples the parameter table, evaluates all 200 CAMB rows and
+writes the outputs. It has no worker rank in this serial form. A parallel run
+started with `mpirun -n 4` has four ranks in total. Rank 0 coordinates the job
+and evaluates the first row to determine the output shape. The other three
+ranks evaluate the remaining rows.
+
+```text
+serial:    rank 0 = sampler + CAMB evaluator + writer
+
+parallel:  rank 0 = sampler + first CAMB row + coordinator + writer
+                    |          |          |
+                    v          v          v
+                  rank 1     rank 2     rank 3   = remaining CAMB rows
+```
+
+`--freqchk 1000` sets the interval between intermediate checkpoints. This
+example has only 200 rows, so it writes no intermediate checkpoint. It still
+writes the final checkpoint after the last row. For this YAML the two target
+arrays both have shape `(200, 8)`. The failure sidecar has 200 entries. Every
+entry must be zero before the arrays become training data.
+
+The serial and parallel paths write the same file types. `--loadchk 1` reads
+an existing checkpoint and retries flagged rows. `--append 1` extends a loaded
+checkpoint with new samples. Section [Appending checkpoints safely](#appending-checkpoints-safely)
+lists the precautions for that operation.
+
 ---
 
 ## 19. Appendix: the pipeline
