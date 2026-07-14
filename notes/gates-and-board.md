@@ -7985,6 +7985,7 @@ tip: the child emits exactly the six declared terminals ALL PASS
 with the new legs contributing to distance-pipeline-consistency,
 plus my delta re-audit of the conflict resolution only.
 
+<<<<<<< HEAD
 FAN-OUT BATCH 6 (b74d81b) GO: cmb-identity (7, pure check-script,
 child emit_aid groups, reordered main() into contiguous leg groups),
 eval-batch-invariance (4, pure check-script -- partition-invariance +
@@ -8446,3 +8447,54 @@ capability that does not exist on main today.
 MILESTONE: one commit on the shared branch under the grant; hand
 the sha for my audit (a prose-only delta — I audit register,
 truth of claims, and the public-prose conventions).
+=======
+## BACKUP-IMPLEMENTER ASSIGNMENT 1 resume: scalar-smoke nine-aid child
+
+The backup-Implementer assignment started from clean current main
+`b74d81b` on branch `codex/scalar-smoke-nine-aids-child`.  The code change is
+limited to `gates/checks/scalar_smoke.py`.  Its existing checks, calibrated
+numbers and execution order are unchanged.  A `FAILURES`-delta helper now
+brackets the nine contiguous acceptance groups drafted in
+`notes/families-scalar-cmb.md` and prints one terminal verdict for each group.
+`gates/board.py` remains untouched for the Implementer's declared-versus-
+emitted integration seam.
+
+The Cocoa child returned zero twice.  The captured run emitted exactly nine
+terminals, once each, all `PASS`: fixture rows disjoint and aligned; same-seed
+overlap refused; window banner and rows match; banner-only mutation rejected;
+training beats the mean predictor; analytic prediction; dead-network
+rejection; diagnostics output; and Cobaya evaluate.  The aggregate line was
+`PASS: scalar-smoke all checks green`.  The measured D3 values remained
+unchanged, including trained median `0.196647360921`, collapse bar
+`0.244681023061`, direct relative error `0.074595841408` and accuracy bar
+`0.111893762112`.
+
+This is a backup-Implementer resume and evidence record for Fable audit.  It
+does not certify the landing and it does not merge the branch.
+>>>>>>> codex/scalar-smoke-nine-aids-child
+
+## Backup-Implementer unit 1 audit (Fable, 2026-07-14): 77a1572 GO — merged; the backup lane's first landing reads exactly like execution discipline
+
+Sol's first unit under the explicit backup-Implementer mode
+declaration, audited AGAINST EXECUTION DISCIPLINE per the mode
+rule (not catch-power discipline). Scope exact: scalar_smoke.py
++68 lines with ZERO deletions — wiring only, the D3 measured
+bars, fixtures, mutation arms, and printed derivations untouched
+by construction; the assignment note's resume + the register.
+The emission shape is the ratified FAILURES-delta bracketing;
+the two aids that appear twice in the source (fixture-rows,
+training-beats-mean) are mutually exclusive branches — an
+early-exit except path that emits then returns, and the success
+path — so exactly-once holds structurally, and MY RUN proves it:
+rc 0, NINE terminals, uniq count 1 for every aid, zero non-PASS,
+ALL PASS on the cocoa interpreter.
+
+MERGE-TIMING RULING, verified at the machinery: run_board
+reconciles ONLY when gate.evidence is declared (the call site
+guards on `outcome == "PASS" and gate.evidence`), so the child's
+terminals are inert until the Implementer wires the
+nine-Assertion tuple — merging now is harmless and unblocks the
+tuple landing on top. The declared==emitted 9==9 closure is
+proven at that seam. VERDICT: GO; merged. The backup lane is
+VALIDATED end to end: assignment -> mode declaration -> bounded
+execution -> honest evidence -> audit.
