@@ -61,6 +61,25 @@ def report(label, ok, detail):
         FAILURES.append(label)
 
 
+def emit_aid(aid, n_before):
+    """Emit ONE '##AID <aid> <PASS|FAIL>' line for a whole acceptance leg.
+
+    (queue 2) The board's run_check folds these reserved lines into the gate's
+    executed set: one per drafted leg, at the leg's aggregation point, not per
+    sub-check. A leg groups several report() calls (a check_* function or a
+    guard cluster); the leg's verdict is FAIL if that group appended any label
+    to the module-level FAILURES list since it started. `n_before` is
+    len(FAILURES) captured just before the group ran. The child's exit status
+    stays the single aggregate verdict; these lines add no new judgement.
+
+    Arguments:
+      aid      = the drafted board-unique leg id, "scalar-identity.<leg>".
+      n_before = len(FAILURES) captured immediately before the leg's checks ran.
+    """
+    mark = "PASS" if len(FAILURES) == n_before else "FAIL"
+    print("##AID " + aid + " " + mark)
+
+
 def spd(n, seed):
     """A random symmetric positive-definite matrix (n x n)."""
     g = np.random.default_rng(seed)
@@ -615,14 +634,32 @@ def main():
         root = os.path.join(tmp, "emul")
         pgeom, geom, model = save_synthetic_scalar(
             root, device, os.path.join(tmp, "src.covmat"), seed=0)
+        # Each drafted leg emits ONE ##AID line at its aggregation point (a
+        # check_* function or a guard cluster). n0 = the FAILURES count just
+        # before the leg, so emit_aid reads the leg's own verdict, not the
+        # board-wide one; the five aids match the note's drafted anchor block.
+        n0 = len(FAILURES)
         check_roundtrip(root, device, pgeom, geom, model)
         check_state(root, device, geom)
+        emit_aid("scalar-identity.artifact-round-trip", n0)
+
+        n0 = len(FAILURES)
         check_from_targets_errors(device)
         check_sidecar_errors(tmp)
         check_head_architecture()
-        check_npce(tmp, device)
+        emit_aid("scalar-identity.geometry-and-schema-guards", n0)
+
+        n0 = len(FAILURES)
         check_adapter(tmp, device)
+        emit_aid("scalar-identity.scalar-adapter-contract", n0)
+
+        n0 = len(FAILURES)
+        check_npce(tmp, device)
+        emit_aid("scalar-identity.npce-composition", n0)
+
+        n0 = len(FAILURES)
         check_finetune(tmp, device)
+        emit_aid("scalar-identity.finetune-parity", n0)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): " + ", ".join(FAILURES))
         sys.exit(1)

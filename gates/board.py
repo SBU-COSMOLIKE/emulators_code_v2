@@ -1216,17 +1216,21 @@ def gate_tpe_b(ctx):
 def gate_spe_a(ctx):
   """scalar-identity: a scalar emulator saves, rebuilds, and predicts exactly.
 
-  WHAT: a tiny synthetic scalar emulator (a ParamGeometry over a written
-  covmat + a ScalarGeometry over synthetic targets + a small ResMLP), saved
-  and rebuilt, reproduces predict bitwise; its ScalarGeometry state round-trips
-  byte-identical; and every scalar-path loud error fires (the constant-column
-  guard both directions, the duplicate-sidecar-name guard, the trunk-only
-  guard, plus the emul_scalars provides / duplicate / overlap / subset /
-  wrong-kind legs, the adapter loaded torch-only
-  through a cobaya.theory stub). Added 2026-07-12: the NPCE check_npce
-  leg (residual algebra bitwise, base + net {name: value} prediction
-  exact). torch only, no cosmolike (spec:
-  families-scalar-cmb.md, the scalar-identity gate).
+  WHAT: the child check exercises five acceptance legs on synthetic scalar
+  artifacts, torch only, no cosmolike. artifact-round-trip: a saved-then-
+  rebuilt emulator predicts bitwise and its ScalarGeometry state round-trips
+  byte-identical. geometry-and-schema-guards: the constant-column,
+  duplicate-sidecar-name, and trunk-only errors fire, while a genuinely
+  varying tiny-magnitude column still builds. scalar-adapter-contract: the
+  emul_scalars adapter (loaded torch-only through a cobaya.theory stub)
+  derives its provides/requirements from the artifacts and raises on the
+  duplicate / overlap / subset-superset / wrong-kind legs. npce-composition:
+  the residual base + refiner algebra is bitwise and a saved base + net
+  {name: value} prediction is exact. finetune-parity: the epoch-0 warm-start
+  parity holds, the anchor mask zeros exactly the appended input column, and
+  the outputs-mismatch / wrong-kind-source refusals fire. The board wrapper
+  reduces the child's five legs to its exit code (spec:
+  families-scalar-cmb.md#scalar-identity-evidence).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/scalar_identity.py")
@@ -1360,7 +1364,23 @@ def gate_bsn_a(ctx):
   metadata-mismatch and cross-quantity from_config errors). Added
   2026-07-12: the NPCE check_npce leg (residual algebra bitwise
   through the log law, base + net prediction bitwise). torch +
-  scipy, no CAMB (spec: notes/families-background-mps.md).
+  scipy, no CAMB.
+
+  HOW: the child (gates/checks/bsn_identity.py) folds its many
+  human-readable sub-checks into SIX declared board legs, emitting one
+  '##AID' manifest line per leg — simpson-polynomial-nodes (the
+  cumulative-Simpson node-by-node integrals + the mutation control +
+  the guard), distance-pipeline-consistency (the pipeline vs the dense
+  same-integrator reference at 1e-6), geometry-and-artifact-round-trip
+  (the log-offset law both ways + grid-state + the law/domain guards +
+  the save/rebuild/predict bitwise legs on BOTH laws), npce-composition
+  (the residual encode/decode algebra + base-plus-net save/rebuild),
+  adapter-piecewise-contract (the emul_baosn two-window layout, the
+  piecewise getters, the units + desert + pair-validation refusals),
+  and finetune-parity (the epoch-0 warm-start parity + the from_config
+  refusals). The wrapper's rc-check stays the single aggregate verdict;
+  the six ##AID lines carry the per-leg map
+  (spec: notes/families-background-mps.md#bsn-identity-evidence).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/bsn_identity.py")
@@ -2278,9 +2298,19 @@ BOARD = [
        title="Scalar emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-scalar-cmb",
-       maps="123-127 (round-trip + state + auto-provides + subset/dup + "
-            "the constant-column / duplicate-name / trunk-only / "
-            "wrong-kind error legs)",
+       maps="synthetic scalar artifacts exercise the save/rebuild round trip, "
+            "the geometry and schema guards, the Cobaya adapter contract, the "
+            "NPCE residual composition, and the fine-tune parity boundary",
+       evidence=(Assertion("scalar-identity.artifact-round-trip",
+                           "families-scalar-cmb.md#scalar-identity-artifact-round-trip"),
+                 Assertion("scalar-identity.geometry-and-schema-guards",
+                           "families-scalar-cmb.md#scalar-identity-geometry-and-schema-guards"),
+                 Assertion("scalar-identity.scalar-adapter-contract",
+                           "families-scalar-cmb.md#scalar-identity-scalar-adapter-contract"),
+                 Assertion("scalar-identity.npce-composition",
+                           "families-scalar-cmb.md#scalar-identity-npce-composition"),
+                 Assertion("scalar-identity.finetune-parity",
+                           "families-scalar-cmb.md#scalar-identity-finetune-parity")),
        run=gate_spe_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses",
                                "cobaya_theory/emul_scalars.py"),
@@ -2311,8 +2341,22 @@ BOARD = [
        title="BAOSN grid emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-background-mps",
-       maps="118-127 (identity legs); 138-176 (the "
-            "two-regime + desert legs); 217-231 (finetune legs)",
+       maps="synthetic background artifacts exercise the integration rule, "
+            "distance construction, grid geometry and saved predictor, the "
+            "emul_baosn two-window adapter, the NPCE residual model, and the "
+            "fine-tune boundary",
+       evidence=(Assertion("bsn-identity.simpson-polynomial-nodes",
+                           "families-background-mps.md#bsn-identity-simpson-polynomial-nodes"),
+                 Assertion("bsn-identity.distance-pipeline-consistency",
+                           "families-background-mps.md#bsn-identity-distance-pipeline-consistency"),
+                 Assertion("bsn-identity.geometry-and-artifact-round-trip",
+                           "families-background-mps.md#bsn-identity-geometry-and-artifact-round-trip"),
+                 Assertion("bsn-identity.adapter-piecewise-contract",
+                           "families-background-mps.md#bsn-identity-adapter-piecewise-contract"),
+                 Assertion("bsn-identity.npce-composition",
+                           "families-background-mps.md#bsn-identity-npce-composition"),
+                 Assertion("bsn-identity.finetune-parity",
+                           "families-background-mps.md#bsn-identity-finetune-parity")),
        run=gate_bsn_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses",
                                "cobaya_theory/emul_baosn.py"),
