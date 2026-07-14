@@ -6,8 +6,8 @@ of the vendored syren/ formulas), the config loud errors, and the
 finetune parity — torch + scipy, no CAMB.
 
 Legs:
-  - Grid2DGeometry: standardize round-trip to float32 round-off; state
-    round-trip byte-identical (seven keys incl. quantity/units/law);
+  - Grid2DGeometry: standardize round-trip to float32 round-off. Its state
+    round-trip has eight byte-identical keys, including the mask.
     the width / unknown-law guards; the constant-column pinning (a
     constant law-space column that is not the whole surface is physics
     under ANY law — the boost's low-k B = 1 region: scale 1, decode
@@ -76,6 +76,7 @@ import tempfile
 import types
 from pathlib import Path
 
+import h5py
 import numpy as np
 import torch
 
@@ -911,15 +912,33 @@ def grid2d_recipe(width):
                                       "norm": "affine"}}}
 
 
-def save_synthetic_grid2d(root, device, tmp, quantity="pklin",
-                          units="Mpc3", law="syren_linear",
-                          z=Z4, k=K6, seed=0):
+def save_synthetic_grid2d(
+        root,
+        device,
+        tmp,
+        quantity="pklin",
+        units="Mpc3",
+        law="syren_linear",
+        z=Z4,
+        k=K6,
+        seed=0,
+        pin_low_k=False):
     covmat = os.path.join(tmp, "g2_%d.covmat" % seed)
     write_covmat(covmat, IN_NAMES, seed=seed + 1)
     pgeom = ParamGeometry.from_covmat(
         device=device, center=np.array([2.1, 67.0, 0.12]),
         covmat_path=covmat)
     Y = synth_rows(400, z=z, k=k, seed=seed + 2)
+    if pin_low_k:
+        if quantity != "boost" or law != "none":
+            raise ValueError(
+                "the synthetic low-k pin belongs to a boost with law none")
+        # Flattening is redshift outer and wavenumber inner. The first
+        # wavenumber in every redshift row therefore has index iz * nk.
+        # Setting those complete training columns to one creates the valid
+        # low-k boost identity used by the artifact persistence check.
+        first_k_indices = np.arange(z.size) * k.size
+        Y[:, first_k_indices] = 1.0
     geom = Grid2DGeometry.from_targets(device=device, targets=Y, z=z,
                                        k=k, quantity=quantity,
                                        units=units, law=law)
@@ -954,6 +973,103 @@ def save_synthetic_grid2d(root, device, tmp, quantity="pklin",
                   resolved_model=grid2d_recipe(z.size * k.size),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
+
+
+def check_const_mask_artifact(tmp, device):
+    """Prove the mask is explicit and required in a saved HDF5 artifact.
+
+    An all-false mask records that every output coordinate is trainable. A
+    true entry records that decode must serve the stored training constant at
+    that coordinate. The two states have different scientific behavior, so a
+    missing dataset cannot select either one.
+    """
+    unpinned_root = os.path.join(tmp, "emul_g2_mask_unpinned")
+    save_synthetic_grid2d(
+        root=unpinned_root,
+        device=device,
+        tmp=tmp,
+        quantity="pklin",
+        units="Mpc3",
+        law="none",
+        seed=131)
+
+    with h5py.File(
+            unpinned_root + ".h5",
+            "r") as artifact:
+        stored_unpinned = artifact["dv_geometry/const_mask"][()]
+    _, _, unpinned_geometry, _ = rebuild_emulator(
+        unpinned_root,
+        device,
+        compile_model=False)
+    unpinned_ok = (
+        stored_unpinned.dtype == np.dtype("uint8")
+        and stored_unpinned.shape == (Z4.size * K6.size,)
+        and int(stored_unpinned.sum()) == 0
+        and int(unpinned_geometry.const_mask.sum().item()) == 0)
+    report(
+        "const-mask artifact: unpinned state persists all-false",
+        unpinned_ok,
+        "stored dtype %s, true entries %d"
+        % (stored_unpinned.dtype, int(stored_unpinned.sum())))
+
+    pinned_root = os.path.join(tmp, "emul_g2_mask_pinned")
+    save_synthetic_grid2d(
+        root=pinned_root,
+        device=device,
+        tmp=tmp,
+        quantity="boost",
+        units="dimensionless",
+        law="none",
+        seed=137,
+        pin_low_k=True)
+
+    with h5py.File(
+            pinned_root + ".h5",
+            "r") as artifact:
+        stored_pinned = artifact["dv_geometry/const_mask"][()]
+    _, _, pinned_geometry, _ = rebuild_emulator(
+        pinned_root,
+        device,
+        compile_model=False)
+    expected_pins = np.zeros(Z4.size * K6.size, dtype=np.uint8)
+    expected_pins[np.arange(Z4.size) * K6.size] = 1
+    probe = torch.full(
+        (1, Z4.size * K6.size),
+        0.25,
+        dtype=torch.float32,
+        device=device)
+    decoded = pinned_geometry.decode(probe).detach().cpu().numpy()[0]
+    pinned_ok = (
+        np.array_equal(stored_pinned, expected_pins)
+        and np.array_equal(
+            pinned_geometry.const_mask.cpu().numpy(),
+            expected_pins.astype(bool))
+        and np.array_equal(decoded[expected_pins.astype(bool)],
+                           np.ones(Z4.size, dtype=np.float32)))
+    report(
+        "const-mask artifact: valid low-k pin survives save and rebuild",
+        pinned_ok,
+        "stored pins %s" % np.flatnonzero(stored_pinned).tolist())
+
+    with h5py.File(
+            pinned_root + ".h5",
+            "r+") as artifact:
+        del artifact["dv_geometry/const_mask"]
+    try:
+        rebuild_emulator(
+            pinned_root,
+            device,
+            compile_model=False)
+        report(
+            "const-mask artifact: deleted required mask refuses",
+            False,
+            "rebuild accepted a missing scientific fact")
+    except KeyError as error:
+        message = str(error)
+        report(
+            "const-mask artifact: deleted required mask refuses",
+            "const_mask" in message and "Re-save" in message,
+            "KeyError names const_mask and the re-save action")
 
 
 def check_roundtrip(tmp, device, law):
@@ -1587,6 +1703,7 @@ def main():
         check_bounded_staging(tmp)
         check_stable_moments(tmp, device)
         check_staging_lifecycle(tmp)
+        check_const_mask_artifact(tmp, device)
         check_roundtrip(tmp, device, law="syren_linear")
         check_roundtrip(tmp, device, law="none")
         check_head(tmp, device)

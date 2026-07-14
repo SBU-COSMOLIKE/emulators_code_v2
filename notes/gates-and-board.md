@@ -7500,3 +7500,313 @@ CLAIMABLE (a non-wrapper checks file; the fix is a minimal real
 loss object or the documented calling convention in the harness —
 production stays frozen); the claim heals berhu's child ##AID
 emission on CPU. Until then berhu-loss stays honestly red-if-run.
+
+FAN-OUT BATCH 3 (70a484e) GO: ema-smoke (three wrapper legs — the
+shared _smoke_driver exit/banner aids plus the direct rewind
+ctx.expect), head-activation-pin (five legs — golden null-base
+UNAVAILABLE + smoke exit/banner + two inline warning/refusal
+expects; the _GhaFakeCtx selftest stub taught aid=), relu-tanh-norm
+(five legs — golden null-base UNAVAILABLE + two _smoke_driver pairs).
+INTEGRATION LESSON banked: the batch-3 subagents branched from a
+pre-batch base (994ef4e), so their whole-file `git diff HEAD` shows
+the earlier batches' aids as REVERTS — a `git apply` of that diff
+would silently undo batches 1-2. The safe integration is to diff each
+subagent against ITS OWN base and hand-apply only the gate-local hunk
+to the live tree; the Edit exact-match then re-checks the "before"
+text. Re-verified on the merged tip: compile, --list rc0, board-
+selftest ALL PASS, declared==emitted 3/5/5 by driving each real gate
+body with a null-base probe ctx. 11/27 migrated (18 with the 7
+foundation re-keys). STAGE-RAM (a89e39c) confirmed present+green on
+the branch (batching.py untouched since the repair; ALL PASS live) —
+the only red-if-run surface is main, closed by the user's branch->main
+merge, not a re-commit.
+
+FAN-OUT BATCH 4 launched (continuous batching): berhu-anneal,
+ema-anneal (the drafted live-point-metrics leg has no body assertion
+-> forward-declared UNAVAILABLE, not invented), npce-training (nine
+legs). All three wrapper-asserted, one-file. On their return: hand-
+apply the gate-local hunks, independently re-verify, self-commit as
+batch 4, hand the sha for delta audit. finite-contract, when the
+fan-out reaches it, folds the warmstart Part D + Part E legs
+(artifacts-inference-warmstart.md "Warm-start source reads and
+perturbed finite values") into its wiring rather than leaving them
+orphaned.
+
+FAN-OUT BATCH 4 (2cf5621) GO: berhu-anneal (golden null-base
+UNAVAILABLE + smoke exit/banner + the logged-only schedule-behavior
+converted to ctx.unavailable), ema-anneal (golden UNAVAILABLE + smoke
+exit/two-banner + the orphan live-point-metrics leg forward-declared
+UNAVAILABLE -- the note describes it, the gate asserts no metric
+comparison), npce-training (nine legs: golden UNAVAILABLE + residual
++ ratio smoke pairs + two exclusivity refusals + the sweep line +
+rebuild-vs-base owed to the check-script set). 21/40 migrated.
+
+PROCESS ERROR banked (batch 4): the three subagents were launched
+WITHOUT isolation:worktree, so they ran concurrently in the shared
+main tree and edited the one board.py live. It happened to verify
+clean (disjoint gate regions, staggered writes), but that is luck.
+RULE: every fan-out subagent gets its own worktree
+(isolation:worktree). The safeguard that made the landing sound was
+the INDEPENDENT final-tree re-verify -- compile, --list rc0, board-
+selftest ALL PASS, declared==emitted 4/4/9, and a regression probe
+proving all 18 prior-migrated gates survived the concurrent editing
+(total 21). A subagent's own self-check is unreliable here because
+its --list/selftest ran against a tree its siblings were still
+mutating; only the Implementer's final-state verify is authoritative.
+
+## Berhu harness repair audit (Fable, 2026-07-13): 47e79a3 GO — merged; berhu-loss's red-if-run surface CLOSES
+
+The red team's repair of the gb_c self=None harness crash
+(codex/berhu-loss-harness-self, base = main at 233db22 — the user
+had run the landing block). Scope exact: gates/checks/
+gb_c_berhu_reduce.py + two notes; board.py, run_board.py, and
+emulator/losses/core.py byte-untouched, per the check-side ruling.
+
+THE SHAPE: the check builds one real CosmolikeChi2 bound to a
+minimal HarnessGeometry whose dest_idx property both supplies the
+contraction width (a one-element long tensor — the only geometry
+fact the direct chi2 probes need) and COUNTS production reads.
+That matches the production convention exactly (core.py:295
+__init__(geom); :311 dest_idx delegates to geom; :320 _chi2_n_terms
+= dest_idx.numel(); :540 the band line the old harness crashed on).
+transform()/slope() take the loss explicitly and call the bound
+method. A new assertion leg folds width_read_count > 0 into
+reference-values, so a reduction that bypasses the production width
+lookup reds the manifest — the crash class can never again pass
+silently.
+
+MY RUNS (cocoa-torch interpreter): the child rc 0, ALL PASS, the
+three declared ##AID terminals each exactly once, and dest_idx
+reads = 44 (their claimed count, reproduced). PROBE A (crash
+reproduction): the parent-version check run against the same tree
+dies with the exact filed AttributeError at core.py:540, rc 1,
+ZERO evidence terminals. PROBE B (catch power, my own tamper in a
+detached scratch worktree — their tree untouched): monkeypatching
+_chi2_n_terms to a constant bypasses dest_idx -> "dest_idx reads
+0", ##AID berhu-loss.reference-values FAIL, rc 1. --list rc 0,
+board-selftest ALL PASS, compile clean at the commit. Durable
+records verified: the training-stack.md readback sits inside the
+berhu evidence block, the register presents without certifying,
+and the docstring's new #berhu-loss-evidence pointer resolves.
+
+VERDICT: GO; merged (63a1a5e). The full berhu-loss gate run stays
+workstation-owed (torch+cosmolike+gpu); what closed here is the
+guaranteed-crash arm of its child. gb_c is CLOSED.
+
+## Fan-out batch 3 delta audit (Fable, 2026-07-13): 70a484e GO — 11/27 migrated; the stale-base integration lesson RATIFIED
+
+Found committed on the shared branch with its resume note
+(7d8afc3) when the berhu merge landed; audited before any landing
+block covers it. Three wrapper-emitted migrations (the ratified
+shape 2): ema-smoke (3 legs — _smoke_driver exit/banner aids + the
+direct rewind expect), head-activation-pin (5 — golden null-base
+UNAVAILABLE + smoke pair + the two inline warning/refusal
+expects), relu-tanh-norm (5 — golden + two smoke pairs). Verified
+at the diff: every body aid appears in its Gate's evidence tuple
+and vice versa (3/5/5); the maps= prose replaced with behavior
+statements; relu-tanh-norm's docstring HONESTLY narrows the claim
+("loss descent is logged-only, not asserted evidence" — the
+drafts' discipline applied to prose). The _GhaFakeCtx selftest
+stub gains aid=None with a comment keying the RT-04 checks on
+label — minimal, correct. My in-process check at the merged tip:
+all four current-batch gates' aids unique, gate-id-prefixed,
+dot->dash transform == anchor fragment; the three gates' note-side
+anchor sets match the declarations exactly (13 legs + 3
+headlines, no strays); 18 gates now carry evidence (11 migrated +
+7 foundation) — the resume's count confirmed. compile clean,
+--list rc 0, board-selftest ALL PASS (my runs, merged tip
+63a1a5e). Live green runs stay workstation-owed.
+
+THE INTEGRATION LESSON, ratified as batch discipline: the batch-3
+subagents branched from a pre-batch base, so their whole-file
+diffs showed batches 1-2's aids as REVERTS; a blind git apply
+would have silently undone landed work. The Implementer diffed
+each subagent against ITS OWN base and hand-applied only the
+gate-local hunks, letting Edit's exact-match re-check the "before"
+text. RULE for all remaining batches: a subagent diff is applied
+gate-locally against the subagent's own base, never as a
+whole-file patch against the live tree.
+
+VERDICT: GO. Batch 4 (berhu-anneal, ema-anneal with the
+live-point-metrics leg forward-declared UNAVAILABLE rather than
+invented, npce-training's nine) is in flight under continuous
+batching; the finite-contract Part D/E folding stands as
+previously confirmed.
+
+## Fan-out batch 4 delta audit (Fable, 2026-07-13): 2cf5621 GO — 21 gates carry evidence; the SUBAGENT-ISOLATION RULE is ratified as binding
+
+Landed on the branch (with resume b9d0ff0) while my batch-3 audit
+committed; audited before any landing block covers it. Three more
+wrapper-emitted migrations: berhu-anneal (4 — golden null-base
+UNAVAILABLE + smoke exit/banner + schedule-behavior), ema-anneal
+(4 — golden + smoke exit/two-banner + live-point-metrics),
+npce-training (9 — golden + residual and ratio smoke pairs + the
+two exclusivity refusals + the sweep line + rebuild-vs-base).
+
+THE HONEST-UNAVAILABLE PATTERN, applied three times and verified
+at the diff: a leg the note describes but the gate body does not
+assert is forward-declared via ctx.unavailable with a reason that
+STATES THE GAP ("this gate runs no such ...", "parses no metrics",
+"only logs that ... belongs in the check-script set") — never
+minted as a green expect. That is the D1-ii doctrine working as
+designed; the npce rebuild-vs-base reason routes the owed probe to
+the check-script set explicitly.
+
+MY RUNS at the tip (detached scratch worktree, cocoa-torch):
+compile clean; --list rc 0; board-selftest ALL PASS; in-process:
+all 21 evidence-bearing gates have unique, gate-id-prefixed,
+transform-valid aids (the 18 prior survived — the resume's
+regression claim confirmed); the three gates' note-side anchor
+sets match the declarations exactly (17 legs + 3 headlines).
+
+THE PROCESS ERROR, adjudicated: the three batch-4 subagents were
+launched WITHOUT worktree isolation and edited the one shared
+board.py concurrently. The landing is accepted because (a) the
+Implementer disclosed it unprompted, (b) the authoritative check
+was never the subagents' self-reports but the independent
+final-tree re-verify, which I have independently reproduced, and
+(c) the edit regions were disjoint. But the resume's own words are
+the ruling: clean-by-luck is not a process. RATIFIED AS BINDING
+for every remaining fan-out batch: each subagent runs in its own
+worktree (isolation: worktree); a subagent's self-run --list or
+selftest against a tree its siblings are mutating is evidence of
+NOTHING; the Implementer's final-state verification remains the
+only self-check that counts, and my delta audit stays on top.
+
+VERDICT: GO. 21 of 40 board gates carry evidence (14 migrated + 7
+foundation); the remaining fan-out = 13 drafted gates + the 6
+wrapper-family blocks, then scalar-smoke's nine-aid amendment and
+finite-contract's Part D/E folding at their seams.
+
+## 25M-38 repair + DIDACTICS-79 replay audit (Fable, 2026-07-14): bc7e8e5 GO — merged; BOTH items CLOSE
+
+The red team's codex/didactics79-generator, base main@233db22.
+Scope exact and the bounded hold RESPECTED: the production diff is
+the ruled ONE-LINE deletion (generator_core.py no longer writes the
+chain-column header into the .ranges file; the name/min/max rows
+and %.5e untouched — unit 82 keeps decimal-policy ownership; the
+now-dead hd list assignment left in place so the diff stays the
+ruled removal, flagged for unit 82's visit to the same writer); a
+NEW standalone child gates/checks/generator_ranges.py with NO
+##AID emission and NO board.py entry (queue 2 owns the wiring +
+the distinct sidecar evidence name; never folded under
+generator-seed.owned-rng); +115 README lines documenting the
+minimal background walkthrough; generator_seed.py byte-identical
+to main (verified, 0-line diff).
+
+THE CHILD (my run: ALL PASS): executes the production writer's own
+syntax-tree statements (AST-extracted with an exactly-one-writer
+census — a copied test writer cannot drift green), parses the
+result with real GetDist ParamBounds (one-parameter H0 file + the
+two-parameter control), and its retired-header mutation arm
+re-inserts the header into a temp copy and requires the exact
+hiding mechanism: one-parameter FAILS with float('weights'), the
+two-parameter control still parses. The hd requirement is
+conditional on the writer reading it, so the future dead-line
+cleanup cannot break the control.
+
+THE REPLAY (DIDACTICS-79, reproduced end-to-end by me, twice, in
+fresh roots — their run area was already cleaned up): the README's
+YAML + serial command under cobaya 3.6.2 / CAMB 1.6.7, rc 0 both
+runs; EXACTLY nine output files; the .ranges sidecar is the pure
+one-row bounds file ('H0 6.00000e+01 7.50000e+01') and GetDist
+reads H0 in [60, 75]; both targets finite float32 (200, 8) with
+nonzero spread; all 200 failure flags zero; all four text sidecars
+byte-identical and all four target arrays identical across my two
+serial runs. Honest note: my first attempt exited 1 on MY OWN
+unset ROOTDIR, not their code — the README correctly assumes the
+standard cocoa environment. Worker-count invariance stays a
+workstation obligation, as filed. Audit artifacts (two replay
+roots under projects/) removed after verification.
+
+VERDICT: GO; merged (a6aa7cc; append-append register conflict
+resolved both-retained). 25M-38 CLOSED. DIDACTICS-79 CLOSED. The
+Implementer's queue-2 lane owes the child its board entry with a
+narrow sidecar-format claim.
+
+## Unit-63 reopen audit (Fable, 2026-07-14): 473da76 + 06c9d8f GO — merged; the 25M-17 contract is LIVE in artifacts
+
+The red team's codex/unit63-const-mask, transferred under Wave 5
+with the 25M-17 adjudication as the contract — and the contract is
+implemented exactly: Grid2DGeometry.state() ALWAYS writes
+const_mask as explicit uint8 zeros/ones (all-false = explicitly
+unpinned); from_state REFUSES a missing key with the re-save
+instruction ("Key absence cannot choose pinned or unpinned
+science"); the direct constructor REQUIRES the argument (explicit
+None normalized to all-false immediately — both construction paths
+closed to presence-inference); _normalize_const_mask validates
+1-D, exact nz*nk length, bool/uint8 dtype, binary uint8 values;
+decode applies the mask unconditionally; the experiment banner
+counts true entries (silent all-false, loud pins). from_columns
+builds the explicit mask always. Never-trust-defaults honored on
+the save AND load surface.
+
+THE CHECK (06c9d8f, mps_identity.py +127): three real-artifact
+legs through the REAL rebuild_emulator on schema-v2 .h5/.emul
+pairs — the unpinned artifact persists an all-false uint8 mask of
+length 24; the valid boost/none artifact pins flat indices
+[0, 6, 12, 18] and serves EXACTLY 1.0 there after rebuild (the
+retired presence-inferred branch would serve 1.25); h5py surgery
+deleting only dv_geometry/const_mask makes rebuild raise before
+model construction, naming const_mask and the re-save action. The
+note-side amendment invents NO new aids — the ratified seven
+stand, the HDF5 checks assigned to the existing
+mps-identity.geometry-laws-and-pins leg, so batch 5's subagent
+contract is intact.
+
+MY RUNS: focused tests 5/5; repository discovery 22/22; the full
+mps-identity child rc 0 with 69 PASS legs including the three new
+ones; --list rc 0; compile clean. MY PROBE (scratch worktree):
+restoring presence-inference in from_state
+(state.setdefault("const_mask", None)) reds "deleted required
+mask refuses" at rc 1 with "rebuild accepted a missing scientific
+fact" — real catch power against the exact retired behavior.
+
+VERDICT: GO; merged (8dc44f3). The composed tip re-verified by my
+own runs: compile, --list rc 0, board-selftest ALL PASS, discovery
+22/22, both children ALL PASS. SEAM RULING (batch 5, binding):
+unit-63 was merged DELIBERATELY before the Implementer's
+mps-identity hand-apply reached gates/checks/mps_identity.py, so
+the batch-5 integration lands ON TOP of the unit-63 legs; the
+subagent draft predates them, so the hand-apply must re-diff
+against the CURRENT file (the ratified stale-base discipline) and
+the migrated child must emit its ##AID terminals with the three
+const-mask legs folded under geometry-laws-and-pins as the
+amendment records. Unit 63 is CLOSED on the code; its queue-2
+wiring rides batch 5.
+
+## Unit-29 scope ruling (Fable, 2026-07-14): the minimal ia.py touch is APPROVED — the before-construction clause binds every public constructor path
+
+The red team held their complete unit-29 / 25M-14 candidate
+UNCOMMITTED on codex/unit29-token-width-v2 and asked before
+touching a file outside the transferred list (plain.py +
+blocks.py). PREMISE VERIFIED AT THE DIFF, not accepted from the
+claim: TemplateResTRF (emulator/designs/ia.py) is a genuine second
+public constructor of the ResTRF family, and on main its template
+trunk allocates nn.Linear layers BEFORE the bin-split computation
+and before any TRFBlock exists — a blocks.py-only guard therefore
+fires only after allocation, and the 25M-14 before-construction
+clause is UNSATISFIABLE inside the named file list. Their mutation
+arm states the same fact executably (removing the early call
+allocates at least one nn.Linear before the late guard raises).
+
+RULING: APPROVED. The transferred file list described where the
+work was expected; it does not override the contract, and the
+clause binds every public constructor path. BOUNDS: the ia.py
+touch stays exactly the proposed minimal shape — the bin-size
+calculation moved ahead of trunk allocation plus one early call to
+the SHARED validate_trf_token_width (one definition in blocks.py,
+its refusal message didactic: LayerNorm over a width-one token
+subtracts the coordinate itself, so the correction cannot depend
+on its input; the TRFBlock-internal call stays as defense in
+depth). No model algorithm, padding rule, or accepted-width
+behavior changes; the necessity mutation ships as an executable
+test arm, not prose. Commit and submit for the NORMAL pre-merge
+audit — the 5/5 and 22/22 and cmb_identity greens will be
+re-verified by my own runs then, as usual.
+
+Process note: candidate-then-ask is ACCEPTABLE here because the
+uncommitted candidate lived entirely in their own worktree and
+main was untouched — extending a scope list inside their own lane.
+The stricter form (ask before ANY edit) continues to bind for
+files owned by the other team, e.g. board.py during the fan-out.

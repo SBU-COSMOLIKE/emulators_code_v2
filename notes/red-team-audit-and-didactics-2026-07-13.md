@@ -2460,6 +2460,18 @@ the production `from_cosmolike` boundary so constructor/from-state artifact
 use is genuinely independent; adding four gate-local stubs would preserve the
 false public import contract.
 
+The DIDACTICS-79 execution pass found `25M-38`, recorded in full in
+`data-generation-and-cuts.md`.  A real two-rank, one-parameter background run
+loads Cobaya and CAMB, then rank zero writes `# weights lnp H0` as the first
+line of its `.ranges` file.  GetDist 1.7.2 treats that four-token comment as a
+range record and raises while converting `weights` to a float.  The run
+returns status 1 before covariance or data-vector publication.  All four
+generator drivers inherit the writer.  The exact affected set is fresh
+one-parameter runs in either sampling mode and either chain mode.  Wider
+headers have five or more
+tokens and this GetDist version ignores them.  DIDACTICS-79 remains held until
+the new correctness finding is adjudicated and the real command is replayed.
+
 ## Red Team implementation record: 25M-37 evidence readback and Torch probe
 
 The audited production repair at `3ba8588` defers the optional geometry
@@ -2635,6 +2647,75 @@ gates/checks/scalar_smoke.py` returns zero and ends
 also pass.  This is implementation evidence for Architect review, not Red
 Team certification.
 
+## Unit 63 reopen implementation claim: the mask is a required state fact
+
+The Architect transferred the `25M-17` reopen to the Red Team in Wave 5.
+This bounded visit owns `Grid2DGeometry` state and readback.  A current save
+will carry `const_mask` for every grid2d geometry.  An unpinned geometry will
+carry an explicit all-false mask, while a pinned geometry will carry its true
+entries.  `from_state` will refuse a missing mask with a migration instruction
+instead of choosing the unpinned policy from key absence.
+The direct constructor also requires the argument.  Explicit `None` remains
+the deliberate all-false convenience, while omission raises `TypeError`.
+
+The reopen validates only the persisted representation: the mask is a
+one-dimensional boolean or uint8 array, its length is `nz*nk`, and every uint8
+value is zero or one.  The original unit-63 scientific-admissibility clauses
+for quantity, law-space identity and low-wavenumber coordinates remain with
+their existing owner.  This branch does not implement or weaken them.  The
+no-policy-version ruling remains intact because the mask itself carries the
+fact.
+
+`gates/checks/mps_identity.py` is under the separate `25M-36` repair while
+this claim starts.  This branch will therefore place the pure CPU mutation
+legs in `tests/test_grid2d_const_mask.py` and record the exact existing-gate
+integration debt.  The owning gate must absorb the explicit-unpinned,
+pinned-round-trip and missing-key mutation legs after that file becomes quiet.
+Its module preamble must also stop saying that the round trip has seven keys;
+the explicit mask makes the current state eight keys.  No board registry file
+or active check script is edited in this visit.
+
+The implementation changes `emulator/geometries/grid2d.py`, updates the
+grid2d pin banner in `emulator/experiment.py`, corrects the affected
+`emulator/README.md` file-map entry, adds
+`tests/test_grid2d_const_mask.py`, and records the readback in
+`notes/families-background-mps.md`. The focused command
+`PYTHONPATH=. ../cocoa/Cocoa/.local/bin/python -m unittest -v
+tests.test_grid2d_const_mask` passes five tests. The omission leg proves that
+the direct constructor cannot infer unpinned state. The deletion mutation
+proves the catch power numerically: the intact raw-boost pin serves `1.0`,
+while the retired missing-key branch serves `1.25`; current `from_state`
+raises with a re-save instruction. Shape, dtype and binary-value refusals run
+on CPU.
+
+The repo-wide direct-constructor census finds no production call outside the
+class: `from_stats` already passes the computed mask, and `from_state` now
+requires and passes the stored one. The only direct calls are the two focused
+test fixtures. The complete `tests/` discovery run is 11/11 green.
+
+The `mps-identity` child was owned by `25M-36` when this branch started, so its
+focused persistence-leg integration was initially held. After that repair
+landed and current main was merged, the file became quiet. The Red Team then
+claimed it only for this unit's three legs and the seven-to-eight-key preamble
+correction. The package README's affected file-map entry is also updated so it
+does not describe the retired omit-when-unpinned behavior. The wider package
+teaching visit remains separate.
+
+The experiment-side banner now tests the mask's value rather than its
+presence: it logs only when the explicit mask contains at least one true
+entry. An unpinned geometry therefore keeps the previous no-banner behavior
+after its in-memory `None` becomes an all-false array.
+
+The amended complete child reports eight state keys. Its new HDF5 checks cover
+an explicit all-false unpinned artifact, a valid pinned boost whose first
+wavenumber is pinned in all four redshift rows and deletion of the required
+mask from that valid pinned file. The intact pin survives save and rebuild.
+The deletion raises before prediction and names both `const_mask` and the
+re-save action. The full child ends `PASS: mps-identity all checks green`.
+
+The add-or-toggle case against a declared unmasked artifact remains unit 96's
+authenticity interlock. This bounded reopen does not edit
+`emulator/results.py` and does not claim that wider proof.
 ## Red Team implementation record: DIDACTICS-67 and DIDACTICS-68 warm-start visit
 
 The Architect transferred the warm-start visit to the Red Team in the Wave 4
@@ -2711,3 +2792,89 @@ separate neutralized-weight probe makes exactly the independent mutation leg
 red. Board listing returns zero, board self-test ends `ALL PASS`, compilation
 passes, and the scoped diff is clean. This section preserves the hold and
 repair sequence for Architect review; it does not certify the landing.
+
+## Red Team implementation claim: berHu analytic-child bound loss harness
+
+The Architect reproduced a check-side crash after the production chi-square
+domain contract became scale-aware. `CosmolikeChi2._reduce` now reads the
+per-row contraction width through `self._chi2_n_terms()`, while
+`gates/checks/gb_c_berhu_reduce.py` still called the method unbound with
+`self=None`. The child therefore raised `AttributeError` before it could
+execute the analytic probes or emit any of its three declared evidence
+terminals. Production loss code is frozen for this repair.
+
+The check now creates one real `CosmolikeChi2` object. A small harness geometry
+owns a one-element `dest_idx`, which is the only geometry fact the direct
+chi-square probes need. `transform` and `slope` receive that loss explicitly
+and call its bound `_reduce` method. The geometry counts reads of `dest_idx`;
+the child asserts that the count is positive before emitting the evidence
+terminals. This proves the production domain screen ran, instead of bypassing
+the instance-dependent line that exposed the stale harness.
+
+The complete CPU child reports 44 contraction-width reads. All default and
+non-default value, derivative and anneal probes pass. It emits exactly these
+terminals once:
+
+```text
+##AID berhu-loss.reference-values PASS
+##AID berhu-loss.join-derivatives PASS
+##AID berhu-loss.anneal-endpoints PASS
+```
+
+The final line is `berhu-loss numerics: ALL PASS`, and the process returns
+zero. The explicit old-call mutation
+`CosmolikeChi2._reduce(None, ...)` still raises
+`AttributeError: 'NoneType' object has no attribute '_chi2_n_terms'`, so it
+cannot reach the width-read assertion or the evidence terminals. This is the
+catch-power witness for the harness repair.
+
+The branch is `codex/berhu-loss-harness-self`. Its scoped implementation file
+is `gates/checks/gb_c_berhu_reduce.py`; the home-note readback is in
+`notes/training-stack.md` under the berHu evidence block. `gates/board.py`,
+`gates/run_board.py` and `emulator/losses/core.py` remain byte-identical. This
+record presents evidence for Architect audit and does not certify the
+landing.
+
+## Red Team implementation record: 25M-38 and DIDACTICS-79
+
+The Architect transferred the one-parameter `.ranges` repair and the held
+generator teaching example to the Red Team. The production diff removes one
+line from `compute_data_vectors/generator_core.py`: the comment that copied
+the chain column layout into a GetDist range file. The name and bound rows stay
+byte-identical. Unit 82's later decimal policy is untouched.
+
+The CPU regression is a dedicated `gates/checks/generator_ranges.py` child.
+The Implementer-owned foundation `generator_seed.py` stays byte-identical and
+keeps its narrow RNG evidence claim. The new child requires exactly one active
+production writer, executes that writer's own syntax-tree statements and
+parses the result with GetDist 1.7.2 `ParamBounds`. The repaired writer passes
+for one and two sampled parameters. Its built-in temporary-source mutation
+restores the deleted header. The one-parameter case then fails with the
+original `weights` conversion error while the two-parameter control remains
+green. The production file is not modified by that mutation.
+
+The README's minimal YAML and serial command were then executed verbatim in a
+temporary CoCoA-shaped tree using the real Cocoa Python environment, Cobaya
+3.6.2 and CAMB 1.6.7. The command returned zero. Real `ParamBounds` read the
+one-row range file as `H0: [60, 75]`. Both `(200, 8)` float32 targets were
+finite with nonzero cosmology-to-cosmology spread. The 200-row failure sidecar
+contained no failure. The nine expected files and no extras were present. The
+chain header recorded seed 1234 and `numpy.default_rng`.
+
+The same serial configuration also completed in a second temporary root.
+Its five text sidecars were byte-identical to the first run and both target
+arrays were array-identical. This proves serial same-seed replay through CAMB.
+Worker-count invariance remains a separate workstation obligation.
+
+The added README passage defines the YAML-only keys, its anonymous Python
+function, a serial MPI rank, a worker rank and the checkpoint interval. It
+states why this 200-row command writes only the final checkpoint. It prints no
+untested command. The complete command, output readback and mutation evidence
+are retained in `notes/data-generation-and-cuts.md` under "25M-38
+implementation and DIDACTICS-79 replay".
+
+This filing is durable implementation evidence for Architect audit. It does
+not certify 25M-38 or DIDACTICS-79 and it does not merge the branch. Queue 2
+still owns the new child's board entry and its distinct sidecar evidence name.
+The child must never be folded into the unrelated
+`generator-seed.owned-rng` claim.
