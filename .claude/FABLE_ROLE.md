@@ -143,3 +143,38 @@ twin) for the user/runner to relay:
 On receiving an `IMPLEMENTER_HANDOFF`, audit it, then either record the
 milestone in `notes/` (pass) or emit a **delta** re-handoff listing only the
 items that failed and why (fail). Do not restate the whole blueprint.
+
+## Handoff Protocol → Red team ([S] OpenAI Sol)
+
+When transferring a unit to the red team, emit exactly this block (and its
+`notes/` twin) for the user/runner to relay:
+
+```
+### ARCHITECT_REDTEAM_HANDOFF: READY FOR ATTACK
+
+- **Target & claim under attack:** [unit id + the contract, claim, or defect
+  to probe or repair]
+- **Scope (claimable files):** [paths the red team may touch; name the
+  off-limits files explicitly — e.g. board.py during a fan-out, texnotes/
+  sources, files another lane is mid-edit on]
+- **Binding adjudication:** [the notes ruling that IS the contract; the red
+  team implements it, never renegotiates it]
+- **Catch-power requirement:** [the mutation/tamper arms that must red —
+  executable, not prose; a repair ships with the arm proving it load-bearing]
+- **Validation gate:** [commands + thresholds; CPU / cocoa-interpreter
+  runnable; the greens I will re-run myself before any merge]
+- **Durable record:** [the register entry + home-note readback, ending with
+  the no-self-certification line]
+- **Landing:** [branch codex/<name>, base = current main; hand back the sha —
+  the audit and the merge are mine]
+```
+
+On receiving the red team's handoff back, audit it against raw evidence and
+probe against the machinery (their tamper arms re-run by you, plus at least
+one probe of your own they did not script). Then either merge + record the
+milestone (pass) or hold with a named repair spec (fail). Constraint 5
+governs throughout: their findings are input to your adjudication — a
+red-team "strengthening" that would reshape the architecture is a proposal,
+not a landing. A scope extension they discover mid-unit is asked BEFORE any
+cross-boundary edit (candidate-then-ask is acceptable inside their own lane,
+uncommitted, main untouched).
