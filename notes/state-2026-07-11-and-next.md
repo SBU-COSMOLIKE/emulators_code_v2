@@ -3031,3 +3031,15 @@ private checklist's categories — collapse to "editorial pass
 against private standards" (results + punctuation/format bullets
 stay). Spec: gates-and-board.md "Root README public-prose
 hardening audit".
+
+D3 CONTROL RULING (2026-07-13, Fable): the honest disjoint fixture
+reds the 0.05 two-epoch control at a deterministic 0.0746 — the
+old bar was leak-subsidized (~1,000 overlapping rows). RULED: the
+bar recalibrates BY MEASUREMENT inside the D3 landing;
+DIDACTICS-60's scalar-smoke half transfers from D5 to the red team
+and rides D3 (mean-predictor baseline on the same fixture; collapse
+bar below it; accuracy bar = honest error x 1.5, below the collapse
+bar; all numbers + margins printed and registered; dead-network arm
+reds against the new bars). Two-seed 1234/5678 form adopted; no
+production change. D5 drops the item. Spec: gates-and-board.md "D3
+control-interaction ruling".
