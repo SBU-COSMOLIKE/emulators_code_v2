@@ -3223,3 +3223,13 @@ executable). Commit, then the normal pre-merge audit.
 Candidate-then-ask accepted for own-lane scope extensions;
 ask-before-edit still binds on other-team files. Spec:
 gates-and-board.md "Unit-29 scope ruling".
+
+README DIAGNOSTIC-MEMORY (2026-07-14, Fable): 450c248 HELD on one
+unsourced factor — the arithmetic (10,000 x 40 x 24,522 -> 39.24
+GB) is exact and the 40 + 24,522 are documented, but no
+matter-power n_val = 10,000 exists anywhere in the repo while both
+the README and register call it "documented". Repair: cite the
+source or reframe the 10,000 as an explicitly labeled example
+scale with the documented ~3.9 MB per-row cost. Structure, voice,
+action, and register hygiene all pre-cleared; delta audit on the
+repair. Spec: gates-and-board.md "README diagnostic-memory audit".

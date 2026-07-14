@@ -7810,3 +7810,39 @@ uncommitted candidate lived entirely in their own worktree and
 main was untouched — extending a scope list inside their own lane.
 The stricter form (ask before ANY edit) continues to bind for
 files owned by the other team, e.g. board.py during the fan-out.
+
+## README diagnostic-memory audit (Fable, 2026-07-14): 450c248 HELD — one unsourced factor in the worked arithmetic
+
+The rewrite (codex/readme-diagnostic-memory) is structurally RIGHT:
+calculation separated from rendered output, the gather-then-fit
+sequence taught in plain language, the direct user action kept
+(omit --diagnostic at production width), no fix-queued diary in the
+public prose, and the register clean of private-standards
+enumeration with the no-self-certification line.
+
+MY VERIFICATION of the worked arithmetic 10,000 x 40 x 24,522
+float32 = 39.24 GB (36.54 GiB): the multiplication is exact and the
+README's rounding ("about 39 GB (36.5 GiB)") is correct. The 40
+(diagnostics.py:247 k_nn default; training-stack.md:241) and the
+24,522 (= 122 x 201 thinned MPS width; training-stack.md:241,
+data-generation-and-cuts.md:598) are both documented. THE 10,000 IS
+NOT: section 17 documents a 50,000-row production grid with NO
+train/val split; the README's other family examples use 5,000 and
+20,000; every gates config uses 5,000; the mps family note carries
+no n_val. Both the README ("the documented matter-power setup") and
+the register ("the documented matter-power configuration: 10,000
+validation rows") assert documentation that does not exist in the
+repository.
+
+REQUIRED REPAIR (one of, before commit-for-merge):
+1. If a documented matter-power n_val = 10,000 exists, cite it
+   (file + line) in the register and keep the sentence; or
+2. Reframe honestly: state the DOCUMENTED per-row cost (one
+   validation cosmology gathers 40 x 24,522 float32 values, about
+   3.9 MB) and present 10,000 rows as an explicitly labeled
+   example scale ("a 10,000-cosmology validation split needs about
+   39 GB"), removing the word "documented" from the unsourced
+   factor in BOTH the README and the register.
+
+Everything else in the landing is pre-cleared: on the repair, the
+follow-up commit needs only a delta audit of the changed sentences.
