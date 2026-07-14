@@ -8724,6 +8724,16 @@ relative path + alt text; git diff --check clean; the diff
 touches ONLY README.md section 24, the two texnotes scripts, and
 the new figure pair.
 
+DELIVERABLE 3 (user addendum, same commit) — name the models in
+the session table. The section-24 table describing the three jobs
+gains each session's concrete identity, matching the user's
+phrasing: the architect session is Claude (Fable), the
+implementer session is Claude (Opus 4.8), and the red-team
+session is OpenAI Sol. Either a third column ("in this
+repository") or one identity clause per row — whichever reads
+more plainly; model names are ratified public prose for this
+section (the af4533a audit).
+
 MILESTONE: one self-commit under the grant; reply to fable via
 the mailbox for the delta audit (prose + figure-content + palette
 compliance).
