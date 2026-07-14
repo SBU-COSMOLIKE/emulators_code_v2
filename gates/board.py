@@ -400,18 +400,22 @@ def gate_gm_d(ctx):
   """ema-smoke: EMA switched on works.
 
   WHAT: a short bs=64 run with ema.horizon_epochs=3. WHY: the identity
-  test proves EMA off is harmless, not that EMA on works. HOW: the
-  banner must read "ema: horizon 3 epochs" and a plateau lr cut must
-  print "rewound to best epoch"
-  (spec: training-stack.md:104-107, 240-251).
+  test proves EMA off is harmless, not that EMA on works. HOW: the smoke
+  exits zero (driver-exit-zero), its banner reads "ema: horizon 3 epochs"
+  (horizon-banner-present), and a plateau lr cut prints "rewound to best
+  epoch" (rewind-line-present)
+  (spec: training-stack.md#ema-smoke-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   out = _smoke_driver(ctx=ctx,
                       config_key="ema-smoke-config",
-                      required_banners=["ema: horizon 3 epochs"])
+                      required_banners=["ema: horizon 3 epochs"],
+                      exit_aid="ema-smoke.driver-exit-zero",
+                      banner_aid="ema-smoke.horizon-banner-present")
   if ctx.dry:
     return
-  ctx.expect(label="ema-smoke rewind line ('lr cut -> rewound to best epoch')",
+  ctx.expect(aid="ema-smoke.rewind-line-present",
+             label="ema-smoke rewind line ('lr cut -> rewound to best epoch')",
              ok=logscan.search(text=out, pattern=r"rewound to best epoch"),
              detail="training-stack.md:246-249: a rewind fires")
 
@@ -793,19 +797,23 @@ def gate_gha_f(ctx):
   WHAT: a model.trf.activation pin (gated_power) for the frozen-trunk
   head. WHY: the pin must win over the --activation flag with a warning,
   and an illegal pin (unfrozen trunk) must error, not misbuild. HOW: the
-  "model spec:" banner shows the pinned activation; --activation power
-  prints the flag-vs-pin warning; the deliberately-invalid license YAML
+  pinned-head smoke exits zero and prints the gated_power text; --activation
+  power prints the flag-vs-pin warning; the deliberately-invalid license YAML
   makes build_specs exit with the frozen-trunk message; plus the golden
-  no-pin run (spec: models-and-designs.md:239-242, 405-430).
+  no-pin run, UNAVAILABLE while golden_bases has no configured base
+  (spec: models-and-designs.md#head-activation-pin-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="head-activation-pin",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best|model spec)")
+              grep_pattern="^(phase|epoch|best|model spec)",
+              aid="head-activation-pin.golden-selected-text-equality")
   out = _smoke_driver(ctx=ctx,
                       config_key="head-activation-pin-config",
-                      required_banners=["gated_power"])
+                      required_banners=["gated_power"],
+                      exit_aid="head-activation-pin.pinned-config-exit-zero",
+                      banner_aid="head-activation-pin.gated-power-text-present")
   # same pinned YAML, now with the flag, to trigger the warning.
   pin_yaml = ctx.require_config("head-activation-pin-config")
   rc_w, out_w = ctx.run_driver(yaml_path=pin_yaml,
@@ -816,6 +824,7 @@ def gate_gha_f(ctx):
   if ctx.dry:
     return
   ctx.expect(
+    aid="head-activation-pin.flag-vs-pin-warning",
     label="head-activation-pin flag-vs-pin warning",
     ok=(rc_w == 0 and logscan.contains(
       text=out_w,
@@ -824,6 +833,7 @@ def gate_gha_f(ctx):
            "the startup warning that the pin wins over --activation; a warning "
            "printed on a failed run does not count")
   ctx.expect(
+    aid="head-activation-pin.unfrozen-pin-refusal",
     label="head-activation-pin license error (freeze_trunk false + pin"
           " -> build_specs errors)",
     ok=(rc_l != 0 and logscan.search(text=out_l, pattern=r"(?i)frozen")),
@@ -837,21 +847,28 @@ def gate_gan_c(ctx):
   WHAT: the parameter-free relu/tanh activations plus the norm knob
   (per_feature / affine). WHY: tanh needs the per_feature saturation
   guard, and the classic affine baseline must still work. HOW: a tanh +
-  per_feature run and a tanh + affine run each name their norm in the
-  banner and descend in loss; plus the golden absent-key run
-  (spec: models-and-designs.md:99-101).
+  per_feature run and a tanh + affine run each exit zero and name their
+  norm in the banner; plus the golden absent-key run. The runs' epoch
+  histories are printed but no assertion compares their loss values, so
+  loss descent is logged-only, not asserted evidence
+  (spec: models-and-designs.md#relu-tanh-norm-evidence).
   """
   ctx.require_caps("torch", "cosmolike", "gpu")
   _golden_leg(ctx=ctx,
               gate_id="relu-tanh-norm",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best)")
+              grep_pattern="^(phase|epoch|best)",
+              aid="relu-tanh-norm.golden-selected-text-equality")
   _smoke_driver(ctx=ctx,
                 config_key="relu-tanh-norm-per-feature",
-                required_banners=["per_feature"])
+                required_banners=["per_feature"],
+                exit_aid="relu-tanh-norm.per-feature-config-exit-zero",
+                banner_aid="relu-tanh-norm.per-feature-text-present")
   _smoke_driver(ctx=ctx,
                 config_key="relu-tanh-norm-affine",
-                required_banners=["affine"])
+                required_banners=["affine"],
+                exit_aid="relu-tanh-norm.affine-config-exit-zero",
+                banner_aid="relu-tanh-norm.affine-text-present")
 
 
 def gate_gwd_c(ctx):
@@ -1727,8 +1744,15 @@ BOARD = [
        title="EMA on-mode smoke",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="104-107, 240-251 (on-mode smoke: horizon banner + metrics); "
-            "246-249 (the lr-cut rewind line)",
+       maps="the EMA-on training smoke exits zero, prints its resolved "
+            "\"ema: horizon 3 epochs\" banner, and reaches the logged "
+            "\"rewound to best epoch\" rewind line",
+       evidence=(Assertion("ema-smoke.driver-exit-zero",
+                           "training-stack.md#ema-smoke-driver-exit-zero"),
+                 Assertion("ema-smoke.horizon-banner-present",
+                           "training-stack.md#ema-smoke-horizon-banner-present"),
+                 Assertion("ema-smoke.rewind-line-present",
+                           "training-stack.md#ema-smoke-rewind-line-present")),
        run=gate_gm_d,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.ema-smoke-config",) + _CS_DEPLOY_DATA),
@@ -2081,8 +2105,19 @@ BOARD = [
        title="Pinned head activation",
        tier=TIER_NEW_FEATURES,
        home="models-and-designs",
-       maps="239-242, 405-430 (model-spec banner + param count + warning); "
-            "429-430 (leg 4: freeze_trunk false + pin -> build_specs errors)",
+       maps="the pinned-head driver exits zero and prints its gated_power text, "
+            "the --activation flag run warns that the pin wins, and the invalid "
+            "unfrozen-head config is refused with a frozen-trunk message",
+       evidence=(Assertion("head-activation-pin.golden-selected-text-equality",
+                           "models-and-designs.md#head-activation-pin-golden-selected-text-equality"),
+                 Assertion("head-activation-pin.pinned-config-exit-zero",
+                           "models-and-designs.md#head-activation-pin-pinned-config-exit-zero"),
+                 Assertion("head-activation-pin.gated-power-text-present",
+                           "models-and-designs.md#head-activation-pin-gated-power-text-present"),
+                 Assertion("head-activation-pin.flag-vs-pin-warning",
+                           "models-and-designs.md#head-activation-pin-flag-vs-pin-warning"),
+                 Assertion("head-activation-pin.unfrozen-pin-refusal",
+                           "models-and-designs.md#head-activation-pin-unfrozen-pin-refusal")),
        run=gate_gha_f,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.head-activation-pin-config",
@@ -2093,7 +2128,19 @@ BOARD = [
        title="relu/tanh with the norm knob",
        tier=TIER_NEW_FEATURES,
        home="models-and-designs",
-       maps="99-101 (tanh+per_feature + tanh+affine + golden absent-key)",
+       maps="the tanh+per_feature and tanh+affine drivers each exit zero and "
+            "name their norm in the banner, while the golden selected-text "
+            "equality stays unavailable with no configured base",
+       evidence=(Assertion("relu-tanh-norm.golden-selected-text-equality",
+                           "models-and-designs.md#relu-tanh-norm-golden-selected-text-equality"),
+                 Assertion("relu-tanh-norm.per-feature-config-exit-zero",
+                           "models-and-designs.md#relu-tanh-norm-per-feature-config-exit-zero"),
+                 Assertion("relu-tanh-norm.per-feature-text-present",
+                           "models-and-designs.md#relu-tanh-norm-per-feature-text-present"),
+                 Assertion("relu-tanh-norm.affine-config-exit-zero",
+                           "models-and-designs.md#relu-tanh-norm-affine-config-exit-zero"),
+                 Assertion("relu-tanh-norm.affine-text-present",
+                           "models-and-designs.md#relu-tanh-norm-affine-text-present")),
        run=gate_gan_c,
        manifest=Manifest(code=_CS_TRAIN_CODE,
                          inputs=("gate_configs.relu-tanh-norm-per-feature",
