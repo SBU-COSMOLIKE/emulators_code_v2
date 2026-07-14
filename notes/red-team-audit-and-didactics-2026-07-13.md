@@ -2658,3 +2658,24 @@ verdicts, and uses four skip-one-guard mutations to prove that every new call
 is load-bearing.  Existing gate files remain untouched because their queue-2
 owner is active.  The owner note records the exact Part D, Part E, and future
 documentation-examples additions needed after that collision clears.
+
+## README diagnostic-memory explanation
+
+The root README previously warned that the local-linear diagnostic forms an
+array with axes `validation rows x 40 neighbours x output coordinates`.  That
+shape was accurate, but it did not explain why a small PDF needs a large
+numerical workspace.  The current rewrite separates the calculation from its
+rendered output.  It teaches that the diagnostic first gathers the complete
+target vector from 40 neighbouring training cosmologies for every validation
+cosmology, then fits the local linear comparison, and only afterward draws the
+PDF page.
+
+The concrete arithmetic comes from the documented matter-power configuration:
+10,000 validation rows and 24,522 retained `(z, k)` outputs.  The allocation
+at `emulator/diagnostics.py` is therefore
+`10,000 x 40 x 24,522` float32 values, or 39.24 GB (36.54 GiB), before the CPU
+copy, least-squares solution and other staged arrays.  The README rounds this
+to 39 GB and 36.5 GiB.  The user-facing action remains current and direct:
+omit `--diagnostic` for a production-width matter-power run until this
+calculation is memory-bounded.  This is implementation evidence for Architect
+audit, not self-certification.
