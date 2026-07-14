@@ -217,13 +217,28 @@ class _EmptyGeometry:
 def check_amp_artifact():
   """Write and read one artifact using the production record schema."""
   keys = _resolved_train_keys()
+  expected_policy = {
+    "amp_dtype": "torch.float16",
+    "scaler_policy": "unscaled",
+  }
+  policy_keys_declared = True
+  for key in expected_policy:
+    if key not in keys:
+      policy_keys_declared = False
+  report(
+    "production resolved_train declares both resolved policy fields",
+    policy_keys_declared,
+    "production keys=" + repr(sorted(keys)))
+
+  fixture_values = {
+    "use_amp": True,
+    "device": "mps",
+    "amp_dtype": expected_policy["amp_dtype"],
+    "scaler_policy": expected_policy["scaler_policy"],
+  }
   resolved = {}
   for key in keys:
-    resolved[key] = None
-  resolved["use_amp"] = True
-  resolved["device"] = "mps"
-  resolved["amp_dtype"] = "torch.float16"
-  resolved["scaler_policy"] = "unscaled"
+    resolved[key] = fixture_values.get(key)
 
   with tempfile.TemporaryDirectory(prefix="unit41-policy-") as directory:
     root = os.path.join(directory, "artifact")
@@ -249,10 +264,6 @@ def check_amp_artifact():
       payload = payload.decode("utf-8")
     readback = yaml.safe_load(payload)["train_args"]
 
-  expected_policy = {
-    "amp_dtype": "torch.float16",
-    "scaler_policy": "unscaled",
-  }
   report(
     "artifact persists the resolved AMP dtype and scaler policy",
     readback.get("amp_dtype") == expected_policy["amp_dtype"]
@@ -263,8 +274,8 @@ def check_amp_artifact():
     }))
 
   mutated = dict(readback)
-  del mutated["amp_dtype"]
-  del mutated["scaler_policy"]
+  mutated.pop("amp_dtype", None)
+  mutated.pop("scaler_policy", None)
   mutation_accepted = True
   for key, value in expected_policy.items():
     if mutated.get(key) != value:

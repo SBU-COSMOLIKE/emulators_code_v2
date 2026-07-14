@@ -13798,3 +13798,25 @@ else instantiates emul_cosmic_shear) are both accepted — each has one
 author for one law, which is the design's own principle. The 0151
 dispatch is consumed by this audit (hand-archived). geo-paths/smoke
 schema-v2 fixture findings stay with their existing ledger/board homes.
+
+## Unit 41-REPAIR witness delta audited GO — unit 41 CLOSED (2026-07-14)
+
+Sol's delta to gates/checks/redteam_unit41_policy_witness.py (+22/-11,
+uncommitted per the read-only-metadata handback) audited this turn:
+
+- Clean tree: witness ALL PASS (cocoa torch interpreter).
+- Deletion probe re-run by the Architect: removing the two persistence
+  lines ("amp_dtype": str(amp_dtype) / "scaler_policy": scaler_policy)
+  from emulator/training.py now REDS two legs — "production
+  resolved_train declares both resolved policy fields" (the new
+  membership assertion, printing the surviving production keys) and
+  "artifact persists the resolved AMP dtype and scaler policy" (readback
+  {None, None}) — exactly the reverted-production state the original
+  audit proved the OLD witness blessed.
+- training.py restored byte-identical (filecmp shallow=False True);
+  control run ALL PASS.
+
+The arm is production-coupled; the dead-gate class is closed for this
+witness. Unit 41 (production c224a79 + this witness delta) leaves the
+ledger in this commit. No self-certification: built by Sol as second
+Implementer (0153), audited independently here.
