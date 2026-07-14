@@ -44,15 +44,19 @@ short routing summary with a direct note pointer. Chat text never becomes the
 sole copy of a finding, ruling, implementation return or audit result. If the
 note and chat summary differ, the current note is authoritative.
 
-**The mailbox is a valid relay channel.** A message may reach Codex as
+**The mailbox is the required inter-agent relay channel.** Every message
+between Codex, Fable and Opus uses a numbered file under `notes/mailbox/`.
+A message reaches Codex as
 `notes/mailbox/NNN-to-sol.md`, dispatched headlessly by
-`tools/mailbox_daemon.py`, instead of as a pasted
-`ARCHITECT_REDTEAM_HANDOFF`. Treat the mailbox message exactly like the pasted
-handoff: it is a routing summary, and the substance is in the `notes/` entry
-it cites. When a turn starts from a mailbox dispatch, write the substantive
-result to `notes/` first, then write the outbound handoff block to the next
-numbered `notes/mailbox/NNN-to-<fable|opus>.md` file. Merges and pushes to
-`main` remain the user's alone. The shared convention is
+`tools/mailbox_daemon.py`. Treat the mailbox message as a routing summary; the
+substance is in the `notes/` entry it cites. Every Red Team turn that has a
+result for Fable or Opus writes the substantive result to `notes/` first, then
+writes the outbound handoff block to the next numbered
+`notes/mailbox/NNN-to-<fable|opus>.md` file. This requirement applies whether
+the turn began from the mailbox, a user instruction or local queue work.
+Pasted chat text is not an inter-agent relay. Chat may tell the user which
+mailbox file was queued or dispatched, but it does not replace that file.
+Merges and pushes to `main` remain the user's alone. The shared convention is
 `notes/conventions-and-workflow.md`, "Notes-first inter-agent communication."
 
 Every relayable Codex finding starts with

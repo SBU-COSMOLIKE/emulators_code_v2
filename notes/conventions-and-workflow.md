@@ -280,14 +280,37 @@ record, never cited as evidence, and never edited. The agent-written note a
 block cites remains the record; the router's gate log is corroborating
 input to the Architect's audit, which still performs its own re-runs.
 
-The mailbox (Fable addendum, 2026-07-14): `notes/mailbox/` holds pending
-routing summaries as one file per message, `NNN-to-<fable|opus|sol>.md`;
-`tools/mailbox_daemon.py` dispatches each to its addressee's headless CLI
-and moves it to `notes/mailbox/done/`. Mailbox files are routing summaries
-under the notes-first rule — the substance stays in the cited note. An
-agent finishing a mailbox-dispatched turn writes its outbound handoff as
-the next mailbox file, so the loop continues without a human relay; merges
-and pushes to main remain the user's alone.
+The mailbox (Fable addendum, 2026-07-14; mandatory-channel user ruling,
+2026-07-13): `notes/mailbox/` holds pending routing summaries as one file per
+message, `NNN-to-<fable|opus|sol>.md`; `tools/mailbox_daemon.py` dispatches
+each to its addressee's headless CLI and moves it to
+`notes/mailbox/done/`. Mailbox files are routing summaries under the
+notes-first rule. The substance stays in the cited note.
+
+The mailbox is the required channel for every communication between Fable,
+Opus and Sol. This includes turns started by a user instruction, local queue
+work and a prior mailbox dispatch. An agent with a relayable result writes the
+substance to `notes/` first, then writes the routing handoff to the next
+numbered mailbox file. Pasted chat text does not substitute for the mailbox;
+chat may report the queued or dispatched filename to the user. A direct
+status intended only for the user may use `NNN-to-user.md`, which the daemon
+does not dispatch. Merges and pushes to main remain the user's alone.
+
+### Mandatory-mailbox binding record (2026-07-13)
+
+- User ruling: every inter-agent communication now uses the mailbox. The
+  notes-first rule remains unchanged, so a mailbox file contains the routing
+  summary and cites the substantive note.
+- Red Team binding: `.codex/REDTEAM_ROLE.md` requires an outbound mailbox file
+  for every result addressed to Fable or Opus, regardless of how the turn
+  began. Chat is limited to telling the user which mailbox file was queued or
+  dispatched.
+- Ownership boundary: this increment does not change either Claude role or
+  `tools/mailbox_daemon.py`. Fable and Opus receive the shared ruling through
+  the mailbox and retain their role-file ownership.
+- Git boundary: the change is isolated on `codex/mailbox-mandatory`; main
+  merge and push remain the user's actions. This record is submitted for
+  Fable audit and is not Red Team self-certification.
 
 Red Team role binding and Sol command probe (2026-07-14):
 
