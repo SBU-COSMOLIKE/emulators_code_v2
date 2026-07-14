@@ -58,13 +58,18 @@ EXPECTED_PANEL_WINDOWS = (
 )
 
 
-def report(label, ok, detail):
+def report(label, ok, detail, aid=None):
   """Print one acceptance line and record a failure."""
   if ok:
     mark = "PASS"
   else:
     mark = "FAIL"
   print("  [" + mark + "] " + label + "  (" + detail + ")")
+  # (queue 2) the per-leg assertion manifest the board folds into this gate's
+  # executed set: one reserved '##AID <aid> <result>' line per acceptance leg.
+  # The child's exit status stays the single aggregate verdict, not a leg.
+  if aid is not None:
+    print("##AID " + aid + " " + mark)
   if not ok:
     FAILURES.append(label)
 
@@ -603,7 +608,8 @@ def main():
   report(
     "the triangle figure was produced",
     figure is not None,
-    "None means fewer than two LCDM columns were recognized")
+    "None means fewer than two LCDM columns were recognized",
+    aid="triangle-shading.figure-produced")
   if figure is None:
     return finish()
 
@@ -615,7 +621,8 @@ def main():
     report(
       "each physical window is shaded on its named parameter panel",
       False,
-      str(exc))
+      str(exc),
+      aid="triangle-shading.panel-window-set-exact")
     plt.close(figure)
     return finish()
 
@@ -635,7 +642,8 @@ def main():
   report(
     "each physical window is shaded on its named parameter panel",
     len(panel_errors) == 0 and mutation_ok,
-    panel_detail)
+    panel_detail,
+    aid="triangle-shading.panel-window-set-exact")
 
   colour_errors = shading_colour_errors(axis_identities=axis_identities)
   colour_detail = "checked all z-order-zero collections and patches"
@@ -644,7 +652,8 @@ def main():
   report(
     "every cut artist uses the shared rgba (_CUT_GREY)",
     len(colour_errors) == 0,
-    colour_detail)
+    colour_detail,
+    aid="triangle-shading.all-cut-artists-use-shared-gray")
 
   marginal_errors = marginal_band_errors(
     axis_identities=axis_identities,
@@ -655,7 +664,8 @@ def main():
   report(
     "only the omegamh2 diagonal carries its two cut-bound bands",
     len(marginal_errors) == 0,
-    marginal_detail)
+    marginal_detail,
+    aid="triangle-shading.omegamh2-marginal-bands-exact")
 
   plt.close(figure)
   return finish()

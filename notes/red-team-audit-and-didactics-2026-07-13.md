@@ -1991,8 +1991,13 @@ ordinary loops. Multi-argument helper and acceptance calls put one argument
 on each line where practical. An AST scan has zero comprehension or generator
 nodes and zero generator-based `extend`, `all`, or `any` calls. The four gate
 results plus the mutation counts are unchanged.
-The clean-tree board wrapper invocation remains owed after the queue-2 owner
-wires the amended aid names.
+Queue-2 fan-out batch 1 later landed the original four aid bindings in
+`b9244cf`. This branch then merged that main-line change, retained its
+`report(aid=...)` mechanism and changed the four declarations, emissions and
+home-note anchors together to the exact-owner claims above. The direct child
+still passes all four legs after that merge. A board-wrapper attempt stopped
+in preflight because the Mac lacks CosmoLike, CUDA and a resolved ROOTDIR. No
+gate body ran, so a board-level verdict is not claimed.
 
 The D6 temporary-directory half did not enter this landing because its files
 have other active owners. The original nine-site contract is exact at the

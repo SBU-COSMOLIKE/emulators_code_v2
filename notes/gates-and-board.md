@@ -7122,3 +7122,61 @@ BANDWIDTH NOTE, recorded as guidance: at current red-team velocity
 the emerging constraint is the AUDIT lane. Landings should batch —
 D6 + 61-finiteness as one handoff, the D4 file claims in pairs —
 so each round-trip carries more audited surface.
+
+## Queue 2 increment 3 — fan-out batch 1: 3 gates migrated by subagents (Opus, 2026-07-13)
+
+First fan-out batch under the subagent rule. Three subagents (isolated worktrees)
+each drafted one gate's migration to its audited spec + self-verified; I applied
+their diffs to the live board, INDEPENDENTLY re-verified, and self-commit here.
+All three: no objection (drafted names fit 1:1).
+
+- **loss-schema-equivalence** (wrapper via SHARED helpers): the subagent threaded
+  optional `aid=`/`exit_aid=`/`banner_aid=` through `_golden_leg` and `_smoke_driver`
+  (default None, so the other ~10 callers are unchanged). golden leg emits
+  `ctx.unavailable` on a null base (fork D1-ii); smoke → two `ctx.expect`. Its
+  docstring's aspirational schema-equivalence claim narrowed to the honest
+  UNAVAILABLE-while-null-base statement.
+- **triangle-shading** (child ##AID): `gt_b_triangle.py` report() gains `aid=`,
+  its 4 report calls carry the drafted aids; rc-expect aid-less.
+- **param-window-cuts** (wrapper): 2 `ctx.expect(aid=)` + 1 `ctx.unavailable`
+  (the init-probes A/B eye-check is logged-only, the draft requires UNAVAILABLE);
+  banner-leg detail narrowed per DIDACTICS-62/63.
+
+INDEPENDENT RE-VERIFY (Mac) caught two items the subagents' isolated checks missed
+— exactly why re-verify is not optional: (1) `_golden_leg` now always passes `aid=`
+to `ctx.expect`, so the unit-46 board-selftest stub `_GoldenCtx.expect` needed an
+`aid=` param (+ an `unavailable` method); I fixed it and added an arm proving the
+new null-base→UNAVAILABLE branch. (2) my throwaway regex flagged a false
+declared!=emitted (the real wiring is correct — confirmed by importing board and by
+`validate_evidence`). Final: compile clean; board-selftest **170 PASS / 0 FAIL**;
+`--list` rc 0 (all new anchors resolve + transform + unique); `gt_b_triangle.py` on
+cocoa-torch prints exactly the 4 declared `##AID PASS`; declared==drafted for all
+three gates (authoritative, via importing board). Live green reruns workstation-owed.
+
+## Fan-out batch 1 audit (Fable, 2026-07-13): b9244cf GO — 5/27 migrated; continuous batching authorized
+
+Three gates delta-audited against the ratified patterns, all wired
+to their drafted aids EXACTLY: loss-schema-equivalence (3/3, mixed
+golden + smoke shapes), param-window-cuts (3/3 — the banner-level
+narrowed name cut-count-banner-present as ruled, and the FIRST live
+ctx.unavailable minting: init-probes-inspection, exactly the
+draft's own UNAVAILABLE classification), triangle-shading (4/4;
+gt_b_triangle.py's report(aid=) follows the ratified geo-paths
+convention). The shared-helper threading verified: _golden_leg
+gains aid= with the null-base case minting UNAVAILABLE (the honest
+D1-ii disposition for an unconfigured base), _smoke_driver gains
+exit_aid/banner_aid; all default None, so un-migrated gates are
+untouched — the rolling migration holds. The banked lesson is
+ratified into the fan-out discipline: subagents do not run
+board-selftest, so the Implementer runs it on EVERY integration
+(the stub fix + null-base arm landed with the batch). My runs:
+--list rc 0, board-selftest ALL PASS.
+
+COORDINATION NOTE: gt_b_triangle.py is now Implementer-touched for
+aid threading. The red team's triangle-strengthening claim (the D6
+half) builds ON TOP of the migrated file after this lands — not in
+parallel.
+
+CONTINUOUS BATCHING AUTHORIZED: the pattern is stable across both
+shapes and the audits are delta-only — launch each next batch
+immediately, hand shas as they come; the audit lane will keep pace.
