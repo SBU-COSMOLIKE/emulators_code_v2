@@ -7985,7 +7985,6 @@ tip: the child emits exactly the six declared terminals ALL PASS
 with the new legs contributing to distance-pipeline-consistency,
 plus my delta re-audit of the conflict resolution only.
 
-<<<<<<< HEAD
 FAN-OUT BATCH 6 (b74d81b) GO: cmb-identity (7, pure check-script,
 child emit_aid groups, reordered main() into contiguous leg groups),
 eval-batch-invariance (4, pure check-script -- partition-invariance +
@@ -8447,7 +8446,86 @@ capability that does not exist on main today.
 MILESTONE: one commit on the shared branch under the grant; hand
 the sha for my audit (a prose-only delta — I audit register,
 truth of claims, and the public-prose conventions).
-=======
+
+### IMPLEMENTER RESUME (Opus, 2026-07-14): README section 24 appendix LANDED — af4533a
+
+Executed the blueprint above. One commit on branch
+`claude/amazing-keller-e798b6` under the grant: `af4533a`, README.md
+only, +62 insertions, zero deletions. No other file touched.
+
+WHAT LANDED. Section 24 "AI usage" keeps its original three-line
+paragraph and gains a 61-line appendix (within the 40-70 target) in
+five subsections, one per content-contract point:
+- "How the code is tested and repaired over time" — the three sessions
+  as a two-column table (Session | Job): architect (writes each spec,
+  audits every finished change against raw command output before merge,
+  final word on design); implementer (turns a spec into complete code,
+  runs the validation gates); red team (a separate model whose only job
+  is to break the code, defined in place as an adversarial reviewer that
+  hunts bugs, weak tests, and stale docs and files what it finds). Plus
+  the sentence that a red-team finding is input to the architect's
+  review, never self-applied. [contract 1]
+- "Durable records make it long-term" — substantive work written under
+  notes/ before any chat message; chat is a pointer; the note wins on
+  disagreement; sessions forget, notes do not, any later session or a
+  human resumes from the notes. [contract 2]
+- "The life of a reported bug" — a six-step numbered lifecycle: filed
+  with file+line; architect reproduces independently; implementer
+  repairs within a set scope; repair ships with a regression arm that
+  re-introduces the defect and shows the check now fails (catch power
+  demonstrated, not asserted); architect re-runs the evidence before
+  merge; the gates board re-runs every check on every later run. Two
+  generic real examples cited: a units format that crashed a file
+  parser, and an integration reference that shared its integrator with
+  the code under test. [contract 3]
+- "The objectivity anchor" — gates run by the machine
+  (gates/run_board.py + the check scripts), relay tooling runs them
+  locally and keeps raw logs, no pass/fail claim accepted without the
+  command output. [contract 4]
+- "The tools" — one sentence each for tools/handoff_router.py (relay +
+  --status loop-state sweep from git and notes) and
+  tools/mailbox_daemon.py (file mailbox under notes/mailbox/, dispatched
+  headlessly); closes with "Merges to the main branch are performed only
+  by the human maintainer." [contract 5]
+
+REGISTER NOTE (important for audit). The shipped README uses NO em
+dashes, NO en dashes, and NO " -- " anywhere (verified:
+`python3 -c` counts all three = 0 across the whole file). I matched
+that: the appendix uses only commas, colons, short non-clause
+parentheses, and sentence splits. This diverges from the notes'
+em-dash habit but conforms to the actual public artifact's register,
+which is the governing standard for README prose.
+
+TRUTH-OF-CLAIMS CHECK (each capability asserted exists on main today):
+tools/handoff_router.py present, --status arg present (argparse line
+288); tools/mailbox_daemon.py present; gates/run_board.py present;
+gates/checks/ holds the individual check scripts; notes/mailbox/
+exists. No claimed capability is absent.
+
+VALIDATION GATE (all green, this session):
+- `git diff --name-only` -> README.md (only). PASS.
+- `git diff --check` -> CLEAN, no whitespace errors. PASS.
+- dash/register audit -> em 0, en 0, " -- " 0. PASS.
+- renders as plain GitHub markdown (table + numbered list + inline
+  code; no LaTeX). PASS.
+- diff touches section 24 only (last section; +62 all insertions after
+  the original paragraph). PASS.
+
+DEVIATIONS: none from the content contract. One register choice noted
+above (no em dashes, to match the README artifact rather than the notes
+habit) — flagged for the audit, not a scope change.
+
+LANDING BLOCK (commit already made under the grant; merge/push to main
+remains the user's):
+
+    branch: claude/amazing-keller-e798b6
+    commit: af4533a
+    file:   README.md (+62, -0)
+    # user action when ready: fast-forward merge to main + push
+
+Awaiting Architect audit of register, truth of claims, and public-prose
+conventions.
+
 ## BACKUP-IMPLEMENTER ASSIGNMENT 1 resume: scalar-smoke nine-aid child
 
 The backup-Implementer assignment started from clean current main
@@ -8471,7 +8549,6 @@ unchanged, including trained median `0.196647360921`, collapse bar
 
 This is a backup-Implementer resume and evidence record for Fable audit.  It
 does not certify the landing and it does not merge the branch.
->>>>>>> codex/scalar-smoke-nine-aids-child
 
 ## Backup-Implementer unit 1 audit (Fable, 2026-07-14): 77a1572 GO — merged; the backup lane's first landing reads exactly like execution discipline
 
@@ -8498,3 +8575,86 @@ tuple landing on top. The declared==emitted 9==9 closure is
 proven at that seam. VERDICT: GO; merged. The backup lane is
 VALIDATED end to end: assignment -> mode declaration -> bounded
 execution -> honest evidence -> audit.
+
+## README section 24 appendix audit (Fable, 2026-07-14): af4533a GO — the unit closes; merge is the user's
+
+Audit of the Implementer's resume above ("IMPLEMENTER RESUME
+(Opus, 2026-07-14): README section 24 appendix LANDED"), a
+prose-only delta: register, truth of claims, public-prose
+conventions. Every gate below is MY OWN RUN this session, not the
+pasted log (gate-integrity screen).
+
+SCOPE, re-verified: `git show af4533a --stat` -> README.md only,
++62/-0; the insertions start after line 3485 (the original
+section 24 paragraph) and run to the file end; section 24 is the
+last section (`## 24. AI usage` at 3481), so "section 24 only"
+holds by construction. `git diff af4533a^ af4533a --check` ->
+CLEAN. No gate-surface file (checks, thresholds, fixtures, golden
+bases) is touched — the anti-tamper diff is trivially clean.
+
+REGISTER, my own count on the working tree: em dash 0, en dash 0,
+" -- " 0 across the whole README. The `###` unnumbered-subsection
+shape matches the file's standing convention (20 prior instances,
+e.g. lines 145-383). Table + numbered list + inline code render
+as plain GitHub markdown; no LaTeX anywhere in the hunk.
+
+RATIFIED: the Implementer's register call — matching the README's
+own zero-dash register instead of the notes' em-dash habit — is
+CORRECT and now standing: the artifact's register governs public
+prose; the notes' register stays the notes'. This is the
+voice-note discipline applied, not a deviation.
+
+TRUTH OF CLAIMS, each capability re-verified at the machinery:
+- `tools/handoff_router.py` exists; `--status` is a real argparse
+  flag (line 288).
+- "the relay tooling runs them locally and keeps the raw logs" is
+  TRUE of the router (its gate step runs the board commands via
+  subprocess and archives the full stream, lines 152-184), not
+  just asserted.
+- `tools/mailbox_daemon.py` exists; dispatches headlessly from
+  notes/mailbox/ and writes a per-dispatch log (lines 161-174).
+- `gates/run_board.py` and the `gates/checks/` scripts exist.
+- "Merges to the main branch are performed only by the human
+  maintainer" matches the shared permission policy (git push
+  denied to agents) and the standing user-only-merge rule.
+- The two generic examples are REAL findings from this program's
+  history (a units format that crashed a file parser; a reference
+  that shared its integrator with the code under test — the
+  Simpson finding), cited without internal identifiers as the
+  blueprint required.
+
+CONTENT CONTRACT: all five points present and in order; every
+term of art defined in place (red team defined as an adversarial
+reviewer; regression arm rendered as a plain-language "test that
+re-introduces the original defect on purpose"); no model names,
+unit IDs, queue numbers, or codenames anywhere in the hunk;
+current-state prose throughout (no diary, no fix-queued
+language).
+
+ONE OBSERVATION, ruled acceptable, no delta: lifecycle step 6
+says "the gates board" one subsection before "The objectivity
+anchor" pins the board to `gates/run_board.py`, and "board" has
+no earlier README mention. The phrase is self-describing in
+context ("re-runs every check on every later run") and its anchor
+lands eleven lines later in the same appendix — define-or-drop is
+satisfied at appendix scope. Not worth churning a landed
+prose-only commit.
+
+VERDICT: GO. The unit closes; no delta re-handoff. The landing
+block in the resume above stands as printed — merge/push to main
+remains the user's alone:
+
+    branch: claude/amazing-keller-e798b6
+    commit: af4533a
+    file:   README.md (+62, -0)
+    # user action when ready: fast-forward merge to main + push
+
+SEPARATE REPAIR, recorded here because this note is the artifact:
+merge 48ef45a landed with UNRESOLVED conflict markers committed
+into this file (`<<<<<<< HEAD` / `=======` / `>>>>>>>` at former
+lines 7988/8529/8553) — my own prior turn's merge residue, caught
+during this audit. Both sides were legitimate durable content
+(HEAD: fan-out batch 6 GO + the section-24 blueprint and resume;
+incoming: Sol's backup-Implementer unit 1 resume), so the
+resolution keeps both bodies and deletes only the three marker
+lines. Repaired this turn, committed with this audit record.

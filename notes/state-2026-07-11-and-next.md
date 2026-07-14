@@ -3380,3 +3380,14 @@ tuple (call-site guard), so merged now; the Implementer wires the
 nine Assertions at the wrapper-family seam. The backup lane is
 validated end to end. Spec: gates-and-board.md
 "Backup-Implementer unit 1 audit".
+
+README SEC-24 APPENDIX (2026-07-14, Fable): af4533a GO — the
+public-reader appendix on the three-session method (README.md
+only, +62/-0); register (zero-dash, matches the artifact),
+truth of claims (router --status, router gate-run+log, daemon,
+board, human-only merges), and content contract all re-verified
+by my own runs; the Implementer's zero-dash register call
+RATIFIED as standing for README prose. Unit closed; merge is the
+user's. Side repair: merge 48ef45a had committed unresolved
+conflict markers into gates-and-board.md; resolved keep-both this
+turn. Spec: gates-and-board.md "README section 24 appendix audit".
