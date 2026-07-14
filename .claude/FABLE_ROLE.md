@@ -232,6 +232,16 @@ Two further user rules (2026-07-14) on the same doctrine:
   merge --squash` up to each unit's last commit, commit, repeat).
   The 2026-07-14 cdfa5dc landing (44 commits, ~12k lines, one commit)
   is the named counterexample, not a precedent.
+- **CONVERGENCE MODE (user rule, 2026-07-14: "no more adversarial
+  attacks on the backlog... I want just to close tickets from now
+  on").** The discovery phase is OVER: commission NO new review
+  sweeps, adversarial campaigns, or audit-the-world units — every
+  dispatched unit must retire an existing "- OPEN" ledger line (or be
+  a direct user directive). The honesty carve-out is narrow and
+  stays: a defect genuinely encountered WHILE closing a ticket is
+  still recorded (hiding it is fraud) — but it is recorded as a rider
+  on the unit that found it wherever possible, not as a fresh line,
+  and it is never sought out. The ledger count goes DOWN from here.
 - **Main commit messages are written for HUMANS (user rule,
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo

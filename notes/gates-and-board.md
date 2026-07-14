@@ -12562,3 +12562,80 @@ against a real resolved Cobaya model; NEW from RULING 3: the live vertical-law
 lifecycle pair on `EXAMPLE_EMUL2_EVALUATE.yaml` (agreeing pin runs, mismatched
 pin refuses didactically). The six torch gates LEAVE the owed list for this
 landing series — they were re-executed by the auditing turn itself.
+
+## The 0132 re-fire closed on arrival (Architect, 2026-07-14): stale — the audit above was already committed; the one live gap was the never-written 0140 dispatch, repaired this turn
+
+The same `0132-to-fable` handoff that fed the audit above re-fired into a
+fresh Architect turn at ~10:12. Store-first reading (the 0120/0130 reference
+conduct) closed it in minutes:
+
+- **Everything the message asks for is done and committed.** The landing is
+  `61397d7` (09:48:43), the audit record with RULINGS 3–5 is `bcba4a1`
+  (09:48:54), the user squashed all three landings to main as `cdfa5dc`
+  (09:59:13) and main is merged back (`aa0be09`, 10:11:54). `git status` is
+  clean — the 15-file working tree the message describes no longer exists as
+  uncommitted work, and a literal re-run of landings 2+3 was never on the
+  table.
+- **The one thing that is NOT done: the audit turn's outbound never left.**
+  The routing section above says "the adapter half re-dispatches as
+  0140-to-opus," and two `notes/backlog.md` OPEN lines (units 84/85) repeat
+  it — but no `0140-to-*.md` exists in the pending directory, `done/`, or
+  `failed/` (`0139-to-user`, 09:27, is the Implementer's wrapper-forced 0130
+  echo and predates the audit commits). The audit turn evidently hung after
+  its final commit and was killed without writing its outbound: the daemon's
+  hung-turn-timeout hardening (`ed01d3d`/`11b5f58`, "a hung turn is killed
+  after a timeout instead of holding its lane forever") was committed at
+  10:11:53, in the exact window, and 0132 — never archived by the killed
+  turn — re-fired immediately after. The Implementer's lane has been idle on
+  fully-ruled work with nothing left in the store to signal it.
+- **Repair executed this turn:** `notes/mailbox/0140-to-opus.md` written from
+  the RULING 3/4/5 sections and the four binding riders (F1, F2, the bsn
+  missing-quantity leg, the cs refusal arms) above — content drawn from the
+  committed record, unchanged; the sequence number the note and the ledger
+  already testify to is now true. The dispatch carries a delivery note naming
+  this provenance and pinning the base (landings 1–3 committed; do not
+  re-run).
+- **Nothing else was touched.** No code, no gate re-run, no landing
+  re-executed, no re-audit — the audit stands on its own committed record.
+  The transport occurrence (a killed turn's commits survive, its outbound
+  dies, and the note+ledger then testify to a dispatch that never happened)
+  is recorded as Live reproduction 5 in
+  `notes/mailbox-daemon-incident-2026-07-14.md` and rides the tools-review
+  daemon-repair unit; the backlog's staleness line gains the third firing.
+
+## The SECOND 0132 re-fire closed on arrival (Architect, 2026-07-14): stale — nothing owed this time; the unarchived head message was hand-archived to unwedge the lane
+
+The same `0132-to-fable` handoff fired a THIRD Architect turn. Store-first
+reading closed it immediately: the audit (RULINGS 3–5, section above at
+:12277) is committed, `git status` is clean at `ed7af57`, and — unlike the
+first re-fire — the outbound gap is already repaired: `0140-to-opus.md` sits
+in the pending store exactly as the first closure turn wrote it. No code, no
+gate, no landing, no ruling was touched. The audit stands on its committed
+record; this section exists only for the transport datum below.
+
+- **The new datum: archival fails even after a CLEAN turn.** Live
+  reproduction 5 explained the first re-fire by the timeout kill (a killed
+  turn never archives its inbound). That explanation cannot cover this one:
+  the first closure turn completed normally — its commit (`ed7af57`) and its
+  outbound (`0140-to-opus.md`) both landed — and `0132-to-fable.md` STILL
+  never moved to `done/` (whose archive trail ends at `0131-to-sol.md`). So
+  the running watcher is not archiving this lane's consumed messages at all,
+  consistent with the incident note's stale-watcher class (the loop's pid
+  predates its own fixes; "RESTART THE WATCHER FIRST") and/or the
+  tools-review finding that a failed dispatch crashes its lane thread.
+- **The consequence is a HEAD-BLOCKED lane, not just a wasted turn.** The
+  daemon serializes within a lane and picks the lowest pending sequence, so
+  an unarchived head message re-fires forever and everything queued behind
+  it (`0133`/`0134`/`0136-to-fable`, three transport-finding handoffs
+  legitimately awaiting adjudication) can never fire. The stale-dispatch
+  class's cost model changes: it is no longer N wasted turns, it is a lane
+  that has stopped consuming its queue.
+- **Mitigation executed this turn:** `0132-to-fable.md` moved to `done/` by
+  hand — the sanctioned operation (the done-archive rename tolerates a file
+  quarantined by hand mid-flight, incident note :162). The lane head is now
+  `0133-to-fable`; the queued transport findings can reach adjudication.
+  The watcher restart stays user-owed and is still the real repair.
+- **Recorded:** an addendum under Live reproduction 5 in
+  `notes/mailbox-daemon-incident-2026-07-14.md` (the clean-turn archival
+  failure + the head-blocked-lane consequence); outbound `0145-to-user.md`
+  (non-firing) reports the closure and the hand-archive.

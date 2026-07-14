@@ -375,3 +375,160 @@ main action:         none -- no merge or push is authorized
 next owner:          Architect/tools-review repair unit (transport);
                      Architect (the queued 0132 audit + three rulings)
 ```
+
+### Live reproduction 5: a killed turn's commits survive but its outbound dies — the store then testifies to a dispatch that never left (2026-07-14, Fable/Architect)
+
+The landings-2+3 audit turn committed its work (`61397d7` 09:48:43, `bcba4a1`
+09:48:54), recorded "the adapter half re-dispatches as 0140-to-opus" in its
+audit note, wrote the same into two `notes/backlog.md` OPEN lines — and then
+hung. It was killed without writing `0140-to-opus.md`: no `0140-to-*.md`
+exists in pending, `done/`, or `failed/`. The hung-turn-timeout hardening
+(`ed01d3d`/`11b5f58`, committed 10:11:53) is this hang's own repair landing;
+the killed turn's inbound (`0132-to-fable`, never archived) re-fired at
+~10:12 into a fresh Architect turn.
+
+Two properties make this occurrence distinct from the classes already
+ledgered:
+
+- **The durable record over-testifies.** The note and the ledger both name a
+  dispatch, by sequence number, that never entered the store. Every prior
+  class delivered a message whose CONTENT had gone stale; here the store
+  itself disagrees with the committed record, and the receiving lane idles
+  on fully-ruled work with no queued signal left to wake it. A demand count
+  that trusts the ledger's "re-dispatched 0140" line under-counts by one
+  live dispatch owed.
+- **The re-fire is the stale-dispatch class's first BENIGN firing.** Because
+  the re-fired message was the very input the killed turn had consumed,
+  store-first reading (the 0120/0130 conduct) found the committed audit and
+  the missing outbound in minutes, and the repair was mechanical: write the
+  file the record already describes (done this turn — `0140-to-opus.md`,
+  content drawn from the ruled sections unchanged).
+
+Repair shape, folded into the tools-review daemon-repair unit (no new ledger
+line; the staleness line gains the firing): the timeout-kill path must not
+silently re-fire the killed turn's inbound as if fresh — the re-fire's
+dispatch banner should carry a mechanical marker naming the kill ("this
+dispatch previously ran for N minutes and was killed"), the same
+banner-not-body reasoning as the currency marker: the body was honest when
+written; only the daemon knows what happened to the turn that consumed it.
+
+**Addendum (2026-07-14, Fable/Architect — the SECOND 0132 re-fire): archival
+fails after a CLEAN turn too, and the lane head-blocks.** The timeout-kill
+explanation above cannot cover the third firing of `0132-to-fable`: the first
+closure turn completed normally (commit `ed7af57` landed, outbound
+`0140-to-opus.md` landed) and the inbound STILL never moved to `done/`, whose
+trail ends at `0131-to-sol.md`. The running watcher is therefore not
+archiving this lane's consumed messages at all — consistent with the
+stale-watcher class at the top of this note and/or the tools-review
+lane-thread-crash defect. Because the daemon serializes a lane and picks the
+lowest pending sequence, an unarchived head message re-fires forever and
+head-blocks everything queued behind it (`0133`/`0134`/`0136-to-fable` could
+never fire): the stale-dispatch class's cost is not N wasted turns but a lane
+that has stopped consuming its queue. Mitigation: `0132-to-fable.md`
+hand-archived to `done/` (the rename tolerates hand-quarantine, :162); the
+watcher restart remains the real repair. The daemon-repair unit gains the
+requirement: archive-on-consume must be verified as actually executing in the
+running loop, not merely present in the committed source.
+
+## Architect adjudication of 0133 (2026-07-14, Fable): ACCEPTED — the conditional-preamble repair is ruled into the tools-review unit; the word-surface inventory is pinned
+
+Verdict on the red team's transport finding (mailbox `0133-to-fable`, the
+routing summary of the "Terminal handoffs conflict..." section above):
+**ACCEPTED, no strike, conduct endorsed.** The turn honored the terminal TeX
+directive and routed the transport defect as a separate finding — exactly the
+reference behavior the 0110/0120/0130 closures established. The TeX thread
+stays closed; nothing here is TeX traffic; the user-side fetch of exact tip
+`5546a0fd74d9536fdab42bfc8352411fb144752d` remains that thread's only event.
+
+Every claim was re-verified against reachable code this turn:
+
+- **Line-drift correction (substance unaffected).** The cited
+  `tools/mailbox_daemon.py:176-190` now holds `build_agent_commands`; the
+  `PREAMBLE` literal lives at :268-282 and is injected at :340 as
+  `PREAMBLE + message`. The wording is unconditional exactly as described.
+- **The acceptance's scan arm is pre-run.** Because :340 shows the dispatch
+  prompt is precisely `PREAMBLE + message` and nothing else, the untruncated
+  scan reduces to the one literal: there is NO second unconditional outbound
+  instruction in the dispatch prompt. The repair landing re-runs the scan
+  anyway (the literal may move again).
+- **The queued exercisers are as claimed** — 0128/0129/0131 in Sol's lane —
+  and Live reproduction 4 above already proved the class fires in the
+  Implementer's lane too (0130), so the repair is role-neutral by prior
+  ruling.
+
+RULINGS (Operating Constraint 5 — the finding is input; these are the
+adjudication):
+
+1. **Repair shape ACCEPTED as proposed.** The preamble becomes conditional
+   in words: ordinary turns keep the notes-first outbound requirement; an
+   inbound whose binding instruction explicitly states terminal / no-reply
+   requires no outbound. Semantic judgment stays with the agent. NO daemon
+   parser that silently consumes messages — the daemon is a transport, not
+   a reader, and that boundary is standing design.
+2. **The exception is NARROW; ambiguity defaults to outbound-required.** An
+   outbound may be omitted only when the inbound explicitly and bindingly
+   says terminal/no-reply. A spurious receipt costs one stale-close turn — a
+   now-well-trodden path; a wrongly omitted outbound strands a result (the
+   lost-outbound sub-class, Live reproduction 5). Fail toward the ordinary
+   rule.
+3. **Word-surface inventory the repair must sweep** (the daemon literal
+   alone does not close the class):
+   - `tools/mailbox_daemon.py` PREAMBLE (:268-282) — the defect itself;
+   - `tools/mailbox_daemon.py` module docstring (:15, "(2) dropping its
+     outbound handoff as the NEXT numbered message file") — doc-only, same
+     unconditional wording, fixed for consistency;
+   - `.claude/OPUS_ROLE.md` 7a (:64-73) plus its Handoff Protocol
+     "no turn is too small for the block" clause — already ruled into scope
+     by Live reproduction 4; restated here so the unit's acceptance covers
+     it;
+   - `notes/MEMORY.md` header prose (:23-24, "a mailbox-started turn writes
+     its outbound block to the next numbered mailbox file") — unconditional;
+   - `notes/conventions-and-workflow.md` :290-297 is ALREADY conditional in
+     substance ("an agent with a relayable result writes..."); as the
+     canonical statement it gains one explicit sentence naming the
+     terminal/no-reply exception, and the other surfaces cite it rather
+     than restating it.
+   `.codex/REDTEAM_ROLE.md` is already result-conditioned (the binding
+   record, conventions note :304, and the red team's own reading agree) —
+   the repair verifies it, does not rewrite it.
+4. **Acceptance contract ratified as proposed, plus the sweep.** Two
+   prompt-level regressions (an ordinary handoff still requires an outbound;
+   a terminal/no-reply handoff requires none), the untruncated
+   no-second-instruction scan re-run at landing, and the inventory in ruling
+   3 each shown conditional or citing the canonical sentence.
+5. **Routing ACCEPTED — folded into the tools-review daemon-repair unit**,
+   sequencing unchanged: the user-owed `codex/tools-review` ref publish
+   comes first, and any committed preamble fix is inert for the RUNNING
+   watcher until the user-owed restart (this note's first lesson). One
+   correction to Live reproduction 4's closing line: it says "both classes
+   are OPEN" on the ledger, but `notes/backlog.md` had NO line for the
+   terminal-preamble class — the invisible-unit defect the unit-94 halt
+   exposed, again. The OPEN line is added this turn, so the demand count
+   now sees the class.
+6. **The queued duplicates are pre-ruled to quick closes.** `0134-to-fable`
+   and `0136-to-fable` self-declare "no new diagnosis"; the Architect turns
+   that receive them close on arrival citing this section, creating no new
+   debt and no new diagnosis.
+
+Outbound discipline for this turn: no agent-addressed outbound is written —
+a receipt to Sol would fire a fresh Sol turn under the still-unconditional
+preamble and manufacture the exact loop the finding names. The closure is
+recorded here and routed to the user as `0146-to-user.md` (the daemon never
+dispatches `-to-user` files; `next_seq()` still counts them — the Live
+reproduction 4 precedent, 0135/0137/0138). This is the semantic judgment
+ruling 1 makes official; exercising it now is the only non-self-defeating
+close.
+
+Landing block, printed only:
+
+```text
+record branch:       claude/amazing-keller-e798b6
+record files:        notes/mailbox-daemon-incident-2026-07-14.md
+                     notes/backlog.md
+                     notes/MEMORY.md
+functional changes:  none
+TeX branch action:   none -- the thread stays closed
+main action:         none -- no merge or push is authorized
+next owner:          user (tools-review ref publish + watcher restart),
+                     then the tools-review daemon-repair unit
+```
