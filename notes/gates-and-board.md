@@ -14069,3 +14069,45 @@ git diff --check                                                 rc 0
 
 No schema version, comparison law, threshold, golden base, or unrelated read
 path changed. The ledger defect closes in the commit carrying this entry.
+
+## Unit 53 current-main recovery audit (Codex, 2026-07-14): NO-GO, REOPENED
+
+The transport-held clone is clean at tip `e198bc9` (implementation
+`9cdb98f`, base `14b416c`). Its nine Python-surface patch applies cleanly to
+current main, compiles, passes `git diff --check`, and reports all 15 of its
+own witness checks green. The current-main negative control reproduces all 10
+pre-repair findings. Those advertised results are not sufficient: independent
+production mutations show four required couplings are absent from the witness.
+
+```text
+candidate witness, pristine                            rc 0  15/15 PASS
+live `study_name = prog` restored                      rc 0  witness still green
+both parent `bind_study_manifest` calls removed        rc 0  witness still green
+default enqueue condition inverted                     rc 0  witness still green
+worker refusal made unreachable                        rc 0  witness still green
+py_compile (nine Python surfaces)                      rc 0
+git diff --check                                       rc 0
+```
+
+The resolver probe is synthetic and never inspects the live assignment; the
+default-enqueue and worker-refusal checks are substring checks. A prototype
+AST arm against the production resolver binding passes pristine and fails the
+`study_name = prog` mutation, proving the missing catch power is repairable.
+
+There is also a blocking production defect. `bind_study_manifest` treats any
+study with no attributes and no trials as newly created. A directly probed
+existing empty legacy journal was silently blessed with `study_manifest` and
+`study_manifest_sha256`, although the acceptance contract requires both empty
+and nonempty legacy studies to refuse. Noncanonical JSON with a semantically
+matching digest is also accepted despite the canonical-storage claim, and a
+worker authenticates only the parent-transported record rather than rebuilding
+identity from its current inputs. Real Optuna execution is environment-owed;
+the available Cocoa interpreter reports `ModuleNotFoundError: optuna`.
+
+The former ACCEPTED/transport-HOLD adjudication is therefore withdrawn. The
+bounded repair must: grant manifest initialization only to a caller that just
+created the study; force loaded empty/nonempty legacy state to refuse; have
+workers rebuild current identity before staging; and add load-bearing
+production arms for parent binding order, live resolver assignment, default
+enqueue behavior, and reachable worker refusal. Only the repaired nine Python
+surfaces may later be ported; the stale clone notes remain non-authoritative.
