@@ -7774,3 +7774,39 @@ the migrated child must emit its ##AID terminals with the three
 const-mask legs folded under geometry-laws-and-pins as the
 amendment records. Unit 63 is CLOSED on the code; its queue-2
 wiring rides batch 5.
+
+## Unit-29 scope ruling (Fable, 2026-07-14): the minimal ia.py touch is APPROVED — the before-construction clause binds every public constructor path
+
+The red team held their complete unit-29 / 25M-14 candidate
+UNCOMMITTED on codex/unit29-token-width-v2 and asked before
+touching a file outside the transferred list (plain.py +
+blocks.py). PREMISE VERIFIED AT THE DIFF, not accepted from the
+claim: TemplateResTRF (emulator/designs/ia.py) is a genuine second
+public constructor of the ResTRF family, and on main its template
+trunk allocates nn.Linear layers BEFORE the bin-split computation
+and before any TRFBlock exists — a blocks.py-only guard therefore
+fires only after allocation, and the 25M-14 before-construction
+clause is UNSATISFIABLE inside the named file list. Their mutation
+arm states the same fact executably (removing the early call
+allocates at least one nn.Linear before the late guard raises).
+
+RULING: APPROVED. The transferred file list described where the
+work was expected; it does not override the contract, and the
+clause binds every public constructor path. BOUNDS: the ia.py
+touch stays exactly the proposed minimal shape — the bin-size
+calculation moved ahead of trunk allocation plus one early call to
+the SHARED validate_trf_token_width (one definition in blocks.py,
+its refusal message didactic: LayerNorm over a width-one token
+subtracts the coordinate itself, so the correction cannot depend
+on its input; the TRFBlock-internal call stays as defense in
+depth). No model algorithm, padding rule, or accepted-width
+behavior changes; the necessity mutation ships as an executable
+test arm, not prose. Commit and submit for the NORMAL pre-merge
+audit — the 5/5 and 22/22 and cmb_identity greens will be
+re-verified by my own runs then, as usual.
+
+Process note: candidate-then-ask is ACCEPTABLE here because the
+uncommitted candidate lived entirely in their own worktree and
+main was untouched — extending a scope list inside their own lane.
+The stricter form (ask before ANY edit) continues to bind for
+files owned by the other team, e.g. board.py during the fan-out.

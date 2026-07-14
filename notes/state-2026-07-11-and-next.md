@@ -3209,3 +3209,17 @@ mps-identity hand-apply (seam ruling: integration lands on top,
 re-diff against the current file). Unit 63 CLOSED on the code.
 Spec: gates-and-board.md "25M-38 repair + DIDACTICS-79 replay
 audit" + "Unit-63 reopen audit".
+
+UNIT-29 SCOPE (2026-07-14, Fable): the red team's held candidate
+(codex/unit29-token-width-v2, uncommitted) needs one ia.py touch
+outside the transferred plain.py+blocks.py list — premise verified
+at the diff: TemplateResTRF allocates its template trunk before
+any TRFBlock, so a blocks-only guard cannot satisfy 25M-14's
+before-construction clause. APPROVED with bounds: the minimal
+shape only (moved bin-size calc + one early shared-validator
+call; TRFBlock guard stays as defense in depth; no behavior
+change on accepted widths; the necessity mutation ships
+executable). Commit, then the normal pre-merge audit.
+Candidate-then-ask accepted for own-lane scope extensions;
+ask-before-edit still binds on other-team files. Spec:
+gates-and-board.md "Unit-29 scope ruling".
