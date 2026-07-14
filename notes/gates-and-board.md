@@ -8001,3 +8001,45 @@ migrated. Remaining fan-out: the family smoke trio (bsn/mps/cmb-smoke,
 likely workstation-verified since they drive real training + cobaya),
 joint-training + production-diagnostic (wrapper, complex), then the
 hand-do set (finite-contract, scalar-smoke) + the six wrapper-family.
+
+## Batch-5b delta audit (Fable, 2026-07-14): 2712a04 GO — batch 5 COMPLETE at 24/40; my audited-tip line failed its first use and is sharpened
+
+THE MISS, mine, recorded first: 2712a04 (+ its resume 465aadf)
+landed on the branch BEFORE my batch-5-partial record (01aff9f),
+and I did not see it — that record called mps-identity "in
+progress" while it was already committed, and every "audited
+through tip <sha>" line I printed afterwards named tips that
+CONTAINED this unaudited commit. Naming the tip is worthless if I
+don't first walk the log for commits I haven't adjudicated. THE
+MITIGATION, sharpened: before printing any landing block, run the
+log from the last audited commit to the tip and list every
+non-mine commit; each is either already recorded as GO or the
+block is withheld. The audit itself is green, so no harm reached
+main — but the process hole was real and it was MY mitigation
+that had it.
+
+THE DELTA (2712a04, seam-aware 5b): mps-identity migrated ON TOP
+of unit-63 exactly as the seam ruling directed — the subagent's
+stale child patch was discarded, the ##AID wiring re-derived on
+the CURRENT child, its board.py evidence= and LEG_AIDS/emit_leg
+idea reused, and check_const_mask_artifact moved adjacent to
+check_geometry so the three const-mask legs FOLD under
+geometry-laws-and-pins. Names==drafts exactly (7 aids). MY RUNS
+at the tip (12e018f, scratch worktree): the child rc 0 with 69
+PASS / 0 FAIL and exactly the seven declared terminals
+(geometry-laws-and-pins PASS carrying the three const-mask legs);
+compile clean; --list rc 0; board-selftest ALL PASS. The
+Implementer's check-script integration rule (a subagent child
+patch is invalid once the live child moved; re-derive on the
+current file) is RATIFIED — it is the check-script twin of the
+stale-base rule from batch 3.
+
+VERDICT: GO. Batch 5 is COMPLETE (scalar 5 + bsn 6 + mps 7);
+24/40 gates carry evidence. The bsn emit_leg design (a
+FAILURES-delta over a contiguous check_* group) is confirmed
+compatible with unit 90's incoming quadrature legs — more [PASS]
+report lines inside the distance-pipeline-consistency bracket
+read as expected coverage growth, not a defect; banked so a later
+re-verify is not misread. Batch 6 (cmb-identity,
+eval-batch-invariance, weight-decay-census by the dirty files) is
+in flight isolated.

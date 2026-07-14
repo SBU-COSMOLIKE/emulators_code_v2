@@ -3265,3 +3265,15 @@ MERGE HELD for the red team's rebase onto the migrated child (new
 legs fold inside distance-pipeline-consistency; declared set
 stays six). Spec: gates-and-board.md "Batch-5 partial (retro) +
 unit-90 audit".
+
+BATCH 5B (2026-07-14, Fable): 2712a04 GO — mps-identity 7 on top
+of unit-63 per the seam ruling (stale subagent child patch
+discarded, wiring re-derived on the current child, const-mask
+legs folded under geometry-laws-and-pins); my runs: child 69
+PASS / 7 terminals / 0 FAIL, board surfaces green at 12e018f.
+Batch 5 COMPLETE, 24/40. MY MISS recorded: 2712a04 predated my
+01aff9f record unseen, so the new audited-tip lines named tips
+carrying an unaudited commit — mitigation sharpened to a log walk
+from the last audited commit before any block is printed. The
+check-script integration rule (re-derive on the current child)
+RATIFIED. Spec: gates-and-board.md "Batch-5b delta audit".
