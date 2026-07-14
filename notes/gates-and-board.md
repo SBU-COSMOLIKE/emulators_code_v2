@@ -9122,3 +9122,205 @@ throwaway body against --dry-run, do not live-dispatch a junk turn);
 README renders without raw HTML.
 
 MILESTONE: one commit, README.md only, handoff to fable via mailbox.
+
+## README section 24 follow-up (Opus, 2026-07-14): deliverables 1 and 3 LANDED; deliverable 2 code landed, its ARTIFACTS blocked on a permission-denied interpreter
+
+Executed the blueprint 'BLUEPRINT: README section 24 follow-up (Fable,
+2026-07-14)' (dispatch 0012-to-opus, re-dispatched to this turn).
+Honest split: two of three deliverables are complete, and the third
+lands as CODE ONLY with its binary artifacts owed. Nothing was
+fabricated to close the gap; the reason is a permission denial in this
+headless turn, recorded below with the exact owed commands.
+
+PROVENANCE, stated up front (the af9b034 commit-hygiene lesson). This
+turn STARTED with texnotes/make_figures.py and
+texnotes/render_readme_previews.py already modified in the worktree. I
+did not author those lines this turn. They are a PRIOR Opus turn's work
+on THIS SAME unit: notes/mailbox/0012-to-opus.md carries the identical
+handoff text that was re-dispatched to me, and that turn died before it
+committed, gated, or wrote resume state (no fig12 PDF on disk, no notes
+entry, no commit). The edits are exactly this blueprint's deliverable 2,
+so they are in-scope work of my own unit, not an unrelated live user
+edit riding my increment. I adopted them, verified them (below), and I
+name their authorship here rather than passing them off as this turn's.
+
+DELIVERABLE 1 (tools passage) COMPLETE. README section 24, "The tools"
+rewritten from a prose paragraph naming two programs into a passage a
+first-time reader can follow: four fenced bash blocks, one per command,
+each with a plain sentence saying what happens and what the reader sees.
+--status (reads git and the notes; prints main vs working branch, the
+ahead count, open review branches awaiting audit, latest audit-record
+titles, a numbered next-action list; "run it whenever you are lost"),
+--send opus --unit "..." (ONE real routing summary naming a notes entry,
+with the rule stated plainly: the message does not carry the work, it
+points at the notes; the message is a pointer, the notes file is the
+record), --watch (polls every twenty seconds; prints the dispatch target,
+then the turn's exit status and the notes/relay/ log path; a dispatched
+turn is a child process, so interrupting the terminal kills the running
+turn), and --ping opus (the transport test; the reply lands as a file
+addressed back to the user which the daemon leaves in place, so a
+transport check cannot start a chain of turns). The closing sentence is
+kept verbatim: merges to main are performed only by the human maintainer.
+
+Every documented flag was verified against the source before it was
+written down (argparse census: --status/--note/--section/--mode in
+tools/handoff_router.py; --dry-run/--once/--watch/--send/--ping/--unit in
+tools/mailbox_daemon.py). The --status output in the passage is a
+description of a run I actually made this turn, not a guess. I did NOT
+execute --send: queueing a throwaway message risks a live junk dispatch
+to another session, so the flag's behavior is evidenced from its argparse
+definition and the dispatch() body, and is reported that way.
+
+DELIVERABLE 3 (session-table identities) COMPLETE. The three-job table
+gains a middle column, "In this repository": Architect = Claude (Fable),
+Implementer = Claude (Opus 4.8), Red team = OpenAI Sol, in the user's
+phrasing. The third-column form was chosen over an identity clause per
+row because the Job column is already long and the identity stays
+scannable beside the role name. Added two sentences making the design
+point the identities imply: the cross-vendor split is deliberate, since
+the red team shares no weights with the sessions it inspects and so does
+not inherit their blind spots.
+
+DELIVERABLE 2 (the loop figure): CODE COMPLETE AND VERIFIED, ARTIFACTS
+OWED. make_figure_12_three_session_loop() in texnotes/make_figures.py
+draws the whole diagram the blueprint specified through the ESTABLISHED
+reportlab pipeline (never a pasted binary): architect box on top,
+blueprint+gates flowing down into the "audit against raw evidence"
+diamond, implementer box left (fed by the architect handoff, returning
+the implementer handoff), red-team box right (fed by the red-team
+handoff, returning findings), the bottom fork to "pass: milestone
+recorded in notes/" and "fail: delta re-handoff", a loop-repeats return
+arrow, a four-entry legend defining the three sessions and "gates", and
+a footer stating that findings enter the audit as evidence while only
+the architect's ruling changes the code. It is registered in main()'s
+builder list, and "fig12_three_session_loop" is added to
+README_FIGURE_STEMS in texnotes/render_readme_previews.py.
+
+PALETTE COMPLIANCE (the house rule the blueprint bound): the figure uses
+BLUE, GOLD, PURPLE, GRAY and their LIGHT_* fills, and NOTHING else. The
+user's reference used green+red pass/fail boxes; those are substituted
+by LIGHT_BLUE (pass) and LIGHT_GOLD (fail), and the verdict is carried by
+the bold word, not by fill color alone. Machine-checked: zero RED and
+zero GREEN symbols anywhere in the figure body.
+
+THE BLOCKER (why the PDF and PNG are not in this commit). The blueprint's
+gate is "python texnotes/make_figures.py runs rc 0 on the cocoa
+interpreter and writes the new PDF". In this headless daemon turn that
+gate CANNOT run, for a reason that is a permission denial and not a code
+defect:
+
+  - the interpreter on PATH is /Users/vivianmiranda/miniforge/envs/cocoa/
+    bin/python; it has matplotlib and numpy but reportlab is ABSENT
+    (importlib.util.find_spec -> None), so make_figures.py dies at import.
+  - the interpreter that owns reportlab
+    (Cocoa/.local/bin/python) is auto-denied to the daemon: every
+    invocation returns "This command requires approval". I honored the
+    denial and did not route around it (the pdflatex precedent).
+
+No PDF can therefore be produced, and with no PDF there is nothing to
+rasterize into a PNG. I did NOT take the blueprint's sanctioned
+matplotlib fallback, and this is the one judgment call in the unit that
+the Architect should rule on explicitly. That fallback was sanctioned for
+a world where the PDF EXISTS and only the pdftoppm preview step is
+missing. Using it here would commit a README PNG that is a SECOND,
+independent drawing of a figure whose vector source does not exist in the
+tree: precisely the "pasted binary" the blueprint's own first line
+forbids, and precisely the PDF-to-PNG drift the pipeline exists to
+prevent. Manufacturing a plausible-looking artifact to make a deliverable
+appear closed is the failure mode constraint 7b names, so I stopped and
+reported the red instead. The README embed is likewise withheld: a
+committed <img> pointing at a PNG that does not exist is a user-visible
+broken link on main.
+
+EVIDENCE THAT THE FIGURE CODE IS SOUND (what I could run, honestly
+labeled). Two independent checks, neither of which is the gate:
+
+  - STATIC BIND CHECK: every call in the figure body binds against the
+    real helper signatures, confirmed by reading them, including the ones
+    it would be easy to get wrong: draw_arrow's 4th positional is
+    label_offset (a tuple), draw_legend takes columns/column_width and
+    (label, color, style) triples, draw_box/draw_diamond take
+    (drawing, x, y, w, h, lines, fill). Geometry closes: every arrow
+    endpoint lands on a box edge or a diamond vertex (checked against
+    each box's x/y/width/height), and nothing overruns PAGE_WIDTH=720.
+  - EXEC PROBE (scratch .probe_fig12.py, run then DELETED, never
+    committed): reportlab replaced by a recording stub in sys.modules, so
+    the builder actually EXECUTES. Result:
+
+        PROBE: make_figure_12_three_session_loop() executed, no exception
+          canvas file        : fig12_three_session_loop.pdf
+          page size          : (720.0, 400.0)
+          rounded boxes      : 6
+          vector paths       : 19
+          text strings       : 30
+          save() called once : True
+          total draw calls   : 276
+          in main() builders : True
+          palette symbols    : BLUE, GOLD, PURPLE, GRAY, LIGHT_BLUE,
+                               LIGHT_GOLD, LIGHT_PURPLE, LIGHT_GRAY
+          red/green together : none
+
+    6 boxes + 1 diamond, and 19 paths = 9 arrows x 2 (line + head) + 1
+    diamond, which is exactly the specified diagram. This proves the code
+    path runs (arity, keyword names, symbol resolution, arithmetic). It
+    does NOT prove reportlab accepts the values and it produces no PDF.
+    It is a probe, not the gate, and it is not offered as a green.
+
+OWED (one command each, on an interpreter that has reportlab; the PNG
+step needs no new tooling because Ghostscript is present):
+
+    python texnotes/make_figures.py            # writes fig12_..._loop.pdf
+    python texnotes/render_readme_previews.py  # rasterizes it to .png
+
+then commit the figure pair and add the embed near the top of section 24
+(relative path, alt text, one-sentence caption). This is a WORKSTATION-
+OWED / interactive-turn green, not a pass I am claiming.
+
+NAMED DEVIATION (blueprint said matplotlib; the code does Ghostscript).
+The prior turn changed render_readme_previews.py to fall back to
+Ghostscript's gs when Poppler's pdftoppm is missing, rather than to a
+matplotlib redraw. I KEPT that, and I think it is the better call, but it
+is a deviation from the sanctioned fallback and so is named here for the
+ruling rather than buried. Grounds: gs IS present on this Mac
+(/usr/local/bin/gs; pdftoppm is not), PREVIEW_DPI is already the
+blueprint's 180, and gs rasterizes THE COMMITTED PDF, which preserves the
+pipeline's core invariant that the PNG is a rasterization of the vector
+source and never a second drawing of it. It stays inside the blueprint's
+file scope ("the two texnotes scripts"). Net effect: once the reportlab
+step can run, the matplotlib fallback is not needed at all.
+
+DEFECT NOTICED IN PASSING (one line, for the Architect to route, not a
+side-quest). The branch tip MOVED UNDER THIS TURN: HEAD was f2f448c when
+I started and was 98d406b by mid-turn, i.e. the Fable session committed
+into this SAME worktree while my turn was live. 98d406b is notes-only and
+did not collide with my files, so this landing is unaffected, but the
+daemon's stated guard ("same-tree agents stay serialized to avoid git
+index races", 50e9dbf) did not hold here. A concurrent commit landing in
+a tree where another agent is staging is exactly the index race that
+guard exists to prevent. Flagging, not fixing.
+
+GATE SURFACE: none touched. This unit changes README prose and two
+texnotes figure scripts; no check script, threshold, fixture, or golden
+base is in the diff (constraint 7b screen passes by construction).
+
+CHECKS RUN THIS TURN (raw):
+
+  - dash census, README section 24 (the ratified zero-dash register):
+    em-dash 0, en-dash 0, raw HTML 0, bash fences 4, table rows 5 all at
+    3 columns.
+  - git diff --check: clean (no whitespace errors).
+  - scope: exactly README.md, texnotes/make_figures.py,
+    texnotes/render_readme_previews.py. No stray files; the scratch probe
+    was deleted before the commit.
+  - python tools/handoff_router.py --status: rc 0, real output (used to
+    write the passage's description of it).
+
+LANDING BLOCK (the merge and push are the user's alone; not run here):
+
+    git checkout main
+    git merge claude/amazing-keller-e798b6
+    git push origin main
+
+Outbound routing summary: notes/mailbox/0024-to-fable.md (0022 and 0023
+were both taken by other sessions WHILE this turn ran, which is the same
+concurrency observation recorded above).

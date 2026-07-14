@@ -904,6 +904,77 @@ def make_figure_11_gate_dependencies() -> None:
     finish(drawing)
 
 
+def make_figure_12_three_session_loop() -> None:
+    """Figure 12: the three cooperating sessions and the audited loop.
+
+    The palette is deliberately blue, gold, purple, and gray.  Red and green
+    never appear together in a house figure, so the pass and fail outcomes
+    carry their verdict in the bold word, not in the fill color alone.
+    """
+
+    drawing = new_canvas("fig12_three_session_loop.pdf", PAGE_WIDTH, 400.0)
+
+    draw_box(drawing, 260.0, 336.0, 200.0, 52.0,
+             ["architect session", "designs the contract; audits every",
+              "change; has the final word"], LIGHT_BLUE)
+    draw_box(drawing, 285.0, 240.0, 150.0, 44.0,
+             ["blueprint + gates", "the contract and the checks",
+              "that decide it"], LIGHT_GRAY)
+    draw_box(drawing, 25.0, 232.0, 180.0, 58.0,
+             ["implementer session", "writes the complete code;",
+              "runs the gates on it"], LIGHT_GOLD)
+    draw_box(drawing, 515.0, 232.0, 180.0, 58.0,
+             ["red-team session", "attacks and probes: bugs,",
+              "weak tests, stale docs"], LIGHT_PURPLE)
+    draw_diamond(drawing, 360.0, 150.0, 200.0, 66.0,
+                 ["audit against", "raw evidence"], LIGHT_BLUE)
+    draw_box(drawing, 90.0, 58.0, 195.0, 44.0,
+             ["pass", "milestone recorded in notes/"], LIGHT_BLUE)
+    draw_box(drawing, 435.0, 58.0, 195.0, 44.0,
+             ["fail", "delta re-handoff"], LIGHT_GOLD)
+
+    draw_arrow(drawing, [(360, 336), (360, 284)])
+    draw_arrow(drawing, [(285, 262), (205, 262)], "architect handoff")
+    draw_arrow(drawing, [(435, 262), (515, 262)], "red-team handoff")
+    draw_arrow(drawing, [(115, 232), (115, 150), (260, 150)],
+               "implementer handoff", (16, 0))
+    draw_arrow(drawing, [(605, 232), (605, 150), (460, 150)],
+               "findings", (-14, 0))
+    draw_arrow(drawing, [(360, 240), (360, 183)])
+    draw_arrow(drawing, [(310, 133), (187, 102)], "pass", (0, 7))
+    draw_arrow(drawing, [(410, 133), (532, 102)], "fail", (0, 7))
+    draw_arrow(drawing, [(630, 80), (708, 80), (708, 362), (460, 362)],
+               "the loop repeats", (0, 7))
+
+    draw_legend(
+        drawing=drawing,
+        x=22.0,
+        y=36.0,
+        entries=[
+            ("architect: designs the contract, audits every change",
+             BLUE, "solid"),
+            ("implementer: writes the code and runs the gates",
+             GOLD, "solid"),
+            ("red team: attacks the code and files findings",
+             PURPLE, "solid"),
+            ("gates: machine-run checks whose raw output decides the verdict",
+             GRAY, "solid"),
+        ],
+        columns=2,
+        column_width=350.0,
+    )
+
+    drawing.setFont(FONT_REGULAR, 8.0)
+    drawing.setFillColor(GRAY)
+    drawing.drawCentredString(
+        PAGE_WIDTH / 2.0,
+        8.0,
+        "Code and findings both enter the audit as evidence; only the "
+        "architect's ruling changes the code.",
+    )
+    finish(drawing)
+
+
 def main() -> None:
     """Generate the complete numbered figure set."""
 
@@ -920,6 +991,7 @@ def main() -> None:
         make_figure_09_warmstart,
         make_figure_10_board_flow,
         make_figure_11_gate_dependencies,
+        make_figure_12_three_session_loop,
     ]
     for build in builders:
         build()

@@ -3490,11 +3490,15 @@ Development runs as three cooperating sessions. Each has a separate job, so
 that no single agent both writes a change and approves it. The table names the
 three.
 
-| Session     | Job |
-| ----------- | --- |
-| Architect   | Writes the specification for each change, and audits every finished change against the raw command output it produced before that change is allowed to merge. It also has the final word on design. |
-| Implementer | Turns a specification into complete code and runs the validation gates on it. |
-| Red team    | A separate model whose only job is to break the code. A red team is an adversarial reviewer. It hunts for bugs, weak tests, and documentation that has drifted out of date, and it files what it finds. |
+| Session     | In this repository | Job |
+| ----------- | ------------------ | --- |
+| Architect   | Claude (Fable)     | Writes the specification for each change, and audits every finished change against the raw command output it produced before that change is allowed to merge. It also has the final word on design. |
+| Implementer | Claude (Opus 4.8)  | Turns a specification into complete code and runs the validation gates on it. |
+| Red team    | OpenAI Sol         | A separate model whose only job is to break the code. A red team is an adversarial reviewer. It hunts for bugs, weak tests, and documentation that has drifted out of date, and it files what it finds. |
+
+Using two different vendors' models is deliberate. The red team shares no
+weights with the sessions whose work it inspects, so it does not inherit the
+same blind spots.
 
 A red-team finding is never applied on its own. It is input to the architect's
 review, which decides whether and how to act on it.
@@ -3538,10 +3542,57 @@ claim from any session is not accepted without the command output behind it.
 
 ### The tools
 
-Two small programs carry messages between the three sessions.
-`tools/handoff_router.py` relays a handoff from one session to the next, and
-with `--status` it reports the state of the loop by reading git and the notes.
-`tools/mailbox_daemon.py` is a file mailbox under `notes/mailbox/`, dispatched
-without a human in the loop, so the sessions can hand off without anyone copying
-text by hand. Merges to the main branch are performed only by the human
-maintainer.
+Two small programs carry messages between the three sessions. Both are run from
+the repository root.
+
+The first one answers the question "where does the loop currently stand?". Run
+it whenever you are lost:
+
+```bash
+python tools/handoff_router.py --status
+```
+
+It reads git and the notes, and prints what the main branch and the working
+branch each point at, how many commits the working branch is ahead of main,
+which review branches are still open and waiting on an audit, the titles of the
+most recent audit records in `notes/`, and a numbered list of what to do next.
+It changes nothing; it only reports.
+
+The second one is the mailbox: a directory of message files under
+`notes/mailbox/` that the sessions read and write, so that a handoff no longer
+depends on a human copying text between windows. Sending a message queues it for
+one named session:
+
+```bash
+python tools/mailbox_daemon.py --send opus \
+  --unit "Wire the finite-contract emission per notes/gates-and-board.md, section 'RULING: finite-contract Part F scope and emission shape'."
+```
+
+That is a real example, and it shows the rule the whole loop rests on: the
+message does not carry the work. It is a routing summary that names the notes
+entry holding the specification, and the session receiving it opens that entry
+first. The message is a pointer; the file under `notes/` is the record.
+
+Leaving the daemon running lets it dispatch each message as it appears:
+
+```bash
+python tools/mailbox_daemon.py --watch
+```
+
+It polls the mailbox every twenty seconds. For each message it prints the
+session it is dispatching to, and then, when that session's turn finishes, the
+turn's exit status and the path of the log file that captured the whole run
+under `notes/relay/`. A dispatched turn is a child process of this command, so
+interrupting the terminal kills the turn that is running.
+
+To test the transport by itself, without handing anyone real work:
+
+```bash
+python tools/mailbox_daemon.py --ping opus
+```
+
+The pinged session answers with a reply file addressed back to you, which the
+daemon deliberately leaves in place instead of dispatching onward, so a
+transport check cannot start a chain of turns.
+
+Merges to the main branch are performed only by the human maintainer.
