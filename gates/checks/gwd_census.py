@@ -25,7 +25,18 @@ undecayed = the group left at weight decay 0. Membership is decided by
 module role (the allowlist), not by tensor shape, so a many-parameter
 activation is never decayed.
 
-Home note: training-stack.md:143-147.
+The probes roll up into four board-declared evidence legs (queue 2):
+allowed-weight-set (the decayed group is exactly the Linear/Conv1d/BinLinear
+weights), undecayed-role-exclusions (the gated_power shape parameters, the
+BinLinear bias, and every other non-allowlisted parameter stay out of the
+decayed group), parameter-group-partition (the two groups are disjoint and
+their union is every parameter exactly once), and zero-decay-inert (at weight
+decay 0 every group carries decay 0). The script prints one reserved
+'##AID <aid> <PASS|FAIL>' line per leg at the end (emit_aids); the exit status
+stays the single aggregate verdict, not a leg. The golden byte-identity leg is
+the board wrapper's own leg, not one of these.
+
+Home note: notes/training-stack.md#weight-decay-census-evidence.
 """
 
 import sys
@@ -42,17 +53,59 @@ from emulator.training import make_optimizer
 
 FAILURES = []
 
+# (queue 2) the four board-declared evidence legs this check emits. Every
+# report() call names the leg it belongs to; a leg reds if ANY of its probes
+# fail. The script prints exactly one '##AID <leg-aid> <PASS|FAIL>' line per
+# leg at the end (emit_aids), one terminal per declared leg -- NOT one per
+# probe, because several probes (the three exclusion checks) roll up into one
+# leg. The child's exit status stays the single aggregate verdict, not a leg.
+# The fifth declared leg, golden-selected-text-equality, is the board
+# wrapper's own leg (_golden_leg); the child does not emit it.
+LEG_AIDS = {
+    "allowed-weight-set": "weight-decay-census.allowed-weight-set",
+    "undecayed-role-exclusions": "weight-decay-census.undecayed-role-exclusions",
+    "parameter-group-partition": "weight-decay-census.parameter-group-partition",
+    "zero-decay-inert": "weight-decay-census.zero-decay-inert",
+}
+# leg name -> True once any probe on that leg fails.
+LEG_FAILED = {leg: False for leg in LEG_AIDS}
 
-def report(label, ok, detail):
-  """Print one PASS/FAIL line and remember any failure.
+
+def report(label, ok, detail, leg):
+  """Print one PASS/FAIL line and record any failure against its evidence leg.
 
   A failing check appends its label to the module-level FAILURES list so
-  main can count them and exit non-zero.
+  main can count them and exit non-zero, and reds its leg's single ##AID
+  terminal.
+
+  Arguments:
+    label  = what is being checked.
+    ok     = the boolean verdict.
+    detail = the values behind the verdict (always printed).
+    leg    = the LEG_AIDS key this probe rolls up into ("allowed-weight-set",
+             "undecayed-role-exclusions", "parameter-group-partition", or
+             "zero-decay-inert"); a False verdict reds the whole leg's single
+             ##AID terminal.
   """
   mark = "PASS" if ok else "FAIL"
   print("  [" + mark + "] " + label + "  (" + detail + ")")
   if not ok:
     FAILURES.append(label)
+    LEG_FAILED[leg] = True
+
+
+def emit_aids():
+  """Print the one reserved '##AID <aid> <result>' line per declared leg.
+
+  One terminal per board-declared evidence leg (allowed-weight-set,
+  undecayed-role-exclusions, parameter-group-partition, zero-decay-inert),
+  aggregating every probe that rolled up into it: PASS only when the leg had
+  no failing probe. run_board folds these into the gate's executed set and
+  reconciles them against the declared evidence map.
+  """
+  for leg, aid in LEG_AIDS.items():
+    mark = "FAIL" if LEG_FAILED[leg] else "PASS"
+    print("##AID " + aid + " " + mark)
 
 
 class ToyTree(nn.Module):
@@ -124,7 +177,8 @@ def main():
 
   report("decayed group == exactly the Linear/Conv1d/BinLinear weights",
          decay_ids == expected_decay,
-         "got " + str(len(decay_ids)) + " expected 3")
+         "got " + str(len(decay_ids)) + " expected 3",
+         leg="allowed-weight-set")
 
   # the two families the old ndim >= 2 rule wrongly decayed.
   multigate_ids = []
@@ -137,10 +191,12 @@ def main():
       mg_undecayed = False
   report("gated_power (K, dim) w / beta / mu are UNDECAYED",
          mg_undecayed,
-         "shapes " + str(tuple(model.act.w.shape)))
+         "shapes " + str(tuple(model.act.w.shape)),
+         leg="undecayed-role-exclusions")
   report("BinLinear (G, out) bias is UNDECAYED",
          id(model.bin.bias) in no_decay_ids,
-         "shape " + str(tuple(model.bin.bias.shape)))
+         "shape " + str(tuple(model.bin.bias.shape)),
+         leg="undecayed-role-exclusions")
 
   # every non-weight-matrix parameter is undecayed (no leaks).
   all_ids = set()
@@ -152,11 +208,13 @@ def main():
     leaked_names.append(name_of.get(pid, "?"))
   report("no non-weight-matrix parameter leaked into the decayed group",
          len(leaked) == 0,
-         "leaked " + str(leaked_names))
+         "leaked " + str(leaked_names),
+         leg="undecayed-role-exclusions")
   report("every parameter is in exactly one group",
          decay_ids.isdisjoint(no_decay_ids)
          and (decay_ids | no_decay_ids) == all_ids,
-         "total " + str(len(all_ids)))
+         "total " + str(len(all_ids)),
+         leg="parameter-group-partition")
 
   # wd 0: both groups inert, so the regrouping changes no shipping run.
   opt0 = make_optimizer(model=model,
@@ -171,7 +229,14 @@ def main():
       all_zero = False
   report("wd 0: every group has weight_decay 0 (the regrouping is inert)",
          all_zero,
-         "group decays " + repr(wd0))
+         "group decays " + repr(wd0),
+         leg="zero-decay-inert")
+
+  # (queue 2) one ##AID terminal per board-declared evidence leg, after every
+  # probe has run (so a leg reds if ANY of its probes failed). This is the
+  # manifest run_board folds into the gate's executed set and reconciles
+  # against the declared evidence map.
+  emit_aids()
 
   print("")
   if len(FAILURES) == 0:

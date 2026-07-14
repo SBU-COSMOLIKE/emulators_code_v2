@@ -23,7 +23,19 @@ is transcribed verbatim from the home note's tested script, so the house
 docstrings were rewritten for readability and the exit status added so the
 runner reads a pass/fail code.
 
-Home note: training-stack.md:202-300.
+(queue 2) This script owns its four board-declared evidence legs directly:
+it prints exactly one reserved '##AID <aid> <result>' line per leg, which
+run_board folds into the gate's executed set (see
+run_board._parse_aid_manifest). The two logical legs carry a real PASS/FAIL:
+partition-invariance (Part 1) and ordinary-median (Part 1b). The two timing
+legs are informational and are emitted UNAVAILABLE, never a CPU
+pass-by-default: cuda-timing prints CUDA durations against no acceptance
+bound (and is CPU-skipped here), and production-timing-claim is a hard-coded
+sentence, not a measurement. The script's exit status stays the aggregate of
+the two logical verdicts.
+
+Home note: training-stack.md:202-300 (evidence map:
+training-stack.md#eval-batch-invariance-evidence).
 """
 import time
 import numpy as np
@@ -112,7 +124,12 @@ for bs in (32, 517, 1000, 2048):
               torch.allclose(frac.cpu(), ref_frac, rtol=RTOL, atol=1e-6))
     ok &= row_ok and met_ok
     print(f"  bs={bs:5d}  per-row allclose={row_ok}  metrics={met_ok}")
+part1_ok = ok
 print("Part 1:", "PASS" if ok else "FAIL")
+# the partition-invariance evidence leg: this Part-1 verdict alone, before
+# the ordinary-median part folds into the aggregate `ok`.
+print("##AID eval-batch-invariance.partition-invariance",
+      "PASS" if part1_ok else "FAIL")
 
 
 print("\n=== Part 1b: ordinary median (unit 60) ===")
@@ -178,6 +195,9 @@ mut_ok = (float(even.median()) == 1.0 and ordinary_median(even) != float(even.me
 u60_ok &= mut_ok
 print(f"  mutation (Tensor.median) reports {float(even.median())} not 5: caught={mut_ok}")
 print("Part 1b:", "PASS" if u60_ok else "FAIL")
+# the ordinary-median evidence leg: this Part-1b verdict alone.
+print("##AID eval-batch-invariance.ordinary-median",
+      "PASS" if u60_ok else "FAIL")
 ok &= u60_ok
 
 print("\n=== Part 2: eval timing, training bs vs derived bs ===")
@@ -211,6 +231,17 @@ else:
 
 print("\nReal check: one `cosmic_shear_train ... bs: 32` run vs the pre-change "
       "build: epoch time drops ~0.3 s, metrics match to rtol 1e-6.")
+
+# The two timing evidence legs are informational, never a CPU pass-by-default.
+# Part 2 prints CUDA durations against NO acceptance bound (and is CPU-skipped
+# above), and the "Real check" line is a hard-coded sentence, not a measurement
+# this gate makes. Both are emitted UNAVAILABLE with their honest reason so the
+# board reconciles them explicitly rather than dropping them.
+print("##AID eval-batch-invariance.cuda-timing UNAVAILABLE CUDA durations "
+      "are printed but compared with no acceptance bound (and CPU-skipped here)")
+print("##AID eval-batch-invariance.production-timing-claim UNAVAILABLE the "
+      "claimed production speedup is a hard-coded sentence, not a measurement "
+      "made by the gate")
 
 # Added for the harness: the runner reads this exit code (Part 1 is the
 # hard acceptance; Part 2 is informational timing).

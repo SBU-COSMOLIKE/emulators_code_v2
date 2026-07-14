@@ -554,20 +554,28 @@ def gate_ge_c(ctx):
 
   WHAT: the eval batch size, decoupled from the training batch. WHY:
   changing how the eval set is chunked must not move any metric. HOW: a
-  torch-only script checks the per-row chi2 agrees across eval batch
-  sizes to rtol 1e-6 and prints "Part 1: PASS"
-  (spec: training-stack.md:102-108; the script itself is 202-300).
+  torch-only script emits four per-leg ##AID terminals (partition-invariance:
+  real eval_val's aggregate median/mean/fractions and a per-row loop agree
+  across eval batch sizes 32/517/1000/2048 to rtol 1e-6; ordinary-median: the
+  helper and real eval_val return the arithmetic midpoint for an even sample,
+  stay batch-invariant, and catch the lower-middle Tensor.median mutation;
+  cuda-timing and production-timing-claim: informational, so UNAVAILABLE on
+  this run -- CUDA durations carry no acceptance bound and the production
+  speedup is a documented sentence, not a measurement)
+  (spec: training-stack.md#eval-batch-invariance-evidence).
+
+  The check-script rc expect stays aid-less: the child exit is the aggregate
+  verdict of the two logical legs, and its four ##AID lines carry the declared
+  evidence (the geo-paths check-script template).
   """
   ctx.require_caps("torch", "gpu")
   rc, out = ctx.run_check("gates/checks/ge_c_eval_bs.py")
   if ctx.dry:
     return
-  ctx.expect(label="eval-batch-invariance Part 1 partition invariance (rtol 1e-6)",
-             ok=logscan.contains(text=out, needle="Part 1: PASS"),
-             detail="the script must print 'Part 1: PASS'")
   ctx.expect(label="eval-batch-invariance check script exit 0",
              ok=(rc == 0),
-             detail="check exit code " + str(rc))
+             detail="check exit code " + str(rc)
+                    + " (gates/checks/ge_c_eval_bs.py)")
 
 
 def gate_gb_c(ctx):
@@ -897,10 +905,21 @@ def gate_gwd_c(ctx):
 
   WHAT: the rule that picks decayed parameters by module role, not
   tensor shape. WHY: decaying an activation's parameters or a bias
-  drags the model toward degenerate forms. HOW: with weight_decay 1e-4,
-  the parameter groups hold exactly the Linear / Conv1d / BinLinear
-  weights in the decayed group and everything else undecayed; plus the
-  golden wd-0 run (spec: training-stack.md:143-147).
+  drags the model toward degenerate forms. HOW: a torch-only child runs
+  the real make_optimizer at weight_decay 1e-4 over a toy module tree and
+  emits four per-leg ##AID terminals (allowed-weight-set: the decayed group
+  is exactly the Linear / Conv1d / BinLinear weights; undecayed-role-
+  exclusions: the gated_power shape parameters, the BinLinear bias, and
+  every other non-allowlisted parameter stay undecayed; parameter-group-
+  partition: the two groups are disjoint and their union is every parameter
+  exactly once; zero-decay-inert: at weight_decay 0 every group carries decay
+  0). Then a golden wd-0 run compares selected log lines (golden-selected-
+  text-equality, UNAVAILABLE while its base is null)
+  (spec: training-stack.md#weight-decay-census-evidence).
+
+  The check-script rc expect stays aid-less: the child exit is the aggregate
+  verdict, and its four ##AID lines carry the census legs (the geo-paths
+  check-script template).
   """
   ctx.require_caps("torch", "gpu")
   rc, out = ctx.run_check("gates/checks/gwd_census.py")
@@ -911,7 +930,8 @@ def gate_gwd_c(ctx):
   _golden_leg(ctx=ctx,
               gate_id="weight-decay-census",
               yaml_name="cosmic_shear_train_emulator.yaml",
-              grep_pattern="^(phase|epoch|best)")
+              grep_pattern="^(phase|epoch|best)",
+              aid="weight-decay-census.golden-selected-text-equality")
 
 
 def gate_gpc_c(ctx):
@@ -1268,40 +1288,36 @@ def gate_spe_b(ctx):
 def gate_cme_a(ctx):
   """cmb-identity: the CMB emulator identity + law + roughness + finetune.
 
-  WHAT: tiny synthetic CMB emulators (a ParamGeometry over a written covmat
-  + a CmbDiagonalGeometry over a synthetic fiducial C_ell + a small ResMLP)
-  prove: the RULED cosmic-variance constants (sigma_l = C_fid*sqrt(2/(2l+1)),
-  the covinv ruling); the geometry state round-trip byte-identical (the law
-  strings + the persisted fiducial refs); the as_exp2tau_ref law exact both
-  ways (the order-one _factor bitwise, 1 at the fiducial, encode(decode) to
-  float32 round-off) + its loud errors (retired-law + missing-reference
-  refusals, the raw-factor mutation failing the unity + order-one legs); save ->
-  rebuild -> predict bitwise on BOTH laws (the predictor's CMB branch); the
-  emul_cmb adapter's Cl assembly + every loud error (duplicate spectrum,
-  wrong-kind, unknown-spectrum / beyond-lmax must_provide, both get_Cl
-  convention guards; cobaya.theory stubbed, torch-only); the
-  roughness legs (band ratio > 100, zero -> exactly 0, OFF identity
-  bitwise, one-reduction composition, the lensing guard < 3%); and the
-  finetune legs (epoch-0 parity from a CMB source, the cosmolike
-  pin's wrong-kind refusal, validate_cmb accepting finetune). Added
-  2026-07-11/12: the correction-head leg (ResTRF + n_tokens: attach,
-  identity basis, epoch-0 identity, the two-phase discipline, save ->
-  rebuild -> predict bitwise) and the NPCE check_npce leg (residual
-  algebra bitwise, roughness composition, base + net prediction
-  bitwise, the pce x amplitude-law exclusivity). Also the eq-6
-  lens-induced covariance legs (check_covariance_oracle): an affine fake
-  CAMBdata makes the 5-point stencil exact, so compute_cmb_covariance's
-  non-Gaussian contraction is checked against an independent known
-  answer for eq 6, built directly from the sensitivity matrix and the
-  lensing-potential variance. Five legs: the exact contraction (the
-  pipeline equals the direct eq 6); the old-weight miss (the earlier
-  band-summed-variance weights are wrong by orders of magnitude); the
-  raw-vs-scaled fixture integrity (the fake serves the scaled
-  [L(L+1)]^2 C potential and refuses the raw getter, the pipeline reads
-  raw for the weight); the width-3 band projection (a constant-response
-  band reproduces the per-multipole eq 6); and the exact zero-band
-  weight (a zeroed band's persisted weight is exactly 0). torch only, no
-  CAMB (spec: notes/families-scalar-cmb.md).
+  WHAT: the child check exercises seven acceptance legs on synthetic CMB
+  artifacts (a ParamGeometry over a written covmat + a CmbDiagonalGeometry
+  over a synthetic fiducial C_ell + a small ResMLP), torch only, no cosmolike
+  and no CAMB. geometry-and-reference-schema: the ruled Gaussian
+  per-multipole scale, byte-identical persistence of the fiducial amplitude
+  references, the geometry state round-trip, the endpoint scale comparison,
+  and the nonpositive / typed reference-value refusals. amplitude-law-and-
+  score: the order-one as_exp2tau_ref law, its transform round-trip, the
+  parameter-aware physical score and factor-corrected roughness residual, the
+  stale-parameter isolation, and the missing / invalid-law + raw-factor
+  mutation refusals. artifact-and-adapter-round-trip: save -> rebuild ->
+  predict bitwise on BOTH laws and the stubbed emul_cmb adapter's Cl assembly
+  (shared axis, low-l padding, requirements, both get_Cl convention guards,
+  spectrum uniqueness, request-range refusals). roughness-contract: band
+  ratio > 100, exact zero on a zero residual, OFF identity bitwise, the
+  one-reduction score composition, and the bounded lensing-period leg.
+  model-variant-composition: the correction-head leg (attach, identity basis,
+  epoch-0 identity, two-phase discipline, save -> rebuild -> predict bitwise)
+  and the NPCE residual algebra, roughness composition, saved prediction, and
+  the pce x amplitude-law exclusivity guard. finetune-parity: the epoch-0
+  parity from a CMB source, the CMB fine-tune config shape, and the
+  cosmolike-only pin's wrong-kind refusal. covariance-known-answer: an affine
+  fake CAMBdata makes the 5-point stencil exact, so compute_cmb_covariance's
+  non-Gaussian eq-6 contraction is checked against a direct sensitivity-matrix
+  known answer across all six blocks, the retired weights miss by orders of
+  magnitude, the raw-vs-scaled lensing-potential fixtures stay distinct, a
+  width-3 constant-response band reproduces the per-multipole eq 6, and a
+  zeroed band's weight is exactly 0. The board wrapper reduces the child's
+  seven legs to its exit code (spec:
+  families-scalar-cmb.md#cmb-identity-evidence).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/cmb_identity.py")
@@ -1896,7 +1912,17 @@ BOARD = [
        title="Eval-batch partition invariance",
        tier=TIER_BACKLOG,
        home="training-stack",
-       maps="102-108 (partition invariance rtol 1e-6 + timing); 202-300 script",
+       maps="a torch-only script proves the validation scores and the ordinary "
+            "median are independent of how the same rows are chunked into eval "
+            "batches, while the two timing observations remain informational",
+       evidence=(Assertion("eval-batch-invariance.partition-invariance",
+                           "training-stack.md#eval-batch-invariance-partition-invariance"),
+                 Assertion("eval-batch-invariance.ordinary-median",
+                           "training-stack.md#eval-batch-invariance-ordinary-median"),
+                 Assertion("eval-batch-invariance.cuda-timing",
+                           "training-stack.md#eval-batch-invariance-cuda-timing"),
+                 Assertion("eval-batch-invariance.production-timing-claim",
+                           "training-stack.md#eval-batch-invariance-production-timing-claim")),
        run=gate_ge_c,
        manifest=Manifest(code=(), inputs=()),
        needs=("torch", "gpu")),
@@ -2251,7 +2277,22 @@ BOARD = [
        title="Weight-decay param-group census",
        tier=TIER_NEW_FEATURES,
        home="training-stack",
-       maps="143-147 (gated_power wd 1e-4 census + golden wd-0 byte-identity)",
+       maps="the real make_optimizer partitions a toy module tree by role: the "
+            "decayed group is exactly the Linear/Conv1d/BinLinear weights, "
+            "every non-allowlisted parameter stays undecayed, the two groups "
+            "partition every parameter exactly once, and at weight decay 0 both "
+            "groups are inert; the golden wd-0 selected-text equality stays "
+            "unavailable while its base is null",
+       evidence=(Assertion("weight-decay-census.allowed-weight-set",
+                           "training-stack.md#weight-decay-census-allowed-weight-set"),
+                 Assertion("weight-decay-census.undecayed-role-exclusions",
+                           "training-stack.md#weight-decay-census-undecayed-role-exclusions"),
+                 Assertion("weight-decay-census.parameter-group-partition",
+                           "training-stack.md#weight-decay-census-parameter-group-partition"),
+                 Assertion("weight-decay-census.zero-decay-inert",
+                           "training-stack.md#weight-decay-census-zero-decay-inert"),
+                 Assertion("weight-decay-census.golden-selected-text-equality",
+                           "training-stack.md#weight-decay-census-golden-selected-text-equality")),
        run=gate_gwd_c,
        manifest=Manifest(code=(), inputs=()),
        needs=("torch", "gpu")),
@@ -2340,15 +2381,25 @@ BOARD = [
        title="CMB emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-scalar-cmb",
-       maps="110-117 (identity legs) + the amplitude-metric legs "
-            "(the factored chi2 divides f out: physical-chi2 invariance "
-            "under (A_s, tau), the uncorrected f^2 catch-power, the "
-            "factor-corrected roughness residual, params-required); "
-            "517-530 (roughness gate legs); 582-591 (finetune legs); "
-            "141-203 (the eq-6 covariance known-answer legs: the exact "
-            "contraction, the old-weight miss, the raw-vs-scaled fixture "
-            "integrity, the width-3 band projection, and the exact "
-            "zero-band weight)",
+       maps="synthetic CMB artifacts exercise the diagonal geometry and "
+            "reference schema, the amplitude law and score, the saved "
+            "predictor and adapter round trip, the roughness contract, the "
+            "model-variant composition, the fine-tune parity boundary, and "
+            "the non-Gaussian covariance known answer",
+       evidence=(Assertion("cmb-identity.geometry-and-reference-schema",
+                           "families-scalar-cmb.md#cmb-identity-geometry-and-reference-schema"),
+                 Assertion("cmb-identity.amplitude-law-and-score",
+                           "families-scalar-cmb.md#cmb-identity-amplitude-law-and-score"),
+                 Assertion("cmb-identity.artifact-and-adapter-round-trip",
+                           "families-scalar-cmb.md#cmb-identity-artifact-and-adapter-round-trip"),
+                 Assertion("cmb-identity.roughness-contract",
+                           "families-scalar-cmb.md#cmb-identity-roughness-contract"),
+                 Assertion("cmb-identity.model-variant-composition",
+                           "families-scalar-cmb.md#cmb-identity-model-variant-composition"),
+                 Assertion("cmb-identity.finetune-parity",
+                           "families-scalar-cmb.md#cmb-identity-finetune-parity"),
+                 Assertion("cmb-identity.covariance-known-answer",
+                           "families-scalar-cmb.md#cmb-identity-covariance-known-answer")),
        run=gate_cme_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses",
                                "cobaya_theory/emul_cmb.py",
