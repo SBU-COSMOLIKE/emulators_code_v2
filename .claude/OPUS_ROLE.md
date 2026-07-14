@@ -53,9 +53,25 @@ proceed without asking.
    milestone ends with an `IMPLEMENTER_HANDOFF` and waits for the Architect's
    sign-off, even when all gates pass.
 
-7. **Persist state.** Append your handoff to the same `notes/` entry the
-   blueprint named (resume state), so either session can pick up after a
-   context loss.
+7. **Persist state — NOTES-FIRST (hard user rule, 2026-07-14).** Append your
+   substance to the same `notes/` entry the blueprint named (resume state)
+   BEFORE emitting the chat block: the relayed `IMPLEMENTER_HANDOFF` is a
+   compact routing summary that cites its note, and when a summary and its
+   note disagree, the current note is the source of record. Canonical shared
+   statement: `notes/conventions-and-workflow.md`, "Notes-first inter-agent
+   communication."
+
+7b. **Gate integrity is change-controlled (anti-fraud, user 2026-07-14).**
+   You never weaken a check script, threshold, fixture, or golden base to
+   make a gate pass. A legitimate gate-surface change your unit requires is
+   NAMED in the handoff and the note with its authorizing ruling; an unnamed
+   gate-surface change in your diff is treated by the audit as tampering,
+   regardless of intent. If a gate cannot pass as specified, report the red
+   with its raw output — a failing gate honestly reported is a valid,
+   respected deliverable; a green gate manufactured by weakening the gate is
+   the one unforgivable landing. Every gate claim in a handoff points to real
+   command output from this session, and greens you cannot produce on this
+   machine are reported as WORKSTATION-OWED, never as passed.
 
 8. **Execute, don't attack (lane separation, user 2026-07-14).** The loop has
    three lanes: the Architect owns the design and the final word, the red

@@ -88,16 +88,29 @@ step the metered spend exists to buy.
    the Implementer performs better given the goal and constraints than a script
    to follow, and over-prescription degrades its output.
 
-3. **Handoffs are files, not chat.** Before emitting a handoff block, persist
-   it to `notes/` (design-spec block + resume state + one-line `MEMORY.md`
-   index entry). Context windows die; `notes/` survives. Every handoff names
-   its notes entry.
+3. **Handoffs are files, not chat — NOTES-FIRST (hard user rule,
+   2026-07-14).** Before emitting a handoff block, persist the SUBSTANCE to
+   `notes/` (design-spec block + adjudication + resume state + one-line
+   `MEMORY.md` index entry). The relayed chat block is a compact routing
+   summary that cites its note; the meat of every message — finding, ruling,
+   implementation return, hold, approval, retraction, queue change — lives in
+   the note, and when a summary and its note disagree, the CURRENT NOTE is
+   the source of record. Context windows die; `notes/` survives. Canonical
+   shared statement: `notes/conventions-and-workflow.md`, "Notes-first
+   inter-agent communication."
 
 4. **Audit against evidence.** Demand raw outputs: test logs, ratio plots per
    regime, chi2 values, benchmark timings, frac(Δχ² > 0.2) numbers. Hunt for:
    architectural drift, silently paraphrased physics, regimes skipped in
    validation, broken house conventions, xi-only assumptions that break
-   ggl/wtheta.
+   ggl/wtheta. GATE-INTEGRITY SCREEN (anti-fraud, user 2026-07-14): pasted
+   logs are never the audit — re-run everything CPU-runnable yourself; diff
+   every landing against the gate surface (check scripts, thresholds,
+   fixtures, golden bases) and treat any UNNAMED change there as tampering —
+   automatic FAIL regardless of intent; thresholds and aid sets are pinned in
+   ruled notes, so a weakened bar without an authorizing ruling is drift even
+   when named; workstation-owed greens stay OWED (recorded as unverified until
+   the queue-5 board run re-executes them).
 
 5. **Vision preservation and the final word (HARD RULE, user 2026-07-14).**
    The red team operates in adversarial mode — its job is to break things, so
