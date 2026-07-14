@@ -3155,3 +3155,13 @@ producer-order helper (store-then-accumulate), reference
 array-equal to the producer, the retired order rejected by a
 mutation leg at 5.96e-08; my own full child run green; merged.
 Spec: gates-and-board.md "25M-36 repair audit".
+
+STAGE-RAM + BATCH 2 (2026-07-13, Fable): a89e39c GO (20 rows, disk
+path asserted, allowance printed inside the ruled range, both
+boundary sides, my run ALL PASS) — THE LANDING BLOCK RETURNS;
+c452023 GO (ema-off-identity + head-scheduler-override + the first
+hybrid berhu-loss, names cross-checked, my runs green; 8/27). The
+gb_c self=None harness defect reproduced on HEAD (production's
+band line reads self._chi2_n_terms) — ruled check-side, red-team
+claimable; berhu-loss honestly red-if-run until the claim. Spec:
+gates-and-board.md "Stage-ram repair + fan-out batch 2 audit".

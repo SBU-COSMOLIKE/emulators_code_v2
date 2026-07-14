@@ -7468,3 +7468,35 @@ false-red class is now a guarded regression, not a lurking
 tolerance. Production, board, and runner files untouched; the
 register conflict resolved both-retained on their side. VERDICT:
 GO; merged. 25M-36 is CLOSED.
+
+## Stage-ram repair + fan-out batch 2 audit (Fable, 2026-07-13): a89e39c + c452023 GO — THE LANDING BLOCK RETURNS; one harness defect routed
+
+STAGE-RAM (a89e39c) GO, verified by my own run: 20 fixture rows
+(the ruled >= 10); the disk path asserted at the honest budget with
+the chosen allowance PRINTED and shown inside the ruled range
+("budget=1300 streams (0.8*budget=1040 allowance, inside
+[resident+one batch, resident+full encoded set]); budget=700
+refuses"); both boundary sides exercised; the seeded-order
+row-for-row legs and the arange mutation retained; stage-ram ALL
+PASS. Main's one red-if-run surface HEALS at the next merge — the
+landing block returns with this record.
+
+FAN-OUT BATCH 2 (c452023) GO: ema-off-identity (the golden leg via
+the shared aid= mechanism), head-scheduler-override (three legs +
+the drafted lr-cut-cadence minted ctx.unavailable), berhu-loss (the
+first HYBRID gate: three child ##AID legs via the new emit_aids +
+three wrapper legs) — names cross-checked against the drafts (21
+draft references), --list rc 0, selftest ALL PASS (my runs). 8/27
+migrated; batch 3 in flight under continuous batching.
+
+THE GB_C HARNESS DEFECT (Implementer-found, routed for ownership):
+gb_c_berhu_reduce.py drives the BerHu reduction with self=None — a
+harness pattern production outgrew when the scale-aware band line
+(losses/core.py:540) began reading self._chi2_n_terms(). REPRODUCED
+by me on HEAD: AttributeError before emit_aids, so berhu-loss is
+red-if-run INDEPENDENT of the migration (a latent red the fan-out
+surfaced, the system working). RULED: check-side repair, RED-TEAM
+CLAIMABLE (a non-wrapper checks file; the fix is a minimal real
+loss object or the documented calling convention in the harness —
+production stays frozen); the claim heals berhu's child ##AID
+emission on CPU. Until then berhu-loss stays honestly red-if-run.
