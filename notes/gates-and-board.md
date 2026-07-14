@@ -8990,3 +8990,15 @@ gates:   --list rc 0; board-selftest 176 PASS / 0 FAIL; finetune-identity 7/7
          ##AID PASS; transfer-identity 8/8 ##AID emitted (1 FAIL: the known
          cross-family register red); 38/38 static declared==emitted.
 ```
+
+**COMMIT HYGIENE DEFECT in 1c2f706 (reported, not hidden).** The increment sha
+carries ONE file I did not author: `tools/mailbox_daemon.py` (+5/-2, the
+preamble's mailbox-path routing fix). The user edited it live while this turn
+was running; a `git add -A` from a heredoc that failed to parse staged it, and
+the next `git commit` swept the already-staged index in. My attempt to split it
+back out (`git reset --soft HEAD~1`) was PERMISSION-BLOCKED in this headless
+turn, so the commit stands as it is. I did NOT revert the file — it is the
+user's own change and reverting it would destroy their edit. Disposition is the
+Architect's: keep it (it is a correct, self-contained fix that would otherwise
+be committed on its own) or split it before the merge. LESSON for my own hands:
+stage by explicit path, never `git add -A`, when a live daemon shares the tree.
