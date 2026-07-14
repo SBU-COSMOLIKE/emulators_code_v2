@@ -293,23 +293,23 @@ variants, adapter assembly, config validation, and fine-tuning.**
   `mps-identity.saved-model-variants`,
   `mps-identity.adapter-assembly-and-defaults`, and
   `mps-identity.config-and-finetune`.
-- evidence: the listed assertions exist inside the child, but the current
-  child is red in `bounded-staging-values`: its streamed-mean reference is
-  computed before the independently calculated law rows are converted to the
-  stored float32 payload. The producer's center exactly matches the mean of
-  that stored payload after the result is converted to float32. The board
-  wrapper currently exposes only the aggregate child exit code, and the
-  synthetic assembly leg is not upgraded into evidence for the real Syren
-  formulas; diagnostic print lines inside a failed config check are
-  logged-only.
-- owed: replace the false pre-cast mean reference with the independent stored-
-  float32-payload reference and rerun the complete child. Until that repair,
-  the gate has no whole-gate PASS even where CPU PyTorch, SciPy, and the
-  importable Cobaya base API are available. The registry models only CPU
-  PyTorch: missing SciPy can crash the dynamically loaded adapter, while a
-  missing installed Cobaya base API reaches explicit protocol failures. Those
-  are red/missing evidence, not seven capability-`UNAVAILABLE` legs. Real
-  Syren/CAMB and GPU behavior remain outside this gate.
+- evidence: the child forms its independent law rows in float64, converts the
+  rows to the stored float32 representation, then accumulates the reference
+  mean in float64. The producer's center is array-equal to that reference.
+  The production-width fixture also proves that the former mean-before-cast
+  order differs by `5.960464478e-08`. A direct Cocoa Torch 2.6.0 CPU run
+  reaches `PASS: mps-identity all checks green`. The board wrapper currently
+  exposes only the aggregate child exit code, and the synthetic assembly leg
+  is not evidence for the real Syren formulas. Diagnostic print lines inside
+  a failed config check remain logged-only.
+- owed: Architect audit of the Red Team repair and queue-2 wiring of the
+  existing `mps-identity.bounded-staging-values` logical aid. The new
+  mean-before-cast mutation stays inside that same leg. The registry models
+  only CPU PyTorch: missing SciPy can crash the dynamically loaded adapter,
+  while a missing installed Cobaya base API reaches explicit protocol
+  failures. Those are red or missing evidence rather than seven
+  capability-`UNAVAILABLE` legs. Real Syren/CAMB and GPU behavior remain
+  outside this gate.
 
 <a id="mps-identity-geometry-laws-and-pins"></a>
 `mps-identity.geometry-laws-and-pins` checks float32 transform round trips,
@@ -317,10 +317,10 @@ exact grid-state values, width/law guards, exact constant-column pins under
 both laws, and refusal of a wholly constant surface.
 
 <a id="mps-identity-bounded-staging-values"></a>
-`mps-identity.bounded-staging-values` is current-red: its stored row values,
-positivity refusal, bounded reads, disk/RAM selection, and whole-selection
-mutation execute, but its mean assertion compares with a pre-float32 reference
-that is not the payload whose moments the producer owns.
+`mps-identity.bounded-staging-values` compares stored row values and their
+float64-accumulated mean with an independent float32-payload reference. It
+also checks positivity refusal, bounded reads, disk/RAM selection, the
+whole-selection mutation and a mean-before-cast mutation that must disagree.
 
 <a id="mps-identity-stable-streamed-moments"></a>
 `mps-identity.stable-streamed-moments` compares streamed centers and
@@ -1722,7 +1722,7 @@ adapter (resolver landed) or the example refuses with migration
 text. The magnitude ladder and the spy-tuple leg run on the non-drop
 branch; the shipped drop branch is the startup/migration leg.
 
-## 25M-36 (Red Team finding, awaiting Architect adjudication): the bounded-staging mean leg uses the forbidden pre-cast reference and makes `mps-identity` red
+## 25M-36 (Architect-confirmed Red Team finding; repair awaiting audit): the bounded-staging mean leg used the forbidden pre-cast reference and made `mps-identity` red
 
 The queue-2 evidence walk executed the real
 `gates/checks/mps_identity.py` child with Cocoa Torch 2.6.0.  The child
@@ -1759,4 +1759,26 @@ the same represented quantity the geometry receives.  A mutation arm that
 restores the pre-cast-then-convert ordering must fail on the seeded fixture,
 so a future tolerance widening cannot bless the wrong reference.  The full
 `mps-identity` child must then exit zero.  This is a `gates/checks/` repair and
-remains outside the Red Team's current collision window.
+was transferred to the Red Team after the collision window closed.
+
+### Red Team implementation record for Architect audit
+
+The repair changes only the check and its records. A small helper now names
+the representation boundary explicitly: independently calculated float64 law
+rows become float32 stored rows, those stored rows are promoted to float64 for
+the column sum and the final mean is converted to the producer's persisted
+float32 dtype. Both the small staging fixture and the production-width bounded
+fixture use this order. The producer remains unchanged.
+
+The bounded fixture retains two separate assertions. Its stored row values are
+array-equal to the independent float32 payload, and its streamed center is
+array-equal to the mean of that payload. A mutation control calculates the old
+mean-before-cast result and requires disagreement. The seeded fixture reports
+a maximum difference of `5.960464478e-08`, so the control distinguishes the
+two orders without a widened tolerance.
+
+The direct Cocoa Torch 2.6.0 CPU child changed from one deterministic failure
+before the repair to `PASS: mps-identity all checks green` after it. The
+existing logical aid `mps-identity.bounded-staging-values` owns the added
+mutation. No board or runner file was changed. This is implementation evidence
+for the Architect and does not certify the landing.

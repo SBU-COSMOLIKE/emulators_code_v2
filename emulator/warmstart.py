@@ -77,13 +77,17 @@ _PARITY_TOL = 1.0e-5
 
 
 class FinetuneSource:
-  """The source emulator a fine-tune run continues from, loaded once.
+  """The saved emulator used to begin fine-tuning or transfer learning.
 
-  load_source builds this once per experiment and every later step reads it,
-  so the source .h5 / .emul is opened a single time. It carries the source's
-  reconstructed network (the parity reference), both source geometries, the
-  model rebuild recipe, and the few root-attr / resolved-config values the
-  validation and provenance steps need.
+  ``load_source`` constructs one ``FinetuneSource`` object per experiment.
+  Later geometry and training steps reuse that object. A successful
+  construction performs two separate reads of ``<root>.h5``. The first read
+  occurs inside ``rebuild_emulator`` and reconstructs the network and both
+  geometries. That function also loads the weights from ``<root>.emul``. The
+  second HDF5 read occurs inside ``load_source`` and retrieves run metadata
+  that ``rebuild_emulator`` does not return, including the saved model recipe
+  and resolved data configuration. Thus one in-memory source object comes
+  from two HDF5 file opens and one weight-file load.
 
   Attributes:
     root       = resolved absolute source path root (<root>.h5 + <root>.emul).
@@ -104,9 +108,14 @@ class FinetuneSource:
     data_dir   = the source run's cosmolike_data_dir (checked equal to the new
                  run's).
     dataset    = the source run's cosmolike_dataset (checked equal too).
+    ia         = the source intrinsic-alignment design. The value is ``nla``
+                 for the nonlinear-alignment design, ``tatt`` for the tidal
+                 alignment and tidal torquing design, or ``None`` for a
+                 source without a factored intrinsic-alignment model.
   """
 
-  def __init__(self,
+  def __init__(
+               self,
                root,
                model,
                model_cls,
@@ -267,27 +276,35 @@ def resolve_source_root(finetune_cfg):
   return path
 
 
-def load_source(root, device, allow_factored=False):
-  """Load and validate the source emulator once (wraps rebuild_emulator).
+def load_source(
+    root,
+    device,
+    allow_factored=False):
+  """Build one validated source object from a saved emulator pair.
 
-  Reconstructs the source network eager (never torch.compile'd, so its
-  state-dict keys are unprefixed) plus both source geometries, then reads the
-  recipe, the source rescale root attr, and the source's cosmolike data
-  block from the .h5. Enforces the source-artifact constraints: a plain
-  ParamGeometry input geometry, no PCE base, no chaining (no embedded
-  transfer_base), and a rescale of "none". Schema v2 is enforced by
-  rebuild_emulator itself.
+  The first HDF5 read is owned by ``rebuild_emulator``. It reconstructs the
+  eager source network and both source geometries, then loads the weights from
+  ``<root>.emul``. Eager means that ``torch.compile`` has not wrapped the
+  network, so state-dict keys carry no compile prefix. A second HDF5 read in
+  this function retrieves the recipe, the saved rescale value and the
+  resolved cosmolike data block. These metadata values are needed by the
+  warm-start validator and are not part of ``rebuild_emulator``'s return
+  value.
+
+  The function then enforces the source-artifact constraints: a plain
+  ParamGeometry input geometry, no PCE base, no embedded transfer base and a
+  rescale value of ``none``. ``rebuild_emulator`` enforces schema version 2.
 
   Arguments:
     root           = resolved absolute source path root (from
                      resolve_source_root).
     device         = device to rebuild the source network and geometries on.
     allow_factored = the transfer path sets this to accept a factored
-                     NLA / TATT base (an AmplitudeFactorGeometry input, an
-                     ia = nla / tatt): the factored base is its headline use.
-                     The fine-tune path leaves it False, allowing only a plain
-                     source. LogParamGeometry stays out either
-                     way (V1).
+                     intrinsic-alignment base. Its ``ia`` value is ``nla`` or
+                     ``tatt`` and its input geometry is an
+                     AmplitudeFactorGeometry. The fine-tune path leaves this
+                     value False, which accepts only a plain source.
+                     LogParamGeometry is outside this version of both paths.
 
   Returns:
     a FinetuneSource carrying the parity-reference model, both geometries,
@@ -302,12 +319,14 @@ def load_source(root, device, allow_factored=False):
   import h5py
   import yaml
 
-  # rebuild_emulator (results.py): reconstruct the source network + both
-  # geometries from the .h5 + .emul, using only the file (schema v2 enforced
-  # there). compile_model=False keeps the module eager, so its state_dict keys
-  # carry no "_orig_mod." compile prefix.
+  # First HDF5 open: rebuild the source network and both geometries from the
+  # saved recipe and geometry records. rebuild_emulator also loads the weight
+  # file once. compile_model=False keeps the module eager, so its state_dict
+  # keys carry no "_orig_mod." compile prefix.
   model, pgeom, geom, info = rebuild_emulator(
-    path_root=root, device=device, compile_model=False)
+    path_root=root,
+    device=device,
+    compile_model=False)
 
   # the input geometry: a plain ParamGeometry always works; the transfer path
   # also accepts an AmplitudeFactorGeometry (factored base). LogParamGeometry
@@ -329,9 +348,10 @@ def load_source(root, device, allow_factored=False):
       "source carries an NPCE base; V1 warm start / transfer does not compose "
       "with PCE")
 
-  # read the recipe, the source rescale, and the source data block from the
-  # .h5 (rebuild consumes the recipe but does not return it). A transfer_base
-  # group marks the artifact as itself a transfer output: no chaining.
+  # Second HDF5 open: read metadata that rebuild_emulator consumes internally
+  # or does not return. The warm-start path needs these values for validation
+  # and for the new run's resolved record. A transfer_base group marks the
+  # artifact as a transfer output, which this version cannot chain.
   with h5py.File(root + ".h5", "r") as f:
     recipe   = yaml.safe_load(f["model_recipe"][()])
     src_resc = f.attrs.get("rescale")
@@ -821,7 +841,11 @@ def _shared_columns(source_pgeom, new_pgeom, device):
   return shared_cols, extra_cols
 
 
-def _require_parity_finite(side, quantity, values, rows):
+def _require_parity_finite(
+    side,
+    quantity,
+    values,
+    rows):
   """Abort the pre-train parity check if any per-row value is non-finite.
 
   The finite contract on the warm-start parity gates (finetune and
@@ -854,9 +878,12 @@ def _require_parity_finite(side, quantity, values, rows):
   if bool(per_row.all()):
     return
   bad_rows = np.asarray(rows)[(~per_row).cpu().numpy()]
-  _report_nonfinite(side=side, quantity=quantity,
-                    n_bad=int(bad_rows.size), n_total=int(values.shape[0]),
-                    positions=bad_rows[:8].tolist())
+  _report_nonfinite(
+    side=side,
+    quantity=quantity,
+    n_bad=int(bad_rows.size),
+    n_total=int(values.shape[0]),
+    positions=bad_rows[:8].tolist())
 
 
 def build_warm_start(source,
@@ -955,12 +982,26 @@ def build_warm_start(source,
                            out_src, rows)
     max_dv = (out_new - out_src).abs().max().item()
 
-    # extras-independence: perturbing only the extra columns must not move the
-    # epoch-0 output at all (their encoded coordinates meet zero weights).
+    # Extras-independence: perturbing only the extra columns must not move the
+    # epoch-0 output. Keep the perturbed encoding and output as separate named
+    # tensors. Each tensor is checked before it becomes input to the next step
+    # or to torch.equal, so an invalid transform is distinguished from an
+    # invalid model output.
     if n_extra > 0:
       theta_pert = theta.clone()
       theta_pert[:, extra_cols] = theta_pert[:, extra_cols] + 1.0
-      out_pert = model(new_pgeom.encode(theta_pert))
+      enc_pert = new_pgeom.encode(theta_pert)
+      _require_parity_finite(
+        side="finetune parity",
+        quantity="perturbed encoded new-run inputs",
+        values=enc_pert,
+        rows=rows)
+      out_pert = model(enc_pert)
+      _require_parity_finite(
+        side="finetune parity",
+        quantity="perturbed epoch-0 new-model outputs",
+        values=out_pert,
+        rows=rows)
       if not torch.equal(out_new, out_pert):
         raise ValueError(
           "finetune parity: the extra parameters leaked into the epoch-0 "
@@ -1129,9 +1170,20 @@ def build_transfer_start(chi2fn,
       idx_cols = torch.tensor(extra_cols, dtype=torch.long, device=device)
       theta_pert = theta.clone()
       theta_pert[:, idx_cols] = theta_pert[:, idx_cols] + 1.0
-      enc_p       = new_pgeom.encode(theta_pert)
-      composed_p  = chi2fn.decode(corr(enc_p), enc_p)
-      if not torch.equal(composed, composed_p):
+      enc_pert = new_pgeom.encode(theta_pert)
+      _require_parity_finite(
+        side="transfer parity",
+        quantity="perturbed encoded run inputs",
+        values=enc_pert,
+        rows=rows)
+      correction_pert = corr(enc_pert)
+      composed_pert = chi2fn.decode(correction_pert, enc_pert)
+      _require_parity_finite(
+        side="transfer parity",
+        quantity="perturbed epoch-0 composed prediction",
+        values=composed_pert,
+        rows=rows)
+      if not torch.equal(composed, composed_pert):
         raise ValueError(
           "transfer parity: the extra parameters moved the epoch-0 prediction "
           "(they must never reach the frozen base's input slice)")

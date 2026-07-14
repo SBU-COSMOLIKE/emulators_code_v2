@@ -1965,6 +1965,54 @@ No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and
 original evidence.
 
+### D6 triangle implementation record and temporary-directory ownership boundary
+
+Branch `codex/d6-triangle-cleanup` started from main `b3e91b8`. The Red Team
+claimed only `gates/checks/gt_b_triangle.py`, as permitted by the Wave-3
+transfer. The child now identifies every triangle Axes by its x and y
+parameter, traces the real z-order-zero `contourf` calls, identifies each mask
+from an independent physical-formula table, and compares the exact
+`(x parameter, y parameter, window)` set. It checks every collection and patch
+against `_CUT_GREY`. It also locates the `omegamh2` diagonal specifically and
+checks both excluded interval endpoints. The mutation moves the sole
+`omegabh2` artist from `(h0, omegab)` to the unshaded `(ns, h0)` panel. The old
+global summary remains exactly `(12 artists, 7 shaded panels, 12 gray
+artists)` before and after the move, while the exact-set predicate reports
+three errors and rejects the figure.
+
+Direct Mac/CPU evidence under the Cocoa interpreter: all four child legs pass,
+the mutation arm reports equal old counts and a rejected exact set,
+`py_compile` passes, and `git diff --check` is clean. A 130-dpi rendering was
+inspected: the six expected two-dimensional panels and the `omegamh2`
+diagonal carry the gray cut regions, while unrelated panels remain unshaded.
+The bounded C-reader follow-up replaced every new list/set/generator
+comprehension and every generator-based `extend` or `all` call with named
+ordinary loops. Multi-argument helper and acceptance calls put one argument
+on each line where practical. An AST scan has zero comprehension or generator
+nodes and zero generator-based `extend`, `all`, or `any` calls. The four gate
+results plus the mutation counts are unchanged.
+Queue-2 fan-out batch 1 later landed the original four aid bindings in
+`b9244cf`. This branch then merged that main-line change, retained its
+`report(aid=...)` mechanism and changed the four declarations, emissions and
+home-note anchors together to the exact-owner claims above. The direct child
+still passes all four legs after that merge. A board-wrapper attempt stopped
+in preflight because the Mac lacks CosmoLike, CUDA and a resolved ROOTDIR. No
+gate body ran, so a board-level verdict is not claimed.
+
+The D6 temporary-directory half did not enter this landing because its files
+have other active owners. The original nine-site contract is exact at the
+adjudication commit `cbd0a9c`: five sites are
+`finetune_identity.py` (`ftw-`), `gct_parity.py` (`gct-`),
+`gsv_bitwise_drift.py` (`gsv-`), and both `transfer_identity.py` sites
+(`tpe-e-`, `tpe-`). The other four are the then-present
+`board_selftest.py` sites with prefixes `board-selftest-`, `board-yaml-`, and
+`board-logtrust-`, plus the empty manifest-directory fixture created under
+`gates/`. Those files, along with `board.py` and `run_board.py`, were expressly
+outside this claim. Their owner must complete the nine-site context-manager or
+failure-safe cleanup landing and its injected-failure proof. Later additions
+to `board_selftest.py` require a fresh census by that same owner; they do not
+silently change which nine sites this contract names.
+
 Architect adjudication overlay for the first batch (received after commit
 `fafc122`): all six were confirmed. `25M-01` mints unit 94 and couples
 generation-side support truth to unit 84's inference side; `25M-02` and
@@ -2464,6 +2512,42 @@ fixture red.  Finite-contract returns one at the Part F fixture crash after
 the import repair lets it reach the check body.  These are implementation
 readbacks for Architect audit, not self-certification.
 
+## Red Team implementation record: 25M-36 stored-payload reference order
+
+The Architect confirmed `25M-36` and transferred its bounded
+`gates/checks/mps_identity.py` repair to the Red Team. The producer remains
+unchanged. The check now creates its independent reference in the same
+representation order the producer owns: calculate the law in float64, store
+each row in float32, promote those stored rows for a float64 column mean and
+convert the final mean to the persisted float32 dtype. Both staging fixtures
+use this order, which removes a second copy of the same pre-cast reference
+pattern from the smaller fixture.
+
+The production-width fixture keeps the stored values and their mean as
+separate exact assertions. It also computes the old mean-before-cast result as
+a mutation control. The correct stored-payload reference is array-equal to the
+producer center. The old ordering differs by `5.960464478e-08`, so replacing
+the repaired reference with that ordering makes the exact mean assertion red.
+
+A direct Cocoa Torch 2.6.0 CPU run before the edit ended with one failure,
+`bounded staging: streamed mean equals the known answer`. The same complete
+child after the edit reports the old-order discrimination and ends
+`PASS: mps-identity all checks green`. The existing logical aid
+`mps-identity.bounded-staging-values` remains the owner of the added internal
+assertion. No `board.py` or runner file was touched. Queue 2 still owns the
+machine wiring of that aid.
+
+The executed command from the isolated worktree was:
+
+```text
+PYTHONPATH=. MPLBACKEND=Agg Cocoa/.local/bin/python gates/checks/mps_identity.py
+```
+
+The Cocoa interpreter compiled the edited check, `git diff --check` returned
+zero and the scoped diff contains only the check, its MPS home note and this
+durable register. This record presents evidence to the Architect and does not
+certify the landing.
+
 ## D3 implementation blocker: disjoint fixtures expose the existing thin smoke margin
 
 The transferred scalar-smoke visit now has a provisional implementation of
@@ -2619,3 +2703,26 @@ The board-listed HDF5 save/delete/rebuild evidence remains with that gate
 owner. The add-or-toggle case against a declared unmasked artifact remains
 unit 96's authenticity interlock. This bounded reopen does not edit
 `emulator/results.py` and does not claim either wider proof.
+## Red Team implementation record: DIDACTICS-67 and DIDACTICS-68 warm-start visit
+
+The Architect transferred the warm-start visit to the Red Team in the Wave 4
+throughput ruling.  The implementation is isolated on
+`codex/warmstart-finite-didactics` and is awaiting Architect audit.  The full
+technical record, test results, and deferred gate-file wiring are in
+`artifacts-inference-warmstart.md`, under "Warm-start source reads and
+perturbed finite values."
+
+The code change has two parts.  First, `FinetuneSource` and `load_source`
+describe the executed read sequence accurately: one reusable source object,
+two HDF5 opens, and one weight-file load.  The attribute documentation now
+includes `ia` and defines `nla`, `tatt`, and `None`.  Second, the fine-tune and
+transfer perturbation arms both screen their named encoded inputs and named
+outputs with the shared finite predicate before comparison.
+
+The focused CPU suite has eleven passing tests.  It injects NaN and Inf only
+after the extra-coordinate perturbation, requires the error to name the
+pipeline side, quantity, and row 9, retains both finite baseline parity
+verdicts, and uses four skip-one-guard mutations to prove that every new call
+is load-bearing.  Existing gate files remain untouched because their queue-2
+owner is active.  The owner note records the exact Part D, Part E, and future
+documentation-examples additions needed after that collision clears.
