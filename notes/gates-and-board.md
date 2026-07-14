@@ -7500,3 +7500,34 @@ CLAIMABLE (a non-wrapper checks file; the fix is a minimal real
 loss object or the documented calling convention in the harness —
 production stays frozen); the claim heals berhu's child ##AID
 emission on CPU. Until then berhu-loss stays honestly red-if-run.
+
+FAN-OUT BATCH 3 (70a484e) GO: ema-smoke (three wrapper legs — the
+shared _smoke_driver exit/banner aids plus the direct rewind
+ctx.expect), head-activation-pin (five legs — golden null-base
+UNAVAILABLE + smoke exit/banner + two inline warning/refusal
+expects; the _GhaFakeCtx selftest stub taught aid=), relu-tanh-norm
+(five legs — golden null-base UNAVAILABLE + two _smoke_driver pairs).
+INTEGRATION LESSON banked: the batch-3 subagents branched from a
+pre-batch base (994ef4e), so their whole-file `git diff HEAD` shows
+the earlier batches' aids as REVERTS — a `git apply` of that diff
+would silently undo batches 1-2. The safe integration is to diff each
+subagent against ITS OWN base and hand-apply only the gate-local hunk
+to the live tree; the Edit exact-match then re-checks the "before"
+text. Re-verified on the merged tip: compile, --list rc0, board-
+selftest ALL PASS, declared==emitted 3/5/5 by driving each real gate
+body with a null-base probe ctx. 11/27 migrated (18 with the 7
+foundation re-keys). STAGE-RAM (a89e39c) confirmed present+green on
+the branch (batching.py untouched since the repair; ALL PASS live) —
+the only red-if-run surface is main, closed by the user's branch->main
+merge, not a re-commit.
+
+FAN-OUT BATCH 4 launched (continuous batching): berhu-anneal,
+ema-anneal (the drafted live-point-metrics leg has no body assertion
+-> forward-declared UNAVAILABLE, not invented), npce-training (nine
+legs). All three wrapper-asserted, one-file. On their return: hand-
+apply the gate-local hunks, independently re-verify, self-commit as
+batch 4, hand the sha for delta audit. finite-contract, when the
+fan-out reaches it, folds the warmstart Part D + Part E legs
+(artifacts-inference-warmstart.md "Warm-start source reads and
+perturbed finite values") into its wiring rather than leaving them
+orphaned.
