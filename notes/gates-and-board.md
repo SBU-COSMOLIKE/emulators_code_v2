@@ -7984,3 +7984,20 @@ set stays exactly six; no new aids). Acceptance for the rebased
 tip: the child emits exactly the six declared terminals ALL PASS
 with the new legs contributing to distance-pipeline-consistency,
 plus my delta re-audit of the conflict resolution only.
+
+FAN-OUT BATCH 6 (b74d81b) GO: cmb-identity (7, pure check-script,
+child emit_aid groups, reordered main() into contiguous leg groups),
+eval-batch-invariance (4, pure check-script -- partition-invariance +
+ordinary-median PASS, cuda-timing + production-timing-claim as honest
+UNAVAILABLE because they are CUDA-only / a hard-coded claim not
+measured on CPU), weight-decay-census (5, HYBRID: four census ##AID
+via the berhu LEG_AIDS/emit_aids template + the wrapper _golden_leg
+golden leg UNAVAILABLE on null base). Subagents branched from a RECENT
+base (c374c49, the batch-5 tip), so integration was clean copy-
+wholesale + git apply with the per-child seam check empty. All three
+children run green on cocoa-torch; declared==emitted 7/7, 4/4, 5/5
+(the hybrid folds four child ##AID with one wrapper golden). 27/40
+migrated. Remaining fan-out: the family smoke trio (bsn/mps/cmb-smoke,
+likely workstation-verified since they drive real training + cobaya),
+joint-training + production-diagnostic (wrapper, complex), then the
+hand-do set (finite-contract, scalar-smoke) + the six wrapper-family.
