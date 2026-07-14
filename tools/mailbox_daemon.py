@@ -270,11 +270,34 @@ def main():
         return 0
 
     if args.watch:
-        print("watching " + MAILBOX + " (Ctrl-C to stop)")
-        while True:
-            for path in pending_messages():
-                dispatch(path=path, dry_run=False)
-            time.sleep(20)
+        # single-instance lock: a second concurrent watcher double-dispatches
+        # the same messages (the 2026-07-14 zombie-race incident). The lock
+        # file holds the owner's pid; a dead owner's lock is reclaimed.
+        lock_path = os.path.join(MAILBOX, ".watch.lock")
+        os.makedirs(MAILBOX, exist_ok=True)
+        if os.path.isfile(lock_path):
+            with open(lock_path, encoding="utf-8") as f:
+                old_pid = f.read().strip()
+            alive = subprocess.run(["kill", "-0", old_pid],
+                                   capture_output=True)
+            if alive.returncode == 0:
+                print("another watch is already running (pid " + old_pid
+                      + ") -- refusing to start a second one.")
+                return 1
+            print("reclaiming a dead watcher's lock (pid " + old_pid + ")")
+        with open(lock_path, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+        print("watching " + MAILBOX + " (Ctrl-C to stop; safe only "
+              "BETWEEN dispatches -- killing a dispatch mid-flight dooms "
+              "the agent's turn)")
+        try:
+            while True:
+                for path in pending_messages():
+                    dispatch(path=path, dry_run=False)
+                time.sleep(20)
+        finally:
+            if os.path.isfile(lock_path):
+                os.remove(lock_path)
 
     print("choose one of --dry-run / --once / --watch / --send (see --help)")
     return 1
