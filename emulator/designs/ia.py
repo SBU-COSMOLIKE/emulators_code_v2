@@ -28,7 +28,8 @@ import torch.nn as nn
 from ..activations import activation_fcn
 from .plain import DesignSpec
 from .blocks import (
-  Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size)
+  Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size,
+  validate_trf_token_width)
 
 
 class TemplateMLP(DesignSpec, nn.Module):
@@ -782,6 +783,18 @@ class TemplateResTRF(DesignSpec, nn.Module):
     # n_in = real input width: drop the n_amps amplitude columns.
     self.n_in = input_dim - n_amps
 
+    # Resolve the token layout before allocating the template trunk. A
+    # width-one refusal therefore leaves no partially constructed network.
+    sizes = []
+    for size in geom.bin_sizes:
+      sizes.append(int(size))
+    self.n_bins = len(sizes)
+    self.max_bin = max(sizes)
+    validate_trf_token_width(
+      output_length=n_templates * output_dim,
+      n_tokens=n_templates * self.n_bins,
+      token_width=self.max_bin)
+
     # trunk: the TemplateMLP layer stack, emitting all templates in
     # the full-whitened basis (well conditioned).
     layers = [nn.Linear(in_features=self.n_in, out_features=int_dim_res)]
@@ -792,12 +805,6 @@ class TemplateResTRF(DesignSpec, nn.Module):
     layers.append(Affine())
     self.model = nn.Sequential(*layers)
 
-    # the bin split: per-bin kept counts, contiguous in theta order.
-    sizes = []
-    for s in geom.bin_sizes:
-      sizes.append(int(s))
-    self.n_bins  = len(sizes)
-    self.max_bin = max(sizes)
     # pad_idx maps each kept theta-order position to its slot in the
     # padded (n_bins, max_bin) layout (bin g's j-th entry at
     # g*max_bin + j); one fixed buffer scatters to pad and gathers
@@ -820,11 +827,14 @@ class TemplateResTRF(DesignSpec, nn.Module):
                else block_opts.get("act", activation_fcn))
     trf = []
     for _ in range(n_blocks_trf):
-      trf.append(TRFBlock(self.max_bin,
-                          n_tokens=n_templates * self.n_bins,
-                          n_heads=n_heads,
-                          n_mlp_blocks=n_mlp_blocks,
-                          act=trf_act, shared_mlp=shared_mlp))
+      trf.append(TRFBlock(
+        self.max_bin,
+        n_tokens=n_templates * self.n_bins,
+        n_heads=n_heads,
+        n_mlp_blocks=n_mlp_blocks,
+        act=trf_act,
+        shared_mlp=shared_mlp,
+        output_length=n_templates * output_dim))
     self.trf = nn.ModuleList(trf)
 
     # FiLM (film=True): one identity-initialized generator per TRF

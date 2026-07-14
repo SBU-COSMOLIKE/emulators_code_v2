@@ -69,7 +69,8 @@ import torch.nn as nn
 
 from ..activations import activation_fcn
 from .blocks import (
-  Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size)
+  Affine, ResBlock, TRFBlock, FiLMGenerator, rescale_kernel_size,
+  validate_trf_token_width)
 
 
 class DesignSpec:
@@ -838,19 +839,12 @@ class ResTRF(DesignSpec, nn.Module):
       "diagonal family geometry (EmulatorExperiment does this for "
       "models with the needs_bins flag)")
 
-    # ResMLP main path: standalone ResMLP layer stack, output in the
-    # full-whitened basis (well conditioned).
-    mlp = [nn.Linear(in_features=input_dim, out_features=int_dim_res)]
-    for _ in range(n_blocks):
-      mlp.append(ResBlock(int_dim_res, **block_opts))
-    mlp.append(nn.Linear(in_features=int_dim_res, out_features=output_dim))
-    mlp.append(Affine())
-    self.mlp = nn.Sequential(*mlp)
-
-    # the bin split: per-bin kept counts, contiguous in theta order.
+    # Resolve the token layout before allocating a learnable layer. This
+    # ordering makes an invalid width a configuration error and avoids
+    # leaving a partially constructed model behind.
     sizes = []
-    for s in geom.bin_sizes:
-      sizes.append(int(s))
+    for size in geom.bin_sizes:
+      sizes.append(int(size))
     # n_tokens: re-segment a SINGLE-bin geometry (a spectrum
     # on one axis: cmb's ell, grid's z) into contiguous near-equal
     # windows so attention has tokens to attend across — the first
@@ -865,21 +859,35 @@ class ResTRF(DesignSpec, nn.Module):
           "(cmb / grid), but this geometry defines "
           + str(len(sizes)) + " physical bins (tomographic bins / "
           "z slices) — those ARE the tokens; drop n_tokens")
-      total = sizes[0]
-      T     = int(n_tokens)
-      if T < 2 or T > total:
+      output_length = sizes[0]
+      resolved_tokens = int(n_tokens)
+      if resolved_tokens < 2 or resolved_tokens > output_length:
         raise ValueError(
-          "model.trf.n_tokens must be in 2.." + str(total)
-          + " (the spectrum's length); got " + str(T))
-      q, r  = divmod(total, T)
+          "model.trf.n_tokens must be in 2.." + str(output_length)
+          + " (the spectrum's length); got " + str(resolved_tokens))
+      quotient, remainder = divmod(output_length, resolved_tokens)
       sizes = []
-      for t in range(T):
-        if t < r:
-          sizes.append(q + 1)
+      for token_index in range(resolved_tokens):
+        if token_index < remainder:
+          sizes.append(quotient + 1)
         else:
-          sizes.append(q)
-    self.n_bins  = len(sizes)
+          sizes.append(quotient)
+    self.n_bins = len(sizes)
     self.max_bin = max(sizes)
+    validate_trf_token_width(
+      output_length=output_dim,
+      n_tokens=self.n_bins,
+      token_width=self.max_bin)
+
+    # ResMLP main path: standalone ResMLP layer stack, output in the
+    # full-whitened basis (well conditioned).
+    mlp = [nn.Linear(in_features=input_dim, out_features=int_dim_res)]
+    for _ in range(n_blocks):
+      mlp.append(ResBlock(int_dim_res, **block_opts))
+    mlp.append(nn.Linear(in_features=int_dim_res, out_features=output_dim))
+    mlp.append(Affine())
+    self.mlp = nn.Sequential(*mlp)
+
     # pad_idx maps each kept theta-order position to its slot in the
     # padded (n_bins, max_bin) layout: bin g's j-th entry sits at
     # g*max_bin + j, the tail slots of short bins stay zero. One
@@ -902,10 +910,14 @@ class ResTRF(DesignSpec, nn.Module):
                else block_opts.get("act", activation_fcn))
     trf = []
     for _ in range(n_blocks_trf):
-      trf.append(TRFBlock(self.max_bin, n_tokens=self.n_bins,
-                          n_heads=n_heads,
-                          n_mlp_blocks=n_mlp_blocks,
-                          act=trf_act, shared_mlp=shared_mlp))
+      trf.append(TRFBlock(
+        self.max_bin,
+        n_tokens=self.n_bins,
+        n_heads=n_heads,
+        n_mlp_blocks=n_mlp_blocks,
+        act=trf_act,
+        shared_mlp=shared_mlp,
+        output_length=output_dim))
     self.trf = nn.ModuleList(trf)
 
     # FiLM (film=True): one identity-initialized generator per TRF
