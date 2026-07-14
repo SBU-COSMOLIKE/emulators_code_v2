@@ -95,38 +95,71 @@ RELAY_DIR = os.path.join(WORKTREE, "notes", "relay")
 # lets a headless turn edit files without a human at the prompt; shell
 # commands still obey the project permission settings (git push stays
 # deniable there -- the user owns that policy file).
-AGENT_COMMANDS = {
-    # Absolute path: the user's conda shells resolve an OLDER claude binary
-    # with a separate (logged-out) credential store; this one is the
-    # logged-in v2.1.208 install (diagnosed 2026-07-14).
-    # Effort levels (USER 2026-07-14): Fable audits at "xhigh"; Opus builds
-    # at "max" (the claude CLI's top tier); Sol runs at "xhigh" (the codex
-    # CLI's top reasoning tier, set via -c below).
-    "fable": ["/Users/vivianmiranda/.local/bin/claude", "-p",
-              "--model", "claude-fable-5",
-              "--effort", "xhigh",
-              "--permission-mode", "acceptEdits"],
-    "opus": ["/Users/vivianmiranda/.local/bin/claude", "-p",
-             "--model", "claude-opus-4-8",
-             "--effort", "max",
-             "--permission-mode", "acceptEdits"],
-    # Verified by the red team's read-only probe (codex-cli 0.144.2; the
-    # conventions note records the probe): workspace-write sandbox rooted at
-    # the repo, which contains every worktree Sol works in.
-    # service_tier=standard keeps codex Fast Mode OFF for dispatched turns
-    # (USER 2026-07-14): the standard tier is slower in wall-clock time but
-    # far cheaper against the token quota, and an unattended mailbox turn
-    # never needs the speed. Pinned here because the user's global
-    # ~/.codex/config.toml says "priority" -- a dispatch must not inherit
-    # that default.
-    "sol": ["/Applications/ChatGPT.app/Contents/Resources/codex",
-            "exec",
-            "--model", "gpt-5.6-sol",
-            "-c", "model_reasoning_effort=xhigh",
-            "-c", "service_tier=standard",
-            "--sandbox", "workspace-write",
-            "--cd", REPO_ROOT],
-}
+# The reasoning-effort levels each CLI accepts, and the defaults the
+# loop runs at when --watch is launched with no effort flags
+# (USER 2026-07-14): Fable audits at "xhigh"; Opus builds at "max" (the
+# claude CLI's top tier); Sol runs at "xhigh" (the codex CLI's top
+# tier). Override per launch with --fable-effort / --opus-effort /
+# --sol-effort.
+CLAUDE_EFFORT_CHOICES = ["low", "medium", "high", "xhigh", "max"]
+CODEX_EFFORT_CHOICES = ["minimal", "low", "medium", "high", "xhigh"]
+DEFAULT_FABLE_EFFORT = "xhigh"
+DEFAULT_OPUS_EFFORT = "max"
+DEFAULT_SOL_EFFORT = "xhigh"
+
+
+def build_agent_commands(fable_effort, opus_effort, sol_effort):
+    """Assemble the per-agent headless CLI commands at the given efforts.
+
+    Arguments:
+      fable_effort = claude CLI effort level for Fable dispatches
+                     (one of CLAUDE_EFFORT_CHOICES).
+      opus_effort  = claude CLI effort level for Opus dispatches
+                     (one of CLAUDE_EFFORT_CHOICES).
+      sol_effort   = codex CLI reasoning-effort level for Sol dispatches
+                     (one of CODEX_EFFORT_CHOICES).
+
+    Returns:
+      dict mapping "fable"/"opus"/"sol" to the argv list dispatch()
+      appends the message to.
+    """
+    commands = {
+        # Absolute path: the user's conda shells resolve an OLDER claude
+        # binary with a separate (logged-out) credential store; this one
+        # is the logged-in v2.1.208 install (diagnosed 2026-07-14).
+        "fable": ["/Users/vivianmiranda/.local/bin/claude", "-p",
+                  "--model", "claude-fable-5",
+                  "--effort", fable_effort,
+                  "--permission-mode", "acceptEdits"],
+        "opus": ["/Users/vivianmiranda/.local/bin/claude", "-p",
+                 "--model", "claude-opus-4-8",
+                 "--effort", opus_effort,
+                 "--permission-mode", "acceptEdits"],
+        # Verified by the red team's read-only probe (codex-cli 0.144.2;
+        # the conventions note records the probe): workspace-write sandbox
+        # rooted at the repo, which contains every worktree Sol works in.
+        # service_tier=standard keeps codex Fast Mode OFF for dispatched
+        # turns (USER 2026-07-14): the standard tier is slower in
+        # wall-clock time but far cheaper against the token quota, and an
+        # unattended mailbox turn never needs the speed. Pinned here
+        # because the user's global ~/.codex/config.toml says "priority"
+        # -- a dispatch must not inherit that default.
+        "sol": ["/Applications/ChatGPT.app/Contents/Resources/codex",
+                "exec",
+                "--model", "gpt-5.6-sol",
+                "-c", "model_reasoning_effort=" + sol_effort,
+                "-c", "service_tier=standard",
+                "--sandbox", "workspace-write",
+                "--cd", REPO_ROOT],
+    }
+    return commands
+
+
+# main() rebuilds this from the command-line flags; the module-level
+# value keeps imports and direct function calls working at the defaults.
+AGENT_COMMANDS = build_agent_commands(fable_effort=DEFAULT_FABLE_EFFORT,
+                                      opus_effort=DEFAULT_OPUS_EFFORT,
+                                      sol_effort=DEFAULT_SOL_EFFORT)
 
 # The working directory each dispatched agent starts in. Fable and Opus
 # develop in this worktree; Sol works from the repository root (its command
@@ -155,6 +188,17 @@ PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
 # dispatch rate).
 SECOND_IMPLEMENTER_THRESHOLD = 10
 BACKLOG_LEDGER = os.path.join(WORKTREE, "notes", "backlog.md")
+
+# One landed milestone = ONE FULL AUDIT TRAIL: the feature, its
+# witness/gate leg, and the notes audit record — a few hundred changed
+# lines. Unlanded content past this many lines means an audited unit is
+# overdue for its own squash landing to main (user rule, 2026-07-14,
+# after seven hours of work landed as one 12,000-line main commit).
+# Measured as the CONTENT diff against main, never as a commit count:
+# a squash landing leaves the old branch commits outside main's
+# ancestry forever, so commit counts overstate the debt permanently.
+# report_landing_debt() prints the meter with every demand report.
+LANDING_DEBT_LINE_LIMIT = 400
 
 
 def backlog_ledger_count():
@@ -399,6 +443,47 @@ def report_demand(backlog):
               "team is now the SECOND IMPLEMENTER: build units flow to "
               "it as well as to Opus "
               "(.claude/FABLE_ROLE.md, Second-Implementer assignments).")
+    report_landing_debt()
+
+
+def report_landing_debt():
+    """Print how much branch content has not yet landed on main.
+
+    The milestone that must land is ONE FULL AUDIT TRAIL: the feature,
+    its witness or gate leg, and the notes audit record. Debt past
+    LANDING_DEBT_LINE_LIMIT changed lines means an audited unit is
+    sitting unlanded, which is how the 12,000-line batch landing of
+    2026-07-14 happened (user rule: land at every audit-GO boundary,
+    one unit per squash commit). Content is measured with git diff
+    against main -- a commit count would never drop after a squash
+    landing, because squashing leaves the original branch commits
+    outside main's ancestry.
+    """
+    proc = subprocess.run(["git", "diff", "--shortstat", "main", "HEAD"],
+                          capture_output=True,
+                          text=True,
+                          cwd=WORKTREE)
+    if proc.returncode != 0:
+        # no main ref (fresh clone mid-setup): the debt line is a
+        # courtesy meter, not a gate -- stay silent rather than crash.
+        return
+    stat = proc.stdout.strip()
+    if stat == "":
+        print("landing debt: none -- the branch and main hold the "
+              "same content")
+        return
+    # --shortstat prints e.g. " 3 files changed, 120 insertions(+), 4
+    # deletions(-)"; the debt is the total lines touched either way.
+    changed_lines = 0
+    for count, keyword in re.findall(r"(\d+) (insertion|deletion)", stat):
+        changed_lines = changed_lines + int(count)
+    print("landing debt: " + stat + " vs main")
+    if changed_lines > LANDING_DEBT_LINE_LIMIT:
+        print("  hint: more than " + str(LANDING_DEBT_LINE_LIMIT)
+              + " unlanded lines means at least one full audit trail "
+              "is overdue -- squash-land the audited unit(s) to main "
+              "now, one unit per commit "
+              "(.claude/FABLE_ROLE.md, Landing GRANULARITY).")
 
 
 def send(agent, text, dry_run):
@@ -463,7 +548,34 @@ def main():
     parser.add_argument("--unit", default="",
                         help="the message text for --send (a routing "
                              "summary pointing at notes/)")
+    parser.add_argument("--fable-effort", default=DEFAULT_FABLE_EFFORT,
+                        choices=CLAUDE_EFFORT_CHOICES,
+                        help="claude CLI reasoning effort for Fable "
+                             "dispatches (default: "
+                             + DEFAULT_FABLE_EFFORT + ")")
+    parser.add_argument("--opus-effort", default=DEFAULT_OPUS_EFFORT,
+                        choices=CLAUDE_EFFORT_CHOICES,
+                        help="claude CLI reasoning effort for Opus "
+                             "dispatches (default: "
+                             + DEFAULT_OPUS_EFFORT + ")")
+    parser.add_argument("--sol-effort", default=DEFAULT_SOL_EFFORT,
+                        choices=CODEX_EFFORT_CHOICES,
+                        help="codex CLI reasoning effort for Sol "
+                             "dispatches (default: "
+                             + DEFAULT_SOL_EFFORT + ")")
     args = parser.parse_args()
+
+    # Rebuild the dispatch commands at the requested efforts. The watch
+    # start line echoes the levels so a terminal scroll-back always
+    # shows what this loop instance was launched with.
+    global AGENT_COMMANDS
+    AGENT_COMMANDS = build_agent_commands(fable_effort=args.fable_effort,
+                                          opus_effort=args.opus_effort,
+                                          sol_effort=args.sol_effort)
+    if args.watch:
+        print("effort levels: fable=" + args.fable_effort
+              + " opus=" + args.opus_effort
+              + " sol=" + args.sol_effort)
 
     if args.ping:
         ping_text = (
