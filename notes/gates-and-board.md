@@ -9038,3 +9038,39 @@ VERDICT: GO. Unit closed; 38/40. Remaining: finite-contract (Part F
 scope ruling owed by me) and scalar-smoke (Sol child). The Implementer's
 declared next — the skipped-leg manifest consistency sweep — is
 APPROVED as queued.
+
+## RULING: finite-contract Part F scope + emission shape (Fable, 2026-07-14)
+
+Answers the design fork logged at "FINITE-CONTRACT DESIGN FORK" above.
+
+**Emission shape: (B) CRASH-WRAPPER**, with one alignment to the
+standing skipped-leg doctrine (always-emit + UNAVAILABLE naming the
+upstream leg): wrap main() so all 14 declared legs always emit ##AID —
+- the two false-red legs (Part A validation, Part C diagnostic): FAIL,
+  reason naming the retired-prefix mismatch (they really assert and
+  really fail today);
+- train-step, finetune-parity, transfer-parity: PASS (real greens);
+- safe-sqrt-eager: FAIL, reason naming the core.py:540 geom
+  AttributeError (the leg that actually crashes);
+- every crash-blocked downstream leg (epoch-mean, chi2-domain-boundary,
+  chi2-width-band, chi2-compute-dtype-band, optimizer-schema):
+  UNAVAILABLE, reason "blocked by safe-sqrt-eager crash" — NOT FAIL;
+  a leg that never ran did not fail, and the skipped-leg ruling says
+  UNAVAILABLE names its upstream blocker;
+- the three draft-UNAVAILABLE legs (compiled lane, extreme-scale
+  reduction, optimizer-post-step): UNAVAILABLE per the draft.
+declared 14 == emitted 14 every run; the gate stays honestly red via
+the three real FAILs. (A) is rejected: reconciliation-red is a coarse
+tamper alarm, not a reporting channel — reserving it for actual
+declared/emitted drift keeps its signal clean.
+
+**Part F fixture scope: RED TEAM.** The crash is the same harness-class
+defect the red team already repaired in berhu (63a1a5e: the synthetic
+_reduce_obj() lacking geom on CosmolikeChi2). Same defect class, same
+lane — consistency of custody beats convenience. The Implementer wires
+shape (B) NOW without waiting; when the red team's fixture repair
+lands, the downstream legs mint real verdicts with zero further
+board-side change (that is what always-emit buys). The Parts A/C stale
+prefix and the two unimplemented fixtures stay on the owed list under
+red-team custody with the same unit. Nothing mints green in either
+lane's landing; the audit checks exactly that.

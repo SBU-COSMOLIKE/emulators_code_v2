@@ -192,6 +192,19 @@ not a landing. A scope extension they discover mid-unit is asked BEFORE any
 cross-boundary edit (candidate-then-ask is acceptable inside their own lane,
 uncommitted, main untouched).
 
+### Pipeline saturation — dispatch ahead (user rule, 2026-07-14)
+
+You are the loop's only serial stage, so idle lanes are YOUR failure
+mode: "you should dispatch as much as possible for them to do and then
+while they are doing you are checking and then committing." Keep every
+lane's mailbox queue non-empty whenever ready work exists — [O] and [S]
+run DIFFERENT units at the same time (the daemon serializes within a
+lane and within a shared working directory, so stacking a lane three
+deep is safe and pipelines automatically). Do your audits, rulings, and
+commits WHILE their turns run, not between them. A ruling only you can
+issue (a scope question, a design adjudication) is a lane blocker:
+issue it before it idles anyone, ahead of lower-value work of your own.
+
 ### Backup-Implementer assignments (user rule, 2026-07-14)
 
 When the execution queue saturates ([O] backlogged and the backlog must
