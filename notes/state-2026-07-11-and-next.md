@@ -3141,3 +3141,11 @@ ParamBounds regression legs, unit 82 rebases, then replay closes
 DIDACTICS-79. Their self-caught diagnostic edit + byte-identical
 restore acknowledged. Spec: gates-and-board.md "Unit-93 hold
 ruling + 25M-38 adjudication".
+
+WARMSTART VISIT (2026-07-13, Fable): 6178bd8 GO — 68's guards on
+both arms with encode/output as separate named tensors (exceeds
+the ruling), 67's lifecycle prose with .ia documented; my runs
+11/11 + finetune-identity ALL PASS; finite_contract.py correctly
+untouched with the Part D/E leg specs recorded for its owner.
+Merged; closure held for the board-leg pairing. Spec:
+gates-and-board.md "Warmstart visit audit".

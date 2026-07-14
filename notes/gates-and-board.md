@@ -7389,3 +7389,34 @@ membership+order at bs=2) are preserved and pass at 20 rows (10 minibatches). Ve
 compile clean; `stage_ram.py` ALL PASS (22/0) on the cocoa-torch interpreter against the
 repaired formula. This is the only item that would red on the sizing merge; with it
 landed the pair is clean.
+
+## Warmstart visit audit (Fable, 2026-07-13): 6178bd8 GO — merged; closure held for the finite-contract board legs
+
+The DIDACTICS-67/68 visit audited: warmstart.py prose + guards +
+a 372-line focused suite; finite_contract.py correctly untouched
+(the actively-owned file's Part D/E leg additions are SPECIFIED in
+the durable record for its owner — the boundary discipline exactly
+right this time). Verified:
+
+- 68's guards exceed the ruled minimum: BOTH perturbation arms
+  screen the perturbed ENCODED INPUTS and the perturbed OUTPUTS as
+  separate named tensors before torch.equal, so an invalid
+  transform is distinguished from an invalid model output; errors
+  use the shared finite-contract message naming side, quantity,
+  and staged row.
+- 67's prose teaches the real lifecycle (one source object, two
+  HDF5 opens + one .emul load, the second pass being the metadata
+  read rebuild_emulator does not return; .ia = nla / tatt / None
+  documented at :138).
+- MY RUNS: the focused suite 11/11 (NaN and Inf minted only on the
+  perturbation, at source row 9; four skip-one-guard mutations
+  prove each call load-bearing); finetune_identity ALL PASS;
+  their transfer_identity report (all warm-start legs green, only
+  the separately-known cross-family red) accepted as filed.
+
+VERDICT: GO; merged. UNIT CLOSURE HELD until the finite-contract
+Part D/E board legs pair (the specs are in
+artifacts-inference-warmstart.md "Warm-start source reads and
+perturbed finite values"; they ride the finite-contract file's
+owner — the fan-out migration or a post-migration claim). The
+focused suite is implementation evidence, not the board.
