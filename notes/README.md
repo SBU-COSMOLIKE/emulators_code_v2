@@ -158,6 +158,17 @@ architect or implementer dispatch the log stays tiny until the finish and the
 moving clock is the only sign of life you get. The codex CLI narrates its
 progress as it goes, so a red team log grows steadily throughout.
 
+Every live turn also receives a dispatch-currency banner ahead of the ordinary
+prompt. Immediately after atomically claiming the message, the daemon takes one
+snapshot of every numbered markdown message anywhere under the mailbox. The
+banner names the largest sequence in that store and the number of newer root
+messages queued in the same working-directory lane. Fable and Opus share that
+lane; Sol has its own. Those numbers are a mechanical hint, not a verdict that
+the message is stale or superseded. The receiving turn still reads the mailbox
+and the cited notes first and decides what the current record means. A message
+body may have been completely accurate when it was written, which is why this
+dispatch-time evidence lives in the banner rather than rewriting the body.
+
 To test the transport by itself, without handing anyone real work:
 
 ```bash
@@ -273,7 +284,41 @@ read it and decide what to do. Nothing is lost, because moving the file back out
 of `failed/` and into the mailbox queues it again. Legitimate turns can be
 long, so the default is deliberately generous. Raise it when the work genuinely
 takes hours, and lower it when you would rather a stuck lane freed itself
-quickly.
+quickly. The value must be a strictly positive integer; an invalid threshold is
+rejected before the daemon can claim or otherwise mutate a mailbox message.
+
+A timeout also appends an atomic sidecar under
+`notes/mailbox/.dispatch-history/<message-basename>.json`. That history is
+timeout-only: a command that simply exits with status 1 does not create it. If
+the failed message is requeued, its next dispatch banner says exactly, `this
+dispatch previously ran for N minutes and was killed`, using the killed-after
+threshold recorded by the daemon. The sidecar therefore survives the move
+through `failed/` and keeps a killed turn from presenting itself as a fresh
+delivery. The daemon writes the complete JSON to a temporary file, flushes it,
+and atomically replaces the sidecar; if that record cannot be secured, the
+message stays claimed in `inflight/` instead of becoming a marker-free retry.
+
+A clean child exit is not enough by itself to consume a message. The daemon
+moves the claimed file into `done/`, then verifies both that the done archive is
+a regular file holding the exact same device-and-inode identity as the claimed
+source and that the inflight source path is gone. Only then does the dispatch
+and its enclosing backlog report success. An ambiguous archive stops later work
+in that same lane, and `--once` exits nonzero, so an unarchived head cannot be
+reported as consumed while silently re-firing or releasing work behind it.
+That stop persists across watch passes: before releasing any pending work, the
+daemon reads exact agent messages already under `inflight/` and holds every
+pending recipient that shares their working directory. Thus an unresolved
+Fable turn also holds Opus, while an independent Sol lane may continue. The
+diagnostic names the inflight blocker and how many pending messages are waiting;
+moving or otherwise resolving that blocker is the deliberate human decision
+that reopens the lane. Draining an unrelated lane does not hide the blocker: the
+overall backlog result remains unsuccessful. Even when no root message is
+pending yet, an exact agent
+message under `inflight/` is unresolved mailbox state rather than an empty
+mailbox, so `--once` reports the blocker and exits nonzero.
+`--dry-run` takes none of these state transitions: it does not claim a message,
+snapshot dispatch currency, create timeout history, or create relay, inflight,
+failed, or done state.
 
 `--claude-context TOKENS` and `--sol-context TOKENS` are the context budgets,
 and both default to 500000 tokens. An agent's context is everything it is

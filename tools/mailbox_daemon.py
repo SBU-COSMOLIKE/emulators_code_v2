@@ -57,8 +57,11 @@ import argparse
 import datetime
 import fcntl
 import glob
+import json
+import math
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -150,6 +153,23 @@ CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
 # Long legitimate turns exist (a big review can run 20+ minutes), so
 # the default is generous; raise it per launch with --dispatch-timeout.
 DISPATCH_TIMEOUT_MINUTES = 60
+MAX_DISPATCH_TIMEOUT_MINUTES = 1000000
+MAX_TIMEOUT_HISTORY_BYTES = 262144
+MAX_TIMEOUT_HISTORY_EVENTS = 1000
+
+
+def positive_int(value):
+    """Parse an argparse integer that must be strictly positive."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "value must be a positive integer") from exc
+    if parsed <= 0 or parsed > MAX_DISPATCH_TIMEOUT_MINUTES:
+        raise argparse.ArgumentTypeError(
+            "value must be a positive integer no larger than "
+            + str(MAX_DISPATCH_TIMEOUT_MINUTES))
+    return parsed
 
 
 def build_agent_commands(fable_effort, opus_effort, sol_effort,
@@ -252,6 +272,14 @@ BACKLOG_LEDGER = os.path.join(WORKTREE, "notes", "backlog.md")
 # report_landing_debt() prints the meter with every demand report.
 LANDING_DEBT_LINE_LIMIT = 400
 
+# One sequence grammar owns both allocation and dispatch-time currency. The
+# optional letter is historical (messages such as 0107a); the recipient is
+# deliberately unrestricted here because archived -to-user messages and
+# hand-made hold directories still claim their sequence numbers.
+MESSAGE_SEQUENCE_RE = re.compile(r"(\d+)[a-z]?-to-")
+PENDING_MESSAGE_RE = re.compile(r"\d+-to-(fable|opus|sol)\.md$")
+STATE_GUARD_SUFFIX = ".state-guard"
+
 
 def backlog_ledger_count():
     """Count the open units recorded in the backlog ledger.
@@ -301,10 +329,8 @@ def next_seq():
     highest = 0
     pattern = os.path.join(MAILBOX, "**", "*.md")
     for path in glob.glob(pattern, recursive=True):
-        name = os.path.basename(path)
-        match = re.match(r"(\d+)[a-z]?-to-", name)
-        if match:
-            value = int(match.group(1))
+        value = sequence_in_name(name=os.path.basename(path))
+        if value is not None:
             if value > highest:
                 highest = value
     return "%04d" % (highest + 1)
@@ -315,10 +341,69 @@ def pending_messages():
     found = []
     for path in glob.glob(os.path.join(MAILBOX, "*.md")):
         name = os.path.basename(path)
-        if re.match(r"\d+-to-(fable|opus|sol)\.md$", name):
+        if PENDING_MESSAGE_RE.match(name):
             found.append(path)
     found.sort(key=message_sequence)
     return found
+
+
+def inflight_lane_blockers():
+    """Return unresolved inflight agent messages grouped by cwd lane.
+
+    Only exact dispatchable message names participate. A hand-made file or an
+    archived ``-to-user`` note under inflight cannot block an agent lane, but
+    an unresolved Fable message blocks Opus too because those recipients share
+    one working directory.
+    """
+    blockers = {}
+    seen = {}
+    patterns = [
+        os.path.join(MAILBOX, "inflight", "*.md"),
+        os.path.join(MAILBOX, "inflight",
+                     "*.md" + STATE_GUARD_SUFFIX),
+    ]
+    paths = []
+    for pattern in patterns:
+        paths.extend(glob.glob(pattern))
+    for path in paths:
+        name = blocker_message_name(path=path)
+        match = PENDING_MESSAGE_RE.match(name)
+        if match is None:
+            continue
+        cwd = AGENT_CWD[match.group(1)]
+        if cwd not in blockers:
+            blockers[cwd] = []
+            seen[cwd] = set()
+        if name in seen[cwd]:
+            continue
+        seen[cwd].add(name)
+        blockers[cwd].append(path)
+    for paths in blockers.values():
+        paths.sort(key=message_sequence)
+    return blockers
+
+
+def blocker_message_name(path):
+    """Return the exact agent basename encoded by an inflight blocker."""
+    name = os.path.basename(path)
+    if name.endswith(STATE_GUARD_SUFFIX):
+        return name[:-len(STATE_GUARD_SUFFIX)]
+    return name
+
+
+def report_inflight_lane_block(blocker_paths, pending_count):
+    """Print one clear cross-pass lane-block diagnostic."""
+    blocker_names = [blocker_message_name(path=path)
+                     for path in blocker_paths]
+    if pending_count:
+        waiting = (str(pending_count)
+                   + " pending message(s) sharing that working directory "
+                   "will wait.")
+    else:
+        waiting = ("no pending root messages share that working directory "
+                   "yet.")
+    print("  lane blocked by unresolved inflight message(s) "
+          + ", ".join(blocker_names) + "; " + waiting)
 
 
 def message_sequence(path):
@@ -330,8 +415,199 @@ def message_sequence(path):
     Returns:
       The integer before ``-to-`` in the filename.
     """
-    name = os.path.basename(path)
-    return int(name.split("-to-", maxsplit=1)[0])
+    value = sequence_in_name(name=os.path.basename(path))
+    if value is None:
+        raise ValueError("not a numbered mailbox message: " + path)
+    return value
+
+
+def sequence_in_name(name):
+    """Return a mailbox filename's numeric sequence, if it has one.
+
+    This is the single parser used by both ``next_seq()`` and the dispatch
+    currency snapshot, so a message cannot count for allocation while being
+    invisible to the dispatch-time maximum.
+
+    Arguments:
+      name = a basename from anywhere in the mailbox store.
+
+    Returns:
+      The leading integer, or None when the name is not a numbered message.
+    """
+    match = MESSAGE_SEQUENCE_RE.match(name)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def dispatch_currency(dispatch_path, agent):
+    """Take one post-claim snapshot and derive its mechanical currency.
+
+    The maximum spans every ``*.md`` below the mailbox, including done,
+    failed, hold, and -to-user messages. The newer-message count is narrower:
+    only root-pending agent messages whose recipient shares this dispatch's
+    working-directory lane count. This is evidence for the receiving human or
+    agent, never a semantic decision that the message is obsolete.
+
+    Arguments:
+      dispatch_path = the already-claimed inflight message.
+      agent         = its recipient.
+
+    Returns:
+      ``(store_max_sequence, newer_root_pending_in_lane)``.
+    """
+    snapshot = glob.glob(os.path.join(MAILBOX, "**", "*.md"),
+                         recursive=True)
+    dispatched_sequence = message_sequence(path=dispatch_path)
+    store_max = 0
+    newer_in_lane = 0
+    mailbox_root = os.path.abspath(MAILBOX)
+    for path in snapshot:
+        value = sequence_in_name(name=os.path.basename(path))
+        if value is None:
+            continue
+        if value > store_max:
+            store_max = value
+        if os.path.dirname(os.path.abspath(path)) != mailbox_root:
+            continue
+        pending_match = PENDING_MESSAGE_RE.match(os.path.basename(path))
+        if pending_match is None or value <= dispatched_sequence:
+            continue
+        queued_agent = pending_match.group(1)
+        if AGENT_CWD[queued_agent] == AGENT_CWD[agent]:
+            newer_in_lane = newer_in_lane + 1
+    return store_max, newer_in_lane
+
+
+def timeout_history_path(name):
+    """Return the daemon-owned timeout history sidecar for one message."""
+    return os.path.join(MAILBOX, ".dispatch-history", name + ".json")
+
+
+def timeout_events(name):
+    """Read the timeout-only event list for one message basename.
+
+    A missing sidecar means the message has never timed out. A malformed
+    daemon-owned sidecar is not treated as an empty history: dispatch must not
+    erase the only evidence that an earlier turn was killed.
+    """
+    path = timeout_history_path(name=name)
+    try:
+        with open(path, encoding="utf-8") as f:
+            if os.fstat(f.fileno()).st_size > MAX_TIMEOUT_HISTORY_BYTES:
+                raise ValueError("timeout history is too large in " + path)
+            try:
+                payload = json.load(f)
+            except (RecursionError, OverflowError) as exc:
+                raise ValueError(
+                    "timeout history is too deeply nested in " + path) \
+                    from exc
+    except FileNotFoundError:
+        return []
+    if not isinstance(payload, dict):
+        raise ValueError("timeout history is not a mapping in " + path)
+    if payload.get("schema") != 1 or payload.get("message") != name:
+        raise ValueError("invalid timeout-history identity in " + path)
+    events = payload.get("timeouts")
+    if not isinstance(events, list):
+        raise ValueError("invalid timeout-history event list in " + path)
+    if len(events) > MAX_TIMEOUT_HISTORY_EVENTS:
+        raise ValueError("too many timeout-history events in " + path)
+    normalized = []
+    for event in events:
+        duration = event.get("killed_after_minutes") \
+            if isinstance(event, dict) else None
+        if not valid_duration(value=duration, strictly_positive=True):
+            raise ValueError("invalid timeout duration in " + path)
+        observed = event.get("observed_elapsed_minutes")
+        if (observed is not None
+                and not valid_duration(value=observed,
+                                       strictly_positive=False)):
+            raise ValueError("invalid observed timeout duration in " + path)
+        clean_event = {"killed_after_minutes": duration}
+        if observed is not None:
+            clean_event["observed_elapsed_minutes"] = observed
+        normalized.append(clean_event)
+    return normalized
+
+
+def valid_duration(value, strictly_positive):
+    """Return whether a JSON duration is numeric, finite, and in range.
+
+    Integers are finite by definition; avoiding ``math.isfinite`` for them
+    also keeps an attacker-controlled enormous JSON integer from raising an
+    OverflowError during validation.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, float) and not math.isfinite(value):
+        return False
+    if value > MAX_DISPATCH_TIMEOUT_MINUTES:
+        return False
+    if strictly_positive:
+        return value > 0
+    return value >= 0
+
+
+def write_timeout_history(name, killed_after_minutes,
+                          observed_elapsed_minutes=None):
+    """Append one timeout event through an fsynced atomic replacement.
+
+    This function is called only after the timeout guard kills a child.
+    Ordinary nonzero exits never create or append a sidecar.
+    """
+    if not valid_duration(value=killed_after_minutes,
+                          strictly_positive=True):
+        raise ValueError("killed-after timeout must be positive")
+    if (observed_elapsed_minutes is not None
+            and not valid_duration(value=observed_elapsed_minutes,
+                                   strictly_positive=False)):
+        raise ValueError("observed timeout duration must be nonnegative")
+    events = timeout_events(name=name)
+    if len(events) >= MAX_TIMEOUT_HISTORY_EVENTS:
+        raise ValueError("timeout history reached its event limit")
+    event = {"killed_after_minutes": killed_after_minutes}
+    if observed_elapsed_minutes is not None:
+        event["observed_elapsed_minutes"] = observed_elapsed_minutes
+    events.append(event)
+    payload = {"schema": 1, "message": name, "timeouts": events}
+    directory = os.path.dirname(timeout_history_path(name=name))
+    os.makedirs(directory, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(prefix=".timeout-", dir=directory)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as f:
+            json.dump(payload, f, sort_keys=True, separators=(",", ":"))
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, timeout_history_path(name=name))
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+
+
+def exact_duration(value):
+    """Format a stored float without changing its represented value."""
+    return format(value, ".17g")
+
+
+def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes):
+    """Build the mechanical pre-preamble hint for a live dispatch."""
+    lines = [
+        "--- DISPATCH CURRENCY (mechanical hint only) ---",
+        "store-wide mailbox max sequence at claim: %04d" % store_max,
+        ("newer messages queued in this working-directory lane: "
+         + str(newer_in_lane)),
+        ("This marker is not a semantic supersession oracle; read the "
+         "mailbox and cited notes first."),
+    ]
+    if previous_timeout_minutes is not None:
+        lines.append(
+            "this dispatch previously ran for "
+            + exact_duration(value=previous_timeout_minutes)
+            + " minutes and was killed")
+    lines.append("--- END DISPATCH CURRENCY ---")
+    return "\n".join(lines) + "\n\n"
 
 
 def placeholder_in(message):
@@ -449,25 +725,54 @@ def dispatch(path, dry_run):
       True when the dispatch ran (or would run) cleanly.
     """
     name = os.path.basename(path)
-    agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
+    agent_match = PENDING_MESSAGE_RE.match(name)
+    if agent_match is None:
+        raise ValueError("not a pending agent message: " + path)
+    agent = agent_match.group(1)
     dispatch_path = path
+    currency = None
+    prior_timeout = None
     if not dry_run:
         dispatch_path = claim_message(path=path)
         if dispatch_path is None:
             return False
+        if not valid_duration(value=DISPATCH_TIMEOUT_MINUTES,
+                              strictly_positive=True):
+            print("refused " + name + ": dispatch timeout must be between "
+                  "1 and " + str(MAX_DISPATCH_TIMEOUT_MINUTES)
+                  + " minutes; leaving the claimed message in inflight/.")
+            return False
+        # One recursive view, taken only after the atomic claim, owns both
+        # currency numbers. Re-globbing each number would let a concurrent
+        # sender make the banner internally inconsistent.
+        currency = dispatch_currency(dispatch_path=dispatch_path, agent=agent)
+        try:
+            history = timeout_events(name=name)
+        except (OSError, ValueError, json.JSONDecodeError,
+                OverflowError, RecursionError) as exc:
+            print("refused " + name + ": cannot verify its timeout history: "
+                  + str(exc) + "; leaving the claimed message in inflight/.")
+            return False
+        if history:
+            prior_timeout = history[-1]["killed_after_minutes"]
     try:
-        with open(dispatch_path, encoding="utf-8") as f:
+        # Preserve the mailbox body's exact newline bytes. The prompt contract
+        # makes the decoded body its exact suffix; default text-mode universal
+        # newline translation would silently rewrite a valid CRLF message.
+        with open(dispatch_path, encoding="utf-8", newline="") as f:
             message = f.read()
     except (OSError, UnicodeError) as exc:
         if dry_run:
             print("[dry-run] would refuse " + name + ": cannot read UTF-8: "
                   + str(exc))
             return False
-        move_without_overwrite(
-            path=dispatch_path,
-            directory=os.path.join(MAILBOX, "failed"))
-        print("refused " + name + ": cannot read the body as UTF-8: "
-              + str(exc) + "; parked in failed/.")
+        if park_failed_message(dispatch_path=dispatch_path):
+            print("refused " + name + ": cannot read the body as UTF-8: "
+                  + str(exc) + "; parked in failed/.")
+        else:
+            print("refused " + name + ": cannot read the body as UTF-8: "
+                  + str(exc) + "; failed-state move was not verified; "
+                  "inspect inflight/ and failed/.")
         return False
 
     marker = placeholder_in(message=message)
@@ -477,12 +782,14 @@ def dispatch(path, dry_run):
                   + ": the whole body is template placeholder '" + marker
                   + "'; no file changed.")
             return False
-        move_without_overwrite(
-            path=dispatch_path,
-            directory=os.path.join(MAILBOX, "failed"))
-        print("refused " + name + ": the whole body is the template "
-              "placeholder '" + marker + "'; parked in failed/; fill "
-              "in the real text and requeue.")
+        if park_failed_message(dispatch_path=dispatch_path):
+            print("refused " + name + ": the whole body is the template "
+                  "placeholder '" + marker + "'; parked in failed/; fill "
+                  "in the real text and requeue.")
+        else:
+            print("refused " + name + ": the whole body is the template "
+                  "placeholder '" + marker + "'; failed-state move was "
+                  "not verified; inspect inflight/ and failed/.")
         return False
 
     if "\x00" in message:
@@ -490,20 +797,29 @@ def dispatch(path, dry_run):
             print("[dry-run] would refuse " + name
                   + ": the body contains a NUL byte; no file changed.")
             return False
-        move_without_overwrite(
-            path=dispatch_path,
-            directory=os.path.join(MAILBOX, "failed"))
-        print("refused " + name + ": the body contains a NUL byte, which "
-              "cannot be a command argument; parked in failed/.")
+        if park_failed_message(dispatch_path=dispatch_path):
+            print("refused " + name + ": the body contains a NUL byte, "
+                  "which cannot be a command argument; parked in failed/.")
+        else:
+            print("refused " + name + ": the body contains a NUL byte, "
+                  "which cannot be a command argument; failed-state move "
+                  "was not verified; inspect inflight/ and failed/.")
         return False
-
-    command = AGENT_COMMANDS[agent] + [PREAMBLE + message]
 
     if dry_run:
         print("[dry-run] would dispatch " + name + " -> "
               + " ".join(AGENT_COMMANDS[agent])
               + "  (cwd " + AGENT_CWD[agent] + ")")
         return True
+
+    banner = dispatch_banner(
+        store_max=currency[0],
+        newer_in_lane=currency[1],
+        previous_timeout_minutes=prior_timeout)
+    # The dynamic banner precedes the byte-unchanged PREAMBLE. Consequently
+    # PREAMBLE's --- MESSAGE --- delimiter remains immediately before the
+    # exact raw mailbox body, and the body remains the prompt's exact suffix.
+    command = AGENT_COMMANDS[agent] + [banner + PREAMBLE + message]
 
     print("dispatching " + name + " -> " + agent + " ...")
     # Stream the agent's output straight into the relay log AS IT RUNS
@@ -518,6 +834,8 @@ def dispatch(path, dry_run):
     started = time.time()
     proc = None
     launch_error = None
+    timed_out = False
+    timeout_history_error = None
     with open(log_path, "w", encoding="utf-8") as f:
         f.write("$ " + " ".join(AGENT_COMMANDS[agent]) + " <message>\n")
         f.write("--- live output (stdout+stderr interleaved) ---\n")
@@ -542,22 +860,44 @@ def dispatch(path, dry_run):
             deadline = started + DISPATCH_TIMEOUT_MINUTES * 60.0
             while proc.poll() is None:
                 time.sleep(5)
-                if time.time() >= deadline:
+                now = time.time()
+                if now >= deadline:
+                    # The child can finish naturally during sleep. Poll once
+                    # more at the deadline and kill only a process that is
+                    # still live now; otherwise a successful turn would be
+                    # mislabeled as timed out and poisoned with kill history.
+                    if proc.poll() is not None:
+                        break
                     # a hung CLI would hold this lane forever (seen live:
                     # a turn printed "Execution error" then produced
                     # nothing for 21 minutes). Kill it; the non-zero exit
                     # code below parks the claimed message in failed/.
                     proc.kill()
                     proc.wait()
+                    timed_out = True
+                    # The timeout setting is the stable killed-after
+                    # threshold promised to a later retry. The poll loop can
+                    # observe the child a fraction late; retain that elapsed
+                    # value for diagnostics without letting scheduler jitter
+                    # leak into the human-facing retry sentence.
+                    killed_after_minutes = DISPATCH_TIMEOUT_MINUTES
+                    observed_elapsed_minutes = (now - started) / 60.0
+                    try:
+                        write_timeout_history(
+                            name=name,
+                            killed_after_minutes=killed_after_minutes,
+                            observed_elapsed_minutes=(
+                                observed_elapsed_minutes))
+                    except (OSError, ValueError, json.JSONDecodeError,
+                            OverflowError, RecursionError) as exc:
+                        timeout_history_error = exc
                     print("  timed out " + name + " after "
-                          + str(DISPATCH_TIMEOUT_MINUTES) + " min; the "
-                          "turn was killed and the message parks in "
-                          "failed/; requeue it by moving it back to the "
-                          "mailbox (or relaunch with a larger "
-                          "--dispatch-timeout).")
+                          + exact_duration(value=killed_after_minutes)
+                          + " min; the turn was killed; its recovery state "
+                          "will be verified after the log closes.")
                     break
-                if time.time() >= next_beat:
-                    elapsed_min = (time.time() - started) / 60.0
+                if now >= next_beat:
+                    elapsed_min = (now - started) / 60.0
                     log_kb = os.path.getsize(log_path) / 1024.0
                     print("  ... " + name + " still running "
                           + "(%.0f min elapsed, log %.1f kB; tail -f %s)"
@@ -566,11 +906,11 @@ def dispatch(path, dry_run):
             f.write("\n--- rc=" + str(proc.returncode) + " ---\n")
 
     if launch_error is not None:
-        move_without_overwrite(
-            path=dispatch_path,
-            directory=os.path.join(MAILBOX, "failed"))
+        parked = park_failed_message(dispatch_path=dispatch_path)
+        state = "message parked in failed/" if parked \
+            else "failed-state move was not verified"
         print("  !! dispatch could not start: " + str(launch_error)
-              + "; message parked in failed/; log -> " + log_path)
+              + "; " + state + "; log -> " + log_path)
         return False
 
     print("  rc=" + str(proc.returncode) + "  log -> " + log_path)
@@ -580,16 +920,37 @@ def dispatch(path, dry_run):
     for line in reply_lines[-8:]:
         print("  | " + line)
 
+    if timed_out:
+        if timeout_history_error is not None:
+            # Without its durable marker, a requeue would present the killed
+            # turn as fresh. Keep the claimed file out of the pending root
+            # until a human can repair the sidecar failure.
+            print("  !! could not persist timeout history: "
+                  + str(timeout_history_error)
+                  + "; leaving the claimed message in inflight/; log -> "
+                  + log_path)
+            return False
+        if park_failed_message(dispatch_path=dispatch_path):
+            print("  timeout recovery verified: message parked in failed/; "
+                  "requeue it by moving it back to the mailbox (or relaunch "
+                  "with a larger --dispatch-timeout).")
+        else:
+            print("  !! timeout recovery failed: the failed/ state was not "
+                  "verified; inspect inflight/ before requeueing.")
+        return False
+
     if proc.returncode != 0:
         # a failed dispatch is NOT done: park it in failed/ so it is never
         # silently consumed, and never hot-retried while the cause persists.
         # Requeue after fixing the cause:  mv notes/mailbox/failed/<f> notes/mailbox/
-        move_without_overwrite(
-            path=dispatch_path,
-            directory=os.path.join(MAILBOX, "failed"))
+        parked = park_failed_message(dispatch_path=dispatch_path)
         # the turn's output lives in the log file (it streams there;
         # proc.stdout is None under Popen with a file handle).
-        if "Not logged in" in "\n".join(reply_lines):
+        if not parked:
+            print("  !! dispatch failed and its failed/ state was not "
+                  "verified; inspect inflight/ and failed/; log -> "
+                  + log_path)
+        elif "Not logged in" in "\n".join(reply_lines):
             print("  !! the headless CLI is logged out; run `claude` in a "
                   "terminal, type /login, then requeue from failed/.")
         else:
@@ -597,12 +958,131 @@ def dispatch(path, dry_run):
                   "the log above.")
         return False
 
-    done_path = move_without_overwrite(path=dispatch_path, directory=DONE)
+    return archive_consumed_message(dispatch_path=dispatch_path)
+
+
+def park_failed_message(dispatch_path):
+    """Move a claimed message to failed and verify its exact inode."""
+    _, verified = verified_state_move(
+        dispatch_path=dispatch_path,
+        directory=os.path.join(MAILBOX, "failed"))
+    return verified
+
+
+def regular_inode(path):
+    """Return ``(device, inode)`` only for an exact regular-file path."""
+    try:
+        details = os.lstat(path)
+    except OSError:
+        return None
+    if not stat.S_ISREG(details.st_mode):
+        return None
+    return details.st_dev, details.st_ino
+
+
+def restore_state_source(guard_path, dispatch_path, source_inode):
+    """Restore the exact claimed inode from its safety guard if necessary."""
+    if not os.path.lexists(dispatch_path):
+        try:
+            os.link(guard_path, dispatch_path)
+        except OSError:
+            pass
+    return regular_inode(path=dispatch_path) == source_inode
+
+
+def remove_state_guard(guard_path, source_inode):
+    """Remove only the unchanged safety hardlink owned by this move."""
+    if regular_inode(path=guard_path) != source_inode:
+        return False
+    try:
+        os.unlink(guard_path)
+    except OSError:
+        return False
+    return not os.path.lexists(guard_path)
+
+
+def verified_state_move(dispatch_path, directory):
+    """Move one regular inode and prove the destination owns that inode.
+
+    Returns:
+      ``(destination, verified)``. The destination is None when publication
+      itself failed; verification also requires the source path to be absent.
+    """
+    source_inode = regular_inode(path=dispatch_path)
+    if source_inode is None:
+        return None, False
+    # move_without_overwrite() publishes by hardlink and then unlinks the
+    # inflight source. Keep one same-inode guard beside that source until the
+    # final destination identity is proven. A verification race can therefore
+    # restore the exact inflight blocker, and a guard that itself cannot be
+    # cleaned is recognized by inflight_lane_blockers() across later passes.
+    guard_path = dispatch_path + STATE_GUARD_SUFFIX
+    try:
+        os.link(dispatch_path, guard_path)
+    except OSError:
+        return None, False
+    if regular_inode(path=guard_path) != source_inode:
+        return None, False
+    destination = move_without_overwrite(
+        path=dispatch_path,
+        directory=directory)
+    if destination is None:
+        restored = restore_state_source(
+            guard_path=guard_path,
+            dispatch_path=dispatch_path,
+            source_inode=source_inode)
+        if restored:
+            remove_state_guard(
+                guard_path=guard_path,
+                source_inode=source_inode)
+        return None, False
+    destination_inode = regular_inode(path=destination)
+    verified = (destination_inode == source_inode
+                and not os.path.lexists(dispatch_path))
+    if not verified:
+        restored = restore_state_source(
+            guard_path=guard_path,
+            dispatch_path=dispatch_path,
+            source_inode=source_inode)
+        if restored:
+            remove_state_guard(
+                guard_path=guard_path,
+                source_inode=source_inode)
+        return destination, False
+    if not remove_state_guard(
+            guard_path=guard_path,
+            source_inode=source_inode):
+        # A leftover exact-name guard is itself a durable lane blocker. Restore
+        # the ordinary inflight name too when the guard still owns our inode.
+        restore_state_source(
+            guard_path=guard_path,
+            dispatch_path=dispatch_path,
+            source_inode=source_inode)
+        return destination, False
+    return destination, True
+
+
+def archive_consumed_message(dispatch_path):
+    """Move a clean dispatch to done and verify the archive before success.
+
+    Returns:
+      True only when the exact destination is a regular file after the move.
+    """
+    name = os.path.basename(dispatch_path)
+    done_path, verified = verified_state_move(
+        dispatch_path=dispatch_path,
+        directory=DONE)
     if done_path is None:
         # Someone quarantined the inflight file by hand, or a historical
         # archive already owns the name. Never overwrite either state.
         print("  note: " + name + " could not move to done/; leaving the "
-              "existing state untouched.")
+              "existing state untouched; dispatch is not consumed.")
+        return False
+    if not verified:
+        print("  !! done archive verification failed for " + name
+              + "; dispatch is not consumed.")
+        return False
+    print("  archived " + name + " in done/; dispatch consumed.")
     return True
 
 
@@ -613,8 +1093,15 @@ def drain_lane(paths, dry_run):
       paths   = this agent's message files, already sorted by sequence.
       dry_run = True to print the would-be commands without running them.
     """
+    all_consumed = True
     for path in paths:
-        dispatch(path=path, dry_run=dry_run)
+        if not dispatch(path=path, dry_run=dry_run):
+            all_consumed = False
+            # A false result can mean the head is still inflight because its
+            # archive or failed-state move was ambiguous. Do not release later
+            # work in the same lane past an unresolved head.
+            break
+    return all_consumed
 
 
 def process_backlog(dry_run):
@@ -632,30 +1119,68 @@ def process_backlog(dry_run):
       dry_run = True to print the would-be commands without running them.
 
     Returns:
-      True when there was a backlog to process.
+      None when there was no backlog, True when every message was consumed
+      (or would dispatch in a dry run), and False when any dispatch or done
+      archive failed.
     """
     backlog = pending_messages()
+    blockers = inflight_lane_blockers()
     if not backlog:
+        if not blockers:
+            return None
+        for cwd in sorted(blockers):
+            report_inflight_lane_block(
+                blocker_paths=blockers[cwd],
+                pending_count=0)
         return False
     report_demand(backlog=backlog)
     lanes = {}
     for path in backlog:
         name = os.path.basename(path)
-        agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
+        agent = PENDING_MESSAGE_RE.match(name).group(1)
         cwd = AGENT_CWD[agent]
         if cwd not in lanes:
             lanes[cwd] = []
         lanes[cwd].append(path)
+    # An inflight message predating this pass represents an unresolved turn:
+    # it may have edited the shared tree even though its archive failed. Do
+    # not release later work in that working-directory lane on a subsequent
+    # watch pass. Other cwd lanes remain independent and may still drain.
     workers = []
+    lane_outcomes = {}
+    outcome_lock = threading.Lock()
+
+    def drain_and_record(cwd, paths, dry_run):
+        """Run one cwd lane and retain failure even if its worker raises."""
+        try:
+            consumed = drain_lane(paths=paths, dry_run=dry_run)
+        except Exception as exc:
+            print("  !! dispatch lane failed: " + str(exc)
+                  + "; lane is not consumed.")
+            consumed = False
+        with outcome_lock:
+            lane_outcomes[cwd] = consumed
+
+    for cwd in sorted(blockers):
+        report_inflight_lane_block(
+            blocker_paths=blockers[cwd],
+            pending_count=len(lanes.get(cwd, [])))
+
     for cwd in sorted(lanes):
-        worker = threading.Thread(target=drain_lane,
-                                  kwargs={"paths": lanes[cwd],
+        if cwd in blockers:
+            lane_outcomes[cwd] = False
+            continue
+        worker = threading.Thread(target=drain_and_record,
+                                  kwargs={"cwd": cwd,
+                                          "paths": lanes[cwd],
                                           "dry_run": dry_run})
         worker.start()
         workers.append(worker)
     for worker in workers:
         worker.join()
-    return True
+    return (not blockers
+            and len(lane_outcomes) == len(lanes)
+            and all(lane_outcomes.values()))
 
 
 def report_demand(backlog):
@@ -834,7 +1359,7 @@ def main():
                              "dispatches (default: "
                              + DEFAULT_SOL_EFFORT + ")")
     parser.add_argument("--dispatch-timeout", metavar="MINUTES",
-                        type=int, default=DISPATCH_TIMEOUT_MINUTES,
+                        type=positive_int, default=DISPATCH_TIMEOUT_MINUTES,
                         help="kill a dispatched turn that runs past "
                              "this many minutes and park its message "
                              "in failed/ (default: "
@@ -892,8 +1417,13 @@ def main():
         return 0 if queued else 1
 
     if args.dry_run:
-        if not process_backlog(dry_run=args.dry_run):
+        outcome = process_backlog(dry_run=args.dry_run)
+        if outcome is None:
             print("mailbox empty")
+            return 0
+        if not outcome:
+            print("one or more mailbox messages would not be consumed.")
+            return 1
         return 0
 
     if args.once:
@@ -901,8 +1431,12 @@ def main():
         if dispatch_lock is None:
             return 1
         try:
-            if not process_backlog(dry_run=False):
+            outcome = process_backlog(dry_run=False)
+            if outcome is None:
                 print("mailbox empty")
+            elif not outcome:
+                print("one or more mailbox messages were not consumed.")
+                return 1
         finally:
             release_dispatch_lock(lock_file=dispatch_lock)
         return 0

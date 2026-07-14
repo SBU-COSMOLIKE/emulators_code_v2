@@ -14330,3 +14330,53 @@ report GO with no remaining blocker. A real Optuna-journal smoke is
 environment-owed because the available Cocoa audit runtime has Torch, NumPy,
 GetDist, and HDF5 but not Optuna; the strict creation/load behavior is covered
 with API-faithful doubles and load-bearing AST/mutation arms.
+
+## Daemon dispatch-currency, timeout-history, and archive-truth audit (Codex, 2026-07-14): GO
+
+The daemon now takes one recursive numbered-message snapshot immediately after
+its atomic claim. A mechanical banner reports that store-wide maximum and the
+count of newer root-pending messages in the same working-directory lane;
+Fable and Opus therefore share a count while Sol remains independent. The
+banner explicitly disclaims semantic supersession authority. It precedes the
+unchanged `PREAMBLE`, and strict UTF-8 reading with newline translation disabled
+keeps both LF and CRLF mailbox bodies as the launched prompt's exact suffix.
+
+Only a child killed by the timeout guard appends the bounded schema-v1 history
+sidecar. The append is an fsynced temporary-file replacement, and a retry gets
+the exact sentence `this dispatch previously ran for N minutes and was killed`.
+Ordinary nonzero exits create no history. Invalid CLI thresholds are rejected
+before mailbox mutation; even an invalid direct in-process threshold stops
+after claim but before launch and retains the exact inflight inode. Malformed,
+deep, oversized, or event-flood histories likewise refuse without launch or
+sidecar rewrite. A natural completion observed at the deadline is not killed,
+while a process actually killed there remains a timeout even if its wait stub
+misreports return code zero.
+
+Done and failed publication now keeps a same-inode safety hardlink until the
+destination's regular-file device/inode and source absence are proven. A
+wrong-inode copy, symlink substitution, failed guard cleanup, or archive-name
+collision returns failure and restores or retains a durable inflight blocker.
+That blocker holds every later recipient sharing its working directory across
+watch passes; an unrelated lane may drain, but the aggregate and `--once`
+remain unsuccessful. Dry-run performs none of the claim, snapshot, history,
+relay-log, guard, or archive transitions.
+
+Two independent reviewers reran the final CRLF-repaired snapshot and reported
+GO. Their hostile probes separately confirmed zero-launch exact-inode retention
+for thresholds 0, -3, and 1000001, and a forced guard-cleanup failure remained
+a same-lane blocker on the following pass.
+
+```text
+python3 tests/tools_mailbox_daemon_staleness_repro.py  rc 0  18/18 runtime arms PASS
+source mutations                                       rc 0  9/9 killed
+python3 tests/tools_mailbox_daemon_redteam_repro.py    rc 0  8/8 arms PASS
+python3 tests/tools_mailbox_daemon_output_style_repro.py rc 0  8/8 checks PASS
+python3 -m unittest tests/test_mailbox_conditional_preamble.py rc 0  4/4 green
+py_compile                                             rc 0
+git diff --check                                       rc 0
+```
+
+This closes only the dispatch-currency/staleness, timeout-history, and
+archive-truth ledger item. Dead-mailbox discovery, fix-only behavior, the
+global safe-kill rendezvous, and automatic landing-debt correction remain open
+and separately countable.
