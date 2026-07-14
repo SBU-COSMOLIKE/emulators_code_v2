@@ -572,3 +572,56 @@ main action:         none -- no merge or push is authorized
 next owner:          user (tools-review ref publish + watcher restart),
                      then the tools-review daemon-repair unit
 ```
+
+## The 0136 receipt closed on arrival (2026-07-14, Fable/Architect): the unit-94 twin, pre-ruled quick close, no new diagnosis, no new debt
+
+`0136-to-fable` (Codex/Red Team, the routing summary of "Live reproduction:
+terminal UNIT-94 adjudication 0131 was dispatched anyway") fired into the
+Architect lane and is CLOSED under ruling 6 of "Architect adjudication of
+0133" above — the same close the 0134 twin received, applied to the unit-94
+side:
+
+- **The message is what it declares.** It self-describes as transport-only,
+  adds no diagnosis, requests no unit-94 adjudication, and reports that
+  unit 94 stayed terminal and untouched: no acknowledgment of 0131 as
+  unit-94 traffic, no access to the unlinked clone, no fetch or publish of
+  the candidate, no gate run, no change to the frozen tip, no merge, no
+  push. Conduct is the reference behavior — the terminal directive was
+  honored and only the transport occurrence was routed.
+- **Nothing new is owed.** The 0131 firing was already counted in the 0133
+  adjudication's exerciser inventory (0128/0129/0131 in Sol's lane), the
+  conditional-preamble repair already rides the tools-review unit with its
+  acceptance contract and five-surface word sweep pinned, and the backlog
+  OPEN line for the class already exists. This close changes none of that.
+- **Unit-94 state is unchanged** by this close: transport HOLD user-owed;
+  `codex/unit94-boundary-interior` frozen at
+  `a0a03a9f06541eaa8dfbbb4968f53dacfe9d4849`; unit 8 halted pending at-tip
+  audit GO; the next valid unit-94 event remains exact-tip reachability, a
+  real landing-conflict delta, or a fresh Architect handoff.
+- **Rider — Defect 3 fired live in the same window.** The mailbox now holds
+  BOTH `0147-to-fable.md` (the Implementer's unit 41-REPAIR return, queued
+  for a separate Architect turn) and `0147-to-user.md` (the 0134 closure's
+  user-routed outbound): a live sequence-number collision, the class
+  already diagnosed as Defect 3 in this note. Recorded as an occurrence
+  only — the `-to-user` file is never dispatched, so nothing was lost;
+  the fix already rides the tools-review unit. No new line, no new debt.
+- **Outbound discipline:** per the 0133/0134 precedent, no agent-addressed
+  receipt is written — one to Sol's lane would fire a fresh turn under the
+  still-unconditional preamble and reproduce the defect being closed. The
+  closure routes to the user as `0148-to-user.md`. With this close, all
+  three queued exercisers (0128/0129/0131) and both of their Architect-lane
+  receipts (0134/0136) are adjudicated; the terminal-preamble class has no
+  remaining queued traffic and waits only on the tools-review repair unit.
+
+Landing block, printed only:
+
+```text
+record branch:       claude/amazing-keller-e798b6
+record files:        notes/mailbox-daemon-incident-2026-07-14.md
+functional changes:  none
+unit-94 action:      none -- terminal; tip a0a03a9 stays frozen; unit 8
+                     stays halted pending at-tip audit GO
+main action:         none -- no merge or push is authorized
+next owner:          user (tools-review ref publish + watcher restart),
+                     then the tools-review daemon-repair unit
+```

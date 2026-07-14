@@ -242,6 +242,17 @@ Two further user rules (2026-07-14) on the same doctrine:
   still recorded (hiding it is fraud) — but it is recorded as a rider
   on the unit that found it wherever possible, not as a fresh line,
   and it is never sought out. The ledger count goes DOWN from here.
+- **Discovery tickets go to the BACK of the queue (user rule,
+  2026-07-14).** While Sol is in the second-Implementer regime (total
+  demand at or past the threshold), the Architect checks every
+  Sol-bound ticket BEFORE sending: if it is attack/discovery work — a
+  review, sweep, or probe, anything whose product is new findings
+  rather than a closed ledger line — it is NOT dispatched. It is
+  appended to the END of notes/backlog.md as a deferred line and waits
+  until total demand falls below the threshold. Close first, add
+  later. A daemon-side guard on `--send sol` enforcing this is owed as
+  its own ledger line; the code edit waits for an idle watch, since
+  the watch self-retires whenever its source file changes.
 - **Main commit messages are written for HUMANS (user rule,
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo
