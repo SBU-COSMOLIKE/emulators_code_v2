@@ -59,6 +59,18 @@ def report(label, ok, detail):
         FAILURES.append(label)
 
 
+def emit_aid(aid, failures_before):
+    """Print one terminal verdict for a completed acceptance-leg group.
+
+    ``failures_before`` is the length of ``FAILURES`` immediately before the
+    group's existing probes run.  The leg passes only when none of those
+    probes appends a failure.  This adds a per-leg readout while leaving the
+    script's final process exit status as its aggregate verdict.
+    """
+    mark = "PASS" if len(FAILURES) == failures_before else "FAIL"
+    print("##AID " + aid + " " + mark)
+
+
 def omegamh2(h0, omegam):
     """The exactly-derivable target: omega_m h^2 = omegam * (H0/100)^2."""
     return omegam * (h0 / 100.0) ** 2
@@ -482,10 +494,15 @@ def check_parameter_window_banner(tmp):
         raw_count=raw_count,
         requested_count=requested_count,
     )
+    failures_before = len(FAILURES)
     report(
         "parameter-window banner and staged row identities match an independent mask",
         ok,
         detail,
+    )
+    emit_aid(
+        "scalar-smoke.window-banner-and-rows-match",
+        failures_before,
     )
 
     # This negative control changes both evidence channels.  The banner claims
@@ -500,10 +517,15 @@ def check_parameter_window_banner(tmp):
         raw_count=raw_count,
         requested_count=requested_count,
     )
+    failures_before = len(FAILURES)
     report(
         "hardcoded cut banner with wrong staged rows is rejected",
         not mutation_ok,
         mutation_detail,
+    )
+    emit_aid(
+        "scalar-smoke.banner-only-mutation-rejected",
+        failures_before,
     )
 
 
@@ -595,6 +617,7 @@ def check_train_and_predict(tmp, device):
     # boundary executable and visible in this gate.
     exp.stage_train()
     exp.stage_val()
+    failures_before = len(FAILURES)
     try:
         _require_disjoint_aligned_fixtures(
             train_source=exp.train_set,
@@ -609,17 +632,32 @@ def check_train_and_predict(tmp, device):
             False,
             str(exc),
         )
+        emit_aid(
+            "scalar-smoke.fixture-rows-disjoint-and-aligned",
+            failures_before,
+        )
         return None, None
     report(
         "training and validation fixture rows are aligned and disjoint",
         True,
         "4000 train rows, 1000 validation rows, zero physical-row overlap",
     )
+    emit_aid(
+        "scalar-smoke.fixture-rows-disjoint-and-aligned",
+        failures_before,
+    )
+
+    failures_before = len(FAILURES)
     check_same_seed_refusal(tmp=tmp, device=device)
+    emit_aid(
+        "scalar-smoke.same-seed-overlap-refused",
+        failures_before,
+    )
     check_parameter_window_banner(tmp=tmp)
 
     exp.build_geometry(train_set=exp.train_set)
     mean_predictor_median = _mean_predictor_median(exp)
+    failures_before = len(FAILURES)
     try:
         collapse_bar, accuracy_bar = _calibration_bars(mean_predictor_median)
     except ValueError as exc:
@@ -627,6 +665,10 @@ def check_train_and_predict(tmp, device):
             "scalar-smoke calibration bars are properly ordered",
             False,
             str(exc),
+        )
+        emit_aid(
+            "scalar-smoke.training-beats-mean-predictor",
+            failures_before,
         )
         return None, None
     model, train_losses, medians, means, fracs = exp.train()
@@ -640,6 +682,10 @@ def check_train_and_predict(tmp, device):
         best_median < collapse_bar,
         "trained median %.12g vs collapse bar %.12g"
         % (best_median, collapse_bar),
+    )
+    emit_aid(
+        "scalar-smoke.training-beats-mean-predictor",
+        failures_before,
     )
 
     root = os.path.join(tmp, "emul_scalar_smoke")
@@ -704,12 +750,19 @@ def check_train_and_predict(tmp, device):
             current_accuracy_headroom,
         )
     )
+    failures_before = len(FAILURES)
     report(
         "predict reproduces the analytic omegamh2 within the measured bar",
         rel < accuracy_bar,
         "got %.8f want %.8f, relative error %.12g vs bar %.12g"
         % (got, want, rel, accuracy_bar),
     )
+    emit_aid(
+        "scalar-smoke.analytic-prediction",
+        failures_before,
+    )
+
+    failures_before = len(FAILURES)
     _check_dead_network_mutation(
         exp=exp,
         mean_predictor_median=mean_predictor_median,
@@ -717,7 +770,17 @@ def check_train_and_predict(tmp, device):
         accuracy_bar=accuracy_bar,
         physical_truth=want,
     )
+    emit_aid(
+        "scalar-smoke.dead-network-rejected",
+        failures_before,
+    )
+
+    failures_before = len(FAILURES)
     check_diagnostics(exp, model, tmp)
+    emit_aid(
+        "scalar-smoke.diagnostics-output",
+        failures_before,
+    )
     return root, accuracy_bar
 
 
@@ -889,7 +952,12 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         root, accuracy_bar = check_train_and_predict(tmp, device)
         if root is not None:
+            failures_before = len(FAILURES)
             check_cobaya_evaluate(tmp, root, accuracy_bar)
+            emit_aid(
+                "scalar-smoke.cobaya-evaluate",
+                failures_before,
+            )
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))

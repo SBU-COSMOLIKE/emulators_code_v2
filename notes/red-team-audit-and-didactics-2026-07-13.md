@@ -3200,3 +3200,38 @@ The Cocoa Python run of `gates/checks/stage_ram.py` ends
 dominate the two-column float32 target`. Compilation of all three edited Python
 files is clean. This is implementation evidence for Architect review. It does
 not certify the landing.
+
+## Backup-Implementer record: scalar-smoke nine-aid child
+
+Fable assigned the Red Team a bounded backup-Implementer unit on branch
+`codex/scalar-smoke-nine-aids-child`, based on clean main `b74d81b`.  The
+functional scope is `gates/checks/scalar_smoke.py` only.  The required durable
+resume is also recorded in `notes/gates-and-board.md`.  The board declaration
+is reserved to the Implementer and `gates/board.py` is byte-identical.
+
+The child uses the ratified identity-child pattern.  Before each existing
+acceptance group it records `len(FAILURES)`.  After that group it emits one
+terminal whose result is `PASS` only when the group appended no failure.  No
+probe, calibrated value, fixture, mutation arm or aggregate exit rule changed.
+The window proof and its banner-only mutation have separate snapshots because
+they are two separate drafted legs inside one function.
+
+Two complete Cocoa runs returned zero.  A captured terminal census found
+exactly the following nine lines, each once:
+
+```text
+##AID scalar-smoke.fixture-rows-disjoint-and-aligned PASS
+##AID scalar-smoke.same-seed-overlap-refused PASS
+##AID scalar-smoke.window-banner-and-rows-match PASS
+##AID scalar-smoke.banner-only-mutation-rejected PASS
+##AID scalar-smoke.training-beats-mean-predictor PASS
+##AID scalar-smoke.analytic-prediction PASS
+##AID scalar-smoke.dead-network-rejected PASS
+##AID scalar-smoke.diagnostics-output PASS
+##AID scalar-smoke.cobaya-evaluate PASS
+```
+
+The aggregate line was `PASS: scalar-smoke all checks green`.  Compilation and
+the scoped diff checks are part of the branch acceptance evidence.  This
+record is implementation evidence submitted for Fable audit.  It is not
+self-certification and does not authorize a merge.
