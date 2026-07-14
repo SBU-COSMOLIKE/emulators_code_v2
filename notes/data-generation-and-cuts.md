@@ -2139,3 +2139,320 @@ mutation that removes/bypasses the driver's release call; it must leak the
 path and red.  The direct release/idempotence legs remain useful helper tests,
 but may not substitute for the public driver call whose ordering is the
 claim.
+
+## 25M-38 (Red Team CONFIRMED, awaiting Architect adjudication): a one-parameter generator writes a parser-shaped ranges header and aborts
+
+A real two-rank background-generator run reached Cobaya 3.6.2 and CAMB
+1.6.7, wrote its first three parameter sidecars, then returned status 1 before
+it could write the covariance, failure flags, targets, or grid sidecars.  The
+interpreter carried GetDist 1.7.2.  `ROOTDIR` named a temporary directory with
+the normal CoCoA `.local`, CAMB, and emulator-repository paths.  The executed
+generator command was:
+
+```bash
+D=external_modules/code/emulators_code_v2
+mpirun -n 2 python $D/compute_data_vectors/dataset_generator_background.py \
+  --root projects/generator_example \
+  --fileroot generator \
+  --yaml background_minimal.yaml \
+  --datavsfile background_dvs \
+  --paramfile background_params \
+  --failfile background_failures \
+  --chain 0 \
+  --nparams 200 \
+  --unif 1 \
+  --temp 1 \
+  --seed 1234 \
+  --freqchk 1000 \
+  --loadchk 0 \
+  --append 0
+```
+
+No `--boundary` value was supplied, so the run used the full sampled support.
+The one-parameter YAML was:
+
+```yaml
+likelihood:
+  background_anchor:
+    external: "lambda _self: 0.0"
+    requires:
+      Hubble:
+        z: [0.1]
+        units: km/s/Mpc
+
+theory:
+  camb:
+    path: ./external_modules/code/CAMB
+
+params:
+  H0:
+    prior:
+      min: 60.0
+      max: 75.0
+    latex: H_0
+  ombh2:
+    value: 0.02237
+  omch2:
+    value: 0.1200
+  mnu:
+    value: 0.06
+  w:
+    value: -1.0
+
+train_args:
+  probe: background
+  ord:
+    - [H0]
+  z_sn: [0.1, 1.0, 8]
+  z_rec: [1000.0, 1200.0, 8]
+```
+
+The zero-valued likelihood gives Cobaya a real consumer for one background
+quantity during dependency construction.  The driver then adds the complete
+Hubble and comoving-distance requirements.  The configuration therefore
+reaches the generator's parameter-output path without CosmoLike.
+
+The decisive terminal output was:
+
+```text
+[0 : model] *WARNING* Ignored blocks/options: ['train_args']
+[1 : model] *WARNING* Ignored blocks/options: ['train_args']
+[0 : camb] `camb` module loaded successfully from <ROOTDIR>/external_modules/code/CAMB/camb
+[0 : background_anchor] Initialized external likelihood.
+[1 : background_anchor] Initialized external likelihood.
+ValueError: could not convert string to float: 'weights'
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+Errorcode: 1
+```
+
+Rank zero had written this 44-byte ranges file:
+
+```text
+# weights lnp H0
+H0 6.00000e+01 7.50000e+01
+```
+
+Its exact hexadecimal bytes were:
+
+```text
+23 20 77 65 69 67 68 74 73 20 6c 6e 70 20 48 30
+0a 48 30 20 36 2e 30 30 30 30 30 65 2b 30 31 20
+37 2e 35 30 30 30 30 65 2b 30 31 0a
+```
+
+`GeneratorCore.__run_mcmc` writes the comment before calling
+`loadMCSamples` to form the covariance.  GetDist 1.7.2 does not skip comments
+in a `.ranges` file.  It treats every three-token or four-token line as a
+range record.  The one-parameter header has four tokens, so GetDist treats
+`#` as a parameter name and tries to convert `weights` to a float.
+
+The blast radius is exact.  All four dataset drivers inherit this writer, so
+every fresh one-parameter lensing, CMB, background, or matter-power run can
+fail here.  Both uniform and tempered sampling take the path.  Both
+`--chain 0` and `--chain 1` take it.  A header for two or more sampled
+parameters has at least five tokens, which this GetDist version ignores.
+That token-count accident is why wider generator configurations can pass the
+same line.
+
+The failed run left only `.ranges`, `.paramnames`, and `.1.txt`.  It did not
+produce a complete checkpoint or a complete training result.  DIDACTICS-79
+therefore remains held.  A repair needs a GetDist-readable one-parameter
+range file plus a regression that drives the same covariance-loading call.
+The end-to-end command must then be replayed before it is printed as a working
+README command.
+
+## 25M-38 implementation and DIDACTICS-79 replay (Red Team, awaiting Architect audit)
+
+The bounded production change removes only the comment write from
+`GeneratorCore.__run_mcmc`. The writer still forms the same ordered
+`name lower upper` rows and still formats both bounds with `%.5e`. Unit 82 owns
+that decimal representation and remains untouched. The now-unused `hd`
+assignment also remains untouched so the production diff is the ruled one-line
+removal.
+
+The CPU regression lives in the dedicated
+`gates/checks/generator_ranges.py` child. The existing foundation
+`generator_seed.py` remains byte-identical because its evidence aid is
+specifically about random-number ownership. The new child parses
+`generator_core.py`, requires exactly one active `.ranges` writer and executes
+that writer's production syntax-tree statements with small bounds. This
+prevents a copied test-only writer from drifting away from production. It also
+lets a later cleanup remove the now-unused `hd` assignment. The extractor
+includes `hd` only when the writer actually reads it, as the retired-header
+mutation does. GetDist 1.7.2 `ParamBounds` then reads two cases:
+
+1. one sampled parameter, `H0` with bounds 60 and 75;
+2. two sampled parameters, `H0` and `ombh2`, as the wider control.
+
+Both cases pass on the repaired writer. The child itself restores the deleted
+line in a temporary copy of the producer. The one-parameter leg then fails with
+`ValueError: could not convert string to float: 'weights'`, the two-parameter
+control stays green and the mutation leg passes only when it observes that
+asymmetry. The production file is never modified by the mutation.
+
+The Cocoa CPU interpreter completed the repaired check with all assertions
+green. `py_compile` completed for the producer and check. The command was:
+
+```bash
+/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  gates/checks/generator_ranges.py
+```
+
+The README command was then executed verbatim in an isolated CoCoA-shaped
+tree at `/private/tmp/cocoa-sonic-readme-exact`. Its `.local`, CAMB and
+emulator-code paths were symlinks to the real Cocoa interpreter, CAMB checkout
+and this worktree. The YAML bytes matched the README block, including the
+relative CAMB path. The executed command was:
+
+```bash
+export ROOTDIR=/private/tmp/cocoa-sonic-readme-exact
+cd "$ROOTDIR"
+REPO="$ROOTDIR/external_modules/code/emulators_code_v2"
+PYTHON="$ROOTDIR/.local/bin/python"
+
+"$PYTHON" "$REPO/compute_data_vectors/dataset_generator_background.py" \
+  --root projects/generator_example \
+  --fileroot generator \
+  --yaml background_minimal.yaml \
+  --datavsfile background_dvs \
+  --paramfile background_params \
+  --failfile background_failures \
+  --chain 0 \
+  --nparams 200 \
+  --unif 1 \
+  --temp 1 \
+  --seed 1234 \
+  --freqchk 1000 \
+  --loadchk 0 \
+  --append 0
+```
+
+The command returned status zero after Cobaya 3.6.2 loaded CAMB 1.6.7. The
+serial invocation created one MPI rank. Rank zero sampled the table, evaluated
+all CAMB rows and wrote the files. There were no worker ranks. Since 200 is
+below the 1,000-row intermediate-checkpoint interval, the run wrote only the
+unconditional final checkpoint.
+
+The readback established:
+
+- the output file set had exactly the four parameter sidecars, two background
+  target arrays, two grid sidecars and one failure sidecar;
+- the `.ranges` bytes were exactly
+  `H0 6.00000e+01 7.50000e+01\n`;
+- real `ParamBounds` returned names `['H0']` and bounds 60 and 75;
+- the chain had shape `(200, 4)` and its first line recorded
+  `seed=1234 rng=numpy.default_rng`;
+- both target arrays had shape `(200, 8)`, dtype float32 and finite entries;
+- the first Hubble column had nonzero spread 14.100456237792969 and the first
+  distance column had nonzero spread 591.2666015625; and
+- the 200-entry failure sidecar contained zero failed rows.
+
+A second successful serial run used the same YAML, seed and options from a
+different temporary root. The chain, range, parameter-name, covariance and
+failure files were byte-identical across the two runs. Both target arrays were
+array-identical. This is a real same-seed serial replay. It does not replace
+the separately owed comparison across worker counts.
+
+The root README now prints this executed minimal YAML and command. It defines
+an MPI rank, distinguishes the one-rank serial path from rank-zero coordination
+with worker ranks and explains why this 200-row command has only a final
+checkpoint. This closes the implementation evidence for 25M-38 and the held
+DIDACTICS-79 command/process teaching. The Red Team does not certify either
+closure; both remain for Architect audit.
+
+The new child is deliberately not reported under
+`generator-seed.owned-rng`. Queue 2 still owns board registration and evidence
+mapping for foundation gates. Its owner must give the sidecar check a distinct,
+narrow claim before this branch can be called board-complete. This integration
+hold keeps a format failure from being mislabeled as an RNG failure.
+
+## Queue-2 evidence draft: data-selection and triangle gates
+
+The blocks below are the note-side specification for the structured evidence
+rollout. A leg name describes only what the current check executes. In
+particular, seeing a banner is evidence that the banner was printed; it is not
+evidence that the values in the banner equal an independent row count.
+
+<a id="param-window-cuts-evidence"></a>
+**param-window-cuts — the configured training driver runs and reports that a
+parameter-window cut was applied.**
+
+- files: reads the resolved `param-window-cuts-config` YAML and its six
+  manifest-declared cosmic-shear inputs. The likelihood `.dataset` input is a
+  pointer: the driver also reads its data-vector, covariance, mask, and n(z)
+  siblings transitively, outside that six-path manifest hash. It writes the
+  driver's ordinary `.emul`/`.h5` pair and the driver stream to the immutable
+  gate log. The wrapper does not read the saved pair back.
+- subprocess: `cosmic_shear_train_emulator.py` through the board's driver
+  launcher.
+- metric: per-leg exit-status or selected-text presence; the manual
+  `init_probes` item has no executable metric.
+- legs: 3, named `param-window-cuts.driver-exit-zero`,
+  `param-window-cuts.cut-count-banner-present`, and
+  `param-window-cuts.init-probes-inspection`.
+- evidence: the first two legs are asserted by the wrapper; the
+  `init_probes` item is logged-only and must emit `UNAVAILABLE` until it is an
+  executable comparison.
+- owed: the asserted legs require the Torch, CosmoLike, and GPU workstation;
+  the `init_probes` A/B comparison needs a real assertion before it can become
+  green evidence.
+
+<a id="param-window-cuts-driver-exit-zero"></a>
+`param-window-cuts.driver-exit-zero` requires the training subprocess to exit
+with status zero.
+
+<a id="param-window-cuts-cut-count-banner-present"></a>
+`param-window-cuts.cut-count-banner-present` requires one line matching
+`used N of P cut rows`; it does not claim that a separate count was compared
+with `N` or `P`.
+
+<a id="param-window-cuts-init-probes-inspection"></a>
+`param-window-cuts.init-probes-inspection` is `UNAVAILABLE`: the current gate
+prints a manual inspection instruction and executes no A/B comparison.
+
+<a id="triangle-shading-evidence"></a>
+**triangle-shading: a synthetic corner plot places each physical-window
+artist on the exact parameter panel that determines that window.**
+
+- files: no external input or persistent output; the child constructs
+  synthetic arrays and a Matplotlib figure in memory.
+- subprocess: `gates/checks/gt_b_triangle.py`.
+- metric: figure existence; exact identity of every
+  `(x parameter, y parameter, window)` artist; a complete color census; and
+  exact ownership and interval bounds of the `omegamh2` marginal patches.
+- legs: 4, named `triangle-shading.figure-produced`,
+  `triangle-shading.panel-window-set-exact`,
+  `triangle-shading.all-cut-artists-use-shared-gray`, and
+  `triangle-shading.omegamh2-marginal-bands-exact`.
+- evidence: all four legs are asserted in the child. The panel/window leg
+  derives its expected set and masks from a gate-owned formula table. Its
+  mutation moves one real filled collection to the wrong Axes while preserving
+  the former global artist, panel, color, and band counts; the exact-set
+  predicate rejects it. The child's exit status remains the single aggregate
+  verdict and is not a fifth leg.
+- owed: the board registry models CPU PyTorch only. The child also imports
+  Matplotlib and GetDist; absence of either is a pre-leg red import failure,
+  not an `UNAVAILABLE` capability disposition.
+
+<a id="triangle-shading-figure-produced"></a>
+`triangle-shading.figure-produced` requires the plotting helper to return a
+figure for the synthetic sample and recognized parameter names.
+
+<a id="triangle-shading-panel-window-set-exact"></a>
+`triangle-shading.panel-window-set-exact` maps every equal-size triangle Axes
+to its x and y parameter coordinates. It traces the boolean mask passed to
+each z-order-zero `contourf` call, identifies the physical window by an
+independent formula, and requires the observed tuple set and artist count to
+equal the gate-owned reference. A moved-artist mutation must fail while the
+former global counts remain equal.
+
+<a id="triangle-shading-all-cut-artists-use-shared-gray"></a>
+`triangle-shading.all-cut-artists-use-shared-gray` examines every collection
+and patch on the z-order-zero cut layer and requires each face color to match
+the shared `_CUT_GREY` RGBA value.
+
+<a id="triangle-shading-omegamh2-marginal-bands-exact"></a>
+`triangle-shading.omegamh2-marginal-bands-exact` requires exactly two
+z-order-zero interval patches on the `(omegamh2, omegamh2)` diagonal Axes,
+none on another Axes, and endpoints equal to the lower and upper excluded
+intervals.

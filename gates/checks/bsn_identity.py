@@ -66,6 +66,17 @@ def report(label, ok, detail):
         FAILURES.append(label)
 
 
+def emit_aid(aid, n_before):
+    # (queue 2) the board folds one reserved '##AID <aid> <result>' line per
+    # DECLARED acceptance leg into this gate's executed set. A leg here bundles
+    # several human-readable report() sub-checks, so its aggregate verdict is
+    # PASS iff no sub-check appended to FAILURES since n_before (the failure
+    # count snapshotted before the leg's block ran). The child's exit status
+    # stays the single aggregate verdict; these lines carry the per-leg map.
+    mark = "PASS" if len(FAILURES) == n_before else "FAIL"
+    print("##AID " + aid + " " + mark)
+
+
 def write_covmat(path, names, seed):
     g = np.random.default_rng(seed)
     a = g.standard_normal((len(names), len(names)))
@@ -598,15 +609,36 @@ def main():
     # unreproducible run to run (the run-10 flake).
     torch.manual_seed(0)
     device = torch.device("cpu")
+    # Each of the six declared board legs brackets its block with a FAILURES
+    # snapshot and emits exactly one '##AID' line (emit_aid). The declared
+    # evidence set (gates/board.py Gate id="bsn-identity") is exactly these
+    # six aids -- one per bracket, no stray manifest line for a sub-check.
     with tempfile.TemporaryDirectory() as tmp:
+        n = len(FAILURES)
         check_simpson()
+        emit_aid("bsn-identity.simpson-polynomial-nodes", n)
+
+        n = len(FAILURES)
         check_pipeline()
+        emit_aid("bsn-identity.distance-pipeline-consistency", n)
+
+        n = len(FAILURES)
         check_geometry(device)
         check_roundtrip(tmp, device, law="log_offset")
         check_roundtrip(tmp, device, law="none")
+        emit_aid("bsn-identity.geometry-and-artifact-round-trip", n)
+
+        n = len(FAILURES)
         check_npce(tmp, device)
+        emit_aid("bsn-identity.npce-composition", n)
+
+        n = len(FAILURES)
         check_adapter(tmp, device)
+        emit_aid("bsn-identity.adapter-piecewise-contract", n)
+
+        n = len(FAILURES)
         check_finetune(tmp, device)
+        emit_aid("bsn-identity.finetune-parity", n)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))

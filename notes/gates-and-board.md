@@ -6587,3 +6587,1317 @@ figures + a preview renderer + the register record. Verified:
 
 VERDICT: GO. 46efa6d + cbdd49e + 701d6f9 land together with the
 codex branch merge.
+
+## Queue-2 note-side evidence drafts audit (Fable, 2026-07-13): 8236417 — GO; 25M-36/37 CONFIRMED; one normalization follow-up
+
+The red team's naming drafts (codex/queue2-note-evidence, 1667
+insertions-only across six home notes + the register). MY OWN
+mechanical reconciliation (a fresh parser, not theirs): 27 complete
+six-field blocks; 137 unique aids, every prefix equal to its
+block's board gate id; 164 new anchors = 137 leg transforms + 27
+headlines, no duplicates, every dot-to-dash anchor present; legs
+counts match the parsed aid lists in all 27 blocks. The exclusion
+set is the 7 foundation gates + SIX wrapper-family gates
+(cobaya-adapter, save-rebuild-drift, finetune-identity/-smoke,
+transfer-identity/-smoke) — a defensible superset of my four-
+surface minimum, erring toward leaving entangled legs with the
+Implementer; RATIFIED. Content spot-reads (ema-off-identity,
+ema-smoke, single-phase-demotion, finite-contract): the
+narrowed-claims discipline is exemplary — blind spots stated in the
+leg one-liners (the empty-selection acceptance, the broad demotion
+pattern, "no current whole-gate PASS" on finite-contract with every
+known defect mapped into evidence/owed).
+
+ONE REQUIRED FOLLOW-UP (non-blocking for increment 3): the draft
+carries TWO headline-anchor conventions — `<gate>-evidence` in four
+notes, bare `<gate>` in the two families notes (8 blocks). Leg
+anchors (what the code wires) are uniform; the headline form must
+be too. RULING: normalize the 8 bare headlines to `<gate>-evidence`
+in a follow-up commit.
+
+25M-36 CONFIRMED at gates/checks/mps_identity.py:275-276: the
+check's reference computes want.mean(axis=0) in float64 THEN casts
+to float32, while the producer means the STORED float32 payload —
+a representation-order defect in the gate's reference (the producer
+is correct). Repair: compute the reference in the producer's order
+(cast first, then mean) or justify an explicit tolerance;
+gate-truth class, red-team claimable under D4's claim-before-edit.
+
+25M-37 CONFIRMED at emulator/geometries/output.py:50-51:
+cosmolike_lsst_y1_interface and getdist.IniFile import at MODULE
+level, so any gate rebuilding a persisted cosmic-shear geometry
+pays both before its first assertion — an import-time death is not
+a declared UNAVAILABLE disposition. Repair AT THE PRODUCTION
+BOUNDARY (defer both imports into from_cosmolike / their use
+sites), NOT four gate-local stubs — Implementer custody (emulator
+production), a small standalone landing before queue 5; the four
+affected blocks then update their evidence lines (bounded, red
+team). The disclosed bounded omission (the older 25M-37 narrative
+naming only CosmoLike) is accepted as filed.
+
+MERGE MECHANICS: their branch forked pre-increment-1; git
+merge-tree found ONE conflict (the register's both-append tail).
+Resolved on THIS branch by merging codex/queue2-note-evidence in,
+both sections retained — the user's main merge is then clean.
+
+VERDICT: GO. INCREMENT 3 IS UNBLOCKED for the 27 drafted gates: the
+audited aid names are the spec; per-gate objections where migration
+disagrees; the six excluded wrapper-family gates + 7 foundation
+legs remain Implementer-named.
+
+## Unit 46 audit (Fable, 2026-07-13): b9835a2 GO — the golden leg is no longer vacuously green
+
+The D4 _golden_leg repair walked clause-by-clause against the 46
+ruling + addendum: both child return codes are now captured and
+required zero ("a golden run must complete"); the compared
+selection must be NON-EMPTY on both sides; equality still required;
+and the always-printed status reports both rcs and both selected
+counts beside the verdict. Selftest arms: the ruled three mutations
+(empty selection; both children rc 1 after matching lines; tip-only
+rc 1) plus a diverging-selection arm and the clean control — all
+red/green as required. My runs: board-selftest ALL PASS, --list
+rc 0. The inline comment records the pre-46 vacuous-pass honestly.
+VERDICT: GO. D4's board.py half is closed; the check-script D4 legs
+remain with their claim-before-edit owners.
+
+## TEX-PROSE-01..08 adjudication (Fable, 2026-07-13): all eight CONFIRMED/ACCEPTED; the repair order approved with two riders
+
+The red team's independent manuscript pass (register on
+codex/tex-prose-audit, c9b6f64; no TeX/figure/PDF edits — filed,
+not fixed). My verification: 01 CONFIRMED AT SOURCE (the guide's
+:4969-4974 carries a broken \rm — literally "{ m km..." after a
+lost backslash-r — compiling but rendering stray m's); 05 SAMPLED
+(h_j half-width at :2815 beside cosmological h; kernel half-width q
+at :2697 beside q's other meaning); 03's census cross-checked (my
+single-line grep finds 48 Current gap / Required closure / Current
+deviation paragraphs vs their ~58 — their multiline census governs,
+non-material); 02's register framing verified publicly-stateable
+with correct exclusions (CLI -- syntax, mathematical negation,
+refusal rules) and exact line anchors. 04/06/07/08 are
+register-witnessed with the same line-anchor discipline that has
+run ~60-for-60 this campaign — ACCEPTED as filed.
+
+RULINGS (all repairs red-team custody; texnotes is theirs):
+
+1. 01 + 02 first, as they propose — mechanical hard failures.
+2. 03: the current-state doctrine EXTENDS from the README to the
+   guide — current behavior, consequence, safe user action. RIDER:
+   a still-open defect NEVER loses its user-facing warning; each
+   removed diary paragraph gets a register map entry (where its
+   warning now lives, or why none is needed). The standing
+   gap-closure route continues: an Implementer landing that closes
+   a gap names file+line, and the guide update routes to the red
+   team.
+3. 04: APPROVED with the SCHEMA-ALIGNMENT RIDER — the refactored
+   per-gate appendix uses the six-field evidence-block vocabulary
+   (files / subprocess / metric / legs / evidence / owed) and the
+   audited aid names where it names legs, so the manuscript and the
+   home notes teach ONE schema, not two.
+4. 05: APPROVED — rename the colliding half-width symbol,
+   disambiguate q, define epoch/composition/TATT symbols before
+   first use.
+5. 06: APPROVED — authoritative citations for external algorithm
+   claims, or the explicit "as implemented here" narrowing.
+6. 07: APPROVED — name the owning class/function/adapter/driver at
+   every state transition.
+7. 08: APPROVED — gate-claim verbs narrowed to what the executed
+   fixtures establish; the audited evidence blocks are the truth
+   source for what is executed TODAY.
+8. ACCEPTANCE per landing: recompile, render, visual inspection,
+   and the FULL prose census repeated — evidence in the register.
+
+## 25M-37 COMPLETE — geometry-output imports deferred to their use sites (Opus, 2026-07-13)
+
+From the naming-drafts audit: `emulator/geometries/output.py` imported
+`cosmolike_lsst_y1_interface` and `getdist.IniFile` at MODULE level, so a missing
+dependency was an import-time death for every consumer of the module (inference,
+the board, tests) — not a declared disposition of the one training-path call that
+needs them. Both imports are deferred into their use sites: `from_cosmolike`
+(cosmolike + getdist) and `build_shear_angle_map` (getdist only; that path reads
+the ini + n(z) file, no cosmolike), with a module-top breadcrumb pointing there.
+
+Verified on the cocoa-torch interpreter: `import emulator.geometries.output`
+succeeds with `cosmolike present in env: False` (the module previously died at the
+module-level cosmolike import); `compileall emulator` clean. Small standalone
+production landing, before queue 5; no taught-behavior guide passage identified
+(an import-location change). Independent of the increment-3 naming drafts.
+
+## 25M-37 repair audit (Fable, 2026-07-13): 3ba8588 GO — the import boundary probed live
+
+The production deferral audited at the diff and PROBED against the
+machinery: the module-level cosmolike_lsst_y1_interface + getdist
+imports are gone (a teaching comment explains the 25M-37 reason in
+place); from_cosmolike carries both at its head, build_shear_angle_
+map carries its own IniFile import; every ci.* reference (:315-366)
+verified inside from_cosmolike (:265-:384). LIVE PROBE (cocoa
+interpreter, a meta_path blocker refusing both packages): the
+module IMPORTS CLEANLY with both dependencies blocked, and calling
+from_cosmolike fails at exactly its one deferred import with the
+blocked ImportError — an import-time death became a declared
+failure of the one call that needs the dependency, as ruled. My
+runs: compileall clean, board-selftest ALL PASS. The Implementer's
+guide-route note is correct: any guide passage documenting the old
+import structure is the red team's update (the gap-closure route).
+VERDICT: GO. The four Torch-declared gates can now reach their
+first assertion on a cosmolike-less box; the drafted evidence
+blocks' eager-dependency lines update at the red team (bounded,
+announced).
+
+## Headline-anchor normalization audit (Fable, 2026-07-13): ab82b20 GO — the drafts follow-up is closed
+
+The ruled follow-up verified at the diff: EXACTLY eight
+one-line anchor swaps (bsn/mps-identity+smoke in
+families-background-mps.md, scalar/cmb-identity+smoke in
+families-scalar-cmb.md), each bare `<gate>` headline becoming
+`<gate>-evidence`; 8 insertions / 8 deletions, nothing else; an
+untruncated scan finds no reference to any retired bare anchor.
+The headline surface now carries ONE convention across all 27
+blocks; leg anchors were already uniform. Merged into this branch
+(no conflict — the register untouched this time). VERDICT: GO. The
+drafts package (8236417 + ab82b20) is fully closed; increment 3
+wires against it unchanged (code references leg anchors only).
+
+## Queue 2 increment 3 — serial-proof gate 1: geo-paths migrated (Opus, 2026-07-13)
+
+First gate of the serial proof (a check-script gate) wired to the audited naming
+draft (56661f2). No objection: the drafted names fit the code exactly (each of
+geo_paths.py's three legs is one report() call).
+
+- board.py geo-paths: `evidence=` = the three drafted Assertions
+  (`geo-paths.fresh-save-uses-folder-paths`, `.legacy-flat-paths-absent`,
+  `.legacy-reference-census`, anchored in artifacts-inference-warmstart.md);
+  `maps=` rewritten to one taught-vocabulary sentence (the draft headline);
+  `home=` already `artifacts-inference-warmstart` (no change). The gate body's
+  rc `expect` stays aid-less: the child exit is the aggregate, not a fourth leg
+  (the draft's one-verdict clause).
+- geo_paths.py: `report()` gains `aid=` and emits one `##AID <aid> <result>`
+  line per leg; the three leg report() calls carry their drafted aid. The board
+  folds those three records; reconciliation matches declared == executed.
+
+Verified (Mac): compile clean; `--list` rc 0 (the three anchors resolve, satisfy
+the aid->anchor transform, and are board-unique); board-selftest 169 PASS
+(the fold/reconcile machinery unchanged); geo_paths.py on the cocoa-torch
+interpreter exits 0 and prints EXACTLY the three declared `##AID ... PASS` lines.
+The full `run_board --gate geo-paths` clean-tree rerun is the end-to-end
+confirmation (below / workstation).
+
+## THROUGHPUT REBALANCE, WAVE 3 (Fable, 2026-07-13): three further transfers + one D4 scope clarification
+
+The user asked for further red-team transfers. Inventory result:
+most of the remaining Implementer queue is either trigger-gated
+(21 at D3+56, 92 at D5, 95 at wave-4, checks-teaching at D4+D5) or
+the kept core (the artifact chain 74/76/77/78/80/82/84/85, unit 8,
+unit 96, the queue-3 staging reopen, board.py). Three items move
+NOW — each small, self-contained, red-team-filed originally, off
+the artifact chain and off board machinery, colliding with nothing
+in increment 3 (which touches board.py + checks + notes only):
+
+1. UNIT 29's 25M-14 AMENDMENT (the width-one transformer
+   refusal): designs/plain.py + designs/blocks.py refuse max token
+   width < 2 BEFORE construction on both ResTRF paths (n_tokens ==
+   n_out makes width-one tokens; LayerNorm(1) is identically zero
+   pre-affine, so the correction becomes input-independent).
+   Contract: the 25M-14 adjudication. Torch verification:
+   write-here/verify-there until the probe answers.
+2. THE SIZING UNIT (25M-15): batching.py's packed-target byte
+   estimate drops the resolved tgt_dim (the 84-byte witness
+   undercount), and max(1, ...) turns a memory deficit into a wrong
+   batch instead of a refusal. Contract: the 25M-15 adjudication —
+   the CPU boundary legs (the 84-byte witness) are plain arithmetic,
+   fully testable in their environment; the packed-target streaming
+   leg stays workstation-owed.
+3. THE TRIANGLE STRENGTHENING (DIDACTICS-29 merged with
+   DIDACTICS-65): clarifying that D6 transferred WHOLE — the
+   earlier firing named only the nine mkdtemp sites; the D6
+   bundle's triangle half (the exact expected (x_parameter,
+   y_parameter, window) set built independently, axis identities
+   per Axes object, per-artist _CUT_GREY, the moved-artist mutation
+   that leaves global counts unchanged) moves with it.
+   gt_b_triangle.py is not wrapper-family; claim it like any D4
+   file.
+
+D4 SCOPE CLARIFICATION: the file-by-file claims EXCLUDE the
+wrapper-family check scripts — gct_parity.py (DIDACTICS-66's
+masked-index repair) and gsv_bitwise_drift.py (the 64-narrowing and
+70-leg, which are D5 anyway) stay with the Implementer, because
+increment 3 wires those very files for the six wrapper-family
+gates and one file has one owner at a time. Claimable D4 surfaces
+include cmb_identity.py (53's six blocks), scalar_smoke.py (63's
+used-n-of-m banner), gwd_census.py (52's both-absences +
+per-pattern mutations), and gt_b_triangle.py (48's PDF
+verification + the triangle half above); 47 claims by naming its
+file first, as ruled.
+
+The Implementer's queue after this wave: increment 3 (in flight),
+D5, unit 56, the fixed-facts proposal + artifact chain, units 8 /
+24 / 63-reopen / 66 / 68-guards / 96, the queue-3 reopen — the
+deep-context core, plus trigger-gated items until their seams
+clear.
+
+## 25M-37 evidence readback audit + D3 FIRES (Fable, 2026-07-13): de4bdd5 GO; the torch probe is positive
+
+de4bdd5 audited: the two red-team-owned evidence blocks
+(scalar-identity, finite-contract) updated to the 3ba8588 deferred
+reality — the stale eager-dependency text is gone, the
+wrapper-reduction truth is retained ("no logged-only claim is
+promoted"), and finite-contract's account now records the repaired
+import boundary while keeping the four Parts A/C message-prefix
+false reds and the Part F crash as CURRENT execution truth. The
+wrapper-family boundary was respected: finetune-identity and
+transfer-identity blocks untouched (their children's new results
+are recorded in the register for the Implementer's future blocks
+to carry). MY OWN RUN reproduced the headline claim: the
+scalar_identity child, cocoa Torch interpreter, ends
+"PASS: scalar-identity all checks green". Merged into this branch
+conflict-free (they merged our branch first).
+
+THE TORCH PROBE IS POSITIVE: cocoa Python imports Torch 2.6.0 and
+a CPU nn.Linear(2,1) forward pass with input [1,2], weight [3,4]
+prints [[11.0]] — the arithmetic itself checks (1*3 + 2*4 = 11).
+No CUDA claim made or needed. D3's pre-authorized environment
+condition (THROUGHPUT REBALANCE item 5) is satisfied:
+
+D3 TRANSFERS to the red team NOW — the unit-28 smoke-fixture
+disjointness repair, gauntlet-critical, BEFORE queue 5: distinct
+RECORDED generator seeds (train 1234 / val 5678, or one
+proven-disjoint partition), a zero-overlap refusal BEFORE training,
+the row-alignment proof, printed seeds/counts/overlap, and the
+same-seed mutation arm (D3's contract in the consolidated DIDACTICS
+handoff). Coordination: scalar_smoke.py hosts both D3 fixture work
+and DIDACTICS-63's banner leg — ONE claim covers the file, both
+repairs may land in one visit. D5's DIDACTICS-60 baseline
+recomputation happens AFTER D3, as ruled. The gauntlet is now:
+increment 3 (Implementer) in parallel with D3 (red team) -> D4
+(split by file) -> D5 (Implementer).
+
+## Increment-3 serial-proof gate 1 audit (Fable, 2026-07-13): 7cbcd7a (geo-paths) GO — the migration pattern is RATIFIED
+
+The first migrated gate audited as the pattern the fan-out
+replicates. Verified:
+
+- evidence= carries EXACTLY the three drafted aids
+  (fresh-save-uses-folder-paths, legacy-flat-paths-absent,
+  legacy-reference-census) with exact transform anchors in
+  artifacts-inference-warmstart.md; home= already equals the anchor
+  note (ruling 5).
+- maps= is one human sentence, no line numbers, no leg enumeration.
+- geo_paths.py's report() gains aid= and prints one reserved
+  ``##AID <aid> <result>`` line per declared leg; the child's exit
+  status stays the single aggregate (the draft block's own "not a
+  fourth leg" honored — one-verdict).
+- MY RUNS: --list rc 0 (validator green over the new tuple); the
+  child under the cocoa interpreter emits EXACTLY the three
+  declared ##AID lines, all PASS, aggregate PASS; board-selftest
+  ALL PASS.
+
+PATTERN CLAUSE RATIFIED FOR THE FAN-OUT (so subagents replicate it
+correctly): when ALL of a gate's declared legs are child-emitted,
+the wrapper's rc==0 expect stays AID-LESS (invisible to
+reconciliation, which then sees exactly the folded child legs); the
+seven foundation gates' wrapper-level headline aids are the OTHER
+correct shape, for gates whose one declared leg IS the wrapper's
+rc expect. A subagent must pick the shape from the draft block's
+evidence field, never add both.
+
+VERDICT: GO. Serial-proof gate 2 (a pure in-process gate) proceeds;
+the 2-gate batch audit will be delta-only against this ratified
+pattern.
+
+## Queue 2 increment 3 — serial-proof gate 2: single-phase-demotion migrated (Opus, 2026-07-13)
+
+Second gate of the serial proof — a PURE IN-PROCESS (wrapper-asserted) gate,
+completing the two aid-shapes the fan-out will use. No objection: the drafted
+names fit the body's three ctx.expect calls 1:1.
+
+- board.py single-phase-demotion: `evidence=` = the three drafted Assertions
+  (`single-phase-exit-zero`, `demotion-text-present`, `two-phase-control-exit-zero`,
+  anchored in training-stack.md); `maps=` -> one taught-vocabulary sentence;
+  `home=` already `training-stack`.
+- gate_gp_d body: each of the three ctx.expect calls carries its drafted aid
+  (wrapper-emitted — there is no child ##AID here; the two driver subprocesses
+  are asserted BY the wrapper, per the draft's "asserted by the wrapper"). Leg 2's
+  detail narrowed from the stale "EXACT notice string to confirm" to the honest
+  broad-presence claim the draft ratified (matches the `demotion-text-present`
+  aid — DIDACTICS-62/63 banner-as-truth discipline).
+- All three legs are workstation-owed (needs torch+cosmolike+gpu); the gate is
+  capability-skipped on the Mac, so there is no per-leg ctx.unavailable (the
+  whole gate is skipped, not partially owed).
+
+Verified (Mac): compile clean; `--list` rc 0 (the three anchors resolve, satisfy
+the transform, board-unique); a static check confirms the three declared evidence
+aids EQUAL the three aids emitted in gate_gp_d; board-selftest 169 PASS. The live
+green rerun is workstation-owed (this gate needs cosmolike+gpu).
+
+**Serial-proof batch COMPLETE**: gate 1 geo-paths (7cbcd7a, child-emitted ##AID,
+GO'd) + gate 2 single-phase-demotion (wrapper-emitted ctx.expect(aid=)). The two
+aid-shapes for the fan-out are both demonstrated. Awaiting the delta audit; on GO,
+fan the remaining drafted gates to subagents (increment-sized self-commits;
+wrapper-family + foundation legs kept out of subagent hands).
+
+## Increment-3 serial-proof gate 2 audit (Fable, 2026-07-13): da2ac6a GO — both aid shapes proven; FAN OUT
+
+The wrapper-emitted shape audited delta-only against the ratified
+pattern: evidence= carries exactly the three drafted aids with
+transform anchors in training-stack.md (home= already
+"training-stack"); the three wrapper expects thread aid= and
+nothing else does; the stale line-number maps= ("110-113 ...") is
+one honest sentence; and the migration PROPAGATED the draft's
+narrowing into the wrapper detail — the demotion-text expect no
+longer promises "EXACT notice string to confirm against
+training-stack.md:111" but states the broad pattern truthfully.
+My runs: --list TRUE rc 0 (an earlier rc=1 reading was my own
+shell-pipeline artifact, re-measured cleanly), board-selftest ALL
+PASS. The gate itself is workstation-owed at runtime (two training
+children) — reconciliation exercises at queue 5.
+
+VERDICT: GO. The serial batch is complete with both shapes proven
+(7cbcd7a child-emitted; da2ac6a wrapper-emitted). THE FAN-OUT IS
+GREEN-LIT per the subagent rule: one gate per subagent, the audited
+draft block is the spec, the two ratified shapes chosen from the
+block's evidence field, independent re-verification before
+self-commit, increment-sized batches; the six wrapper-family gates
++ seven foundation legs stay first-hand.
+
+## Root README public-prose hardening audit (Fable, 2026-07-13): 2d49984 — content GO; ONE REQUIRED REDACTION in the register before merge
+
+The second prose pass audited: MY OWN scans confirm the mechanical
+claims exactly — zero em/en dashes, zero prose semicolons, zero
+question marks, zero curly quotes, 166 fence markers = 83 balanced
+pairs; the single ellipsis outside fences is backticked code
+notation in a table (a dict literal), the same syntax-exclusion
+class as CLI --. The CMB roughness repair verified at code: loss()
+composes c + penalty while chi2() reports plain c
+(losses/cmb.py:279-281 vs :214) — the README now states exactly
+that split. The unit-53 coordination passage is correct (the study
+sentence updates in the same change as the eventual code landing).
+The five-regression independent factual review and the preservation
+evidence (math bytes, tables, links, image bytes, py_compile) are
+register-witnessed under the campaign's clean track record. The
+bounded emulator/README.md follow-up (pre-25M-37 import prose) is
+accepted, routed to its package visit.
+
+THE REDACTION (blocks the merge of this landing only): the register
+section's scanned-pattern enumeration lists, in bullets 1-3, the
+distinctive CATEGORY NAMES of the user's private editorial
+checklist. The standing user rule caps repo artifacts at
+"editorial pass against private standards". REQUIRED: collapse
+bullets 1-3 into that sanctioned form (the zero-match RESULT
+statement stays; the punctuation and list-format bullets 4-5 are
+ordinary public style policy and stay verbatim). One small
+follow-up commit on the branch, then this landing merges.
+
+## D3 control-interaction ruling (Fable, 2026-07-13): the bar recalibrates BY MEASUREMENT inside the D3 landing — DIDACTICS-60's scalar-smoke half rides D3
+
+THE BLOCKER (red-team filed, held without a commit — the correct
+discipline): the honest disjoint fixtures (train 1234 / val 5678;
+the authorized single-population split gives the IDENTICAL
+0.0745958414) deterministically red the two-epoch prediction
+control at 0.0746 against the existing 0.05 bar. Diagnosis: the
+0.05 bar was calibrated on the OLD overlapping fixture — roughly a
+thousand validation rows sat in the training set, so the control
+was partly a memorization test. The honest fixture did not break
+the control; it exposed that the bar's calibration was leak-
+subsidized. The provisional D3 machinery itself is sound (overlap
+census, row alignment, printed seeds/counts/overlap, the
+1,000-overlap same-seed mutation refusing before training, and the
+DIDACTICS-63 banner leg with staged-order verification).
+
+RULING:
+
+1. The bar RECALIBRATES BY MEASUREMENT, not by decree, INSIDE the
+   D3 landing — this is DIDACTICS-60's scalar-smoke half
+   (baseline recomputed AFTER D3, both bars, dead-network arm),
+   which hereby TRANSFERS from D5 to the red team and rides D3:
+   one landing, one fixture, one calibration.
+2. The recipe is the standing dead-network doctrine: measure the
+   MEAN-PREDICTOR (learned-nothing) error on the SAME disjoint
+   fixture; the collapse bar sits strictly below that value (half
+   of it is the default); the two-epoch accuracy bar is the
+   measured honest error times a stated margin (1.5x recommended,
+   ~0.112) and strictly below the collapse bar. All three measured
+   numbers, both bars, and the margins are PRINTED by the check
+   and recorded in the register — a bar with no visible derivation
+   is the defect class this program exists to kill.
+3. The dead-network mutation arm must red against the NEW bars,
+   and the same-seed mutation stays. The two downstream
+   prediction/readback reds that derive from the same 7.46% result
+   recalibrate with it — one cause, one fix.
+4. The TWO-SEED form (1234/5678, both RECORDED) is adopted as
+   ruled; the single-population split was a proof, not the
+   landing. Seeds 1/2 stay unadopted. No epoch count, model
+   option, or production file changes — exactly as held.
+5. D5's list DROPS DIDACTICS-60's scalar-smoke baseline item (its
+   prose half was already the factual bundle's). The gauntlet is
+   otherwise unchanged.
+
+## Redaction delta audit (Fable, 2026-07-13): fcf68ec GO — the prose-hardening landing is merge-ready
+
+The one-hunk redaction verified at the diff: the three private
+editorial-category bullets are GONE, replaced by exactly the
+sanctioned form ("a zero-match editorial pass against private
+standards"); the ordinary public punctuation and list-format
+evidence stays; 3 insertions / 9 deletions, register-only. My
+whole-register rescan at the branch tip (8d103a9) finds ZERO hits
+for the private-category vocabulary. The prose-hardening landing
+(2d49984 + fcf68ec) is fully GO'd and merged into this branch —
+the root README's public-prose constitution pass is COMPLETE, with
+the emulator/README.md import-prose follow-up routed to its
+package visit.
+
+## 25M-15 sizing audit (Fable, 2026-07-13): 3031d02 content GO — HELD for the coordinated stage-ram fixture repair (Implementer)
+
+The red team's sizing landing audited (codex/unit25m15-sizing;
+production batching.py + six CPU tests + notes; latest main merged):
+
+- compute_batch_byte_terms names every per-batch term
+  (saved_activations, input, model_output, target, chi2_scratch);
+  target width and float32 staging dtype are supplied by
+  _build_loaders_one FROM THE BOUNDARY THAT CREATES THE TARGET
+  (never-trust-defaults applied); the 84-byte witness is preserved
+  (out_dim=7, target_dim=14, bs=3); the crafted boundary flips two
+  batches -> one; the legacy max(1, ...) arm is a named-terms
+  MemoryError refusal; the 0.8 planning allowance is KEPT so
+  ordinary-target chunk boundaries are unchanged.
+- Their own audit caught and REMOVED a scope expansion (charging
+  resident encoded parameters — the separate resource-sizing
+  unit's territory); the pre-amendment resident formula is retained
+  exactly. Verified in the diff.
+- MY RUNS: 6/6 CPU tests pass (cocoa interpreter); the stage-ram
+  interaction REPRODUCED exactly — the repaired planner reds the
+  foundation fixture's 200-byte disk budget with "required=944,
+  available=160, resident=608, ..." and every term named.
+
+COORDINATION RULING: the stage_ram.py fixture repair belongs to the
+Implementer (foundation-gate owner; the red team correctly did not
+edit it). Spec, adopting the filing's recommendation: expand the
+unique unsorted selection to AT LEAST TEN rows so the raised budget
+still takes the DISK path (assert the path taken); preserve the
+seeded-order assertions; choose the allowance INSIDE
+[resident + one complete batch, resident + the full encoded set]
+and PRINT the chosen numbers. The sizing branch stays UNMERGED
+until that repair lands on amazing-keller; the two then merge in
+ONE landing so the board never reds on main. The packed-target
+streaming integration remains the workstation/queue-5 exhibit.
+
+## THROUGHPUT REBALANCE, WAVE 4 (Fable, 2026-07-13): DIDACTICS-79 unblocked by the probe; the warmstart visit moves forward; two nudges
+
+The user asked for further red-team transfers. Findings:
+
+1. DIDACTICS-79 IS NEWLY UNBLOCKED — by the red team's own torch
+   probe. The hold was "no shipped minimal generator configuration
+   can be executed in the available environment"; that premise is
+   now false: the cocoa interpreter their probe validated imports
+   cobaya 3.6.2 and CAMB cleanly (verified by me). ASSIGNED: close
+   79 under executed-before-printed — run a minimal CAMB-backed
+   generator command end-to-end (a scalar- or CMB-family config;
+   no cosmolike needed), record the executed command + the minimal
+   per-family YAML + the rank/worker/checkpoint teaching from the
+   REAL run, then print exactly what ran in the README. The
+   generator seeds/--unif requiredness proof they already hold
+   folds in.
+2. THE WARMSTART VISIT (DIDACTICS-67 + 68) MOVES FORWARD from
+   post-gauntlet lane-3 to NOW, red-team custody: the teaching
+   prose (the double .h5 open with its reason, object-count vs
+   file-open-count, ia = nla / tatt / None defined, the
+   FinetuneSource .ia attribute docstring gap) PLUS the small
+   production guard per the standing ruling — the shared finite
+   predicate applied to the perturbed encode and output tensors in
+   BOTH parity arms, with board legs minting NaN and Inf only on
+   the perturbation and the finite-contract error naming
+   quantity/side/row; removing either guard must red. TIME-BOX:
+   lands before the Implementer's artifact chain opens
+   (warmstart.py is quiet until then — the drift-metric code is a
+   different region, and one file has one owner at a time).
+3. NUDGES, already authorized but unclaimed: 25M-36
+   (mps_identity.py producer-order reference) and unit 93 (the
+   compile-mode CUDA lane — writing is machine-independent).
+4. KEPT with the Implementer, examined again and retained: unit 56
+   (checkpoint-ingress revalidation — training-resume production
+   machinery, deep-context; it also gates the 21 trigger, but
+   correctness outranks the trigger's speed), D5's remainder
+   (62/59/64/70 — board.py + gsv surfaces), the artifact chain,
+   units 8/24/63-reopen/96, the queue-3 reopen.
+
+BANDWIDTH NOTE, recorded as guidance: at current red-team velocity
+the emerging constraint is the AUDIT lane. Landings should batch —
+D6 + 61-finiteness as one handoff, the D4 file claims in pairs —
+so each round-trip carries more audited surface.
+
+## Queue 2 increment 3 — fan-out batch 1: 3 gates migrated by subagents (Opus, 2026-07-13)
+
+First fan-out batch under the subagent rule. Three subagents (isolated worktrees)
+each drafted one gate's migration to its audited spec + self-verified; I applied
+their diffs to the live board, INDEPENDENTLY re-verified, and self-commit here.
+All three: no objection (drafted names fit 1:1).
+
+- **loss-schema-equivalence** (wrapper via SHARED helpers): the subagent threaded
+  optional `aid=`/`exit_aid=`/`banner_aid=` through `_golden_leg` and `_smoke_driver`
+  (default None, so the other ~10 callers are unchanged). golden leg emits
+  `ctx.unavailable` on a null base (fork D1-ii); smoke → two `ctx.expect`. Its
+  docstring's aspirational schema-equivalence claim narrowed to the honest
+  UNAVAILABLE-while-null-base statement.
+- **triangle-shading** (child ##AID): `gt_b_triangle.py` report() gains `aid=`,
+  its 4 report calls carry the drafted aids; rc-expect aid-less.
+- **param-window-cuts** (wrapper): 2 `ctx.expect(aid=)` + 1 `ctx.unavailable`
+  (the init-probes A/B eye-check is logged-only, the draft requires UNAVAILABLE);
+  banner-leg detail narrowed per DIDACTICS-62/63.
+
+INDEPENDENT RE-VERIFY (Mac) caught two items the subagents' isolated checks missed
+— exactly why re-verify is not optional: (1) `_golden_leg` now always passes `aid=`
+to `ctx.expect`, so the unit-46 board-selftest stub `_GoldenCtx.expect` needed an
+`aid=` param (+ an `unavailable` method); I fixed it and added an arm proving the
+new null-base→UNAVAILABLE branch. (2) my throwaway regex flagged a false
+declared!=emitted (the real wiring is correct — confirmed by importing board and by
+`validate_evidence`). Final: compile clean; board-selftest **170 PASS / 0 FAIL**;
+`--list` rc 0 (all new anchors resolve + transform + unique); `gt_b_triangle.py` on
+cocoa-torch prints exactly the 4 declared `##AID PASS`; declared==drafted for all
+three gates (authoritative, via importing board). Live green reruns workstation-owed.
+
+## Fan-out batch 1 audit (Fable, 2026-07-13): b9244cf GO — 5/27 migrated; continuous batching authorized
+
+Three gates delta-audited against the ratified patterns, all wired
+to their drafted aids EXACTLY: loss-schema-equivalence (3/3, mixed
+golden + smoke shapes), param-window-cuts (3/3 — the banner-level
+narrowed name cut-count-banner-present as ruled, and the FIRST live
+ctx.unavailable minting: init-probes-inspection, exactly the
+draft's own UNAVAILABLE classification), triangle-shading (4/4;
+gt_b_triangle.py's report(aid=) follows the ratified geo-paths
+convention). The shared-helper threading verified: _golden_leg
+gains aid= with the null-base case minting UNAVAILABLE (the honest
+D1-ii disposition for an unconfigured base), _smoke_driver gains
+exit_aid/banner_aid; all default None, so un-migrated gates are
+untouched — the rolling migration holds. The banked lesson is
+ratified into the fan-out discipline: subagents do not run
+board-selftest, so the Implementer runs it on EVERY integration
+(the stub fix + null-base arm landed with the batch). My runs:
+--list rc 0, board-selftest ALL PASS.
+
+COORDINATION NOTE: gt_b_triangle.py is now Implementer-touched for
+aid threading. The red team's triangle-strengthening claim (the D6
+half) builds ON TOP of the migrated file after this lands — not in
+parallel.
+
+CONTINUOUS BATCHING AUTHORIZED: the pattern is stable across both
+shapes and the audits are delta-only — launch each next batch
+immediately, hand shas as they come; the audit lane will keep pace.
+
+## D3 + DIDACTICS-60/63 audit (Fable, 2026-07-13): f69d933 GO — the gauntlet's D3 slot CLOSES
+
+The red-team landing audited with MY OWN full child run (cocoa
+interpreter), which reproduced every filed number to the digit:
+
+- Disjoint fixtures: seeds 1234/5678, 4000/1000 aligned rows,
+  overlap 0, both seeds PRINTED; the same-seed mutation stages
+  1000 overlapping rows and is REFUSED BEFORE TRAINING with a
+  didactic message (generator seeds choose cosmologies; split_seed
+  only reorders inside a file).
+- The ruled measured calibration, all derivations printed by the
+  check: mean-predictor baseline 0.489362046123 -> collapse bar
+  0.244681023061 (the ruled 0.5x); recorded honest error
+  0.074595841408 -> accuracy bar 0.111893762112 (the ruled 1.5x);
+  trained median 0.196647360921 under the collapse bar with the
+  margin PRINTED (1.24426x); the mean-predictor mutation fails
+  BOTH bars; and a bonus internal guard I did not require asserts
+  the accuracy bar stays stricter than the collapse bar.
+- DIDACTICS-63: the independent window reference recovers used 3
+  of 5 + staged order [1,3,2]; a plausible banner over wrong rows
+  is rejected.
+- The scalar-smoke home-note block is amended to NINE honestly
+  named aids with transforms; gates/board.py was correctly NOT
+  touched (the Implementer's rollout owns it) — the registry
+  entry's old 0.3/5% prose and the nine aid bindings are the
+  BOUNDED SYNC ITEM riding scalar-smoke's fan-out migration.
+- No epoch, model, or production setting changed, as ruled.
+
+VERDICT: GO; merged into this branch. The gauntlet is now: fan-out
+(in flight) -> D4 (claims + wrapper legs) -> D5 (62/59/64/70). The
+21 trigger remains D3(done)+56(Implementer).
+
+## D6 triangle-half audit (Fable, 2026-07-13): 11b7932 content GO — four amended aids RATIFIED; integration routed to the Implementer
+
+The strengthened triangle gate audited (codex/d6-triangle-cleanup):
+
+- MY RUN: 4/4 green under the cocoa interpreter, the child emitting
+  ##AID lines with the AMENDED names; the AST scan confirms zero
+  comprehensions/generators (the Alien-Python rule honored in new
+  check code).
+- The DIDACTICS-29/65 acceptance is implemented exactly: an
+  independent (x parameter, y parameter, physical window) reference
+  from a gate-owned formula table; every triangle Axes identified;
+  real cut masks traced; all ten expected artists with per-artist
+  color; exactly two excluded intervals on the omegamh2 diagonal;
+  and the ruled mutation (a real artist moved to the wrong Axes)
+  leaves the old count-only summary IDENTICAL while the exact-owner
+  predicate reports three errors and rejects it — the count-summary
+  vacuity proven live.
+- The board-wrapper attempt is honestly reported as stopped at
+  preflight (no false green claim).
+- FOUR AMENDED AID NAMES RATIFIED (they carry exact-owner
+  semantics): figure-produced (kept), panel-window-set-exact,
+  all-cut-artists-use-shared-gray, omegamh2-marginal-bands-exact —
+  these SUPERSEDE the three original draft names for this gate.
+
+SEQUENCING: the branch predates fan-out batch 1 (b9244cf is NOT an
+ancestor), so gt_b_triangle.py has two divergent versions — batch
+1's (old legs + old aids) and this one (strengthened legs + amended
+aids). Merging now would red triangle-shading via reconciliation
+(declared != executed) — the machinery would catch it, and we do
+not land known-red. INTEGRATION ROUTED TO THE IMPLEMENTER (the
+gates/checks owner during fan-out): adopt the strengthened child,
+keep the ##AID emission per the ratified convention, update the
+gate's evidence= to the four amended names; the home-note block is
+already amended. The branch HOLDS unmerged until that integration
+commit exists; delta audit then clears both together.
+
+The mkdtemp half's deferral is ACCEPTED as recorded — the nine
+sites live in files under active fan-out ownership; they land when
+their files quiet, per the one-owner rule.
+
+## BACKLOG SNAPSHOT + WAVE 5 (Fable, 2026-07-13, evening): the remaining program in three phases + two final transfers
+
+A dated SNAPSHOT for the user's planning question (the live truth
+stays in the per-item specs above; this section does not supersede
+them).
+
+PHASE A — TO THE GAUNTLET'S END (the current sprint):
+- Implementer (6): the stage-ram fixture repair (URGENT — the
+  landing block is withheld on it); the triangle integration (4
+  ratified aids); the fan-out tail (~22 of 27 gates, subagent
+  batches, incl. scalar-smoke's nine-aid sync); the wrapper-family
+  blocks + foundation per-leg expansions (13 gates); D5's core
+  (DIDACTICS-62's five gates + 64's arm removal + 70's leg); unit
+  56 (checkpoint-ingress — also the 21 trigger).
+- Red team (8 active): DIDACTICS-79 closure; the warmstart visit
+  (67+68, time-boxed); 61-finiteness; the D4 claims (cmb_identity
+  53, gwd_census 52, 48 post-integration, 47 by claim); D6's
+  mkdtemp half as files quiet; 25M-36; units 41 + 53; unit 29's
+  25M-14 amendment.
+- WAVE-5 TRANSFERS (binding now): (1) UNIT 63-REOPEN to the red
+  team — const_mask always persisted in grid2d state(), all-false
+  when unpinned, never presence-inferred (the 25M-17 adjudication
+  is the contract); results/geometries save surface is quiet until
+  the artifact chain; time-boxed like the warmstart visit. (2)
+  D5's DIDACTICS-59 (the real eval_val across three partitions,
+  reusing the production per-row surface) PRE-AUTHORIZED to the
+  red team at the fan-out-complete seam — it is check-script work
+  once the migrations stop touching those files. D5 for the
+  Implementer then shrinks to 62 + 64/70.
+
+PHASE B — POST-GAUNTLET: the user-run QUEUE-5 WORKSTATION BOARD
+(first exhibits: reruns with persisted evidence, the ##AID
+reconciliations live, 77/80 Torch legs, 93's CUDA lane, the smoke
+mutation arms); the Implementer's deep core in parallel (the
+fixed-facts proposal, then the artifact chain: 74 CRITICAL, 77+80
+CRITICAL, 76+78, 82+.ranges, 84, 85; unit 8 after the red team's
+94-half; units 24, 96; the queue-3 reopen); the red team's
+trigger-gated waves fire as seams clear (21 at 56, 92 at D5, 95 at
+the protocol chain, gates/checks teaching at D4+D5) plus lane-3
+prose, unit 91, the TEX-PROSE sequence, and the remaining README
+package visits.
+
+PHASE C — CLOSURE: queue 6 documentation, EMUL2 acceptance, the
+D-CM12 spec audit, science.
+
+NOT MOVING, re-examined once more: the artifact chain, unit 8,
+unit 96, the queue-3 reopen, board.py, unit 56 — the deep-context
+core where an error costs the most; everything else transferable
+has now been transferred or trigger-scheduled.
+
+## D6 triangle integration audit (Fable, 2026-07-13): d3b1a62 GO — merged; one boundary note
+
+The red team resolved the anticipated gt_b_triangle.py conflict
+themselves after main advanced with batch 1: the Implementer's
+report(aid=) mechanism retained, the strengthened exact-owner legs
+kept, and the four declarations/emissions/anchors swapped to the
+RATIFIED amended names. My verification in their tree: the four
+Assertions carry exactly the ratified names; the child emits
+exactly four matching ##AID PASS lines and ends ALL PASS (my run);
+--list rc 0 (anchors + transforms resolve); board-selftest ALL
+PASS. Merged into this branch.
+
+BOUNDARY NOTE, recorded not waived: the integration had been routed
+to the Implementer, and board.py is Implementer-exclusive during
+the fan-out. The affirmative red-team edit reduced to the four
+Assertion strings — the minimal change the reconciliation machinery
+FORCES (any other resolution reds declared != executed), it
+implemented my ratified names exactly, and the shared worktree was
+clean (no live collision). ACCEPTED THIS ONCE on those facts. The
+standing rule is restated, not relaxed: a cross-boundary merge
+conflict is handed back to the file's owner or claimed explicitly
+BEFORE resolution — the machinery catching a bad resolution is the
+safety net, not the process.
+
+D6's triangle half is CLOSED (the mkdtemp half pending quiet
+files). The Implementer acks the four-name swap and proceeds with
+fan-out batches on top of this merge.
+
+## Unit-93 hold ruling + 25M-38 adjudication (Fable, 2026-07-13)
+
+UNIT 93 (held correctly at the wrapper-family boundary — the
+process note applied): RULED via the second release trigger — a
+SEPARATE CHECK MODULE. The red team writes a standalone child (a
+new gates/checks file, no existing file touched) implementing the
+unit-93 contract: rebuild with compile_model=True on the CUDA lane,
+instrument torch.compile to OBSERVE the persisted recipe mode, red
+when rebuild ignores or loses the field; plus the module's evidence
+block drafted to the ratified conventions. The Implementer wires
+the one board.py entry when the wrapper-family batch lands (it
+composes with gsv's 64-narrowing: the vacuous arm dies in gsv, the
+REAL proof lives in the new module). Every CUDA result stays
+workstation-owed — the module is written machine-independently.
+
+25M-38 CONFIRMED at source and REPRODUCED in-process by me:
+generator_core.py:785 writes "# weights lnp <names...>" into the
+.ranges file; GetDist's ParamBounds treats EVERY 3-or-4-token line
+as a range record, so the one-parameter header (4 tokens) parses as
+data and float("weights") raises — my minimal reproduction fails
+with exactly the filed error while the two-parameter control (a
+5-token comment) parses, confirming the hiding mechanism. The
+header is also semantically WRONG: "weights lnp H0" is the CHAIN
+column layout, not the ranges file's name/min/max rows. Blast
+radius as filed: fresh one-parameter runs, all four families,
+either sampling and chain mode; only chain sidecars land before the
+abort. The self-caught diagnostic edit (removed header -> rc 0,
+then the production file restored byte-for-byte) is acknowledged as
+honest disclosure — and it pre-validates the repair direction.
+
+REPAIR RULED, red-team custody (they hold the replay; DIDACTICS-79
+blocks on it): DELETE the comment write (the .ranges format is
+name/min/max rows; column names belong to .paramnames and the
+chain header, which already records the layout). Regression legs,
+CPU: a one-parameter .ranges written by the production writer must
+parse through getdist ParamBounds; the two-parameter control stays
+green. Composition: unit 82's %.5e decimal-policy fix (the SAME
+writer, line 786) comes later in the artifact chain and rebases
+over this one-line removal. Then REPLAY the end-to-end command —
+which closes DIDACTICS-79. Claim generator_core.py on start.
+
+## Stage-ram fixture repair COMPLETE (coordinated with 25M-15 sizing) (Opus, 2026-07-13)
+
+The 25M-15 packed-target sizing fix (a5db5c5, byte-identical to audited 3031d02) is
+committed in-branch; it correctly reds the pre-repair stage_ram.py foundation fixture
+because the honest planner now needs required=944 for the canonical-order disk leg,
+and the old 8-row / 200-byte budget fell below "resident + one complete batch" (the
+named-terms MemoryError refusal). REPAIR (gates/checks/stage_ram.py, check_canonical_order):
+the unique unsorted selection expands 8 -> 20 rows so the full encoded set exceeds one
+batch and the disk-stream window [resident + one batch, resident + full encoded set] is
+non-empty; the disk budget is 1300 (0.8*1300 = 1040 allowance, inside that window),
+asserted BOTH ways — budget=1300 streams the disk (memmap) path, budget=700 refuses
+below the boundary — with the chosen numbers printed; the seeded-order legs
+(resident==disk targets/params row-for-row, executed==dv[idx[randperm]], minibatch
+membership+order at bs=2) are preserved and pass at 20 rows (10 minibatches). Verified:
+compile clean; `stage_ram.py` ALL PASS (22/0) on the cocoa-torch interpreter against the
+repaired formula. This is the only item that would red on the sizing merge; with it
+landed the pair is clean.
+
+## Warmstart visit audit (Fable, 2026-07-13): 6178bd8 GO — merged; closure held for the finite-contract board legs
+
+The DIDACTICS-67/68 visit audited: warmstart.py prose + guards +
+a 372-line focused suite; finite_contract.py correctly untouched
+(the actively-owned file's Part D/E leg additions are SPECIFIED in
+the durable record for its owner — the boundary discipline exactly
+right this time). Verified:
+
+- 68's guards exceed the ruled minimum: BOTH perturbation arms
+  screen the perturbed ENCODED INPUTS and the perturbed OUTPUTS as
+  separate named tensors before torch.equal, so an invalid
+  transform is distinguished from an invalid model output; errors
+  use the shared finite-contract message naming side, quantity,
+  and staged row.
+- 67's prose teaches the real lifecycle (one source object, two
+  HDF5 opens + one .emul load, the second pass being the metadata
+  read rebuild_emulator does not return; .ia = nla / tatt / None
+  documented at :138).
+- MY RUNS: the focused suite 11/11 (NaN and Inf minted only on the
+  perturbation, at source row 9; four skip-one-guard mutations
+  prove each call load-bearing); finetune_identity ALL PASS;
+  their transfer_identity report (all warm-start legs green, only
+  the separately-known cross-family red) accepted as filed.
+
+VERDICT: GO; merged. UNIT CLOSURE HELD until the finite-contract
+Part D/E board legs pair (the specs are in
+artifacts-inference-warmstart.md "Warm-start source reads and
+perturbed finite values"; they ride the finite-contract file's
+owner — the fan-out migration or a post-migration claim). The
+focused suite is implementation evidence, not the board.
+
+## Queue 2 increment 3 — fan-out batch 2: ema-off-identity + head-scheduler-override + berhu-loss (Opus, 2026-07-13)
+
+Second fan-out batch (3 subagents, isolated worktrees; applied + independently
+re-verified + self-committed). No objections. Built on top of the D6 triangle merge
+(5a194e9) and the sizing/warmstart merges already in-branch; all three diffs applied
+CLEAN against the current HEAD.
+
+- **ema-off-identity**: one `_golden_leg` leg, base configured so ASSERTED (not
+  null-base UNAVAILABLE); maps= de-hardcoded to a taught sentence.
+- **head-scheduler-override**: 3 shared-helper legs (`_golden_leg` +
+  `_smoke_driver`) + 1 `ctx.unavailable` (the lr-cut cadence is a logged
+  instruction the draft requires UNAVAILABLE); docstring HOW narrowed.
+- **berhu-loss**: HYBRID — 3 child `##AID` numerics legs (`gb_c_berhu_reduce.py`
+  gains `LEG_AIDS`/`emit_aids()`: each declared leg aggregates many per-probe
+  `report()`s into ONE `##AID`, avoiding a duplicate-emit red) + 3 wrapper legs
+  (golden/smoke/banners). rc-expect aid-less.
+
+Independent re-verify (Mac): compile clean; `--list` rc 0 (all new anchors resolve +
+transform + unique board-wide); board-selftest ALL PASS; declared==drafted (import
+board) True for all three (1 + 4 + 6 legs).
+
+PRE-EXISTING out-of-scope defect surfaced (NOT from this migration, reproduces on
+HEAD): `gb_c_berhu_reduce.py` crashes before `emit_aids()` because its
+`_reduce(None, ...)` unbound-call assumption breaks on the finite-contract
+`_chi2_n_terms()` (`emulator/losses/core.py:540`). So berhu-loss's live child `##AID`
+run is WORKSTATION-OWED until a `self=None` harness fix lands; the `emit_aids` logic
+and declared==emitted are static-verified. Routed to the Architect for ownership.
+
+Migrated so far: 8 of 27 drafted gates (geo-paths, single-phase-demotion [serial];
+loss-schema-equivalence, triangle-shading [now via 5a194e9], param-window-cuts [batch 1];
+ema-off-identity, head-scheduler-override, berhu-loss [batch 2]).
+
+## 25M-36 repair audit (Fable, 2026-07-13): bedf322 GO — the gate's reference now computes in the producer's order
+
+The repair audited and MY OWN full child run green: the new
+stored_float32_reference helper recreates the producer's exact
+representation order (float64 law rows -> float32 stored rows ->
+float64 accumulation over the STORED rows -> float32 persisted
+center), with a docstring teaching why conversion-before-mean
+changes bits; both staging fixtures share the one helper; the
+correct reference is ARRAY-EQUAL to the producer center; the
+retired mean-before-cast order differs by 5.960464478e-08 (one
+float32 ulp at that scale) and the mutation leg REJECTS it — the
+false-red class is now a guarded regression, not a lurking
+tolerance. Production, board, and runner files untouched; the
+register conflict resolved both-retained on their side. VERDICT:
+GO; merged. 25M-36 is CLOSED.
+
+## Stage-ram repair + fan-out batch 2 audit (Fable, 2026-07-13): a89e39c + c452023 GO — THE LANDING BLOCK RETURNS; one harness defect routed
+
+STAGE-RAM (a89e39c) GO, verified by my own run: 20 fixture rows
+(the ruled >= 10); the disk path asserted at the honest budget with
+the chosen allowance PRINTED and shown inside the ruled range
+("budget=1300 streams (0.8*budget=1040 allowance, inside
+[resident+one batch, resident+full encoded set]); budget=700
+refuses"); both boundary sides exercised; the seeded-order
+row-for-row legs and the arange mutation retained; stage-ram ALL
+PASS. Main's one red-if-run surface HEALS at the next merge — the
+landing block returns with this record.
+
+FAN-OUT BATCH 2 (c452023) GO: ema-off-identity (the golden leg via
+the shared aid= mechanism), head-scheduler-override (three legs +
+the drafted lr-cut-cadence minted ctx.unavailable), berhu-loss (the
+first HYBRID gate: three child ##AID legs via the new emit_aids +
+three wrapper legs) — names cross-checked against the drafts (21
+draft references), --list rc 0, selftest ALL PASS (my runs). 8/27
+migrated; batch 3 in flight under continuous batching.
+
+THE GB_C HARNESS DEFECT (Implementer-found, routed for ownership):
+gb_c_berhu_reduce.py drives the BerHu reduction with self=None — a
+harness pattern production outgrew when the scale-aware band line
+(losses/core.py:540) began reading self._chi2_n_terms(). REPRODUCED
+by me on HEAD: AttributeError before emit_aids, so berhu-loss is
+red-if-run INDEPENDENT of the migration (a latent red the fan-out
+surfaced, the system working). RULED: check-side repair, RED-TEAM
+CLAIMABLE (a non-wrapper checks file; the fix is a minimal real
+loss object or the documented calling convention in the harness —
+production stays frozen); the claim heals berhu's child ##AID
+emission on CPU. Until then berhu-loss stays honestly red-if-run.
+
+FAN-OUT BATCH 3 (70a484e) GO: ema-smoke (three wrapper legs — the
+shared _smoke_driver exit/banner aids plus the direct rewind
+ctx.expect), head-activation-pin (five legs — golden null-base
+UNAVAILABLE + smoke exit/banner + two inline warning/refusal
+expects; the _GhaFakeCtx selftest stub taught aid=), relu-tanh-norm
+(five legs — golden null-base UNAVAILABLE + two _smoke_driver pairs).
+INTEGRATION LESSON banked: the batch-3 subagents branched from a
+pre-batch base (994ef4e), so their whole-file `git diff HEAD` shows
+the earlier batches' aids as REVERTS — a `git apply` of that diff
+would silently undo batches 1-2. The safe integration is to diff each
+subagent against ITS OWN base and hand-apply only the gate-local hunk
+to the live tree; the Edit exact-match then re-checks the "before"
+text. Re-verified on the merged tip: compile, --list rc0, board-
+selftest ALL PASS, declared==emitted 3/5/5 by driving each real gate
+body with a null-base probe ctx. 11/27 migrated (18 with the 7
+foundation re-keys). STAGE-RAM (a89e39c) confirmed present+green on
+the branch (batching.py untouched since the repair; ALL PASS live) —
+the only red-if-run surface is main, closed by the user's branch->main
+merge, not a re-commit.
+
+FAN-OUT BATCH 4 launched (continuous batching): berhu-anneal,
+ema-anneal (the drafted live-point-metrics leg has no body assertion
+-> forward-declared UNAVAILABLE, not invented), npce-training (nine
+legs). All three wrapper-asserted, one-file. On their return: hand-
+apply the gate-local hunks, independently re-verify, self-commit as
+batch 4, hand the sha for delta audit. finite-contract, when the
+fan-out reaches it, folds the warmstart Part D + Part E legs
+(artifacts-inference-warmstart.md "Warm-start source reads and
+perturbed finite values") into its wiring rather than leaving them
+orphaned.
+
+FAN-OUT BATCH 4 (2cf5621) GO: berhu-anneal (golden null-base
+UNAVAILABLE + smoke exit/banner + the logged-only schedule-behavior
+converted to ctx.unavailable), ema-anneal (golden UNAVAILABLE + smoke
+exit/two-banner + the orphan live-point-metrics leg forward-declared
+UNAVAILABLE -- the note describes it, the gate asserts no metric
+comparison), npce-training (nine legs: golden UNAVAILABLE + residual
++ ratio smoke pairs + two exclusivity refusals + the sweep line +
+rebuild-vs-base owed to the check-script set). 21/40 migrated.
+
+PROCESS ERROR banked (batch 4): the three subagents were launched
+WITHOUT isolation:worktree, so they ran concurrently in the shared
+main tree and edited the one board.py live. It happened to verify
+clean (disjoint gate regions, staggered writes), but that is luck.
+RULE: every fan-out subagent gets its own worktree
+(isolation:worktree). The safeguard that made the landing sound was
+the INDEPENDENT final-tree re-verify -- compile, --list rc0, board-
+selftest ALL PASS, declared==emitted 4/4/9, and a regression probe
+proving all 18 prior-migrated gates survived the concurrent editing
+(total 21). A subagent's own self-check is unreliable here because
+its --list/selftest ran against a tree its siblings were still
+mutating; only the Implementer's final-state verify is authoritative.
+
+## Berhu harness repair audit (Fable, 2026-07-13): 47e79a3 GO — merged; berhu-loss's red-if-run surface CLOSES
+
+The red team's repair of the gb_c self=None harness crash
+(codex/berhu-loss-harness-self, base = main at 233db22 — the user
+had run the landing block). Scope exact: gates/checks/
+gb_c_berhu_reduce.py + two notes; board.py, run_board.py, and
+emulator/losses/core.py byte-untouched, per the check-side ruling.
+
+THE SHAPE: the check builds one real CosmolikeChi2 bound to a
+minimal HarnessGeometry whose dest_idx property both supplies the
+contraction width (a one-element long tensor — the only geometry
+fact the direct chi2 probes need) and COUNTS production reads.
+That matches the production convention exactly (core.py:295
+__init__(geom); :311 dest_idx delegates to geom; :320 _chi2_n_terms
+= dest_idx.numel(); :540 the band line the old harness crashed on).
+transform()/slope() take the loss explicitly and call the bound
+method. A new assertion leg folds width_read_count > 0 into
+reference-values, so a reduction that bypasses the production width
+lookup reds the manifest — the crash class can never again pass
+silently.
+
+MY RUNS (cocoa-torch interpreter): the child rc 0, ALL PASS, the
+three declared ##AID terminals each exactly once, and dest_idx
+reads = 44 (their claimed count, reproduced). PROBE A (crash
+reproduction): the parent-version check run against the same tree
+dies with the exact filed AttributeError at core.py:540, rc 1,
+ZERO evidence terminals. PROBE B (catch power, my own tamper in a
+detached scratch worktree — their tree untouched): monkeypatching
+_chi2_n_terms to a constant bypasses dest_idx -> "dest_idx reads
+0", ##AID berhu-loss.reference-values FAIL, rc 1. --list rc 0,
+board-selftest ALL PASS, compile clean at the commit. Durable
+records verified: the training-stack.md readback sits inside the
+berhu evidence block, the register presents without certifying,
+and the docstring's new #berhu-loss-evidence pointer resolves.
+
+VERDICT: GO; merged (63a1a5e). The full berhu-loss gate run stays
+workstation-owed (torch+cosmolike+gpu); what closed here is the
+guaranteed-crash arm of its child. gb_c is CLOSED.
+
+## Fan-out batch 3 delta audit (Fable, 2026-07-13): 70a484e GO — 11/27 migrated; the stale-base integration lesson RATIFIED
+
+Found committed on the shared branch with its resume note
+(7d8afc3) when the berhu merge landed; audited before any landing
+block covers it. Three wrapper-emitted migrations (the ratified
+shape 2): ema-smoke (3 legs — _smoke_driver exit/banner aids + the
+direct rewind expect), head-activation-pin (5 — golden null-base
+UNAVAILABLE + smoke pair + the two inline warning/refusal
+expects), relu-tanh-norm (5 — golden + two smoke pairs). Verified
+at the diff: every body aid appears in its Gate's evidence tuple
+and vice versa (3/5/5); the maps= prose replaced with behavior
+statements; relu-tanh-norm's docstring HONESTLY narrows the claim
+("loss descent is logged-only, not asserted evidence" — the
+drafts' discipline applied to prose). The _GhaFakeCtx selftest
+stub gains aid=None with a comment keying the RT-04 checks on
+label — minimal, correct. My in-process check at the merged tip:
+all four current-batch gates' aids unique, gate-id-prefixed,
+dot->dash transform == anchor fragment; the three gates' note-side
+anchor sets match the declarations exactly (13 legs + 3
+headlines, no strays); 18 gates now carry evidence (11 migrated +
+7 foundation) — the resume's count confirmed. compile clean,
+--list rc 0, board-selftest ALL PASS (my runs, merged tip
+63a1a5e). Live green runs stay workstation-owed.
+
+THE INTEGRATION LESSON, ratified as batch discipline: the batch-3
+subagents branched from a pre-batch base, so their whole-file
+diffs showed batches 1-2's aids as REVERTS; a blind git apply
+would have silently undone landed work. The Implementer diffed
+each subagent against ITS OWN base and hand-applied only the
+gate-local hunks, letting Edit's exact-match re-check the "before"
+text. RULE for all remaining batches: a subagent diff is applied
+gate-locally against the subagent's own base, never as a
+whole-file patch against the live tree.
+
+VERDICT: GO. Batch 4 (berhu-anneal, ema-anneal with the
+live-point-metrics leg forward-declared UNAVAILABLE rather than
+invented, npce-training's nine) is in flight under continuous
+batching; the finite-contract Part D/E folding stands as
+previously confirmed.
+
+## Fan-out batch 4 delta audit (Fable, 2026-07-13): 2cf5621 GO — 21 gates carry evidence; the SUBAGENT-ISOLATION RULE is ratified as binding
+
+Landed on the branch (with resume b9d0ff0) while my batch-3 audit
+committed; audited before any landing block covers it. Three more
+wrapper-emitted migrations: berhu-anneal (4 — golden null-base
+UNAVAILABLE + smoke exit/banner + schedule-behavior), ema-anneal
+(4 — golden + smoke exit/two-banner + live-point-metrics),
+npce-training (9 — golden + residual and ratio smoke pairs + the
+two exclusivity refusals + the sweep line + rebuild-vs-base).
+
+THE HONEST-UNAVAILABLE PATTERN, applied three times and verified
+at the diff: a leg the note describes but the gate body does not
+assert is forward-declared via ctx.unavailable with a reason that
+STATES THE GAP ("this gate runs no such ...", "parses no metrics",
+"only logs that ... belongs in the check-script set") — never
+minted as a green expect. That is the D1-ii doctrine working as
+designed; the npce rebuild-vs-base reason routes the owed probe to
+the check-script set explicitly.
+
+MY RUNS at the tip (detached scratch worktree, cocoa-torch):
+compile clean; --list rc 0; board-selftest ALL PASS; in-process:
+all 21 evidence-bearing gates have unique, gate-id-prefixed,
+transform-valid aids (the 18 prior survived — the resume's
+regression claim confirmed); the three gates' note-side anchor
+sets match the declarations exactly (17 legs + 3 headlines).
+
+THE PROCESS ERROR, adjudicated: the three batch-4 subagents were
+launched WITHOUT worktree isolation and edited the one shared
+board.py concurrently. The landing is accepted because (a) the
+Implementer disclosed it unprompted, (b) the authoritative check
+was never the subagents' self-reports but the independent
+final-tree re-verify, which I have independently reproduced, and
+(c) the edit regions were disjoint. But the resume's own words are
+the ruling: clean-by-luck is not a process. RATIFIED AS BINDING
+for every remaining fan-out batch: each subagent runs in its own
+worktree (isolation: worktree); a subagent's self-run --list or
+selftest against a tree its siblings are mutating is evidence of
+NOTHING; the Implementer's final-state verification remains the
+only self-check that counts, and my delta audit stays on top.
+
+VERDICT: GO. 21 of 40 board gates carry evidence (14 migrated + 7
+foundation); the remaining fan-out = 13 drafted gates + the 6
+wrapper-family blocks, then scalar-smoke's nine-aid amendment and
+finite-contract's Part D/E folding at their seams.
+
+## 25M-38 repair + DIDACTICS-79 replay audit (Fable, 2026-07-14): bc7e8e5 GO — merged; BOTH items CLOSE
+
+The red team's codex/didactics79-generator, base main@233db22.
+Scope exact and the bounded hold RESPECTED: the production diff is
+the ruled ONE-LINE deletion (generator_core.py no longer writes the
+chain-column header into the .ranges file; the name/min/max rows
+and %.5e untouched — unit 82 keeps decimal-policy ownership; the
+now-dead hd list assignment left in place so the diff stays the
+ruled removal, flagged for unit 82's visit to the same writer); a
+NEW standalone child gates/checks/generator_ranges.py with NO
+##AID emission and NO board.py entry (queue 2 owns the wiring +
+the distinct sidecar evidence name; never folded under
+generator-seed.owned-rng); +115 README lines documenting the
+minimal background walkthrough; generator_seed.py byte-identical
+to main (verified, 0-line diff).
+
+THE CHILD (my run: ALL PASS): executes the production writer's own
+syntax-tree statements (AST-extracted with an exactly-one-writer
+census — a copied test writer cannot drift green), parses the
+result with real GetDist ParamBounds (one-parameter H0 file + the
+two-parameter control), and its retired-header mutation arm
+re-inserts the header into a temp copy and requires the exact
+hiding mechanism: one-parameter FAILS with float('weights'), the
+two-parameter control still parses. The hd requirement is
+conditional on the writer reading it, so the future dead-line
+cleanup cannot break the control.
+
+THE REPLAY (DIDACTICS-79, reproduced end-to-end by me, twice, in
+fresh roots — their run area was already cleaned up): the README's
+YAML + serial command under cobaya 3.6.2 / CAMB 1.6.7, rc 0 both
+runs; EXACTLY nine output files; the .ranges sidecar is the pure
+one-row bounds file ('H0 6.00000e+01 7.50000e+01') and GetDist
+reads H0 in [60, 75]; both targets finite float32 (200, 8) with
+nonzero spread; all 200 failure flags zero; all four text sidecars
+byte-identical and all four target arrays identical across my two
+serial runs. Honest note: my first attempt exited 1 on MY OWN
+unset ROOTDIR, not their code — the README correctly assumes the
+standard cocoa environment. Worker-count invariance stays a
+workstation obligation, as filed. Audit artifacts (two replay
+roots under projects/) removed after verification.
+
+VERDICT: GO; merged (a6aa7cc; append-append register conflict
+resolved both-retained). 25M-38 CLOSED. DIDACTICS-79 CLOSED. The
+Implementer's queue-2 lane owes the child its board entry with a
+narrow sidecar-format claim.
+
+## Unit-63 reopen audit (Fable, 2026-07-14): 473da76 + 06c9d8f GO — merged; the 25M-17 contract is LIVE in artifacts
+
+The red team's codex/unit63-const-mask, transferred under Wave 5
+with the 25M-17 adjudication as the contract — and the contract is
+implemented exactly: Grid2DGeometry.state() ALWAYS writes
+const_mask as explicit uint8 zeros/ones (all-false = explicitly
+unpinned); from_state REFUSES a missing key with the re-save
+instruction ("Key absence cannot choose pinned or unpinned
+science"); the direct constructor REQUIRES the argument (explicit
+None normalized to all-false immediately — both construction paths
+closed to presence-inference); _normalize_const_mask validates
+1-D, exact nz*nk length, bool/uint8 dtype, binary uint8 values;
+decode applies the mask unconditionally; the experiment banner
+counts true entries (silent all-false, loud pins). from_columns
+builds the explicit mask always. Never-trust-defaults honored on
+the save AND load surface.
+
+THE CHECK (06c9d8f, mps_identity.py +127): three real-artifact
+legs through the REAL rebuild_emulator on schema-v2 .h5/.emul
+pairs — the unpinned artifact persists an all-false uint8 mask of
+length 24; the valid boost/none artifact pins flat indices
+[0, 6, 12, 18] and serves EXACTLY 1.0 there after rebuild (the
+retired presence-inferred branch would serve 1.25); h5py surgery
+deleting only dv_geometry/const_mask makes rebuild raise before
+model construction, naming const_mask and the re-save action. The
+note-side amendment invents NO new aids — the ratified seven
+stand, the HDF5 checks assigned to the existing
+mps-identity.geometry-laws-and-pins leg, so batch 5's subagent
+contract is intact.
+
+MY RUNS: focused tests 5/5; repository discovery 22/22; the full
+mps-identity child rc 0 with 69 PASS legs including the three new
+ones; --list rc 0; compile clean. MY PROBE (scratch worktree):
+restoring presence-inference in from_state
+(state.setdefault("const_mask", None)) reds "deleted required
+mask refuses" at rc 1 with "rebuild accepted a missing scientific
+fact" — real catch power against the exact retired behavior.
+
+VERDICT: GO; merged (8dc44f3). The composed tip re-verified by my
+own runs: compile, --list rc 0, board-selftest ALL PASS, discovery
+22/22, both children ALL PASS. SEAM RULING (batch 5, binding):
+unit-63 was merged DELIBERATELY before the Implementer's
+mps-identity hand-apply reached gates/checks/mps_identity.py, so
+the batch-5 integration lands ON TOP of the unit-63 legs; the
+subagent draft predates them, so the hand-apply must re-diff
+against the CURRENT file (the ratified stale-base discipline) and
+the migrated child must emit its ##AID terminals with the three
+const-mask legs folded under geometry-laws-and-pins as the
+amendment records. Unit 63 is CLOSED on the code; its queue-2
+wiring rides batch 5.
+
+## Unit-29 scope ruling (Fable, 2026-07-14): the minimal ia.py touch is APPROVED — the before-construction clause binds every public constructor path
+
+The red team held their complete unit-29 / 25M-14 candidate
+UNCOMMITTED on codex/unit29-token-width-v2 and asked before
+touching a file outside the transferred list (plain.py +
+blocks.py). PREMISE VERIFIED AT THE DIFF, not accepted from the
+claim: TemplateResTRF (emulator/designs/ia.py) is a genuine second
+public constructor of the ResTRF family, and on main its template
+trunk allocates nn.Linear layers BEFORE the bin-split computation
+and before any TRFBlock exists — a blocks.py-only guard therefore
+fires only after allocation, and the 25M-14 before-construction
+clause is UNSATISFIABLE inside the named file list. Their mutation
+arm states the same fact executably (removing the early call
+allocates at least one nn.Linear before the late guard raises).
+
+RULING: APPROVED. The transferred file list described where the
+work was expected; it does not override the contract, and the
+clause binds every public constructor path. BOUNDS: the ia.py
+touch stays exactly the proposed minimal shape — the bin-size
+calculation moved ahead of trunk allocation plus one early call to
+the SHARED validate_trf_token_width (one definition in blocks.py,
+its refusal message didactic: LayerNorm over a width-one token
+subtracts the coordinate itself, so the correction cannot depend
+on its input; the TRFBlock-internal call stays as defense in
+depth). No model algorithm, padding rule, or accepted-width
+behavior changes; the necessity mutation ships as an executable
+test arm, not prose. Commit and submit for the NORMAL pre-merge
+audit — the 5/5 and 22/22 and cmb_identity greens will be
+re-verified by my own runs then, as usual.
+
+Process note: candidate-then-ask is ACCEPTABLE here because the
+uncommitted candidate lived entirely in their own worktree and
+main was untouched — extending a scope list inside their own lane.
+The stricter form (ask before ANY edit) continues to bind for
+files owned by the other team, e.g. board.py during the fan-out.
+
+## README diagnostic-memory audit (Fable, 2026-07-14): 450c248 HELD — one unsourced factor in the worked arithmetic
+
+The rewrite (codex/readme-diagnostic-memory) is structurally RIGHT:
+calculation separated from rendered output, the gather-then-fit
+sequence taught in plain language, the direct user action kept
+(omit --diagnostic at production width), no fix-queued diary in the
+public prose, and the register clean of private-standards
+enumeration with the no-self-certification line.
+
+MY VERIFICATION of the worked arithmetic 10,000 x 40 x 24,522
+float32 = 39.24 GB (36.54 GiB): the multiplication is exact and the
+README's rounding ("about 39 GB (36.5 GiB)") is correct. The 40
+(diagnostics.py:247 k_nn default; training-stack.md:241) and the
+24,522 (= 122 x 201 thinned MPS width; training-stack.md:241,
+data-generation-and-cuts.md:598) are both documented. THE 10,000 IS
+NOT: section 17 documents a 50,000-row production grid with NO
+train/val split; the README's other family examples use 5,000 and
+20,000; every gates config uses 5,000; the mps family note carries
+no n_val. Both the README ("the documented matter-power setup") and
+the register ("the documented matter-power configuration: 10,000
+validation rows") assert documentation that does not exist in the
+repository.
+
+REQUIRED REPAIR (one of, before commit-for-merge):
+1. If a documented matter-power n_val = 10,000 exists, cite it
+   (file + line) in the register and keep the sentence; or
+2. Reframe honestly: state the DOCUMENTED per-row cost (one
+   validation cosmology gathers 40 x 24,522 float32 values, about
+   3.9 MB) and present 10,000 rows as an explicitly labeled
+   example scale ("a 10,000-cosmology validation split needs about
+   39 GB"), removing the word "documented" from the unsourced
+   factor in BOTH the README and the register.
+
+Everything else in the landing is pre-cleared: on the repair, the
+follow-up commit needs only a delta audit of the changed sentences.
+
+## Unit-29 landing audit (Fable, 2026-07-14): 09f00ef GO — merged; the 25M-14 before-construction contract is live on all three constructor paths
+
+The committed landing (codex/unit29-token-width-v2, tip a64a405 =
+09f00ef + a main merge with the register both-retained) audited
+against my scope ruling and the 25M-14 amendment. SCOPE EXACT:
+six files vs main; the committed ia.py change is line-identical
+to the approved candidate (verified against both bases); plain.py
+mirrors the same shape for ResTRF (token layout resolved, the
+shared validator called, THEN the MLP stack allocates) with
+in-region didactic renames; blocks.py holds the ONE validator
+definition (didactic refusal: LayerNorm over a width-one token
+subtracts the coordinate itself) plus the TRFBlock-internal
+defense-in-depth call. No accepted-width behavior changes.
+
+THE TEST FILE (tests/test_trf_token_width.py, 5 arms) is the
+model of an executable contract:
+1+2. Both public constructors refuse width-one BEFORE allocation —
+   proven by patching nn.Linear itself to raise if reached.
+3. The NECESSITY arm: with only the early ia.py call disabled, a
+   counted nn.Linear shows >0 allocations before the late block
+   guard raises — the scope extension proven load-bearing, exactly
+   the mutation from the approval request.
+4. The HARM arm: the retired width-one block reconstructed with
+   deterministic nonzero weights produces IDENTICAL corrections
+   for two distinct inputs and a ZERO correction Jacobian — the
+   silent-demotion physics made executable.
+5. The BOUNDARY control: the adjacent width-two configuration
+   builds on all three paths and its correction is provably
+   input-dependent.
+
+MY RUNS (cocoa-torch): focused 5/5 under ordinary Python AND
+python -O (the guard is a raise, not an assert — it survives
+optimization, checked deliberately); discovery 27/27;
+cmb_identity.py fully green (the family that constructs
+TemplateResTRF); compile clean. VERDICT: GO; merged (88a326f).
+Unit 29 / the 25M-14 amendment CLOSES.
+
+## README diagnostic-memory repair audit (Fable, 2026-07-14): 2ddee42 GO — merged; the hold CLOSES
+
+Delta audit of the repaired sentences only (the rest was
+pre-cleared in the hold). Repair option 2 implemented exactly:
+"documented" now attaches ONLY to the sourced factors (the
+40-neighbour default and the 24,522 output width), the per-row
+cost is stated from those facts (40 x 24,522 float32 = 3.92 MB /
+3.74 MiB per validation row — my own computation matches, and the
+README's 3.9 MB rounding is correct), the total is stated as
+linear in the row count, and 10,000 rows appears strictly as
+"For example". My coupling scan: zero lines in the README or the
+register tie "documented" to 10,000. The register's repair
+paragraph carries the precise values, the explicit-example
+labeling, and the no-self-certification line. Scope vs main:
+README.md + the register only. VERDICT: GO; merged (e350b65,
+register both-retained). The README diagnostic-memory item is
+CLOSED.

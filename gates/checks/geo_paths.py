@@ -58,9 +58,14 @@ LEGACY_MODULES = ["parameter", "output", "scalar", "cmb", "grid",
                   "grid2d"]
 
 
-def report(label, ok, detail):
+def report(label, ok, detail, aid=None):
     mark = "PASS" if ok else "FAIL"
     print("  [" + mark + "] " + label + "  (" + detail + ")")
+    # (queue 2) the per-leg assertion manifest the board folds into this gate's
+    # executed set: one reserved '##AID <aid> <result>' line per acceptance leg.
+    # The child's exit status stays the single aggregate verdict, not a leg.
+    if aid is not None:
+        print("##AID " + aid + " " + mark)
     if not ok:
         FAILURES.append(label)
 
@@ -163,7 +168,8 @@ def main():
         report("fresh save writes folder cls paths + rebuilds",
                len(new_style) >= 2 and not old_style and finite,
                "%d folder-path marker(s): %s; predict finite: %s" % (
-                 len(new_style), sorted(set(new_style)), finite))
+                 len(new_style), sorted(set(new_style)), finite),
+               aid="geo-paths.fresh-save-uses-folder-paths")
 
     # leg 2: the six flat legacy modules are gone — from disk AND from
     # the import system (a stored old path now dies with the module
@@ -186,7 +192,8 @@ def main():
             details.append("emulator.geometries_%s importable" % mod)
     report("legacy flat paths are dead (disk + import)", ok,
            "; ".join(details) if details else
-           "all %d absent from the import system" % len(LEGACY_MODULES))
+           "all %d absent from the import system" % len(LEGACY_MODULES),
+           aid="geo-paths.legacy-flat-paths-absent")
 
     # leg 3: the census — no repo code references the old flat names. The file
     # set is the SHARED whole-repo enumerator (run_board.repo_py_files), the same
@@ -202,7 +209,8 @@ def main():
             if "geometries_" + m in src:
                 offenders.append((rel, m))
     report("census: nothing references the old flat names",
-           not offenders, repr(offenders[:5]))
+           not offenders, repr(offenders[:5]),
+           aid="geo-paths.legacy-reference-census")
 
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "

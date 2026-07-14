@@ -1965,6 +1965,54 @@ No number in this series may be reused. Architect adjudication may fold a
 finding into an existing unit, but the registry retains the Red Team label and
 original evidence.
 
+### D6 triangle implementation record and temporary-directory ownership boundary
+
+Branch `codex/d6-triangle-cleanup` started from main `b3e91b8`. The Red Team
+claimed only `gates/checks/gt_b_triangle.py`, as permitted by the Wave-3
+transfer. The child now identifies every triangle Axes by its x and y
+parameter, traces the real z-order-zero `contourf` calls, identifies each mask
+from an independent physical-formula table, and compares the exact
+`(x parameter, y parameter, window)` set. It checks every collection and patch
+against `_CUT_GREY`. It also locates the `omegamh2` diagonal specifically and
+checks both excluded interval endpoints. The mutation moves the sole
+`omegabh2` artist from `(h0, omegab)` to the unshaded `(ns, h0)` panel. The old
+global summary remains exactly `(12 artists, 7 shaded panels, 12 gray
+artists)` before and after the move, while the exact-set predicate reports
+three errors and rejects the figure.
+
+Direct Mac/CPU evidence under the Cocoa interpreter: all four child legs pass,
+the mutation arm reports equal old counts and a rejected exact set,
+`py_compile` passes, and `git diff --check` is clean. A 130-dpi rendering was
+inspected: the six expected two-dimensional panels and the `omegamh2`
+diagonal carry the gray cut regions, while unrelated panels remain unshaded.
+The bounded C-reader follow-up replaced every new list/set/generator
+comprehension and every generator-based `extend` or `all` call with named
+ordinary loops. Multi-argument helper and acceptance calls put one argument
+on each line where practical. An AST scan has zero comprehension or generator
+nodes and zero generator-based `extend`, `all`, or `any` calls. The four gate
+results plus the mutation counts are unchanged.
+Queue-2 fan-out batch 1 later landed the original four aid bindings in
+`b9244cf`. This branch then merged that main-line change, retained its
+`report(aid=...)` mechanism and changed the four declarations, emissions and
+home-note anchors together to the exact-owner claims above. The direct child
+still passes all four legs after that merge. A board-wrapper attempt stopped
+in preflight because the Mac lacks CosmoLike, CUDA and a resolved ROOTDIR. No
+gate body ran, so a board-level verdict is not claimed.
+
+The D6 temporary-directory half did not enter this landing because its files
+have other active owners. The original nine-site contract is exact at the
+adjudication commit `cbd0a9c`: five sites are
+`finetune_identity.py` (`ftw-`), `gct_parity.py` (`gct-`),
+`gsv_bitwise_drift.py` (`gsv-`), and both `transfer_identity.py` sites
+(`tpe-e-`, `tpe-`). The other four are the then-present
+`board_selftest.py` sites with prefixes `board-selftest-`, `board-yaml-`, and
+`board-logtrust-`, plus the empty manifest-directory fixture created under
+`gates/`. Those files, along with `board.py` and `run_board.py`, were expressly
+outside this claim. Their owner must complete the nine-site context-manager or
+failure-safe cleanup landing and its injected-failure proof. Later additions
+to `board_selftest.py` require a fresh census by that same owner; they do not
+silently change which nine sites this contract names.
+
 Architect adjudication overlay for the first batch (received after commit
 `fafc122`): all six were confirmed. `25M-01` mints unit 94 and couples
 generation-side support truth to unit 84's inference side; `25M-02` and
@@ -2249,7 +2297,6 @@ code, the board, or gate checks.
 
 These checks are implementation evidence for the Architect's pre-merge audit.
 They are not Red Team self-certification.
-
 ## Red Team audit: manuscript public-prose and typesetting pass
 
 This is an audit record only.  It changes no TeX source, generated figure, or
@@ -2430,3 +2477,597 @@ the semantic and table repairs.  Text is complete and the repaired Stage-1
 table has no repeated phrases or overlap.  The tracked PDF and the fresh build
 share SHA-256
 `3c32568093dfba956565163a10ebc01df497e60122a548bc08071c80968d9f17`.
+
+## Red Team implementation record: second root-README public-prose pass
+
+The Architect cleared the preceding figure and didactic increment at `701d6f9`.
+This follow-up applies the public-prose constitution to the complete root
+README, so it requires a new Architect audit before the branch is merge-ready.
+
+The revision keeps the README's reference structure, equations, warnings,
+examples, and undergraduate-level explanations while changing the sentence
+forms that interrupted them.  In particular, it:
+
+- removes prose em and en dashes, curly quotation marks, canned conversational
+  phrases, and corrective-negation formulas;
+- replaces contrast-first explanations with direct definitions of data
+  staging, residual blocks, normalization features, attention, PCE modes,
+  warm starts, CMB conventions, background distances, grid2d target laws,
+  generator checkpoints, and the pipeline's storage coordinates;
+- turns the activation generalizations and saved-source choice into real
+  subsection headings, while retaining the equations and examples beneath
+  them;
+- states current warnings as the condition and safe user action, without
+  narrating rejected implementations or repair history;
+- distinguishes the network's hidden features from parameter, data-vector,
+  and batch axes in positive terms;
+- states that the saved artifact owns rebuild configuration and that the
+  sampling YAML supplies only the artifact root and runtime device;
+- gives the direct-programming appendix a schema-v2 description instead of a
+  historical comparison; and
+- replaces the vague authorship sentence with the concrete roles of Claude
+  Code and Prof. Miranda.
+
+### Evidence collected before Architect audit
+
+- the README preview renderer reproduced all three browser images, and Git
+  reports no image-content change;
+- `python3 -m py_compile texnotes/render_readme_previews.py` completed without
+  error;
+- the README contains 83 balanced fenced-code pairs;
+- all 11 relative file targets exist;
+- all 62 unique local fragment targets reconcile with explicit anchors or
+  established heading slugs;
+- all 44 Markdown tables retain a consistent column count;
+- untruncated scans find no prose em or en dash, curly quotation mark, listed
+  canned conversational phrase, or contrast formula using `rather than`,
+  `instead of`, `unlike`, `by contrast`, `not just`, or `not only`;
+- the two exact generator-move weights in the README were checked against
+  `compute_data_vectors/generator_core.py:713-714`; and
+- `git diff --check` reports no whitespace error.
+
+The remaining negative clauses are direct safety or exclusivity statements:
+the alpha warning, artifact-pair protection, and two mutually exclusive target
+constructions.  None introduces a corrective positive claim.  These checks
+are implementation evidence for the Architect's review, not Red Team
+self-certification.
+
+### Stricter public-prose follow-up
+
+The user expanded the public-prose rules after the preceding record was
+written.  This follow-up applies those rules to the complete root README.  It
+removes the remaining semicolons, Oxford commas, question-shaped diagram
+labels and typographic quotation or dash characters.  Independent clauses
+were split or joined with a precise relation.  The Oxford-comma pass was not a
+blind punctuation deletion.  Scientific lists such as TT, TE, EE and pp keep
+every required member.
+
+The same pass checks four broader prose classes.  It removes one banned
+importance word, `robustness`, and replaces it with the specific
+`outlier-control` description.  It rewrites trailing `allowing` and
+`Providing` clauses with named subjects.  It removes inline `Why:` and
+`Spellings:` labels in favor of ordinary sentences.  It also removes bold
+from warning-like declarations and numbered definitions when the typography
+did not identify a new technical term.  Bold remains for the SONIC acronym,
+the top alpha warning and first definitions of terms such as emulator,
+residual block and saturation.
+
+The Optuna journal sentence remains tied to the code in this branch: an
+existing journal resumes the named study.  Unit 53's study-manifest behavior
+has not landed here.  Its eventual code landing must update that README
+sentence in the same change so the public current-state description never
+leads or trails the implementation.
+
+The final untruncated census records a zero-match editorial pass against
+private standards.  It also reports zero matches for:
+
+- em dash, en dash, curly quotation mark, Unicode ellipsis, semicolon,
+  question mark and comma followed by `and` or `or`; and
+- bold-first list items and inline-header list items.
+
+Markdown checks find 166 fence delimiters, which form 83 pairs, and 44 tables
+with a consistent column count inside each table.  All nine unique relative
+file destinations exist.  The 62 unique local fragment destinations still
+resolve through explicit anchors or the established GitHub heading forms.
+`git diff --check` reports no whitespace error.  These results are
+implementation evidence for Architect review and do not certify the landing.
+
+### Independent factual review of the rewritten README
+
+A second agent compared every substantive README change with the current
+implementation.  That review found five scientific or code-contract
+regressions plus five ambiguous sentences.  All ten were corrected before
+the landing was presented for audit.
+
+The corrected scientific statements now say:
+
+- CMB roughness adds `lambda * c_rough` to the training score before the
+  configured loss transform, while evaluation reports the plain chi-square;
+- Syren artifacts store a law name without a formula digest, so an edit to a
+  vendored formula requires retraining existing artifacts;
+- crossing activation learning curves give a training-size-dependent ranking,
+  while coincident curves are a tie;
+- `p_max`, `r_max`, and `q` define the PCE candidate basis, `max_terms` limits
+  the tested active support, and `loo_max` accepts or rejects a mode; and
+- `trim` drops the worst-fit fraction while `focus` upweights difficult rows
+  that remain in the sample.
+
+The clarity repairs distinguish trainable LayerNorm affine parameters from
+the transformer's fixed choice of normalization type, define attention weights
+as functions of the current sample's tokens, restore a complete sentence in
+the shared-MLP paragraph, repair the basis-change diagram, and remove a
+tautological Optuna evidence item.
+
+The factual reviewer also found a separate deferred-import documentation
+follow-up in `emulator/README.md`: several lines still imply that importing
+`geometries/output.py` loads CosmoLike.  That file is outside this root-README
+landing.  Its package-README visit must state the landed `25M-37` boundary:
+the optional imports now occur inside `from_cosmolike` and
+`build_shear_angle_map`, while importing the module and using other geometry
+paths remain clean.
+
+Preservation evidence from the independent review: every display-math block
+is byte-identical to the pre-rewrite source, all fenced blocks retain their
+order and language, changed fence content is explanatory text rather than an
+executable command or YAML value, and `git diff --check` is clean.  The review
+is evidence for the Architect and does not certify the landing.
+## Queue-2 note-side evidence draft and new correctness finding
+
+The Red Team drafted the A1-ii home-note surface for the 27 gates outside the
+Implementer's seven foundation gates and four wrapper surfaces (six board
+gates).  The six existing home notes now contain one six-field block per gate
+plus one narrowed, long-`Gate.id` anchor per logical leg.  The draft has 137
+leg anchors.  Exact
+dot-to-dash mapping, anchor uniqueness, six-field completeness, and declared-
+name reconciliation were checked mechanically.  Logged-only, visual,
+conditionally absent, environment-owed, and currently red claims are labeled
+instead of being promoted to green evidence.  These blocks are a draft for
+Architect audit; they do not certify the future runner wiring.
+
+The execution pass also found `25M-36`, recorded in full in
+`families-background-mps.md`: `mps-identity` is currently false-red because
+its bounded-staging mean leg compares the streamed float32-payload mean with a
+mean formed before the independent law rows are cast to float32.  The producer
+matches the correctly ordered independent stored-payload reference exactly;
+the gate does not.  The producer remains frozen, the wrong-reference mutation
+must become a discriminating red leg, and the current queue-2 block explicitly
+withholds a whole-gate pass.
+
+The same execution pass found `25M-37`, recorded in
+`artifacts-inference-warmstart.md`: four gates declared as Torch-only fail
+before their first assertion because importing the persisted output-geometry
+type eagerly imports the compiled CosmoLike interface.  The fix belongs at
+the production `from_cosmolike` boundary so constructor/from-state artifact
+use is genuinely independent; adding four gate-local stubs would preserve the
+false public import contract.
+
+The DIDACTICS-79 execution pass found `25M-38`, recorded in full in
+`data-generation-and-cuts.md`.  A real two-rank, one-parameter background run
+loads Cobaya and CAMB, then rank zero writes `# weights lnp H0` as the first
+line of its `.ranges` file.  GetDist 1.7.2 treats that four-token comment as a
+range record and raises while converting `weights` to a float.  The run
+returns status 1 before covariance or data-vector publication.  All four
+generator drivers inherit the writer.  The exact affected set is fresh
+one-parameter runs in either sampling mode and either chain mode.  Wider
+headers have five or more
+tokens and this GetDist version ignores them.  DIDACTICS-79 remains held until
+the new correctness finding is adjudicated and the real command is replayed.
+
+## Red Team implementation record: 25M-37 evidence readback and Torch probe
+
+The audited production repair at `3ba8588` defers the optional geometry
+dependencies to the two operations that use them.  `from_cosmolike` owns the
+compiled CosmoLike interface plus GetDist's `IniFile`, while
+`build_shear_angle_map` owns `IniFile` alone.  Importing
+`emulator.geometries.output` no longer loads either optional package.
+
+The two existing queue-2 evidence blocks affected by that repair now describe
+the landed code and direct execution:
+
+- `scalar-identity` reaches every declared assertion with the Cocoa Torch
+  2.6.0 CPU interpreter on a machine without the compiled CosmoLike interface
+  and ends `PASS: scalar-identity all checks green`;
+- `finite-contract` reaches its body, records the four known Parts A/C
+  message-prefix false reds, completes Parts B/D/E, then crashes in Part F
+  because the synthetic loss object has no `geom` from which
+  `_chi2_n_terms` can obtain a contraction width.
+
+The queue-2 draft deliberately excluded `finetune-identity` and
+`transfer-identity` with the other wrapper-family gates, so there are no
+six-field blocks for those two gates in the red-team-owned note surface yet.
+Their direct children now pass the repaired import boundary.  The fine-tune
+child ends `finetune-identity: ALL PASS`.  The transfer child executes all 59
+logical checks and retains its separate known red on the cross-family fixture,
+ending with one failure.  The Implementer's wrapper-family evidence rollout
+must record those current results when it creates the two excluded blocks.
+This bounded update does not take ownership of their leg names.
+
+The environment probe requested for the increment-2 seam also succeeds.  The
+interpreter at
+`/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python`
+imports Torch 2.6.0.  A real `torch.nn.Linear(2, 1, bias=False)` forward pass
+with weight `[3, 4]` and input `[1, 2]` prints
+`torch 2.6.0 device cpu forward [[11.0]]`.  This result answers the Architect's
+probe positively and makes the conditional D3 transfer executable in this
+environment.  It does not claim CUDA or workstation evidence.
+
+Evidence commands, run from the current worktree with `PYTHONPATH=.`:
+
+```text
+Cocoa/.local/bin/python gates/checks/scalar_identity.py
+Cocoa/.local/bin/python gates/checks/finetune_identity.py
+Cocoa/.local/bin/python gates/checks/transfer_identity.py
+Cocoa/.local/bin/python gates/checks/finite_contract.py
+```
+
+The first two return zero.  Transfer returns one for its independently known
+fixture red.  Finite-contract returns one at the Part F fixture crash after
+the import repair lets it reach the check body.  These are implementation
+readbacks for Architect audit, not self-certification.
+
+## Red Team implementation record: 25M-36 stored-payload reference order
+
+The Architect confirmed `25M-36` and transferred its bounded
+`gates/checks/mps_identity.py` repair to the Red Team. The producer remains
+unchanged. The check now creates its independent reference in the same
+representation order the producer owns: calculate the law in float64, store
+each row in float32, promote those stored rows for a float64 column mean and
+convert the final mean to the persisted float32 dtype. Both staging fixtures
+use this order, which removes a second copy of the same pre-cast reference
+pattern from the smaller fixture.
+
+The production-width fixture keeps the stored values and their mean as
+separate exact assertions. It also computes the old mean-before-cast result as
+a mutation control. The correct stored-payload reference is array-equal to the
+producer center. The old ordering differs by `5.960464478e-08`, so replacing
+the repaired reference with that ordering makes the exact mean assertion red.
+
+A direct Cocoa Torch 2.6.0 CPU run before the edit ended with one failure,
+`bounded staging: streamed mean equals the known answer`. The same complete
+child after the edit reports the old-order discrimination and ends
+`PASS: mps-identity all checks green`. The existing logical aid
+`mps-identity.bounded-staging-values` remains the owner of the added internal
+assertion. No `board.py` or runner file was touched. Queue 2 still owns the
+machine wiring of that aid.
+
+The executed command from the isolated worktree was:
+
+```text
+PYTHONPATH=. MPLBACKEND=Agg Cocoa/.local/bin/python gates/checks/mps_identity.py
+```
+
+The Cocoa interpreter compiled the edited check, `git diff --check` returned
+zero and the scoped diff contains only the check, its MPS home note and this
+durable register. This record presents evidence to the Architect and does not
+certify the landing.
+
+## D3 implementation blocker: disjoint fixtures expose the existing thin smoke margin
+
+The transferred scalar-smoke visit now has a provisional implementation of
+the fixture-authenticity boundary.  It stages training and validation first,
+compares exact float32 physical parameter rows, independently recomputes the
+scalar target from each row's own `H0` and `omegam`, and refuses any overlap
+before geometry construction or training.  With generator seeds 1234 and
+5678, the staged files contain 4,000 and 1,000 aligned rows with zero overlap.
+The same-seed mutation contains exactly 1,000 overlapping validation rows and
+is refused before training.  The implementation also contains the claimed
+independent cut-banner fixture, which recovers `used 3 of 5 cut rows`, checks
+the exact selected row order `[1, 3, 2]`, and rejects the hardcoded
+`used 1 of 1` plus wrong-row mutation.
+
+The seed change interacts with the existing two-epoch prediction control.
+With the required train seed 1234 and validation seed 5678, all authenticity
+checks pass and the validation median is finite at about 0.197, but the saved
+prediction at `H0 = 73`, `omegam = 0.32` is 0.157807 versus the analytic
+0.170528.  The relative error is 0.074596, above the unchanged 0.05 bar.  A
+second full run reproduces the same digits because the training path uses its
+own fixed seed.  For comparison only, the pre-change fixture built with seeds
+1 and 2 passes at relative error 0.0465, the known thin margin.  Seeds 1 and 2
+are not being adopted as an unruled substitute.
+
+The contract's single-population alternative was tested once without changing
+the training budget or bar.  One 5,000-row physical table was generated by
+`numpy.random.default_rng(1234).normal` with per-row location `[70, 0.3]` and
+scale `[3, 0.02]`.  Disk rows 0 through 3,999 formed training and rows 4,000
+through 4,999 formed validation.  Both files used `split_seed = 0`.  The exact
+float32 row comparison found zero overlap and every target aligned with its
+own parameter row.  The unchanged run gave best validation median
+0.1623358130, saved prediction 0.1578073204, and relative error 0.0745958414.
+It therefore fails the same 0.05 prediction control.
+
+No tolerance, epoch count, model setting, or production code has been
+changed.  The D3 landing is held for an Architect ruling on this deterministic
+interaction.  The dirty worktree is evidence for review, not a completed or
+certified unit.
+
+## D3 implementation after the control-interaction ruling
+
+The Architect's ruling at main `57117b8` makes the scalar baseline
+recalibration part of the same D3 landing.  The implementation keeps the
+recorded generator seeds 1234 and 5678, the two-epoch budget, the model recipe,
+and every production file unchanged.  It measures the learned-nothing
+predictor on the exact staged validation rows after the scalar geometry is
+built and before training starts.  A zero network output decodes to the
+training-target mean, so its per-row scores pass through the production scalar
+geometry and chi-squared method before the ordinary median is formed.
+
+The full Cocoa Torch CPU run measures:
+
+- 1,000 validation rows;
+- mean-predictor median chi-squared `0.489362046123`;
+- honest two-epoch trained median `0.196647360921`; and
+- honest off-center prediction relative error `0.074595841408`.
+
+The collapse bar is `0.5 * 0.489362046123 = 0.244681023061`.  It is strictly
+below the learned-nothing baseline, and the trained median clears it by a
+factor of `0.244681023061 / 0.196647360921 = 1.24426`.  The accuracy bar is
+the recorded deterministic honest error times the ruled margin:
+`1.5 * 0.074595841408 = 0.111893762112`.  It is strictly below the collapse
+bar.  The recorded calibration error is a named constant rather than the
+current run's result, so a future regression cannot loosen its own bar.  The
+direct predictor and Cobaya readback both use this one accuracy bar.  The
+readback relative error is `0.074597720023`, the small difference coming from
+the decimal value printed by Cobaya.
+
+The dead-network mutation returns the scalar geometry's training mean.  Its
+validation median is the measured baseline `0.489362046123`, above the
+collapse bar, and its off-center relative error is `0.136626311478`, above the
+accuracy bar.  It therefore fails both acceptance conditions.  The other
+repair legs remain active in the same gate: the valid fixtures report zero
+overlap and complete row alignment, the same-seed mutation reports 1,000
+overlapping rows and refuses before training, the independent window fixture
+recovers `used 3 of 5` with staged row order `[1, 3, 2]`, and the hardcoded
+banner plus wrong-row mutation is rejected.
+
+The full command
+`PYTHONPATH=. MPLBACKEND=Agg MPLCONFIGDIR=/tmp/mpl-d3-repeat
+XDG_CACHE_HOME=/tmp/xdg-d3-repeat
+/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python
+gates/checks/scalar_smoke.py` returns zero and ends
+`PASS: scalar-smoke all checks green`.  `py_compile` and `git diff --check`
+also pass.  This is implementation evidence for Architect review, not Red
+Team certification.
+
+## Unit 63 reopen implementation claim: the mask is a required state fact
+
+The Architect transferred the `25M-17` reopen to the Red Team in Wave 5.
+This bounded visit owns `Grid2DGeometry` state and readback.  A current save
+will carry `const_mask` for every grid2d geometry.  An unpinned geometry will
+carry an explicit all-false mask, while a pinned geometry will carry its true
+entries.  `from_state` will refuse a missing mask with a migration instruction
+instead of choosing the unpinned policy from key absence.
+The direct constructor also requires the argument.  Explicit `None` remains
+the deliberate all-false convenience, while omission raises `TypeError`.
+
+The reopen validates only the persisted representation: the mask is a
+one-dimensional boolean or uint8 array, its length is `nz*nk`, and every uint8
+value is zero or one.  The original unit-63 scientific-admissibility clauses
+for quantity, law-space identity and low-wavenumber coordinates remain with
+their existing owner.  This branch does not implement or weaken them.  The
+no-policy-version ruling remains intact because the mask itself carries the
+fact.
+
+`gates/checks/mps_identity.py` is under the separate `25M-36` repair while
+this claim starts.  This branch will therefore place the pure CPU mutation
+legs in `tests/test_grid2d_const_mask.py` and record the exact existing-gate
+integration debt.  The owning gate must absorb the explicit-unpinned,
+pinned-round-trip and missing-key mutation legs after that file becomes quiet.
+Its module preamble must also stop saying that the round trip has seven keys;
+the explicit mask makes the current state eight keys.  No board registry file
+or active check script is edited in this visit.
+
+The implementation changes `emulator/geometries/grid2d.py`, updates the
+grid2d pin banner in `emulator/experiment.py`, corrects the affected
+`emulator/README.md` file-map entry, adds
+`tests/test_grid2d_const_mask.py`, and records the readback in
+`notes/families-background-mps.md`. The focused command
+`PYTHONPATH=. ../cocoa/Cocoa/.local/bin/python -m unittest -v
+tests.test_grid2d_const_mask` passes five tests. The omission leg proves that
+the direct constructor cannot infer unpinned state. The deletion mutation
+proves the catch power numerically: the intact raw-boost pin serves `1.0`,
+while the retired missing-key branch serves `1.25`; current `from_state`
+raises with a re-save instruction. Shape, dtype and binary-value refusals run
+on CPU.
+
+The repo-wide direct-constructor census finds no production call outside the
+class: `from_stats` already passes the computed mask, and `from_state` now
+requires and passes the stored one. The only direct calls are the two focused
+test fixtures. The complete `tests/` discovery run is 11/11 green.
+
+The `mps-identity` child was owned by `25M-36` when this branch started, so its
+focused persistence-leg integration was initially held. After that repair
+landed and current main was merged, the file became quiet. The Red Team then
+claimed it only for this unit's three legs and the seven-to-eight-key preamble
+correction. The package README's affected file-map entry is also updated so it
+does not describe the retired omit-when-unpinned behavior. The wider package
+teaching visit remains separate.
+
+The experiment-side banner now tests the mask's value rather than its
+presence: it logs only when the explicit mask contains at least one true
+entry. An unpinned geometry therefore keeps the previous no-banner behavior
+after its in-memory `None` becomes an all-false array.
+
+The amended complete child reports eight state keys. Its new HDF5 checks cover
+an explicit all-false unpinned artifact, a valid pinned boost whose first
+wavenumber is pinned in all four redshift rows and deletion of the required
+mask from that valid pinned file. The intact pin survives save and rebuild.
+The deletion raises before prediction and names both `const_mask` and the
+re-save action. The full child ends `PASS: mps-identity all checks green`.
+
+The add-or-toggle case against a declared unmasked artifact remains unit 96's
+authenticity interlock. This bounded reopen does not edit
+`emulator/results.py` and does not claim that wider proof.
+## Red Team implementation record: DIDACTICS-67 and DIDACTICS-68 warm-start visit
+
+The Architect transferred the warm-start visit to the Red Team in the Wave 4
+throughput ruling.  The implementation is isolated on
+`codex/warmstart-finite-didactics` and is awaiting Architect audit.  The full
+technical record, test results, and deferred gate-file wiring are in
+`artifacts-inference-warmstart.md`, under "Warm-start source reads and
+perturbed finite values."
+
+The code change has two parts.  First, `FinetuneSource` and `load_source`
+describe the executed read sequence accurately: one reusable source object,
+two HDF5 opens, and one weight-file load.  The attribute documentation now
+includes `ia` and defines `nla`, `tatt`, and `None`.  Second, the fine-tune and
+transfer perturbation arms both screen their named encoded inputs and named
+outputs with the shared finite predicate before comparison.
+
+The focused CPU suite has eleven passing tests.  It injects NaN and Inf only
+after the extra-coordinate perturbation, requires the error to name the
+pipeline side, quantity, and row 9, retains both finite baseline parity
+verdicts, and uses four skip-one-guard mutations to prove that every new call
+is load-bearing.  Existing gate files remain untouched because their queue-2
+owner is active.  The owner note records the exact Part D, Part E, and future
+documentation-examples additions needed after that collision clears.
+
+## Red Team implementation candidate: Unit 29 width-one transformer refusal
+
+The Architect transferred the confirmed `25M-14` amendment to the Red Team.
+The candidate is isolated on `codex/unit29-token-width-v2`. The Architect
+approved its narrow `ia.py` scope correction before commit. The full
+contract and evidence are recorded in `models-and-designs.md` under the
+`25M-14` amendment.
+
+The initial transfer named `designs/plain.py` and `designs/blocks.py`, but the
+factored model boundary is `TemplateResTRF` in `designs/ia.py`. Testing a
+blocks-only guard demonstrated the ordering problem: after the model-level
+call was replaced with a no-op, at least one `nn.Linear` had already been
+allocated when the shared `TRFBlock` guard raised. The candidate therefore
+contains the minimal factored pre-allocation call. No other factored behavior
+is changed.
+
+Executed evidence from the isolated worktree:
+
+```text
+python3 -m py_compile emulator/designs/blocks.py emulator/designs/plain.py \
+  emulator/designs/ia.py tests/test_trf_token_width.py
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  tests/test_trf_token_width.py
+# Ran 5 tests ... OK
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  -O tests/test_trf_token_width.py
+# Ran 5 tests ... OK
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  -m unittest discover -s tests -v
+# Ran 22 tests ... OK
+PYTHONPATH=. /Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  gates/checks/cmb_identity.py
+# PASS: cmb-identity all checks green
+```
+
+The first focused run caught a context-matched insertion in the neighboring
+`TemplateResCNN` class. The refusal tests failed before this record was
+written. An untruncated owner census located the crossed insertion, and the
+candidate now calls the predicate only from `ResTRF`, `TemplateResTRF` and
+`TRFBlock`. This record reports implementation evidence and does not certify
+the landing.
+
+## README diagnostic-memory explanation
+
+The root README previously warned that the local-linear diagnostic forms an
+array with axes `validation rows x 40 neighbours x output coordinates`.  That
+shape was accurate, but it did not explain why a small PDF needs a large
+numerical workspace.  The current rewrite separates the calculation from its
+rendered output.  It teaches that the diagnostic first gathers the complete
+target vector from 40 neighbouring training cosmologies for every validation
+cosmology, then fits the local linear comparison, and only afterward draws the
+PDF page.
+
+The documented matter-power facts establish the per-row cost: 40 neighbours
+times 24,522 retained `(z, k)` outputs, stored as float32.  One validation row
+therefore needs 3.92352 MB (3.74176 MiB) for this gathered tensor.  Total
+memory scales linearly with the validation-row count.  At an explicit example
+scale of 10,000 validation rows, the tensor would require 39.2352 GB
+(36.54 GiB) before the CPU copy, least-squares solution and other staged
+arrays.  The README rounds these values to 3.9 MB per row and 39 GB for the
+example.  The user-facing action remains current and direct: omit
+`--diagnostic` for a production-width matter-power run until this calculation
+is memory-bounded.  This is implementation evidence for Architect audit, not
+self-certification.
+
+## Red Team implementation claim: berHu analytic-child bound loss harness
+
+The Architect reproduced a check-side crash after the production chi-square
+domain contract became scale-aware. `CosmolikeChi2._reduce` now reads the
+per-row contraction width through `self._chi2_n_terms()`, while
+`gates/checks/gb_c_berhu_reduce.py` still called the method unbound with
+`self=None`. The child therefore raised `AttributeError` before it could
+execute the analytic probes or emit any of its three declared evidence
+terminals. Production loss code is frozen for this repair.
+
+The check now creates one real `CosmolikeChi2` object. A small harness geometry
+owns a one-element `dest_idx`, which is the only geometry fact the direct
+chi-square probes need. `transform` and `slope` receive that loss explicitly
+and call its bound `_reduce` method. The geometry counts reads of `dest_idx`;
+the child asserts that the count is positive before emitting the evidence
+terminals. This proves the production domain screen ran, instead of bypassing
+the instance-dependent line that exposed the stale harness.
+
+The complete CPU child reports 44 contraction-width reads. All default and
+non-default value, derivative and anneal probes pass. It emits exactly these
+terminals once:
+
+```text
+##AID berhu-loss.reference-values PASS
+##AID berhu-loss.join-derivatives PASS
+##AID berhu-loss.anneal-endpoints PASS
+```
+
+The final line is `berhu-loss numerics: ALL PASS`, and the process returns
+zero. The explicit old-call mutation
+`CosmolikeChi2._reduce(None, ...)` still raises
+`AttributeError: 'NoneType' object has no attribute '_chi2_n_terms'`, so it
+cannot reach the width-read assertion or the evidence terminals. This is the
+catch-power witness for the harness repair.
+
+The branch is `codex/berhu-loss-harness-self`. Its scoped implementation file
+is `gates/checks/gb_c_berhu_reduce.py`; the home-note readback is in
+`notes/training-stack.md` under the berHu evidence block. `gates/board.py`,
+`gates/run_board.py` and `emulator/losses/core.py` remain byte-identical. This
+record presents evidence for Architect audit and does not certify the
+landing.
+
+## Red Team implementation record: 25M-38 and DIDACTICS-79
+
+The Architect transferred the one-parameter `.ranges` repair and the held
+generator teaching example to the Red Team. The production diff removes one
+line from `compute_data_vectors/generator_core.py`: the comment that copied
+the chain column layout into a GetDist range file. The name and bound rows stay
+byte-identical. Unit 82's later decimal policy is untouched.
+
+The CPU regression is a dedicated `gates/checks/generator_ranges.py` child.
+The Implementer-owned foundation `generator_seed.py` stays byte-identical and
+keeps its narrow RNG evidence claim. The new child requires exactly one active
+production writer, executes that writer's own syntax-tree statements and
+parses the result with GetDist 1.7.2 `ParamBounds`. The repaired writer passes
+for one and two sampled parameters. Its built-in temporary-source mutation
+restores the deleted header. The one-parameter case then fails with the
+original `weights` conversion error while the two-parameter control remains
+green. The production file is not modified by that mutation.
+
+The README's minimal YAML and serial command were then executed verbatim in a
+temporary CoCoA-shaped tree using the real Cocoa Python environment, Cobaya
+3.6.2 and CAMB 1.6.7. The command returned zero. Real `ParamBounds` read the
+one-row range file as `H0: [60, 75]`. Both `(200, 8)` float32 targets were
+finite with nonzero cosmology-to-cosmology spread. The 200-row failure sidecar
+contained no failure. The nine expected files and no extras were present. The
+chain header recorded seed 1234 and `numpy.default_rng`.
+
+The same serial configuration also completed in a second temporary root.
+Its five text sidecars were byte-identical to the first run and both target
+arrays were array-identical. This proves serial same-seed replay through CAMB.
+Worker-count invariance remains a separate workstation obligation.
+
+The added README passage defines the YAML-only keys, its anonymous Python
+function, a serial MPI rank, a worker rank and the checkpoint interval. It
+states why this 200-row command writes only the final checkpoint. It prints no
+untested command. The complete command, output readback and mutation evidence
+are retained in `notes/data-generation-and-cuts.md` under "25M-38
+implementation and DIDACTICS-79 replay".
+
+This filing is durable implementation evidence for Architect audit. It does
+not certify 25M-38 or DIDACTICS-79 and it does not merge the branch. Queue 2
+still owns the new child's board entry and its distinct sidecar evidence name.
+The child must never be folded into the unrelated
+`generator-seed.owned-rng` claim.

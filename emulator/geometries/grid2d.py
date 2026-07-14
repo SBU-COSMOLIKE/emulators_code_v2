@@ -38,6 +38,56 @@ TARGET_LAWS_2D = {
 }
 
 
+def _normalize_const_mask(
+    const_mask,
+    n_out,
+    device):
+  """Return one explicit boolean mask covering the flattened grid.
+
+  The in-memory representation is boolean.  This class writes the same
+  values as explicit uint8 zeros and ones in state().  A direct constructor
+  may pass None explicitly. The helper converts that value into an all-false
+  mask immediately. Saved-state readback requires the key before it calls
+  this helper.
+  """
+  if const_mask is None:
+    return torch.zeros(
+      n_out,
+      dtype=torch.bool,
+      device=device)
+
+  try:
+    mask = torch.as_tensor(const_mask)
+  except (TypeError, ValueError) as exc:
+    raise TypeError(
+      "Grid2DGeometry: const_mask must be a one-dimensional boolean or "
+      "uint8 array") from exc
+  if mask.ndim != 1:
+    raise ValueError(
+      "Grid2DGeometry: const_mask must be a one-dimensional array over "
+      "the flattened (z, k) grid. Got shape " + repr(tuple(mask.shape)))
+  if int(mask.numel()) != n_out:
+    raise ValueError(
+      "Grid2DGeometry: const_mask has " + str(int(mask.numel()))
+      + " points but the (z, k) grid has " + str(n_out)
+      + ". The mask must cover the flattened surface")
+  if mask.dtype not in (torch.bool, torch.uint8):
+    raise TypeError(
+      "Grid2DGeometry: const_mask must contain booleans or persisted "
+      "uint8 zeros and ones. Got dtype " + str(mask.dtype))
+  if mask.dtype == torch.uint8:
+    is_zero = mask == 0
+    is_one = mask == 1
+    invalid = torch.logical_not(torch.logical_or(is_zero, is_one))
+    if bool(invalid.any().item()):
+      raise ValueError(
+        "Grid2DGeometry: persisted uint8 const_mask values must be 0 or "
+        "1")
+  return mask.to(
+    device=device,
+    dtype=torch.bool)
+
+
 class Grid2DGeometry:
   """
   Standardization + law tag for a function on a stored (z, k) grid.
@@ -47,13 +97,13 @@ class Grid2DGeometry:
   "boost"), units ("Mpc3" / "dimensionless"), law (a TARGET_LAWS_2D
   key). center/scale are per flattened grid point over the law-space
   training rows. dest_idx / total_size are the identity over nz*nk.
-  const_mask (optional) marks the pinned points — law-space
+  const_mask marks the pinned points. These are law-space
   columns constant across the training cosmologies (the boost's
   low-k region, where B = 1 for every cosmology under ANY law):
   decode returns the training constant there, and the mask persists
-  with the artifact. None = no pins (every pre-pin file, saved
-  before the constant pin existed). A WHOLLY constant surface is
-  still a loud error — that is a dead dump, never physics.
+  with every current artifact. An all-false mask states explicitly
+  that no points are pinned. A WHOLLY constant surface is still a
+  loud error because it identifies a dead dump, never physics.
   """
 
   def __init__(self,
@@ -65,7 +115,7 @@ class Grid2DGeometry:
                k,
                center,
                scale,
-               const_mask = None):
+               const_mask):
     """Place the 2D grid-geometry tensors on the device.
 
     Arguments:
@@ -79,15 +129,12 @@ class Grid2DGeometry:
       center   = (nz*nk,) per-point training mean IN LAW SPACE.
       scale    = (nz*nk,) per-point training std IN LAW SPACE (1.0 at
                  the pinned points below).
-      const_mask = the pinned-point mask, or None (no pins —
-                 every older artifact, and any run whose surface has
-                 spread everywhere; state() then omits the key, so
-                 pre-pin files are byte-identical). (nz*nk,)
-                 booleans: True where the LAW-SPACE training column
-                 was constant — the boost's low-k region (B = 1 for
-                 every cosmology, under any law), so decode returns
-                 the training constant there exactly instead of
-                 scale-noise.
+      const_mask = (nz*nk,) booleans. True marks a constant law-space
+                   training column. False leaves the network output active.
+                   Explicit None is accepted as a direct-construction
+                   convenience and is converted immediately to an all-false
+                   mask. Omitting the argument is an error, and saved-state
+                   readback requires the key.
     """
     if law not in TARGET_LAWS_2D:
       raise ValueError(
@@ -114,19 +161,10 @@ class Grid2DGeometry:
         + "; the rows must be the flattened (z-outer) surface")
     self.total_size = n_out
     self.dest_idx   = torch.arange(n_out, device=device)
-    # the pinned-point mask (None = no pins, decode untouched).
-    # h5 round-trips it as a small integer tensor; normalize to bool.
-    if const_mask is None:
-      self.const_mask = None
-    else:
-      self.const_mask = torch.as_tensor(const_mask,
-                                        device=device).to(torch.bool)
-      if int(self.const_mask.numel()) != n_out:
-        raise ValueError(
-          "Grid2DGeometry: const_mask has "
-          + str(int(self.const_mask.numel())) + " points but the "
-          "(z, k) grid is " + str(n_out) + "; the mask must cover the "
-          "flattened surface")
+    self.const_mask = _normalize_const_mask(
+      const_mask=const_mask,
+      n_out=n_out,
+      device=device)
 
   @classmethod
   def from_state(cls, device, state):
@@ -134,11 +172,18 @@ class Grid2DGeometry:
 
     Arguments:
       device = device to place the rebuilt tensors on.
-      state  = dict from state(), splatted into __init__.
+      state  = dict from state(), splatted into __init__. Current grid2d
+               state requires const_mask even when every value is false.
 
     Returns:
       a Grid2DGeometry (or subclass, via cls).
     """
+    if "const_mask" not in state:
+      raise KeyError(
+        "Grid2DGeometry.from_state: the saved geometry is missing required "
+        "const_mask state. Key absence cannot choose pinned or unpinned "
+        "science. Re-save the emulator with the current grid2d geometry "
+        "schema before rebuilding it.")
     kwargs = dict(state)
     for key in ("quantity", "units", "law"):
       val = kwargs[key]
@@ -195,7 +240,10 @@ class Grid2DGeometry:
     # the un-standardizable points: a law-space column with no spread.
     tiny = 8.0 * np.finfo("float32").eps * np.abs(center)
     zero = np.nonzero(scale <= tiny)[0]
-    const_mask = None
+    # The mask is always explicit.  All false means that the geometry has no
+    # pins. state() persists that fact instead of making key presence select
+    # a scientific branch during readback.
+    const_mask = np.zeros(n_out, dtype=bool)
     if zero.size > 0:
       # a WHOLLY constant surface is a dead dump under any law (a
       # stale generator writing one cosmology's rows everywhere — the
@@ -217,7 +265,6 @@ class Grid2DGeometry:
       # the artifact (state), so serving matches training bit for bit.
       # The dead-dump protection is the WHOLE-surface guard above,
       # which fires for every law.
-      const_mask = np.zeros(n_out, dtype=bool)
       const_mask[zero] = True
       scale = scale.copy()
       scale[zero] = 1.0
@@ -270,18 +317,18 @@ class Grid2DGeometry:
   def state(self):
     """Tensors/strings to save; keys match __init__ (dest_idx /
     total_size are derived from the axes, so they are not persisted).
-    const_mask joins only when pins exist, so a pin-free
-    artifact is byte-identical to a pre-pin one; it rides as a small
-    integer tensor (h5 has no bool), normalized back by __init__."""
+    const_mask is always present. An all-false mask records an explicitly
+    unpinned geometry, while true values record the pinned columns. This
+    class writes uint8 zeros and ones so the stored representation is
+    explicit, and __init__ normalizes it back to boolean."""
     st = {"quantity": self.quantity,
           "units":    self.units,
           "law":      self.law,
           "z":        self.z.cpu(),
           "k":        self.k.cpu(),
           "center":   self.center.cpu(),
-          "scale":    self.scale.cpu()}
-    if self.const_mask is not None:
-      st["const_mask"] = self.const_mask.cpu().to(torch.uint8)
+          "scale":    self.scale.cpu(),
+          "const_mask": self.const_mask.cpu().to(torch.uint8)}
     return st
 
   def attach_head_coords(self):
@@ -337,6 +384,7 @@ class Grid2DGeometry:
       (B, nz*nk) law-space rows (log(P/P_base) for the syren laws).
     """
     out = t * self.scale + self.center
-    if self.const_mask is not None:
-      out = torch.where(self.const_mask, self.center, out)
-    return out
+    return torch.where(
+      self.const_mask,
+      self.center,
+      out)

@@ -996,15 +996,16 @@ class _GoldenCtx:
     captures the leg's single ctx.expect verdict in .result = (ok, detail).
     """
 
-    def __init__(self, *, pre, cur, pre_rc=0, cur_rc=0):
+    def __init__(self, *, pre, cur, pre_rc=0, cur_rc=0, base="deadbeef"):
         self._pre = (pre_rc, pre)
         self._cur = (cur_rc, cur)
+        self._base = base
         self.dry = False
         self.result = None
         self._n = 0
 
     def golden_base(self, gate_id):
-        return "deadbeef"                # a configured base (not the skip path)
+        return self._base                # a configured base, or None (null-base path)
 
     def config_yaml_name(self, name):
         return "c.yaml"
@@ -1027,8 +1028,11 @@ class _GoldenCtx:
         self._n = self._n + 1
         return self._cur if self._n == 1 else self._pre
 
-    def expect(self, *, label, ok, detail=""):
+    def expect(self, *, label, ok, detail="", aid=None):
         self.result = (ok, detail)
+
+    def unavailable(self, *, aid, label, reason):
+        self.result = ("UNAVAILABLE", reason)
 
 
 def check_golden_leg():
@@ -1068,6 +1072,14 @@ def check_golden_leg():
     # the rc addendum: a tip-only nonzero child rc.
     ok, detail = _drive(pre=same, cur=same, cur_rc=1)
     report("golden: a tip-only nonzero child rc reds", not ok, detail)
+
+    # queue-2 migration (loss-schema-equivalence): a NULL golden base with a
+    # DECLARED aid emits an explicit UNAVAILABLE (fork D1-ii) -- not a crash and
+    # not a silent skip that would red reconciliation as declared-not-executed.
+    c = _GoldenCtx(pre=same, cur=same, base=None)
+    board._golden_leg(c, "g", "^epoch", yaml_name="c.yaml", aid="g.golden")
+    report("golden: a null base with a declared aid emits UNAVAILABLE",
+           c.result is not None and c.result[0] == "UNAVAILABLE", repr(c.result))
 
 
 def check_dirty_watch():
@@ -1980,7 +1992,10 @@ class _GhaFakeCtx:
                     "the head keeps its model.trf.activation pin (gated_power)")
         return (1, "frozen")             # the invalid-license run (rc_l != 0)
 
-    def expect(self, *, label, ok, detail=""):
+    def expect(self, *, label, ok, detail="", aid=None):
+        # aid= accepted so this stub matches the real ctx.expect signature
+        # (gate_gha_f now names a queue-2 assertion id on each warning leg);
+        # the RT-04 checks still key on label.
         self.expects[label] = ok
 
 

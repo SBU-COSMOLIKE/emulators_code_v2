@@ -971,7 +971,7 @@ an NPCE/loss-resident fixture flips the placement decision at a
 deliberately tight budget; mutation controls prove the first-dtype
 multiplication and the buffer omission fail.
 
-## 25M-15 (Red Team CONFIRMED, awaiting Architect adjudication): the streaming planner charges a packed target as if it had model-output width
+## 25M-15 (Architect CONFIRMED; implementation awaits audit): the streaming planner charges a packed target as if it had model-output width
 
 `batching.py:121-128` computes transient batch I/O as the encoded input plus
 two copies of the model output: one output and an assumed same-width target.
@@ -1013,6 +1013,57 @@ packed-target loss in a streaming regime, retain an ordinary-target control,
 and include a mutation that restores `2*out_bytes` and must red. A second
 boundary leg supplies less than one corrected batch and proves loud refusal;
 restoring the `max(1, ...)` fallback must red.
+
+### 25M-15 implementation candidate and CPU evidence (Red Team, 2026-07-13; awaiting Architect audit)
+
+Branch `codex/unit25m15-sizing` implements the bounded arithmetic repair in
+`emulator/batching.py`. `compute_batch_byte_terms` is the one owner of the
+saved-activation, input, model-output, actual-target, and chi2-scratch terms.
+The integer-returning `compute_batch_size_bytes` wrapper sums that record, so
+its ordinary-target call stays compatible. `_build_loaders_one` supplies the
+resolved `tgt_dim` and the float32 dtype it actually stages to
+`batches_per_load`. The planner now raises when the 80-percent allowance
+cannot hold its established model-plus-precision-matrix resident state and one
+complete batch. Its error names `required`, `available`, `resident`, and every
+per-batch term.
+
+The independent pre-commit audit caught one scope expansion in the first
+candidate. That draft also threaded the encoded-parameter tensor into the
+resident term. Doing so could change an ordinary-target chunk boundary and
+would violate this amendment's byte-identity clause. It also overlaps the
+separate full resource-sizing contract already recorded above. The final
+candidate keeps the pre-amendment resident formula exactly and changes only
+the staged-target term plus the below-one-batch refusal.
+
+Focused CPU evidence lives in `tests/test_batching_sizing.py` and runs with:
+
+```
+/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python \
+  -m unittest tests.test_batching_sizing -v
+```
+
+All six tests pass. They prove the exact 84-byte packed-target difference, the
+old two-batch versus corrected one-batch boundary, loud refusal four bytes
+below one complete batch, unchanged ordinary-target arithmetic, target-dtype
+accounting, and the real streaming loader boundary with ordinary and doubled
+stand-in targets. A direct main-versus-candidate comparison with
+`Linear(2, 7, bias=False)`, batch size 3, and `dv_len=1` returns 288 bytes per
+ordinary batch on both versions. At budgets 2000, 5000, and 10000, both
+versions choose 4, 12, and 26 ordinary batches respectively.
+
+One pre-existing foundation-gate fixture now exposes the repaired refusal.
+`gates/checks/stage_ram.py` uses a literal 200-byte device budget only to force
+its disk-stream row-order path. That allowance is smaller than resident state
+plus one batch, so the corrected planner raises with `required=944` and
+`available=160`. The Red Team did not edit the gate because that file has a
+different owner. Raising only its budget cannot preserve streaming because the
+current eight-row encoded set is cheaper than one transient batch. Its owner
+must enlarge the selected-row fixture while retaining the same unsorted seeded
+order assertions, then choose an allowance between resident-plus-one-batch and
+resident-plus-the-full-encoded-set. With the fixture's current widths, more
+than 9 selected rows creates that interval. The real `PCERatioChi2` or
+`TransferChi2` streaming integration and the adjusted foundation-gate run
+remain workstation evidence.
 
 ## make_chi2 turns every unknown rescale mode into the residual algorithm (red-team 45M-15, 2026-07-12, Architect-VERIFIED; queue 39)
 
@@ -1413,6 +1464,723 @@ readback equals the experiment's resolved value; and a mutation using
 `args.activation` recreates `activation=None` and must red. Table assembly is
 pure CPU; one real sweep-path integration leg may be board-listed for Vivian's
 workstation.
+
+## Queue-2 evidence draft: training-control gates, batch one
+
+These blocks name only comparisons that the current gate bodies execute.
+A configured golden run compares selected log text after removing its timing
+column; that is selected-text equality, not raw-byte identity. When no golden
+base is configured, the corresponding leg is `UNAVAILABLE` rather than a
+silent success. The current equality helper also accepts two empty selected-
+line lists, so every golden leg still owes an explicit nonempty-selection
+assertion.
+
+<a id="ema-off-identity-evidence"></a>
+**ema-off-identity — the configured historical base enables one selected-text
+comparison of the current and pre-EMA drivers.**
+
+- files: reads the dedicated EMA-off YAML and its six manifest-declared
+  cosmic-shear inputs. The `.dataset` pointer leads to data-vector,
+  covariance, mask, and n(z) siblings that both drivers read transitively
+  outside the manifest hash. The harness stages one temporary YAML copy in
+  the configured driver fileroot for both runs; each run writes its ordinary
+  `.emul`/`.h5` pair, and the harness removes the staged YAML and temporary Git
+  worktree.
+- subprocess: `cosmic_shear_train_emulator.py` on the current tree and the
+  legacy `train_single_emulator_cosmic_shear.py` found at the configured
+  historical commit.
+- metric: per-leg selected-text equality for lines beginning with `epoch` or
+  `best epoch`, after removing the trailing wall-clock field; the helper does
+  not require either selected-line list to be nonempty.
+- legs: 1, named `ema-off-identity.golden-selected-text-equality`.
+- evidence: `golden_bases["ema-off-identity"]` is configured as `46ec5e1`, so
+  the leg is executable and asserted whenever the Torch, CosmoLike, and GPU
+  capability lane runs; it is not base-`UNAVAILABLE` in the shipped config.
+- owed: Torch, CosmoLike, GPU, plus a nonempty-selection assertion before
+  equal selected lists prove that epoch text existed.
+
+<a id="ema-off-identity-golden-selected-text-equality"></a>
+`ema-off-identity.golden-selected-text-equality` requires the selected current
+and historical log-line lists to match after the one timing field is removed;
+the present helper would also accept two empty lists.
+
+<a id="ema-smoke-evidence"></a>
+**ema-smoke — an EMA-enabled training run starts successfully, prints its
+resolved horizon, and reaches the logged rewind path.**
+
+- files: reads the resolved `ema-smoke-config` YAML and its six manifest-
+  declared cosmic-shear inputs. The `.dataset` pointer leads to data-vector,
+  covariance, mask, and n(z) siblings read transitively outside the manifest
+  hash. The driver writes the ordinary `.emul`/`.h5` pair and its stream to
+  the immutable gate log.
+- subprocess: `cosmic_shear_train_emulator.py`.
+- metric: per-leg exit status zero or selected-text presence.
+- legs: 3, named `ema-smoke.driver-exit-zero`,
+  `ema-smoke.horizon-banner-present`, and
+  `ema-smoke.rewind-line-present`.
+- evidence: all three legs are asserted by the wrapper.
+- owed: all legs require the Torch, CosmoLike, and GPU workstation.
+
+<a id="ema-smoke-driver-exit-zero"></a>
+`ema-smoke.driver-exit-zero` requires the training subprocess to exit with
+status zero.
+
+<a id="ema-smoke-horizon-banner-present"></a>
+`ema-smoke.horizon-banner-present` requires the driver stream to contain
+`ema: horizon 3 epochs`.
+
+<a id="ema-smoke-rewind-line-present"></a>
+`ema-smoke.rewind-line-present` requires the driver stream to contain
+`rewound to best epoch`; it does not independently validate which epoch was
+restored.
+
+<a id="single-phase-demotion-evidence"></a>
+**single-phase-demotion — the single-phase and two-phase control drivers exit,
+and the single-phase stream contains demotion-related text.**
+
+- files: reads the resolved single-phase and two-phase-control YAMLs plus
+  their six manifest-declared cosmic-shear inputs. Each `.dataset` pointer
+  leads to data-vector, covariance, mask, and n(z) siblings read transitively
+  outside the manifest hash. Each run writes its ordinary `.emul`/`.h5` pair,
+  and both driver streams enter the gate log.
+- subprocess: two invocations of `cosmic_shear_train_emulator.py`.
+- metric: per-leg exit status or selected-text presence.
+- legs: 3, named `single-phase-demotion.single-phase-exit-zero`,
+  `single-phase-demotion.demotion-text-present`, and
+  `single-phase-demotion.two-phase-control-exit-zero`.
+- evidence: all three legs are asserted by the wrapper.
+- owed: all legs require the Torch, CosmoLike, and GPU workstation.
+
+<a id="single-phase-demotion-single-phase-exit-zero"></a>
+`single-phase-demotion.single-phase-exit-zero` requires the ResMLP run to exit
+with status zero.
+
+<a id="single-phase-demotion-demotion-text-present"></a>
+`single-phase-demotion.demotion-text-present` requires the ResMLP stream to
+match the current broad pattern `single-phase|demot|resolve`; it does not claim
+an exact notice string.
+
+<a id="single-phase-demotion-two-phase-control-exit-zero"></a>
+`single-phase-demotion.two-phase-control-exit-zero` requires the ResCNN plus
+NLA control run to exit with status zero; no output-equality comparison is
+performed by this leg.
+
+<a id="head-scheduler-override-evidence"></a>
+**head-scheduler-override — the override run exits and prints its head-
+scheduler banner; a configured golden base also protects selected log text.**
+
+- files: reads the ordinary training YAML for the optional golden comparison,
+  the resolved head-scheduler override YAML, and their six manifest-declared
+  cosmic-shear inputs. Each `.dataset` pointer leads to data-vector,
+  covariance, mask, and n(z) siblings read transitively outside the manifest
+  hash. The golden YAML is staged in the configured driver fileroot. Each
+  executed driver writes its ordinary `.emul`/`.h5` pair, while the harness
+  removes the staged golden YAML and temporary Git worktree.
+- subprocess: `cosmic_shear_train_emulator.py` on the current tree and,
+  conditionally, on the configured historical worktree.
+- metric: per-leg selected-text equality, exit status, selected-text presence,
+  or logged-only inspection.
+- legs: 4, named `head-scheduler-override.golden-selected-text-equality`,
+  `head-scheduler-override.driver-exit-zero`,
+  `head-scheduler-override.override-banner-present`, and
+  `head-scheduler-override.lr-cut-cadence`.
+- evidence: the driver-exit and banner legs are asserted; the selected-lines
+  leg is asserted only with a configured golden base and otherwise is
+  `UNAVAILABLE`; the cadence item is logged-only and must emit `UNAVAILABLE`.
+- owed: execution requires the Torch, CosmoLike, and GPU workstation; the
+  golden leg also needs a configured base and a nonempty-selection assertion,
+  and the cadence needs a numerical assertion before it can become green
+  evidence.
+
+<a id="head-scheduler-override-golden-selected-text-equality"></a>
+`head-scheduler-override.golden-selected-text-equality` requires selected
+`phase`, `epoch`, and `best` log-line lists to match the configured historical
+run after the timing field is removed. The present helper would also accept
+two empty lists.
+
+<a id="head-scheduler-override-driver-exit-zero"></a>
+`head-scheduler-override.driver-exit-zero` requires the override subprocess to
+exit with status zero.
+
+<a id="head-scheduler-override-override-banner-present"></a>
+`head-scheduler-override.override-banner-present` requires the stream to
+contain `[head overrides: scheduler]`.
+
+<a id="head-scheduler-override-lr-cut-cadence"></a>
+`head-scheduler-override.lr-cut-cadence` is `UNAVAILABLE`: the current gate
+prints an instruction to inspect the learning-rate cuts but performs no cadence
+comparison.
+
+### Queue-2 evidence draft: training-control gates, batch two
+
+These blocks distinguish a numerical assertion from a printed suggestion.
+`UNAVAILABLE` means the present gate emits no machine-checked verdict for that
+claim. A current-red leg is different: its check exists, but the present check
+process cannot reach or complete it. That distinction prevents a missing
+measurement from being recorded as a failed scientific comparison. For every
+golden leg below, the current equality helper compares selected-line lists but
+does not require them to be nonempty; that guard is owed even after a base is
+configured.
+
+<a id="production-diagnostic-evidence"></a>
+**production-diagnostic — the repository census, package import, and training
+process are checked; diagnostic content is not yet read back.**
+
+- files: reads the board-resolved diagnostic YAML and its six manifest-
+  declared deployment inputs. Its `.dataset` pointer leads to data-vector,
+  covariance, mask, and n(z) siblings read transitively outside the manifest
+  hash. The census reads repository `*.py` files only: although `README.md` is
+  passed as an explicit grep operand, `--include=*.py` excludes it. The driver
+  may write its ordinary `.emul`/`.h5` products and a diagnostic PDF.
+- subprocess: repository `grep`, a Python package-import command, and
+  `cosmic_shear_train_emulator.py --diagnostic=gates_diag`.
+- metric: per-leg exact census status, subprocess exit status, regular-
+  expression presence, or `UNAVAILABLE` where the current wrapper only logs an
+  instruction.
+- legs: 7, named `production-diagnostic.retired-class-name-census`,
+  `production-diagnostic.package-import`,
+  `production-diagnostic.driver-exit-zero`,
+  `production-diagnostic.sizes-banner`,
+  `production-diagnostic.cut-row-selection`,
+  `production-diagnostic.diagnostics-pdf`, and
+  `production-diagnostic.triangle-shading`.
+- evidence: the first four legs are asserted. The class-name census is the
+  current literal `NLATemplateMLP|NLAInputGeometry` search over repository
+  `*.py` files, with `gates/` and `.git/` excluded; it does not inspect the
+  root README and is not a general dead-symbol census. The final three legs
+  are `UNAVAILABLE`.
+- owed: an independent expected-row calculation, PDF existence and readback,
+  and a programmatic artist comparison are needed before the last three legs
+  can become green evidence. The board registry gates this entire body on
+  Torch, CosmoLike, and GPU, so absence of any one makes all seven aids
+  capability-`UNAVAILABLE`, including the otherwise host-only census/import
+  legs.
+
+<a id="production-diagnostic-retired-class-name-census"></a>
+`production-diagnostic.retired-class-name-census` requires zero matches for
+the two named retired classes within the census's stated files and exclusions.
+
+<a id="production-diagnostic-package-import"></a>
+`production-diagnostic.package-import` requires importing `emulator`,
+`emulator.designs`, and `emulator.losses` to exit with status zero.
+
+<a id="production-diagnostic-driver-exit-zero"></a>
+`production-diagnostic.driver-exit-zero` requires the diagnostic training
+subprocess to exit with status zero.
+
+<a id="production-diagnostic-sizes-banner"></a>
+`production-diagnostic.sizes-banner` requires a line matching
+`used N of P cut rows`; it checks the banner's shape, not the truth of either
+integer.
+
+<a id="production-diagnostic-cut-row-selection"></a>
+`production-diagnostic.cut-row-selection` is `UNAVAILABLE`: the current gate
+does not compute the expected retained rows independently, and its configured
+YAML is not asserted here to be the intended tight-window fixture.
+
+<a id="production-diagnostic-diagnostics-pdf"></a>
+`production-diagnostic.diagnostics-pdf` is `UNAVAILABLE`: the current gate
+requests a PDF but does not check that the file exists or can be read.
+
+<a id="production-diagnostic-triangle-shading"></a>
+`production-diagnostic.triangle-shading` is `UNAVAILABLE`: the current gate
+prints visual-inspection instructions but compares no plotted artists.
+
+<a id="eval-batch-invariance-evidence"></a>
+**eval-batch-invariance — validation scores and the ordinary median are
+independent of how the same rows are divided into batches.**
+
+- files: uses synthetic in-memory Torch tensors; it reads no scientific data
+  file and writes no persistent product.
+- subprocess: `gates/checks/ge_c_eval_bs.py`.
+- metric: per-leg. Per-row and fraction tensors use `rtol=1e-6` and
+  `atol=1e-6`; scalar median/mean comparisons use
+  `abs(got-ref) <= 1e-6*abs(ref) + 1e-6`. Ordinary-median controls are exact,
+  and printed timing observations are `UNAVAILABLE`.
+- legs: 4, named `eval-batch-invariance.partition-invariance`,
+  `eval-batch-invariance.ordinary-median`,
+  `eval-batch-invariance.cuda-timing`, and
+  `eval-batch-invariance.production-timing-claim`.
+- evidence: the first two logical legs are asserted inside the child script;
+  the timing legs are informational and therefore `UNAVAILABLE`. The child
+  owns its logical verdicts, so there is no separate script-exit evidence leg.
+- owed: the board registry requires both Torch and GPU for the entire gate,
+  even though the two numerical assertions can execute on CPU. A reproducible
+  timing protocol and a numerical acceptance bound are required for either
+  timing claim to become evidence.
+
+<a id="eval-batch-invariance-partition-invariance"></a>
+`eval-batch-invariance.partition-invariance` compares real `eval_val`'s
+aggregate median, mean, and threshold fractions with a full-batch reference
+for batch sizes 32, 517, 1000, and 2048. Separately, a copied batch loop named
+`per_row_chi2` compares per-row tensors with its full-batch result. The stated
+relative and absolute tolerances apply; this does not prove row association or
+ordering inside production `eval_val`, which publishes only aggregates.
+
+<a id="eval-batch-invariance-ordinary-median"></a>
+`eval-batch-invariance.ordinary-median` requires the helper and real
+`eval_val` to return the arithmetic midpoint for an even sample, preserve the
+odd-sample control, remain batch-invariant, and catch the lower-middle
+`Tensor.median` mutation.
+
+<a id="eval-batch-invariance-cuda-timing"></a>
+`eval-batch-invariance.cuda-timing` is `UNAVAILABLE`: CUDA durations are
+printed but are not compared with an acceptance bound.
+
+<a id="eval-batch-invariance-production-timing-claim"></a>
+`eval-batch-invariance.production-timing-claim` is `UNAVAILABLE`: the claimed
+production speedup is a hard-coded sentence, not a measurement made by the
+gate.
+
+<a id="finite-contract-evidence"></a>
+**finite-contract — the child contains finite-value and score-domain checks,
+but its current execution is red before all declared checks can run.**
+
+- files: uses synthetic Torch tensors plus warm-start weight/HDF5 pairs and
+  covariance fixtures under a directory created by `tempfile.mkdtemp`. The
+  current child never removes that directory, so these are leaked temporary
+  products rather than cleanup-proven outputs.
+- subprocess: `gates/checks/finite_contract.py`.
+- metric: per-leg exact exception boundaries, unchanged-state comparisons,
+  analytic references, scale-aware chi-square bands, mutation arms, and
+  explicit current-red or `UNAVAILABLE` classifications for legs that do not
+  execute.
+- legs: 14, named `finite-contract.validation-score-finiteness`,
+  `finite-contract.train-step-finiteness`,
+  `finite-contract.diagnostic-score-finiteness`,
+  `finite-contract.finetune-parity-finiteness`,
+  `finite-contract.transfer-parity-finiteness`,
+  `finite-contract.safe-sqrt-eager`,
+  `finite-contract.safe-sqrt-compiled`,
+  `finite-contract.epoch-mean-finiteness`,
+  `finite-contract.chi2-domain-boundary`,
+  `finite-contract.chi2-width-band`,
+  `finite-contract.chi2-compute-dtype-band`,
+  `finite-contract.optimizer-schema`,
+  `finite-contract.extreme-scale-validation-reduction`, and
+  `finite-contract.optimizer-post-step-finiteness`.
+- evidence: `DataVectorGeometry` now imports without loading either optional
+  CosmoLike dependency. The compiled interface and GetDist's `IniFile` are
+  loaded only by `from_cosmolike` and `build_shear_angle_map`, respectively.
+  A direct Cocoa Torch 2.6.0 CPU run therefore reaches the check body. Parts A
+  and C record four false-red assertions because they still expect the retired
+  `finite contract[...]` prefix while production raises
+  `chi2 domain contract[...]`. Parts B, D, and E complete. Part F then crashes
+  before its first report because its synthetic `CosmolikeChi2` object has no
+  `geom` attribute for `_chi2_n_terms`. Later clusters do not execute, so the
+  gate has no terminal verdict and no current whole-gate PASS.
+- owed: update Parts A/C to the live domain-error prefix and give the Part F
+  fixture an explicit contraction width. Then execute every later cluster,
+  including optimizer schema, the extreme-scale published-reduction leg on
+  CPU and its mandatory CUDA lane, the real optimizer post-step inspection,
+  and an explicit disposition for the conditional compiled-negative sublane.
+
+<a id="finite-contract-validation-score-finiteness"></a>
+`finite-contract.validation-score-finiteness` requires finite `eval_val`
+controls to preserve their metrics and the one-NaN, one-`+Inf`, and one-`-Inf`
+fixtures to raise before ranking. It is current-red because those fixtures
+raise the live `chi2 domain contract[validation]` error while the child still
+matches the retired `finite contract[validation]` prefix.
+
+<a id="finite-contract-train-step-finiteness"></a>
+`finite-contract.train-step-finiteness` checks a NaN scalar loss and,
+separately, a finite loss whose gradient is NaN; each must raise before
+`optimizer.step` with model weights unchanged. It also runs a finite control
+and a read-only global-gradient-norm comparison; it does not sample every
+nonfinite value.
+
+<a id="finite-contract-diagnostic-score-finiteness"></a>
+`finite-contract.diagnostic-score-finiteness` requires
+`eval_source_chi2` to preserve one finite control and reject one injected NaN
+at row 9. It is current-red because the live
+`chi2 domain contract[diagnostic]` message does not match the retired prefix
+the child expects.
+
+<a id="finite-contract-finetune-parity-finiteness"></a>
+`finite-contract.finetune-parity-finiteness` checks a clean control, a no-extra
+both-arm NaN, one-arm NaN, one-arm `+Inf`, and an extras-present NaN; those
+named fixtures must raise the finite-contract error before a misleading parity
+verdict. It does not quantify over every nonfinite surface.
+
+<a id="finite-contract-transfer-parity-finiteness"></a>
+`finite-contract.transfer-parity-finiteness` checks a clean control and one
+poisoned-weight NaN surface; the latter must raise the finite-contract error
+before a misleading frozen-base verdict. No infinity or one-arm transfer
+fixture is present.
+
+<a id="finite-contract-safe-sqrt-eager"></a>
+`finite-contract.safe-sqrt-eager` requires exact-fit square-root losses to
+have finite zero gradients, positive controls to match the analytic square
+root, and materially negative, NaN, or `+Inf` chi-square fixtures to produce a
+nonfinite loss in eager mode. Those last probes inspect the produced loss;
+they do not assert a direct producer exception.
+
+<a id="finite-contract-safe-sqrt-compiled"></a>
+`finite-contract.safe-sqrt-compiled` checks the exact-fit sqrt-mode backward
+for a finite zero gradient and checks that a deliberately raising compiled
+callable is detected. It does not repeat the eager mode/positive/bad-value
+matrix. It is `UNAVAILABLE` on a box that cannot run that mandatory compiled
+backward lane.
+
+<a id="finite-contract-epoch-mean-finiteness"></a>
+`finite-contract.epoch-mean-finiteness` requires finite large batch losses to
+produce the finite float64 reference epoch mean instead of overflowing a
+float32 accumulator.
+
+<a id="finite-contract-chi2-domain-boundary"></a>
+`finite-contract.chi2-domain-boundary` requires valid controls to remain
+unchanged, roundoff inside the declared band to become exact zero, and
+finite materially negative chi-square values to raise at evaluation and
+diagnostic boundaries, with a finite-only false-crowning mutation. A compiled
+negative-reduction report runs only when `_can_compile()` is true; the current
+false branch emits no explicit `UNAVAILABLE`. Nonfinite fixtures belong to the
+validation/diagnostic legs above, not this domain leg.
+
+<a id="finite-contract-chi2-width-band"></a>
+`finite-contract.chi2-width-band` requires the negative-roundoff band to scale
+with kept width rather than width squared, including the production-width
+mutation, scalar-width declaration, subclass census, and ill-conditioned SPD
+control.
+
+<a id="finite-contract-chi2-compute-dtype-band"></a>
+`finite-contract.chi2-compute-dtype-band` has no current executed verdict.
+The earlier Part F fixture crashes while obtaining its contraction width, so
+none of this aid's three-boundary, upcast-mutation, or float64-control reports
+execute.
+
+<a id="finite-contract-optimizer-schema"></a>
+`finite-contract.optimizer-schema` has no current executed verdict: its
+finite-real, non-bool AdamW option assertions occur after the deterministic
+Part F fixture crash. This is a red declared-versus-executed mismatch, not a
+green schema result.
+
+<a id="finite-contract-extreme-scale-validation-reduction"></a>
+`finite-contract.extreme-scale-validation-reduction` is `UNAVAILABLE`: the
+owed Part-I fixture for eight finite float32 scores near `1e38`, float64
+mean/ordinary-median/fraction publication, history propagation, and the
+float32-mean mutation is absent. The required CPU and mandatory CUDA lanes are
+both unimplemented.
+
+<a id="finite-contract-optimizer-post-step-finiteness"></a>
+`finite-contract.optimizer-post-step-finiteness` is `UNAVAILABLE`: the owed
+workstation leg does not yet inspect parameters and optimizer state after a
+real update.
+
+<a id="berhu-loss-evidence"></a>
+**berhu-loss — the shipped berHu transform is compared with analytic values
+and derivatives, then its training configuration is smoke-tested.**
+
+- files: uses synthetic float64 Torch probes and reads the board-resolved berHu
+  smoke YAML plus its six manifest-declared deployment inputs. The `.dataset`
+  pointer leads to data-vector, covariance, mask, and n(z) siblings read
+  transitively outside the manifest hash. For a configured golden leg, the
+  ordinary training YAML is copied into the configured driver fileroot for
+  both drivers; the temporary Git worktree holds historical code, not that
+  staged YAML. Smoke and golden drivers write ordinary `.emul`/`.h5` products,
+  which this gate does not read back.
+- subprocess: `gates/checks/gb_c_berhu_reduce.py`, the berHu training driver,
+  and the optional current-versus-historical golden drivers.
+- metric: per-leg absolute error below `1e-9` for transform values, absolute
+  error below `1e-6` for join derivatives, exact anneal endpoints, subprocess
+  exit status, selected-text presence, or conditional selected-text-list
+  equality; the golden helper does not require nonempty selections.
+- legs: 6, named `berhu-loss.reference-values`,
+  `berhu-loss.join-derivatives`,
+  `berhu-loss.anneal-endpoints`,
+  `berhu-loss.golden-selected-text-equality`,
+  `berhu-loss.smoke-exit-zero`, and `berhu-loss.loss-banners`.
+- evidence: the analytic, derivative, endpoint, smoke-exit, and banner legs
+  are asserted. The golden leg is `UNAVAILABLE` when its configured base is
+  null. No leg claims that training loss descends.
+- owed: the smoke and golden paths require Torch, CosmoLike, and GPU; the
+  golden comparison additionally requires a configured historical base and a
+  nonempty-selection assertion.
+
+<a id="berhu-loss-reference-values"></a>
+`berhu-loss.reference-values` requires berHu and capped-berHu values to match
+their piecewise analytic references within absolute error `1e-9` at default
+and non-default knots.
+
+<a id="berhu-loss-join-derivatives"></a>
+`berhu-loss.join-derivatives` probes berHu on both sides of its `t1` join and
+capped berHu on both sides of its `t2` join; those autograd slopes must match
+the analytic derivatives within absolute error `1e-6`. It does not probe the
+capped transform at `t1`.
+
+<a id="berhu-loss-anneal-endpoints"></a>
+`berhu-loss.anneal-endpoints` requires blend value zero to reproduce plain
+square root and blend value one to reproduce the full berHu transform.
+
+Harness repair readback, 2026-07-13: the analytic child now calls
+`CosmolikeChi2._reduce` as a bound method on a real loss object. Its small
+harness geometry supplies one kept-coordinate index, the exact instance fact
+the production chi-square-domain screen reads through `_chi2_n_terms()`.
+The harness counts those `dest_idx` reads and folds a positive-read assertion
+into `berhu-loss.reference-values`. Restoring the former unbound
+`CosmolikeChi2._reduce(None, ...)` call raises `AttributeError` before any
+evidence terminal, while the repaired CPU child reports 44 width reads, emits
+each of its three declared `##AID` terminals exactly once as `PASS` and ends
+`berhu-loss numerics: ALL PASS`. Production loss code is unchanged.
+
+<a id="berhu-loss-golden-selected-text-equality"></a>
+`berhu-loss.golden-selected-text-equality` requires selected current and
+historical log-line lists to match after the timing field is removed; it is
+`UNAVAILABLE` while the configured golden base is null, and the current helper
+would also accept two empty lists.
+
+<a id="berhu-loss-smoke-exit-zero"></a>
+`berhu-loss.smoke-exit-zero` requires the berHu training subprocess to exit
+with status zero.
+
+<a id="berhu-loss-loss-banners"></a>
+`berhu-loss.loss-banners` requires the exact `loss_mode sqrt` and
+`loss_mode berhu_capped (knot 0.2, cap 10)` substrings.
+
+<a id="loss-schema-equivalence-evidence"></a>
+**loss-schema-equivalence — the nested-loss smoke runs, while equivalence to
+the earlier schema remains conditional on a historical base.**
+
+- files: reads the board-resolved berHu smoke YAML and its six manifest-
+  declared deployment inputs. The `.dataset` pointer leads to data-vector,
+  covariance, mask, and n(z) siblings read transitively outside the manifest
+  hash. For a configured golden leg, the ordinary training YAML is copied into
+  the configured driver fileroot for both drivers; the temporary Git worktree
+  holds historical code. Smoke and golden drivers write ordinary
+  `.emul`/`.h5` products, which this gate does not read back.
+- subprocess: the nested-loss training driver and optional current-versus-
+  historical golden drivers.
+- metric: per-leg subprocess exit status, exact banner presence, or
+  conditional selected-text-list equality after removing the timing field;
+  the golden helper does not require nonempty selections.
+- legs: 3, named `loss-schema-equivalence.golden-selected-text-equality`,
+  `loss-schema-equivalence.smoke-exit-zero`, and
+  `loss-schema-equivalence.berhu-banner`.
+- evidence: smoke exit and banner presence are asserted. The golden leg is
+  `UNAVAILABLE` when its configured base is null; therefore the current gate
+  does not prove schema equivalence in that state.
+- owed: Torch, CosmoLike, and GPU are needed for the smoke; a configured
+  historical base and a nonempty-selection assertion are also required for
+  the equivalence leg.
+
+<a id="loss-schema-equivalence-golden-selected-text-equality"></a>
+`loss-schema-equivalence.golden-selected-text-equality` requires selected
+current and historical log-line lists to match after the timing field is
+removed; it is `UNAVAILABLE` while the configured golden base is null, and the
+current helper would also accept two empty lists.
+
+<a id="loss-schema-equivalence-smoke-exit-zero"></a>
+`loss-schema-equivalence.smoke-exit-zero` requires the nested-loss training
+subprocess to exit with status zero.
+
+<a id="loss-schema-equivalence-berhu-banner"></a>
+`loss-schema-equivalence.berhu-banner` requires the exact
+`loss_mode berhu_capped (knot 0.2, cap 10)` substring; it does not compare
+numerical outputs with the earlier schema.
+
+<a id="berhu-anneal-evidence"></a>
+**berhu-anneal — the configured anneal run exits and names its schedule;
+schedule behavior is not yet measured.**
+
+- files: reads the board-resolved berHu-anneal YAML and its six manifest-
+  declared deployment inputs. The `.dataset` pointer leads to data-vector,
+  covariance, mask, and n(z) siblings read transitively outside the manifest
+  hash. For a configured golden leg, the ordinary training YAML is copied into
+  the configured driver fileroot for both drivers; the temporary Git worktree
+  holds historical code. Smoke and golden drivers write ordinary
+  `.emul`/`.h5` products, which this gate does not read back.
+- subprocess: the berHu-anneal training driver and optional current-versus-
+  historical golden drivers.
+- metric: per-leg subprocess exit status, exact banner presence, conditional
+  selected-text-list equality, or `UNAVAILABLE` for the logged-only schedule
+  inspection; the golden helper does not require nonempty selections.
+- legs: 4, named `berhu-anneal.golden-selected-text-equality`,
+  `berhu-anneal.smoke-exit-zero`, `berhu-anneal.anneal-banner`, and
+  `berhu-anneal.schedule-behavior`.
+- evidence: smoke exit and the exact banner are asserted. The golden leg is
+  `UNAVAILABLE` when its configured base is null, and schedule behavior is
+  always `UNAVAILABLE` in the present wrapper.
+- owed: Torch, CosmoLike, and GPU are needed for the run; the golden leg needs
+  a configured base and a nonempty-selection assertion, and the hold-boundary
+  continuity/full-shape claims need numerical assertions.
+
+<a id="berhu-anneal-golden-selected-text-equality"></a>
+`berhu-anneal.golden-selected-text-equality` requires selected current and
+historical log-line lists to match after timing removal; it is `UNAVAILABLE`
+while the configured golden base is null, and the current helper would also
+accept two empty lists.
+
+<a id="berhu-anneal-smoke-exit-zero"></a>
+`berhu-anneal.smoke-exit-zero` requires the anneal training subprocess to exit
+with status zero.
+
+<a id="berhu-anneal-anneal-banner"></a>
+`berhu-anneal.anneal-banner` requires the exact substring
+`anneal: hold 5 + 10 cosine`.
+
+<a id="berhu-anneal-schedule-behavior"></a>
+`berhu-anneal.schedule-behavior` is `UNAVAILABLE`: the present gate logs a
+request to inspect continuity and the full-shape epoch but compares neither.
+
+<a id="ema-anneal-evidence"></a>
+**ema-anneal — the configured run exits and names both its EMA horizon and
+anneal schedule; the live-point metrics are not parsed.**
+
+- files: reads the board-resolved EMA-anneal YAML and its six manifest-declared
+  deployment inputs. The `.dataset` pointer leads to data-vector, covariance,
+  mask, and n(z) siblings read transitively outside the manifest hash. For a
+  configured golden leg, the ordinary training YAML is copied into the
+  configured driver fileroot for both drivers; the temporary Git worktree
+  holds historical code. Smoke and golden drivers write ordinary
+  `.emul`/`.h5` products, which this gate does not read back.
+- subprocess: the EMA-anneal training driver and optional current-versus-
+  historical golden drivers.
+- metric: per-leg subprocess exit status, exact banner presence, conditional
+  selected-text-list equality, or `UNAVAILABLE` for unparsed metric timing;
+  the golden helper does not require nonempty selections.
+- legs: 4, named `ema-anneal.golden-selected-text-equality`,
+  `ema-anneal.smoke-exit-zero`, `ema-anneal.ema-anneal-banners`, and
+  `ema-anneal.live-point-metrics`.
+- evidence: smoke exit and both banner substrings are asserted. The golden leg
+  is `UNAVAILABLE` when its configured base is null; the live-point leg is
+  `UNAVAILABLE` because the wrapper does not parse or compare those metrics.
+- owed: Torch, CosmoLike, and GPU are needed for the run; the golden leg needs
+  a configured base and a nonempty-selection assertion, and the first-live-
+  epoch claim needs a numerical parser and assertion.
+
+<a id="ema-anneal-golden-selected-text-equality"></a>
+`ema-anneal.golden-selected-text-equality` requires selected current and
+historical log-line lists to match after timing removal; it is `UNAVAILABLE`
+while the configured golden base is null, and the current helper would also
+accept two empty lists.
+
+<a id="ema-anneal-smoke-exit-zero"></a>
+`ema-anneal.smoke-exit-zero` requires the EMA-anneal training subprocess to
+exit with status zero.
+
+<a id="ema-anneal-ema-anneal-banners"></a>
+`ema-anneal.ema-anneal-banners` requires both `ema: horizon 3 epochs` and
+`anneal: hold 5 + 10 cosine`.
+
+<a id="ema-anneal-live-point-metrics"></a>
+`ema-anneal.live-point-metrics` is `UNAVAILABLE`: the present gate does not
+parse or assert the first epoch at which averaged metrics appear.
+
+<a id="joint-training-evidence"></a>
+**joint-training — the joint and frozen-trunk control runs exit and print the
+selected phase banners; trunk updates and handoff continuity are not yet
+measured.**
+
+- files: reads the board-resolved joint and frozen-trunk-control YAMLs and
+  their six manifest-declared deployment inputs. Each `.dataset` pointer leads
+  to data-vector, covariance, mask, and n(z) siblings read transitively outside
+  the manifest hash. For a configured golden leg, the ordinary training YAML
+  is copied into the configured driver fileroot for both drivers; the
+  temporary Git worktree holds historical code. Smoke and golden drivers write
+  ordinary `.emul`/`.h5` products, which this gate does not read back.
+- subprocess: joint and control training drivers plus optional current-versus-
+  historical golden drivers.
+- metric: per-leg subprocess exit status, regular-expression or literal
+  banner presence, conditional selected-text-list equality, or `UNAVAILABLE`
+  for logged-only comparisons; the golden helper does not require nonempty
+  selections.
+- legs: 7, named `joint-training.golden-selected-text-equality`,
+  `joint-training.joint-exit-zero`, `joint-training.two-phase-banner`,
+  `joint-training.joint-phase-banner`, `joint-training.control-exit-zero`,
+  `joint-training.epoch-time-order`, and
+  `joint-training.handoff-loss-continuity`.
+- evidence: both exit legs and both banner legs are asserted. The golden leg is
+  `UNAVAILABLE` when its configured base is null. Epoch-time ordering and
+  handoff-loss continuity are printed for inspection only and are
+  `UNAVAILABLE`; no leg currently proves that trunk weights changed.
+- owed: Torch, CosmoLike, and GPU are needed for both runs; the golden leg
+  needs a configured base and a nonempty-selection assertion, while direct
+  state and numerical continuity comparisons are needed for the final two
+  claims.
+
+<a id="joint-training-golden-selected-text-equality"></a>
+`joint-training.golden-selected-text-equality` requires selected current and
+historical log-line lists to match after timing removal; it is `UNAVAILABLE`
+while the configured golden base is null, and the current helper would also
+accept two empty lists.
+
+<a id="joint-training-joint-exit-zero"></a>
+`joint-training.joint-exit-zero` requires the `freeze_trunk: false` run to exit
+with status zero.
+
+<a id="joint-training-two-phase-banner"></a>
+`joint-training.two-phase-banner` requires a line matching
+`two-phase: N trunk`; the integer is not pinned by this regular expression.
+
+<a id="joint-training-joint-phase-banner"></a>
+`joint-training.joint-phase-banner` requires the literal substring
+`phase 'joint'`.
+
+<a id="joint-training-control-exit-zero"></a>
+`joint-training.control-exit-zero` requires the `freeze_trunk: true` control
+run to exit with status zero.
+
+<a id="joint-training-epoch-time-order"></a>
+`joint-training.epoch-time-order` is `UNAVAILABLE`: the wrapper prints the two
+last epoch lines but performs no ordering comparison.
+
+<a id="joint-training-handoff-loss-continuity"></a>
+`joint-training.handoff-loss-continuity` is `UNAVAILABLE`: continuity is an
+inspection instruction, not a numerical assertion in the current gate.
+
+<a id="weight-decay-census-evidence"></a>
+**weight-decay-census — a finite toy module tree is partitioned by module role
+into exactly one optimizer group per parameter.**
+
+- files: the child uses an in-memory `ToyTree` containing the explicitly listed
+  module families and writes no product. This gate's manifest declares no file
+  inputs. For a configured golden leg, the ordinary training YAML is copied
+  into the configured driver fileroot for both drivers; those drivers read
+  deployment arrays plus a `.dataset` pointer and its transitive data-vector,
+  covariance, mask, and n(z) siblings, all outside this gate's manifest, and
+  write ordinary `.emul`/`.h5` products. The temporary Git worktree holds
+  historical code, not the staged YAML.
+- subprocess: `gates/checks/gwd_census.py` and optional current-versus-
+  historical golden drivers.
+- metric: per-leg exact parameter-identity sets and quantifiers over the toy
+  tree, exact zero-decay controls, or conditional selected-text-list equality;
+  the golden helper does not require nonempty selections.
+- legs: 5, named `weight-decay-census.allowed-weight-set`,
+  `weight-decay-census.undecayed-role-exclusions`,
+  `weight-decay-census.parameter-group-partition`,
+  `weight-decay-census.zero-decay-inert`, and
+  `weight-decay-census.golden-selected-text-equality`.
+- evidence: the first four legs are asserted by the child script. Its census
+  is limited to the explicit `ToyTree` module families; it is not a census of
+  every constructible production model. The golden leg is `UNAVAILABLE` when
+  its configured base is null.
+- owed: the board registry requires Torch and GPU for the whole gate. A
+  configured golden comparison additionally needs CosmoLike as an unmodeled
+  runtime dependency—its absence would be red, not capability-`UNAVAILABLE`—
+  plus a configured base and a nonempty-selection assertion.
+
+<a id="weight-decay-census-allowed-weight-set"></a>
+`weight-decay-census.allowed-weight-set` requires the decayed set to be
+exactly the `Linear`, `Conv1d`, and `BinLinear` weights in `ToyTree`.
+
+<a id="weight-decay-census-undecayed-role-exclusions"></a>
+`weight-decay-census.undecayed-role-exclusions` requires the gated-power shape
+parameters, `BinLinear` bias, and every other non-allowlisted toy parameter to
+remain outside the decayed group.
+
+<a id="weight-decay-census-parameter-group-partition"></a>
+`weight-decay-census.parameter-group-partition` requires the two optimizer
+groups to be disjoint and their union to contain every toy parameter exactly
+once.
+
+<a id="weight-decay-census-zero-decay-inert"></a>
+`weight-decay-census.zero-decay-inert` requires every optimizer group to carry
+exactly zero weight decay when the requested value is zero.
+
+<a id="weight-decay-census-golden-selected-text-equality"></a>
+`weight-decay-census.golden-selected-text-equality` requires selected current
+and historical log-line lists to match after timing removal; it is
+`UNAVAILABLE` while the configured golden base is null, and the current helper
+would also accept two empty lists.
 
 ## 25M-10 (Red Team CONFIRMED, awaiting Architect adjudication): `--quiet` cannot satisfy its public all-stdout contract
 

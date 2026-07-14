@@ -388,6 +388,66 @@ grid, grid2d, data-vector).
   term (Adam's moments would rescale it); weight_decay-0 recommended.
 - Provenance attrs: finetuned_from + finetune_extra_names.
 
+### Warm-start source reads and perturbed finite values (Red Team implementation draft, 2026-07-13)
+
+This branch implements DIDACTICS-67 and DIDACTICS-68 for Architect audit.
+It does not certify the landing.
+
+`FinetuneSource` is one in-memory object.  A successful construction opens
+the source HDF5 file twice.  `rebuild_emulator` owns the first open,
+reconstructs both geometries and the network, and loads the `.emul` weights
+once.  `load_source` owns the second HDF5 open because the warm-start
+validator needs the model recipe, saved rescale value, and resolved data block that
+`rebuild_emulator` does not return.  The class and loader docstrings now teach
+that sequence directly.  The class attribute list now includes `ia` and
+defines its three values: `nla`, `tatt`, and `None`.
+
+Both parity paths now name and screen the two values produced only after the
+extra-coordinate perturbation:
+
+1. Fine-tuning screens `enc_pert` as `perturbed encoded new-run inputs`, then
+   screens `out_pert` as `perturbed epoch-0 new-model outputs`.
+2. Transfer screens `enc_pert` as `perturbed encoded run inputs`, then
+   screens `composed_pert` as `perturbed epoch-0 composed prediction`.
+
+All four calls use `_require_parity_finite`.  Its existing shared error names
+the pipeline side, the quantity, and the staged source-row coordinates.  The
+comparison runs only after both values are finite.  The baseline path and
+parity tolerances are unchanged.
+
+Focused CPU acceptance lives in
+`tests/test_warmstart_perturbed_finite.py`.  Eleven tests pass with the Cocoa
+Torch 2.6.0 interpreter.  Two finite controls retain the fine-tune and
+transfer parity verdicts.  A NaN appears only in row 9 of each perturbed
+encoding.  An Inf appears only in row 9 of each perturbed output.  Every
+failure names the required side, quantity, and row.  Four mutation tests skip
+one guard at a time: skipping an input guard changes the reported quantity to
+the later output, while skipping an output guard restores the misleading
+`extra parameters leaked` or `extra parameters moved` diagnosis.  Each
+mutation also counts that the production call it disables was reached, so
+deleting the call cannot leave the mutation test green.
+
+The shared gate files were deliberately not edited during the queue-2
+ownership window.  The exact follow-up is bounded:
+
+- `gates/checks/finite_contract.py` Part D receives the fine-tune
+  perturbation-only NaN/Inf legs and both skip-one-guard mutation arms.
+- Part E receives the matching transfer legs and mutation arms.
+- The planned documentation-examples gate receives the DIDACTICS-67 runtime
+  read census: a real tiny artifact must produce two `.h5` opens, one
+  `.emul` load, one returned `FinetuneSource`, and a constructor-field census
+  that includes `ia`.
+
+A direct run of the current `finite_contract.py` confirms that all existing
+Part D and Part E legs still pass.  The whole script is not green on this
+main-line snapshot: four known Part A/C message-prefix checks fail and Part F
+crashes because its synthetic loss object has no `geom`.  Those failures
+predate this bounded warm-start visit and are not presented as acceptance.
+The direct `finetune_identity.py` child is all green.  The direct
+`transfer_identity.py` child passes its warm-start and finite-value-adjacent
+legs, then retains the separately known cross-family fixture red as its sole
+failure.
+
 ## Fine-tune anchor truth (red-team 2026-07-12 eighth wave, Architect-VERIFIED, open; a training-truth unit — with or immediately after the finite/selection pair, before any anchored production fine-tune)
 
 Two stacked defects and one live documentation lie, all verified:
@@ -1399,3 +1459,79 @@ inference/artifact boundary campaign, enforced centrally in
 EmulatorPredictor (never five adapter copies); EMUL2-blocking; the
 domain block's schema placement rides the fixed-facts proposal
 review.
+
+## 25M-37 (Red Team finding, awaiting Architect adjudication): an eager CosmoLike import makes four advertised Torch-only gates fail before their first assertion
+
+`emulator/geometries/output.py` imports
+`cosmolike_lsst_y1_interface` at module import time.  Only the
+`DataVectorGeometry.from_cosmolike` construction path uses that interface;
+the plain constructor and `from_state` rebuild path use persisted arrays and
+do not.  The module's own teaching text says that inference never rereads
+CosmoLike, but importing the module still requires the compiled package.
+
+This makes the gate capability declarations false.  The board declares
+`scalar-identity`, `finetune-identity`, `transfer-identity`, and
+`finite-contract` with `needs=("torch",)` and their child documentation says
+that CosmoLike is not required.  Each child imports `DataVectorGeometry`
+before entering `main`.  Executing all four with the Cocoa Torch 2.6.0
+interpreter and `PYTHONPATH=.` on a machine without the compiled interface
+produces the same pre-body `ModuleNotFoundError`; no child report or logical
+leg executes.  `finite-contract` therefore cannot even reach its separately
+known `_chi2_domain` red on the environment its own header promises.
+
+Required contract: make the compiled interface a dependency of the
+`from_cosmolike` construction boundary, not of importing the persisted
+geometry type.  Importing `emulator.geometries.output`, constructing or
+restoring `DataVectorGeometry` from explicit tensors, and rebuilding a saved
+artifact must work with Torch and NumPy when the interface is absent.
+Calling `from_cosmolike` without it must raise a teaching error that names the
+missing compiled dependency and the operation that requested it.  With the
+interface installed, the existing construction numerics and saved state stay
+unchanged.  Red legs execute the four real child entry points in an
+environment where the interface import is deliberately unavailable; each
+must get past module import and reach its owned assertions.  A mutation that
+restores the eager module-level import must fail all four.  This is production
+geometry ownership plus board capability evidence, not four independent gate
+stubs.
+
+## Queue-2 evidence draft: geometry-module paths
+
+<a id="geo-paths-evidence"></a>
+**geo-paths — fresh artifacts name geometry classes from the geometry package,
+and the retired flat module paths remain absent.**
+
+- files: creates a temporary covariance file plus temporary `.h5` and `.emul`
+  artifact files; scans every repository Python file returned by the board's
+  shared repository-file enumerator except its own check source, which contains
+  the retired names as test data; all generated files are deleted with the
+  temporary directory.
+- subprocess: `gates/checks/geo_paths.py`.
+- metric: per-leg attribute-prefix/count and finite-prediction checks, a
+  complete six-name disk/import census, or a repository-Python reference
+  census with the one named self-exclusion.
+- legs: 3, named `geo-paths.fresh-save-uses-folder-paths`,
+  `geo-paths.legacy-flat-paths-absent`, and
+  `geo-paths.legacy-reference-census`.
+- evidence: all three legs are asserted in the child; the child's exit status
+  remains the single aggregate verdict and is not a fourth leg.
+- owed: the board registry models CPU PyTorch only. NumPy and HDF5 are also
+  ordinary imports of the child; if either import is absent the child is red
+  before these legs, rather than capability-skipped. A green full board is
+  separate integration evidence and is not minted as a `geo-paths` leg.
+
+<a id="geo-paths-fresh-save-uses-folder-paths"></a>
+`geo-paths.fresh-save-uses-folder-paths` requires a fresh artifact to contain
+at least two attribute values beginning `emulator.geometries.`, no attribute
+value beginning with the retired flat prefix, and a finite prediction after
+rebuild. The current child does not identify which two geometry classes own
+those markers.
+
+<a id="geo-paths-legacy-flat-paths-absent"></a>
+`geo-paths.legacy-flat-paths-absent` checks each of the six retired module
+names on disk and through `importlib.util.find_spec`; every name must be
+absent.
+
+<a id="geo-paths-legacy-reference-census"></a>
+`geo-paths.legacy-reference-census` scans the complete repository Python-file
+set supplied by the shared board enumerator, excluding only the check that
+contains the search terms, and requires zero retired flat-module references.
