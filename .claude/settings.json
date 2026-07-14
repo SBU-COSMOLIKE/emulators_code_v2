@@ -19,7 +19,8 @@
       "Bash(head*)",
       "Bash(tail*)",
       "Bash(shasum*)",
-      "Bash(mkdir*)"
+      "Bash(mkdir*)",
+      "Bash(git fetch /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2/.claude/worktrees/*)"
     ],
     "deny": [
       "Bash(git push*)"
