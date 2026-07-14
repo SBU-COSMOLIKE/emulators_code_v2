@@ -3128,3 +3128,16 @@ minimal machinery-forced board.py string swap accepted this once;
 cross-boundary conflicts are handed back or claimed BEFORE
 resolution. Spec: gates-and-board.md "D6 triangle integration
 audit".
+
+UNIT-93 RULING + 25M-38 (2026-07-13, Fable): 93's hold ruled via
+the separate-module trigger (red team writes a NEW standalone
+check child + evidence block; Implementer wires the board entry at
+the wrapper-family batch; CUDA workstation-owed). 25M-38 CONFIRMED
+and reproduced in-process (the 4-token .ranges header parses as
+data in GetDist; float("weights") raises; the 5-token two-param
+control hides it; the header is the chain layout, wrong file
+anyway) — repair ruled to the red team: delete the comment write,
+ParamBounds regression legs, unit 82 rebases, then replay closes
+DIDACTICS-79. Their self-caught diagnostic edit + byte-identical
+restore acknowledged. Spec: gates-and-board.md "Unit-93 hold
+ruling + 25M-38 adjudication".

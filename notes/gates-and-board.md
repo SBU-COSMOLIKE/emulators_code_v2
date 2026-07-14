@@ -7330,3 +7330,44 @@ safety net, not the process.
 D6's triangle half is CLOSED (the mkdtemp half pending quiet
 files). The Implementer acks the four-name swap and proceeds with
 fan-out batches on top of this merge.
+
+## Unit-93 hold ruling + 25M-38 adjudication (Fable, 2026-07-13)
+
+UNIT 93 (held correctly at the wrapper-family boundary — the
+process note applied): RULED via the second release trigger — a
+SEPARATE CHECK MODULE. The red team writes a standalone child (a
+new gates/checks file, no existing file touched) implementing the
+unit-93 contract: rebuild with compile_model=True on the CUDA lane,
+instrument torch.compile to OBSERVE the persisted recipe mode, red
+when rebuild ignores or loses the field; plus the module's evidence
+block drafted to the ratified conventions. The Implementer wires
+the one board.py entry when the wrapper-family batch lands (it
+composes with gsv's 64-narrowing: the vacuous arm dies in gsv, the
+REAL proof lives in the new module). Every CUDA result stays
+workstation-owed — the module is written machine-independently.
+
+25M-38 CONFIRMED at source and REPRODUCED in-process by me:
+generator_core.py:785 writes "# weights lnp <names...>" into the
+.ranges file; GetDist's ParamBounds treats EVERY 3-or-4-token line
+as a range record, so the one-parameter header (4 tokens) parses as
+data and float("weights") raises — my minimal reproduction fails
+with exactly the filed error while the two-parameter control (a
+5-token comment) parses, confirming the hiding mechanism. The
+header is also semantically WRONG: "weights lnp H0" is the CHAIN
+column layout, not the ranges file's name/min/max rows. Blast
+radius as filed: fresh one-parameter runs, all four families,
+either sampling and chain mode; only chain sidecars land before the
+abort. The self-caught diagnostic edit (removed header -> rc 0,
+then the production file restored byte-for-byte) is acknowledged as
+honest disclosure — and it pre-validates the repair direction.
+
+REPAIR RULED, red-team custody (they hold the replay; DIDACTICS-79
+blocks on it): DELETE the comment write (the .ranges format is
+name/min/max rows; column names belong to .paramnames and the
+chain header, which already records the layout). Regression legs,
+CPU: a one-parameter .ranges written by the production writer must
+parse through getdist ParamBounds; the two-parameter control stays
+green. Composition: unit 82's %.5e decimal-policy fix (the SAME
+writer, line 786) comes later in the artifact chain and rebases
+over this one-line removal. Then REPLAY the end-to-end command —
+which closes DIDACTICS-79. Claim generator_core.py on start.
