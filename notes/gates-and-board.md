@@ -14035,3 +14035,37 @@ git diff --check                                       rc 0
 
 No compatibility rule, threshold, golden base, or unrelated staging path was
 weakened. The ledger defect closes in the commit carrying this entry.
+
+## Rebuild-time fixed-facts name audit (Codex, 2026-07-14): GO
+
+The schema-v3 reader already proved that the structured `fixed_facts` and
+`input_domain` blocks equal their copied producer text. Those two copies can,
+however, be rewritten together. The persisted input geometry is an independent
+copy of the sampled-coordinate order, and rebuild formerly never compared it
+with the accepted record. `rebuild_emulator` now calls the shared
+`fixed_facts.check_names_match` immediately after rebuilding that geometry and
+before output geometry, PCE/transfer reconstruction, model construction, or
+weight loading.
+
+The focused HDF5 witness writes a valid schema-v3 artifact, then coordinates a
+rewrite of both record representations to the reverse parameter order while
+leaving the persisted whitening geometry intact. The reader refuses that file
+and proves `torch.load` was not called. A matching control reaches the mocked
+weight load, showing the repair did not make valid artifacts unreadable.
+
+As an independent catch-power control, Codex temporarily bypassed the new
+comparison. The tampered artifact then reached the mocked `torch.load`, and
+the focused suite returned 1 with exactly that refusal test in error. Restoring
+the comparison returned both focused tests and all 13 fixed-facts gate aids to
+green.
+
+```text
+cocoa-torch python: tests.test_results_rebuild_fixed_facts_names  rc 0  2/2 PASS
+cocoa python: gates/checks/fixed_facts_schema.py                  rc 0  88 PASS / 0 FAIL; 13 aids
+comparison-bypass mutation                                       rc 1  tampered artifact reached torch.load
+py_compile                                                       rc 0
+git diff --check                                                 rc 0
+```
+
+No schema version, comparison law, threshold, golden base, or unrelated read
+path changed. The ledger defect closes in the commit carrying this entry.

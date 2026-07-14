@@ -729,8 +729,9 @@ def rebuild_emulator(path_root, device, compile_model=True):
   Raises:
     ValueError from read_artifact_schema when the .h5 announces no schema
     version, announces one this code does not know, or breaks any law of the
-    scientific record; KeyError naming any missing recipe / geometry / pce key
-    (never a code-default fallback).
+    scientific record; ValueError when the rebuilt input geometry disagrees
+    with that record's sampled-parameter order; KeyError naming any missing
+    recipe / geometry / pce key (never a code-default fallback).
   """
   import importlib
   # h5py lives only here: the training machines (cocoa) ship it, the
@@ -801,6 +802,15 @@ def rebuild_emulator(path_root, device, compile_model=True):
       raise KeyError(f"{path_root}.h5 is missing the model_recipe")
     recipe = yaml.safe_load(f["model_recipe"][()])
     pgeom = _rebuild_geometry(f["param_geometry"], "param_geometry group")
+    # The HDF5 blocks and their copied sidecar text prove that the scientific
+    # record is internally consistent, but both copies can be rewritten
+    # together.  The rebuilt whitening geometry is the independent copy of the
+    # sampled-coordinate order, so compare it again on the read path before a
+    # model can be constructed or handed values in the wrong column order.
+    fixed_facts.check_names_match(
+      geometry_names=pgeom.names,
+      blocks=record,
+      where=path_root + ".h5")
     geom  = _rebuild_geometry(f["dv_geometry"], "dv_geometry group")
     pce_base = None
     pce_form = None
