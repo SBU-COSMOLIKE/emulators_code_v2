@@ -1423,34 +1423,53 @@ def gate_bsn_b(ctx):
 def gate_mps_a(ctx):
   """mps-identity: the grid2d emulator + the syren-law assembly math.
 
-  WHAT: the Grid2DGeometry standardize/state round-trips + its width /
-  unknown-law guards (the partial-constant raise leg died when the
-  constant-column pin was made law-agnostic — the run-10 catch); the STAGING
-  law transform through the REAL load_source (law rows = log(raw/base)
-  with the base dump aligned by dump_rows through a real shuffled
-  staging; k_stride keeps the top edge; positivity loud); the BOUNDED
-  staging on the production 122 x 2,000 grid (guarded memmap reads prove
-  every raw + base read is row-chunked and column-thinned, an
-  independent known-answer match, a disk-backed low-RAM result, and the
-  guard trips on the old whole-selection access) and the STABLE streamed
-  moments (a 50,000-row 1e8/1-ULP column keeps its true std through the
-  Chan/Welford accumulator, never a false constant pin); save ->
-  rebuild -> predict bitwise on both laws (the predictor's grid2d
-  branch returns the reshaped (nz, nk) surface); the emul_mps assembly
-  EXACT against synthetic base stubs (P_lin = exp(net)*base, the low-k
-  blend pins boost -> 1 below k_t, P_nl = B*P_lin, the boost base fed
-  the EMULATED P_lin — the legacy flow), its pair/grid/wrong-kind
-  guards, the legacy state keys + interpolator node round-trip, and
-  the reject-on-bad-spectrum semantics; validate_grid2d's pairing /
-  base-file / k_stride legs (transfer ACCEPTED since the 2026-07-12
-  symmetry ruling); the finetune parity + metadata-mismatch
-  legs. Added 2026-07-11/12: the correction-head leg (ResCNN on z-slice
-  channels, the two-phase discipline, the n_tokens-on-real-bins
-  rejection, the bitwise round-trip), the constant-pin legs,
-  and the NPCE check_npce leg (residual algebra + base + net
-  prediction bitwise, the diagonal ratio rejection). torch + scipy,
-  no CAMB, no symbolic_pofk (the real syren formulas ride the EMUL2
-  acceptance) (spec: notes/families-background-mps.md).
+  WHAT: the check gates the grid2d matter-power family through seven
+  evidence legs, and it folds one '##AID <leg> <PASS|FAIL>' terminal per
+  leg into this gate's executed set (each leg aggregates its group of the
+  child's report() probes; the wrapper's rc-check below stays the single
+  aggregate verdict, not a leg):
+
+    - geometry-laws-and-pins: the Grid2DGeometry standardize / state
+      round-trips, the width / unknown-law guards, the exact
+      constant-column pins under both laws, and the wholly-constant
+      refusal;
+    - bounded-staging-values: the STAGING law transform through the REAL
+      load_source (law rows = log(raw/base) base-aligned by dump_rows;
+      k_stride keeps the top edge; positivity loud), and the BOUNDED
+      staging on the production 122 x 2,000 grid (guarded memmap reads
+      prove every raw + base read is row-chunked and column-thinned, an
+      independent known-answer + mean match, a disk-backed low-RAM
+      result, and the whole-selection + mean-before-cast mutations both
+      disagree);
+    - stable-streamed-moments: a 50,000-row 1e8/1-ULP column keeps its
+      true std through the Chan/Welford accumulator over uneven
+      chunkings (never a false pin), the relative constant-pin boundary,
+      and the from_stats encode == the materialized standardization;
+    - staging-file-lifecycle: the experiment-owned temp files —
+      supersede-on-restage, sweep-lane release bounded to one live file,
+      failure unlink, and the resident-RAM control that makes no temp;
+    - saved-model-variants: save -> rebuild -> predict bitwise on the
+      syren_linear and none laws, the correction-head leg (ResCNN on
+      z-slice channels, the two-phase discipline, the n_tokens-on-real-
+      bins rejection, the bitwise round-trip), and the NPCE leg
+      (residual algebra + base + net prediction bitwise, diagonal ratio
+      rejection);
+    - adapter-assembly-and-defaults: the emul_mps assembly EXACT against
+      synthetic base stubs (P_lin = exp(net)*base, the low-k blend pins
+      boost -> 1 below k_t, P_nl = B*P_lin, the boost base fed the
+      EMULATED P_lin), the getters serving Cobaya's public nonlinear
+      default (an omitted argument returns the nonlinear grid /
+      interpolator, != the explicit linear branch, pinned against the
+      installed BoltzmannBase signature), the interpolator node
+      round-trip, the pair / grid / wrong-kind guards, and the
+      reject-on-bad-spectrum semantics;
+    - config-and-finetune: validate_grid2d's pairing / base-file /
+      k_stride / transfer legs (transfer ACCEPTED since the 2026-07-12
+      symmetry ruling) and the finetune parity + metadata-mismatch legs.
+
+  torch + scipy, no CAMB, no symbolic_pofk (the real syren formulas ride
+  the EMUL2 acceptance)
+  (spec: notes/families-background-mps.md#mps-identity-evidence).
   """
   ctx.require_caps("torch")
   rc, out = ctx.run_check("gates/checks/mps_identity.py")
@@ -2367,16 +2386,23 @@ BOARD = [
        title="MPS grid2d emulator identity",
        tier=TIER_NEW_FEATURES,
        home="families-background-mps",
-       maps="the note's matter-power sections: geometry + laws; the base "
-            "placement + staging transform; the bounded-staging + "
-            "stable-moments legs and the staging-lifecycle legs "
-            "(experiment-owned temp files, supersede-on-restage, "
-            "sweep-lane release, failure unlink; Grid2d staging defeats "
-            "its own memory ladder, data-generation-and-cuts.md); "
-            "identity legs; the getters serve Cobaya's public nonlinear "
-            "default (an omitted argument returns the nonlinear grid / "
-            "interpolator, != the explicit linear branch, pinned against "
-            "the installed BoltzmannBase signature); finetune",
+       maps="the matter-power geometry, bounded staging and its "
+            "temporary-file lifecycle, saved model variants, adapter "
+            "assembly, config validation, and fine-tuning legs",
+       evidence=(Assertion("mps-identity.geometry-laws-and-pins",
+                           "families-background-mps.md#mps-identity-geometry-laws-and-pins"),
+                 Assertion("mps-identity.bounded-staging-values",
+                           "families-background-mps.md#mps-identity-bounded-staging-values"),
+                 Assertion("mps-identity.stable-streamed-moments",
+                           "families-background-mps.md#mps-identity-stable-streamed-moments"),
+                 Assertion("mps-identity.staging-file-lifecycle",
+                           "families-background-mps.md#mps-identity-staging-file-lifecycle"),
+                 Assertion("mps-identity.saved-model-variants",
+                           "families-background-mps.md#mps-identity-saved-model-variants"),
+                 Assertion("mps-identity.adapter-assembly-and-defaults",
+                           "families-background-mps.md#mps-identity-adapter-assembly-and-defaults"),
+                 Assertion("mps-identity.config-and-finetune",
+                           "families-background-mps.md#mps-identity-config-and-finetune")),
        run=gate_mps_a,
        manifest=Manifest(code=("emulator/designs", "emulator/losses",
                                "cobaya_theory/emul_mps.py"),

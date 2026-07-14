@@ -7901,3 +7901,86 @@ labeling, and the no-self-certification line. Scope vs main:
 README.md + the register only. VERDICT: GO; merged (e350b65,
 register both-retained). The README diagnostic-memory item is
 CLOSED.
+
+FAN-OUT BATCH 5 (c374c49) + 5b (2712a04) GO: the first CHECK-SCRIPT
+fan-out. scalar-identity (5) + bsn-identity (6) committed together as
+batch 5 -- each child emits one ##AID per drafted leg via an emit
+helper that reads the FAILURES delta over a contiguous check_* group,
+the wrapper rc-expect stays aid-less, and both children run green on
+cocoa-torch with child ##AID set == evidence= set. mps-identity (7)
+landed separately as 5b under the BINDING batch-5 seam ruling: unit-63
+(06c9d8f) had rewritten gates/checks/mps_identity.py (+127 lines,
+const-mask real-artifact legs) after the subagent branched from the
+stale base 233db22, so the subagent's CHILD patch was stale. I
+re-derived the ##AID wiring on the CURRENT child -- reusing the
+subagent's board.py evidence= and its LEG_AIDS/emit_leg idea -- and
+moved check_const_mask_artifact adjacent to check_geometry so the
+const-mask legs FOLD under geometry-laws-and-pins exactly as the
+ruling directs. Child runs 69 PASS/0 FAIL, seven ##AID, declared==
+emitted. 24/40 migrated.
+
+CHECK-SCRIPT INTEGRATION RULE banked: a subagent's isolated worktree
+branches from a stale base, so before applying its child edits, run
+`git log <base>..HEAD -- <child>`; if an intervening commit touched
+the child, RE-DERIVE the ##AID wiring on the current child rather than
+apply the stale child patch (the board.py evidence= hunk is usually
+still clean and applies gate-locally). This is the check-script analog
+of the batch-3 board.py gate-local-hunk lesson.
+
+## Batch-5 partial (retro) + unit-90 audit (Fable, 2026-07-14): c374c49 GO retroactively; 8264334 content-GO with a REBASE REQUIRED before merge
+
+BATCH 5 PARTIAL (c374c49: scalar-identity + bsn-identity; the
+mps-identity third rides the unit-63 seam, in progress): audited
+RETROACTIVELY — the commit landed on the shared branch between my
+printed landing block and the user's merge, so it reached main
+unaudited. The audit is green, so no harm followed, but the
+sequencing hazard is now named: A LANDING BLOCK IS A SNAPSHOT.
+Mitigation adopted: every future landing block names the audited
+tip sha so the user can see whether the branch has moved past the
+audit. The delta itself: the first check-script family migrations
+(two-file shape; the geo-paths emit_aid template with
+FAILURES-snapshot bracketing — one ##AID per declared leg, sub-
+checks folded, exit status the single verdict). Names==drafts
+exactly (scalar-identity 5, bsn-identity 6). MY RUNS at c374c49:
+both children rc 0 emitting exactly their declared sets, ALL
+PASS; compile, --list rc 0, board-selftest ALL PASS.
+
+UNIT 90 (codex/unit90-independent-quadrature, 8264334, tip
+065cc53, base pre-batch-5): the bsn distance pipeline finally has
+a reference that is INDEPENDENT of the production integrator —
+scipy.integrate.quad on the analytic flat-LCDM c/H(z), sharing
+neither Simpson weights nor evaluation grid, its acceptance band
+= the 1e-6 production allowance + 10x quad's own error estimate
+(reference uncertainty cannot mint a false red). The old
+120001-point same-integrator comparison is retained but RELABELED
+resolution-only, with the honest comment that it makes no claim
+about weight normalization. The prior finiteness HOLD is closed:
+_finite_difference_over_band maps nonfinite observations,
+references, and nonpositive bands to +inf (no reliance on NaN
+ordering), _ratios_pass refuses empty ratio lists, and the
+nonfinite-distance arm drives the SAME predicate red. The
+mutation architecture is the unit's teaching core: scaling every
+production Simpson weight 0.99 (injected through the real module
+attribute, restored in finally) leaves the shared fine-grid
+reference GREEN (blindness demonstrated executably) while the
+independent quadrature rejects it by >= 1e4 bands.
+
+MY RUNS (their tree): child rc 0, every claimed number reproduced
+EXACTLY (independent band 1.617e-06; resolution control
+1.615e-06; blind-reference 1.615e-06 green; minimum rejection
+1.000e+04 bands). MY PROBE (scratch worktree): neutralizing
+SIMPSON_WEIGHT_MUTATION_SCALE to 1.0 reds exactly the
+independent-rejection arm at rc 1 (smallest ratio 6.132e-07) —
+the arm is load-bearing, not decorative.
+
+VERDICT: content GO; MERGE HELD FOR A REBASE. The branch base
+predates batch 5, so bsn_identity.py conflicts with the migrated
+child. SEAM RULING: batch 5's edit is committed, so the file is
+claimable — the red team merges current main into their branch
+and resolves preserving BOTH the six-leg ##AID bracketing AND the
+new quadrature legs, which fold INSIDE the existing
+bsn-identity.distance-pipeline-consistency bracket (the declared
+set stays exactly six; no new aids). Acceptance for the rebased
+tip: the child emits exactly the six declared terminals ALL PASS
+with the new legs contributing to distance-pipeline-consistency,
+plus my delta re-audit of the conflict resolution only.
