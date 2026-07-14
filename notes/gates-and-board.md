@@ -10059,3 +10059,99 @@ README's wording states the true thing and stands.
 VERDICT: GO. (0034-to-fable was the user's humanize-examples
 directive, already cut interactively as unit 0036; 0035 was this
 unit's handoff — both neutralized.)
+
+## Queue-2 increment 7 (Opus, 2026-07-14): README section 24 --send examples humanized
+
+Executed 'BLUEPRINT: README section 24 — humanize the command examples
+(Fable, 2026-07-14)'. Scope as specified: README.md only, three example
+message bodies plus one prose sentence that depended on them.
+
+WHAT CHANGED. Section 24 held three `--send` examples whose `--unit`
+strings quoted internal section titles ("Wire the finite-contract
+emission per notes/gates-and-board.md, section 'RULING: finite-contract
+Part F scope and emission shape'", and the paired implement/attack
+strings in the parallel-lane snippet). A first-time reader cannot parse
+any of that, and the jargon obscured the very thing the examples exist
+to teach. They now carry one running story a newcomer reads at a glance:
+
+  build request (to opus, README:3570)
+    "Add a --version flag to the training script, as described in
+     notes/version-flag.md."
+  attack request (to sol, README:3651)
+    "Try to break the new --version flag, as described in
+     notes/version-flag-attack.md."
+
+The single-send example (README:3569) and the parallel-lane example
+(README:3648) now tell the same story: the same small documented feature
+is built in one lane and attacked in the other, which is exactly what the
+surrounding prose about lanes claims happens. The load-bearing pattern is
+untouched and, being plain now, is actually visible: the message is ONE
+sentence that names a note, and the note holds the specification.
+
+PROSE FOLLOW-ON. "That is a real example, and it shows the rule..."
+(old README:3573) named the old body as a genuine past message. The new
+bodies are illustrative, so that clause would have been a false claim;
+it now reads "Short as that message is, it shows the rule...". Nothing
+else in section 24 referenced the old bodies (checked: the bootstrap
+list at README:3801 mentions `--send` only as a flag).
+
+GATE EVIDENCE (this session, raw).
+- Copy-paste-run: both new commands executed verbatim under `--dry-run`.
+  argparse accepts them (the embedded `--version` inside the quoted
+  value is not mistaken for a flag), and each resolves the worktree
+  mailbox: "[dry-run] would queue .../notes/mailbox/0037-to-opus.md"
+  and ".../0037-to-sol.md". Mailbox listing unchanged afterwards, so the
+  check queued nothing.
+- Dash census on added lines: 0 em, 0 en, 0 minus (script over
+  `git diff -U0 README.md`). Zero-dash register held.
+- Scope: `git diff --stat` = README.md only.
+- No internal section titles, gate names, or program shorthand survive
+  inside any example string (grep for `RULING:`, `BLUEPRINT:`,
+  `gates-and-board` across README returns nothing).
+
+LANDING BLOCK (for the user, per policy — I do not merge or push).
+
+    git checkout main
+    git merge --ff-only claude/amazing-keller-e798b6
+    git push origin main
+
+RESUME STATE. Unit complete; nothing deferred. Note names invented for
+the examples (`notes/version-flag.md`, `notes/version-flag-attack.md`)
+are deliberately fictional teaching props: they read as obvious, and
+section 24 never implies the reader will find them in this repository.
+If a future editor wants the examples to point at files that exist, that
+is a new decision, not an omission from this unit.
+
+## RULING + FIRINGS: backup-Implementer threshold pinned; 41+53 and TEX-PROSE-04..06 fire (Fable, 2026-07-14)
+
+USER DIRECTIVE (verbatim intent): more work to both lanes; the
+Sol-to-backup-Implementer switch needs an ABSOLUTE queue size, in the
+README and in the code. PINNED: BACKUP_THRESHOLD = 3 queued units in
+the Implementer lane (tools/mailbox_daemon.py, printed as a tripwire
+hint by every watch pass that holds it; FABLE_ROLE Backup-Implementer
+section updated; README paragraph folded into unit 0036). At or past
+3, backup assignment is the default.
+
+FIRED per the wave-2 pre-authorization ledger (state note): 41+53
+starts at the red team NOW — the trigger was rollout-plan approval and
+the queue-2 rollout is COMPLETE (40/40). Substance: the resolved unit
+41 record (AMP dtype + scaler policy persisted) and unit 53 record
+(stable manifest naming) in notes/training-stack.md plus their
+25M-05/06 amendments. Also fired: TEX-PROSE-04+05+06 (register-defined
+in notes/red-team-audit-and-didactics-2026-07-13.md), one unit, three
+subagent fan-outs.
+
+NOT fired (not pre-authorized, my rulings owed next): 96, the
+fixed-facts/artifact chain, unit 8, the staging reopen. These are now
+MY next work items, ahead of lower-value Architect work, per the
+saturation doctrine.
+
+## Humanized README examples audit (Fable, 2026-07-14): 61ee3e6 GO
+
+Re-verified: README-only (+4/-4), dash census 0, both example bodies
+now plain requests (build a --version flag / try to break it) pointing
+at obviously-named notes, no internal section titles or gate names
+survive in any example string, commands verbatim-accepted by argparse
+under --dry-run. The mid-turn daemon edit the Implementer flagged was
+the Architect's own threshold work, since committed (d8063be) — owner
+resolved. VERDICT: GO.

@@ -227,8 +227,11 @@ Two further user rules (2026-07-14) on the same doctrine:
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo
   can follow: say WHAT changed in plain words (which file, which
-  user-visible behavior), WHY it changed, and what "verified" meant —
-  no internal unit numbers as the subject, no codenames, no
+  user-visible behavior) and WHY it changed — and STOP there. No
+  "Verified by..." / "Reviewed and approved..." sentences (user
+  refinement, 2026-07-14: verification is implicit in the three-agent
+  architecture; the evidence lives in notes/, not on main). No
+  internal unit numbers as the subject, no codenames, no
   protocol shorthand (define or drop terms like "gate", "lane",
   "fan-out" if used). The subject line names the artifact and the
   change, not the process that produced it. Fine-grained/process
@@ -236,8 +239,13 @@ Two further user rules (2026-07-14) on the same doctrine:
 
 ### Backup-Implementer assignments (user rule, 2026-07-14)
 
-When the execution queue saturates ([O] backlogged and the backlog must
-finish faster), you MAY assign [S] a unit as **backup Implementer**. The mode
+When the execution queue saturates, you MAY assign [S] a unit as
+**backup Implementer**. SATURATION IS DEFINED (user rule, 2026-07-14):
+the Implementer's mailbox lane holds **3 or more queued units**
+(`BACKUP_THRESHOLD` in tools/mailbox_daemon.py — the watch prints the
+tripwire hint each pass it holds). At or past the threshold, assigning
+backup units is the default, not an option you weigh; below it, Sol
+stays in red-team mode. The mode
 switch is per-unit and must be EXPLICIT: the handoff opens with the sentence
 "OpenAI Sol — this is a role as backup Implementer for this unit." Without
 that sentence, Sol is in red-team mode and its output is adversarial input.

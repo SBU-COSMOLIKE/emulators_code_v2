@@ -3567,10 +3567,10 @@ one named session:
 
 ```bash
 python tools/mailbox_daemon.py --send opus \
-  --unit "Wire the finite-contract emission per notes/gates-and-board.md, section 'RULING: finite-contract Part F scope and emission shape'."
+  --unit "Add a --version flag to the training script, as described in notes/version-flag.md."
 ```
 
-That is a real example, and it shows the rule the whole loop rests on: the
+Short as that message is, it shows the rule the whole loop rests on: the
 message does not carry the work. It is a routing summary that names the notes
 entry holding the specification, and the session receiving it opens that entry
 first. The message is a pointer; the file under `notes/` is the record.
@@ -3646,9 +3646,9 @@ like this:
 
 ```bash
 python tools/mailbox_daemon.py --send opus \
-  --unit "Implement the finite-contract emission per notes/gates-and-board.md, section 'RULING: finite-contract Part F scope and emission shape'."
+  --unit "Add a --version flag to the training script, as described in notes/version-flag.md."
 python tools/mailbox_daemon.py --send sol \
-  --unit "Attack the scalar-smoke gate per notes/gates-and-board.md, section 'BLUEPRINT: scalar-smoke evidence tuple'."
+  --unit "Try to break the new --version flag, as described in notes/version-flag-attack.md."
 python tools/mailbox_daemon.py --watch
 ```
 

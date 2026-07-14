@@ -130,6 +130,14 @@ AGENT_CWD = {
 PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
                        "your message here"]
 
+# When the Implementer's lane holds this many queued units or more, the
+# execution queue counts as SATURATED: the Architect may hand the red
+# team per-unit backup-Implementer assignments so the backlog drains on
+# two execution tracks (.claude/FABLE_ROLE.md, "Backup-Implementer
+# assignments"; the mode switch is always an explicit sentence in the
+# handoff, never implied by this number alone).
+BACKUP_THRESHOLD = 3
+
 PREAMBLE = (
     "You are invoked headlessly by tools/mailbox_daemon.py (no human is\n"
     "watching this turn). Resolve your role per CLAUDE.md from the block\n"
@@ -288,6 +296,25 @@ def process_backlog(dry_run):
     backlog = pending_messages()
     if not backlog:
         return False
+    # queue-depth report + the backup-Implementer threshold (user rule,
+    # 2026-07-14): when the Implementer's lane holds BACKUP_THRESHOLD or
+    # more units, the Architect should assign the red team per-unit
+    # backup-Implementer work (the switch itself stays an explicit
+    # sentence in the handoff -- this print is the tripwire, not the
+    # assignment).
+    depth = {"fable": 0, "opus": 0, "sol": 0}
+    for path in backlog:
+        name = os.path.basename(path)
+        agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
+        depth[agent] = depth[agent] + 1
+    print("queue depth: opus=" + str(depth["opus"])
+          + " sol=" + str(depth["sol"])
+          + " fable=" + str(depth["fable"]))
+    if depth["opus"] >= BACKUP_THRESHOLD:
+        print("  hint: the Implementer lane is at or past "
+              + str(BACKUP_THRESHOLD) + " queued units -- the Architect "
+              "may assign the red team backup-Implementer units "
+              "(.claude/FABLE_ROLE.md, Backup-Implementer assignments).")
     lanes = {}
     for path in backlog:
         name = os.path.basename(path)
