@@ -48,7 +48,7 @@ import numpy as np
 import torch
 
 from .geometries.parameter import ParamGeometry, AmplitudeFactorGeometry
-from .results import rebuild_emulator
+from .results import rebuild_emulator, read_artifact_schema
 from .training import make_model, _report_nonfinite
 from .activations import make_activation
 from .designs.blocks import make_norm
@@ -286,14 +286,20 @@ def load_source(
   eager source network and both source geometries, then loads the weights from
   ``<root>.emul``. Eager means that ``torch.compile`` has not wrapped the
   network, so state-dict keys carry no compile prefix. A second HDF5 read in
-  this function retrieves the recipe, the saved rescale value and the
-  resolved cosmolike data block. These metadata values are needed by the
-  warm-start validator and are not part of ``rebuild_emulator``'s return
-  value.
+  this function runs the shared schema reader again and retrieves the recipe,
+  the saved rescale value and the resolved cosmolike data block. These metadata
+  values are needed by the warm-start validator and are not part of
+  ``rebuild_emulator``'s return value.
 
   The function then enforces the source-artifact constraints: a plain
   ParamGeometry input geometry, no PCE base, no embedded transfer base and a
-  rescale value of ``none``. ``rebuild_emulator`` enforces schema version 2.
+  rescale value of ``none``. The file's schema version and its scientific
+  record (the cosmology it was trained under, and the parameter region it was
+  sampled over) are enforced by ``read_artifact_schema`` (results.py), the one
+  shared reader that ``rebuild_emulator`` also calls, so this path cannot
+  accept a file that path would refuse. Fine-tuning narrows the region an
+  emulator serves, which makes it the path that most needs that record to be
+  present rather than assumed.
 
   Arguments:
     root           = resolved absolute source path root (from
@@ -353,6 +359,13 @@ def load_source(
   # and for the new run's resolved record. A transfer_base group marks the
   # artifact as a transfer output, which this version cannot chain.
   with h5py.File(root + ".h5", "r") as f:
+    # the schema version and both blocks of the scientific record, through the
+    # one shared reader (results.read_artifact_schema), the same reader
+    # rebuild_emulator used on the first open. Every read of a saved emulator
+    # goes through it, so a file cannot be refused on one path and defaulted
+    # away on the other. It is called here for its refusals; the blocks it
+    # returns are already enforced and nothing below needs them.
+    read_artifact_schema(f=f, where=root + ".h5")
     recipe   = yaml.safe_load(f["model_recipe"][()])
     src_resc = f.attrs.get("rescale")
     resolved = yaml.safe_load(f["config_resolved_yaml"][()])

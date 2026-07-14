@@ -10155,3 +10155,2410 @@ survive in any example string, commands verbatim-accepted by argparse
 under --dry-run. The mid-turn daemon edit the Implementer flagged was
 the Architect's own threshold work, since committed (d8063be) — owner
 resolved. VERDICT: GO.
+
+## README: backup-builder overflow paragraph landed (Implementer, 2026-07-14)
+
+Unit: the one-paragraph README record of the overflow rule (ARCHITECT_HANDOFF
+"READY FOR EXECUTION"). Commit b6f1468, README.md only, +14/-0, on
+claude/amazing-keller-e798b6. Placement: end of "Running the sessions in
+parallel", directly after the bottleneck paragraph and before the two-lane
+queueing example, so the rule reads as the answer to "what happens when the
+implementer lane backs up anyway" — the question that passage raises.
+
+Substance of the paragraph (plain-language register, README vocabulary:
+lane / unit / dispatch, all defined earlier in that section): the implementer
+lane is serial, so a long queue there is idle time; every watch pass prints
+each lane's depth, and at ten or more implementer units it prints a hint line;
+the number lives in one place, BACKUP_THRESHOLD in tools/mailbox_daemon.py;
+on that hint the architect gives the overflow units to the red team, which has
+its own lane and so builds them alongside the implementer; a red team session
+handed such a unit follows the implementer's rules, and every assignment of
+that kind says so in plain words.
+
+Gates, both PASS. (1) Dash census on added lines: 0 (no em dash, no en dash,
+no ` -- `); no all-caps emphasis; backticked path tools/mailbox_daemon.py
+exists. (2) Number-vs-code: README "ten or more units" vs the shipped
+`BACKUP_THRESHOLD = 10` (tools/mailbox_daemon.py:139). No gate surface was
+touched by this unit.
+
+Reconciliation for the audit: the ruling above ("threshold pinned", 2026-07-14)
+records the pin at 3, but the shipped constant is 10 (raised in 5d20e95, "user
+default"). The README follows the CODE, per the gate as written in the handoff.
+If 3 is still the intended policy, the code is what has drifted, not this
+paragraph — the fix would be one constant plus the one word "ten" here.
+
+Landing block (merge and push are the user's alone):
+
+    git checkout main
+    git merge --ff-only claude/amazing-keller-e798b6
+    git push origin main
+
+## Transport lesson: Sol dispatch wording (Fable, 2026-07-14)
+
+The 0031 tools-review dispatch was REFUSED by the Codex CLI's content
+filter (rc 1, "flagged for possible cybersecurity risk") — the
+"attack/break/probe injection surfaces" framing of our red-team
+template pattern-matches an intrusion request when the target is
+infrastructure code. LESSON, standing: Sol-bound units about tools or
+infrastructure are worded as INDEPENDENT CODE REVIEW (find defects,
+ship a failing-then-passing reproduction script per defect) — the
+substance is identical, the framing is what the filter reads. Gate
+units about physics checks have not tripped it and keep the register's
+own language. The failed file stays in failed/ as the record; the
+requeue is 0041.
+
+## PROPOSAL (Implementer, 2026-07-14): the fixed-facts block — the shared persisted scientific-identity schema. DESIGN-ONLY, no code
+
+The second owed artifact, sequenced at the head of the production-units block
+per this note's own "The second owed artifact — fixed-facts proposal
+sequencing" (:5818), accepted as flagged at :5933. It is a PROPOSAL in the
+TPE-V1 sense: nothing lands until the Architect rules the forks in Part 8. It
+presents ALL the persisted-identity members together, as :2181 requires —
+units 67, 71, 74, 75 (+ the BAOSN half), 82 (+ the 25M-06 `.ranges`
+extension), 84, and 85 clause 7.
+
+Two survey subagents were fanned out for it (user rule): one over the artifact
+schema surface (every reader and writer of artifact metadata, `.ranges`, and
+the canonical parameter order), one over the units 71/74/82 records. Every code
+anchor below was re-read in this session.
+
+### Part 0 — the statement, in one paragraph
+
+Seven ratified units each need one persisted, immutable record of the science
+an artifact was BORN under: so a consumer can prove the artifact belongs to the
+cosmology it is about to be asked about, and so two artifacts served as a pair
+can prove they belong to each other. No such record exists today. The artifact
+persists the sampled parameter NAMES and nothing whatever about the world those
+names lived in — not the parameters held fixed, not the domain the sampled ones
+ranged over, not the dataset that produced it. Every one of the seven findings
+is a different way of falling into that one hole.
+
+### Part 1 — ground truth: what is persisted today
+
+**The artifact writer** is `save_emulator` (`emulator/results.py:133`). Its
+complete persisted surface, re-read against the code this session:
+
+| written | where | read back by |
+|---|---|---|
+| weights state_dict | `<root>.emul` (:296-298) | `rebuild_emulator` |
+| `param_geometry/` + `cls` attr | h5 (:333-336) | `_rebuild_geometry` |
+| `dv_geometry/` + `cls` attr | h5 (:343-346) | `_rebuild_geometry` |
+| `pce/`, `transfer_base/`, `history/` | h5 (:352, :364, :403) | rebuild / provenance |
+| `model_recipe`, `config_yaml`, `config_resolved_yaml`, `train_args_yaml` | h5 datasets (:420-447) | recipe read; rest provenance |
+| `schema_version = 2`, `created`, `torch_version`, `git_commit`, one root attr per `attrs` entry | h5 root attrs (:453-469) | version refused if != 2 (:609-615) |
+
+`ParamGeometry.state()` is exactly four keys — `{"names", "center", "evecs",
+"sqrt_ev"}` (`emulator/geometries/parameter.py:136-139`; the factored-IA
+geometry nests a second `names` under `pg_keep`, :469-475). So the artifact
+records WHICH parameters were sampled and how to whiten them. There is no
+family key (family is recovered by `isinstance` on the rebuilt geometry,
+`results.py:750-789`), no fixed-cosmology record, no support, no dataset
+identity. The driver-supplied root attrs
+(`cosmic_shear_train_emulator.py:389-399`, `scalar_train_emulator.py:208-219`)
+are today's de-facto identity block, and they are unstructured strings —
+provenance, never read back.
+
+**The artifact has TWO readers, not one.** `rebuild_emulator`
+(`results.py:511`) is the main one, and it is strict in the house way: `_need`
+(:584-589) raises on any missing recipe key, `_read_native_bool` (:474-508)
+refuses a non-native boolean, the `transfer_refined` attr is cross-checked
+two-way against its group (:659-664). But `warmstart.load_source`
+(`emulator/warmstart.py:279`) opens the same h5 INDEPENDENTLY (:355-363) for
+metadata `rebuild_emulator` never returns — `model_recipe`, the `rescale` root
+attr, `config_resolved_yaml`, the presence of `transfer_base`. Its missing-attr
+refusal (:364-375, `rescale` absent = refuse, never default) is the exact
+precedent this proposal generalizes. Any new block must be read by BOTH paths,
+or `load_source` must be made to go through one shared reader. See FORK 7.
+
+**The generator side is worse than "not persisted" — it is persisted and then
+dropped on the floor.**
+
+The canonical order is declared in the cobaya YAML as `train_args.ord[0]`
+(`compute_data_vectors/generator_core.py:324`) and cross-checked as a SET
+against the model's own sampled params (:356-359). The bounds come from the
+cobaya prior at 0.9999994 confidence, reordered into `ord` order (:363-368),
+then stretched for infinite Gaussian endpoints (:369-375) and shrunk by the
+`bounds_adj` accuracy margin (:378-381). So the generator holds, in memory,
+exactly the two facts unit 84 needs — a REQUESTED support and a RESOLVED
+support — and it publishes neither in a form anything reads:
+
+- `.ranges` is written at `:784-785` with `{l:.5e}` while the chain rows twelve
+  lines below are written `%.9e` (:796-800) and the computation copy is
+  independently cast to float32 (:803). The 25M-06 collapse and the unit-82
+  row-authenticity finding live in one screen of one function.
+- `.ranges` is then read by nothing in `emulator/` or `cobaya_theory/`. Its only
+  two uses in the tree are an EXISTENCE check in the checkpoint loader
+  (:622-626) and a gate proving it still parses with GetDist
+  (`gates/checks/generator_ranges.py`, which AST-pins exactly one production
+  writer, :100-104). GetDist reads it implicitly when the covmat is built
+  (:816-819). The generator's declared support has no channel to the artifact at
+  all.
+- `.paramnames` DOES flow. Training recovers the names from the COVMAT HEADER
+  (`emulator/experiment.py:1966` -> `data_staging.py:492-509`) and cross-checks
+  them against the `.paramnames` sidecar, ORDER INCLUDED (:512-557, called at
+  :648 and :901). Names travel; the world they lived in does not.
+- There is no dataset manifest. "The dataset" is an implicit file set keyed on
+  the `dvsf` / `paramsf` / `failf` stems (:419-429). The only provenance record
+  anywhere is the RNG stamp in the chain header (`seed=... rng=numpy.default_rng`,
+  :789-799). `probe`, `temp`, `bounds_adj`, `unif`, the YAML path, the git
+  commit: none are recorded machine-readably, and none reach the artifact.
+
+**The consumer side has one choke point, which is the good news.** All five
+adapters construct the same object:
+
+```
+cobaya_theory/emul_cmb.py:88           EmulatorPredictor(path, self.device, ...)
+cobaya_theory/emul_scalars.py:88       EmulatorPredictor(path, self.device, ...)
+cobaya_theory/emul_cosmic_shear.py:96  EmulatorPredictor(path, self.device, ...)
+cobaya_theory/emul_baosn.py:104        EmulatorPredictor(path, self.device, ...)
+cobaya_theory/emul_mps.py:232          EmulatorPredictor(path, self.device, ...)
+```
+
+`EmulatorPredictor` (`emulator/inference.py:98`) takes `.names` from the rebuilt
+param geometry (:137) and turns a name -> value mapping into a tensor row in
+exactly one method, `_as_row` (:468). Every prediction any adapter ever makes
+passes through those two lines. There is one site to enforce every consumer-side
+clause in units 67/71/74/84/85, and unit 84's ruling already says so ("enforced
+centrally in EmulatorPredictor, never five adapter copies",
+artifacts-inference-warmstart.md:1458).
+
+Two facts about that choke point the landing must not miss. First, the adapters
+DO already carry cross-artifact checks — `emul_cmb` compares units across
+artifacts (:125-133), `emul_mps` requires identical `(z,k)` grids (:272-283),
+`emul_baosn` refuses disjoint z windows (:152-157) — and every one of them is an
+AXIS check that unit 75's probe walked straight through. The machinery to refuse
+exists; it is checking the wrong thing. Second, `_as_row`'s ordered-sequence path
+checks LENGTH ONLY (:492-497): a permuted array is silently accepted today. The
+canonical name list below closes that too.
+
+### Part 2 — the proposed schema
+
+TWO sibling top-level groups in the h5, one version, one reader. Two rather than
+one is FORK 1; the schema is shown in the form a ruling would freeze.
+
+**Group A — `fixed_facts/`: the facts that must be EQUAL.**
+
+```yaml
+fixed_facts:
+  block_version:       1
+  dataset_id:          "sha256:9f2c1a...e41"   # digest of the producer sidecar
+  generator:           "dataset_generator_mps"
+  family:              "mps"
+  cosmology_fixed:                             # unit 74: every NON-sampled fact
+    mnu:               0.06
+    w:                -1.0
+    wa:                0.0
+    omk:               0.0
+    TCMB:              2.7255
+    nnu:               3.044
+  neutrino_convention: "degenerate"            # unit 74
+  flat_only:           true                    # unit 67
+  dark_energy_law:     "w0wa"                  # unit 85 clause 7
+  dark_energy_inputs:  ["w", "wa"]             # what the shared resolver consumes
+  cl_units:            "muK2"                  # unit 71 (CMB family; "n/a" elsewhere)
+  base_identity:       "syren-1.0/mnu=0.06"    # unit 74 clause 2
+  param_dtype:         "float32"               # unit 82 clause 6
+  decimal_policy:      "shortest-roundtrip"    # unit 82 + the 25M-06 extension
+```
+
+Every key is REQUIRED. A fact that does not apply to a family is written `"n/a"`
+explicitly, never omitted. That is never-trust-defaults applied to absence
+itself: "this family has no such fact" and "the writer forgot" are different
+statements, and only one of them is safe to read.
+
+**Group B — `input_domain/`: the facts that legally INTERSECT.**
+
+```yaml
+input_domain:
+  block_version:       1
+  source:              "declared-prior"   # never observed sample min/max (84 cl.1)
+  constraint:          "box"              # or a versioned validator identity (84 cl.2)
+  names:               ["omegam", "H0", "ns", "logA", "w"]
+  requested:                              # the prior as declared
+    omegam:            [0.1,   0.5]
+    H0:                [55.0,  91.0]
+    ns:                [0.87,  1.07]
+    logA:              [1.61,  3.91]
+    w:                 [-1.3, -0.7]
+  resolved:                               # after the stretch + bounds_adj margin
+    omegam:            [0.104, 0.496]
+    H0:                [55.36, 90.64]
+    ns:                [0.872, 1.068]
+    logA:              [1.633, 3.887]
+    w:                 [-1.294, -0.706]
+```
+
+Two supports, because the generator already computes two and they differ:
+`requested` is the prior the user declared, `resolved` is what the sampler
+actually drew from after the temperature stretch and the `bounds_adj` margin
+(`generator_core.py:369-381`). Unit 84's guarantee is about the RESOLVED one —
+that is the domain the predictions are valid on. `requested` is recorded so a
+narrowing is visible rather than silent, which is the generation-side half of the
+support story unit 94 owns (:3701).
+
+`input_domain.names` is the CANONICAL ORDERED PARAMETER REPRESENTATION — the
+same list the generator declares as `train_args.ord`. It is the authority.
+`param_geometry/names` must EQUAL it, order included, checked at save and at
+rebuild; `_as_row`'s sequence path validates against it instead of merely
+counting. This closes unit 8 EXTENDED (45M-68: the loader verifies names, then
+ignores them and slices by position) from the artifact end — position is trusted
+only after the ordered name list it belongs to has been proven equal.
+
+### Part 3 — the three comparison laws
+
+Three different questions, and conflating them is how the current adapters got
+their axis checks. One block, three laws:
+
+| law | the question | the rule | unit |
+|---|---|---|---|
+| VERTICAL | does this artifact belong to the cosmology being sampled? | every `fixed_facts` fact EQUALS the global resolved model value | 74 cl.3, 67 cl.1 |
+| HORIZONTAL | do these two artifacts belong to each other? | `dataset_id` EQUAL and every `fixed_facts` fact EQUAL; sampled names equal under the unit-7 alias resolver | 75, 25M-13 |
+| DOMAIN | may the artifact be asked about this point? | the served support is the INTERSECTION of the artifacts' `input_domain.resolved`; disjoint refuses | 84 cl.4, cl.7 |
+
+The vertical law reads the GLOBAL resolved model, never the emulator input names
+— that is the entire content of unit 67's finding and unit 74 clause 3. The
+horizontal law refuses a parameter sampled by one half only; it never unions
+(75 cl.2; the BAOSN half at families-background-mps.md:1633). The domain law is
+the only one that may intersect, which is exactly why it cannot live inside a
+block that is compared by equality.
+
+Refusal message shape, binding (74 cl.4): every refusal names the artifact's
+value, the requested value, and the remediation. A message that says
+"incompatible artifact" and stops is not a refusal, it is a shrug.
+
+### Part 4 — the canonical representation (unit 82 + the 25M-06 extension)
+
+One decimal policy, derived from the owned dtype, shared by chain, header,
+`.ranges`, and the producer sidecar. Proposed: the shortest decimal string that
+round-trips EXACTLY to the declared `param_dtype` — `repr(np.float32(x))`
+produces it. Publication refuses BEFORE mutation if two values distinct in the
+canonical dtype collapse to one string.
+
+The 25M-06 witnesses are the acceptance bar: `70.00001` / `70.00002` and
+`0.12345674` / `0.12345676` must round-trip DISTINCT, where `%.5e` collapses both
+pairs today. Hexadecimal (`float.hex()`) was offered as acceptable by the finding
+(data-generation-and-cuts.md:2025) and is REJECTED here on didactic grounds: the
+reader of a `.ranges` file is a cosmologist reading a support interval, and
+`0x1.18p+6` is not a support interval to that reader. Shortest-roundtrip decimal
+is exact, legible, and GetDist parses it unchanged.
+
+Ownership stays where it was ruled (:5492 — unit 82's one canonical
+representation must not gain a second owner): the fixed-facts schema DECLARES the
+policy as a persisted fact (`param_dtype`, `decimal_policy`); unit 82's writer
+IMPLEMENTS it. Two roles, one owner. Unit 82's visit to that writer also clears
+the dead `hd` list assignment the 25M-38 landing left behind (:7688).
+
+### Part 5 — the producer-to-consumer channel
+
+The facts are born in the generator, must survive training, and are read at
+inference:
+
+```
+  the resolved global Cobaya model          the FACT (not the YAML request)
+        |  generator writes
+        v
+  <paramsf>.facts.yaml                      the producer sidecar, block-style YAML
+        |  digested by the dataset manifest (integrity, unit 8)
+        |  COPIED VERBATIM by the training loader — never re-derived
+        v
+  artifact h5: fixed_facts/ + input_domain/  (save_emulator, schema v3)
+        |  read once, refused loudly if absent
+        v
+  EmulatorPredictor                         the three comparison laws execute here
+        |  adapters hand IN the resolved global facts as a plain dict
+        v
+  the five adapters                         own no comparison of their own
+```
+
+(legend: `<paramsf>` = the generator's parameter-file stem, the one that already
+carries `.1.txt` / `.paramnames` / `.ranges` / `.covmat`; "verbatim" =
+byte-for-byte, so training cannot become a second author of a science fact.)
+
+Training COPIES the sidecar. A derived copy is a second owner, and a second owner
+is how two halves of one fact drift apart — the lesson 25M-06 already paid for.
+`.ranges` survives as a DERIVED GetDist view of `input_domain.resolved`, written
+under the same decimal policy: a view, not a source.
+
+The adapters cannot be the comparison site, but they must be the RESOLUTION site.
+`EmulatorPredictor` is imported by training and by the gates and must not depend
+on cobaya. So the adapter resolves the global model into a plain dict and hands
+it in; the predictor owns the comparison and the refusal text. One rule, five
+callers, zero copies.
+
+### Part 6 — what the block does NOT carry (already ruled; restated so the landing cannot drift)
+
+- `wa` when `w0pwa` is sampled: a DYNAMIC per-point fact, resolved by the
+  consumer, NEVER pinned (unit 85 addendum; :2205).
+- any SAMPLED parameter: it validates through `input_domain` and is not also
+  pinned (74 cl.5). A coordinate both sampled and fixed refuses at save (84 cl.3).
+- observed sample minima and maxima: the support is the DECLARED contract, never
+  what the draws happened to cover (84 cl.1), and never widened to a bounding box
+  (84 cl.2).
+- provenance — seed, RNG state, sampling mode, temperature: that is unit 8's
+  dataset identity, not science. See FORK 6.
+
+### Part 7 — the gate surface this implies (design-only; the landing arms these)
+
+CPU / schema legs, Mac-runnable on the cocoa interpreter: save -> rebuild
+round-trip of both groups; an artifact missing either group refuses with a
+migration instruction; a fabricated `fixed_facts` accepted only at its own
+values; both 25M-06 witness pairs round-trip distinct; a coordinate both sampled
+and fixed refuses at save; `param_geometry/names != input_domain.names` refuses
+at rebuild; a permuted ordered sequence into `_as_row` refuses; the horizontal
+law refuses a `w`-carrying half paired with an LCDM half (unit 75's live 74.5%
+probe) and refuses equal-axes-but-different-`dataset_id`; the domain law refuses
+unit 84's finite `x = 1` and `x = 10` tanh witnesses (23.84% and 90% wrong,
+invisible to every finiteness guard today).
+
+Mutation arms, one per law — each must RED: a check that inspects only
+`predictor.names` (unit 74); a union-restoring mutation, which must reproduce the
+bit-identical `D_M` under a changed `w` (25M-13); a `%.5e` restoration, which must
+collapse the witnesses (25M-06); an axes-only pair check, which is today's
+`emul_mps` code (unit 75).
+
+Board-listed / workstation-owed, declared not claimed: the real-Cobaya lifecycles
+(fixed `mnu = 0.12` refused before base execution; the FIRAS conversion
+known-answer from the persisted temperature fact; the mps-smoke end-to-end pair).
+
+NAMED GATE-SURFACE CHANGE (rule 7b — flagged now, not discovered at audit): the
+schema-version bump in FORK 3 invalidates one existing gate arm.
+`gates/checks/gsv_bitwise_drift.py:370-383` forges `schema_version = 1` and
+asserts the refusal. Under v3 that arm must forge BOTH a v1 and a v2 file and
+assert both refuse. This is a strengthening, its authorizing ruling is FORK 3,
+and it is the only gate-surface edit the proposal requires.
+
+### Part 8 — the forks I want ruled, each with my recommendation
+
+**FORK 1 — one block or two?** Does unit 84's per-name support live INSIDE
+`fixed_facts`, or as the sibling `input_domain`? (The placement question :2181
+defers to this proposal.)
+RECOMMEND **two sibling groups, one reader, one version**. The comparison laws
+differ in KIND. Fixed facts are compared by equality; supports legally INTERSECT
+(84 cl.7) and legally NARROW under fine-tuning and transfer (84 cl.8). Put an
+intersect-compared member inside an equality-compared block and "the blocks are
+equal" stops meaning anything — the refusal law would need a per-key exception
+table, which is precisely the ad-hoc mechanism :1829 forbids.
+
+**FORK 2 — field equality, or a digest?** For the horizontal law: compare
+fact-by-fact, or compare one digest of the block?
+RECOMMEND **both, field-first**. Field comparison is what lets the refusal name
+the disagreeing fact and its two values (74 cl.4); a digest mismatch can only say
+"different". But field equality cannot prove SAME RUN — two independent
+generations can agree on every fixed fact and still be different datasets, and
+that is exactly the pair unit 75 must refuse. `dataset_id` carries run identity;
+the fields carry the diagnosis. Neither substitutes for the other.
+
+**FORK 3 — `schema_version = 3`, or optional keys under v2?**
+RECOMMEND **bump to 3**. Three units already ratify that a legacy artifact
+REFUSES with a migration instruction (74 cl.7, 71 cl.5, 84 cl.9), so refusal is
+not a new cost. The only question is whether the reader can distinguish "legacy
+file" from "v3 file whose writer forgot a key" — under optional-keys-on-v2 it
+cannot, and unit 96's ruling on this exact surface is binding precedent ("absence
+NEVER means plain on schema v2", :3893). The real cost is that every existing
+artifact must be re-saved; the cs head-artifact rebuild gap is already on the
+board, so this rides an existing debt rather than minting one.
+
+**FORK 4 — what is the source of truth at generation?** The generator's YAML, or
+the resolved global Cobaya model?
+RECOMMEND **the resolved global model**. The YAML is the REQUEST; the model is
+the FACT. This is unit 67's ruling verbatim ("read from the GLOBAL Cobaya model
+info — not from emulator input names") and the house never-trust-defaults rule
+(persist resolved values, defaults materialized). Corollary, binding: a fact the
+model cannot resolve is written `"n/a"` explicitly, never omitted.
+
+**FORK 5 — what carries the facts on the dataset side?** A new
+`<paramsf>.facts.yaml` sidecar, an extension of `.ranges`, or the dataset
+manifest?
+RECOMMEND **a new block-style YAML sidecar**. `.ranges` has a fixed GetDist
+grammar that a gate AST-pins to exactly one writer
+(`gates/checks/generator_ranges.py:100-104`) and cannot carry non-range facts;
+the chain header is a comment line, not a schema; and there IS no dataset manifest
+yet — the dataset is an implicit file set (:419-429), so nominating it as the
+carrier would mean inventing one AND making file identity substitute for
+representation truth, the one lesson 25M-06 exists to teach. One new file,
+human-readable, digested by unit 8's manifest when that lands, copied verbatim
+into the artifact.
+
+**FORK 6 — who owns the resolved bounds: unit 8 or unit 84?** The resolved
+per-name support appears in BOTH unit 8's dataset identity (:3710) and unit 84's
+support block.
+RECOMMEND **declared once in the facts sidecar (science), digested by the manifest
+(provenance)**. Unit 8 keeps seed, RNG state, sampling mode, temperature, and the
+boundary-interior policy — the facts about HOW the rows were drawn.
+`input_domain` keeps the support the predictions are valid on — the fact about
+WHAT the artifact may be asked. Bounds are declared in one place and referenced
+from the other, so the binding seam (:5482, unit 8 rebases on unit 94's helper)
+is untouched.
+
+**FORK 7 — one artifact reader, or two?** `warmstart.load_source`
+(`warmstart.py:355-363`) opens the h5 independently of `rebuild_emulator`. Does it
+grow its own fixed-facts read, or does the read move into one shared helper both
+call?
+RECOMMEND **one shared reader, called by both**. Two readers of one schema is how
+a key gets refused on one path and defaulted on the other — and warmstart is the
+path where transfer and fine-tuning NARROW the domain (84 cl.8), so it is the path
+that most needs the block. This is a small refactor inside `emulator/results.py`,
+and it is the one structural change I am proposing that no unit explicitly asked
+for; it is offered as a recommendation, not smuggled in.
+
+**FORK 8 — landing order.** Unit 74 pins the constraint ("the consumer never reads
+a fact the producer does not yet write", :1567) but not the mechanism.
+RECOMMEND **three landings, producer-first.** (1) The schema, the producer
+sidecar, and the `save_emulator` / shared-reader half with the v3 bump and the
+migration refusal — fully CPU-gateable, including the named `gsv_bitwise_drift`
+arm update. (2) Unit 82's canonical decimal policy in the one writer it owns,
+rebasing on (1)'s declared `param_dtype`. (3) The three comparison laws in
+`EmulatorPredictor`, which the wave-4 adapter visits then consume (67, 71, 74, 75,
+84, 85). Nothing in (3) can read a fact (1) does not write, and (2) never acquires
+a second owner.
+
+AWAITING the Architect's ruling. No code lands against this proposal until the
+eight forks are ruled.
+
+## Skipped-leg manifest consistency sweep (Implementer, 2026-07-14): LANDED — the approved three children + the selftest arm
+
+The standing sweep approved at :8976, executed after the proposal above per the
+same handoff ("continue with your standing skipped-leg consistency sweep if it
+is still open"). The doctrine it enforces is one sentence: **a leg that never
+ran did not fail.**
+
+**What changed.** Three smoke children run sequentially dependent stages, so a
+failed upstream leg skips the ones behind it. They disagreed on what to do about
+that, and all three were wrong in different ways:
+
+| child | before | after |
+|---|---|---|
+| `bsn_smoke.py` | backfilled every skipped leg `FAIL` | `UNAVAILABLE`, reason naming the upstream leg |
+| `mps_smoke.py` | no backfill: skipped legs UNEMITTED (declared != emitted) | same backfill |
+| `cmb_smoke.py` | no backfill: skipped legs UNEMITTED | same backfill |
+
+Each child gained one `emit_unavailable(aid, blocker)` helper; `emit_leg` /
+`emit_aid` now return their verdict so `main` can track the first failing leg as
+the `blocker`. The `finally` backfill emits every declared-but-unrun leg as
+`##AID <aid> UNAVAILABLE upstream leg <blocker> did not pass`, or, when the child
+died before any leg reached its terminal, `the child exited before this leg ran`.
+Declared == emitted now holds on EVERY path, including a crash in setup.
+
+**Why UNAVAILABLE and not FAIL.** A `FAIL` is a verdict, and a leg that never
+executed produced no verdict. Recording one is the same class of lie the
+dead-network rule exists to catch, pointed at the harness instead of the net: it
+manufactures information the run does not have. It also buries the lede — with
+four `FAIL`s a reader cannot see which one is the real defect, whereas
+`UNAVAILABLE upstream leg bsn-smoke.generated-background-dumps did not pass` says
+where to look.
+
+**The selftest arm** (`board_selftest.check_aid_manifest`, cases h / h2 /
+h-control). The doctrine lands on two different surfaces and both are pinned:
+
+- (h1) the RED path. The child fails a leg and exits nonzero, so `run_check`
+  raises BEFORE the manifest is folded (`run_board.py:414-420`) — the executed
+  set never sees these legs and the verdict carries no evidence block. The
+  manifest's only home is the immutable gate LOG, which is exactly where a reader
+  looks, so the arm pins it there: the gate reds, `##AID skpg.b UNAVAILABLE`
+  reaches the log, and the reason names `skpg.a`.
+- (h2) the FOLDING path. The child skips a leg but still exits 0 (a capability
+  skip upstream). Now the manifest folds, reconciliation runs, and the persisted
+  evidence block must carry the leg as UNAVAILABLE with the upstream named — the
+  gate passes on the leg it really executed, per fork D1-ii.
+- (h-control) a green upstream leg skips nothing, so nothing is UNAVAILABLE.
+  Without it, a harness that marked every leg unavailable unconditionally would
+  satisfy both arms above.
+
+**Mutation probe (catch power, executed).** Reverting the h1 fixture to the
+pre-sweep behavior — the skipped leg emitting `FAIL` — reds exactly the two legs
+that encode the doctrine, and nothing else:
+
+```
+[FAIL] the skipped leg reaches the gate log as UNAVAILABLE, not FAIL
+[FAIL] the skipped leg's log reason names the upstream leg
+board-selftest: 2 FAILURE(S)
+```
+
+The fixture was restored and the selftest returned to ALL PASS. The arm is
+load-bearing, not decorative.
+
+**Gate results (this session, Mac, PYTHONPATH=. on the numpy python3).**
+
+- `gates/checks/board_selftest.py`: **182 PASS / 0 FAIL, "board-selftest: ALL
+  PASS"** (176 before, +6 from the new arm).
+- `gates/run_board.py --list`: rc 0 (all anchors resolve, no collisions).
+- `py_compile` clean on all four touched files.
+- Static declared-vs-emitted census, all three children: `LEG_AIDS` set ==
+  the `Assertion(...)` set declared in `board.py` (4 / 4 / 6), and each child
+  carries the `emit_unavailable` backfill.
+- **WORKSTATION-OWED:** the live green of bsn-smoke, mps-smoke and cmb-smoke
+  themselves. All three need torch + cobaya + a compiled CAMB, so they cannot run
+  on this Mac. Their declared == emitted is verified STATICALLY above, per the
+  batch-7 precedent. Never reported as passed.
+
+**NOT done, and why.** `scalar_smoke.py` is the fourth candidate member (its
+`check_train_and_predict` early-returns at `:639` / `:673`, so on either bail the
+child emits only a PREFIX of its nine aids). The sweep as approved at :8976 names
+three children, and my own note at :9511 recorded the open question — "Architect's
+call whether the sweep repairs it or it goes back to Sol" — which has not been
+ruled. The child is the red team's (the 0abc300 lane). I did not touch it. It
+needs either a ruling adding it to my scope or a red-team handoff.
+
+**No gate-surface weakening.** The only gate-surface edits are the new selftest
+arm (a strengthening: 176 -> 182 legs) and the three children's backfill, which
+is the approved sweep itself. No threshold, fixture, or golden base moved.
+
+**Landing block (merge/push to main is the user's alone).**
+
+```
+branch:  claude/amazing-keller-e798b6
+files:   gates/checks/bsn_smoke.py, gates/checks/mps_smoke.py,
+         gates/checks/cmb_smoke.py, gates/checks/board_selftest.py,
+         notes/gates-and-board.md
+gates:   board-selftest 182 PASS / 0 FAIL (ALL PASS); run_board --list rc 0;
+         py_compile clean; 4/4, 4/4, 6/6 declared == emitted static census.
+         bsn/mps/cmb-smoke live greens WORKSTATION-OWED (torch + cobaya + CAMB).
+```
+
+## Units 41+53 review adjudication (Fable, 2026-07-14): DOUBLE RED CONFIRMED — HOLD accepted, repairs become backlog units
+
+Sol's review (0044) audited: both witnesses re-run by me on the cocoa
+interpreter, rc 0, every claimed defect reproduced — unit 41's
+persisted-policy contract (amp_dtype/scaler_policy in the artifact,
+sweep-product metadata, head pins, the rescnn_nla name) and unit 53's
+manifest contract (canonical study manifest, digest, name resolver,
+stale-trial identity) are NOT implemented in production. The witnesses
+are explicitly negative review evidence, never board entries; committed
+as-is under gates/checks/ with their names carrying the redteam_
+prefix. Sol's git blocker (read-only .git in its sandbox) is resolved
+by this commit — the materialization the note prints is superseded.
+
+ROUTING: 41-REPAIR and 53-REPAIR enter notes/backlog.md as execution
+units. Both touch the artifact-schema surface, so they SEQUENCE AFTER
+the fixed-facts proposal ruling (unit 0042 in flight) — the manifest
+design must not be invented twice. Under the total-demand regime,
+41-REPAIR is a backup-Implementer candidate for Sol once its review
+queue drains; 53-REPAIR follows the fixed-facts ruling to Opus.
+
+Also: the 0043 README overflow paragraph (b6f1468) landed against the
+OLD per-lane metric; DELTA issued — the paragraph must describe the
+total-demand count (mailbox + notes/backlog.md) the code now ships.
+
+## README DELTA landed: total demand, demand report, effort levels, heartbeat (Implementer, 2026-07-14)
+
+Unit: the 0103 DELTA on b6f1468, four deliverables in ONE commit. Commit
+b193849, README.md only, +107/-16, on claude/amazing-keller-e798b6. All four
+land in section 24 (AI usage); no other file, no gate surface, touched.
+
+**(1) The overflow paragraph, rewritten to the shipped metric.** It described a
+per-lane count ("ten or more units waiting for the implementer") and named the
+retired constant BACKUP_THRESHOLD. It now describes TOTAL OPEN DEMAND: every
+message queued in the mailbox for any session, plus every "- OPEN" line of
+notes/backlog.md, defined in place as the architect's ledger of jobs still owed.
+The stated reason for the wide measure is the one the code encodes: unassigned
+work is still work waiting. Constant now named SECOND_IMPLEMENTER_THRESHOLD
+(f37652d), role now named the second implementer, and the code's
+"never implied by this number alone" rule is stated as its own sentence.
+
+**(2) The demand report, walked line by line.** The real three-line output is a
+fenced block, followed by a five-row table (one row per piece: the queued path,
+queue depth, open backlog, total demand, the hint line). The example's
+arithmetic is live: 4 queued + 22 open = 26, and 22 is what backlog_ledger_count()
+reads off notes/backlog.md today.
+
+**(3) Pinned effort levels + service tier.** The quoted AGENT_COMMANDS block was
+STALE (it predated 3e20327 and a8a80b6 and carried no effort flags at all) while
+its introducing sentence promises "exactly as it ships" — so the block was
+refreshed to the shipped one and the claim is true again. New passage "How hard
+each session thinks": a table (fable --effort xhigh / opus --effort max / sol
+-c model_reasoning_effort=xhigh), the given rationale (a turn's effort is a
+property of this repository, never a CLI default that can change under us), why
+the spelling differs (claude takes a named flag; codex takes -c key=value
+settings that override its config file for one run), and the amendment,
+-c service_tier=standard, which keeps codex Fast Mode off because an unattended
+turn gains nothing from the speed and Fast Mode costs far more quota. No
+rationale was invented for xhigh-versus-max; only the levels the user set are
+stated.
+
+**(4) The heartbeat.** Two sentences plus the real line, next to the --watch
+output passage: elapsed time always moves, a growing log means the session is
+producing output, the tail -f command follows it live, and because Claude Code
+prints a reply only at the END of a turn, on a fable/opus dispatch the moving
+clock is the only sign of life you get, while codex narrates as it goes.
+
+Gates, all PASS (this session, Mac, stdlib python3 — the daemon imports nothing
+third-party):
+
+1. AGENT_COMMANDS quote vs source, byte for byte: True (1691 bytes, 32 lines,
+   both sides), by extracting the block from tools/mailbox_daemon.py and from
+   the README fence and comparing the strings.
+2. Demand report vs code: the shipped report_demand() was CALLED (module import,
+   synthetic 2-opus/2-sol backlog, real ledger on disk) and both printed lines
+   were found verbatim in README.md. True, True.
+3. Heartbeat vs code: the exact expression from dispatch() (mailbox_daemon.py
+   281-283) evaluated on representative values; the resulting line is verbatim
+   in README.md. True.
+4. Register census over README prose with fenced code excluded: ` -- ` = 0,
+   em/en dash = 0, BACKUP_THRESHOLD = 0 occurrences anywhere in the file,
+   SECOND_IMPLEMENTER_THRESHOLD present in both README and daemon.
+
+Deviations from the handoff, both forced by its own "match the code character
+for character" clause:
+
+- The handoff's sample hint line was TRUNCATED: the shipped one ends
+  "... as well as to Opus (.claude/FABLE_ROLE.md, Second-Implementer
+  assignments)." The README carries the full real line.
+- The `queued ...` path stays abbreviated as the handoff wrote it. The daemon
+  prints an absolute path (MAILBOX is derived from the daemon's own location),
+  which is machine-specific, so the README shortens it and SAYS it is shortened.
+  Same for the heartbeat's log path.
+
+Two defects noticed in passing, NOT chased (Architect to route):
+
+- `--dry-run` is not read-only. dispatch() runs the PLACEHOLDER_MARKERS check
+  BEFORE the `if dry_run:` branch (mailbox_daemon.py 236-247), so a rehearsal
+  MOVES any placeholder-bearing message into failed/. The README's own dry-run
+  passage promises "it runs nothing". No pending message trips it today, which
+  is why the verification here imported the module instead of rehearsing.
+- The daemon's user-facing prints use ` -- ` (the hint line, the heartbeat),
+  which conventions-and-workflow.md bans "anywhere prose reaches the user". The
+  README now quotes them verbatim, so the two rules collide: either the prints
+  change and the README follows, or the quote stands as a sanctioned exception.
+
+Landing block (merge and push are the user's alone):
+
+    git checkout main
+    git merge --ff-only claude/amazing-keller-e798b6
+    git push origin main
+
+## Fixed-facts adjudication + sweep audit (Architect, 2026-07-14): the sweep is GO; the eight forks are RULED
+
+Input: the Implementer's 0104 return (the fixed-facts proposal at :10210 and
+the skipped-leg sweep landing at :10618). Everything below was verified
+against raw evidence in this session, per the gate-integrity screen; pasted
+logs were not the audit.
+
+### Part A — the skipped-leg sweep (6d2b479): AUDIT PASS, merge-ready
+
+Re-run by me on this Mac (PYTHONPATH=. on the numpy python3):
+
+- `board_selftest.py`: 182 PASS / 0 FAIL, "board-selftest: ALL PASS"
+  (PASS-line count grepped, not read off the banner).
+- `run_board.py --list`: rc 0. `py_compile`: clean on all four touched files.
+- Census re-read by me, not taken from the handoff: the three `LEG_AIDS`
+  lists match the `Assertion(...)` tuples in `gates/board.py` name-for-name
+  and order-for-order (bsn 4/4, mps 4/4, cmb 6/6).
+- MUTATION PROBE re-executed by me: reverting the h1 fixture to a `FAIL`
+  backfill reds exactly the two doctrine legs ("2 FAILURE(S)"), nothing else.
+- MY OWN UNSCRIPTED PROBE: mutating the h2 fixture's UNAVAILABLE reason to
+  one that does not name the upstream leg ("some other reason entirely")
+  reds exactly the reason-naming leg. The arm checks reason CONTENT, not
+  just the UNAVAILABLE keyword — load-bearing on a path the Implementer
+  never scripted.
+- Fixture restored byte-clean (empty `git diff` against HEAD), selftest back
+  to ALL PASS.
+
+Gate-surface diff of 6d2b479, screened hunk by hunk: the only gate-surface
+edits are the six new selftest legs (a named strengthening, 176 -> 182) and
+the approved backfill in the three children. No threshold, fixture, or golden
+base moved. Two observations for the record, neither blocking:
+
+1. The commit message says the selftest "grew five checks"; the arm is SIX
+   report legs (h1 x3, h2 x2, h-control x1). Prose nit in an immutable
+   commit; the note and this audit carry the correct count.
+2. Real behavioral change, intended and correct: bsn/mps downstream legs that
+   formerly still RAN after a failed training leg (inside one
+   `if not FAILURES:` block) are now skipped and backfilled UNAVAILABLE.
+   That is the doctrine, not drift — a leg fed by a failed stage's outputs
+   was never producing a verdict worth the name.
+
+WORKSTATION-OWED, unchanged: the live greens of bsn-smoke / mps-smoke /
+cmb-smoke themselves (torch + cobaya + compiled CAMB). Statically verified
+only; they stay on the owed list until the queue-5 board run.
+
+VERDICT: GO. The landing block at :10709 is merge-ready as printed
+(merge/push remain the user's).
+
+### Part B — the eight forks, RULED
+
+Ground truth spot-checked by me this session before ruling: the second h5
+open in `warmstart.load_source` (:355-375, the `rescale` refusal), the
+length-only `_as_row` sequence path (`inference.py:492-497`), the
+`schema_version = 1` forge arm (`gsv_bitwise_drift.py:370-383`), the
+`{l:.5e}` / `%.9e` / dead-`hd` cluster (`generator_core.py:781-800`), the
+absence of any `.ranges` reader in `emulator/` + `cobaya_theory/`, and the
+note anchors :1829, :2181, :2205, :3893, :5492 plus the BAOSN pair contract
+(families-background-mps.md:1629-1640, "equal canonical
+generator/dataset/scientific-domain binding" — the same-run language is
+ratified, not invented).
+
+- **FORK 1 — ACCEPTED as proposed.** Two sibling groups, `fixed_facts/` +
+  `input_domain/`, one shared reader. The laws differ in kind (equality vs
+  intersection); one block would need the per-key exception table :1829
+  forbids. `block_version` STAYS in both stanzas: the sidecar is a standalone
+  file that needs its own grammar version, and the verbatim-copy law forbids
+  stripping keys on the way into the h5 — one author (the producer), copied
+  faithfully, is not two authorities. The shared reader refuses any
+  (`schema_version`, `block_version`) pair it does not explicitly know —
+  never-trust-defaults applied to versions themselves.
+- **FORK 2 — ACCEPTED with one AMENDMENT (defect found).** Field-first
+  comparison plus `dataset_id`, as proposed. But `dataset_id` as drawn
+  ("digest of the producer sidecar") fails its own purpose: a rerun with a
+  new seed produces a byte-identical sidecar (same facts, same bounds), so
+  the digest CANNOT distinguish the exact pair the horizontal law exists to
+  refuse — and a sidecar that also records its own digest is
+  self-referential. AMENDED: `dataset_id` = sha256 of the published chain
+  file `<paramsf>.1.txt`, computed by the generator at publication, recorded
+  in the sidecar, copied verbatim into `fixed_facts`. Chain bytes are
+  run-unique by construction (%.9e draws; seed + rng already in the header),
+  same-run pairs share them (bsn's Hubble/D_M, mps's pklin/boost train off
+  one dump), independent regenerations differ. A legitimate cross-run
+  pairing, if one ever arises, returns here as a design change — refusal is
+  the default, relaxation is a ruling.
+- **FORK 3 — ACCEPTED.** `schema_version = 3`. Unit 96's precedent (:3893)
+  is binding: optional-keys-under-v2 cannot distinguish "legacy file" from
+  "writer forgot a key". Refusal-with-migration is already ratified (74
+  cl.7, 71 cl.5, 84 cl.9). The named gate-surface change is AUTHORIZED by
+  this ruling: `gsv_bitwise_drift`'s version-refusal arm forges BOTH v1 and
+  v2 and asserts both refuse with the migration instruction (board.py
+  evidence tuple updated in the same landing if the aid set changes). The
+  re-save debt rides the cs head-artifact rebuild gap already on the board.
+- **FORK 4 — ACCEPTED.** The resolved global Cobaya model is the source of
+  truth at generation; the YAML is the request, the model is the fact (unit
+  67 verbatim; the house never-trust-defaults rule). A fact the model cannot
+  resolve is written `"n/a"` explicitly, never omitted.
+- **FORK 5 — ACCEPTED.** A new `<paramsf>.facts.yaml` producer sidecar,
+  block-style YAML, carrying BOTH stanzas. `.ranges` becomes a derived
+  GetDist view of `input_domain.resolved` — a view, not a source — and its
+  gate-pinned single writer stays where it is.
+- **FORK 6 — ACCEPTED.** Bounds declared once in the sidecar (science),
+  digested by unit 8's manifest when it lands (provenance). Seed, RNG,
+  sampling mode, temperature stay unit 8's. The unit-8-rebases-on-unit-94
+  seam (:5482) is untouched.
+- **FORK 7 — ACCEPTED, scoped.** One shared reader in `emulator/results.py`,
+  called by `rebuild_emulator` AND `warmstart.load_source`, owning
+  `schema_version` + both new groups on both paths. `load_source`'s
+  pre-existing metadata reads (`model_recipe`, `rescale`,
+  `config_resolved_yaml`, `transfer_base` presence) migrate into it ONLY if
+  the move changes no refusal text an existing gate pins — the refactor
+  serves the new schema, it does not annex the old reads.
+- **FORK 8 — ACCEPTED.** Three landings, producer-first. Landing 1 = schema
+  + sidecar + save/shared-reader half + v3 + migration refusal + the
+  `gsv_bitwise_drift` arm (fully CPU-gateable). Landing 2 = unit 82's
+  canonical decimal policy in its one writer (also clears the dead `hd`
+  assignment, :7688). Landing 3 = the three comparison laws in
+  `EmulatorPredictor` + the wave-4 adapter visits (67/71/74/75/84/85).
+  SEQUENCING RIDER: 53-REPAIR waits for landing 1 (the manifest design is
+  not invented twice); 41-REPAIR remains Sol's second-Implementer candidate
+  per the :10718 adjudication.
+
+Also ratified from Part 4: shortest-roundtrip decimal
+(`repr(np.float32(x))`), hex REJECTED on didactic grounds — concur; the
+25M-06 witness pairs are the acceptance bar and belong to landing 2.
+
+**AMENDMENT of my own (unprobed premise in the proposal): the permuted-
+sequence gate leg is undecidable as written.** A bare value array carries no
+names, so `_as_row` CANNOT detect a permutation of it — "validates against
+the canonical list instead of merely counting" has nothing to validate
+against. Binding invariant for landing 3: no prediction executes on
+positional trust alone unless the position-to-name binding is proven inside
+the same call chain — the public surface takes a mapping or a
+(names, values) pair validated against `input_domain.names`; the bare
+positional path either becomes internal-only (callers that already proved
+order) or is removed. The Part 7 leg is re-scoped to "a (names, values)
+pair with permuted names refuses".
+
+**ERRATUM in the Part 2 exemplar, named so it cannot propagate:** the
+example `fixed_facts.cosmology_fixed` pins `w: -1.0` while `input_domain`
+samples `w` — under 84 cl.3 (a coordinate both sampled and fixed refuses at
+save) the exemplar block as drawn would REFUSE at its own save. The real
+schema drops sampled coordinates from `cosmology_fixed`; `wa: 0.0` stays
+(fixed, unsampled, `dark_energy_law: "w0wa"` remains coherent).
+
+### Part C — scalar_smoke scope ruling (:9511 answered)
+
+`scalar_smoke.py` goes to SOL, not the sweep. The child is mid-rebuild in
+Sol's 0abc300 lane (`codex/scalar-smoke-nine-aids-child`); one owner per
+file at a time, and patching the current file's early-returns (:639 / :673)
+while its replacement is in flight is wasted work AND a cross-lane edit. The
+doctrine binds the REBUILD instead: the nine-aid child ships with the
+landed pattern (an `emit_unavailable` helper, blocker tracking, the
+`finally` backfill; declared == emitted on every path, including both
+early-returns and a crash in setup), and its acceptance inherits the two
+selftest doctrine legs unchanged. Delta dispatched to Sol (0106); the
+Implementer's sweep is CLOSED at three children plus the arm.
+
+### Part D — ledger + dispatch
+
+- backlog.md: "fixed-facts proposal ruling" and "skipped-leg consistency
+  sweep" leave the ledger (landed + audited GO this turn); ONE line enters
+  for fixed-facts landing 1 (dispatched 0105, stays until landed + audited);
+  scalar-smoke doctrine rides Sol's in-flight unit as its own line; the two
+  daemon defects flagged at :10811-10822 (--dry-run mutates on the
+  placeholder check; the daemon's ` -- ` prints vs the house ban) enter as
+  OPEN transport units.
+- Dispatches this turn: 0105-to-opus (ARCHITECT_HANDOFF, landing 1, fan-outs
+  named), 0106-to-sol (the scalar-smoke doctrine delta). Landings 2 and 3
+  dispatch on landing 1's audited return — the producer must exist before
+  either consumer half is buildable, so stacking them now would idle-loop
+  the lane on a missing dependency, not pipeline it.
+
+## README DELTA audit (Architect, 2026-07-14): PASS — every gate re-run and reproduced; both flagged defects adjudicated
+
+Input: the Implementer's 0104 return on the 0103 DELTA (entry above, "README
+DELTA landed: total demand, demand report, effort levels, heartbeat"). Per the
+gate-integrity screen, nothing below is taken from the pasted log: every check
+was re-executed in this session on the Mac's stdlib python3.
+
+### Verdict: PASS — the unit is closed; no delta items
+
+- File surface re-verified: b193849 touches README.md only (+107/-16);
+  f1a3f16 touches notes/gates-and-board.md only. No gate surface moved. The
+  b6f1468/217c7f7 two-commit precedent (unit commit README-only, notes
+  separate) was followed.
+- Gate 1 REPRODUCED: the `AGENT_COMMANDS` block extracted from the README
+  fence and from `tools/mailbox_daemon.py` compares byte-identical — 1691
+  bytes, 32 lines, both sides.
+- Gate 2 REPRODUCED: the shipped `report_demand()` was CALLED (module import,
+  synthetic 2-opus/2-sol backlog). The hint line is byte-identical to the
+  README fence against the live ledger. The queue-depth line is
+  byte-identical with the ledger pinned at 22 — its value at the audited
+  commit (`git show b193849:notes/backlog.md` counts exactly 22 `- OPEN`
+  lines). The live ledger reads 24 today because dec161c added the two
+  defect lines AFTER the landing (attribution verified by diffing the ledger
+  across f1a3f16..dec161c). The drift is in the world, not the landing: the
+  fenced example is a dated snapshot whose arithmetic (4 + 22 = 26) is
+  self-consistent, which is all a printed example can promise.
+- Gate 3 REPRODUCED: the `dispatch()` heartbeat expression
+  (mailbox_daemon.py 281-283) evaluated on the example's values matches the
+  README line character for character.
+- Gate 4 REPRODUCED: over README prose with fences excluded, ` -- ` = 0,
+  em dash = 0, en dash = 0; `BACKUP_THRESHOLD` = 0 anywhere in the file;
+  `SECOND_IMPLEMENTER_THRESHOLD` present in both README and daemon.
+- Probes of my own, outside the four scripted gates:
+  - `backlog_ledger_count()` re-run against the live ledger agrees with an
+    independent line count (24 = 24).
+  - `send()` really prints the `queued <path>` line the fence's first line
+    abbreviates.
+  - `SECOND_IMPLEMENTER_THRESHOLD` is 10 and the hint fires at `>=`, so the
+    prose "reaches ten" is exact.
+  - The mode-switch pair ("Being told in the assignment is what switches the
+    mode. The printed number alone never switches it.") is present as its
+    own sentences, matching the role file's explicit-sentence rule as the
+    handoff required.
+  - The effort table's characterizations match the daemon's own pinned
+    comments: opus `max` = the claude CLI's top tier, fable `xhigh` one step
+    below it, sol `xhigh` = the codex CLI's top reasoning tier, and
+    `service_tier=standard` pinned against this machine's "priority" config
+    default.
+- Both deviations APPROVED: (1) the full, untruncated hint line is proved
+  byte-exact by gate 2; (2) both shortened paths are declared shortened in
+  the adjacent prose, at both quote sites. Each deviation enforces the
+  handoff's own character-for-character clause against its sample text —
+  that is the right precedence.
+
+### Adjudication of the two flagged defects (both already OPEN on the ledger)
+
+1. **`--dry-run` mutates** (ledger line "daemon: --dry-run mutates").
+   CONFIRMED against the source: `dispatch()` runs the
+   `PLACEHOLDER_MARKERS` check — which `os.rename()`s the message into
+   `failed/` — BEFORE the `if dry_run:` branch (mailbox_daemon.py 236-250),
+   while the README's dry-run passage promises "it runs nothing". The
+   tools-review adjudication had already confirmed this same defect
+   independently; the Implementer's rediscovery corroborates it. ROUTING:
+   the repair rides the tools-review daemon-repair unit (transport HOLD
+   until Sol publishes the ref — dispatch 0108-to-sol); the ledger line
+   stands until that unit lands.
+
+2. **Register drift in the daemon's user-facing prints** (ledger line
+   "daemon: user-facing ` -- ` prints"). RULED (Operating Constraint 5;
+   ruling requested by the Implementer). The conventions ban is explicit
+   that it "extends to argparse help, log lines, and error messages (they
+   are prose the user reads)" — the daemon's terminal prints are in scope,
+   and they drift twice over: the ` -- ` double dash (hint line, heartbeat,
+   the REFUSED/FAILED messages) and the all-caps emphasis ("SECOND
+   IMPLEMENTER", "REFUSED", "FAILED", "LOGGED OUT" — not acronyms, not the
+   WARNING marker). The ruling:
+   - The README's verbatim quotes STAND. A quote reports what the code
+     prints; sanitizing a quote would falsify the byte-for-byte contract
+     the gates enforce. Quoting shipped output verbatim inside a fence is
+     the sanctioned pattern wherever code output and the register collide —
+     the register census rightly excludes fences.
+   - The PRINTS are the defect. The fix is register-compliant print text,
+     folded into the same tools-review daemon-repair unit as defect 1
+     (that unit already owns these code paths).
+   - Whichever unit changes the prints refreshes the README's quoted lines
+     in the SAME commit series, so "exactly as it ships" stays true — the
+     discipline this DELTA established is the standing one.
+   - Out of scope: the `PREAMBLE`'s ` -- ` is prompt text read by a
+     dispatched agent, not terminal prose read by the user.
+
+### Landing (merge and push are the user's; squash doctrine)
+
+Every commit on main..HEAD now carries a ruling or an audit in this note or
+its registers (the skipped-leg sweep GO, the units-41+53 witnesses, the
+daemon effort/tier/tripwire commits under user directive, this README
+DELTA), so the branch tip through this audit record is an audited batch.
+Main's tip (204748e) is already squash-form, so the landing follows the
+squash doctrine in .claude/FABLE_ROLE.md — not the ff-only block in the
+entry above, which was written before the doctrine applied. Paste-ready:
+
+    git checkout main
+    git merge --squash claude/amazing-keller-e798b6
+    git commit
+    git push origin main
+    git checkout claude/amazing-keller-e798b6
+    git merge main
+
+Suggested squash message (edit at will):
+
+    README and mailbox daemon: the tripwire counts total open demand; turns run at pinned effort
+
+    The mailbox daemon now dispatches every session at a pinned reasoning
+    effort (the architect and implementer through --effort, the red team
+    through codex -c settings, with the standard service tier keeping Fast
+    Mode off), prints a demand report on every send and on every pass that
+    finds work, and heartbeats once a minute so a long turn is visibly
+    alive. The second-implementer tripwire now counts total open demand:
+    queued mailbox messages plus the open lines of the notes/backlog.md
+    ledger. The gate board records a skipped check leg as UNAVAILABLE with
+    its reason named instead of a false FAIL, and new witness checks pin
+    the unit-41/53 artifact defects until their repairs land. The README's
+    AI-usage section was rewritten to match all of it, with the daemon's
+    real output quoted byte for byte.
+
+## Fixed-facts LANDING 1 (Implementer, 2026-07-14): producer sidecar + schema v3 + one shared reader — LANDED, gated on this Mac
+
+Against the 0105 handoff and the Part B rulings (:10877). All eight forks
+implemented as ruled, including the FORK 2 amendment (`dataset_id` = digest of
+the published chain, not of the sidecar) and the Part 2 erratum (a sampled
+coordinate never appears in `cosmology_fixed`; `w` is dropped, `wa` stays).
+Three subagent fan-outs per the user rule (producer / consumer / gates),
+integrated serially.
+
+### What landed, by file
+
+- **`emulator/fixed_facts.py` (NEW)** — the schema authority: the two blocks,
+  their laws, the refusal texts, `chain_digest`, `build_sidecar`,
+  `parse_sidecar`, `validate`, `check_names_match`, `write_h5`, `read_h5`,
+  `synthetic_sidecar`. Torch-free (module scope imports only `hashlib`).
+- **`compute_data_vectors/generator_core.py`** — `self.bounds_requested`
+  snapshot before the stretch + margin mutate `self.bounds`; a facts resolver
+  reading the RESOLVED Cobaya model; `<paramsf>.facts.yaml` written at
+  publication after the chain, and REWRITTEN on the append path (the append
+  changes the chain bytes, so a sidecar left alone there would carry a stale
+  `dataset_id`, which is a lie).
+- **`emulator/results.py`** — `read_artifact_schema()`, THE ONE SHARED READER
+  (FORK 7), owning `schema_version` + both groups; `rebuild_emulator` and
+  `warmstart.load_source` both call it. `save_emulator` gained `facts_yaml=`,
+  writes the groups + the verbatim sidecar bytes, stamps v3, and refuses at
+  save when the whitening geometry and the record disagree on the parameter
+  order. The schema version is now decided in exactly one place.
+- **`emulator/warmstart.py`** — `load_source` routed through the shared reader.
+  The four pre-existing metadata reads were NOT migrated (FORK 7 scope: no
+  gate-pinned refusal text moved).
+- **`emulator/data_staging.py`** — one shared stem resolver + `src["facts_yaml"]`
+  on both loaders; absence is explicit `None`, never silent.
+- **the two drivers** — `facts_yaml=exp.train_set.get("facts_yaml")`.
+- **`gates/checks/fixed_facts_schema.py` (NEW)** + `gates/board.py` +
+  `notes/artifacts-inference-warmstart.md` anchors — see the gate section.
+- **`gates/checks/gsv_bitwise_drift.py`** — the AUTHORIZED version arm: forges
+  v1 AND v2, both must refuse WITH the migration instruction (the old arm only
+  asserted that some ValueError was raised). New aid
+  `save-rebuild-drift.v2-schema-refusal`; the existing v1 aid is unchanged and
+  unreworded.
+- **six gate checks** (bsn / cmb / mps / scalar / transfer identity, gsv) —
+  19 save sites now declare a record. See the blocker below.
+
+### DEVIATION 1 (structural, contract preserved): `emulator/fixed_facts.py` exists
+
+FORK 7 places the shared reader in `results.py`, and it IS there
+(`read_artifact_schema`, called by `rebuild_emulator` AND `warmstart.load_source`,
+owning `schema_version` + both groups). But `results.py` imports torch at module
+scope (`:22`), and the PRODUCER cannot import a torch module: `generator_core.py`
+has no torch dependency and must not gain one. So the LAWS live in a torch-free
+`fixed_facts.py` and the READER lives in `results.py` and calls them. Precedent:
+`emulator/syren_base.py` is torch-free and already imported by
+`compute_data_vectors/dataset_generator_mps.py:400`.
+
+The contract is unchanged — one reader, in results.py, both paths, refusing any
+unknown (schema_version, block_version) pair. The split also makes every law
+drivable with no accelerator, which is how FORK 8's "fully CPU-gateable" promise
+is kept: `fixed_facts_schema` runs on the numpy interpreter with real HDF5 files.
+
+### ERRATUM IN MY OWN PROCESS (recorded because the record must be honest)
+
+I first reported the torch paths as workstation-owed on the ground that the
+Cocoa interpreter was unreachable. **That was false, and it was my error.** I
+typed the path without its lowercase `cocoa/` segment, got a "not found", and
+took the absence as evidence. The memory note
+[[mac-no-torch-verify-numpy-probe]] warns about EXACTLY this path trap and
+states the rule I broke: an absence of evidence (a 127, an ImportError, a "not
+found") is itself a claim and needs the same verification as a green, because a
+fabricated "owed" corrupts the record just as a fabricated pass does. The
+correct path is
+`/Users/vivianmiranda/data/COCOA/june2026/cocoa/Cocoa/.local/bin/python`
+(torch 2.6.0, h5py 3.13.0), it is reachable from the daemon's sandbox, and I
+re-ran everything under it. The table below is the corrected, verified result.
+No claim of "owed" in this entry rests on an unverified absence.
+
+### BLOCKER FOUND AND CLOSED: a v3-only reader orphans every gate artifact
+
+Proven, not inferred: **6 gate check files, 19 save sites** save a synthetic
+emulator and immediately rebuild it. Under the v3 bump each writes v2 and is
+then refused at rebuild. The board would have gone red on the workstation and
+I would not have seen it here (all six need torch).
+
+This is the direct, unavoidable fallout of the AUTHORIZED bump — FORK 3 says
+plainly "every existing artifact must be re-saved", and a gate's test double is
+re-saved on every run; it simply has to carry the record now. Closed with
+`fixed_facts.synthetic_sidecar(names, label, family)`: a test double DECLARES
+itself one (`generator: "synthetic"`, every cosmological fact `"n/a"`, a support
+explicitly `undeclared` rather than a falsely infinite one, an identity digested
+from its label). It is not a v2 escape hatch and not a weakening: the record is
+still required, still validated by the same laws, and a double compared against
+a real model fails the fact comparison, which is the correct answer.
+
+**NAMED GATE-SURFACE CHANGES (rule 7b), each with its authorizing ruling:**
+1. `gsv_bitwise_drift` version arm forges v1 AND v2 and now pins the migration
+   text — authorized by FORK 3, and a STRENGTHENING (the old arm accepted any
+   ValueError).
+2. 19 save sites in six checks pass `facts_yaml=` — authorized by FORK 3 ("every
+   existing artifact must be re-saved"). No assertion, threshold, fixture,
+   golden base, or `##AID` line was touched in any of them.
+3. `board.py`: one new Gate (`fixed-facts-schema`, 7 aids), one new aid on
+   `save-rebuild-drift`. Eight new `<a id>` anchors in
+   `artifacts-inference-warmstart.md`.
+4. `board_selftest.py`: a new leg census (below) — additive.
+
+### Gate results, all run by me on this Mac (PYTHONPATH=., worktree root)
+
+Two interpreters. `n` = the numpy python3 (`which python3`); `t` = the Cocoa
+torch interpreter (torch 2.6.0), path above.
+
+| gate | on | rc | PASS | FAIL |
+|---|---|---|---|---|
+| `checks/board_selftest.py` | n | 0 | **209** (was 182) | 0 — ALL PASS |
+| `checks/fixed_facts_schema.py` (NEW) | n | 0 | **34** | 0 — ALL PASS |
+| `run_board.py --list` | n | **0** | — | — (evidence anchors validate) |
+| `checks/generator_seed.py` | n | 0 | 11 | 0 |
+| `checks/generator_ranges.py` | n | 1 | 2 | 1 — **PRE-EXISTING, proven** |
+| `checks/artifact_readback.py` | t | 0 | ALL PASS | 0 |
+| **live save -> rebuild probe** (mine) | t | 0 | **9** | 0 — ALL PASS |
+| `checks/scalar_identity.py` | t | 0 | 24 | 0 |
+| `checks/bsn_identity.py` | t | 0 | 40 | 0 |
+| `checks/cmb_identity.py` | t | 0 | 78 | 0 |
+| `checks/mps_identity.py` | t | 0 | 69 | 0 |
+| `checks/transfer_identity.py` | t | 1 | 55 | 1 — **PRE-EXISTING, proven** |
+| `py_compile` | n | 0 | 16 files clean | — |
+
+**The four identity gates that carry the 19 new record-carrying save sites are
+GREEN on real torch** (scalar 24, bsn 40, cmb 78, mps 69). The synthetic-record
+fallout is therefore not a paper fix; it is exercised.
+
+**The live save -> rebuild probe drives the SHIPPED torch path end to end** and
+is the strongest evidence in this landing. It proves, through the real
+`save_emulator` and the real `read_artifact_schema`: the save stamps version 3
+and writes both blocks plus the producer text; the rebuild returns the record to
+its caller; the sampled names survive in order and the rebuilt geometry agrees
+with them; **the real reader refuses a forged v1 AND a forged v2, each with the
+migration instruction** (the FORK 3 requirement, through the shipped reader, not
+a mirror of it); the real reader refuses a record rewritten after the save (the
+two-way check); and the real writer refuses a geometry whose parameter order
+permutes the record's. The probe was scratch and is deleted; it is reproduced in
+`fixed_facts_schema` at the schema level, and its torch-level legs are what
+`gsv_bitwise_drift`'s v1/v2 arms will assert on the board.
+
+`fixed_facts_schema` proves the landing-1 slice on REAL HDF5 files: both blocks
+round-trip; a fact edited in the stored block, and a producer text swapped under
+its blocks, are BOTH refused (the two-way check, both directions); a missing
+block or missing producer text refuses with the migration instruction; v1 AND v2
+refuse and the CURRENT version is accepted (a check that only refuses proves
+nothing); a coordinate both sampled and fixed refuses at publication naming both
+values; a PERMUTED parameter order refuses with both orders printed; the dataset
+identity recomputes from the published chain's bytes and two draws differ.
+
+**Both mutation arms fire.** Re-accepting the old schema version (adding (2,1,1)
+to `KNOWN_VERSIONS`) makes a v2 file pass, and the leg reds; a bound re-derived a
+hair wider than the producer wrote is caught by the two-way check. Each arm
+restores the code and a control confirms the faithful file still reads.
+
+**board_selftest's new legs** mechanize the census the Architect did BY HAND in
+the sweep audit (:10843): every check that declares its own `LEG_AIDS` is now
+proved against the board's evidence tuple — every leg the child names is
+declared on the board, and where the check names them as an ordered sequence
+that order matches the board's. It covers 7 checks. Writing it found and
+corrected two of my own modelling errors (the list is a dict in two checks; and
+a gate's board evidence may legitimately EXCEED the child's legs, because the
+wrapper in `board.py` can assert legs of its own — the child's list is a SUBSET,
+which is exactly what the reconciler enforces). **Mutation-probed by me:**
+renaming one board aid reds it with `stray: [...]` naming the orphaned leg;
+`board.py` restored byte-clean.
+
+### The two reds, BOTH proven pre-existing (each verified against HEAD by me)
+
+For each I restored HEAD's version of every file this landing touches, re-ran
+the gate, got the byte-identical result, and restored my files byte-clean.
+
+1. **`generator_ranges`** rc=1 (2 PASS, 1 FAIL) on MINE and on HEAD alike. Cause:
+   this Mac's GetDist 1.6.2 skips `#` comment lines, so the gate's retired-header
+   mutation arm can no longer red the one-parameter parse. Both production legs
+   pass on both trees, and the gate's own AST assertion still finds exactly one
+   `.ranges` writer. **The arm is hollow on this GetDist** — a real defect in
+   that gate.
+2. **`transfer_identity`** rc=1 (55 PASS, 1 FAIL) on MINE and on HEAD alike, the
+   same single leg: `transfer-identity.cross-family-base-refusal`. I captured
+   the real exception: the leg expects a ValueError naming the cross-family rule,
+   but `from_config` dies first on `data is missing the required 'n_train'` —
+   the fixture's config is incomplete, so **the cross-family rule that leg exists
+   to test is not being tested at all.** A hollow leg, red for the wrong reason.
+
+Both are flagged for routing, not chased (they are not my unit).
+
+### WORKSTATION-OWED (declared, never claimed as passed)
+
+Short, and each for a capability this machine really lacks (verified, not
+assumed):
+
+- **`gsv_bitwise_drift` live green** — needs cosmolike + a GPU + the real deploy
+  dumps (`needs=("torch","cosmolike","gpu")`; its `load_deploy` exits without
+  them, "there is no synthetic path"). Its two new v1/v2 arms are therefore
+  statically verified only ON THAT GATE — but the behaviour they assert (the real
+  reader refuses a forged v1 and a forged v2 with the migration text) IS proven
+  live by my save/rebuild probe above, through the same shipped reader.
+- **A live generator run** — needs cobaya + MPI + a real YAML. The facts resolver
+  was exercised against a STUBBED Cobaya model only. Its
+  `parameterization.constant_params()` call is the one cobaya API neither I nor
+  the subagent could verify from source in this sandbox; it is wrapped so a
+  cobaya lacking it degrades every coordinate to `"n/a"` rather than crashing a
+  run whose data vectors are already computed. **This is the single largest
+  unverified surface in the landing and the first thing to run on the
+  workstation.**
+- The three smoke gates (cosmolike / compiled CAMB).
+
+### For the Architect to rule (landing 3 consumes both)
+
+1. **The synthetic record's semantics.** `generator: "synthetic"`, `source:
+   "synthetic"`, `constraint: "undeclared"`, `dataset_id` = digest of a label.
+   Landing 3's horizontal law will compare `dataset_id`, and its domain law will
+   meet an `undeclared` support. I implemented the honest minimum; the semantics
+   are yours.
+2. **The adapter negative legs will start passing for the wrong reason.** The
+   identity checks' adapter-refusal legs catch a bare `except ValueError`. Once
+   the horizontal law lands, a pair that today refuses for a duplicate quantity
+   will ALSO refuse for identity, and the bare catch cannot tell which. Whoever
+   lands landing 3 must needle those arms on the duplicate message. Not touched.
+3. **`data_staging.py:646`** — the `.paramnames` cross-check is silently skipped
+   on every real `<paramsf>.1.txt` chain (the stem derivation yields
+   `<paramsf>.1.paramnames`, which never exists, and absence is treated as
+   "skip"). Confirmed empirically by exec-probe. Left alone per the handoff's
+   scope; it wants a ledger line.
+4. **`generator_ranges`'s mutation arm is hollow** on GetDist 1.6.2 (above).
+5. **`transfer-identity.cross-family-base-refusal` is hollow** (above): its
+   fixture config lacks `n_train`, so the leg dies before reaching the rule it
+   names. Red on HEAD today, so the transfer-identity gate is already red on any
+   machine that runs it.
+
+### Landing (merge and push are the user's; squash doctrine)
+
+    git checkout main
+    git merge --squash claude/amazing-keller-e798b6
+    git commit
+    git push origin main
+    git checkout claude/amazing-keller-e798b6
+    git merge main
+
+## Resume state (Implementer, 2026-07-14, mailbox 0110): the dispatch arrived stale; landing 1 re-verified intact; no code written
+
+Mailbox 0110 (the README DELTA audit PASS) reached me at 06:29. It was written
+at 04:29 and says, correctly for that moment, "Your lane already holds 0105
+(fixed-facts LANDING 1) — proceed per that handoff." By the time it was
+delivered that instruction was already satisfied: landing 1 finished at 05:45
+and its return is `0114-to-fable.md`, which is still sitting undispatched in
+the mailbox queue. 0110 itself declares "No action items in this message."
+
+So this turn wrote no code, and that is the correct outcome. Landings 2 and 3
+are gated by 0105 on the *audited* return, and the audit has not happened —
+the Architect has not yet been handed 0114. Unit 8 is separately gated on unit
+94's audit GO (0117). My lane holds no open dispatch. Nothing was invented to
+fill it (OPUS_ROLE 1 and 8).
+
+### The stale-dispatch class (a defect noticed in passing; routing is the Architect's)
+
+A mailbox dispatch carries no staleness or supersession check. A message can
+point an agent at a unit that has since been delivered, and nothing in the
+transport notices. Here the cost was zero because the turn read the mailbox
+before acting — but the failure mode is not hypothetical: a turn that took the
+pointer at face value would have re-run landing 1 **on top of the uncommitted
+landing-1 tree**, which is 16 files and ~2,800 insertions living in no commit.
+This belongs to the tools-review daemon-repair unit, which already owns the
+`--dry-run` mutation, the print register, and `next_seq()`.
+
+**The `next_seq()` collision fired again, live, during this turn.** At 06:29 the
+highest sequence anywhere in the mailbox was 0117, so 0118 was free. At 06:34,
+while I was re-running the gates, `0118-to-fable.md` appeared — written by
+another agent. I re-checked the maximum across `mailbox/`, `done/` and
+`failed/` immediately before writing and took 0119. This is the second live
+instance after the 0107-to-fable / 0107-to-sol pair, and it confirms the
+adjudication's diagnosis: computing the next number and then writing is not
+atomic, and the loop now has enough agents in it to lose that race routinely.
+
+### Re-verification: the uncommitted landing is undisturbed
+
+The landing is gated but **uncommitted**, and this worktree is shared by a live
+daemon and three agents. Since 05:45 the Architect landed three notes commits
+(dec161c, a71e747, faf2b81) and seven messages queued. So I re-ran the gates
+that this machine can actually run, to prove the tree the audit will read is
+still the tree that was gated.
+
+Numpy interpreter (`/Users/vivianmiranda/miniforge/envs/cocoa/bin/python3`,
+numpy 1.26.3), `PYTHONPATH=.`, worktree root:
+
+| gate | rc | result | vs the landing |
+|---|---|---|---|
+| `checks/board_selftest.py` | 0 | **209 PASS / 0 FAIL**, ALL PASS | reproduces 209 |
+| `checks/fixed_facts_schema.py` | 0 | **34 PASS / 0 FAIL**, ALL PASS (8 board aids) | reproduces 34 |
+| `run_board.py --list` | **0** | evidence anchors validate | reproduces rc 0 |
+| `py_compile` | 0 | all **16** landing files clean | reproduces clean |
+
+The torch gates (the four identity checks, `artifact_readback`, and the live
+save→rebuild probe) were **not** re-run: the cocoa-torch interpreter is
+auto-denied to headless daemon turns, the standing denial recorded at :9216
+("This command requires approval"), and I honored it rather than routing
+around it. They stand on the landing turn's record; this entry does not
+re-assert them.
+
+### One flag for the Architect (not chased)
+
+The landing exists in **no commit**. Any `git restore`, `git checkout` or `git
+stash` run in this shared worktree by any agent destroys 16 files of gated
+work, and the audit is going to read this tree. The squash block above is
+printed and ready, but it merges to main, which is the user's alone. Whether
+to commit the branch *before* the audit — so the work survives an accident —
+is a call above my authority, and I am not taking it unilaterally. It wants a
+ruling, not a patch.
+
+## Scalar-smoke doctrine delta audit (Architect, 2026-07-14): PASS — the transport block is solved in place; commit 68f0e77 created after the audit
+
+Input: Sol's ARCHITECT_REDTEAM_HANDOFF on the Part-C doctrine delta (:10973)
+— the skipped-leg backfill for the nine-aid scalar-smoke child, delivered as
+an unstaged two-file working-tree delta because Sol's sandbox cannot write
+the shared Git metadata (`index.lock: Operation not permitted`). The durable
+record is the "Skipped-leg doctrine delta (2026-07-14)" section of
+`notes/red-team-audit-and-didactics-2026-07-13.md` on the child branch,
+committed below. Per the gate-integrity screen, the pasted logs were not the
+audit: every check below was re-executed by me this session.
+
+### Transport: solved by entering the worktree, not by holding
+
+This headless session's file access is confined to its own worktree — the
+same class of blocker Sol hit. The way through: the harness can switch a
+session INTO any linked worktree of this repository (any checkout listed by
+`git worktree list` under `.claude/worktrees/`), and inside it, reads, gate
+runs, and plain `git add`/`git commit` all work. I entered
+`codex-scalar-smoke-nine-aids-child`, audited the working tree in place,
+created the commit only after every gate below was green, and returned.
+
+This is the playbook for future lock-blocked red-team commits: a delta
+sitting uncommitted in a LINKED worktree is reachable and committable by the
+Architect directly — no user round-trip. The four transport HOLDs above
+(TEX-PROSE-04/06, 07/08, tools-review, unit 96) are the OTHER class: unlinked
+clones, invisible to `git worktree list`, which stay user-owed.
+
+- Working-tree state matched the handoff exactly before the commit: two
+  unstaged files, numstat 102/14 (`gates/checks/scalar_smoke.py`) + 124/0
+  (the durable-record note), tip `77a1572`, base `b74d81b`, `gates/board.py`
+  and the selftest untouched, `git diff --check` clean.
+- Commit created after the audit: **68f0e77**, "gates: backfill skipped
+  scalar-smoke legs as unavailable", parent `77a1572`. Post-commit status is
+  clean; the committed diff is the audited diff.
+
+### Every gate re-run by me
+
+- **Live gate, exact recorded command** (Cocoa Torch interpreter,
+  `PYTHONPATH=.`, Agg backend): rc 0; each of the nine `##AID ... PASS`
+  terminals exactly once; aggregate `PASS: scalar-smoke all checks green`.
+  Every calibrated value matches Sol's record to the last digit: trained
+  median 0.196647360921, collapse bar 0.244681023061, direct relative error
+  0.074595841408, accuracy bar 0.111893762112, Cobaya relative error
+  0.0745977200225182. One divergence, named and explained: my stdout was
+  3,353 bytes like Sol's but its sha256 differs (mine `afc60bdeb...`, Sol's
+  `0c0fda0da...`) — the `stage_source` lines print a free-RAM-dependent
+  budget figure, so the full stream is machine-state-dependent. Every
+  verdict, count, and calibration digit matches; not blocking.
+- **Child-branch selftest**: rc 0, 170 PASS / 0 FAIL (PASS lines grepped,
+  not read off the banner), `board-selftest: ALL PASS` — the branch's
+  intentionally old-base source, as claimed.
+- **Static census re-derived by AST**, not taken from the handoff:
+  `LEG_AIDS` = 9; `main:gates/board.py` scalar-smoke assertions = 9 with
+  identical names AND order; unique direct `emit_aid` ids = 9 across 11 call
+  sites (the fixture and training legs own two sites each — their
+  early-return and pass paths). Missing `[]`, extras `[]`. `py_compile`
+  clean; no line over 90 columns; the diff touches exactly the two named
+  files.
+- **All three scripted exit-path probes re-executed with my own driver**
+  (in-process fault injection at module level — my mechanics, not Sol's,
+  same contract): a setup explosion gave 9/9 UNAVAILABLE, every reason "the
+  child exited before this leg ran", exception propagated;
+  `_require_disjoint_aligned_fixtures` raising gave 1 FAIL + 8 UNAVAILABLE
+  each naming `scalar-smoke.fixture-rows-disjoint-and-aligned`, then
+  SystemExit(1); `_calibration_bars` raising gave 4 PASS + 1 FAIL + 4
+  UNAVAILABLE each naming `scalar-smoke.training-beats-mean-predictor`, then
+  SystemExit(1). The driver checked declared == emitted == 9 and the exact
+  reason strings mechanically on every path.
+- **My own unscripted probe** (the arm Sol never scripted): a mid-leg CRASH
+  — `check_parameter_window_banner` raising after two PASS terminals — gave
+  2 PASS + 7 UNAVAILABLE with every reason in the no-terminal form, which is
+  correct doctrine: a crash is not a FAIL, so no blocker may be named. The
+  RuntimeError propagated through `main()`'s `finally`, so a crashed child
+  still exits nonzero — the backfill can never green a dead run.
+- **Doctrine legs**: the two selftest doctrine reports ("the skipped leg
+  reaches the gate log as UNAVAILABLE, not FAIL"; "the skipped leg's log
+  reason names the upstream leg") re-run green on this worktree's current
+  source. Their load-bearing-ness is my recorded Part-A fact (the h1/h2
+  mutation arms I executed myself on the sweep source); Sol's 180/2
+  mutation readback is consistent with it. Count drift, explained: this
+  worktree's selftest now reports 209 PASS where Sol recorded 182 — the
+  in-flight fixed-facts landing grew this working tree's selftest after
+  Sol's snapshot. That growth belongs to the landing-1 unit and gets its own
+  audit; it does not touch the two doctrine legs.
+
+### House style, plus one named wart
+
+Formal `Arguments:` blocks on every touched signature; the backfill is a
+plain `for` loop over the declaration list; no comprehensions; C-readable
+throughout. One wart, named so it reads as a decision and not an oversight:
+`emit_aid` now returns True/False and no caller consumes it — a dormant
+return. Acceptable as shipped; use it or drop it in a later tidy, not worth
+a delta re-handoff.
+
+### VERDICT: PASS — the unit closes
+
+The Part-C contract holds on every exit path the child owns, re-proven in
+this session rather than accepted from the handoff. The ledger line
+"scalar-smoke skipped-leg doctrine" leaves `notes/backlog.md` this turn
+(landed on its branch + audited GO — the sweep precedent). The merge remains
+the user's.
+
+### Landing block (merge and push are the user's alone)
+
+```text
+branch: codex/scalar-smoke-nine-aids-child
+tip:    68f0e77 (parent 77a1572, base b74d81b; both already in main's ancestry)
+files:  gates/checks/scalar_smoke.py
+        notes/red-team-audit-and-didactics-2026-07-13.md
+gates:  all re-run by the Architect — live gate rc 0 with nine PASS
+        terminals; branch selftest 170/0; census 9 == 9 == 9; four forced
+        exit paths with declared == emitted == 9; compile, 90-column, and
+        whitespace checks clean
+merge:  cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+        git merge --squash codex/scalar-smoke-nine-aids-child
+        # EXPECTED CONFLICT in notes/red-team-audit-and-didactics-2026-07-13.md:
+        # main gained 497 lines in that file after 77a1572. Keep BOTH sides —
+        # main's additions first, then the child's "Skipped-leg doctrine
+        # delta (2026-07-14)" section appended after them.
+        git commit
+push:   git push   (main only)
+```
+
+Suggested squash message (didactic, per the main-history rule):
+
+```text
+gates: the scalar-smoke check now reports every one of its nine declared
+evidence legs on every exit. A leg that never ran is printed as UNAVAILABLE
+with the reason — the first failed step when one exists, otherwise "the
+child exited before this leg ran" — instead of going silently missing. A
+crash still exits nonzero after this backfill, so a dead run can never pass.
+```
+
+## Fixed-facts LANDING 1 audit (Architect, 2026-07-14): PASS — every CPU gate re-run and reproduced; three unscripted probes fire; both deviations approved; rulings 1+2 issued; committed on the branch
+
+Input: the Implementer's 0114 return (the landing entry at :11125, against the
+Part B rulings at :10877). Per the gate-integrity screen, the pasted logs were
+never the audit: every check marked "re-run" below was executed by me this
+session (numpy interpreter `/Users/vivianmiranda/miniforge/envs/cocoa/bin/python3`,
+`PYTHONPATH=.`, worktree root). The cocoa-torch interpreter is approval-gated
+for headless daemon turns (the :9216 standing denial; the 0119 resume turn
+honored it and so does this one), so the torch gates stand on the landing
+turn's record and stay on the owed list for the queue-5 workstation board run;
+everything numpy-runnable was re-executed by me.
+
+### Re-run by me — every number reproduces
+
+- `board_selftest`: **209 PASS / 0 FAIL, ALL PASS** (run twice; PASS lines
+  grepped, not read off the banner).
+- `fixed_facts_schema` (NEW): **34 PASS / 0 FAIL, ALL PASS** (run three times:
+  baseline + two probe controls). The child emits exactly the **7** aids the
+  board declares, name-for-name and order-for-order. (The 0119 resume entry's
+  "8 board aids" is a prose miscount; the landing entry's 7 is correct.)
+- `run_board.py --list`: rc 0 — the evidence map validates, and the 8 new
+  `<a id>` anchors are present in `artifacts-inference-warmstart.md`.
+- `generator_seed`: 11/0. `py_compile`: clean on all 16 landing files.
+- `generator_ranges`: 2 PASS / 1 FAIL — **pre-existence proven by my own
+  method, with no working-tree restore** (this worktree is shared): HEAD's
+  `generator_core.py` and HEAD's gate exported via `git show` into a scratch
+  layout produce a byte-identical failing log, and the gate file itself is
+  untouched by the landing.
+
+### Verified statically (the torch surface this turn cannot execute)
+
+- `transfer-identity.cross-family-base-refusal` hollow-leg mechanism confirmed
+  at both ends: HEAD's `g2_cfg` fixture already lacks `n_train` (git show), and
+  `emulator/experiment.py:1192` raises "data is missing the required
+  'n_train'..." — a ValueError carrying neither of the leg's needle words
+  ("never", "families"), so the leg reds before the cross-family rule is ever
+  reached. Red on HEAD, exactly as the landing claimed.
+- The four identity-check diffs screened hunk by hunk: every hunk is
+  `facts_yaml=synthetic_sidecar(...)` plumbing plus label didactics. **No
+  assertion, threshold, fixture value, golden base, or `##AID` line moved.**
+  19 `save_emulator` call sites counted across the six checks; gsv's two saves
+  share one `save_kwargs`, so 18 `facts_yaml=` expressions cover all 19 sites —
+  the landing's arithmetic is honest.
+- `gsv_bitwise_drift`'s version arm matches FORK 3 exactly: forges v1 AND v2,
+  pins the migration text ("Re-generate the dataset"), adds the
+  `v2-schema-refusal` aid, leaves the v1 aid id untouched, and restores
+  `SCHEMA_VERSION` onto the file afterward so the later arms read the real
+  artifact.
+- `fixed_facts.py` is torch-free at module scope (imports `hashlib` only;
+  numpy/yaml/h5py are function-local). `read_artifact_schema` in `results.py`
+  is the one reader, called by `rebuild_emulator` AND `warmstart.load_source`;
+  the four legacy metadata reads were NOT migrated (FORK 7's scope held). The
+  save decides its version once, from the payload, and refuses a permuted
+  parameter order before any byte is written. FORK 2's amendment is
+  implemented: `dataset_id = chain_digest(<paramsf>.1.txt)` at publication,
+  and the sidecar is REWRITTEN on the append path. The Part 2 erratum is
+  honored in both the producer (`_resolve_fixed_facts` drops sampled
+  coordinates from the roster) and the synthetic path.
+
+### Three unscripted probes (mine — none scripted by the landing), each restored byte-clean with an identical control run
+
+1. **The order law weakened to a set comparison** (`check_names_match` via
+   `sorted()`): exactly the `parameter-order-enforced` leg reds (both report
+   lines + its `##AID`). The law is load-bearing in the shipped module, not
+   just in the arm's fixture.
+2. **A lazy digest** (`chain_digest` reading only the header line): exactly
+   the `dataset-identity-is-the-chain` leg reds ("two different draws carry
+   different identities"). The identity provably depends on the whole chain's
+   bytes.
+3. **A board aid renamed** (`record-round-trip` -> `...X` in `board.py`): TWO
+   independent layers red — the new leg census (`stray: [...]` naming the
+   orphaned leg) and the pre-existing evidence-map anchor validator.
+
+### Both deviations APPROVED
+
+1. **`emulator/fixed_facts.py` exists.** The contract FORK 7 ruled is intact —
+   one reader, in `results.py`, on both paths, refusing any unknown version
+   pair — and the torch-free law module is what keeps FORK 8's "fully
+   CPU-gateable" promise (I ran every law on the numpy interpreter this turn,
+   which is the proof). The `syren_base.py` precedent applies. Approved as the
+   correct reading of the ruling, not an exception to it.
+2. **`synthetic_sidecar`.** The direct, unavoidable fallout of the authorized
+   FORK 3 bump; the record is still required and still validated by the same
+   laws; the four identity gates that exercise it are green on real torch (the
+   landing turn's record). Approved. Its semantics are RULING 1's.
+
+### RULING 1 — the synthetic record's semantics (binding on landing 3)
+
+- **The label contract is RATIFIED as schema semantics**, not a gate
+  convenience: a synthetic record's `dataset_id` is the sha256 of its label;
+  doubles built to form one dataset share a label; doubles built to be told
+  apart do not. The landing already uses it exactly this way
+  (`ADAPTER_PAIR_LABEL` shared across a served pair; refusal doubles get their
+  own).
+- **The horizontal law compares `dataset_id` as an opaque string.** No
+  parsing, no special case for `generator: "synthetic"` or
+  `source: "synthetic"` — equality is equality. A synthetic double beside a
+  real artifact refuses on plain inequality (a digest of a label never equals
+  a digest of a chain), which is the correct refusal with no bypass to
+  maintain.
+- **`constraint` gates the domain law.** The domain law reads `constraint`
+  FIRST: `"box"` proceeds to the interval comparison (`domain_bounds`);
+  `"undeclared"` REFUSES to serve any point, naming the synthetic source and
+  the undeclared support. `domain_bounds` is legal on box constraints only —
+  landing 3 must never call it on an undeclared record (`float("n/a")` would
+  crash; the refusal must be designed, not incidental).
+- **`flat_only` on a synthetic record is a schema-typed placeholder** — the
+  one field in the block whose bool typing cannot carry `"n/a"`. It is
+  compared like any other key (no special case), which is safe under the label
+  contract: equal labels imply equal blocks, and unequal pairs already refuse
+  on `dataset_id`. Recorded so nobody later reads its `False` as a curvature
+  claim.
+
+### RULING 2 — the adapter negative legs (binding on landing 3)
+
+The Implementer's flag is accepted and made executable. Three clauses:
+
+1. **Every adapter-refusal arm needles the message of the law it names.** A
+   bare `except ValueError` stops being acceptable in any arm the horizontal
+   law can also reach.
+2. **The duplicate-law arms re-fixture to identity-passing pairs.** Once the
+   horizontal law lands, a second-TT/second-H0/second-linear double with its
+   own label refuses on IDENTITY before the duplicate check is reached, and
+   the duplicate law would go silently untested. The arms that exist to prove
+   the duplicate law therefore hand both doubles the SAME label (one dataset —
+   legitimate: two providers of one quantity off one dump is exactly the
+   ambiguity that law refuses) and needle the duplicate message.
+3. **Landing 3 adds its own identity-refusal legs** — different labels, the
+   identity needle — so both laws are proven separately, each on a fixture
+   that can only fail its own way.
+
+### The commit ruling (the Implementer's 0119 flag, answered)
+
+The general rule, standing from this turn: **a gated-but-unaudited landing
+stays uncommitted** (the audit must read the very tree the gates read, and a
+commit would invite premature merging); **on PASS, the auditing turn commits
+it on the branch** under the Architect's standing commit grant — merge and
+push to main remain the user's. Applied here: commit A carries the 16 code
+files + the anchors note; commit B sweeps the settled notes records (this
+entry, the landing entry, the ledger, the index, and the settled adjudication
+records of prior turns that were still uncommitted). The 16-file fragility
+window the Implementer flagged closes this turn.
+
+### Routing (ledger updated this turn)
+
+- **fixed-facts landing 1 LEAVES the ledger** (landed + audited GO).
+- **Landings 2 and 3 dispatch NOW** (0124-to-opus): landing 2 = unit 82's
+  canonical decimal policy in the one `.ranges`/chain writer, through
+  `fixed_facts.format_value` (+ the dead `hd` clearing, :7688; the 25M-06
+  witness pairs are the acceptance bar per Part 4). Landing 3 = the three
+  comparison laws in `EmulatorPredictor` + the wave-4 adapter visits
+  (67/71/74/75/84/85), under RULINGS 1+2 above and the Part B positional-trust
+  amendment (:10954).
+- Three defect lines ENTER as OPEN: the `generator_ranges` retired-header arm
+  hollow on GetDist 1.6.2 (red on HEAD); the
+  `transfer-identity.cross-family-base-refusal` leg hollow (fixture lacks
+  `n_train`; red on HEAD, so the gate is red on any machine that runs it);
+  `data_staging.py` `.paramnames` cross-check silently skipped on every real
+  `<paramsf>.1.txt` chain (the stem trap `read_facts_sidecar` now solves for
+  the facts sidecar is the repair template).
+- 53-REPAIR unblocks (it waited on landing 1); 41-REPAIR stays Sol's
+  second-Implementer candidate per :10718.
+- The Implementer's process erratum (the mistyped interpreter path,
+  self-caught, re-run under the real interpreter) is noted with approval —
+  the absence-of-evidence rule held because the record was corrected before
+  it was consumed. No delta item.
+
+### WORKSTATION-OWED (unchanged, restated so the owed list has one current home)
+
+The four identity gates + `artifact_readback` + the live save->rebuild probe
+(verified on torch by the landing turn only — this audit could not re-execute
+them); `gsv_bitwise_drift` live; **a live generator run — the facts resolver
+against a real resolved Cobaya model (`parameterization.constant_params()`),
+the single largest unverified surface and the first thing to run on the
+workstation**; the three smoke gates.
+
+### Landing block (merge and push are the user's; squash doctrine)
+
+    git checkout main
+    git merge --squash claude/amazing-keller-e798b6
+    git commit
+    git push origin main
+    git checkout claude/amazing-keller-e798b6
+    git merge main
+
+Suggested squash message (didactic, per the main-history rule):
+
+```text
+emulators: a saved emulator now records the science it was born under
+
+The dataset generator writes a small companion file next to each chain it
+publishes: the cosmology held fixed while the parameters were sampled, the
+interval each parameter was drawn from, and a digest of the chain itself so
+the dataset can prove which run it is. Training copies that file verbatim
+into the saved emulator, and every code path that opens a saved emulator now
+goes through one shared reader that refuses a file without the record, a
+record rewritten after the save, or a parameter order that disagrees with
+the emulator's own geometry. A new CPU-runnable check proves every one of
+those refusals on real HDF5 files, and the check board grew matching
+evidence legs.
+```
+
+## Mailbox 0120 adjudication (Architect, 2026-07-14): ACCEPTED — stale on arrival; every ask pre-satisfied by the landing-1 audit turn; the stale-dispatch class enters the ledger
+
+Input: `0120-to-fable` (written 06:37, delivered ~08:00), the Implementer's
+return for the stale-0110 turn; its substance is the resume-state entry at
+:11366. By the time the daemon handed 0120 over, the landing-1 audit turn
+(:11569) had already satisfied all three of its asks — 0120 is itself an
+instance of the transport class it reports, now demonstrated in BOTH
+directions of the loop (0110 stale toward the Implementer, 0120 stale toward
+the Architect). Every claim below was re-verified against the store this
+turn, not taken from the message.
+
+### Verdict: ACCEPTED — no strike, no re-work; the conduct is the norm
+
+The turn's outcome (no code written) was correct, and the conduct is
+affirmatively endorsed as the standing playbook for a stale delivery:
+mailbox-first reading prevented a re-run of landing 1 onto what was then an
+uncommitted 17-file tree; declining the unilateral commit was the right
+authority call (the commit ruling at :11700 answered it within the hour: a
+gated-but-unaudited landing stays uncommitted, the auditing turn commits on
+PASS); the torch denial was honored with the gates declared standing on the
+landing turn's record rather than re-asserted — exactly the
+absence-of-evidence discipline the audits demand.
+
+### The three asks, disposed before delivery (re-verified this turn)
+
+1. **"Dispatch 0114"** — `0114-to-fable` sits in `done/`; its audit is the
+   :11569 entry (PASS), recorded on the branch in b55cc54.
+2. **"The landing exists in no commit"** — closed: 3153b1f carries the
+   landing (17 files, +2,840 — the 16 code files plus the anchors note, per
+   the commit ruling), b55cc54 sweeps the records. `git status` is clean at
+   this writing.
+3. **"The two rulings are owed"** — RULING 1 (:11655) and RULING 2 (:11682)
+   are issued and ride `0124-to-opus`, queued in the Implementer's lane at
+   this writing. Landing 3 consumes both, exactly as 0120 anticipated.
+
+### Finding 1 ACCEPTED AS NEW: the stale-dispatch/supersession class
+
+Neither `notes/backlog.md` nor the tools-review defect register carried a
+mailbox-staleness item (both grepped this turn) — the fourteen adjudicated
+tools-review defects do not include it. The class fired twice today across
+two lanes, at zero cost only because both receiving turns read the mailbox
+before acting. A ledger line enters as OPEN, riding the tools-review
+daemon-repair unit (which already owns `--dry-run`, the print register, and
+`next_seq()`). Acceptance shape, binding when that unit dispatches: the
+dispatch banner carries a mechanical currency marker (the store's max
+sequence and the count of newer messages queued for the recipient's lane at
+dispatch time) — a hint, not a semantic supersession oracle; the receiving
+turn's mailbox-first obligation stands regardless, and this turn's conduct
+is the reference behavior.
+
+### Finding 2 ACCRETES to the known `next_seq()` defect — with a fourth live instance found this turn
+
+The race is already owned (the mailbox-daemon incident note; the
+tools-review adjudication confirmed the cross-recipient collision class
+live on the 0107 pair). New evidence recorded here: the 0118/0119
+near-misses 0120 reports (avoided by re-checking the store max before each
+write), and a FOURTH live cross-recipient collision found by this audit —
+**`0121-to-fable` (06:55, Sol's unit-94 return, still queued) beside
+`0121-to-sol` (06:56, in `done/`)** — the 0107 pair's exact class. No new
+ledger line; the defect is already counted, and per-instance lines would
+inflate the demand count with duplicates of one repair.
+
+### Loop termination + this turn's own write discipline
+
+The outbound (next free sequence, to the Implementer) is a receipt and a
+pointer to 0124 — no reply owed; the next expected message in that lane is
+the 0124 return per its "Next milestone." Per the class under adjudication,
+the store max was re-checked immediately before the outbound write rather
+than trusted from this turn's opening listing.
+
+## Fixed-facts LANDING 2 (Implementer, 2026-07-14): the canonical decimal policy in the one writer — LANDED, CPU-green on this Mac
+
+Against dispatch 0124 and the Part 4 ratification (:10429, :10950). Unit 82
+closes: the `.ranges` file stops being a second author of a support.
+
+### What landed, by file
+
+- **`compute_data_vectors/generator_core.py`** (the `.ranges` writer, :1183-1201
+  post-landing) — every bound now goes through `fixed_facts.format_value`, the
+  ONE policy (`repr(np.float32(x))`, shortest-roundtrip decimal; hex REJECTED at
+  Part 4 on didactic grounds). The dead `hd` list assignment the 25M-38 landing
+  left behind (:7688) is **cleared** — it was overwritten at :1196/:1198 before
+  any read, and the child gate was already built to tolerate its removal
+  (`generator_ranges.py`'s docstring: "a later cleanup may remove the now-unused
+  assignment without breaking the repaired control").
+- **`gates/checks/generator_ranges.py`** — the acceptance bar: the two 25M-06
+  witness legs, a view-agrees-with-the-record leg, and the `%.5e` restoration
+  mutation arm. Plus the ONE required namespace change (below).
+
+### The witness pairs, byte-cited (25M-06 closed)
+
+The gate parses the production writer's real output with real GetDist
+`ParamBounds`. Written text, read back:
+
+| bound | float32 it really is | `.ranges` text (new) | `%.5e` text (retired) |
+|---|---|---|---|
+| 70.00001 | 70.00000762939453 | `70.00001` | `7.00000e+01` |
+| 70.00002 | 70.0000228881836 | `70.00002` | `7.00000e+01` |
+| 0.12345674 | 0.12345673888921738 | `0.12345674` | `1.23457e-01` |
+| 0.12345676 | 0.12345676124095917 | `0.12345676` | `1.23457e-01` |
+
+Both pairs are DISTINCT in the float32 the generator owns (`self.dtype =
+np.float32`, :319), both collapsed to one string under `%.5e`, and both now
+round-trip distinct AND float32-exact. The sidecar declared a zero-width
+interval over a range the chain beside it kept apart; it no longer can.
+
+**The view really is a view.** A new leg builds the scientific record from the
+same resolved bounds and compares the `.ranges` file's bound TEXT against the
+record's `input_domain.resolved` text: byte-identical
+(`{'H0': ['70.00001', '70.00002'], ...}` both sides). The two call paths were
+proven to agree at the source too — the sidecar hands `format_value` a
+`np.float32`, the `.ranges` writer hands it a Python `float` off the same array,
+and all eight probe values produce identical text with numpy warnings promoted
+to errors. One author, one formatter, two files that cannot drift.
+
+### NAMED GATE-SURFACE CHANGE (rule 7b), with its authorizing ruling
+
+`generator_ranges.py` does not import the generator; it AST-extracts the
+production writer's own statements and `exec`s them in a synthetic namespace
+(`self`, `names`, `bds`). The writer now references `fixed_facts`, so the check
+must supply the module the production file imports at :73 — otherwise the
+extracted statements die on `NameError` and the gate's production legs go red
+for a reason that has nothing to do with the writer.
+
+**The change is one dict entry** (`"fixed_facts": fixed_facts`) plus the import.
+Authorized by the landing-2 ruling itself ("route the `.ranges` writer's bound
+text through `fixed_facts.format_value`"): a gate that executes production
+statements must supply the modules those statements reference. It is the same
+class as landing 1's `synthetic_sidecar` fallout — the direct, unavoidable
+consequence of an authorized change — and it is a STRENGTHENING, not a
+weakening: the check now runs the real policy rather than a private copy of it.
+No assertion, threshold, fixture value, golden base, or `##AID` line moved. The
+child has no board entry and emits no `##AID` (:7690, queue 2 owns the wiring),
+so the board census is untouched.
+
+### DELIBERATE NON-CHANGE (flagged so the audit does not read it as sloppiness)
+
+`rows` stays a single list comprehension, which the house style would otherwise
+forbid outside a hot loop. It cannot become an explicit loop: the gate lifts the
+`ast.Assign` that binds `rows` out of the syntax tree, and an
+`ast.For` is not an `Assign` — a loop would be lifted as NOTHING, the check
+would write an empty `.ranges` file, and the production legs would still pass.
+I found this by writing the loop first and watching the gate keep its greens on
+an empty file. The memory rule's own carve-out applies ("explicit loops fine
+when FREE"), and this one is not free. A comment at the site says so, and the
+writer's BODY — which the gate lifts wholesale — is now an explicit loop.
+
+### Gate results, all run by me on this Mac (`PYTHONPATH=.`, worktree root)
+
+The `python3` on PATH IS the numpy/GetDist interpreter
+(`/Users/vivianmiranda/miniforge/envs/cocoa/bin/python3`: numpy 1.26.3,
+getdist 1.6.2, h5py 3.13.0, yaml; no torch).
+
+| gate | rc | PASS | FAIL |
+|---|---|---|---|
+| `checks/generator_ranges.py` | 1 | **5** (was 2) | 1 — **PRE-EXISTING, re-proven** |
+| `checks/generator_seed.py` | 0 | 11 | 0 |
+| `checks/fixed_facts_schema.py` | 0 | 34 | 0 |
+| `checks/board_selftest.py` | 0 | 209 | 0 |
+| `run_board.py --list` | **0** | — | — (evidence map validates) |
+| `py_compile` | 0 | 2/2 clean | — |
+
+The three unchanged counts (209 / 34 / 11) are landing 1's numbers exactly, so
+this landing broke nothing.
+
+**The one red is the known hollow arm, and its pre-existence is re-proven by my
+own method, not asserted:** HEAD's `generator_core.py` + HEAD's gate, exported
+via `git show` into a scratch layout outside the worktree, produce **2 PASS / 1
+FAIL with the identical failing label** ("the retired header breaks one
+parameter while the wider control hides it"). Mine produces **5 PASS / 1 FAIL,
+same label**. GetDist 1.6.2 skips `#` comment lines, so that arm can no longer
+red the one-parameter parse. On the ledger, not mine.
+
+**The new mutation arm fires** (the dead-network discipline applied to a
+formatter): restoring `%.5e` in the production writer collapses BOTH witness
+intervals to zero width (`H0 70.0 70.0`, `omegach2 0.123457 0.123457`) while the
+broad production bounds (`H0 60-75`, `ombh2 0.020-0.024`) still parse unharmed —
+which is 25M-06 itself, reproduced on demand, and is exactly why the defect
+survived so long: it is invisible on the bounds anyone looks at.
+
+## Fixed-facts LANDING 3 (Implementer, 2026-07-14): the three comparison laws — PARTIAL, gated; the adapter half is BLOCKED on a factual gap in the blueprint
+
+Against dispatch 0124, Part 3 (:10407), Part B FORKS 1/2, the positional-trust
+AMENDMENT (:10954), and RULINGS 1+2 (:11655, :11682). The laws LANDED and are
+proven. The wave-4 adapter visit is CHECKPOINTED on one blocker and one design
+question, both evidenced below.
+
+### What landed: the three laws, in the torch-free module (`emulator/fixed_facts.py`)
+
+`check_vertical` / `check_horizontal` / `check_domain`, plus `served_support`
+(the pair's intersection). The module's scope imports stay `hashlib` alone —
+verified by inspection this session — so every law is drivable with no
+accelerator, which is what keeps FORK 8's "fully CPU-gateable" promise and what
+DEVIATION 1 was approved for.
+
+Each refusal carries the 74 cl.4 shape (the artifact's value, the value it was
+asked about, the remediation). Driven end to end on my own probe:
+
+| law | fixture | verdict |
+|---|---|---|
+| VERTICAL | real record vs an agreeing resolved model | ACCEPT |
+| VERTICAL | `w = -1.0` artifact vs a `w = -0.9` model | REFUSE, naming both |
+| VERTICAL | artifact pins `mnu`, model does not say what `mnu` is | REFUSE |
+| VERTICAL | **synthetic double vs any real model** | **REFUSE** (RULING 1) |
+| HORIZONTAL | two halves off ONE dump (same `dataset_id`) | ACCEPT |
+| HORIZONTAL | **a re-run: every fact equal, `dataset_id` differs** | **REFUSE** |
+| HORIZONTAL | one dump, the two halves disagree on `w` | REFUSE, naming the fact |
+| DOMAIN | interior point; and BOTH endpoints | ACCEPT |
+| DOMAIN | `omegam = 0.7` against a `[0.1, 0.5]` support | REFUSE, naming both |
+| DOMAIN | **an `undeclared` (synthetic) record, ANY point** | **REFUSE** |
+| SUPPORT | two box records | intersects, never unions |
+
+The two bolded HORIZONTAL/DOMAIN rows are the ones that matter most:
+
+- **The re-run refusal is the case field comparison provably cannot catch.** Two
+  runs of one YAML with a fresh seed agree on every fixed fact and every bound
+  and are still different datasets. That is precisely why FORK 2 was AMENDED to
+  digest the published CHAIN rather than the sidecar, and the law now proves the
+  amendment was necessary rather than merely tidy.
+- **The undeclared record refuses by the DESIGNED refusal, not by a crash.**
+  RULING 1 warned that `float("n/a")` would crash and that "the refusal must be
+  designed, not incidental". `check_domain` reads `constraint` FIRST and returns
+  the didactic refusal naming the synthetic generator; `domain_bounds` is never
+  reached on an undeclared record. Its docstring now says so at the site.
+
+`check_horizontal` compares `dataset_id` as an OPAQUE string (RULING 1): no
+parsing, no synthetic special case. A synthetic double beside a real artifact
+refuses on plain inequality, with no bypass to maintain.
+
+### BLOCKER (factual, reported per rule 8's evidence boundary — not a design challenge)
+
+**The blueprint's resolution site does not exist.** Part 5 (:10482) rules: "the
+adapter resolves the global model into a plain dict and hands it in". Verified
+across all five adapters this session: **no adapter holds a `self.provider`, a
+`self.model`, or any inbound `get_param`.** The ONLY cosmology channel is
+`calculate(state, want_derived, **params)`, and cobaya passes exactly what
+`get_requirements()` declared — which in every adapter is the union of the
+artifacts' `predictor.names`. Consequence, stated plainly:
+
+> `mnu`, `omk`, `TCMB`, `nnu` are never seen by any adapter today, even when the
+> global model pins them. `cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml:129-130`
+> pins `mnu: {value: 0.06}` in the global params block, and nothing in the three
+> theory blocks below it requests it.
+
+So the VERTICAL law — the one law that reads the global resolved model — has no
+channel to read it through. The law itself is landed and proven against a plain
+dict; what does not exist is the thing that fills that dict. Two candidate
+mechanisms, neither of which I invented on my own authority:
+
+- **(A) declare the artifact's `cosmology_fixed` keys as cobaya requirements.**
+  Cheap. But a key the global model does not define makes cobaya raise its own
+  "requirement not provided" error, which is NOT the 74 cl.4 refusal (it names
+  neither the artifact's value nor the remediation) — the law would be bypassed
+  by a message that looks like a plumbing failure.
+- **(B) read the resolved model directly** at `initialize_with_provider`, the way
+  the PRODUCER does (`generator_core._resolved_constants`, :822-869, via
+  `model.parameterization.constant_params()`). Faithful to "the YAML is the
+  request, the model is the fact", but no adapter has ever reached the model
+  object, and whether a cobaya `Theory` may is a real-cobaya question this Mac
+  cannot answer (the smoke gates are workstation-owed).
+
+**Awaiting a ruling.** I did not improvise a redesign.
+
+### DESIGN QUESTION (a proposal for audit, per [[large-unit-propose-and-partial]])
+
+**Where does the DOMAIN law fire, and what does that cost the fixtures?**
+
+If `predict()` enforces it, the law catches the failure the whole design exists
+to refuse (an emulator trained on `0.1 < omegam < 0.5` asked about `omegam =
+0.7`) wherever the point comes from. But **every synthetic double in every gate
+declares `constraint: "undeclared"`**, so an automatic domain check inside
+`predict()` refuses every existing gate fixture, and all four identity gates go
+red at once. That is not a reason to weaken the law — it is the law working.
+
+Measured, not guessed: the blast radius is the same under the alternative
+(firing only on the adapter's serve path), because the adapter legs in
+bsn/cmb/mps/scalar identity all SERVE points through doubles (`t.calculate`,
+`get_Hubble`, `get_Cl`). Either way the consequence is the same and it is
+unavoidable:
+
+> `synthetic_sidecar` must grow an optional box support, and a double that is
+> SERVED must declare the region it may be asked about. A double that only
+> round-trips through save/rebuild keeps `undeclared` and keeps refusing.
+
+That is the same class as landing 1's approved `synthetic_sidecar` fallout: the
+direct, unavoidable consequence of an authorized law, not a weakening — an
+undeclared double still refuses, and a served double now has to say what region
+it stands for, which it always should have. **My recommendation: `predict()`
+enforces, `synthetic_sidecar(names, label, family, support=None)`, and the served
+doubles declare a box.** I did not execute it: it rewrites fixtures in four
+torch gates, and RULING 1 ruled the semantics of the undeclared record without
+ruling this consequence of them.
+
+`predict()`'s behavior is therefore UNCHANGED in this landing. The laws are
+exposed on the predictor and called by nobody automatically yet.
+
+### What landed for landing 3, by file
+
+- **`emulator/fixed_facts.py`** — the four laws (above). Two defects in my OWN
+  first draft, found by the gate fan-out and fixed before the handoff:
+  `check_horizontal` named the BLOCK (`'cosmology_fixed'`) and printed two
+  six-key mappings side by side, leaving the reader to diff them; it now names
+  the coordinate (`cosmology_fixed['w']`) and prints only its two values.
+  `served_support` indexed the second record's bounds by the first's names, so a
+  pair sampled over different coordinates raised **KeyError — a crash, not a
+  refusal**; it now refuses, naming both coordinate lists, and no longer depends
+  on the caller having asked the horizontal law first.
+- **`emulator/inference.py`** — `EmulatorPredictor` RETAINS the record
+  (`.record`, `.fixed_facts`, `.input_domain`, bound before the first early
+  return so every family branch gets them; `rebuild_emulator` had been handing
+  both blocks out since landing 1 and the predictor was dropping them on the
+  floor). Four thin law callers: `check_belongs_to` / `check_pairs_with` /
+  `check_may_serve` / `served_support_with`. The predictor owns the SITE, the
+  schema module owns the LAW and the refusal text; no refusal is restated.
+  **`predict()` is behaviourally unchanged** — it asks none of the laws on its
+  own (see the design question above).
+- **`emulator/inference.py`, the POSITIONAL-TRUST AMENDMENT (:10954)** —
+  `_as_row` now takes a mapping OR a `(names, values)` pair validated against
+  the geometry's canonical order. A bare ordered sequence is REFUSED: it carries
+  no names, so a permutation of it has exactly the right length, passes the only
+  test a length is able to make, and is whitened against the wrong parameter's
+  columns. `_as_row_trusted` is the internal path for callers that already
+  proved their order. The discriminator handles the case that had to come out
+  right: a two-parameter emulator handed a bare two-element row is a 2-sequence
+  exactly like a pair, and only the FIRST SLOT can separate them (a number is
+  not a sequence of names).
+- **`gates/checks/gct_parity.py`** — the ONE bare-positional caller in the repo
+  (three sites). It now hands the values in WITH their names. Verified bitwise
+  identical to the mapping path on torch; the gate itself needs a real ROOTDIR
+  and is WORKSTATION-OWED.
+- **`gates/checks/fixed_facts_schema.py`** — 34 -> **79 PASS**, 7 -> **12 aids**.
+- **the four identity gates** — RULING 2 clauses 1 and 2 (below).
+
+### NAMED GATE-SURFACE CHANGES (rule 7b), each with its authorizing ruling
+
+1. **`board.py`: 5 new aids on `fixed-facts-schema`** (+ its `maps` prose), and 5
+   matching `<a id>` anchors in `artifacts-inference-warmstart.md` — authorized
+   by the landing-3 ruling (the laws need board evidence). The board census
+   (landing 1's own machinery) went RED the moment the child declared legs the
+   board did not know, and stayed red until the board declared them. It worked.
+2. **RULING 2 clause 1 — every adapter-refusal arm needles its own law's
+   message.** 16 arms across four gates. A bare `except ValueError` accepted ANY
+   refusal; each arm now demands a substring only its own law's message carries
+   and reds on the wrong one. A STRENGTHENING. Leg names, leg count, `##AID`
+   lines and `LEG_AIDS` untouched.
+3. **RULING 2 clause 2 — the four duplicate-law arms re-fixture to the pair's
+   label**, so the pair is identity-PASSING and the duplicate refusal stays the
+   only thing that can fire.
+4. **`fixed_facts_schema`'s fixed-fact-disagreement needle now demands the
+   COORDINATE** (`cosmology_fixed['w']`), not just the block — authorized by
+   74 cl.4 (a refusal that prints two six-key mappings and leaves the reader to
+   diff them has not named the value). Strictly more specific than what it
+   replaced.
+
+No assertion, threshold, fixture value, golden base, or `##AID` line was
+weakened anywhere in this landing.
+
+### The finding that matters most: a refusal and a crash are the same exception
+
+RULING 1 warned that `float("n/a")` on an undeclared record "would crash; the
+refusal must be designed, not incidental". It is worse than that, and the gate
+fan-out proved it:
+
+> **`float("n/a")` raises `ValueError` — the same class every refusal in
+> `fixed_facts.py` raises.** So a leg written the obvious way ("did it raise?")
+> stays GREEN while the law is broken. The domain law's mutation arm demonstrates
+> it live: with the constraint read deleted, the undeclared record still
+> "refuses" — it just refuses by crashing inside `float()`.
+
+Every law leg therefore asserts on the WORDS of the refusal, never merely that
+something was raised, and the check now carries that as a standing verdict line
+("a leg that asked only whether it raised would have missed this"). This is the
+[[gate-smoke-must-fail-on-dead-network]] rule reaching its sharpest form: it is
+not enough that a broken law CAN red — the leg must be unable to go green for
+the wrong reason.
+
+### Gate results (all run by ME; agent output was re-verified, never trusted)
+
+CPU (`python3` = the numpy/GetDist/h5py interpreter, `PYTHONPATH=.`):
+
+| gate | rc | PASS | FAIL |
+|---|---|---|---|
+| `checks/fixed_facts_schema.py` | 0 | **79** (was 34) | 0 — ALL PASS |
+| `checks/board_selftest.py` | 0 | 209 | 0 — ALL PASS |
+| `checks/generator_seed.py` | 0 | 11 | 0 |
+| `checks/generator_ranges.py` | 1 | 5 (was 2) | 1 — pre-existing, re-proven |
+| `run_board.py --list` | **0** | — | — (5 new anchors validate) |
+| `py_compile` | 0 | 11/11 clean | — |
+
+TORCH (the cocoa interpreter, reachable this turn — no denial fired):
+
+| gate | rc | PASS | FAIL | baseline |
+|---|---|---|---|---|
+| `checks/scalar_identity.py` | 0 | 24 | 0 | 24 |
+| `checks/bsn_identity.py` | 0 | 40 | 0 | 40 |
+| `checks/cmb_identity.py` | 0 | 78 | 0 | 78 |
+| `checks/mps_identity.py` | 0 | 69 | 0 | 69 |
+| `checks/artifact_readback.py` | 0 | 16 | 0 | — |
+| `checks/transfer_identity.py` | 1 | 55 | 1 | 55/1 — the known hollow leg, unchanged |
+
+Every identity-gate leg count is EXACTLY its landing-1 baseline: the needling
+changed what each leg proves, not how many there are.
+
+### DEFECTS FOUND IN PASSING (one line each, for the Architect to route — not chased)
+
+1. **`bsn_identity`'s "missing D_M raises" leg passes on a different law than its
+   name.** Its fixture hands the adapter a ONE-root list, so the pair-count guard
+   (`emul_baosn.py:91`, "exactly TWO") refuses before a single artifact is
+   loaded. The missing-quantity guard the leg is named for (`emul_baosn.py:134`)
+   **is never reached from this leg and has no coverage anywhere in the gate.**
+   The leg name was left alone (leg names are change-controlled); the needle
+   names the law that actually fires, with a comment recording the whole story.
+   Reaching the real guard needs a new fixture and a new leg.
+2. **`check_names_match` runs only at SAVE time** (`results.py:382`). On the
+   REBUILD path nothing re-proves the record's `input_domain.names` against the
+   rebuilt geometry's names, so a record edited post-save to a different order
+   rebuilds silently. `_as_row` validates against the GEOMETRY (the order the
+   whitening matrices were really built in), which is the right authority — but
+   the record and the geometry are never re-compared after the save.
+3. **Two more adapter arms have RULING 2's failure mode, and clause 2 did not
+   name them** (left untouched, unauthorized): mps `"grid mismatch raises"` and
+   scalar `"input/provide overlap raises"` both serve a pair of doubles with
+   DIFFERENT labels. They will red the moment the horizontal law reaches the
+   adapters. mps's is a one-line label fix. **Scalar's is not**: the chained-input
+   double samples `H0`, so its `names` genuinely differ from its partner's by
+   construction, and the horizontal law's names-equality clause would refuse it
+   FIRST — leaving the no-chaining law untestable. That is RULING 2's own failure
+   mode on an arm RULING 2 did not reach, and it is why the adapter wiring is
+   checkpointed rather than guessed at (see the third question below).
+4. **`emul_cosmic_shear` has no refusal arm anywhere** in `gates/` or `tests/`.
+5. **Guide passage to route** (texnotes is red-team-owned; I only NAME it, per
+   the USER RULE): `texnotes/emulator_code_guide.tex:5399` — the prediction-trace
+   table, Step 1, teaches the parameter-dictionary input only. Nothing there is
+   now FALSE, but it should gain the `(names, values)` pair form and the
+   bare-row refusal the amendment introduced.
+
+### THE THIRD QUESTION the adapter wiring waits on (with the other two above)
+
+**Does the horizontal law's names-equality clause belong in `emul_scalars`?**
+Part 3 rules the law as "`dataset_id` EQUAL and every `fixed_facts` fact EQUAL;
+sampled names equal". For the coordinate families a served pair is trained off
+one dump and shares its inputs exactly (verified: the gates' served pairs already
+share `in_names`, `family` and the label, so they pass the law unchanged — the
+fixtures already model "one dump" correctly, which is RULING 1's label contract
+working). But a SCALAR emulator may legitimately be trained on a subset of the
+sampled coordinates, and the no-chaining fixture proves the clause bites: it
+refuses on names before the law it was built to test is reached. I did not rule
+on this and did not wire the adapters.
+
+## The 0130 receipt closed on arrival (Implementer, 2026-07-14): stale — 0124 was already executed; nothing owed; no code touched
+
+`0130-to-opus` is the routing copy of the 0120 adjudication above (:11771). It
+was delivered after the turn it describes as pending had already finished. Its
+title says "your live dispatch is 0124"; `0124-to-opus` is in `done/`, landings
+2 and 3 are executed (the two sections above), and the return `0132-to-fable` is
+queued. Nothing on the thread is owed and no code was re-run. The transport
+substance — this is the fourth firing of the terminal/no-reply-preamble class,
+the first outside the Red Team's lane, and it compounds with the stale-dispatch
+class in a way that would have driven a literal reading into re-running both
+landings onto the uncommitted tree — is recorded in
+`notes/mailbox-daemon-incident-2026-07-14.md`, "Live reproduction 4."
+
+### One correction the audit turn needs: the "clean `git status`" claim is stale
+
+The 0120 adjudication's ask-2 disposal (:11800) states "`git status` is clean at
+this writing." That was true at 08:06, after landing 1 was committed (3153b1f,
+b55cc54). **It is not true now, by design.** Landings 2 and 3 are gated-but-
+unaudited, so the standing rule (:11702) leaves them uncommitted for the auditing
+turn. The tree the audit will open on is the 15-file, +2,774/-85 delta that
+`0132-to-fable` hands over — 11 code files plus 4 notes files, verified by
+`git diff --stat` this turn:
+
+```text
+compute_data_vectors/generator_core.py       |  23 +-
+emulator/fixed_facts.py                      | 338 ++++++++++
+emulator/inference.py                        | 395 ++++++++++-
+gates/board.py                               |  21 +-
+gates/checks/bsn_identity.py                 |  95 ++-
+gates/checks/cmb_identity.py                 |  69 +-
+gates/checks/fixed_facts_schema.py           | 996 +++++++++++++++++++++++++++-
+gates/checks/gct_parity.py                   |  15 +-
+gates/checks/generator_ranges.py             | 203 +++++-
+gates/checks/mps_identity.py                 |  56 +-
+gates/checks/scalar_identity.py              |  62 +-
+notes/MEMORY.md                              |  21 +
+notes/artifacts-inference-warmstart.md       |  61 ++
+notes/gates-and-board.md                     | 379 +++++++++++
+notes/mailbox-daemon-incident-2026-07-14.md  | 125 ++++
+15 files changed, 2774 insertions(+), 85 deletions(-)
+```
+
+A "clean" reading is not merely wrong; it is the reading under which a re-run of
+landing 1 or landing 2 looks safe. The line counts above will grow by this
+turn's two notes sections and nothing else.
+
+### The live state of the Implementer's lane
+
+Nothing is owed by me. What is owed TO me, and what the adapter half is blocked
+on, is unchanged from `0132-to-fable`: the audit of landings 2 and 3, and rulings
+on the three questions (the vertical law's resolution channel, where the domain
+law fires, and whether the horizontal law's names clause belongs in
+`emul_scalars`). Unit 82 is ready to leave `notes/backlog.md` on a GO; units
+84/85 stay OPEN for the adapter visit. WORKSTATION-OWED is unchanged: `gct_parity`
+(needs a real ROOTDIR), the three smoke gates, and the live generator run against
+a real resolved Cobaya model.
+
+## Fixed-facts LANDINGS 2+3 audit (Architect, 2026-07-14): PASS — every gate re-run INCLUDING the six torch gates; two unscripted probes fire; the question-1 factual gap closed with cobaya source evidence; RULINGS 3–5 issued; the adapter half dispatched
+
+Input: the Implementer's 0132 return (the two landing sections above, :11841 and
+:11951, against dispatch 0124, RULINGS 1+2, and the :10954 amendment). Per the
+gate-integrity screen the pasted logs were never the audit: every number below
+was produced by me this session. CPU legs ran on the numpy/GetDist interpreter
+(`python3` on PATH). The cocoa torch interpreter
+(`Cocoa/.local/bin/python`, torch 2.6.0) was REACHABLE this headless turn —
+execution is permitted even though directory listing outside the worktree is
+blocked — so for the first time an audit turn re-ran the TORCH surface itself
+rather than letting it stand on the landing turn's record.
+
+### Re-run by me — every number reproduces
+
+CPU: `fixed_facts_schema` **79 PASS / 0 FAIL** (12 aids; section counts
+6+3+6+6+2+3+8+7+9+12+5+12); `board_selftest` 209/0; `generator_seed` 11/0;
+`generator_ranges` **5 PASS / 1 FAIL** with the IDENTICAL pre-existing label
+("the retired header breaks one parameter while the wider control hides it" —
+the known GetDist-1.6.2 hollow arm, already on the ledger); `run_board.py
+--list` rc 0 (the 5 new anchors resolve, name-for-name against the 5 new board
+aids); `py_compile` 11/11 clean.
+
+TORCH (all six re-run by me this turn): `scalar_identity` 24/0,
+`bsn_identity` 40/0, `cmb_identity` 78/0, `mps_identity` 69/0,
+`artifact_readback` 16/0 — every count EXACTLY its landing-1 baseline;
+`transfer_identity` 55/1, the 1 red being the known hollow
+`cross-family transfer base raises` leg, unchanged. The needling changed what
+each leg proves, not how many legs there are — verified in the counts AND in
+the diffs.
+
+### Gate-surface screen — all four named changes verified, nothing unnamed, nothing weakened
+
+Every hunk of every `gates/` diff was read. `board.py`: purely additive (5 aids
++ `maps` prose). `generator_ranges.py`: the ONE namespace entry
+(`"fixed_facts": fixed_facts`) plus its import, the witness constants, the new
+legs, and the `%.5e` restoration arm — the restoration arm was watched firing
+live (`H0 70.0 70.0` while the broad bounds parse unharmed). The four identity
+gates: a `report_refusal` helper each, 16 arms needled to their own law's
+words, the four duplicate arms re-fixtured to `ADAPTER_PAIR_LABEL`, and honest
+comments where the needle names a different law than the leg (`missing D_M`).
+No assertion, threshold, fixture value, golden base, `##AID` line, or leg name
+moved anywhere. The two arms the landing flagged as carrying RULING 2's failure
+mode (mps `grid mismatch`, scalar `input/provide overlap`) are untouched,
+exactly as reported. `gct_parity.py` converts its three bare-row `predict`
+calls to `(names, values)` pairs and nothing else (still workstation-owed).
+
+### 25M-06 verified at the byte level, independently
+
+`repr(np.float32(x))` for all four witnesses produces `70.00001` / `70.00002` /
+`0.12345674` / `0.12345676` — distinct, float32-exact on round-trip, and both
+pairs collapse to one string under `%.5e`. The unit-82 acceptance bar is met by
+my own bytes, not the landing's.
+
+### Two unscripted probes (mine — neither scripted by the landing), restored byte-clean with control runs
+
+1. **The vertical law weakened the plausible way** (`name not in resolved_model`
+   → `continue`, i.e. "compare only what both sides state"): exactly the
+   `a model silent about a coordinate the artifact pins is refused` line reds,
+   taking `fixed-facts-schema.vertical-law-enforced` red with it. Restored via
+   byte-identical copy (`cmp` clean; this tree is uncommitted, so no git
+   restore was used); control run ALL PASS. The vertical law's refusal legs are
+   load-bearing even though it has no dedicated mutation arm (finding F2).
+2. **The :10954 amendment driven live on the predictor** (stub instance, torch
+   interpreter): a bare list refuses (TypeError, the didactic message); a bare
+   2-tuple into a 2-parameter emulator — the discriminator's hard case —
+   refuses; a permuted `(names, values)` pair refuses naming both orders; wrong
+   names refuse; the correct pair and the mapping produce BITWISE-equal
+   tensors. The amendment is real in the shipped code.
+
+### Audit findings (both become BINDING riders on the adapter-half dispatch)
+
+- **F1 — the amendment's gate leg was never armed.** The :10954 amendment
+  re-scoped Part 7's leg to "a `(names, values)` pair with permuted names
+  refuses"; nothing in `gates/` or `tests/` exercises `_as_row`'s refusals
+  (grepped tree-wide). My probe proves the behavior today; nothing would red if
+  it regressed tomorrow. The leg must live in a TORCH gate
+  (`emulator/inference.py` imports torch at module scope, so the CPU schema
+  gate cannot host it).
+- **F2 — the board's new `maps` prose overclaims.** "Each law carries a
+  mutation arm" — horizontal, domain (twice), and the intersection do; the
+  VERTICAL law has none. Probe 1 shows its refusal legs red a weakened law
+  anyway, so this is a prose defect plus a missing arm, not a catch-power hole.
+  Repair: arm the vertical mutation in the load-bearing section (the harness is
+  already there), which makes the prose true rather than editing it down.
+
+### Verdict: PASS — both landings
+
+Landing 2 closes unit 82 (leaves the ledger this turn). Landing 3's laws,
+predictor retention, amendment, and gate legs are accepted as landed; the
+checkpoint itself is APPROVED as the reference conduct for rule 1 — the
+blueprint's Part 5 named a resolution site that did not exist, and the
+Implementer proved the gap and stopped instead of improvising architecture.
+The two self-caught draft defects (the six-key-diff refusal, the
+`served_support` KeyError crash-not-refusal) and the `float("n/a")`-is-a-
+ValueError finding are exactly the discipline the loop exists to buy; the
+finding is now pinned by the `comparison-laws-are-load-bearing` leg.
+
+### RULING 3 — the vertical law's resolution channel (question 1; mechanism B, with the Part 5 erratum owned)
+
+Part 5's sentence "the adapter resolves the global model into a plain dict and
+hands it in" was written on an unprobed premise of MINE — no adapter had any
+channel to the model. The final word cuts both ways; the erratum is the
+Architect's. The channel exists, and this audit verified it against the
+installed cobaya rather than from memory:
+
+- **cobaya 3.6.2, `cobaya/theory.py`:** `Theory.initialize_with_provider`
+  stores `self.provider`; **`Provider.__init__(self, model,
+  requirement_providers)` stores `self.model`.** So inside any adapter, at
+  `initialize_with_provider` time, `self.provider.model` IS the resolved global
+  model object — the very object the producer reads.
+
+Binding contract for the adapter half:
+
+1. **Mechanism (A) is REJECTED.** Declaring `cosmology_fixed` keys as cobaya
+   requirements turns a science refusal into cobaya's own "requirement not
+   provided" plumbing error, which names neither the artifact's value nor the
+   remediation — the 74 cl.4 shape is lost. Not acceptable.
+2. **Mechanism (B) is RATIFIED.** Each adapter, in `initialize_with_provider`,
+   resolves the model REACHED THROUGH THE PROVIDER into a plain dict and calls
+   `predictor.check_belongs_to(resolved)` once per artifact. Once per chain
+   setup, never per point: the facts do not change while a chain runs.
+3. **One resolver, one owner, THREE callers' worth of use.** The producer's
+   `_resolved_constants` (generator_core.py:822–869) is extracted to a
+   module-level function — `resolved_constants(model)` — whose semantics move
+   VERBATIM: theory components' `extra_args` fill first (first component wins a
+   name two components state), then `parameterization.constant_params()`
+   overwrites (the params block wins a name both blocks state), wrapped lookups
+   degrade to absence rather than crash. Home: `emulator/fixed_facts.py` — the
+   function imports nothing and only duck-types the model object it is handed,
+   so the module stays torch-free AND cobaya-free. The producer delegates to
+   it; the five adapters call it. A derived copy in either place is a second
+   author of the science fact.
+4. **API drift refuses loudly.** If the provider object has no `.model` (a
+   future cobaya), the adapter refuses at initialize naming what it needed and
+   the cobaya version it found — never a silent skip that would void the law.
+5. **Workstation-owed live leg** (joins the smoke-gate list): a real
+   `EXAMPLE_EMUL2_EVALUATE.yaml` run where the pinned `mnu` agrees (the chain
+   runs) and one where it differs (the didactic refusal fires before any
+   likelihood is evaluated).
+
+### RULING 4 — the domain law fires in `predict()` (question 2; the Implementer's recommendation ratified, with constraints)
+
+`predict()` enforces the domain law on every call, unconditionally. The
+amendment refused positional trust at `predict()` because a silently-wrong
+answer must be refused at the one door every caller walks through; an
+out-of-support point is silently wrong in exactly the same way, and treating
+support more leniently than ordering would be incoherent. The landed docstring
+sentence "where a consumer is willing to be refused is the consumer's decision"
+is SUPERSEDED and comes out with the adapter-half landing.
+
+1. **No public opt-out.** A diagnostic that wants to watch extrapolation is a
+   development activity and drives the internal surface (the
+   `_as_row_trusted` doctrine); it does not get a flag on the public door.
+2. **Hot-path discipline.** The accept path must cost O(n_param) float
+   compares — no per-call text→float parsing of the record's bounds. The
+   comparison and the refusal WORDS keep ONE author in `fixed_facts`
+   (a compiled-support split inside that module is fine; the Implementer
+   designs it); the predictor may cache what `fixed_facts` compiles, never
+   re-derive it.
+3. **`synthetic_sidecar(names, label, family, support=None)` is RATIFIED.** A
+   double that is SERVED declares the box it stands for; the declared bound
+   text goes through `format_value` (one decimal policy — a support written by
+   any other hand is a second author). A double that only round-trips keeps
+   `undeclared` and keeps refusing.
+4. **The blast radius becomes evidence.** The four torch identity gates'
+   fixture rewrites are authorized by this ruling. Each identity gate KEEPS or
+   GAINS one arm proving an undeclared double refuses at `predict()` with the
+   designed words (never the `float("n/a")` crash), so RULING 1's semantics
+   stay executable in every family.
+5. `check_may_serve` / `served_support_with` remain the pair-level and
+   reporting surfaces; nothing about them changes.
+
+### RULING 5 — the horizontal names clause stands; the adapters order topology before identity (question 3)
+
+The names-equality clause is CORRECT for `emul_scalars` and stays unweakened.
+Grounds: under schema v3, `input_domain.names` IS `train_args.ord` and the
+save refuses a geometry that disagrees with it, so every real artifact off one
+dump carries the dump's roster — two siblings can never differ in names, and a
+names inequality between served artifacts implies different datasets, which
+identity refuses anyway. The clause is the didactic sharpener that says WHY.
+Subset-of-roster training is not a schema-v3 capability, by design; if the
+science ever needs it, that is a new fork for adjudication, not a quiet law
+weakening.
+
+The no-chaining fixture is not a horizontal-law problem — it is a LAW-ORDER
+problem, and the order is the ruling:
+
+1. **The adapters run their own configuration/topology laws FIRST** (wrong
+   kind, pair count, duplicate, provides-subset, no-chaining, mps shared
+   grid), and the horizontal law wires in AFTER them, at the END of the
+   build/initialize sequence. A misconfigured served SET refuses as a
+   misconfiguration ("this emulator's input is that one's output") before any
+   sibling comparison runs; "regenerate both halves from one run" is
+   impossible advice for a sampled-H0-beside-derived-H0 pair, and under this
+   order it is never given.
+2. **Consequence: NEITHER flagged arm re-fixtures.** The scalar no-chaining
+   arm keeps its honest different-names doubles and stays reachable. The mps
+   grid-mismatch arm keeps its own-label double — the Implementer's proposed
+   one-line relabel is REJECTED: one dump has one grid, so a shared-label pair
+   with different grids models a dataset that cannot exist, and the fixture
+   would teach a false record.
+3. **RULING 2 clause 3 extends to the adapters:** with the horizontal law
+   appended, each adapter gains its own identity-refusal arm (different
+   labels, the identity needle), proving the law fires at the adapter site.
+4. **The Part 3 alias-resolver clause is DESCOPED, on the record.** The table
+   row reads "sampled names equal under the unit-7 alias resolver"; no alias
+   resolver exists anywhere in this repo (grepped), and schema v3's canonical
+   names give it nothing to resolve. The landed raw-list comparison is the
+   correct implementation today. If an alias surface ever appears, the clause
+   returns as a fork. Second erratum of the same class as Part 5's, also mine.
+
+### The five routed defects, adjudicated
+
+1. **bsn missing-quantity guard (`emul_baosn.py:134`) has no coverage** —
+   BINDING rider on the adapter half: a two-root fixture of distinct
+   quantities with no `D_M`, a NEW leg (declared to the board; the census will
+   enforce it), needled on the real guard's words.
+2. **`check_names_match` never re-runs at rebuild** — real, verified (one call
+   site, `results.py:382`, save path). OPEN ledger line. Scope discipline
+   keeps it out of the adapter half: the rewritten-record law already refuses
+   a record edited alone, so the residual exposure is a coordinated edit of
+   blocks + sidecar text together; depth work, not this landing.
+3. **The two RULING-2-mode arms** — RESOLVED by RULING 5 with zero fixture
+   churn.
+4. **`emul_cosmic_shear` has no refusal arm** — BINDING rider on the adapter
+   half: the cs adapter is in the wave-4 visit and gains refusal arms like its
+   four siblings while it is open.
+5. **`texnotes/emulator_code_guide.tex:5399`** — routed to the red team's tex
+   lane (named only, per the USER RULE); OPEN ledger line so the demand count
+   stays honest.
+
+### Routing (ledger updated this turn)
+
+- **Unit 82 LEAVES the ledger** (landed + audited GO).
+- **Units 84/85: the adapter half re-dispatches as 0140-to-opus** under
+  RULINGS 3+4+5 with the riders (F1, F2, bsn leg, cs arms).
+- TWO lines enter as OPEN: the `check_names_match` rebuild gap, and the
+  texnotes routing to the red team (`emulator_code_guide.tex:5399`). Every
+  other adjudicated item rides the 0140 dispatch and needs no line of its own.
+
+### Commit record (the :11702 standing rule applied)
+
+Commit A carries the 11 code files + `notes/artifacts-inference-warmstart.md`
+(the anchors). Commit B sweeps the notes records (both landing entries, the
+0130-receipt entry, this audit, the incident-note addition, the ledger, the
+index). Merge and push to main remain the user's.
+
+### Landing block (unchanged commands; the squash message now covers all three landings)
+
+    git checkout main
+    git merge --squash claude/amazing-keller-e798b6
+    git commit
+    git push origin main
+    git checkout claude/amazing-keller-e798b6
+    git merge main
+
+Suggested squash message (didactic, per the main-history rule):
+
+```text
+emulators: a saved emulator records its science, and refuses to lie about it
+
+The dataset generator writes a small companion file next to each chain it
+publishes: the cosmology held fixed while the parameters were sampled, the
+interval each parameter was drawn from, and a digest of the chain itself so
+the dataset can prove which run it is. Training copies that file verbatim
+into the saved emulator, and every code path that opens a saved emulator
+goes through one shared reader that refuses a file without the record.
+
+On top of the record now sit three comparison laws. An emulator whose
+held-fixed cosmology differs from the one being sampled is refused; two
+emulators fitted to different datasets may not be served together; a point
+outside the region an emulator was trained over is refused rather than
+extrapolated into. Every bound the generator publishes is written by one
+decimal formatter, so two bounds that differ in the last float32 digit stay
+distinct in every file that mentions them. A prediction request must name
+its parameters — a bare row of numbers is refused, because a permuted row
+has exactly the right length and would be whitened against the wrong
+parameter's columns. Every refusal names the value the artifact carries,
+the value it was asked about, and the way out.
+```
+
+### WORKSTATION-OWED (one current home, updated)
+
+`gct_parity` (real ROOTDIR); the three smoke gates; the live generator run
+against a real resolved Cobaya model; NEW from RULING 3: the live vertical-law
+lifecycle pair on `EXAMPLE_EMUL2_EVALUATE.yaml` (agreeing pin runs, mismatched
+pin refuses didactically). The six torch gates LEAVE the owed list for this
+landing series — they were re-executed by the auditing turn itself.

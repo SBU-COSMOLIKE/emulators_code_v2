@@ -3587,6 +3587,23 @@ turn's exit status and the path of the log file that captured the whole run
 under `notes/relay/`. A dispatched turn is a child process of this command, so
 interrupting the terminal kills the turn that is running.
 
+A turn can run for many minutes, and a terminal that says nothing for that long
+looks broken. So while a turn is in flight the daemon prints a heartbeat line
+once a minute. The path in it is shortened here; the daemon prints it in full.
+
+```
+  ... 0046-to-opus.md still running (3 min elapsed, log 12.4 kB -- tail -f .../notes/relay/20260714-031840-dispatch-opus.log)
+```
+
+The line means the turn is alive and being watched. The elapsed time always
+moves, and the log grows whenever the session produces output, so a log that is
+getting bigger is a session that is working. The command at the end follows that
+log live in another terminal window. One habit of the tools is worth knowing
+here: Claude Code prints a turn's reply only when the turn ends, so on an
+architect or implementer dispatch the log stays tiny until the finish and the
+moving clock is the only sign of life you get. The codex CLI narrates its
+progress as it goes, so a red team log grows steadily throughout.
+
 To test the transport by itself, without handing anyone real work:
 
 ```bash
@@ -3640,6 +3657,52 @@ on one track, the red team attacks on the other, and in the gaps between them
 the architect is reading the evidence from the turns that have already landed.
 The lanes stay busy, the audits happen in between, and the coordinator stops
 being the bottleneck.
+
+Dispatching ahead has a limit, and the limit is the implementer lane. That lane
+runs its units one after another, so a long queue there is time the loop spends
+waiting rather than building. The daemon watches for exactly this, and it
+watches with a deliberately wide measure. It does not count the messages sitting
+in the implementer's lane. It counts the *total open demand*, which is every
+message already queued in the mailbox for any session, plus every job the
+project still owes but has not yet handed to anyone. That second number comes
+from `notes/backlog.md`, a ledger the architect keeps with one line per
+unfinished job, in which a line beginning `- OPEN` is a job still owed. Work
+that has not been assigned yet is still work waiting to be done, so the count
+includes it.
+
+The daemon prints this report on every pass that finds work, and again every
+time a message is queued with `--send`, so the person adding a unit always sees
+the load they are adding to. Queueing one for the implementer prints three
+lines:
+
+```
+queued .../notes/mailbox/0046-to-opus.md
+queue depth: opus=2 sol=2 fable=0 | open backlog (notes/backlog.md): 22 | total demand: 26
+  hint: total open demand is at or past 10 units -- the red team is now the SECOND IMPLEMENTER: build units flow to it as well as to Opus (.claude/FABLE_ROLE.md, Second-Implementer assignments).
+```
+
+Read it one piece at a time. The mailbox path is shortened above; the daemon
+prints it in full.
+
+| Piece of the report | What it is telling you |
+| ------------------- | ---------------------- |
+| `queued .../0046-to-opus.md` | The message file was written, and this is where it went. The leading number is its place in the sequence, and the name after `to-` is the session it is addressed to. |
+| `queue depth: opus=2 sol=2 fable=0` | How many messages are waiting for each session right now: two for the implementer, two for the red team, none for the architect. |
+| `open backlog (notes/backlog.md): 22` | How many unfinished jobs the ledger records, counted as the lines that begin `- OPEN`. These are owed, but they have not been sent to anyone yet. |
+| `total demand: 26` | The two numbers added together, here four queued messages plus twenty-two open jobs. This is the number the tripwire watches. |
+| the `hint:` line | It appears only when that total reaches ten, and it names what changes when it does. |
+
+Ten is the threshold, and it is set in one place, `SECOND_IMPLEMENTER_THRESHOLD`
+in `tools/mailbox_daemon.py`. The hint is telling the coordinator that one build
+track is no longer enough to drain what the project owes: from that point the
+red team session also works as a *second implementer* alongside the main one,
+and the architect sends build units to it as well as to the implementer, so the
+backlog drains on two tracks instead of one. A red team session handed a unit
+this way builds it as the implementer would, following the implementer's rules
+rather than its own, and every assignment of this kind says so in plain words,
+so a session never has to guess which set of rules it is working under. Being
+told in the assignment is what switches the mode. The printed number alone never
+switches it.
 
 Queueing two units for two different lanes and then starting the daemon looks
 like this:
@@ -3755,29 +3818,71 @@ AGENT_COMMANDS = {
     # Absolute path: the user's conda shells resolve an OLDER claude binary
     # with a separate (logged-out) credential store; this one is the
     # logged-in v2.1.208 install (diagnosed 2026-07-14).
+    # Effort levels (USER 2026-07-14): Fable audits at "xhigh"; Opus builds
+    # at "max" (the claude CLI's top tier); Sol runs at "xhigh" (the codex
+    # CLI's top reasoning tier, set via -c below).
     "fable": ["/Users/vivianmiranda/.local/bin/claude", "-p",
               "--model", "claude-fable-5",
+              "--effort", "xhigh",
               "--permission-mode", "acceptEdits"],
     "opus": ["/Users/vivianmiranda/.local/bin/claude", "-p",
              "--model", "claude-opus-4-8",
+             "--effort", "max",
              "--permission-mode", "acceptEdits"],
     # Verified by the red team's read-only probe (codex-cli 0.144.2; the
     # conventions note records the probe): workspace-write sandbox rooted at
     # the repo, which contains every worktree Sol works in.
+    # service_tier=standard keeps codex Fast Mode OFF for dispatched turns
+    # (USER 2026-07-14): the standard tier is slower in wall-clock time but
+    # far cheaper against the token quota, and an unattended mailbox turn
+    # never needs the speed. Pinned here because the user's global
+    # ~/.codex/config.toml says "priority" -- a dispatch must not inherit
+    # that default.
     "sol": ["/Applications/ChatGPT.app/Contents/Resources/codex",
             "exec",
             "--model", "gpt-5.6-sol",
+            "-c", "model_reasoning_effort=xhigh",
+            "-c", "service_tier=standard",
             "--sandbox", "workspace-write",
             "--cd", REPO_ROOT],
 }
 ```
 
 Each entry is one session's headless command: the program to run, the model it
-runs, and the permissions the turn is granted. On a new computer you replace the
-two program paths, which `which claude` and `which codex` will print for you,
-and you change nothing else. The models are named deliberately and are part of
-the design, not of the machine. `REPO_ROOT` is derived from the daemon's
-location like everything else, so it needs no attention.
+runs, how hard that model is told to think, and the permissions the turn is
+granted. On a new computer you replace the two program paths, which
+`which claude` and `which codex` will print for you, and you change nothing
+else. Everything else in the block is part of the design rather than of the
+machine, and it is copied across unchanged. `REPO_ROOT` is derived from the
+daemon's location like everything else, so it needs no attention.
+
+**How hard each session thinks.** Both command line programs let the caller
+choose how much reasoning a turn may spend before it answers, and both apply a
+default when nobody chooses. The daemon never takes the default. Every turn it
+launches carries the effort level written into the block above, picked for that
+session, so how hard a turn thinks is a property of this repository and cannot
+drift under the loop when a vendor changes what its own default means.
+
+| Session | Effort it is dispatched at | Written as |
+| ------- | -------------------------- | ---------- |
+| Architect (Fable) | High, one step below the top of the scale | `--effort xhigh` |
+| Implementer (Opus) | The top tier the claude CLI offers | `--effort max` |
+| Red team (Sol) | The top reasoning tier the codex CLI offers | `-c model_reasoning_effort=xhigh` |
+
+The spelling differs because these are two different vendors' programs. Claude
+Code takes a named flag, `--effort`, and accepts the level as its value. The
+codex CLI has no such flag. It takes settings as `-c key=value` pairs instead,
+each one overriding its configuration file for that single run, which is why the
+red team's level is written as a setting rather than as a flag.
+
+The red team's command pins one more setting the same way, `-c
+service_tier=standard`, which keeps the codex Fast Mode off for dispatched
+turns. Fast Mode returns an answer sooner but spends far more of the token quota
+to do it, and nobody is sitting in front of an unattended turn waiting for it,
+so the loop buys the cheaper tier and lets the turn take longer. It has to be
+pinned in the command because the codex configuration file on this computer,
+`~/.codex/config.toml`, asks for the faster tier, and a dispatched turn must not
+inherit that.
 
 **The bootstrap sequence.** End to end, on a machine that has never seen this
 repository:

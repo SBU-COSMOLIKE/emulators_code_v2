@@ -1818,6 +1818,36 @@ def gate_artifact_readback(ctx):
              + " (gates/checks/artifact_readback.py)")
 
 
+def gate_fixed_facts_schema(ctx):
+  """fixed-facts-schema: a saved emulator records the science it was born under.
+
+  WHAT: a CPU check of the persisted scientific record (emulator/fixed_facts.py)
+  on real HDF5 files. WHY: an emulator answers about one cosmology over one
+  region of one parameter space, and a saved emulator used to record neither, so
+  a matter-power emulator trained with a varying dark-energy equation of state
+  could be handed to a likelihood that assumes a cosmological constant and would
+  answer. HOW: both blocks round-trip through a real file; a record rewritten
+  after the write disagrees with the producer text stored beside it and is
+  refused; a missing record, an unknown grammar, a coordinate both sampled and
+  held fixed, and a whitening geometry that disagrees with the record about the
+  parameter order are each refused with the way out named; the dataset's
+  identity recomputes from the published chain's bytes. Two mutation arms red
+  the legs that guard the version law and the verbatim copy. The live proof that
+  a REAL emulator with trained weights survives the same round trip needs torch
+  and is owned by the save/rebuild gate (spec: gates-and-board.md).
+  """
+  # the seven legs are asserted IN the child, which emits one ##AID each; this
+  # rc check is the child's single aggregate verdict, so it carries no aid of
+  # its own (a wrapper cannot re-claim what the child proved).
+  rc, out = ctx.run_check("gates/checks/fixed_facts_schema.py")
+  if ctx.dry:
+    return
+  ctx.expect(label="fixed-facts-schema child completed",
+             ok=(rc == 0),
+             detail="check exit code " + str(rc)
+                    + " (gates/checks/fixed_facts_schema.py)")
+
+
 def gate_generator_seed(ctx):
   """generator-seed: the dataset generator samples from an owned, recorded RNG.
 
@@ -2248,6 +2278,59 @@ BOARD = [
        run=gate_stage_ram,
        manifest=Manifest(code=(), inputs=()),
        needs=("torch",)),
+  Gate(id="fixed-facts-schema",
+       spec_code="FFS-A",
+       title="A saved emulator records the science it was born under",
+       tier=TIER_SAVE_AND_SAMPLE,
+       home="artifacts-inference-warmstart",
+       maps="the persisted scientific record: both blocks (the cosmology held "
+            "fixed, and the region the sampled parameters were drawn from) "
+            "round-trip through a real file; a record rewritten between the "
+            "generator and the file disagrees with the producer text stored "
+            "beside it and is refused; a missing record, a grammar this code "
+            "does not know, a coordinate both sampled and held fixed, and a "
+            "whitening geometry that disagrees with the record about the "
+            "parameter order are each refused with the way out named; the "
+            "dataset's identity recomputes from the published chain's bytes. "
+            "On top of the record, the THREE comparison laws it exists to "
+            "serve: an artifact whose held-fixed cosmology differs from the "
+            "one being sampled is refused (vertical); two artifacts fitted to "
+            "different datasets, or describing different universes, may not be "
+            "served together (horizontal); a point outside the region an "
+            "artifact was trained over is refused rather than extrapolated "
+            "into (domain), and a served pair's region is the INTERSECTION of "
+            "the two, never their union. Each law carries a mutation arm: a "
+            "law that cannot go red proves nothing. "
+            "The live proof on a REAL trained emulator is the save/rebuild "
+            "gate's, and is workstation-owed",
+       evidence=(Assertion("fixed-facts-schema.record-round-trip",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-record-round-trip"),
+                 Assertion("fixed-facts-schema.rewritten-record-refused",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-rewritten-record-refused"),
+                 Assertion("fixed-facts-schema.missing-record-refused",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-missing-record-refused"),
+                 Assertion("fixed-facts-schema.legacy-version-refused",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-legacy-version-refused"),
+                 Assertion("fixed-facts-schema.sampled-and-fixed-refused",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-sampled-and-fixed-refused"),
+                 Assertion("fixed-facts-schema.parameter-order-enforced",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-parameter-order-enforced"),
+                 Assertion("fixed-facts-schema.dataset-identity-is-the-chain",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-dataset-identity-is-the-chain"),
+                 Assertion("fixed-facts-schema.vertical-law-enforced",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-vertical-law-enforced"),
+                 Assertion("fixed-facts-schema.horizontal-law-enforced",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-horizontal-law-enforced"),
+                 Assertion("fixed-facts-schema.domain-law-enforced",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-domain-law-enforced"),
+                 Assertion("fixed-facts-schema.served-support-is-the-intersection",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-served-support-is-the-intersection"),
+                 Assertion("fixed-facts-schema.comparison-laws-are-load-bearing",
+                           "artifacts-inference-warmstart.md#fixed-facts-schema-comparison-laws-are-load-bearing")),
+       run=gate_fixed_facts_schema,
+       manifest=Manifest(code=("emulator/fixed_facts.py",),
+                         inputs=()),
+       needs=()),
   Gate(id="artifact-readback",
        spec_code="ARB-A",
        title="Saved attributes parsed by type, not truthiness",
@@ -2745,6 +2828,8 @@ BOARD = [
                            "artifacts-inference-warmstart.md#save-rebuild-drift-code-default-drift-ignored"),
                  Assertion("save-rebuild-drift.v1-schema-refusal",
                            "artifacts-inference-warmstart.md#save-rebuild-drift-v1-schema-refusal"),
+                 Assertion("save-rebuild-drift.v2-schema-refusal",
+                           "artifacts-inference-warmstart.md#save-rebuild-drift-v2-schema-refusal"),
                  Assertion("save-rebuild-drift.old-head-artifact-refusal",
                            "artifacts-inference-warmstart.md#save-rebuild-drift-old-head-artifact-refusal")),
        run=gate_gsv_c,

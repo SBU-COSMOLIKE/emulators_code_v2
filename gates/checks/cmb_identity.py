@@ -99,12 +99,19 @@ from emulator.losses.core import CosmolikeChi2
 from emulator.experiment import validate_cmb
 from emulator.results import save_emulator, rebuild_emulator
 from emulator.inference import EmulatorPredictor
+from emulator import fixed_facts
 from emulator import warmstart
 
 FAILURES = []
 
 IN_NAMES = ["As", "tau", "omegam"]
 N_IN = len(IN_NAMES)
+
+# The adapter legs assemble a TT artifact and an EE artifact into one Cl dict
+# on a shared ell axis: two spectra of one cosmology, served together as one
+# theory block. They are one dataset, so they carry one identity, which is what
+# handing them the same label does.
+ADAPTER_PAIR_LABEL = "cmb-identity/adapter-spectra-pair"
 
 # the fixture fiducial reference pair the order-one law measures against
 #: the recommended values are the covariance's own fiducial, so
@@ -120,6 +127,34 @@ def report(label, ok, detail):
     print("  [" + mark + "] " + label + "  (" + detail + ")")
     if not ok:
         FAILURES.append(label)
+
+
+def report_refusal(label, error, needle, law):
+    """Report one refusal leg: the adapter raised AND named its own law.
+
+    A bare `except ValueError` accepts ANY refusal. That is not enough here,
+    because the adapter has several laws that refuse the same call, and one of
+    them fires before the others: a pair of artifacts whose scientific records
+    disagree is refused on IDENTITY, before the check this leg exists to prove
+    is ever reached. A leg that only asks "did something raise?" would go green
+    on that unrelated refusal and the law it names would go untested forever.
+
+    So each leg demands a substring only its own law's message carries. A raise
+    with any other message is a RED leg, and the detail line prints the message
+    the adapter really produced, so the reader is not left guessing which law
+    fired.
+
+    Arguments:
+      label  = the leg name, exactly as the board's evidence map carries it.
+      error  = the ValueError the arm caught.
+      needle = the substring only this law's refusal message contains.
+      law    = the law's name, spelled the way the PASS line should read it.
+    """
+    text = str(error)
+    if needle in text:
+        report(label, True, "ValueError names " + law)
+    else:
+        report(label, False, "refused the WRONG law: " + text)
 
 
 def emit_aid(aid, n_before):
@@ -199,9 +234,13 @@ def cmb_recipe(n_ell):
     }
 
 
-def save_synthetic_cmb(root, device, tmp, spectrum="tt",
+def save_synthetic_cmb(root, device, tmp, label, spectrum="tt",
                        law="as_exp2tau_ref", n_ell=200, seed=0):
     """Build, then save, a tiny synthetic CMB emulator under `root`.
+
+    `label` is what this double is for. It fixes the identity of the scientific
+    record the saved file carries; the comment at the save below says why the
+    file carries one at all.
 
     Returns:
       (pgeom, geom, model, chi2fn): the sources + the pre-save model and
@@ -251,6 +290,12 @@ def save_synthetic_cmb(root, device, tmp, spectrum="tt",
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    # A saved emulator now carries the science it was born under. This one was
+    # born under nothing: no generator produced it, so it declares itself a
+    # test double rather than carrying no record at all. The label says what
+    # the double is for, and it fixes the identity the record holds: doubles
+    # that belong to one dataset are handed the same label, doubles that must
+    # be told apart are handed different ones.
     save_emulator(path_root=str(root),
                   model=model,
                   param_geometry=pgeom,
@@ -260,6 +305,10 @@ def save_synthetic_cmb(root, device, tmp, spectrum="tt",
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=cmb_recipe(n_ell),
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label=label,
+                      family="cmb"),
                   attrs={"rescale": "none", "spectrum": spectrum})
     return pgeom, geom, model, chi2fn
 
@@ -536,7 +585,8 @@ def check_roundtrip(tmp, device, law):
     """save -> rebuild -> predict bitwise vs the pre-save decode."""
     root = os.path.join(tmp, "emul_cmb_" + law)
     pgeom, geom, model, chi2fn = save_synthetic_cmb(
-        root, device, tmp, spectrum="tt", law=law, seed=70)
+        root, device, tmp, label="cmb-identity/round-trip-" + law,
+        spectrum="tt", law=law, seed=70)
     g = np.random.default_rng(80)
     theta = np.array([[2.1e-9, 0.055, 0.31]]) * (1.0 + 0.01
                                                  * g.standard_normal((1, 3)))
@@ -602,10 +652,12 @@ def check_adapter(tmp, device):
     """emul_cmb: Cl assembly + every loud error, on synthetic artifacts."""
     cls = _load_emul_cmb_stubbed()
     root_tt = os.path.join(tmp, "ad_tt")
-    save_synthetic_cmb(root_tt, device, tmp, spectrum="tt",
+    save_synthetic_cmb(root_tt, device, tmp, label=ADAPTER_PAIR_LABEL,
+                       spectrum="tt",
                        law="as_exp2tau_ref", n_ell=200, seed=90)
     root_ee = os.path.join(tmp, "ad_ee")
-    save_synthetic_cmb(root_ee, device, tmp, spectrum="ee",
+    save_synthetic_cmb(root_ee, device, tmp, label=ADAPTER_PAIR_LABEL,
+                       spectrum="ee",
                        law="none", n_ell=100, seed=100)
 
     t = _build_adapter(cls, [root_tt, root_ee])
@@ -632,34 +684,53 @@ def check_adapter(tmp, device):
     try:
         t.must_provide(Cl={"pp": 10})
         report("unknown-spectrum must_provide raises", False, "no raise")
-    except ValueError:
-        report("unknown-spectrum must_provide raises", True, "ValueError")
+    except ValueError as e:
+        report_refusal("unknown-spectrum must_provide raises", e,
+                       needle="no loaded artifact provides",
+                       law="the unknown-spectrum law")
     try:
         t.must_provide(Cl={"ee": 150})
         report("beyond-lmax must_provide raises", False, "no raise")
-    except ValueError:
-        report("beyond-lmax must_provide raises", True, "ValueError")
+    except ValueError as e:
+        report_refusal("beyond-lmax must_provide raises", e,
+                       needle="no accuracy beyond its training grid",
+                       law="the beyond-lmax law")
     # get_Cl convention guards.
     t.current_state = {"Cl": cl}
     try:
         t.get_Cl(ell_factor=True)
         report("get_Cl ell_factor guard", False, "no raise")
-    except ValueError:
-        report("get_Cl ell_factor guard", True, "ValueError")
+    except ValueError as e:
+        report_refusal("get_Cl ell_factor guard", e,
+                       needle="serves raw C_ell only",
+                       law="the raw-C_ell convention")
     try:
         t.get_Cl(units="FIRASmuK2")
         report("get_Cl units guard", False, "no raise")
-    except ValueError:
-        report("get_Cl units guard", True, "ValueError")
+    except ValueError as e:
+        report_refusal("get_Cl units guard", e,
+                       needle="never converts silently",
+                       law="the artifact-units convention")
     # duplicate spectrum.
     root_tt2 = os.path.join(tmp, "ad_tt2")
-    save_synthetic_cmb(root_tt2, device, tmp, spectrum="tt",
+    # a second TT emulator, built to be refused beside the first. It carries the
+    # PAIR's label on purpose: two emulators of one spectrum, both trained off
+    # ONE generator dump, is exactly the ambiguity the duplicate law exists to
+    # refuse -- one dataset, one identity. Give this double an identity of its
+    # own instead and the served pair stops being one dataset: the identity law
+    # refuses it first, and the duplicate law -- the law this leg exists to
+    # prove -- is never reached.
+    save_synthetic_cmb(root_tt2, device, tmp,
+                       label=ADAPTER_PAIR_LABEL,
+                       spectrum="tt",
                        law="none", n_ell=50, seed=110)
     try:
         _build_adapter(cls, [root_tt, root_tt2])
         report("duplicate spectrum raises", False, "no raise")
-    except ValueError:
-        report("duplicate spectrum raises", True, "ValueError")
+    except ValueError as e:
+        report_refusal("duplicate spectrum raises", e,
+                       needle="two emulators provide the spectrum",
+                       law="the duplicate-spectrum law")
 
 
 def check_roughness(device):
@@ -850,6 +921,10 @@ def check_head(tmp, device):
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=cmb_head_recipe(n_ell),
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label="cmb-identity/correction-head",
+                      family="cmb"),
                   attrs={"rescale": "none", "spectrum": "tt"})
     g = np.random.default_rng(150)
     theta = np.array([[2.1e-9, 0.055, 0.31]]) * (1.0 + 0.01
@@ -869,7 +944,8 @@ def check_finetune(tmp, device):
     """Warm-start parity from a CMB source + the wrong-kind guard."""
     root = os.path.join(tmp, "emul_ft_src")
     pgeom, geom, model, chi2fn = save_synthetic_cmb(
-        root, device, tmp, spectrum="tt", law="as_exp2tau_ref", seed=120)
+        root, device, tmp, label="cmb-identity/finetune-source",
+        spectrum="tt", law="as_exp2tau_ref", seed=120)
     source = warmstart.load_source(root=root, device=device)
     report("load_source accepts a CMB artifact",
            type(source.geom).__name__ == "CmbDiagonalGeometry",
@@ -1007,6 +1083,10 @@ def check_npce(tmp, device):
                   resolved_train={"nepochs": 1},
                   resolved_model=cmb_recipe(n_ell),
                   pce=pce, pce_form="residual",
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label="cmb-identity/npce-spectrum",
+                      family="cmb"),
                   attrs={"rescale": "none", "spectrum": "tt"})
     theta = np.array([[2.15e-9, 0.056, 0.312]])
     x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)

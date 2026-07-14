@@ -90,6 +90,28 @@ def emit_aid(aid, n_before):
     # stays the single aggregate verdict; these lines carry the per-leg map.
     mark = "PASS" if len(FAILURES) == n_before else "FAIL"
     print("##AID " + aid + " " + mark)
+    return mark == "PASS"
+
+
+def emit_unavailable(aid, blocker):
+    """Print the reserved terminal for a declared leg that never ran.
+
+    A leg the child skipped because an earlier leg failed did not FAIL: it did
+    not run at all, and a verdict it never produced must not read as one it
+    did. The board records such a leg UNAVAILABLE and the reason names the
+    upstream leg that stopped it, so the log says which green to chase first.
+
+    Arguments:
+      aid     = the board-declared assertion id of the leg that never ran.
+      blocker = the aid of the upstream leg whose failure stopped it, or None
+                when the child exited before any leg reached its terminal (a
+                crash in setup, say) and there is no upstream leg to name.
+    """
+    if blocker is None:
+        reason = "the child exited before this leg ran"
+    else:
+        reason = "upstream leg " + blocker + " did not pass"
+    print("##AID " + aid + " UNAVAILABLE " + reason)
 
 
 def gen_yaml():
@@ -569,39 +591,69 @@ def main():
     # snapshot and emits exactly one '##AID' line (emit_aid). The declared
     # evidence set (gates/board.py Gate id="cmb-smoke") is exactly these six
     # aids -- one per bracket, no stray manifest line for a sub-check. The
-    # later legs depend on the earlier fixtures, so a failed generator /
-    # covariance leg short-circuits (via FAILURES) and leaves the training,
-    # cobaya, and diagnostics aids UNEMITTED -- a missing aid is a red-or-
-    # missing outcome, per the home note's "owed" paragraph.
+    # later three legs depend on the earlier fixtures, so a failed generator /
+    # covariance leg SKIPS them; the backfill below then emits each skipped leg
+    # UNAVAILABLE naming the upstream leg that stopped it, never FAIL (a leg
+    # that never ran did not fail) and never a false PASS. 'emitted' stays all
+    # six declared aids every run, so run_board's reconciliation always sees
+    # declared == emitted.
+    emitted = set()
+    blocker = None
     try:
         with tempfile.TemporaryDirectory() as tmp:
             n = len(FAILURES)
             paths = check_generate(rootdir, rel_root)
-            emit_aid("cmb-smoke.generated-spectrum-dumps", n)
+            aid = "cmb-smoke.generated-spectrum-dumps"
+            if not emit_aid(aid, n):
+                blocker = aid
+            emitted.add(aid)
 
             n = len(FAILURES)
             check_gaussian_cov(rootdir, rel_root, paths)
-            emit_aid("cmb-smoke.gaussian-covariance", n)
+            aid = "cmb-smoke.gaussian-covariance"
+            if not emit_aid(aid, n) and blocker is None:
+                blocker = aid
+            emitted.add(aid)
 
             n = len(FAILURES)
             check_cov_nondiagonal(rootdir, rel_root,
                                   paths["emul_dir"], paths["chains"])
-            emit_aid("cmb-smoke.nondiagonal-covariance-structure", n)
+            aid = "cmb-smoke.nondiagonal-covariance-structure"
+            if not emit_aid(aid, n) and blocker is None:
+                blocker = aid
+            emitted.add(aid)
 
-            if not FAILURES:
+            if blocker is None:
                 n = len(FAILURES)
                 exp, model, root = check_train(paths, tmp, device)
-                emit_aid("cmb-smoke.training-collapse", n)
+                aid = "cmb-smoke.training-collapse"
+                if not emit_aid(aid, n):
+                    blocker = aid
+                emitted.add(aid)
 
+            if blocker is None:
                 n = len(FAILURES)
                 check_cobaya(root, device)
-                emit_aid("cmb-smoke.cobaya-serving", n)
+                aid = "cmb-smoke.cobaya-serving"
+                if not emit_aid(aid, n):
+                    blocker = aid
+                emitted.add(aid)
 
+            if blocker is None:
                 n = len(FAILURES)
                 check_diagnostics(exp, model, tmp)
-                emit_aid("cmb-smoke.diagnostics-output", n)
+                aid = "cmb-smoke.diagnostics-output"
+                emit_aid(aid, n)
+                emitted.add(aid)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+        # A leg whose block was skipped by an upstream failure -- or by a crash
+        # before any leg reached its terminal -- did not run. Emit it
+        # UNAVAILABLE, naming the blocker, so declared == emitted holds and the
+        # log points at the leg to fix first.
+        for aid in LEG_AIDS:
+            if aid not in emitted:
+                emit_unavailable(aid, blocker)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))

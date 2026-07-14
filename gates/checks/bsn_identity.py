@@ -56,11 +56,18 @@ from emulator.background import (cumulative_simpson,
 from emulator.experiment import EmulatorExperiment
 from emulator.results import save_emulator, rebuild_emulator
 from emulator.inference import EmulatorPredictor
+from emulator import fixed_facts
 from emulator import warmstart
 
 FAILURES = []
 IN_NAMES = ["omegam", "H0", "w"]
 N_IN = len(IN_NAMES)
+
+# The adapter legs serve a Hubble artifact and a comoving-distance artifact
+# side by side, as the two windows of one background model: emul_baosn refuses
+# the set outright when either half is missing. They are one dataset, so they
+# carry one identity, which is what handing them the same label does.
+ADAPTER_PAIR_LABEL = "bsn-identity/adapter-background-pair"
 
 # The production distance pipeline has historically promised relative
 # agreement at 1e-6.  scipy.integrate.quad also returns an absolute error
@@ -91,6 +98,34 @@ def report(label, ok, detail):
     print("  [" + mark + "] " + label + "  (" + detail + ")")
     if not ok:
         FAILURES.append(label)
+
+
+def report_refusal(label, error, needle, law):
+    """Report one refusal leg: the adapter raised AND named its own law.
+
+    A bare `except ValueError` accepts ANY refusal. That is not enough here,
+    because the adapter has several laws that refuse the same call, and one of
+    them fires before the others: a pair of artifacts whose scientific records
+    disagree is refused on IDENTITY, before the check this leg exists to prove
+    is ever reached. A leg that only asks "did something raise?" would go green
+    on that unrelated refusal and the law it names would go untested forever.
+
+    So each leg demands a substring only its own law's message carries. A raise
+    with any other message is a RED leg, and the detail line prints the message
+    the adapter really produced, so the reader is not left guessing which law
+    fired.
+
+    Arguments:
+      label  = the leg name, exactly as the board's evidence map carries it.
+      error  = the ValueError the arm caught.
+      needle = the substring only this law's refusal message contains.
+      law    = the law's name, spelled the way the PASS line should read it.
+    """
+    text = str(error)
+    if needle in text:
+        report(label, True, "ValueError names " + law)
+    else:
+        report(label, False, "refused the WRONG law: " + text)
 
 
 def emit_aid(aid, n_before):
@@ -510,7 +545,7 @@ def grid_recipe(nz):
                                       "norm": "affine"}}}
 
 
-def save_synthetic_grid(root, device, tmp, quantity="Hubble",
+def save_synthetic_grid(root, device, tmp, label, quantity="Hubble",
                         units="km/s/Mpc", law="log_offset", offset=1.0,
                         z=None, seed=0):
     if z is None:
@@ -547,11 +582,21 @@ def save_synthetic_grid(root, device, tmp, quantity="Hubble",
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    # A saved emulator now carries the science it was born under. This one was
+    # born under nothing: no generator produced it, so it declares itself a
+    # test double rather than carrying no record at all. The label says what
+    # the double is for, and it fixes the identity the record holds: doubles
+    # that belong to one dataset are handed the same label, doubles that must
+    # be told apart are handed different ones.
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=grid_recipe(len(z)),
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label=label,
+                      family="grid"),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
 
@@ -560,7 +605,8 @@ def check_roundtrip(tmp, device, law):
     root = os.path.join(tmp, "emul_grid_" + law)
     off = 1.0 if law == "log_offset" else 0.0
     pgeom, geom, model, _ = save_synthetic_grid(
-        root, device, tmp, law=law, offset=off, seed=30)
+        root, device, tmp, label="bsn-identity/round-trip-" + law,
+        law=law, offset=off, seed=30)
     theta = np.array([[0.32, 68.0, -0.98]])
     x = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
     with torch.no_grad():
@@ -655,6 +701,10 @@ def check_npce(tmp, device):
                   resolved_train={"nepochs": 1},
                   resolved_model=grid_recipe(z.size),
                   pce=pce, pce_form="residual",
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label="bsn-identity/npce-hubble",
+                      family="grid"),
                   attrs={"rescale": "none", "quantity": "Hubble"})
     theta = np.array([[0.32, 68.0, -0.98]])
     x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
@@ -700,11 +750,13 @@ def _build(cls, roots):
 def check_adapter(tmp, device):
     cls = _load_emul_baosn_stubbed()
     root_h = os.path.join(tmp, "ad_h")
-    save_synthetic_grid(root_h, device, tmp, quantity="Hubble",
+    save_synthetic_grid(root_h, device, tmp, label=ADAPTER_PAIR_LABEL,
+                        quantity="Hubble",
                         units="km/s/Mpc", law="log_offset", offset=1.0,
                         z=np.linspace(0.001, 3.0, 64), seed=40)
     root_dm = os.path.join(tmp, "ad_dm")
-    save_synthetic_grid(root_dm, device, tmp, quantity="D_M",
+    save_synthetic_grid(root_dm, device, tmp, label=ADAPTER_PAIR_LABEL,
+                        quantity="D_M",
                         units="Mpc", law="none", offset=0.0,
                         z=np.linspace(1000.0, 1200.0, 24), seed=50)
 
@@ -721,8 +773,9 @@ def check_adapter(tmp, device):
         t.must_provide(angular_diameter_distance={"z": np.array([500.0])})
         report("desert must_provide raises", False, "no raise")
     except ValueError as e:
-        report("desert must_provide raises",
-               "never emulated" in str(e), "ValueError names the desert")
+        report_refusal("desert must_provide raises", e,
+                       needle="never emulated",
+                       law="the desert law")
 
     # calculate + the piecewise getters vs the pipeline / the artifact.
     # Every comparison is LIKE FOR LIKE (the run-10 lesson): the check
@@ -772,49 +825,86 @@ def check_adapter(tmp, device):
     report("D_A_2 == (chi2 - chi1)/(1 + z2)",
            np.allclose(pair, [want_pair]),
            "max|d| %.1e" % np.abs(np.asarray(pair) - want_pair).max())
-    # H units + the H-outside-SN loud error
+    # H units + the H-outside-SN loud error. This one leg bundles three
+    # sub-checks, so it cannot use report_refusal (that helper reports a leg of
+    # its own); each catch needles its guard's message by hand instead, for the
+    # same reason: a bare catch would accept any ValueError at all, and both
+    # guards would go untested the day an earlier law starts refusing first.
     h1 = t.get_Hubble(np.array([1.0]))
     h2 = t.get_Hubble(np.array([1.0]), units="1/Mpc")
     ok = np.allclose(h1 / C_KMS, h2)
+    detail = "km/s/Mpc vs 1/Mpc, both guards named their law"
     try:
         t.get_Hubble(np.array([1090.0]))
         ok = False
-    except ValueError:
-        pass
+        detail = "the D_M-window H query did not raise"
+    except ValueError as e:
+        if "outside the SN-range window" not in str(e):
+            ok = False
+            detail = "the window guard refused the WRONG law: " + str(e)
     try:
         t.get_Hubble(np.array([1.0]), units="parsecs")
         ok = False
-    except ValueError:
-        pass
-    report("get_Hubble units + window guards", ok, "km/s/Mpc vs 1/Mpc")
+        detail = "the 'parsecs' units query did not raise"
+    except ValueError as e:
+        if "units must be 'km/s/Mpc' or '1/Mpc'" not in str(e):
+            ok = False
+            detail = "the units guard refused the WRONG law: " + str(e)
+    report("get_Hubble units + window guards", ok, detail)
     # desert getter leg
     try:
         t.get_comoving_radial_distance(np.array([500.0]))
         report("desert getter raises", False, "no raise")
-    except ValueError:
-        report("desert getter raises", True, "ValueError")
+    except ValueError as e:
+        report_refusal("desert getter raises", e,
+                       needle="never emulated",
+                       law="the desert law")
 
     # pair-validation legs
     try:
         _build(cls, [root_h])
         report("missing D_M raises", False, "no raise")
-    except ValueError:
-        report("missing D_M raises", True, "ValueError")
+    except ValueError as e:
+        # NOTE the needle names the pair-COUNT law, not the missing-quantity
+        # one. A one-root emulators list is refused by the "exactly TWO" guard
+        # (cobaya_theory/emul_baosn.py:90) before any artifact is loaded, so
+        # the by-quantity scan that would say "no loaded artifact declares
+        # quantity 'D_M'" (:134) is never reached from here. Needling that
+        # message would demand text this call site cannot produce; needling the
+        # one that does fire is what makes the leg refuse an identity error.
+        # The missing-quantity guard itself has no leg of its own: reaching it
+        # needs a TWO-root list of distinct quantities with no D_M among them,
+        # which no fixture in this gate builds.
+        report_refusal("missing D_M raises", e,
+                       needle="exactly TWO",
+                       law="the pair-count law")
     root_h2 = os.path.join(tmp, "ad_h2")
-    save_synthetic_grid(root_h2, device, tmp, quantity="Hubble",
+    # a second Hubble emulator, built to be refused beside the first. It carries
+    # the PAIR's label on purpose: two artifacts declaring one quantity, both
+    # trained off ONE generator dump, is exactly the ambiguity the duplicate law
+    # exists to refuse -- one dataset, one identity. Give this double an
+    # identity of its own instead and the served pair stops being one dataset:
+    # the identity law refuses it first, and the duplicate law -- the law this
+    # leg exists to prove -- is never reached.
+    save_synthetic_grid(root_h2, device, tmp,
+                        label=ADAPTER_PAIR_LABEL,
+                        quantity="Hubble",
                         units="km/s/Mpc", law="none", offset=0.0,
                         z=np.linspace(0.001, 2.0, 32), seed=60)
     try:
         _build(cls, [root_h, root_h2])
         report("duplicate quantity raises", False, "no raise")
-    except ValueError:
-        report("duplicate quantity raises", True, "ValueError")
+    except ValueError as e:
+        report_refusal("duplicate quantity raises", e,
+                       needle="two artifacts both declare quantity",
+                       law="the duplicate-quantity law")
 
 
 def check_finetune(tmp, device):
     root = os.path.join(tmp, "ft_grid_src")
     pgeom, geom, model, covmat = save_synthetic_grid(
-        root, device, tmp, law="log_offset", offset=1.0, seed=70)
+        root, device, tmp, label="bsn-identity/finetune-hubble-source",
+        law="log_offset", offset=1.0, seed=70)
     source = warmstart.load_source(root=root, device=device)
     report("load_source accepts a grid artifact",
            type(source.geom).__name__ == "GridGeometry",
@@ -869,7 +959,11 @@ def check_finetune(tmp, device):
         report("metadata mismatch raises",
                "grid-metadata mismatch" in str(e), "ValueError")
     dm_root = os.path.join(tmp, "ft_dm_src")
-    save_synthetic_grid(dm_root, device, tmp, quantity="D_M",
+    # a distance source offered to a Hubble run, built to be refused: a
+    # different run, so a different identity.
+    save_synthetic_grid(dm_root, device, tmp,
+                        label="bsn-identity/finetune-distance-source",
+                        quantity="D_M",
                         units="Mpc", law="none", offset=0.0,
                         z=np.linspace(1000.0, 1200.0, 24), seed=90)
     try:

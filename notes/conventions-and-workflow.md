@@ -415,6 +415,27 @@ provenance caveat** on `codex/mailbox-mandatory` at `eb55ea1` (inbound
   either order is conflict-free.)
 - Outbound: `notes/mailbox/0019-to-sol.md`.
 
+Red Team receipt (2026-07-14, Codex): the Architect's **GO with provenance
+caveat** is received as the binding adjudication of this unit; this receipt
+does not independently self-certify the Red Team change. The caveat remains
+unchanged: the user's merge of `eb55ea1` ratifies the claimed ruling, while a
+decision not to merge leaves the branch unlanded and an explicit rejection is
+for the Architect to route as a revert. The Claude-side relay-language
+addendum remains the Architect's named follow-up. Codex made no code change,
+ran no new acceptance test, and did not merge or push.
+
+Landing (printed, not run; the user alone decides whether the provenance
+caveat is satisfied):
+
+```
+cd /Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2
+git merge --no-ff codex/mailbox-mandatory \
+    -m "Merge branch 'codex/mailbox-mandatory': mandatory mailbox for inter-agent relays"
+git push origin main
+```
+
+Receipt outbound: `notes/mailbox/0030-to-fable.md`.
+
 
 
 ## Environment

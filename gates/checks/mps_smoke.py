@@ -89,6 +89,28 @@ def emit_leg(aid, failures_before):
     """
     mark = "FAIL" if len(FAILURES) > failures_before else "PASS"
     print("##AID " + aid + " " + mark)
+    return mark == "PASS"
+
+
+def emit_unavailable(aid, blocker):
+    """Print the reserved terminal for a declared leg that never ran.
+
+    A leg the child skipped because an earlier leg failed did not FAIL: it did
+    not run at all, and a verdict it never produced must not read as one it
+    did. The board records such a leg UNAVAILABLE and the reason names the
+    upstream leg that stopped it, so the log says which green to chase first.
+
+    Arguments:
+      aid     = the board-declared assertion id of the leg that never ran.
+      blocker = the aid of the upstream leg whose failure stopped it, or None
+                when the child exited before any leg reached its terminal (a
+                crash in setup, say) and there is no upstream leg to name.
+    """
+    if blocker is None:
+        reason = "the child exited before this leg ran"
+    else:
+        reason = "upstream leg " + blocker + " did not pass"
+    print("##AID " + aid + " UNAVAILABLE " + reason)
 
 
 def gen_yaml():
@@ -444,19 +466,27 @@ def main():
     device = torch.device("cpu")
     rel_root = "tmp_gate_mps_smoke_%d" % os.getpid()
     work = os.path.join(rootdir, rel_root)
-    # Emit one '##AID <leg> <PASS|FAIL>' per board-declared leg (LEG_AIDS), in
-    # this order. Each leg wraps a contiguous group of report() calls; the
-    # FAILURES snapshot taken before a group and read after it rolls that
-    # group's probes into the leg's single terminal (see emit_leg). A failed
-    # generator leg leaves the downstream legs UNEMITTED on purpose (they never
-    # ran) -- run_board reds a declared-but-unemitted leg exactly like an
-    # emitted FAIL, so the gate cannot go green on a partial run.
+    # Emit one reserved terminal per board-declared leg (LEG_AIDS), in this
+    # order. Each leg wraps a contiguous group of report() calls; the FAILURES
+    # snapshot taken before a group and read after it rolls that group's probes
+    # into the leg's single terminal (see emit_leg). A failed generator leg
+    # SKIPS the downstream legs -- they never ran, so the backfill below emits
+    # them UNAVAILABLE naming the upstream leg that stopped them, never FAIL (a
+    # leg that never ran did not fail) and never a false PASS. 'emitted' stays
+    # all four declared aids every run, so run_board's reconciliation always
+    # sees declared == emitted and the gate cannot go green on a partial run.
+    emitted = set()
+    blocker = None
     try:
         with tempfile.TemporaryDirectory() as tmp:
             before = len(FAILURES)
             paths = check_generate(rootdir, rel_root)
-            emit_leg("mps-smoke.generated-power-dumps", before)
-            if not FAILURES:
+            aid = "mps-smoke.generated-power-dumps"
+            if not emit_leg(aid, before):
+                blocker = aid
+            emitted.add(aid)
+
+            if blocker is None:
                 before = len(FAILURES)
                 root_p, _, _ = check_train(paths, tmp, device, "pklin")
                 # the diagnostics leg rides ONE of the two trainings (the pages
@@ -464,17 +494,34 @@ def main():
                 # the boost training's exp + model feed check_diagnostics below.
                 root_b, exp_b, model_b = check_train(paths, tmp, device,
                                                      "boost")
-                emit_leg("mps-smoke.training-collapse", before)
+                aid = "mps-smoke.training-collapse"
+                if not emit_leg(aid, before):
+                    blocker = aid
+                emitted.add(aid)
 
+            if blocker is None:
                 before = len(FAILURES)
                 check_diagnostics(exp_b, model_b, tmp)
-                emit_leg("mps-smoke.diagnostics-output", before)
+                aid = "mps-smoke.diagnostics-output"
+                if not emit_leg(aid, before):
+                    blocker = aid
+                emitted.add(aid)
 
+            if blocker is None:
                 before = len(FAILURES)
                 check_cobaya(root_p, root_b, tmp)
-                emit_leg("mps-smoke.cobaya-vs-camb", before)
+                aid = "mps-smoke.cobaya-vs-camb"
+                emit_leg(aid, before)
+                emitted.add(aid)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+        # A leg whose group was skipped by an upstream failure -- or by a crash
+        # before any leg reached its terminal -- did not run. Emit it
+        # UNAVAILABLE, naming the blocker, so declared == emitted holds and the
+        # log points at the leg to fix first.
+        for aid in LEG_AIDS:
+            if aid not in emitted:
+                emit_unavailable(aid, blocker)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))

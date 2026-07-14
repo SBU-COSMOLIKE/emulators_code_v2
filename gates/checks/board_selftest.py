@@ -983,6 +983,98 @@ def check_aid_manifest():
             report("an all-PASS manifest under the wrapper expect stays green (control)",
                    final.get("passg", {}).get("status") == "PASS",
                    repr(final.get("passg", {}).get("status")))
+
+            # (h) THE SKIPPED-LEG DOCTRINE (the standing rule: a leg that never
+            # ran did not fail). The smoke children run sequentially dependent
+            # stages, so a failed upstream leg SKIPS the downstream ones; their
+            # backfill emits each skipped leg UNAVAILABLE with a reason NAMING
+            # the upstream leg that stopped it. Two arms, because the doctrine
+            # lands on two different surfaces:
+            #
+            #   (h1) the red path -- the child fails a leg and exits nonzero, so
+            #        run_check raises and the executed set is never folded. The
+            #        manifest's only home is the immutable gate LOG, and that is
+            #        exactly where a reader looks to learn which leg to fix
+            #        first. Pin it there.
+            #   (h2) the folding path -- the child skips a leg but still exits 0
+            #        (a capability skip upstream). Now the manifest DOES fold,
+            #        reconciliation runs, and the persisted evidence block must
+            #        carry the leg as UNAVAILABLE with the upstream named.
+            #
+            # (h1): a FAIL plus a skipped leg, child exits 1.
+            skip_s = sd / "skip.py"
+            skip_s.write_text(
+                "import sys\n"
+                "print('##AID skpg.a FAIL')\n"
+                "print('##AID skpg.b UNAVAILABLE upstream leg skpg.a did not pass')\n"
+                "sys.exit(1)\n")
+
+            def _sk_run(ctx):
+                ctx.run_check(str(skip_s))
+            skpg = Gate(id="skpg", tier="backlog", home="selftest", maps="s",
+                        run=_sk_run,
+                        evidence=(Assertion("skpg.a", "n.md#skpg-a"),
+                                  Assertion("skpg.b", "n.md#skpg-b")))
+            rc, final, tmp = drive_main(["--gate", "skpg"], [skpg], {})
+            rec = final.get("skpg", {})
+            report("a child that fails a leg and skips the rest reds the gate",
+                   rec.get("status") == "FAIL", repr(rec.get("status")))
+            log_text = (tmp / rec.get("log", "")).read_text()
+            report("the skipped leg reaches the gate log as UNAVAILABLE, not FAIL "
+                   "(a leg that never ran did not fail)",
+                   "##AID skpg.b UNAVAILABLE" in log_text,
+                   "skpg.b terminal absent from the log")
+            report("the skipped leg's log reason names the upstream leg",
+                   "UNAVAILABLE upstream leg skpg.a" in log_text,
+                   "the reason does not name skpg.a")
+
+            # (h2): the same skip on a child that exits 0 -- the manifest folds,
+            # so the persisted evidence block owns the truth.
+            skip0_s = sd / "skip0.py"
+            skip0_s.write_text(
+                "print('##AID skzg.a PASS')\n"
+                "print('##AID skzg.b UNAVAILABLE upstream leg skzg.a did not pass')\n")
+
+            def _sz_run(ctx):
+                ctx.run_check(str(skip0_s))
+            skzg = Gate(id="skzg", tier="backlog", home="selftest", maps="s",
+                        run=_sz_run,
+                        evidence=(Assertion("skzg.a", "n.md#skzg-a"),
+                                  Assertion("skzg.b", "n.md#skzg-b")))
+            rc, final, tmp = drive_main(["--gate", "skzg"], [skzg], {})
+            rec = final.get("skzg", {})
+            ev = rec.get("evidence", {})
+            report("a folded skipped leg is recorded UNAVAILABLE, and the gate "
+                   "passes on the leg it really executed",
+                   rec.get("status") == "PASS"
+                   and [a for a, _ in ev.get("unavailable", [])] == ["skzg.b"],
+                   repr(rec.get("status")) + " " + repr(ev.get("unavailable")))
+            report("the folded UNAVAILABLE reason names the upstream leg",
+                   any("skzg.a" in reason
+                       for _, reason in ev.get("unavailable", [])),
+                   repr(ev.get("unavailable")))
+
+            # (h-control) the same two legs with the upstream leg GREEN: nothing is
+            # skipped, nothing is UNAVAILABLE, and the gate passes. Without this the
+            # arms above would also be satisfied by a harness that marked every leg
+            # unavailable no matter what happened.
+            noskip_s = sd / "noskip.py"
+            noskip_s.write_text("print('##AID nskg.a PASS')\n"
+                                "print('##AID nskg.b PASS')\n")
+
+            def _nsk_run(ctx):
+                ctx.run_check(str(noskip_s))
+            nskg = Gate(id="nskg", tier="backlog", home="selftest", maps="s",
+                        run=_nsk_run,
+                        evidence=(Assertion("nskg.a", "n.md#nskg-a"),
+                                  Assertion("nskg.b", "n.md#nskg-b")))
+            rc, final, tmp = drive_main(["--gate", "nskg"], [nskg], {})
+            rec = final.get("nskg", {})
+            report("a green upstream leg skips nothing (control: no UNAVAILABLE)",
+                   rec.get("status") == "PASS"
+                   and rec.get("evidence", {}).get("unavailable") == [],
+                   repr(rec.get("status")) + " "
+                   + repr(rec.get("evidence", {}).get("unavailable")))
         finally:
             run_board.validate_evidence = saved_ve
 
@@ -2028,6 +2120,120 @@ def check_gha_f_warning():
         board._golden_leg, board._smoke_driver = saved_g, saved_s
 
 
+def check_leg_aids_census():
+    """A check's own list of legs matches what the board declares it proves.
+
+    A check script that backfills a skipped leg does it from a module-level list
+    of the legs it is supposed to produce. That list and the board's evidence
+    tuple are two copies of one fact, written in two files, and nothing compared
+    them: a leg renamed in one place and not the other would make the check
+    backfill an assertion id the board never declared, or leave a declared one
+    with no terminal at all. Both failures surface only when the gate is run on
+    a machine that can run it, which for most of these is not this one.
+
+    The lists are read out of the source with the AST rather than by importing
+    the check, because the checks import torch and this self-test must not.
+
+    Reading a check's list is done by parsing, so a check that has no such list
+    is simply not censused here; the point is that a check WITH one agrees with
+    the board.
+    """
+    import ast
+
+    by_id = {}
+    for gate in BOARD:
+        by_id[gate.id] = gate
+
+    # every check script that declares its own legs, paired with the gate whose
+    # evidence tuple must match it.
+    censused = 0
+    checks_dir = os.path.dirname(os.path.abspath(__file__))
+    for fname in sorted(os.listdir(checks_dir)):
+        if not fname.endswith(".py"):
+            continue
+        path = os.path.join(checks_dir, fname)
+        with open(path) as f:
+            source = f.read()
+        if "LEG_AIDS" not in source:
+            continue
+        declared = None
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "LEG_AIDS":
+                    declared = ast.literal_eval(node.value)
+        if declared is None:
+            continue
+        # two shapes are in use. A sequence of full assertion ids declares an
+        # ORDER as well as a set, and is compared as one. A mapping of short leg
+        # name to full assertion id declares only which legs exist, so its
+        # values are compared as a set: a mapping's iteration order is not a
+        # contract anyone wrote down, and pretending it is would red on a
+        # reordering that means nothing.
+        ordered = not isinstance(declared, dict)
+        if isinstance(declared, dict):
+            declared = list(declared.values())
+        else:
+            declared = list(declared)
+
+        # the gate id is the part of every aid before the first dot; a check
+        # whose legs disagree about which gate they belong to is itself a bug.
+        owners = set()
+        for aid in declared:
+            owners.add(aid.split(".")[0])
+        report("the legs " + fname + " declares all name one gate",
+               len(owners) == 1,
+               repr(sorted(owners)))
+        if len(owners) != 1:
+            continue
+        gid = owners.pop()
+        report("the gate " + repr(gid) + " that " + fname + " names is on the "
+               "board",
+               gid in by_id,
+               "declared by " + fname)
+        if gid not in by_id:
+            continue
+
+        board_aids = []
+        for assertion in by_id[gid].evidence:
+            board_aids.append(assertion.aid)
+
+        # Every leg the CHILD names must be one the board declared. The board may
+        # declare more than the child does, because a gate's wrapper in board.py
+        # can assert legs of its own (a golden-text comparison, the child's exit
+        # code) that the child knows nothing about. So the child's list is a
+        # subset of the board's, never necessarily all of it. An aid the child
+        # would emit that the board never declared is the failure this catches:
+        # the board reconciles the two at run time and reds, but only on a
+        # machine that can run that gate, which for most of these is not this one.
+        unknown = []
+        for aid in declared:
+            if aid not in board_aids:
+                unknown.append(aid)
+        report("every leg " + fname + " names is declared on the board",
+               len(unknown) == 0,
+               str(len(declared)) + " named, " + str(len(board_aids))
+               + " on the board" + (("; stray: " + repr(unknown))
+                                    if unknown else ""))
+
+        # where the check names its legs as an ordered sequence, that order is a
+        # contract: the backfill walks it. It must not contradict the board's.
+        if ordered and len(unknown) == 0:
+            positions = []
+            for aid in declared:
+                positions.append(board_aids.index(aid))
+            report("the order " + fname + " names its legs in matches the "
+                   "board's",
+                   positions == sorted(positions),
+                   repr(positions))
+        censused += 1
+
+    report("the leg census actually covered some checks",
+           censused >= 4,
+           str(censused) + " checks declare their own legs")
+
+
 def check_decreasing_finiteness():
     """The endpoint descent helper refuses missing or invalid evidence.
 
@@ -2128,6 +2334,8 @@ def main():
     check_gha_f_warning()
     print("\n-- finite endpoint evidence for a logged decrease --")
     check_decreasing_finiteness()
+    print("\n-- a check's own leg list matches the board's evidence --")
+    check_leg_aids_census()
     print("")
     if FAILURES:
         print("board-selftest: %d FAILURE(S): %s"

@@ -79,6 +79,28 @@ def emit_leg(aid, failures_before):
     """
     mark = "FAIL" if len(FAILURES) > failures_before else "PASS"
     print("##AID " + aid + " " + mark)
+    return mark == "PASS"
+
+
+def emit_unavailable(aid, blocker):
+    """Print the reserved terminal for a declared leg that never ran.
+
+    A leg the child skipped because an earlier leg failed did not FAIL: it did
+    not run at all, and a verdict it never produced must not read as one it
+    did. The board records such a leg UNAVAILABLE and the reason names the
+    upstream leg that stopped it, so the log says which green to chase first.
+
+    Arguments:
+      aid     = the board-declared assertion id of the leg that never ran.
+      blocker = the aid of the upstream leg whose failure stopped it, or None
+                when the child exited before any leg reached its terminal (a
+                crash in setup, say) and there is no upstream leg to name.
+    """
+    if blocker is None:
+        reason = "the child exited before this leg ran"
+    else:
+        reason = "upstream leg " + blocker + " did not pass"
+    print("##AID " + aid + " UNAVAILABLE " + reason)
 
 
 def gen_yaml():
@@ -424,50 +446,63 @@ def main():
     device = torch.device("cpu")
     rel_root = "tmp_gate_bsn_smoke_%d" % os.getpid()
     work = os.path.join(rootdir, rel_root)
-    # Emit one '##AID <leg> <PASS|FAIL>' per board-declared leg (LEG_AIDS), in
-    # this order. The stages are sequentially dependent (training needs the
+    # Emit one reserved terminal per board-declared leg (LEG_AIDS), in this
+    # order. The stages are sequentially dependent (training needs the
     # generated dump; the cobaya + diagnostics legs need the trained
     # artifacts), so an upstream failure SKIPS the later groups. A skipped
-    # group did not run to green, so its terminal is FAIL, not a false PASS
-    # from an unchanged FAILURES snapshot -- 'emitted' stays all four declared
-    # aids every run for run_board's reconciliation, and a skipped leg names
-    # itself red. The dump-variance stale-cache tripwire folds under
-    # generated-background-dumps per the drafted note anchor; the desert-loud
-    # refusal folds under cobaya-vs-camb.
+    # group did not run: its terminal is UNAVAILABLE naming the upstream leg
+    # that stopped it, never FAIL (a leg that never ran did not fail) and
+    # never a false PASS from an unchanged FAILURES snapshot. 'emitted' stays
+    # all four declared aids every run, so run_board's reconciliation always
+    # sees declared == emitted. The dump-variance stale-cache tripwire folds
+    # under generated-background-dumps per the drafted note anchor; the
+    # desert-loud refusal folds under cobaya-vs-camb.
     emitted = set()
+    blocker = None
     try:
         with tempfile.TemporaryDirectory() as tmp:
             before = len(FAILURES)
             paths = check_generate(rootdir, rel_root)
             if not FAILURES:
                 check_dump_variance(paths)
-            emit_leg("bsn-smoke.generated-background-dumps", before)
-            emitted.add("bsn-smoke.generated-background-dumps")
+            aid = "bsn-smoke.generated-background-dumps"
+            if not emit_leg(aid, before):
+                blocker = aid
+            emitted.add(aid)
 
-            if not FAILURES:
+            if blocker is None:
                 before = len(FAILURES)
                 exp_h, model_h, root_h = check_train(paths, tmp, device,
                                                      "Hubble")
                 _, _, root_dm = check_train(paths, tmp, device, "D_M")
-                emit_leg("bsn-smoke.training-collapse", before)
-                emitted.add("bsn-smoke.training-collapse")
+                aid = "bsn-smoke.training-collapse"
+                if not emit_leg(aid, before):
+                    blocker = aid
+                emitted.add(aid)
 
+            if blocker is None:
                 before = len(FAILURES)
                 check_cobaya(root_h, root_dm, tmp)
-                emit_leg("bsn-smoke.cobaya-vs-camb", before)
-                emitted.add("bsn-smoke.cobaya-vs-camb")
+                aid = "bsn-smoke.cobaya-vs-camb"
+                if not emit_leg(aid, before):
+                    blocker = aid
+                emitted.add(aid)
 
+            if blocker is None:
                 before = len(FAILURES)
                 check_diagnostics(exp_h, model_h, tmp)
-                emit_leg("bsn-smoke.diagnostics-output", before)
-                emitted.add("bsn-smoke.diagnostics-output")
+                aid = "bsn-smoke.diagnostics-output"
+                emit_leg(aid, before)
+                emitted.add(aid)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-        # any leg whose group was skipped by an upstream failure did not run
-        # to green: emit its terminal as FAIL so declared == emitted holds.
+        # A leg whose group was skipped by an upstream failure -- or by a crash
+        # before any leg reached its terminal -- did not run. Emit it
+        # UNAVAILABLE, naming the blocker, so declared == emitted holds and the
+        # log points at the leg to fix first.
         for aid in LEG_AIDS:
             if aid not in emitted:
-                print("##AID " + aid + " FAIL")
+                emit_unavailable(aid, blocker)
     if FAILURES:
         print("FAIL: " + str(len(FAILURES)) + " check(s): "
               + ", ".join(FAILURES))

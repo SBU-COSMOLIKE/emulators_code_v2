@@ -45,6 +45,7 @@ from pathlib import Path
 
 import torch
 
+from emulator import fixed_facts
 from emulator.activations import make_activation
 from emulator.experiment import EmulatorExperiment
 from emulator.results import save_emulator, rebuild_emulator
@@ -205,13 +206,20 @@ def tiny_config(data_dir, *, ia=None, pce=False, head=False):
   return cfg
 
 
-def train_save(cfg, device, save_root, persist_root=None):
+def train_save(cfg, device, save_root, label, persist_root=None):
   """Train one tiny emulator, save it, return (exp, probe, live_out).
 
   Arguments:
     cfg          = the variant config dict.
     device       = the torch device.
     save_root    = the path root to save under (the tmp round-trip root).
+    label        = what this variant's emulator is, for the scientific record
+                   the saved file carries. This check trains on the real dumps
+                   but the record they were published with is not in reach
+                   here, so the file declares itself a test double rather than
+                   carrying no record at all. The two saves below are the one
+                   emulator written to two paths, so they share the one label
+                   and come out with the one identity.
     persist_root = an optional second, persistent root to save the same
                    bytes under (survives the tmp cleanup); the plain case
                    passes it so the board-owned cobaya-adapter evaluate
@@ -250,6 +258,10 @@ def train_save(cfg, device, save_root, persist_root=None):
     pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
     resolved_train=exp.resolved_train,
     resolved_model=exp.resolved_model,
+    facts_yaml=fixed_facts.synthetic_sidecar(
+      names=exp.pgeom.state()["names"],
+      label=label,
+      family="cosmolike"),
     # rescale is the resolved run value (never a literal): a fine-tune run
     # warm-starting from this artifact reads the attr and refuses a source
     # that does not record it (emulator/warmstart.py load_source).
@@ -293,6 +305,7 @@ def run_variant(name, cfg, device, tmp, persist_root=None, aid=None):
   n0 = len(FAILURES)
   exp, probe, live_out = train_save(cfg=cfg, device=device,
                                     save_root=save_root,
+                                    label="save-rebuild-drift/" + name,
                                     persist_root=persist_root)
   reb_out = rebuilt_out(save_root=save_root, device=device, probe=probe)
   report(name + ": rebuilt output bitwise-equal to the live model",
@@ -367,20 +380,44 @@ def main():
          + repr(float((base_reb - drift_reb).abs().max())))
   emit_aid("save-rebuild-drift.code-default-drift-ignored", n_drift)
 
-  # v1 refusal: tamper schema_version, rebuild must raise loudly.
+  # A saved emulator now records the science it was born under: the cosmology
+  # held fixed while its parameters were sampled, and the region they were
+  # sampled over. The two schema versions that came before it recorded neither,
+  # so neither can say which cosmology it belongs to, and an emulator that
+  # cannot say that must not be served. Both are refused, and the refusal names
+  # the way out, because a message that says a file is incompatible and stops is
+  # not a refusal, it is a shrug. Forge each version onto a good file in turn and
+  # confirm the reader refuses it and says what to do.
   import h5py
+
+  def forge_version(version):
+    # returns the refusal's message, or None when the file was accepted.
+    with h5py.File(str(plain_root) + ".h5", "r+") as f:
+      f.attrs["schema_version"] = version
+    try:
+      rebuild_emulator(path_root=str(plain_root), device=device)
+    except ValueError as exc:
+      return str(exc)
+    return None
+
   n_v1 = len(FAILURES)
-  with h5py.File(str(plain_root) + ".h5", "r+") as f:
-    f.attrs["schema_version"] = 1
-  refused = False
-  try:
-    rebuild_emulator(path_root=str(plain_root), device=device)
-  except ValueError:
-    refused = True
-  report("v1 refusal: rebuild raises on schema_version != 2",
-         refused,
-         "a v1 file must be refused with a clear message")
+  said = forge_version(1)
+  report("a version 1 emulator is refused, and told how to migrate",
+         said is not None and "Re-generate the dataset" in said,
+         (said or "accepted").splitlines()[0][:60])
   emit_aid("save-rebuild-drift.v1-schema-refusal", n_v1)
+
+  n_v2 = len(FAILURES)
+  said = forge_version(2)
+  report("a version 2 emulator is refused, and told how to migrate",
+         said is not None and "Re-generate the dataset" in said,
+         (said or "accepted").splitlines()[0][:60])
+  emit_aid("save-rebuild-drift.v2-schema-refusal", n_v2)
+
+  # put the file back the way it was saved, so the arms below read the real
+  # artifact and not the one this arm forged.
+  with h5py.File(str(plain_root) + ".h5", "r+") as f:
+    f.attrs["schema_version"] = fixed_facts.SCHEMA_VERSION
 
   n_head = len(FAILURES)
   # pre-persistence head-artifact refusal: delete the persisted bin

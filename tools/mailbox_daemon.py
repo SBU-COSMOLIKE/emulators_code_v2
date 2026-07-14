@@ -99,18 +99,31 @@ AGENT_COMMANDS = {
     # Absolute path: the user's conda shells resolve an OLDER claude binary
     # with a separate (logged-out) credential store; this one is the
     # logged-in v2.1.208 install (diagnosed 2026-07-14).
+    # Effort levels (USER 2026-07-14): Fable audits at "xhigh"; Opus builds
+    # at "max" (the claude CLI's top tier); Sol runs at "xhigh" (the codex
+    # CLI's top reasoning tier, set via -c below).
     "fable": ["/Users/vivianmiranda/.local/bin/claude", "-p",
               "--model", "claude-fable-5",
+              "--effort", "xhigh",
               "--permission-mode", "acceptEdits"],
     "opus": ["/Users/vivianmiranda/.local/bin/claude", "-p",
              "--model", "claude-opus-4-8",
+             "--effort", "max",
              "--permission-mode", "acceptEdits"],
     # Verified by the red team's read-only probe (codex-cli 0.144.2; the
     # conventions note records the probe): workspace-write sandbox rooted at
     # the repo, which contains every worktree Sol works in.
+    # service_tier=standard keeps codex Fast Mode OFF for dispatched turns
+    # (USER 2026-07-14): the standard tier is slower in wall-clock time but
+    # far cheaper against the token quota, and an unattended mailbox turn
+    # never needs the speed. Pinned here because the user's global
+    # ~/.codex/config.toml says "priority" -- a dispatch must not inherit
+    # that default.
     "sol": ["/Applications/ChatGPT.app/Contents/Resources/codex",
             "exec",
             "--model", "gpt-5.6-sol",
+            "-c", "model_reasoning_effort=xhigh",
+            "-c", "service_tier=standard",
             "--sandbox", "workspace-write",
             "--cd", REPO_ROOT],
 }
@@ -130,13 +143,35 @@ AGENT_CWD = {
 PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
                        "your message here"]
 
-# When the Implementer's lane holds this many queued units or more, the
-# execution queue counts as SATURATED: the Architect may hand the red
-# team per-unit backup-Implementer assignments so the backlog drains on
-# two execution tracks (.claude/FABLE_ROLE.md, "Backup-Implementer
+# When the TOTAL open execution backlog reaches this many units, the
+# queue counts as SATURATED: the red team becomes the SECOND IMPLEMENTER,
+# and the Architect hands it build units so the backlog drains on two
+# execution tracks (.claude/FABLE_ROLE.md, "Second-Implementer
 # assignments"; the mode switch is always an explicit sentence in the
-# handoff, never implied by this number alone).
-BACKUP_THRESHOLD = 3
+# handoff, never implied by this number alone). The total is queued
+# mailbox messages PLUS the "- OPEN" lines of notes/backlog.md -- the
+# program's ledger of every unit still owed execution and audit (user
+# rule, 2026-07-14: demand is what saturates the queue, not the
+# dispatch rate).
+SECOND_IMPLEMENTER_THRESHOLD = 10
+BACKLOG_LEDGER = os.path.join(WORKTREE, "notes", "backlog.md")
+
+
+def backlog_ledger_count():
+    """Count the open units recorded in the backlog ledger.
+
+    Returns:
+      The number of lines in notes/backlog.md starting "- OPEN" (zero
+      when the ledger does not exist).
+    """
+    if not os.path.isfile(BACKLOG_LEDGER):
+        return 0
+    count = 0
+    with open(BACKLOG_LEDGER, encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("- OPEN"):
+                count = count + 1
+    return count
 
 PREAMBLE = (
     "You are invoked headlessly by tools/mailbox_daemon.py (no human is\n"
@@ -219,22 +254,39 @@ def dispatch(path, dry_run):
         return True
 
     print("dispatching " + name + " -> " + agent + " ...")
-    proc = subprocess.run(command,
-                          capture_output=True,
-                          text=True,
-                          cwd=AGENT_CWD[agent])
+    # Stream the agent's output straight into the relay log AS IT RUNS
+    # (stderr folded in -- the codex CLI narrates its progress there), and
+    # heartbeat once a minute so a long turn is distinguishable from a hang:
+    # elapsed time always moves, and the log size moves whenever the agent
+    # emits anything. A buffered subprocess.run() here once left the
+    # terminal silent for an entire multi-minute turn.
     os.makedirs(RELAY_DIR, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = os.path.join(RELAY_DIR, stamp + "-dispatch-" + agent + ".log")
+    started = time.time()
     with open(log_path, "w", encoding="utf-8") as f:
         f.write("$ " + " ".join(AGENT_COMMANDS[agent]) + " <message>\n")
-        f.write("rc=" + str(proc.returncode) + "\n--- stdout ---\n")
-        f.write(proc.stdout)
-        f.write("\n--- stderr ---\n")
-        f.write(proc.stderr)
+        f.write("--- live output (stdout+stderr interleaved) ---\n")
+        f.flush()
+        proc = subprocess.Popen(command,
+                                stdout=f,
+                                stderr=subprocess.STDOUT,
+                                cwd=AGENT_CWD[agent])
+        next_beat = started + 60.0
+        while proc.poll() is None:
+            time.sleep(5)
+            if time.time() >= next_beat:
+                elapsed_min = (time.time() - started) / 60.0
+                log_kb = os.path.getsize(log_path) / 1024.0
+                print("  ... " + name + " still running "
+                      + "(%.0f min elapsed, log %.1f kB -- tail -f %s)"
+                      % (elapsed_min, log_kb, log_path))
+                next_beat += 60.0
+        f.write("\n--- rc=" + str(proc.returncode) + " ---\n")
     print("  rc=" + str(proc.returncode) + "  log -> " + log_path)
     # show the reply's tail on the terminal so activity is visible live.
-    reply_lines = proc.stdout.strip().splitlines()
+    with open(log_path, encoding="utf-8") as f:
+        reply_lines = f.read().strip().splitlines()
     for line in reply_lines[-8:]:
         print("  | " + line)
 
@@ -296,25 +348,7 @@ def process_backlog(dry_run):
     backlog = pending_messages()
     if not backlog:
         return False
-    # queue-depth report + the backup-Implementer threshold (user rule,
-    # 2026-07-14): when the Implementer's lane holds BACKUP_THRESHOLD or
-    # more units, the Architect should assign the red team per-unit
-    # backup-Implementer work (the switch itself stays an explicit
-    # sentence in the handoff -- this print is the tripwire, not the
-    # assignment).
-    depth = {"fable": 0, "opus": 0, "sol": 0}
-    for path in backlog:
-        name = os.path.basename(path)
-        agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
-        depth[agent] = depth[agent] + 1
-    print("queue depth: opus=" + str(depth["opus"])
-          + " sol=" + str(depth["sol"])
-          + " fable=" + str(depth["fable"]))
-    if depth["opus"] >= BACKUP_THRESHOLD:
-        print("  hint: the Implementer lane is at or past "
-              + str(BACKUP_THRESHOLD) + " queued units -- the Architect "
-              "may assign the red team backup-Implementer units "
-              "(.claude/FABLE_ROLE.md, Backup-Implementer assignments).")
+    report_demand(backlog=backlog)
     lanes = {}
     for path in backlog:
         name = os.path.basename(path)
@@ -333,6 +367,38 @@ def process_backlog(dry_run):
     for worker in workers:
         worker.join()
     return True
+
+
+def report_demand(backlog):
+    """Print the queue-depth line + the second-Implementer tripwire.
+
+    The demand total is the queued mailbox messages PLUS the "- OPEN"
+    lines of notes/backlog.md (user rule, 2026-07-14: demand is what
+    saturates the queue, not the dispatch rate). Printed by every watch
+    pass that holds work AND by every --send, so the person queueing a
+    message always sees the load they are adding to.
+
+    Arguments:
+      backlog = the current pending message paths (pending_messages()).
+    """
+    depth = {"fable": 0, "opus": 0, "sol": 0}
+    for path in backlog:
+        name = os.path.basename(path)
+        agent = re.match(r"\d+-to-(fable|opus|sol)\.md$", name).group(1)
+        depth[agent] = depth[agent] + 1
+    ledger = backlog_ledger_count()
+    total = len(backlog) + ledger
+    print("queue depth: opus=" + str(depth["opus"])
+          + " sol=" + str(depth["sol"])
+          + " fable=" + str(depth["fable"])
+          + " | open backlog (notes/backlog.md): " + str(ledger)
+          + " | total demand: " + str(total))
+    if total >= SECOND_IMPLEMENTER_THRESHOLD:
+        print("  hint: total open demand is at or past "
+              + str(SECOND_IMPLEMENTER_THRESHOLD) + " units -- the red "
+              "team is now the SECOND IMPLEMENTER: build units flow to "
+              "it as well as to Opus "
+              "(.claude/FABLE_ROLE.md, Second-Implementer assignments).")
 
 
 def send(agent, text, dry_run):
@@ -368,6 +434,7 @@ def send(agent, text, dry_run):
             if not text.endswith("\n"):
                 f.write("\n")
         print("queued " + path)
+        report_demand(backlog=pending_messages())
         return
     print("could not claim a sequence number after 20 tries -- "
           "is something flooding the mailbox?")

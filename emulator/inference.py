@@ -21,6 +21,27 @@ matter-power grid      a dictionary containing ``z``, ``k``, and the named
                        law-space surface; the adapter applies the stored base
 =====================  ======================================================
 
+A saved emulator also carries the science it was born under: the cosmology its
+dataset was generated with held fixed, and the region of parameter space the
+generator sampled. ``EmulatorPredictor`` retains that record and exposes the
+three questions a consumer must be able to ask of it, one method each:
+
+=====================  ======================================================
+method                 the question it answers
+=====================  ======================================================
+``check_belongs_to``   does this emulator belong to the cosmology now being
+                       sampled? (the artifact against the chain)
+``check_pairs_with``   do these two emulators belong to each other? (one
+                       artifact against another)
+``check_may_serve``    may this emulator be asked about this point? (the
+                       training region against one point)
+=====================  ======================================================
+
+The laws those methods run, and the refusals they raise, live in
+``emulator/fixed_facts.py``. This module owns only the site at which they are
+asked: the artifact this predictor rebuilt, and the identity to name when one
+of them refuses.
+
 ``torch.no_grad()`` disables gradient recording because inference does not
 update model weights. ``detach()`` removes a tensor from any gradient graph
 without changing its numerical values. ``cpu()`` places a tensor in CPU
@@ -34,12 +55,59 @@ raw-params -> whitened-input transform (a factored emulator also appends the
 raw IA amplitudes as the last columns, which the model drops and the combine
 reads); decode = the output geometry's whitened -> physical (kept-entry)
 data vector; kept entries = the unmasked positions of the full 3x2pt vector
-the network emulates.
+the network emulates; the record = the two blocks of persisted science the
+artifact carries, the cosmology held fixed (fixed_facts) and the sampled
+region (input_domain).
 """
 
 import torch
 
+# the scientific record and its three comparison laws. The module is
+# torch-free, so importing it here costs the predictor nothing.
+from . import fixed_facts
 from .results import rebuild_emulator
+
+
+def _is_named_pair(params):
+  """Is this input the (names, values) pair, or a bare row of numbers?
+
+  The two look alike from the outside: both are sequences. The predictor has to
+  tell them apart before it can read one and refuse the other, and it tells
+  them apart by what sits in the first slot. The pair holds a sequence of
+  parameter names there. A bare row holds a number.
+
+  The case that has to come out right is a two-parameter emulator handed a bare
+  row of two numbers. It is a 2-item sequence, exactly like a pair, and the
+  length cannot separate them. The first slot can: a number is not a sequence
+  of names.
+
+  Arguments:
+    params = the object handed to predict, already known not to be a mapping.
+
+  Returns:
+    True when params is a 2-item sequence whose first item is a sequence of
+    strings, which is the (names, values) pair; False for anything else,
+    including a bare row of numbers.
+  """
+  if not isinstance(params, (tuple, list)):
+    return False
+  if len(params) != 2:
+    return False
+  head = params[0]
+  # A string is itself a sequence of strings, one character at a time, so it
+  # has to be ruled out before the slot is read: ("H0", 0.7) is a name beside a
+  # number, not a pair of sequences.
+  if isinstance(head, str):
+    return False
+  try:
+    first = head[0]
+  except (TypeError, IndexError, KeyError):
+    # a number is not subscriptable, and an empty name list has no first entry.
+    # Neither is the pair.
+    return False
+  # numpy's string scalar is a subclass of str, so a name list read back out of
+  # a saved file answers True here without a numpy import.
+  return isinstance(first, str)
 
 
 class EmulatorPredictor:
@@ -49,8 +117,11 @@ class EmulatorPredictor:
   ``rebuild_emulator(path_root, device)`` reads both ``path_root.emul`` and
   ``path_root.h5``. It returns the model, the two saved geometries, and the
   branch metadata. Nothing in this constructor re-declares those saved facts.
-  The diagram below shows the cosmic-shear branch, where ``predict`` maps a
-  parameter dictionary or ordered array to a physical data vector:
+  The diagram below shows the cosmic-shear branch, where ``predict`` maps the
+  parameters to a physical data vector. Every input form names its parameters:
+  a mapping from name to value, or a pair holding the names beside their values
+  (see ``_as_row``). A bare row of numbers is refused, because a row of numbers
+  cannot say which parameter each number is.
 
       params (in .names order)
          │  theta = (1, n_param) raw physical parameters
@@ -93,6 +164,15 @@ class EmulatorPredictor:
   amplitudes, so they join the required inputs automatically. The predictor
   asks the geometry; nobody keeps a second list. The kept-entry return shape
   matches the legacy Theory's use_emulator vector.
+
+  The scientific record travels the same way. ``rebuild_emulator`` hands back
+  the two blocks the file carries and ``.record`` holds them. The two blocks
+  are also read out singly: ``.fixed_facts`` is the cosmology the dataset was
+  generated under, ``.input_domain`` the region it was sampled over. The four
+  ``check_*`` / ``served_support_with`` methods below are the
+  sites at which the laws are asked about this artifact. ``predict`` asks none
+  of them on its own: a consumer that must not be answered outside the training
+  region calls ``check_may_serve`` itself, once per point.
   """
 
   def __init__(self,
@@ -133,6 +213,26 @@ class EmulatorPredictor:
      self.geom,
      info) = rebuild_emulator(path_root, device,
                               compile_model=compile_model)
+
+    # The science the artifact was born under, kept rather than dropped. The
+    # rebuild has always read these two blocks; nothing downstream held on to
+    # them, so a consumer had nothing to compare against and every comparison
+    # law had nowhere to run. That is why a w-varying emulator could be served
+    # to a cosmological-constant chain, and why a point outside the sampled
+    # region got a confident answer instead of a refusal.
+    #
+    # This binding runs before every family branch below returns, because the
+    # record is not a property of the cosmic-shear branch or the scalar branch.
+    # It is a property of the file, and every family has one.
+    self.record = {fixed_facts.FIXED_FACTS_GROUP:  info["fixed_facts"],
+                   fixed_facts.INPUT_DOMAIN_GROUP: info["input_domain"]}
+    self.fixed_facts  = self.record[fixed_facts.FIXED_FACTS_GROUP]
+    self.input_domain = self.record[fixed_facts.INPUT_DOMAIN_GROUP]
+    # the artifact's identity, named in every refusal the laws raise. A refusal
+    # that does not say WHICH file it refused sends the reader back to a config
+    # to guess, and a chain that serves several emulators has several to guess
+    # between.
+    self._where = str(path_root)
 
     self.names      = list(self.pgeom.names)
     # scalar (derived-parameter) emulator: predict returns a
@@ -272,6 +372,171 @@ class EmulatorPredictor:
     # kept-column ParamGeometry to reach the whitening tensors.
     base_pg     = getattr(self.pgeom, "pg_keep", self.pgeom)
     self._dtype = base_pg.center.dtype
+
+  # ----- the three questions a consumer must be able to ask this artifact ----
+  #
+  # They are three different questions, and answering one does not answer any
+  # other. An emulator can belong to the cosmology being sampled and still be
+  # asked about a point it never saw. Two emulators can be a matched pair and
+  # both belong to the wrong universe. A point can sit inside one emulator's
+  # region and outside its partner's. Each method below asks exactly one of the
+  # three, at the one site that knows which artifact is being asked about.
+  #
+  # The laws are in emulator/fixed_facts.py and stay there: this class owns the
+  # SITE of a comparison, that module owns the LAW and the words it refuses in.
+  # A refusal restated here would be a second author of the same sentence, and
+  # two authors of one sentence are how the two copies drift apart.
+
+  def check_belongs_to(self, resolved_model):
+    """Vertical: does this emulator belong to the cosmology being sampled?
+
+    The emulator's dataset was generated with some coordinates held fixed: a
+    neutrino mass, an equation of state, a curvature. They are not inputs of
+    the network. They are properties of the universe it learned, and they are
+    not visible in anything it returns. A chain that holds any of them at a
+    different value is asking a question about a different universe, and this
+    emulator will answer it: confidently, in the right shape, with the right
+    sign, and wrong.
+
+    Why this is not the other two questions. It compares ONE artifact against
+    the chain that wants to use it, and it reads only the coordinates the
+    artifact HELD FIXED. The horizontal question (check_pairs_with) compares
+    two artifacts against each other and never looks at the chain at all. The
+    domain question (check_may_serve) compares one point against the region
+    this artifact was trained over, and never looks at what was held fixed. An
+    emulator that passes this law can still be asked about a point far outside
+    the region it saw.
+
+    Arguments:
+      resolved_model = the cosmology being sampled, as a plain mapping from
+                       coordinate name to value, RESOLVED rather than
+                       requested: a default the YAML left unstated has been
+                       materialized by the time the model object exists, and it
+                       is the materialized value the chain actually samples.
+                       The consumer resolves it (from cobaya, from a script)
+                       and hands it in; neither this module nor fixed_facts
+                       imports cobaya.
+
+    Returns:
+      None. The method is called for its refusal.
+
+    Raises:
+      ValueError naming the coordinate that disagrees, the value this artifact
+      was generated with, the value being sampled, and what to do about it.
+    """
+    fixed_facts.check_vertical(blocks=self.record,
+                               resolved_model=resolved_model,
+                               where=self._where)
+
+  def check_pairs_with(self, other):
+    """Horizontal: do these two emulators belong to each other?
+
+    Emulators are served in pairs all the time: a Hubble rate beside an angular
+    diameter distance, a linear power spectrum beside its nonlinear boost, a TT
+    spectrum beside an EE. Each pair is combined into ONE prediction, so each
+    pair must come from one dataset and one cosmology. Two independent
+    generator runs of the same YAML agree on every fixed fact and every bound
+    and still drew different points, so comparing their facts cannot tell them
+    apart. The dataset identity can, and the law compares it first.
+
+    Why this is not the other two questions. It compares two artifacts against
+    EACH OTHER, and the chain never enters it: a pair can match each other
+    exactly and both belong to a universe nobody is sampling, which is what
+    check_belongs_to is for. Nor does it say anything about where the pair may
+    be evaluated: two emulators from one dump agree here and may still have
+    been sampled over different regions, which is what served_support_with is
+    for.
+
+    Arguments:
+      other = the other EmulatorPredictor, the one this artifact would be
+              served beside.
+
+    Returns:
+      None. The method is called for its refusal.
+
+    Raises:
+      ValueError naming the fact the two disagree about, both artifacts by
+      path, both of their values, and what to do about it.
+    """
+    fixed_facts.check_horizontal(blocks_a=self.record,
+                                 blocks_b=other.record,
+                                 where_a=self._where,
+                                 where_b=other._where)
+
+  def check_may_serve(self, point):
+    """Domain: may this emulator be asked about this point?
+
+    Inside the region it was trained over, the emulator interpolates. Outside
+    it, the emulator extrapolates: it returns a number of the right shape, with
+    the right sign, and no warning of any kind. The region is the contract the
+    dataset was generated under, and this is the refusal that enforces it.
+
+    Why this is not the other two questions. It compares ONE point against ONE
+    artifact's sampled region, and it reads only the coordinates the generator
+    SAMPLED. The two equality questions read the coordinates that were held
+    FIXED, which are exactly the ones a point cannot vary. This is also the
+    only one of the three that intersects rather than matches: a pair's served
+    region is the overlap of the two, which is why served_support_with exists
+    and why this method answers only for this artifact.
+
+    predict() does not call this method. The point at which a consumer is
+    willing to be refused is the consumer's decision, not this class's: a
+    sampler wants the refusal on every proposed point, a plotting script
+    walking a slice off the edge of the training box may want to see what the
+    extrapolation does. A consumer that must never extrapolate calls this once
+    per point, before predict.
+
+    Arguments:
+      point = the point being asked about, a mapping from name to value. Only
+              the coordinates the generator sampled are read, so a mapping that
+              carries more of them (a whole cobaya parameter block, say) is
+              fine.
+
+    Returns:
+      None. The method is called for its refusal.
+
+    Raises:
+      ValueError naming the coordinate, the interval this artifact was trained
+      over, the value it is being asked about, and what to do about it; also
+      when the artifact declares no support at all, which is the shape of a
+      test double and must never be served.
+    """
+    fixed_facts.check_domain(blocks=self.record,
+                             point=point,
+                             where=self._where)
+
+  def served_support_with(self, other):
+    """The region a PAIR of emulators may be served over: their overlap.
+
+    Two emulators combined into one prediction can only be asked about a point
+    both of them were trained over. The served region is the intersection of
+    the two, never the union: a point inside one half and outside the other is
+    a point where one half extrapolates, and the combined answer inherits that
+    silently.
+
+    This is the reporting half of the domain question, for a pair. It answers
+    "where may we ask?" rather than "may we ask here?", so a consumer can print
+    the region it is allowed to sample instead of discovering it one refusal at
+    a time.
+
+    Arguments:
+      other = the other EmulatorPredictor, the one this artifact would be
+              served beside.
+
+    Returns:
+      a mapping from parameter name to (low, high), the overlapped region, as
+      Python floats.
+
+    Raises:
+      ValueError when either artifact declares no box of intervals to intersect
+      (a test double), or when the two regions do not overlap on some
+      coordinate, in which case the pair has no point it can be asked about at
+      all.
+    """
+    return fixed_facts.served_support(blocks_a=self.record,
+                                      blocks_b=other.record,
+                                      where_a=self._where,
+                                      where_b=other._where)
 
   def _build_diag_decoder(self, pce_base, pce_form,
                           transfer_base=None, transfer_form=None,
@@ -466,18 +731,42 @@ class EmulatorPredictor:
     return _plain_decode
 
   def _as_row(self, params):
-    """Order the inputs into a single (1, n_param) tensor.
+    """Order the inputs into a single (1, n_param) tensor, by name.
+
+    Every input form this method accepts carries the parameter names beside the
+    values, and the names are proved against the order the whitening geometry
+    holds:
+
+      a mapping   {"omegabh2": 0.0223, "omegach2": 0.119}
+                  read in .names order, so it has no order to get wrong.
+
+      a pair      (["omegabh2", "omegach2"], [0.0223, 0.119])
+                  the names are checked against .names, then the values are
+                  read in that order.
+
+    A bare row of numbers is refused. It carries no names, so nothing in it can
+    say which parameter each number is. A permuted row has exactly the right
+    length, passes the only test a length is able to make, and is then whitened
+    against the wrong parameter's columns: every prediction that follows is
+    confident and wrong, and nothing about the numbers looks unusual. Length is
+    not a defence against a permutation, and it was the only defence here.
+
+    A caller that has already proved its own order against .names does not come
+    through this method; it builds the row through _as_row_trusted.
 
     Arguments:
-      params = either a mapping name -> value (read in .names order) or an
-               already-ordered sequence / array in .names order.
+      params = a mapping from parameter name to value, or a (names, values)
+               pair: a 2-item sequence whose first item is the parameter names
+               and whose second is their values, in the same order.
 
     Returns:
       (1, n_param) tensor in the geometry's whitening dtype on self.device.
 
     Raises:
       KeyError naming the first required parameter a mapping is missing;
-      ValueError when an ordered sequence has the wrong length.
+      ValueError when a pair's names are not this emulator's names in this
+      emulator's order, naming both orders; TypeError when the input carries no
+      names at all.
     """
     if isinstance(params, dict):
       row = []
@@ -487,22 +776,98 @@ class EmulatorPredictor:
             f"predict() is missing required parameter {n!r}; the saved "
             f"emulator needs {self.names}")
         row.append(params[n])
-    else:
-      row = list(params)
-      if len(row) != len(self.names):
+      return self._as_row_trusted(values=row)
+
+    if _is_named_pair(params):
+      names, values = params
+      given = list(names)
+      # One list comparison, once, on the hot path. It stops at the first name
+      # that differs and it builds nothing; the sorted() below pays only on the
+      # way to a refusal, where the cost of a sort is not a cost at all.
+      if given != self.names:
+        if sorted(given) == sorted(self.names):
+          fault = (
+            "predict() was handed this emulator's own parameters in a "
+            "different order. That is the failure this check exists to catch: "
+            "the values would be whitened against the wrong parameter's "
+            "columns, every prediction would be confident and wrong, and "
+            "nothing about the numbers would look unusual.\n")
+        else:
+          fault = (
+            "predict() was handed names that are not the parameters this "
+            "emulator was trained on.\n")
         raise ValueError(
-          f"predict() got {len(row)} values but the emulator needs "
-          f"{len(self.names)} ({self.names})")
+          fault
+          + "  the names handed in:      " + repr(given) + "\n"
+          + "  the emulator's own order: " + repr(self.names) + "\n"
+          + "The order is not an incidental detail of the file. It is the "
+            "order the whitening matrices were built in, and the saved "
+            "geometry holds it. Hand in a mapping from name to value, which "
+            "has no order to get wrong, or hand the values in the emulator's "
+            "own order.")
+      return self._as_row_trusted(values=values)
+
+    raise TypeError(
+      "predict() was handed a bare ordered sequence (a "
+      + type(params).__name__ + "), which carries no parameter names. A row of "
+      "numbers cannot say which parameter each number is, so a permutation of "
+      "it has exactly the right length, passes the only test a length is able "
+      "to make, and is whitened against the wrong parameter's columns: the "
+      "prediction is then confident and wrong, and nothing about the numbers "
+      "looks unusual. Two input forms carry their names, and either is "
+      "accepted here:\n"
+      "  a mapping:            {" + repr(self.names[0]) + ": value, ...}\n"
+      "  a (names, values) pair: (" + repr(self.names) + ", values)\n"
+      "A caller inside this class that has already proved its values are in "
+      "the emulator's own order builds the row through _as_row_trusted, the "
+      "internal path this refusal guards.")
+
+  def _as_row_trusted(self, values):
+    """Build the (1, n_param) tensor from values whose order is already proved.
+
+    The internal path, and the one place a row becomes a tensor. Its caller has
+    established that the values arrive in this emulator's own parameter order:
+    _as_row establishes it by reading a mapping in .names order, or by checking
+    a pair's names against .names. Nothing in this method can establish it,
+    because a row of numbers carries nothing to establish it with. The length
+    is checked, and a permutation has the right length.
+
+    Do not call this from outside the class on a row whose order was not proved
+    against .names first. The whole point of the public refusal above is that
+    an unproved row cannot be told apart from a wrong one.
+
+    Arguments:
+      values = the parameter values, in .names order.
+
+    Returns:
+      (1, n_param) tensor in the geometry's whitening dtype on self.device.
+
+    Raises:
+      ValueError when the row's length is not this emulator's parameter count.
+    """
+    row = list(values)
+    if len(row) != len(self.names):
+      raise ValueError(
+        f"predict() got {len(row)} values but the emulator needs "
+        f"{len(self.names)} ({self.names})")
     return torch.as_tensor(row, dtype=self._dtype,
                            device=self.device).reshape(1, -1)
 
   def predict(self, params):
     """Predict the physical data vector at the configured dv_return shape.
 
+    This method does not ask whether the point is inside the region the
+    emulator was trained over. Outside that region an emulator extrapolates and
+    returns a confident number, so a consumer that must not be answered there
+    calls check_may_serve on the point first. Where a consumer is willing to be
+    refused is the consumer's decision, not this method's.
+
     Arguments:
-      params = a mapping name -> value, or an ordered sequence in .names
-               order (the amplitudes among .names are consumed by the
-               factored combine, never entered into the network).
+      params = a mapping from parameter name to value, or a (names, values)
+               pair whose names are checked against .names (see _as_row: a bare
+               ordered row carries no names and is refused). The amplitudes
+               among .names are consumed by the factored combine, never entered
+               into the network.
 
     Returns:
       For a scalar (derived-parameter) emulator: a {name: value} dict, one

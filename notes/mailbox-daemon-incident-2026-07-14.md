@@ -165,3 +165,213 @@ done-archive rename tolerates a file quarantined by hand mid-flight
 The incident note's operational headline stands and is now automatic:
 stale daemons self-retire. Custody: the daemon remains an Architect
 tool; the turn was right not to take it.
+
+## Terminal handoffs conflict with the unconditional outbound preamble (2026-07-14, Codex/Red Team)
+
+Inbound mailbox `0128-to-sol` is an explicit terminal receipt on the
+TEX-PROSE-04+05+06 evidence-delta thread.  Its source-of-record entry says
+that nothing on the thread is owed by any agent, and the routing summary says
+twice that no reply or action is expected.  The Red Team did not acknowledge
+that receipt, touch either TeX clone, replay an extraction, alter a TeX tip,
+or reopen the substance audit.
+
+The headless dispatch wrapper nevertheless gave this turn an incompatible
+unconditional instruction.  `tools/mailbox_daemon.py:176-190` appends a
+`PREAMBLE` to every dispatched message saying that the agent must end the
+turn by writing a new outbound mailbox file.  That has no terminal-message
+exception.  The role contract is narrower: `.codex/REDTEAM_ROLE.md` requires
+an outbound when the turn has a result for Fable or Opus.  A terminal receipt
+deliberately produces no such result.
+
+This is a transport-contract defect, separate from the closed TeX thread:
+
+- obeying the inbound creates exactly the desired terminal state but violates
+  the daemon's injected instruction;
+- obeying the injected instruction manufactures a receipt of a receipt and
+  restarts the mailbox loop that the Architect explicitly terminated;
+- three currently queued messages exercise the same class:
+  `0128-to-sol`, `0129-to-sol`, and `0131-to-sol` each say terminal/no reply,
+  so this is not wording unique to one TeX handoff.
+
+Required repair: make the dispatch preamble conditional in words.  Ordinary
+mailbox turns still write a notes-first outbound; an inbound that explicitly
+states `TERMINAL` and `no reply` writes no reply and does not invent a result
+merely to satisfy the wrapper.  The agent should remain responsible for
+reading that semantic instruction; the daemon need not guess thread state or
+silently discard a file.  Acceptance needs one prompt-level regression for
+an ordinary handoff (outbound still required) and one terminal handoff (no
+outbound requested), plus an untruncated search proving that no second
+unconditional outbound instruction remains in the dispatch prompt.
+
+This turn routes only the transport finding.  It does not modify the daemon,
+does not add TeX debt, and does not authorize a merge or push.  Custody remains
+with the Architect/tools-review repair unit.  The TEX-PROSE-04+05+06 thread
+remains closed until the user-side fetch publishes exact tip
+`5546a0fd74d9536fdab42bfc8352411fb144752d`.
+
+Landing block, printed only:
+
+```text
+record branch:       claude/amazing-keller-e798b6
+record file:         notes/mailbox-daemon-incident-2026-07-14.md
+functional changes:  none
+TeX branch action:   none
+main action:         none -- no merge or push is authorized
+next owner:          Architect/tools-review repair unit
+```
+
+### Live reproduction: terminal UNIT-96 receipt 0129 was dispatched anyway (2026-07-14, Sol/second-Implementer)
+
+Mailbox `0129-to-sol` then reached another headless Sol turn with the same
+conflict.  Its binding instruction terminates the UNIT-96 preservation
+checkpoint exchange, forbids an acknowledgment, and permits no unit action;
+the injected daemon preamble nevertheless requires a new outbound mailbox
+file at turn end.  The earlier section and queued mailbox `0133-to-fable`
+already report this transport-contract defect, so this occurrence adds no
+new diagnosis and does not reopen UNIT-96.
+
+The terminal unit instruction was otherwise honored.  This turn only read
+the cited source-of-record entry and routing precedent.  It did not inspect
+or touch the isolated clone, re-run a gate, fetch an object, edit a UNIT-96
+record, change a branch or commit, merge, or push.  Exact tip
+`22f425d4b25239181c150b2de5082e51b328c758` remains frozen on the accepted
+record; the user-side fetch plus kept-core confirmation remains the next
+unit event unless the Architect sends one of the other two named handoffs.
+
+The daemon-required outbound `0134-to-fable` routes only this live transport
+reproduction.  It is not a receipt of the UNIT-96 receipt, requests no
+UNIT-96 adjudication, and creates no UNIT-96 debt.  The tools-review repair
+unit remains the sole owner of the preamble fix.
+
+Landing block, printed only:
+
+```text
+record branch:       claude/amazing-keller-e798b6
+record file:         notes/mailbox-daemon-incident-2026-07-14.md
+functional changes:  none
+UNIT-96 action:      none -- terminal thread remains closed
+main action:         none -- no merge or push is authorized
+next owner:          Architect/tools-review repair unit
+```
+
+### Live reproduction: terminal UNIT-94 adjudication 0131 was dispatched anyway (2026-07-14, Codex/Red Team)
+
+Mailbox `0131-to-sol` is the third queued terminal message to reach a
+headless Sol turn under the same incompatible daemon preamble.  Its binding
+instruction accepts the Red Team's unit-94 handback, terminates that mailbox
+exchange, and says no receipt, checkpoint, or reply is owed or expected.
+The injected preamble nevertheless unconditionally requires a new outbound
+mailbox file at turn end.  This occurrence was predicted in the first
+section above and adds no new diagnosis; the conditional-preamble repair and
+its two prompt-level regressions remain the complete acceptance contract.
+
+The terminal unit instruction was otherwise honored.  This turn did not
+acknowledge the adjudication as unit-94 traffic, inspect or alter the
+unlinked clone, fetch or publish its object, run a witness or gate, change
+the frozen candidate tip, merge, or push.  The transport HOLD remains
+user-owed; `codex/unit94-boundary-interior` stays frozen at
+`a0a03a9f06541eaa8dfbbb4968f53dacfe9d4849`; unit 8 remains halted until the
+published-tip audit returns GO.  The next valid unit-94 traffic remains one
+of the three events named in the adjudication: the exact-tip reachability
+trigger, a real landing-conflict delta, or a fresh Architect handoff.
+
+The daemon-required outbound `0136-to-fable` routes only this third live
+transport reproduction.  It does not reopen unit 94, requests no new
+unit-94 adjudication, and creates no unit-94 debt.  Custody of the preamble
+repair remains with the existing Architect/tools-review unit.
+
+Landing block, printed only:
+
+```text
+record branch:       claude/amazing-keller-e798b6
+record file:         notes/mailbox-daemon-incident-2026-07-14.md
+functional changes:  none
+unit-94 action:      none -- terminal thread remains closed
+main action:         none -- no merge or push is authorized
+next owner:          Architect/tools-review repair unit
+```
+
+### Live reproduction 4: terminal receipt 0130 reached the IMPLEMENTER lane — and it points at a dispatch already executed (2026-07-14, Opus/Implementer)
+
+Mailbox `0130-to-opus` is the fourth queued terminal message dispatched under
+the unconditional preamble, and the first to land in a lane that is not the Red
+Team's. Its routing summary says "No action items in this message and no reply
+owed -- this terminates the stale-0110/0120 thread"; the preamble at
+`tools/mailbox_daemon.py:176-190` (the Red Team's citation, re-read byte-exact
+this turn) nevertheless requires a new outbound file at turn end. The class is
+therefore not Red-Team-specific: it fires in every lane.
+
+That widens the repair by one file. The Red Team's section above contrasts the
+unconditional preamble against `.codex/REDTEAM_ROLE.md`, which asks for an
+outbound only when a turn has a result. **The Implementer's contract has no such
+narrowing**: `.claude/OPUS_ROLE.md` rule 7a says a mailbox-started turn ends "by
+writing your outbound handoff block to the next numbered file," and the Handoff
+Protocol section says the block is owed on "EVERY reply that ends a turn... no
+turn is too small for the block." Both are unconditional. Fixing the daemon
+preamble alone leaves the Implementer still manufacturing receipts on terminated
+threads, because its own role file will still demand one. The conditional
+wording has to land in both places, and it must be role-neutral.
+
+#### The sharp part: 0130 fires the stale-dispatch class too, and the two compound
+
+0130 is simultaneously an instance of the supersession class its own parent entry
+adjudicates (`gates-and-board.md`, "Mailbox 0120 adjudication," :11806). It does
+not merely arrive stale — **it names an already-executed dispatch as the
+recipient's live work.** Its title reads "your live dispatch is 0124," and its
+body says the daemon "serializes [0124] ahead of this message in your lane --
+landing 2 first, landing 3 behind it." Both statements were true when it was
+written at 08:06. Verified against the store this turn, neither is true at
+delivery:
+
+- `0124-to-opus` is in `done/` — dispatched and executed.
+- Landings 2 and 3 are executed and sit UNCOMMITTED in the working tree:
+  15 files, +2,774/-85 (`git diff --stat`), which is exactly the file list
+  `0132-to-fable` hands over. Landing 1 is committed (3153b1f, b55cc54).
+- The return `0132-to-fable` is written and queued, not yet delivered to the
+  Architect.
+
+A turn that obeyed 0130's body literally would have re-run landings 2 and 3 onto
+a tree that already carries them, uncommitted — the destructive re-run that the
+0120 adjudication credited mailbox-first reading with preventing, except that
+here the daemon is the thing issuing the instruction. The two ledgered defects
+are individually survivable; together they produce a message that is both
+compulsory to answer and actively misdirecting.
+
+This sharpens the acceptance shape already pinned for the currency marker (a
+mechanical marker in the dispatch banner). The reason it must be MECHANICAL and
+in the BANNER, not in the body, is on display here: **a message body cannot be
+trusted to describe its own currency, because it was honest when it was
+written.** A banner marker computed from the store at dispatch time would have
+told this turn that a newer message from its own lane was already queued and
+that the dispatch it was being told to execute was in `done/`. No new ledger
+line: both classes are OPEN and already ride the tools-review daemon-repair unit.
+
+#### What this turn did not do
+
+No code was touched, no gate re-run, no landing re-executed, nothing committed.
+The uncommitted landings-2+3 tree is left byte-intact for the Architect's audit
+turn, per the standing rule (`gates-and-board.md`:11702: a gated-but-unaudited
+landing stays uncommitted and the auditing turn commits on PASS).
+
+The daemon-required outbound is routed `-to-user`, not to Fable. `pending_messages()`
+(:212-219) matches only `\d+-to-(fable|opus|sol)\.md$`, so a `-to-user` file is
+never dispatched to an agent, while `next_seq()` (:193-209, pattern
+`(\d+)[a-z]?-to-`) still counts it — the sequence stays claimed and no lane gets
+noise. That is the Architect's own precedent from this morning, which closed
+three settled loops the same way (0135, 0137, 0138 to-user). It satisfies the
+wrapper without echoing into a thread the Architect explicitly terminated, and
+without adding a fifth message to a Fable lane that already holds `0132-to-fable`
+(my live audit request) plus `0133`, `0134`, and `0136`.
+
+Landing block, printed only:
+
+```text
+record branch:       claude/amazing-keller-e798b6
+record files:        notes/mailbox-daemon-incident-2026-07-14.md
+                     notes/gates-and-board.md
+functional changes:  none
+code action:         none -- the uncommitted landings-2+3 tree is untouched
+main action:         none -- no merge or push is authorized
+next owner:          Architect/tools-review repair unit (transport);
+                     Architect (the queued 0132 audit + three rulings)
+```

@@ -44,6 +44,7 @@ from emulator.data_staging import _scalar_columns
 from emulator.experiment import EmulatorExperiment
 from emulator.results import save_emulator, rebuild_emulator
 from emulator.inference import EmulatorPredictor
+from emulator import fixed_facts
 
 FAILURES = []
 
@@ -52,6 +53,17 @@ IN_NAMES  = ["omegabh2", "omegach2", "thetastar"]
 OUT_NAMES = ["H0", "omegam"]         # emulated derived parameters
 N_OUT   = len(OUT_NAMES)
 
+# The adapter legs serve two scalar artifacts side by side and union what they
+# provide into one theory block. They are sampled over the same inputs, in the
+# same order, and they split one derived-parameter set between them: one
+# dataset, so one identity, which is what handing them the same label does.
+ADAPTER_PAIR_LABEL = "scalar-identity/adapter-derived-pair"
+
+# The wrong-kind fixture: a data-vector emulator offered where a scalar one is
+# required. Both places that build it build the same double for the same
+# purpose, so it is one double with one identity, named once here.
+DATA_VECTOR_DOUBLE_LABEL = "scalar-identity/data-vector-double"
+
 
 def report(label, ok, detail):
     """Print one PASS/FAIL line and remember any failure."""
@@ -59,6 +71,34 @@ def report(label, ok, detail):
     print("  [" + mark + "] " + label + "  (" + detail + ")")
     if not ok:
         FAILURES.append(label)
+
+
+def report_refusal(label, error, needle, law):
+    """Report one refusal leg: the adapter raised AND named its own law.
+
+    A bare `except ValueError` accepts ANY refusal. That is not enough here,
+    because the adapter has several laws that refuse the same call, and one of
+    them fires before the others: a pair of artifacts whose scientific records
+    disagree is refused on IDENTITY, before the check this leg exists to prove
+    is ever reached. A leg that only asks "did something raise?" would go green
+    on that unrelated refusal and the law it names would go untested forever.
+
+    So each leg demands a substring only its own law's message carries. A raise
+    with any other message is a RED leg, and the detail line prints the message
+    the adapter really produced, so the reader is not left guessing which law
+    fired.
+
+    Arguments:
+      label  = the leg name, exactly as the board's evidence map carries it.
+      error  = the ValueError the arm caught.
+      needle = the substring only this law's refusal message contains.
+      law    = the law's name, spelled the way the PASS line should read it.
+    """
+    text = str(error)
+    if needle in text:
+        report(label, True, "ValueError names " + law)
+    else:
+        report(label, False, "refused the WRONG law: " + text)
 
 
 def emit_aid(aid, n_before):
@@ -119,13 +159,17 @@ def scalar_recipe():
     }
 
 
-def save_synthetic_scalar(root, device, covmat_path, seed=0,
+def save_synthetic_scalar(root, device, covmat_path, label, seed=0,
                           in_names=None, out_names=None):
     """Build, then save, a tiny synthetic scalar emulator under `root`.
 
     A ParamGeometry over the written covmat (inputs), a ScalarGeometry over
     synthetic targets (outputs), and a freshly initialized ResMLP. No
     training runs, the identity path only needs consistent weights.
+
+    `label` is what this double is for. It fixes the identity of the scientific
+    record the saved file carries; the comment at the save below says why the
+    file carries one at all.
 
     Returns:
       (pgeom, geom, model): the source geometries + the pre-save model, for
@@ -164,6 +208,12 @@ def save_synthetic_scalar(root, device, covmat_path, seed=0,
     recipe = scalar_recipe()
     recipe["input_dim"] = len(in_names)
     recipe["output_dim"] = len(out_names)
+    # A saved emulator now carries the science it was born under. This one was
+    # born under nothing: no generator produced it, so it declares itself a
+    # test double rather than carrying no record at all. The label says what
+    # the double is for, and it fixes the identity the record holds: doubles
+    # that belong to one dataset are handed the same label, doubles that must
+    # be told apart are handed different ones.
     save_emulator(path_root=str(root),
                   model=model,
                   param_geometry=pgeom,
@@ -173,6 +223,10 @@ def save_synthetic_scalar(root, device, covmat_path, seed=0,
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=recipe,
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label=label,
+                      family="scalar"),
                   # rescale rides the run-identity attrs so the artifact is
                   # a valid finetune source (load_source refuses an
                   # ambiguous one — the never-trust-defaults rule).
@@ -333,10 +387,12 @@ def check_adapter(tmp, device):
     # B provides rdrag from another.
     root_a = os.path.join(tmp, "emul_a")
     save_synthetic_scalar(root_a, device, os.path.join(tmp, "a.covmat"),
+                          label=ADAPTER_PAIR_LABEL,
                           seed=10, in_names=["omegabh2", "omegach2"],
                           out_names=["H0", "omegam"])
     root_b = os.path.join(tmp, "emul_b")
     save_synthetic_scalar(root_b, device, os.path.join(tmp, "b.covmat"),
+                          label=ADAPTER_PAIR_LABEL,
                           seed=20, in_names=["omegabh2", "omegach2"],
                           out_names=["rdrag"])
 
@@ -350,26 +406,41 @@ def check_adapter(tmp, device):
 
     # duplicate output across two artifacts -> loud.
     root_c = os.path.join(tmp, "emul_c")
+    # a second emulator of H0, built to be refused beside the first. It carries
+    # the PAIR's label on purpose: two emulators of one derived parameter, both
+    # trained off ONE generator dump, is exactly the ambiguity the duplicate law
+    # exists to refuse -- one dataset, one identity. Give this double an
+    # identity of its own instead and the served set stops being one dataset:
+    # the identity law refuses it first, and the duplicate law -- the law this
+    # leg exists to prove -- is never reached.
     save_synthetic_scalar(root_c, device, os.path.join(tmp, "c.covmat"),
+                          label=ADAPTER_PAIR_LABEL,
                           seed=30, in_names=["omegabh2", "omegach2"],
                           out_names=["H0"])
     try:
         _build(cls, [root_a, root_c])
         report("duplicate output name raises", False, "no raise")
-    except ValueError:
-        report("duplicate output name raises", True, "ValueError")
+    except ValueError as e:
+        report_refusal("duplicate output name raises", e,
+                       needle="two emulators provide the output",
+                       law="the duplicate-output law")
 
     # input/provide overlap -> loud: an emulator whose input is another's
     # output (H0 in -> would-be chain).
     root_d = os.path.join(tmp, "emul_d")
+    # this one samples H0, which the pair above emulates. It is a different run
+    # over a different input set, so it carries its own identity.
     save_synthetic_scalar(root_d, device, os.path.join(tmp, "d.covmat"),
+                          label="scalar-identity/adapter-chained-input",
                           seed=40, in_names=["H0", "omegach2"],
                           out_names=["sigma8"])
     try:
         _build(cls, [root_a, root_d])
         report("input/provide overlap raises", False, "no raise")
-    except ValueError:
-        report("input/provide overlap raises", True, "ValueError")
+    except ValueError as e:
+        report_refusal("input/provide overlap raises", e,
+                       needle="both an emulator input and an emulator output",
+                       law="the no-chaining law")
 
     # provides: subset ok, superset raises.
     ok_sub = True
@@ -381,8 +452,10 @@ def check_adapter(tmp, device):
     try:
         _build(cls, [root_a], provides=["H0", "not_provided"])
         report("provides superset raises", False, "no raise")
-    except ValueError:
-        report("provides superset raises", True, "ValueError")
+    except ValueError as e:
+        report_refusal("provides superset raises", e,
+                       needle="provides is a subset check",
+                       law="the provides-subset law")
 
     # wrong-kind: a data-vector artifact -> loud.
     root_dv = os.path.join(tmp, "emul_dv")
@@ -391,8 +464,9 @@ def check_adapter(tmp, device):
         _build(cls, [root_dv])
         report("wrong-kind (dv artifact) raises", False, "no raise")
     except ValueError as e:
-        report("wrong-kind (dv artifact) raises",
-               "not a scalar" in str(e), "ValueError names non-scalar")
+        report_refusal("wrong-kind (dv artifact) raises", e,
+                       needle="not a scalar",
+                       law="the wrong-kind law")
 
 
 def _save_tiny_dv(root, device):
@@ -425,6 +499,8 @@ def _save_tiny_dv(root, device):
                          "n_blocks": 2,
                          "block_opts": {"act": {"type": "H", "n_gates": 3},
                                         "norm": "affine"}}}
+    # the record a test double declares: no generator produced this one, so it
+    # says so rather than carrying no record at all.
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom,
                   config={"data": {"cosmolike_data_dir": "lsst_y1",
@@ -438,7 +514,12 @@ def _save_tiny_dv(root, device):
                              "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                              "thresholds": torch.tensor([0.2, 1.0, 10.0])},
                   train_args={"nepochs": 1}, resolved_train={"nepochs": 1},
-                  resolved_model=recipe, attrs={"rescale": "none"})
+                  resolved_model=recipe,
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label=DATA_VECTOR_DOUBLE_LABEL,
+                      family="cosmolike"),
+                  attrs={"rescale": "none"})
 
 
 def check_finetune(tmp, device):
@@ -450,7 +531,8 @@ def check_finetune(tmp, device):
     root = os.path.join(tmp, "ft_src")
     src_cov = os.path.join(tmp, "ft_src.covmat")
     pgeom, geom, model = save_synthetic_scalar(
-        root, device, src_cov, seed=200,
+        root, device, src_cov, label="scalar-identity/finetune-source",
+        seed=200,
         in_names=["omegabh2", "omegach2"], out_names=["H0", "omegam"])
     source = warmstart.load_source(root=root, device=device)
     report("load_source accepts a scalar artifact",
@@ -605,6 +687,10 @@ def check_npce(tmp, device):
                   resolved_train={"nepochs": 1},
                   resolved_model=recipe,
                   pce=pce, pce_form="residual",
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label="scalar-identity/npce-derived",
+                      family="scalar"),
                   attrs={"outputs": " ".join(OUT_NAMES),
                          "rescale": "none"})
     theta = np.array([[0.0225, 0.121, 1.0412]])
@@ -633,7 +719,8 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         root = os.path.join(tmp, "emul")
         pgeom, geom, model = save_synthetic_scalar(
-            root, device, os.path.join(tmp, "src.covmat"), seed=0)
+            root, device, os.path.join(tmp, "src.covmat"),
+            label="scalar-identity/round-trip", seed=0)
         # Each drafted leg emits ONE ##AID line at its aggregation point (a
         # check_* function or a guard cluster). n0 = the FAILURES count just
         # before the leg, so emit_aid reads the leg's own verdict, not the

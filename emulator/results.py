@@ -6,12 +6,25 @@ reads back, the format the sweep and bake-off drivers save, so several
 runs can be overlaid later. save_emulator persists a trained run as two
 files: <root>.emul, the model weights (a torch state_dict, cpu tensors),
 and <root>.h5, everything inference or a paper trail needs (both
-whitening geometries, the training histories, and the full config).
+whitening geometries, the training histories, the full config, and the
+scientific record the dataset was born under, copied verbatim from the
+generator's sidecar).
+
+read_artifact_schema is the one reader of a saved file's schema version and
+of that record. Every path that opens a saved emulator goes through it: the
+rebuild path here, and the warm-start loader that fine-tunes one
+(emulator/warmstart.py). One reader is the whole point. Two readers of one
+schema is how a file gets refused on one path and quietly accepted on the
+other, and the accepted copy is the one that answers a likelihood.
 
 PS: ``state_dict`` is PyTorch's name-to-tensor mapping for every registered
 parameter, including frozen parameters, and every persistent registered
 buffer. It is not the list of tensors that an optimizer updates. Whitening is
-the center, rotation, and scaling transform applied by the geometries.
+the center, rotation, and scaling transform applied by the geometries. The
+scientific record is the pair of blocks defined in emulator/fixed_facts.py:
+the cosmology held fixed while the dataset was generated, and the parameter
+region it was sampled over. A sidecar is a small companion file written next
+to a data file and sharing its name stem.
 """
 
 import os
@@ -21,6 +34,8 @@ import time
 import numpy as np
 import torch
 import yaml
+
+from . import fixed_facts
 
 
 def save_learning_curves(path, sizes, curves, meta=None):
@@ -142,7 +157,8 @@ def save_emulator(path_root,
                   pce_form=None,
                   resolved_train=None,
                   resolved_model=None,
-                  transfer_base=None):
+                  transfer_base=None,
+                  facts_yaml=None):
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
@@ -184,20 +200,34 @@ def save_emulator(path_root,
                      epoch, one column per threshold), thresholds.
     config_yaml      the driver's resolved config (data + train_args
                      blocks), as YAML text.
-    config_resolved_yaml  schema v2: the CONSUMED config, defaults
-                     materialized (resolved_train + the data block), so a
-                     saved run reconstructs even if code defaults drift.
-    model_recipe     schema v2: the serializable model rebuild recipe
-                     (class qualname, dims, every constructor kwarg, the
-                     act / norm / head factories by name), read by
-                     rebuild_emulator (h5-only, a missing key loud, never a
-                     code default). Root attrs schema_version = 2 +
-                     git_commit mark a v2 file (rebuild refuses one without).
+    config_resolved_yaml  the consumed config, defaults materialized
+                     (resolved_train + the data block), so a saved run
+                     reconstructs even if code defaults drift.
+    model_recipe     the serializable model rebuild recipe (class qualname,
+                     dims, every constructor kwarg, the act / norm / head
+                     factories by name), read by rebuild_emulator (h5-only,
+                     a missing key loud, never a code default).
+    fixed_facts/     (facts_yaml runs only) the cosmology the dataset was
+                     generated under: what was held fixed and at what value,
+                     the neutrino convention, the dark-energy law, the units
+                     the spectra are measured in.
+    input_domain/    (facts_yaml runs only) the parameters the generator
+                     sampled, in the canonical order it declared, with the
+                     interval each was drawn from.
+    facts_sidecar_yaml  (facts_yaml runs only) the producer's sidecar text
+                     itself, stored verbatim beside those two groups, so the
+                     record can be checked against the words it was copied
+                     from. fixed_facts.write_h5 writes all three: it parses
+                     the text and writes that parse, so the blocks in the
+                     file are by construction the reading of the text in the
+                     file, and this function never authors a scientific fact.
     train_args_yaml  the collapsed train_args actually used (search
                      ranges resolved to their defaults), as YAML.
-  plus one root attribute per entry of `attrs` (run identity:
-  model name, activation, rescale, N_train, best epoch, ...), a
-  "created" timestamp, and the torch version.
+  plus one root attribute per entry of `attrs` (run identity: model name,
+  activation, rescale, N_train, best epoch, ...), a "created" timestamp, the
+  torch version, and the schema version with the git commit beside it. Those
+  last two are written exactly when the run resolved both recipes: version 3
+  when it also carried the scientific record, version 2 when it did not.
 
   Reversible map (write here -> read in rebuild_emulator):
     This table pairs everything this function writes with the exact
@@ -244,9 +274,17 @@ def save_emulator(path_root,
                                     |   dims, kwargs, act / norm / head
                                     |   factories, compile_mode) and supplies
                                     |   info["ia"], each via _need
-      schema_version (root attr)    | f.attrs.get("schema_version"); a value
-                                    |   other than 2 is refused before any
-                                    |   other read
+      schema_version (root attr)    | read_artifact_schema(f, <root>.h5): a
+                                    |   version this code does not know is
+                                    |   refused before any other read, and so
+                                    |   is an absent one
+      fixed_facts/ + input_domain/  | the same call hands both groups to
+        groups + facts_sidecar_yaml |   fixed_facts.read_h5, which re-parses
+        (facts_yaml runs only)      |   the stored text and checks it against
+                                    |   the stored blocks in both directions;
+                                    |   the two blocks reach the caller as
+                                    |   info["fixed_facts"] and
+                                    |   info["input_domain"]
       history/ group (train_losses, | not read (provenance): per-epoch
         val_medians, val_means,     |   training curves for plots and audit
         val_fracs, thresholds)      |
@@ -260,7 +298,10 @@ def save_emulator(path_root,
      map of registered parameters, including frozen parameters, and
      persistent registered buffers; _need / _read_group
      / _read_native_bool / _rebuild_geometry / _rebuild_model = the reader
-     helpers defined inside rebuild_emulator; "->" = "feeds into".)
+     helpers defined inside rebuild_emulator; read_artifact_schema = the one
+     shared reader of the schema version and the scientific record, defined
+     below at module level because the warm-start loader calls it too;
+     "->" = "feeds into".)
 
   Arguments:
     path_root      = output path without extension; writes
@@ -280,13 +321,68 @@ def save_emulator(path_root,
                      (search ranges resolved), or None to omit.
     attrs          = optional mapping of scalar run metadata, each
                      written as one h5 root attribute.
+    facts_yaml     = the producer sidecar's text, the generator's own
+                     <paramsf>.facts.yaml, carried here verbatim by the
+                     training loader (data_staging.read_facts_sidecar). Given,
+                     the file records the science it was born under and
+                     announces schema version 3; None (a dataset generated
+                     before the record existed), it stays a version 2 file and
+                     records no science at all. It is never re-derived here:
+                     two authors of one scientific fact is how the two copies
+                     of that fact drift apart.
 
   Returns:
     (emul_path, h5_path), the two files written.
+
+  Raises:
+    ValueError when facts_yaml arrives without the resolved recipes (the file
+    would say which cosmology it was trained under but not how to rebuild the
+    network), when the sidecar breaks any law in fixed_facts.validate, or when
+    the whitening geometry and the sidecar disagree on the sampled parameters.
+    All three are checked before either file is written, so a refused save
+    leaves no half-written pair on disk.
   """
   # h5py lives only here: the training machines (cocoa) ship it, the
   # plotting/train paths never need it.
   import h5py
+
+  # --- the version this file will announce: one decision, before any write ---
+  # The version is a statement about the payload, so it is decided once, from
+  # the payload, and every version-dependent write below reads this one value.
+  # A run that resolved both recipes rebuilds from the file alone (version 2).
+  # A run that also carries the producer's scientific record additionally says
+  # which cosmology it was trained under and which region it may be asked about
+  # (version 3). Deciding the number in two places is how a file ends up
+  # announcing a payload it does not carry.
+  have_recipe = resolved_train is not None and resolved_model is not None
+  if facts_yaml is not None and not have_recipe:
+    raise ValueError(
+      path_root + ": the scientific record reached save_emulator without the "
+      "resolved training and model recipes, so the file would say which "
+      "cosmology it was trained under but not how to rebuild the network from "
+      "it. Pass resolved_train and resolved_model as well, or pass no record.")
+  if not have_recipe:
+    schema_version = None
+  elif facts_yaml is None:
+    schema_version = 2
+  else:
+    schema_version = fixed_facts.SCHEMA_VERSION
+
+  # The parameters the generator declared it sampled must be the parameters the
+  # whitening geometry holds, in the same order, and the check runs before
+  # either file is written. Every law the record must satisfy belongs to
+  # fixed_facts and is enforced there, on the way in and on the way back out,
+  # so that a record cannot be refused on one path and accepted on another.
+  # This function is a caller of those laws, never a second author of them.
+  # check_names_match / parse_sidecar (fixed_facts.py): the record's own laws.
+  if facts_yaml is not None:
+    record = fixed_facts.parse_sidecar(
+      text=facts_yaml,
+      where="the producer sidecar being saved into " + path_root + ".h5")
+    fixed_facts.check_names_match(
+      geometry_names=param_geometry.state()["names"],
+      blocks=record,
+      where=path_root + ".h5")
 
   # --- <root>.emul: the weights, cpu, unprefixed ---
   sd = {}
@@ -323,6 +419,17 @@ def save_emulator(path_root,
         group.attrs[k] = str(v)   # torch.dtype and friends
 
   with h5py.File(h5_path, "w") as f:
+    # the scientific record, when the dataset published one: the producer's own
+    # sidecar text, stored verbatim, and the two blocks that text parses to.
+    # write_h5 (fixed_facts.py) does both, and it writes the parse of the text
+    # it stores, so the file's blocks and the file's text can be held against
+    # each other when it is read back. Training copies the record; it never
+    # writes one. The groups appear exactly when the version decided above
+    # promises them, so the number the file announces and the groups the file
+    # carries are one decision, not two.
+    if schema_version == fixed_facts.SCHEMA_VERSION:
+      fixed_facts.write_h5(f=f, sidecar_text=facts_yaml)
+
     # input whitening. param_geometry.state() (geometries.parameter.py):
     # the input-whitening tensors keyed exactly as from_state expects. The
     # group also records its own CLASS (materialized from the object's type
@@ -455,11 +562,12 @@ def save_emulator(path_root,
         f.attrs[k] = str(v) if isinstance(v, str) else v
     f.attrs["created"]       = time.strftime("%Y-%m-%d %H:%M:%S")
     f.attrs["torch_version"] = str(torch.__version__)
-    # schema_version marks a file that carries the resolved recipe (both v2
-    # payloads present); rebuild_emulator refuses any file without it. The
+    # the version decided at the top of this function, written once, here. It
+    # marks a file that carries the resolved recipe, and at version 3 the
+    # scientific record too; rebuild_emulator refuses any file without it. The
     # code commit is best-effort provenance (rev-parse, else "unknown").
-    if resolved_train is not None and resolved_model is not None:
-      f.attrs["schema_version"] = 2
+    if schema_version is not None:
+      f.attrs["schema_version"] = schema_version
       try:
         f.attrs["git_commit"] = subprocess.check_output(
           ["git", "rev-parse", "HEAD"],
@@ -508,14 +616,82 @@ def _read_native_bool(attrs, key, *, default, where):
     "select the wrong branch. Re-save the artifact with a real boolean.")
 
 
+def read_artifact_schema(f, where):
+  """Read a saved emulator's schema version and the science it was born under.
+
+  The one reader of both. Every path that opens a saved emulator comes through
+  here: rebuild_emulator below, and the warm-start loader that fine-tunes one
+  (warmstart.load_source). A second reader of the same file would be free to
+  accept what this one refuses, and fine-tuning is exactly the path that
+  narrows the parameter region an emulator serves, so it is the path that most
+  needs the record present rather than assumed.
+
+  The version is read first, because it says which grammar the rest of the file
+  is written in. A file that announces no version is refused rather than
+  guessed at: a file written before the version existed and a file whose writer
+  forgot to stamp one read exactly alike, and only one of the two would be safe
+  to open. A version this code does not know is refused for the same reason.
+  Both refusals carry the migration instruction, because a message that says a
+  file is incompatible and then stops is not a refusal, it is a shrug.
+
+  The two groups are then handed to fixed_facts.read_h5, which owns every law
+  they must satisfy and which checks the blocks stored in the file against the
+  producer's own text stored beside them. None of that is restated here.
+
+  Arguments:
+    f     = the open h5py File to read. The caller opens it and closes it; this
+            function only reads.
+    where = the file's identity, named in every refusal (its path, usually).
+
+  Returns:
+    the two blocks of the scientific record, in plain Python types, keyed
+    "fixed_facts" (the cosmology the run was trained under) and "input_domain"
+    (the parameters the generator sampled, in the canonical order it declared,
+    with the interval each was drawn from). They are plain values, so they
+    outlive the open file the caller is about to close.
+
+  Raises:
+    ValueError when the file announces no schema version, when it announces a
+    version this code does not know (every emulator saved before the record
+    existed), or when fixed_facts.read_h5 refuses either block.
+  """
+  version = f.attrs.get("schema_version")
+  if version is None:
+    raise ValueError(
+      where + " announces no schema version, so it does not say which grammar "
+      "it was written in, and an emulator whose grammar is unknown is refused "
+      "rather than read. " + fixed_facts.MIGRATION)
+  # HDF5 attributes carry no Python types: an integer written here comes back
+  # as a numpy integer, and the schema laws compare the version against plain
+  # integers. It is made plain in this one place, the one place that reads it.
+  # A value that is not an integer at all matches no version this code knows
+  # and is refused just below, which is the right outcome for the same reason.
+  if isinstance(version, np.integer):
+    version = int(version)
+  if version != fixed_facts.SCHEMA_VERSION:
+    raise ValueError(
+      where + " is written in schema version " + repr(version) + ", and this "
+      "code reads version " + repr(fixed_facts.SCHEMA_VERSION) + " only. An "
+      "emulator saved under an earlier version records neither the cosmology "
+      "it was trained under nor the parameter region it may be asked about, so "
+      "serving it would mean guessing at both. " + fixed_facts.MIGRATION)
+  return fixed_facts.read_h5(f=f,
+                             schema_version=version,
+                             where=where)
+
+
 def rebuild_emulator(path_root, device, compile_model=True):
   """
-  Reconstruct a saved emulator from <path_root>.h5 + .emul, using ONLY the
-  file (save schema v2). The in-package inference entry point and the proof
-  of the schema-v2 guarantee: every knob comes from the resolved recipe in
-  the h5, so a run rebuilds bit-exactly even if code defaults later drift. A
-  missing recipe key is a loud error, NEVER a fallback to a code default; a
-  v1 file (no schema_version) is refused (it predates the guarantee).
+  Reconstruct a saved emulator from <path_root>.h5 + .emul, using only the
+  file. The in-package inference entry point and the proof of the
+  reconstruction guarantee: every knob comes from the resolved recipe in the
+  h5, so a run rebuilds bit-exactly even if code defaults later drift. A
+  missing recipe key is a loud error, never a fallback to a code default.
+  read_artifact_schema (above) reads the file's schema version and its
+  scientific record before anything else is read; a file saved under a version
+  this code does not know is refused there, because it cannot say which
+  cosmology it was trained under or which parameter region it may be asked
+  about.
 
   For the full write-to-read crosswalk (every value save_emulator writes
   paired with the line here that reads it, and the entries written only as
@@ -537,15 +713,24 @@ def rebuild_emulator(path_root, device, compile_model=True):
     plain dict of the physics-branch metadata the predictor needs to build
     the decoder, read straight from the file so nothing is re-declared
     downstream:
-      "ia"       = the factored-IA design name (nla / tatt) or None;
-      "pce_base" = the reconstructed frozen PCEEmulator when the run used an
-                   NPCE base (h5 pce group), else None;
-      "pce_form" = the NPCE recombination form (residual / ratio) stored on
-                   the pce group, else None.
+      "fixed_facts"  = the cosmology the run was trained under, exactly as the
+                       generator published it: what was held fixed and at what
+                       value, the neutrino convention, the dark-energy law;
+      "input_domain" = the parameters the generator sampled, in the canonical
+                       order it declared, with the interval each was drawn
+                       from, which is the region this emulator may be asked
+                       about;
+      "ia"           = the factored-IA design name (nla / tatt) or None;
+      "pce_base"     = the reconstructed frozen PCEEmulator when the run used
+                       an NPCE base (h5 pce group), else None;
+      "pce_form"     = the NPCE recombination form (residual / ratio) stored
+                       on the pce group, else None.
 
   Raises:
-    ValueError if the .h5 is not schema v2; KeyError naming any missing
-    recipe / geometry / pce key (never a code-default fallback).
+    ValueError from read_artifact_schema when the .h5 announces no schema
+    version, announces one this code does not know, or breaks any law of the
+    scientific record; KeyError naming any missing recipe / geometry / pce key
+    (never a code-default fallback).
   """
   import importlib
   # h5py lives only here: the training machines (cocoa) ship it, the
@@ -606,13 +791,12 @@ def rebuild_emulator(path_root, device, compile_model=True):
     return getattr(importlib.import_module(mod), qual).from_state(device, st)
 
   with h5py.File(path_root + ".h5", "r") as f:
-    sv = f.attrs.get("schema_version")
-    if sv != 2:
-      raise ValueError(
-        f"{path_root}.h5 is not a schema-v2 emulator (schema_version={sv!r}): "
-        "rebuild_emulator needs the resolved model recipe a v2 save writes. "
-        "v1 files predate the reconstruction guarantee; retrain + save to "
-        "upgrade.")
+    # the schema version and the scientific record, through the one shared
+    # reader. It refuses a version this code does not know, and a file that
+    # announces none, before any other value is read. The blocks it returns are
+    # plain Python, so they survive this file being closed and travel out in
+    # the info dict below.
+    record = read_artifact_schema(f=f, where=path_root + ".h5")
     if "model_recipe" not in f:
       raise KeyError(f"{path_root}.h5 is missing the model_recipe")
     recipe = yaml.safe_load(f["model_recipe"][()])
@@ -737,6 +921,13 @@ def rebuild_emulator(path_root, device, compile_model=True):
                      "pgeom": tb_pgeom,
                      "geom":  tb_geom}
   return model, pgeom, geom, {
+    # the science the run was born under, read by the shared reader above and
+    # handed on whole: the cosmology held fixed while the dataset was generated
+    # (fixed_facts) and the region the generator sampled (input_domain). The
+    # consumer's comparison laws execute on these, so they travel with the
+    # rebuilt emulator instead of sending the consumer back to the file.
+    "fixed_facts":    record[fixed_facts.FIXED_FACTS_GROUP],
+    "input_domain":   record[fixed_facts.INPUT_DOMAIN_GROUP],
     "ia":             _need(recipe, "ia", "model_recipe"),
     "pce_base":       pce_base,
     "pce_form":       pce_form,

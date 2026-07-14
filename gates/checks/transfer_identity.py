@@ -48,6 +48,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from emulator import fixed_facts
 from emulator import warmstart
 from emulator.activations import make_activation
 from emulator.designs.blocks import make_norm
@@ -71,6 +72,28 @@ OUT_DIM = 8       # kept dv entries (one template wide)
 TOTAL   = 12      # full dv length
 EXTRAS  = ["w0", "wa"]
 AMP     = "LSST_A1_1"
+
+# Why a base and the transfer built on top of it are two datasets, never one.
+#
+# A saved emulator now records the science it was born under, and a test double
+# with no generator behind it declares itself one rather than carrying no record
+# at all. Each double below is handed a label, and the label fixes the identity
+# its record holds: doubles built to belong to one dataset share a label, and
+# doubles built to be told apart do not.
+#
+# A transfer run freezes a base emulator, trained on one dataset, and fits a
+# correction net on a second, different one; the correction exists precisely to
+# learn what changed between them. If the two were one dataset there would be
+# nothing to correct. The run's sampled parameters are in general a superset of
+# the base's (this check extends by w0 and wa), and a dataset is one draw with
+# one column set, so a three-parameter base and a five-parameter run cannot be
+# the same draw. The saved transfer artifact's record therefore describes the
+# run's input geometry, which is what save_emulator compares it against; the
+# base keeps its own record in its own file. The lifecycle fixtures below run
+# with no extra parameters, but that is a convenience of the fixture, not a
+# claim that the run and its base are one dataset: the run still has its own
+# covariance and its own training rows. Every base and its transfer therefore
+# carry different labels.
 
 
 def report(label, ok, detail):
@@ -148,8 +171,12 @@ def histories():
           "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
 
 
-def save_plain_base(root, device):
-  """Save a synthetic plain base (ResMLP + ParamGeometry)."""
+def save_plain_base(root, device, label):
+  """Save a synthetic plain base (ResMLP + ParamGeometry).
+
+  `label` is the dataset this double stands for; see the note at the top of the
+  file for why each base and the transfer built on it carry different ones.
+  """
   names = ["p0", "p1", "p2"]
   pg = param_geometry(names, device, seed=10)
   geom = dv_geometry(device)
@@ -172,12 +199,20 @@ def save_plain_base(root, device):
                 geometry=geom, config=base_config(), histories=histories(),
                 train_args=base_config()["train_args"],
                 resolved_train={"nepochs": 1}, resolved_model=recipe,
+                facts_yaml=fixed_facts.synthetic_sidecar(
+                  names=pg.state()["names"],
+                  label=label,
+                  family="cosmolike"),
                 attrs={"rescale": "none"})
   return names
 
 
-def save_factored_base(root, device):
-  """Save a synthetic factored (nla-like, T=3) base (TemplateMLP)."""
+def save_factored_base(root, device, label):
+  """Save a synthetic factored (nla-like, T=3) base (TemplateMLP).
+
+  `label` is the dataset this double stands for; see the note at the top of the
+  file for why each base and the transfer built on it carry different ones.
+  """
   keep_names = ["p0", "p1", "p2"]
   names = keep_names + [AMP]                       # amps appended last
   pg_keep = param_geometry(keep_names, device, seed=20)
@@ -207,6 +242,10 @@ def save_factored_base(root, device):
                 geometry=geom, config=base_config(), histories=histories(),
                 train_args=base_config()["train_args"],
                 resolved_train={"nepochs": 1}, resolved_model=recipe,
+                facts_yaml=fixed_facts.synthetic_sidecar(
+                  names=pg.state()["names"],
+                  label=label,
+                  family="cosmolike"),
                 attrs={"rescale": "none"})
   return names
 
@@ -447,7 +486,7 @@ def check_lifecycle(device, tmp):
   ordinary nonzero weights so the composition is nontrivial.
   """
   base_root = Path(tmp) / "life_base"
-  save_plain_base(base_root, device)
+  save_plain_base(base_root, device, label="transfer-identity/lifecycle-base")
   base = warmstart.load_source(root=str(base_root), device=device,
                                allow_factored=True)
 
@@ -494,11 +533,18 @@ def check_lifecycle(device, tmp):
                    "form": "gain",
                    "space": "physical"}
   saved = Path(tmp) / "life_transfer"
+  # the correction run's own record, over the run's input geometry, under its
+  # own identity: this is a second dataset, not the base's (see the file note).
   save_emulator(path_root=str(saved), model=corr, param_geometry=new_pgeom,
                 geometry=geom, config=base_config(), histories=histories(),
                 train_args=base_config()["train_args"],
                 resolved_train={"nepochs": 1}, resolved_model=corr_recipe,
-                transfer_base=transfer_base, attrs={"rescale": "none"})
+                transfer_base=transfer_base,
+                facts_yaml=fixed_facts.synthetic_sidecar(
+                  names=new_pgeom.state()["names"],
+                  label="transfer-identity/lifecycle-transfer-run",
+                  family="cosmolike"),
+                attrs={"rescale": "none"})
 
   # rebuild + compose again through the transfer decoder.
   model_r, pgeom_r, geom_r, info = rebuild_emulator(
@@ -553,7 +599,7 @@ def check_refined_lifecycle(device, tmp):
   transfer_refined attr is two-way consistent with the group (either half alone
   is a corrupt file)."""
   base_root = Path(tmp) / "ref_base"
-  save_plain_base(base_root, device)
+  save_plain_base(base_root, device, label="transfer-identity/refined-base")
   base = warmstart.load_source(root=str(base_root), device=device,
                                allow_factored=True)
   names    = list(base.pgeom.names)
@@ -609,7 +655,12 @@ def check_refined_lifecycle(device, tmp):
                 geometry=geom, config=base_config(), histories=histories(),
                 train_args=base_config()["train_args"],
                 resolved_train={"nepochs": 1}, resolved_model=corr_recipe,
-                transfer_base=transfer_base, attrs={"rescale": "none"})
+                transfer_base=transfer_base,
+                facts_yaml=fixed_facts.synthetic_sidecar(
+                  names=new_pgeom.state()["names"],
+                  label="transfer-identity/refined-transfer-run",
+                  family="cosmolike"),
+                attrs={"rescale": "none"})
 
   model_r, pgeom_r, geom_r, info = rebuild_emulator(
     str(saved), device, compile_model=False)
@@ -834,6 +885,10 @@ def check_diagonal(device, tmp):
                                "dv_geometry": geom,
                                "form": "sum",
                                "space": "whitened"},
+                facts_yaml=fixed_facts.synthetic_sidecar(
+                  names=pg.state()["names"],
+                  label="transfer-identity/diagonal-transfer-run",
+                  family="grid"),
                 attrs={"rescale": "none", "quantity": "Hubble"})
   chi2fn = TransferDiagChi2(geom=geom, base_net=base,
                             base_in_dim=len(names), form="sum",
@@ -877,6 +932,10 @@ def check_diagonal(device, tmp):
                 train_args=plain_cfg["train_args"],
                 resolved_train={"nepochs": 1},
                 resolved_model=grid_base_recipe(names, int(z.size)),
+                facts_yaml=fixed_facts.synthetic_sidecar(
+                  names=pg.state()["names"],
+                  label="transfer-identity/cross-family-base",
+                  family="grid"),
                 attrs={"rescale": "none", "quantity": "Hubble"})
   g2_cfg = {"data": {"grid2d": {"quantity": "pklin",
                                 "units": "Mpc3",
@@ -919,8 +978,10 @@ def main():
   tmp = tempfile.mkdtemp(prefix="tpe-")
   plain_root = Path(tmp) / "plain_base"
   factored_root = Path(tmp) / "factored_base"
-  save_plain_base(plain_root, device)
-  save_factored_base(factored_root, device)
+  save_plain_base(plain_root, device,
+                  label="transfer-identity/plain-base")
+  save_factored_base(factored_root, device,
+                     label="transfer-identity/factored-base")
 
   # One ##AID per declared leg, at its aggregation point (see emit_aid).
   # check_diagonal emits its own two aids, so it is not wrapped here.

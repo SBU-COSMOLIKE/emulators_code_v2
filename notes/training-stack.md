@@ -3844,3 +3844,36 @@ Add a mutation that restores the obsolete prefix expectation and must red the
 selftest of the assertion owner.  Reconcile the check docstring/maps at the
 same time as 25M-23 and the missing Parts I/family legs so one full rerun proves
 the final executable gate rather than isolated helper probes.
+
+## Units 41 and 53 Red Team readback (2026-07-14): HOLD on persisted identity
+
+The independent review record is
+`notes/red-team-audit-and-didactics-2026-07-13.md`,
+`UNIT-41/53-REDTEAM-01`.  Current main `204748e` still records only `use_amp`
+and `device`; the artifact does not carry the executed autocast dtype or scaler
+policy, and `amp_dtype` remains locally derived in the training loop.  Unit
+41's 25M-05 extension is also open: default `H` and YAML `power` runs publish
+`activation=None`, pooled workers re-resolve the raw optional field, head pins
+are absent from table and figure paths, and the N-train product collapses a
+resolved `rescnn_nla` identity to `TemplateResCNN`.  The activation-sweep table
+does preserve its categorical value order, which is a valid narrow control,
+not closure of the record contract.
+
+Unit 53 is wholly open on current main.  There is no canonical study manifest,
+digest or study-level identity attribute.  The direct `cosmolike` default
+selects `cosmic_shear_tune_emulator` instead of historic
+`cosmic_shear_tune`; wrapper identity changes with `prog`; legacy studies are
+accepted without comparison; any old trial suppresses the default control;
+workers stage before journal authentication; failed workers can be hidden by
+an older COMPLETE trial; and the report prints neither stable name nor digest.
+
+The two Cocoa-runnable witnesses are
+`gates/checks/redteam_unit41_policy_witness.py` and
+`gates/checks/redteam_unit53_manifest_witness.py`.  Their PASS lines mean the
+current defects were reproduced, not that the production contracts pass.  A
+repair owes positive acceptance arms plus mutations restoring each defect.
+`25M-06` remains unit 82; this readback applies its representation-truth lesson
+without claiming that study hashes validate `.ranges` semantics.
+
+This readback is independent Red Team evidence for Fable adjudication.  It is
+not self-certification, production-repair authorization or merge authority.

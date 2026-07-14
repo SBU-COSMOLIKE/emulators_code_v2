@@ -237,19 +237,23 @@ Two further user rules (2026-07-14) on the same doctrine:
   change, not the process that produced it. Fine-grained/process
   detail stays in notes/ and the branch history.
 
-### Backup-Implementer assignments (user rule, 2026-07-14)
+### Second-Implementer assignments (user rule, 2026-07-14)
 
-When the execution queue saturates, you MAY assign [S] a unit as
-**backup Implementer**. SATURATION IS DEFINED (user rule, 2026-07-14):
-the Implementer's mailbox lane holds **3 or more queued units**
-(`BACKUP_THRESHOLD` in tools/mailbox_daemon.py — the watch prints the
-tripwire hint each pass it holds). At or past the threshold, assigning
-backup units is the default, not an option you weigh; below it, Sol
-stays in red-team mode. The mode
-switch is per-unit and must be EXPLICIT: the handoff opens with the sentence
-"OpenAI Sol — this is a role as backup Implementer for this unit." Without
+When the execution queue saturates, [S] becomes the **second
+Implementer**: build units flow to it as well as to [O]. SATURATION IS
+DEFINED (user rule, 2026-07-14): the TOTAL open demand — queued mailbox
+messages PLUS the "- OPEN" lines of notes/backlog.md, the ledger of
+every unit still owed execution and audit — reaches **10 units** (user
+default and metric, 2026-07-14) (`SECOND_IMPLEMENTER_THRESHOLD` in
+tools/mailbox_daemon.py — the watch prints the tripwire hint each pass
+it holds). At or past the threshold, second-Implementer units are not
+an option you weigh — an idle [S] lane while the ledger holds
+dispatchable units is a dispatch failure; below the threshold, Sol
+stays in red-team mode. The mode switch is per-unit and must be
+EXPLICIT: the handoff opens with the sentence
+"OpenAI Sol — this is a role as second Implementer for this unit." Without
 that sentence, Sol is in red-team mode and its output is adversarial input.
-In backup-Implementer mode:
+In second-Implementer mode:
 
 - Sol follows the Implementer's discipline for the unit
   (`.claude/OPUS_ROLE.md` operating constraints — the blueprint is the

@@ -99,6 +99,7 @@ from emulator.data_staging import load_source
 from emulator.experiment import EmulatorExperiment, validate_grid2d
 from emulator.results import save_emulator, rebuild_emulator
 from emulator.inference import EmulatorPredictor
+from emulator import fixed_facts
 from emulator import warmstart
 
 FAILURES = []
@@ -107,12 +108,47 @@ N_IN = len(IN_NAMES)
 Z4 = np.array([0.0, 0.5, 1.0, 2.0])
 K6 = np.logspace(-4, 0.0, 6)
 
+# The adapter legs serve a linear-power artifact and a boost artifact side by
+# side, and multiply them into the one nonlinear spectrum: emul_mps refuses the
+# set outright when either half is missing. They are the two halves of one
+# matter-power dataset, so they carry one identity, which is what handing them
+# the same label does.
+ADAPTER_PAIR_LABEL = "mps-identity/adapter-power-pair"
+
 
 def report(label, ok, detail):
     mark = "PASS" if ok else "FAIL"
     print("  [" + mark + "] " + label + "  (" + detail + ")")
     if not ok:
         FAILURES.append(label)
+
+
+def report_refusal(label, error, needle, law):
+    """Report one refusal leg: the adapter raised AND named its own law.
+
+    A bare `except ValueError` accepts ANY refusal. That is not enough here,
+    because the adapter has several laws that refuse the same call, and one of
+    them fires before the others: a pair of artifacts whose scientific records
+    disagree is refused on IDENTITY, before the check this leg exists to prove
+    is ever reached. A leg that only asks "did something raise?" would go green
+    on that unrelated refusal and the law it names would go untested forever.
+
+    So each leg demands a substring only its own law's message carries. A raise
+    with any other message is a RED leg, and the detail line prints the message
+    the adapter really produced, so the reader is not left guessing which law
+    fired.
+
+    Arguments:
+      label  = the leg name, exactly as the board's evidence map carries it.
+      error  = the ValueError the arm caught.
+      needle = the substring only this law's refusal message contains.
+      law    = the law's name, spelled the way the PASS line should read it.
+    """
+    text = str(error)
+    if needle in text:
+        report(label, True, "ValueError names " + law)
+    else:
+        report(label, False, "refused the WRONG law: " + text)
 
 
 # (queue 2) the seven board-declared evidence legs this check emits, in the
@@ -954,6 +990,7 @@ def save_synthetic_grid2d(
         root,
         device,
         tmp,
+        label,
         quantity="pklin",
         units="Mpc3",
         law="syren_linear",
@@ -1004,11 +1041,21 @@ def save_synthetic_grid2d(
                  "val_means": [0.1],
                  "val_fracs": [torch.tensor([0.5, 0.4, 0.3, 0.2])],
                  "thresholds": torch.tensor([0.2, 1.0, 10.0, 100.0])}
+    # A saved emulator now carries the science it was born under. This one was
+    # born under nothing: no generator produced it, so it declares itself a
+    # test double rather than carrying no record at all. The label says what
+    # the double is for, and it fixes the identity the record holds: doubles
+    # that belong to one dataset are handed the same label, doubles that must
+    # be told apart are handed different ones.
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=grid2d_recipe(z.size * k.size),
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label=label,
+                      family="grid2d"),
                   attrs={"rescale": "none", "quantity": quantity})
     return pgeom, geom, model, covmat
 
@@ -1026,6 +1073,7 @@ def check_const_mask_artifact(tmp, device):
         root=unpinned_root,
         device=device,
         tmp=tmp,
+        label="mps-identity/const-mask-unpinned",
         quantity="pklin",
         units="Mpc3",
         law="none",
@@ -1055,6 +1103,7 @@ def check_const_mask_artifact(tmp, device):
         root=pinned_root,
         device=device,
         tmp=tmp,
+        label="mps-identity/const-mask-pinned",
         quantity="boost",
         units="dimensionless",
         law="none",
@@ -1113,7 +1162,8 @@ def check_const_mask_artifact(tmp, device):
 def check_roundtrip(tmp, device, law):
     root = os.path.join(tmp, "emul_g2_" + law)
     pgeom, geom, model, _ = save_synthetic_grid2d(
-        root, device, tmp, law=law, seed=30)
+        root, device, tmp, label="mps-identity/round-trip-" + law,
+        law=law, seed=30)
     theta = np.array([[2.15, 68.0, 0.121]])
     x = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
     with torch.no_grad():
@@ -1267,6 +1317,10 @@ def check_head(tmp, device):
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=grid2d_head_recipe(width),
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label="mps-identity/correction-head",
+                      family="grid2d"),
                   attrs={"rescale": "none", "quantity": "pklin"})
     theta = np.array([[2.15, 68.0, 0.121]])
     x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
@@ -1369,6 +1423,10 @@ def check_npce(tmp, device):
                   resolved_train={"nepochs": 1},
                   resolved_model=grid2d_recipe(width),
                   pce=pce, pce_form="residual",
+                  facts_yaml=fixed_facts.synthetic_sidecar(
+                      names=pgeom.state()["names"],
+                      label="mps-identity/npce-power",
+                      family="grid2d"),
                   attrs={"rescale": "none", "quantity": "pklin"})
     theta = np.array([[2.15, 68.0, 0.121]])
     x1 = torch.as_tensor(theta, dtype=pgeom.center.dtype, device=device)
@@ -1430,10 +1488,12 @@ def check_adapter(tmp, device):
     mod = _load_emul_mps_stubbed()
     cls = mod.emul_mps
     root_p = os.path.join(tmp, "ad_pklin")
-    save_synthetic_grid2d(root_p, device, tmp, quantity="pklin",
+    save_synthetic_grid2d(root_p, device, tmp, label=ADAPTER_PAIR_LABEL,
+                          quantity="pklin",
                           units="Mpc3", law="syren_linear", seed=40)
     root_b = os.path.join(tmp, "ad_boost")
-    save_synthetic_grid2d(root_b, device, tmp, quantity="boost",
+    save_synthetic_grid2d(root_b, device, tmp, label=ADAPTER_PAIR_LABEL,
+                          quantity="boost",
                           units="dimensionless", law="syren_halofit",
                           seed=50)
 
@@ -1585,10 +1645,22 @@ def check_adapter(tmp, device):
             t2.extra_args = {"device": "cpu", "emulators": [root_p]}
             t2.initialize()
             report("pair-count guard raises", False, "no raise")
-        except ValueError:
-            report("pair-count guard raises", True, "ValueError")
+        except ValueError as e:
+            report_refusal("pair-count guard raises", e,
+                           needle="exactly TWO",
+                           law="the pair-count law")
         root_p2 = os.path.join(tmp, "ad_pklin2")
-        save_synthetic_grid2d(root_p2, device, tmp, quantity="pklin",
+        # a second linear-power emulator, built to be refused beside the first.
+        # It carries the PAIR's label on purpose: two artifacts declaring one
+        # quantity, both trained off ONE generator dump, is exactly the
+        # ambiguity the duplicate law exists to refuse -- one dataset, one
+        # identity. Give this double an identity of its own instead and the
+        # served pair stops being one dataset: the identity law refuses it
+        # first, and the duplicate law -- the law this leg exists to prove --
+        # is never reached.
+        save_synthetic_grid2d(root_p2, device, tmp,
+                              label=ADAPTER_PAIR_LABEL,
+                              quantity="pklin",
                               units="Mpc3", law="none", seed=60)
         try:
             t3 = cls()
@@ -1596,10 +1668,16 @@ def check_adapter(tmp, device):
                              "emulators": [root_p, root_p2]}
             t3.initialize()
             report("duplicate quantity raises", False, "no raise")
-        except ValueError:
-            report("duplicate quantity raises", True, "ValueError")
+        except ValueError as e:
+            report_refusal("duplicate quantity raises", e,
+                           needle="two artifacts both declare quantity",
+                           law="the duplicate-quantity law")
         root_bad = os.path.join(tmp, "ad_badgrid")
-        save_synthetic_grid2d(root_bad, device, tmp, quantity="boost",
+        # a boost emulator on a wavenumber grid the linear artifact does not
+        # share, built to be refused: a different run, so its own identity.
+        save_synthetic_grid2d(root_bad, device, tmp,
+                              label="mps-identity/adapter-mismatched-grid",
+                              quantity="boost",
                               units="dimensionless", law="none",
                               k=np.logspace(-4, 0.0, 5), seed=70)
         try:
@@ -1608,8 +1686,10 @@ def check_adapter(tmp, device):
                              "emulators": [root_p, root_bad]}
             t4.initialize()
             report("grid mismatch raises", False, "no raise")
-        except ValueError:
-            report("grid mismatch raises", True, "ValueError")
+        except ValueError as e:
+            report_refusal("grid mismatch raises", e,
+                           needle="trained on different (z, k) grids",
+                           law="the shared-grid law")
     finally:
         mod.syren_base.base_pklin, mod.syren_base.base_boost = saved
 
@@ -1669,7 +1749,8 @@ def check_validate():
 def check_finetune(tmp, device):
     root = os.path.join(tmp, "ft_g2_src")
     pgeom, geom, model, covmat = save_synthetic_grid2d(
-        root, device, tmp, law="syren_linear", seed=80)
+        root, device, tmp, label="mps-identity/finetune-source",
+        law="syren_linear", seed=80)
     source = warmstart.load_source(root=root, device=device)
     report("load_source accepts a grid2d artifact",
            type(source.geom).__name__ == "Grid2DGeometry",

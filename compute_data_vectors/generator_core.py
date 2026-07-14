@@ -51,7 +51,7 @@ the data-vector store lines becoming the _dv_* hook calls above.
 """
 import numpy as np
 import emcee, argparse, os, sys, yaml, time, traceback
-import psutil, gc, math, copy, tempfile
+import psutil, gc, math, copy, tempfile, inspect
 from cobaya.model import get_model
 from mpi4py import MPI
 from pathlib import Path
@@ -60,6 +60,17 @@ from collections import deque
 from contextlib import contextmanager
 from numpy.lib.format import open_memmap
 import contextlib, io
+
+# The schema of the dataset's scientific record lives in the emulator package,
+# one folder up from this file. The drivers are run by path, so the repo root is
+# not on sys.path when this module is imported; dataset_generator_mps.py makes
+# the same prepend before it imports the syren base. fixed_facts imports only
+# hashlib at module scope (numpy, yaml and h5py are imported inside the
+# functions that need them), so a generator run pays nothing to carry it.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+  sys.path.insert(0, _REPO_ROOT)
+from emulator import fixed_facts
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # Command line args (shared by every driver; the driver passes its prog name)
@@ -195,6 +206,69 @@ def capture_native_output():
     tmp.close()
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
+# The dataset's scientific record (emulator/fixed_facts.py owns the schema)
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# Every probe a driver accepts belongs to exactly one output family, named here
+# the way the training stack names it: cs / ggl / gc are the cosmolike data
+# vectors, cmblensed / cmbunlensed the CMB spectra, mps the matter-power surface
+# on its (z, k) grid, background the background functions on a z grid. A probe
+# missing from this table stops the run, because a dataset that cannot say which
+# family it feeds is a dataset no consumer can safely read.
+PROBE_FAMILY = {"cs":          "cosmolike",
+                "ggl":         "cosmolike",
+                "gc":          "cosmolike",
+                "cmblensed":   "cmb",
+                "cmbunlensed": "cmb",
+                "mps":         "grid2d",
+                "background":  "grid"}
+
+# The units the CMB driver asks cobaya for at every sample
+# (dataset_generator_cmb.py calls get_Cl(ell_factor=False, units="muK2")). The
+# spectra are published in these units, so the record carries them. A family
+# with no angular power spectrum has no such units and says so instead.
+CMB_CL_UNITS = "muK2"
+
+# The name a cobaya run gives the neutrino splitting when it states one. CAMB
+# has its own default; the record does not supply it, because a convention the
+# run never wrote down is not a fact about this run.
+NEUTRINO_CONVENTION_KEY = "neutrino_hierarchy"
+
+
+def _plain_fact(value):
+  """
+  Reduce one value read off the resolved model to a plain, storable fact.
+
+  The model hands its values back in whatever type cobaya, CAMB, or the YAML
+  parser produced: a Python float, a numpy scalar, an integer, a string, a
+  boolean. The record is written as YAML and later copied into an HDF5 file,
+  and both of those store plain values, so a fact is reduced once here rather
+  than at each of the places that write it.
+
+  A value that is neither a number, a string, nor a boolean is recorded as the
+  text the model would print for it. It is still recorded: a fact the writer
+  dropped and a fact the family does not have read the same way on the way back
+  in, and only one of the two is safe to read.
+
+  Arguments:
+    value = one value as the resolved model handed it back.
+
+  Returns:
+    the plain bool, float, or str the record stores.
+  """
+  # booleans are tested before numbers on purpose: in Python True equals 1, so a
+  # flag tested as a number would be stored as the float 1.0 and read back as a
+  # number that was never a flag.
+  if isinstance(value, bool):
+    return value
+  if isinstance(value, str):
+    return value
+  try:
+    return float(value)
+  except (TypeError, ValueError):
+    return repr(value)
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 # Class Definition
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
@@ -236,7 +310,8 @@ class GeneratorCore:
     Path(f"{root}/chains").mkdir(parents=True, exist_ok=True)
 
     self.append = 0 if self.args.append is None else self.args.append
-    self.bounds = None
+    self.bounds = None           # the support the sampler drew from (resolved)
+    self.bounds_requested = None # the support the prior declared (requested)
     self.bounds_adj = (
       self.args.boundary if self.args.boundary is not None and 0 < self.args.boundary < 1 else 1
     )
@@ -366,6 +441,19 @@ class GeneratorCore:
     self.bounds = np.array(self.model.prior.bounds(confidence=0.9999994),
                            copy=True,
                            dtype=self.dtype)[idx,:]
+
+    # the support as the prior declared it, copied before the two mutations
+    # below rewrite self.bounds in place: the infinite-endpoint stretch (a
+    # Gaussian prior has no hard edge, so the sampler is handed one) and the
+    # accuracy margin the --boundary flag trims off each edge for a test or
+    # validation dump. self.bounds is then the support the sampler actually drew
+    # from; self.bounds_requested is the one the prior asked for. Both are
+    # published in the dataset's record, because they answer different questions
+    # and they are different numbers whenever either mutation fires.
+    self.bounds_requested = np.array(self.bounds,
+                                     copy=True,
+                                     dtype=self.dtype)
+
     for i in range(len(tmp)):
       if math.isinf(tmp[i,0]) or math.isinf(tmp[i,1]):
         width = (self.bounds[i, 1] - self.bounds[i, 0])
@@ -686,6 +774,321 @@ class GeneratorCore:
       return logp
 
   #-----------------------------------------------------------------------------
+  # the dataset's scientific record (schema: emulator/fixed_facts.py)
+  #-----------------------------------------------------------------------------
+  def _theory_components(self):
+    """
+    List the components of the resolved model that carry theory settings.
+
+    The record's second source of a fixed fact is the theory block's extra_args:
+    the settings a run hands the Boltzmann code directly (the neutrino
+    splitting, the radiation temperature, the effective number of species)
+    rather than through the params block. Those settings live on the component
+    object cobaya built, so they are read from the model, never from the YAML.
+
+    Two ways in are tried, because a cobaya that does not expose one of them
+    must leave a fact unresolved rather than kill a run whose data vectors are
+    already computed: the model's own theory collection, and the component walk
+    the per-sample drivers already use (dataset_generator_cmb.py finds its
+    Boltzmann code that way).
+
+    Arguments:
+      none.
+
+    Returns:
+      the list of components that carry an extra_args mapping, possibly empty.
+    """
+    found = []
+    try:
+      theory = self.model.theory
+      for name in theory:
+        found.append(theory[name])
+    except Exception:
+      found = []
+    if len(found) == 0:
+      try:
+        for component, _ in self.model._component_order.items():
+          found.append(component)
+      except Exception:
+        found = []
+
+    components = []
+    for component in found:
+      extra = getattr(component, "extra_args", None)
+      if isinstance(extra, dict):
+        components.append(component)
+    return components
+
+  def _resolved_constants(self):
+    """
+    Read every value the resolved Cobaya model pins to a constant.
+
+    The YAML is the request; the model is the fact. A default the YAML left
+    unstated has been materialized by the time get_model returns, and it is that
+    materialized value the dataset was generated under. Two sources are read, in
+    this order:
+
+      the params block   parameterization.constant_params(): every parameter the
+                         run wrote as a number (or as value: <number>). A
+                         parameter given as a function of other parameters is not
+                         a constant, and is deliberately absent here: its value
+                         changes with the sample, so it is not a fixed fact.
+      the theory block   each theory component's extra_args: the settings the run
+                         hands the Boltzmann code directly.
+
+    The params block wins a name both blocks state, because it is the model's own
+    parameterization of the cosmology. Between two theory components that state
+    one name (a configuration nothing in this program produces), the first
+    component the model lists wins.
+
+    Every lookup is wrapped: a cobaya that does not expose one of these surfaces
+    leaves the facts it would have supplied unresolved, and they are published as
+    "n/a" rather than crashing a run whose data vectors are already computed.
+
+    Arguments:
+      none.
+
+    Returns:
+      a mapping of name to plain value, holding every constant the model states.
+      It is a superset of the coordinates the record reports on; the caller reads
+      the names it needs.
+    """
+    pinned = {}
+    for component in self._theory_components():
+      extra = component.extra_args
+      for key in extra:
+        if key not in pinned:
+          pinned[key] = _plain_fact(value=extra[key])
+
+    try:
+      constants = self.model.parameterization.constant_params()
+    except Exception:
+      constants = {}
+    for key in constants:
+      pinned[key] = _plain_fact(value=constants[key])
+    return pinned
+
+  def _syren_base_identity(self):
+    """
+    Name the frozen analytic base the matter-power dumps are built on top of.
+
+    The matter-power emulators do not learn P(k, z) from nothing: they correct
+    the syren analytic formulas, vendored in-repo under syren/ and owned by
+    emulator/syren_base.py. Those formulas evaluate their growth factors at a
+    neutrino mass pinned in the base's own signature, which does not follow the
+    model's mnu, so an emulator trained against this base carries that pin
+    whether or not the run sampled mnu. The record names the base and the pinned
+    mass together, because the pair is what a consumer must match.
+
+    The pinned mass is read from the formula's own default rather than written
+    here as a number, so the record cannot drift from the base it names: the
+    generator calls base_pklin without an mnu argument, so the default is the
+    value the dumps were built with.
+
+    Arguments:
+      none.
+
+    Returns:
+      the base's identity, as one line of text.
+
+    Raises:
+      ValueError when the base's pinned neutrino mass cannot be read from the
+      formula. A dataset whose base cannot be named must not be published as
+      though it had no base.
+    """
+    from emulator.syren_base import base_pklin
+
+    signature = inspect.signature(base_pklin)
+    if "mnu" not in signature.parameters:
+      raise ValueError(
+        "the syren base formula base_pklin no longer takes an mnu argument, so "
+        "the neutrino mass the matter-power base is pinned at cannot be read "
+        "from it. The dataset's record must name the base it corrects together "
+        "with the mass that base holds fixed; restore the argument in "
+        "emulator/syren_base.py, or teach this record where the pin now lives.")
+    pinned = signature.parameters["mnu"].default
+    if pinned is inspect.Parameter.empty:
+      raise ValueError(
+        "the syren base formula base_pklin takes mnu without a default, so the "
+        "neutrino mass the matter-power base is pinned at is now the caller's "
+        "choice and this record no longer knows it. The generator calls the "
+        "base without an mnu argument; give the argument its pinned default "
+        "back in emulator/syren_base.py.")
+    return ("syren analytic base, owned by emulator/syren_base.py (the "
+            "symbolic_pofk formulas vendored in syren/), with mnu pinned at "
+            + fixed_facts.format_value(value=pinned))
+
+  def _resolve_fixed_facts(self):
+    """
+    Read this run's scientific facts off the resolved Cobaya model.
+
+    The YAML is the request and the model is the fact, so every value below is
+    read from self.model, never from the parsed YAML dictionary. The two differ
+    exactly where it matters: a coordinate the YAML never mentioned has been
+    given its value by the time the model exists, and it is that value the data
+    vectors were computed at.
+
+    A cosmology coordinate this run sampled is dropped from the roster rather
+    than pinned: it is validated through the input domain instead, and a
+    coordinate that was both sampled and pinned would let the two halves of the
+    record answer one question two different ways (fixed_facts.build_sidecar
+    refuses such a record, and this is the code that must not hand it one). A
+    coordinate the model cannot resolve is reported "n/a", never omitted.
+
+    Arguments:
+      none.
+
+    Returns:
+      a mapping holding the nine facts fixed_facts.build_sidecar takes beside
+      the two supports: generator, family, cosmology_fixed, neutrino_convention,
+      flat_only, dark_energy_law, dark_energy_inputs, cl_units, base_identity.
+
+    Raises:
+      ValueError when the run's probe has no output family, or when the
+      matter-power base cannot be named.
+    """
+    if self.probe not in PROBE_FAMILY:
+      raise ValueError(
+        "the probe " + repr(self.probe) + " has no output family, so the "
+        "dataset cannot record which family it feeds. Add the probe to "
+        "PROBE_FAMILY in compute_data_vectors/generator_core.py when a driver "
+        "starts accepting it.")
+    family = PROBE_FAMILY[self.probe]
+
+    sampled = set(self.sampled_params)
+    pinned  = self._resolved_constants()
+
+    cosmology_fixed = {}
+    for key in fixed_facts.COSMOLOGY_FIXED_KEYS:
+      if key in sampled:
+        continue                                 # validated as a sampled input
+      if key in pinned:
+        cosmology_fixed[key] = pinned[key]
+      else:
+        cosmology_fixed[key] = fixed_facts.NOT_APPLICABLE
+
+    # curvature. The run admits no spatial curvature unless omk is sampled, or
+    # pinned away from zero. A model that carries no omk at all is flat: an
+    # absent coordinate is the standard model's value for it, not a missing
+    # fact, the same reading emulator/syren_base.py gives an absent w or wa.
+    flat_only = True
+    if "omk" in sampled:
+      flat_only = False
+    elif "omk" in pinned:
+      flat_only = (pinned["omk"] == 0.0)
+
+    # the dark-energy law, read the way emulator/syren_base.py reads these two
+    # names: an absent equation-of-state parameter means the model is a
+    # cosmological constant (w = -1, wa = 0), not that a fact went missing. A
+    # name the run sampled, or pinned away from that constant, is a name the law
+    # consumes. dark_energy_inputs names what the law consumes, not what the run
+    # happened to write down, so that a run pinning w at -1 and a run that never
+    # mentions w describe the one universe they do describe.
+    w_free  = ("w" in sampled) or ("w" in pinned and pinned["w"] != -1.0)
+    wa_free = ("wa" in sampled) or ("wa" in pinned and pinned["wa"] != 0.0)
+    if wa_free:
+      dark_energy_law    = "w0wa-cpl"
+      dark_energy_inputs = ["w", "wa"]
+    elif w_free:
+      dark_energy_law    = "constant-w"
+      dark_energy_inputs = ["w"]
+    else:
+      dark_energy_law    = "cosmological-constant"
+      dark_energy_inputs = []
+
+    # how the neutrino masses are split, in the model's own word for it.
+    neutrino_convention = fixed_facts.NOT_APPLICABLE
+    if NEUTRINO_CONVENTION_KEY in pinned:
+      neutrino_convention = str(pinned[NEUTRINO_CONVENTION_KEY])
+
+    cl_units = fixed_facts.NOT_APPLICABLE
+    if family == "cmb":
+      cl_units = CMB_CL_UNITS
+
+    # the frozen base the dataset sits on top of. Only the matter-power dumps
+    # have one, and only when the run asked for it: a run with write_syren_base
+    # off writes no base file and its emulator corrects nothing, so it has no
+    # base to name. write_base is the mps driver's own switch, so the base class
+    # asks for it rather than assuming every driver has one.
+    base_identity = fixed_facts.NOT_APPLICABLE
+    if self.probe == "mps" and getattr(self, "write_base", False):
+      base_identity = self._syren_base_identity()
+
+    # the driver that produced the dataset, by the name a user types on the
+    # command line. All four driver classes are named `dataset`, so the class
+    # name says nothing about which one ran; the module it was defined in does.
+    # A driver run by path is the __main__ module, whose file is that script.
+    generator = type(self).__module__
+    module = sys.modules.get(generator, None)
+    path = getattr(module, "__file__", None)
+    if path is not None:
+      generator = Path(path).stem
+
+    return {"generator":           generator,
+            "family":              family,
+            "cosmology_fixed":     cosmology_fixed,
+            "neutrino_convention": neutrino_convention,
+            "flat_only":           flat_only,
+            "dark_energy_law":     dark_energy_law,
+            "dark_energy_inputs":  dark_energy_inputs,
+            "cl_units":            cl_units,
+            "base_identity":       base_identity}
+
+  def _write_facts_sidecar(self, names):
+    """
+    Write the dataset's scientific record beside the chain it describes.
+
+    The record is the pair of blocks emulator/fixed_facts.py defines: the
+    cosmology this run held fixed, and the region of parameter space it sampled.
+    It is written from the resolved Cobaya model and from the two supports, and
+    it is keyed by the digest of the chain file as that file stands on disk, so
+    the record names the exact draw it describes and no other. The chain must
+    therefore already be written when this is called.
+
+    Arguments:
+      names = the sampled parameters in the canonical train_args.ord order, the
+              same list the chain's columns and the .ranges rows are written in.
+              Row i of both bound arrays is names[i], because both were reordered
+              into that order during setup.
+
+    Returns:
+      None. The record is written to <paramsf>.facts.yaml.
+
+    Raises:
+      ValueError when the facts break one of the record's own laws (a coordinate
+      both sampled and held fixed, a sampled parameter with no support).
+      build_sidecar validates before it returns any text, so a record that would
+      be refused on the way back in is never written out.
+    """
+    facts = self._resolve_fixed_facts()
+
+    requested = {}
+    resolved  = {}
+    for i in range(len(names)):
+      requested[names[i]] = (self.bounds_requested[i, 0],
+                             self.bounds_requested[i, 1])
+      resolved[names[i]]  = (self.bounds[i, 0],
+                             self.bounds[i, 1])
+
+    text = fixed_facts.build_sidecar(
+             dataset_id          = fixed_facts.chain_digest(
+                                     chain_path=f"{self.paramsf}.1.txt"),
+             generator           = facts["generator"],
+             family              = facts["family"],
+             cosmology_fixed     = facts["cosmology_fixed"],
+             neutrino_convention = facts["neutrino_convention"],
+             flat_only           = facts["flat_only"],
+             dark_energy_law     = facts["dark_energy_law"],
+             dark_energy_inputs  = facts["dark_energy_inputs"],
+             cl_units            = facts["cl_units"],
+             base_identity       = facts["base_identity"],
+             names               = names,
+             requested           = requested,
+             resolved            = resolved)
+    with open(f"{self.paramsf}{fixed_facts.SIDECAR_SUFFIX}", "w") as f:
+      f.write(text)
+
+  #-----------------------------------------------------------------------------
   # run mcmc
   #-----------------------------------------------------------------------------
   def __run_mcmc(self):
@@ -778,11 +1181,28 @@ class GeneratorCore:
             tau = 1 # make sure main MPI worker does not crash over trivial check
 
         # save a range files ---------------------------------------------------
+        # GetDist's view of the support the sampler actually drew from. The
+        # numbers are the resolved bounds the scientific record publishes, and
+        # they go through the record's own formatter, so the file a cosmologist
+        # opens and the file a consumer compares against say the same thing.
+        # This used to round each bound to %.5e, which is coarser than the
+        # float32 the generator owns: 70.00001 and 70.00002 both came out
+        # 7.00000e+01, so the sidecar declared a zero-width interval over a
+        # range the chain beside it kept apart. A view that rounds is a second
+        # answer to a question the record has already answered.
+        #
+        # rows stays ONE statement on purpose: gates/checks/generator_ranges.py
+        # executes this writer by lifting these very statements out of the
+        # syntax tree, and it lifts the single assignment that binds rows. A
+        # loop here would be lifted as nothing and the check would write an
+        # empty file and still pass.
         bds = self.bounds.copy()
-        hd  = ["weights","lnp"] + names
-        rows = [(str(n),float(l),float(h)) for n,l,h in zip(names,bds[:,0],bds[:,1])]
+        rows = [(str(n), fixed_facts.format_value(float(l)),
+                         fixed_facts.format_value(float(h)))
+                for n, l, h in zip(names, bds[:, 0], bds[:, 1])]
         with open(f"{self.paramsf}.ranges", "w") as f:
-          f.writelines(f"{n} {l:.5e} {h:.5e}\n" for n, l, h in rows)
+          for name, low, high in rows:
+            f.write(f"{name} {low} {high}\n")
 
         # save chain begins ----------------------------------------------------
         fname = f"{self.paramsf}.1.txt";
@@ -822,6 +1242,13 @@ class GeneratorCore:
                      fmt="%.9e",
                      header=' '.join(names),
                      comments="# ")
+
+        # save the scientific record -------------------------------------------
+        # the cosmology this run held fixed and the region it sampled, written
+        # once, beside the chain whose digest names it. It is written last: the
+        # digest must be taken from the published chain file, and getdist then
+        # reads this directory exactly as it did before the record existed.
+        self._write_facts_sidecar(names=names)
 
         # delete arrays (save RAM) ---------------------------------------------
         del w         # save RAM memory
@@ -882,6 +1309,19 @@ class GeneratorCore:
                      fmt="%.9e",
                      header=' '.join(names),
                      comments="# ")
+
+        # update the scientific record -----------------------------------------
+        # this branch appended rows to the chain, so the chain's bytes changed
+        # and its digest with them. The record written when the dataset was first
+        # published names bytes that no longer exist anywhere, and a record that
+        # names a chain nobody has is worse than no record at all: it would let
+        # two emulators trained on different draws claim to share one dump.
+        # Rewrite it, so the record's dataset id is the digest of the file it
+        # sits beside. The facts and the supports are unchanged (the same YAML
+        # and the same priors produced the appended rows), but they are re-read
+        # from the model rather than assumed, because the record has one author.
+        self._write_facts_sidecar(names=names)
+
         # set self.loadedfromchk -----------------------------------------------
         self.loadedfromchk = True
     # set self.loadedsamples ---------------------------------------------------

@@ -1210,6 +1210,132 @@ gate to a stable, runner-validated anchor in its home note; the mechanism
 and the audited rollout are documented in `gates-and-board.md`. The
 artifact-side gate anchors here:
 
+### fixed-facts-schema: a saved emulator records the science it was born under
+
+The persisted scientific record (`emulator/fixed_facts.py`), gated on real HDF5
+files with no accelerator. Two blocks: `fixed_facts` (what was held fixed while
+the sampled parameters varied) and `input_domain` (the region they were drawn
+from). The blocks are siblings because their comparison laws differ in kind, an
+equality law and an overlap law, and one block would need a per-key table of
+exceptions saying which key is compared how.
+
+<a id="fixed-facts-schema-record-round-trip"></a>
+`fixed-facts-schema.record-round-trip` writes both blocks into a real file and
+reads them back: the sampled names survive in order, a boolean fact comes back a
+boolean (HDF5 has no Python types, and `True == 1` in Python), the fixed
+cosmology survives, a sampled coordinate is absent from the fixed cosmology, and
+two bounds differing in the last float32 digit stay distinct under the shortest
+decimal that round-trips.
+
+<a id="fixed-facts-schema-rewritten-record-refused"></a>
+`fixed-facts-schema.rewritten-record-refused` proves the two-way check that
+gives "copied verbatim, never re-derived" its teeth. The file carries the
+producer's own text AND the blocks parsed from it; the reader checks them
+against each other in both directions. A fact edited in the stored block, and a
+producer text swapped under blocks that no longer match it, are both refused,
+and the refusal prints both sides.
+
+<a id="fixed-facts-schema-missing-record-refused"></a>
+`fixed-facts-schema.missing-record-refused` deletes each half of the record in
+turn (either block, or the producer text) and requires the read to refuse with
+the migration instruction named. A file that cannot say which cosmology it
+belongs to is refused, not served.
+
+<a id="fixed-facts-schema-legacy-version-refused"></a>
+`fixed-facts-schema.legacy-version-refused` requires both legacy schema versions
+(1 and 2) to refuse with the migration instruction, requires a block grammar
+from the future to refuse, and requires the CURRENT version to be accepted (a
+check that only ever refuses proves nothing about the file it must let through).
+Authorizing ruling: FORK 3 of the fixed-facts adjudication
+(`notes/gates-and-board.md`).
+
+<a id="fixed-facts-schema-sampled-and-fixed-refused"></a>
+`fixed-facts-schema.sampled-and-fixed-refused` requires a coordinate that is
+both sampled and held fixed to be refused at publication, naming the coordinate
+and both of its values. If it were allowed, the two halves of the record would
+answer "what was w?" differently depending on which half was read.
+
+<a id="fixed-facts-schema-parameter-order-enforced"></a>
+`fixed-facts-schema.parameter-order-enforced` requires a whitening geometry
+whose parameter order is a PERMUTATION of the record's to be refused, with both
+orders printed. A check that counted the names, or compared them as a set, would
+let a permutation through, and a permutation silently pairs every incoming value
+with the wrong parameter's column: the predictions are then confidently wrong
+and nothing about the numbers looks unusual.
+
+<a id="fixed-facts-schema-dataset-identity-is-the-chain"></a>
+`fixed-facts-schema.dataset-identity-is-the-chain` requires the dataset identity
+to recompute from the published chain's bytes, two different draws to carry
+different identities, and the emulator to carry its dataset's identity
+unchanged. It also carries the check's two MUTATION ARMS: re-accepting the old
+schema version reds the version leg, and a bound re-derived a hair wider than
+the producer wrote reds the verbatim-copy leg. Both arms restore the code and a
+control confirms the faithful file still reads. Two independent generator runs
+can agree on every fixed fact and every bound and still be different datasets
+(same cosmology, same priors, a different seed), so the facts cannot tell them
+apart and the chain's own bytes must.
+
+<a id="fixed-facts-schema-vertical-law-enforced"></a>
+`fixed-facts-schema.vertical-law-enforced` proves the VERTICAL law: does this
+artifact belong to the cosmology being sampled? Every coordinate the artifact
+HELD FIXED must equal the value the resolved global model gives for it. An
+emulator generated at `w = -1.0` is refused against a chain sampling `w = -0.9`,
+and the refusal names the artifact's value, the sampled value, and the way out.
+A model that cannot say what a pinned coordinate is refuses too: the two cannot
+be compared, and an unanswerable question is not a pass. The law reads the
+coordinates the artifact PINNED, never the emulator's input names — comparing
+the input axes and calling it a cosmology check is the exact confusion this law
+exists to end. A synthetic test double, whose every fact reads "n/a", therefore
+fails against any real model, which is the correct answer: a test double must
+never be served to a likelihood.
+
+<a id="fixed-facts-schema-horizontal-law-enforced"></a>
+`fixed-facts-schema.horizontal-law-enforced` proves the HORIZONTAL law: do these
+two artifacts belong to each other? A Hubble rate is served beside an angular
+diameter distance, a linear power spectrum beside its nonlinear boost, and each
+pair is combined into ONE prediction, so each pair must come from one dataset and
+one cosmology. The law is equality and it starts with identity. The leg that
+matters most is the one field comparison cannot make: two runs of the same YAML
+with a fresh seed agree on every fixed fact and every bound, and are still
+different datasets — they are refused on `dataset_id`, the digest of the chain
+each was fitted to. The identity is compared as an OPAQUE string: no parsing, no
+special case for a synthetic double. Two halves that disagree on a fixed fact are
+refused naming the fact and both values; two halves sampled over different
+coordinates are refused rather than served over the union of the two.
+
+<a id="fixed-facts-schema-domain-law-enforced"></a>
+`fixed-facts-schema.domain-law-enforced` proves the DOMAIN law: may this artifact
+be asked about this point? An emulator interpolates inside the region it was
+trained over and EXTRAPOLATES outside it, returning a number of the right shape,
+with the right sign, and no warning. A point outside the resolved support is
+refused, naming the artifact's interval, the requested value, and the
+remediation; both endpoints are accepted. The constraint is read FIRST: a record
+that declares no support ("undeclared") is refused for ANY point, and the leg
+proves the refusal is the DESIGNED one — it names the synthetic generator rather
+than dying inside `float("n/a")`, which would be a crash wearing a refusal's
+clothes.
+
+<a id="fixed-facts-schema-served-support-is-the-intersection"></a>
+`fixed-facts-schema.served-support-is-the-intersection` proves that the region a
+PAIR may be served over is the overlap of the two artifacts' supports, never
+their union. A point inside one half and outside the other is a point where one
+half is extrapolating, and the combined answer inherits that silently. The leg
+asserts the returned numbers ARE the intersection, and a pair whose regions do
+not overlap on some coordinate is refused rather than served the empty set. This
+is the only law that intersects, which is exactly why the support cannot live in
+the block that is compared by equality.
+
+<a id="fixed-facts-schema-comparison-laws-are-load-bearing"></a>
+`fixed-facts-schema.comparison-laws-are-load-bearing` is the arm that gives the
+four legs above their teeth: a law that cannot go red proves nothing. Each law is
+broken on purpose in the SHIPPED module and the leg that guards it is required to
+red — the horizontal law with its `dataset_id` comparison skipped (the re-run
+leg reds), the domain law with its constraint ignored (the undeclared-record leg
+reds), the domain law accepting any point (the outside-the-box leg reds), and the
+pair's support UNIONED instead of intersected (the disjoint-pair leg reds). Each
+arm restores the real function and a control confirms the faithful code still
+passes.
+
 <a id="artifact-readback-typed-bool"></a>
 **artifact-readback (ARB-A) — saved attributes are parsed by type, not
 truthiness.** The shared typed reader accepts a native boolean, returns the
@@ -1724,8 +1850,17 @@ rebuilds the plain save, and requires the output to be unchanged: the rebuild
 reads the file, not the code's current defaults.
 
 <a id="save-rebuild-drift-v1-schema-refusal"></a>
-`save-rebuild-drift.v1-schema-refusal` tampers `schema_version` to 1 and
-requires the rebuild to raise.
+`save-rebuild-drift.v1-schema-refusal` forges `schema_version` to 1 and requires
+the rebuild to raise with the migration instruction named.
+
+<a id="save-rebuild-drift-v2-schema-refusal"></a>
+`save-rebuild-drift.v2-schema-refusal` forges `schema_version` to 2 and requires
+the rebuild to raise with the migration instruction named. A v2 file carried no
+record of the cosmology it was trained under, so it cannot prove it belongs to
+the cosmology it is about to be asked about; the reader refuses it rather than
+guessing. Authorizing ruling: the schema-version bump in the fixed-facts
+adjudication (`notes/gates-and-board.md`, "Fixed-facts adjudication + sweep
+audit", FORK 3).
 
 <a id="save-rebuild-drift-old-head-artifact-refusal"></a>
 `save-rebuild-drift.old-head-artifact-refusal` deletes the persisted bin split

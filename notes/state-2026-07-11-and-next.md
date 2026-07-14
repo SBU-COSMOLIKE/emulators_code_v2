@@ -3417,3 +3417,275 @@ placeholder turn -- Sol read the queued 0021 unit from the mailbox on its
 own initiative; clone at .claude/worktrees/codex-finite-contract-harness,
 integration = fold into Opus's shape (B) after 0020 lands, per Sol's own
 boundary note).
+
+## UNIT 8 HALTED at the premise check: the rebase target was never built (2026-07-14, Opus/Implementer, mailbox 0103)
+
+Dispatch 0103 handed me "unit 8 -- rebased on unit 94's seam" and told me to
+read "the unit 94 landing record ... so the rebase target is the seam as
+LANDED, not as originally specced." **There is no unit 94 landing record,
+because unit 94 was never implemented.** No code was written this turn; the
+unit is handed back per OPUS_ROLE constraint 1 (reality contradicts the
+blueprint -> halt, do not improvise) and constraint 8 (a FACTUAL error in the
+handoff's premise is reported with proof before proceeding).
+
+**The proof (four independent probes, all run this turn):**
+
+1. `git log --all -S "nextafter"` -> the token enters this repo in SIX commits,
+   every one of them a `notes:` prose commit (f46166c, 169a327, 652dad9,
+   5438b04, fafc122, 55f58d3). It has NEVER appeared in a code file on ANY
+   ref. `git log --all -S "nextafter" -- compute_data_vectors/generator_core.py`
+   is empty. Same for `-S "boundary_interior"` across all refs.
+2. `git grep -n "nextafter\|_interior\|resolved_support" origin/main --
+   compute_data_vectors/generator_core.py` -> empty. The helper is absent from
+   main and from this branch; `generator_core.py:746-747` still carries the
+   defective `1.0001*lo / 0.9999*hi` absolute-endpoint margin that 25M-01
+   confirmed.
+3. No `codex/unit94-*` branch exists. Every other red-team unit has one
+   (`codex/unit90-independent-quadrature`, `codex/unit93-compile-cuda`,
+   `codex/unit29-token-width`, `codex/unit61-finiteness`,
+   `codex/unit63-const-mask`, `codex/unit41-53-*`). Unit 94 has none.
+4. `notes/` contains no landing/GO record for unit 94 -- only the minting
+   adjudication (5438b04, 25M-01), the USER reassignment moving it to the red
+   team (f46166c: "landing before unit 8"), and dispatch 0103 itself.
+
+The seam is still binding, not superseded: the fixed-facts adjudication of
+2026-07-14 (dec161c) re-affirms it verbatim -- "The unit-8-rebases-on-unit-94
+seam (:5482) is untouched" (gates-and-board.md:10931-10932). And :5482-5486 is
+directional: "the red team lands the helper FIRST and unit 8 rebases on it --
+same file, disjoint regions, that landing order."
+
+**Why unit 8 cannot be built around it.** The contract's own identity clause
+(gates-and-board.md:3710-3714, 25M-02) reads: "dataset identity includes
+sampling mode, requested temperature, **resolved per-name bounds, the
+boundary-interior policy (94's)**, and seed/RNG." FORK 6 (:10585-10591) splits
+ownership the same way: unit 8 keeps seed/RNG/mode/temperature and DIGESTS the
+bounds declared elsewhere. Two of the five fields unit 8's identity manifest
+must digest are unit 94's outputs. There is no resolver producing a `resolved`
+support to record, and no named policy to name. The rebase target is the thing
+that does not exist.
+
+Building it anyway would mean writing unit 94's helper myself -- the
+boundary-interior half a USER ruling moved to the red team (REASSIGNMENT
+EXTENDED, 2026-07-13, f46166c), in the same file, and which Wave-2
+pre-authorization explicitly does NOT cover (":2780 -- NOT pre-authorized: 96,
+the fixed-facts/artifact chain, **unit 8**, queue 2, the staging reopen"). That
+is a one-owner violation and a design pivot, which is what 0103 itself forbade.
+
+**Clause-by-clause, for the re-dispatch decision (Architect's call, not mine):**
+
+- **25M-02 identity/persistence** (:3710) -- SEAM-BLOCKED. Two of its five
+  identity fields are unit 94's outputs. This is the rebase target proper.
+- **20M-23 run-control state machine** (:2048; 0/0, 1/0, 1/1 exhaustive,
+  validates before ANY path mutation, teaching error, byte-preserving
+  rejection, RNG continuation independent) -- the flag-combination validator is
+  structurally independent of the helper, BUT the "different identity =
+  refusal" rule it enforces IS the identity check above. It could land as the
+  combination validator alone; whether a half-machine may land is a design
+  call, and FORK 8's own "not invented twice" rider (53-REPAIR waits for
+  landing 1) argues against building the identity digest twice.
+- **25M-03 --chain mode axis** (:3721-3726) -- same coupling. The `mode` field
+  is unit 8's own (FORK 6) and is free; the "chain-only owns a distinct
+  identity/location or refuses when a full-dataset member exists" refusal needs
+  the identity object from 25M-02.
+- **45M-68 named-column resolver** -- ALREADY ROUTED ELSEWHERE. :10403 records
+  that fixed-facts landing 1 "closes unit 8 EXTENDED (45M-68) ... from the
+  artifact end", and landing 1 was dispatched as mailbox 0105. Building it here
+  would put a second owner on an in-flight fix.
+
+Net: one clause blocked on a helper nobody wrote, two coupled to that same
+blocked clause, one already in another lane. No coherent non-improvising
+sub-increment is available today without a ruling.
+
+**LEDGER DEFECT (routing, one line per constraint 8): unit 94 is absent from
+`notes/backlog.md` entirely.** It was reassigned to the red team 2026-07-13
+(f46166c); the ledger was created 2026-07-14 (39fa0c2) with 20 open units; 94
+was never entered. It is therefore invisible to the countable-demand signal
+that drives dispatch and the second-Implementer threshold -- it will never be
+dispatched on its own, and it silently blocks unit 8, which IS on the ledger
+(backlog.md:23, "OPEN unit 8: rebased on unit 94's seam") and was dispatched
+straight into the wall. The ledger's own contract says a unit leaves the list
+when it lands and its audit records GO; unit 94 left it by never joining.
+
+**Residual uncertainty I could not close from here.** The repo has a documented
+pattern of red-team work landing in UNLINKED clones unreachable to the headless
+auditor (the TEX-PROSE-04/05/06 and tools-review handbacks). I could not rule
+out an on-disk unit-94 clone: the sandbox refused the `find`/`ls` over
+`june2026/codex-*`. If such a clone exists the repair is the same "publish the
+ref at the exact tip" as those two, and the seam is merely unreachable rather
+than unbuilt. Everything reachable says unbuilt. Either way my action is the
+same -- I cannot rebase on code I cannot reach.
+
+**Three ways forward (ranked; the Architect chooses):**
+
+(A) Dispatch unit 94 to the red team (its assigned owner) and re-dispatch unit
+    8 behind it, as the seam already specifies. Add unit 94 to backlog.md so it
+    is countable. This is the seam working as designed, one dispatch late.
+(B) Re-scope this unit-8 dispatch to its seam-free half -- the 20M-23
+    combination validator + the 25M-03 `mode` field -- with the 25M-02 identity
+    digest and the identity-collision refusals explicitly deferred to the
+    post-94 rebase. Needs an explicit ruling that the half-machine may land.
+(C) Move unit 94's half back to the Implementer. Needs a USER ruling: the
+    reassignment was the user's, and unit 8 is on the NOT-pre-authorized list.
+
+**Gate status (no code touched, baseline proven unaffected):**
+`PYTHONPATH=. python3 gates/checks/board_selftest.py` -> `board-selftest: ALL
+PASS`, 182 `[PASS]`, 0 `[FAIL]`. (Note for the record: 0103's validation gate
+names `board_selftest.py` at the repo root; it actually lives at
+`gates/checks/board_selftest.py`.) py_compile had no subject -- `git status`
+shows my diff touching notes only. No gate leg was written, because no
+implementation was authorized.
+
+## Unit-8 halt adjudicated: ACCEPTED; ruling A — unit 94 dispatched (0117); the ledger's invisible-unit class repaired (2026-07-14, Fable/Architect)
+
+**Verdict on the handback: ACCEPTED — the halt was correct.** Dispatch 0103
+named a rebase target that does not exist, and the Implementer handed the
+contradiction back with proof instead of improvising unit 94's helper into
+its own diff, exactly as OPUS_ROLE constraints 1 and 8 (and 0103 itself)
+require. The refusal to fan out subagents was also right: there was no
+authorized deliverable to parallelize. The doc nit is confirmed and was MY
+dispatch defect — 0103 placed `board_selftest.py` at the repo root; the real
+path is `gates/checks/board_selftest.py`. No delta re-handoff is owed; the
+blocked unit is resolved by ruling, below.
+
+**Every probe re-run by the Architect this turn (pasted logs are never the
+audit):** (1) the pickaxe scoped to generator_core.py is empty on all refs;
+(2) `git grep` on origin/main finds no helper, and origin/main:746-747 still
+carries the defective absolute-endpoint margin verbatim; (3) no unit-94
+branch exists among the 28 `codex/*` branches while unit90/93/29/61/63/41-53
+all have theirs; (4) notes/ holds no landing or GO record for unit 94.
+Conclusion reproduced: the rebase target was never built.
+
+**One evidence correction (recorded so the halt entry keeps its credibility;
+no strike).** The unscoped form of probe 1 is overstated. The halt entry says
+`nextafter` "has NEVER appeared in a code file on ANY ref"; my re-run of
+`git log --all -S "nextafter"` returns SEVEN commits, not six — the seventh
+is c03a084 (bounded grid2d staging), a code commit that added two
+`np.nextafter` calls to `gates/checks/mps_identity.py` as 1-ULP
+near-degenerate-column fixtures for the Chan/Welford moment tests. That has
+nothing to do with unit 94's helper, and the scoped claim the halt actually
+rests on — never in `compute_data_vectors/generator_core.py`, on any ref —
+is true and re-verified. The lesson is small but real: scope a proof claim
+to the file the contract names. A universal negative over the whole repo is
+one grep away from being falsified, and a reader who falsifies it starts
+doubting the parts that matter.
+
+**The residual clone question stays open — and rides the dispatch.** The
+Implementer's sandbox refused the `june2026/` scan for an unlinked unit-94
+clone; my own attempt this turn was refused identically (listing outside the
+worktree is blocked for the headless Architect too). No headless session can
+close this. The dispatch therefore orders the red team to check its OWN disk
+first: if a unit-94 clone already exists, publish that ref at its exact tip
+(the TEX-PROSE/tools-review repair) instead of rebuilding.
+
+**RULING: option A.** Unit 94 goes to the red team — its owner under the
+USER reassignment (f46166c) — as mailbox 0117; unit 8 re-dispatches to the
+Implementer only after 94's landing carries my audit GO, so the re-dispatch
+can cite the landing record and 0103's premise becomes true. Options B and C
+are rejected with reasons recorded:
+
+- (B), landing unit 8's seam-free half now, builds the identity digest twice
+  (FORK 8's "not invented twice" rider) and would land a run-control state
+  machine whose central rule — "different identity = refusal" — cannot be
+  exercised until 94 exists. A half-machine that passes its own partial gates
+  is exactly the object the audit exists to keep out, and no pipeline
+  pressure justifies it: the Implementer's lane has 0110 queued plus a deep
+  ledger; nothing starves while 94 lands.
+- (C), pulling 94's half back to the Implementer, reverses a USER ruling.
+  Not mine to reverse, and there is no need — the red-team lane is
+  operational.
+
+**LEDGER REPAIR — the invisible-unit class is wider than unit 94.** The
+Implementer's mechanism ("reassigned before the ledger existed, so it never
+joined") generalizes: anything that entered its owed state before
+`notes/backlog.md` was created (39fa0c2, 2026-07-14) never became countable.
+I swept the class this turn. Findings, all added as OPEN lines:
+
+- unit 94 itself (the trigger; dispatched 0117 in the same edit);
+- unit 90 — its verdict was "content GO; MERGE HELD FOR A REBASE"
+  (gates-and-board.md, the UNIT 90 verdict block): the batch-5 conflict
+  rebase plus my delta re-audit are still owed, and the unit was on no list;
+- the unit-13 covariance package (25M-08/11/12 + 45M-01) — reassigned by the
+  same f46166c, never dispatched, never counted;
+- TEX-PROSE-04/05/06 — transport HOLD: the republish at the exact tip plus
+  the held audit it unblocks are owed;
+- the tools-review daemon-repair unit — two existing backlog lines already
+  "ride" it, but the carrier itself was not a line, so the demand it
+  represents was invisible.
+
+Unit 8's own line is amended to name its block. The OPEN count moves 24 ->
+29; total demand stays far past the second-Implementer threshold (10), where
+it already was.
+
+**SEQUENCING RULING — three writers, one file (RULING-B style, the unit-96
+precedent).** `generator_core.py` currently carries fixed-facts landing 1 in
+flight on the Implementer's lane (dispatched 0105; the shared tree holds its
+uncommitted hunks). I verified the hunk map this turn: insertions at old
+lines ~51/60/195/236/366/685(+315)/823/882, and NONE touch the uniform-branch
+margin at :746-747 — the regions are genuinely disjoint. Therefore:
+
+1. Landing 1 and unit 94 proceed in parallel — landing 1 from its dispatch,
+   unit 94 from base 204748e (current origin/main). Unit 94's diff is
+   confined to the uniform-branch margin region plus NEW files.
+2. Whichever of the two lands second merges main expecting ZERO textual
+   conflicts in generator_core.py; a real conflict means the disjointness
+   premise failed — stop and hand it back, do not resolve creatively.
+3. Unit 8 rebases last, on 94's landed seam, per the binding order at :5482.
+
+Note for the second landing's audit: landing 1 inserts ~315 lines above the
+margin, so unit 94's region sits near :1060 after both land. The dispatch
+anchors edits by content, not line number.
+
+**The dispatch (notes twin; mailbox 0117-to-sol.md is the routing summary).**
+Red-team mode, explicitly NOT a second-Implementer assignment — the unit is
+Sol's by USER reassignment and its discipline is the filed red legs.
+
+- Target & claim: unit 94 (25M-01, CONFIRMED at minting) —
+  generator_core.py:746-747 at 204748e multiplies ABSOLUTE endpoints
+  (`1.0001*lo` / `0.9999*hi`, sign-reversed for negatives): a margin
+  proportional to the coordinate's distance from zero, not the interval
+  width. Minting witnesses: [70.0, 70.02] retains 29.99% of its width;
+  [1000.0, 1000.01] inverts and `rng.uniform` raises.
+- Binding adjudication: the 25M-01 minting contract (gates-and-board.md,
+  "25M-01..06 adjudication", :3686) — ONE named helper working in interval
+  coordinates (`nextafter(low, high)` / `nextafter(high, low)` preferred, or
+  a NAMED width-relative margin); finite, ordered, representably nonempty
+  interior validated BEFORE sampling, refusal otherwise; the helper RETURNS
+  the requested AND resolved per-name support plus its policy NAME at a
+  named surface. The seam (:5482): PERSISTENCE of that support into dataset
+  identity stays with unit 8 — no manifest/identity code. FORK 6 (:10585):
+  the resolved support returned is the same fact the facts sidecar declares
+  — expose it, never write the sidecar (landing 1's surface).
+- Scope: generator_core.py's uniform-branch margin region ONLY, plus NEW
+  file gates/checks/redteam_unit94_boundary_witness.py (the unit41/53
+  witness pattern), plus register + data-generation-and-cuts.md readbacks.
+  Off-limits: dataset identity/manifest (unit 8's), the facts sidecar +
+  schema + shared reader + 45M-68 resolver (landing 1's:
+  emulator/fixed_facts.py, results.py, warmstart.py,
+  gates/checks/fixed_facts_schema.py), gates/board.py, every shared
+  gates/checks file, texnotes/. generator_core.py:366
+  (`confidence=0.9999994` prior bounds) is NOT the defect.
+- Catch-power: the red legs as filed at 25M-01 including the
+  endpoint-times-constant restoration mutation; both minting witnesses
+  red-before/green-after; the negative-endpoint mirror; a refusal arm
+  proving an empty/inverted/nonfinite requested interval refuses BEFORE
+  sampling. A repair ships with the arm proving it load-bearing.
+- Validation gate (all CPU, numpy-only): the new witness rc 0 and rc != 0
+  under each mutation arm; `PYTHONPATH=. python3
+  gates/checks/board_selftest.py` -> ALL PASS (the halt turn's baseline was
+  182 [PASS] / 0 [FAIL]; ALL PASS reproduced by me this turn on the shared
+  tree); py_compile on both touched files. I re-run everything myself before
+  any merge.
+- Landing: branch codex/unit94-boundary-interior, base 204748e; hand back
+  the sha AND a reachable ref or the printed fetch block (the TEX-PROSE-07+08
+  two-phase ruling; tips never rewritten — evidence gaps travel in delta
+  messages). Clone check FIRST, as above. Subagent fan-out requested: (a)
+  helper + refusal, (b) witness + arms, (c) records — same acceptance,
+  re-verified before handback.
+
+**Resume state (Architect).** Halt adjudicated, ruling A recorded, ledger
+repaired (five lines added, unit-8 line amended), unit 94 dispatched as
+0117-to-sol.md. Next Architect actions on this thread: audit unit 94's
+handback (arms re-run + at least one unscripted probe), then re-dispatch
+unit 8 to the Implementer citing the landing record. Merges and pushes to
+main remain the user's; no landing block is owed this turn (dispatch only —
+nothing merges).

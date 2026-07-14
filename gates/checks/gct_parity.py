@@ -138,10 +138,18 @@ def run_parity(name, cfg, device, tmp, factored, parity_aid, shape_aid):
     # positionally (row i), never with val_set["idx"] (original dump-row
     # numbers). probe was built the same way, so row i lines up with ts[i].
     row = exp.val_set["C"][i]
+    # hand the values in WITH their names. The columns of val_set["C"] are in
+    # the geometry's own parameter order (both were built from train_args.ord),
+    # so this pair is the order the predictor expects -- but the predictor no
+    # longer takes that on trust from a bare row, and it is right not to: a row
+    # of numbers cannot say which parameter each number is, and a permutation of
+    # it has exactly the right length. The names make the binding checkable, and
+    # the predictor checks it.
+    named = (pred_sec.names, row)
     # the xi section starts at offset 0, so its dest_idx positions ARE the
     # kept entries: index the section output at dest_idx and compare to the
     # training-side kept vector (rtol 1e-6, the kept-entry comparison kept).
-    sec = torch.as_tensor(pred_sec.predict(row), dtype=ts.dtype)
+    sec = torch.as_tensor(pred_sec.predict(named), dtype=ts.dtype)
     got = sec[dest_idx]
     want = ts[i]
     denom = want.abs() + 1.0e-8
@@ -157,8 +165,9 @@ def run_parity(name, cfg, device, tmp, factored, parity_aid, shape_aid):
   # shape + masking assertions on one representative row.
   n_shape = len(FAILURES)
   row0  = exp.val_set["C"][0]
-  sec0  = torch.as_tensor(pred_sec.predict(row0), dtype=ts.dtype)
-  full0 = torch.as_tensor(pred_full.predict(row0), dtype=ts.dtype)
+  named0 = (pred_sec.names, row0)
+  sec0  = torch.as_tensor(pred_sec.predict(named0), dtype=ts.dtype)
+  full0 = torch.as_tensor(pred_full.predict(named0), dtype=ts.dtype)
   report(name + ": section length == stored section_sizes[0]",
          sec0.numel() == section0,
          "len " + str(sec0.numel()) + " vs section_sizes[0] " + str(section0))

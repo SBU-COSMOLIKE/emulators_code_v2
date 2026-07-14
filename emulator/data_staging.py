@@ -104,6 +104,8 @@ import numpy as np
 import psutil
 import torch
 
+from . import fixed_facts
+
 
 def stream_chunks(idx, chunk):
   """
@@ -557,6 +559,59 @@ def check_paramnames(sidecar_path, covmat_names):
   return sidecar
 
 
+def read_facts_sidecar(params_path):
+  """
+  Read the generator's scientific-record sidecar verbatim, or report none.
+
+  The generator publishes one small companion file beside the chain it dumps:
+  <paramsf>.facts.yaml, the record of the cosmology the dataset was generated
+  under and the parameter region it was sampled over (emulator/fixed_facts.py
+  defines the record and owns every law it must satisfy). Training copies that
+  text into the saved emulator without ever regenerating it, so the emulator
+  carries the producer's own words. This function is the first step of the
+  copy, and it does exactly one thing: find the file and hand back its text. It
+  parses nothing and derives nothing, because a second author of a scientific
+  fact is how the two copies of that fact drift apart.
+
+  Finding it is not a plain splitext, because two naming conventions are in use
+  and only one of them is what splitext returns:
+
+      a generator dump   params.txt     pairs with   params.facts.yaml
+      a cobaya chain     params.1.txt   pairs with   params.facts.yaml
+
+  A cobaya run writes one chain file per chain number and a single sidecar
+  shared by all of them, so a pure-integer chain number has to come off before
+  the sidecar can be found. Stripping the last extension unconditionally would
+  be wrong the other way: a dataset legitimately named "lcdm.v2.txt" must keep
+  its ".v2". The number therefore comes off only when the piece before the
+  final extension is entirely digits, and the exact stem is tried first either
+  way. This is the same pairing getdist uses to find a chain's .paramnames.
+
+  Arguments:
+    params_path = the parameter file the sidecar sits beside: params.txt from
+                  a generator dump, or params.1.txt from a cobaya chain.
+
+  Returns:
+    the sidecar's text, exactly as it sits on disk, or None when neither
+    candidate file exists. None is the honest report of a dataset generated
+    before the record existed. The caller carries it through as an explicit
+    "there is none", so the saved emulator records no science rather than a
+    science that training invented for it.
+  """
+  candidates = []
+  base = os.path.splitext(params_path)[0]
+  candidates.append(base + fixed_facts.SIDECAR_SUFFIX)
+  # the cobaya chain number, when the stem carries one: params.1 -> params.
+  root, chain_ext = os.path.splitext(base)
+  if chain_ext[1:].isdigit():
+    candidates.append(root + fixed_facts.SIDECAR_SUFFIX)
+  for cand in candidates:
+    if os.path.exists(cand):
+      with open(cand) as fh:
+        return fh.read()
+  return None
+
+
 def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                 gen=None, ram_frac=0.7, with_means=False,
                 stage_dv=True,
@@ -632,8 +687,12 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
                    cut there).
 
   Returns:
-    a source dict {"C", "dv", "idx"} (plus "C_mean" / "dv_mean"
-    when with_means), ready for build_loaders / run_emulator.
+    a source dict ready for build_loaders / run_emulator: "C" the staged
+    parameters, "dv" the staged data vectors, "idx" the loader index,
+    "dump_rows" the disk rows the staged rows came from (see the comment at
+    the return), "facts_yaml" the generator's scientific record as text (None
+    when the dataset published none), plus "C_mean" / "dv_mean" when
+    with_means.
   """
   # require a generator (n_keep is a required positional arg, so a
   # missing size is a plain TypeError at the call site).
@@ -646,6 +705,12 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   sidecar = os.path.splitext(params_path)[0] + ".paramnames"
   if os.path.exists(sidecar):
     check_paramnames(sidecar, names)
+  # the scientific record the generator published beside this chain, carried
+  # into the staged source as text and copied from there into the saved
+  # emulator, never re-derived on the way. None when the dataset predates the
+  # record: an explicit "there is none", not a silent omission, so the driver
+  # passes the absence through and the saved file records no science at all.
+  facts_yaml = read_facts_sidecar(params_path=params_path)
   dv = np.load(dv_path, mmap_mode="r", allow_pickle=False)
   # keep only the modeled parameter columns (see param_cols).
   C  = np.loadtxt(params_path, dtype="float32")[:, param_cols]
@@ -723,7 +788,8 @@ def load_source(dv_path, params_path, names, omegabh2_hi, n_keep,
   src = {"C": C_src,
          "dv": dv_src,
          "idx": idx_src,
-         "dump_rows": np.sort(np.unique(np.asarray(idx)))}
+         "dump_rows": np.sort(np.unique(np.asarray(idx))),
+         "facts_yaml": facts_yaml}
   if with_means:
     # param_stats returns (offset, scale); the "_" discards the sample
     # scale on purpose. Parameter CENTERING uses this returned mean, but
@@ -865,8 +931,10 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
                   only when omegabh2_hi is given.
 
   Returns:
-    a source dict {"C", "dv", "idx"} (plus "C_mean" / "dv_mean" when
-    with_means), ready for build_loaders / run_emulator.
+    a source dict ready for build_loaders / run_emulator: "C" the staged input
+    parameters, "dv" the staged output targets, "idx" the loader index,
+    "facts_yaml" the generator's scientific record as text (None when the
+    dataset published none), plus "C_mean" / "dv_mean" when with_means.
   """
   if gen is None:
     raise ValueError("load_scalar_source needs a torch.Generator (gen=)")
@@ -900,6 +968,12 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
   # before the by-name lookups. check_paramnames raises on a mismatch.
   check_paramnames(sidecar, in_names)
   in_cols, out_cols = _scalar_columns(sidecar, in_names, out_names)
+
+  # the scientific record the generator published beside this chain
+  # (read_facts_sidecar): copied as text, never re-derived here, and None when
+  # the dataset predates the record. The driver passes it straight through to
+  # save_emulator, which stores the producer's own words in the emulator file.
+  facts_yaml = read_facts_sidecar(params_path=params_path)
 
   raw = np.loadtxt(params_path, dtype="float32")
   C = raw[:, in_cols]       # input parameters, in in_names order
@@ -941,7 +1015,8 @@ def load_scalar_source(params_path, in_names, out_names, n_keep,
     C=C, dv=Y, idx=idx, ram_frac=ram_frac)
   src = {"C": C_src,
          "dv": Y_src,
-         "idx": idx_src}
+         "idx": idx_src,
+         "facts_yaml": facts_yaml}
   if with_means:
     # param_stats returns (offset, scale); the "_" discards the sample scale
     # both times. The scalar geometry standardizes its outputs from Y_mean

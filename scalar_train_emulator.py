@@ -238,6 +238,12 @@ def main():
     resolved_train=exp.resolved_train,
     resolved_model=exp.resolved_model,
     transfer_base=None,
+    # the generator's scientific record, carried here verbatim from the staged
+    # training source (data_staging.read_facts_sidecar put it there): the
+    # cosmology the dataset was generated under and the parameter region it was
+    # sampled over. None when the dataset published none, and the saved file
+    # then records no science rather than a science this driver invented.
+    facts_yaml=exp.train_set.get("facts_yaml"),
     attrs=attrs)
   log(f"saved emulator -> {emul_path}")
   log(f"saved run record -> {h5_path}")
