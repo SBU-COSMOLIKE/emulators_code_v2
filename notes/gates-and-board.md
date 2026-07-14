@@ -7122,3 +7122,33 @@ BANDWIDTH NOTE, recorded as guidance: at current red-team velocity
 the emerging constraint is the AUDIT lane. Landings should batch —
 D6 + 61-finiteness as one handoff, the D4 file claims in pairs —
 so each round-trip carries more audited surface.
+
+## Queue 2 increment 3 — fan-out batch 1: 3 gates migrated by subagents (Opus, 2026-07-13)
+
+First fan-out batch under the subagent rule. Three subagents (isolated worktrees)
+each drafted one gate's migration to its audited spec + self-verified; I applied
+their diffs to the live board, INDEPENDENTLY re-verified, and self-commit here.
+All three: no objection (drafted names fit 1:1).
+
+- **loss-schema-equivalence** (wrapper via SHARED helpers): the subagent threaded
+  optional `aid=`/`exit_aid=`/`banner_aid=` through `_golden_leg` and `_smoke_driver`
+  (default None, so the other ~10 callers are unchanged). golden leg emits
+  `ctx.unavailable` on a null base (fork D1-ii); smoke → two `ctx.expect`. Its
+  docstring's aspirational schema-equivalence claim narrowed to the honest
+  UNAVAILABLE-while-null-base statement.
+- **triangle-shading** (child ##AID): `gt_b_triangle.py` report() gains `aid=`,
+  its 4 report calls carry the drafted aids; rc-expect aid-less.
+- **param-window-cuts** (wrapper): 2 `ctx.expect(aid=)` + 1 `ctx.unavailable`
+  (the init-probes A/B eye-check is logged-only, the draft requires UNAVAILABLE);
+  banner-leg detail narrowed per DIDACTICS-62/63.
+
+INDEPENDENT RE-VERIFY (Mac) caught two items the subagents' isolated checks missed
+— exactly why re-verify is not optional: (1) `_golden_leg` now always passes `aid=`
+to `ctx.expect`, so the unit-46 board-selftest stub `_GoldenCtx.expect` needed an
+`aid=` param (+ an `unavailable` method); I fixed it and added an arm proving the
+new null-base→UNAVAILABLE branch. (2) my throwaway regex flagged a false
+declared!=emitted (the real wiring is correct — confirmed by importing board and by
+`validate_evidence`). Final: compile clean; board-selftest **170 PASS / 0 FAIL**;
+`--list` rc 0 (all new anchors resolve + transform + unique); `gt_b_triangle.py` on
+cocoa-torch prints exactly the 4 declared `##AID PASS`; declared==drafted for all
+three gates (authoritative, via importing board). Live green reruns workstation-owed.
