@@ -2598,3 +2598,27 @@ gates/checks/scalar_smoke.py` returns zero and ends
 `PASS: scalar-smoke all checks green`.  `py_compile` and `git diff --check`
 also pass.  This is implementation evidence for Architect review, not Red
 Team certification.
+
+## Red Team implementation record: DIDACTICS-67 and DIDACTICS-68 warm-start visit
+
+The Architect transferred the warm-start visit to the Red Team in the Wave 4
+throughput ruling.  The implementation is isolated on
+`codex/warmstart-finite-didactics` and is awaiting Architect audit.  The full
+technical record, test results, and deferred gate-file wiring are in
+`artifacts-inference-warmstart.md`, under "Warm-start source reads and
+perturbed finite values."
+
+The code change has two parts.  First, `FinetuneSource` and `load_source`
+describe the executed read sequence accurately: one reusable source object,
+two HDF5 opens, and one weight-file load.  The attribute documentation now
+includes `ia` and defines `nla`, `tatt`, and `None`.  Second, the fine-tune and
+transfer perturbation arms both screen their named encoded inputs and named
+outputs with the shared finite predicate before comparison.
+
+The focused CPU suite has eleven passing tests.  It injects NaN and Inf only
+after the extra-coordinate perturbation, requires the error to name the
+pipeline side, quantity, and row 9, retains both finite baseline parity
+verdicts, and uses four skip-one-guard mutations to prove that every new call
+is load-bearing.  Existing gate files remain untouched because their queue-2
+owner is active.  The owner note records the exact Part D, Part E, and future
+documentation-examples additions needed after that collision clears.
