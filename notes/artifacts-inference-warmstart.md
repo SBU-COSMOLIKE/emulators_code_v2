@@ -388,6 +388,66 @@ grid, grid2d, data-vector).
   term (Adam's moments would rescale it); weight_decay-0 recommended.
 - Provenance attrs: finetuned_from + finetune_extra_names.
 
+### Warm-start source reads and perturbed finite values (Red Team implementation draft, 2026-07-13)
+
+This branch implements DIDACTICS-67 and DIDACTICS-68 for Architect audit.
+It does not certify the landing.
+
+`FinetuneSource` is one in-memory object.  A successful construction opens
+the source HDF5 file twice.  `rebuild_emulator` owns the first open,
+reconstructs both geometries and the network, and loads the `.emul` weights
+once.  `load_source` owns the second HDF5 open because the warm-start
+validator needs the model recipe, saved rescale value, and resolved data block that
+`rebuild_emulator` does not return.  The class and loader docstrings now teach
+that sequence directly.  The class attribute list now includes `ia` and
+defines its three values: `nla`, `tatt`, and `None`.
+
+Both parity paths now name and screen the two values produced only after the
+extra-coordinate perturbation:
+
+1. Fine-tuning screens `enc_pert` as `perturbed encoded new-run inputs`, then
+   screens `out_pert` as `perturbed epoch-0 new-model outputs`.
+2. Transfer screens `enc_pert` as `perturbed encoded run inputs`, then
+   screens `composed_pert` as `perturbed epoch-0 composed prediction`.
+
+All four calls use `_require_parity_finite`.  Its existing shared error names
+the pipeline side, the quantity, and the staged source-row coordinates.  The
+comparison runs only after both values are finite.  The baseline path and
+parity tolerances are unchanged.
+
+Focused CPU acceptance lives in
+`tests/test_warmstart_perturbed_finite.py`.  Eleven tests pass with the Cocoa
+Torch 2.6.0 interpreter.  Two finite controls retain the fine-tune and
+transfer parity verdicts.  A NaN appears only in row 9 of each perturbed
+encoding.  An Inf appears only in row 9 of each perturbed output.  Every
+failure names the required side, quantity, and row.  Four mutation tests skip
+one guard at a time: skipping an input guard changes the reported quantity to
+the later output, while skipping an output guard restores the misleading
+`extra parameters leaked` or `extra parameters moved` diagnosis.  Each
+mutation also counts that the production call it disables was reached, so
+deleting the call cannot leave the mutation test green.
+
+The shared gate files were deliberately not edited during the queue-2
+ownership window.  The exact follow-up is bounded:
+
+- `gates/checks/finite_contract.py` Part D receives the fine-tune
+  perturbation-only NaN/Inf legs and both skip-one-guard mutation arms.
+- Part E receives the matching transfer legs and mutation arms.
+- The planned documentation-examples gate receives the DIDACTICS-67 runtime
+  read census: a real tiny artifact must produce two `.h5` opens, one
+  `.emul` load, one returned `FinetuneSource`, and a constructor-field census
+  that includes `ia`.
+
+A direct run of the current `finite_contract.py` confirms that all existing
+Part D and Part E legs still pass.  The whole script is not green on this
+main-line snapshot: four known Part A/C message-prefix checks fail and Part F
+crashes because its synthetic loss object has no `geom`.  Those failures
+predate this bounded warm-start visit and are not presented as acceptance.
+The direct `finetune_identity.py` child is all green.  The direct
+`transfer_identity.py` child passes its warm-start and finite-value-adjacent
+legs, then retains the separately known cross-family fixture red as its sole
+failure.
+
 ## Fine-tune anchor truth (red-team 2026-07-12 eighth wave, Architect-VERIFIED, open; a training-truth unit — with or immediately after the finite/selection pair, before any anchored production fine-tune)
 
 Two stacked defects and one live documentation lie, all verified:
