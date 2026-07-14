@@ -289,6 +289,46 @@ agent finishing a mailbox-dispatched turn writes its outbound handoff as
 the next mailbox file, so the loop continues without a human relay; merges
 and pushes to main remain the user's alone.
 
+Red Team role binding and Sol command probe (2026-07-14):
+
+- Scope and resume identity: branch `codex/mailbox-role-binding`, based on
+  `main` at `169bb4a`. The bounded change owns only
+  `.codex/REDTEAM_ROLE.md`, this convention entry and the `notes/MEMORY.md`
+  index pointer. It does not edit either Claude role, the daemon or `main`.
+- `.codex/REDTEAM_ROLE.md` now treats an inbound
+  `notes/mailbox/NNN-to-sol.md` file exactly like a pasted
+  `ARCHITECT_REDTEAM_HANDOFF`. The cited note remains authoritative.
+- A mailbox-started Red Team turn writes its full result to `notes/` first,
+  then writes its outbound block to the next numbered mailbox file addressed
+  to Fable or Opus. The daemon does not gain merge or push authority.
+- The Codex CLI is installed at
+  `/Applications/ChatGPT.app/Contents/Resources/codex`. Read-only probes
+  reported `codex-cli 0.144.2` and accepted `exec` as the noninteractive
+  command. The local Codex configuration names model `gpt-5.6-sol`.
+- The exact safe command array for `AGENT_COMMANDS["sol"]` is:
+
+  ```python
+  [
+      "/Applications/ChatGPT.app/Contents/Resources/codex",
+      "exec",
+      "--model",
+      "gpt-5.6-sol",
+      "--sandbox",
+      "workspace-write",
+      "--cd",
+      "/Users/vivianmiranda/data/COCOA/june2026/emulators_code_v2",
+  ]
+  ```
+
+  `dispatch()` appends the mailbox preamble and routing summary as the final
+  prompt argument. The probe did not start a model turn or dispatch a mailbox
+  message. Fable still audits the role change before it is merged.
+- Local evidence: `python3 -B tools/mailbox_daemon.py --dry-run` returned
+  `mailbox empty`; the exact command array above accepted `--help` and printed
+  `Run Codex non-interactively`; `git diff --check` returned clean. No
+  functional Python file changed. This is an implementation return for
+  Fable's independent audit, not Red Team self-certification.
+
 
 
 ## Environment

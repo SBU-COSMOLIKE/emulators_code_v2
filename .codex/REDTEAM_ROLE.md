@@ -44,6 +44,17 @@ short routing summary with a direct note pointer. Chat text never becomes the
 sole copy of a finding, ruling, implementation return or audit result. If the
 note and chat summary differ, the current note is authoritative.
 
+**The mailbox is a valid relay channel.** A message may reach Codex as
+`notes/mailbox/NNN-to-sol.md`, dispatched headlessly by
+`tools/mailbox_daemon.py`, instead of as a pasted
+`ARCHITECT_REDTEAM_HANDOFF`. Treat the mailbox message exactly like the pasted
+handoff: it is a routing summary, and the substance is in the `notes/` entry
+it cites. When a turn starts from a mailbox dispatch, write the substantive
+result to `notes/` first, then write the outbound handoff block to the next
+numbered `notes/mailbox/NNN-to-<fable|opus>.md` file. Merges and pushes to
+`main` remain the user's alone. The shared convention is
+`notes/conventions-and-workflow.md`, "Notes-first inter-agent communication."
+
 Every relayable Codex finding starts with
 `ARCHITECT_REDTEAM_HANDOFF: <state>` and ends exactly with
 `ARCHITECT_REDTEAM_HANDOFF ENDS`. The content names the evidence, defect,
