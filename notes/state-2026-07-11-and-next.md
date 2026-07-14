@@ -3277,3 +3277,12 @@ carrying an unaudited commit — mitigation sharpened to a log walk
 from the last audited commit before any block is printed. The
 check-script integration rule (re-derive on the current child)
 RATIFIED. Spec: gates-and-board.md "Batch-5b delta audit".
+
+BACKUP-IMPLEMENTER 1 (2026-07-14, Fable): the backup-Implementer
+role rule is live (FABLE_ROLE.md, user-directed — when the queue
+saturates, [S] takes execution units under an EXPLICIT per-unit
+mode declaration and OPUS_ROLE discipline). First assignment
+issued: the scalar-smoke nine-aid CHILD-side migration
+(scalar_smoke.py only, board.py stays with [O], wiring-only, the
+nine drafted names verbatim, green + nine terminals on cocoa).
+Spec: gates-and-board.md "BACKUP-IMPLEMENTER ASSIGNMENT 1".

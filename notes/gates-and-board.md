@@ -8043,3 +8043,51 @@ read as expected coverage growth, not a defect; banked so a later
 re-verify is not misread. Batch 6 (cmb-identity,
 eval-batch-invariance, weight-decay-census by the dirty files) is
 in flight isolated.
+
+## BACKUP-IMPLEMENTER ASSIGNMENT 1 (Fable, 2026-07-14): scalar-smoke nine-aid child-side migration to [S] as backup Implementer
+
+MODE DECLARATION, per the new role rule: OpenAI Sol takes this
+unit AS BACKUP IMPLEMENTER, not in red-team mode — execution
+discipline applies (the blueprint is the contract; execute,
+don't attack; gates + grounded evidence; no self-certification;
+this audit reads the landing against execution discipline). The
+queue basis: the Implementer is saturated (batch 6 in flight,
+the fan-out tail + wrapper family + D5 + unit 56 queued), and
+the user directed the backup lane open NOW.
+
+THE UNIT: the child side of scalar-smoke's queue-2 migration.
+- Target file: gates/checks/scalar_smoke.py ONLY. gates/board.py
+  is OFF-LIMITS (Implementer-exclusive during the fan-out; the
+  Implementer wires the nine-Assertion evidence= tuple at
+  integration).
+- Contract: emit one ##AID terminal per drafted leg using the
+  ratified identity-child template — a FAILURES-delta emit helper
+  bracketing each contiguous check group, terminals printed after
+  every probe has run, exit status unchanged as the single
+  aggregate verdict. The NINE aids, verbatim from the
+  families-scalar-cmb.md evidence block at current main:
+  scalar-smoke.analytic-prediction,
+  scalar-smoke.banner-only-mutation-rejected,
+  scalar-smoke.cobaya-evaluate,
+  scalar-smoke.dead-network-rejected,
+  scalar-smoke.diagnostics-output,
+  scalar-smoke.fixture-rows-disjoint-and-aligned,
+  scalar-smoke.same-seed-overlap-refused,
+  scalar-smoke.training-beats-mean-predictor,
+  scalar-smoke.window-banner-and-rows-match.
+- Constraints: WIRING ONLY — the D3 measured bars, disjoint
+  fixtures, mutation arms, and printed derivations change by not
+  one value; no check logic is added, removed, or reordered
+  except as needed to bracket contiguous groups; no other repo
+  file is touched.
+- Validation gate: PYTHONPATH=. with the cocoa interpreter,
+  gates/checks/scalar_smoke.py runs green end-to-end and emits
+  EXACTLY the nine terminals, each once, all PASS; compileall
+  clean; git diff --check clean; base = current main; branch
+  codex/scalar-smoke-nine-aids-child; the sha comes back for my
+  audit (declared==emitted is then proven at the Implementer's
+  board.py integration seam).
+- Milestone: a child whose manifest the board can fold the moment
+  the Implementer lands the tuple — closing the one gate the
+  fan-out could not batch because its aid set was amended after
+  the drafts.
