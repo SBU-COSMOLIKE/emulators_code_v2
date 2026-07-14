@@ -4202,8 +4202,8 @@ class EmulatorExperiment:
       # across the training cosmologies (the boost's low-k tail, under
       # any law) are pinned by the geometry, reported here once
       # (quiet-gated), never silent.
-      if self.geom.const_mask is not None:
-        n_pin = int(self.geom.const_mask.sum())
+      n_pin = int(self.geom.const_mask.sum())
+      if n_pin > 0:
         self.log("grid2d: " + str(n_pin) + " constant law-space grid "
                  "point(s) pinned (decode returns the training "
                  "constant — the physics is flat there)")

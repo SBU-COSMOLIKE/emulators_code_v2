@@ -1096,6 +1096,56 @@ with stale constant columns now refuse loudly at geometry build
 (previously they trained "green" and served corrupted science);
 existing valid boost artifacts rebuild unchanged.
 
+### Unit 63 reopen implementation readback (Red Team, 2026-07-13)
+
+The Wave-5 implementation claim is bounded to the grid2d geometry, its one
+pin-count banner in `emulator/experiment.py`, plus a pure CPU test file.
+`state()` now always writes `const_mask` as uint8 zeros and ones. The unpinned
+state is an all-false array of length `nz*nk`. `from_state()` requires the
+member and gives an explicit re-save instruction when it is absent. Direct
+construction may still pass `None`; the constructor converts that value
+immediately into the same all-false in-memory mask, so any subsequent save is
+current-schema. Omitting the constructor argument is a `TypeError`, so absence
+cannot select the unpinned policy through either construction path.
+The banner counts true entries and stays silent for an all-false mask, which
+preserves the former unpinned output.
+
+The reopened state boundary checks the representation before decode can
+consume it. The accepted storage types are boolean and uint8. The mask must be
+one-dimensional, have exactly `nz*nk` entries and contain only zeros and ones.
+The original unit-63 quantity, identity-value and low-k-prefix clauses remain
+outside this reopen and are unchanged. No policy or version field was added.
+
+The command
+`PYTHONPATH=. ../cocoa/Cocoa/.local/bin/python -m unittest -v
+tests.test_grid2d_const_mask` runs five CPU tests. They prove a required direct
+constructor argument, an explicit all-false unpinned round-trip, an existing
+two-redshift low-k pin round-trip, shape/type/binary-value refusal and the
+key-deletion mutation. In
+the mutation witness, the intact `boost/none` pin serves exactly `1.0`; the
+retired presence-inferred branch serves `1.25`. Current `from_state` refuses
+the deleted key before that wrong value can be served.
+
+The existing `mps-identity` child is intentionally not edited in this branch
+because its file was owned by the concurrent `25M-36` repair when this work
+started. The owning gate must absorb the three persistence legs and update its
+seven-key preamble after that file becomes quiet. The package README now states
+the current always-present mask behavior. Its wider scheduled teaching visit
+remains separate. This is implementation evidence for the Architect's audit,
+not Red Team certification.
+
+After the `25M-36` repair landed on current main, its unmodified complete CPU
+child was rerun against this branch's geometry code. It reports eight state
+keys and ends `PASS: mps-identity all checks green`. That pass covers the
+existing checks only. It does not contain the three new persistence and
+missing-key legs, so it cannot close this reopen.
+
+The three board-listed persistence and missing-key legs are now unblocked on
+the quiet `mps-identity` file and remain the final integration step. The
+add-or-toggle-against-declared-unmasked case remains the unit-96
+artifact-authenticity interlock. This branch does not edit
+`emulator/results.py` or claim that wider artifact proof.
+
 ## UNIT 62 EXTENDED (45M-66, sixteenth batch, 2026-07-12): log_offset totality — a +Inf offset passes both guards and builds an all-NaN background target
 
 Finding (red team, CONFIRMED live): validate_grid requires
