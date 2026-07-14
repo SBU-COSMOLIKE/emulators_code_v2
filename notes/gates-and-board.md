@@ -8369,3 +8369,80 @@ NOT guess):
   repair mine (in which case the later legs would run and mint real
   verdicts) or owed to the red team like berhu's 63a1a5e? And which of
   (A)/(B) for the emission shape? Nothing minted green either way.
+
+## BLUEPRINT: README section 24 appendix (Fable, 2026-07-14) — the three-agent method for long-term testing and red-team bug repair
+
+USER-DIRECTED unit, Implementer custody, no parallelizable
+deliverables (one section, one file — no subagents needed).
+
+TARGET: README.md, section 24 "AI usage" (currently five lines at
+the file tail). Extend it with a compact appendix — suggested
+40-70 lines — documenting the development method now in use, so a
+public reader understands how the code is tested and repaired
+over the long term. No other file changes.
+
+CONTENT CONTRACT (every claim current-state and true today; the
+appendix explains, it does not advertise):
+
+1. THREE SESSIONS, THREE JOBS. One architect/auditor session
+   writes the contracts and audits every change against raw
+   command output before it merges; one implementer session
+   executes those contracts and runs the validation gates; one
+   red-team session — a separate model whose job is to break the
+   code — probes for bugs, weak tests, and stale documentation,
+   and files what it finds. Findings are input to the architect's
+   ruling, never self-applied. Define each term in place; a
+   reader who has never heard "red team" learns it here.
+
+2. DURABLE RECORDS MAKE IT LONG-TERM. Substantive work — designs,
+   findings, verdicts, repair contracts — is written under
+   notes/ before any chat message; chat is a short routing
+   summary pointing at the note, and the note wins on any
+   disagreement. Agent sessions forget; the notes do not. Any
+   future session (or human) resumes from the notes alone.
+
+3. THE LIFE OF A RED-TEAM BUG, start to finish: the finding is
+   filed with file and line anchors; the architect independently
+   REPRODUCES it before any fix is authorized; the repair is
+   implemented under a bounded scope; the repair ships with an
+   executable regression arm that re-introduces the defect and
+   proves the check now fails (catch power is demonstrated, not
+   asserted); the architect re-runs the evidence personally
+   before the merge; and the gates board re-executes every check
+   on every later run, so the protection stays live after
+   everyone involved has forgotten the bug. One or two REAL,
+   bounded examples may be cited generically (a units format that
+   crashed a file parser; an integration reference that shared
+   its integrator with the code under test) without internal
+   ticket vocabulary.
+
+4. THE OBJECTIVITY ANCHOR. Validation gates are executed by the
+   machine (gates/run_board.py and the check scripts), and the
+   relay tooling runs them locally and archives raw logs — an
+   agent's pass/fail claim is never accepted without the command
+   output behind it.
+
+5. THE TOOLS, one sentence each: tools/handoff_router.py (a
+   clipboard relay between the three sessions, plus a --status
+   sweep that reports the loop's state from git and the notes)
+   and tools/mailbox_daemon.py (a file mailbox under
+   notes/mailbox/ dispatched headlessly, so the loop runs without
+   manual copying). State plainly: merges to the main branch are
+   performed only by the human maintainer.
+
+CONSTRAINTS: public-prose conventions as in the rest of the
+README (plain language; every term of art defined in place or
+dropped; current-state doctrine — no development-diary or
+fix-queued language; no internal codenames, session names, queue
+numbers, or unit/finding identifiers; the standing editorial
+conventions for public text apply). Do not restate the roles'
+internal rulebooks; describe the method a reader can copy.
+
+VALIDATION GATE: the section renders as plain GitHub markdown
+(no LaTeX build involved); git diff --check clean; the diff
+touches README.md section 24 only; the appendix nowhere claims a
+capability that does not exist on main today.
+
+MILESTONE: one commit on the shared branch under the grant; hand
+the sha for my audit (a prose-only delta — I audit register,
+truth of claims, and the public-prose conventions).

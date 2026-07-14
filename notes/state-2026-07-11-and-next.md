@@ -3335,3 +3335,14 @@ notes/relay/, merges/pushes never automated (user-only). Convention
 appended to conventions-and-workflow.md. Smoke-tested send +
 dry-run; live dispatch awaits the user's permission-mode choice for
 headless turns.
+
+README-24 APPENDIX (2026-07-14, Fable): user-directed blueprint
+issued to the Implementer — extend README section 24 (AI usage)
+with a compact public appendix on the three-agent method: three
+sessions/three jobs, notes-first durability, the full life of a
+red-team bug (reproduce -> bounded repair -> executable
+regression arm -> independent re-run -> board keeps it live), the
+machine-run gates as the objectivity anchor, the two relay tools,
+merges human-only. Public-prose constraints pinned; one file, no
+subagents. Spec: gates-and-board.md "BLUEPRINT: README section 24
+appendix".
