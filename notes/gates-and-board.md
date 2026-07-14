@@ -8241,3 +8241,39 @@ sweep (empty / singleton / NaN / inf-first / equal / honest drop)
 matches the claims 6-for-6; board-selftest, stage-ram (the
 two-column prose fix verified), --list, bsn-identity all green at
 the composed tip d7b2317. 61-finiteness CLOSES.
+
+HAND-DO SET — GROUNDWORK (next, first-hand, no subagents):
+
+finite-contract (gate_finite_contract, child gates/checks/
+finite_contract.py, home training-stack): a 14-leg CHECK-SCRIPT gate,
+the largest remaining. Child structure read: Part A check_eval_val,
+Part B check_train_step, Part C check_source_chi2, Part D
+check_finetune_parity, Part E (transfer parity), Part F compile arm
+(capability-gated MANDATORY-RED per the child's own line-62 comment),
+plus safe-sqrt / chi2-domain / chi2-width / chi2-dtype / optimizer /
+epoch-mean / extreme-scale / post-step legs. The 14 drafted anchors:
+validation-score-finiteness, train-step-finiteness, diagnostic-score-
+finiteness, finetune-parity-finiteness, transfer-parity-finiteness,
+safe-sqrt-eager, safe-sqrt-compiled, epoch-mean-finiteness,
+chi2-domain-boundary, chi2-width-band, chi2-compute-dtype-band,
+optimizer-schema, extreme-scale-validation-reduction,
+optimizer-post-step-finiteness. PLAN for the next turn: (1) read the
+full finite_contract.py + the draft block's Part A-F prose + the
+warmstart note Parts D/E; (2) map the 14 aids to check-function groups
+via LEG_AIDS/emit_leg; (3) mint HONESTLY the Architect-named seams --
+Part F safe-sqrt-compiled = capability-gated (UNAVAILABLE off the
+required device / mandatory-red, NEVER green), the draft's Part A/C
+false-red and Part F crash accounts as UNAVAILABLE/red-as-recorded;
+FOLD the warmstart Part D/E legs into finetune-parity-finiteness /
+transfer-parity-finiteness; (4) verify (child runs on cocoa-torch --
+CPU finite check, likely runnable), declared==emitted 14==14; commit.
+
+scalar-smoke: CHILD is Sol's (codex/scalar-smoke-nine-aids-child,
+red-team backup-Implementer); I wire only the board.py nine-aid
+evidence= tuple and integrate Sol's child on return like a subagent
+draft (re-diff against the current file). NOT building the child.
+
+6 wrapper-family (cobaya-adapter, save-rebuild-drift, finetune-
+identity/-smoke, transfer-identity/-smoke): mine; record the
+post-25M-37 results (finetune-identity child all-green; transfer-
+identity full check set + the known cross-family-fixture red).
