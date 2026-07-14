@@ -5853,3 +5853,40 @@ four-fetch block; all three pre-ruled arrivals (0125/0126/0127) are now
 CLOSED, so the pre-ruling ledger for the terminated loops is empty; the
 next substantive Architect work in this lane is the landings-2+3 audit
 (`0132-to-fable`).
+
+### Unit-13 covariance package — Red Team implementation return (2026-07-14)
+
+The never-dispatched reassignment is now implemented at
+`2fd8a9dcd816c2681b708406b40d7bd81b7270d3` on
+`codex/unit-13-covariance`, based on main `f347b8f`. Register items 25M-08,
+25M-11, 25M-12, and 45M-01 each have a covariance-owned pure witness with a
+mutation or legacy false-green arm. The encompassing unit-13 schema and
+lensing-range contract has its own fifth witness. All five pass; the board
+selftest is ALL PASS; every touched Python file compiles; diff-check and the
+no-comprehension/lambda/missing-docstring/over-90 scans are clean.
+
+The complete files, exact commands, discriminating numerical outputs,
+explicit YAML block, workstation limitation, no-self-certification line,
+and printed fetch/landing block are in `families-scalar-cmb.md`, "Unit-13
+covariance package — Red Team implementation readback". Architect audit is
+required before any user merge. The branch tip is in an isolated clone
+because the sandbox rejected the linked-worktree ref lock; the readback's
+fetch block makes it reachable without rewriting the tip.
+
+ARCHITECT ADJUDICATION (2026-07-14): substance GO. The tip was reachable
+(the user's fetch had already published the ref), so the audit ran against
+the real object: byte-faithful scratch extraction (206/206 blob ids
+verified), all five witnesses re-run and reproduced with every
+discriminating number byte-matched, board-selftest ALL PASS, independent
+AST style scan clean, all four contracts (base unit-13 + 25M-08/11/12 +
+45M-01) walked clause-by-clause against the diff and satisfied, gate
+surface untouched, seam disjoint from the in-flight adapter half. ONE
+REQUIRED DELTA from the Architect's own unscripted probes: removing any of
+the four validator calls from main() leaves all five witnesses green — the
+wiring is unproven (the unit-41 production-coupling class); main-driving
+refusal legs are dispatched back to the red team as a rider on the same
+ledger line. Merge HELD until the delta lands so main receives one squash
+per audited unit. Torch cmb-identity and the real-CAMB Planck-LCDM
+byte-identity control stay workstation-owed. Full record:
+`families-scalar-cmb.md`, "Unit-13 covariance audit (Architect,
+2026-07-14)".

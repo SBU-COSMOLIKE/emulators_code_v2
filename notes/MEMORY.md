@@ -60,6 +60,14 @@ numbered mailbox file after recording the substance under `notes/`.
   — red-team-owned validator package at 2fd8a9d: five pure witnesses green,
   explicit flat-LCDM params, full raw evidence and fetch block; awaiting
   Architect audit, with the real-CAMB/Torch workstation legs honestly owed.
+- [Unit-13 covariance audit: substance GO, one wiring delta, merge held](families-scalar-cmb.md#unit-13-covariance-audit-architect-2026-07-14-substance-go--every-cpu-gate-re-run-and-reproduced-one-required-wiring-delta-merge-held-for-one-squash-granularity)
+  — the tip was reachable (user fetch), so the audit ran on the real object:
+  206/206 blobs verified, all five witnesses reproduced byte-exact,
+  selftest ALL PASS, four contracts satisfied clause-by-clause, no gate
+  tampering, seam disjoint. The Architect's own four wiring mutations all
+  stayed green — main()'s validator calls are unproven; the main-driving
+  refusal-leg delta rides the same ledger line (0158 to Sol); merge held
+  for one squash; Torch + real-CAMB legs workstation-owed.
 - [Families: background + matter power](families-background-mps.md)
   — BSN (two-regime, imposed distances, flat-only, the Simpson
   finding) and MPS (correction-to-syren, D-MP2-A base-on-disk, the
