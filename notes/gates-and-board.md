@@ -9546,3 +9546,23 @@ AGENT_COMMANDS monkeypatched to a stub; every claimed defect ships an
 executable reproduction; repairs are proposals on the branch, the
 merge is the Architect's (constraint 5 governs — transport hardening
 must not reshape the notes-first design).
+
+## DIDACTICS-59 audit (Fable, 2026-07-14): 95cb840 GO
+
+Red-team return audited from a detached scratch worktree
+(codex/didactics59-real-eval @ 95cb840, fetched from its clone; base =
+main 7f4b769). Scope exact per the handoff: the ge_c_eval_bs.py check
+rewrite, board.py behavioral prose only, notes records. Re-run by me
+(cocoa interpreter): rc 0, zero [FAIL], real eval_val driven across
+full/equal/ragged batch shapes against an independent float64 NumPy
+reference; all three shipped tamper arms fire caught=True; the two
+timing legs honestly UNAVAILABLE (no acceptance bound exists, and the
+gate makes no production-speed claim).
+
+MY OWN PROBE (unscripted): poisoned the independent reference mean by
++1e-3 — the check reds (rc 1) with the partition-invariance leg naming
+itself in the ##AID manifest. The float64 reference is genuinely
+independent and the comparison is load-bearing in both directions.
+
+VERDICT: GO. Merged into the working branch; D5 shrinks per the
+transfer plan (62 + 64/70 remain in that block).
