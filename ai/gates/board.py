@@ -2011,6 +2011,32 @@ def gate_generator_checkpoint_refusal(ctx):
            + " (ai/gates/checks/generator_checkpoint_refusal.py)")
 
 
+def gate_dataset_publication(ctx):
+  """dataset-publication: one active record selects one sealed generation.
+
+  The CPU child runs the complete focused publication suite and folds its 30
+  witnesses into five exact AID terminals. It proves stable slot identity,
+  canonical bounded records, exact role/path/file/directory censuses, a
+  whole-draft source epoch and sealed-copy isolation, full-active-record CAS,
+  old-or-new pointer visibility, read-only authentication, retry-safe sync
+  ordering, and bounded cleanup. The callback campaign is explicitly an
+  in-process fault witness rather than a power-loss recovery simulation.
+
+  This is the transaction/resolver foundation only. GeneratorCore and training
+  consumers still use their existing flat paths; domain identity, family maps,
+  consumer pinning, copy-on-write resume/append, RNG continuation, and MPI
+  binding remain later Unit-8 slices.
+  """
+  rc, out = ctx.run_check("ai/gates/checks/dataset_publication.py")
+  if ctx.dry:
+    return
+  ctx.expect(
+    label="dataset-publication child completed",
+    ok=(rc == 0),
+    detail="check exit code " + str(rc)
+           + " (ai/gates/checks/dataset_publication.py)")
+
+
 def gate_parameter_table(ctx):
   """parameter-table: parameter consumers select producer-declared names.
 
@@ -2492,6 +2518,47 @@ BOARD = [
                "compute_data_vectors/dataset_generator_mps.py",
                "emulator/fixed_facts.py",
                "emulator/parameter_table.py"),
+         inputs=()),
+       needs=()),
+  Gate(id="dataset-publication",
+       spec_code="GEN-E",
+       title="One active record selects one immutable dataset generation",
+       tier=TIER_BACKLOG,
+       home="data-generation-and-cuts",
+       maps="the bounded Unit-8 immutable-generation publication foundation: "
+            "a relocation-stable descriptor separates stems, family, and "
+            "dataset mode under strict canonical JSON; the caller and manifest "
+            "share one exact semantic role-to-path and file/directory census; "
+            "all source members remain open and token-stable across the whole "
+            "sealed-copy window; one locked whole-active-record CAS switches "
+            "readers from complete A to complete B only after a read-only "
+            "generation is authenticated; and retry-safe file/directory sync "
+            "plus bounded pre/post-commit cleanup preserve truthful outcomes. "
+            "This does not claim GeneratorCore/consumer integration, exact "
+            "scientific identity, append RNG continuation, or power-recovery "
+            "behavior beyond the documented surviving-pointer contract: "
+            "before the slot-directory sync, recovery may expose A, B, or no "
+            "active pointer; any surviving authenticated pointer names one "
+            "complete generation",
+       evidence=(Assertion(
+                   "dataset-publication.slot-identity",
+                   "data-generation-and-cuts.md#dataset-publication-slot-identity"),
+                 Assertion(
+                   "dataset-publication.exact-census",
+                   "data-generation-and-cuts.md#dataset-publication-exact-census"),
+                 Assertion(
+                   "dataset-publication.sealed-epoch",
+                   "data-generation-and-cuts.md#dataset-publication-sealed-epoch"),
+                 Assertion(
+                   "dataset-publication.atomic-switch",
+                   "data-generation-and-cuts.md#dataset-publication-atomic-switch"),
+                 Assertion(
+                   "dataset-publication.durability-and-recovery",
+                   "data-generation-and-cuts.md#dataset-publication-durability-and-recovery")),
+       run=gate_dataset_publication,
+       manifest=Manifest(
+         code=("compute_data_vectors/dataset_publication.py",
+               "ai/tests/test_dataset_publication.py"),
          inputs=()),
        needs=()),
   Gate(id="cli-strict",

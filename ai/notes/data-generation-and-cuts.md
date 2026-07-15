@@ -2042,6 +2042,107 @@ stored rows came from one generation, or revalidate the scientific meaning of
 stored payloads. Those remain owned by the manifest/atomic-publication,
 RNG-continuation, row-authenticity, and payload-semantics work respectively.
 
+### Unit 8 immutable-generation publication foundation: one pointer selects one sealed set
+
+This bounded CPU-only slice adds `compute_data_vectors/dataset_publication.py`.
+It is the transaction that the generator and training readers will use in a
+later slice. It does **not** yet change their flat checkpoint paths, so it does
+not close Unit 8 or make today's generator output atomic.
+
+Each logical dataset owns one private slot below `chains/.datasets`. A writer
+builds an unlisted mutable draft below that slot's `work/` directory. Publication
+copies the declared files into exclusive sealed inodes, writes one canonical
+manifest beside them, installs the directory below `generations/`, removes all
+write bits, and replaces the slot's single `active.json` record last. There are
+no per-file “current” links whose sequential updates could mix generations.
+
+<a id="dataset-publication-slot-identity"></a>
+`dataset-publication.slot-identity` binds a slot to the portable basenames of
+the parameter, data-vector, and failure stems, the family, and the explicit
+`full` or `chain-only` mode. Relocating the complete `chains/` directory keeps
+the same slot id; changing any identity axis changes it. The three stems must
+remain distinct even on a case-insensitive filesystem. Descriptor, manifest,
+and active records accept one sorted, whitespace-free UTF-8 JSON encoding with
+an LF terminator. Duplicate or unknown keys, nonfinite numbers, unsupported
+types, and integers longer than 1,024 decimal digits refuse before use.
+
+<a id="dataset-publication-exact-census"></a>
+`dataset-publication.exact-census` requires the caller's complete semantic
+role-to-relative-path map. Every declared role occurs once, every declared path
+occurs once, and the observed files **and directories** equal that declaration.
+Missing, extra, empty, traversing, linked, symlinked, special, renamed, or
+writable published entries refuse. The manifest records each exact relative
+path, byte length, and SHA-256. A reader supplies the expected identity and the
+same exact role-to-path map; it accepts neither a familiar digest under a wrong
+basename nor a correct subset of a larger generation.
+
+<a id="dataset-publication-sealed-epoch"></a>
+`dataset-publication.sealed-epoch` requires the integration to stop/close all
+writers and complete its MPI barrier before publication. The publisher then
+opens and fingerprints **every** source member before copying the first one,
+keeps all descriptors open, and checks every inode/size/mtime/ctime token plus
+the complete census after the final copy. Once all members have been acquired,
+a change to any source refuses, preventing the A-old/B-new race caused by
+sequential per-file checks. This verifies one on-disk state after the final
+open; the mandatory external writer/MPI barrier is what proves that state is
+one intended scientific run. Published files are new inodes, so a retained
+writable source descriptor or memmap cannot alter the accepted generation.
+Resume and append must later stream-copy an authenticated active generation
+into a new mutable draft; they must never hardlink and reopen published
+members.
+
+<a id="dataset-publication-atomic-switch"></a>
+`dataset-publication.atomic-switch` serializes compliant publishers with one
+per-slot advisory lock and compares the SHA-256 of the **entire** previously
+read canonical active record. A stale token refuses even if only its generation
+field changed. The reader opens the replaceable active record once, accepts the
+old or new inode, authenticates the named manifest and complete generation,
+and returns paths under that one generation. A later switch therefore does not
+redirect an already-resolved path. Those paths pin a name rather than an open
+file descriptor: future garbage collection must retain the directory for the
+whole consuming operation.
+
+<a id="dataset-publication-durability-and-recovery"></a>
+`dataset-publication.durability-and-recovery` writes and syncs sealed members,
+the manifest, the installed tree, and the active-record temporary in that
+order, using Darwin `F_FULLFSYNC` for regular files when available. It then
+atomically replaces `active.json` and syncs the slot directory. Directory setup
+syncs both an ensured directory and its parent on every retry, including when a
+prior attempt completed `mkdir` but failed during the parent sync. A normal
+pre-install refusal removes its temporary active file and sealed duplicate
+while preserving the source draft for retry; successful publication removes
+the mutable source without allowing a cleanup warning to turn the committed
+transaction into a reported failure.
+
+The focused evidence records the real file and directory sync calls and proves
+that every sealed member, the manifest, and the active-record temporary has a
+successful sync **after** its final `fchmod(0444)`, keyed by device and inode.
+It also proves that the installed generation directories are synced before
+`active.json` is replaced and the slot directory is synced immediately
+afterward. A second witness injects a failure while syncing the parent of a
+newly created directory, retries after `mkdir` has already succeeded, and
+proves that both the existing child and its parent are synced again. A
+primitive-level witness also requires the helpers to reach `os.fsync` for both
+regular files and directories and, when the platform provides it, Darwin
+`F_FULLFSYNC`; wrapper call order alone is not accepted as durability evidence.
+
+The five callback names in the focused test are injected **process-fault**
+boundaries, not a simulation of storage-controller or power recovery. Before
+`active-replaced`, a live inspection sees old generation A; afterward it sees
+complete B. Until the final slot-directory sync has returned, portable power
+recovery has no namespace-durability guarantee: it may expose A, B, or no
+active pointer. Any surviving authenticated pointer names one complete
+generation. An installed but inactive generation may remain for explicit
+recovery after a later pre-switch failure; generation discovery/garbage
+collection is intentionally deferred.
+
+The trust boundary is the repository owner plus compliant concurrent writers.
+The module rejects unsafe POSIX entries and modes, but it does not defend
+against the same account rewriting ancestor directories or manipulating ACLs
+during an operation. The exact scientific identity schema, family member maps,
+GeneratorCore rebinding, consumer pinning, copy-on-write resume/append, RNG
+continuation, and MPI integration all remain OPEN follow-on work.
+
 ### Unit 8 named-column slice: staging and pool sizing use the producer schema
 
 The shared torch-free `emulator/parameter_table.py` resolver now treats the

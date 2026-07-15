@@ -1189,6 +1189,51 @@ _DATA_READ_COVERS = {
 # hashed in every gate's closure, so it is never a reviewed data-reader.
 _DATA_READ_HARNESS = _SHARED_HARNESS
 
+# ``os.walk`` is a deliberately conservative tripwire because whole-tree gate
+# checks often use it to read executable source as data. These exact calls
+# instead walk caller-owned dataset/test directories. Each waiver binds the
+# qualified function and the canonical AST of its root expression, and may be
+# consumed only once. A renamed, removed, duplicated, or altered call becomes
+# an unreviewed site rather than widening the exception to a whole function.
+_DATA_READ_WALK_WAIVERS = {
+  "compute_data_vectors/dataset_publication.py": frozenset((
+    ("_relative_regular_census", "Name(id='root')"),
+    ("_make_tree_read_only", "Name(id='root')"),
+    ("_fsync_tree_directories", "Name(id='root')"),
+  )),
+  "ai/tests/test_dataset_publication.py": frozenset((
+    ("DatasetPublicationTests._make_test_tree_writable",
+     "Call(func=Name(id='str'),args=[Attribute(value=Name(id='self'),"
+     "attr='root')])"),
+  )),
+}
+
+
+def _qualified_ast_scope(node, parents):
+  """Return the class/function path containing one AST node."""
+  names = []
+  current = node
+  while current in parents:
+    current = parents[current]
+    if isinstance(current, (ast.ClassDef, ast.FunctionDef,
+                            ast.AsyncFunctionDef)):
+      names.append(current.name)
+  return ".".join(reversed(names))
+
+
+def _stable_ast_shape(value):
+  """A compact AST fingerprint stable across supported Python versions."""
+  if isinstance(value, ast.AST):
+    fields = []
+    for name, child in ast.iter_fields(value):
+      if name in ("ctx", "type_comment") or child is None or child == []:
+        continue
+      fields.append(name + "=" + _stable_ast_shape(child))
+    return type(value).__name__ + "(" + ",".join(fields) + ")"
+  if isinstance(value, list):
+    return "[" + ",".join(_stable_ast_shape(item) for item in value) + "]"
+  return repr(value)
+
 
 def _data_read_sites(rel_path):
   """The .py-as-DATA read sites in one file (25M-16 negative catch).
@@ -1212,7 +1257,13 @@ def _data_read_sites(rel_path):
     tree = ast.parse((_REPO / rel_path).read_bytes())
   except (OSError, SyntaxError, ValueError):
     return []
+  parents = {}
+  for parent in ast.walk(tree):
+    for child in ast.iter_child_nodes(parent):
+      parents[child] = parent
   sites = []
+  walk_waivers = _DATA_READ_WALK_WAIVERS.get(rel_path, frozenset())
+  consumed_walk_waivers = set()
   for node in ast.walk(tree):
     if not isinstance(node, ast.Call):
       continue
@@ -1227,7 +1278,13 @@ def _data_read_sites(rel_path):
     # traverses an already-parsed tree and reads no file.
     if (name == "walk" and isinstance(fn, ast.Attribute)
         and isinstance(fn.value, ast.Name) and fn.value.id == "os"):
-      sites.append((rel_path, node.lineno, "os.walk source scan"))
+      root_shape = (_stable_ast_shape(node.args[0])
+                    if node.args else "<no positional root>")
+      waiver = (_qualified_ast_scope(node, parents), root_shape)
+      if waiver in walk_waivers and waiver not in consumed_walk_waivers:
+        consumed_walk_waivers.add(waiver)
+      else:
+        sites.append((rel_path, node.lineno, "os.walk source scan"))
     elif name in ("rglob", "glob"):
       if any(isinstance(a, ast.Constant) and isinstance(a.value, str)
              and ".py" in a.value for a in node.args):
@@ -1236,6 +1293,10 @@ def _data_read_sites(rel_path):
       if any(isinstance(sub, ast.Constant) and isinstance(sub.value, str)
              and sub.value.endswith(".py") for sub in ast.walk(node)):
         sites.append((rel_path, node.lineno, "read .py source as data"))
+  for waiver in sorted(walk_waivers - consumed_walk_waivers):
+    sites.append((
+      rel_path, 0,
+      "stale or ambiguous os.walk waiver " + repr(waiver)))
   return sites
 
 

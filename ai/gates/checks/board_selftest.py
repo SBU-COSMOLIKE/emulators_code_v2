@@ -1549,6 +1549,76 @@ def check_data_read_census():
     finally:
         run_board._DATA_READ_COVERS = saved
 
+    # Removing the publication module's reviewed walk-waiver entry exposes its
+    # caller-owned dataset walks. This proves the named entry is load-bearing.
+    publication_gate = by_id["dataset-publication"]
+    saved_walk_waivers = run_board._DATA_READ_WALK_WAIVERS
+    try:
+        table = dict(saved_walk_waivers)
+        table.pop("compute_data_vectors/dataset_publication.py")
+        run_board._DATA_READ_WALK_WAIVERS = table
+        ok, errs = run_board.validate_manifests(
+            [publication_gate], live_cfg)
+        report("dataset publication uses exact walk waivers",
+               (not ok) and any("unreviewed data-read" in e for e in errs),
+               "removing its reviewed entry exposes the dataset walks")
+    finally:
+        run_board._DATA_READ_WALK_WAIVERS = saved_walk_waivers
+
+    # Scope-sensitive control: one synthetic module contains two os.walk calls.
+    # Only the call inside the named function is waived. A file-wide exemption
+    # would hide both calls and fail this exact-one-site assertion.
+    with tempfile.TemporaryDirectory(prefix="board-walk-scope-") as temp:
+        fixture = Path(temp) / "walk_fixture.py"
+        fixture.write_text(
+            "import os\n\n"
+            "def reviewed(root):\n"
+            "    return list(os.walk(root))\n\n"
+            "def unreviewed(root):\n"
+            "    return list(os.walk(root))\n",
+            encoding="utf-8")
+        saved_repo = run_board._REPO
+        saved_walk_waivers = run_board._DATA_READ_WALK_WAIVERS
+        try:
+            run_board._REPO = Path(temp)
+            run_board._DATA_READ_WALK_WAIVERS = {
+                "walk_fixture.py": frozenset((
+                    ("reviewed", "Name(id='root')"),
+                )),
+            }
+            sites = run_board._data_read_sites("walk_fixture.py")
+            fixture.write_text(
+                "import os\n\n"
+                "def reviewed(root):\n"
+                "    os.walk(root)\n"
+                "    os.walk(root)\n",
+                encoding="utf-8")
+            repeated_sites = run_board._data_read_sites("walk_fixture.py")
+            fixture.write_text(
+                "import os\n\n"
+                "def reviewed(root):\n"
+                "    os.walk(root)\n\n"
+                "def reviewed(root):\n"
+                "    os.walk(root)\n",
+                encoding="utf-8")
+            duplicate_scope_sites = run_board._data_read_sites(
+                "walk_fixture.py")
+        finally:
+            run_board._REPO = saved_repo
+            run_board._DATA_READ_WALK_WAIVERS = saved_walk_waivers
+        report("walk waivers bind one qualified call, not whole files",
+               len(sites) == 1
+               and sites[0][2] == "os.walk source scan",
+               "one reviewed walk is hidden; one unreviewed walk remains")
+        report("one exact walk waiver cannot hide an additional call",
+               len(repeated_sites) == 1
+               and repeated_sites[0][2] == "os.walk source scan",
+               "a repeated call consumes no second waiver")
+        report("one exact walk waiver cannot hide a duplicate scope",
+               len(duplicate_scope_sites) == 1
+               and duplicate_scope_sites[0][2] == "os.walk source scan",
+               "a duplicate qualified function consumes no second waiver")
+
     # (25M-19 run-time clause) a declared input that does not resolve/hash at RUN
     # time refuses BEFORE the gate body -- a None sha is a validation-time
     # allowance only. Drive the real run_selection via main().
