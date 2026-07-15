@@ -201,6 +201,13 @@ DEFAULT_IMPLEMENTER_MODEL = "claude-opus-4-8"
 DEFAULT_CLAUDE_CONTEXT_BUDGET = 500000
 DEFAULT_SOL_CONTEXT_BUDGET = 500000
 
+# A run may limit the text changed by one ticket. Zero is deliberately
+# unlimited: the maintenance policy is opt-in, while every readability and
+# completeness rule remains active. The command-line choice is copied into
+# each child environment and prompt so every role sees one value.
+DEFAULT_MAX_CHARACTERS = 0
+MAX_CHARACTERS = DEFAULT_MAX_CHARACTERS
+
 # dispatch() reads this for the claude environment; main() rebinds it
 # from --claude-context. Sol's budget rides inside AGENT_COMMANDS.
 CLAUDE_CONTEXT_BUDGET = DEFAULT_CLAUDE_CONTEXT_BUDGET
@@ -1500,21 +1507,92 @@ def validated_primary_notes(primary_path):
 
 
 def validate_authoritative_role_files(primary_path):
-    """Prove Sol's absolute role instructions are ordinary primary files."""
-    roles = (
-        os.path.join(primary_path, ".codex", "REDTEAM_ROLE.md"),
-        os.path.join(primary_path, ".claude", "OPUS_ROLE.md"),
+    """Return stable proofs for Sol's primary roles and ticket tools."""
+    primary = os.path.abspath(primary_path)
+    primary_real = os.path.realpath(primary)
+    directory_paths = (
+        ("saved primary worktree", primary, primary_real),
+        ("saved primary .codex directory",
+         os.path.join(primary, ".codex"),
+         os.path.join(primary_real, ".codex")),
+        ("saved primary .claude directory",
+         os.path.join(primary, ".claude"),
+         os.path.join(primary_real, ".claude")),
+        ("saved primary ai directory",
+         os.path.join(primary, "ai"),
+         os.path.join(primary_real, "ai")),
+        ("saved primary tools directory",
+         os.path.join(primary, "ai", "tools"),
+         os.path.join(primary_real, "ai", "tools")),
     )
-    for role in roles:
+    directory_proof = []
+    for label, path, expected_real in directory_paths:
+        identity = _plain_directory(path=path, label=label)
+        if os.path.realpath(path) != expected_real:
+            raise PrimaryWorktreeError(label + " is redirected: " + path)
+        directory_proof.append((label, path, identity))
+
+    authoritative_files = (
+        ("role", os.path.join(
+            primary, ".codex", "REDTEAM_ROLE.md")),
+        ("role", os.path.join(
+            primary, ".claude", "OPUS_ROLE.md")),
+        ("ticket tool", os.path.join(
+            primary, "ai", "tools", "handoff_contract.py")),
+        ("ticket tool", os.path.join(
+            primary, "ai", "tools", "ticket_change_guard.py")),
+    )
+    file_proof = []
+    for kind, path in authoritative_files:
         try:
-            info = os.lstat(role)
+            info = os.lstat(path)
         except OSError as exc:
             raise PrimaryWorktreeError(
-                "authoritative Sol role file is missing: " + str(exc))
+                "authoritative Sol " + kind + " is missing: " + str(exc))
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
             raise PrimaryWorktreeError(
-                "authoritative Sol role file must be a regular file: "
-                + role)
+                "authoritative Sol " + kind + " must be a regular file: "
+                + path)
+        expected_real = os.path.join(
+            primary_real, os.path.relpath(path, primary))
+        if os.path.realpath(path) != expected_real:
+            raise PrimaryWorktreeError(
+                "authoritative Sol " + kind + " is redirected: " + path)
+        identity = (info.st_dev, info.st_ino, info.st_size,
+                    info.st_mtime_ns, info.st_ctime_ns)
+        file_proof.append((kind, path, identity))
+
+    proof = {
+        "directories": tuple(directory_proof),
+        "files": tuple(file_proof),
+    }
+    recheck_authoritative_role_files(proof=proof)
+    return proof
+
+
+def recheck_authoritative_role_files(proof):
+    """Require every authoritative parent and file to keep its identity."""
+    if (not isinstance(proof, dict)
+            or set(proof) != {"directories", "files"}):
+        raise PrimaryWorktreeError(
+            "authoritative Sol role-file proof is missing or malformed")
+    for label, path, identity in proof["directories"]:
+        _require_directory_identity(
+            path=path, identity=identity, label=label)
+    for kind, path, identity in proof["files"]:
+        try:
+            info = os.lstat(path)
+        except OSError as exc:
+            raise PrimaryWorktreeError(
+                "cannot revalidate authoritative Sol " + kind + ": "
+                + str(exc))
+        current = (info.st_dev, info.st_ino, info.st_size,
+                   info.st_mtime_ns, info.st_ctime_ns)
+        if (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                or current != identity):
+            raise PrimaryWorktreeError(
+                "authoritative Sol " + kind
+                + " changed after topology validation: " + path)
 
 
 def _sol_state_for_record(record, repository_root):
@@ -2049,6 +2127,14 @@ def nonnegative_cycle_count(value):
     return parsed
 
 
+def nonnegative_max_characters(value):
+    """Parse a ticket character limit, where zero means unlimited."""
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]+", value) is None:
+        raise argparse.ArgumentTypeError(
+            "max characters must use only decimal digits 0 through 9")
+    return int(value)
+
+
 def strict_cycle_ledger_count():
     """Read the cycle-zero ledger fail-closed from one verified regular file."""
     try:
@@ -2345,6 +2431,7 @@ FIX_ONLY_ENVIRONMENT = "MAILBOX_FIX_ONLY"
 FIX_ONLY_LOCK_NAME = ".fix-only.lock"
 SKIP_REDTEAM_ENVIRONMENT = "MAILBOX_SKIP_REDTEAM"
 SKIP_REDTEAM_LOCK_NAME = ".skip-redteam.lock"
+MAX_CHARACTERS_ENVIRONMENT = "MAILBOX_MAX_CHARACTERS"
 
 # One landed milestone = ONE FULL AUDIT TRAIL: the feature, its
 # witness/gate leg, and the notes audit record — a few hundred changed
@@ -2467,13 +2554,23 @@ def agent_preamble(agent, message=None):
     if agent == "opus":
         return IMPLEMENTER_ROLE_PREAMBLE
     if agent == "sol":
+        primary = AGENT_CWD["fable"]
         authoritative = (
             "AUTHORITATIVE ROLE FILES (read these absolute paths, not stale "
             "copies in the Sol checkout):\n"
-            "    " + os.path.join(AGENT_CWD["fable"], ".codex",
+            "    " + os.path.join(primary, ".codex",
                                   "REDTEAM_ROLE.md") + "\n"
-            "    " + os.path.join(AGENT_CWD["fable"], ".claude",
-                                  "OPUS_ROLE.md") + "\n")
+            "    " + os.path.join(primary, ".claude",
+                                  "OPUS_ROLE.md") + "\n"
+            "AUTHORITATIVE TICKET TOOLS (run these absolute primary paths, "
+            "not relative copies in the Sol checkout):\n"
+            "    " + os.path.join(
+                primary, "ai", "tools", "handoff_contract.py") + "\n"
+            "    " + os.path.join(
+                primary, "ai", "tools", "ticket_change_guard.py") + "\n"
+            "For a character check, pass `--repo` followed by the exact "
+            "candidate worktree from the directive. Never measure the Sol "
+            "checkout merely because it is this turn's current folder.\n")
         if message is not None and sol_second_implementer_assignment(
                 message=message):
             return (SECOND_IMPLEMENTER_ROLE_PREAMBLE + authoritative
@@ -2934,7 +3031,53 @@ def dispatch_banner(store_max, newer_in_lane, previous_timeout_minutes,
             "create no to-sol messages; route Implementer evidence to the "
             "Architect and Architect repair handoffs to the Implementer.")
     lines.append("--- END DISPATCH CURRENCY ---")
+    lines.append("")
+    lines.append("--- TICKET CHARACTER BUDGET (binding) ---")
+    primary = AGENT_CWD["fable"]
+    contract_tool = os.path.join(
+        primary, "ai", "tools", "handoff_contract.py")
+    change_tool = os.path.join(
+        primary, "ai", "tools", "ticket_change_guard.py")
+    if MAX_CHARACTERS == 0:
+        lines.append(
+            "ticket limit: none (--max 0); readability, complete behavior, "
+            "tests, explanations, and failure handling remain required; "
+            "obfuscated work is NO-GO.")
+        lines.append(
+            "The Architect must record the unlimited budget and validate the "
+            "structured directive by running `python3 " + contract_tool
+            + " architect NOTE_ABSOLUTE_PATH --max 0` before GO.")
+    else:
+        value = str(MAX_CHARACTERS)
+        lines.append(
+            "ticket limit: at most " + value + " characters added plus "
+            "deleted from the directive Base.")
+        lines.append(
+            "Before final GO or ticket closure, the Architect must run "
+            "`python3 " + change_tool
+            + " --repo EXECUTION_WORKTREE --base BASE --max " + value
+            + "`. The program path belongs to the primary AI worktree; "
+            "--repo selects the exact proposed commit.")
+        lines.append(
+            "The Architect must record the structured budget evidence and "
+            "validate the structured directive by running `python3 "
+            + contract_tool + " architect NOTE_ABSOLUTE_PATH --max " + value
+            + "` before GO.")
+        lines.append(
+            "Over-limit, unmeasurable, or obfuscated work is NO-GO; never "
+            "compress readable code, omit tests or explanations, or leave "
+            "requested behavior incomplete to fit.")
+    lines.append("--- END TICKET CHARACTER BUDGET ---")
     return "\n".join(lines) + "\n\n"
+
+
+def report_ticket_character_limit():
+    """Print the effective per-ticket text limit at live startup."""
+    if MAX_CHARACTERS == 0:
+        print("ticket character limit: none (--max 0)")
+        return
+    print("ticket character limit: " + str(MAX_CHARACTERS)
+          + " added plus deleted characters per ticket")
 
 
 def placeholder_in(message):
@@ -3502,7 +3645,8 @@ def validate_live_sol_dispatch_topology():
             state=sol, repository_root=REPO_ROOT, primary_state=primary,
             allow_move=False)
         notes = validated_primary_notes(primary_path=primary["path"])
-        validate_authoritative_role_files(primary_path=primary["path"])
+        authoritative_files = validate_authoritative_role_files(
+            primary_path=primary["path"])
         expected = ACTIVE_TOPOLOGY
         if (os.path.abspath(primary["path"]) != expected["primary_path"]
                 or os.path.abspath(sol["path"]) != expected["sol_path"]
@@ -3538,6 +3682,7 @@ def validate_live_sol_dispatch_topology():
             "sol_identity": sol_identity,
             "notes_path": expected["shared_notes"],
             "notes_identity": notes_identity,
+            "authoritative_files": authoritative_files,
         }
     finally:
         _release_primary_lock(lock_file=lock_file)
@@ -3554,6 +3699,7 @@ def recheck_sol_dispatch_directories(proof):
     _require_directory_identity(
         path=proof["notes_path"], identity=proof["notes_identity"],
         label="shared notes directory")
+    recheck_authoritative_role_files(proof=proof["authoritative_files"])
 
 
 def revalidate_sol_dispatch_topology(proof):
@@ -3782,6 +3928,14 @@ def dispatch_under_main_checkout_lock(
         # growing to the native 1M-token window.
         env = os.environ.copy()
         env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(CLAUDE_CONTEXT_BUDGET)
+        env[MAX_CHARACTERS_ENVIRONMENT] = str(MAX_CHARACTERS)
+        env["MAILBOX_PRIMARY_WORKTREE"] = AGENT_CWD["fable"]
+        env["MAILBOX_SHARED_NOTES"] = os.path.join(
+            AGENT_CWD["fable"], "ai", "notes")
+        env["MAILBOX_HANDOFF_CONTRACT"] = os.path.join(
+            AGENT_CWD["fable"], "ai", "tools", "handoff_contract.py")
+        env["MAILBOX_TICKET_CHANGE_GUARD"] = os.path.join(
+            AGENT_CWD["fable"], "ai", "tools", "ticket_change_guard.py")
         if fix_only:
             env[FIX_ONLY_ENVIRONMENT] = "1"
         else:
@@ -4781,6 +4935,7 @@ def main():
     global AGENT_COMMANDS
     global DISPATCH_TIMEOUT_MINUTES
     global CLAUDE_CONTEXT_BUDGET
+    global MAX_CHARACTERS
     global _ACTIVE_WATCH_RENDEZVOUS
 
     parser = argparse.ArgumentParser(
@@ -4801,6 +4956,13 @@ def main():
                              "enabled dispatch queue and open ledger are "
                              "empty; "
                              "omitting the option keeps watching indefinitely")
+    parser.add_argument(
+        "--max", dest="max_characters", metavar="characters",
+        type=nonnegative_max_characters, default=None,
+        help="with --watch or --once, limit each ticket to this many added "
+             "plus deleted characters from the starting commit in its "
+             "directive; use only digits 0 through 9; 0 means no limit "
+             "(default: 0)")
     parser.add_argument("--skip-redteam", "--no-red-team",
                         dest="skip_redteam", action="store_true",
                         help="with --watch, dispatch only Architect and "
@@ -4884,6 +5046,13 @@ def main():
     if args.cycle is not None and not args.watch:
         print("--cycle is valid only with --watch")
         return 1
+    if args.max_characters is not None:
+        conflicting_action = (
+            not (args.watch or args.once)
+            or args.send is not None or args.ping is not None)
+        if conflicting_action:
+            print("--max is valid only with --watch or --once")
+            return 1
     if args.skip_redteam:
         conflicting_action = (
             not args.watch or args.once or args.send is not None
@@ -4929,9 +5098,15 @@ def main():
 
     fix_only = args.fix_only is True
     skip_redteam = args.skip_redteam
+    MAX_CHARACTERS = (DEFAULT_MAX_CHARACTERS
+                      if args.max_characters is None
+                      else args.max_characters)
 
     DISPATCH_TIMEOUT_MINUTES = args.dispatch_timeout
     CLAUDE_CONTEXT_BUDGET = args.claude_context
+
+    if args.watch or args.once:
+        report_ticket_character_limit()
 
     # Rebuild the dispatch commands at the requested models and efforts. The
     # watch start lines echo both so terminal scroll-back identifies the exact

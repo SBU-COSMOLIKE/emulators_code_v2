@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from unittest import mock
 
 
 AI_ROOT = Path(__file__).resolve().parents[1]
@@ -378,6 +379,173 @@ def arm_incomplete_directive_refusal():
         print("ARM incomplete directive refusal")
         print("  goal-only note refused before clipboard work:", refused)
         assert refused
+
+
+def arm_character_budget_binding():
+    """Reject a mismatched run limit, then repeat it in every role prompt."""
+    with tempfile.TemporaryDirectory(prefix="router-character-budget-") as tmp:
+        root = Path(tmp)
+        module, repo = load_scratch_router(
+          root, "scratch_router_character_budget", linked=True)
+        note = repo / "ai" / "notes" / "spec.md"
+        write_bound_architect_note(repo=repo, note=note)
+        text = note.read_text(encoding="utf-8")
+        text = text.replace(
+            "- Limit: `0`\n- Planned maximum: `900`",
+            "- Limit: `37`\n- Planned maximum: `30`", 1)
+        base = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+        text = text.replace(
+            "```bash\npython3 -m unittest ai.tests.test_example\n```",
+            "```bash\n"
+            "python3 -m unittest ai.tests.test_example\n"
+            "python3 ai/tools/ticket_change_guard.py --repo "
+            + str(repo.resolve()) + " --base " + base + " --max 37\n"
+            "```", 1)
+        text = text.replace(
+            "- [ ] Valid notes pass and every malformed fixture refuses.",
+            "- [ ] Valid notes pass and every malformed fixture refuses.\n"
+            "- [ ] `ai/tools/ticket_change_guard.py` reports `within limit` "
+            "for the exact clean candidate.", 1)
+        note.write_text(text, encoding="utf-8")
+        module.ROUTER_LOCK_PATH = str(root / "router.lock")
+
+        copied = []
+        module.copy_to_clipboard = copied.append
+        original_argv = module.sys.argv
+        module.sys.argv = [
+          "handoff_router.py", "--status", "--max", "37",
+        ]
+        status_stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(status_stream):
+                status_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+        relay_files = list((repo / "ai" / "notes" / "relay").glob("*.md"))
+        status_refused = (
+            status_rc == 1
+            and copied == []
+            and relay_files == []
+            and "--max is valid only with a --note relay" in
+            status_stream.getvalue())
+
+        module.sys.argv = [
+          "handoff_router.py", "--status", "--note", "ai/notes/spec.md",
+          "--max", "37",
+        ]
+        status_with_note_stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(status_with_note_stream):
+                status_with_note_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+        status_with_note_refused = (
+            status_with_note_rc == 1
+            and copied == []
+            and "--max is valid only with a --note relay" in
+            status_with_note_stream.getvalue())
+
+        module.sys.argv = [
+          "handoff_router.py", "--note", "ai/notes/spec.md",
+          "--max", "38",
+        ]
+        mismatch_stream = io.StringIO()
+        try:
+            with mock.patch.dict(
+                    os.environ, {"MAILBOX_MAX_CHARACTERS": "37"},
+                    clear=False):
+                with contextlib.redirect_stdout(mismatch_stream):
+                    mismatch_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+        mismatch_refused = (
+            mismatch_rc == 1
+            and copied == []
+            and "does not match MAILBOX_MAX_CHARACTERS" in
+            mismatch_stream.getvalue())
+
+        returns = iter([
+          "### IMPLEMENTER_HANDOFF: DONE\n",
+          "### ARCHITECT_REDTEAM_HANDOFF: NO FINDING\n",
+        ])
+        module.wait_for_block = lambda **_kwargs: next(returns)
+        routed_gate_commands = []
+        module.run_gates = lambda commands, seq: (
+          routed_gate_commands.extend(commands)
+          or ("ai/notes/relay/scratch-gates.md", True))
+        module.sys.argv = [
+          "handoff_router.py", "--note", "ai/notes/spec.md",
+        ]
+        try:
+            with mock.patch.dict(
+                    os.environ, {"MAILBOX_MAX_CHARACTERS": "37"},
+                    clear=False):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    routed_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+
+        phrase = ("Binding character-change budget: limit 37 characters; "
+                  "planned maximum 30 characters.")
+        every_prompt_bound = (
+            routed_rc == 0
+            and len(copied) == 3
+            and all(phrase in prompt for prompt in copied)
+            and copied[-1].startswith("### RELAY FOR AUDIT"))
+        automatic_guard = [
+            command for command in routed_gate_commands
+            if "ticket_change_guard.py" in command]
+        guard_bound = (
+            len(automatic_guard) == 1
+            and "--repo " in automatic_guard[0]
+            and str(repo.resolve()) in automatic_guard[0]
+            and "--base " + base in automatic_guard[0]
+            and "--max 37" in automatic_guard[0])
+
+        copied.clear()
+        failed_returns = iter([
+          "### IMPLEMENTER_HANDOFF: DONE\n",
+          "### ARCHITECT_REDTEAM_HANDOFF: FINDING\n",
+        ])
+        module.wait_for_block = lambda **_kwargs: next(failed_returns)
+        module.run_gates = lambda commands, seq: (
+          "ai/notes/relay/scratch-failed-gates.md", False)
+        module.sys.argv = [
+          "handoff_router.py", "--note", "ai/notes/spec.md",
+        ]
+        try:
+            with mock.patch.dict(
+                    os.environ, {"MAILBOX_MAX_CHARACTERS": "37"},
+                    clear=False):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    failed_route_rc = module.main()
+        finally:
+            module.sys.argv = original_argv
+        failed_guard_reaches_architect = (
+            failed_route_rc == 0
+            and len(copied) == 3
+            and "Router gate summary: NOT all green." in copied[-1]
+            and "issue NO-GO" in copied[-1]
+            and "does not close the ticket" in copied[-1])
+
+        print("ARM character-change budget")
+        print("  --status cannot silently ignore --max:", status_refused)
+        print("  --status plus an unused --note still refuses --max:",
+              status_with_note_refused)
+        print("  mismatch refused before clipboard changes:",
+              mismatch_refused)
+        print("  omitted --max inherited the mailbox limit:", routed_rc == 0)
+        print("  Implementer, Red Team, and Architect prompts bound:",
+              every_prompt_bound)
+        print("  automatic local guard uses exact candidate:", guard_bound)
+        print("  failed guard still reaches Architect for NO-GO:",
+              failed_guard_reaches_architect)
+        assert status_refused
+        assert status_with_note_refused
+        assert mismatch_refused
+        assert every_prompt_bound
+        assert guard_bound
+        assert failed_guard_reaches_architect
 
 
 def arm_unvalidated_section_refusal():
@@ -781,6 +949,7 @@ def main():
     arm_clipboard_failure()
     arm_integrated_status()
     arm_incomplete_directive_refusal()
+    arm_character_budget_binding()
     arm_unvalidated_section_refusal()
     arm_source_note_boundary_refusal()
     arm_mismatched_execution_checkout_refusal()

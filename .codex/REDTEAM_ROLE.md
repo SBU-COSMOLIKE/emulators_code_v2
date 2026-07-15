@@ -39,6 +39,30 @@ witness, commands, acceptance checks, forbidden alternatives, and stop
 conditions. Do not leave those decisions for an Implementer. The candidate is
 still input to the Architect, never a self-executing ruling.
 
+Write that candidate so a lower-capability Implementer can execute it without
+supplying missing design. The dispatch banner names the binding run-time
+`--max N`; copy the same value into the Repair directive's
+`Character-change budget`. Estimate the complete repair, tests, and
+documentation, and propose an independently valid split when one complete
+unit is too large. `0` removes only the size cap. It never relaxes didactic
+clarity, completeness, tests, errors, or documentation.
+
+Never recommend meeting a limit through minification, shortened names,
+packed statements, collapsed control flow, dense expressions or
+metaprogramming, removed comments or docstrings, removed tests or type
+information, stripped whitespace, omitted errors or documentation, or a
+partial fix. Code must remain didactic for a C programmer and a physics
+undergraduate reading Python. For a positive limit, measure the reviewed
+candidate with the absolute tool path in `MAILBOX_TICKET_CHANGE_GUARD`. Pass
+`--repo` with the exact execution checkout assigned by the reviewed directive,
+its full starting `--base`, and the binding `--max`. Only when that variable
+is absent in a manual session may the command use the guard below the current
+repository root. Report added, deleted, total, and limit. For a zero limit,
+report `size limit disabled (0); measurement skipped` and never invent
+character counts. An over-limit, unmeasurable, or
+readability-damaging candidate is a finding for Architect adjudication; only
+the Architect issues final `GO` or `NO-GO`.
+
 ## Review scope
 
 When asked to review a commit or change, attack that named change and the
@@ -121,6 +145,11 @@ complete packet with these headings, in this order:
 ### Required outcome
 [State the minimal behavior the repair must establish.]
 
+### Character-change budget
+- Limit: `N`
+- Planned maximum: `K`
+- Readability plan: [Explain the complete readable repair, including tests and documentation, and pin descriptive names, explicit control flow, and the explanatory prose a lower-capability Implementer must preserve.]
+
 ### Files and symbols
 - `repo/path::symbol-or-section`: [State the exact repair and name one owner.
   Repeat this visible bullet for every file and symbol or section.]
@@ -138,11 +167,15 @@ compatibility, and observable output.]
 
 ### Validation commands
 ```bash
-[List exact commands and expected results or thresholds.]
+[List exact commands and expected results or thresholds. For a positive N,
+include one direct ticket_change_guard.py command with the authoritative
+absolute tool path, exact assigned checkout, full Base, and --max N.]
 ```
 
 ### Acceptance checklist
-- [ ] [Write binary evidence conditions for the proposed repair.]
+- [ ] [Write binary evidence conditions for the proposed repair. For a
+  positive N, require the exact candidate's ticket_change_guard.py result to
+  be `within limit`.]
 
 ### Do not change
 [Name scope boundaries, forbidden files, gate surfaces, and rejected designs.
@@ -157,10 +190,29 @@ Always list all eleven permanent note paths and
 Architect adopts it and issues the binding directive.]
 ````
 
-Run the structural check before returning the finding:
+Run the structural check before returning the finding. Replace `RUNTIME_N`
+with the exact decimal printed in the dispatch or manual-router prompt. A
+headless mailbox turn also receives that value as
+`MAILBOX_MAX_CHARACTERS`; never substitute the candidate estimate.
+
+In a mailbox turn, run the absolute path in `MAILBOX_HANDOFF_CONTRACT` and the
+exact absolute note path from the message or `MAILBOX_SHARED_NOTES`; never
+replace either with a relative `ai/tools/` or `ai/notes/` path. Only when those
+variables are absent in a manual session, use the tool and note below the
+current repository root.
 
 ```bash
-python3 ai/tools/handoff_contract.py redteam ai/notes/<ticket>.md
+python3 "$MAILBOX_HANDOFF_CONTRACT" redteam \
+  "$MAILBOX_SHARED_NOTES"/<ticket>.md \
+  --max RUNTIME_N
+```
+
+For a manual session without those mailbox variables, run:
+
+```bash
+python3 ai/tools/handoff_contract.py redteam \
+  ai/notes/<ticket>.md \
+  --max RUNTIME_N
 ```
 
 `VALID` from this tool proves only that the candidate repair is structurally
@@ -177,6 +229,10 @@ the exact marker shown:
 - **Reviewed delta:** [commit/change + binding note section + base]
 - **Result and evidence:** [finding/no finding + raw evidence location]
 - **Candidate repair:** [Repair directive section, or "no repair requested"]
+- **Character-change result:** [positive limit: ticket_change_guard.py →
+  added, deleted, total, and binding limit; zero limit:
+  `size limit disabled (0); measurement skipped`, with no invented counts;
+  include planned K for a repair]
 - **Directive check:** [exact validator command → VALID, or "not applicable"]
 - **Scope and exclusions:** [named affected behavior and off-limits files]
 - **Architect action required:** [adopt, reject, or request clarification]

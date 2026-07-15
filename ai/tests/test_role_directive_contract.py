@@ -43,7 +43,7 @@ class RoleDirectiveContractTests(unittest.TestCase):
             with self.subTest(heading=heading):
                 self.assertIn("### " + heading, self.architect)
         self.assertIn(
-            "python3 ai/tools/handoff_contract.py architect", self.architect)
+            'python3 "$MAILBOX_HANDOFF_CONTRACT" architect', self.architect)
         self.assertIn("decision-complete implementation", self.architect)
         self.assertIn("lower-capability Implementer", self.architect)
         self.assertIn("complete, self-contained repair packet", self.architect)
@@ -51,13 +51,14 @@ class RoleDirectiveContractTests(unittest.TestCase):
                       self.architect)
         self.assertIn("- `repo/path::symbol-or-section`:", self.architect)
         self.assertIn("- `repo/path::test-name`:", self.architect)
+        self.assertIn("--max RUNTIME_N", self.architect)
 
     def test_redteam_finding_has_candidate_repair_not_execution_authority(self):
         for heading in REQUIRED_SECTIONS["redteam"]:
             with self.subTest(heading=heading):
                 self.assertIn("### " + heading, self.redteam)
         self.assertIn(
-            "python3 ai/tools/handoff_contract.py redteam", self.redteam)
+            'python3 "$MAILBOX_HANDOFF_CONTRACT" redteam', self.redteam)
         self.assertIn("candidate input only", self.redteam)
         self.assertIn("next numbered\n`ai/notes/mailbox/NNN-to-fable.md`",
                       self.redteam)
@@ -65,16 +66,80 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("Architect GO/NO-GO is required", self.redteam)
         self.assertIn("- `repo/path::symbol-or-section`:", self.redteam)
         self.assertIn("- `repo/path::test-name`:", self.redteam)
+        self.assertIn("--max RUNTIME_N", self.redteam)
 
     def test_implementer_preflights_and_stops_instead_of_designing(self):
         self.assertIn(
-            "python3 ai/tools/handoff_contract.py architect", self.implementer)
+            'python3 "$MAILBOX_HANDOFF_CONTRACT" architect', self.implementer)
         self.assertIn("Do not infer a design", self.implementer)
         self.assertIn("missing or conflicting\n   decisions", self.implementer)
         self.assertIn("Repair directive` is advisory input", self.implementer)
         self.assertIn("`Execution checkout`", self.implementer)
         self.assertIn("## Implementation evidence / resume\n   state",
                       self.implementer)
+        self.assertIn("--max RUNTIME_N", self.implementer)
+
+    def test_character_limit_never_licenses_obfuscated_or_partial_work(self):
+        architect = " ".join(self.architect.split())
+        implementer = " ".join(self.implementer.split())
+        redteam = " ".join(self.redteam.split())
+        for phrase in (
+                "minification", "shortened names", "packed statements",
+                "collapsed control flow", "dense expressions or metaprogramming",
+                "removed comments or docstrings", "removed tests or type information",
+                "stripped whitespace", "omitted errors or documentation",
+                "partial fix"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, architect)
+                self.assertIn(phrase, implementer)
+                self.assertIn(phrase, redteam)
+        self.assertIn("smallest complete readable tested unit", architect)
+        self.assertIn("ask the user", architect)
+        self.assertIn("C programmer and a physics undergraduate",
+                      architect)
+        self.assertIn("C programmer and a physics undergraduate",
+                      implementer)
+        self.assertIn("C programmer and a physics undergraduate", redteam)
+        self.assertIn("ticket_change_guard.py", architect)
+        self.assertIn("ticket_change_guard.py", implementer)
+        self.assertIn("ticket_change_guard.py", redteam)
+        self.assertIn("added, deleted, total, and limit", architect)
+        self.assertIn("added, deleted, total, and limit", implementer)
+        self.assertIn("added, deleted, total, and limit", redteam)
+        self.assertIn("`0` removes the size cap only", architect)
+        self.assertIn("`0` means no size cap", implementer)
+        self.assertIn("`0` removes only the size cap", redteam)
+        self.assertIn("Character-change result", implementer)
+        self.assertIn("Character-change result", redteam)
+        self.assertIn("Character-change budget", self.architect_command)
+        self.assertIn("MAILBOX_MAX_CHARACTERS", architect)
+        self.assertIn("MAILBOX_MAX_CHARACTERS", implementer)
+        self.assertIn("MAILBOX_MAX_CHARACTERS", redteam)
+        self.assertIn("same turn that can issue `GO` and land", architect)
+        self.assertIn("guard's printed `candidate commit` is still `HEAD`",
+                      architect)
+        for name, source in (("Architect", architect),
+                             ("Implementer", implementer),
+                             ("Red Team", redteam)):
+            with self.subTest(role=name):
+                self.assertIn("MAILBOX_HANDOFF_CONTRACT", source)
+                self.assertIn("MAILBOX_TICKET_CHANGE_GUARD", source)
+                self.assertIn("MAILBOX_SHARED_NOTES", source)
+                self.assertIn(
+                    "size limit disabled (0); measurement skipped", source)
+                self.assertIn("never invent", source)
+                self.assertIn("relative `ai/tools/`", source)
+                self.assertIn("`ai/notes/`", source)
+
+    def test_manual_router_binds_budget_to_validator_and_every_prompt(self):
+        router = " ".join(self.router.split())
+        self.assertIn("--max", self.router)
+        self.assertIn("expected_max=expected_max", self.router)
+        self.assertIn('budget = directive["character_change_budget"]',
+                      self.router)
+        self.assertEqual(self.router.count("+ budget_prompt"), 4)
+        self.assertIn("Zero removes the", router)
+        self.assertIn("size cap only", router)
 
     def test_daemon_names_each_role_file_and_repeats_the_stop_boundary(self):
         architect = mailbox_daemon.agent_preamble(agent="fable")

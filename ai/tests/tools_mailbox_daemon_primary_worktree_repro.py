@@ -122,6 +122,12 @@ def scratch_repository(source=None):
         write_exact(
             root / ".codex" / "REDTEAM_ROLE.md",
             b"# Scratch Red Team role\n\nReview only the named change.\n")
+        write_exact(
+            root / "ai" / "tools" / "handoff_contract.py",
+            b"#!/usr/bin/env python3\n# Scratch directive validator.\n")
+        write_exact(
+            root / "ai" / "tools" / "ticket_change_guard.py",
+            b"#!/usr/bin/env python3\n# Scratch ticket size guard.\n")
         # Worktrees and their two bootstrap sidecars are runtime state.  The
         # production ignore rule is asserted separately; the scratch rule
         # prevents Git status from recursively inspecting linked checkouts.
@@ -140,7 +146,9 @@ def scratch_repository(source=None):
         # behavior (covered by the rendezvous reproduction).
         git(root, "add", ".gitignore", ".claude/.keep",
             ".claude/OPUS_ROLE.md", ".codex/REDTEAM_ROLE.md",
-            "ai/tools/mailbox_daemon.py")
+            "ai/tools/mailbox_daemon.py",
+            "ai/tools/handoff_contract.py",
+            "ai/tools/ticket_change_guard.py")
         git(root, "add", "-f", "ai/notes/backlog.md")
         git(root, "commit", "-m", "scratch daemon fixture")
         yield root
@@ -1246,6 +1254,46 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
 
     outcomes = []
 
+    # A regular leaf file is not authoritative when one of its primary-tree
+    # parent directories redirects into a different tree. Refuse before the
+    # pending message is claimed or a child is admitted.
+    for relative_parent in (Path(".codex"), Path("ai") / "tools"):
+        with scratch_repository(source=source) as root:
+            prepared = prepare(
+                root, "Refuse a redirected authoritative role parent.")
+            if prepared is None:
+                return False
+            daemon, primary, _sol, message = prepared
+            parent = primary / relative_parent
+            relocated = primary / ("redirected-"
+                                   + "-".join(relative_parent.parts))
+            parent.rename(relocated)
+            parent.symlink_to(relocated, target_is_directory=True)
+            pending_before = file_identity(message)
+            launches = []
+
+            def redirected_parent_popen(command, stdout, stderr, cwd, env):
+                del command, stdout, stderr, cwd, env
+                launches.append("admitted")
+                return ObservedProcess()
+
+            original_subprocess = daemon.subprocess
+            daemon.subprocess = PopenProxy(
+                original_subprocess, redirected_parent_popen)
+            try:
+                result = daemon.dispatch(path=str(message), dry_run=False)
+            finally:
+                daemon.subprocess = original_subprocess
+            redirected_parent_refused = (
+                result is False and launches == [] and message.exists()
+                and file_identity(message) == pending_before
+                and transport_counts(primary)
+                == {"pending": 1, "inflight": 0,
+                    "done": 0, "failed": 0})
+            outcomes.append(redirected_parent_refused)
+            print("Sol redirected " + str(relative_parent)
+                  + " parent refused=" + str(redirected_parent_refused))
+
     # No imported caller may dispatch Sol merely because its paths happen to
     # look plausible. ACTIVE_TOPOLOGY is the live bootstrap capability.
     with scratch_repository(source=source) as root:
@@ -1317,8 +1365,51 @@ def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
             == "refs/heads/main"
             and transport_counts(primary)
             == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
-        outcomes.append(prelaunch_refused)
-        print("Sol pre-Popen branch race refused=" + str(prelaunch_refused))
+    outcomes.append(prelaunch_refused)
+    print("Sol pre-Popen branch race refused=" + str(prelaunch_refused))
+
+    # Keep the exact role-file proof from the first admission check. Replacing
+    # a role after the atomic claim but before Popen must not be accepted just
+    # because the replacement still has the expected filename.
+    with scratch_repository(source=source) as root:
+        prepared = prepare(
+            root, "Race an authoritative role after the Sol claim.")
+        if prepared is None:
+            return False
+        daemon, primary, _sol, message = prepared
+        launches = []
+        child = ObservedProcess()
+        role = primary / ".codex" / "REDTEAM_ROLE.md"
+        real_claim = daemon.claim_message
+
+        def claim_then_replace_role(path):
+            claimed = real_claim(path=path)
+            if claimed is not None:
+                role.write_text(
+                    "# Replaced after claim\n\nThis is not the admitted role.\n",
+                    encoding="utf-8")
+            return claimed
+
+        def role_race_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            launches.append("admitted")
+            return child
+
+        original_subprocess = daemon.subprocess
+        daemon.claim_message = claim_then_replace_role
+        daemon.subprocess = PopenProxy(original_subprocess, role_race_popen)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original_subprocess
+        role_race_refused = (
+            result is False and launches == []
+            and not child.killed and not child.waited
+            and transport_counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(role_race_refused)
+        print("Sol pre-Popen role-file race refused="
+              + str(role_race_refused))
 
     # A switch can occur inside Popen after the last pre-launch check. The
     # immediate post-Popen full revalidation must kill and reap that child.
@@ -1591,6 +1682,11 @@ def mutation_cases(source):
         'topology")',
         '    if ACTIVE_TOPOLOGY is None:\n'
         '        return None  # mutation: imported callers gain Sol access',
+        arm_sol_launch_boundary_revalidates_branch_and_active_state)
+    add("authoritative parent and role proof dropped",
+        '        authoritative_files = validate_authoritative_role_files(\n'
+        '            primary_path=primary["path"])',
+        '        authoritative_files = {"directories": (), "files": ()}',
         arm_sol_launch_boundary_revalidates_branch_and_active_state)
     add("pre-Popen Sol topology revalidation dropped",
         '            if agent == "sol":\n'

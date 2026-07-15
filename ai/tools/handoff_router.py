@@ -65,6 +65,7 @@ import datetime
 import fcntl
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -78,6 +79,8 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 from handoff_contract import DirectiveError
+from handoff_contract import nonnegative_character_limit
+from handoff_contract import resolve_character_limit
 from handoff_contract import validate_directive_file
 RELAY_DIR = os.path.join(NOTES_DIR, "relay")
 RUN_RESERVATIONS_DIR = os.path.join(RELAY_DIR, ".router-runs")
@@ -566,8 +569,16 @@ def main():
                         default=[],
                         help="validation command (repeatable); replaces the "
                              "default board surfaces")
+    parser.add_argument(
+        "--max", metavar="characters",
+        type=nonnegative_character_limit, default=None,
+        help="character-change limit that the directive must match; when "
+             "omitted, use MAILBOX_MAX_CHARACTERS if present, otherwise 0")
     args = parser.parse_args()
 
+    if args.max is not None and (not args.note or args.status):
+        print("--max is valid only with a --note relay")
+        return 1
     if args.skip_redteam and args.mode == "second-implementer":
         print("--skip-redteam/--no-red-team cannot be combined with "
               "--mode second-implementer")
@@ -584,8 +595,14 @@ def main():
               "directive' section")
         return 1
     try:
+        expected_max = resolve_character_limit(cli_value=args.max)
+    except DirectiveError as exc:
+        print("refused character-change limit: " + str(exc))
+        return 1
+    try:
         note_path, note_display = resolve_note_path(args.note)
-        directive = validate_directive_file(role="architect", path=note_path)
+        directive = validate_directive_file(
+            role="architect", path=note_path, expected_max=expected_max)
         verify_execution_checkout(
             checkout=directive["execution_checkout"])
     except DirectiveError as exc:
@@ -598,6 +615,12 @@ def main():
         return 1
     seq = reserve_run_sequence()
     where = note_display + ', section "Implementation directive"'
+    budget = directive["character_change_budget"]
+    budget_prompt = (
+        "Binding character-change budget: limit "
+        + str(budget["limit"]) + " characters; planned maximum "
+        + str(budget["planned_maximum"]) + " characters. Zero removes the "
+        "size cap only; readable complete tested work remains mandatory.\n\n")
     total_steps = (3 if args.skip_redteam
                    or args.mode == "second-implementer" else 4)
 
@@ -607,6 +630,7 @@ def main():
         implementer_prompt = (
             "### ARCHITECT_HANDOFF (relay)\n\n"
             + SECOND_IMPLEMENTER_MODE_SENTENCE + "\n\n"
+            + budget_prompt
             + "The decision-complete Implementation directive is in "
             + where + ". Read .codex/REDTEAM_ROLE.md for this explicit mode "
             "switch, then .claude/OPUS_ROLE.md. Validate the directive and "
@@ -619,7 +643,8 @@ def main():
     else:
         implementer_prompt = (
             "### ARCHITECT_HANDOFF (relay)\n\n"
-            "The decision-complete Implementation directive for your next "
+            + budget_prompt
+            + "The decision-complete Implementation directive for your next "
             "unit is in " + where + " of this repository. Read "
             ".claude/OPUS_ROLE.md, read that entry and its [[links]], run the "
             "directive check, verify its Execution checkout, then follow its "
@@ -639,7 +664,19 @@ def main():
     print("      captured -> " + path)
 
     # [3] objective local gates (the anti-hallucination anchor).
-    commands = args.gate_cmd if args.gate_cmd else DEFAULT_GATE_COMMANDS
+    commands = list(args.gate_cmd if args.gate_cmd else DEFAULT_GATE_COMMANDS)
+    if budget["limit"] > 0:
+        guard = directive["ticket_change_guard"]
+        guard_tool = guard["tool"]
+        if not os.path.isabs(guard_tool):
+            guard_tool = os.path.join(REPO_ROOT, guard_tool.lstrip("./"))
+        commands.append(shlex.join([
+            sys.executable,
+            guard_tool,
+            "--repo", guard["repo"],
+            "--base", guard["base"],
+            "--max", str(guard["max"]),
+        ]))
     print("[2/" + str(total_steps) + "] running the local validation gates:")
     log_path, all_green = run_gates(commands=commands, seq=seq)
     print("      gates " + ("ALL PASS" if all_green else "NOT all green")
@@ -649,7 +686,8 @@ def main():
     if not args.skip_redteam and args.mode == "redteam":
         sol_prompt = (
             "### ARCHITECT_REDTEAM_HANDOFF (relay)\n\n"
-            "The named delta is specified in " + where + ". Read\n"
+            + budget_prompt
+            + "The named delta is specified in " + where + ". Read\n"
             ".codex/REDTEAM_ROLE.md and stay within that delta. The\n"
             "Implementer's return transport copy is at " + path + " and\n"
             "the local gate log is at " + log_path + ". A confirmed\n"
@@ -671,12 +709,18 @@ def main():
     #     corroborating input, never a substitute).
     fable_prompt = (
         "### RELAY FOR AUDIT\n\n"
-        "Unit spec: " + where + "\n"
+        + budget_prompt
+        + "Unit spec: " + where + "\n"
         "Implementer return (transport copy): " + path + "\n"
         + ("Red Team return (transport copy): " + sol_path + "\n"
            if redteam_block else "")
         + "Router's local gate log: " + log_path + "\n\n"
-        "Audit per your role file -- including your own re-runs of the\n"
+        + "Router gate summary: "
+        + ("ALL PASS.\n" if all_green else
+           "NOT all green. The Architect must inspect the failed command "
+           "and issue NO-GO or a new binding directive; this relay does not "
+           "close the ticket.\n")
+        + "Audit per your role file -- including your own re-runs of the\n"
         "evidence. The archived blocks and the gate log are inputs, not\n"
         "the audit.\n\n"
         "### ENDS\n")

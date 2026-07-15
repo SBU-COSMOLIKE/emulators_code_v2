@@ -1,6 +1,6 @@
 # AI development tools
 
-This folder contains five Python programs for the AI-assisted development
+This folder contains six Python programs for the AI-assisted development
 workflow. Most users begin with `mailbox_daemon.py`, the program that watches
 for request files and starts the matching AI role.
 
@@ -19,10 +19,16 @@ do I run, what does it change, and what result should I expect?
 5. [Use Sol as a second Implementer](#use-sol-as-a-second-implementer)
 6. [Check protected project notes](#check-protected-project-notes)
 7. [Fix-only watches](#fix-only-watches)
-8. [Runtime controls](#runtime-controls)
-9. [Exact command reference](#exact-command-reference)
+8. [Limit the size of one ticket](#limit-the-size-of-one-ticket)
+9. [Runtime controls](#runtime-controls)
+10. [Exact command reference](#exact-command-reference)
 
 ### Common questions raised by developers
+
+**[Appendices about ticket size](#appendices-about-ticket-size)**
+
+- [FAQ A1. Exactly what does `--max` count?](#faq-a1-max-count)
+- [FAQ A2. Why can the size check refuse a ticket?](#faq-a2-max-refusal)
 
 **[Appendices about stopping the watcher](#appendices-about-stopping-the-watcher)**
 
@@ -68,6 +74,7 @@ notes and mailbox records.
 | Check that an Architect or Red Team instruction contains every required part | `handoff_contract.py` | `python3 ai/tools/handoff_contract.py --help` | Reads one Markdown note. It does not run its tests or judge the scientific plan. |
 | Read status or run the manual clipboard workflow | `handoff_router.py` | `python3 ai/tools/handoff_router.py --status` | Status only reads. A run with `--note` changes the clipboard, waits for copied replies, runs local commands, and writes relay records. |
 | Check that eleven protected project notes still match the Architect's starting commit | `permanent_note_guard.py` | `python3 ai/tools/permanent_note_guard.py --help` | Reads Git and the notes. It changes nothing and does not issue `GO` or `NO-GO`. |
+| Count the text changed by one proposed ticket | `ticket_change_guard.py` | `python3 ai/tools/ticket_change_guard.py --help` | Compares two saved Git versions. With a positive limit, it refuses a folder with edits not saved in a commit or text it cannot count. |
 | Package unfinished local backlog work for another person | `backlog_bundle.py` | `python3 ai/tools/backlog_bundle.py pack --dry-run` | A dry run lists files. `pack` writes one `.tar.xz` archive; `unpack` writes a new review folder that Git does not include in commits. |
 
 ## Where do I run these commands?
@@ -101,6 +108,7 @@ project folder, but using the top folder keeps paths in examples predictable.
 | `handoff_contract.py architect NOTE` or `handoff_contract.py redteam NOTE` | No | Reads and checks one directive. |
 | `handoff_router.py --status` | No | Reads branches and local records, then suggests a next action. It does not run that action. |
 | `permanent_note_guard.py --base FULL_COMMIT` | No | Compares the protected files in saved Git versions, the files selected for the next commit, and the files currently visible. |
+| `ticket_change_guard.py --base FULL_COMMIT --max NUMBER` | No | Counts characters added and removed between the named starting commit and current `HEAD`, Git's name for the current saved commit. |
 | `backlog_bundle.py pack --dry-run` | No | Lists the proposed package without writing it. |
 | `backlog_bundle.py inspect ARCHIVE` | No | Validates and lists an incoming package without unpacking it. |
 | `mailbox_daemon.py --send` or `--ping` | Yes | If its options are written correctly, this command may create or reuse the AI work folders first. If the request is accepted, it writes one numbered mailbox file. If a rule refuses the request, it writes no request file but may already have created the work folders. |
@@ -143,6 +151,20 @@ types. These results check the note's format; only the Architect says `GO` or
 files and tests, number its work steps, provide a shell-command block, and
 include acceptance checkboxes. The tool does not judge whether the scientific
 plan is correct.
+
+Every directive also records its character-change limit, planned maximum, and
+readability plan. The limit is the ceiling chosen by the user. The planned
+maximum is the Architect's estimate for the complete ticket. When a watcher
+or manual relay uses a positive `--max`, pass that same number to this check:
+
+```bash
+python3 ai/tools/handoff_contract.py architect ai/notes/<ticket>.md \
+  --max 1200
+```
+
+A disagreement is `INVALID` because the Implementer must not guess which
+limit applies. Use `redteam` instead of `architect` to check a Red Team repair
+directive.
 
 ### Read the current AI work status
 
@@ -327,6 +349,78 @@ python3 ai/tools/mailbox_daemon.py --watch --fix-only yes --skip-redteam --cycle
 In the second command, the two-role setting disables Sol. Every waiting Sol
 file remains untouched until a later watch enables Sol again.
 
+## Limit the size of one ticket
+
+Use `--max` when you want the watcher to tell every role the maintenance
+limit and require the Architect to reject a ticket that changes too much
+text:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch --max 1200
+```
+
+This gives each ticket handled by that run a limit of 1,200 changed
+characters. The number is the characters added plus the characters removed
+since the full starting commit in the Architect's directive. Code, tests,
+comments, command help, and documentation all count. Replacing one character
+with another counts as two: one removed and one added.
+
+The complete proposed result must be saved in the current commit. Its folder
+must have no changes to files Git already knows about and no new files that
+Git would include in a commit but that are not yet saved. The Architect runs
+this read-only check from the ticket's worktree before `GO`:
+
+```bash
+python3 ai/tools/ticket_change_guard.py \
+  --repo "$PWD" \
+  --base FULL_COMMIT \
+  --max 1200
+```
+
+A result within the limit begins with:
+
+```text
+ticket change guard: within limit
+```
+
+The command then prints the starting commit, proposed commit, limit, and the
+added, deleted, and total character counts. It exits with code 0 when the
+proposed commit is within the limit, code 1 when it is over the limit, and
+code 2 when the repository state or changed file cannot be measured. Only the
+Architect turns that evidence into `GO` or `NO-GO`.
+
+`FULL_COMMIT` is the 40-character Git name recorded in the directive. The
+exact boundary is allowed: a count of 1,200 satisfies `--max 1200`, while a
+count of 1,201 does not.
+
+`--max 0`, the default, sets no size limit. It does not weaken the readability
+review. The Architect and Red Team must never save characters by shortening
+clear names, packing statements together, removing explanations or tests, or
+leaving a partial fix. The Python must remain readable to a C programmer and a
+physics undergraduate learning Python. If a complete readable ticket cannot
+fit, the Architect records `NO-GO` and asks the user for a smaller ticket or a
+larger number.
+
+For `mailbox_daemon.py`, `--max` applies to `--watch` and `--once`. A
+`--send` command only saves a request; the later watcher or one-time run
+supplies the policy. A manual clipboard run uses the same limit this way:
+
+```bash
+python3 ai/tools/handoff_router.py \
+  --note ai/notes/version-flag.md \
+  --max 1200
+```
+
+The number must match the directive before the router changes the clipboard.
+`--max 0` and `--cycle 0` are different: the first removes the character
+limit, while the second waits for all enabled work to finish before exiting.
+Repeat the same `--max` when restarting work on a ticket. To change the
+number, ask the Architect to revise and recheck the directive before more
+implementation work begins.
+
+The [ticket-size appendices](#appendices-about-ticket-size) explain file moves,
+text formats, unsaved files, and other counting details.
+
 ## Runtime controls
 
 | Concern | Options | Default |
@@ -338,6 +432,7 @@ file remains untouched until a later watch enables Sol again.
 | AI job timeout | `--dispatch-timeout` | 60 minutes |
 | Saved conversation length | `--claude-context`, `--sol-context` | 500000 tokens each |
 | Watch lifetime | `--cycle` | omitted: indefinite; `N>0`: stop at cycle N; `0`: finish enabled waiting messages and open backlog items |
+| Text changed by one ticket | `--max` | `0`: no character limit |
 | Discovery policy | `--fix-only` | off |
 
 Model selection and effort are independent. Choosing Sonnet does not silently
@@ -377,9 +472,9 @@ The current transcript is kept here for offline reading and regression checks.
 
 ```
 usage: mailbox_daemon.py [-h] [--dry-run] [--once] [--watch] [--cycle count]
-                         [--skip-redteam] [--fix-only value] [--send AGENT]
-                         [--ping AGENT] [--unit UNIT]
-                         [--ticket-kind {closure,discovery}]
+                         [--max characters] [--skip-redteam]
+                         [--fix-only value] [--send AGENT] [--ping AGENT]
+                         [--unit UNIT] [--ticket-kind {closure,discovery}]
                          [--architect-model MODEL] [--implementer-model MODEL]
                          [--fable-effort {low,medium,high,xhigh,max}]
                          [--opus-effort {low,medium,high,xhigh,max}]
@@ -401,6 +496,10 @@ options:
                         rendezvous cycles; 0 waits until the enabled dispatch
                         queue and open ledger are empty; omitting the option
                         keeps watching indefinitely
+  --max characters      with --watch or --once, limit each ticket to this many
+                        added plus deleted characters from the starting commit
+                        in its directive; use only digits 0 through 9; 0 means
+                        no limit (default: 0)
   --skip-redteam, --no-red-team
                         with --watch, dispatch only Architect and Implementer
                         routes; disable the entire Sol route and leave
@@ -453,6 +552,8 @@ options:
   `--watch`.
 - Omitting `--cycle` watches indefinitely. `--cycle 0` instead waits until the
   enabled roles have no waiting messages and no backlog line begins `- OPEN`.
+- `--max` accepts digits from 0 through 9 and is valid with `--watch` or
+  `--once`. Omitting it or writing `--max 0` sets no character limit.
 - `--skip-redteam` and `--no-red-team` are two names for the same watch-only
   setting.
 - A two-role watch preserves waiting Sol files and refuses new Sol sends and
@@ -483,6 +584,7 @@ python3 ai/tools/mailbox_daemon.py --help
 python3 ai/tools/handoff_router.py --help
 python3 ai/tools/handoff_contract.py --help
 python3 ai/tools/permanent_note_guard.py --help
+python3 ai/tools/ticket_change_guard.py --help
 python3 ai/tools/backlog_bundle.py --help
 python3 ai/tools/backlog_bundle.py pack --help
 python3 ai/tools/backlog_bundle.py inspect --help
@@ -490,6 +592,72 @@ python3 ai/tools/backlog_bundle.py unpack --help
 ```
 
 # Common questions raised by developers
+
+## Appendices about ticket size <a id="appendices-about-ticket-size"></a>
+
+### FAQ A1. Exactly what does `--max` count? <a id="faq-a1-max-count"></a>
+
+The guard compares the complete saved project at the directive's starting
+commit with the proposed commit at `HEAD`. `HEAD` is Git's name for the saved
+commit currently open in the worktree. Temporary commits do not receive
+separate allowances; only the starting and final saved versions are compared.
+Temporary edits removed before the final commit add nothing to the count.
+
+Every added and deleted text character counts, including spaces and line
+breaks. The guard counts Unicode characters rather than storage bytes, so
+replacing `a` with `π` counts as two: one deleted and one added. Code, tests,
+comments, command help, and documentation follow the same rule.
+
+For a changed file, the guard keeps the longest ordered sequence of
+characters shared by the starting and final text. The remaining starting
+characters are deletions, and the remaining final characters are additions.
+This gives the smallest exact insertion-and-deletion count even when a line
+contains repeated characters.
+
+Moving an unchanged file and changing only its file permission both count
+zero. When a moved file also changes, Git may treat it as one deleted file and
+one new file. Run the guard for the exact count instead of estimating that
+case from the filenames.
+
+### FAQ A2. Why can the size check refuse a ticket? <a id="faq-a2-max-refusal"></a>
+
+With a positive limit, the proposed result must be a saved commit. Its folder
+may not contain changes to files Git already knows about or new files that Git
+would include in a commit but that have not yet been saved. Commit those files
+as part of the ticket or remove them before the check; a newly committed
+file's complete text counts as added.
+
+The tool cannot count a changed non-text file, such as an image or compiled
+model. It also refuses text that is not valid UTF-8, the text format used by
+this repository, and a changed Git submodule, which points to another
+repository. These cases return code 2, and the Architect records `NO-GO` for
+a positive limit.
+
+A Git worktree is an extra folder for the same project. Sol uses one worktree,
+while the Architect and Implementer share the primary AI worktree. During a
+watched run, Sol's prompt names the full path to the guard in that primary
+worktree. The guard's `--repo`
+value names the worktree holding the proposed commit. Sol must use both paths
+as written so it does not accidentally measure its own unchanged folder.
+
+The guard has fixed memory and time limits. A **blob** is Git's saved contents
+for one version of one file.
+
+| Work being checked | The guard refuses above this boundary |
+| --- | --- |
+| One blob that must be read | 4,194,304 bytes |
+| All different blobs that must be read | 16,777,216 bytes |
+| Unmatched starting plus final text when both sides have unmatched characters | 200,000 characters |
+| Unmatched starting characters multiplied by unmatched final characters for one file | 4,000,000 pairs |
+| Those character pairs added across the ticket | 8,000,000 pairs |
+| One Git command used by the guard | 30 seconds |
+
+These boundaries prevent a size check from consuming excessive memory or
+processor time. A ticket that exceeds one returns code 2 and cannot close
+under a positive limit. Splitting content into independently valid tickets
+may help; raising `--max` alone does not bypass these safety boundaries.
+`--max 0` turns off the numerical size check, but it does not remove the
+readability or evidence review.
 
 ## Appendices about stopping the watcher <a id="appendices-about-stopping-the-watcher"></a>
 

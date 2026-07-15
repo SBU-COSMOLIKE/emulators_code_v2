@@ -346,6 +346,42 @@ change the result, the Implementer stops and reports the gap.
 The phrase “Use your best judgment” is not an acceptable substitute for a
 design decision.
 
+### Limit the size of one ticket during maintenance
+
+After a period of large development, you may want each maintenance ticket to
+stay small. Start the watcher with a character limit:
+
+```bash
+python3 ai/tools/mailbox_daemon.py --watch --max 1200
+```
+
+Expected startup line:
+
+```text
+ticket character limit: 1200 added plus deleted characters per ticket
+```
+
+For each ticket, the Architect records the starting Git commit. Before
+`GO`, the Architect compares that saved version with the proposed final
+commit. Every added character and every removed character counts, including
+spaces and line breaks. Adding 40 characters and removing 10 gives a total of
+50; `--max 50` accepts that size, while `--max 49` does not.
+
+The limit is not a target and does not permit dense or unfinished code. The
+Architect must also issue `NO-GO` for unclear names, packed statements,
+collapsed logic, missing explanations, omitted tests, or a partial fix made
+only to stay below the number. The finished Python must remain readable to a
+C programmer and a physics undergraduate learning Python. If the smallest
+complete and readable change does not fit, the Architect asks you to split
+the ticket or raise the limit.
+
+The default is `--max 0`, which means no character limit. Readability, tests,
+and all other review requirements still apply. This zero is unrelated to
+`--cycle 0`, which controls when the watcher exits.
+
+The [ticket-size questions](tools/README.md#appendices-about-ticket-size)
+explain the exact count and the cases the guard refuses.
+
 ### Architect language is GO or NO-GO
 
 Only the Architect decides whether the evidence is sufficient.

@@ -159,6 +159,42 @@ index, or fall back to the caller's checkout.
    row, an unexplained `not applicable`, or a prose choice left for the
    Implementer is `NO-GO` for dispatch.
 
+2a. **A character limit never licenses unreadable code (hard user rule,
+   2026-07-15).** The dispatch banner supplies the run-time `--max N` value.
+   Copy that exact value into the directive's `Character-change budget`; `0`
+   removes the size cap only and never relaxes readability, tests, error
+   handling, documentation, or completeness. Estimate the additions plus
+   deletions for the whole tracked ticket, including production code, tests,
+   and documentation. Plan file-by-file with enough margin for the
+   Implementer to follow the design without improvising. When `N` is
+   positive, the planned maximum must fit within it.
+
+   Try hard to divide large work into independently complete, readable,
+   tested units. Each unit must leave the library valid on its own. Never meet
+   the limit through minification, shortened names, packed statements,
+   collapsed control flow, dense expressions or metaprogramming, removed
+   comments or docstrings, removed tests or type information, stripped
+   whitespace, omitted errors or documentation, or a partial fix. Code must
+   remain didactic for a C programmer and a physics undergraduate reading
+   Python. If the smallest complete readable tested unit cannot fit, or its
+   size cannot be measured, the decision is `NO-GO`: ask the user to approve
+   a sound split or a higher limit instead of weakening the implementation.
+
+   When `N` is positive, put one direct guard command in `Validation commands`.
+   It must use the authoritative absolute path from
+   `MAILBOX_TICKET_CHANGE_GUARD`, the exact `Execution checkout` worktree and
+   full base, and `--max N`. Only when that variable is absent in a manual
+   session may the command use the guard below the current repository root.
+   The acceptance checklist must require its result to be `within limit`.
+   Require the Implementer to run that command at useful checkpoints and on
+   the final exact candidate. The Implementer and, when enabled, the Red Team
+   report added, deleted, total, and limit for a positive `N`. For `N = 0`,
+   each reports `size limit disabled (0); measurement skipped` and never
+   invents counts.
+   Before final `GO`, rerun the appropriate command yourself. A positive limit
+   with `total > limit`, an unmeasurable candidate, or code made harder to read
+   to save characters is `NO-GO` even when every behavioral test passes.
+
 3. **Handoffs are files, not chat — NOTES-FIRST (hard user rule,
    2026-07-14).** Before emitting a handoff block, persist the SUBSTANCE to a
    local temporary ticket record under `ai/notes/` (design-spec block +
@@ -265,6 +301,11 @@ the change is needed.]
 - Branch: `<exact non-main branch>`
 - Base: `<full base commit>`
 
+### Character-change budget
+- Limit: `N`
+- Planned maximum: `K`
+- Readability plan: [Explain the complete readable decomposition, including tests and documentation, and state how a lower-capability Implementer preserves descriptive names, explicit control flow, and explanatory prose.]
+
 ### Files and symbols
 - `repo/path::symbol-or-section`: [State the exact edit and name one owner.
   Repeat this visible bullet for every file and symbol or section.]
@@ -286,14 +327,17 @@ unchanged.]
 
 ### Validation commands
 ```bash
-[List exact commands in execution order.]
+[List exact commands in execution order. For a positive N, include one direct
+ticket_change_guard.py command with the authoritative absolute tool path,
+exact Worktree, exact Base, and --max N.]
 ```
 
 ### Acceptance checklist
 - [ ] [Write binary, evidence-backed completion conditions. If this unit
   changes a tracked README or covered explanatory Python prose, copy every
   applicable row from `ai/notes/readme-go-no-go.md`, name its evidence, and
-  explain every `not applicable` row.]
+  explain every `not applicable` row. For a positive N, require the exact
+  candidate's ticket_change_guard.py result to be `within limit`.]
 
 ### Do not change
 [Name forbidden files, APIs, gates, thresholds, and alternative designs.
@@ -318,10 +362,29 @@ level-three headings:
 No implementation evidence yet.
 ```
 
-Run the structural check before dispatch:
+Run the structural check before dispatch. Replace `RUNTIME_N` with the exact
+decimal printed in the dispatch or manual-router prompt. A headless mailbox
+turn also receives that value as `MAILBOX_MAX_CHARACTERS`; do not substitute a
+different estimate or the planned maximum.
+
+In a mailbox turn, run the absolute path in `MAILBOX_HANDOFF_CONTRACT` and the
+exact absolute note path from the message or `MAILBOX_SHARED_NOTES`; never
+replace either with a relative `ai/tools/` or `ai/notes/` path. When those
+variables are absent in a manual session, use the tool and note below the
+current repository root.
 
 ```bash
-python3 ai/tools/handoff_contract.py architect ai/notes/<ticket>.md
+python3 "$MAILBOX_HANDOFF_CONTRACT" architect \
+  "$MAILBOX_SHARED_NOTES"/<ticket>.md \
+  --max RUNTIME_N
+```
+
+For a manual session without those mailbox variables, run:
+
+```bash
+python3 ai/tools/handoff_contract.py architect \
+  ai/notes/<ticket>.md \
+  --max RUNTIME_N
 ```
 
 `VALID` from this check means the packet is structurally complete, not that
@@ -338,6 +401,7 @@ Then emit exactly this compact routing block for the user/runner to relay:
 - **Directive:** [ai/notes/<name>.md, exact Implementation directive section]
 - **Base commit:** [full or unambiguous commit]
 - **Execution checkout:** [exact worktree path + non-main branch]
+- **Character-change budget:** [binding N + planned K; 0 means no size cap]
 - **Owned files and symbols:** [compact list; full procedure stays in note]
 - **Directive check:** [exact validator command → VALID]
 - **Validation gate:** [commands + expected result or threshold]
@@ -352,6 +416,17 @@ only the failed delta, but the note's one current `Implementation directive`
 must be revised into a complete, self-contained repair packet and revalidated.
 The next Implementer must not need prior chat, retained context, or a design
 inference to repair the unit.
+
+For a positive limit, require the return to report ticket-change evidence as
+added, deleted, total, and binding limit. In the same turn that can issue
+`GO` and land the change, rerun the authoritative guard from the exact
+directive worktree and base. Immediately before landing, confirm that the
+guard's printed `candidate commit` is still `HEAD`; if `HEAD` changed, rerun
+the guard or issue `NO-GO`. For a zero limit, require
+`size limit disabled (0); measurement skipped`; a role must not invent counts.
+The ticket may close only when the independent didactic-readability review is
+`GO` and either the positive limit is met or the limit is `0`. Zero means only
+that the numerical size comparison is unlimited.
 
 If the returned unit changed a tracked README or covered explanatory Python
 prose, run the complete `ai/notes/readme-go-no-go.md` review before recording

@@ -38,6 +38,7 @@ REQUIRED_SECTIONS = {
         "Outcome",
         "Starting point",
         "Execution checkout",
+        "Character-change budget",
         "Files and symbols",
         "Ordered implementation steps",
         "Interfaces and exact behavior",
@@ -53,6 +54,7 @@ REQUIRED_SECTIONS = {
         "Finding and evidence",
         "Root cause",
         "Required outcome",
+        "Character-change budget",
         "Files and symbols",
         "Ordered repair steps",
         "Exact invariants",
@@ -194,6 +196,12 @@ HTML_ENTITY_RE = re.compile(
     r"&(?:#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);")
 CANONICAL_LOCATOR_LINE_RE = re.compile(
     r"^[ ]{0,3}-[ \t]+`([^`\n]+)::([^`\n]+)`[ \t]*:[ \t]+(.+)$")
+CHARACTER_BUDGET_ROWS = (
+    re.compile(r"^- Limit: `([0-9]+)`$"),
+    re.compile(r"^- Planned maximum: `([0-9]+)`$"),
+    re.compile(r"^- Readability plan: (.+)$"),
+)
+TICKET_CHANGE_GUARD = "ai/tools/ticket_change_guard.py"
 
 
 class DirectiveError(ValueError):
@@ -824,10 +832,12 @@ def _require_execution_checkout(body):
     worktree = values["Worktree"][0]
     worktree_parts = PurePosixPath(worktree).parts
     if (not PurePosixPath(worktree).is_absolute()
-            or ".." in worktree_parts):
+            or ".." in worktree_parts
+            or re.search(r"[\x00-\x1f\x7f$`*?\[\]{};|&<>()\\]",
+                         worktree) is not None):
         raise DirectiveError(
-            "Execution checkout Worktree must be one absolute path without "
-            "parent traversal")
+            "Execution checkout Worktree must be one literal absolute path "
+            "without parent traversal or shell expansion characters")
 
     branch = values["Branch"][0]
     if (branch in ("main", "refs/heads/main")
@@ -847,6 +857,67 @@ def _require_execution_checkout(body):
         "Worktree": worktree,
         "Branch": branch,
         "Base": base.lower(),
+    }
+
+
+def _require_character_change_budget(body, expected_max):
+    """Return one exact, policy-matched character-change budget.
+
+    The directive stores the run-time limit so it survives mailbox relays.
+    Only the three canonical visible rows are accepted; supplemental budget
+    reasoning belongs in the readability-plan row rather than in free-form
+    fields that a lower-capability Implementer would have to interpret.
+    """
+    if (isinstance(expected_max, bool)
+            or not isinstance(expected_max, int)
+            or expected_max < 0):
+        raise DirectiveError(
+            "expected character-change limit must be a nonnegative integer")
+    structural = _binding_markdown_text(text=body)
+    rows = [line for line in structural.split("\n") if line.strip()]
+    if len(rows) != len(CHARACTER_BUDGET_ROWS):
+        raise DirectiveError(
+            "section 'Character-change budget' requires exactly these rows "
+            "in order: - Limit: `N`; - Planned maximum: `K`; "
+            "- Readability plan: visible prose")
+    matches = []
+    for row, pattern in zip(rows, CHARACTER_BUDGET_ROWS):
+        match = pattern.fullmatch(row)
+        if match is None:
+            raise DirectiveError(
+                "section 'Character-change budget' requires exactly these "
+                "rows in order: - Limit: `N`; - Planned maximum: `K`; "
+                "- Readability plan: visible prose")
+        matches.append(match)
+    limit_text = matches[0].group(1)
+    planned_text = matches[1].group(1)
+    limit = int(limit_text)
+    planned_maximum = int(planned_text)
+    readability_plan = matches[2].group(1).strip()
+    if limit_text != str(limit) or planned_text != str(planned_maximum):
+        raise DirectiveError(
+            "section 'Character-change budget' decimal values must use "
+            "their exact canonical spelling without leading zeros")
+    if limit != expected_max:
+        raise DirectiveError(
+            "section 'Character-change budget' limit " + str(limit)
+            + " does not match the run-time --max value "
+            + str(expected_max))
+    if limit > 0 and planned_maximum > limit:
+        raise DirectiveError(
+            "section 'Character-change budget' planned maximum "
+            + str(planned_maximum) + " exceeds limit " + str(limit))
+    if not _has_substantive_payload(
+            readability_plan,
+            minimum_alphanumeric=16,
+            minimum_words=3):
+        raise DirectiveError(
+            "section 'Character-change budget' needs a substantive visible "
+            "readability plan")
+    return {
+        "limit": limit,
+        "planned_maximum": planned_maximum,
+        "readability_plan": readability_plan,
     }
 
 
@@ -877,6 +948,179 @@ def _command_blocks(body):
             character, width, info = opening
             lines = []
     return blocks
+
+
+def _logical_shell_commands(lines):
+    """Return simple visible commands, joining backslash continuations."""
+    commands = []
+    pending = ""
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            pending += line[:-1].rstrip() + " "
+            continue
+        commands.append((pending + line).strip())
+        pending = ""
+    if pending:
+        commands.append(pending.strip())
+    return commands
+
+
+def _has_shell_control_flow(commands):
+    """Return whether a command block can hide a guard behind shell flow."""
+    control_re = re.compile(
+        r"^(?:if|then|elif|else|fi|for|select|while|until|do|done|case|"
+        r"esac|function)\b|^(?:\(|\)|\{|\})|"
+        r"^[A-Za-z_][A-Za-z0-9_]*[ \t]*\([ \t]*\)[ \t]*\{")
+    return any(control_re.search(command.strip()) is not None
+               for command in commands)
+
+
+def _parse_ticket_change_guard(command, authoritative_tool=None):
+    """Parse one direct, literal ticket-size guard command.
+
+    Shell variables and compound shell expressions are deliberately refused.
+    The packet must preserve the exact worktree, starting commit, and limit so
+    a lower-capability Implementer can copy the command without inference.
+    """
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+
+    script_index = None
+    script_token = None
+    manual_absolute = str(CONTRACT_REPO_ROOT / TICKET_CHANGE_GUARD)
+    allowed_tools = {
+        TICKET_CHANGE_GUARD,
+        "./" + TICKET_CHANGE_GUARD,
+        manual_absolute,
+    }
+    if authoritative_tool is not None:
+        allowed_tools = {authoritative_tool}
+    if (len(tokens) >= 2
+            and Path(tokens[0]).name in ("python", "python3")
+            and tokens[1] in allowed_tools):
+        script_index = 1
+        script_token = tokens[1]
+    if script_index is None:
+        return None
+
+    arguments = tokens[script_index + 1:]
+    if len(arguments) != 6:
+        return None
+    values = {}
+    for index in range(0, len(arguments), 2):
+        option = arguments[index]
+        value = arguments[index + 1]
+        if option not in ("--repo", "--base", "--max") or option in values:
+            return None
+        values[option] = value
+    if set(values) != {"--repo", "--base", "--max"}:
+        return None
+
+    repo = values["--repo"]
+    if (not PurePosixPath(repo).is_absolute()
+            or ".." in PurePosixPath(repo).parts
+            or re.search(r"[\x00-\x1f\x7f$`*?\[\]{};|&<>()\\]",
+                         repo) is not None):
+        return None
+    base = values["--base"]
+    if re.fullmatch(r"[0-9a-fA-F]{40}", base) is None:
+        return None
+    maximum = values["--max"]
+    if re.fullmatch(r"[0-9]+", maximum) is None:
+        return None
+    return {
+        "tool": script_token,
+        "repo": repo,
+        "base": base.lower(),
+        "max": int(maximum),
+        "max_literal": maximum,
+    }
+
+
+def _require_ticket_change_guard(
+        bodies, expected_max, execution_checkout=None):
+    """Require a literal positive-limit guard command and acceptance check."""
+    if expected_max == 0:
+        return None
+
+    authoritative_tool = os.environ.get("MAILBOX_TICKET_CHANGE_GUARD")
+    if authoritative_tool is not None and (
+            not os.path.isabs(authoritative_tool)
+            or Path(authoritative_tool).name != "ticket_change_guard.py"):
+        raise DirectiveError(
+            "MAILBOX_TICKET_CHANGE_GUARD must name the authoritative "
+            "absolute ticket_change_guard.py path")
+
+    parsed = []
+    saw_guard_text = False
+    for _tag, lines in _command_blocks(body=bodies["Validation commands"]):
+        commands = _logical_shell_commands(lines=lines)
+        if _has_shell_control_flow(commands=commands):
+            continue
+        for command in commands:
+            if TICKET_CHANGE_GUARD in command:
+                saw_guard_text = True
+            invocation = _parse_ticket_change_guard(
+                command=command,
+                authoritative_tool=authoritative_tool)
+            if invocation is not None:
+                parsed.append(invocation)
+    if len(parsed) != 1:
+        detail = ("one direct literal command" if saw_guard_text
+                  else "a direct literal command")
+        raise DirectiveError(
+            "positive Character-change budget requires " + detail + " in "
+            "'Validation commands': python3 "
+            + (authoritative_tool or TICKET_CHANGE_GUARD)
+            + " --repo ABSOLUTE_WORKTREE --base FULL_40_HEX_COMMIT "
+              "--max " + str(expected_max))
+
+    invocation = parsed[0]
+    if (invocation["max"] != expected_max
+            or invocation["max_literal"] != str(expected_max)):
+        raise DirectiveError(
+            "ticket_change_guard.py command --max "
+            + invocation["max_literal"]
+            + " does not match the exact run-time --max "
+            + str(expected_max))
+    if execution_checkout is not None:
+        if invocation["repo"] != execution_checkout["Worktree"]:
+            raise DirectiveError(
+                "ticket_change_guard.py command --repo does not match the "
+                "Execution checkout Worktree")
+        if invocation["base"] != execution_checkout["Base"]:
+            raise DirectiveError(
+                "ticket_change_guard.py command --base does not match the "
+                "Execution checkout Base")
+
+    checklist = _binding_markdown_text(text=bodies["Acceptance checklist"])
+    conditions = CHECKBOX_RE.findall(checklist)
+
+    def is_positive_condition(condition):
+        return (
+            TICKET_CHANGE_GUARD in condition
+            and re.search(r"\bwithin[ -]limit\b", condition,
+                          flags=re.IGNORECASE) is not None
+            and re.search(
+                r"\b(?:not|never|without|fail(?:s|ed)?|refus(?:e|es|ed)|"
+                r"over[ -]?limit)\b",
+                condition,
+                flags=re.IGNORECASE) is None)
+
+    if not any(is_positive_condition(condition) for condition in conditions):
+        raise DirectiveError(
+            "positive Character-change budget requires an Acceptance "
+            "checklist condition that ticket_change_guard.py reports "
+            "'within limit' for the exact candidate")
+    return {key: value for key, value in invocation.items()
+            if key != "max_literal"}
 
 
 def _require_commands(body):
@@ -959,16 +1203,20 @@ def _require_commands(body):
         "syntax-valid, resolvable command")
 
 
-def validate_directive_text(role, text):
+def validate_directive_text(role, text, expected_max=0):
     """Validate one note's Architect or Red Team directive packet.
 
     Arguments:
       role = ``architect`` for a binding implementation directive, or
              ``redteam`` for an advisory repair directive.
       text = complete Markdown note text.
+      expected_max = exact nonnegative run-time character-change limit.
 
     Returns:
-      None.  ``DirectiveError`` is raised when the packet is incomplete.
+      A parsed dictionary containing the role, packet title, character-change
+      budget, and Architect execution checkout when applicable.
+      ``DirectiveError`` is raised when the packet is incomplete or its
+      character-change limit differs from ``expected_max``.
     """
     if role not in PACKET_TITLES:
         raise DirectiveError("unknown directive role: " + repr(role))
@@ -999,9 +1247,14 @@ def validate_directive_text(role, text):
 
     _require_locator(bodies=bodies, heading="Files and symbols")
     result = {"role": role, "packet_title": title}
+    result["character_change_budget"] = _require_character_change_budget(
+        body=bodies["Character-change budget"],
+        expected_max=expected_max)
+    execution_checkout = None
     if role == "architect":
-        result["execution_checkout"] = _require_execution_checkout(
+        execution_checkout = _require_execution_checkout(
             body=bodies["Execution checkout"])
+        result["execution_checkout"] = execution_checkout
         _require_locator(bodies=bodies, heading="Tests to write")
         _require_evidence_destination(text=text, packet_title=title)
     else:
@@ -1028,12 +1281,57 @@ def validate_directive_text(role, text):
             "section 'Acceptance checklist' must contain a Markdown checkbox "
             "with a visible alphanumeric condition")
     _require_commands(body=bodies["Validation commands"])
+    guard = _require_ticket_change_guard(
+        bodies=bodies,
+        expected_max=expected_max,
+        execution_checkout=execution_checkout)
+    if guard is not None:
+        result["ticket_change_guard"] = guard
     return result
 
 
-def validate_directive_file(role, path):
+def validate_directive_file(role, path, expected_max=0):
     """Read and validate one bounded UTF-8 directive note."""
+    authoritative_contract = os.environ.get("MAILBOX_HANDOFF_CONTRACT")
+    if authoritative_contract is not None:
+        actual_contract = os.path.realpath(os.path.abspath(__file__))
+        if (not os.path.isabs(authoritative_contract)
+                or os.path.abspath(authoritative_contract) != actual_contract
+                or os.path.realpath(authoritative_contract)
+                != actual_contract):
+            raise DirectiveError(
+                "this validator is not the authoritative absolute "
+                "MAILBOX_HANDOFF_CONTRACT program")
     note = Path(path)
+    shared_notes = os.environ.get("MAILBOX_SHARED_NOTES")
+    if shared_notes is not None:
+        shared_path = Path(shared_notes)
+        if (not shared_path.is_absolute()
+                or ".." in shared_path.parts
+                or os.path.realpath(str(shared_path))
+                != os.path.abspath(str(shared_path))):
+            raise DirectiveError(
+                "MAILBOX_SHARED_NOTES must name one authoritative absolute "
+                "notes directory without a redirected path")
+        if not note.is_absolute() or ".." in note.parts:
+            raise DirectiveError(
+                "a mailbox directive note must use its absolute path below "
+                "MAILBOX_SHARED_NOTES, not a relative or parent-traversing "
+                "path")
+        note_absolute = os.path.abspath(str(note))
+        try:
+            inside_shared_notes = (
+                os.path.commonpath((note_absolute, str(shared_path)))
+                == str(shared_path))
+        except ValueError:
+            inside_shared_notes = False
+        if not inside_shared_notes:
+            raise DirectiveError(
+                "mailbox directive note is outside MAILBOX_SHARED_NOTES")
+        if os.path.realpath(note_absolute) != note_absolute:
+            raise DirectiveError(
+                "mailbox directive note uses a redirected path instead of "
+                "the authoritative MAILBOX_SHARED_NOTES file")
     flags = os.O_RDONLY
     if hasattr(os, "O_NOFOLLOW"):
         flags = flags | os.O_NOFOLLOW
@@ -1076,7 +1374,46 @@ def validate_directive_file(role, path):
         text = payload.decode("utf-8", errors="strict")
     except UnicodeDecodeError as exc:
         raise DirectiveError("cannot read directive note as UTF-8: " + str(exc))
-    return validate_directive_text(role=role, text=text)
+    return validate_directive_text(
+        role=role, text=text, expected_max=expected_max)
+
+
+def nonnegative_character_limit(value):
+    """Parse one command-line decimal character limit."""
+    if re.fullmatch(r"[0-9]+", value) is None:
+        raise argparse.ArgumentTypeError(
+            "--max must be a nonnegative decimal character count")
+    return int(value)
+
+
+def resolve_character_limit(cli_value, environment_value=None):
+    """Bind a CLI limit to the mailbox environment without silent fallback."""
+    if cli_value is not None and (
+            isinstance(cli_value, bool)
+            or not isinstance(cli_value, int)
+            or cli_value < 0):
+        raise DirectiveError(
+            "command-line --max must be a nonnegative integer")
+    if environment_value is None:
+        environment_value = os.environ.get("MAILBOX_MAX_CHARACTERS")
+
+    environment_limit = None
+    if environment_value is not None:
+        if (not isinstance(environment_value, str)
+                or re.fullmatch(r"[0-9]+", environment_value) is None):
+            raise DirectiveError(
+                "MAILBOX_MAX_CHARACTERS must contain only ASCII decimal "
+                "digits")
+        environment_limit = int(environment_value)
+
+    if cli_value is None:
+        return 0 if environment_limit is None else environment_limit
+    if environment_limit is not None and cli_value != environment_limit:
+        raise DirectiveError(
+            "command-line --max " + str(cli_value)
+            + " does not match MAILBOX_MAX_CHARACTERS "
+            + str(environment_limit))
+    return cli_value
 
 
 def parse_args(argv=None):
@@ -1085,6 +1422,11 @@ def parse_args(argv=None):
         description="Validate a complete Architect or Red Team directive")
     parser.add_argument("role", choices=tuple(PACKET_TITLES))
     parser.add_argument("note", help="Markdown ticket note containing the packet")
+    parser.add_argument(
+        "--max", metavar="characters",
+        type=nonnegative_character_limit, default=None,
+        help="character-change limit that the directive must match; when "
+             "omitted, use MAILBOX_MAX_CHARACTERS if present, otherwise 0")
     return parser.parse_args(argv)
 
 
@@ -1092,7 +1434,9 @@ def main(argv=None):
     """Run the read-only directive validator."""
     args = parse_args(argv=argv)
     try:
-        validate_directive_file(role=args.role, path=args.note)
+        expected_max = resolve_character_limit(cli_value=args.max)
+        validate_directive_file(
+            role=args.role, path=args.note, expected_max=expected_max)
     except DirectiveError as exc:
         print(args.role + " directive: INVALID: " + str(exc))
         return 1

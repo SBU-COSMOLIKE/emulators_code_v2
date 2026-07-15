@@ -63,10 +63,29 @@ command.
 
 1. **The decision-complete directive is the contract.** Your authority is the
    latest `ARCHITECT_HANDOFF` block plus its cited `ai/notes/` entry. Before
-   editing, run the cited Architect check:
+   editing, run the cited Architect check. Replace `RUNTIME_N` with the exact
+   decimal printed in the dispatch or manual-router prompt. A headless mailbox
+   turn also receives that value as `MAILBOX_MAX_CHARACTERS`; never substitute
+   the planned maximum.
+
+   In a mailbox turn, use the absolute path in `MAILBOX_HANDOFF_CONTRACT` and
+   the exact absolute note path from the message or `MAILBOX_SHARED_NOTES`.
+   Never replace either with a relative `ai/tools/` or `ai/notes/` path. Only
+   when those variables are absent in a manual session, use the tool and note
+   below the current repository root.
 
    ```bash
-   python3 ai/tools/handoff_contract.py architect ai/notes/<ticket>.md
+   python3 "$MAILBOX_HANDOFF_CONTRACT" architect \
+     "$MAILBOX_SHARED_NOTES"/<ticket>.md \
+     --max RUNTIME_N
+   ```
+
+   For a manual session without those mailbox variables, run:
+
+   ```bash
+   python3 ai/tools/handoff_contract.py architect \
+     ai/notes/<ticket>.md \
+     --max RUNTIME_N
    ```
 
    Confirm that the current `Implementation directive` decides the exact
@@ -94,6 +113,33 @@ command.
    off-limits in every Implementer unit, not only documentation units. If the
    directive's `Do not change` section does not list all twelve exact paths,
    return a blocker before editing.
+
+1a. **Match the character budget without sacrificing clarity.** The current
+   dispatch banner names the binding run-time `--max N`. Confirm that the
+   validated `Character-change budget` has the same `N`; `0` means no size cap
+   and does not relax any other condition. Follow the Architect's detailed
+   readable decomposition. For a positive `N`, run the exact command in the
+   directive at its checkpoints and on the final clean candidate commit. That
+   command must use the authoritative absolute path from
+   `MAILBOX_TICKET_CHANGE_GUARD`, `--repo` with the directive's exact
+   `Execution checkout` worktree, its full `--base`, and `--max N`. Only when
+   that variable is absent in a manual session may it use the guard below the
+   current repository root. Record added, deleted, total, and limit. For
+   `N = 0`, report `size limit disabled (0); measurement skipped` and never
+   invent character counts. If a required measurement is unavailable, the
+   note disagrees with the run-time limit, or a positive limit is exceeded,
+   stop and return evidence to the Architect.
+   Never change the limit, choose a new split, omit required behavior, or make
+   a design decision yourself.
+
+   Do not save characters through minification, shortened names, packed
+   statements, collapsed control flow, dense expressions or metaprogramming,
+   removed comments or docstrings, removed tests or type information,
+   stripped whitespace, omitted errors or documentation, or a partial fix.
+   Keep the Python didactic for a C programmer and a physics undergraduate.
+   When the complete readable tested unit does not fit, report that fact; the
+   Architect alone decides `NO-GO`, a new ticket split, or a request for a
+   higher user-approved limit.
 
 2. **Verbatim numerics.** When a directive quotes a reference expression
    in `Interfaces and exact behavior`, transplant it character-faithful —
@@ -208,6 +254,9 @@ below is the required shape:
 
 - **Current state:** [what was coded/modified, by file]
 - **Gate results:** [each gate command → raw pass/fail output, pasted]
+- **Character-change result:** [positive limit: ticket_change_guard.py →
+  added, deleted, total, and binding limit for the exact final candidate;
+  zero limit: `size limit disabled (0); measurement skipped`, with no invented counts]
 - **Deviations from directive:** [any, each with its reason — or "none"]
 - **Blockers/findings:** [unexpected behavior, limitations, surprises]
 - **Notes entry updated:** [ai/notes/<name>.md — resume state appended]

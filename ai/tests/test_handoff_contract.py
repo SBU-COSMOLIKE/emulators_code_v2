@@ -1,5 +1,6 @@
 """Focused tests for decision-complete handoff directive packets."""
 
+from contextlib import redirect_stderr
 from contextlib import redirect_stdout
 import io
 import os
@@ -15,8 +16,13 @@ from ai.tools.handoff_contract import DirectiveError
 from ai.tools.handoff_contract import MAX_NOTE_BYTES
 from ai.tools.handoff_contract import REQUIRED_SECTIONS
 from ai.tools.handoff_contract import main
+from ai.tools.handoff_contract import resolve_character_limit
 from ai.tools.handoff_contract import validate_directive_file
 from ai.tools.handoff_contract import validate_directive_text
+
+
+BASE_COMMIT = "0123456789abcdef0123456789abcdef01234567"
+WORKTREE = "/repo/.claude/worktrees/mailbox-primary"
 
 
 ARCHITECT_BODIES = {
@@ -24,9 +30,14 @@ ARCHITECT_BODIES = {
     "Starting point": (
         "At commit 0123456, ai/tools/example.py accepts unchecked notes."),
     "Execution checkout": (
-        "- Worktree: `/repo/.claude/worktrees/mailbox-primary`\n"
+        "- Worktree: `" + WORKTREE + "`\n"
         "- Branch: `claude/mailbox-primary`\n"
-        "- Base: `0123456789abcdef0123456789abcdef01234567`"),
+        "- Base: `" + BASE_COMMIT + "`"),
+    "Character-change budget": (
+        "- Limit: `0`\n"
+        "- Planned maximum: `900`\n"
+        "- Readability plan: Keep descriptive names and explicit control "
+        "flow throughout the complete tested change."),
     "Files and symbols": (
         "- `ai/tools/example.py::validate`: modify the validator.\n"
         "- `ai/tests/test_example.py::ExampleTests`: add the validator "
@@ -54,6 +65,30 @@ ARCHITECT_BODIES = {
         "Keep this unit serial because code and test share one tiny contract."),
 }
 
+
+def bounded_bodies(limit, planned=None, guard_tool="ai/tools/ticket_change_guard.py"):
+    """Return the exact packet additions required by a positive limit."""
+    if planned is None:
+        planned = limit
+    return {
+        "Character-change budget": (
+            "- Limit: `" + str(limit) + "`\n"
+            "- Planned maximum: `" + str(planned) + "`\n"
+            "- Readability plan: Keep descriptive names, explicit branches, "
+            "complete tests, and explanatory prose."),
+        "Validation commands": (
+            "Run the focused suite, then measure the exact candidate.\n"
+            "```bash\n"
+            "python3 -m unittest ai.tests.test_example\n"
+            "python3 " + guard_tool + " --repo " + WORKTREE
+            + " --base " + BASE_COMMIT + " --max " + str(limit) + "\n"
+            "```"),
+        "Acceptance checklist": (
+            "- [ ] Valid notes pass and every malformed fixture refuses.\n"
+            "- [ ] `ai/tools/ticket_change_guard.py` reports `within limit` "
+            "for the exact clean candidate."),
+    }
+
 REDTEAM_BODIES = {
     "Finding and evidence": (
         "Commit 0123456 accepts a missing directive; raw test exits zero."),
@@ -61,6 +96,11 @@ REDTEAM_BODIES = {
         "The dispatch path checks transport bytes but not the cited packet."),
     "Required outcome": (
         "Refuse an incomplete packet before an Implementer begins editing."),
+    "Character-change budget": (
+        "- Limit: `0`\n"
+        "- Planned maximum: `600`\n"
+        "- Readability plan: Preserve descriptive names and explicit repair "
+        "steps for the lower-capability Implementer."),
     "Files and symbols": (
         "- `ai/tools/example.py::validate`: repair the validator.\n"
         "- `ai/tests/test_example.py::ExampleTests`: add the validator "
@@ -112,7 +152,274 @@ class HandoffContractTests(unittest.TestCase):
     def test_valid_architect_and_redteam_packets(self):
         for role in ("architect", "redteam"):
             with self.subTest(role=role):
-                validate_directive_text(role=role, text=packet(role=role))
+                result = validate_directive_text(
+                    role=role, text=packet(role=role))
+                self.assertEqual(
+                    result["character_change_budget"]["limit"], 0)
+
+    def test_character_change_budget_is_exact_and_policy_matched(self):
+        bounded = bounded_bodies(limit=1200, planned=1100)
+        for role in ("architect", "redteam"):
+            with self.subTest(role=role):
+                result = validate_directive_text(
+                    role=role,
+                    text=packet(role=role, bodies=bounded),
+                    expected_max=1200)
+                self.assertEqual(
+                    result["character_change_budget"],
+                    {
+                        "limit": 1200,
+                        "planned_maximum": 1100,
+                        "readability_plan": (
+                            "Keep descriptive names, explicit branches, "
+                            "complete tests, and explanatory prose."),
+                    })
+
+        mismatch = packet(
+            role="architect",
+            bodies=bounded)
+        with self.assertRaisesRegex(DirectiveError, "does not match.*--max"):
+            validate_directive_text(
+                role="architect", text=mismatch, expected_max=1199)
+
+        unlimited = packet(
+            role="architect",
+            bodies={"Character-change budget": (
+                "- Limit: `0`\n"
+                "- Planned maximum: `999999`\n"
+                "- Readability plan: Keep the complete implementation "
+                "didactic even though no size cap applies.")})
+        result = validate_directive_text(
+            role="architect", text=unlimited, expected_max=0)
+        self.assertEqual(
+            result["character_change_budget"]["planned_maximum"], 999999)
+
+    def test_character_change_budget_malformed_or_over_limit_refuses(self):
+        malformed = (
+            ("- Planned maximum: `4`\n"
+             "- Readability plan: Preserve descriptive names and complete "
+             "tests for every changed behavior."),
+            ("- Limit: `4`\n"
+             "- Limit: `4`\n"
+             "- Planned maximum: `4`\n"
+             "- Readability plan: Preserve descriptive names and complete "
+             "tests for every changed behavior."),
+            ("- Limit: `-1`\n"
+             "- Planned maximum: `0`\n"
+             "- Readability plan: Preserve descriptive names and complete "
+             "tests for every changed behavior."),
+            ("- Limit: `4`\n"
+             "- Planned maximum: `4`\n"
+             "- Readability plan: Preserve descriptive names and complete "
+             "tests for every changed behavior.\n"
+             "- Extra: `4`"),
+            ("- Planned maximum: `4`\n"
+             "- Limit: `4`\n"
+             "- Readability plan: Preserve descriptive names and complete "
+             "tests for every changed behavior."),
+        )
+        for body in malformed:
+            with self.subTest(body=body):
+                with self.assertRaisesRegex(DirectiveError, "exactly these"):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(
+                            role="architect",
+                            bodies={"Character-change budget": body}),
+                        expected_max=4)
+
+        over = packet(
+            role="architect",
+            bodies={"Character-change budget": (
+                "- Limit: `4`\n"
+                "- Planned maximum: `5`\n"
+                "- Readability plan: Preserve descriptive names and complete "
+                "tests for every changed behavior.")})
+        with self.assertRaisesRegex(DirectiveError, "exceeds limit"):
+            validate_directive_text(
+                role="architect", text=over, expected_max=4)
+
+        weak_plan = packet(
+            role="architect",
+            bodies={"Character-change budget": (
+                "- Limit: `4`\n"
+                "- Planned maximum: `4`\n"
+                "- Readability plan: Keep clear.")})
+        with self.assertRaisesRegex(DirectiveError, "substantive visible"):
+            validate_directive_text(
+                role="architect", text=weak_plan, expected_max=4)
+
+        leading_zero = packet(
+            role="architect",
+            bodies={"Character-change budget": (
+                "- Limit: `04`\n"
+                "- Planned maximum: `04`\n"
+                "- Readability plan: Preserve descriptive names and complete "
+                "tests for every changed behavior.")})
+        with self.assertRaisesRegex(DirectiveError, "without leading zeros"):
+            validate_directive_text(
+                role="architect", text=leading_zero, expected_max=4)
+
+        for invalid in (-1, True, "4"):
+            with self.subTest(expected_max=invalid):
+                with self.assertRaisesRegex(
+                        DirectiveError, "nonnegative integer"):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(role="architect"),
+                        expected_max=invalid)
+
+    def test_positive_limit_requires_exact_guard_command_and_condition(self):
+        bodies = bounded_bodies(limit=37, planned=30)
+        for role in ("architect", "redteam"):
+            with self.subTest(role=role):
+                result = validate_directive_text(
+                    role=role,
+                    text=packet(role=role, bodies=bodies),
+                    expected_max=37)
+                self.assertEqual(
+                    result["ticket_change_guard"],
+                    {
+                        "tool": "ai/tools/ticket_change_guard.py",
+                        "repo": WORKTREE,
+                        "base": BASE_COMMIT,
+                        "max": 37,
+                    })
+
+        missing_command = dict(bodies)
+        missing_command["Validation commands"] = (
+            "Run the focused suite and require exit zero.\n"
+            "```bash\npython3 -m unittest ai.tests.test_example\n```")
+        with self.assertRaisesRegex(DirectiveError, "direct literal command"):
+            validate_directive_text(
+                role="architect",
+                text=packet(role="architect", bodies=missing_command),
+                expected_max=37)
+
+        missing_condition = dict(bodies)
+        missing_condition["Acceptance checklist"] = (
+            "- [ ] Every focused regression test passes.")
+        with self.assertRaisesRegex(DirectiveError, "within limit"):
+            validate_directive_text(
+                role="architect",
+                text=packet(role="architect", bodies=missing_condition),
+                expected_max=37)
+
+        negated_condition = dict(bodies)
+        negated_condition["Acceptance checklist"] = (
+            "- [ ] `ai/tools/ticket_change_guard.py` does not report "
+            "`within limit` for the exact candidate.")
+        with self.assertRaisesRegex(DirectiveError, "within limit"):
+            validate_directive_text(
+                role="architect",
+                text=packet(role="architect", bodies=negated_condition),
+                expected_max=37)
+
+    def test_guard_command_cannot_be_prose_variable_echo_or_wrong_binding(self):
+        valid = bounded_bodies(limit=37, planned=30)
+        valid_command = (
+            "python3 ai/tools/ticket_change_guard.py --repo " + WORKTREE
+            + " --base " + BASE_COMMIT + " --max 37")
+        replacements = (
+            (valid_command,
+             "# " + valid_command,
+             "direct literal command"),
+            (valid_command,
+             "echo '" + valid_command + "'",
+             "direct literal command"),
+            (valid_command,
+             "if false; then\n" + valid_command + "\nfi",
+             "direct literal command"),
+            ("--base " + BASE_COMMIT, "--base $BASE", "direct literal"),
+            ("--max 37", "--max $MAX", "direct literal"),
+            ("--max 37", "--max 38", "does not match.*--max"),
+            ("--max 37", "--max 037", "does not match.*--max"),
+            ("--repo " + WORKTREE,
+             "--repo /repo/.claude/worktrees/other",
+             "does not match.*Worktree"),
+            ("--base " + BASE_COMMIT,
+             "--base 1123456789abcdef0123456789abcdef01234567",
+             "does not match.*Base"),
+            ("--repo " + WORKTREE,
+             "--repo /repo/$USER/worktree",
+             "direct literal command"),
+            ("python3 ai/tools/ticket_change_guard.py",
+             "ai/tools/ticket_change_guard.py",
+             "direct literal command"),
+        )
+        for old, new, message in replacements:
+            with self.subTest(replacement=new):
+                malformed = dict(valid)
+                malformed["Validation commands"] = malformed[
+                    "Validation commands"].replace(old, new)
+                with self.assertRaisesRegex(DirectiveError, message):
+                    validate_directive_text(
+                        role="architect",
+                        text=packet(role="architect", bodies=malformed),
+                        expected_max=37)
+
+        duplicate = dict(valid)
+        duplicate["Validation commands"] = valid[
+            "Validation commands"].replace(valid_command,
+                                            valid_command + "\n" + valid_command)
+        with self.assertRaisesRegex(DirectiveError, "one direct literal"):
+            validate_directive_text(
+                role="architect",
+                text=packet(role="architect", bodies=duplicate),
+                expected_max=37)
+
+    def test_positive_guard_accepts_clear_backslash_wrapping(self):
+        bodies = bounded_bodies(limit=37, planned=30)
+        one_line = (
+            "python3 ai/tools/ticket_change_guard.py --repo " + WORKTREE
+            + " --base " + BASE_COMMIT + " --max 37")
+        wrapped = (
+            "python3 ai/tools/ticket_change_guard.py \\\n"
+            "  --repo " + WORKTREE + " \\\n"
+            "  --base " + BASE_COMMIT + " \\\n"
+            "  --max 37")
+        bodies["Validation commands"] = bodies[
+            "Validation commands"].replace(one_line, wrapped)
+        result = validate_directive_text(
+            role="architect",
+            text=packet(role="architect", bodies=bodies),
+            expected_max=37)
+        self.assertEqual(result["ticket_change_guard"]["max"], 37)
+
+    def test_mailbox_guard_path_rejects_relative_tool_and_accepts_authority(self):
+        authoritative = (
+            "/primary/ai/tools/ticket_change_guard.py")
+        relative = bounded_bodies(limit=37, planned=30)
+        with mock.patch.dict(
+                os.environ,
+                {"MAILBOX_TICKET_CHANGE_GUARD": authoritative},
+                clear=False):
+            with self.assertRaisesRegex(
+                    DirectiveError, "direct literal command"):
+                validate_directive_text(
+                    role="redteam",
+                    text=packet(role="redteam", bodies=relative),
+                    expected_max=37)
+
+            absolute = bounded_bodies(
+                limit=37, planned=30, guard_tool=authoritative)
+            result = validate_directive_text(
+                role="redteam",
+                text=packet(role="redteam", bodies=absolute),
+                expected_max=37)
+            self.assertEqual(
+                result["ticket_change_guard"]["tool"], authoritative)
+
+        with mock.patch.dict(
+                os.environ,
+                {"MAILBOX_TICKET_CHANGE_GUARD": "relative/tool.py"},
+                clear=False):
+            with self.assertRaisesRegex(
+                    DirectiveError, "authoritative absolute"):
+                validate_directive_text(
+                    role="redteam",
+                    text=packet(role="redteam", bodies=relative),
+                    expected_max=37)
 
     def test_missing_reordered_duplicate_and_unknown_sections_refuse(self):
         required = REQUIRED_SECTIONS["architect"]
@@ -360,6 +667,15 @@ class HandoffContractTests(unittest.TestCase):
              "- Base: `short`"),
             ("- Worktree: `/repo/.claude/worktrees/one`\n"
              "- Worktree: `/repo/.claude/worktrees/two`\n"
+             "- Branch: `claude/worker`\n"
+             "- Base: `0123456789abcdef0123456789abcdef01234567`"),
+            ("- Worktree: `/repo/$USER/worktree`\n"
+             "- Branch: `claude/worker`\n"
+             "- Base: `0123456789abcdef0123456789abcdef01234567`"),
+            ("- Worktree: `/repo/$(id)/worktree`\n"
+             "- Branch: `claude/worker`\n"
+             "- Base: `0123456789abcdef0123456789abcdef01234567`"),
+            ("- Worktree: `/repo/*/worktree`\n"
              "- Branch: `claude/worker`\n"
              "- Base: `0123456789abcdef0123456789abcdef01234567`"),
         )
@@ -909,7 +1225,7 @@ class HandoffContractTests(unittest.TestCase):
 
     def test_file_validation_is_read_only_bounded_and_utf8_strict(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             valid = root / "valid.md"
             valid.write_text(packet(role="architect"), encoding="utf-8")
             before = valid.read_bytes()
@@ -960,6 +1276,74 @@ class HandoffContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(DirectiveError, "changed"):
                     validate_directive_file(role="architect", path=valid)
 
+    def test_mailbox_shared_notes_rejects_relative_local_and_redirected_notes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            shared = root / "primary" / "ai" / "notes"
+            sol_local = root / "sol" / "ai" / "notes"
+            shared.mkdir(parents=True)
+            sol_local.mkdir(parents=True)
+            authoritative = shared / "ticket.md"
+            local = sol_local / "ticket.md"
+            authoritative.write_text(
+                packet(role="architect"), encoding="utf-8")
+            local.write_text(packet(role="architect"), encoding="utf-8")
+
+            with mock.patch.dict(
+                    os.environ, {"MAILBOX_SHARED_NOTES": str(shared)},
+                    clear=False):
+                result = validate_directive_file(
+                    role="architect", path=authoritative)
+                self.assertEqual(result["role"], "architect")
+
+                for path, message in (
+                        (Path("ai/notes/ticket.md"), "absolute path"),
+                        (local, "outside MAILBOX_SHARED_NOTES")):
+                    with self.subTest(path=str(path)):
+                        with self.assertRaisesRegex(DirectiveError, message):
+                            validate_directive_file(
+                                role="architect", path=path)
+
+                linked_parent = root / "linked-notes"
+                try:
+                    linked_parent.symlink_to(shared, target_is_directory=True)
+                except (OSError, NotImplementedError):
+                    return
+                with self.assertRaisesRegex(
+                        DirectiveError, "outside MAILBOX_SHARED_NOTES"):
+                    validate_directive_file(
+                        role="architect", path=linked_parent / "ticket.md")
+
+                linked_note = shared / "linked-ticket.md"
+                linked_note.symlink_to(authoritative)
+                with self.assertRaisesRegex(DirectiveError, "redirected path"):
+                    validate_directive_file(
+                        role="architect", path=linked_note)
+
+    def test_mailbox_contract_rejects_a_non_authoritative_validator_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            note = Path(directory) / "ticket.md"
+            note.write_text(packet(role="architect"), encoding="utf-8")
+            authoritative = str(
+                (Path(__file__).resolve().parents[1]
+                 / "tools" / "handoff_contract.py").resolve())
+            with mock.patch.dict(
+                    os.environ,
+                    {"MAILBOX_HANDOFF_CONTRACT": authoritative},
+                    clear=False):
+                result = validate_directive_file(
+                    role="architect", path=note)
+                self.assertEqual(result["role"], "architect")
+
+            with mock.patch.dict(
+                    os.environ,
+                    {"MAILBOX_HANDOFF_CONTRACT":
+                     str(Path(directory) / "handoff_contract.py")},
+                    clear=False):
+                with self.assertRaisesRegex(
+                        DirectiveError, "not the authoritative absolute"):
+                    validate_directive_file(role="architect", path=note)
+
     @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO unavailable")
     def test_fifo_refuses_promptly_in_a_bounded_subprocess(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -997,6 +1381,91 @@ class HandoffContractTests(unittest.TestCase):
                 result = main(argv=["redteam", str(redteam)])
             self.assertEqual(result, 1)
             self.assertIn("redteam directive: INVALID:", output.getvalue())
+
+    def test_cli_character_limit_defaults_to_zero_and_matches_note(self):
+        with tempfile.TemporaryDirectory() as directory:
+            note = Path(directory) / "architect.md"
+            note.write_text(packet(role="architect"), encoding="utf-8")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = main(argv=["architect", str(note)])
+            self.assertEqual(result, 0)
+            self.assertIn("architect directive: VALID:", output.getvalue())
+
+            bounded = packet(
+                role="architect",
+                bodies=bounded_bodies(limit=25, planned=20))
+            note.write_text(bounded, encoding="utf-8")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = main(
+                    argv=["architect", str(note), "--max", "25"])
+            self.assertEqual(result, 0)
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = main(argv=["architect", str(note)])
+            self.assertEqual(result, 1)
+            self.assertIn("does not match", output.getvalue())
+
+            for invalid in ("-1", "one"):
+                with self.subTest(invalid=invalid):
+                    with redirect_stderr(io.StringIO()):
+                        with self.assertRaises(SystemExit) as raised:
+                            main(argv=[
+                                "architect", str(note), "--max", invalid])
+                    self.assertEqual(raised.exception.code, 2)
+
+    def test_mailbox_environment_binds_omitted_and_explicit_cli_limits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            note = Path(directory) / "architect.md"
+            note.write_text(
+                packet(role="architect", bodies=bounded_bodies(25, 20)),
+                encoding="utf-8")
+
+            with mock.patch.dict(
+                    os.environ, {"MAILBOX_MAX_CHARACTERS": "25"},
+                    clear=False):
+                for argv in (
+                        ["architect", str(note)],
+                        ["architect", str(note), "--max", "25"]):
+                    with self.subTest(argv=argv):
+                        output = io.StringIO()
+                        with redirect_stdout(output):
+                            result = main(argv=argv)
+                        self.assertEqual(result, 0)
+                        self.assertIn("directive: VALID", output.getvalue())
+
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = main(
+                        argv=["architect", str(note), "--max", "24"])
+                self.assertEqual(result, 1)
+                self.assertIn(
+                    "does not match MAILBOX_MAX_CHARACTERS",
+                    output.getvalue())
+
+    def test_mailbox_environment_limit_is_strict_ascii_decimal(self):
+        for invalid in ("", " 25", "+25", "2_5", "٢٥", "１２"):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaisesRegex(
+                        DirectiveError, "ASCII decimal digits"):
+                    resolve_character_limit(
+                        cli_value=None, environment_value=invalid)
+
+        self.assertEqual(
+            resolve_character_limit(cli_value=None, environment_value="0"),
+            0)
+        self.assertEqual(
+            resolve_character_limit(cli_value=None, environment_value="25"),
+            25)
+        self.assertEqual(
+            resolve_character_limit(cli_value=25, environment_value="25"),
+            25)
+        with self.assertRaisesRegex(
+                DirectiveError, "does not match MAILBOX_MAX_CHARACTERS"):
+            resolve_character_limit(cli_value=24, environment_value="25")
 
 
 if __name__ == "__main__":
