@@ -151,6 +151,13 @@ pattern + scope it was checked with, so the reader can re-run it.
 
 ## README / didactics
 
+The operational review contract is `ai/notes/readme-go-no-go.md`. For every
+tracked README change and every change to explanatory Python comments,
+docstrings, command help, user-facing diagnostics, or explanatory strings,
+the Architect reads that contract before writing the implementation directive
+and reads it again before issuing `GO` or `NO-GO`. It turns the rules in this
+section into binary evidence checks; it does not replace them.
+
 Two-README split (user philosophy: first learn to RUN and configure,
 only later how the code works): the main README = Run it -> the YAML
 chapter -> the family sections -> generation -> appendices, AI-Usage
@@ -277,7 +284,7 @@ quota.
   pushed; working branches stay local.
 - Ticket substance and resume state go to a local temporary note in the same
   turn. Only the Architect decides whether an accepted fix changes a general
-  property in the permanent ten; only then does the Architect edit that note
+  property in the permanent eleven; only then does the Architect edit that note
   and, when useful for discovery, `MEMORY.md`. Milestones do not create
   permanent-note churn.
 
@@ -424,7 +431,7 @@ holds, audit approvals, retractions and queue changes. A chat-only decision
 is not durable and cannot be treated as the program's current instruction.
 When a summary and its cited note disagree, the current note is the source of
 record. The Architect alone decides whether the accepted result changes one of
-the ten permanent general-property notes. `ai/notes/MEMORY.md` indexes only
+the eleven permanent general-property notes. `ai/notes/MEMORY.md` indexes only
 that permanent knowledge; it is not a ticket registry.
 
 Relay transport copies (Fable addendum, 2026-07-14): the clipboard router

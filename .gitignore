@@ -26,7 +26,7 @@ documentation/*Notes.bib
 ai/notes/mailbox/
 ai/notes/relay/
 
-# Only the ten permanent, general-property notes belong in Git.  Every other
+# Only the eleven permanent, general-property notes belong in Git.  Every other
 # top-level Markdown note is a local ticket record.
 /ai/notes/*.md
 !/ai/notes/MEMORY.md
@@ -37,6 +37,7 @@ ai/notes/relay/
 !/ai/notes/families-scalar-cmb.md
 !/ai/notes/models-and-designs.md
 !/ai/notes/project-and-history.md
+!/ai/notes/readme-go-no-go.md
 !/ai/notes/training-stack.md
 !/ai/notes/user-didactics-and-python-voice.md
 

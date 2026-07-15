@@ -2328,16 +2328,10 @@ ACTIVE_TOPOLOGY = None
 PLACEHOLDER_MARKERS = ["<spec>", "<X>", "<section>", "<unit>",
                        "your message here"]
 
-# When the TOTAL open execution backlog reaches this many units, the
-# queue counts as SATURATED: the red team becomes the SECOND IMPLEMENTER,
-# and the Architect hands it build units so the backlog drains on two
-# execution tracks (.claude/FABLE_ROLE.md, "Second-Implementer
-# assignments"; the mode switch is always an explicit sentence in the
-# handoff, never implied by this number alone). The total is queued
-# mailbox messages PLUS the "- OPEN" lines of ai/notes/backlog.md -- the
-# program's ledger of every unit still owed execution and audit (user
-# rule, 2026-07-14: demand is what saturates the queue, not the
-# dispatch rate).
+# At this total, the watcher reminds the Architect that Sol can receive a
+# separate implementation job. Sol remains the Red Team unless that specific
+# message contains the exact second-Implementer declaration. The total is the
+# waiting mailbox messages plus the "- OPEN" lines in ai/notes/backlog.md.
 SECOND_IMPLEMENTER_THRESHOLD = 10
 BACKLOG_LEDGER = os.path.join(AI_ROOT, "notes", "backlog.md")
 SOL_TICKET_KINDS = ("closure", "discovery")
@@ -4230,16 +4224,14 @@ def report_deferred_sol_messages():
 
 
 def report_demand(backlog, skip_redteam=False):
-    """Print the queue-depth line + the second-Implementer tripwire.
+    """Print the waiting-work counts and second-Implementer reminder.
 
-    The demand total is the queued mailbox messages PLUS the "- OPEN"
-    lines of ai/notes/backlog.md (user rule, 2026-07-14: demand is what
-    saturates the queue, not the dispatch rate). Printed by every watch
-    pass that holds work AND by every --send, so the person queueing a
-    message always sees the load they are adding to.
+    The total is the waiting mailbox messages plus the "- OPEN" lines in
+    ai/notes/backlog.md. Every watch pass that finds work and every --send
+    prints it, so the person adding a message can see the resulting count.
 
     Arguments:
-      backlog = the current pending message paths (pending_messages()).
+      backlog = Current waiting message paths from pending_messages().
     """
     depth = {"fable": 0, "opus": 0, "sol": 0}
     for path in backlog:
@@ -4254,11 +4246,11 @@ def report_demand(backlog, skip_redteam=False):
           + " | open backlog (ai/notes/backlog.md): " + str(ledger)
           + " | total demand: " + str(total))
     if total >= SECOND_IMPLEMENTER_THRESHOLD and not skip_redteam:
-        print("  hint: total open demand is at or past "
-              + str(SECOND_IMPLEMENTER_THRESHOLD) + " units; the red "
-              "team is now the second implementer: build units flow to "
-              "it as well as to the primary Implementer route "
-              "(.claude/FABLE_ROLE.md, Second-Implementer assignments).")
+        print("  hint: " + str(SECOND_IMPLEMENTER_THRESHOLD)
+              + " or more items are waiting. Give Sol separate "
+              "implementation jobs as a second Implementer, but only a "
+              "message with the required declaration changes Sol's role; "
+              "otherwise Sol remains the Red Team.")
     report_landing_debt()
 
 

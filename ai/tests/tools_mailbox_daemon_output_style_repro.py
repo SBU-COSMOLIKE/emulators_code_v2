@@ -107,7 +107,7 @@ def runtime_hint_line():
     with contextlib.redirect_stdout(stream):
         daemon.report_demand(backlog=[])
     lines = [line for line in stream.getvalue().splitlines()
-             if line.startswith("  hint: total open demand")]
+             if line.startswith("  hint: 10 or more items are waiting")]
     return lines[0] if len(lines) == 1 else ""
 
 
@@ -190,10 +190,10 @@ def main():
 
     hint = runtime_hint_line()
     expected_hint = (
-        "  hint: total open demand is at or past 10 units; the red team is "
-        "now the second implementer: build units flow to it as well as to "
-        "the primary Implementer route (.claude/FABLE_ROLE.md, "
-        "Second-Implementer assignments).")
+        "  hint: 10 or more items are waiting. Give Sol separate "
+        "implementation jobs as a second Implementer, but only a message "
+        "with the required declaration changes Sol's role; otherwise Sol "
+        "remains the Red Team.")
     refusal = runtime_refusal_line()
     expected_refusal = (
         "refused 0001-to-opus.md: the whole body is the template placeholder "

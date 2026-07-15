@@ -25,29 +25,29 @@ Agents work inside those boundaries.
 
 ### Common questions raised by developers
 
-**[Appendices about mailbox mechanics](#appendices-about-mailbox-mechanics)**
+**[Appendices about how the mailbox works](#appendices-about-mailbox-mechanics)**
 
 - [FAQ A1. How does a mailbox message move?](#appendix-a--how-does-a-mailbox-message-move)
-- [FAQ A2. What happens when the outcome cannot be verified?](#faq-a2-unverified-outcome)
+- [FAQ A2. What if the watcher cannot tell whether a message finished safely?](#faq-a2-unverified-outcome)
 - [FAQ B1. When can I interrupt the watcher?](#appendix-b--when-is-it-safe-to-stop-the-watcher)
 - [FAQ B2. What does `--cycle` count?](#faq-b2-cycle-count)
-- [FAQ C1. Why are messages divided into lanes?](#appendix-c--how-do-queues-and-lanes-work)
+- [FAQ C1. Why can some AI jobs run together while others must wait?](#appendix-c--how-do-queues-and-lanes-work)
 - [FAQ C2. Where does Sol work?](#faq-c2-sol-worktree)
-- [FAQ D1. When does the demand guard refuse discovery?](#appendix-d--what-is-the-demand-guard)
-- [FAQ D2. When may Sol act as a second Implementer?](#faq-d2-second-implementer)
+- [FAQ D1. Why can the tool refuse a new Red Team search?](#appendix-d--what-is-the-demand-guard)
+- [FAQ D2. When may Sol implement instead of review?](#faq-d2-second-implementer)
 
-**[Appendices about setup and recovery](#appendices-about-setup-and-recovery)**
+**[Appendices about setup, problems, and recovery](#appendices-about-setup-and-recovery)**
 
 - [FAQ E1. What should I check first?](#appendix-e--how-do-i-troubleshoot-a-run)
-- [FAQ E2. How do I recover a saved agent worktree?](#faq-e2-primary-recovery)
+- [FAQ E2. What should I do if the tool rejects a saved AI folder?](#faq-e2-primary-recovery)
 - [FAQ F1. Which folder does each role use?](#appendix-f--what-is-the-worktree-topology)
-- [FAQ F2. May I use another worktree?](#faq-f2-other-worktrees)
-- [FAQ G. How do I install this on another machine?](#appendix-g--how-do-i-install-this-on-another-machine)
+- [FAQ F2. Can I create another work folder for myself?](#faq-f2-other-worktrees)
+- [FAQ G. How do I set this up on another computer?](#appendix-g--how-do-i-install-this-on-another-machine)
 
-**[Appendices about occasional transfer](#appendices-about-occasional-transfer)**
+**[Appendices about sharing unfinished work](#appendices-about-occasional-transfer)**
 
-- [FAQ H1. How do I package unfinished work?](#appendix-h--how-can-i-send-unfinished-work-to-someone-else)
-- [FAQ H2. How does the recipient inspect it safely?](#faq-h2-inspect-unfinished-work)
+- [FAQ H1. How can I send unfinished work to another person?](#appendix-h--how-can-i-send-unfinished-work-to-someone-else)
+- [FAQ H2. How can the other person open that package safely?](#faq-h2-inspect-unfinished-work)
 
 ## Start here
 
@@ -343,7 +343,7 @@ A **test** checks one behavior. A **gate** is a repeatable acceptance command
 with a required result. The **validation board** lists and runs those gates so
 the Architect can audit machine output instead of trusting a summary.
 
-Exactly ten Markdown notes are permanent repository knowledge:
+Exactly eleven Markdown notes are permanent repository knowledge:
 
 1. `MEMORY.md`
 2. `artifacts-inference-warmstart.md`
@@ -355,13 +355,56 @@ Exactly ten Markdown notes are permanent repository knowledge:
 8. `project-and-history.md`
 9. `training-stack.md`
 10. `user-didactics-and-python-voice.md`
+11. `readme-go-no-go.md`
 
 The backlog, dated audits, incident reports, state notes, handoff registers,
 mailbox files, and relay logs are local working records. Do not add them to a
 GitHub commit.
 
-The Architect decides whether an accepted change modifies a general property
-described by the permanent ten. If it does, the Architect owns that update.
+The Implementer and Red Team never edit these eleven notes, regardless of the
+ticket type. The Architect decides whether an accepted change modifies a
+general property recorded there. If it does, the Architect reviews and
+commits the note as a separate Architect-only change. That new commit can then
+be the starting version for a later implementation ticket.
+
+Before handing work to either role, the Architect records the full starting
+commit. The Architect runs the following command immediately before that
+handoff and again before the final `GO`:
+
+```bash
+python3 ai/tools/permanent_note_guard.py \
+  --repo EXACT_WORKTREE \
+  --base FULL_STARTING_COMMIT
+```
+
+The capitalized values are placeholders. The Architect replaces
+`EXACT_WORKTREE` with the AI work-folder path and `FULL_STARTING_COMMIT` with
+the full starting commit recorded in the directive.
+
+The command calculates a SHA-256 fingerprint—a short identifier for exact
+file bytes—from Git. It checks the notes in four places:
+
+| Place checked | Plain meaning |
+| --- | --- |
+| Starting commit | The saved project version named by the Architect before work begins |
+| Current `HEAD` | The latest saved commit in the AI work folder |
+| Git staging area | Files selected for the next commit |
+| Working files | Files currently visible in the AI work folder |
+
+The expected fingerprints do not come from an editable checksum list. Only
+the Architect's rerun counts; copied output from another role is supporting
+evidence.
+
+The command also compares `ai/tools/permanent_note_guard.py` with the starting
+commit. This stops another role from changing both a protected note and the
+program meant to detect that change. There is no separate checksum file that
+could be changed to approve different bytes.
+
+`readme-go-no-go.md` is also the Architect's plain-language contract. It
+applies to README files that Git includes and to words inside Python meant to
+teach or explain: comments, explanations placed under functions or classes,
+command help, messages printed when something happens or fails, and other
+explanatory strings.
 
 ### How does a reported problem become a tested fix?
 
@@ -650,258 +693,390 @@ watcher.
 
 # Common questions raised by developers
 
-## Appendices about mailbox mechanics <a id="appendices-about-mailbox-mechanics"></a>
+## Appendices about how the mailbox works <a id="appendices-about-mailbox-mechanics"></a>
 
 ### FAQ A1. How does a mailbox message move? <a id="appendix-a--how-does-a-mailbox-message-move"></a>
 
-Publication and dispatch are filesystem state transitions, not chat events.
+The mailbox is a set of folders, and each request is a small Markdown file, a
+text file ending in `.md`. Sending a request means saving that file in the
+mailbox's waiting area. The watcher is the program that looks for waiting
+files and starts the appropriate AI role.
+
+Just before starting a role, the watcher moves the exact request file into
+`inflight/`, which means **work in progress**. Moving it first prevents a
+second watcher from starting the same request. When the role finishes, the
+watcher tries to move that same file to `done/` or `failed/`.
 
 ```mermaid
 flowchart LR
-  P["pending mailbox file"] -->|"claim the file safely"| I["inflight"]
-  I -->|"return code 0 and archive verified"| D["done"]
-  I -->|"nonzero exit, refusal, or verified timeout"| F["failed"]
-  I -->|"archive result uncertain"| B["remain inflight; lane blocked"]
-  H["to-user message"] --> U["human reads reply"]
+  W["waiting request file"] -->|"move this exact file before starting"| I["work in progress: inflight/"]
+  I -->|"role succeeds and the final move is confirmed"| D["finished: done/"]
+  I -->|"role fails, refuses, or times out and the final move is confirmed"| F["not completed: failed/"]
+  I -->|"watcher cannot confirm the final move"| B["keep in inflight/; later work in the same AI folder waits"]
+  H["reply addressed to the user"] --> U["user reads it; watcher does not run it"]
 ```
 
-### FAQ A2. What happens when the outcome cannot be verified? <a id="faq-a2-unverified-outcome"></a>
+Messages ending in `-to-user.md` are replies for a person to read. The watcher
+never starts an AI role from those files.
 
-The uncertain path deliberately stays in `inflight/`. Later work cannot
-overtake a message whose outcome is unknown.
+### FAQ A2. What if the watcher cannot tell whether a message finished safely? <a id="faq-a2-unverified-outcome"></a>
 
-`--dispatch-timeout MINUTES` defaults to 60. A verified timeout kills the
-child, records timeout history under `ai/notes/mailbox/.dispatch-history/`,
-and moves the message to `failed/`.
+If a request remains in `inflight/`, the role started but the watcher could
+not confirm the final result. Later requests that use the same AI work folder
+must wait. Otherwise, they could edit the same files while the first request
+is still running or while its result is uncertain.
 
-If history or archive identity cannot be verified, the message stays in
-`inflight/` and blocks its lane. A clean child exit alone is not enough; the
-daemon also verifies the archived file identity.
+`--dispatch-timeout MINUTES` sets the longest allowed running time and
+defaults to 60 minutes. At that limit, the watcher stops the AI program, saves
+a small timeout record under `ai/notes/mailbox/.dispatch-history/`, and tries
+to move the request to `failed/`.
 
-`--dry-run` performs none of these transitions.
+If the watcher cannot confirm the timeout record or the move of the exact
+request file, it leaves the file in `inflight/`. Even an AI program that exits
+without an error is not marked finished until the watcher confirms that the
+same request file reached `done/`.
+
+Do not requeue or move an uncertain file. First compare the original request,
+its named log, and any copies in `done/` or `failed/` so you know which result,
+if any, was saved.
+
+`--dry-run` only prints what would happen. It starts no role and moves no
+mailbox file.
 
 ### FAQ B1. When can I interrupt the watcher? <a id="appendix-b--when-is-it-safe-to-stop-the-watcher"></a>
 
-Read the watcher literally:
+Read the watcher's latest status line:
 
-| Signal | Meaning | Safe to interrupt? |
+| Printed status | Plain meaning | Safe to press Ctrl-C? |
 | --- | --- | --- |
-| Heartbeat or “turns in flight” | A role is running or about to start | No |
-| `all lanes idle; safe to Ctrl-C ...` | The bounded safe interval is open | Yes |
-| Cycle-limit exit | The watcher finished work it had started and exited itself | Already safe |
-| Timeout | Recovery was attempted | Inspect `failed/` or `inflight/` first |
+| A periodic progress message, `turn in flight`, or `turns in flight` | An AI role is running | No |
+| `dispatch preparation admitted; not safe to stop` | The watcher is starting a role | No |
+| `safe interval ended; not safe to stop` | An earlier safe period has ended | No |
+| `safe to Ctrl-C` | No AI role is running or starting during the printed countdown | Yes |
+| `watcher exiting safely` | The watcher has already stopped | Yes; no action is needed |
+| A timeout message | The watcher is stopping one long-running role and saving its result | No. Wait for a later `safe to Ctrl-C` or `watcher exiting safely` line. After it stops, inspect `failed/` and `inflight/` before requeueing |
 
 ### FAQ B2. What does `--cycle` count? <a id="faq-b2-cycle-count"></a>
 
-A cycle is one round of watching. It starts when the watcher starts, or just
-after the previous safe countdown. To finish the round, the watcher pauses new
-launches and waits for every job it already started to finish.
+For `--cycle N`, where `N` is greater than zero, a cycle begins when the
+watcher starts or when the preceding 20-second safe-stop countdown ends. It
+reaches its next safe-stop point after five launched AI jobs finish or 15
+minutes pass from the start of that cycle, whichever happens first. Ordinary
+idle checks do not reset that 15-minute clock in this mode.
+
+To complete the cycle, the watcher stops starting new jobs and waits for jobs
+that are already starting or running. It then either exits or prints the
+20-second Ctrl-C countdown before beginning another cycle.
 
 ```mermaid
 flowchart LR
-  W["watching"] --> R["time to finish this round"]
-  R --> F["freeze new admissions"]
-  F --> D["wait for started jobs"]
-  D --> C{"cycle target reached?"}
+  W["look for messages and run jobs"] --> E{"five launched jobs finished or 15 minutes passed since this cycle began?"}
+  E -->|"no"| W
+  E -->|"yes"| N["do not start another job"]
+  N --> F["wait for jobs already starting or running"]
+  F --> C{"requested number of cycles complete?"}
   C -->|"yes"| X["exit safely"]
-  C -->|"no"| S["20-second safe interval"]
+  C -->|"no"| S["print the 20-second safe-stop countdown"]
   S --> W
 ```
 
-Choose the lifetime explicitly:
+Choose how long the watcher should run:
 
-| Command | Behavior |
+| Command | What it does |
 | --- | --- |
-| `--watch` | Watch indefinitely; stop during a printed safe interval |
-| `--watch --cycle 2` | Exit after the second completed watch round |
-| `--watch --cycle 0` | Exit after enabled routes and open ledger lines drain |
-| `--watch --skip-redteam --cycle 0` | Drain Architect and Implementer; report deferred Sol files |
+| `--watch` | Keep watching until you stop it during a printed safe countdown |
+| `--watch --cycle 2` | Exit safely after two completed cycles, even if more work is waiting |
+| `--watch --cycle 0` | Exit only when no enabled mailbox message is waiting and `ai/notes/backlog.md` has no line that begins `- OPEN` |
+| `--watch --skip-redteam --cycle 0` | Wait only for Architect and Implementer work; leave Sol messages untouched for a later run |
 
-`--cycle 0` does not turn backlog lines into mailbox messages. It simply keeps
-watching until normal ticket messages have closed every literal `- OPEN` line
-in `ai/notes/backlog.md` and the enabled message queues are empty.
+`--cycle 0` does not read a backlog description and invent an AI request from
+it. Someone must still send the appropriate mailbox message. The roles that
+handle that request must also change its `- OPEN` backlog line when the work
+is genuinely finished.
 
-Before zero-mode exit, the watcher takes the same publication lock as
-`--send` and verifies a stable regular UTF-8 ledger plus the enabled root
-queue. An unverifiable ledger keeps the watcher active; it never becomes
-“zero work” by assumption.
+Just before a zero-cycle exit, the watcher briefly prevents `--send` from
+saving another message. It checks that the backlog is an ordinary readable
+text file, that the file did not change during the check, and that no enabled
+message is waiting. If it cannot perform those checks, it keeps running
+instead of guessing that the work is finished.
 
-Two common safe messages are:
+This line marks a safe countdown:
 
 ```text
 all lanes idle; safe to Ctrl-C for 19s more; 3 messages waiting.
 ```
 
-A running-turn heartbeat looks like this:
+The words `all lanes idle` mean that no AI role is running or starting. The
+last number says how many request files still wait, including work for a role
+that may be disabled in this run.
+
+While a role is running, a periodic progress message looks like this:
 
 ```text
   ... 0046-to-opus.md still running (3 min elapsed, log 12.4 kB; tail -f .../ai/notes/relay/20260714-031840-dispatch-opus.log)
 ```
 
+It names the request, elapsed time, and current log-file size. The final path
+is the log that an experienced user may inspect while the job runs.
+
 ```text
 cycle limit reached (2/2 cycles); all lanes idle; watcher exiting safely; 3 messages waiting; 4 open ledger jobs remain.
 ```
 
-The ordinary 20-second idle poll is also safe, but it is not a cycle boundary.
+This last line means the requested two cycles are complete and the watcher
+has stopped safely. “Open ledger jobs” means backlog lines that still begin
+with `- OPEN`.
 
-### FAQ C1. Why are messages divided into lanes? <a id="appendix-c--how-do-queues-and-lanes-work"></a>
+The watcher also waits 20 seconds when it simply finds no work. Interrupting
+during that idle wait is safe, but the idle wait does not complete a cycle.
 
-A **turn** processes one message. A **dispatch** starts a turn. A **lane** is
-the one-at-a-time queue for one working directory.
+### FAQ C1. Why can some AI jobs run together while others must wait? <a id="appendix-c--how-do-queues-and-lanes-work"></a>
+
+Two roles must not edit the same working folder at the same time. The watcher
+therefore starts only one job at a time in each AI folder. Jobs in separate AI
+folders may run together.
+
+The documentation calls each one-at-a-time sequence a **lane**. A **turn** is
+one role handling one message. A **dispatch** is the moment when the watcher
+starts that turn. These names appear in logs, but the folder rule is the
+important idea.
 
 ```mermaid
 flowchart TB
-  M["pending message"] --> R{"route"}
-  R -->|"fable or opus"| C["primary coordination worktree"]
-  R -->|"sol when enabled"| S["saved Sol worktree"]
-  C --> Q["one Claude turn at a time"]
-  S --> T["one Sol turn"]
-  Q --> A["Architect evidence audit"]
+  M["waiting request"] --> R{"which role receives it?"}
+  R -->|"Architect or Implementer"| C["shared Claude work folder"]
+  R -->|"Sol, when enabled"| S["separate Sol work folder"]
+  C --> Q["only one Claude job at a time"]
+  S --> T["only one Sol job at a time"]
+  Q --> A["Architect checks the evidence"]
   T --> A
 ```
 
-Filenames impose order within a lane. Different working directories may run
-at the same time. Routes that use one directory run one at a time.
+The number at the beginning of each message filename determines its order
+inside the same lane.
 
-Architect and Implementer intentionally share the primary worktree, staged
-index, notes, and uncommitted code. The daemon therefore gives them one lane.
+Architect and Implementer intentionally share one Claude folder so both see
+the same notes and unfinished edits. They must therefore take turns. Sol uses
+a different folder and may run at the same time as one Claude role.
 
 ### FAQ C2. Where does Sol work? <a id="faq-c2-sol-worktree"></a>
 
-Sol never starts in your main repository folder. The daemon creates or reuses
-a saved Sol worktree and starts every enabled Sol turn there. Claude and Sol
-therefore work in different folders.
+A Git **worktree** is an extra working copy of the same project. It has its
+own files and its own named line of work, called a branch, while sharing the
+project's saved Git history.
 
-For a second-Implementer unit, the Architect's `Execution checkout` must name
-that saved Sol worktree, its non-main branch, and its exact base commit.
-Missing or mismatched checkout information is a blocker. Only the Architect
-may enter your main folder to land a change after recording `GO`.
+Sol never works in the main folder that you use. On the first live run, the
+watcher creates a separate Sol worktree and remembers its location. Later
+runs reuse it. Claude and Sol therefore edit different folders, and neither
+normally interferes with your main folder.
 
-A two-role watch disables the Sol lane. Queued Sol messages wait untouched.
+Before Sol starts an implementation job, the Architect's `Execution
+checkout` must name the saved Sol folder, its branch (which must not be
+`main`), and the full identifier of the starting Git commit—the exact saved
+version of the project from which Sol should begin. If any detail is missing
+or different, Sol must not edit any file. The manual router refuses before
+sending the job; a mailbox-started Sol turn returns a blocker to the
+Architect.
 
-### FAQ D1. When does the demand guard refuse discovery? <a id="appendix-d--what-is-the-demand-guard"></a>
+Only the Architect may enter your main folder, and only after recording `GO`,
+to combine an approved change with `main`.
 
-Total demand is:
+A two-role watch created with `--skip-redteam` or `--no-red-team` does not run
+Sol. Existing Sol messages remain untouched for a later normal watch.
+
+### FAQ D1. Why can the tool refuse a new Red Team search? <a id="appendix-d--what-is-the-demand-guard"></a>
+
+The tool counts two exact kinds of recorded work:
 
 ```text
-queued mailbox messages + literal “- OPEN” lines in ai/notes/backlog.md
+waiting mailbox messages + lines that begin “- OPEN” in ai/notes/backlog.md
 ```
 
-At demand ten or more, a new Sol discovery is refused. Closure of known work
-remains allowed.
+The documentation calls this sum **total demand**. If ten or more existing
+items are already waiting, the tool refuses a request for Sol to search for a
+new problem. This prevents another discovery request from creating still more
+work while many known items remain unfinished. A library-wide search still
+requires the user's explicit widespread-search request.
+
+The new search does not count against itself: with nine existing items, it
+may be accepted as the tenth. The tool checks again just before starting it.
+If ten other items exist by then, it refuses the search and tries to move its
+message to `failed/`.
+
+Put the proposed search at the end of `ai/notes/backlog.md`. Retry only when
+total demand is below ten, including any `- OPEN` line added for this proposal.
+Sol may still review or help finish a specific known item. Work that closes a
+known item may continue.
 
 ```mermaid
 flowchart TD
-  Q["queued messages"] --> N["total demand"]
-  B["OPEN ledger lines"] --> N
-  N --> T{"demand at least 10?"}
-  T -->|"no"| O["ordinary routing"]
-  T -->|"yes"| X["refuse new Sol discovery"]
-  T -->|"yes"| C["allow closure tickets"]
+  Q["waiting mailbox files that the watcher can send"] --> N["add these two recorded counts"]
+  B["backlog lines beginning - OPEN"] --> N
+  N --> T{"ten or more items already waiting?"}
+  T -->|"no"| O["a new search may start"]
+  T -->|"yes"| X["refuse a search for a new problem"]
+  T -->|"yes"| C["still allow work on a known item"]
 ```
 
-### FAQ D2. When may Sol act as a second Implementer? <a id="faq-d2-second-implementer"></a>
+### FAQ D2. When may Sol implement instead of review? <a id="faq-d2-second-implementer"></a>
 
-The number never changes a role by itself. Sol becomes a second Implementer
-for one unit only when the first nonblank body line after a mandatory mailbox
-ticket line or relay heading is this exact declaration, and the message cites
-the Architect's complete, validated `Implementation directive`:
+Having ten unfinished items does not automatically change Sol's role. The
+first non-empty line after the required ticket line selects Sol's role for
+this message. One optional line beginning `### ARCHITECT_HANDOFF` may appear
+between them. To select the second-Implementer role, that first non-empty
+assignment line must be the exact declaration below:
 
 ```text
 OpenAI Sol — this is a role as second Implementer for this unit.
 ```
 
-Quoting that sentence later does not change the role. Without it in the exact
-position, Sol remains the bounded Red Team. With it, Sol
-follows `.claude/OPUS_ROLE.md`, returns an `IMPLEMENTER_HANDOFF` to the
-Architect, and does not perform a Red Team review in the same unit.
+Putting that sentence later in the message, or merely quoting it in a
+discussion, does not change the role. Without the declaration in the required
+place, Sol remains the Red Team and reviews only the named change.
 
-For the manual router, `--mode second-implementer` assigns the supplied unit
-to Sol instead of Opus. It never asks both Implementers to execute one
-directive. Different simultaneous lanes require different notes, disjoint
-file ownership, and separate checkouts. For a mailbox-run Sol unit, that
-checkout is the saved Sol worktree. Run the manual router from the exact
-worktree named by `Execution checkout`. Before copying any prompt, it proves
-that the path is a Git-registered linked worktree, the non-`main` branch is
-checked out there, and `HEAD` equals the directive's full base commit. Its
-local gate log therefore tests the same checkout that receives the work.
+The declaration selects the role; it does not by itself permit an edit. Sol
+may begin editing only after the cited Architect `Implementation directive`
+passes validation. That directive must say what to change, how to change it,
+and which tests must pass. Otherwise Sol returns a blocker to the Architect.
+After valid second-Implementer work, Sol follows `.claude/OPUS_ROLE.md` and
+sends an `IMPLEMENTER_HANDOFF`, the structured result sent back to the
+Architect. Sol does not also Red Team review the same job.
 
-The daemon's exact threshold hint is preserved here as an output example:
+The separate manual tool `handoff_router.py --mode second-implementer` sends
+one supplied implementation job to Sol instead of Opus. It never asks both
+Implementers to perform the same instruction. Two implementation jobs may run
+at the same time only when they use different source notes, edit separate
+files, and work in separate Git worktrees.
+
+Run the manual tool inside the exact Sol worktree named in `Execution
+checkout`. Before it copies a prompt, it confirms that Git recognizes that
+folder, that the folder uses the named non-`main` branch, and that its current
+saved version exactly matches the full starting commit named by the
+Architect. This ensures that its tests run in the same folder where Sol makes
+the change.
+
+When ten or more items are waiting, the watcher prints this reminder:
 
 ```text
-  hint: total open demand is at or past 10 units; the red team is now the second implementer: build units flow to it as well as to the primary Implementer route (.claude/FABLE_ROLE.md, Second-Implementer assignments).
+  hint: 10 or more items are waiting. Give Sol separate implementation jobs as a second Implementer, but only a message with the required declaration changes Sol's role; otherwise Sol remains the Red Team.
 ```
 
-Treat that line as a routing prompt, not a role assignment. The exact
-second-Implementer declaration above is still required in the unit.
+The watcher does not create those jobs and does not change Sol's role by
+itself. The exact declaration above is still required in each implementation
+message.
 
-## Appendices about setup and recovery <a id="appendices-about-setup-and-recovery"></a>
+## Appendices about setup, problems, and recovery <a id="appendices-about-setup-and-recovery"></a>
 
 ### FAQ E1. What should I check first? <a id="appendix-e--how-do-i-troubleshoot-a-run"></a>
 
-| Symptom | Likely meaning | First action |
+| What you see | What it probably means | What to do first |
 | --- | --- | --- |
-| A live command refuses and names several mailbox folders | More than one old mailbox or watcher may exist | Preserve every named folder; rerun from the intended shared worktree |
-| A saved agent worktree is refused | Its saved path, branch, and Git's worktree list disagree | Preserve the folder; compare with `git worktree list --porcelain` |
-| Heartbeat advances but Claude log is small | Claude may be buffering output | Keep watching the elapsed time |
-| Log and clock stop | Child may be hung | Wait for timeout or inspect the process; do not interrupt outside a safe interval |
-| `inflight/` blocks a lane | Archive outcome is uncertain | Inspect source, archive, log, and identity before moving anything |
-| Sol discovery is refused | Demand guard or fix-only mode is active | Record the item; use closure only for already known work |
-| Watch exits after a source edit | Its loaded daemon became stale | Relaunch the watcher |
-| Send warns that no watcher holds the mailbox | No live `--watch` owns the primary lock | Start a watcher; the message remains queued |
+| A command refuses and lists several mailbox folders | It found old or duplicate mailbox locations and cannot safely choose one | Do not delete any folder. Rerun the command from the Claude worktree you intend to use |
+| The tool refuses a saved Claude or Sol folder | The saved path or branch does not match what Git currently knows | Keep the folder. Run `git worktree list --porcelain`, which only prints Git-managed work folders and their branches, and compare it with the error |
+| The elapsed time increases but the Claude log stays small | Claude may still be working but has not printed more text yet | Keep watching the elapsed time |
+| Neither elapsed time nor log size changes | The AI program may be stuck | Let the normal timeout handle it. Stop manually only after the watcher prints `safe to Ctrl-C`, and press Ctrl-C before that countdown ends |
+| A file in `inflight/` prevents later work | The watcher started the request but could not prove whether it saved the final request file in `done/` or `failed/` | Compare the original request, any copy in `done/` or `failed/`, and the named log before moving anything |
+| Sol cannot start a new search | A fix-only watch accepts only work that finishes already recorded items, or ten known items already wait | Record the possible issue and use Sol only on a specific known item for now |
+| The watcher exits after you edit `mailbox_daemon.py` | The running watcher noticed that its own program file changed | Start the watcher again so it loads the new code |
+| `--send` warns that no watcher is active | The request was saved, but no watcher is currently handling that mailbox | Start a watcher. The saved request remains safe while it waits |
 
-### FAQ E2. How do I recover a saved agent worktree? <a id="faq-e2-primary-recovery"></a>
+### FAQ E2. What should I do if the tool rejects a saved AI folder? <a id="faq-e2-primary-recovery"></a>
 
-The daemon never cleans, stashes, resets, checks out, prunes, or recreates a
-saved Claude or Sol worktree automatically.
+The tool will not repair a Claude or Sol folder by changing or deleting your
+work. It never hides edits, discards edits, changes the folder's branch,
+removes the folder, or replaces it automatically.
 
-If the error names old schema-1 mailbox state, stop every older watcher or
-mailbox command first. Preserve the reported primary folder and mailbox,
-update that non-main worktree to the current daemon, move the old local state
-file aside for recovery, then run the current daemon from that saved primary
-path. The tool does not guess that an older process has stopped.
+For every rejected AI folder:
 
-1. Preserve the reported state file, mailbox, and relay directories.
-2. Run `git worktree list --porcelain`.
-3. Compare the registered path and branch with the error.
-4. Restore the expected attached branch, or use `git worktree move` for an
-   intentional move. Do not move the directory by hand.
-5. Rerun the command. Missing, detached, wrong-branch, or ambiguous state
-   continues to refuse until its Git identity is repaired.
+1. Keep the state file, mailbox folder, relay logs, and AI work folder named in
+   the error. Do not delete them.
+2. Run `git worktree list --porcelain`. This command only prints the work
+   folders and branches that Git knows.
+3. Compare the printed path and branch with the error message.
+4. If you intentionally moved the folder, use
+   `git worktree move OLD_PATH NEW_PATH` instead of Finder, `mv`, or another
+   ordinary file move. If the branch is wrong or missing and you do not
+   already know how to repair a Git worktree, stop. Do not guess or switch
+   branches until the existing edits are backed up and understood.
 
-Dirty, ahead, or diverged work is preserved. The daemon does not merge, fetch,
-pull, or push either saved branch for you.
+If and only if the error contains `schema-1`, an older mailbox tool saved the
+Claude folder information. First stop every older watcher or mailbox command.
+Then continue:
+
+5. Update the saved Claude worktree so `ai/tools/mailbox_daemon.py` is the same
+   current version as this repository. Merely finding a file with that name is
+   not enough. If you do not know how to update that Git worktree without
+   losing edits, stop and ask for Git help.
+6. In the main project folder that you normally use, rename
+   `.claude/worktrees/.mailbox-primary-worktree.json` to a clearly marked
+   backup instead of deleting it. Do not look for this file inside the saved
+   Claude worktree.
+7. Run the original mailbox command from the saved Claude worktree. The tool
+   will continue to refuse if the folder is
+   missing, has no named branch, uses the wrong branch, or could refer to more
+   than one saved location.
+
+For a Sol-only path or branch error, do not rename the Claude state file.
+
+Local edits and commits already made are preserved even when they are not
+present on `main`. The tool does not download, combine, or upload either AI
+branch for you; Git operations such as `fetch`, `pull`, `merge`, and `push`
+remain deliberate human or Architect actions.
 
 ### FAQ F1. Which folder does each role use? <a id="appendix-f--what-is-the-worktree-topology"></a>
+
+A **worktree** is a separate project folder that Git creates and remembers.
 
 - You use the repository's main folder.
 - Architect and Implementer share one Claude worktree.
 - Sol uses a different worktree.
 
-The daemon creates or reuses both agent worktrees. Agent turns do not start in
-your main folder. The one exception is explicit and narrow: after an audited
-`GO`, the Architect may enter the main folder to land that approved change.
+The first mailbox command that can start or queue work creates both AI folders
+and remembers them. A dry run does not. Claude and Sol normally work only in
+those folders, never in your main folder. The single exception is explicit:
+after the Architect records `GO`, the Architect may enter the main folder to
+combine that approved change with `main`.
 
-### FAQ F2. May I use another worktree? <a id="faq-f2-other-worktrees"></a>
+### FAQ F2. Can I create another work folder for myself? <a id="faq-f2-other-worktrees"></a>
 
-An independently launched interactive developer may use another worktree.
-That does not change either saved agent worktree.
+Yes. A worktree is a separate project folder that Git creates and remembers.
+You may create another one for a manual experiment or other development work.
+That extra folder does not change the saved Claude or Sol folder used by the
+watcher.
 
-### FAQ G. How do I install this on another machine? <a id="appendix-g--how-do-i-install-this-on-another-machine"></a>
+### FAQ G. How do I set this up on another computer? <a id="appendix-g--how-do-i-install-this-on-another-machine"></a>
 
 1. Clone the repository.
-2. Install and authenticate Claude Code.
-3. Install the Codex CLI if the Sol lane will be used.
-4. Check the executable paths used by `build_agent_commands()` in
-   `ai/tools/mailbox_daemon.py`.
-5. Preview from any checkout:
+2. Install Claude Code and sign in to it.
+3. Install the Codex command-line program if you want to use Sol. A two-role
+   Architect-and-Implementer run with `--skip-redteam` does not need Codex.
+4. Ask the computer where those programs are installed:
+
+   ```bash
+   command -v claude
+   command -v codex
+   test -x /Applications/ChatGPT.app/Contents/Resources/codex && \
+     echo /Applications/ChatGPT.app/Contents/Resources/codex
+   ```
+
+   The first command should print the Claude path. Codex may print after the
+   second command or, on macOS with the ChatGPT application, after the third.
+   If neither Codex check prints a path and you want Sol, install Codex before
+   continuing.
+5. Open `ai/tools/mailbox_daemon.py`. Find `build_agent_commands()`, the
+   function that contains the two executable paths, and check that its Claude
+   and Codex paths match the paths printed above.
+6. Preview the setup from any project folder that Git recognizes:
 
    ```bash
    python3 ai/tools/mailbox_daemon.py --dry-run
    ```
 
-6. Inspect every reported command and working directory.
-7. Start the live watcher with the desired models:
+   A dry run starts no AI role and moves no mailbox file. Read every printed
+   command and work-folder path before continuing.
+7. Start the watcher. The watcher is the long-running program that looks for
+   mailbox messages and starts the appropriate role. This command enables the
+   default Red Team:
 
    ```bash
    python3 ai/tools/mailbox_daemon.py --watch \
@@ -909,56 +1084,93 @@ That does not change either saved agent worktree.
      --implementer-model sonnet
    ```
 
-Use `which claude` and `which codex` to locate installed executables. Change
-only the executable paths when a machine installs them elsewhere; model,
-effort, context, sandbox, and service-tier settings remain repository policy.
+   This command runs only the Architect and Implementer:
 
-## Appendices about occasional transfer <a id="appendices-about-occasional-transfer"></a>
+   ```bash
+   python3 ai/tools/mailbox_daemon.py --watch \
+     --skip-redteam \
+     --architect-model opus \
+     --implementer-model sonnet
+   ```
 
-### FAQ H1. How do I package unfinished work? <a id="appendix-h--how-can-i-send-unfinished-work-to-someone-else"></a>
+If the new computer installed Claude or Codex elsewhere, change only those two
+program paths. The model names in the watcher command are choices for that
+run. Reasoning level, context limit, file permissions, and service tier are
+repository-wide settings and should change only through a deliberate project
+decision.
 
-This is a limited recovery tool, not the normal workflow. Prefer closing the
-ticket through notes, gates, and GO or NO-GO. Use a bundle only when another
-developer must resume local, uncommitted backlog work. A bundle is a one-time
-snapshot, not synchronization: choose one active owner, stop editing the
-sender's copy after handoff, and package again from a known Git base if a
-second transfer is unavoidable.
+## Appendices about sharing unfinished work <a id="appendices-about-occasional-transfer"></a>
 
-Preview the selection:
+### FAQ H1. How can I send unfinished work to another person? <a id="appendix-h--how-can-i-send-unfinished-work-to-someone-else"></a>
+
+The normal workflow is to finish, review, and commit a change in the
+repository. Sometimes one person must stop before finishing—for example,
+because access or AI credits run out—and another person must continue. The
+bundle tool provides limited support for that case.
+
+A **bundle** is one compressed file containing the unfinished backlog and its
+supporting files as they existed at one moment. It does not keep two copies in
+sync. To avoid conflicting edits, choose one active owner: the sender stops
+editing after sending the bundle, and the recipient becomes the only person
+continuing that work. If another transfer is unavoidable, create a new bundle
+and state which Git commit—the saved project version—it starts from.
+
+Run the following commands from the project folder whose
+`ai/notes/backlog.md` contains the unfinished work you want to send.
+
+First preview the files that would be included:
 
 ```bash
 python3 ai/tools/backlog_bundle.py pack --dry-run
 ```
 
-Create an ignored `.tar.xz` attachment:
+Then create the compressed `.tar.xz` file:
 
 ```bash
 python3 ai/tools/backlog_bundle.py pack
 ```
 
-### FAQ H2. How does the recipient inspect it safely? <a id="faq-h2-inspect-unfinished-work"></a>
+The command prints `Wrote:` followed by the new file path and
+`Archive SHA-256:` followed by its fingerprint. Save both.
 
-The recipient validates it without writing:
+The created file is ignored by Git. Send it directly to the other person; do
+not add it to GitHub.
+
+### FAQ H2. How can the other person open that package safely? <a id="faq-h2-inspect-unfinished-work"></a>
+
+The recipient should first inspect the package without extracting or changing
+any project file:
 
 ```bash
 python3 ai/tools/backlog_bundle.py inspect path/to/backlog-....tar.xz
 ```
 
-Then unpack it into a fresh ignored review directory:
+This prints the included filenames, sizes, and SHA-256 fingerprints, which are
+identifiers calculated from the exact file bytes. Check the file list first.
+Then compare the printed `Archive SHA-256` with the value the sender supplied
+by phone, text message, or another independent route. Only when the list and
+the separately supplied value agree should you unpack into a new review folder
+that Git ignores:
 
 ```bash
 python3 ai/tools/backlog_bundle.py unpack path/to/backlog-....tar.xz
 ```
 
-`read` and `import` are aliases for `inspect` and `unpack`. Import never
-overwrites live notes or applies code.
+`read` is another name for `inspect`, and `import` is another name for
+`unpack`. Unpacking never overwrites the live notes and never applies a code
+change to the project.
 
-Put ordinary supporting files in `ai/notes/backlog-support/`. Use repeatable
-`--include REPO_RELATIVE_FILE` for an extra patch, image, or regular file.
+Before creating a bundle, put ordinary supporting files in
+`ai/notes/backlog-support/`. Replace `REPO_RELATIVE_FILE` with the file's path
+beginning at the project's top folder, for example
+`--include images/problem.png`. Repeat `--include` once for each extra file.
 
-The bundle records its Git base and SHA-256 inventory. It excludes the ten
-permanent notes, mailbox queues, and relay logs. The archive is ignored by Git
-and should not be added to GitHub.
+The package records its starting Git commit and a SHA-256 fingerprint for
+each file. It does not copy the eleven permanent notes, because the recipient
+gets those from Git. It also excludes live mailbox messages and relay logs.
 
-Checksums detect corruption, not authorship. Compare the printed archive
-SHA-256 with the sender through another channel.
+The archive SHA-256 identifies the exact compressed package. If the
+recipient's value matches the value supplied separately by the sender, the
+package bytes are the same. It does not prove who sent the file. The per-file
+fingerprints let the tool confirm that the extracted files match the package's
+own inventory.

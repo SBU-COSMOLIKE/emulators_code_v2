@@ -36,6 +36,7 @@ PERMANENT_NOTES = (
     "ai/notes/families-scalar-cmb.md",
     "ai/notes/models-and-designs.md",
     "ai/notes/project-and-history.md",
+    "ai/notes/readme-go-no-go.md",
     "ai/notes/training-stack.md",
     "ai/notes/user-didactics-and-python-voice.md",
 )

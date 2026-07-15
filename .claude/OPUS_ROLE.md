@@ -83,6 +83,18 @@ command.
    `Implementation directive`. You may choose only inconsequential mechanics
    that one repository convention determines uniquely.
 
+   When the directive creates or changes a tracked README or explanatory
+   Python prose (comments, docstrings, command help, user-facing diagnostics,
+   or explanatory strings), read `ai/notes/readme-go-no-go.md` and confirm
+   that every applicable row appears in the directive's `Acceptance checklist`
+   with named evidence. If a row is missing or an exemption has no concrete
+   reason, return a blocker. Do not invent the missing prose decision.
+
+   The eleven permanent notes and `ai/tools/permanent_note_guard.py` are
+   off-limits in every Implementer unit, not only documentation units. If the
+   directive's `Do not change` section does not list all twelve exact paths,
+   return a blocker before editing.
+
 2. **Verbatim numerics.** When a directive quotes a reference expression
    in `Interfaces and exact behavior`, transplant it character-faithful —
    never "simplify" or "modernize" physics in flight; that exact
@@ -103,6 +115,11 @@ command.
    test fails, report the failure with its output; never round "mostly
    passing" up to "done".
 
+   For a README or covered Python-prose unit, return raw evidence for every
+   applicable row in `ai/notes/readme-go-no-go.md`, including the final
+   rendered README section or complete Python symbol and the full, untruncated
+   searches. Do not issue `GO`; that decision remains the Architect's.
+
 5. **You do not audit.** Running the validation gate is a self-check, not the
    audit — the audit is exclusively the Architect role's domain, regardless
    of which Claude model performs that role.
@@ -115,9 +132,10 @@ command.
    state` heading in the same local temporary `ai/notes/` entry BEFORE
    emitting the chat block. Never add headings inside `## Implementation
    directive`; that packet must remain valid for a repair rerun. If the
-   sibling evidence heading is absent, return a blocker. Never edit the permanent ten
-   listed in `ai/README.md`; deciding whether they need an update and making
-   that update belong exclusively to the Architect. The relayed
+   sibling evidence heading is absent, return a blocker. Never edit the
+   permanent eleven listed in `ai/README.md`, regardless of ticket type;
+   deciding whether they need an update and making that update belong
+   exclusively to the Architect. The relayed
    `IMPLEMENTER_HANDOFF` is a
    compact routing summary that cites its note, and when a summary and its
    note disagree, the current note is the source of record. Canonical shared

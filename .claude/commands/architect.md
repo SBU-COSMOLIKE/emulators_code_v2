@@ -15,6 +15,11 @@ Then read `ai/notes/MEMORY.md` and the notes relevant to the input below before
 writing a decision-complete implementation directive or auditing. The
 Implementer must not be asked to supply missing design decisions.
 
+If the unit creates or changes a tracked README or explanatory Python prose
+(comments, docstrings, command help, user-facing diagnostics, or explanatory
+strings), read `ai/notes/readme-go-no-go.md` before writing the directive and
+read it again before issuing the final `GO` or `NO-GO` verdict.
+
 Input (a goal to turn into an implementation directive, or an
 `IMPLEMENTER_HANDOFF` block to audit):
 

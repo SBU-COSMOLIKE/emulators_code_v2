@@ -23,6 +23,8 @@ class RoleDirectiveContractTests(unittest.TestCase):
         cls.architect = read(".claude/FABLE_ROLE.md")
         cls.implementer = read(".claude/OPUS_ROLE.md")
         cls.redteam = read(".codex/REDTEAM_ROLE.md")
+        cls.architect_command = read(".claude/commands/architect.md")
+        cls.readme_contract = read("ai/notes/readme-go-no-go.md")
         cls.conventions = read("ai/notes/conventions-and-workflow.md")
         cls.ai_readme = read("ai/README.md")
         cls.router = read("ai/tools/handoff_router.py")
@@ -133,6 +135,35 @@ class RoleDirectiveContractTests(unittest.TestCase):
         self.assertIn("Use your best judgment", self.ai_readme)
         self.assertIn("candidate, never a self-executing ruling",
                       self.ai_readme)
+
+    def test_readme_changes_require_the_architect_gate_twice(self):
+        contract_path = "ai/notes/readme-go-no-go.md"
+        self.assertIn(contract_path, self.architect_command)
+        self.assertGreaterEqual(self.architect.count(contract_path), 4)
+        self.assertIn("before writing the directive", self.architect)
+        self.assertIn("again before final `GO`", self.architect)
+        self.assertIn(contract_path, self.implementer)
+        self.assertIn(contract_path, self.redteam)
+        self.assertIn(contract_path, self.conventions)
+        self.assertIn("physics undergraduate", self.readme_contract)
+        self.assertIn("The Architect reads this file twice",
+                      self.readme_contract)
+        self.assertIn("comments, docstrings, command help",
+                      self.readme_contract)
+        self.assertIn("GO` for the directive", self.readme_contract)
+        self.assertIn("NO-GO", self.readme_contract)
+        self.assertIn("Hard-zero words", self.readme_contract)
+        self.assertIn("Do not use an AI detector", self.readme_contract)
+
+    def test_every_execution_role_keeps_permanent_notes_off_limits(self):
+        guard = "ai/tools/permanent_note_guard.py"
+        self.assertGreaterEqual(self.architect.count(guard), 3)
+        self.assertIn("for any ticket type", self.architect)
+        self.assertIn("all twelve exact paths", self.implementer)
+        self.assertIn("regardless of ticket type", self.implementer)
+        self.assertIn("regardless of ticket type", self.redteam)
+        self.assertIn(guard, self.redteam)
+        self.assertIn("PERMANENT-NOTE-GUARD PASS", self.architect)
 
 
 if __name__ == "__main__":

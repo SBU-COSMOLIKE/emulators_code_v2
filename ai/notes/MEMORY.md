@@ -7,11 +7,11 @@ incident narrative. Git history preserves retired material.
 Start with this page, then open the one topic note that owns the behavior you
 are changing. The operating loop itself is taught in [`ai/README.md`](../README.md).
 
-## The permanent ten
+## The permanent eleven
 
-Exactly these ten Markdown files under `ai/notes/` stay in Git:
+Exactly these eleven Markdown files under `ai/notes/` stay in Git:
 
-1. **`MEMORY.md`** — this index and the permanent/local boundary.
+1. **[`MEMORY.md`](MEMORY.md)** — this index and the permanent/local boundary.
 2. **[`project-and-history.md`](project-and-history.md)** — project goal,
    development arc, family pattern, and program-level lessons.
 3. **[`conventions-and-workflow.md`](conventions-and-workflow.md)** — Python,
@@ -32,11 +32,15 @@ Exactly these ten Markdown files under `ai/notes/` stay in Git:
    and matter-power family properties.
 10. **[`families-scalar-cmb.md`](families-scalar-cmb.md)** — scalar and CMB
     family properties.
+11. **[`readme-go-no-go.md`](readme-go-no-go.md)** — the Architect's required
+    instruction-time and review-time gate for tracked READMEs and explanatory
+    Python comments, docstrings, help, diagnostics, and strings.
 
 The Architect alone decides whether an accepted fix changes a general
-property in this set. Only the Architect edits a permanent note. `MEMORY.md`
-changes only when the permanent map itself needs clarification; it is not a
-per-ticket index.
+property in this set. Only the Architect edits a permanent note. The
+Implementer and Red Team never edit one, regardless of ticket type.
+`MEMORY.md` changes only when the permanent map itself needs clarification;
+it is not a per-ticket index.
 
 ## Local working records
 
@@ -66,7 +70,7 @@ python3 ai/tools/backlog_bundle.py pack
 ```
 
 The recipient validates with `read` and stages a fresh local review copy with
-`import`. The bundle records the exact Git base, so the permanent ten come
+`import`. The bundle records the exact Git base, so the permanent eleven come
 from repository history rather than from emailed worktree bytes.
 
 ## Finding current execution state

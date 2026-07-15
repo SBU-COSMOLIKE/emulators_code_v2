@@ -76,7 +76,7 @@ delegation choice:
   numerics.
 - **`ai/notes/`**: the Architect reads broadly (index first, then the relevant
   notes); the Implementer reads the entry named in its handoff plus the
-  `[[links]]` it cites. Exactly ten general-property notes are permanent, as
+  `[[links]]` it cites. Exactly eleven general-property notes are permanent, as
   listed in `ai/README.md`. Only the Architect decides whether an accepted
   change requires one of those notes to change, and only the Architect edits
   it. Implementer and Red Team evidence goes to a local temporary ticket note,
@@ -98,6 +98,10 @@ full streams to log files, a debug switch restores them), machines
 the ROOTDIR environment. Its voice-and-why companion is
 `ai/notes/user-didactics-and-python-voice.md` — who the reader is and
 the register code and docs are written in; read it BEFORE writing
-either. `MEMORY.md` changes only when the Architect determines that an
-accepted fix changed permanent repository knowledge; ticket milestones do
-not create permanent-note churn.
+either. Every README change and every change to explanatory Python comments,
+docstrings, help, diagnostics, or strings also uses the binary Architect gate
+in `ai/notes/readme-go-no-go.md` before its directive and before its final
+verdict. The Implementer and Red Team never edit any permanent note.
+`MEMORY.md` changes only when the Architect determines that an accepted fix
+changed permanent repository knowledge; ticket milestones do not create
+permanent-note churn.

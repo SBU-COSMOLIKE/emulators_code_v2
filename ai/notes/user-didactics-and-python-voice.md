@@ -145,3 +145,8 @@ each passage against rules 2-4 (real snippet present, every term
 glossed in place, no clause-bearing parentheses, tables for
 enumerations). When she pushes back on a passage, the fix is almost
 never more words — it is a snippet, a gloss, or a split sentence.
+
+For every tracked README change and every change to explanatory Python
+comments, docstrings, command help, user-facing diagnostics, or explanatory
+strings, apply these principles through the binary instruction-time and
+review-time checks in `ai/notes/readme-go-no-go.md`.

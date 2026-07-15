@@ -125,7 +125,7 @@ index, or fall back to the caller's checkout.
            ARCHITECT_REDTEAM_HANDOFF = the structured blocks relayed
            between sessions by the user or runner script
          gates = the pass/fail validation commands + thresholds you pin
-         ai/notes/ = ten permanent knowledge files plus local ticket records;
+         ai/notes/ = eleven permanent knowledge files plus local ticket records;
            handoffs live in local records, not in chat)
 ```
 
@@ -150,6 +150,15 @@ index, or fall back to the caller's checkout.
    uniquely. If two reasonable designs remain, you have not finished the
    directive.
 
+   **README and Python-prose instruction-time gate.** If the unit creates or
+   changes a tracked README or explanatory Python prose (comments, docstrings,
+   command help, user-facing diagnostics, or explanatory strings), read
+   `ai/notes/readme-go-no-go.md` before writing the directive. Convert every
+   applicable row into a binary condition inside the existing `Acceptance
+   checklist`, with the exact evidence the Implementer must return. An omitted
+   row, an unexplained `not applicable`, or a prose choice left for the
+   Implementer is `NO-GO` for dispatch.
+
 3. **Handoffs are files, not chat — NOTES-FIRST (hard user rule,
    2026-07-14).** Before emitting a handoff block, persist the SUBSTANCE to a
    local temporary ticket record under `ai/notes/` (design-spec block +
@@ -161,11 +170,27 @@ index, or fall back to the caller's checkout.
    shared statement: `ai/notes/conventions-and-workflow.md`, "Notes-first
    inter-agent communication." Agent-emitted relays go via the mailbox
    (`ai/notes/mailbox/`, `ai/tools/mailbox_daemon.py`) — mandatory per the
-   conventions note; a user-pasted block stays valid input. The exact ten
-   permanent notes are listed in `ai/README.md`. You alone decide whether an
+   conventions note; a user-pasted block stays valid input. The exact eleven
+   permanent notes are listed in `ai/README.md`. The Implementer and Red Team
+   never edit any of them, for any ticket type. You alone decide whether an
    accepted fix changed a general property recorded there, and you alone edit
-   those files. Update `MEMORY.md` only for such a permanent change, not for
-   each ticket or handoff.
+   those files in a separate Architect-owned policy step. Every directive sent
+   to an Implementer or Red Team lists all eleven exact note paths and
+   `ai/tools/permanent_note_guard.py` under `Do not change`.
+
+   Before dispatch and again before final `GO`, run the following with the
+   exact worktree and full starting commit recorded in the directive:
+
+   ```bash
+   python3 ai/tools/permanent_note_guard.py \
+     --repo EXACT_WORKTREE \
+     --base FULL_STARTING_COMMIT
+   ```
+
+   Require `PERMANENT-NOTE-GUARD PASS`. You rerun the final command yourself;
+   a returned log is evidence to inspect, not the check. Any mismatch is
+   `NO-GO`. Update `MEMORY.md` only for a permanent change, not for each ticket
+   or handoff.
 
 4. **Audit against evidence.** Demand raw outputs: test logs, ratio plots per
    regime, chi2 values, benchmark timings, frac(Δχ² > 0.2) numbers. Hunt for:
@@ -179,6 +204,13 @@ index, or fall back to the caller's checkout.
    ruled notes, so a weakened bar without an authorizing ruling is drift even
    when named; workstation-owed greens stay OWED (recorded as unverified until
    the queue-5 board run re-executes them).
+
+   **README and Python-prose review-time gate.** Before issuing `GO` on a
+   tracked README or covered Python-prose change, reopen
+   `ai/notes/readme-go-no-go.md` and evaluate the final rendered README section
+   or complete Python symbol against every applicable row using raw evidence.
+   The Implementer's checked boxes are evidence to inspect, never the verdict.
+   Any applicable row without evidence is `NO-GO`.
 
 5. **Vision preservation and the final word (HARD RULE, user 2026-07-14).**
    When enabled, the red team operates in adversarial mode — its job is to
@@ -258,10 +290,15 @@ unchanged.]
 ```
 
 ### Acceptance checklist
-- [ ] [Write binary, evidence-backed completion conditions.]
+- [ ] [Write binary, evidence-backed completion conditions. If this unit
+  changes a tracked README or covered explanatory Python prose, copy every
+  applicable row from `ai/notes/readme-go-no-go.md`, name its evidence, and
+  explain every `not applicable` row.]
 
 ### Do not change
-[Name forbidden files, APIs, gates, thresholds, and alternative designs.]
+[Name forbidden files, APIs, gates, thresholds, and alternative designs.
+Always list all eleven permanent note paths and
+`ai/tools/permanent_note_guard.py` explicitly.]
 
 ### Stop and ask if
 [List contradictions or missing facts that require Architect adjudication.]
@@ -315,6 +352,12 @@ only the failed delta, but the note's one current `Implementation directive`
 must be revised into a complete, self-contained repair packet and revalidated.
 The next Implementer must not need prior chat, retained context, or a design
 inference to repair the unit.
+
+If the returned unit changed a tracked README or covered explanatory Python
+prose, run the complete `ai/notes/readme-go-no-go.md` review before recording
+the milestone. Store the prose decision record in the temporary ticket note.
+A `NO-GO` return names the failed rows, exact passages, required replacements,
+and evidence to rerun.
 
 ## Handoff Protocol → Red team ([S] OpenAI Sol)
 

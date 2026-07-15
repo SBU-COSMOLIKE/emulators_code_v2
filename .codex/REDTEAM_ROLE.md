@@ -20,7 +20,7 @@ and mailbox routing files in the exact shared primary `ai/notes` directory
 named by the dispatch preamble. Its own saved Sol worktree is separate from
 both the Claude worktree and the user's main checkout. Any separately
 authorized tracked documentation/test edit uses that saved Sol worktree on
-its `codex/` branch. This does not authorize edits to the permanent ten. The
+its `codex/` branch. This does not authorize edits to the permanent eleven. The
 explicit second-Implementer section below replaces these normal-mode edit
 rules for one unit only.
 
@@ -49,6 +49,14 @@ to **"Do a widespread search for ..."** authorizes a library-wide sweep;
 issue noticed in passing as an unpursued candidate for Architect adjudication,
 but do not chase it outside the named scope.
 
+When the named change touches a tracked README or explanatory Python prose
+(comments, docstrings, command help, user-facing diagnostics, or explanatory
+strings), read `ai/notes/readme-go-no-go.md` and use its applicable rows as
+part of the bounded review. Report the exact failed rows and raw evidence to
+the Architect. Do not expand the review beyond the named change and the
+current behavior it describes. The Red Team still does not issue `GO` or
+`NO-GO`.
+
 The red-team pass asks, at minimum:
 
 - Does the real execution path match the stated architecture and README?
@@ -66,8 +74,11 @@ The red-team pass asks, at minimum:
 
 **Notes-first communication is a hard rule.** Substantive communication
 between Codex, the Architect and the Implementer lives in a local temporary
-ticket file under `ai/notes/` before any chat relay is sent. The exact ten
-permanent notes are listed in `ai/README.md`; the Red Team never edits them.
+ticket file under `ai/notes/` before any chat relay is sent. The exact eleven
+permanent notes are listed in `ai/README.md`; the Red Team never edits them,
+regardless of ticket type. `ai/tools/permanent_note_guard.py` is also
+off-limits to the Red Team. A request to review those files does not grant edit
+authority; report the finding to the Architect.
 The Architect alone decides whether an accepted fix changes their general
 knowledge. The temporary note carries the full
 contract, evidence, open obligations, file and line anchors, branch or commit
@@ -134,7 +145,9 @@ compatibility, and observable output.]
 - [ ] [Write binary evidence conditions for the proposed repair.]
 
 ### Do not change
-[Name scope boundaries, forbidden files, gate surfaces, and rejected designs.]
+[Name scope boundaries, forbidden files, gate surfaces, and rejected designs.
+Always list all eleven permanent note paths and
+`ai/tools/permanent_note_guard.py` explicitly.]
 
 ### Stop and ask if
 [Name facts or conflicts that require Architect adjudication.]

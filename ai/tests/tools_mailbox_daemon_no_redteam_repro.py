@@ -301,7 +301,7 @@ def arm_two_role_watch_preserves_sol(source=None):
             in output
             and "red-team route disabled; leaving 1 to-sol message queued "
             "and untouched." in output
-            and "red team is now the second implementer" not in output)
+            and "Give Sol separate implementation jobs" not in output)
 
         # A later normal dispatch must consume the exact deferred file.
         restart = daemon.process_backlog(dry_run=False)

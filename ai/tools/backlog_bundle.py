@@ -2,7 +2,7 @@
 """Create and safely read portable backlog handoff archives.
 
 The archive is an email attachment, not a Git artifact.  It contains the
-local execution ledger and local supporting evidence while anchoring the ten
+local execution ledger and local supporting evidence while anchoring the eleven
 permanent notes to an exact Git commit.  Incoming archives are treated as
 hostile: inspection validates the complete XZ stream, tar structure,
 manifest, paths, sizes, and hashes before returning any content.
@@ -45,6 +45,7 @@ PERMANENT_NOTES = frozenset({
     "ai/notes/families-scalar-cmb.md",
     "ai/notes/models-and-designs.md",
     "ai/notes/project-and-history.md",
+    "ai/notes/readme-go-no-go.md",
     "ai/notes/training-stack.md",
     "ai/notes/user-didactics-and-python-voice.md",
 })
