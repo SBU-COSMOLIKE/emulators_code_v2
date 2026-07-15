@@ -418,13 +418,18 @@ Publication and dispatch are filesystem state transitions, not chat events.
 
 ```mermaid
 stateDiagram-v2
+  direction LR
   [*] --> Pending: atomic publish
   Pending --> Inflight: atomic claim
   Inflight --> Done: rc=0 and archive identity verifies
   Inflight --> Failed: nonzero exit, refusal, or verified timeout recovery
-  Inflight --> Inflight: archive result is ambiguous
   Pending --> HumanReply: to-user message
   HumanReply --> [*]: human reads it
+  note right of Inflight
+    Ambiguous archive result:
+    remain in inflight;
+    keep the lane blocked
+  end note
 ```
 
 An ambiguous `inflight/` head keeps its working-directory lane blocked. This
