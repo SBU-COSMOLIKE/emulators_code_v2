@@ -6,7 +6,7 @@ derived parameters (H0, omegam, rdrag, ...) instead of a cosmolike data
 vector. Inputs and outputs are both named columns of one parameter .txt
 (the covmat header names in, the YAML data.outputs list out); there is no
 data vector, no mask, and no cosmolike anywhere on this path. See
-notes/families-scalar-cmb.md and emulator/geometries/scalar.py.
+ai/notes/families-scalar-cmb.md and emulator/geometries/scalar.py.
 
 PS: standardized = each output shifted to zero mean and scaled to unit
 variance (the form the network predicts); dump = the on-disk parameter

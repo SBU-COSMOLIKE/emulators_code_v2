@@ -740,7 +740,7 @@ The repository identifies itself as alpha software.  This manuscript describes
 the behavior a reader can execute in the current tree.  When that behavior has
 a known limit, the relevant section states the consequence and a safe way to
 use the present implementation.  Design proposals, repair queues and landing
-records live in \code{notes/}.  Keeping them out of the teaching text lets a
+records live in \code{ai/notes/}.  Keeping them out of the teaching text lets a
 reader learn one current program instead of reconstructing its development
 history.
 
@@ -5669,7 +5669,7 @@ keys.  It records per-member hashes, an input digest and a raw-log digest.  A
 change to any declared member invalidates the stored PASS automatically.
 
 Before a run, preflight also requires a clean executable surface.  It watches
-\code{emulator/}, \code{gates/}, \code{compute\_data\_vectors/},
+\code{emulator/}, \code{ai/gates/}, \code{compute\_data\_vectors/},
 \code{cobaya\_theory/}, \code{syren/} and the top-level Python drivers.  A
 dirty generator or adapter is therefore refused just like a dirty training
 module.  This check establishes that the evidence can be tied to a committed
@@ -5834,7 +5834,7 @@ also compare each caption with the implementation.
 \label{app:gates}
 
 This appendix explains all forty gates currently registered in
-\code{gates/board.py}, in exact board order.  A first-time contributor needs
+\code{ai/gates/board.py}, in exact board order.  A first-time contributor needs
 to know the gate name, the production path it executes,
 what its fixture means, which value determines the verdict and which
 plausible defect it can catch.
@@ -5915,8 +5915,8 @@ lies outside that comparison.
 
 \subsection{The board runner as a small execution system}
 
-\code{gates/run\_board.py} is the command-line runner.
-\code{gates/board.py} is the declarative registry.  Keeping them separate
+\code{ai/gates/run\_board.py} is the command-line runner.
+\code{ai/gates/board.py} is the declarative registry.  Keeping them separate
 means the list of scientific claims does not reimplement subprocess, path or
 resume handling.  A board entry supplies an identifier, title, tier, home
 documentation, capability requirements, dependencies and a Python function
@@ -6006,12 +6006,12 @@ request correctness requires a separate executed check of the physical
 quantity.
 
 \paragraph{Watched-tree behavior.}
-The watched directory list now includes \code{emulator/}, \code{gates/},
+The watched directory list now includes \code{emulator/}, \code{ai/gates/},
 \code{compute\_data\_vectors/}, \code{cobaya\_theory/}, \code{syren/} and the
 root drivers.  The porcelain-status parser now preserves Git's leading
 two-column status field before examining individual lines.  It excludes
-exactly \code{gates/board\_config.json}.  An edit to neighboring
-\code{gates/board.py} remains dirty.  Self-test fixtures exercise the case in
+exactly \code{ai/gates/board\_config.json}.  An edit to neighboring
+\code{ai/gates/board.py} remains dirty.  Self-test fixtures exercise the case in
 which the permitted config file is the first status line, because a whole-
 output \code{strip()} previously shifted that line alone.  This clean-tree
 surface is shared by the report and the executed preflight decision.
@@ -6123,7 +6123,7 @@ and device.  Each accelerator needs its own evidence.
 
 \subsection{Anatomy of a pure numeric check}
 
-A pure check under \code{gates/checks} is an executable Python file with a
+A pure check under \code{ai/gates/checks} is an executable Python file with a
 \code{main} function.  It imports the production function, creates a bounded
 fixture, calculates an independent reference and accumulates named
 assertions.  If any assertion fails, the process raises or exits nonzero.
@@ -7556,7 +7556,7 @@ named executable claim.
 The workstation operator begins in an environment where Cocoa, PyTorch and
 the relevant external packages are importable.  The first command is
 \begin{verbatim}
-python gates/run_board.py --check
+python ai/gates/run_board.py --check
 \end{verbatim}
 This performs preflight without launching GPU work.  A clean preflight states
 which repository commit, deployment configuration, watched paths, imports and
@@ -7565,7 +7565,7 @@ run preflight again.  Do not treat an intended different tree as close enough.
 
 Next,
 \begin{verbatim}
-python gates/run_board.py --dry-run
+python ai/gates/run_board.py --dry-run
 \end{verbatim}
 prints the selected order, dependencies, capabilities and commands.  Dry run
 is the place to catch a wrong YAML path or accidentally broad selection.
@@ -7573,7 +7573,7 @@ Because it produces no scientific results, it never writes pass verdicts.
 
 The full command
 \begin{verbatim}
-python gates/run_board.py
+python ai/gates/run_board.py
 \end{verbatim}
 streams each command into its per-gate raw log.  The terminal output is useful
 for monitoring, but the log file is the durable record.  If the process is
@@ -7602,7 +7602,7 @@ remain historical evidence and a new run is required for the new executable
 identity.
 
 When a gate needs CUDA or another workstation-only capability, the repository
-maintainer supplies the check under \code{gates/checks}, registers it in the
+maintainer supplies the check under \code{ai/gates/checks}, registers it in the
 board and gives the operator an exact selection command.  The operator is not
 asked to paste an untracked Python snippet into a GPU shell.  Keeping the
 check in the repository makes its source part of the watched evidence surface
@@ -8049,24 +8049,24 @@ coordinates and identify per-call state replacement.
 
 \subsection{Stage 6: executable evidence}
 
-\paragraph{35.  \code{gates/README.md}.}
+\paragraph{35.  \code{ai/gates/README.md}.}
 Learn runner vocabulary, tiers, logs, resume and workstation commands.  Treat
 its gate table as navigation into the detailed Appendix~\ref{app:gates}.
 
-\paragraph{36.  \code{gates/board.py}.}
+\paragraph{36.  \code{ai/gates/board.py}.}
 Read the \code{Gate} record and shared helper functions, then one pure identity
 gate and one smoke gate.  Follow capability/dependency metadata into the
 ordered board registry.
 
-\paragraph{37.  \code{gates/checks/*.py}.}
-Begin with \code{gates/checks/scalar\_identity.py}: its named scalar outputs
+\paragraph{37.  \code{ai/gates/checks/*.py}.}
+Begin with \code{ai/gates/checks/scalar\_identity.py}: its named scalar outputs
 make shape, round-trip, refusal and mutation legs easier to see than in a
 full survey vector.  Then read the check matching the feature selected in the
 preceding stages.  Locate its production import,
 fixture, independent reference, valid control, mutation/catch-power arm and
 nonzero failure exit.  Family identity checks precede family smokes.
 
-\paragraph{38.  \code{gates/run\_board.py}.}
+\paragraph{38.  \code{ai/gates/run\_board.py}.}
 Read this last.  The scientific claims already live in \code{board.py}.  The
 runner owns preflight, selection, subprocess capture, logs and resume.  Compare
 its branches with the structured-evidence coverage paragraph, the resume-state
@@ -8086,7 +8086,7 @@ Change a model &
 \code{training.py}.  Save/rebuild in \code{results.py} &
 Input/output shape, registered parameter owner, initialization function,
 constructor spec, persisted class/state &
-\path{gates/checks/gsv_bitwise_drift.py}, plus the relevant
+\path{ai/gates/checks/gsv_bitwise_drift.py}, plus the relevant
 \code{head-activation-}\allowbreak\code{pin} or
 \code{relu-tanh-}\allowbreak\code{norm} board gate \\
 Change a physical family &
@@ -8095,7 +8095,7 @@ Family generator.  Family geometry.  Family loss.  Family branch in
 \code{cobaya\_theory/emul\_*.py} adapter &
 Quantity, units, exact axis, target law, metric, artifact fact, requested
 Cobaya product &
-For the scalar worked route, \path{gates/checks/scalar_identity.py} followed
+For the scalar worked route, \path{ai/gates/checks/scalar_identity.py} followed
 by \code{scalar-smoke}.  Substitute the matching family pair \\
 Change training behavior &
 Validation and factory in \code{training.py}.  Executed minibatch/epoch loop.
@@ -8103,7 +8103,7 @@ History writer in \code{results.py}.  \code{family\_drivers.py} and
 \code{scheduling.py} when a campaign is parallel &
 Validated control, state before/after one step, reported metric, selection
 record, behavior under a different storage/device lane &
-\path{gates/checks/finite_contract.py} and the
+\path{ai/gates/checks/finite_contract.py} and the
 \code{eval-batch-}\allowbreak\code{invariance} board gate \\
 \bottomrule
 \end{tabular}

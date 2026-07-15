@@ -1,5 +1,5 @@
 # Fine-tune warm start config for cosmic_shear_train_emulator.py
-# (see notes/artifacts-inference-warmstart.md and emulator/warmstart.py).
+# (see ai/notes/artifacts-inference-warmstart.md and emulator/warmstart.py).
 #
 # A fine-tune run continues a saved emulator on a new training set with a
 # lower initial learning rate, instead of starting from random weights. The
@@ -60,7 +60,7 @@ train_args:
     # anchor:                  # PLANNED, NOT YET AVAILABLE: the validator
     #                          # currently REFUSES this key (a run carrying it
     #                          # stops with an error). The restoring unit is
-    #                          # queued in notes/artifacts-inference-warmstart.md
+    #                          # queued in ai/notes/artifacts-inference-warmstart.md
     #                          # ("Fine-tune anchor truth"); until it lands,
     #                          # fine-tuning runs free (no pull) and only the
     #                          # transfer refine.anchor path is anchored.

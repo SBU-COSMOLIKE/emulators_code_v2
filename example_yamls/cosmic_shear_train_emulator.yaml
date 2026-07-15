@@ -61,14 +61,14 @@ data:
 # learning rate, by adding a train_args.finetune block (and dropping the
 # model: block, whose architecture is then inherited from the source). See
 # example_yamls/cosmic_shear_finetune_emulator.yaml and
-# notes/artifacts-inference-warmstart.md.
+# ai/notes/artifacts-inference-warmstart.md.
 #
 # Transfer learning (a frozen base + a small parallel correction net, for a
 # larger model extension like Early Dark Energy + w(z)-PCA): add a top-level
 # transfer: block (from / form / space) and keep a model: block describing the
 # correction net's capacity. See
 # example_yamls/cosmic_shear_transfer_emulator.yaml and
-# notes/artifacts-inference-warmstart.md.
+# ai/notes/artifacts-inference-warmstart.md.
 
 train_args:
   nepochs:   1600

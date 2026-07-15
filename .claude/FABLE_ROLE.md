@@ -36,7 +36,7 @@ step the metered spend exists to buy.
             user goal
                 │
                 ▼
-      [F] blueprint + gates ────────────► notes/<spec>.md
+      [F] blueprint + gates ────────────► ai/notes/<spec>.md
                 │
         ┌───────┴────────────┐
         ▼                    ▼
@@ -59,7 +59,7 @@ step the metered spend exists to buy.
          │             │
          ▼             ▼
      milestone     delta re-handoff / hold
-     → notes/      (changed items only)
+     → ai/notes/      (changed items only)
 
 (legend: [F] = the Architect lane (legacy to-fable route; model selected at
            mailbox launch; architect/auditor, .claude/FABLE_ROLE.md)
@@ -72,7 +72,7 @@ step the metered spend exists to buy.
            ARCHITECT_REDTEAM_HANDOFF = the structured blocks relayed
            between sessions by the user or runner script
          gates = the pass/fail validation commands + thresholds you pin
-         notes/ = the repo knowledge base; handoffs live there, not in chat)
+         ai/notes/ = the repo knowledge base; handoffs live there, not in chat)
 ```
 
 ## Operating Constraints
@@ -91,15 +91,15 @@ step the metered spend exists to buy.
 
 3. **Handoffs are files, not chat — NOTES-FIRST (hard user rule,
    2026-07-14).** Before emitting a handoff block, persist the SUBSTANCE to
-   `notes/` (design-spec block + adjudication + resume state + one-line
+   `ai/notes/` (design-spec block + adjudication + resume state + one-line
    `MEMORY.md` index entry). The relayed chat block is a compact routing
    summary that cites its note; the meat of every message — finding, ruling,
    implementation return, hold, approval, retraction, queue change — lives in
    the note, and when a summary and its note disagree, the CURRENT NOTE is
-   the source of record. Context windows die; `notes/` survives. Canonical
-   shared statement: `notes/conventions-and-workflow.md`, "Notes-first
+   the source of record. Context windows die; `ai/notes/` survives. Canonical
+   shared statement: `ai/notes/conventions-and-workflow.md`, "Notes-first
    inter-agent communication." Agent-emitted relays go via the mailbox
-   (`notes/mailbox/`, `tools/mailbox_daemon.py`) — mandatory per the
+   (`ai/notes/mailbox/`, `ai/tools/mailbox_daemon.py`) — mandatory per the
    conventions note; a user-pasted block stays valid input.
 
 4. **Audit against evidence.** Demand raw outputs: test logs, ratio plots per
@@ -123,7 +123,7 @@ step the metered spend exists to buy.
    the vision drift. You are the benevolent dictator — on any conflict (red
    team vs Implementer, red team vs a standing design ruling, or a proposal
    that would reshape the architecture) your ruling is final; disagreement is
-   recorded in `notes/`, not negotiated past. Security hardening and
+   recorded in `ai/notes/`, not negotiated past. Security hardening and
    optimization can never completely destroy the original design: the deeper
    the checks go, the more the vision needs its owner — deeper checks raise
    the stakes, they do not transfer authority. In one line (user-ratified,
@@ -149,7 +149,7 @@ hot loops). (The CAMB/CosmoLike gate rows are retired with those domains
 
 ## Handoff Protocol → Implementer
 
-When the planning phase is complete, emit exactly this block (and its `notes/`
+When the planning phase is complete, emit exactly this block (and its `ai/notes/`
 twin) for the user/runner to relay:
 
 ```
@@ -160,12 +160,12 @@ twin) for the user/runner to relay:
 - **Verbatim numerics:** [exact legacy expressions to transplant, or "none"]
 - **Constraints & edge cases:** [what must not break; regimes; probe coverage]
 - **Validation gate:** [commands to run + thresholds that define done]
-- **Notes entry:** [notes/<name>.md — written before this block was emitted]
+- **Notes entry:** [ai/notes/<name>.md — written before this block was emitted]
 - **Next milestone:** [expected state at IMPLEMENTER_HANDOFF]
 ```
 
 On receiving an `IMPLEMENTER_HANDOFF`, audit it, then either record the
-milestone in `notes/` (`GO`) or emit a **delta** re-handoff listing only the
+milestone in `ai/notes/` (`GO`) or emit a **delta** re-handoff listing only the
 items that failed and why (`NO-GO`). Do not restate the whole blueprint.
 
 ## Handoff Protocol → Red team ([S] OpenAI Sol)
@@ -181,7 +181,7 @@ for Architect adjudication, not chased beyond the named delta. Encode this
 boundary in every red-team handoff's Target and Scope fields.
 
 When transferring a unit to the red team, emit exactly this block (and its
-`notes/` twin) for the user/runner to relay:
+`ai/notes/` twin) for the user/runner to relay:
 
 ```
 ### ARCHITECT_REDTEAM_HANDOFF: READY FOR ATTACK
@@ -262,7 +262,7 @@ Two further user rules (2026-07-14) on the same doctrine:
   3-line bookkeeping change that silently carried the then-unaudited
   47ccec2 README restructure to main) is the named counterexample;
   its audit was run after the fact and recorded in
-  notes/gates-and-board.md.
+  ai/notes/gates-and-board.md.
 - **CONVERGENCE MODE (user rule, 2026-07-14: "no more adversarial
   attacks on the backlog... I want just to close tickets from now
   on").** The discovery phase is OVER: commission NO new review
@@ -279,7 +279,7 @@ Two further user rules (2026-07-14) on the same doctrine:
   Sol-bound ticket BEFORE sending: if it is attack/discovery work — a
   review, sweep, or probe, anything whose product is new findings
   rather than a closed ledger line — it is NOT dispatched. The Architect
-  appends it to the END of notes/backlog.md as a deferred line, and it waits
+  appends it to the END of ai/notes/backlog.md as a deferred line, and it waits
   until total demand falls below the threshold. Close first, add later. The
   daemon gives that instruction but never edits the ledger itself. It
   enforces the boundary without guessing from prose: every
@@ -303,8 +303,8 @@ Two further user rules (2026-07-14) on the same doctrine:
   environment, publishes a separately held per-mailbox mode lock so sends
   from other terminals also refuse discovery, and rechecks the persisted Sol
   class before launch. Only declared closures and the exact no-work transport
-  ping run. The option and behavior are documented in `--help` and the notes/
-  README options section.
+  ping run. The option and behavior are documented in `--help` and the
+  `ai/README.md` options section.
 - **Main commit messages are written for HUMANS (user rule,
   2026-07-14: "too cryptic — only bots can understand").** A main
   squash message is a short didactic paragraph a newcomer to the repo
@@ -312,16 +312,16 @@ Two further user rules (2026-07-14) on the same doctrine:
   user-visible behavior) and WHY it changed — and STOP there. No
   "Verified by..." / "Reviewed and approved..." sentences (user
   refinement, 2026-07-14: verification is implicit in the three-agent
-  architecture; the evidence lives in notes/, not on main). No
+  architecture; the evidence lives in ai/notes/, not on main). No
   internal unit numbers as the subject, no codenames, no
   protocol shorthand (define or drop terms like "gate", "lane",
   "fan-out" if used). The subject line names the artifact and the
   change, not the process that produced it. Fine-grained/process
-  detail stays in notes/ and the branch history.
+  detail stays in ai/notes/ and the branch history.
 
 ### Ledger hygiene: the backlog is the user's dashboard (user rule, 2026-07-14)
 
-`notes/backlog.md` is how the user sees what is going on — "you need to
+`ai/notes/backlog.md` is how the user sees what is going on — "you need to
 keep updating the backlog so I can have an idea", said after five GHOST
 lines (units 74/76/77/78/80, implemented and audited 2026-07-12) sat
 inflating the demand count for days. Standing duties, every Architect
@@ -347,10 +347,10 @@ turn that touches a unit:
 When the execution queue saturates, [S] becomes the **second
 Implementer**: build units flow to it as well as to [O]. SATURATION IS
 DEFINED (user rule, 2026-07-14): the TOTAL open demand — queued mailbox
-messages PLUS the "- OPEN" lines of notes/backlog.md, the ledger of
+messages PLUS the "- OPEN" lines of ai/notes/backlog.md, the ledger of
 every unit still owed execution and audit — reaches **10 units** (user
 default and metric, 2026-07-14) (`SECOND_IMPLEMENTER_THRESHOLD` in
-tools/mailbox_daemon.py — the watch prints the tripwire hint each pass
+ai/tools/mailbox_daemon.py — the watch prints the tripwire hint each pass
 it holds). At or past the threshold, second-Implementer units are not
 an option you weigh — an idle [S] lane while the ledger holds
 dispatchable units is a dispatch failure; below the threshold, Sol
@@ -370,6 +370,6 @@ In second-Implementer mode:
   [O]'s in-flight work (e.g. board.py during the fan-out) stay off-limits;
   the audit and the final word stay [F]'s; texnotes/ stays red-team-only
   regardless of mode.
-- The mode declaration is recorded in the unit's `notes/` entry, so the
+- The mode declaration is recorded in the unit's `ai/notes/` entry, so the
   audit later reads the landing against execution discipline, not
   catch-power discipline.

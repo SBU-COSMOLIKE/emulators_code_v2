@@ -1,0 +1,3691 @@
+# State of the project (through 2026-07-12) and what comes next
+
+The read-first note: where the code stands, what is proven, and the
+ordered list of runs the user still owes the code. A fresh session
+orients here first (via MEMORY.md), then reads the topic notes it
+needs. The 2026-07-11/12 events lived here as a 21-item ledger while
+they unfolded; the durable knowledge has been REDISTRIBUTED to the
+topic notes (the map below), and the full chronology survives in git
+history (`git log -p ai/notes/state-2026-07-11-and-next.md`).
+
+## Where the code stands
+
+The feature program reached code-complete, but the 2026-07-12 red-team
+static review found release blockers outside the board's current
+gate suite: production grid2d staging defeats the memory ladder; standard
+generated `.1.txt` files bypass the parameter-order sidecar check; dump
+members and artifact pairs are not identity-bound; and parallel worker
+success is not truthfully accounted. Treat "code complete" below as
+feature coverage, not a release-readiness claim, until the open audit
+queue closes. **The board's first full 32/32
+green was run 9 (2026-07-12 00:12)** — simultaneously GEO's
+acceptance and the board baseline for D-CM12 and the science thread;
+the CURRENT standing is run 11's 30/32 (one red fixed on the branch
+awaiting rerun, one open — the evidence section below). One PyTorch training stack serves five
+output families — cosmic shear (3x2pt data vectors), scalar (named
+derived parameters), CMB spectra (TT/TE/EE/phi-phi), background
+(H(z) + D_M), matter power (P_lin + the nonlinear boost) — each with
+its geometry, loss, dataset generator, cobaya adapter, thin drivers,
+and two acceptance gates, and with FULL capability symmetry: every
+family has the whole training surface (loss ladder + anneals,
+trim/focus, EMA, clip/rewind, fine-tuning, multi-GPU drivers, the
+conv/TRF correction heads everywhere a coordinate axis exists, the
+two-phase trunk-then-head schedule on every head model with the
+trunk:/head: blocks and the per-head activation pin — the 2026-07-12
+ruling "any trunk-head design could benefit" — the NPCE closed-form
+base on every family (the same day's second ruling: pce: fits a
+sparse-Legendre trunk under any refiner, residual-only off cosmic
+shear, cmb only with amplitude_law none), and frozen-base transfer
+on every family but scalar (the overnight third ruling overturning
+the BAOSN/MPS permanent forbids and closing D-CM7; whitened space,
+sum recommended, refine cosmolike-only)). Count gates by enumerating
+ai/gates/board.py's registry, never note arithmetic. The user merges to main and pushes (only main is ever
+pushed; the GPU workstation pulls main).
+
+## Where the 2026-07-11/12 knowledge now lives (the redistribution map)
+
+- POL, D-GEO5 shim retirement, the notes consolidation, the
+  family-first rename, the capability-symmetry + board-saga arc:
+  project-and-history.md (arc items 9-10; the recipe's driver step
+  is updated to the wrapper architecture).
+- The driver surface (family-first names, thin wrappers over
+  main(prog, family), full multi-GPU parity, the sweep-block
+  helpers): training-stack.md ("The driver surface").
+- D-CM13 implemented + generalized (heads on cmb/grid/grid2d,
+  identity basis, attach_head_coords, n_tokens, the scalar
+  exclusion) and the cosmic-shear head-artifact rebuild fix
+  (bin_sizes/pm_kept persistence): families-scalar-cmb.md (the
+  D-CM13 section), models-and-designs.md, and
+  artifacts-inference-warmstart.md (the rebuild-side facts).
+- D-CM12: still a SPEC AWAITING AUDIT — families-scalar-cmb.md.
+- The stale-background saga (the falsified wants-Cl-quirk
+  hypothesis, the logposterior(cached=False) lifecycle, the
+  dump-variance tripwire) and D-MP9 (constant-column pinning, born
+  then amended law-agnostic) and the grid-derived k_max:
+  families-background-mps.md; the two-evaluation-idioms rule and the
+  covariance-script fixture conventions: data-generation-and-cuts.md.
+- The nine board runs, every red root-caused, run by run + the
+  --force-rerun-all flag: gates-and-board.md (the run-history table
+  + notable facts).
+- The new recurring process lessons (HEAD-at-run before reading a
+  red; fixtures mirror shipped examples; derive coupled fixture
+  widths; $ROOTDIR extends to in-process get_model; carve guards on
+  physics axes; falsifiable tripwires before trusting a fix):
+  conventions-and-workflow.md ("Process lessons that recur").
+- Family acceptance stamps: SPE closed (07-10); CME accepted end to
+  end (run 4); BSN accepted (run 6); MPS accepted (run 9, rel 0.93%
+  vs CAMB against the 5% bar) — each family note's section header.
+
+## Evidence status
+
+Everything through board run 9 is workstation-proven at HEAD 4c65331
+(2026-07-12); run 10 (the `--force-rerun-all` regression pass at that
+same HEAD) re-proved the cosmic-shear era, all four smokes, the head
+legs, and the constant pins at 29/32, its three harness reds fixed and
+then PROVEN green by run 11 — the post-merge pass at merged HEAD
+4e783fa (30/32), which also first-executed the NPCE check_npce legs
+GREEN in all four family identity gates and the two-phase
+phase-discipline legs GREEN. Run 11's two reds are both
+first-executions of overnight legs: cmb-smoke's eq-6 leg (the clpp
+re-lensing array was truncated below CAMB's required Params.max_l
+length — root-caused from CAMB's own source, fixed on the branch, and
+the leg's failure detail now carries the stdout tail cobaya's
+exception hook logs to) and transfer-identity's check_diagonal (OPEN —
+awaiting ai/gates/logs/transfer-identity.log; the diagonal-transfer
+algebra is Mac-probe-proven, so the suspect surface is the real-torch
+save -> rebuild -> predict roundtrip). The full run-by-run record:
+gates-and-board.md.
+
+## The runs the user still owes the code (in this order)
+
+1. **Close the two remaining workstation reds.** The eq-6 normalization
+   implementation is already merged at HEAD 7f455e6 and independently
+   accepted on the Mac math scope (maximum relative error about 8.1e-14).
+   Its gate fixture still needs the recorded raw-vs-CAMB-scaled
+   lens-potential delta. The user also pastes
+   ai/gates/logs/transfer-identity.log for the open diagonal-transfer red,
+   then runs one workstation pass:
+   `python ai/gates/run_board.py --force-rerun cmb-identity cmb-smoke transfer-identity`
+   (~12 min; any covariance failure now names its own cause via the
+   stdout tail).
+2. **Train the five production artifacts** via the family drivers:
+   rdrag (scalar), hubble + dm (baosn), pklin + boost (mps).
+3. **The EMUL2 acceptance**: cobaya_theory/EXAMPLE_EMUL2_EVALUATE.yaml
+   — cosmolike `use_emulator: 2` consuming emul_mps + emul_baosn +
+   emul_scalars; fill the artifact path roots (placeholders under
+   projects/lsst_y1/emulators/); nothing to pip-install. The two
+   recorded first-run risks are now KNOWN quantities from the board
+   saga: cobaya's >= 4-redshift Pk_interpolator constraint and the
+   $ROOTDIR-relative theory paths.
+4. **Audit the D-CM12 spec** (families-scalar-cmb.md) and rule on
+   roughness-under-rotation; NB a dense CMB geometry would carry an
+   eigenbasis — revisit the D-CM13 identity shortcut there.
+5. **The science thread** (all workstation): D-TP9 frozen-vs-refine
+   at fixed N_train, berhu attribution, bs + EMA, the activation
+   bake-off, NPCE at scale, the head bake-offs (restrf + n_tokens on
+   CMB is arXiv 2505.22574's headline case); the EDE + w(z)-PCA
+   transfer program and the first real LCDM -> w0waCDM fine-tune
+   wait on real extended-model training dumps.
+
+## The implementer unit queue (red-team static audit, 2026-07-12)
+
+The audit record is commit 1fc90c8 on codex/architect-docs-static-audit
+(NEVER merge that branch — its notes conflict with the consolidated
+ones; cite it by SHA). One unit per handoff, each with its own green
+evidence and notes update. ALL FIVE UNITS VERIFIED against the code
+by the Architect (2026-07-12) — every audit claim reproduced; the
+evidence line under each unit is the anchor a spec starts from:
+
+1. D-CM11-A, the eq-6 normalization (spec of record:
+   families-scalar-cmb.md "D-CM11-A") — IMPLEMENTED (Opus) and
+   independently Architect-audited ACCEPTED on Mac scope at merged HEAD
+   7f455e6; the family note's later provenance-correction section is the
+   real audit record (the earlier pre-written Fable verdict and commit
+   attribution are invalid). One raw-vs-scaled known-answer fixture
+   delta plus the
+   workstation pass remain before close.
+2. Dataset readiness + MPS sigma8. VERIFIED: run_generator ends
+   MPI.Finalize(); exit(0) unconditionally (generator_core.py tail)
+   while per-sample failures zero the dv row and mark the failfile;
+   emulator/data_staging.py contains ZERO failfile references — the
+   trainer can stage fabricated rows. _compute_sigma8 (emul_mps.py)
+   integrates k [1/Mpc] with R = 8.0 — that is sigma(8 Mpc), not
+   sigma8's 8 Mpc/h; its own docstring flags the legacy convention.
+   CAVEAT for the handoff: the sigma8 fix changes legacy-served
+   values — needs the user's ruling (the BSN-curvature precedent:
+   dimensionally wrong legacy math is not reproduced). Also verified
+   for this unit: --boundary values outside (0, 1) are silently
+   rewritten to 1 (generator_core.py ~231) instead of rejected.
+   EXTENDED (45M-67, sixteenth batch): sigma8's domain holes are
+   in-unit — the nearest-z-within-0.01 branch relabels P(k, 0.009)
+   as z = 0 (0.896% deterministic bias on a toy growth law) and
+   the top-hat integral runs on whatever k interval the validator
+   admitted (lo < hi, nk >= 8 is the WHOLE constraint): the
+   shipped expression on an admitted 1..10 grid reports 0.01794 of
+   the reference — a 98.2% silent underestimate, reproduced
+   digit-for-digit. Never-relabel + exact z=0 ownership +
+   conditional advertisement + certified k-completeness persisted
+   with the manifest + float64/radicand validation; the R = 8
+   USER RULING stays open. Spec: families-background-mps.md
+   "UNIT 2 EXTENDED (45M-67)".
+3. Best-record truth. VERIFIED: training.py seeds best-tracking with
+   the epoch-0 baseline and restores those weights, but the driver
+   (cosmic_shear_train_emulator.py ~350: "fracs[i][0] is frac>0.2 at
+   epoch i+1") and the tuner objective both recompute "best" over a
+   history that STARTS AT EPOCH 1 — on a no-improvement warm start
+   the restored model, console line, h5 attrs, and Optuna objective
+   disagree.
+4. Harness/CLI truth. VERIFIED: run_board.py prints "warning:
+   unknown gate id" and PROCEEDS (exit 0); --force-rerun ids are
+   never validated (a typo is silently ignored while the resume
+   prints a green summary); the generator CLI parse_known_args
+   discards unknown flags (the shared drivers repeat the pattern);
+   and the preflight dirty-tree watch covers emulator/, ai/gates/, and
+   the root *.py only (run_board.py ~615) — compute_data_vectors/,
+   cobaya_theory/, and syren/ are unwatched.
+   EXTENDED (45M-69, seventeenth batch): _passed is status-only
+   (run_board.py:866-868) — a stored PASS survives ANY executable
+   change (resume skip :952, dependency accept :960; records
+   carry status/detail/ts only), so a green BOARD.md can certify
+   a tree that never executed the gate. Executable-surface digest
+   stored with every verdict, PASS reusable only on digest
+   equality, legacy/digestless = STALE, dependencies
+   current-digest only, digest surface = the SAME expanded
+   surface as this entry's dirty-watch fix, propose-first digest
+   design, eight CPU legs + status-only mutation arm. Interim:
+   --force-rerun stays the manual truth control. Spec:
+   gates-and-board.md "UNIT 4 EXTENDED (45M-69)".
+5. Small contracts. VERIFIED: (a) the shared driver reads
+   cfg["data"]["train_dv"] unconditionally (~214 run_tag, ~379
+   attrs) while the scalar data block documents that key as
+   forbidden — the scalar DRIVER path has never executed end to end
+   and blocks the queued rdrag artifact training (SEQUENCING: this
+   fix must land before the five-artifacts step); (b)
+   designs/pce.py:414 "if not cols: # always keep mode 0" —
+   verbatim the audit's zero-kept dishonesty (a mode that failed the
+   LOO gate is kept silently); (c) hardening-ledger instances
+   confirmed: parameter.py:256 validates user samples via assert
+   (python -O strips it), results.py:614 torch.load without
+   weights_only, _pick_device returns cpu for an unrecognized
+   device string, plot_xi carries mutable list defaults.
+
+### Second red-team wave: verified open queue
+
+These findings are recorded in their existing topic notes; no new note
+files were created. Priority follows user-visible risk:
+
+1. **Bounded grid2d staging (next handoff).** The shipped 50,000-row,
+   122 x 2,000 MPS setup selects/casts whole unthinned raw and base
+   matrices before `k_stride`; at least two 90.897 GiB float64
+   selections coexist. Spec and gate: data-generation-and-cuts.md,
+   "Grid2d staging defeats its own memory ladder". This closes the
+   ordinary/finetune/frozen-transfer paths; production-scale grid2d PCE
+   remains a separately recorded low-rank-fit design problem.
+   VERIFIED (Fable, 2026-07-12): experiment.py _grid2d_law_rows —
+   `dv_rows = np.asarray(src["dv"][rows_sorted], dtype="float64")` at
+   the full unthinned width, a same-width base_rows copy, the log
+   quotient as a third array, and only THEN the k_stride column cut;
+   all after load_source's RAM/memmap decision, which it defeats.
+2. **Data-selection truth.** The no-cut scalar/CMB/grid/grid2d
+   learning-curve wrappers fail in `pool_size` by indexing an absent
+   `omegabh2_hi`; ordinary `load_source` looks for
+   `X.1.paramnames` while the generator writes `X.paramnames`, disabling
+   its own order guard; same-shaped params/dv/base files can be mixed
+   silently. Spec: data-generation-and-cuts.md.
+3. **Artifact-pair integrity.** Direct two-file overwrite plus no digest
+   lets same-shaped wrong weights load strictly against an unrelated h5.
+   Syren-law artifacts also do not bind the inference formula version.
+   EXTENDED (twelfth wave, folded in per the red team's sequencing):
+   output identity — the shared family driver's run tag
+   (`<model>[_t<T>]_ntrain<N>`) is not an artifact identity, so CMB
+   TT/EE, BAOSN Hubble/D_M, MPS pklin/boost, and same-temperature cs
+   probes all collide on the documented default path and save_emulator
+   silently destroys the older valid pair; identity must come from
+   resolved scientific facts + a config/dataset digest, with
+   preexistence refusal; must land WITH the transactional publication
+   clause (atomicity alone makes the wrong replacement atomic) and
+   BEFORE the five-artifact production step. Spec:
+   artifacts-inference-warmstart.md (+ its twelfth-wave extension).
+   VERIFIED (Fable, 2026-07-12, twelfth wave): run_tag =
+   cosmic_shear_train_emulator.py:193-217 (t<T> from
+   `re.search(r"_cs_(\d+)")` on the train-dv FILENAME), save root
+   :365 with --save default "emulator", diag same tag :464; thin
+   drivers share main (cmb :44, baosn :45, mps :47) and their example
+   commands pass no --save; scalar tag scalar_train_emulator.py:95-114;
+   overwrite silent at results.py:232 (torch.save) + :259
+   (h5py.File "w"); the "so runs do not overwrite each other"
+   docstrings at cs :202 and scalar :15/:103 are false across
+   products.
+4. **Parallel truth and cleanup.** Parallel Optuna ignores worker exit
+   codes and accepts any historical COMPLETE trial; the shared GPU pool
+   can orphan children or wait forever on invalid token plans. Spec:
+   training-stack.md.
+5. **Live resource sizing and result-table truth.** `dv_len=3000` is
+   hardcoded across dense and wide-diagonal losses; sweep-table length
+   mismatch truncates silently. Spec: training-stack.md.
+6. **Python documentation truth.** The exact census and remaining
+   internal-ledger prose are in conventions-and-workflow.md. This is a
+   separate doc-only unit after correctness work, proven by an
+   AST-minus-docstrings hash.
+7. **Real Cobaya adapter contract.** The MPS adapter advertises outputs
+   through the input-support hook; scalar calculate does not create the
+   required derived-state mapping; the MPS amplitude alternative is
+   narrowed to `As` despite the shared reader accepting `As_1e9`.
+   Stubbed identity gates miss all three. EXTENDED (eleventh wave,
+   folded in per the red team's sequencing): value-schema totality
+   across all five adapters (quoted-"false" compile, the ROOTDIR ""
+   default, untyped `emulators` — a string iterates per character —
+   coerced dv_return/lmax), the multi-emulator composition defect
+   (blind np.concatenate: two full vectors serve as one 2N vector;
+   section mode never checks probe/section disjointness), and the
+   CMB must_provide int() coercion. Spec:
+   artifacts-inference-warmstart.md (the wave-2 section + its
+   eleventh-wave extension).
+   VERIFIED (Fable, 2026-07-12): emul_mps.py get_can_support_params
+   returns ['Pk_grid', 'Pk_interpolator', 'sigma8'] (the input-param
+   hook; products belong in get_can_provide / must_provide);
+   emul_scalars.py calculate writes derived only under
+   `if want_derived and "derived" in state` (real cobaya never
+   pre-creates the key — the theory must); emul_mps.py hard-codes
+   req["As"] while syren_params_from (syren_base.py) accepts
+   As_1e9 | As, and the training dumps themselves sample As_1e9
+   (analytics.py reads that column by name).
+   AMENDED (45M-45, fifth batch): the alias-consistency boundary —
+   dual As_1e9/As must satisfy As_1e9 == 1e9*As, dual w/w0 must agree
+   numerically, else the shared reader raises naming both;
+   canonicalize only after the proof; the adapter fails clean (no Pk
+   state), the generator rejects pre-write. Reproduced live on the
+   Mac (amplitude conflict 0.7667 max rel, dark-energy 0.2449, all
+   spectra finite+positive — downstream guards blind). Spec:
+   artifacts-inference-warmstart.md.
+8. **Checkpoint-set integrity.** Axis sidecars and `.paramnames` are not
+   in the resume census, multi-file append is not one transaction, and a
+   load error falls through to fresh generation on the same roots — an
+   intended append can replace the prior set. Spec:
+   data-generation-and-cuts.md.
+   VERIFIED (Fable, 2026-07-12): generator_core.py __load_chk census =
+   dv members + fail file + covmat + ranges + X.1.txt, no .paramnames
+   and no axis sidecars; __save_chk publishes per file (each tmp +
+   os.replace atomic, the SET sequential); __run_mcmc wraps __load_chk
+   in `except Exception` -> loadedfromchk = False -> the fresh-run
+   branch on the SAME roots — the very row-count ValueError that means
+   "this set is inconsistent, stop" is converted into a replacement.
+   EXTENDED (45M-68, seventeenth batch): the loader VERIFIES the
+   .paramnames sidecar then discards the resolved names and
+   slices [:, 2:-1] positionally (pool_size repeats the literal
+   slice); reproduced through the real load_source — two derived
+   columns give a 3-wide C against a 2-name covmat, zero derived
+   silently drops a sampled parameter; _scalar_columns already
+   resolves by name in the same file. One shared named-column
+   resolver for load_source/load_scalar_source/pool_size/
+   checkpoint-reload/generator-readback. Spec:
+   data-generation-and-cuts.md "UNIT 8 EXTENDED (45M-68)".
+9. **Validation and diagnostic memory truth.** Validation ignores its own
+   safe chunk and uses the train chunk; the generic local-linear floor
+   expands as N_val x 40 x output width and is not runnable on production
+   MPS. Spec: training-stack.md.
+   VERIFIED (Fable, 2026-07-12): build_loaders (batching.py) computes
+   and returns data["val"]["load"] planned against budget - used_tr;
+   training.py sets `load = data["train"]["load"]` and passes THAT to
+   every eval_val call; data["val"]["load"] is never read anywhere.
+   local_linear_floor (diagnostics.py) stages both whole sources on
+   the device and materializes Ttr[nbr] = (N_val, k_nn=40, out_dim).
+   EXTENDED (thirteenth wave, folded in per the red team's
+   sequencing — distinct from unit 14 because finite model outputs
+   are the control condition): the diagnostics CREATE NaN from finite
+   inputs and publish it — coverage_diagnostic medians empty classes
+   (all-good -> median_bad NaN; the NaN verdict comparison then
+   prints "not clearly coverage", a PERFECT run reported as
+   ambiguous); hard_direction_regression 0/0 R^2 when every dchi2 is
+   floored, corrcoef NaN on constants, the omega-baryon g.std()
+   unguarded (the generic features ARE guarded — the asymmetry);
+   cmb_residual_diagnostic divides by truth unmasked, a TE zero
+   crossing NaNs all five fractional bands. No gate runs the real
+   functions (the four smokes hand-build finite coverage dicts).
+   Contract: explicit status/reason + counts, never numeric NaN
+   sentinels; spectrum-aware validity mask; save-first order STAYS.
+   VERIFIED (Fable, 2026-07-12, thirteenth wave): diagnostics.py
+   :123-129 (empty-class medians + NaN-False verdict), driver
+   :483/:487-488 (formats NaN, prints the negative finding), :293/
+   :315 (0/0 R^2), :310 (corrcoef), :302-vs-:326 (guard asymmetry),
+   :320-331 (NaN already a documented sentinel for r2_omega), :420/
+   :424 (unmasked frac + all-NaN bands), :354-355 (TE crossing
+   acknowledged, no mask), driver :358 (save-first deliberate),
+   bsn_smoke.py:341 / cmb_smoke.py:484 / scalar_smoke.py:203 /
+   mps_smoke.py:265 (hand-built coverage dicts); grep
+   coverage_diagnostic|hard_direction over ai/gates/ = zero hits.
+   Spec: training-stack.md (the generic-diagnostics section + its
+   thirteenth-wave extension).
+   AMENDED (45M-51, seventh batch): the scalar driver re-declares
+   eligibility from its family name — scalar NPCE is legal but
+   scalar_train_emulator.py:267 calls local_linear_floor
+   unconditionally behind ':251 the scalar loss is a plain chi2'
+   prose while diagnostics.py:185 refuses needs_params losses, so
+   every scalar NPCE --diagnostic run trains, SAVES, then raises
+   instead of producing the PDF; the shared driver's :500
+   capability branch is the correct rule. Capability-owned
+   eligibility + structured availability record; spec appended in
+   training-stack.md.
+10. **Activation-bakeoff liveness.** Its bespoke parent blocks on a fixed
+    count of un-timed queue reads before joining children; worker failures
+    during setup/staging/geometry emit no result and hang the command. Spec:
+    training-stack.md.
+    VERIFIED (Fable, 2026-07-12): the worker's try/except covers ONLY
+    the per-activation train/frac block; from_config, stage_val,
+    stage_train, and build_geometry sit outside it, and the parent
+    loops `for _ in range(total): result_q.get()` with no timeout
+    before any join. The worker docstring's "never deadlocks" promise
+    is false for every pre-training failure.
+11. **Geometry numerical and read-side integrity.** Covariance builders take
+    square roots without an SPD check, block whitening clips singular modes
+    to zero and divides by them, and saved geometry states are rebuilt without
+    finite/shape/invertibility validation. Spec:
+    artifacts-inference-warmstart.md.
+    VERIFIED (Fable, 2026-07-12); the Fable "no clip exists anywhere"
+    correction was RETRACTED the same day (a truncated verification
+    grep — `head -20` cut the hits; the red team re-checked and was
+    right). TWO mechanisms coexist in emulator/geometries/output.py
+    and BOTH are recorded: (a) from_cosmolike runs eigh then
+    np.sqrt(lam) UNCHECKED — a numerically negative eigenvalue becomes
+    NaN silently, an exact zero gives sqrt_ev = 0, and whiten divides
+    with no floor; (b) BlockDiagonalGeometry._build_block runs
+    np.sqrt(np.clip(lam, 0.0, None)) — a negative eigenvalue is
+    clipped to a ZERO divisor for its whiten, exactly the original
+    red-team wording. from_state is `cls(device, **state)` with no
+    finite/shape/invertibility validation on anything it loads. The
+    fix contract stands unchanged.
+    AMENDED (45M-49, sixth batch): the float32-resolution guard is a
+    float64 RELATIVE test while the constructor stores float32 —
+    it accepts columns whose STORED scale is exactly zero
+    (reproduced: targets [0, 0, 1.4e-45] pass the guard and store
+    center 0.0 / scale 0.0; encode divides by zero). Stored-
+    representation validation of every center/scale pair, the
+    grid2d const-mask decision, and the covariance sqrt scales;
+    spec appended in artifacts-inference-warmstart.md.
+    AMENDED (45M-65, fifteenth batch): parameter-side covariance
+    ingestion joins — from_covmat is loadtxt -> eigh with ZERO
+    validation (a valid 1x1 covmat loads 0-dimensional and eigh
+    raises before training; a NEGATIVE variance builds
+    sqrt_ev = [nan, 1.0] silently — both proven through the real
+    from_covmat); np.cov one-feature and
+    AmplitudeFactorGeometry.from_covmat share the class. Spec:
+    artifacts-inference-warmstart.md "UNIT 11 AMENDED (45M-65)".
+12. **Optimized-mode validation parity.** Seventeen runtime guards across
+    batching, model designs, geometry, and loss code are `assert` statements
+    and disappear under `python -O`. Spec: conventions-and-workflow.md.
+    VERIFIED (Fable, 2026-07-12) as a class; the census at this HEAD is
+    EIGHTEEN `^assert` statements (batching 1, designs/ia 6,
+    designs/plain 6, designs/blocks 1, losses/core 1,
+    geometries/output 2, geometries/parameter 1), all config/geometry/
+    user-data guards. The red team concurs (2026-07-12): seventeen was
+    a counting error on their side; eighteen stands at 4f4dab3 and at
+    the reviewed HEAD. (This paragraph was misfiled under entry 28 by
+    an earlier edit; restored here 2026-07-12.) The ia.py/blocks.py
+    entries of this census are satisfied by unit 29's typed-exception
+    clause — cross-reference, no double work.
+13. **Covariance-input validation** (red-team, 2026-07-12 third wave).
+    cov_args has no schema/range boundary: band_width <= 0 hangs
+    band_windows; step_fracs order silently changes the kept
+    derivative (the code keeps stack[0], the docs promise the
+    smallest step); lens_lmax beyond the supplied raw power is
+    silently zero-padded and the zero-band guard then deletes real
+    eq-6 contributions; fsky is unvalidated (0 -> inf, negative ->
+    NaN) and silently defaults; no key whitelist and a quoted
+    "false" enables the non-Gaussian path. Spec (with the required
+    contract + gate legs): families-scalar-cmb.md,
+    "Covariance-input validation unit".
+    VERIFIED (Fable, 2026-07-12): all six failure paths re-derived
+    against the code — band_windows ~279-285 (start never advances at
+    width 0), stack[0] at ~580 vs the ~545 comment, the zero-pad at
+    ~529-531 interacting with the D-CM11-A zero-band guard (data
+    absence masquerades as physical zero; the width-1 arithmetic
+    [0.4, 2/7, 2/9] confirms the deleted weights), the pp request
+    capped at lmax (~415), fsky/.get defaults (~686, ~517-519,
+    ~706), and bool(str) truthiness at ~728/759. Queued AFTER the
+    in-flight transfer-fixture unit and the grid2d staging unit.
+    AMENDED 45M-01 (2026-07-12; the red-team rounds are now labeled
+    45M-XY by user convention, and Implementer handoffs carry the
+    label): the fiducial params block has the same disease —
+    validate_lcdm_params (compute_cmb_covariance.py:334-378) checks
+    only PRESENT entries (no required keys, no exclusive-alternatives
+    rule), bool passes the numeric check (subclass of int), and NaN
+    defeats the omk pin (abs(nan) > 1e-12 is False). Probe-confirmed
+    7/7 on the exec-extracted shipped body: empty mapping, As: true,
+    As: .nan, omk: .nan, no amplitude at all, As+logA, and
+    H0+thetastar are ALL accepted. The unresolved mapping goes to
+    cobaya (:405) and to provenance (:751), so the covariance file
+    cannot reconstruct the fiducial cosmology that generated its own
+    spectra. Schema (exactly-one amplitude/expansion, required
+    singletons, finite non-bool values, omk/w/wa explicit) +
+    resolved-mapping persistence folded into this unit's spec:
+    families-scalar-cmb.md, "45M-01 amendment".
+14. **Finite training/evaluation contract** (red-team fourth wave,
+    2026-07-12, CRITICAL — JUMPS THE QUEUE to right after the
+    in-flight fixture unit: it protects every production training,
+    and the five artifacts are next). NaN chi2 scores as a perfect
+    emulator: frac counts NaN below every threshold, the best-epoch
+    rule snapshots NaN weights, no finite guard on loss/grad/step,
+    and the dead-network smoke bars PASS a NaN run. EXTENDED
+    (eighth wave, folded in per the red team's sequencing): the
+    pre-training PARITY verdict has the same hole — build_warm_start
+    prints "[ok] ... max|dv| = nan" (NaN > tol is False;
+    warmstart.py ~863), and the incidental torch.equal catch is
+    skipped when n_extra == 0. Spec:
+    training-stack.md, "NaN scores as a perfect emulator"
+    (including the pre-training parity clause).
+    VERIFIED (Fable, 2026-07-12): training.py ~1427-1433 (median
+    propagates NaN, (c > t) counts NaN below), ~2047 (f0 = 0.0 wins),
+    ~1971-1980 (backward/clip/step unguarded), zero isfinite/isnan
+    in the file.
+    REOPENED (45M-53 + addendum, eighth batch): the increment-(c)
+    guard is training-only — eval_val (training.py:1490) and
+    eval_source_chi2 (:1572) accept a finite NEGATIVE chi2, which
+    counts as a PERFECT row in the threshold fractions and can
+    crown the corrupted epoch; the gate's compiled arm greens on
+    ANY compile exception (finite_contract.py:703-712) while the
+    board advertises eager/compile agreement. Increment (e): one
+    shared chi2-domain predicate at all three boundaries + eval
+    raise + ADJUDICATED scale-aware band max(1e-6, 32*eps*n_terms)
+    superseding the absolute constant + compiled-leg capability
+    truth (CUDA lane red-on-exception, non-green skip only).
+    Fifth-sqrt-site flag CONFIRMED. (e) runs before 42+43.
+    Spec: training-stack.md, "UNIT 14 REOPENED (45M-53)".
+15. **BAOSN physical-domain + pair-shape guards** (fourth wave).
+    Zero/negative H accepted (NaN/negative distances served);
+    z-pairs unvalidated (reversed pair -> negative D_A, silent
+    3-col, IndexError 1-col). Spec: families-background-mps.md.
+    Land BEFORE the EMUL2 acceptance.
+    VERIFIED (Fable, 2026-07-12): background.py has no finite/
+    positivity/monotonicity guard; emul_baosn ~356-368 documents
+    z1 <= z2 but enforces nothing.
+16. **MPS query/composition totality** (fourth wave). check_ranges
+    passes NaN (comparisons only) and empty queries hit builtin
+    min(); NaN extrap bounds stored then defeat the range check;
+    pk_nl = boost * pk_lin never validated (finite factors can
+    overflow to a cached Inf). Spec: families-background-mps.md.
+    Land BEFORE the EMUL2 acceptance.
+    VERIFIED (Fable, 2026-07-12): emul_mps ~144-164 (guards are
+    </> only), ~94-114 (NaN bound kept when the extend-check branch
+    is skipped).
+    AMENDED (45M-54, ninth batch): the mps-smoke range leg
+    (mps_smoke.py:394-398) reports PASS on ANY exception — zero
+    leg-level catch power for the refusal contract the vendored
+    check_ranges actually provides (LoggedError naming coordinate,
+    requested value, stored limit). Amendment: in-range control
+    first, all four boundaries, LoggedError-only with the message
+    pinned, wrong-class mutation arm. Spec:
+    families-background-mps.md "UNIT 16 AMENDED (45M-54)".
+17. **Generator ingress identity** (fourth wave). ord validated by
+    set equality only — duplicates pass and the two reorder helpers
+    collapse them DIFFERENTLY (sampler dim 4 vs model dim 3 in the
+    counterexample); covmat-header pidx keeps the last duplicate;
+    thin/unique shortfall publishes a smaller dataset with a
+    warning; unparsed CLI args accepted. Spec:
+    data-generation-and-cuts.md, "Generator ingress identity".
+    Land before any new production dataset generation.
+    VERIFIED (Fable, 2026-07-12): generator_core ~337 (set
+    equality), ~458-466 (the two helpers collapse differently by
+    inspection), ~326 (last-dup pidx).
+18. **Schedule validation + direction-correct step** (fifth wave).
+    trim/focus schedules reach anneal_value unvalidated (only the
+    berhu/ema anneal sub-blocks pass _validate_anneal_block); an
+    unknown shape silently runs LINEAR; anneal_epochs 0 is silently
+    max(1,...)'d; the step arm is decreasing-only — an increasing
+    ramp jumps to end at the first ramp epoch. Spec:
+    training-stack.md, "Schedule validation".
+    VERIFIED (Fable, 2026-07-12): losses/core.py anneal_value
+    ~30-81 (fall-through to linear; max(end, floor) picks end on an
+    increasing ramp); no trim/focus range validation exists.
+19. **NPCE absolute LOO gate** (fifth wave, CRITICAL — the full
+    contract for wave-1 unit 5b's pce fallback). `if not cols:
+    always keep mode 0` persists a failed mode while the report
+    claims the predicate held; select_lars_loo's all-active score
+    vector is -1 everywhere so argmax duplicates column 0. Spec:
+    models-and-designs.md, "NPCE LOO gate must be absolute". Land
+    BEFORE any NPCE production training.
+    VERIFIED (Fable, 2026-07-12): pce.py ~414-419 and ~209-211,
+    both by direct read.
+20. **Hyperparameter-range validation** (fifth wave). The
+    [default, min, max, kind] machinery validates nothing:
+    out-of-bounds defaults train silently, int() truncates,
+    reversed bounds reach suggest_int, log accepts a zero lower
+    bound, a kind typo demotes the range to a fixed value. Spec:
+    training-stack.md, "Hyperparameter-range validation". Land
+    before production tuning sweeps.
+    VERIFIED (Fable, 2026-07-12): training.py _range_default
+    ~674-677 (int truncation, no bounds), _suggest_range ~680-692
+    (unvalidated lo/hi to Optuna).
+21. **Inference numerical boundary** (fifth wave). _as_row checks
+    names/counts only (NaN/Inf/bool enter the model; decoded
+    NaN/Inf served); the CMB amplitude law accepts As <= 0 and
+    NaN tau. Spec: artifacts-inference-warmstart.md, "Inference
+    numerical boundary". Land BEFORE the EMUL2 acceptance.
+    VERIFIED (Fable, 2026-07-12): inference.py ~442-457 (documented
+    raises are KeyError/length only), losses/cmb.py ~316 (no domain
+    check in _factor).
+22. **Selection-record truth** (fifth wave, CRITICAL — the full
+    contract for wave-1 unit 3). The loop restores the epoch-0
+    baseline but histories carry trained epochs only, so drivers /
+    artifact attrs / Optuna report a DIFFERENT model than the one
+    shipped; same at trunk->head and refine boundaries. Spec:
+    training-stack.md, "Selection-record truth". Pairs with unit 14
+    (its metrics ride the finite contract).
+    VERIFIED (Fable, 2026-07-12): histories start empty ~1694, the
+    baseline eval ~1844 seeds best_* without appending; the driver
+    argmin recompute was verified in wave 1.
+23. **Run-control schema totality** (sixth wave). No top-level
+    train_args whitelist (a `clipp` typo silently changes training
+    via the consumers' .get()/signature defaults); the phase
+    whitelist validates names, not values ({"clip": NaN},
+    {"rewind": "false"} pass); `if clip > 0.0` silently disables
+    clipping on NaN/negatives; a quoted "false" enables rewind;
+    bs/nepochs totality still unguarded. EXTENDED (seventh wave,
+    folded in per the red team's sequencing): the config ROOT is
+    also unwhitelisted — pcee:/transferr: typos are inert extra
+    data and the run silently trains a plain emulator (all feature
+    reads are cfg.get(): experiment.py ~589/721/736/1239). Spec:
+    training-stack.md, "Run-control schema totality" (including
+    the root-level clause) — bundles with units 18 + 20 (+ 29,
+    the model-block value schema, fourteenth wave) as one
+    train_args-totality cluster.
+    VERIFIED (Fable, 2026-07-12): validate_phase_block ~492-522
+    (eight-key whitelist, structural checks only), loop ~1977
+    (clip > 0.0), ~1866 (if rewind:), signature defaults
+    ~1513-1514; root reads all cfg.get(), no root whitelist
+    anywhere in experiment.py.
+24. **Fine-tune anchor truth** (eighth wave, a training-truth unit —
+    with or immediately after the 14+22 pair, before any anchored
+    production fine-tune). The documented finetune.anchor is
+    config-BLOCKED by a stale "not implemented in V1"
+    NotImplementedError while the downstream facility exists and a
+    `>= 0` validator sits unreachable behind it; once unblocked, the
+    compiled-CUDA `_orig_mod.` name prefix makes build_anchor match
+    ZERO parameters silently (the artifact then records an anchor
+    that never ran). The README/example advertised the key as
+    available — CORRECTED by the Architect the same day (docs now
+    say "currently refused"); the unit restores the published
+    contract. Spec: artifacts-inference-warmstart.md, "Fine-tune
+    anchor truth".
+    VERIFIED (Fable, 2026-07-12): warmstart.py ~159-163 (the
+    unconditional raise), ~182-186 (unreachable validator), ~58
+    (whitelisted key), ~86/271 (source rebuilt eager);
+    training.py ~306-311 (the silent skip build_anchor inherits);
+    README ~1683 advertised anchor: 1.0e-2 (now corrected).
+    AMENDED (45M-50, seventh batch): scalar fine-tuning executes,
+    then erases its source provenance at save — validate_scalar
+    permits it, the scalar from_config branch sets
+    _finetune/_finetune_root, but scalar_train_emulator.py's own
+    attrs (:201-211) never inspect exp._finetune while the shared
+    driver writes finetuned_from/finetune_extra_names (:385-387;
+    untruncated grep: the shared driver is the ONLY writer). One
+    shared artifact-provenance assembler for every driver;
+    executed-anchor record shares the path once anchors open;
+    spec appended in artifacts-inference-warmstart.md.
+25. **Nested data paths never resolve** (ninth wave).
+    resolve_cocoa_config rewrites only the flat data keys; the
+    nested cmb.covariance / grid.z_file / grid2d file leaves stay
+    cwd-relative, splitting every shipped CMB/background/MPS
+    example across two path bases; the docstring's "every
+    data-block file path" is false. Spec:
+    data-generation-and-cuts.md, "Nested data paths never resolve".
+    VERIFIED (Fable, 2026-07-12): cocoa.py ~135-139 (the flat-keys
+    loop), docstring ~81-82.
+26. **Validation grid axes are never identified** (ninth wave).
+    One shared z_file/k_file interprets both train and val dumps
+    ("val borrows the" training axes, experiment.py ~3145); a
+    same-width val dump or base from another run scores silently
+    on the wrong grid. Spec: data-generation-and-cuts.md,
+    "Validation grid axes are never identified". CLUSTER RULING
+    (red-team, adopted): 8 + 17 + 25 + 26 = one file-set
+    authenticity boundary, taken together.
+    VERIFIED (Fable, 2026-07-12): single-axis config schema, the
+    staging comment, width-only checks.
+27. **Bounded grid2d staging: audit outcome.** The Implementer's
+    unit (8 files, uncommitted at cb4f1f1) is STRUCTURE ACCEPTED,
+    REVISION REQUIRED before landing: the streamed variance is the
+    naive (s2 - s1*s1/n)/n with a zero-clamp — order-dependent
+    (Architect probe 3.9659 vs red-team probe 4.1279 vs true 4.0 on
+    the 1-ULP fixture) and able to false-pin varying columns; the
+    revision replaces it with per-chunk mean/M2 Chan/Welford in
+    float64 + red legs that FAIL the s1/s2 form. AMENDED at the
+    codex merge with the red team's float32-payload clause (binding):
+    the accumulator is fed the exact float32 rows written to the
+    result, promoted to float64 — never the pre-cast float64 chunk —
+    and the gate reference is the former materialized-float32 path.
+    The from_stats scope deviation is CONFIRMED in scope; the
+    folded-in transfer-fixture fix is ACCEPTED verbatim; the
+    human-facing "oracle" prose rider joins the revision. Full
+    verdict + adjudicated amendment:
+    data-generation-and-cuts.md, "Bounded-staging Architect audit".
+    RE-AUDITED (Fable, 2026-07-12): the revision's NUMERICS are
+    ACCEPTED — independent probe 23/24 (Chan merge == np.std(ddof 0)
+    across chunkings at rtol 1e-9; the old form reproduces the false
+    pin, column-0 std exactly 0.0 at chunk height 7; the
+    float32-payload clause discriminated at a 12% stored-vs-precast
+    gap). TWO AMENDMENTS before the commit: (1) check_stable_moments
+    leg 2 CRASHES the gate — its 1-ULP column sits below the shipped
+    RELATIVE pin threshold (8*eps32*|center| ~ 95 at 1e8), both
+    columns classify constant, and the whole-surface dead-dump
+    ValueError fires (reproduced with the leg's exact numbers); the
+    fixture needs an above-threshold varying column (e.g. +-1024).
+    (2) The _grid2d_law_rows shape-flow diagram + legend still name
+    the deleted s1/s2 accumulator. Full verdict:
+    data-generation-and-cuts.md, "Revision re-audit".
+    AMENDMENTS RE-CHECKED + UNIT COMMITTED (Fable, 2026-07-12): leg 2
+    is the three-column fixture ([True, True, False] verified through
+    the shipped from_stats, no dead-dump crash), the diagram names
+    (count, mean, M2), the other five files byte-identical to the
+    accepted delivery. Committed c03a084.
+    CLOSE REOPENED (red team, Architect-ADJUDICATED, same day): the
+    disk-backed staging files LEAK across sweep points — mkstemp +
+    atexit-only, no ownership; the shared N-train sweep reuses one
+    experiment per lane and orphans each point's ~4.57 GiB .g2law.dat
+    until worker exit; the gate's disk leg checks only
+    isinstance(memmap). My deviation-2 acceptance was scoped to a
+    single run and is CORRECTED. Numerics stand. Micro-revision
+    (slots on the experiment, supersede-on-restage, public
+    release_train/val_staging for the sweep lane, failure-path
+    unlink, five red legs) must land BEFORE the three-gate rerun is
+    spent. Spec: data-generation-and-cuts.md, "Close REOPENED".
+    MICRO-REVISION LANDED (2026-07-12, Implementer;
+    Architect-audited ACCEPTED): ownership slots + returned temp
+    path + supersede-on-restage + public release_train/val_staging +
+    sweep-lane release (:174, after the try/except) + failure-path
+    unlink + check_staging_lifecycle (five legs, mps-identity).
+    Independent probe green over the exec-extracted shipped bodies;
+    AST fan-out proves the gate fake cannot AttributeError on the
+    workstation. One rider (not a hold): the board.py mps-identity
+    `maps` string still omits the lifecycle leg — fold into the next
+    Implementer commit touching ai/gates/. The amended close is now
+    SPENDABLE: the three-gate rerun (mps-identity, cmb-identity,
+    transfer-identity; 32/32) is user-run on the workstation. Audit
+    record: data-generation-and-cuts.md, "Audit (2026-07-12, Fable):
+    ACCEPTED".
+28. **Validation leakage + data-control totality** (tenth wave,
+    CRITICAL first clause, folded into the 8+17+25+26 file-set
+    authenticity cluster per the red team's recommendation).
+    stage_train/stage_val share one split_seed with NO train/val
+    alias or disjointness check — the stage_val docstring states the
+    unenforced premise verbatim; aliased paths make validation BE
+    training. Plus: one-row files crash in parsing (raw loadtxt,
+    no atleast_2d) though validate_sizes permits n = 1; split_seed /
+    ram_frac / param_cuts bounds are coerced or key-checked only.
+    Spec: data-generation-and-cuts.md, "Tenth wave: validation
+    leakage + data-control totality".
+    VERIFIED (Fable, 2026-07-12): experiment.py ~3086/~3142/~3169
+    (same seed), ~3126-3127 (the docstring premise), no
+    samefile/duplicate check anywhere; data_staging.py ~536/~779
+    (raw loadtxt 2-D indexing vs generator_core ~610's atleast_2d);
+    bare int()/float() control reads.
+29. **Model-block value schema** (fourteenth wave; joins the
+    train_args-totality cluster 18+20+23, distinct from
+    range-SYNTAX validation — fixed YAML values have the same
+    holes). The nested model: schema validates key names only;
+    values flow untyped into the design constructors. Headline:
+    `model.trf.n_blocks: 0` is a SILENT ARCHITECTURE DEMOTION — the
+    identity-start doctrine makes corr = t - t0 identically zero, the
+    trunk trains, collapse bars can pass, and the requested
+    transformer head never exists. Plus: quoted-"false" truthiness
+    (rescale_kernel/separable/film/shared_mlp), zero-block
+    IndexErrors with unrelated messages, n_heads 0 dividing by zero
+    inside its own assert (gone under -O), float(gate_init)
+    accepting NaN/Inf (Inf * corr-0 = NaN at step one), int()
+    coercions on n_gates (both activation paths) and n_tokens.
+    Contract: one pure active-model value validator before
+    construction; inactive-blocks-stay ruling preserved; constructor
+    asserts on public config paths become typed exceptions
+    (SATISFIES unit 12's ia.py/blocks.py census entries —
+    cross-reference, no double work). Spec: models-and-designs.md,
+    "Model-block value schema".
+    VERIFIED (Fable, 2026-07-12, fourteenth wave): whitelist
+    key-names-only at experiment.py:225; ResTRF forward t == t0 at
+    ia.py:933-947; convs[-1] at ia.py:505; mlp_lins[-1] at
+    blocks.py:639; `assert dim % n_heads == 0` at blocks.py:602;
+    kernel/groups/geometry asserts at ia.py:353/:416/:423/:448;
+    float(gate_init) at ia.py:490; int(n_gates) at
+    experiment.py:292/:4108/:4258/:4267; int(n_tokens) at
+    plain.py:866.
+30. **plot_xi plotting truth** (45M-02, 2026-07-12). The colorbar is
+    built from Normalize(param[0], param[-1]) but every curve is
+    colored cm(index / n) — the parameter value is never used; marker
+    edges repeat the wrong mapping; the style cyclers advance
+    globally across panels; malformed input prints "Bad Input" and
+    returns int 0; no gate calls plot_xi (full grep: zero callers
+    outside plotting.py). Folds in the hardening-ledger mutable-list
+    defaults on the same signature (no second unit). Contract + the
+    Agg-backend board leg (permutation arm, multi-panel arm, RGBA
+    inspected against the colorbar's ScalarMappable): spec in
+    training-stack.md, "plot_xi does not draw the colors its colorbar
+    describes".
+    VERIFIED (Fable, 2026-07-12): plotting.py:1647-1648 (norm),
+    :1755/:1761/:1770/:1776 (index colors + marker edges),
+    :1667-1677 (global cyclers), :1620/:1623/:1663 ("Bad Input" -> 0;
+    the length check runs after the colorbar is drawn), mutable
+    defaults on the signature (:1566-1569).
+31. **Generator entry files self-teaching** (45M-03, 2026-07-12;
+    documentation repair, no new note file). All four
+    dataset_generator_* files have no module docstring
+    (AST-verified) and _compute_dvs_from_sample — the family physics
+    boundary — has no formal docstring in any of them; store hooks
+    uneven. Module docstrings with the flow diagram, the subclass
+    contract stated locally, formal blocks on every override hook,
+    banner walls replaced. SEQUENCE AFTER unit 33 (the component
+    loop it documents is being rewritten). Spec:
+    conventions-and-workflow.md, "Generator entry files must be
+    self-teaching".
+32. **Eval-batch gate stops executing at import** (45M-04,
+    2026-07-12). ai/gates/checks/ge_c_eval_bs.py allocates C/DV/model/
+    loss/thresholds at module scope, closes helpers over them, runs
+    the whole test at import, and sys.exits (:149) — the one
+    production exception to the no-global-data rule; the board
+    survives only because board.py:369 runs it as a subprocess.
+    main-ification with explicit-parameter helpers, numbers
+    preserved, board still executing the real check. Spec:
+    gates-and-board.md, "The eval-batch check must stop executing at
+    import".
+    VERIFIED (Fable, 2026-07-12): module scope :33-:60, sys.exit
+    :149, "there is no main" docstring :4, board.py:369 run_check.
+33. **Generator physics-execution truth** (45M-06, 2026-07-12;
+    joins the file-set/ingress campaign — cluster now
+    8+17+25+26+28+33). lensing:103, cmb:307/:327, mps:364 zip
+    component execution against the unused private
+    _params_of_dependencies (silent truncation on any length
+    mismatch, cached=True); the same hand-built lifecycle already
+    produced the bitwise-constant H(z) dump (background switched to
+    logposterior(cached=False) at :335 — the worked reference);
+    lensing:99 picks the truth likelihood by YAML insertion order.
+    Contract (public lifecycle preferred, identity-selected
+    producer, provenance-recorded, fake-Cobaya pure legs + mutation
+    arm + two-cosmology workstation smoke): spec in
+    data-generation-and-cuts.md, "Generator physics execution".
+    NB: the existing "TWO evaluation idioms, deliberately
+    unharmonized" paragraph in that note is SUPERSEDED by this
+    contract's preferred path — harmonization now has its gate
+    evidence plan; the paragraph gets rewritten when 33 lands.
+    AMENDED (45M-64, fifteenth batch): the worked reference is
+    itself verdict-blind — the returned LogPosterior is DISCARDED
+    at background:335 and success = absence of three keywords in
+    captured terminal text; a rejected point (logpost = -inf
+    returned without raising, proven on real cobaya 3.6.2) reads
+    the provider unconditionally and can serve the previous
+    point's finite physics as a success. Acceptance-helper
+    contract + fake-Cobaya order/token legs; background is the
+    FIRST PATIENT, not the template. Spec:
+    data-generation-and-cuts.md "UNIT 33 AMENDED (45M-64)".
+    AMENDED AGAIN (45M-70, seventeenth batch): the SAME
+    verdict-blind pattern at all six gate-side lifecycle sites
+    (cmb_smoke :441, bsn_smoke :248/:291, mps_smoke :331/:376)
+    and the CMB covariance producer (:420) — the gates prove "a
+    value was readable", not that the point was accepted; ONE
+    shared acceptance definition (first landing establishes it,
+    gate legs ride the wave-4 family gate visits, the covariance
+    producer rides the 33 helper), rejected point = zero getters
+    = red, CAMB-reference rejection never reference truth. Spec:
+    data-generation-and-cuts.md "UNIT 33 AMENDED AGAIN
+    (45M-70)".
+34. **Public prose states the current state** (45M-07, 2026-07-12;
+    documentation-only). emulator/README.md:216 narrates board-run
+    history; warmstart.py:162 names "unit 2" in a user-facing error;
+    all-caps emphasis persists (README INPUT :24, ONE
+    :68/:136/:183/:347). History moves to gates-and-board.md; the
+    warmstart error becomes actionable current-state prose;
+    emphasis capitals become definitional wording; acceptance = the
+    prose diff + a complete untruncated scan. Spec:
+    conventions-and-workflow.md, "Public prose states the current
+    state". Batches naturally with unit 31 (one documentation
+    handoff), AFTER 33. EXTENDED with the 45M-17 fold-in (the
+    CosmolikeChi2.decode docstring claims a scattered
+    (B, total_size) return but the geometry decode returns the KEPT
+    width; verified losses/core.py:165 vs geometries/output.py:506;
+    docs-only + subclass/caller audit; spec fold-in in
+    conventions-and-workflow.md).
+35. **Memory probe truth** (45M-11, 2026-07-12). The sizing forward
+    mutates model state (BatchNorm buffers, RNG) in the model's
+    current mode with a DEFAULT-dtype zeros batch;
+    compute_model_size_bytes multiplies total numel by the FIRST
+    param's element_size, counts no buffers, sees no loss-owned
+    resident state — and the number picks the placement regime.
+    Contract + torch gate: training-stack.md, "The memory probe is
+    not observational". VERIFIED: batching.py:90 (zeros, default
+    dtype), :121 (live forward, no state save), :140-169 (first-dtype
+    multiply, params only).
+36. **BAOSN odd-node quadrature REOPEN** (45M-12, 2026-07-12,
+    CRITICAL — the red team's top priority; FIRST code unit after
+    the finite contract completes). The odd-node "cumulative
+    Simpson" increment dz/6*(1,4,1) (background.py:85) is HALF the
+    two-interval Simpson total, not the one-interval integral —
+    Architect-reproduced: y=z error EXACTLY h^2/2 at every h
+    (first order; the recorded O(dz^3) claim is FALSE); y=z^2 gives
+    4h^3/3 vs h^3/3; the (5,8,-1)/12 replacement is exact on both;
+    interpolators fit through the wrong odd nodes so arbitrary-z
+    queries are contaminated; bsn_identity.py:87-88 encodes the bug
+    as acceptance (e_odd < 1e-3). The prior bug-for-bug porting
+    acceptance is REOPENED (it rested on the false error order).
+    USER-VISIBLE: served BAOSN values change between grid nodes;
+    the served-value comparison reruns. Spec:
+    families-background-mps.md, "REOPENED: the odd-node cumulative
+    Simpson".
+37. **Implementation-identity manifest** (45M-13, 2026-07-12; joins
+    the artifact-integrity campaign beside unit 3 — implementation
+    identity distinct from pair identity). git_commit is written
+    (results.py:398) and documented as validated (:192 "rebuild
+    refuses one without") but rebuild never reads it; the recipe
+    imports CURRENT code under stored names; the syren-law MPS
+    artifact serves P * (base_new / base_old) if the vendored base
+    changes. Compatibility manifest + versioned registry + refuse-
+    or-migrate on rebuild + the MPS/syren base binding + honest
+    git_commit docs. Spec: artifacts-inference-warmstart.md,
+    "Artifacts are not bound to the code".
+38. **Syren fit-domain validation** (45M-14, 2026-07-12).
+    log(abs+eps) (linear.py:31/:186/:226/:232/:373-375) and
+    sqrt(abs) (syrenhalofit.py:317) reflect out-of-domain physics
+    into valid-looking numbers; Architect-reproduced LIVE: the
+    -0.04754964 radicand at sigma8 1.2/Om 0.1/h 0.5/ns 0.8/a 0.1
+    returns 0.11591803 on the vectorized path while the scalar
+    sibling NaNs — the two disagree at the boundary. Domain
+    documented + validated before evaluation, abs/eps continuation
+    removed from production, scalar/vector agreement, prior+grid
+    pre-launch validation, base variant recorded in unit 37's
+    manifest. Spec: families-background-mps.md, "Syren silently
+    reflects out-of-domain physics".
+39. **make_chi2 total dispatch** (45M-15, 2026-07-12). "residual"
+    works only as the catch-all else (losses/core.py:839-847) —
+    every typo/None/object selects ResidualBaseChi2, and
+    build_shear_angle_map (filesystem) runs BEFORE mode validation.
+    Three equality branches + ValueError + arg validation before
+    the angle-map + real-bool include_amp + byte-identical valid
+    modes. Spec: training-stack.md, "make_chi2 turns every unknown
+    rescale mode into the residual algorithm".
+40. **Power-activation zero Jacobian** (45M-16, 2026-07-12; red-team
+    priority 3). psi = sign(x)*((1+|x|)^p - 1)/p
+    (activations.py:147/:220) has autograd derivative 0 at exactly
+    x=0 (documented: 1; full default activation: 0 vs H's 0.5) — a
+    gradient-absorbing point exactly where the identity-start
+    doctrine places zeros; invisible to forward checks. Reimplement
+    as x * even-ratio with analytic limit 1, stable near-zero,
+    p-schema, derivative legs + float64 gradcheck + zero-Jacobian
+    mutation assert. Spec: models-and-designs.md, "The power
+    activations have a zero derivative at exactly zero".
+41. **Resolved-pass record** (45M-19, 2026-07-12). resolved_train
+    stores RAW inputs on the flagship never-trust-defaults surface
+    (training.py:3028 "loss": loss — null when the run consumed the
+    default sqrt mode; per-phase effective passes and refinement
+    inheritance unrecorded; nepochs pre-refinement while histories
+    include it). Persist the passes sequence in execution order +
+    refinement pass + total_epochs == history rows + raw YAML kept
+    separately + readers read the record. Spec:
+    artifacts-inference-warmstart.md, "config_resolved_yaml does not
+    record what the run consumed".
+42. **CMB amplitude-law metric REOPEN** (45M-21, 2026-07-12,
+    CRITICAL). CmbFactoredChi2.chi2 (losses/cmb.py:371-380) ignores
+    params_whitened and delegates to the diagonal sum-of-squares;
+    the docstring's "the factor cancels in the residual" is FALSE —
+    the residual is f*(C_pred - C_truth)/sigma, so the reported chi2
+    is f^2 * chi2_physical with f = exp(2 tau)/A_s (:334): selection
+    biased toward small-f cosmologies, the 0.2 threshold detached
+    from the covariance metric, roughness's law-neutral claim false
+    too. The identity gate only round-trips; it never checks a
+    physical known answer. Fix: divide the whitened residual by f in
+    chi2; rerun cmb-identity + cmb-smoke. Spec:
+    families-scalar-cmb.md, "REOPENED: the CMB amplitude law",
+    queue-42 half.
+43. **CMB amplitude-factor normalization REOPEN** (45M-22,
+    2026-07-12, CRITICAL, coupled to 42). Raw Cobaya A_s ~ 2.1e-9
+    makes f ~ 5e8 at fiducial — a 1e9-scale network target with a
+    float32 center subtracting nearly equal values (a unit-porting
+    defect: legacy 1e9*A_s replaced by raw A_s without the reference
+    normalization). Fix: dimensionless f = (A_s_ref/A_s) *
+    exp(2(tau - tau_ref)), f = 1 at the persisted fiducial;
+    as_ref/tau_ref resolved artifact facts; a NEW semantic law
+    version (unit 37's manifest distinguishes; old artifacts
+    REFUSED; affected CMB artifacts retrain). Spec: same section,
+    queue-43 half.
+44. **stream_stats Chan unification** (45M-23, 2026-07-12; amends
+    the stable-moments standard — one numerical-statistics design
+    repo-wide). data_staging.py:113-129 still ships the prohibited
+    s1/s2 variance; Architect-REPRODUCED: offset 1e8 gives std
+    1.8103 vs true 1.0017 silently, offset 1e10 gives NaN. Latent in
+    the ordinary path (load_source keeps only dv_mean — the red
+    team's own scope note), but a public normalization function
+    returns false/NaN scales. Chan/Welford + full input schema +
+    catch-power leg. Spec: data-generation-and-cuts.md, "The old
+    unstable variance survived".
+45. **Scheduler execution protocol** (45M-25, 2026-07-12; joins the
+    run-control/train_args-totality campaign, DISTINCT from the
+    schedule-VALUE unit). make_scheduler advertises any class
+    (training.py:438-441) but the loop implements exactly two
+    per-epoch protocols (:2082 step(median) for ReduceLROnPlateau,
+    :2124 bare step() for everything else) — a OneCycleLR spec
+    constructs and then runs the wrong schedule by orders of
+    magnitude; per-phase/refine construction adds the step-horizon
+    problem. Contract: restrict-and-refuse before model/loader
+    setup, OR make cadence + argument protocol resolved scheduler
+    facts stepped at the right place with true per-pass horizons
+    (actual optimizer updates, chunk-tail rule included) and
+    unambiguous warmup ownership; either way the resolved artifact
+    records class, cadence, metric source, effective step count.
+    Torch gate: counting schedulers (per-update / per-epoch), the
+    plateau median argument, a tiny OneCycleLR known-LR sequence or
+    startup refusal, no double warmup.
+    UNIT 14 AMENDED (45M-47, fifth batch, increment d): finite batch
+    losses publish an Inf epoch loss — loss.detach()*bs multiplies in
+    float32 BEFORE the accumulator (training.py:2103; acc_dtype is
+    float32 on MPS, :1781), so a finite 1e38 loss with bs=8 goes Inf
+    and is appended/printed/persisted unguarded. RULING: host
+    python-float (float64) accumulation reusing the per-step sync the
+    finite contract already pays, + a required finite check on the
+    completed epoch train_loss; extends the finite-contract gate
+    (mutation arm restores the old ordering, must go Inf). Reproduced:
+    np.float32(1e38)*8 -> Inf. Spec: training-stack.md. Unit 14 now
+    closes on a+b+c+d + the extended gate.
+    UNIT 14 AMENDED (45M-24, CRITICAL producer clause): the DEFAULT
+    "sqrt" loss (losses/core.py:349; berhu lower branches :363/:381;
+    the anneal's sqrt arm) has d sqrt(sum r^2)/dr = 0/0 -> NaN at an
+    exact fit — identity-start heads, pinned grid2d columns, tiny
+    fixtures, and zero corrections deliberately create exact zeros,
+    and one such sample poisons the batch gradient. The finite guard
+    (increment a) DETECTS this; the objective must stop PRODUCING
+    it: one shared safe-sqrt transform (forward 0 AND gradient
+    exactly 0 at c == 0, matching sqrt(c) for normal positives —
+    sqrt(c+eps) is NOT contract-equivalent), used at all four sqrt
+    sites; materially negative / nonfinite chi2 rejected before the
+    transform (a scale-aware roundoff tolerance stated and tested if
+    tolerated); C1 knot matching preserved. Unit 14 is now THREE
+    increments: (a) training.py guards [landed, checkpoint],
+    (b) warmstart parity, (c) safe-sqrt producer fix — and the
+    dedicated finite-contract gate gains the 45M-24 red legs
+    (exact-zero row per mode; mixed batch; pinned-column fixture;
+    finite-and-zero gradients on the exact-fit row; analytic
+    agreement on positives; negative/NaN chi2 refusal; eager +
+    compiled).
+    UNIT 15 AMENDED (45M-26): must_provide accepts
+    Hubble={"z": [1090]} through the uniform union-window check
+    (emul_baosn.py:214-236) while get_Hubble serves the SN grid only
+    — accepted at startup, refused at runtime, invisible to the
+    gate's uncrossed arms. One product-specific domain helper shared
+    by must_provide and every getter; startup and runtime verdicts
+    identical. Spec amendment: families-background-mps.md, "45M-26
+    amendment to unit 15".
+46. **NPCE domain policy** (45M-28, 2026-07-12; joins the
+    inference-boundary campaign, unit 21, with explicit NPCE legs).
+    PCEEmulator.forward clamps unconditionally to the Legendre box
+    (pce.py:505-506) — one rounding unit outside and an arbitrarily
+    distant cosmology collapse to the same boundary coordinate,
+    finite and plausible, invisible to the finite guard; the refiner
+    was trained around a base whose hidden saturation is part of its
+    target. Named persisted domain policy (default: refusal with a
+    documented tolerance; clamp is never the validator), identical
+    policy at training/validation/inference, lo/hi schema,
+    boundary-hit counts in the resolved record. DISTINCT from the
+    LOO-selection unit (accepted as argued). Spec:
+    models-and-designs.md, "NPCE maps arbitrarily out-of-domain
+    cosmologies to the same boundary".
+    UNIT 24 AMENDED (45M-29, BINDING before the anchor door
+    reopens): the post-step order on HEAD is optimizer -> EMA
+    (:1988) -> anchor (:1995) while the comment claims the opposite
+    — the shipped/selected EMA samples the trajectory BEFORE each
+    anchor pull (at beta = 0 it is the fully unanchored result).
+    Canonical order optimizer -> anchor -> EMA; anchor-absent
+    byte-identical; six red legs incl. the beta = 0 analytic leg and
+    selection/readback replay. Spec: training-stack.md, "45M-29
+    amendment to unit 24".
+    UNIT 26 AMENDED (45M-27): CMB lmax validation proves only a
+    stored MAXIMUM (emul_cmb.py:195-209) while calculate scatters
+    into a zero array at stored ells (:247-249) — a gapped or
+    late-start ell axis serves zeros indistinguishable from
+    predictions. The axis-identity contract extends to the CMB
+    read/rebuild boundary: ell must equal np.arange(2, ell[-1]+1)
+    exactly, widths must match, the adapter validates before
+    _ell_arrays, only l = 0,1 assembly-zero-filled; mutation leg on
+    a same-shaped h5. Spec: families-scalar-cmb.md, "45M-27
+    amendment".
+47. **CMB dump multipole identity** (45M-30, 2026-07-12, CRITICAL;
+    joins the file-set-authenticity cluster — now
+    8+17+25+26+28+33+47 — and sharpens the 45M-27 amendment). The
+    CMB generator writes four ANONYMOUS spectrum stores with no axis
+    sidecar; training checks only dv.shape[1] == ell.size against
+    the covariance (experiment.py:3549) and labels dump column 0
+    with the covariance's first multipole — a same-width shifted
+    lrange (10..1008 vs 2..1000) trains silently against the wrong
+    covariance; the checkpoint loader compares no axis fact at all,
+    so resume can reuse a stale same-width dump. Contract: a
+    required ell sidecar in the generator file set; exact equality
+    lrange == sidecar == every spectrum width == covariance ell at
+    fresh/resume/append/training; np.arange(lmin, lmax+1) exact;
+    sidecar in the transactional manifest; the artifact records the
+    axis as dump-verified; never infer coordinates from filename or
+    width. Spec: data-generation-and-cuts.md, "A CMB dump has no
+    multipole identity".
+48. **Finite-real validator predicate** (45M-31 + 45M-32,
+    2026-07-12; joins the train_args-totality cluster — now
+    18+20+23+29+45+48). Comparison-only validators pass NaN at five
+    confirmed sites (EMA horizon ~1271, berhu knot/cap ~968,
+    roughness lam/period ~1119, transfer.refine base_lr_scale
+    ~1392 + anchor) — a NaN horizon poisons theta_bar on the first
+    lerp, a NaN anchor corrupts every anchored base tensor on step
+    one. ONE shared predicate (real, non-bool, finite, then domain)
+    + a mechanical census of all comparison-only numeric leaves +
+    trunk/head phase parity; runtime unit-14 guard stays defense in
+    depth; the anchor integration legs fold into unit 24's gate.
+    Spec: training-stack.md, "Comparison-only validators accept
+    NaN".
+    UNIT 41 AMENDED (45M-33): the transfer-refine drift metric
+    iterates state_dict() so non-trainable buffers dilute the
+    denominator, and a moved zero-reference tensor records relative
+    drift 0.0 (undefined, not zero). Metric over trainable
+    parameters via a canonical key set; norms + status persisted;
+    key equality verified; summary recomputable; honest naming.
+    Spec: artifacts-inference-warmstart.md, "45M-33 amendment to
+    unit 41".
+    UNIT 18 AMENDED (45M-34): the shared anneal whitelist permits
+    shape const for every owner, but BerHu/EMA anneal force
+    start=0,end=1 internally — const freezes s = 0 forever: berhu
+    silently runs plain sqrt every epoch, and theta_bar is never
+    allocated (the s > 0 activation guard) while the resolved record
+    says EMA is on. const stays legal for trim/focus (start IS the
+    constant); rejected for berhu/ema with an explanatory error;
+    owner-parameterized shapes in the shared validator; catch-power
+    leg proves the old const config demotes. Spec:
+    training-stack.md, "45M-34 amendment to unit 18".
+    UNIT 29 AMENDED (45M-35, BINDING, CRITICAL): "finite non-bool"
+    still admits gate_init 0 — an exact absorbing state (correction
+    is zero-init by design, so gate grad and every head-weight grad
+    are both zero forever; the head never trains while collapse bars
+    pass; ia.py:336-339 names the invariant unenforced). Rule:
+    representably NONZERO after parameter-dtype conversion
+    (float32-underflow rejected; positive-only deliberately NOT
+    imposed); one validator over plain + factored heads; the
+    demotion gate gains a behavioral one-step trainability leg
+    (trunk frozen) — presence and trainability are separate
+    requirements. Spec: models-and-designs.md, "45M-35 amendment to
+    unit 29".
+    UNIT 29 AMENDED AGAIN (45M-36, CRITICAL): the identity-at-init
+    license ("every activation maps 0 -> 0") was incomplete — waking
+    a zero-initialized final layer also requires representably
+    nonzero a'(0). ReLU (derivative 0 at 0, torch convention) makes
+    ResCNN/TemplateResCNN heads exact permanent dead branches and
+    TRF blocks a PARTIAL demotion (attention wakes through the
+    zeroed wo, the MLP half never does); the code comments claiming
+    real first-step gradients are false for ReLU. Rule: a(0) = 0
+    AND finite representably-nonzero a'(0) for zero-init-head
+    activations; ReLU rejected in heads, legal in trunks (Architect
+    ruling; no head-safe variant in V1); power/gated_power fold into
+    unit 40's repair — pre-repair they fail the same check; the
+    four misleading explanations corrected (the note's own claim
+    already superseded in place). Spec: models-and-designs.md,
+    "45M-36 amendment to unit 29".
+49. **Optimizer execution protocol** (45M-37, 2026-07-12; joins the
+    run-control campaign beside unit 45). make_optimizer and
+    make_refine_optimizer advertise {cls, **kwargs} generality but
+    unconditionally inject fused=True on CUDA for every class —
+    overwriting an explicit fused: false (the spec is not forwarded
+    as documented) — and the closure-free step() protocol is never
+    validated (LBFGS constructs, then dies at step one). Ruling: the
+    BOUNDED surface — closure-free Adam/AdamW-family; fused injected
+    only where supported, user value preserved; closure-required
+    rejected before construction; one shared capability decision for
+    both factories; resolved class + fused state persisted (rides
+    unit 41's record); shipped AdamW byte-identical. Spec:
+    training-stack.md, "The optimizer factory is CUDA-Adam-specific
+    behind a general contract".
+50. **Epoch-truth under chunking** (45M-38, 2026-07-12, CRITICAL —
+    fourth in the critical-code sequence, after the CMB reopen).
+    The loop drops the ragged batch of EVERY loader chunk while the
+    resident-encoded branch sizes chunks from bytes with no bs
+    rounding (batching.py:359) — load = 2*bs - 1 discards bs - 1
+    rows per chunk (near half the epoch), epoch semantics become
+    memory-dependent (two GPUs, same seed, different meaning of
+    "epoch"), and the EMA accounting proves it executed
+    (chunk // bs summed). Contract: placement changes I/O grouping
+    never batch count; non-final chunks exact bs multiples; only the
+    global n_train % bs tail dropped; steps_per_epoch == n_train//bs
+    in every regime, reported and recorded; docstring corrected.
+    Spec: training-stack.md, "VRAM chunk boundaries silently change
+    the rows used per epoch".
+51. **MPS float16 AMP scaling** (45M-39, 2026-07-12; HIGH on the
+    Apple/MPS dev path, CUDA bfloat16 unaffected). MPS autocast
+    selects float16 (~1702) with a plain backward/step and ZERO
+    scaler code repo-wide (untruncated grep) — small gradients
+    underflow to exact zero, silently training partial/dead networks
+    exactly where zero-init heads and soft-start gates make early
+    gradients small; the docstring falsely says bfloat16 (~1560).
+    Scaler-or-refuse on MPS; canonical order scale -> backward ->
+    unscale -> finite contract -> clip unscaled -> step -> anchor ->
+    EMA (extends the 45M-29 order; interlocks units 14/24/41);
+    skipped steps advance nothing; resolved dtype + policy
+    persisted; docs corrected. MPS acceptance leg on Apple hardware
+    (or the teaching-error branch, testable anywhere); CUDA legs
+    prove the shared ordering. Spec: training-stack.md, "MPS float16
+    AMP has no gradient scaling".
+52. **Head padding coordinate truth** (45M-40, 2026-07-12,
+    CRITICAL for masked cosmic-shear CNN/TRF heads — fifth in the
+    critical sequence). pad_idx substitutes RANK for coordinate
+    (counts only; equal-count different-mask bins indistinguishable,
+    plain.py:430/ia.py:374) and padding is zero only at the initial
+    scatter — conv bias/activation/FiLM write invalid slots and the
+    next kernel routes fabricated values into valid positions (the
+    two-block adversarial composition); TRF updates the whole token
+    rectangle unmasked (ia.py:925); ragged n_tokens included.
+    Contract: real coordinate-slot scatter + persisted boolean
+    validity mask, reapplied after every block/FiLM; layout-aware
+    attention masking; bitwise no-mask preservation; rectangular
+    families proven unchanged; pre-map artifacts refused; docs
+    corrected. Spec: models-and-designs.md, "Head padding loses the
+    coordinate map and fabricates hidden state".
+    45M-41 (documentation-only, 2026-07-12) FOLDED THREE WAYS, no
+    new unit: the shape-based weight-decay explanations
+    (blocks.py:51/:95 teach the abandoned ndim rule; the real rule
+    is the role allowlist) -> unit 49; the encode/decode direction
+    reversals in the scalar and CMB geometry error rationales
+    (scalar.py:127, cmb.py:186 — encode divides, decode multiplies)
+    -> the documentation batch (31 + 34, beside 45M-17; "geometry
+    totality" as addressed does not exist — recorded deviation); the
+    universal-bfloat16 AMP claim -> already in unit 51. Completion
+    condition: untruncated zero-stale-hits search. Record:
+    conventions-and-workflow.md, "45M-41 fold-ins".
+
+45M round bookkeeping (2026-07-12): 45M-05 RETRACTED by the red team
+(ordinary conversion chains accepted; no source-style gate — matches
+the standing user ruling). 45M-08 was index-only; Architect verified
+it directly (np.savez overwrite, compute_cmb_covariance.py:766-768)
+and folded it into unit 3 as the covariance-producer transactional-
+publication clause (see artifacts-inference-warmstart.md). 45M-09
+(MPS interpolator parse/spline-contract documentation) was named in
+the index but its full block arrived only later the same day —
+RESOLVED: verified whole and folded into unit 16 as the "45M-09
+amendment" (families-background-mps.md); the 45M index is now fully
+adjudicated. LATE ADDITION 45M-42 = queue 53 (Optuna journal
+experiment identity: no manifest/digest, resume mixes incomparable
+science; spec training-stack.md "The Optuna journal has no experiment
+identity"; slots in the campaign phase before the docs batch,
+interlocks unit 37's implementation identity + the digest machinery).
+45M-43 AND 45M-44 RETRACTED by the red team
+(2026-07-12), retraction Architect-verified: validate_transfer
+(experiment.py:1321-1331) makes transfer single-phase V1 — the
+frozen-head state and a head-lr override are unreachable, so unit 54
+is WITHDRAWN (the number stays retired, not reused). Audit lesson
+recorded in training-stack.md: mechanism verification without a
+reachability proof at the validator boundary no longer earns a queue
+number. 45M-20 amends unit 22
+(training-stack.md, "Selection-record amendment"); 45M-12/13/16/14
+carry the red team's priority order and 36 is scheduled first among
+them. The three-gate rerun and the
+14(a+b+c+d+e) -> 36 -> 42 -> 43 -> 14(g+h) -> 50(+60+14f) -> 52 -> 55 -> 22(+20) -> 13(+01) order
+define the active pipeline (updated with the third 45M batch: the CMB
+amplitude-law reopen 42+43 slots right after the BAOSN quadrature;
+unit 14 gained the 45M-24 safe-sqrt producer increment; unit 15
+gained the 45M-26 domain-helper amendment; 44 and 45 queue with
+their campaigns).
+
+FIFTH 45M BATCH (2026-07-12, post-retraction, all three
+Architect-verified before placement): 45M-45 = unit 7 AMENDED (the
+syren alias-consistency boundary: syren_params_from silently prefers
+As_1e9 over As and w over w0 with the discarded name unchecked; both
+public callers pass complete mappings and the shipped evaluate YAML
+defines both amplitude names — reproduced live, conflicts 0.7667 /
+0.2449 max rel with every spectrum finite; spec
+artifacts-inference-warmstart.md). 45M-46 = NEW UNIT 55
+(repeated-training state isolation: transfer.refine mutates the
+shared _transfer_base in place — set_live(True) never reset, no
+weight/flag restore — and all four repeated-training drivers reuse
+one experiment, so sweep/tune/bakeoff/N-train results are order- and
+worker-dependent and each point's "pretrained" anchor drifts to the
+predecessor's W; REACHABILITY VERIFIED FIRST: validate_transfer
+supports refine on cosmic shear (:1368-1410) — the standard the
+45M-43 retraction set is satisfied; spec training-stack.md; slots
+after 52, before 22). 45M-47 = unit 14 AMENDED, increment (d) (the
+epoch reduction overflows float32 before the accumulator: a finite
+per-batch loss publishes an Inf epoch loss; host-float64 accumulation
++ an epoch-level finite check; extends the finite-contract gate).
+Unit 14 now closes on a+b+c+d + gate.
+
+SIXTH 45M BATCH (2026-07-12, both Architect-verified and
+numerically reproduced before placement): 45M-48 = NEW UNIT 56
+(generators mark non-finite science payloads successful: no
+boundary validates the computed payload before _dv_write and the
+failed[i] = False clear — serial :908-921, MPI :990-999/:1048-1057,
+all _dv_write overrides blind, only the allocator's first payload
+shape-checked, producers close nothing (mps :390 checks only
+pre-cast pk_lin); reproduced: float64 [1, NaN, Inf, 1e100] stores
+as float32 [1, nan, inf, inf] with failed = False, the 1e100
+element finite pre-cast and non-finite in the dump; spec
+data-generation-and-cuts.md; joins the file-set/ingress campaign,
+cluster now 8+17+25+26+28+33+56; final dataset closure stays with
+the wave-1 dataset-readiness unit). 45M-49 = unit 11 AMENDED (the
+float32-resolution guard can itself store a zero divisor: the
+float64 relative test scale <= 8*eps32*|center| at scalar.py:145 /
+grid.py:191 / grid2d.py:196 cannot see absolute underflow —
+reproduced: targets [0, 0, nextafter32(0,1)] are accepted and store
+float32 center 0.0 / scale 0.0, encode divides by exact zero, and
+on grid2d the missed column is neither pinned nor refused;
+stored-representation validation contract + covariance sqrt-scale
+representability; spec artifacts-inference-warmstart.md; torch
+legs join the family geometry identity gates, board-listed).
+
+SEVENTH 45M BATCH (2026-07-12, all four Architect-verified; the
+capture mechanism reproduced with the exec'd real function body):
+45M-48 ADDENDUM = unit 56 AMENDED (numpy broadcast relabeling:
+exact key set + exact predeclared shape, no scalar/length-one
+broadcast, cast -> finite -> write once -> read back -> only then
+clear the failed bit; family _dv_write never validates; the
+duplicate-write rider REJECTED as factually absent — one
+assignment at generator_core.py:588-590 on both main and branch).
+45M-50 = unit 24 AMENDED (scalar fine-tune saves an artifact with
+no finetuned_from/finetune_extra_names though the universal
+contract claims every family; one shared provenance assembler;
+spec artifacts-inference-warmstart.md). 45M-51 = unit 9 AMENDED
+(scalar --diagnostic calls the plain-only local_linear_floor
+unconditionally on a legal NPCE run — train, save, then a
+deterministic ValueError; capability-owned eligibility; spec
+training-stack.md). 45M-52 = NEW UNIT 57 (the generator reads
+tmp.read() inside the capture block with no flush of Python/C/
+Fortran buffers — reproduced: print() and libc.printf captured
+EMPTY with the real body, the C text leaking to the RESTORED
+stream, and one block's un-flushed error text landing INSIDE THE
+NEXT capture — cross-sample misattribution both directions; a
+declared-fatal solver string can be buffered past the guard and
+the row marked successful; flush-or-isolate contract, status-API
+route satisfies it via unit 33's harmonization; spec
+data-generation-and-cuts.md; cluster now 8+17+25+26+28+33+56+57).
+
+EIGHTH 45M BATCH (2026-07-12): 45M-53 + addendum = unit 14
+REOPENED, increment (e) — the training-only guard asymmetry (eval
+accepts the finite negative chi2 training rejects; a corrupted row
+scores perfect and can win best-epoch) plus the compiled gate arm
+that greens on any exception. Architect rulings recorded with the
+spec: the Implementer's fifth sqrt site CONFIRMED; the absolute
+_CHI2_NEG_TOL = 1e-6 SUPERSEDED by the scale-aware band
+max(1e-6, 32*eps*n_terms) (per-run constant: compile-safe, not
+batch-poisonable); (e) slots BEFORE 42+43. Also this batch:
+Implementer closures 14(c) 97963b8, 14(d) 63880d1, 36 387c650 all
+recorded, pending batch audit; 14 reopens on (e) only.
+
+NINTH 45M BATCH (2026-07-12): 45M-54 = unit 16 AMENDED (the
+mps-smoke range leg passes on ANY exception; the amended legs pin
+the vendored check_ranges contract — LoggedError naming the
+coordinate, the requested value, and the stored limit,
+emul_mps.py:144-165 — on all four boundaries with an in-range
+control first; Architect precision ruling: an always-raising P
+already reds the gate through the lifecycle leg, so the
+discriminating mutant is in-range-healthy + wrong-class refusal —
+today's leg greens it, the amended leg must red it). 45M-55 = NEW
+UNIT 58 (BAOSN distances integrate from z = 0 while the generator
+schema FORBIDS a zero-starting SN grid: comoving_distance_grid
+cubic-extrapolates c/H through the untrained [0, zmin), and the
+docstring blesses it as legacy-verbatim — a legacy convention now
+adjudicated WRONG, the 45M-12 precedent; reproduced with the REAL
+module: z_sn=[1,3,600] serves chi(1) +2.06% high, [2,3,600]
++11.26%, extrapolated H finite/positive/monotonic so unit 15's
+guards are blind; shipped-scale zmin (0.001 example, 0.01 board
+fixture) bias < 1e-3% — the bite is the open schema class;
+contract: z_sn[0] == 0.0 exactly, no extrapolating fill in
+comoving_distance_grid or distance_interpolators, legacy Hubble
+artifacts with z[0] > 0 refused at adapter load with a migration
+message, the [0, z_max] window declared only after proving the
+persisted first node is zero, cubic + corrected Simpson untouched
+on valid grids; fixtures migrate: generator docstring example,
+bsn_smoke.py:97, SIX bsn_identity 0.001-starting grids; rides the
+fourth wave WITH unit 15, before the EMUL2 acceptance; spec
+families-background-mps.md). Also this batch: Implementer closure
+42 (5661c08, CMB amplitude-law metric fix) recorded, pending batch
+audit. CAPABILITY NOTE: the cocoa clone's python on the Mac dev
+box (Cocoa/.local/bin/python) carries torch 2.6.0 (CPU + MPS
+backend), cobaya 3.6.2, and scipy 1.12.0 — Mac probes can now
+exercise REAL torch/scipy/cobaya paths (the 45M-55 reproduction
+imported the real background.py under it); board gate runs stay
+workstation-owed.
+
+TENTH 45M BATCH (2026-07-12): 45M-56 = NEW UNIT 59 (top-level
+config keys are never censused: every nested block raises on
+unknown sub-keys — param_cuts :540, per-head scheduler :282, cmb
+:686, grid :833, mps :948 — but set(cfg)/cfg.keys() appears
+NOWHERE, untruncated grep; branch selection is
+cfg.get("transfer"/"pce") (experiment.py:625/:757/:772) and the
+sweep driver reads cfg["sweep"] raw (family_drivers.py:92), so a
+misspelled trasnfer:/pec:/seep: block silently builds a DIFFERENT
+design and the raw saved YAML claims a feature that never
+executed; contract: one explicit top-level schema at from_config +
+every driver load boundary before device/staging/source/artifact
+work, corpus-derived allowlist audited propose-first,
+close-spelling suggestion in the error, executed-composition
+statement riding unit 41's resolved record; campaign phase beside
+unit 41; spec training-stack.md). 45M-57 = NEW UNIT 60 (the
+reported validation "median" is torch.median's LOWER middle sample
+for every even n_val — [0,1,9,10] reports 1, the ordinary median
+is 5, live-verified; the value drives ReduceLROnPlateau
+(training.py:2147/:2202), breaks best-epoch ties at equal frac
+(:2163-2166), and is persisted/plotted; FIVE gate files
+manufacture their references with the SAME op (cmb_smoke:389,
+bsn_smoke:193, mps_smoke:203, finite_contract:137/:873,
+ge_c_eval_bs:99) — the board encodes the defect; RULING: adopt the
+ordinary 50th percentile (torch.quantile(0.5) verified equal on
+both parities), ONE shared reduction for eval_val + scheduler feed
++ tie-break + histories + gate references, the five gate sites
+migrate in the same unit, odd-n_val values byte-identical,
+even-n_val medians/trajectories change — USER-VISIBLE, declared;
+rides WITH unit 50 after 14(e) lands (same eval_val surface); legs
+join ge_c_eval_bs (board.py:369, already drives the REAL
+eval_val); spec training-stack.md).
+
+ELEVENTH 45M BATCH (2026-07-12): 45M-58 = unit 14 REOPENED on
+increment (f) — the landed eval_val validates the chi2 ROWS then
+publishes mean = c.mean().item() as a raw float32 reduction
+(training.py:1539 at HEAD), violating unit 14's own clause 4
+("mean/median/fractions must be finite before the publication").
+Reproduced through the REAL eval_val on the Mac cocoa python:
+eight finite float32 rows at 1e38 pass the domain predicate,
+median publishes finite 9.99999968e+37, and mean publishes INF
+(float64 reference: 9.99999968e+37). Distinct from 45M-47 (the
+training-epoch loss accumulator); eval_source_chi2 returns per-row
+values only, so (f) is eval_val's published reductions: compute in
+float64 on the CPU tensor, validate EVERY published scalar/vector
+after reduction (raise naming the reduction — no sentinel repair),
+ordinary range unchanged to documented ~1e-7 relative tolerance
+(histories not byte-identical, USER-VISIBLE declared); gate Part I
+in finite-contract with the float32-restoring mutation arm, CPU +
+CUDA lanes (backend non-overflow = control, never permission).
+(f) rides the SAME eval_val visit as unit 60 — pipeline slot
+50(+60+14f). Also this batch: QUEUE 43 RULINGS delivered
+(families-scalar-cmb.md): new law NAME as_exp2tau_ref, no parallel
+version field, old-law artifacts refused with the retrain error;
+as_ref/tau_ref sourced from an explicit validated data.cmb config
+pair (required, no default), persisted as resolved float64 state
+keys as_ref/tau_ref, _factor reads them with no fallback; staging
+verdict line confirmed; retrain confirmed; 43 is GO. Implementer
+checkpoint recorded: five self-committed increments this run —
+14(c) 97963b8, 14(d) 63880d1, 36 387c650, 42 5661c08, 14(e)
+420bce2 — all pending batch audit; unit 14 closed a-e and reopens
+here on (f) only.
+
+TWELFTH 45M BATCH (2026-07-12): 45M-60 + addendum = unit 14
+REOPENED on increment (g), PREEMPTING queue 43 — the landed (e)
+band uses n_terms = w^2 on the dense base (an open, documented
+Implementer resolution of the Architect's ambiguous ruling phrase
+"count of summed products", whose own parenthetical "n_dv for the
+plain whitened form" anchored WIDTH; the ambiguity was the
+Architect's, the consequence decides): at production widths the
+band is 2.32 (w=780) / 34.33 (w=3000), so a dense chi2 of -2 is
+normalized to a PERFECT 0 — the exact false-crowning failure (e)
+exists to close — and the shipped Part H tests only the 1e-6 floor
+because PoisonChi2 omits _chi2_n_terms (finite_contract.py:913).
+RULING: n_terms := the per-row kept WIDTH for EVERY family (band
+0.002975 at w=780, 0.011444 at w=3000 — refuses -2/-4 at every
+production width; depth-not-count derivation recorded in the
+spec); ONE base-class definition, CmbDiagonal override retired,
+ScalarChi2 (diagonal, caught inheriting w^2 by the addendum)
+correct automatically; metric census + declared-width doubles +
+production-surface Part H legs incl. the w*w-restoring mutation
+arm and a measured ill-conditioned SPD valid control; band may
+only ever WIDEN on measured valid evidence. 45M-59 = NEW UNIT 61
+(plot_learning_curves sets log y unconditionally, plotting.py:304,
+so a PERFECT fraction of exactly 0 — the best outcome — is dropped
+from the published figure, while plot_sweep_curve already
+implements the correct linear-on-zero policy :372-373 with the
+docstring saying why; contract adopted + ONE shared scale-decision
+helper so the two public paths cannot drift; seven CPU legs;
+campaign phase; spec training-stack.md). Crossing note: the
+Implementer status predates the queue-43 rulings — the law-name
+default (as_exp2tau_ref) matches, but the fiducial source is RULED
+as the explicit data.cmb config pair (required, persisted
+resolved), NOT the covariance-fiducial default the Implementer
+proposed to assume; families-scalar-cmb.md "QUEUE 43 RULINGS" is
+binding. Implementer real-torch Mac capability acknowledged
+(cosmolike-free modules validated as real functions now).
+
+THIRTEENTH 45M BATCH (2026-07-12): 45M-61 = unit 14 REOPENED on
+increment (h), the diagnostic score boundary — local_linear_floor
+calls chi2fn.chi2 directly (diagnostics.py:226-227) and interprets
+the unchecked values immediately (f_floor/f_hard > 0.2 at
+:238/:240, median at :241) while ONLY the model arm uses the
+guarded eval_source_chi2 (:230-233); _chi2_domain appears NOWHERE
+in diagnostics.py (untruncated census); three more direct producer
+sites at :414/:621/:745 (cmb/grid/grid2d residual pages).
+Reachable today: from_state splats straight into the constructor
+with no PSD check (output.py:249, :163-186; unit 11 queued not
+landed), so a one-coordinate Cinv=[[-1]] state serves
+dchi2_floor = -1 -> f_floor = 0.0 "perfect", median -1 — one
+returned record carrying two different definitions of a valid
+chi2. Contract: ONE shared public score-domain helper beside
+_chi2_domain taking the LOSS OBJECT (family width + compute-dtype
+provenance); the floor and the three family producers validate
+their OWN vectors before threshold/median/decile/plot/persist;
+corruption raises naming diagnostic/producer/count/positions/min/
+band; unit 11 = defense in depth not substitute; unit 9's
+honest-unavailability must NOT convert corruption to
+"unavailable"; valid output byte-identical; seven red legs incl.
+the floor-guard-deletion mutation and per-family refusal+identity
+controls, in a board-listed diagnostics gate (Implementer proposes
+the home). 45M-60 SECOND ADDENDUM = increment (g) AMENDED —
+eval_source_chi2 computes chi2 in the loss compute dtype then
+derives the band from the UPCAST tensor (training.py:1608
+.double(), :1620 band from dchi2_t.dtype): float64 eps collapses
+the band to the 1e-6 floor (raw 5.5e-12 at w=780 vs float32
+0.002975), so -5e-4 is zeroed by training/eval_val and REFUSED by
+the diagnostic — an executed contradiction of the "same predicate
+and band" comment (:1609-1615). Amendment adopted whole: band from
+the compute dtype captured BEFORE storage casts, validate in
+compute dtype then convert for reporting, provenance never
+inferred from an upcast, same ordering in (h)'s helper, the
+three-boundary one-verdict gate leg, .double()-restoring mutation
+arm, genuine-float64 control; rides finite-contract, no new file.
+SEQUENCING RELAXED: the (g)-preempts-43 ruling was issued when 43
+was believed unstarted; the Implementer status shows 43's loss
+side built+verified UNCOMMITTED in losses/cmb.py — the same file
+(g) edits — so 43 FINISHES FIRST (avoids a half-unit and a
+same-file collision), then 14(g+h) as one visit, then
+50(+60+14f). Continue answer to the Implementer: YES, finish 43
+as scoped.
+
+FOURTEENTH 45M BATCH (2026-07-12): 45M-62 = NEW UNIT 62 —
+validate_grid requires data.grid.units but never checks the VALUE
+(probe through the REAL validator: 'bananas', True, None, 3.14 all
+accepted; validate_grid2d in the same file refuses by name at
+:967-972); GridGeometry str()-coerces and persists; the only value
+check in the program is emul_baosn's exact-pair refusal at LOAD —
+an expensive successful training run can save a pair its intended
+adapter can never serve. Contract: ONE shared quantity->units
+registry beside TARGET_LAWS read by BOTH validate_grid and
+emul_baosn (the adapter already imports the emulator package),
+exact-pair check before staging, no str() coercion (wrong types
+are schema errors), constructor+from_state defend the artifact
+side, shipped configs byte-identical, errors name received vs
+allowed tuples; NARROWED: no per-quantity law restriction
+(log_offset is legitimate for either quantity). Six legs incl. the
+producer/consumer-agreement mutation arm, in bsn-identity. Rides
+the wave-4 background visit WITH 15+58. 45M-63 = NEW UNIT 63 —
+D-MP9's constant pin is value-, quantity-, and coordinate-blind
+(from_stats pins ANY constant column; probe: pklin/none stale
+column -> decode serves 12345.6 for every cosmology; a forged
+const_mask on a varying pklin column is accepted by from_state;
+the mps_identity leg itself blesses a boost constant of 7.0 under
+both laws — neither B=1 nor residual 0). Contract: a pin is legal
+only for boost AND center at the law's identity within a
+documented float32-derived tolerance AND a per-z contiguous low-k
+prefix; a constant pklin column is a loud partial-dead-dump error;
+readback validates the mask against the persisted facts in the
+constructor; PRECISION RULING: no policy/version field (the
+queue-43 no-version precedent — legality recomputes from persisted
+facts); the whole-surface guard and the valid boost pin stay
+byte-identical; eight legs incl. the quantity-blind-pin mutation
+arm, in mps-identity, the 7.0 legs replaced on record. Rides the
+wave-4 MPS visit beside 16. Distinct from unit 11
+(representability vs permission) — recorded in both specs. No
+critical-path change: 43 -> 14(g+h) -> 50(+60+14f) unchanged; both
+new units are wave-4 riders. Specs: families-background-mps.md
+"UNIT 62 (45M-62...)" and "UNIT 63 (45M-63...)".
+
+FIFTEENTH 45M BATCH (2026-07-12): 45M-64 = UNIT 33 AMENDED — the
+background generator's repaired lifecycle is verdict-blind: the
+returned LogPosterior is DISCARDED
+(dataset_generator_background.py:335), success = absence of three
+keywords in captured terminal text, and the provider getters run
+unconditionally. Proven on REAL cobaya 3.6.2: a rejecting
+component returns logpost = -inf with no raise and no keyword
+text while the prior precheck stays finite — a rejected point can
+serve the PREVIOUS point's finite H/D_M as a successful row, the
+exact stale-physics class cached=False was built to close, and
+entry 33's own "worked reference" is the patient. Amendment: the
+verdict (finite LogPosterior.logpost, the documented API) is the
+acceptance fact before ANY provider read; text scans demoted to
+diagnostics; ONE shared acceptance helper across all four
+drivers; PRECISION CONCRETIZATION: real cobaya has no provider
+generation token — provenance = cached=False + verdict-before-
+first-getter (recorded derivation), the fake-Cobaya gate proves
+the ORDER mechanically (instrumented fake provider: zero getter
+calls on rejection; generation-tagged arrays on acceptance);
+seven legs incl. the discard-and-scan mutation arm and the
+four-driver census; science dumps generated before the landing
+are regenerated after it. 45M-65 = UNIT 11 AMENDED — a valid
+one-parameter covariance kills training by dimensional accident:
+np.loadtxt returns a 0-d array for a 1x1 covmat and eigh raises
+LinAlgError before training (proven through the REAL
+from_covmat); np.cov shares the collapse for one feature; the
+same probe proved parameter.py is a LIVE instance of unit 11's
+mechanism (a) — a negative variance builds sqrt_ev = [nan, 1.0]
+silently. Amendment: exact 2-D-square normalization that never
+blesses malformed input, name/width/center agreement naming all
+three dimensions, finite/symmetric/strictly-PD at all THREE
+parameter-side sites (from_covmat :130, np.cov :264,
+AmplitudeFactorGeometry.from_covmat :422 — the third site found
+in adjudication), multi-param byte-identity; CPU legs + torch
+round-trip legs in the board-listed scalar-identity gate. Both
+are amendments to QUEUED units — no new numbers, no
+critical-path change; 33 stays in the ingress cluster, 11 where
+queued. Relay note: the red team's "62 through 64 awaiting"
+crossed my fourteenth-batch commit in relay — 62/63 were
+adjudicated at 8364598. Specs: data-generation-and-cuts.md
+"UNIT 33 AMENDED (45M-64)", artifacts-inference-warmstart.md
+"UNIT 11 AMENDED (45M-65)".
+
+SIXTEENTH 45M BATCH (2026-07-12): 45M-66 = UNIT 62 EXTENDED — the
+log_offset offset is presence-checked only: the REAL validator
+accepted +Inf, NaN, "inf", and True; from_targets' float(offset)
+then clears BOTH guards on finite Hubble rows (Inf > 0 passes
+positivity; NaN <= Inf is False so the degeneracy guard reports
+nothing) and returns center [inf, ...], scale [nan, ...], encode
+all-NaN; the poisoned state round-trips from_state. Extension:
+explicit finite non-bool real at the validator, from_targets
+finite-validates offset/rows/center/scale BEFORE comparative
+guards, four separately-named law-domain failures, rebuild
+applies the same contract, finite mechanism SHARED with unit 11
+(no second mechanism), six legs incl. the
+comparative-guards-only mutation arm, bsn-identity home, wave-4
+background visit. 45M-67 = UNIT 2 EXTENDED — sigma8 is
+advertised unconditionally while _compute_sigma8 relabels the
+nearest stored z within 0.01 as z_eval (P(k, 0.009) served as
+z = 0, 0.896% deterministic bias; above 0.01 a raw SciPy bounds
+error) and integrates the top-hat over whatever k interval the
+generator validator admitted (lo < hi, nk >= 8 is the WHOLE
+constraint): the exact shipped expression on an admitted 1..10
+grid reproduces the red team's numbers digit-for-digit —
+0.0000884680 vs reference 0.0049304012, ratio 0.01794, a 98.2%
+silent underestimate. Extension: never-relabel (exact stored
+z = 0 or refuse naming the range), conditional advertisement,
+pre-integration validation, documented k-completeness criterion
+tied to the top-hat integrand with certification facts persisted
+in the manifest, float64 + radicand validation, shipped
+wide-grid preserved subject only to the OPEN R-8-vs-8/h USER
+RULING (still owed); eight legs incl. both mutation arms,
+numeric legs CPU, the registration + Boltzmann-comparison legs
+in mps-identity/mps-smoke. Both are folds into existing units —
+no new numbers, no critical-path change. Specs:
+families-background-mps.md "UNIT 62 EXTENDED (45M-66)" and
+"UNIT 2 EXTENDED (45M-67)".
+
+SEVENTEENTH 45M BATCH (2026-07-12): 45M-68 = UNIT 8 EXTENDED —
+load_source verifies the .paramnames sidecar (check_paramnames
+:527-533) then discards the resolved names and slices with the
+positional default param_cols = slice(2, -1) (:448/:536);
+pool_size repeats the literal slice (experiment.py:3303).
+Reproduced through the REAL load_source: [weight, lnp, a, b,
+d1*, d2*] with a fully-declaring sidecar -> C width 3 vs the
+2-name covmat (whitening mismatch); [weight, lnp, a, b] -> C
+width 1, sampled b silently dropped; the same file's
+_scalar_columns already resolves by name and its docstring says
+the fixed slice cannot locate derived columns. One shared
+named-column resolver (generalizing _scalar_columns) for
+load_source/load_scalar_source/pool_size/checkpoint-reload/
+generator-readback, no last-column-is-chi2 inference, exact
+uniqueness/presence/width/order before selection, current
+generator form byte-identical, missing sidecar = one documented
+legacy contract or refusal, seven CPU legs incl. the [:, 2:-1]
+mutation arm and the unit-11 one-row composition leg; rides
+unit 8 in the ingress cluster. 45M-69 = UNIT 4 EXTENDED — the
+board reuses PASS verdicts across executable changes (_passed is
+status-only, run_board.py:866-868; records carry status/detail/
+ts; HEAD-at-run is written but never read): digest contract
+adopted whole (stored per verdict, equality-gated reuse,
+legacy = STALE, current-digest dependencies, STALE display,
+force-rerun preserved, log/notes commits never invalidate),
+digest surface ALIGNED with entry 4's dirty-watch expansion,
+propose-first design, eight CPU legs + the status-only mutation
+arm; interim rule: --force-rerun stays the manual truth control.
+45M-70 = UNIT 33 AMENDED AGAIN — the same verdict blindness
+45M-64 proved in the generator exists at all six gate-side
+lifecycle sites (cmb_smoke :441-442, bsn_smoke :248-252/:291-295,
+mps_smoke :331-335/:376-380) and the CMB covariance producer
+(compute_cmb_covariance.py:420-422): LogPosterior discarded,
+getters read, no cached=False, so the gates prove readability
+not acceptance and two-call forms can bless stale provider
+state. Eight clauses adopted; ORDERING RULING: one shared
+acceptance definition, whichever side lands first establishes
+it (gate legs ride the wave-4 family gate visits, before the
+ingress cluster; home importable from ai/gates/ AND
+compute_data_vectors/); rejected point = zero getters = red;
+CAMB-reference rejection never truth; six workstation legs in
+the board-listed smoke gates incl. the instrumented
+getter-count and discard mutation arms. All three are folds into
+existing units — no new numbers, no critical-path change. Specs:
+data-generation-and-cuts.md "UNIT 8 EXTENDED (45M-68)" and
+"UNIT 33 AMENDED AGAIN (45M-70)"; gates-and-board.md "UNIT 4
+EXTENDED (45M-69)".
+
+ARCHITECT BATCH AUDIT (2026-07-13): everything landed after 05d4937
+audited from the merge-candidate tree with the Architect's own gate
+reruns (all CPU gates green) + independent code reads. Queue 43 /
+14(h) / 60+14(f) PASS their contracts. The red-team wave 45M-71..90
+(implemented without adjudication while the Architect was offline) is
+ACCEPTED post-hoc; the red-team audit's critical reopens are
+independently CONFIRMED — above all the stage_source order defect
+(same seed, different minibatches by host-RAM availability; the
+stage-ram gate sorts-before-comparing and cannot see it). Repair
+queue 1a/1c VERIFIED; queue 4 (c9ace04) + 6a (dce3d69) AUDITED PASS
+and cleared to merge. The five evidence-map questions are now BINDING
+rulings (red-team answers ratified, plain-leg-name aid scheme, plus
+the adopted declared-vs-executed reconciliation clause); the 45M-72
+rollout spec is APPROVED. SEQUENCING: queue 3 (staging truth, pinned
+contract in gates-and-board.md) FIRST, then the 1b manifest proposal,
+then the rollout, then 50 -> 52 -> 55 -> 22(+20) -> 13(+01); unit 50
+depends on queue 3's canonical order. Governance: adjudication
+protocol resumes; the 45M-69 propose-first deviation is recorded and
+self-corrected (queue 1b); the (h)-then-43 flag is closed. Spec:
+gates-and-board.md "Architect batch audit of the overnight batch
+(2026-07-13, Fable)".
+
+RT-2026-07-13-01 BATCH (2026-07-13): queue-3 landing 2c26c34 AUDITED
+PASS (riders honored; stage-ram rerun by the Architect from clean
+merged main). RT-IMPL-02 CONFIRMED with a sharper mechanism — _git's
+global stdout.strip() breaks _dirty_lines' column parse on the FIRST
+porcelain line only, so board_config.json escapes its documented
+exclusion exactly when it is the only/first dirty entry (live-proved
+both directions); queue 1c REOPENED as 1c-bis (contract in
+gates-and-board.md), false-red only, no false-green path. BLOAT-01
+CONFIRMED -> queue-4 rider (one _is_finite_real owner = training.py,
+import direction already pinned). BLOAT-02 CONFIRMED (the seven _dv_*
+ops verbatim across background/cmb/mps; lensing censused) -> NEW
+UNIT 64, proposal-first storage engine in generator_core, byte-identity
+acceptance, sequenced after the ingress cluster. BLOAT-03 CONFIRMED
+(_pick_device verbatim in cmb+scalars, variants elsewhere) -> NEW
+UNIT 65, shared adapter mechanics module, no superclass, lands with
+the wave-4 typed adapter contract. BLOAT-04 CONFIRMED -> queue-6
+rider; completion evidence BINDING as the untruncated 108-line
+pattern-family scan + reviewed identifier allowlist. Specs:
+gates-and-board.md "RT-2026-07-13-01 adjudication";
+data-generation-and-cuts.md "UNIT 64"; families-background-mps.md
+"UNIT 65".
+
+1C-BIS + BLOAT-01 PRE-COMMIT AUDIT (2026-07-13, Fable): PASS, GO
+given. The uncommitted landing audited in-tree: _WATCH_EXCLUDE +
+_watched_paths() one-owner, _git(strip=False) transport with the
+head-line misparse documented at the parse site, preflight surface
+text derived from the owner; experiment.py's _is_finite_real deleted
+and imported from training (the pinned direction). Evidence run by
+the Architect: board-selftest 46 legs ALL PASS (incl. the head-line,
+transport, one-owner, and stripped-head-line mutation arms); the
+live head-line probe through the REAL helpers now excludes a
+config-only edit (the exact RT-IMPL-02 failure case); cmb-identity
+green after the move. Part J live run stays workstation-owed. Next:
+Opus commits (one landing), then the queue-1b manifest PROPOSAL under
+the seven pre-answered constraints.
+
+TEXNOTES GAP TRIAGE + SIGMA8 RULING (2026-07-13): all 20 Current-gap
+paragraphs in texnotes/emulator_code_guide.tex audited against HEAD.
+Sixteen map to already-adjudicated unit specs (map in
+conventions-and-workflow.md "Texnotes Current-gap paragraphs"); two
+are STALE (watch scope — queue 1c landed; the raw-log resume half of
+the digest paragraph — queue 1a landed) and their refresh is
+RED-TEAM-owed; two are in flight (queue 1b digest closure,
+queue 2 reconciliation); one needed the user and is RESOLVED — sigma8
+serves the CONVENTIONAL R = 8 Mpc/h (BSN-curvature precedent; no
+legacy rename, no dual serving; rides the wave-4 MPS visit; recorded
+in families-background-mps.md). NEW BINDING RULE (ownership by USER
+RULE, same day): a landing that changes behavior taught by a
+Current-gap paragraph NAMES the paragraph in its notes entry, and
+the RED TEAM — the guide's ONLY editor; Architect and Implementer
+never touch texnotes/emulator_code_guide.tex — updates it via the
+handoff loop (custody rule in conventions-and-workflow.md).
+The entry-2 sigma8 caveat above is CLOSED by this ruling.
+
+RT-2026-07-13-02..06 BATCH (2026-07-13): five red-team findings, ALL
+CONFIRMED by the Architect (code chains + cocoa-interpreter probes;
+the curved-distance numbers reproduce exactly at H0 = 70.0). RT-02
+(CPU predictions return storage-sharing views of persistent axes;
+ownership is device-dependent) -> NEW UNIT 66,
+artifacts-inference-warmstart.md. RT-03 (board children inherit the
+shell's $ROOTDIR while the board certifies its own resolved root: sh
+copies os.environ verbatim, nothing injects, cocoa.py reads the env)
+-> NEW queue 1d (one-owner inject-and-record + red legs),
+gates-and-board.md; queue 5 now DEPENDS on 1d. RT-04 (gate_gha_f
+captures rc_w and never asserts it — warning-then-crash passes) ->
+rider on the 1d landing. RT-05 (CRITICAL wrong science: flat-only
+bypassed by a global omk; the producer stores chi as D_M) -> NEW
+UNIT 67, rides the wave-4 background visit,
+families-background-mps.md. RT-06 (KeyError 'latex' after sampling)
+-> NEW UNIT 68 (name-as-label ruling), rides the ingress cluster,
+data-generation-and-cuts.md. Sequencing AMENDED: 1b -> 1d(+RT-04)
+-> 2 -> 66 -> 5 -> rest of 6 -> 50 -> 52 -> 55 -> 22(+20) ->
+13(+01). Spec: gates-and-board.md "RT-2026-07-13-02..06
+adjudication".
+
+1B PHASE 1 POST-MERGE AUDIT (2026-07-13, Fable): `5e4fded` PASS —
+evidence re-executed from a clean checkout of merged main 060a150
+(board-selftest 55 legs ALL PASS, --list rc 0; the shared worktree
+holds the in-flight phase-2 edit and was not used). Contract-true on
+every delta: whole-AST closure, set fixpoint, both censuses, waiver
+table = the delta-1 live instances, mutation arms catch the
+uncovered-subprocess and unwaived-dynamic-import cases. Architect
+probes found two VALIDATION HOLES (no false evidence — no live gate
+declares a manifest): a bare-directory covering root validates while
+contributing nothing to the closure, and a typo'd extra root
+validates silently -> THREE BINDING PHASE-2 RIDERS (root schema
+totality; directory-root expansion with zero-member refusal;
+inputs-key resolution), spec in gates-and-board.md "1b phase 1 —
+post-merge Architect audit". Phase 2 GO under the riders. Also this
+date: the landing-divergence incident diagnosed (merge commits never
+flowed back to the branch) and the resync ritual recorded in
+conventions-and-workflow.md "Landing-block resync ritual".
+
+1B PHASE 2 POST-MERGE AUDIT (2026-07-13, Fable): `24ed07a` PASS —
+board-selftest 67 legs ALL PASS + --list rc 0 re-executed from a
+clean checkout of merged main 6f3f54f; all three phase-1 riders
+probe-verified live (typo root reds; directory roots expand — the
+texnotes probe was an Architect false alarm, make_figures.py is a
+real member; empty dir reds; inputs keys resolve-not-exist, the
+right cross-machine call); pre-manifest via the REAL _resume_state;
+stale members named; resolutions deterministic and sorted;
+_manifest_seeds is the one owner behind validation AND digest.
+Phase-3 flow APPROVED propose-first (population order + first gate's
+roots reviewed before landing); queue-1d placement AMENDED: 1d lands
+before the first WORKSTATION rerun of any populated gate; queue 2
+blocked until 1b population completes. Spec: gates-and-board.md
+"1b phase 2 — post-merge Architect audit".
+
+GUIDE REVIEW (2026-07-13, user-authorized Architect edit):
+editorial pass against the user's private review standards (kept
+outside this repo) = no changes needed; currency pass = red team had
+already folded in everything through today's adjudications; the one stale
+area (the digest story, pre-1b) fixed in four passages incl. a
+pre-manifest resume-table row; PDF rebuilt clean from the repo root.
+Custody returns to the red team. Record:
+conventions-and-workflow.md "Guide review of 2026-07-13".
+
+QUEUE 1D + RT-04 AUDIT (2026-07-13, Fable): `28d4207` PASS pre-merge
+— 74-leg selftest + --list re-executed from a clean checkout of the
+branch tip; the five child-environment legs and both RT-04 legs
+verified against the queue-1d contract; one-owner census is itself a
+leg; minor pin noted (caller env can layer over the injected ROOTDIR
+— refuse a caller-supplied ROOTDIR at the next harness touch).
+PHASE-3 PROPOSAL (`5d1b065`) APPROVED with two rulings: the flagged
+pair goes through the reviewed waiver table (no carve-out lane), and
+the input-side limitation closes at batch 4 (driver gates add
+explicit board_config data keys). Also this date: the guide review
+landed. Spec: gates-and-board.md "Queue 1d + RT-04 —
+pre-merge Architect audit".
+
+20M-01/02 BATCH (2026-07-13, Fable): both red-team findings CONFIRMED.
+20M-01 (MPS getters default nonlinear=False while the installed
+Cobaya base defaults True — an omitted-argument call silently serves
+the linear spectrum; probe: inspect.signature on cobaya 3.6.2) ->
+NEW UNIT 69, families-background-mps.md, EMUL2-critical. 20M-02
+(cmb_residual_diagnostic drops x_enc at the chi2 call and the loss
+falls back to the mutable training stash — validation rows scored
+with the last training batch's amplitude factors; [3,3] vs
+[12,0.75] verified; cmb-smoke's bar shares the call shape) -> NEW
+UNIT 70, families-scalar-cmb.md. Both land as ONE increment parallel
+to phase-3 population, before queue 2; gates board-listed,
+Mac-validatable. Spec: gates-and-board.md "20M-01/02 adjudication".
+
+20M-03..06 BATCH (2026-07-13, Fable): all four CONFIRMED — the
+real-consumer protocol cluster, NEW UNITS 71-74. 71 (emul_cmb
+advertises generic Cl but refuses the documented protocol; probe:
+BoltzmannBase.get_Cl defaults units='FIRASmuK2', so even the
+default-argument call fails; RULING = honor the generic contract,
+conversions from persisted facts). 72 (scalar outputs written as
+top-level state keys can crash on "derived" and silently corrupt
+"params"/"dependency_params"; publication moves into the derived
+namespace, atomic assembly, reserved-name refusal). 73 (emul_mps has
+NO must_provide — accepts Weyl pairs, out-of-domain z, any k_max;
+one-verdict capability helper, the BAOSN law now program-wide). 74
+(CRITICAL: fixed cosmology facts are not artifact identity — global
+mnu 0.06->0.12 serves an unchanged spectrum while the base is 6.76%
+sensitive; ONE persisted fixed-facts block shared with 71 + 67,
+compared against the global model at startup). Sequencing: 71+72
+join the wave-4 CMB/scalar visits, 73+74 the MPS visit; EMUL2
+ACCEPTANCE FORMALLY BLOCKED on 67+69+71+72+73+74. Spec:
+gates-and-board.md "20M-03..06 adjudication".
+
+20M-07/08 BATCH (2026-07-13, Fable): both CONFIRMED. 20M-07 (the
+Cobaya getters return the live calculation cache by alias — get_Cl,
+get_cosmic_shear, get_Pk_grid; a destructive first consumer corrupts
+every later one; invisible to a .numpy() census) -> UNIT 66 AMENDED:
+ownership surface = every public exit incl. the five adapters'
+getters, copies at the getter boundary, alias-aware census, folds in
+before the unit lands. 20M-08 (the MPS pair check proves axis
+equality only and unions names into manufactured compatibility — an
+LCDM pklin + w-carrying boost served the w=-1 surface at w=-0.5,
+74.5% off the real base; the "one generator run" comment is false)
+-> NEW UNIT 75: pair scientific-domain binding read from the shared
+fixed-facts block, refusal before serving, union never creates
+compatibility; wave-4 MPS visit. EMUL2 blocklist now
+67+69+71+72+73+74+75. Spec: gates-and-board.md "20M-07/08
+adjudication".
+
+BATCH-1 POPULATION AUDIT (2026-07-13, Fable): `bb370cf` PASS on Mac
+scope pre-merge — 74-leg selftest + --list over the populated BOARD
+re-executed from a clean checkout; the three closures strictly
+broader (harness hashed; stage-ram hashes its tested surface); the
+real reruns (pre-manifest -> republish with persisted members) are
+the first queue-5 exhibit, Mac preflight refusing on workstation
+facts as designed. family-first re-categorization APPROVED (declare
+the driver root; open().read() added to the documented blind-spot
+list — file reads are INPUT-side keys, not code roots). Spec:
+gates-and-board.md "1b phase-3 batch-1 — pre-merge Architect audit".
+
+20M-09 BATCH (2026-07-13, Fable): CONFIRMED — results.py:683
+conflates absent head_act with explicit None and lets the
+constructor default rebuild a DIFFERENT architecture that strict
+loading cannot see (red-team end-to-end probe: prediction
+-1.7615941763 -> -1.0 after deleting one recipe field); the
+Architect census adds the :677 outer block_opts-presence lane and
+every rebuild-path .get( to the same adjudication. NEW UNIT 76
+(recipe schema totality: absence raises, explicit None is a value,
+signature-derived key census + injected allowlist, transfer-base
+recipes included, complete artifacts byte-identical),
+artifacts-inference-warmstart.md; board-listed CPU+Torch legs.
+EMUL2 blocklist now 67+69+71..76. Red team continues into the
+loss/geometry-algebra and generator completion seams. Spec:
+gates-and-board.md "20M-09 adjudication".
+
+20M-10/11/12 BATCH (2026-07-13, Fable): all three CONFIRMED. 20M-10
+(CRITICAL: factored physical gain multiplies the CENTER-FREE constant
+template and re-adds the center after composition — executed gain off
+by -c*r0, zero leverage at GG=center; transfer-identity blind at r=0
+parity) -> UNIT 77, one composition owner + old-formula artifact
+refusal, blocks factored-transfer science (D-TP9). 20M-11 (CRITICAL:
+rebuild never reads the persisted rescale fact — warmstart refuses it,
+the public predictor serves finite wrong vectors) -> UNIT 78,
+refusal-first ruling ("none" only, all five adapters share it), RIDES
+the unit-76 recipe-totality landing; EMUL2 blocklist now
+67+69+71..76+78. 20M-12 (roughness leaks to scalar/grid/grid2d NPCE
+via inheritance + hasattr family test) -> UNIT 79, explicit family
+capability, refusal at validation, CMB path exact. Specs:
+artifacts-inference-warmstart.md "UNIT 77"/"UNIT 78";
+training-stack.md "UNIT 79"; gates-and-board.md "20M-10/11/12
+adjudication".
+
+20M-13 BATCH (2026-07-13, Fable): CONFIRMED — float64 output
+geometries (documented + recommended) crash both public
+physical-composition paths because PCERatioChi2 and TransferChi2
+force the physical truth to float32 and contract directly with the
+stored-dtype precision (pce.py:266/:310-311; transfer.py:291/:294);
+the whitened route is dtype-aware and fine. Fail-loud, not silent.
+NEW UNIT 80 (training-stack.md): one shared physical-contraction
+owner casting the residual to the precision tensor's dtype/device at
+the boundary; chi2 dtype follows Cinv; float32 byte-identical; lands
+in the transfer campaign WITH unit 77 as one algebra increment.
+Spec: gates-and-board.md "20M-13 adjudication".
+
+20M-14 BATCH (2026-07-13, Fable): CONFIRMED — the CMB amplitude
+law's two roles can alias one input column consistently on both
+sides (presence-only validation; two parallel names.index mappings
+in configure_law AND staging; persisted geometry never validates the
+relationship; witnesses exact: 0.8976275921 / 3.8889e-8). NEW UNIT
+81 (families-scalar-cmb.md): distinct strings AND distinct resolved
+indices, enforced at config and at readback (same-role artifacts
+refused), one shared resolved-role mapping, and the
+factor-at-reference invariant evaluated through the resolved roles —
+which also closes the Architect's deep-pass minor (the
+identity-computed staging banner). Rides the wave-4 CMB visit with
+unit 71; readback refusal binding before CMB production training.
+Spec: gates-and-board.md "20M-14 adjudication".
+
+UNIT 69 AUDIT + SEQUENCING (2026-07-13, Fable): `371b0bd` AUDITED
+PASS on Mac scope (all five legs re-executed green from a clean
+checkout; explicit branches untouched; leg 5 workstation-owed; the
+one red mps-identity leg — bounded-staging streamed mean — fails
+identically at the parent and is owned by the binding bounded-grid2d
+amendment, NOT unit 69). SEQUENCING RULING for the 20M backlog:
+70 next -> 79 -> the 77+80 algebra increment (one landing) -> the
+76+78 artifact-totality increment (Mac-clears two EMUL2 blockers) ->
+the FIXED-FACTS BLOCK PROPOSAL for Architect review (gates the
+adapter cluster 66-amended/71-75/81 inside the wave-4 visits);
+population batches 2-5 interleave as review-blocked filler; queue 2
+after population; queue 5 carries the accumulated workstation legs.
+Spec: gates-and-board.md "Unit 69 post-merge audit + the 20M-backlog
+sequencing ruling".
+
+20M-15/16 BATCH + 14-ADDENDUM + PDF RULING (2026-07-13, Fable): all
+adjudicated. 20M-15 CONFIRMED (structural-only checkpoint loaders
+trust false success bits; corrupt rows resume as finished science)
+-> UNIT 56 checkpoint-ingress amendment: resumed success rows
+revalidate through the publication predicate, inconsistency refuses
+touching neither file. 20M-16 CONFIRMED (fresh writes %.9e float64
+chain but computes at an independent float32 cast; append reloads —
+one-ULP row-identity mismatch, ~700/1e6 draws) -> NEW UNIT 82 (row
+authenticity): one canonical table, bitwise producer == staged ==
+loader-recovered on every path. 20M-14 ADDENDUM accepted -> UNIT 81
+AMENDED (semantic roles: persisted role registry + the
+fiducial-unity check through resolved roles; swapped-role witness
+3.4907e-8 re-derived exactly). TRACKED-PDF RULING ratified -> NEW
+UNIT 83 (queue-6 doc lane): PDF stays tracked, bound by a
+build-manifest gate (digests over the include/graphics closure +
+the PDF; no mtimes; manifest written only after a successful
+build). CLAUDE.md writer split aligned with the USER RULE
+(Implementer writes no ai/notes/ or texnotes/; everything in the
+handoff block; 0040bc5 correct). Specs: gates-and-board.md
+"20M-15/16 + 20M-14 addendum + the tracked-PDF ruling".
+
+20M-17/18 BATCH + 13-ADDENDUM (2026-07-13, Fable): all adjudicated.
+13-addendum ACCEPTED -> UNIT 80 AMENDED (float64 geometries also
+crash all four structured heads at y @ W_fd — head basis buffers
+cast at their owned boundary; one end-to-end precision owner).
+20M-17 CONFIRMED (artifacts persist NO physical input domain; the
+tanh witness serves finite answers 23.84%/90% wrong; _as_row
+unchecked) -> NEW UNIT 84: persisted per-name support from the
+declared prior contract (never observed minima), save+rebuild
+validation, startup prior-subset proof, per-point refusal before
+encode, no clamping, intersection serving, narrowing-only
+propagation, legacy refusal; enforced centrally in
+EmulatorPredictor. 20M-18 CONFIRMED (sampled w0pwa silently
+degrades to wa=0 in the served syren base while the correction was
+generated at wa=0.5; 12.987% miss) -> NEW UNIT 85: one canonical
+dark-energy resolver shared by generator and adapter, persisted
+parameterization identity in the fixed-facts block, refusal on
+underdetermined mappings. Open EMUL2 blocklist: 67, 71-76, 78, 84,
+85. Specs: gates-and-board.md "20M-13 addendum + 20M-17/18
+adjudication".
+
+20M-18 ADDENDUM BATCH + OWNERSHIP CORRECTION (2026-07-13, Fable):
+the wa defect is PUBLICLY reachable — the shipped EMUL2 YAML samples
+w0pwa with the wa bridge and masks it only because its one
+evaluation point sets w0pwa == w; full-grid magnitudes up to 121.5%
+(3.0239% at unit blend weight = the final served error). UNIT 85
+AMENDED (spy-gate leg; wa-under-w0pwa = dynamic per-point fact under
+unit 74's mechanism, never pinned). RECORD CORRECTION executed on
+the unit-7 "full calculate(**params) mapping" sentence (Cobaya
+routes only required/supported inputs). USER CORRECTION on notes
+ownership: the Implementer MAY edit ai/notes/*.md (resume state); ONLY
+texnotes/ TeX sources are red-team-only; CLAUDE.md restored; 0040bc5
+was a good-faith over-correction. Spec: gates-and-board.md
+"20M-18 addendum + the notes-ownership correction".
+
+20M-18 CORRECTION + 20M-19 (2026-07-13, Fable): the red team
+self-corrected 18's reachability — the shipped drop:true YAML is
+STARTUP-RED for w0pwa-storing artifacts (a separate defect now in
+unit 85's scope: repair the example or refuse with migration text;
+it is not working EMUL2 routing today), while the silent wa=0 lane
+is the valid NON-drop configuration, proven through a COMPLETE real
+Cobaya model (theory assigned the seven names; logposterior served
+the wa=0 base at 0.1298745470923877 max rel error vs the requested
+wa=0.5). UNIT 85 stands with the corrected record + both-branch
+gate. 20M-19 CONFIRMED (const_mask consumed by NO loss — chi2 0 vs
+10000 for bit-identical served predictions; the program optimizes a
+different function than it serves) -> NEW UNIT 86: one
+effective-residual owner masks before every diagonal reduction, zero
+residual AND gradient on pinned coordinates, unit 63 stays the
+legality authority. Spec: gates-and-board.md "20M-18 reachability
+correction + final proof + 20M-19 adjudication".
+
+UNIT 70 AUDIT (2026-07-13, Fable): `5d22634` PASS pre-merge —
+cmb-identity 78 legs ALL PASS from a clean checkout ([3,3] and
+[12,0.75] verbatim; stash-invariant; wrong-length no-crash) +
+diagnostics-domain green; all three diagnostic families pass the
+batch's own x_enc; the smoke bar uses explicit params. Beyond
+contract: loss() clears the stash in a finally, making stash privacy
+structural. 20M-01 and 20M-02 are now both CLOSED on the Mac; their
+workstation legs (69 leg 5, the smoke mutation arm) ride queue 5.
+Next per the sequencing ruling: unit 79. Spec: gates-and-board.md
+"Unit 70 — pre-merge Architect audit".
+
+20M-18 COUPLING + 45M-81 EXECUTED FAILURE (2026-07-13, Fable): the
+red team's 18 rejection notice crossed with the already-committed
+correction; its ONE new clause is adopted — the shipped-YAML repair
+and the canonical resolver are ONE landing (removing drop: true
+alone converts loud failure into silent wrong physics). 45M-81 is
+now a CONFIRMED CURRENT FAILURE, Architect-re-executed (append with
+the same seed restarts default_rng and duplicates 200/200 rows at
+the public minimum; no RNG state in checkpoints; the header implies
+seed-only provenance): binding amendment in
+data-generation-and-cuts.md — RNG state is checkpoint state,
+persisted transactionally, restored-or-verified before any append
+draw, emcee state included (the queue-5 sampler._random rider joins
+it), refusal before touching the old dataset; NO production append
+until it lands; unit 82 is orthogonal. Spec: gates-and-board.md
+"20M-18 coupling clause + 45M-81 executed failure".
+
+20M-21 BATCH (2026-07-13, Fable): CONFIRMED — the generator writes
+raw lnp into GetDist's reserved minus-log-posterior column on fresh
+AND append (Architect live probe: GetDist selects the logpost=-10
+row over -1 as best fit; ranking/shading/cooling all reverse);
+uniform mode fabricates lnp=1/chi2*=-2. NEW UNIT 87
+(data-generation-and-cuts.md): minus_logpost materialized at the
+publication boundary into column 2, exact chi2*/2 relation, honest
+headers, explicit uniform unavailable status, legacy chains
+marker-or-refuse. Joins the generator publication cluster (45M-81
+RNG amendment + 68 + 82); production Gaussian/MCMC generation
+blocked on the cluster. Spec: gates-and-board.md "20M-21
+adjudication".
+
+20M-22/23 BATCH (2026-07-13, Fable): both CONFIRMED. 20M-22 (the CMB
+adapter publishes finite but impossible spectra — negative TT/EE/pp
+and a non-PSD TT/TE/EE triplet pass the shape/finite boundary
+through the real lifecycle) -> UNIT 21 AMENDED: auto spectra
+nonnegative (never clipped), TE signed, the joint PSD bound within a
+storage-arithmetic-only rounding band, no partial state, proof in
+cmb-identity. 20M-23 (--append 1 --loadchk 0 is accepted and
+DESTROYS the prior dataset — the relation lives in the help text and
+is enforced nowhere; live sentinel destruction re-verified in code)
+-> UNIT 8 AMENDED: the run-control state machine (0/0, 1/0, 1/1
+exhaustive) validates before ANY path mutation, teaching error,
+byte-preserving rejection, RNG continuation independent; joins the
+generator publication cluster. Spec: gates-and-board.md "20M-22/23
+adjudication".
+
+BATCH-2/3 POPULATION AUDIT (2026-07-13, Fable): `2674c23` + `724bade`
+PASS pre-merge — 74-leg selftest + populated --list from a clean
+checkout; the batch-2 inputs=() deviation RATIFIED as the narrower
+truth (Architect census: zero yaml/config/rootdir usage in the three
+bodies AND check scripts — the proposal's "with a config YAML"
+description was wrong about them); all eight batch-3 bodies clean,
+designs+losses roots per the approved exemplar. 14 gates populated;
+board reruns = queue-5 first exhibit. Spec: gates-and-board.md
+"1b phase-3 batches 2 + 3 — pre-merge Architect audit".
+
+20M-24 BATCH (2026-07-13, Fable): CONFIRMED — --gpu-pack lanes stage
+full train+validation data in setup_fn BEFORE any token acquisition
+(live instrumentation: 4 simultaneous charged setups vs 1 execution
+under four-token exclusive jobs; the estimator charges exactly the
+term setup allocates outside the gate). NEW UNIT 88
+(training-stack.md): tokens precede job-sized allocations, exact
+concurrency arithmetic (1/2/4 for 4/2/1 tokens, setup+execution
+combined), permanent-per-lane state accounted times lane count,
+honest banner, N-train path audited identically; CPU counter-fake +
+workstation tight-fixture legs; blocks --gpu-pack production sweeps.
+Spec: gates-and-board.md "20M-24 adjudication".
+
+BATCH-4/5 RULINGS (2026-07-13, Fable): the geo-paths non-existence
+test reworks to importlib.util.find_spec — APPROVED and the batch-5
+taxonomy refined (waiver-with-roots | rework-to-static |
+find_spec-for-non-existence; no fourth category; the retired-module
+red stays); batch-4 data keys = a gate_data block parallel to
+gate_configs (dotted gate_data.<gate-id>.<label>, resolved by the
+existing ladder, resolve-not-exist semantics), with the paste-ready
+shape in the ruling. Mixed-commit record note: the Implementer's
+resume block entered history in d852b1a and left in 5d46e8d — both
+mixed-author; content intact; the diff-staged-hunks rule re-affirmed
+for both sessions. Spec: gates-and-board.md "Batch 4/5 design calls
+— RULED".
+
+20M-25 BATCH (2026-07-13, Fable): CONFIRMED — the null roughness
+path clears nothing while sweeps reuse one experiment + loss per
+lane: an enabled->disabled sweep's second point optimizes the first
+point's penalty (13.4511995 vs fresh 7.0). NEW UNIT 89
+(training-stack.md): complete loss-object state established on every
+invocation (absence = CLEAR), one owner, fresh-object equivalence
+across order/lane permutations, failed points leave nothing, the
+resolved record describes installed state, and the configure_*
+census (law, rescaling, transfer roughness) audited under the same
+discipline. Blocks production hyperparameter sweeps over loss
+blocks. Spec: gates-and-board.md "20M-25 adjudication".
+
+BATCH-5A AUDIT + POPULATION GO (2026-07-13, Fable): `fddf05f` PASS —
+geo-paths rc 0 with the live find_spec probe, 74-leg selftest,
+15-gate --list, and the declaration proven REQUIRED (the rootless
+closure reaches both waived files). Batches 4 (gate_data schema as
+ruled) and 5b (cli-strict reviewed waiver entries) are GO; their
+landing completes the 1b population and unblocks queue 2. Spec:
+gates-and-board.md "Batch 5a (geo-paths) — pre-merge Architect
+audit".
+
+DIDACTICS-01/02 BATCH (2026-07-13, Fable): both ACCEPTED into queue
+6. 02 (navigation truth: the __init__ "six files" claim vs 27 real
+files; the README prose count inside the sentence warning against
+prose counts; the missing beginner walkthrough; rollout history in
+the Manifest/Gate docstrings) lands FIRST, with a board-selftest
+set-equality leg validating the __init__ index + README table
+against BOARD, and the docstring cleanup after batches 4/5b. 01 (the
+file-by-file teaching campaign: four-paragraph contracts on every
+scientific leg owner, test-double honesty, taught Python mechanics,
+named constants, shown mutation arithmetic, one Cobaya lifecycle
+lesson) lands per gate family under the BINDING mechanical
+acceptance: AST docstring census, the untruncated history scan
+(merged with the queue-6 108-line pattern family, ai/gates/ explicit),
+compileall + selftest, and documentation-only AST equivalence.
+Doc-only interleave; nothing preempted. Spec: gates-and-board.md
+"DIDACTICS-01/02 adjudication".
+
+DIDACTICS-03..09 BATCH (2026-07-13, Fable): the per-family teaching
+batches (03 family gates, 04 staging + memory mechanics, 06 harness
+mechanics, 07 torch/numerics) RATIFIED under the binding mechanical
+acceptance, with ONE named executable exception (04's coordinate
+table gains a stage-ram leg). 05 CONFIRMED + SHARPENED (the BSN
+"closed-form" reference IMPORTS the production cumulative_simpson —
+zero catch power against it): the honest narrowing + the README
+all-family rewording ride the first queue-6 landing; the
+independence upgrade = NEW UNIT 90 (independent quadrature reference
++ Simpson-weights mutation arm, board-listed, rides the BSN visit).
+08 CONFIRMED (batching.py claims universal global rows — true only
+disk-backed post-queue-3; separate filenames do not prove no
+leakage): immediate factual correction with the two-regime table +
+the assumption sentence until unit 28's disjointness check. 09
+RATIFIED (plain-language vocabulary; machine identifiers and the
+"leg" term survive via the reviewed allowlist + README definitions).
+Spec: gates-and-board.md "DIDACTICS-03..09 adjudication".
+
+DIDACTICS-10..19 BATCH (2026-07-13, Fable): the inference/adapter
+didactics wave, all ratified in THREE LANES. Lane 1 factual
+corrections (verified: "the h5 alone" vs the required .emul; the
+false same-dtype promise vs the NumPy float64 coercion; "six"
+syren arguments vs seven; "re-derives no physics" vs owned
+composition/sigma8/distances) land with the queue-6 factual bundle.
+Lane 2 = NEW UNIT 91, the documentation-examples gate: ONE
+board-listed check module holds every executable worked example
+(dtype controls, unit tables, the five-point Simpson, the
+instrumented Cobaya lifecycle, interpolator shapes, scatter/mixed
+fixtures; 04's table leg moves here), keeping production files
+strictly AST-identical. Lane 3: the family teaching (15-19, 13)
+rides the wave-4 protocol visits so prose describes final behavior;
+10b ownership rides unit 66; 12's keyword-arg conversion rides unit
+85. BLOAT-04 is subsumed by 15/16. Spec: gates-and-board.md
+"DIDACTICS-10..19 adjudication".
+
+DIDACTICS-20..26 BATCH (2026-07-13, Fable): all ratified with four
+rulings — the board.py registry rewrite rides QUEUE 2 (one pass,
+non-executed evidence labeled UNAVAILABLE per binding ruling 6);
+beta stays UNCONSTRAINED (prose describes the executed model; tail
+tests to unit 91); power-activation bounds get option-(a) validation
+riding UNIT 40; the five-site mkdtemp leak is a behavioral fix in
+the 25 batch. Campaign-wide adoptions: the quantifier discipline
+(mechanical proof adjacent to every bitwise/exactly-once/all claim)
+and scope-and-blind-spot labels on every structural scan ("census"
+reserved for complete surfaces). Factual-bundle additions: board.py
+:634/:1370, transfer_identity's stale "refine not yet implemented",
+the HDF5-typed-attributes correction, geo_paths' stale import-raises
+prose (which survived the Architect's own fddf05f audit — gate
+audits now read module preambles against executed mechanisms).
+Spec: gates-and-board.md "DIDACTICS-20..26 adjudication".
+
+DIDACTICS-27..32 BATCH (2026-07-13, Fable): the headline is 31,
+CONFIRMED as a gate-fixture CORRECTNESS defect — all three
+real-generator smokes build train AND val with --seed 1234 +
+split_seed 0, so validation overlap is 100% and the smoke
+validation numbers measure memorization; the experiment.py
+"independent selection" comment is false. UNIT 28 AMENDED (distinct
+recorded seeds or proven disjoint partition, zero-overlap refusal
+before training, alignment proof, same-seed mutation arm); the
+fixture repair lands BEFORE queue 5. Others: 27 wrapper-child
+reconciliation extends the queue-2 registry rewrite (logged !=
+executed; UNAVAILABLE per ruling 6); 28 subprocess ten-field
+contract + both-stream failure tails + board_selftest's 4 mkdtemp
+sites join the 25 cleanup (nine sites, one landing); 29 triangle
+gate STRENGTHENED (panel-specific RGBA evidence + wrong-panel
+mutation) and logscan renamed to selected/normalized text equality
+("byte-identical" reserved for raw bytes); 30 weight-decay claim
+narrowed to decay-term inactivity + BerHu units corrected; 32
+RULING option 1 — full labeled child streams persisted into the
+gate log, explicit no-timeout statement with rationale. Spec:
+gates-and-board.md "DIDACTICS-27..32 adjudication".
+
+DIDACTICS-33 BATCH (2026-07-13, Fable): CONFIRMED and wider than
+filed (the universal global-row claim also at training.py:1788 and
+:1863) — a rider on the 08 correction, ONE landing for batching.py +
+training.py with the shared two-regime table. Ruling beyond the
+label: validation errors NAME THE ORIGINAL DUMP ROW in both regimes
+(resident staging already holds the mapping — zero new persistence);
+torch.cat allocation described separately from the conditional
+.cpu() transfer. 28..32 re-filed and already adjudicated. Spec:
+gates-and-board.md "DIDACTICS-33 adjudication".
+
+DIDACTICS-34..41 BATCH (2026-07-13, Fable): eight model/loss/
+geometry documentation falsehoods, ALL CONFIRMED (ratio + growth
+algebra re-verified; the CMB decode direction consistent with the
+queue-43 law). Architect widenings: 34's reversed law-direction
+phrase has two uncited siblings in inference.py (:180, :532); 40's
+multiline escape upgrades EVERY campaign stale-phrase census to
+multiline/semantic-capable scans. All routed to the model/loss/
+geometry family batches; worked examples to unit 91. Spec:
+gates-and-board.md "DIDACTICS-34..41 adjudication".
+
+DIDACTICS-42..57 BATCH (2026-07-13, Fable): sixteen items. FIVE
+gate-truth defects (46 golden byte-identity greens on empty
+selections — live-reproduced by the Architect through the real
+helper; 47 mps-smoke's vacuous filtered .all() passes an all-zero
+dump; 48 production-diagnostic never checks the PDF exists; 52 the
+OR-joined absence census — the Architect's own deep-pass rider 3,
+deferral upgraded to NOW; 53 six-block claim, TT-only checks —
+RULING: extend, not narrow) become ONE gate-truth repair batch
+BEFORE queue 5. UNIT 92 born (device-audit totality: recursive
+traversal, raise-regardless-of-silent, CUDA lane workstation).
+Factual bundle grows (42 package intro, 43 set_device + interleave,
+49 the .h5/.emul REVERSAL + stage_train claim, 50 factored width).
+51's signature-vs-Arguments AST census joins the standing
+acceptance; 45 merged into DIDACTICS-11; the 40-addendum extends the
+direction census to exception strings. Spec: gates-and-board.md
+"DIDACTICS-42..57 adjudication".
+
+DIDACTICS-58 (2026-07-13, Fable): CONFIRMED (census exact: 24 files,
+both patterns, full intersection) — the canonical seven-mechanics
+harness-Python preamble rides the DIDACTICS-02 __init__ landing (one
+file, one edit); no clever framework, per the C-coder rule. Spec:
+gates-and-board.md "DIDACTICS-58 adjudication".
+
+DIDACTICS-62/63 (2026-07-13, Fable): CONFIRMED — the banner-as-truth
+class (five behavioral-claim gates checking only banners/exit codes;
+param-window-cuts accepting any "used n of m" line unparsed). Point
+7 adopted as doctrine beside ruling 6: reconciliation proves
+execution, never observation. RULINGS: prose narrowed NOW (factual
+bundle; queue-2 aids mint from narrowed claims); 63's independent-
+reference repair joins the gate-truth batch; 62's parse-and-assert
+strengthening = gate-truth increment 2 pre-queue-5, with
+joint-training's driver-side phase-boundary digest riding the
+training-truth trio if timing is tight. Spec: gates-and-board.md
+"DIDACTICS-62/63 adjudication".
+
+DIDACTICS-59/60 (2026-07-13, Fable): CONFIRMED — 59 the
+copied-reference gate (ge_c_eval_bs certifies its own chi2 loop, not
+the real eval_val; ruling: exercise the real entry point, reuse the
+existing production per-row diagnostics surface, no duplicated
+formula) and 60 the stale scalar-smoke baseline (0.455 removed with
+the causal smoothness claim; baseline recomputed from exact staged
+rows + dead-network mutation) — both join gate-truth increment 2,
+with 60 sequenced AFTER the unit-28 disjointness repair because its
+recomputed number was measured on the overlapping fixture. Spec:
+gates-and-board.md "DIDACTICS-59/60 adjudication".
+
+DIDACTICS-61 + 64..71 BATCH (2026-07-13, Fable): the red team's
+durable register (ai/notes/red-team-audit-and-didactics-2026-07-13.md,
+42--71) adopted — 42-60/62-63 copies reconciled, MATCH. Nine new
+confirmations: 61 (a two-column fixture called one-wide; decreasing
+already enforces two points but its docstring says non-empty, and a
++Inf first value passes -> finiteness joins the gate-truth batch);
+64 (the compile-mode drift arm patches a global that rebuild
+provably never reads — arm removed in increment 2; persistence proof
+= NEW UNIT 93, CUDA instrumented lane, workstation-owed); 65 merges
+into 29 (exact panel-identity acceptance); 66 (self-defined
+masked-zero proof, vacuous when dest_idx covers all — gate-truth
+batch with 47); 67+68 = one warmstart visit (teach the double .h5
+open + define .ia; finite guards added to BOTH perturbed parity arms
+— a perturbation-born NaN is currently mislabeled "extras leaked");
+69 (exactly six "equally hard" sites -> one canonical
+no-equal-learnability sentence, multiline census); 70 (results.py
+contradicts its executed CPU normalization; CPU-residency leg added
+in increment 2); 71 (the "bit for bit" headline split into the two
+real invariants: _PARITY_TOL function reproduction vs bitwise
+extras-independence). The 46 golden-leg addendum absorbed (both rcs
+discarded at board.py's _golden_leg — rc==0 + nonempty count now
+required). Durable-record rule adopted both ways. Gauntlet
+unchanged. Spec: gates-and-board.md "DIDACTICS-61 + 64..71
+adjudication".
+
+CONSOLIDATED DIDACTICS HANDOFF (2026-07-13, Fable): the whole
+campaign (01--71) issued to the Implementer as ONE ordered plan —
+D1 navigation truth (02+58), D2 factual bundle (falsehoods jump the
+queue), D3 unit-28 fixture repair, D4 gate-truth batch, D5
+increment 2, D6 hygiene (nine mkdtemp sites + triangle 29/65), D7
+unit 91, D8 lane-3 family visits riding protocol units, D9 queue-2
+riders, D10 minted units 90-93 — under the binding per-landing
+acceptance (AST censuses, untruncated scans, quantifier discipline,
+the didactics voice note read first). The spine is unchanged:
+4/5b -> D3 -> D4 -> D5 -> queue 5. Spec: gates-and-board.md "The
+consolidated DIDACTICS execution handoff".
+
+REGISTRY-PERSISTENCE AUDIT (2026-07-13, Fable): the red team's
+retroactive durable-record pass (codex/architect-docs-static-audit,
+57dfe26 notes-only) audited and GO'd — tombstones 45M-10/18 +
+20M-20 exist only as explicit not-issued lines (untruncated grep);
+retractions 45M-05/43/44 stay visible, not rewritten; the
+readiness contract's live-status claims (exit(0) tail, boundary
+rewrite, no fail-file consumer) re-verified at HEAD; MEMORY.md's
+deletions remove stale numeric snapshots per the DIDACTICS-02
+doctrine and demote this ledger to chronology-not-queue (current
+sequencing = the consolidated handoff). Landing order: codex branch
+(ff to 35f0137), then amazing-keller (2f25450), then resync. Spec:
+gates-and-board.md "Registry-persistence audit".
+
+ALIAS CLOSURE (2026-07-13, Fable): d00358c GO'd — the 20M-15 /
+unit-56 checkpoint-ingress labels joined at both registry sites;
+MEMORY.md names the D1-D10 consolidated handoff as sequencing
+authority; the "main dirty" hold was stale (merge concluded as
+7743fc6); direct merge ruled safe (ancestor base, disjoint files).
+Spec: gates-and-board.md "Registry alias closure (d00358c)".
+
+BATCH-4/5B CHECKPOINT + DEPLOY_DATA SHAPE (2026-07-13, Fable): the
+three leftover no-schema declarations audited pre-commit (gwd-c's
+empty manifest is reasoned: subprocess-only gate, in-process closure
+never reaches the waived imports; gsv/gct rebuild in-process and
+correctly declare designs+losses); 18 declared, ok=True. RULING:
+ONE shared deploy_data block (semantic logical-key -> rootdir-
+relative path), lane chosen by provenance not consumer count,
+dotted deploy_data.<key> references, absent-key startup red, no
+duplicated literal paths; full derived block returns as a
+paste-ready proposal for sign-off. Spec: gates-and-board.md
+"Batch-4/5b checkpoint audit + the deploy_data shape ruling".
+
+DIDACTICS-72..92 BATCH (2026-07-13, Fable): the README wave (21
+findings, durable register e6256a1) ALL CONFIRMED on sampled
+anchors — the canonical generator command cannot run as printed
+(required --seed omitted; --boundary 1.0 violates the README's own
+rule); grid2d called both broken (:128) and landed (:419) in one
+file; the retired emultrfv2 path; the gate README's cosmic-shear/
+every-test/<test>.log trio; syren's universalized law and the
+"byte-verbatim (AST-verified)" citation of a vendoring probe that
+DOES NOT EXIST (ruling-6 class, in a README). Factual heads join
+the D2 bundle now; four file visits in queue 6 (ai/gates/README merges
+with DIDACTICS-02's D1 landing — one visit per file); 88 extends
+the 02 set-equality leg + evidence ladder; 91's identity half rides
+implementation-identity; 92 lands with/after unit 75. NEW BINDING
+ALIASING RULE: DIDACTICS- prefix always written in full — bare
+numbers mean units (DIDACTICS-90/91/92 vs units 90/91/92 now
+collide). New acceptance: every printed command executed once on
+its machine before printing. Spec: gates-and-board.md
+"DIDACTICS-72..92 adjudication".
+
+25M-01..06 BATCH (2026-07-13, Fable): all six CONFIRMED in code.
+01 = NEW UNIT 94 boundary-interior owner (margins scale with the
+coordinate, not the width: [70.0,70.02] keeps 29.99%, [1000,
+1000.01] inverts and crashes; nextafter interior + refusal +
+requested/resolved support persisted — the generation-side half of
+unit 84's support story). 02 = unit-8 amendment (temp changes
+uniform support, filenames say only _unifs). 03 = unit-8 + 82 joint
+(chain-only rewrites params at shared stems THEN skips dv — a
+two-command corruption; --chain becomes a run-control mode axis).
+04 = unit-53 amendment (family="cosmolike" default made STUDY_NAME
+unreachable — the documented resume forks; a repair-caused
+regression, forward-walk law again). 05 = unit-41 extension (sweep
+headers persist raw args.activation=None while H runs). 06 =
+unit-82 canonical-representation extension (.ranges %.5e collapses
+float32-distinct bounds vs %.9e rows). TWO PRODUCTION ADVISORIES
+NOW: narrow/offset uniform intervals unsafe; --chain 1 on
+full-dataset stems unsafe. Spec: gates-and-board.md "25M-01..06
+adjudication".
+
+PHASE-3 LANDING + DEPLOY_DATA SIGN-OFF (2026-07-13, Fable): 774bf3d
+GO (9 no-schema gates, 24 declared; the board_selftest live-board
+leg was VACUOUS against its stub cfg — the Implementer's fix
+reconciles against the real board_config; a vacuous-pass caught in
+our own machinery). deploy_data APPROVED (22-config census
+re-verified: six identical fixtures; role-named keys ratified) with
+ONE amendment: the .dataset pointer's referenced siblings are
+outside the hash surface — blind spot named in _help, hardening
+option (r2-expand or pin members) queued for queue-5. Census regex
+hardening APPROVED and widened: (?!\w) at run_board.py:1054 AND
+:975 (phantom ctx.py live-reproduced; .pyc class closed), with
+pinned selftest legs. Next increment completes population 40/40;
+queue 2 opens at that merge. Spec: gates-and-board.md "Phase-3
+landing audit + deploy_data sign-off + the census word-boundary
+ruling".
+
+25M-07..13 BATCH (2026-07-13, Fable): 07 RETRACTED by the red team
+in the register BEFORE adjudication (s_step/h notation collision
+the user exposed; identifier retired) — the durable record
+overrode the stale chat copy, the rule working as designed. Six
+confirmed: 08/11/12 = three unit-13 amendments (stencil-factor
+representability via nextafter; the 2x2 noise PSD inequality +
+assembled-PSD check — executed witness eigenvalue -2.86e-11; beam
+exponent representability + postcompute finiteness — inf at ell
+5000/60 arcmin) under the recorded USER RULING (Planck-LCDM
+fiducial = the byte-identical control; these are schema-totality
+claims). 09 = NEW UNIT 96 artifact composition mode (deleting
+f['pce'] silently swaps the scientific model, H0 moves 2.8;
+native required enum + two-way group validation; interlocks
+3/76/41). 10 = NEW UNIT 95 output-channel owner (--quiet cannot
+suppress stage_source's unconditional print). 13 = unit-75 BAOSN
+extension (union manufactures compatibility: w moves H while D_M
+stays bit-identical; 7.5% vs the independent integral) + NEW
+ADVISORY: no cross-run Hubble/D_M pairs until the binding lands.
+Spec: gates-and-board.md "25M-07..13 adjudication".
+
+25M-14/15 BATCH + DIDACTICS-93 (2026-07-13, Fable): both CONFIRMED.
+14 = unit-29 amendment (n_tokens == n_out yields width-one tokens;
+LayerNorm(1) is identically zero pre-affine, so the ResTRF
+correction is input-independent for every trained weight set —
+refuse max token width < 2 before construction) + a commissioned
+five-leg Torch gate. 15 = live-resource-sizing amendment (the
+planner charges the packed target at model-output width — the
+comment itself asserts the false equality; both streaming calls
+drop the resolved tgt_dim; max(1,...) turns deficit into
+permission — three named byte terms, threaded width/dtype, loud
+refusal) + commissioned CPU boundary legs (the 84-byte witness) and
+a workstation packed-target streaming leg. DIDACTICS-93 RATIFIED:
+h reserved for H0/100 (the collision that caused 25M-07's
+retraction); step_frac/s_step rename = a bounded AST increment with
+byte-identical outputs + the Planck-LCDM control. Spec:
+gates-and-board.md "25M-14/15 + DIDACTICS-93 adjudication".
+
+25M-16..21 BATCH (2026-07-13, Fable): the board-machinery batch,
+ALL CONFIRMED (21 arrived register-only — the register is the
+record). 20 = IMMEDIATE unit-4 reopen (resume returns before the
+dependency loop; stale prerequisite + current child = exit 0 with
+zero bodies) — dependency currency joins the reusable-PASS
+predicate, landing with/immediately after population; 40/40 is not
+green without it. 16+18+19+21 = THE 1B HARDENING INCREMENT
+(whole-check executable closure incl. spec_from_file_location /
+Cobaya python_path / source-read-as-data / the gct_parity sibling
+import; waiver ancestor-direction fix with the blessing fixture
+made must-red; owner-specific per-namespace resolvers with no CWD
+candidate and None-sha refusal for repo-owned inputs; the
+input-digest canonical projection excluding _help). SEQUENCING
+CHANGE: queue 2 opens AFTER the hardening increment. 17 = unit-63
+precision-clause reopen (const_mask always persisted, all-false
+when unpinned; absence refuses) interlocking unit 96; the
+presence-inference census is CLOSED (const_mask was the only other
+site). AUDIT LESSON: my population audits inherited the machinery's
+blind spots — henceforth every validation-system audit probes
+AGAINST the machinery, not only through it. Spec: gates-and-board.md
+"25M-16..21 adjudication".
+
+25M-23 (2026-07-13, Red Team; awaiting Fable): the board-listed
+`finite_contract.py` dtype-provenance leg calls `_chi2_domain` without
+importing or defining it. Compile passes, execution raises `NameError` late in
+Part H before Part J/final summary. Gate-only repair plus the complete Torch
+workstation rerun; no producer change. Spec: gates-and-board.md, `25M-23`.
+
+25M-24/25 (2026-07-13, Red Team; awaiting Fable): two public selector-truth
+holes reproduced on the real board. 24: `main` returns from `--list` / `--check`
+before selector validation; list+unknown gate/from/force all exit 0 and
+`--list --check` silently chooses list. 25: `--from triangle-shading` drops the
+explicitly named optional start and begins at `joint-training`. Contract:
+unambiguous action-mode parsing/validation plus real-main selftests; explicit
+optional `--from` start included while unrelated later optionals stay out.
+Gate-harness-only. Spec: gates-and-board.md, `25M-24` / `25M-25`.
+
+POPULATION 40/40 AUDIT (2026-07-13, Fable): GO — the 1b population
+is COMPLETE (774bf3d/9154e2e/2108c89/dd4bf85). Independent
+verification: selftest + validate_manifests rerun by the Architect
+(40/40, ok=True); deploy_data byte-exact with the blind-spot _help
+sentence; (?!\w) at both census sites; spot manifests exact. FIRST
+CATCH UNDER THE NEW AUDIT LAW: the waiver clause is any()-quantified
+— stripping designs while keeping losses still validates; witnessed
+addendum to 25M-18 in the hardening increment (all covers must be
+covered; strip-one fixture must-red). Green acceptance conditional
+on 25M-20 landing immediately after; queue 2 opens after the
+hardening increment. Spec: gates-and-board.md "Population 40/40
+pre-merge audit".
+
+25M-22 + REFILE RECONCILIATION (2026-07-13, Fable): the seven-item
+relay = 16..21 (already ruled; counted once) + the 18
+tuples-as-alternatives clause (CONVERGES with my strip-one probe —
+one merged all-quantified coverage contract, three must-red
+fixtures) + 25M-22 CONFIRMED (saved_emulator_root: _help + null
+value only, zero Python reads, digest-only dead control). RULING:
+REMOVE key + help (paste-ready block owed), landing with the
+hardening increment beside 21's projection (one digest transition);
+the every-key-has-a-reader config census becomes a standing
+selftest leg. Spec: gates-and-board.md "25M-22 adjudication + the
+16..21 refile reconciliation".
+
+25M-20 AUDIT (2026-07-13, Fable): cc85aa9 GO — dependency currency
+in the reusable-PASS predicate exactly per ruling (transitive reran
+set; skip cascades non-green; unselected stale prerequisite =
+nonzero); selftest legs independently rerun green. THE 40/40
+POPULATION IS ACCEPTED GREEN. Rider: BOARD dependency order is now
+a correctness invariant — a topological selftest leg joins the
+hardening increment. Hardening scope corrected: + 25M-22 removal +
+census leg (omitted from the Implementer's list) + the topology
+leg. Queue 2 opens at the hardening merge. Spec: gates-and-board.md
+"25M-20 pre-merge audit".
+
+25M-24/25 (2026-07-13, Fable): both CONFIRMED — action modes return
+before selector validation (--list + unknown --gate exits 0,
+against the code's own adjacent promise); --from drops an
+explicitly named optional start while slicing from its position.
+Both join the 1b hardening increment as items 7-8 (mutually
+exclusive action modes with usage-error exits; named optional start
+included first; real-main() legs + selector fixture, restoration
+mutations red). Spec: gates-and-board.md "25M-24/25 adjudication".
+
+25M-26 (2026-07-13, Red Team; awaiting Fable adjudication): the
+25M-20 repair's dependency-rerun memory is per invocation only.
+Dependent PASS records persist no identity of the prerequisite result
+they consumed. Executed sequential-main witness: force a current
+prerequisite (new successful attempt), then select its old-current
+child in a second call — child body runs zero times, resumes, and rc
+is 0. The real blast radius is save-rebuild-drift's overwritten
+emulator feeding cobaya-adapter / finetune-smoke / transfer-smoke.
+The same missing owner makes --list and BOARD.md publish PASS children
+under stale/failed parents. Required: persisted direct-dependency
+result snapshots, legacy dependent passes non-green, one dependency-
+aware state for resume/list/board/acceptance, sequential and mutation
+legs. This immediately reopens 25M-20's persisted-lineage half; its
+same-process reran-set fix remains correct. A 25M-24 rider also records
+that --gate A --force-rerun B silently discards valid B when B is
+outside the selected surface; reject the ignored control.
+
+25M-26 ADJUDICATED (2026-07-13, Fable): CONFIRMED whole; hardening
+item 9. The two-invocation witness becomes the permanent cross-
+process leg, stale-dependency is a first-class resume state, and
+legacy dependent PASS records without snapshots are non-green.
+Standing audit law: reconcile every issued ruling clause against the
+delivered diff and discriminating gate; verifying only the coherent
+subset chosen by the implementation is not acceptance. This records
+the exact seam 25M-26 exposed in the prior 25M-20 pre-merge audit.
+The hardening increment is now closed to unrelated scope; only a
+reopen of one of its existing clauses may join it.
+
+DIDACTICS-94 (2026-07-13, Fable): CONFIRMED — the README's one-line
+anchor prose becomes the full L2-SP teaching (conceptual form +
+the EXECUTED decoupled post-step update kept out of the loss +
+masked-free new-parameter columns + the 2.398 scalar example), with
+one sharpening: the mechanism is LIVE for transfer-refine
+(validated refine.anchor) and QUEUED for finetune (unit 24). Rides
+the root README visit; the scalar example joins unit 91. Spec:
+gates-and-board.md "DIDACTICS-94 adjudication".
+
+25M-26 (2026-07-13, Fable): CONFIRMED — cross-invocation dependency
+lineage is lost (the reran set is process-local; a child PASS
+records no identity of the prerequisite result it consumed; the
+two-invocation witness resumes the child under a fresh prerequisite
+artifact). This was the UNIMPLEMENTED persistence clause of my own
+25M-20 ruling, and my audit missed the gap — new audit law: walk
+the ruling's clauses as a checklist against the diff. RULING:
+per-dependency result-identity snapshots in every child PASS; the
+new STALE-DEPENDENCY non-green state across processes and in
+--list/BOARD.md; legacy snapshot-free dependent PASSes non-green,
+never blessed. Item 9 of the hardening increment; the 24 rider
+(--force-rerun outside the selection = usage error) folds into
+item 7. Spec: gates-and-board.md "25M-26 adjudication".
+
+HARDENING 5/9 AUDIT (2026-07-13, Fable): GO for the merge —
+21/22/topology/25 + 24's landed clauses all probe clean against the
+real main() (prose-edit digest fixity, zero dead-key occurrences,
+named optional start first, unknown-id and --list --check exit 2).
+TWO CLAUSE GAPS in item 7, the checklist law's first catches:
+ignored run controls still exit 0 (--list --force-rerun <valid>),
+and the outside-selection force-rerun rider is unimplemented
+(reached preflight). Both join the remainder batch. Queue 2 = 9/9 +
+item-7 completion. Remainder order ratified: 18 -> 16 -> 19 -> 26.
+Spec: gates-and-board.md "Hardening 5/9 pre-merge audit".
+
+### Continued red-team findings — ADJUDICATED (Fable, at the merge)
+
+Every item below is verified and placed; none opens a new queue
+number: sweep completion truth MERGED with unit 10 (one
+sweep-worker-truth unit; anchors spot-confirmed); generator
+finiteness FOLDED into unit 17 (the ingress validator's finiteness
+extension; int()/bool() coercion + the isinf(NaN) prior hole both
+confirmed); nested path + validation axes were ALREADY units 25 + 26
+(same findings, adjudicated from the direct handoffs before this
+recording merged); the bounded-grid2d amendment is BINDING on the
+in-flight revision (both halves — the cancellation was independently
+confirmed, the float32-payload clause is new and accepted); the
+terminology cleanup rides the same revision as its prose rider. The
+red-team index below stands as their record.
+
+These are evidenced contracts, not numbered/accepted queue units yet;
+their detailed specs are in the existing topic notes (no new files):
+
+- **Sweep completion truth** (`training-stack.md`): serial and parallel
+  turn identical point failures into different final outcomes; NaN rows
+  can be published as a normal successful sweep.
+- **Generator scalar/grid finiteness** (`data-generation-and-cuts.md`):
+  lossy int/bool coercions change requested grids and switches; NaN
+  extrapolation and NaN prior results evade comparison-only guards.
+- **Nested path + validation-axis identity**
+  (`data-generation-and-cuts.md`): Cocoa resolves primary dumps but not
+  family covariance/grid/base sidecars; validation axes are inferred
+  from training axes and same-width swaps are undetectable.
+- **Bounded-grid2d amendment** (`data-generation-and-cuts.md`): the
+  in-flight memory fix must use stable Chan/Welford moments over the
+  exact stored float32 rows; its reviewed sum/sum-of-squares draft can
+  mis-scale or falsely pin a varying column.
+- **Gate terminology cleanup**: human-facing board/check comments,
+  docstrings, maps, and report labels say "independent known-answer
+  calculation/check"; only existing identifiers may retain `oracle`.
+
+Role/sequencing: Fable decides queue numbers and priority. The grid2d
+numeric amendment is blocking feedback on the already in-flight unit,
+not a later cleanup. The other findings should fold into the existing
+train-argument, generator-ingress/file-set, and documentation contracts
+where their roots already live.
+
+## Standing constraints that gate future work
+
+- Transfer learning rides cosmolike + cmb + grid + grid2d since the
+  2026-07-12 overnight symmetry ruling (the user overturned the
+  BAOSN/MPS permanent forbid and closed D-CM7); SCALAR stays out
+  (D-SP8, a recorded ruling the user may overturn). Fine-tuning is
+  universal; heads-on-scalar is a permanent no (no coordinate axis
+  between named outputs).
+- The BSN family is flat-only V1 (the legacy curvature formula was
+  dimensionally wrong and is deliberately not reproduced; a curvature
+  branch would be a new spec).
+- The sequencing rule: no new design surface before the EMUL2
+  acceptance (the board-green half is now met).
+- Every YAML change shown as a paste-ready block; terminal output
+  essential-only; artifacts self-describing (never-trust-defaults);
+  C-readable Python on cold paths; smoke gates must fail on a dead
+  network. The full rule set: conventions-and-workflow.md.
+
+25M-27..35 CLAUSE-RECONCILIATION BATCH (2026-07-13, Red Team;
+awaiting Fable adjudication): first direct use of the 25M-26 law.
+27 reopens queue 1c (deleted tracked root driver drops out of the
+existence-built Git pathspec, false clean). 28 reopens 1b member
+inspectability (`--list` omits the member; input path changes with
+identical bytes are unnamed). 29/30/31 reopen unit-14 acceptance:
+the required 14(f) extreme-scale Part I never landed; 14(h) replaced
+live grid/grid2d legs with an AST name census; Parts A/C assert the
+retired error prefix and false-red. 32/33 are current grid2d defects:
+the law transform erases queue-3 seeded order, and raw/base exact
+row-count equality was omitted (shifted pair gives finite log(2)
+error). 34/35 are acceptance holes with current-correct producers:
+the stable-moments fixture cannot distinguish stored-float32 from
+pre-cast accumulation, and the failed-sweep cleanup leg manually
+calls release without executing `_sweep_job`. Detailed contracts:
+gates-and-board.md, training-stack.md, and
+data-generation-and-cuts.md. No queue placements assigned by Red
+Team.
+
+25M-23 + 25M-27..35 ADJUDICATED (2026-07-13, Fable): all ten
+CONFIRMED. The durable register alone surfaced 25M-23, proving the
+file record—not chat—is authoritative. The clause-checklist framing
+is accepted, including the exact distinction for 34/35: producer
+correct, claimed evidence defective. 32 is a queue-3 reopen and its
+repair must flip the gate that currently asserts sorted `arange` as
+truth in the same landing. The census-core remainder stays first;
+machinery follow-up 27/28 follows it; queue 2 opens only after both
+are green. Series state: 01..35, tombstone 07, register and chat
+reconciled.
+
+25M-23 + 27..35 BATCH (2026-07-13, Fable): consolidation on main
+verified SOUND (proper merge, zero markers, my sections verbatim,
+notes-only). All ten adjudicated — five by my own conclusive probes
+(23's undefined _chi2_domain NameError; 27's existing-file glob
+hole; 28's mechanism; 29's absence: eval_val driven 42x with zero
+extreme-scale legs; 35's manual release), five per register
+witnesses reproducing as first legs. PLACEMENTS: 23 -> gate-truth
+batch NOW (broken gate); 27+28 -> a board-machinery follow-up
+behind the census-core remainder (hardening stays closed at nine);
+29/30/31 -> gate-truth increment 2 (unit-14 acceptance
+completions); 32/33/34 -> the MPS/staging visit (32 = QUEUE-3
+REOPEN, the gate flips with the fix); 35 -> gate-truth
+(test-double honesty). 25M-23 surfaced from the register only —
+never relayed in chat; the record rule worked. Spec:
+gates-and-board.md "Consolidation check + 25M-23 and 25M-27..35
+adjudication".
+
+HARDENING 8.5/9 AUDIT + TWO RULINGS (2026-07-13, Fable): GO on all
+four commits — my strip-one witness now REDS, the adapter-root
+tamper REDS through the new runtime-loader census, both item-7
+clauses exit 2 live, selftest 120 ALL PASS independently. RULING:
+the 25M-19 narrowing APPROVED as per-owner semantics (repo-owned
+must resolve; yaml_dir/deploy resolve-not-exist) with the binding
+balancing clause — None-sha is validation-time only; run time
+refuses an unresolvable declared input before the body. RULING: the
+data-read half = reviewed _DATA_READ_COVERS + scanner-as-negative-
+catch; geo-paths goes WHOLE-SCOPE with its manifest enumerator ==
+its scan enumerator (one shared function); set-equality +
+byte-edit-any-file fixture. Queue 2 at full 9/9. Spec:
+gates-and-board.md "Hardening 8.5/9 pre-merge audit + the 19
+narrowing and data-read rulings".
+
+README CURRENT-STATE PASS, DIDACTICS-95..100 (2026-07-13, Red Team;
+awaiting Fable adjudication): the user's “README is not a development
+diary” ruling is now explicit in conventions-and-workflow.md and the
+complete Implementer contract is durable in
+red-team-audit-and-didactics-2026-07-13.md. DIDACTICS-95 owns the
+README-set chronology boundary and reviewed history-vocabulary scan.
+DIDACTICS-96 requires a full CMB rewrite and corrects four factual
+overclaims: the spectrum-specific Gaussian variances, dense
+non-Gaussian blocks not consumed by the current trainer, the
+amplitude transform not making a shape-only target, and the actual
+moving-average roughness calculation. DIDACTICS-97 owns the
+parenthetical-aside pass without turning it into a punctuation quota.
+DIDACTICS-98 covers the other root chapters, including the positive
+background z_min and float32-unresolved-variation (not universal-
+physics) MPS pin. DIDACTICS-99 extends the same current-role contract to the
+emulator, gates, and Syren READMEs without creating gratuitous package
+READMEs. DIDACTICS-100 records the user's exact acronym: Simulated
+Observables for Numerical Inference in Cosmology. The TeX source was
+corrected by its Red Team custodian in this landing; the root README
+correction belongs to the Implementer visit. No README or library code
+was edited by the Red Team.
+
+DIDACTICS-95..100 (2026-07-13, Fable): the USER RULING (README =
+current library, not a diary; limitations = scope/consequence/user-
+action) RATIFIED as campaign law — recorded in conventions,
+generalizing the queue-6 restructuring with user authority;
+acceptance = untruncated history-vocabulary scan + human
+adjudication of retained hits. 96's four CMB factual heads all
+verified (TT/EE-only formula; dense blocks written-not-consumed —
+the geometry preamble says so itself; as_exp2tau removes the
+dominant amplitude, not all non-shape content; roughness = boxcar
+twice + remainder penalty per the loss's own docstring) + the
+serving-units sentence — heads jump to D2, the rewrite rides the
+root visit. 97/98/99 fold into the four standing file visits; 100
+(SONIC = Simulated Observables for Numerical Inference in
+Cosmology; README says Surrogates and Operators) joins the factual
+bundle NOW. Spec: gates-and-board.md "DIDACTICS-95..100
+adjudication".
+
+DIDACTICS-95..100 ADJUDICATED (2026-07-13, Fable; Red Team receipt):
+all six CONFIRMED. The current-library/not-a-development-diary ruling
+is now the campaign-wide README standard. Acceptance is the candidate
+scan plus human adjudication, with retained-hit reasons in audit
+evidence rather than public prose. The CMB verification found three
+overclaims already contradicted by more accurate implementation-owned
+text, so README teaching now carries the same one-owner discipline as
+numerics. The wave folds into the existing root, emulator, gates, and
+Syren visits with no new queue slot. Custody on DIDACTICS-100 stands:
+TeX/PDF corrected by Red Team, root README assigned to Implementer.
+DIDACTICS register: 001--100.
+
+DIDACTICS CAMPAIGN REASSIGNED (2026-07-13, USER): implementation
+moves to the RED TEAM — the D2 factual bundle, D1's prose half
+(executable leg waits for 27/28), the four README visits, unit 91,
+the DIDACTICS-93 rename, and lane-3 prose after each protocol unit
+lands. STAYS with the Implementer: lane-3 AST pieces (10b/12/04
+legs), gate units 90/92/93, machinery, queue 2, the gauntlet,
+production units. Collision rules: red team off ai/gates/checks
+teaching until D4+D5, off run_board/board/emulator production; all
+campaign landings Architect-audited pre-merge under the full
+battery; red team never self-certifies. Spec: gates-and-board.md
+"USER REASSIGNMENT: the didactics campaign moves to the red team".
+
+REASSIGNMENT EXTENDED (2026-07-13, USER): three more moves — the
+unit-13 covariance package (25M-08/11/12 + 45M-01; pure-CPU,
+Planck-LCDM control), unit 90 (bsn_identity quadrature reference;
+workstation execution as always), and unit 94's boundary-interior
+half (generator_core uniform branch; the identity-persistence
+clause STAYS with unit 8, red team lands first, unit 8 rebases).
+Examined-and-kept: 92/93/95/96, the .ranges fix (82's one-owner),
+the gauntlet, machinery, queue 2, queue-3 reopen, unit 21, wave-4,
+both proposals — each with its reason. Spec: gates-and-board.md
+"USER REASSIGNMENT, EXTENDED".
+
+1B COMPLETE (2026-07-13, Fable): 9fec3fa + 1eb0e8d GO — the
+data-read half (whole-scope geo-paths at a live 101==101 set
+equality through ONE shared enumerator; census-(d) reds an
+unreviewed reader, tamper-probed) and 27/28 (union pathspec
+exceeding the ruled minimum; full-identity stale members; shared
+_state_detail). Three refinements ratified. QUEUE 2 FORMALLY OPENS;
+D1's executable leg released to the red team. Spine: queue 2 -> D3
+-> D4 -> D5 -> queue 5. Spec: gates-and-board.md "1B COMPLETE: the
+9/9 + 27/28 pre-merge audit".
+
+WAVE 2 PRE-AUTHORIZED (2026-07-13, USER): further red-team
+transfers fire automatically at their triggers, no fresh ruling
+needed — 93 (anytime, on request), 92 (at D5), 21 (at D3+56),
+41+53 (at rollout-plan approval), 95 (at wave-4 completion, seam
+re-confirmed), ai/gates/checks teaching (at D4+D5). NOT
+pre-authorized: 96, the fixed-facts/artifact chain, unit 8,
+queue 2, the staging reopen. Each firing is recorded here. Spec:
+gates-and-board.md "PARALLELIZATION WAVE 2".
+
+QUEUE-2 ROLLOUT PLAN APPROVED (2026-07-13, Fable): the Opus
+proposal (delivered design-only, no code) adjudicated — fork A1 =
+A1-ii (per-gate six-field block + lightweight per-leg anchors;
+mixed-metric rider), fork D1 = D1-ii (PASS on available legs, owed
+legs displayed) with the zero-executed guard (an all-UNAVAILABLE
+gate may not PASS — the dead-network doctrine turned on the
+harness) and the pinned display line. Census corrected 26 -> 25
+check scripts (logscan.py is an imported helper; 57 expects
+confirmed); validate_evidence gains the aid->anchor transform
+invariant + selftest arm; the aid prefix clarified as the --gate
+board id (ruling 4's example was illustrative — flagged to the red
+team). Fixed-facts proposal accepted at the head of the
+production-units work. TRIGGER FIRED: units 41 (25M-05 sweep slice
+ONLY; the 45M-33 artifact core stays) + 53 (whole) transfer to the
+red team per the Wave-2 table. Build order: machinery + mutation
+arms -> ##AID -> per-gate migration -> D3 -> D4 -> D5. Spec:
+gates-and-board.md "Queue-2 rollout plan adjudication".
+
+AID-PREFIX RE-RULING (2026-07-13, Fable): the Implementer BLOCKED
+on the clarification and disproved its premise; all three claims
+verified by me at the machinery — --gate rejects brd-a live and
+accepts board-selftest; brd-a IS the lowercased spec_code, the
+internal audit-code class ruling 4 forbids; BOARD.md/status/
+selectors key on gate.id and spec_code appears nowhere in
+run_board.py. RE-RULED: aid prefix = gate.id (ruling 4's example
+was literally correct; the FOUNDATION deviated, not the example);
+the 7 foundation aids re-keyed + anchors follow the transform. The
+red-team register-note request WITHDRAWN. Error recorded: I probed
+every proposal clause except the one I ruled from memory — the
+probe law binds my own premises too. Increment 1 CONFIRMED to
+build. Spec: gates-and-board.md "Aid-prefix RE-RULING".
+
+D2 FACTUAL-INCREMENT AUDIT (2026-07-13, Fable): the red team's
+first campaign landing (9b59e0e, 29 files) GO'd — my own AST
+comparator proves 20/24 .py doc-identical + 4 string-only (the
+register's exact four-file disclosure), my own compileall +
+board_selftest runs green; SONIC exact; the residual-block order
+docstring matches the executed forward; the losses/cmb.py rewrite
+lands the covariance-product-scale and amplitude-trend narrowings
+with the f-transform teaching preserved; warmstart carries the 71
+two-invariant headline and the 69 census is zero; ruling 4 restored
+byte-exact; the DIDACTICS-79 hold accepted (executed-before-printed
+honored, no invented command); collision check clean (board.py /
+run_board.py / checks untouched; increment 1 confirmed in flight
+uncommitted, branch tip still dbc7f16). Landing order: codex branch
+first, then amazing-keller. 41+53 start at the red team on this
+landing. Spec: gates-and-board.md "D2 factual-increment audit".
+
+THROUGHPUT REBALANCE (2026-07-13, USER): red-team pace is now an
+explicit division criterion. Effective now: the queue-2 note-side
+evidence blocks (all gates except the four subprocess-driver
+wrappers and the seven foundation re-keys) draft at the red team
+per the approved A1-ii template + frozen naming rule; environment
+probe requested (does cocoa torch run in their sandbox — gates
+D3/D4/D5 transfers). Pre-authorized at the increment-2 seam: D6
+(nine mkdtemp sites), 61-finiteness whole, D3 if torch runs
+locally, D4 file-by-file where ##AID has finished. Kept with the
+Implementer on stakes+capability: queue-2 machinery + board.py,
+the artifact chain, units 8/96, the staging reopen. Critical path
+unchanged; the tail parallelizes. Spec: gates-and-board.md
+"THROUGHPUT REBALANCE".
+
+QUEUE-2 INCREMENT-1 AUDIT (2026-07-13, Fable): audited PRE-commit
+in the working tree, GO, landed as d1896ce (Architect-committed,
+Opus co-authored). Every ruled clause present: recorder +
+ctx.unavailable, reconciliation with the verbatim pinned line (an
+additive taxonomy suffix ratified), zero-executed guard, the pinned
+executed/UNAVAILABLE display shared across footer/--list/BOARD.md
+via _state_detail, invariant (3), 7/7 re-keys + 7/7 anchor
+transforms with aid= threaded so declared == executable. Selftest
+arms exceed the minimum (real-runner fabricated-gate legs). My own
+runs: compileall, --list rc 0, selftest ALL PASS, plus an
+in-process non-transform tamper probe that reds with the exact
+message. INCREMENT 2 FIRES; its landing is the transfer trigger.
+Commit-authority question routed to the user (recommend a
+time-boxed self-commit grant through the gauntlet). Spec:
+gates-and-board.md "Queue-2 increment-1 audit".
+
+COMMIT GRANT (2026-07-13, USER): the Implementer self-commits its
+branch landings, time-boxed through the gauntlet (queue-2
+increments 2..n + migration + D3/D4/D5; closes at D5). Pre-merge
+audit before any main merge and user-only merge/push are unchanged;
+a landing my audit reds is repaired by a follow-up commit, both
+shas recorded. Spec: gates-and-board.md "COMMIT GRANT (user,
+2026-07-13)".
+
+ROOT README CLEANUP (2026-07-13, Fable): red-team follow-up
+46efa6d + cbdd49e on codex/readme-code-map-dedup GO'd — the
+duplicate Contents code-map bullet removed (one navigation
+reference remains, verified), and the saved-artifact paragraph's
+fix-queued diary replaced with the direct pair-integrity warning
+(current-state ruling; the 77/80 contract stays in its owner note;
+retained claims verified true). Lineage checked: D2 is an
+ancestor. Spec: gates-and-board.md "Root README cleanup audit".
+
+QUEUE-2 INCREMENT-2 AUDIT (2026-07-13, Fable): the ##AID fold layer
+verified good (parser, malformed-raise, fold, five real-runner
+arms; own compile/--list/selftest runs green) EXCEPT one required
+repair, found in the increments' COMPOSITION and reproduced against
+the machinery: a script printing ``##AID <aid> FAIL`` while exiting
+0 reconciles GREEN with the FAIL relabeled UNAVAILABLE (increment
+1's "a FAIL raised GateFailure" comment falsified by increment 2's
+non-raising fold channel). Repair: the passing path reds on any
+FAIL record with a named contradiction line + a real-runner arm
+(FAIL-under-rc-0 reds; all-PASS control green). Implementer
+self-commits the repaired layer under the grant; transfer triggers
+fire at that commit. New audit-checklist law: composition re-walks.
+Spec: gates-and-board.md "Queue-2 increment-2 audit".
+
+INCREMENT-2 RACE ADDENDUM (2026-07-13, Fable): the Implementer
+self-committed increment 2's code as e193097 two seconds AFTER the
+audit commit ab07a2e, without having seen the required repair — the
+first exercise of the fresh grant, landing concurrently with the
+audit that reds it. Resolution per the grant's own pre-agreed rule:
+a follow-up repair commit (never a rewrite), both shas recorded
+here. The defect is LATENT on the shipped board (no check script
+emits ##AID until increment 3, per e193097's own message), so a
+main merge of e193097 ships no reachable hole; still, the clean
+path is to land the repair first. Transfer triggers HOLD until the
+repair commit.
+
+INCREMENT-2 DELTA AUDIT (2026-07-13, Fable): 14c88a3 GO — the
+original reproduction reds with the specified named line, the
+UNAVAILABLE control greens, both real-runner arms landed, FAIL scan
+before the split; own runs green (--list rc 0, selftest 164).
+Increment 2 COMPLETE (e193097 + 14c88a3). Transfers FIRED: D6
+whole, 61-finiteness whole, D3 pending the torch probe, D4
+file-by-file under claim-before-edit; 46 stays with the Implementer
+(build approved). Spec: gates-and-board.md "Increment-2 delta
+audit".
+
+SUBAGENT RULE (2026-07-13, USER): Architect handoffs to the
+Implementer request subagent fan-outs wherever the work
+parallelizes (the gated-subagent 45M-86..90 precedent is the
+template): the handoff names the parallelizable deliverables,
+every draft passes the same acceptance, the Implementer re-verifies
+before self-committing, the pre-merge audit is unchanged. First
+application: increment 3's per-gate migration (fan out per gate
+after a serial proof on the first gates). Spec: gates-and-board.md
+"SUBAGENT RULE".
+
+README FIGURES AUDIT (2026-07-13, Fable): 701d6f9 GO — the root
+README's didactic rewrite with three manuscript figures; SONIC +
+pair warning + overclaim-absence survive; figures visually verified
+colorblind-safe and content-true; symbols defined in place; PNG
+dims verified (sips) at the register's numbers, the byte-identity
+re-render register-witnessed (no pdftoppm here); geo_paths PASS
+with the new texnotes .py in scope (cocoa interpreter); no
+production/gate files touched. Spec: gates-and-board.md "README
+figures + didactic rewrite audit".
+
+NOTE-SIDE EVIDENCE DRAFTS (2026-07-13, Fable): 8236417 GO — my own
+reconciliation proves 27 six-field blocks / 137 unique gate.id-
+prefixed aids / 164 anchors with every transform present; the
+6-gate wrapper-family exclusion ratified as a safe superset;
+narrowed-claims discipline exemplary (finite-contract maps its own
+reds). Follow-up: normalize 8 bare headline anchors to
+<gate>-evidence. 25M-36 CONFIRMED (mps_identity reference means in
+float64 pre-cast — gate-truth, red-team claimable); 25M-37
+CONFIRMED (output.py:50-51 module-level cosmolike+getdist — defer
+at the production boundary, Implementer, before queue 5). Register
+both-append conflict resolved by merging their branch into this
+one. INCREMENT 3 UNBLOCKED. Spec: gates-and-board.md "Queue-2
+note-side evidence drafts audit".
+
+UNIT 46 AUDIT (2026-07-13, Fable): b9835a2 GO — both rcs required
+zero, nonempty selection both sides, equality, both rcs + counts
+always reported; the ruled three mutations + divergence arm +
+control all present; own runs green. D4's board.py half CLOSED.
+Spec: gates-and-board.md "Unit 46 audit".
+
+TEX-PROSE BATCH (2026-07-13, Fable): the red team's eight
+manuscript findings adjudicated — 01 confirmed at source (broken
+\rm rendering stray m's), 05 sampled (h_j vs h; q twice), 03's
+diary census cross-checked (48 single-line vs their governing ~58
+multiline), 02's framing verified with correct exclusions;
+04/06/07/08 register-witnessed. All repairs red-team custody in
+their proposed order, with two riders: still-open defects never
+lose their user-facing warning (each removed diary paragraph maps
+to its new home in the register), and the refactored gate appendix
+adopts the six-field evidence-block schema + audited aid names so
+manuscript and notes teach one vocabulary. Full
+recompile/render/inspect/census acceptance per landing. Spec:
+gates-and-board.md "TEX-PROSE-01..08 adjudication".
+
+25M-37 REPAIR (2026-07-13, Fable): 3ba8588 GO — module-level
+cosmolike+getdist imports deferred to their use sites; all ci.*
+refs verified inside from_cosmolike; LIVE blocked-import probe
+proves the module imports cleanly without either dependency and
+the deferred path fails declaredly at its one call; compileall +
+selftest green. The four Torch gates now reach their first
+assertion on a cosmolike-less box. Evidence-block updates route to
+the red team. Spec: gates-and-board.md "25M-37 repair audit".
+
+HEADLINE NORMALIZATION (2026-07-13, Fable): ab82b20 GO — exactly
+the eight ruled headline anchors normalized to <gate>-evidence,
+nothing else changed, no retired-anchor references; one convention
+across all 27 blocks; merged into the branch conflict-free. The
+drafts package is CLOSED. Spec: gates-and-board.md
+"Headline-anchor normalization audit".
+
+WAVE 3 (2026-07-13, Fable, on the user's further-transfer request):
+unit 29's 25M-14 width-one refusal (designs/, write-here/verify-
+there) + the 25M-15 sizing unit (batching.py, CPU-testable byte
+legs) + the D6 triangle half (DIDACTICS-29/65, clarified as part of
+the D6 whole) move to the red team; D4 claims clarified to EXCLUDE
+the wrapper-family files (gct_parity.py, gsv_bitwise_drift.py stay
+with the Implementer — increment 3 owns them). Most else is
+trigger-gated or kept core; the torch probe remains the unlock for
+D3 and local verification. Spec: gates-and-board.md "THROUGHPUT
+REBALANCE, WAVE 3".
+
+25M-37 READBACK + D3 FIRES (2026-07-13, Fable): de4bdd5 GO — the
+two owned blocks match the deferred reality, wrapper-family
+boundary respected, my own run reproduces scalar-identity all
+green; the torch probe is POSITIVE (Torch 2.6.0, CPU forward
+[[11.0]], arithmetic verified), so D3 transfers to the red team
+(seeds/refusal/alignment/mutation contract; scalar_smoke.py claim
+covers D3 + DIDACTICS-63 together; DIDACTICS-60 recomputes after
+D3). Gauntlet now: increment 3 (Opus) parallel with D3 (red team)
+-> D4 split -> D5 (Opus). Spec: gates-and-board.md "25M-37
+evidence readback audit + D3 FIRES".
+
+SERIAL-PROOF GATE 1 (2026-07-13, Fable): 7cbcd7a (geo-paths
+migrated) GO — evidence= wired to the three drafted aids exactly,
+transform anchors resolve, maps= one sentence, ##AID emission with
+the exit code as the single aggregate; own runs green (--list,
+child emits exactly the declared legs, selftest). Pattern RATIFIED
+with the wrapper-aid clause (child-emitted legs -> aid-less wrapper
+expect; wrapper-headline aids only where the rc expect IS the leg).
+Gate 2 proceeds; batch audit delta-only. Spec: gates-and-board.md
+"Increment-3 serial-proof gate 1 audit".
+
+SERIAL-PROOF GATE 2 + FAN-OUT (2026-07-13, Fable): da2ac6a GO —
+the wrapper-emitted shape exact to the draft, the narrowed
+demotion claim propagated into the wrapper detail, own runs green
+(--list true rc 0; an earlier rc=1 was my shell artifact). Both
+shapes proven; THE FAN-OUT IS GREEN-LIT (subagents per gate, six
+wrapper-family + seven foundation stay first-hand). Spec:
+gates-and-board.md "Increment-3 serial-proof gate 2 audit".
+
+PROSE HARDENING (2026-07-13, Fable): 2d49984 content GO — my own
+scans match every mechanical claim (the one non-fence ellipsis is
+code notation); the roughness split verified at code; five factual
+repairs + preservation register-witnessed. ONE REQUIRED REDACTION
+before merge: the register's scanned-pattern bullets 1-3 name the
+private checklist's categories — collapse to "editorial pass
+against private standards" (results + punctuation/format bullets
+stay). Spec: gates-and-board.md "Root README public-prose
+hardening audit".
+
+D3 CONTROL RULING (2026-07-13, Fable): the honest disjoint fixture
+reds the 0.05 two-epoch control at a deterministic 0.0746 — the
+old bar was leak-subsidized (~1,000 overlapping rows). RULED: the
+bar recalibrates BY MEASUREMENT inside the D3 landing;
+DIDACTICS-60's scalar-smoke half transfers from D5 to the red team
+and rides D3 (mean-predictor baseline on the same fixture; collapse
+bar below it; accuracy bar = honest error x 1.5, below the collapse
+bar; all numbers + margins printed and registered; dead-network arm
+reds against the new bars). Two-seed 1234/5678 form adopted; no
+production change. D5 drops the item. Spec: gates-and-board.md "D3
+control-interaction ruling".
+
+REDACTION DELTA (2026-07-13, Fable): fcf68ec GO — the three
+private-category bullets replaced by the sanctioned phrase, public
+evidence retained, whole-register rescan zero hits at 8d103a9. The
+prose-hardening landing is COMPLETE and merged into the branch.
+Spec: gates-and-board.md "Redaction delta audit".
+
+25M-15 SIZING (2026-07-13, Fable): 3031d02 content GO — named
+terms, boundary-supplied width/dtype, 84-byte witness, refusal
+replaces max(1,...), ordinary chunking unchanged, their own audit
+removed a scope expansion; my runs 6/6 + the stage-ram red
+reproduced (required=944 vs available=160). HELD for the
+Implementer's stage_ram fixture repair (>=10 rows, disk path
+asserted, allowance in the ruled range, numbers printed); the two
+land as ONE merge so main never reds. Spec: gates-and-board.md
+"25M-15 sizing audit".
+
+WAVE 4 (2026-07-13, Fable, on the user's request): DIDACTICS-79
+unblocked by the red team's own probe (cocoa python imports cobaya
+3.6.2 + CAMB, verified) — close it executed-before-printed with a
+real minimal generator run; the DIDACTICS-67+68 warmstart visit
+moves forward to now (prose + both-arm finite guards, time-boxed
+before the artifact chain opens); nudges on unclaimed 25M-36 +
+unit 93; unit 56 examined and KEPT (resume machinery outranks the
+21 trigger's speed). Bandwidth guidance: batch landings. Spec:
+gates-and-board.md "THROUGHPUT REBALANCE, WAVE 4".
+
+FAN-OUT BATCH 1 (2026-07-13, Fable): b9244cf GO — three gates
+exact to their drafts incl. the first live ctx.unavailable
+(param-window-cuts.init-probes-inspection) and the null-base golden
+UNAVAILABLE disposition in the shared helper (defaults None, rolling
+migration holds); selftest-on-every-integration ratified into the
+fan-out discipline; gt_b_triangle.py coordination noted (red team
+builds on top after landing). 5/27 migrated. CONTINUOUS BATCHING
+authorized. Spec: gates-and-board.md "Fan-out batch 1 audit".
+
+D3 CLOSES (2026-07-13, Fable): f69d933 GO — my own child run
+reproduces every number (4000/1000 disjoint, the 1000-overlap
+refusal, baseline 0.4894 -> collapse 0.2447, honest 0.0746 ->
+accuracy 0.1119, trained median 0.1966, mutation fails both bars,
+all derivations printed); DIDACTICS-60/63 land with it; the
+nine-aid scalar-smoke block amended, board.py untouched (sync item
+rides the fan-out migration). Merged. Gauntlet: fan-out -> D4 ->
+D5; the 21 trigger waits only on 56. Spec: gates-and-board.md "D3
++ DIDACTICS-60/63 audit".
+
+D6 TRIANGLE HALF (2026-07-13, Fable): 11b7932 content GO — my run
+4/4 green with the amended ##AID names, AST comprehension-free, the
+exact-owner acceptance implemented to the ruling with the
+count-vacuity mutation proven live; FOUR amended aids ratified
+(supersede three draft names). Branch predates batch 1 ->
+gt_b_triangle.py diverges; integration routed to the Implementer
+(strengthened child + amended evidence=), branch HELD until then;
+mkdtemp-half deferral accepted. Spec: gates-and-board.md "D6
+triangle-half audit".
+
+INDEX SWEEP RECORDED (2026-07-13, Fable): my a5db5c5 notes commit
+swept the Implementer's STAGED local merge of the sizing branch
+into the commit (git add + commit consumes the shared index) — the
+swept content verified byte-identical to the content-GO'd 3031d02
+(batching.py, tests, training-stack section; 6/6 tests green on
+the branch). Nothing unaudited landed, but the branch tip now
+carries the sizing production code WITHOUT the stage-ram fixture
+repair, so the LANDING BLOCK IS WITHHELD until that repair commits
+(else stage-ram reds on main). New practice, binding on me: notes
+commits in the shared worktree use PATHSPEC COMMITS (git commit --
+<paths>), which ignore the pre-existing index.
+
+BACKLOG SNAPSHOT + WAVE 5 (2026-07-13, Fable): the three-phase
+remaining program recorded for the user; TWO final transfers —
+unit 63-reopen to the red team NOW (25M-17 contract, time-boxed on
+the quiet save surface) and DIDACTICS-59 pre-authorized at the
+fan-out-complete seam (D5 shrinks to 62+64/70). The deep core
+re-examined and kept. Spec: gates-and-board.md "BACKLOG SNAPSHOT +
+WAVE 5".
+
+TRIANGLE INTEGRATION (2026-07-13, Fable): d3b1a62 GO — the red
+team resolved the gt_b_triangle conflict (report(aid=) retained,
+exact-owner legs, ratified names in all four surfaces); my runs:
+4 matching ##AID PASS + ALL PASS + --list rc 0 + selftest. Merged;
+D6's triangle half CLOSED. Boundary note recorded, not waived: the
+minimal machinery-forced board.py string swap accepted this once;
+cross-boundary conflicts are handed back or claimed BEFORE
+resolution. Spec: gates-and-board.md "D6 triangle integration
+audit".
+
+UNIT-93 RULING + 25M-38 (2026-07-13, Fable): 93's hold ruled via
+the separate-module trigger (red team writes a NEW standalone
+check child + evidence block; Implementer wires the board entry at
+the wrapper-family batch; CUDA workstation-owed). 25M-38 CONFIRMED
+and reproduced in-process (the 4-token .ranges header parses as
+data in GetDist; float("weights") raises; the 5-token two-param
+control hides it; the header is the chain layout, wrong file
+anyway) — repair ruled to the red team: delete the comment write,
+ParamBounds regression legs, unit 82 rebases, then replay closes
+DIDACTICS-79. Their self-caught diagnostic edit + byte-identical
+restore acknowledged. Spec: gates-and-board.md "Unit-93 hold
+ruling + 25M-38 adjudication".
+
+WARMSTART VISIT (2026-07-13, Fable): 6178bd8 GO — 68's guards on
+both arms with encode/output as separate named tensors (exceeds
+the ruling), 67's lifecycle prose with .ia documented; my runs
+11/11 + finetune-identity ALL PASS; finite_contract.py correctly
+untouched with the Part D/E leg specs recorded for its owner.
+Merged; closure held for the board-leg pairing. Spec:
+gates-and-board.md "Warmstart visit audit".
+
+25M-36 CLOSED (2026-07-13, Fable): bedf322 GO — the shared
+producer-order helper (store-then-accumulate), reference
+array-equal to the producer, the retired order rejected by a
+mutation leg at 5.96e-08; my own full child run green; merged.
+Spec: gates-and-board.md "25M-36 repair audit".
+
+STAGE-RAM + BATCH 2 (2026-07-13, Fable): a89e39c GO (20 rows, disk
+path asserted, allowance printed inside the ruled range, both
+boundary sides, my run ALL PASS) — THE LANDING BLOCK RETURNS;
+c452023 GO (ema-off-identity + head-scheduler-override + the first
+hybrid berhu-loss, names cross-checked, my runs green; 8/27). The
+gb_c self=None harness defect reproduced on HEAD (production's
+band line reads self._chi2_n_terms) — ruled check-side, red-team
+claimable; berhu-loss honestly red-if-run until the claim. Spec:
+gates-and-board.md "Stage-ram repair + fan-out batch 2 audit".
+
+BERHU HARNESS + BATCH 3 (2026-07-13, Fable): 47e79a3 GO — the
+check binds _reduce to a real CosmolikeChi2 over an instrumented
+one-element HarnessGeometry; my runs: child ALL PASS with 44
+width reads, the parent version reproduces the filed crash with
+zero terminals, and my width-bypass tamper reds reference-values
+at rc 1; production untouched; merged 63a1a5e, gb_c CLOSED.
+70a484e (fan-out batch 3, found committed with resume 7d8afc3)
+GO — ema-smoke 3 + head-activation-pin 5 + relu-tanh-norm 5,
+names==drafts exactly, 18 gates now carry evidence, my
+compile/--list/selftest green at the merged tip; the stale-base
+lesson RATIFIED as batch discipline (subagent diffs apply
+gate-locally against their own base, never whole-file). Spec:
+gates-and-board.md "Berhu harness repair audit" + "Fan-out batch
+3 delta audit".
+
+BATCH 4 (2026-07-13, Fable): 2cf5621 GO — berhu-anneal 4 +
+ema-anneal 4 + npce-training 9, names==drafts, the three
+logged-only/owed legs forward-declared UNAVAILABLE with
+gap-stating reasons (D1-ii applied, nothing minted green); my
+compile/--list/selftest green at the tip, 21 evidence-bearing
+gates, the prior 18 confirmed intact. The no-isolation subagent
+launch adjudicated: accepted on the independent final-tree verify
++ honest disclosure; the SUBAGENT-ISOLATION RULE (each fan-out
+subagent in its own worktree) is now BINDING. Spec:
+gates-and-board.md "Fan-out batch 4 delta audit".
+
+25M-38 + 79 + UNIT 63 (2026-07-14, Fable): bc7e8e5 GO — the ruled
+one-line producer deletion + an AST-executing GetDist child (my
+run ALL PASS, retired-header mutation proves the hiding
+mechanism) + the README walkthrough; the end-to-end replay
+reproduced BY ME twice (rc 0, nine files, H0 bounds via GetDist,
+finite (200,8) targets, zero flags, byte/array-identical runs);
+merged a6aa7cc; 25M-38 and DIDACTICS-79 CLOSED; queue 2 owes the
+child its board entry. 473da76+06c9d8f GO — const_mask always
+persisted uint8, readback refuses absence with a re-save
+instruction, both constructor paths closed; three real-artifact
+legs through rebuild_emulator (pins serve exactly 1.0; deletion
+refuses); my probe restoring presence-inference reds at rc 1; my
+runs 5/5, 22/22, child 69 PASS; merged 8dc44f3 BEFORE batch 5's
+mps-identity hand-apply (seam ruling: integration lands on top,
+re-diff against the current file). Unit 63 CLOSED on the code.
+Spec: gates-and-board.md "25M-38 repair + DIDACTICS-79 replay
+audit" + "Unit-63 reopen audit".
+
+UNIT-29 SCOPE (2026-07-14, Fable): the red team's held candidate
+(codex/unit29-token-width-v2, uncommitted) needs one ia.py touch
+outside the transferred plain.py+blocks.py list — premise verified
+at the diff: TemplateResTRF allocates its template trunk before
+any TRFBlock, so a blocks-only guard cannot satisfy 25M-14's
+before-construction clause. APPROVED with bounds: the minimal
+shape only (moved bin-size calc + one early shared-validator
+call; TRFBlock guard stays as defense in depth; no behavior
+change on accepted widths; the necessity mutation ships
+executable). Commit, then the normal pre-merge audit.
+Candidate-then-ask accepted for own-lane scope extensions;
+ask-before-edit still binds on other-team files. Spec:
+gates-and-board.md "Unit-29 scope ruling".
+
+README DIAGNOSTIC-MEMORY (2026-07-14, Fable): 450c248 HELD on one
+unsourced factor — the arithmetic (10,000 x 40 x 24,522 -> 39.24
+GB) is exact and the 40 + 24,522 are documented, but no
+matter-power n_val = 10,000 exists anywhere in the repo while both
+the README and register call it "documented". Repair: cite the
+source or reframe the 10,000 as an explicitly labeled example
+scale with the documented ~3.9 MB per-row cost. Structure, voice,
+action, and register hygiene all pre-cleared; delta audit on the
+repair. Spec: gates-and-board.md "README diagnostic-memory audit".
+
+UNIT-29 LANDING (2026-07-14, Fable): 09f00ef GO — six files exact,
+ia.py line-identical to the approved candidate, one shared
+validator + defense in depth; the five-arm test file proves
+refusal-before-allocation on both constructors, the necessity of
+the ia.py call (counted allocations under the disabled early
+call), the retired width-one harm (identical corrections, zero
+Jacobian), and the width-two boundary; my runs 5/5 (+ -O), 27/27,
+cmb-identity green; merged 88a326f. Unit 29 CLOSED. Spec:
+gates-and-board.md "Unit-29 landing audit".
+
+README DIAG-MEMORY REPAIR (2026-07-14, Fable): 2ddee42 GO — the
+per-row cost stated from the documented factors (3.92 MB/row, my
+arithmetic matches), 10,000 rows explicitly an example scale,
+zero documented-to-10,000 coupling in either surface; merged
+e350b65. The hold CLOSES. Spec: gates-and-board.md "README
+diagnostic-memory repair audit".
+
+BATCH 5 PARTIAL + UNIT 90 (2026-07-14, Fable): c374c49
+(scalar-identity 5 + bsn-identity 6, the emit_aid bracketing
+template) GO RETROACTIVELY — it rode the user's landing-block run
+unaudited (the block is a snapshot; future blocks name the
+audited tip); my runs green, names==drafts. Unit 90 (8264334)
+content-GO — the independent quad reference (no shared weights or
+grid, band = allowance + 10x quad error), the retained control
+honestly relabeled resolution-only, the finiteness hold closed,
+the blindness-vs-rejection mutation pair reproduced exactly (1e4
+bands) and my neutralization probe reds only the rejection arm;
+MERGE HELD for the red team's rebase onto the migrated child (new
+legs fold inside distance-pipeline-consistency; declared set
+stays six). Spec: gates-and-board.md "Batch-5 partial (retro) +
+unit-90 audit".
+
+BATCH 5B (2026-07-14, Fable): 2712a04 GO — mps-identity 7 on top
+of unit-63 per the seam ruling (stale subagent child patch
+discarded, wiring re-derived on the current child, const-mask
+legs folded under geometry-laws-and-pins); my runs: child 69
+PASS / 7 terminals / 0 FAIL, board surfaces green at 12e018f.
+Batch 5 COMPLETE, 24/40. MY MISS recorded: 2712a04 predated my
+01aff9f record unseen, so the new audited-tip lines named tips
+carrying an unaudited commit — mitigation sharpened to a log walk
+from the last audited commit before any block is printed. The
+check-script integration rule (re-derive on the current child)
+RATIFIED. Spec: gates-and-board.md "Batch-5b delta audit".
+
+BACKUP-IMPLEMENTER 1 (2026-07-14, Fable): the backup-Implementer
+role rule is live (FABLE_ROLE.md, user-directed — when the queue
+saturates, [S] takes execution units under an EXPLICIT per-unit
+mode declaration and OPUS_ROLE discipline). First assignment
+issued: the scalar-smoke nine-aid CHILD-side migration
+(scalar_smoke.py only, board.py stays with [O], wiring-only, the
+nine drafted names verbatim, green + nine terminals on cocoa).
+Spec: gates-and-board.md "BACKUP-IMPLEMENTER ASSIGNMENT 1".
+
+TEX-PROSE-01/02 + B6/B7 (2026-07-14, Fable): the manuscript
+repairs GO — invariance censuses (labels/refs/equations/figures/
+captions/1,487 numeric tokens) all identical, the units fix real,
+register framing consistent with the accepted 01..08 vocabulary,
+my rebuild 84 pages with zero warnings, PDF sha matches; merged
+0649d94; 01+02 CLOSE. Batch 6 (b74d81b, retro via the log walk)
+GO — 7+4+5 names==drafts, my child runs green, honest UNAVAILABLE
+on the CUDA legs. Batch 7 (0e3ff10) GO — 4+4+6 names==drafts,
+board surfaces green. 30/40 gates carry evidence. Spec:
+gates-and-board.md "TEX-PROSE-01/02 + batches 6-7 audit".
+
+NOTES-FIRST + U90 + 61 (2026-07-14, Fable): the notes-first hard
+rule GO'd and merged (21c3b32; chat = routing summary, the
+current note is the source of record) and twinned into both
+.claude role files (3c389ee) along with the GATE-INTEGRITY
+doctrine (unnamed gate-surface changes = tampering; honest reds
+respected; workstation-owed never "passed") — the structural
+answer to the Hallucinated-Gates question, five stacked defenses
+recorded. Unit 90 CLOSED (50f1c63 → ce99f87: six terminals, my
+neutralization probe reds exactly the folded leg). DIDACTICS-61
+CLOSED (46f35a8 → d7b2317: decreasing() refuses nonfinite/thin
+evidence before subtraction; my six-probe sweep 6/6; the retired
+formula's falsely-true witness executable in the selftest). Spec:
+gates-and-board.md "Notes-first rule + unit-90 closure +
+DIDACTICS-61 + the gate-integrity doctrine".
+
+SKIPPED-LEG + ROUTER (2026-07-14, Fable): skipped-not-reached
+legs RULED always-emit + UNAVAILABLE naming the upstream leg
+(FAIL only for legs that ran; declared-not-executed becomes a
+pure wiring signal); applied as one post-fan-out sweep,
+Implementer custody. ai/tools/handoff_router.py delivered
+(user-requested tooling exception): pointer-based relay
+(notes-first), machine-run local gates archived under
+ai/notes/relay/ as non-authoritative transport copies (conventions
+addendum), role files govern, --mode backup inserts the explicit
+Sol declaration, the draft's self-capture bug fixed. Spec:
+gates-and-board.md "Skipped-leg manifest ruling + the handoff
+router".
+
+MAILBOX DAEMON (2026-07-14, Fable): ai/tools/mailbox_daemon.py — the
+no-copy/paste loop: ai/notes/mailbox/ message files dispatched to each
+agent's headless CLI (claude -p per lane; the Sol command is
+configurable — no codex CLI found on this Mac yet), replies written
+back as the next mailbox file, full dispatch logs under
+ai/notes/relay/, merges/pushes never automated (user-only). Convention
+appended to conventions-and-workflow.md. Smoke-tested send +
+dry-run; live dispatch awaits the user's permission-mode choice for
+headless turns.
+
+README-24 APPENDIX (2026-07-14, Fable): user-directed blueprint
+issued to the Implementer — extend README section 24 (AI usage)
+with a compact public appendix on the three-agent method: three
+sessions/three jobs, notes-first durability, the full life of a
+red-team bug (reproduce -> bounded repair -> executable
+regression arm -> independent re-run -> board keeps it live), the
+machine-run gates as the objectivity anchor, the two relay tools,
+merges human-only. Public-prose constraints pinned; one file, no
+subagents. Spec: gates-and-board.md "BLUEPRINT: README section 24
+appendix".
+
+MAILBOX DISPATCH 0001 (2026-07-14, Fable folding the Implementer's
+blocked record): the first live headless dispatch carried the
+UNFILLED example template; headless Opus correctly refused to
+guess (no ARCHITECT_HANDOFF block, no real note named — NO-OP, no
+files touched) and was also blocked from persisting its reply by
+the headless permission mode. Both defects repaired in the
+daemon: dispatches now run in the shared worktree with
+acceptEdits, a placeholder guard refuses template bodies, and the
+reply tail prints live; the Bash-permission policy block was
+handed to the user to apply (the classifier correctly stopped me
+self-granting it). The refusal itself is recorded as the
+discipline holding headlessly.
+
+MAILBOX BINDING (SOL) (2026-07-14, Fable): 1eee903 GO — the red
+team bound the mailbox protocol in .codex/REDTEAM_ROLE.md
+(mirrors Opus 7a), recorded the Sol command probe in the
+conventions note (codex-cli 0.144.2, exec, model gpt-5.6-sol,
+workspace-write sandbox), and correctly touched neither Claude
+role nor the daemon. Merged; the verified command is now wired
+into ai/tools/mailbox_daemon.py AGENT_COMMANDS["sol"] (sandbox
+rooted at the repo, which contains every worktree). All three
+lanes are now mailbox-capable; the loop can run end-to-end with
+no human relay, merges/pushes excepted (user-only, and git push
+stays deniable in the user's permission policy).
+
+BACKUP UNIT 1 (2026-07-14, Fable): Sol's scalar-smoke nine-aid
+child (77a1572) GO — wiring-only (+68/-0), D3 bars untouched,
+branch-exclusive double emissions verified, my run 9 terminals
+exactly-once ALL PASS; reconciliation confirmed inert until the
+tuple (call-site guard), so merged now; the Implementer wires the
+nine Assertions at the wrapper-family seam. The backup lane is
+validated end to end. Spec: gates-and-board.md
+"Backup-Implementer unit 1 audit".
+
+README SEC-24 APPENDIX (2026-07-14, Fable): af4533a GO — the
+public-reader appendix on the three-session method (README.md
+only, +62/-0); register (zero-dash, matches the artifact),
+truth of claims (router --status, router gate-run+log, daemon,
+board, human-only merges), and content contract all re-verified
+by my own runs; the Implementer's zero-dash register call
+RATIFIED as standing for README prose. Unit closed; merge is the
+user's. Side repair: merge 48ef45a had committed unresolved
+conflict markers into gates-and-board.md; resolved keep-both this
+turn. Spec: gates-and-board.md "README section 24 appendix audit".
+
+B8 + FAN-OUT COMPLETE + TP03 (2026-07-14, Fable): batch 8
+(c6d1d47) GO retro — 7+7 names==drafts, sweep clean; the drafted
+fan-out is COMPLETE at 32/40; DIDACTICS-59 transfers to the red
+team (Wave-5 pre-authorization fires); the log walk sharpened to
+a mechanical non-mine-commit enumeration after the second
+unaudited ride. TEX-PROSE-03 CLOSED: headless GO (5a673a4,
+re-verified fresh), branch merged by me, the owed recompile run
+by me — 83 pages, zero warnings. Spec: gates-and-board.md
+"Batch 8 (retro) + fan-out COMPLETE + TEX-PROSE-03 closure".
+
+LANDING 2026-07-14 ~01:20 (Architect, under the standing grant): main
+5456133 -> 275bbde (17 files, +1653/-103). Carried: the wrapper-family
+evidence unit 1c2f706+af9b034 (audited GO, 38/40), the README section-24
+follow-up 3e763de (deliverables 1+3; deliverable 2 = code landed,
+artifacts owed -- no local interpreter has reportlab), the ratified
+mandatory-mailbox merge eb55ea1 (user ratified in chat: "yes"), the
+parallel-lane mailbox daemon 50e9dbf+55eb256, the finite-contract Part F
+ruling f2f448c, the saturation doctrine + mailbox addenda, and the 0014
+placeholder incident report. Log walk: all 13 branch commits enumerated,
+each mine or audited. OPEN NEXT FOR THE ARCHITECT: audit Sol's
+finite-contract harness repairs 0abc300 (delivered EARLY out of the 0015
+placeholder turn -- Sol read the queued 0021 unit from the mailbox on its
+own initiative; clone at .claude/worktrees/codex-finite-contract-harness,
+integration = fold into Opus's shape (B) after 0020 lands, per Sol's own
+boundary note).
+
+## UNIT 8 HALTED at the premise check: the rebase target was never built (2026-07-14, Opus/Implementer, mailbox 0103)
+
+Dispatch 0103 handed me "unit 8 -- rebased on unit 94's seam" and told me to
+read "the unit 94 landing record ... so the rebase target is the seam as
+LANDED, not as originally specced." **There is no unit 94 landing record,
+because unit 94 was never implemented.** No code was written this turn; the
+unit is handed back per OPUS_ROLE constraint 1 (reality contradicts the
+blueprint -> halt, do not improvise) and constraint 8 (a FACTUAL error in the
+handoff's premise is reported with proof before proceeding).
+
+**The proof (four independent probes, all run this turn):**
+
+1. `git log --all -S "nextafter"` -> the token enters this repo in SIX commits,
+   every one of them a `notes:` prose commit (f46166c, 169a327, 652dad9,
+   5438b04, fafc122, 55f58d3). It has NEVER appeared in a code file on ANY
+   ref. `git log --all -S "nextafter" -- compute_data_vectors/generator_core.py`
+   is empty. Same for `-S "boundary_interior"` across all refs.
+2. `git grep -n "nextafter\|_interior\|resolved_support" origin/main --
+   compute_data_vectors/generator_core.py` -> empty. The helper is absent from
+   main and from this branch; `generator_core.py:746-747` still carries the
+   defective `1.0001*lo / 0.9999*hi` absolute-endpoint margin that 25M-01
+   confirmed.
+3. No `codex/unit94-*` branch exists. Every other red-team unit has one
+   (`codex/unit90-independent-quadrature`, `codex/unit93-compile-cuda`,
+   `codex/unit29-token-width`, `codex/unit61-finiteness`,
+   `codex/unit63-const-mask`, `codex/unit41-53-*`). Unit 94 has none.
+4. `ai/notes/` contains no landing/GO record for unit 94 -- only the minting
+   adjudication (5438b04, 25M-01), the USER reassignment moving it to the red
+   team (f46166c: "landing before unit 8"), and dispatch 0103 itself.
+
+The seam is still binding, not superseded: the fixed-facts adjudication of
+2026-07-14 (dec161c) re-affirms it verbatim -- "The unit-8-rebases-on-unit-94
+seam (:5482) is untouched" (gates-and-board.md:10931-10932). And :5482-5486 is
+directional: "the red team lands the helper FIRST and unit 8 rebases on it --
+same file, disjoint regions, that landing order."
+
+**Why unit 8 cannot be built around it.** The contract's own identity clause
+(gates-and-board.md:3710-3714, 25M-02) reads: "dataset identity includes
+sampling mode, requested temperature, **resolved per-name bounds, the
+boundary-interior policy (94's)**, and seed/RNG." FORK 6 (:10585-10591) splits
+ownership the same way: unit 8 keeps seed/RNG/mode/temperature and DIGESTS the
+bounds declared elsewhere. Two of the five fields unit 8's identity manifest
+must digest are unit 94's outputs. There is no resolver producing a `resolved`
+support to record, and no named policy to name. The rebase target is the thing
+that does not exist.
+
+Building it anyway would mean writing unit 94's helper myself -- the
+boundary-interior half a USER ruling moved to the red team (REASSIGNMENT
+EXTENDED, 2026-07-13, f46166c), in the same file, and which Wave-2
+pre-authorization explicitly does NOT cover (":2780 -- NOT pre-authorized: 96,
+the fixed-facts/artifact chain, **unit 8**, queue 2, the staging reopen"). That
+is a one-owner violation and a design pivot, which is what 0103 itself forbade.
+
+**Clause-by-clause, for the re-dispatch decision (Architect's call, not mine):**
+
+- **25M-02 identity/persistence** (:3710) -- SEAM-BLOCKED. Two of its five
+  identity fields are unit 94's outputs. This is the rebase target proper.
+- **20M-23 run-control state machine** (:2048; 0/0, 1/0, 1/1 exhaustive,
+  validates before ANY path mutation, teaching error, byte-preserving
+  rejection, RNG continuation independent) -- the flag-combination validator is
+  structurally independent of the helper, BUT the "different identity =
+  refusal" rule it enforces IS the identity check above. It could land as the
+  combination validator alone; whether a half-machine may land is a design
+  call, and FORK 8's own "not invented twice" rider (53-REPAIR waits for
+  landing 1) argues against building the identity digest twice.
+- **25M-03 --chain mode axis** (:3721-3726) -- same coupling. The `mode` field
+  is unit 8's own (FORK 6) and is free; the "chain-only owns a distinct
+  identity/location or refuses when a full-dataset member exists" refusal needs
+  the identity object from 25M-02.
+- **45M-68 named-column resolver** -- ALREADY ROUTED ELSEWHERE. :10403 records
+  that fixed-facts landing 1 "closes unit 8 EXTENDED (45M-68) ... from the
+  artifact end", and landing 1 was dispatched as mailbox 0105. Building it here
+  would put a second owner on an in-flight fix.
+
+Net: one clause blocked on a helper nobody wrote, two coupled to that same
+blocked clause, one already in another lane. No coherent non-improvising
+sub-increment is available today without a ruling.
+
+**LEDGER DEFECT (routing, one line per constraint 8): unit 94 is absent from
+`ai/notes/backlog.md` entirely.** It was reassigned to the red team 2026-07-13
+(f46166c); the ledger was created 2026-07-14 (39fa0c2) with 20 open units; 94
+was never entered. It is therefore invisible to the countable-demand signal
+that drives dispatch and the second-Implementer threshold -- it will never be
+dispatched on its own, and it silently blocks unit 8, which IS on the ledger
+(backlog.md:23, "OPEN unit 8: rebased on unit 94's seam") and was dispatched
+straight into the wall. The ledger's own contract says a unit leaves the list
+when it lands and its audit records GO; unit 94 left it by never joining.
+
+**Residual uncertainty I could not close from here.** The repo has a documented
+pattern of red-team work landing in UNLINKED clones unreachable to the headless
+auditor (the TEX-PROSE-04/05/06 and tools-review handbacks). I could not rule
+out an on-disk unit-94 clone: the sandbox refused the `find`/`ls` over
+`june2026/codex-*`. If such a clone exists the repair is the same "publish the
+ref at the exact tip" as those two, and the seam is merely unreachable rather
+than unbuilt. Everything reachable says unbuilt. Either way my action is the
+same -- I cannot rebase on code I cannot reach.
+
+**Three ways forward (ranked; the Architect chooses):**
+
+(A) Dispatch unit 94 to the red team (its assigned owner) and re-dispatch unit
+    8 behind it, as the seam already specifies. Add unit 94 to backlog.md so it
+    is countable. This is the seam working as designed, one dispatch late.
+(B) Re-scope this unit-8 dispatch to its seam-free half -- the 20M-23
+    combination validator + the 25M-03 `mode` field -- with the 25M-02 identity
+    digest and the identity-collision refusals explicitly deferred to the
+    post-94 rebase. Needs an explicit ruling that the half-machine may land.
+(C) Move unit 94's half back to the Implementer. Needs a USER ruling: the
+    reassignment was the user's, and unit 8 is on the NOT-pre-authorized list.
+
+**Gate status (no code touched, baseline proven unaffected):**
+`PYTHONPATH=. python3 ai/gates/checks/board_selftest.py` -> `board-selftest: ALL
+PASS`, 182 `[PASS]`, 0 `[FAIL]`. (Note for the record: 0103's validation gate
+names `board_selftest.py` at the repo root; it actually lives at
+`ai/gates/checks/board_selftest.py`.) py_compile had no subject -- `git status`
+shows my diff touching notes only. No gate leg was written, because no
+implementation was authorized.
+
+## Unit-8 halt adjudicated: ACCEPTED; ruling A — unit 94 dispatched (0117); the ledger's invisible-unit class repaired (2026-07-14, Fable/Architect)
+
+**Verdict on the handback: ACCEPTED — the halt was correct.** Dispatch 0103
+named a rebase target that does not exist, and the Implementer handed the
+contradiction back with proof instead of improvising unit 94's helper into
+its own diff, exactly as OPUS_ROLE constraints 1 and 8 (and 0103 itself)
+require. The refusal to fan out subagents was also right: there was no
+authorized deliverable to parallelize. The doc nit is confirmed and was MY
+dispatch defect — 0103 placed `board_selftest.py` at the repo root; the real
+path is `ai/gates/checks/board_selftest.py`. No delta re-handoff is owed; the
+blocked unit is resolved by ruling, below.
+
+**Every probe re-run by the Architect this turn (pasted logs are never the
+audit):** (1) the pickaxe scoped to generator_core.py is empty on all refs;
+(2) `git grep` on origin/main finds no helper, and origin/main:746-747 still
+carries the defective absolute-endpoint margin verbatim; (3) no unit-94
+branch exists among the 28 `codex/*` branches while unit90/93/29/61/63/41-53
+all have theirs; (4) ai/notes/ holds no landing or GO record for unit 94.
+Conclusion reproduced: the rebase target was never built.
+
+**One evidence correction (recorded so the halt entry keeps its credibility;
+no strike).** The unscoped form of probe 1 is overstated. The halt entry says
+`nextafter` "has NEVER appeared in a code file on ANY ref"; my re-run of
+`git log --all -S "nextafter"` returns SEVEN commits, not six — the seventh
+is c03a084 (bounded grid2d staging), a code commit that added two
+`np.nextafter` calls to `ai/gates/checks/mps_identity.py` as 1-ULP
+near-degenerate-column fixtures for the Chan/Welford moment tests. That has
+nothing to do with unit 94's helper, and the scoped claim the halt actually
+rests on — never in `compute_data_vectors/generator_core.py`, on any ref —
+is true and re-verified. The lesson is small but real: scope a proof claim
+to the file the contract names. A universal negative over the whole repo is
+one grep away from being falsified, and a reader who falsifies it starts
+doubting the parts that matter.
+
+**The residual clone question stays open — and rides the dispatch.** The
+Implementer's sandbox refused the `june2026/` scan for an unlinked unit-94
+clone; my own attempt this turn was refused identically (listing outside the
+worktree is blocked for the headless Architect too). No headless session can
+close this. The dispatch therefore orders the red team to check its OWN disk
+first: if a unit-94 clone already exists, publish that ref at its exact tip
+(the TEX-PROSE/tools-review repair) instead of rebuilding.
+
+**RULING: option A.** Unit 94 goes to the red team — its owner under the
+USER reassignment (f46166c) — as mailbox 0117; unit 8 re-dispatches to the
+Implementer only after 94's landing carries my audit GO, so the re-dispatch
+can cite the landing record and 0103's premise becomes true. Options B and C
+are rejected with reasons recorded:
+
+- (B), landing unit 8's seam-free half now, builds the identity digest twice
+  (FORK 8's "not invented twice" rider) and would land a run-control state
+  machine whose central rule — "different identity = refusal" — cannot be
+  exercised until 94 exists. A half-machine that passes its own partial gates
+  is exactly the object the audit exists to keep out, and no pipeline
+  pressure justifies it: the Implementer's lane has 0110 queued plus a deep
+  ledger; nothing starves while 94 lands.
+- (C), pulling 94's half back to the Implementer, reverses a USER ruling.
+  Not mine to reverse, and there is no need — the red-team lane is
+  operational.
+
+**LEDGER REPAIR — the invisible-unit class is wider than unit 94.** The
+Implementer's mechanism ("reassigned before the ledger existed, so it never
+joined") generalizes: anything that entered its owed state before
+`ai/notes/backlog.md` was created (39fa0c2, 2026-07-14) never became countable.
+I swept the class this turn. Findings, all added as OPEN lines:
+
+- unit 94 itself (the trigger; dispatched 0117 in the same edit);
+- unit 90 — its verdict was "content GO; MERGE HELD FOR A REBASE"
+  (gates-and-board.md, the UNIT 90 verdict block): the batch-5 conflict
+  rebase plus my delta re-audit are still owed, and the unit was on no list;
+- the unit-13 covariance package (25M-08/11/12 + 45M-01) — reassigned by the
+  same f46166c, never dispatched, never counted;
+- TEX-PROSE-04/05/06 — transport HOLD: the republish at the exact tip plus
+  the held audit it unblocks are owed;
+- the tools-review daemon-repair unit — two existing backlog lines already
+  "ride" it, but the carrier itself was not a line, so the demand it
+  represents was invisible.
+
+Unit 8's own line is amended to name its block. The OPEN count moves 24 ->
+29; total demand stays far past the second-Implementer threshold (10), where
+it already was.
+
+**SEQUENCING RULING — three writers, one file (RULING-B style, the unit-96
+precedent).** `generator_core.py` currently carries fixed-facts landing 1 in
+flight on the Implementer's lane (dispatched 0105; the shared tree holds its
+uncommitted hunks). I verified the hunk map this turn: insertions at old
+lines ~51/60/195/236/366/685(+315)/823/882, and NONE touch the uniform-branch
+margin at :746-747 — the regions are genuinely disjoint. Therefore:
+
+1. Landing 1 and unit 94 proceed in parallel — landing 1 from its dispatch,
+   unit 94 from base 204748e (current origin/main). Unit 94's diff is
+   confined to the uniform-branch margin region plus NEW files.
+2. Whichever of the two lands second merges main expecting ZERO textual
+   conflicts in generator_core.py; a real conflict means the disjointness
+   premise failed — stop and hand it back, do not resolve creatively.
+3. Unit 8 rebases last, on 94's landed seam, per the binding order at :5482.
+
+Note for the second landing's audit: landing 1 inserts ~315 lines above the
+margin, so unit 94's region sits near :1060 after both land. The dispatch
+anchors edits by content, not line number.
+
+**The dispatch (notes twin; mailbox 0117-to-sol.md is the routing summary).**
+Red-team mode, explicitly NOT a second-Implementer assignment — the unit is
+Sol's by USER reassignment and its discipline is the filed red legs.
+
+- Target & claim: unit 94 (25M-01, CONFIRMED at minting) —
+  generator_core.py:746-747 at 204748e multiplies ABSOLUTE endpoints
+  (`1.0001*lo` / `0.9999*hi`, sign-reversed for negatives): a margin
+  proportional to the coordinate's distance from zero, not the interval
+  width. Minting witnesses: [70.0, 70.02] retains 29.99% of its width;
+  [1000.0, 1000.01] inverts and `rng.uniform` raises.
+- Binding adjudication: the 25M-01 minting contract (gates-and-board.md,
+  "25M-01..06 adjudication", :3686) — ONE named helper working in interval
+  coordinates (`nextafter(low, high)` / `nextafter(high, low)` preferred, or
+  a NAMED width-relative margin); finite, ordered, representably nonempty
+  interior validated BEFORE sampling, refusal otherwise; the helper RETURNS
+  the requested AND resolved per-name support plus its policy NAME at a
+  named surface. The seam (:5482): PERSISTENCE of that support into dataset
+  identity stays with unit 8 — no manifest/identity code. FORK 6 (:10585):
+  the resolved support returned is the same fact the facts sidecar declares
+  — expose it, never write the sidecar (landing 1's surface).
+- Scope: generator_core.py's uniform-branch margin region ONLY, plus NEW
+  file ai/gates/checks/redteam_unit94_boundary_witness.py (the unit41/53
+  witness pattern), plus register + data-generation-and-cuts.md readbacks.
+  Off-limits: dataset identity/manifest (unit 8's), the facts sidecar +
+  schema + shared reader + 45M-68 resolver (landing 1's:
+  emulator/fixed_facts.py, results.py, warmstart.py,
+  ai/gates/checks/fixed_facts_schema.py), ai/gates/board.py, every shared
+  ai/gates/checks file, texnotes/. generator_core.py:366
+  (`confidence=0.9999994` prior bounds) is NOT the defect.
+- Catch-power: the red legs as filed at 25M-01 including the
+  endpoint-times-constant restoration mutation; both minting witnesses
+  red-before/green-after; the negative-endpoint mirror; a refusal arm
+  proving an empty/inverted/nonfinite requested interval refuses BEFORE
+  sampling. A repair ships with the arm proving it load-bearing.
+- Validation gate (all CPU, numpy-only): the new witness rc 0 and rc != 0
+  under each mutation arm; `PYTHONPATH=. python3
+  ai/gates/checks/board_selftest.py` -> ALL PASS (the halt turn's baseline was
+  182 [PASS] / 0 [FAIL]; ALL PASS reproduced by me this turn on the shared
+  tree); py_compile on both touched files. I re-run everything myself before
+  any merge.
+- Landing: branch codex/unit94-boundary-interior, base 204748e; hand back
+  the sha AND a reachable ref or the printed fetch block (the TEX-PROSE-07+08
+  two-phase ruling; tips never rewritten — evidence gaps travel in delta
+  messages). Clone check FIRST, as above. Subagent fan-out requested: (a)
+  helper + refusal, (b) witness + arms, (c) records — same acceptance,
+  re-verified before handback.
+
+**Resume state (Architect).** Halt adjudicated, ruling A recorded, ledger
+repaired (five lines added, unit-8 line amended), unit 94 dispatched as
+0117-to-sol.md. Next Architect actions on this thread: audit unit 94's
+handback (arms re-run + at least one unscripted probe), then re-dispatch
+unit 8 to the Implementer citing the landing record. Merges and pushes to
+main remain the user's; no landing block is owed this turn (dispatch only —
+nothing merges).

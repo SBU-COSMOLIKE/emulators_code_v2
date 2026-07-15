@@ -1,5 +1,5 @@
 # MPS grid2d emulator config (the nonlinear-boost artifact) for
-# mps_train_emulator.py (see notes/families-background-mps.md and
+# mps_train_emulator.py (see ai/notes/families-background-mps.md and
 # emulator/geometries/grid2d.py).
 #
 # The MPS family serves P(k, z) from TWO artifacts: this one emulates the

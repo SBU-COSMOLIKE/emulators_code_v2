@@ -6,17 +6,17 @@ Multi-family Cocoa emulator program (PyTorch): the `emulator/` package,
 the family train/tune/sweep drivers at the root, the dataset generators
 under `compute_data_vectors/`, the Cobaya adapters under `cobaya_theory/`,
 the vendored syren formulas, and the executable acceptance board under
-`gates/`. Five output families: cosmic shear (full-3x2pt chi2 from
+`ai/gates/`. Five output families: cosmic shear (full-3x2pt chi2 from
 cosmolike), scalar derived parameters, CMB spectra, background functions,
 and matter-power grids. This repo is one arm of the wider Cocoa program;
 the other two arms — CAMB Fortran ports and CosmoLike C — live under
-`$ROOTDIR/external_modules/code/` (see `notes/conventions-and-workflow.md`)
+`$ROOTDIR/external_modules/code/` (see `ai/notes/conventions-and-workflow.md`)
 and are NOT worked on from here: this repo is a pure emulator library
 (USER RULE 2026-07-14), consuming those arms as upstream facts only.
 
 ## Session start
 
-1. Read `notes/MEMORY.md` — the knowledge-base index — and open the notes the
+1. Read `ai/notes/MEMORY.md` — the knowledge-base index — and open the notes the
    task touches. Failed and closed experiments are recorded there; do not
    re-propose them.
 2. Resolve your role (next section) before doing any work the protocol covers.
@@ -32,9 +32,9 @@ select another Claude model for either role with `--architect-model` and
 `--implementer-model`; for example, Opus may be the Architect while Sonnet is
 the Implementer. The user (or a runner script) relays the
 `### ARCHITECT_HANDOFF` / `### IMPLEMENTER_HANDOFF` blocks between them.
-Agent-emitted relays travel via the file mailbox (`notes/mailbox/`,
-dispatched by `tools/mailbox_daemon.py`) — mandatory per
-`notes/conventions-and-workflow.md`; a user-pasted block stays valid input.
+Agent-emitted relays travel via the file mailbox (`ai/notes/mailbox/`,
+dispatched by `ai/tools/mailbox_daemon.py`) — mandatory per
+`ai/notes/conventions-and-workflow.md`; a user-pasted block stays valid input.
 
 Resolve your role **once, at session start** — a role cannot change
 mid-session:
@@ -74,7 +74,7 @@ delegation choice:
   substitute the other role's summary of a skill for reading it:
   paraphrased discipline is lossy, the same failure mode as paraphrased
   numerics.
-- **`notes/`**: the Architect reads broadly (index first, then the relevant
+- **`ai/notes/`**: the Architect reads broadly (index first, then the relevant
   notes); the Implementer reads the entry named in its handoff plus the
   `[[links]]` it cites. Writers: Architect = design specs and milestone
   records; Implementer = resume state appended to the handoff's entry
@@ -85,7 +85,7 @@ delegation choice:
 
 ## Conventions (pointers, not copies)
 
-All house rules live in ONE note, `notes/conventions-and-workflow.md`:
+All house rules live in ONE note, `ai/notes/conventions-and-workflow.md`:
 Python style (paren alignment, named parameters, formal `Arguments:`
 blocks, shape-flow diagrams with legends, no comprehensions outside
 hot loops, no Alien Python), YAML block style (never inline `{...}`
@@ -94,7 +94,7 @@ flow; every change reported as a paste-ready block), plots
 full streams to log files, a debug switch restores them), machines
 (Mac M2/MPS for dev — numpy-only python3; NVIDIA for training), and
 the ROOTDIR environment. Its voice-and-why companion is
-`notes/user-didactics-and-python-voice.md` — who the reader is and
+`ai/notes/user-didactics-and-python-voice.md` — who the reader is and
 the register code and docs are written in; read it BEFORE writing
-either. The `notes/` ritual: every milestone gets a note plus a
+either. The `ai/notes/` ritual: every milestone gets a note plus a
 `MEMORY.md` index line, unprompted.

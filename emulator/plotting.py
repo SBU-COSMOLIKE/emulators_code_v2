@@ -572,7 +572,7 @@ def _window_masks(rx, ry, xx, yy, cuts):
   exactly.
 
   Sharp panels (the coverage table in
-  notes/data-generation-and-cuts.md):
+  ai/notes/data-generation-and-cuts.md):
     omegabh2   = Omega_b (H0/100)^2          on (ob, h0)
     omegam2h2  = (Omega_m H0/100)^2          on (om, h0),
                = Omega_m * omegamh2          on (om, omh2),

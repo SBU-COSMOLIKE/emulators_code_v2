@@ -11,7 +11,7 @@ mailbox watch may validly launch this role on another Claude model with
 `--architect-model` (including Opus). Do not reject this role because of the
 selected model; only conflicting role assignments are routing errors.
 
-Then read `notes/MEMORY.md` and the notes relevant to the input below before
+Then read `ai/notes/MEMORY.md` and the notes relevant to the input below before
 blueprinting or auditing.
 
 Input (a goal to blueprint, or an `IMPLEMENTER_HANDOFF` block to audit):

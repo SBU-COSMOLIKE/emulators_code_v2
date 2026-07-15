@@ -66,7 +66,7 @@ sampling. The "support" of a sampled parameter is the interval it was drawn
 from. "Shortest-roundtrip decimal" is the shortest decimal string that reads
 back as exactly the same 32-bit float it was written from.
 
-Spec and rulings: notes/gates-and-board.md.
+Spec and rulings: ai/notes/gates-and-board.md.
 """
 import hashlib
 

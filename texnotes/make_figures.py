@@ -929,7 +929,7 @@ def make_figure_12_three_session_loop() -> None:
     draw_diamond(drawing, 360.0, 150.0, 200.0, 66.0,
                  ["audit against", "raw evidence"], LIGHT_BLUE)
     draw_box(drawing, 90.0, 58.0, 195.0, 44.0,
-             ["pass", "milestone recorded in notes/"], LIGHT_BLUE)
+             ["pass", "milestone recorded in ai/notes/"], LIGHT_BLUE)
     draw_box(drawing, 435.0, 58.0, 195.0, 44.0,
              ["fail", "delta re-handoff"], LIGHT_GOLD)
 

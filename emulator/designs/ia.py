@@ -329,7 +329,7 @@ class TemplateResCNN(DesignSpec, nn.Module):
                      gamma(z)*c + beta(z) -> act, one
                      identity-initialized FiLMGenerator per block
                      (Linear(n_in, 2*n_ch); see its docstring and
-                     notes/models-and-designs.md). The conditioning
+                     ai/notes/models-and-designs.md). The conditioning
                      is x[:, :n_in], the amplitudes never enter,
                      so the head stays amplitude-blind and the
                      closed-form amplitude exactness survives. The
@@ -761,7 +761,7 @@ class TemplateResTRF(DesignSpec, nn.Module):
                      enter, so the head stays amplitude-blind and
                      the closed-form amplitude exactness survives.
                      Identity init keeps corr = 0 at epoch 1. See
-                     FiLMGenerator and notes/models-and-designs.md.
+                     FiLMGenerator and ai/notes/models-and-designs.md.
       head_act     = the TRF head's own activation factory (None ->
                      share block_opts["act"], the trunk's family;
                      byte-identical to before). build_specs builds it

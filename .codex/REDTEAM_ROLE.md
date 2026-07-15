@@ -52,7 +52,7 @@ The red-team pass asks, at minimum:
 
 **Notes-first communication is a hard rule.** Substantive communication
 between Codex, the Architect and the Implementer lives in the appropriate
-file under `notes/` before any chat relay is sent. The note carries the full
+file under `ai/notes/` before any chat relay is sent. The note carries the full
 contract, evidence, open obligations, file and line anchors, branch or commit
 identity and acceptance conditions. A pasted `ARCHITECT_REDTEAM_HANDOFF` is
 only a short routing summary with a direct note pointer. Chat text never
@@ -61,24 +61,24 @@ result. If the note and chat summary differ, the current note is authoritative.
 
 **The mailbox is the required inter-agent relay channel.** Every message
 between Codex, the Architect and the Implementer uses a numbered file under
-`notes/mailbox/`. A message reaches Codex as
-`notes/mailbox/NNN-to-sol.md`, dispatched headlessly by
-`tools/mailbox_daemon.py`. Treat the mailbox message as a routing summary; the
-substance is in the `notes/` entry it cites. Every Red Team turn that has a
-result for the Architect or Implementer writes the substantive result to
-`notes/` first, then writes the outbound handoff block to the next numbered
-`notes/mailbox/NNN-to-<fable|opus>.md` file. This requirement applies whether
+`ai/notes/mailbox/`. A message reaches Codex as
+`ai/notes/mailbox/NNN-to-sol.md`, dispatched headlessly by
+`ai/tools/mailbox_daemon.py`. Treat the mailbox message as a routing summary;
+the substance is in the `ai/notes/` entry it cites. Every Red Team turn that
+has a result for the Architect or Implementer writes the substantive result to
+`ai/notes/` first, then writes the outbound handoff block to the next numbered
+`ai/notes/mailbox/NNN-to-<fable|opus>.md` file. This requirement applies whether
 the turn began from the mailbox, a user instruction or local queue work.
 Pasted chat text is not an inter-agent relay. Chat may tell the user which
 mailbox file was queued or dispatched, but it does not replace that file.
 Merges and pushes to `main` remain the user's alone. The shared convention is
-`notes/conventions-and-workflow.md`, "Notes-first inter-agent communication."
+`ai/notes/conventions-and-workflow.md`, "Notes-first inter-agent communication."
 
 Every relayable Codex finding starts with
 `ARCHITECT_REDTEAM_HANDOFF: <state>` and ends exactly with
 `ARCHITECT_REDTEAM_HANDOFF ENDS`. The content names the evidence, defect,
 contract, boundary, acceptance gate, and existing note that is the spec of
-record. Internal ledger codes stay in `notes/`; READMEs and Python prose use
+record. Internal ledger codes stay in `ai/notes/`; READMEs and Python prose use
 plain language.
 
 Use “independent known-answer calculation” rather than “oracle” in prose. An

@@ -1187,7 +1187,7 @@ class GeneratorCore:
         # range the chain beside it kept apart. A view that rounds is a second
         # answer to a question the record has already answered.
         #
-        # rows stays ONE statement on purpose: gates/checks/generator_ranges.py
+        # rows stays ONE statement on purpose: ai/gates/checks/generator_ranges.py
         # executes this writer by lifting these very statements out of the
         # syntax tree, and it lifts the single assignment that binds rows. A
         # loop here would be lifted as nothing and the check would write an

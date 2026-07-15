@@ -1,0 +1,118 @@
+# cobaya-adapter, evaluate leg (spec: ai/notes/artifacts-inference-warmstart.md).
+# A board-owned copy of cobaya_theory/EXAMPLE_EMUL_EVALUATE.yaml that reads the
+# tiny emulator save-rebuild-drift persists on every board run. It proves the
+# cobaya plumbing (the schema-v2 emulator loads and one evaluate step runs);
+# the physics parity is gct_parity's job.
+#
+timing: True
+debug: False
+stop_at_error: True
+# a smoke leg reruns with the same output prefix; force lets cobaya
+# overwrite its own products instead of refusing to "resume" when the
+# theory block changed (board run 6: "Old and new run information not
+# compatible").
+force: True
+
+likelihood:
+  lsst_y1.cosmic_shear:
+    path: ./external_modules/data/lsst_y1
+    data_file: lsst_y1_M1_GGL0.05.dataset
+    use_emulator: 1
+    print_datavector: False
+    print_datavector_file: "./projects/lsst_y1/chains/example_emul_v2_theory.modelvector"
+
+params:
+  As_1e9:
+    prior:
+      min: 0.5
+      max: 5
+    ref:
+      dist: norm
+      loc: 2.1
+      scale: 0.65
+    proposal: 0.4
+    latex: 10^9 A_\mathrm{s}
+    renames: A
+  ns:
+    prior:
+      min: 0.87
+      max: 1.07
+    ref:
+      dist: norm
+      loc: 0.96605
+      scale: 0.01
+    proposal: 0.01
+    latex: n_\mathrm{s}
+  H0:
+    prior:
+      min: 55
+      max: 91
+    ref:
+      dist: norm
+      loc: 67.32
+      scale: 5
+    proposal: 3
+    latex: H_0
+  omegab:
+    prior:
+      min: 0.03
+      max: 0.07
+    ref:
+      dist: norm
+      loc: 0.0495
+      scale: 0.004
+    proposal: 0.004
+    latex: \Omega_\mathrm{b}
+  omegam:
+    prior:
+      min: 0.1
+      max: 0.9
+    ref:
+      dist: norm
+      loc: 0.316
+      scale: 0.02
+    proposal: 0.02
+    latex: \Omega_\mathrm{m}
+  # No reparametrization bridge and no drop: true. The v2 dumps' covmat header
+  # names ARE the sampler-side names (As_1e9 ns H0 omegab omegam
+  # LSST_DZ_S1..S5 LSST_A1_1 LSST_A1_2); the adapter reads them from the h5
+  # and requires them directly, the DZ/A1 names arrive from the likelihood's
+  # params_source.yaml defaults, and with use_emulator: 1 the likelihood
+  # requires only the cosmic_shear product. The legacy lcdm emulator's
+  # logA/omegabh2/omegach2 lambdas (plus drop: true on the sampled names)
+  # starved the theory of its stored names (board run 7: "Requirement As_1e9
+  # of emul_cosmic_shear is not provided by any component").
+
+theory:
+  emul_cosmic_shear:
+    # python_path (NOT path) is cobaya's external-class key; without it the
+    # legacy v1 adapter bundled in cocoa's cobaya fork shadows this class
+    # (board run 5: "Missing emulator file (extra) option").
+    python_path: ./external_modules/code/emulators_code_v2/cobaya_theory/
+    stop_at_error: True
+    extra_args:
+      device: 'cuda'
+      # the tiny emulator save-rebuild-drift persists on every board run;
+      # under-trained on purpose -- this leg proves the cobaya plumbing,
+      # the physics parity is gct_parity's job.
+      emulators:
+        - projects/lsst_y1/chains/gates_emul_evaluate
+
+sampler:
+  evaluate:
+    N: 1
+    override:
+      As_1e9: 2.1
+      ns: 0.96605
+      H0: 67.32
+      omegab: 0.04
+      omegam: 0.3
+      LSST_DZ_S1: 0.0414632
+      LSST_DZ_S2: 0.00147332
+      LSST_DZ_S3: 0.0237035
+      LSST_DZ_S4: -0.0773436
+      LSST_DZ_S5: -8.67127e-05
+      LSST_A1_1: 0.606102
+      LSST_A1_2: -1.51541
+
+output: ./projects/lsst_y1/chains/gates_cobaya_adapter_evaluate

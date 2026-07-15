@@ -3486,6 +3486,6 @@ vendor whose only job is to attack the result. Prof. Miranda directs the
 scientific contracts, model architecture, public interface, testing
 requirements and Python readability conventions. That loop is a separate
 subject from the emulator library documented above, so it has its own document:
-[`notes/README.md`](notes/README.md) explains the three sessions, the mailbox
+[`ai/README.md`](ai/README.md) explains the three sessions, the mailbox
 program that carries work between them, and how to reproduce the setup on
 another computer.

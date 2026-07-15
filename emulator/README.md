@@ -79,7 +79,7 @@ syren/                                 the VENDORED syren (symbolic_pofk) P(k) f
                                        the MPS emulators correct (numpy-only; provenance
                                        + the import-only deviations in syren/README.md)
 compute_data_vectors/                  the training-set generators + the CMB covariance
-gates/                                 the acceptance board (see gates/README.md; board.py is the authoritative gate registry)
+ai/gates/                                 the acceptance board (see ai/gates/README.md; board.py is the authoritative gate registry)
 ```
 
 The driver scripts sit beside `emulator/` (no `driver/` subfolder): launching one
@@ -132,8 +132,8 @@ producer, the MPS adapter, and gates.
 | File | Role |
 |---|---|
 | `data_staging.py` | Builds a resident Python source dictionary whose arrays may be compact RAM copies or file-backed memmaps. Parameter text is parsed eagerly; target `.npy` files are memory-mapped. If the selected rows fit the memory budget, both arrays are copied into compact local order. Otherwise the target payload stays file-backed and `idx` keeps source-row coordinates. `dump_rows` preserves original row identity for aligned sibling files. The grid2d path thins columns before forming its law-space target in bounded chunks. |
-| `geometries/parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. Known numerical gap (fix queued): covariance eigenvalues and rebuilt scales are not yet validated before division; details in `notes/artifacts-inference-warmstart.md`. |
-| `geometries/output.py` | The 3x2pt output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry`, `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** Known numerical gap (fix queued): a singular per-bin covariance is clipped to zero and then used as a divisor; details in `notes/artifacts-inference-warmstart.md`. |
+| `geometries/parameter.py` | Input whitening: `ParamGeometry` (center + rotate into the covmat eigenbasis + unit-scale), `LogParamGeometry`, and the IA-factoring `AmplitudeFactorGeometry`. Known numerical gap (fix queued): covariance eigenvalues and rebuilt scales are not yet validated before division; details in `ai/notes/artifacts-inference-warmstart.md`. |
+| `geometries/output.py` | The 3x2pt output side: `DataVectorGeometry` (squeeze to unmasked entries, whiten, own the chi2 `Cinv`), `DiagonalGeometry`, `BlockDiagonalGeometry`, `build_shear_angle_map`. **Only file importing cosmolike.** Known numerical gap (fix queued): a singular per-bin covariance is clipped to zero and then used as a divisor; details in `ai/notes/artifacts-inference-warmstart.md`. |
 | `geometries/scalar.py` | `ScalarGeometry`: per-output standardization over named derived parameters, with the un-standardizable-column guard. |
 | `geometries/cmb.py` | `CmbDiagonalGeometry`: subtract the training center and divide by the persisted `sigma_<spectrum>` from the covariance `.npz`; persist the spectrum, multipole grid, units, and amplitude-law facts. |
 | `geometries/grid.py` | `GridGeometry` + `TARGET_LAWS`: a function on a stored z grid, the law (`log_offset` / `none`) inside encode/decode. |
@@ -158,7 +158,7 @@ producer, the MPS adapter, and gates.
 | `losses/scalar.py` | `ScalarChi2` + `make_scalar_chi2`: the standardized-residual chi2 (also wraps the grid and grid2d geometries — their laws live in the geometry, so the loss needs nothing new). |
 | `losses/cmb.py` | `AMPLITUDE_LAWS` (`none` / `as_exp2tau_ref`), `CmbDiagonalChi2` / `CmbFactoredChi2` (the imposed-amplitude target, measured against the persisted fiducial so the factor is order-one), `ResidualRoughness` (the optional band-explicit penalty on short-period residual wiggles), `make_cmb_chi2`. |
 | `losses/transfer.py` | `TransferChi2`: a frozen base network under a parallel correction, using gain or sum in physical or whitened space on the CosmoLike path. `TransferDiagChi2` applies the same design to CMB law-none, grid, and grid2d artifacts in whitened space only. |
-| `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. Known gap (fix queued): validation computes its own safe chunk against the remaining budget, but the training loop uses the train chunk for validation and can exceed that bound; details in `notes/training-stack.md`. |
+| `batching.py` | Memory sizing + the regime-aware loaders (GPU-resident / RAM-stream / memmap-stream) that feed the training loop. Known gap (fix queued): validation computes its own safe chunk against the remaining budget, but the training loop uses the train chunk for validation and can exceed that bound; details in `ai/notes/training-stack.md`. |
 | `training.py` | Device pick, the `make_model/optimizer/scheduler` factories, `build_run_specs`, the `[default, min, max, kind]` search resolvers, the config validators (`validate_phase_block` / `validate_loss` — now with the `roughness:` sub-block — / `validate_berhu` / `validate_ema`), the per-epoch loop, and `run_emulator`. |
 
 **Orchestration & output**
@@ -167,7 +167,7 @@ producer, the MPS adapter, and gates.
 |---|---|
 | `experiment.py` | `EmulatorExperiment`: config → device → data → geometry → chi2 → spec → train as one reusable object (`from_yaml` / `from_config`). Holds every family's validator (`validate_scalar` / `validate_cmb` / `validate_grid` / `validate_grid2d` / `validate_param_cuts` / `validate_sizes`), the family branches of `from_config` / `build_geometry` (including the fine-tune geometry pins), and the grid2d staging law transform. The drivers compose it. |
 | `warmstart.py` | Fine-tune / transfer sources: `load_source` (validate a saved artifact), `extend_input_geometry` (block-extend for new parameters), `pin_output_geometry` (the cosmolike pin; the scalar/cmb/grid/grid2d pins live in their `build_geometry` branches), `build_warm_start` (transfer the weights + prove epoch-0 parity), `anchor_masks`. |
-| `scheduling.py` | GPU job balancing (`lpt_assign`, `even_assign`), the spawned worker pool (`run_gpu_pool`), and the `--gpu-pack` VRAM-token machinery. Known lifecycle gap (fix queued): early failures do not yet guarantee every sibling process is terminated/joined, and invalid token plans can wait forever; details in `notes/training-stack.md`. |
+| `scheduling.py` | GPU job balancing (`lpt_assign`, `even_assign`), the spawned worker pool (`run_gpu_pool`), and the `--gpu-pack` VRAM-token machinery. Known lifecycle gap (fix queued): early failures do not yet guarantee every sibling process is terminated/joined, and invalid token plans can wait forever; details in `ai/notes/training-stack.md`. |
 | `studies/implementation.py` | The semantic implementation-version registry included in every tuning-study identity. |
 | `studies/manifest.py` | Builds complete scientific identity records and binds/verifies them on Optuna journal studies. |
 | `studies/manifest_digest.py` | Strict canonical JSON plus stable value and file SHA-256 helpers. |
@@ -175,7 +175,7 @@ producer, the MPS adapter, and gates.
 | `results.py` | `save_learning_curves` / `save_sweep_table`; `save_emulator` writes CPU-normalized tensors to `.emul` and the recipe and geometry record to `.h5`; `rebuild_emulator` reads the pair and uses `map_location=device` to choose the destination device. Its `info` dictionary carries the family flags and family-specific artifact facts. |
 | `inference.py` | `EmulatorPredictor`: rebuild a saved emulator and predict — one `predict(params)` for every artifact kind: the dv section, the scalar `{name: value}` dict, the physical C_ell row, the background `{"z", quantity}` function, or the (z, k) law-space surface. Reuses the exact training decode per family. |
 | `plotting.py` | Training history, learning-curve overlays, coverage panels, xi curves, and the multipage diagnostics PDF with the per-family pages (`cmb=` / `scalar=` / `grid=` / `grid2d=`). |
-| `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`, `grid2d_residual_diagnostic`). Known production-width gap (fix queued): the local-linear floor materializes validation rows x 40 neighbours x output width, so an MPS `--diagnostic` run is not bounded; details in `notes/training-stack.md`. |
+| `diagnostics.py` | Post-training analyses: the family-generic chi2 trio (coverage, local-linear floor, hard directions) + the per-family physical analyses (`cmb_residual_diagnostic`, `scalar_output_diagnostic`, `grid_residual_diagnostic`, `grid2d_residual_diagnostic`). Known production-width gap (fix queued): the local-linear floor materializes validation rows x 40 neighbours x output width, so an MPS `--diagnostic` run is not bounded; details in `ai/notes/training-stack.md`. |
 | `family_drivers.py` | The shared sweep-block helpers (`read_sweep_block`, `set_by_path`, `SWEEPABLE_TOP_KEYS`, `ACTIVATION_PATHS`) — one definition of the YAML `sweep:` block, imported by the cosmic-shear one-knob driver. Every per-family tune/sweep driver is a thin wrapper over `main(prog, family)`, and the CMB/BAOSN/MPS trainers are wrappers too, so the multi-GPU pool, `--gpu-pack`, and the Optuna journal study carry over. `scalar_train_emulator.py` is standalone: its file naming and provenance have no data-vector file. |
 | `cocoa.py` | The cocoa project layout: `--root` / `--fileroot` / `--yaml` resolution, output paths. |
 
@@ -186,18 +186,18 @@ producer, the MPS adapter, and gates.
 | `cosmic_shear_train_emulator.py` | One training run — cosmic shear, cmb, grid, or grid2d (the data block picks the family); `--diagnostic` writes the multipage PDF with that family's pages. |
 | `scalar_train_emulator.py` | One scalar training run; `--diagnostic` adds the scalar pages. |
 | `{cmb,baosn,mps}_train_emulator.py` | Thin family wrappers over the cosmic-shear driver's `main()`: each pins its data-block family (`cmb` / `grid` / `grid2d`), so a wrong-family YAML fails naming the right driver (`require_family_block`). |
-| `cosmic_shear_tune_emulator.py` | Optuna study; multi-GPU via a shared journal-file study. Known accounting gap (fix queued): the parent does not inspect worker exit codes and can accept an old COMPLETE trial after current-worker failures; details in `notes/training-stack.md`. |
+| `cosmic_shear_tune_emulator.py` | Optuna study; multi-GPU via a shared journal-file study. Known accounting gap (fix queued): the parent does not inspect worker exit codes and can accept an old COMPLETE trial after current-worker failures; details in `ai/notes/training-stack.md`. |
 | `{scalar,cmb,baosn,mps}_tune_emulator.py` | Thin wrappers over the cosmic-shear tune driver's `main(prog, family)`: the full capability (serial or `--n-gpus` journal study), the family pinned, per-family study names. |
 | `cosmic_shear_sweep_ntrain_emulator.py` | `f(dchi2 > thr)` vs `N_train`; multi-GPU, LPT-balanced; `--gpu-pack`. |
 | `{scalar,cmb,baosn,mps}_sweep_ntrain_emulator.py` | Thin wrappers over the cosmic-shear sweep driver's `main(prog, family, out_default)`: multi-GPU + `--gpu-pack` carry over; wrong-family YAMLs name the right driver. |
 | `cosmic_shear_sweep_hyperparam_emulator.py` | Sweep ONE hyperparameter chosen in the YAML `sweep:` block; multi-GPU. |
 | `{scalar,cmb,baosn,mps}_sweep_hyperparam_emulator.py` | Thin wrappers over the cosmic-shear one-knob driver's `main(prog, family, out_default)`: the same `sweep:` block, multi-GPU + `--gpu-pack`. |
-| `cosmic_shear_bakeoff_activation_emulator.py` | One learning curve per activation; multi-GPU. Known lifecycle gap (fix queued): a worker failure before its training loop emits no result while the parent waits on a fixed number of un-timed queue reads; details in `notes/training-stack.md`. |
+| `cosmic_shear_bakeoff_activation_emulator.py` | One learning curve per activation; multi-GPU. Known lifecycle gap (fix queued): a worker failure before its training loop emits no result while the parent waits on a fixed number of un-timed queue reads; details in `ai/notes/training-stack.md`. |
 
 Known learning-curve gap (fix queued): the optional-cut families' wrappers reach
 `pool_size`, which currently indexes `omegabh2_hi` even when `param_cuts` is
 absent. Their no-cut examples can fail before training; the shared selection
-contract is in `notes/data-generation-and-cuts.md`.
+contract is in `ai/notes/data-generation-and-cuts.md`.
 
 The naming rule for every driver is `<family>_<verb>_emulator.py` — what
 you are emulating comes first, always (the 2026-07-11 family-first
@@ -212,7 +212,7 @@ other kinds' artifacts loudly, naming the right adapter)
 | `emul_scalars.py` | scalar artifacts → named derived parameters (provides read FROM the artifacts). Known Cobaya-contract gap (fix queued): `calculate` does not create `state["derived"]`; the stubbed identity gate never calls that path. |
 | `emul_cmb.py` | CMB artifacts → the cobaya Cl dict (spectra / lmax / units are artifact facts; `must_provide` refuses beyond-training requests). |
 | `emul_baosn.py` | the H(z) + recombination-D_M pair → Hubble + distances, served PIECEWISE by redshift window (the desert between the windows is a loud error, never a bridge); flat-only V1. |
-| `emul_mps.py` | the pklin + boost pair → `get_Pk_grid` / `get_Pk_interpolator` (linear + nonlinear) for cosmolike's hybrid mode (`use_emulator: 2`); multiplies the syren base back per the artifacts' stored laws. Known defects (fix in progress): the derived-sigma8 helper uses 8 Mpc against k in 1/Mpc, its products are advertised through Cobaya's input-support hook, and its Syren requirement narrows the shared `As_1e9`/`As` rule to `As`; do not treat the stubbed identity gate as a real Cobaya dependency test (notes/artifacts-inference-warmstart.md). |
+| `emul_mps.py` | the pklin + boost pair → `get_Pk_grid` / `get_Pk_interpolator` (linear + nonlinear) for cosmolike's hybrid mode (`use_emulator: 2`); multiplies the syren base back per the artifacts' stored laws. Known defects (fix in progress): the derived-sigma8 helper uses 8 Mpc against k in 1/Mpc, its products are advertised through Cobaya's input-support hook, and its Syren requirement narrows the shared `As_1e9`/`As` rule to `As`; do not treat the stubbed identity gate as a real Cobaya dependency test (ai/notes/artifacts-inference-warmstart.md). |
 
 **compute_data_vectors/** (the training-set generators)
 
@@ -348,7 +348,7 @@ covariance. The only file importing cosmolike.
 
 The BAOSN imposed physics (one definition for the adapter AND direct scripts).
 
-- `cumulative_simpson(z, y)` — even doubled-grid points exact on cubics; each odd node is the correct one-interval integral `h/12*(5,8,-1)`, exact on quadratics (superseding the earlier half-chunk approximation; see `notes/families-background-mps.md`).
+- `cumulative_simpson(z, y)` — even doubled-grid points exact on cubics; each odd node is the correct one-interval integral `h/12*(5,8,-1)`, exact on quadratics (superseding the earlier half-chunk approximation; see `ai/notes/families-background-mps.md`).
 - `comoving_distance_grid(z_grid, h_grid)` — c/H cubic onto the doubled grid, Simpson.
 - `distance_interpolators(z_grid, h_grid)` — the H / chi / D_A / D_L cubics + the window edge.
 

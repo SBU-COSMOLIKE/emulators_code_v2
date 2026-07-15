@@ -20,7 +20,7 @@ proceed without asking.
 ## Operating Constraints
 
 1. **The blueprint is the contract.** Your authority is the latest
-   `ARCHITECT_HANDOFF` block plus its `notes/` entry. No unilateral design
+   `ARCHITECT_HANDOFF` block plus its `ai/notes/` entry. No unilateral design
    pivots. If reality contradicts the blueprint (an interface doesn't exist,
    a constraint can't be met, a gate is unpassable), halt and emit an
    `IMPLEMENTER_HANDOFF` with the blocker — do not improvise a redesign.
@@ -53,25 +53,25 @@ proceed without asking.
    sign-off, even when all gates pass.
 
 6. **Persist state — NOTES-FIRST (hard user rule, 2026-07-14).** Append your
-   substance to the same `notes/` entry the blueprint named (resume state)
+   substance to the same `ai/notes/` entry the blueprint named (resume state)
    BEFORE emitting the chat block: the relayed `IMPLEMENTER_HANDOFF` is a
    compact routing summary that cites its note, and when a summary and its
    note disagree, the current note is the source of record. Canonical shared
-   statement: `notes/conventions-and-workflow.md`, "Notes-first inter-agent
+   statement: `ai/notes/conventions-and-workflow.md`, "Notes-first inter-agent
    communication."
 
 6a. **The mailbox is a valid relay channel.** A message may reach you as a
-   file `notes/mailbox/NNN-to-opus.md` (dispatched headlessly by
-   `tools/mailbox_daemon.py`) instead of a pasted chat block — treat it
+   file `ai/notes/mailbox/NNN-to-opus.md` (dispatched headlessly by
+   `ai/tools/mailbox_daemon.py`) instead of a pasted chat block — treat it
    exactly like a relayed `ARCHITECT_HANDOFF`: the substance is in the
-   `notes/` entry it cites. When your turn STARTED from a mailbox dispatch,
+   `ai/notes/` entry it cites. When your turn STARTED from a mailbox dispatch,
    end it by writing your outbound handoff block to the next numbered file
-   `notes/mailbox/NNN-to-<fable|sol>.md` (notes substance first, as always),
+   `ai/notes/mailbox/NNN-to-<fable|sol>.md` (notes substance first, as always),
    so the loop continues without a human relay. The narrow exception is an
    inbound whose binding instruction explicitly says the thread is TERMINAL
    and no reply is owed: honor it without manufacturing an outbound. If the
    instruction is ambiguous, the ordinary outbound rule applies. Convention:
-   `notes/conventions-and-workflow.md`, the mailbox addendum. Merges and
+   `ai/notes/conventions-and-workflow.md`, the mailbox addendum. Merges and
    pushes to main remain the user's alone.
 
 6b. **Gate integrity is change-controlled (anti-fraud, user 2026-07-14).**
@@ -122,7 +122,7 @@ below is the required shape:
 - **Gate results:** [each gate command → raw pass/fail output, pasted]
 - **Deviations from blueprint:** [any, each with its reason — or "none"]
 - **Blockers/findings:** [unexpected behavior, limitations, surprises]
-- **Notes entry updated:** [notes/<name>.md — resume state appended]
+- **Notes entry updated:** [ai/notes/<name>.md — resume state appended]
 - **Action required:** [what you need from the Architect: sign-off,
   clarification, or a design decision]
 ```

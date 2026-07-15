@@ -41,7 +41,7 @@ results object (provider.get_CAMBdata() ->
 get_lensed_cls_with_spectrum), so the Boltzmann solve runs ONCE.
 
 The OUTPUT is the interface the training stack consumes (the ruling
-in notes/families-scalar-cmb.md): one .npz holding
+in ai/notes/families-scalar-cmb.md): one .npz holding
 
   ell                    (n_ell,)  l = 2..lmax
   sigma_tt/te/ee/pp      (n_ell,)  sqrt of the Gaussian diagonal —
@@ -66,7 +66,7 @@ in notes/families-scalar-cmb.md): one .npz holding
                                    covariance a joint likelihood or a
                                    dense whitening (the planned
                                    dense-covariance training; see
-                                   notes/families-scalar-cmb.md) would
+                                   ai/notes/families-scalar-cmb.md) would
                                    consume.
   provenance             json string: the fiducial parameters, noise,
                          beam, fsky, the NG flag, the stencil step
@@ -679,7 +679,7 @@ def assemble_lensing_blocks(deriv, w):
   weight for that coordinate: the Gaussian variance of the fractional
   amplitude, which at band width 1 is exactly 2/((2L+1) fsky) and for a
   wider band is the smooth-response projection the caller builds (see
-  nongaussian_blocks and notes/families-scalar-cmb.md). A pure matrix
+  nongaussian_blocks and ai/notes/families-scalar-cmb.md). A pure matrix
   product on already-computed derivatives, so this function is
   Mac-verifiable against the closed form (the probe leg): the
   same-spectrum blocks are symmetric by construction, and the cross
@@ -887,7 +887,7 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   variance of the FRACTIONAL amplitude, w_b above, not with C^phiphi's
   own variance, so the C^phiphi_L^2 cancels at band width 1 and leaves
   2/((2L+1) fsky); eps = the stencil offsets of A_b around 0.
-  Derivation in notes/families-scalar-cmb.md.)
+  Derivation in ai/notes/families-scalar-cmb.md.)
 
   Arguments:
     cambdata = fiducial CAMBdata (re-lensing machine).
@@ -1028,7 +1028,7 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   # projection
   #   w_b = [sum_L 2 C^phiphi_L^2/((2L+1) fsky)] / [sum_L C^phiphi_L]^2,
   # exact when dCl/dC^phiphi_L is nearly constant across the band. See
-  # notes/families-scalar-cmb.md.
+  # ai/notes/families-scalar-cmb.md.
   L = np.arange(0, lens_lmax + 1, dtype="float64")
   var_pp_L = np.zeros(lens_lmax + 1, dtype="float64")
   var_pp_L[2:] = 2.0 * pp_raw[2:] ** 2 / ((2.0 * L[2:] + 1.0) * fsky)
@@ -1048,7 +1048,7 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   # (the per-spectrum training covariance) AND the cross-spectrum
   # blocks (the off-pair terms of the paper's full matrix — together
   # they tile the joint TT/TE/EE covariance the planned
-  # dense-covariance training (notes/families-scalar-cmb.md) and any
+  # dense-covariance training (ai/notes/families-scalar-cmb.md) and any
   # joint likelihood would consume).
   blocks = assemble_lensing_blocks(deriv=deriv, w=w)
   # the band policy is a resolved provenance fact: exact eq 6 at band

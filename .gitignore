@@ -19,5 +19,5 @@ texnotes/*.log
 texnotes/*Notes.bib
 
 # agent relay transport (never committed)
-notes/mailbox/
-notes/relay/
+ai/notes/mailbox/
+ai/notes/relay/
