@@ -32,6 +32,29 @@ def load_daemon(path=DAEMON_PATH):
     return module
 
 
+def install_test_sol_topology_proof(daemon):
+    """Install an explicit synthetic Sol topology proof in a scratch daemon.
+
+    Arguments:
+      daemon = the freshly loaded scratch daemon module.
+
+    Returns:
+      None.
+    """
+    expected_proof = object()
+
+    def validate_test_topology():
+        return expected_proof
+
+    def revalidate_test_topology(proof):
+        if proof is not expected_proof:
+            raise AssertionError("scratch Sol topology proof changed")
+        return expected_proof
+
+    daemon.validate_live_sol_dispatch_topology = validate_test_topology
+    daemon.revalidate_sol_dispatch_topology = revalidate_test_topology
+
+
 @contextlib.contextmanager
 def scratch_daemon(daemon_path=DAEMON_PATH):
     """Yield a daemon whose worktree, mailbox, ledger, and logs are scratch."""
@@ -59,6 +82,7 @@ def scratch_daemon(daemon_path=DAEMON_PATH):
             "opus": shared,
             "sol": str(root / "sol-worktree"),
         }
+        install_test_sol_topology_proof(daemon=daemon)
         os.makedirs(daemon.MAILBOX, exist_ok=True)
         os.makedirs(shared, exist_ok=True)
         os.makedirs(daemon.AGENT_CWD["sol"], exist_ok=True)

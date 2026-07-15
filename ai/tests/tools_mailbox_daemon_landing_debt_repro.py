@@ -357,9 +357,9 @@ def dispatch_peak(daemon, mailbox, agents):
             if active[0] > 1:
                 release.set()
         try:
-            # If the wrapper serialized both roles, the first turn waits only
-            # this bounded interval and then releases the shared lock. If they
-            # may overlap, the second entrant releases both immediately.
+            # If the wrapper serializes both turns, the first waits only this
+            # bounded interval and then releases the landing lock. If they may
+            # overlap, the second entrant releases both immediately.
             release.wait(timeout=0.25)
             release.set()
             return pathlib.Path(path).name
@@ -391,23 +391,30 @@ def dispatch_peak(daemon, mailbox, agents):
     }
 
 
-def arm_main_checkout_role_mutex(source=None):
-    """Fable and Sol serialize, while Opus remains parallel with Sol."""
+def arm_architect_landing_lock_scope(source=None):
+    """Only Architect turns serialize; Sol and Opus may overlap with one."""
     with scratch_daemon(source=source) as (daemon, _, mailbox):
-        protected = dispatch_peak(
+        architect_pair = dispatch_peak(
+            daemon=daemon, mailbox=mailbox, agents=("fable", "fable"))
+    with scratch_daemon(source=source) as (daemon, _, mailbox):
+        architect_sol = dispatch_peak(
             daemon=daemon, mailbox=mailbox, agents=("fable", "sol"))
     with scratch_daemon(source=source) as (daemon, _, mailbox):
-        parallel = dispatch_peak(
-            daemon=daemon, mailbox=mailbox, agents=("opus", "sol"))
+        architect_opus = dispatch_peak(
+            daemon=daemon, mailbox=mailbox, agents=("fable", "opus"))
     return (
-        not protected["alive"]
-        and not protected["errors"]
-        and len(protected["results"]) == 2
-        and protected["peak"] == 1
-        and not parallel["alive"]
-        and not parallel["errors"]
-        and len(parallel["results"]) == 2
-        and parallel["peak"] == 2)
+        not architect_pair["alive"]
+        and not architect_pair["errors"]
+        and len(architect_pair["results"]) == 2
+        and architect_pair["peak"] == 1
+        and not architect_sol["alive"]
+        and not architect_sol["errors"]
+        and len(architect_sol["results"]) == 2
+        and architect_sol["peak"] == 2
+        and not architect_opus["alive"]
+        and not architect_opus["errors"]
+        and len(architect_opus["results"]) == 2
+        and architect_opus["peak"] == 2)
 
 
 def arm_fifo_state_refuses_without_blocking(source=None):
@@ -685,10 +692,22 @@ def arm_source_mutations():
             arm_repeated_and_concurrent_dedup,
         ),
         (
-            "fable-sol-main-checkout-mutex",
-            [("if dry_run or agent == \"opus\":",
-              "if dry_run or agent in (\"opus\", \"sol\"):", 1)],
-            arm_main_checkout_role_mutex,
+            "architect-keeps-landing-lock",
+            [("if dry_run or agent != \"fable\":",
+              "if True:", 1)],
+            arm_architect_landing_lock_scope,
+        ),
+        (
+            "sol-bypasses-landing-lock",
+            [("if dry_run or agent != \"fable\":",
+              "if dry_run or agent == \"opus\":", 1)],
+            arm_architect_landing_lock_scope,
+        ),
+        (
+            "opus-bypasses-landing-lock",
+            [("if dry_run or agent != \"fable\":",
+              "if dry_run or agent == \"sol\":", 1)],
+            arm_architect_landing_lock_scope,
         ),
         (
             "recovery-recipient-exactness",
@@ -732,7 +751,7 @@ def main():
          arm_unavailable_demand_has_one_debt_line),
         ("watch-only-hook", arm_watch_only_hook),
         ("busy-and-idle-pass-semantics", arm_busy_and_idle_pass_semantics),
-        ("fable-sol-main-checkout-mutex", arm_main_checkout_role_mutex),
+        ("architect-only-landing-lock", arm_architect_landing_lock_scope),
         ("fifo-state-immediate-refusal",
          arm_fifo_state_refuses_without_blocking),
         ("duplicate-and-extra-state-refusal",

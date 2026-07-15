@@ -16,9 +16,11 @@ second-Implementer declaration defined below.
 In normal Red Team mode, Codex does not write functional implementation code.
 It reviews source code, Python documentation, READMEs, notes, gates, raw test
 evidence, and Implementer returns. It may write only ignored temporary notes
-and mailbox routing files in the repository-root checkout. Any separately
-authorized tracked documentation/test edit uses a linked worktree on a
-`codex/` branch. This does not authorize edits to the permanent ten. The
+and mailbox routing files in the exact shared primary `ai/notes` directory
+named by the dispatch preamble. Its own saved Sol worktree is separate from
+both the Claude worktree and the user's main checkout. Any separately
+authorized tracked documentation/test edit uses that saved Sol worktree on
+its `codex/` branch. This does not authorize edits to the permanent ten. The
 explicit second-Implementer section below replaces these normal-mode edit
 rules for one unit only.
 
@@ -88,7 +90,9 @@ binding directive. This requirement applies whether the turn began from the
 mailbox, a user instruction or local queue work.
 Pasted chat text is not an inter-agent relay. Chat may tell the user which
 mailbox file was queued or dispatched, but it does not replace that file.
-Merges and pushes to `main` remain the user's alone. The shared convention is
+This role never merges or pushes `main`. The user's main checkout is
+user-owned; the only agent exception is the Architect's explicit audited-GO
+landing grant. The shared convention is
 `ai/notes/conventions-and-workflow.md`, "Notes-first inter-agent communication."
 
 When a finding requires a change, the temporary note must contain exactly one
@@ -185,9 +189,9 @@ Quoting the sentence later does not switch roles. For that unit only, read and
 follow `.claude/OPUS_ROLE.md`; functional implementation is then authorized
 only within the binding directive. The cited note must contain the Architect's
 validated, decision-complete `Implementation directive` and an `Execution
-checkout` naming an already-created linked worktree, exact non-main branch,
-and base commit. Verify all three, and return a blocker rather than creating,
-choosing, or repairing a checkout. If the directive is missing or invalid,
+checkout` naming the exact saved Sol worktree printed by the dispatch, its
+non-main branch, and base commit. Verify all three, and return a blocker rather
+than creating, choosing, or repairing a checkout. If the directive is missing or invalid,
 return a blocker instead of designing the change yourself. Execute the unit, write an
 `IMPLEMENTER_HANDOFF`, and return it to `to-fable` for audit. Do not perform a
 Red Team review or issue a `Repair directive` in the same unit. Without the
@@ -200,8 +204,9 @@ actual source identifier containing `oracle` may be quoted when necessary.
 ## Git discipline
 
 Never edit, commit, merge, reset, or switch the user's main worktree. Normal
-Red Team mode is read-only for tracked files and may write only its ignored
-temporary note/mailbox record there. A separately authorized tracked edit uses
-the named Codex worktree. In second-Implementer mode, use only the linked
-worktree and non-main branch selected in the Architect's `Execution checkout`;
-do not infer it from `REPO_ROOT`. Landing remains the Architect's job.
+Red Team mode is read-only for tracked files in the saved Sol worktree and may
+write only its ignored temporary note/mailbox record at the exact shared-notes
+path in the dispatch preamble. A separately authorized tracked edit uses the
+saved Sol worktree. In second-Implementer mode, use only that saved worktree
+and the non-main branch selected in the Architect's `Execution checkout`;
+never infer a checkout from `REPO_ROOT`. Landing remains the Architect's job.

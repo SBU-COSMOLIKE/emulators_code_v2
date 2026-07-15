@@ -28,14 +28,16 @@ contract or the Architect's mandatory audit.
 Every headless Architect and Implementer turn executes in one saved primary
 coordination worktree. The route is role-based, not model-based: selecting
 Sonnet, Opus, Fable, or a full Claude model ID does not select another tree.
-Normal Red Team Sol remains at `REPO_ROOT`; explicit second-Implementer Sol
-uses only the linked non-main checkout named by the Architect.
+Sol executes in a separately saved worktree. No ordinary agent turn starts in
+the user's `REPO_ROOT`. An explicit second-Implementer directive must name the
+saved Sol worktree, its exact non-main branch, and its base commit.
 
 On a clean installation, the first valid live `--watch`, `--once`, `--send`,
 or `--ping` creates
 `<REPO_ROOT>/.claude/worktrees/mailbox-primary` on
-`refs/heads/claude/mailbox-primary`. The daemon records it in
-`<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json`. Later commands
+`refs/heads/claude/mailbox-primary`, plus
+`<REPO_ROOT>/.claude/worktrees/mailbox-sol` on
+`refs/heads/codex/mailbox-sol`. The daemon records both choices locally. Later commands
 may be launched from any checkout, but they validate and re-execute in that
 saved primary before dispatch or mailbox mutation. Uncommitted source notes
 and implementation work belong in that primary so both Claude roles see them.
@@ -136,8 +138,9 @@ command.
    inbound whose binding instruction explicitly says the thread is TERMINAL
    and no reply is owed: honor it without manufacturing an outbound. If the
    instruction is ambiguous, the ordinary outbound rule applies. Convention:
-   `ai/notes/conventions-and-workflow.md`, the mailbox addendum. Merges and
-   pushes to main remain the user's alone.
+   `ai/notes/conventions-and-workflow.md`, the mailbox addendum. This role
+   never merges or pushes `main`. The user's main checkout is user-owned; the
+   only agent exception is the Architect's explicit audited-GO landing grant.
 
 6b. **Gate integrity is change-controlled (anti-fraud, user 2026-07-14).**
    You never weaken a check script, threshold, fixture, or golden base to

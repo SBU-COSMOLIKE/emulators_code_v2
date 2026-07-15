@@ -39,7 +39,7 @@ Agents work inside those boundaries.
 **[Appendices about setup and recovery](#appendices-about-setup-and-recovery)**
 
 - [FAQ E1. What should I check first?](#appendix-e--how-do-i-troubleshoot-a-run)
-- [FAQ E2. How do I recover the saved primary worktree?](#faq-e2-primary-recovery)
+- [FAQ E2. How do I recover a saved agent worktree?](#faq-e2-primary-recovery)
 - [FAQ F1. Which folder does each role use?](#appendix-f--what-is-the-worktree-topology)
 - [FAQ F2. May I use another worktree?](#faq-f2-other-worktrees)
 - [FAQ G. How do I install this on another machine?](#appendix-g--how-do-i-install-this-on-another-machine)
@@ -74,17 +74,18 @@ Three objects make this reliable:
 | --- | --- |
 | **Source note** | The written problem, scope, and acceptance checks. It is the source of truth. |
 | **Watcher** | A long-running command that notices mailbox files and launches the correct role. |
-| **Worktree** | A second checked-out folder for the same Git repository. It gives the agents one known place to share uncommitted notes and code. |
+| **Worktree** | Another checked-out folder for the same Git repository. It keeps agent work out of your main folder. |
 
 A **ticket** is one bounded change described by a source note.
 
 A worktree is not a copy made by hand. Git registers it and gives it a branch.
-The mailbox tool creates or reuses one primary coordination worktree, normally
-`.claude/worktrees/mailbox-primary`.
+The mailbox tool creates or reuses two agent worktrees: one shared by Claude
+and one for Sol.
 
 The watcher may be launched from any checkout. Live mailbox commands resolve
-the saved primary and continue there. This prevents two terminals from
-silently using different mailboxes.
+both saved worktrees, then continue from the Claude primary. This prevents two
+terminals from silently using different mailboxes or placing an agent in your
+main folder.
 
 ### Where things live
 
@@ -120,7 +121,7 @@ python3 ai/tools/mailbox_daemon.py --dry-run
 Expected result: pending work, launch commands, and working directories are
 printed. No branch, worktree, lock, or mailbox file is created.
 
-### 2. Create the shared agent folder
+### 2. Create the agent work folders
 
 On a clean clone, run one finite live pass before writing an uncommitted note:
 
@@ -128,14 +129,17 @@ On a clean clone, run one finite live pass before writing an uncommitted note:
 python3 ai/tools/mailbox_daemon.py --once
 ```
 
-Expected result: on a clean installation, the tool creates
-`.claude/worktrees/mailbox-primary` on branch `claude/mailbox-primary`, saves
-that choice, reports the path, checks the current queue, and exits. An empty
-first run prints that the mailbox is empty. Git calls this registered shared
-folder a *worktree*.
+Expected result: on a clean installation, the tool creates and saves two Git
+*worktrees*. A worktree is simply another folder for the same repository,
+with its own branch and working files.
 
-The Architect and Implementer share this folder. The command does not create a
-separate Sol worktree; a dispatched Sol review starts at the repository root.
+- The Architect and Implementer share `mailbox-primary`.
+- Sol uses a separate folder named `mailbox-sol`.
+- Your original repository folder remains yours. No ordinary agent turn starts
+  there.
+
+The command reports the saved paths, checks the current queue, and exits. An
+empty first run prints that the mailbox is empty.
 
 Open the reported primary path for the next step. A newly created worktree
 starts from committed Git state, so it cannot see an uncommitted note written
@@ -221,8 +225,8 @@ python3 ai/tools/handoff_router.py --status
 
 The Architect records exactly one decision for the named unit:
 
-- **GO**: the cited evidence satisfies the gates, and the audited unit may be
-  landed.
+- **GO**: the cited evidence satisfies the gates. The Architect uses its
+  explicit landing grant to land that audited unit in the same turn.
 - **NO-GO**: the unit is held, and the Architect names the smallest repair
   needed for another audit cycle.
 
@@ -749,7 +753,7 @@ the one-at-a-time queue for one working directory.
 flowchart TB
   M["pending message"] --> R{"route"}
   R -->|"fable or opus"| C["primary coordination worktree"]
-  R -->|"sol when enabled"| S["repository root"]
+  R -->|"sol when enabled"| S["saved Sol worktree"]
   C --> Q["one Claude turn at a time"]
   S --> T["one Sol turn"]
   Q --> A["Architect evidence audit"]
@@ -764,14 +768,14 @@ index, notes, and uncommitted code. The daemon therefore gives them one lane.
 
 ### FAQ C2. Where does Sol work? <a id="faq-c2-sol-worktree"></a>
 
-Dispatched Sol starts at `REPO_ROOT`. The daemon does not automatically create
-a separate Sol worktree. In normal Red Team mode it keeps tracked files
-read-only there and writes only ignored ticket/mailbox records.
+Sol never starts in your main repository folder. The daemon creates or reuses
+a saved Sol worktree and starts every enabled Sol turn there. Claude and Sol
+therefore work in different folders.
 
-For a second-Implementer unit, the Architect first names an already-created
-linked worktree, non-main branch, and base commit in `Execution checkout`.
-Sol verifies and works only there. Missing or mismatched checkout information
-is a blocker; Sol never selects a worktree or edits the root `main` checkout.
+For a second-Implementer unit, the Architect's `Execution checkout` must name
+that saved Sol worktree, its non-main branch, and its exact base commit.
+Missing or mismatched checkout information is a blocker. Only the Architect
+may enter your main folder to land a change after recording `GO`.
 
 A two-role watch disables the Sol lane. Queued Sol messages wait untouched.
 
@@ -815,7 +819,8 @@ Architect, and does not perform a Red Team review in the same unit.
 For the manual router, `--mode second-implementer` assigns the supplied unit
 to Sol instead of Opus. It never asks both Implementers to execute one
 directive. Different simultaneous lanes require different notes, disjoint
-file ownership, and separate checkouts. Run that router from the exact linked
+file ownership, and separate checkouts. For a mailbox-run Sol unit, that
+checkout is the saved Sol worktree. Run the manual router from the exact
 worktree named by `Execution checkout`. Before copying any prompt, it proves
 that the path is a Git-registered linked worktree, the non-`main` branch is
 checked out there, and `HEAD` equals the directive's full base commit. Its
@@ -837,7 +842,7 @@ second-Implementer declaration above is still required in the unit.
 | Symptom | Likely meaning | First action |
 | --- | --- | --- |
 | A live command refuses and names several mailbox folders | More than one old mailbox or watcher may exist | Preserve every named folder; rerun from the intended shared worktree |
-| The saved primary worktree is refused | Its saved path, branch, and Git's worktree list disagree | Preserve the folder; compare with `git worktree list --porcelain` |
+| A saved agent worktree is refused | Its saved path, branch, and Git's worktree list disagree | Preserve the folder; compare with `git worktree list --porcelain` |
 | Heartbeat advances but Claude log is small | Claude may be buffering output | Keep watching the elapsed time |
 | Log and clock stop | Child may be hung | Wait for timeout or inspect the process; do not interrupt outside a safe interval |
 | `inflight/` blocks a lane | Archive outcome is uncertain | Inspect source, archive, log, and identity before moving anything |
@@ -845,10 +850,16 @@ second-Implementer declaration above is still required in the unit.
 | Watch exits after a source edit | Its loaded daemon became stale | Relaunch the watcher |
 | Send warns that no watcher holds the mailbox | No live `--watch` owns the primary lock | Start a watcher; the message remains queued |
 
-### FAQ E2. How do I recover the saved primary worktree? <a id="faq-e2-primary-recovery"></a>
+### FAQ E2. How do I recover a saved agent worktree? <a id="faq-e2-primary-recovery"></a>
 
 The daemon never cleans, stashes, resets, checks out, prunes, or recreates a
-saved primary automatically.
+saved Claude or Sol worktree automatically.
+
+If the error names old schema-1 mailbox state, stop every older watcher or
+mailbox command first. Preserve the reported primary folder and mailbox,
+update that non-main worktree to the current daemon, move the old local state
+file aside for recovery, then run the current daemon from that saved primary
+path. The tool does not guess that an older process has stopped.
 
 1. Preserve the reported state file, mailbox, and relay directories.
 2. Run `git worktree list --porcelain`.
@@ -859,41 +870,22 @@ saved primary automatically.
    continues to refuse until its Git identity is repaired.
 
 Dirty, ahead, or diverged work is preserved. The daemon does not merge, fetch,
-pull, or push the primary branch for you.
+pull, or push either saved branch for you.
 
 ### FAQ F1. Which folder does each role use? <a id="appendix-f--what-is-the-worktree-topology"></a>
 
-```mermaid
-flowchart TD
-  C["mailbox command from any checkout"] --> V{"live action?"}
-  V -->|"help, preview, or invalid"| Z["exit without state changes"]
-  V -->|"yes"| S{"saved primary?"}
-  S -->|"valid"| R["reuse primary"]
-  S -->|"absent on clean clone"| N["create mailbox-primary"]
-  S -->|"unsafe or ambiguous"| F["refuse and preserve state"]
-  R --> X["re-execute in primary"]
-  N --> X
-  X --> A["Architect and Implementer share one lane"]
-  X --> O["optional Sol runs at repository root"]
-```
+- You use the repository's main folder.
+- Architect and Implementer share one Claude worktree.
+- Sol uses a different worktree.
 
-Default local infrastructure:
-
-| Resource | Default |
-| --- | --- |
-| Worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
-| Branch | `claude/mailbox-primary` |
-| State | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
-| Bootstrap lock | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.lock` |
-
-The state is local infrastructure, not a file to commit. It records the Git
-common directory, primary name, absolute path, and attached branch. Model
-flags do not change it.
+The daemon creates or reuses both agent worktrees. Agent turns do not start in
+your main folder. The one exception is explicit and narrow: after an audited
+`GO`, the Architect may enter the main folder to land that approved change.
 
 ### FAQ F2. May I use another worktree? <a id="faq-f2-other-worktrees"></a>
 
 An independently launched interactive developer may use another worktree.
-That does not change the mailbox primary.
+That does not change either saved agent worktree.
 
 ### FAQ G. How do I install this on another machine? <a id="appendix-g--how-do-i-install-this-on-another-machine"></a>
 

@@ -272,42 +272,57 @@ quota.
   The sole standing exception is every Fable daemon dispatch: its Architect
   creates and pushes exactly one squash commit per audited GO unit in that
   same turn, after the foreign-commit STOP walk. No other lane inherits the
-  grant. The daemon serializes Fable and Sol turns because both can touch the
-  main checkout; Opus and Sol remain parallel. Only main is pushed; working
-  branches stay local.
+  grant. Only Architect turns take the main-landing lock. Sol works in its
+  own saved worktree and can run beside either Claude role. Only main is
+  pushed; working branches stay local.
 - Ticket substance and resume state go to a local temporary note in the same
   turn. Only the Architect decides whether an accepted fix changes a general
   property in the permanent ten; only then does the Architect edit that note
   and, when useful for discovery, `MEMORY.md`. Milestones do not create
   permanent-note churn.
 
-### Persisted primary coordination worktree (binding, 2026-07-14)
+### Persisted agent worktrees (binding, amended 2026-07-15)
 
 The mailbox daemon owns one persisted Claude coordination worktree shared by
 Architect and Implementer. Sharing is intentional: both roles must see the
 same uncommitted code, notes, and staged index, and their lane remains
 serialized. The saved route belongs to the roles, not their models. Changing
 `--architect-model` or `--implementer-model` never selects another worktree.
-Normal Red Team Sol continues to execute at `REPO_ROOT`. An explicit
-second-Implementer assignment instead uses the exact linked non-main checkout
-named in the validated directive.
+Sol owns a second persisted worktree. Ordinary agent turns never execute in
+the user's `REPO_ROOT`. The Architect's explicit audited-GO landing is the one
+narrow exception. A second-Implementer assignment must name the saved Sol
+worktree, its exact non-main branch, and its base commit.
 
 Clean-install defaults are exact:
 
 | Resource | Value |
 | --- | --- |
-| Name | `mailbox-primary` |
-| Worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
-| Attached branch | `refs/heads/claude/mailbox-primary` |
-| State | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
+| Claude name | `mailbox-primary` |
+| Claude worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
+| Claude branch | `refs/heads/claude/mailbox-primary` |
+| Claude state | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
+| Sol name | `mailbox-sol` |
+| Sol worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-sol` |
+| Sol branch | `refs/heads/codex/mailbox-sol` |
+| Sol state | `<REPO_ROOT>/.claude/worktrees/.mailbox-sol-worktree.json` |
 | Bootstrap lock | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.lock` |
 
-The state is ignored, repository-local infrastructure. Its schema version is
-`1`; it records the canonical Git common directory as `repository`, plus
-`name`, the absolute `path`, and the full `branch` ref. The daemon validates
-those fields against Git's registered worktrees on every reuse and re-executes
-`<saved-primary>/ai/tools/mailbox_daemon.py` with the original arguments,
-Python interpreter, and primary cwd before it touches the mailbox.
+The states are ignored, repository-local infrastructure. Each records the
+canonical Git common directory, name, absolute path, and full branch ref. The
+Claude state also carries the dedicated-Sol topology marker; older daemons
+reject that marker instead of dispatching Sol in the user checkout. The
+daemon validates both states against Git's registered worktrees on every
+reuse and re-executes `<saved-primary>/ai/tools/mailbox_daemon.py` with the
+original arguments, Python interpreter, and primary cwd before it touches the
+mailbox.
+
+A schema-1 primary record is preserved and refused, not automatically
+migrated. An older process may already have validated that record before a
+new process can take any lock, so an in-place migration cannot prove that Sol
+will stay out of the user checkout. Stop every old mailbox process, preserve
+the primary worktree and mailbox, update that worktree to the current daemon,
+move the old local state file aside for recovery, then run the current daemon
+from that saved primary path to initialize the two-worktree topology.
 
 ```mermaid
 stateDiagram-v2
@@ -324,8 +339,9 @@ stateDiagram-v2
   BridgeMain --> ReexecPrimary: copy, reverify, publish state
   AdoptLegacy --> ReexecPrimary: preserve transport and publish state
   Reuse --> ReexecPrimary: verify exact Git identity
-  ReexecPrimary --> SharedClaudeLane: Architect + Implementer
-  ReexecPrimary --> RepoRootLane: optional Sol
+  ReexecPrimary --> SolWorktree: create or verify saved Sol identity
+  SolWorktree --> SharedClaudeLane: Architect + Implementer
+  SolWorktree --> IndependentSolLane: optional Sol
   Refuse --> [*]: preserve state and every mailbox
   NoWrite --> [*]
 ```

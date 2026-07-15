@@ -30,7 +30,15 @@ PRIMARY_NAME = "mailbox-primary"
 PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
 STATE_NAME = ".mailbox-primary-worktree.json"
 LOCK_NAME = ".mailbox-primary-worktree.lock"
-STATE_KEYS = {"schema", "repository", "name", "path", "branch"}
+PRIMARY_STATE_SCHEMA = 2
+PRIMARY_TOPOLOGY = "dedicated-sol-worktree-v1"
+PRIMARY_STATE_KEYS = {
+    "schema", "repository", "name", "path", "branch", "topology"}
+SOL_NAME = "mailbox-sol"
+SOL_BRANCH = "refs/heads/codex/mailbox-sol"
+SOL_STATE_NAME = ".mailbox-sol-worktree.json"
+SOL_STATE_SCHEMA = 1
+SOL_STATE_KEYS = {"schema", "repository", "name", "path", "branch"}
 EXPECTED_MAX_ARCHIVE_FILE_BYTES = 16 * 1024 * 1024
 EXPECTED_MAX_ARCHIVE_TOTAL_BYTES = 64 * 1024 * 1024
 
@@ -105,6 +113,15 @@ def scratch_repository(source=None):
         # Production deliberately requires the repository's real .claude
         # directory to pre-exist; only its worktrees child may be bootstrapped.
         write_exact(root / ".claude" / ".keep", b"")
+        # Sol receives these absolute, read-only instruction files from the
+        # validated Claude primary. They must be committed regular files so
+        # bootstrap proves the same authority boundary as production.
+        write_exact(
+            root / ".claude" / "OPUS_ROLE.md",
+            b"# Scratch Implementer role\n\nFollow the validated directive.\n")
+        write_exact(
+            root / ".codex" / "REDTEAM_ROLE.md",
+            b"# Scratch Red Team role\n\nReview only the named change.\n")
         # Worktrees and their two bootstrap sidecars are runtime state.  The
         # production ignore rule is asserted separately; the scratch rule
         # prevents Git status from recursively inspecting linked checkouts.
@@ -122,6 +139,7 @@ def scratch_repository(source=None):
         # so each linked checkout exercises routing rather than missing-ledger
         # behavior (covered by the rendezvous reproduction).
         git(root, "add", ".gitignore", ".claude/.keep",
+            ".claude/OPUS_ROLE.md", ".codex/REDTEAM_ROLE.md",
             "ai/tools/mailbox_daemon.py")
         git(root, "add", "-f", "ai/notes/backlog.md")
         git(root, "commit", "-m", "scratch daemon fixture")
@@ -167,7 +185,7 @@ def managed_base(root):
 
 
 def state_path(root):
-    """Return the exact v1 state path."""
+    """Return the exact schema-2 Claude-primary state path."""
     return managed_base(root) / STATE_NAME
 
 
@@ -181,6 +199,16 @@ def default_primary(root):
     return managed_base(root) / PRIMARY_NAME
 
 
+def sol_state_path(root):
+    """Return the exact schema-1 Sol-worktree state path."""
+    return managed_base(root) / SOL_STATE_NAME
+
+
+def default_sol(root):
+    """Return the deterministic first-install Sol worktree path."""
+    return managed_base(root) / SOL_NAME
+
+
 def common_directory(root):
     """Return Git's canonical common directory for a scratch checkout."""
     raw = git(root, "rev-parse", "--git-common-dir").stdout.strip()
@@ -191,13 +219,19 @@ def common_directory(root):
 
 
 def load_state(root):
-    """Read the exact persisted v1 state object."""
+    """Read the exact persisted schema-2 Claude-primary state object."""
     with state_path(root).open("r", encoding="utf-8") as stream:
         return json.load(stream)
 
 
+def load_sol_state(root):
+    """Read the exact persisted schema-1 Sol-worktree state object."""
+    with sol_state_path(root).open("r", encoding="utf-8") as stream:
+        return json.load(stream)
+
+
 def validate_state_shape(root, expected_path=None, expected_branch=None):
-    """Return whether persisted state and Git registry agree exactly."""
+    """Return whether schema-2 primary state and Git agree exactly."""
     if expected_path is None:
         expected_path = default_primary(root)
     if expected_branch is None:
@@ -206,7 +240,9 @@ def validate_state_shape(root, expected_path=None, expected_branch=None):
     if not path.is_file() or path.is_symlink():
         return False
     state = load_state(root)
-    if (set(state) != STATE_KEYS or state.get("schema") != 1
+    if (set(state) != PRIMARY_STATE_KEYS
+            or state.get("schema") != PRIMARY_STATE_SCHEMA
+            or state.get("topology") != PRIMARY_TOPOLOGY
             or state.get("repository") != common_directory(root)
             or state.get("name") != expected_path.name
             or state.get("path") != str(expected_path.resolve())
@@ -218,6 +254,56 @@ def validate_state_shape(root, expected_path=None, expected_branch=None):
     return (str(Path(top).resolve()) == str(expected_path.resolve())
             and branch == expected_branch
             and common == common_directory(root))
+
+
+def validate_sol_state_shape(root, expected_path=None):
+    """Return whether schema-1 Sol state and Git agree exactly."""
+    if expected_path is None:
+        expected_path = default_sol(root)
+    path = sol_state_path(root)
+    if not path.is_file() or path.is_symlink():
+        return False
+    state = load_sol_state(root)
+    if (set(state) != SOL_STATE_KEYS
+            or state.get("schema") != SOL_STATE_SCHEMA
+            or state.get("repository") != common_directory(root)
+            or state.get("name") != expected_path.name
+            or state.get("path") != str(expected_path.resolve())
+            or state.get("branch") != SOL_BRANCH):
+        return False
+    top = git(expected_path, "rev-parse", "--show-toplevel").stdout.strip()
+    branch = git(expected_path, "symbolic-ref", "HEAD").stdout.strip()
+    common = common_directory(expected_path)
+    return (str(Path(top).resolve()) == str(expected_path.resolve())
+            and branch == SOL_BRANCH
+            and common == common_directory(root)
+            and expected_path.resolve() != root.resolve())
+
+
+def validate_topology(root, primary_path=None, primary_branch=None,
+                      sol_path=None):
+    """Prove the two saved agent worktrees are valid and disjoint."""
+    if primary_path is None:
+        primary_path = default_primary(root)
+    if sol_path is None:
+        sol_path = default_sol(root)
+    return (
+        validate_state_shape(
+            root, expected_path=primary_path,
+            expected_branch=primary_branch)
+        and validate_sol_state_shape(root, expected_path=sol_path)
+        and primary_path.resolve() != sol_path.resolve()
+        and primary_path.resolve() != root.resolve()
+        and sol_path.resolve() != root.resolve())
+
+
+def root_checkout_identity(root):
+    """Return the user checkout's branch, HEAD, and visible status."""
+    return (
+        git(root, "symbolic-ref", "HEAD").stdout.strip(),
+        git(root, "rev-parse", "HEAD").stdout.strip(),
+        git(root, "status", "--porcelain=v1", "--untracked-files=all")
+        .stdout)
 
 
 def worktree_records(root):
@@ -262,7 +348,7 @@ def load_scratch_daemon(worktree):
 
 
 def arm_all_live_actions_bootstrap(source=None):
-    """Every valid live action provisions, re-execs, and acts in primary."""
+    """Every live action provisions both agent trees without touching root."""
     cases = [
         ("once", ["--once"]),
         ("watch", ["--watch", "--cycle", "0"]),
@@ -273,8 +359,10 @@ def arm_all_live_actions_bootstrap(source=None):
     results = []
     for label, arguments in cases:
         with scratch_repository(source=source) as root:
+            root_before = root_checkout_identity(root)
             rc, stdout, stderr = invoke(root, arguments)
             primary = default_primary(root)
+            sol = default_sol(root)
             acted_in_primary = True
             if label in ("send", "ping"):
                 acted_in_primary = (
@@ -283,11 +371,17 @@ def arm_all_live_actions_bootstrap(source=None):
             records = worktree_records(root)
             passed = (
                 rc == 0 and stderr == ""
-                and validate_state_shape(root)
+                and validate_topology(root)
+                and root_checkout_identity(root) == root_before
+                and len(records) == 3
                 and len([item for item in records
                          if item.get("worktree")
                          == str(primary.resolve())]) == 1
+                and len([item for item in records
+                         if item.get("worktree")
+                         == str(sol.resolve())]) == 1
                 and not (primary / ".claude" / "worktrees").exists()
+                and not (sol / ".claude" / "worktrees").exists()
                 and acted_in_primary)
             results.append(passed)
             print(label + " bootstrap=" + str(passed)
@@ -322,7 +416,10 @@ def arm_help_dry_run_and_invalid_are_zero_write(source=None):
             unchanged = (tree_snapshot(root) == baseline
                          and worktree_records(root) == baseline_registry
                          and not managed_base(root).exists()
-                         and not branch_exists(root))
+                         and not branch_exists(root)
+                         and not branch_exists(root, branch=SOL_BRANCH)
+                         and not sol_state_path(root).exists()
+                         and not default_sol(root).exists())
             passed = passed_rc and unchanged
             outcomes.append(passed)
             print(label + " zero-write=" + str(passed)
@@ -331,10 +428,10 @@ def arm_help_dry_run_and_invalid_are_zero_write(source=None):
 
 
 def arm_reuse_and_cross_checkout_converge(source=None):
-    """A second checkout reuses state and publishes only in primary."""
+    """Another checkout reuses both saved agent trees and primary transport."""
     with scratch_repository(source=source) as root:
         rc, _stdout, _stderr = invoke(root, ["--once"])
-        if rc != 0 or not validate_state_shape(root):
+        if rc != 0 or not validate_topology(root):
             print("initial reuse fixture failed")
             return False
         primary = default_primary(root)
@@ -342,7 +439,9 @@ def arm_reuse_and_cross_checkout_converge(source=None):
         write_exact(dirty, b"keep this uncommitted byte-for-byte\n")
         dirty_before = file_identity(dirty)
         state_before = file_identity(state_path(root))
+        sol_state_before = file_identity(sol_state_path(root))
         primary_head = git(primary, "rev-parse", "HEAD").stdout.strip()
+        root_before = root_checkout_identity(root)
 
         other = root.parent / (root.name + "-other-coordinator")
         git(root, "worktree", "add", "-b", "claude/other-coordinator",
@@ -362,9 +461,11 @@ def arm_reuse_and_cross_checkout_converge(source=None):
                 and pending_markdown(other) == []
                 and file_identity(dirty) == dirty_before
                 and file_identity(state_path(root)) == state_before
+                and file_identity(sol_state_path(root)) == sol_state_before
                 and git(primary, "rev-parse", "HEAD").stdout.strip()
                 == primary_head
-                and len(worktree_records(root)) == 3
+                and root_checkout_identity(root) == root_before
+                and len(worktree_records(root)) == 4
                 and str(primary / "ai" / "notes" / "mailbox")
                 in stdout)
             print("cross-checkout convergence=" + str(passed)
@@ -392,8 +493,8 @@ def arm_existing_linked_coordinator_is_adopted(source=None):
 
         rc, _stdout, _stderr = invoke(existing, ["--once"])
         expected_branch = "refs/heads/claude/existing-coordinator"
-        adopted = (rc == 0 and validate_state_shape(
-            root, expected_path=existing, expected_branch=expected_branch))
+        adopted = (rc == 0 and validate_topology(
+            root, primary_path=existing, primary_branch=expected_branch))
         rc_send, _stdout, _stderr = invoke(
             root, ["--send", "fable", "--unit", "Scratch after adoption."])
         queued = pending_markdown(existing)
@@ -403,7 +504,7 @@ def arm_existing_linked_coordinator_is_adopted(source=None):
             and file_identity(relay) == relay_before
             and [path.name for path in queued] == ["0043-to-fable.md"]
             and not default_primary(root).exists()
-            and len(worktree_records(root)) == 2)
+            and len(worktree_records(root)) == 3)
         print("existing coordinator adoption=" + str(passed))
         return passed
 
@@ -526,7 +627,7 @@ def arm_archived_main_transport_is_bridged(source=None):
                           / archived.name)
         copied_relay = (primary / "ai" / "notes" / "relay" / relay.name)
         bridged = (
-            rc == 0 and stderr == "" and validate_state_shape(root)
+            rc == 0 and stderr == "" and validate_topology(root)
             and copied_archive.read_bytes() == archived.read_bytes()
             and copied_relay.read_bytes() == relay.read_bytes()
             and file_identity(archived) == archived_before
@@ -567,7 +668,7 @@ def arm_interrupted_archive_bridge_is_exactly_resumable(source=None):
         rc, stdout, stderr = invoke(root, ["--once"])
         copied_relay = primary / "ai" / "notes" / "relay" / relay.name
         resumed = (
-            rc == 0 and stderr == "" and validate_state_shape(root)
+            rc == 0 and stderr == "" and validate_topology(root)
             and file_identity(partial) == partial_before
             and copied_relay.read_bytes() == relay.read_bytes()
             and file_identity(archived) == archived_before
@@ -749,10 +850,14 @@ def arm_concurrent_bootstrap_obeys_global_lock(source=None):
         records = worktree_records(root)
         passed = (
             waited and permitted_overlap_refusal and 0 in returncodes
-            and validate_state_shape(root)
+            and validate_topology(root)
+            and len(records) == 3
             and len([item for item in records
                      if item.get("worktree")
-                     == str(default_primary(root).resolve())]) == 1)
+                     == str(default_primary(root).resolve())]) == 1
+            and len([item for item in records
+                     if item.get("worktree")
+                     == str(default_sol(root).resolve())]) == 1)
         print("concurrent bootstrap=" + str(passed)
               + " returncodes=" + repr(returncodes))
         return passed
@@ -835,11 +940,430 @@ def arm_concurrent_managed_root_winner_is_accepted(source=None):
         return passed
 
 
+def arm_legacy_v1_state_refuses_without_mutation(source=None):
+    """A saved v1 topology is preserved and refuses every live dispatch."""
+    with scratch_repository(source=source) as root:
+        managed_base(root).mkdir(parents=True)
+        primary = default_primary(root)
+        git(root, "worktree", "add", "-b", "claude/mailbox-primary",
+            str(primary), "main")
+        legacy = {
+            "schema": 1,
+            "repository": common_directory(root),
+            "name": PRIMARY_NAME,
+            "path": str(primary.resolve()),
+            "branch": PRIMARY_BRANCH,
+        }
+        write_exact(
+            state_path(root),
+            (json.dumps(legacy, sort_keys=True) + "\n").encode("utf-8"))
+        state_before = file_identity(state_path(root))
+        root_before = root_checkout_identity(root)
+        primary_head = git(primary, "rev-parse", "HEAD").stdout.strip()
+
+        preview_rc, preview, preview_err = invoke(
+            root, ["--dry-run", "--once"])
+        preview_preserved = (
+            preview_rc == 0 and preview_err == ""
+            and file_identity(state_path(root)) == state_before
+            and not sol_state_path(root).exists()
+            and not default_sol(root).exists()
+            and "legacy schema-1 state" in preview.lower()
+            and "live action would refuse" in preview.lower())
+        rc, stdout, stderr = invoke(root, ["--once"])
+        explanation = stdout.lower()
+        passed = (
+            preview_preserved
+            and rc != 0 and stderr == ""
+            and file_identity(state_path(root)) == state_before
+            and root_checkout_identity(root) == root_before
+            and git(primary, "rev-parse", "HEAD").stdout.strip()
+            == primary_head
+            and len(worktree_records(root)) == 2
+            and not sol_state_path(root).exists()
+            and not default_sol(root).exists()
+            and not branch_exists(root, branch=SOL_BRANCH)
+            and "schema-1" in explanation
+            and "stop" in explanation
+            and "update" in explanation
+            and "initialize" in explanation)
+        print("legacy v1 topology refusal=" + str(passed)
+              + " rc=" + str(rc))
+        return passed
+
+
+def arm_sol_collisions_and_corrupt_state_fail_closed(source=None):
+    """Sol path/branch collisions and corrupt state never fall back to root."""
+    outcomes = []
+
+    with scratch_repository(source=source) as root:
+        sentinel = default_sol(root) / "sentinel"
+        write_exact(sentinel, b"ordinary Sol-path collision\n")
+        before = file_identity(sentinel)
+        root_before = root_checkout_identity(root)
+        rc, stdout, _stderr = invoke(root, ["--once"])
+        refused = (
+            rc != 0 and file_identity(sentinel) == before
+            and validate_state_shape(root)
+            and not sol_state_path(root).exists()
+            and not branch_exists(root, branch=SOL_BRANCH)
+            and root_checkout_identity(root) == root_before
+            and len(worktree_records(root)) == 2
+            and "not a registered worktree" in stdout)
+        outcomes.append(refused)
+        print("Sol path collision refused=" + str(refused))
+
+    with scratch_repository(source=source) as root:
+        git(root, "branch", "codex/mailbox-sol", "main")
+        sol_sha = git(root, "rev-parse", SOL_BRANCH).stdout.strip()
+        root_before = root_checkout_identity(root)
+        rc, stdout, _stderr = invoke(root, ["--once"])
+        refused = (
+            rc != 0 and validate_state_shape(root)
+            and not sol_state_path(root).exists()
+            and not default_sol(root).exists()
+            and git(root, "rev-parse", SOL_BRANCH).stdout.strip() == sol_sha
+            and root_checkout_identity(root) == root_before
+            and len(worktree_records(root)) == 2
+            and "already exists" in stdout)
+        outcomes.append(refused)
+        print("Sol branch collision refused=" + str(refused))
+
+    with scratch_repository(source=source) as root:
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return False
+        primary = default_primary(root)
+        original = sol_state_path(root).read_bytes()
+        state = json.loads(original.decode("utf-8"))
+        primary_state_before = file_identity(state_path(root))
+        root_before = root_checkout_identity(root)
+        duplicate = (
+            "{\"schema\":1,\"schema\":1,\"repository\":"
+            + json.dumps(state["repository"])
+            + ",\"name\":\"mailbox-sol\",\"path\":"
+            + json.dumps(state["path"])
+            + ",\"branch\":\"refs/heads/codex/mailbox-sol\"}\n")
+        variants = [
+            ("invalid-json", b"{ invalid Sol state\n"),
+            ("duplicate-key", duplicate.encode("utf-8")),
+        ]
+        unknown = dict(state)
+        unknown["topology"] = PRIMARY_TOPOLOGY
+        variants.append((
+            "unknown-key", (json.dumps(unknown) + "\n").encode("utf-8")))
+        foreign = dict(state)
+        foreign["repository"] = str(root / "foreign.git")
+        variants.append((
+            "foreign-repository",
+            (json.dumps(foreign) + "\n").encode("utf-8")))
+        in_root = dict(state)
+        in_root["path"] = str(root)
+        in_root["name"] = root.name
+        variants.append((
+            "user-root-fallback",
+            (json.dumps(in_root) + "\n").encode("utf-8")))
+        shared = dict(state)
+        shared["path"] = str(primary)
+        shared["name"] = primary.name
+        variants.append((
+            "Claude-Sol-collocation",
+            (json.dumps(shared) + "\n").encode("utf-8")))
+        wrong_branch = dict(state)
+        wrong_branch["branch"] = PRIMARY_BRANCH
+        variants.append((
+            "wrong-branch",
+            (json.dumps(wrong_branch) + "\n").encode("utf-8")))
+
+        for label, payload in variants:
+            write_exact(sol_state_path(root), payload)
+            before = file_identity(sol_state_path(root))
+            rc, _stdout, _stderr = invoke(
+                root, ["--send", "fable", "--unit", "must not queue"])
+            refused = (
+                rc != 0 and file_identity(sol_state_path(root)) == before
+                and file_identity(state_path(root)) == primary_state_before
+                and root_checkout_identity(root) == root_before
+                and pending_markdown(root) == []
+                and pending_markdown(primary) == [])
+            outcomes.append(refused)
+            print("Sol " + label + " refused=" + str(refused))
+
+        external = managed_base(root) / ".sol-state-sentinel"
+        write_exact(external, original)
+        sol_state_path(root).unlink()
+        os.symlink(str(external), str(sol_state_path(root)))
+        external_before = file_identity(external)
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        refused = (
+            rc != 0 and sol_state_path(root).is_symlink()
+            and file_identity(external) == external_before
+            and file_identity(state_path(root)) == primary_state_before
+            and root_checkout_identity(root) == root_before)
+        outcomes.append(refused)
+        print("Sol symlink state refused=" + str(refused))
+        sol_state_path(root).unlink()
+
+        if hasattr(os, "mkfifo"):
+            os.mkfifo(str(sol_state_path(root)), 0o600)
+            rc, _stdout, _stderr = invoke(root, ["--once"], timeout=4)
+            refused = rc != 124 and rc != 0
+            outcomes.append(refused)
+            print("Sol fifo state refused=" + str(refused))
+            sol_state_path(root).unlink()
+        write_exact(sol_state_path(root), original)
+    return all(outcomes)
+
+
+def arm_sol_registered_move_and_reuse_are_preserved(source=None):
+    """A Git-managed Sol move updates state; later runs reuse it exactly."""
+    with scratch_repository(source=source) as root:
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return False
+        sol = default_sol(root)
+        moved = managed_base(root) / "mailbox-sol-moved"
+        dirty = sol / "preserve-sol-dirty.txt"
+        write_exact(dirty, b"preserve Sol local work byte-for-byte\n")
+        primary_state_before = file_identity(state_path(root))
+        root_before = root_checkout_identity(root)
+        sol_head = git(sol, "rev-parse", "HEAD").stdout.strip()
+        git(root, "worktree", "move", str(sol), str(moved))
+        dirty_moved = moved / dirty.name
+        dirty_before = file_identity(dirty_moved)
+
+        rc, stdout, stderr = invoke(root, ["--once"])
+        if (rc != 0 or stderr != ""
+                or not validate_topology(root, sol_path=moved)):
+            print("Sol move recovery setup failed rc=" + str(rc)
+                  + " output=" + repr(stdout[-240:]))
+            return False
+        saved_before_reuse = file_identity(sol_state_path(root))
+        rc_reuse, _reuse_out, reuse_err = invoke(root, ["--once"])
+        rc_queue, _queued, queue_err = invoke(
+            root,
+            ["--send", "sol", "--ticket-kind", "closure",
+             "--unit", "Review the saved moved Sol checkout."])
+        rc_preview, preview, preview_err = invoke(
+            root, ["--dry-run", "--once"])
+        checks = {
+            "queue": rc_queue == 0 and queue_err == "",
+            "preview": rc_preview == 0 and preview_err == "",
+            "reuse": rc_reuse == 0 and reuse_err == "",
+            "topology": validate_topology(root, sol_path=moved),
+            "stable-sol-state": (file_identity(sol_state_path(root))
+                                 == saved_before_reuse),
+            "stable-primary-state": (file_identity(state_path(root))
+                                     == primary_state_before),
+            "dirty-preserved": file_identity(dirty_moved) == dirty_before,
+            "head-preserved": (git(moved, "rev-parse", "HEAD")
+                               .stdout.strip() == sol_head),
+            "root-preserved": root_checkout_identity(root) == root_before,
+            "preview-sol": str(moved) in preview,
+            "preview-notes": (str(default_primary(root) / "ai" / "notes")
+                              in preview),
+            "move-reported": "worktree moved by git; saved" in stdout,
+        }
+        passed = all(checks.values())
+        print("Sol registered move and reuse=" + str(passed))
+        if not passed:
+            print("Sol move checks=" + repr(checks)
+                  + " preview-rc=" + str(rc_preview)
+                  + " preview-error=" + repr(preview_err[-500:])
+                  + " preview=" + repr(preview[-500:]))
+        return passed
+
+
+def arm_sol_launch_boundary_revalidates_branch_and_active_state(source=None):
+    """A Sol branch race never becomes a successful child or archive."""
+
+    class PopenProxy:
+        """Override only this imported daemon's Popen attribute."""
+
+        def __init__(self, module, replacement):
+            self.module = module
+            self.replacement = replacement
+
+        def __getattr__(self, name):
+            if name == "Popen":
+                return self.replacement
+            return getattr(self.module, name)
+
+    class ObservedProcess:
+        """Popen-shaped child recording whether topology refusal killed it."""
+
+        def __init__(self):
+            self.returncode = 0
+            self.killed = False
+            self.waited = False
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self):
+            self.waited = True
+            return self.returncode
+
+    def prepare(root, unit, activate=True):
+        """Bootstrap, queue one valid Sol closure, and import its daemon."""
+        rc, _stdout, _stderr = invoke(root, ["--once"])
+        if rc != 0 or not validate_topology(root):
+            return None
+        rc, _stdout, _stderr = invoke(
+            root,
+            ["--send", "sol", "--ticket-kind", "closure", "--unit", unit])
+        primary = default_primary(root)
+        pending = pending_markdown(primary)
+        if rc != 0 or len(pending) != 1:
+            return None
+        daemon = load_scratch_daemon(primary)
+        if activate:
+            daemon.ensure_primary_execution(live_action=True, dry_run=False)
+            daemon.AGENT_COMMANDS = daemon.build_agent_commands(
+                fable_effort=daemon.DEFAULT_FABLE_EFFORT,
+                opus_effort=daemon.DEFAULT_OPUS_EFFORT,
+                sol_effort=daemon.DEFAULT_SOL_EFFORT,
+                sol_context_budget=daemon.DEFAULT_SOL_CONTEXT_BUDGET,
+                sol_worktree=daemon.AGENT_CWD["sol"],
+                shared_notes=daemon.ACTIVE_TOPOLOGY["shared_notes"])
+        return daemon, primary, default_sol(root), pending[0]
+
+    def transport_counts(primary):
+        """Count each durable state for the one raced Sol message."""
+        mailbox = primary / "ai" / "notes" / "mailbox"
+        return {
+            "pending": len(list(mailbox.glob("*-to-sol.md"))),
+            "inflight": len(list((mailbox / "inflight").glob(
+                "*-to-sol.md"))),
+            "done": len(list((mailbox / "done").glob("*-to-sol.md"))),
+            "failed": len(list((mailbox / "failed").glob(
+                "*-to-sol.md"))),
+        }
+
+    outcomes = []
+
+    # No imported caller may dispatch Sol merely because its paths happen to
+    # look plausible. ACTIVE_TOPOLOGY is the live bootstrap capability.
+    with scratch_repository(source=source) as root:
+        prepared = prepare(
+            root, "Refuse this Sol turn without live topology authority.",
+            activate=False)
+        if prepared is None:
+            return False
+        daemon, primary, _sol, message = prepared
+        pending_before = file_identity(message)
+        launches = []
+
+        def forbidden_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            launches.append("admitted")
+            return ObservedProcess()
+
+        original_subprocess = daemon.subprocess
+        daemon.subprocess = PopenProxy(original_subprocess, forbidden_popen)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original_subprocess
+        missing_active_refused = (
+            result is False and launches == []
+            and daemon.ACTIVE_TOPOLOGY is None
+            and message.exists()
+            and file_identity(message) == pending_before
+            and transport_counts(primary)
+            == {"pending": 1, "inflight": 0, "done": 0, "failed": 0})
+        outcomes.append(missing_active_refused)
+        print("Sol missing active topology refused="
+              + str(missing_active_refused))
+
+    # Drift after the initial valid proof and atomic claim, but before Popen.
+    # The before-Popen full revalidation must refuse admission entirely.
+    with scratch_repository(source=source) as root:
+        prepared = prepare(
+            root, "Race the Sol branch after claim and before child launch.")
+        if prepared is None:
+            return False
+        daemon, primary, sol, message = prepared
+        launches = []
+        child = ObservedProcess()
+        real_claim = daemon.claim_message
+
+        def claim_then_switch(path):
+            claimed = real_claim(path=path)
+            if claimed is not None:
+                git(sol, "switch", "--ignore-other-worktrees", "main")
+            return claimed
+
+        def observed_popen(command, stdout, stderr, cwd, env):
+            del command, stdout, stderr, cwd, env
+            launches.append("admitted")
+            return child
+
+        original_subprocess = daemon.subprocess
+        daemon.claim_message = claim_then_switch
+        daemon.subprocess = PopenProxy(original_subprocess, observed_popen)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original_subprocess
+        prelaunch_refused = (
+            result is False and launches == []
+            and not child.killed and not child.waited
+            and git(sol, "symbolic-ref", "HEAD").stdout.strip()
+            == "refs/heads/main"
+            and transport_counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(prelaunch_refused)
+        print("Sol pre-Popen branch race refused=" + str(prelaunch_refused))
+
+    # A switch can occur inside Popen after the last pre-launch check. The
+    # immediate post-Popen full revalidation must kill and reap that child.
+    with scratch_repository(source=source) as root:
+        prepared = prepare(
+            root, "Race the Sol branch while the child is being admitted.")
+        if prepared is None:
+            return False
+        daemon, primary, sol, message = prepared
+        launches = []
+        child = ObservedProcess()
+
+        def switching_popen(command, stdout, stderr, cwd, env):
+            del command, stderr, cwd, env
+            launches.append("admitted")
+            git(sol, "switch", "--ignore-other-worktrees", "main")
+            stdout.write("child returned across a branch race\n")
+            stdout.flush()
+            return child
+
+        original_subprocess = daemon.subprocess
+        daemon.subprocess = PopenProxy(original_subprocess, switching_popen)
+        try:
+            result = daemon.dispatch(path=str(message), dry_run=False)
+        finally:
+            daemon.subprocess = original_subprocess
+        postlaunch_killed = (
+            result is False and launches == ["admitted"]
+            and child.killed and child.waited and child.returncode == -9
+            and git(sol, "symbolic-ref", "HEAD").stdout.strip()
+            == "refs/heads/main"
+            and transport_counts(primary)
+            == {"pending": 0, "inflight": 0, "done": 0, "failed": 1})
+        outcomes.append(postlaunch_killed)
+        print("Sol around-Popen branch race killed="
+              + str(postlaunch_killed))
+
+    return all(outcomes)
+
+
 def arm_corrupt_and_redirected_state_fail_closed(source=None):
     """Invalid state is preserved and never falls back to caller mailbox."""
     with scratch_repository(source=source) as root:
         rc, _stdout, _stderr = invoke(root, ["--once"])
-        if rc != 0 or not validate_state_shape(root):
+        if rc != 0 or not validate_topology(root):
             return False
         primary = default_primary(root)
         original = state_path(root).read_bytes()
@@ -847,11 +1371,12 @@ def arm_corrupt_and_redirected_state_fail_closed(source=None):
         variants = []
         variants.append(("invalid-json", b"{ definitely not json\n"))
         duplicate = (
-            "{\"schema\":1,\"schema\":1,\"repository\":"
+            "{\"schema\":2,\"schema\":2,\"repository\":"
             + json.dumps(state["repository"])
             + ",\"name\":\"mailbox-primary\",\"path\":"
             + json.dumps(state["path"])
-            + ",\"branch\":\"refs/heads/claude/mailbox-primary\"}\n")
+            + ",\"branch\":\"refs/heads/claude/mailbox-primary\""
+            + ",\"topology\":\"dedicated-sol-worktree-v1\"}\n")
         variants.append(("duplicate-key", duplicate.encode("utf-8")))
         unknown = dict(state)
         unknown["model"] = "opus"
@@ -957,29 +1482,61 @@ def arm_git_identity_and_collisions_fail_closed(source=None):
 
 
 def arm_route_topology_remains_role_based(source=None):
-    """Claude shares primary while Sol remains the repository-root lane."""
+    """Claude and Sol use saved disjoint trees; root stays human-owned."""
     with scratch_repository(source=source) as root:
+        root_before = root_checkout_identity(root)
         rc, _stdout, _stderr = invoke(
             root, ["--watch", "--cycle", "0", "--skip-redteam",
                    "--architect-model", "opus",
                    "--implementer-model", "sonnet"])
-        if rc != 0 or not validate_state_shape(root):
+        if rc != 0 or not validate_topology(root):
             return False
         primary = default_primary(root)
+        sol = default_sol(root)
+        rc_queue, _queued, queue_err = invoke(
+            root,
+            ["--send", "sol", "--ticket-kind", "closure",
+             "--unit", "Review the saved Sol worktree topology."])
+        rc_preview, preview, preview_err = invoke(
+            root, ["--dry-run", "--once"])
         daemon = load_scratch_daemon(primary)
         command = daemon.AGENT_COMMANDS["sol"]
         cd_value = command[command.index("--cd") + 1]
+        notes_value = command[command.index("--add-dir") + 1]
         state = load_state(root)
-        passed = (
-            daemon.AGENT_CWD["fable"] == str(primary)
-            and daemon.AGENT_CWD["opus"] == str(primary)
-            and daemon.AGENT_CWD["sol"] == str(root)
-            and cd_value == str(root)
-            and state["name"] == PRIMARY_NAME
-            and "opus" not in state.values()
-            and "sonnet" not in state.values())
+        sol_state = load_sol_state(root)
+        checks = {
+            "queue": rc_queue == 0 and queue_err == "",
+            "preview": rc_preview == 0 and preview_err == "",
+            "preview-cd": ("--cd " + str(sol)) in preview,
+            "preview-notes": (("--add-dir "
+                               + str(primary / "ai" / "notes"))
+                              in preview),
+            "preview-cwd": ("(cwd " + str(sol) + ")") in preview,
+            "fable-primary": daemon.AGENT_CWD["fable"] == str(primary),
+            "opus-primary": daemon.AGENT_CWD["opus"] == str(primary),
+            "sol-dedicated": daemon.AGENT_CWD["sol"] == str(sol),
+            "command-cd": cd_value == str(sol),
+            "command-notes": notes_value == str(primary / "ai" / "notes"),
+            "three-trees": len({daemon.AGENT_CWD["fable"],
+                                daemon.AGENT_CWD["sol"], str(root)}) == 3,
+            "root-preserved": root_checkout_identity(root) == root_before,
+            "primary-name": state["name"] == PRIMARY_NAME,
+            "primary-schema": state["schema"] == PRIMARY_STATE_SCHEMA,
+            "primary-topology": state["topology"] == PRIMARY_TOPOLOGY,
+            "sol-name": sol_state["name"] == SOL_NAME,
+            "sol-schema": sol_state["schema"] == SOL_STATE_SCHEMA,
+            "model-not-persisted": ("opus" not in state.values()
+                                    and "sonnet" not in state.values()),
+        }
+        passed = all(checks.values())
         print("role topology=" + str(passed)
               + " cwd=" + repr(daemon.AGENT_CWD))
+        if not passed:
+            print("role topology checks=" + repr(checks)
+                  + " preview-rc=" + str(rc_preview)
+                  + " preview-error=" + repr(preview_err[-500:])
+                  + " preview=" + repr(preview[-500:]))
         return passed
 
 
@@ -1011,10 +1568,73 @@ def mutation_cases(source):
         '    "opus": WORKTREE,',
         '    "opus": REPO_ROOT,',
         arm_route_topology_remains_role_based)
-    add("Sol moved into primary",
-        '    "sol": REPO_ROOT,',
-        '    "sol": WORKTREE,',
+    add("Sol fell back to user root",
+        '    AGENT_CWD["sol"] = os.path.abspath(sol_path)',
+        '    AGENT_CWD["sol"] = os.path.abspath(REPO_ROOT)',
         arm_route_topology_remains_role_based)
+    add("Sol collocated with Claude",
+        '    AGENT_CWD["sol"] = os.path.abspath(sol_path)',
+        '    AGENT_CWD["sol"] = os.path.abspath(primary_path)',
+        arm_route_topology_remains_role_based)
+    add("Codex cd fell back to user root",
+        '                "--cd", sol_worktree,',
+        '                "--cd", REPO_ROOT,',
+        arm_route_topology_remains_role_based)
+    add("Codex lost primary notes grant",
+        '                "--add-dir", shared_notes],',
+        '                "--add-dir", sol_worktree],',
+        arm_route_topology_remains_role_based)
+    add("missing active Sol topology accepted",
+        '    if ACTIVE_TOPOLOGY is None:\n'
+        '        raise PrimaryWorktreeError(\n'
+        '            "live Sol dispatch has no validated agent-worktree '
+        'topology")',
+        '    if ACTIVE_TOPOLOGY is None:\n'
+        '        return None  # mutation: imported callers gain Sol access',
+        arm_sol_launch_boundary_revalidates_branch_and_active_state)
+    add("pre-Popen Sol topology revalidation dropped",
+        '            if agent == "sol":\n'
+        '                revalidate_sol_dispatch_topology(\n'
+        '                    proof=sol_topology_proof)\n'
+        '            proc = subprocess.Popen(command,',
+        '            if False:\n'
+        '                revalidate_sol_dispatch_topology(\n'
+        '                    proof=sol_topology_proof)\n'
+        '            proc = subprocess.Popen(command,',
+        arm_sol_launch_boundary_revalidates_branch_and_active_state)
+    add("post-Popen Sol topology revalidation dropped",
+        '            try:\n'
+        '                if agent == "sol":\n'
+        '                    revalidate_sol_dispatch_topology(\n'
+        '                        proof=sol_topology_proof)\n'
+        '            except (OSError, PrimaryWorktreeError):',
+        '            try:\n'
+        '                if False:\n'
+        '                    revalidate_sol_dispatch_topology(\n'
+        '                        proof=sol_topology_proof)\n'
+        '            except (OSError, PrimaryWorktreeError):',
+        arm_sol_launch_boundary_revalidates_branch_and_active_state)
+    add("around-Popen Sol Git revalidation reduced to inode check",
+        '    current = validate_live_sol_dispatch_topology()\n',
+        '    current = proof  # mutation: branch and saved state not re-read\n',
+        arm_sol_launch_boundary_revalidates_branch_and_active_state)
+    legacy_refusal = (
+        '    raise PrimaryWorktreeError(\n'
+        '        "legacy schema-1 mailbox state cannot be migrated safely '
+        'while an "\n'
+        '        "older daemon may already be admitted; stop every old '
+        'mailbox "\n'
+        '        "process, preserve the saved primary worktree and mailbox, '
+        'update "\n'
+        '        "that worktree to this daemon version, move the old local '
+        'state "\n'
+        '        "file aside for recovery, then run the current daemon from '
+        'the "\n'
+        '        "saved primary path to initialize the new topology")')
+    add("legacy v1 dispatch accepted",
+        legacy_refusal,
+        "    return state  # mutation: legacy root-Sol runtime can resume",
+        arm_legacy_v1_state_refuses_without_mutation)
     add("duplicate keys accepted",
         "object_pairs_hook=_duplicate_key_refusal",
         "object_pairs_hook=dict",
@@ -1143,6 +1763,14 @@ def main():
          arm_final_publication_fences_late_sender),
         ("concurrent managed root",
          arm_concurrent_managed_root_winner_is_accepted),
+        ("legacy v1 topology refusal",
+         arm_legacy_v1_state_refuses_without_mutation),
+        ("Sol collision and corrupt-state refusal",
+         arm_sol_collisions_and_corrupt_state_fail_closed),
+        ("Sol move and reuse",
+         arm_sol_registered_move_and_reuse_are_preserved),
+        ("Sol launch-boundary topology race",
+         arm_sol_launch_boundary_revalidates_branch_and_active_state),
         ("corrupt state refusal", arm_corrupt_and_redirected_state_fail_closed),
         ("Git identity refusal", arm_git_identity_and_collisions_fail_closed),
         ("role topology", arm_route_topology_remains_role_based),

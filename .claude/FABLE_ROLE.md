@@ -46,18 +46,22 @@ directive.
 Headless Architect and Implementer turns share one saved primary coordination
 worktree. This is a role boundary, not a model choice: changing
 `--architect-model` or `--implementer-model` never selects another tree.
-Normal Red Team Sol remains at `REPO_ROOT`. An explicit second-Implementer
-assignment instead uses the exact linked non-main checkout named in its
-validated directive.
+Sol has a separately saved worktree. Ordinary agent turns never start in
+`REPO_ROOT`; that checkout belongs to the user. Your standing landing grant is
+the sole narrow exception. A second-Implementer directive must name the saved
+Sol worktree, its exact non-main branch, and its base commit.
 
 On a clean installation, the first valid live `--watch`, `--once`, `--send`,
 or `--ping` creates and saves:
 
 | Resource | Default |
 | --- | --- |
-| Worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
-| Branch | `refs/heads/claude/mailbox-primary` |
-| State | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
+| Claude worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-primary` |
+| Claude branch | `refs/heads/claude/mailbox-primary` |
+| Claude state | `<REPO_ROOT>/.claude/worktrees/.mailbox-primary-worktree.json` |
+| Sol worktree | `<REPO_ROOT>/.claude/worktrees/mailbox-sol` |
+| Sol branch | `refs/heads/codex/mailbox-sol` |
+| Sol state | `<REPO_ROOT>/.claude/worktrees/.mailbox-sol-worktree.json` |
 
 Later live commands may start in any checkout, but they validate that record
 against Git and re-execute from the saved primary before dispatch or mailbox
@@ -396,9 +400,9 @@ Two further user rules (2026-07-14) on the same doctrine:
   push before ending the turn; a landing block is not completion. The
   grant is Architect-only and does not flow to Implementer or Red Team
   turns. A context without an explicit grant still returns the audited
-  boundary for the user to land. The daemon serializes every Fable turn
-  with every Sol turn so landing authority cannot race Red Team work in
-  the main checkout; Opus and Sol may still run in parallel.
+  boundary for the user to land. Only Architect turns take the main-landing
+  lock. Sol works in its own saved tree and may run in parallel with either
+  Claude role.
 - **Landing GRANULARITY = one audited unit (user rule, 2026-07-14:
   "one commit with 12 thousand lines changed - that is crazy").**
   "Fewer commits" means feature+audit fused into ONE commit, never
@@ -555,7 +559,7 @@ In second-Implementer mode:
   the handoff cites the same validated, decision-complete `Implementation
   directive` required for the primary Implementer. Sol returns an
   `IMPLEMENTER_HANDOFF`, not a Red Team verdict.
-- The directive's `Execution checkout` names Sol's already-created linked
+- The directive's `Execution checkout` names Sol's saved `mailbox-sol`
   worktree, exact non-main branch, and base commit. Sol verifies all three
   before editing and returns a blocker if any is missing or mismatched. It
   never chooses a checkout and never edits the repository-root main worktree.

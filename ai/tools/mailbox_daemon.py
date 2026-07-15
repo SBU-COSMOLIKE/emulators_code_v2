@@ -29,8 +29,9 @@ What stays manual, on purpose:
 Every live action converges on one persisted primary coordination worktree.
 The first valid action creates or safely adopts it; later actions validate
 the saved Git identity and re-exec this file from that worktree. Architect and
-Implementer share its uncommitted code, notes, and index. Sol remains at the
-repository root as an independent review lane.
+Implementer share its uncommitted code, notes, and index. A second persisted
+worktree belongs to Sol. Ordinary agent turns never start in the user's main
+checkout.
 AGENT_COMMANDS, the CLI binary paths, is the one machine-specific block.
 `claude -p` runs one headless turn against the subscription; the session
 needs enough tool permission to work unattended (set via the harness
@@ -227,17 +228,26 @@ SAFE_KILL_COUNTDOWN_SECONDS = 20
 WATCH_POLL_SECONDS = 20
 MAX_CYCLE_COUNT = 1000000
 
-# One durable coordination checkout belongs to the ROLE pair, not to either
-# Claude model.  A first live CLI action creates (or deliberately adopts) it;
-# later invocations validate this record and re-exec the daemon from there.
-# Sol remains in REPO_ROOT, so its review lane is still independent.
+# One durable coordination checkout belongs to the Claude ROLE pair, not to
+# either Claude model. A second durable checkout belongs to Sol. A first live
+# CLI action creates (or deliberately adopts) the Claude checkout, creates the
+# exact Sol checkout, and saves both Git identities. Later invocations prove
+# both records before any dispatch. REPO_ROOT remains the user's checkout.
 PRIMARY_WORKTREE_NAME = "mailbox-primary"
 PRIMARY_BRANCH = "refs/heads/claude/mailbox-primary"
 PRIMARY_STATE_NAME = ".mailbox-primary-worktree.json"
 PRIMARY_LOCK_NAME = ".mailbox-primary-worktree.lock"
-PRIMARY_STATE_SCHEMA = 1
+LEGACY_PRIMARY_STATE_SCHEMA = 1
+PRIMARY_STATE_SCHEMA = 2
+PRIMARY_TOPOLOGY_MARKER = "dedicated-sol-worktree-v1"
+SOL_WORKTREE_NAME = "mailbox-sol"
+SOL_BRANCH = "refs/heads/codex/mailbox-sol"
+SOL_STATE_NAME = ".mailbox-sol-worktree.json"
+SOL_STATE_SCHEMA = 1
+MAILBOX_TOPOLOGY_VERSION = 2
 MAIN_CHECKOUT_TURN_LOCK_NAME = ".main-checkout-turn.lock"
 MAX_PRIMARY_STATE_BYTES = 16384
+MAX_PRIMARY_DAEMON_BYTES = 2 * 1024 * 1024
 MAX_PRIMARY_ARCHIVE_FILE_BYTES = 16 * 1024 * 1024
 MAX_PRIMARY_ARCHIVE_TOTAL_BYTES = 64 * 1024 * 1024
 MAX_PRIMARY_ARCHIVE_ENTRIES = 10000
@@ -273,6 +283,18 @@ def primary_state_paths(repository_root):
         "lock": os.path.join(managed_root, PRIMARY_LOCK_NAME),
         "default_path": os.path.join(managed_root, PRIMARY_WORKTREE_NAME),
         "default_branch": PRIMARY_BRANCH,
+    }
+
+
+def sol_state_paths(repository_root):
+    """Return every deterministic path used by Sol-worktree bootstrap."""
+    repository = os.path.abspath(repository_root)
+    managed_root = os.path.join(repository, ".claude", "worktrees")
+    return {
+        "managed_root": managed_root,
+        "state": os.path.join(managed_root, SOL_STATE_NAME),
+        "default_path": os.path.join(managed_root, SOL_WORKTREE_NAME),
+        "default_branch": SOL_BRANCH,
     }
 
 
@@ -476,15 +498,22 @@ def load_primary_state(path):
             "primary-worktree state is not exact UTF-8 JSON: " + str(exc))
     if not isinstance(state, dict):
         raise PrimaryWorktreeError("primary-worktree state must be an object")
-    expected = {"schema", "repository", "name", "path", "branch"}
+    base_keys = {"schema", "repository", "name", "path", "branch"}
+    if type(state.get("schema")) is not int:
+        raise PrimaryWorktreeError(
+            "unsupported primary-worktree state schema")
+    schema = state["schema"]
+    if schema == LEGACY_PRIMARY_STATE_SCHEMA:
+        expected = base_keys
+    elif schema == PRIMARY_STATE_SCHEMA:
+        expected = base_keys | {"topology"}
+    else:
+        raise PrimaryWorktreeError(
+            "unsupported primary-worktree state schema")
     if set(state) != expected:
         raise PrimaryWorktreeError(
             "primary-worktree state keys must be exactly "
             + ", ".join(sorted(expected)))
-    if (type(state["schema"]) is not int
-            or state["schema"] != PRIMARY_STATE_SCHEMA):
-        raise PrimaryWorktreeError(
-            "unsupported primary-worktree state schema")
     for key in ("repository", "name", "path", "branch"):
         value = state[key]
         if (not isinstance(value, str) or not value or "\x00" in value
@@ -501,6 +530,10 @@ def load_primary_state(path):
         raise PrimaryWorktreeError("state name must equal the path basename")
     if not state["branch"].startswith("refs/heads/"):
         raise PrimaryWorktreeError("state branch must be an attached head ref")
+    if (schema == PRIMARY_STATE_SCHEMA
+            and state["topology"] != PRIMARY_TOPOLOGY_MARKER):
+        raise PrimaryWorktreeError(
+            "primary-worktree topology marker is unsupported")
     return state
 
 
@@ -601,7 +634,7 @@ def _atomic_write_primary_state(state, path):
     payload = (json.dumps(state, sort_keys=True, indent=2) + "\n").encode(
         "utf-8")
     descriptor, temporary = tempfile.mkstemp(
-        prefix=PRIMARY_STATE_NAME + ".tmp-", dir=directory)
+        prefix=os.path.basename(path) + ".tmp-", dir=directory)
     try:
         os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "wb", closefd=True) as stream:
@@ -628,7 +661,8 @@ def _atomic_write_primary_state(state, path):
         raise
 
 
-def validate_primary_state(state, repository_root, allow_move=False):
+def validate_primary_state(state, repository_root, allow_move=False,
+                           state_path=None):
     """Validate persisted authority; accept only a Git-authorized move."""
     repository = git_common_directory(checkout=repository_root)
     if state["repository"] != repository:
@@ -657,9 +691,10 @@ def validate_primary_state(state, repository_root, allow_move=False):
         resolved["path"] = moved_path
         resolved["name"] = os.path.basename(moved_path)
         if allow_move:
+            if state_path is None:
+                state_path = primary_state_paths(repository_root)["state"]
             _atomic_write_primary_state(
-                state=resolved,
-                path=primary_state_paths(repository_root)["state"])
+                state=resolved, path=state_path)
             print("primary coordination worktree moved by git; saved "
                   + moved_path, flush=True)
         return resolved
@@ -804,6 +839,7 @@ def _primary_state_for_record(record, repository_root):
         "name": os.path.basename(record["path"]),
         "path": os.path.abspath(record["path"]),
         "branch": record["branch"],
+        "topology": PRIMARY_TOPOLOGY_MARKER,
     }
 
 
@@ -1366,6 +1402,242 @@ def provision_or_adopt_primary(repository_root, current_worktree):
         bridge_main=bridge_main, fence_empty_main=not bridge_main)
 
 
+def _upgrade_primary_topology_state(state, repository_root):
+    """Accept topology-aware state; never guess that every old process stopped."""
+    if state["schema"] == PRIMARY_STATE_SCHEMA:
+        return state
+    if state["schema"] != LEGACY_PRIMARY_STATE_SCHEMA:
+        raise PrimaryWorktreeError(
+            "cannot upgrade unsupported primary-worktree state")
+    # An old process can validate schema 1, pause before taking the dispatch
+    # lock, and resume after an apparent in-place migration. No filesystem
+    # lock introduced by this newer code can make that already-admitted old
+    # process re-read state. Automatic migration would therefore make a false
+    # safety claim. Preserve every byte and require an explicit stopped-old-
+    # runtime recovery instead.
+    raise PrimaryWorktreeError(
+        "legacy schema-1 mailbox state cannot be migrated safely while an "
+        "older daemon may already be admitted; stop every old mailbox "
+        "process, preserve the saved primary worktree and mailbox, update "
+        "that worktree to this daemon version, move the old local state "
+        "file aside for recovery, then run the current daemon from the "
+        "saved primary path to initialize the new topology")
+
+
+def _require_primary_daemon_topology_support(primary_path):
+    """Refuse re-exec into a stale primary daemon that would ignore Sol."""
+    daemon = os.path.join(primary_path, "ai", "tools", "mailbox_daemon.py")
+    try:
+        initial = os.lstat(daemon)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot inspect saved primary daemon: " + str(exc))
+    if (stat.S_ISLNK(initial.st_mode) or not stat.S_ISREG(initial.st_mode)
+            or initial.st_size > MAX_PRIMARY_DAEMON_BYTES):
+        raise PrimaryWorktreeError(
+            "saved primary daemon is redirected, irregular, or too large: "
+            + daemon)
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(daemon, flags)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot open saved primary daemon safely: " + str(exc))
+    try:
+        opened = os.fstat(descriptor)
+        chunks = []
+        remaining = MAX_PRIMARY_DAEMON_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        source = b"".join(chunks)
+        after = os.fstat(descriptor)
+        current = os.lstat(daemon)
+    except OSError as exc:
+        raise PrimaryWorktreeError(
+            "cannot read saved primary daemon safely: " + str(exc))
+    finally:
+        os.close(descriptor)
+    identities = ((initial.st_dev, initial.st_ino),
+                  (opened.st_dev, opened.st_ino),
+                  (after.st_dev, after.st_ino),
+                  (current.st_dev, current.st_ino))
+    if (len(set(identities)) != 1 or not stat.S_ISREG(opened.st_mode)
+            or after.st_size != len(source)
+            or len(source) > MAX_PRIMARY_DAEMON_BYTES):
+        raise PrimaryWorktreeError(
+            "saved primary daemon changed while compatibility was checked: "
+            + daemon)
+    declarations = re.findall(
+        br"(?m)^MAILBOX_TOPOLOGY_VERSION = ([0-9]+)$", source)
+    if declarations != [str(MAILBOX_TOPOLOGY_VERSION).encode("ascii")]:
+        raise PrimaryWorktreeError(
+            "saved primary daemon predates dedicated Sol worktrees; update "
+            "that non-main worktree from main without discarding its local "
+            "work, then retry: " + primary_path)
+
+
+def validated_primary_notes(primary_path):
+    """Return the canonical non-redirected shared notes directory."""
+    primary = os.path.realpath(primary_path)
+    _plain_directory(path=primary_path, label="saved primary worktree")
+    ai_root = os.path.join(primary_path, "ai")
+    notes = os.path.join(ai_root, "notes")
+    _plain_directory(path=ai_root, label="saved primary ai directory")
+    _plain_directory(path=notes, label="saved primary notes directory")
+    expected_ai = os.path.join(primary, "ai")
+    expected_notes = os.path.join(expected_ai, "notes")
+    if (os.path.realpath(ai_root) != expected_ai
+            or os.path.realpath(notes) != expected_notes):
+        raise PrimaryWorktreeError(
+            "saved primary notes directory is redirected")
+    return expected_notes
+
+
+def validate_authoritative_role_files(primary_path):
+    """Prove Sol's absolute role instructions are ordinary primary files."""
+    roles = (
+        os.path.join(primary_path, ".codex", "REDTEAM_ROLE.md"),
+        os.path.join(primary_path, ".claude", "OPUS_ROLE.md"),
+    )
+    for role in roles:
+        try:
+            info = os.lstat(role)
+        except OSError as exc:
+            raise PrimaryWorktreeError(
+                "authoritative Sol role file is missing: " + str(exc))
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise PrimaryWorktreeError(
+                "authoritative Sol role file must be a regular file: "
+                + role)
+
+
+def _sol_state_for_record(record, repository_root):
+    """Build the exact persisted Sol record for one validated checkout."""
+    return {
+        "schema": SOL_STATE_SCHEMA,
+        "repository": git_common_directory(checkout=repository_root),
+        "name": os.path.basename(record["path"]),
+        "path": os.path.abspath(record["path"]),
+        "branch": record["branch"],
+    }
+
+
+def validate_sol_state(state, repository_root, primary_state,
+                       allow_move=False):
+    """Validate the saved Sol identity and prove role checkouts are distinct."""
+    if state["schema"] != SOL_STATE_SCHEMA:
+        raise PrimaryWorktreeError("unsupported Sol-worktree state schema")
+    if state["branch"] != SOL_BRANCH:
+        raise PrimaryWorktreeError(
+            "saved Sol worktree must use " + SOL_BRANCH)
+    if primary_state["branch"] == state["branch"]:
+        raise PrimaryWorktreeError(
+            "Sol and Claude must use different branches")
+    resolved = validate_primary_state(
+        state=state, repository_root=repository_root, allow_move=False,
+        state_path=sol_state_paths(repository_root)["state"])
+    sol_path = os.path.realpath(resolved["path"])
+    if sol_path == os.path.realpath(repository_root):
+        raise PrimaryWorktreeError(
+            "Sol worktree must not be the user's repository checkout")
+    if sol_path == os.path.realpath(primary_state["path"]):
+        raise PrimaryWorktreeError(
+            "Sol and Claude must use different worktrees")
+    if allow_move and resolved != state:
+        _atomic_write_primary_state(
+            state=resolved, path=sol_state_paths(repository_root)["state"])
+        print("Sol worktree moved by git; saved " + resolved["path"],
+              flush=True)
+    return resolved
+
+
+def provision_or_reuse_sol(repository_root, primary_state):
+    """Create or validate the one persisted Sol worktree under bootstrap lock."""
+    paths = sol_state_paths(repository_root=repository_root)
+    _managed_primary_root(repository_root=repository_root, create=True)
+    if os.path.lexists(paths["state"]):
+        state = load_primary_state(path=paths["state"])
+        return validate_sol_state(
+            state=state, repository_root=repository_root,
+            primary_state=primary_state, allow_move=True)
+
+    records = registered_worktrees(repository_root=repository_root)
+    default_record = _record_at_path(
+        records=records, path=paths["default_path"])
+    if default_record is not None:
+        if default_record.get("branch") != SOL_BRANCH:
+            raise PrimaryWorktreeError(
+                "default Sol path is registered on another branch: "
+                + paths["default_path"])
+        _validate_primary_record(
+            record=default_record, branch=SOL_BRANCH,
+            repository_root=repository_root)
+        state = _sol_state_for_record(
+            record=default_record, repository_root=repository_root)
+        state = validate_sol_state(
+            state=state, repository_root=repository_root,
+            primary_state=primary_state)
+        _atomic_write_primary_state(state=state, path=paths["state"])
+        print("recovered exact interrupted Sol-worktree bootstrap "
+              + state["path"], flush=True)
+        return state
+
+    branch_records = [record for record in records
+                      if record.get("branch") == SOL_BRANCH]
+    if branch_records:
+        raise PrimaryWorktreeError(
+            "Sol branch is already checked out at an unexpected path: "
+            + ", ".join(sorted(record["path"]
+                               for record in branch_records)))
+    if os.path.lexists(paths["default_path"]):
+        raise PrimaryWorktreeError(
+            "default Sol path exists but is not a registered worktree: "
+            + paths["default_path"])
+    if _branch_exists(repository_root=repository_root, branch=SOL_BRANCH):
+        raise PrimaryWorktreeError(
+            "Sol branch already exists without its registered default "
+            "worktree; refusing to reset or reuse it: " + SOL_BRANCH)
+
+    base = _run_git(
+        repository_root=repository_root,
+        arguments=["rev-parse", "--verify", "refs/heads/main^{commit}"])
+    try:
+        base_commit = base.stdout.decode("ascii", errors="strict").strip()
+    except UnicodeDecodeError as exc:
+        raise PrimaryWorktreeError(
+            "main commit identity is not ASCII: " + str(exc))
+    if not re.fullmatch(r"[0-9a-fA-F]{40,64}", base_commit):
+        raise PrimaryWorktreeError("git returned an invalid main commit")
+    short_branch = SOL_BRANCH[len("refs/heads/"):]
+    _run_git(
+        repository_root=repository_root,
+        arguments=["worktree", "add", "-b", short_branch,
+                   paths["default_path"], base_commit])
+    refreshed = registered_worktrees(repository_root=repository_root)
+    created = _record_at_path(
+        records=refreshed, path=paths["default_path"])
+    if created is None:
+        raise PrimaryWorktreeError(
+            "git created no registered Sol worktree; no Sol state was saved")
+    _validate_primary_record(
+        record=created, branch=SOL_BRANCH, repository_root=repository_root)
+    state = _sol_state_for_record(
+        record=created, repository_root=repository_root)
+    state = validate_sol_state(
+        state=state, repository_root=repository_root,
+        primary_state=primary_state)
+    _atomic_write_primary_state(state=state, path=paths["state"])
+    print("created Sol worktree " + state["path"] + " on " + SOL_BRANCH,
+          flush=True)
+    return state
+
+
 def _open_primary_lock(repository_root):
     """Open and exclusively lock the repo-shared bootstrap inode."""
     paths = primary_state_paths(repository_root=repository_root)
@@ -1406,25 +1678,67 @@ def _release_primary_lock(lock_file):
     lock_file.close()
 
 
+def configure_agent_worktrees(primary_path, sol_path):
+    """Bind every role to its already-validated dispatch checkout."""
+    AGENT_CWD["fable"] = os.path.abspath(primary_path)
+    AGENT_CWD["opus"] = os.path.abspath(primary_path)
+    AGENT_CWD["sol"] = os.path.abspath(sol_path)
+
+
 def ensure_primary_execution(live_action, dry_run):
-    """Validate/provision primary state and re-exec when launched elsewhere.
+    """Validate both agent worktrees and re-exec from the Claude primary.
 
     This is deliberately a CLI-boundary operation.  Importing this module for
     focused function tests remains pure; the real ``__main__`` call invokes it
     after every CLI semantic check and before any mailbox path is touched.
     """
+    global ACTIVE_TOPOLOGY
+
     paths = primary_state_paths(repository_root=REPO_ROOT)
+    sol_paths = sol_state_paths(repository_root=REPO_ROOT)
     state_exists = os.path.lexists(paths["state"])
     if dry_run and not state_exists:
-        print("[dry-run] primary coordination worktree is not initialized; "
-              "a live action would create " + paths["default_path"]
-              + " on " + PRIMARY_BRANCH + " and save " + paths["state"]
-              + ". Previewing this launcher mailbox read-only.")
+        print("[dry-run] agent worktrees are not initialized; a live action "
+              "would create Claude at " + paths["default_path"] + " on "
+              + PRIMARY_BRANCH + " and Sol at " + sol_paths["default_path"]
+              + " on " + SOL_BRANCH + ". Previewing this launcher mailbox "
+              "read-only.")
+        configure_agent_worktrees(
+            primary_path=WORKTREE, sol_path=sol_paths["default_path"])
         return None
     if dry_run:
         state = load_primary_state(path=paths["state"])
         state = validate_primary_state(
             state=state, repository_root=REPO_ROOT, allow_move=False)
+        try:
+            _require_primary_daemon_topology_support(
+                primary_path=state["path"])
+        except PrimaryWorktreeError as exc:
+            print("[dry-run] " + str(exc) + ". No action would be "
+                  "dispatched until that checkout is updated.")
+            configure_agent_worktrees(
+                primary_path=state["path"],
+                sol_path=sol_paths["default_path"])
+            return state
+        if state["schema"] == LEGACY_PRIMARY_STATE_SCHEMA:
+            print("[dry-run] this is legacy schema-1 state; a live action "
+                  "would refuse until every old daemon is stopped and the "
+                  "two-worktree topology is deliberately initialized.")
+            configure_agent_worktrees(
+                primary_path=state["path"],
+                sol_path=sol_paths["default_path"])
+            return state
+        if os.path.lexists(sol_paths["state"]):
+            sol_state = load_primary_state(path=sol_paths["state"])
+            sol_state = validate_sol_state(
+                state=sol_state, repository_root=REPO_ROOT,
+                primary_state=state, allow_move=False)
+        else:
+            print("[dry-run] a live action would create and save Sol at "
+                  + sol_paths["default_path"] + " on " + SOL_BRANCH + ".")
+            sol_state = {"path": sol_paths["default_path"]}
+        shared_notes = validated_primary_notes(primary_path=state["path"])
+        validate_authoritative_role_files(primary_path=state["path"])
     elif live_action:
         lock_file = _open_primary_lock(repository_root=REPO_ROOT)
         try:
@@ -1437,11 +1751,30 @@ def ensure_primary_execution(live_action, dry_run):
             else:
                 state = provision_or_adopt_primary(
                     repository_root=REPO_ROOT, current_worktree=WORKTREE)
+            state = _upgrade_primary_topology_state(
+                state=state, repository_root=REPO_ROOT)
+            _require_primary_daemon_topology_support(
+                primary_path=state["path"])
+            sol_state = provision_or_reuse_sol(
+                repository_root=REPO_ROOT, primary_state=state)
+            shared_notes = validated_primary_notes(
+                primary_path=state["path"])
+            validate_authoritative_role_files(primary_path=state["path"])
         finally:
             _release_primary_lock(lock_file=lock_file)
     else:
         return None
 
+    configure_agent_worktrees(
+        primary_path=state["path"], sol_path=sol_state["path"])
+    if live_action:
+        ACTIVE_TOPOLOGY = {
+            "primary_state": paths["state"],
+            "sol_state": sol_paths["state"],
+            "primary_path": os.path.abspath(state["path"]),
+            "sol_path": os.path.abspath(sol_state["path"]),
+            "shared_notes": shared_notes,
+        }
     if os.path.realpath(WORKTREE) == os.path.realpath(state["path"]):
         return state
     daemon = os.path.join(state["path"], "ai", "tools",
@@ -1894,7 +2227,8 @@ def validate_model_name(value):
 def build_agent_commands(fable_effort, opus_effort, sol_effort,
                          sol_context_budget,
                          architect_model=DEFAULT_ARCHITECT_MODEL,
-                         implementer_model=DEFAULT_IMPLEMENTER_MODEL):
+                         implementer_model=DEFAULT_IMPLEMENTER_MODEL,
+                         sol_worktree=None, shared_notes=None):
     """Assemble the per-agent headless CLI commands at the given settings.
 
     Arguments:
@@ -1911,6 +2245,11 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
                            fable route.
       implementer_model  = Claude alias or full ID launched on the legacy
                            opus route.
+      sol_worktree       = validated worktree used as Sol's cwd and Codex
+                           workspace root (default: deterministic first-run
+                           path; live dispatch always passes saved state).
+      shared_notes       = exact Claude-primary notes directory granted as
+                           Sol's only additional writable directory.
 
     Returns:
       dict mapping "fable"/"opus"/"sol" to the argv list dispatch()
@@ -1918,6 +2257,12 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
     """
     architect_model = validate_model_name(value=architect_model)
     implementer_model = validate_model_name(value=implementer_model)
+    if sol_worktree is None:
+        sol_worktree = sol_state_paths(REPO_ROOT)["default_path"]
+    if shared_notes is None:
+        shared_notes = os.path.join(WORKTREE, "ai", "notes")
+    sol_worktree = os.path.abspath(sol_worktree)
+    shared_notes = os.path.abspath(shared_notes)
     commands = {
         # Absolute path: the user's conda shells resolve an OLDER claude
         # binary with a separate (logged-out) credential store; this one
@@ -1930,9 +2275,10 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
                  "--model", implementer_model,
                  "--effort", opus_effort,
                  "--permission-mode", "acceptEdits"],
-        # Verified by the red team's read-only probe (codex-cli 0.144.2;
-        # the conventions note records the probe): workspace-write sandbox
-        # rooted at the repo, which contains every worktree Sol works in.
+        # Workspace-write is rooted at Sol's validated worktree. The only
+        # additional writable directory is the Claude primary's authoritative
+        # notes transport. REPO_ROOT and the rest of the primary are never
+        # granted to an ordinary Sol turn.
         # service_tier=standard keeps codex Fast Mode OFF for dispatched
         # turns (USER 2026-07-14): the standard tier is slower in
         # wall-clock time but far cheaper against the token quota, and an
@@ -1947,7 +2293,8 @@ def build_agent_commands(fable_effort, opus_effort, sol_effort,
                 "-c", ("model_auto_compact_token_limit="
                        + str(sol_context_budget)),
                 "--sandbox", "workspace-write",
-                "--cd", REPO_ROOT],
+                "--cd", sol_worktree,
+                "--add-dir", shared_notes],
     }
     return commands
 
@@ -1961,15 +2308,20 @@ AGENT_COMMANDS = build_agent_commands(
     sol_context_budget=DEFAULT_SOL_CONTEXT_BUDGET)
 
 # The working directory each dispatched agent starts in. CLI bootstrap proves
-# WORKTREE is the persisted primary before dispatch begins. The Architect and
-# Implementer routes (legacy fable/opus keys) therefore share that worktree;
-# Sol works from the repository root (its command carries the same root in its
-# own --cd), which keeps it in a different lane -- see process_backlog().
+# WORKTREE is the persisted primary before live dispatch begins. The Architect
+# and Implementer routes (legacy fable/opus keys) share that worktree. Sol's
+# deterministic default is replaced by its validated saved path at the CLI
+# boundary; the user checkout is never a live-agent fallback.
 AGENT_CWD = {
     "fable": WORKTREE,
     "opus": WORKTREE,
-    "sol": REPO_ROOT,
+    "sol": sol_state_paths(REPO_ROOT)["default_path"],
 }
+
+# Set only after a live CLI action validates both persisted records. Imported
+# focused tests remain side-effect-free and may supply their own synthetic
+# working directories without pretending to have passed live bootstrap.
+ACTIVE_TOPOLOGY = None
 
 # A message still carrying template placeholders has no job in it; refuse
 # it instead of burning a live headless turn (learned from dispatch 0001).
@@ -2099,8 +2451,8 @@ IMPLEMENTER_ROLE_PREAMBLE = (
     "contradictory, return a blocker instead of making that decision.\n\n")
 
 REDTEAM_ROLE_PREAMBLE = (
-    "ROUTE ROLE: You are the bounded Red Team. Read and obey\n"
-    ".codex/REDTEAM_ROLE.md before acting. This inbound did not place the\n"
+    "ROUTE ROLE: You are the bounded Red Team. Read and obey the exact\n"
+    "authoritative role file named below before acting. This inbound did not place the\n"
     "exact second-Implementer declaration in the required first body line;\n"
     "quoting it elsewhere never changes this role. A confirmed finding must include a validated,\n"
     "implementation-ready Repair directive, but it returns to the Architect\n"
@@ -2108,8 +2460,8 @@ REDTEAM_ROLE_PREAMBLE = (
 
 SECOND_IMPLEMENTER_ROLE_PREAMBLE = (
     "ROUTE ROLE: You are the second Implementer for this unit, not the Red\n"
-    "Team. Read the explicit mode section in .codex/REDTEAM_ROLE.md, then\n"
-    "read and obey .claude/OPUS_ROLE.md. Validate the Architect directive and\n"
+    "Team. Read the exact authoritative Red Team and Implementer role files\n"
+    "named below. Validate the Architect directive and\n"
     "verify its exact linked worktree, non-main branch, and base before any\n"
     "edit. Return a blocker rather than choosing a checkout or design.\n\n")
 
@@ -2121,10 +2473,19 @@ def agent_preamble(agent, message=None):
     if agent == "opus":
         return IMPLEMENTER_ROLE_PREAMBLE
     if agent == "sol":
+        authoritative = (
+            "AUTHORITATIVE ROLE FILES (read these absolute paths, not stale "
+            "copies in the Sol checkout):\n"
+            "    " + os.path.join(AGENT_CWD["fable"], ".codex",
+                                  "REDTEAM_ROLE.md") + "\n"
+            "    " + os.path.join(AGENT_CWD["fable"], ".claude",
+                                  "OPUS_ROLE.md") + "\n")
         if message is not None and sol_second_implementer_assignment(
                 message=message):
-            return SECOND_IMPLEMENTER_ROLE_PREAMBLE
-        return REDTEAM_ROLE_PREAMBLE
+            return (SECOND_IMPLEMENTER_ROLE_PREAMBLE + authoritative
+                    + "Execution checkout must name this saved Sol "
+                    "worktree exactly:\n    " + AGENT_CWD["sol"] + "\n\n")
+        return REDTEAM_ROLE_PREAMBLE + authoritative + "\n"
     raise ValueError("unknown mailbox agent: " + repr(agent))
 
 
@@ -3087,7 +3448,7 @@ def main_checkout_turn_lock_path():
 
 
 def acquire_main_checkout_turn_lock():
-    """Serialize Fable landing authority with every Sol main-checkout turn."""
+    """Serialize turns carrying Architect-only main-landing authority."""
     try:
         lock_path = main_checkout_turn_lock_path()
     except (OSError, PrimaryWorktreeError) as exc:
@@ -3124,25 +3485,108 @@ def acquire_main_checkout_turn_lock():
 
 
 def release_main_checkout_turn_lock(lock_file):
-    """Release a Fable/Sol main-checkout turn lock."""
+    """Release an Architect main-checkout turn lock."""
     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     lock_file.close()
 
 
+def validate_live_sol_dispatch_topology():
+    """Re-prove Sol's saved checkout and narrow notes grant before claim."""
+    if ACTIVE_TOPOLOGY is None:
+        raise PrimaryWorktreeError(
+            "live Sol dispatch has no validated agent-worktree topology")
+    lock_file = _open_primary_lock(repository_root=REPO_ROOT)
+    try:
+        primary = load_primary_state(path=ACTIVE_TOPOLOGY["primary_state"])
+        if primary["schema"] != PRIMARY_STATE_SCHEMA:
+            raise PrimaryWorktreeError(
+                "live dispatch requires topology-aware primary state")
+        primary = validate_primary_state(
+            state=primary, repository_root=REPO_ROOT, allow_move=False)
+        sol = load_primary_state(path=ACTIVE_TOPOLOGY["sol_state"])
+        sol = validate_sol_state(
+            state=sol, repository_root=REPO_ROOT, primary_state=primary,
+            allow_move=False)
+        notes = validated_primary_notes(primary_path=primary["path"])
+        validate_authoritative_role_files(primary_path=primary["path"])
+        expected = ACTIVE_TOPOLOGY
+        if (os.path.abspath(primary["path"]) != expected["primary_path"]
+                or os.path.abspath(sol["path"]) != expected["sol_path"]
+                or notes != expected["shared_notes"]
+                or AGENT_CWD["fable"] != expected["primary_path"]
+                or AGENT_CWD["opus"] != expected["primary_path"]
+                or AGENT_CWD["sol"] != expected["sol_path"]
+                or os.path.realpath(os.path.join(AI_ROOT, "notes"))
+                != expected["shared_notes"]):
+            raise PrimaryWorktreeError(
+                "saved agent topology changed after this process started")
+        command = AGENT_COMMANDS["sol"]
+        if command.count("--cd") != 1 or command.count("--add-dir") != 1:
+            raise PrimaryWorktreeError(
+                "Sol command must carry one exact cwd and notes grant")
+        cd_index = command.index("--cd")
+        add_index = command.index("--add-dir")
+        if cd_index + 1 >= len(command) or add_index + 1 >= len(command):
+            raise PrimaryWorktreeError(
+                "Sol command is missing its cwd or notes value")
+        if (os.path.abspath(command[cd_index + 1])
+                != expected["sol_path"]
+                or os.path.realpath(command[add_index + 1])
+                != expected["shared_notes"]):
+            raise PrimaryWorktreeError(
+                "Sol command no longer matches saved worktree state")
+        sol_identity = _plain_directory(
+            path=expected["sol_path"], label="saved Sol worktree")
+        notes_identity = _plain_directory(
+            path=expected["shared_notes"], label="shared notes directory")
+        return {
+            "sol_path": expected["sol_path"],
+            "sol_identity": sol_identity,
+            "notes_path": expected["shared_notes"],
+            "notes_identity": notes_identity,
+        }
+    finally:
+        _release_primary_lock(lock_file=lock_file)
+
+
+def recheck_sol_dispatch_directories(proof):
+    """Prove launch pathnames still name the pre-claim directories."""
+    if proof is None:
+        raise PrimaryWorktreeError(
+            "live Sol dispatch is missing its topology proof")
+    _require_directory_identity(
+        path=proof["sol_path"], identity=proof["sol_identity"],
+        label="saved Sol worktree")
+    _require_directory_identity(
+        path=proof["notes_path"], identity=proof["notes_identity"],
+        label="shared notes directory")
+
+
+def revalidate_sol_dispatch_topology(proof):
+    """Re-prove all Git and command bindings without accepting a new inode."""
+    recheck_sol_dispatch_directories(proof=proof)
+    current = validate_live_sol_dispatch_topology()
+    if current != proof:
+        raise PrimaryWorktreeError(
+            "saved Sol worktree topology changed after message claim")
+    recheck_sol_dispatch_directories(proof=current)
+    return current
+
+
 def dispatch(path, dry_run, fix_only=False, skip_redteam=False):
-    """Serialize main-checkout-capable roles, then run one dispatch."""
+    """Serialize Architect landing authority, then run one dispatch."""
     match = PENDING_MESSAGE_RE.match(os.path.basename(path))
     if match is None:
         raise ValueError("not a pending agent message: " + path)
     agent = match.group(1)
-    if dry_run or agent == "opus":
+    if dry_run or agent != "fable":
         return dispatch_under_main_checkout_lock(
             path=path, dry_run=dry_run, fix_only=fix_only,
             skip_redteam=skip_redteam)
     lock_file = acquire_main_checkout_turn_lock()
     if lock_file is None:
-        print("refused " + os.path.basename(path) + ": the Fable/Sol "
-              "main-checkout turn lock could not be proved; root message "
+        print("refused " + os.path.basename(path) + ": the Architect "
+              "main-landing turn lock could not be proved; root message "
               "left untouched.")
         return False
     try:
@@ -3175,6 +3619,14 @@ def dispatch_under_main_checkout_lock(
         print("deferred " + name + ": this two-role watch has the Sol route "
               "disabled; the root message remains untouched.")
         return False
+    sol_topology_proof = None
+    if agent == "sol" and not dry_run:
+        try:
+            sol_topology_proof = validate_live_sol_dispatch_topology()
+        except (OSError, PrimaryWorktreeError) as exc:
+            print("refused " + name + ": saved Sol worktree validation "
+                  "failed (" + str(exc) + "); message left untouched.")
+            return False
     # Take one policy snapshot before claim_message() removes this candidate.
     # Dispatch evaluates all OTHER current demand: the already-published
     # candidate must not turn an authorized 9 -> send into a self-refusal at
@@ -3345,14 +3797,30 @@ def dispatch_under_main_checkout_lock(
         else:
             env.pop(SKIP_REDTEAM_ENVIRONMENT, None)
         try:
+            if agent == "sol":
+                revalidate_sol_dispatch_topology(
+                    proof=sol_topology_proof)
             proc = subprocess.Popen(command,
                                     stdout=f,
                                     stderr=subprocess.STDOUT,
                                     cwd=AGENT_CWD[agent],
                                     env=env)
+            try:
+                if agent == "sol":
+                    revalidate_sol_dispatch_topology(
+                        proof=sol_topology_proof)
+            except (OSError, PrimaryWorktreeError):
+                proc.kill()
+                proc.wait()
+                raise
         except (OSError, ValueError) as exc:
             launch_error = exc
             f.write("\n--- dispatch could not start: " + str(exc) + " ---\n")
+        except PrimaryWorktreeError as exc:
+            launch_error = exc
+            proc = None
+            f.write("\n--- dispatch topology changed before launch: "
+                    + str(exc) + " ---\n")
         if proc is not None:
             _rendezvous_turn_started()
             try:
@@ -3654,9 +4122,9 @@ def process_backlog(dry_run, fix_only=False, skip_redteam=False):
     two agents sharing a WORKING DIRECTORY must too: concurrent turns in
     one git tree race each other's index (the 2026-07-14 incident where a
     live edit was swept into another agent's commit). So the parallel unit
-    is the cwd: Fable+Opus (same worktree) serialize. Sol can run alongside
-    Opus, but every Fable and Sol turn shares the repository-wide
-    main-checkout lock because a Fable landing mutates the tree Sol reviews.
+    is the cwd: Fable+Opus (same worktree) serialize. Sol has its own saved
+    worktree and can run alongside either Claude role. Only Architect turns
+    take the root landing-authority lock.
 
     Arguments:
       dry_run  = True to print the would-be commands without running them.
@@ -4482,7 +4950,11 @@ def main():
         sol_effort=args.sol_effort,
         sol_context_budget=args.sol_context,
         architect_model=args.architect_model,
-        implementer_model=args.implementer_model)
+        implementer_model=args.implementer_model,
+        sol_worktree=AGENT_CWD["sol"],
+        shared_notes=(ACTIVE_TOPOLOGY["shared_notes"]
+                      if ACTIVE_TOPOLOGY is not None
+                      else os.path.join(AGENT_CWD["fable"], "ai", "notes")))
     if args.watch:
         print("role models: architect=" + args.architect_model
               + " implementer=" + args.implementer_model

@@ -52,6 +52,29 @@ def load_daemon(source=None):
     return module
 
 
+def install_test_sol_topology_proof(daemon):
+    """Install an explicit synthetic Sol topology proof in a scratch daemon.
+
+    Arguments:
+      daemon = the freshly loaded scratch daemon module.
+
+    Returns:
+      None.
+    """
+    expected_proof = object()
+
+    def validate_test_topology():
+        return expected_proof
+
+    def revalidate_test_topology(proof):
+        if proof is not expected_proof:
+            raise AssertionError("scratch Sol topology proof changed")
+        return expected_proof
+
+    daemon.validate_live_sol_dispatch_topology = validate_test_topology
+    daemon.revalidate_sol_dispatch_topology = revalidate_test_topology
+
+
 @contextlib.contextmanager
 def scratch_daemon(open_count=0, create_mailbox=True, source=None):
     """Point a fresh daemon at a disposable repository and exact ledger."""
@@ -87,6 +110,7 @@ def scratch_daemon(open_count=0, create_mailbox=True, source=None):
             "opus": str(root),
             "sol": str(root),
         }
+        install_test_sol_topology_proof(daemon=daemon)
         # These are side effects of a successful publication, not the policy
         # under test.  Stubbing them also makes a refusal's zero-call property
         # explicit in the dedicated arm below.

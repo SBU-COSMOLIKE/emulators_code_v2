@@ -40,6 +40,29 @@ def load_daemon(source=None):
     return module
 
 
+def install_test_sol_topology_proof(daemon):
+    """Install an explicit synthetic Sol topology proof in a scratch daemon.
+
+    Arguments:
+      daemon = the freshly loaded scratch daemon module.
+
+    Returns:
+      None.
+    """
+    expected_proof = object()
+
+    def validate_test_topology():
+        return expected_proof
+
+    def revalidate_test_topology(proof):
+        if proof is not expected_proof:
+            raise AssertionError("scratch Sol topology proof changed")
+        return expected_proof
+
+    daemon.validate_live_sol_dispatch_topology = validate_test_topology
+    daemon.revalidate_sol_dispatch_topology = revalidate_test_topology
+
+
 @contextlib.contextmanager
 def scratch_daemon(source=None):
     """Redirect a fresh daemon and every state path into a temporary tree."""
@@ -74,6 +97,7 @@ def scratch_daemon(source=None):
             "opus": str(shared_lane),
             "sol": str(sol_lane),
         }
+        install_test_sol_topology_proof(daemon=daemon)
         daemon.report_landing_debt = lambda: None
         yield daemon, root, mailbox, backlog
 
