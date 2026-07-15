@@ -88,7 +88,7 @@ You do not need prior AI-agent or Git-worktree experience. Start with one
 request moving through four steps:
 
 ```mermaid
-flowchart LR
+flowchart TD
   U["You write down one change"] --> A["Architect writes the plan"]
   A --> I["Implementer changes and tests the code"]
   I --> C["Architect checks the result"]
@@ -439,20 +439,28 @@ explanatory strings.
 ### How does a reported problem become a tested fix?
 
 ```mermaid
-flowchart LR
-  F["Finding"] --> R["Independent reproduction"]
-  R --> S["Source note and gates"]
-  S --> C["Repair and regression test"]
-  C --> G["Machine gate output"]
-  G --> A{"Architect audit"}
-  A -->|"GO"| L["One accepted squash"]
-  A -->|"NO-GO"| D["Bounded repair delta"]
+flowchart TD
+  F["Problem is reported"] --> R["Another person or role confirms the problem"]
+  R --> S["Write the source note and exact checks"]
+  S --> C["Repair the problem and add a test for it"]
+  C --> G["Run the checks and save their results"]
+  G --> A{"Architect checks the evidence"}
+  A -->|"GO"| L["Accept the tested fix"]
+  A -->|"NO-GO"| D["Write exact repair instructions"]
   D --> C
 ```
 
+A problem is first reported, then another person or role confirms the same
+failure. The Architect writes the problem and exact checks in the source note.
+The Implementer repairs the problem, adds a test, runs the checks, and saves
+the results. The Architect reads that evidence.
+
+`GO` accepts the tested fix. `NO-GO` sends exact repair instructions back to
+the repair step.
+
 A regression test keeps the same bug from returning unnoticed. It should prove
-that it detects the original defect. Where practical, reintroduce or mutate the
-defect and show that the check turns red.
+that it detects the original defect. Where practical, deliberately restore or
+alter the bug and confirm that the test fails.
 
 ### Run the validation board
 
@@ -738,12 +746,14 @@ second watcher from starting the same request. When the role finishes, the
 watcher tries to move that same file to `done/` or `failed/`.
 
 ```mermaid
-flowchart LR
-  W["waiting request file"] -->|"move this exact file before starting"| I["work in progress: inflight/"]
-  I -->|"role succeeds and the final move is confirmed"| D["finished: done/"]
-  I -->|"role fails, refuses, or times out and the final move is confirmed"| F["not completed: failed/"]
-  I -->|"watcher cannot confirm the final move"| B["keep in inflight/; later work in the same AI folder waits"]
-  H["reply addressed to the user"] --> U["user reads it; watcher does not run it"]
+flowchart TD
+  W["waiting request file"] --> M["watcher moves this exact file before starting"]
+  M --> I["work in progress: inflight/"]
+  I --> S{"Did the role succeed and did the watcher confirm done/?"}
+  S -->|"yes"| D["finished: done/"]
+  S -->|"no"| F{"Did the role fail, refuse, or time out and did the watcher confirm failed/?"}
+  F -->|"yes"| X["not completed: failed/"]
+  F -->|"no"| B["keep in inflight/; later work in the same AI folder waits"]
 ```
 
 Messages ending in `-to-user.md` are replies for a person to read. The watcher
@@ -799,7 +809,7 @@ that are already starting or running. It then either exits or prints the
 20-second Ctrl-C countdown before beginning another cycle.
 
 ```mermaid
-flowchart LR
+flowchart TD
   W["look for messages and run jobs"] --> E{"five launched jobs finished or 15 minutes passed since this cycle began?"}
   E -->|"no"| W
   E -->|"yes"| N["do not start another job"]
@@ -940,12 +950,12 @@ known item may continue.
 
 ```mermaid
 flowchart TD
-  Q["waiting mailbox files that the watcher can send"] --> N["add these two recorded counts"]
-  B["backlog lines beginning - OPEN"] --> N
-  N --> T{"ten or more items already waiting?"}
-  T -->|"no"| O["a new search may start"]
-  T -->|"yes"| X["refuse a search for a new problem"]
-  T -->|"yes"| C["still allow work on a known item"]
+  Q["Count waiting mailbox files that the watcher can send"] --> B["Count backlog lines beginning - OPEN"]
+  B --> N["Add the two counts"]
+  N --> T{"Are ten or more items already waiting?"}
+  T -->|"no"| O["A new search may start"]
+  T -->|"yes"| X["Refuse only a search for a new problem"]
+  X --> C["Work on a known item may continue"]
 ```
 
 ### FAQ D2. When may Sol implement instead of review? <a id="faq-d2-second-implementer"></a>
