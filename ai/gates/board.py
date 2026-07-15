@@ -1818,6 +1818,24 @@ def gate_artifact_readback(ctx):
              + " (ai/gates/checks/artifact_readback.py)")
 
 
+def gate_artifact_composition(ctx):
+  """artifact-composition: required mode facts precede construction.
+
+  The child owns one aggregate evidence terminal.  It exercises the four
+  valid HDF5 rows, thirty forged rows, writer/read submode symmetry, and
+  source witnesses proving the reader runs before geometry/model construction
+  or weight loading and that downstream consumers route on the validated mode.
+  """
+  ctx.require_caps("torch")
+  rc, out = ctx.run_check("ai/gates/checks/artifact_composition.py")
+  if ctx.dry:
+    return
+  ctx.expect(label="artifact-composition child completed",
+             ok=(rc == 0),
+             detail="check exit code " + str(rc)
+                    + " (ai/gates/checks/artifact_composition.py)")
+
+
 def gate_fixed_facts_schema(ctx):
   """fixed-facts-schema: a saved emulator records the science it was born under.
 
@@ -2409,6 +2427,26 @@ BOARD = [
                            "artifacts-inference-warmstart.md#artifact-readback-typed-bool"),),
        run=gate_artifact_readback,
        manifest=Manifest(code=("emulator/designs", "emulator/losses"),
+                         inputs=()),
+       needs=("torch",)),
+  Gate(id="artifact-composition",
+       spec_code="ACM-A",
+       title="Artifact composition mode is required before construction",
+       tier=TIER_BACKLOG,
+       home="artifacts-inference-warmstart",
+       maps="the authoritative composition contract: native required plain / "
+            "npce / transfer mode plus native transfer-refined fact; exact "
+            "required and forbidden HDF5 groups in both directions; resolved "
+            "record corroboration; legacy presence-only artifacts refuse; "
+            "validation precedes recipe, geometry, model, and weight loading",
+       evidence=(Assertion(
+         "artifact-composition.contract",
+         "artifacts-inference-warmstart.md#artifact-composition-contract"),),
+       run=gate_artifact_composition,
+       manifest=Manifest(code=("emulator/results.py",
+                               "emulator/inference.py",
+                               "emulator/warmstart.py",
+                               "emulator/designs", "emulator/losses"),
                          inputs=()),
        needs=("torch",)),
   Gate(id="diagnostics-domain",

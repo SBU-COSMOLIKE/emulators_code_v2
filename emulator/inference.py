@@ -76,6 +76,33 @@ from . import fixed_facts
 from .results import rebuild_emulator
 
 
+def _select_composition(composition_mode, pce_base, transfer_base):
+  """Select decoder payloads from the validated authoritative mode.
+
+  ``rebuild_emulator`` has already checked the HDF5 enum against its exact
+  required/forbidden group set.  This second boundary keeps inference from
+  drifting back to presence-based dispatch if a caller constructs or mutates
+  an ``info`` record in memory.
+  """
+  if type(composition_mode) is not str or composition_mode not in (
+      "plain", "npce", "transfer"):
+    raise ValueError(
+      "composition_mode must be 'plain', 'npce', or 'transfer', got "
+      + repr(composition_mode))
+  expect_pce = composition_mode == "npce"
+  expect_transfer = composition_mode == "transfer"
+  have_pce = pce_base is not None
+  have_transfer = transfer_base is not None
+  if have_pce != expect_pce or have_transfer != expect_transfer:
+    raise ValueError(
+      "validated composition_mode=" + repr(composition_mode)
+      + " requires pce_base=" + repr(expect_pce)
+      + " and transfer_base=" + repr(expect_transfer)
+      + ", but rebuild info carries pce_base=" + repr(have_pce)
+      + " and transfer_base=" + repr(have_transfer))
+  return pce_base, transfer_base
+
+
 def _is_named_pair(params):
   """Is this input the (names, values) pair, or a bare row of numbers?
 
@@ -322,6 +349,15 @@ class EmulatorPredictor:
                    fixed_facts.INPUT_DOMAIN_GROUP: info["input_domain"]}
     self.fixed_facts  = self.record[fixed_facts.FIXED_FACTS_GROUP]
     self.input_domain = self.record[fixed_facts.INPUT_DOMAIN_GROUP]
+    self.composition_mode = info["composition_mode"]
+    self.transfer_refined = info["transfer_refined"]
+    pce_base, transfer_base = _select_composition(
+      composition_mode=self.composition_mode,
+      pce_base=info["pce_base"],
+      transfer_base=info["transfer_base"])
+    pce_form = info["pce_form"]
+    transfer_form = info["transfer_form"]
+    transfer_space = info["transfer_space"]
     # the artifact's identity, named in every refusal the laws raise. A refusal
     # that does not say WHICH file it refused sends the reader back to a config
     # to guess, and a chain that serves several emulators has several to guess
@@ -348,11 +384,12 @@ class EmulatorPredictor:
       self.output_names = list(self.geom.names)
       self._dtype = self.pgeom.center.dtype
       self._decode = self._build_diag_decoder(
-        pce_base=info["pce_base"],
-        pce_form=info["pce_form"],
-        transfer_base=info["transfer_base"],
-        transfer_form=info["transfer_form"],
-        transfer_space=info["transfer_space"])
+        composition_mode=self.composition_mode,
+        pce_base=pce_base,
+        pce_form=pce_form,
+        transfer_base=transfer_base,
+        transfer_form=transfer_form,
+        transfer_space=transfer_space)
       return
     # grid (background-function) emulator: predict returns
     # {"z": grid, quantity: row} — the raw physical function on the
@@ -366,11 +403,12 @@ class EmulatorPredictor:
       self.z        = self.geom.z
       self._dtype   = self.pgeom.center.dtype
       self._decode  = self._build_diag_decoder(
-        pce_base=info["pce_base"],
-        pce_form=info["pce_form"],
-        transfer_base=info["transfer_base"],
-        transfer_form=info["transfer_form"],
-        transfer_space=info["transfer_space"])
+        composition_mode=self.composition_mode,
+        pce_base=pce_base,
+        pce_form=pce_form,
+        transfer_base=transfer_base,
+        transfer_form=transfer_form,
+        transfer_space=transfer_space)
       return
     # grid2d (matter-power-spectrum) emulator: predict returns
     # the LAW-SPACE surface on the stored (z, k) axes — log(P/P_base)
@@ -385,11 +423,12 @@ class EmulatorPredictor:
       self.k        = self.geom.k
       self._dtype   = self.pgeom.center.dtype
       self._decode  = self._build_diag_decoder(
-        pce_base=info["pce_base"],
-        pce_form=info["pce_form"],
-        transfer_base=info["transfer_base"],
-        transfer_form=info["transfer_form"],
-        transfer_space=info["transfer_space"])
+        composition_mode=self.composition_mode,
+        pce_base=pce_base,
+        pce_form=pce_form,
+        transfer_base=transfer_base,
+        transfer_form=transfer_form,
+        transfer_space=transfer_space)
       return
     # CMB spectrum emulator: predict returns the physical C_ell
     # row on the stored multipole grid (a 1-D numpy array over .ell), so
@@ -404,22 +443,22 @@ class EmulatorPredictor:
       self.amplitude_law  = info["amplitude_law"]
       # an NPCE or transfer cmb artifact composes base + net (law "none"
       # enforced at training); otherwise the law-dispatched decode.
-      if (info["pce_base"] is not None
-          or info["transfer_base"] is not None):
+      if self.composition_mode != "plain":
         if info["amplitude_law"] != "none":
-          kind = "an NPCE base" if info["pce_base"] is not None \
-              else "a transfer base"
+          kind = ("an NPCE base" if self.composition_mode == "npce"
+                  else "a transfer base")
           raise ValueError(
             "the saved emulator carries both " + kind + " and "
             "amplitude_law " + repr(info["amplitude_law"]) + "; the two "
             "are mutually exclusive (validate_cmb), so the file is "
             "inconsistent")
         self._decode = self._build_diag_decoder(
-          pce_base=info["pce_base"],
-          pce_form=info["pce_form"],
-          transfer_base=info["transfer_base"],
-          transfer_form=info["transfer_form"],
-          transfer_space=info["transfer_space"])
+          composition_mode=self.composition_mode,
+          pce_base=pce_base,
+          pce_form=pce_form,
+          transfer_base=transfer_base,
+          transfer_form=transfer_form,
+          transfer_space=transfer_space)
       else:
         self._decode = self._build_cmb_decoder(law=info["amplitude_law"],
                                                as_name=info["as_name"],
@@ -436,31 +475,22 @@ class EmulatorPredictor:
     self.probe         = self.geom.probe
 
     ia       = info["ia"]
-    pce_base = info["pce_base"]
-    pce_form = info["pce_form"]
     # a transfer artifact embeds its frozen base (info["transfer_base"] holds
     # the rebuilt base model + both geometries; form / space say how to
     # compose). On such a run info["ia"] is the CORRECTION net's inherited
     # design, consumed by the transfer decoder, not a standalone factored run.
-    transfer_base  = info.get("transfer_base")
-    transfer_form  = info.get("transfer_form")
-    transfer_space = info.get("transfer_space")
-    if ia is not None and pce_base is not None:
+    if ia is not None and self.composition_mode == "npce":
       raise ValueError(
         "the saved emulator carries both a factored-IA design and an NPCE "
         "base; the two are mutually exclusive (pce excludes ia), so the "
         "file is inconsistent")
-    if transfer_base is not None and pce_base is not None:
-      raise ValueError(
-        "the saved emulator carries both a transfer base and an NPCE base; "
-        "the two are mutually exclusive (transfer excludes pce), so the file "
-        "is inconsistent")
 
     # the physical-dv decoder: reuse the EXACT training chi2fn.decode so the
     # amplitude combine / NPCE recombine / transfer composition are
     # single-sourced, never re-derived here (the drift channel the standing
     # rule kills).
     self._decode = self._build_decoder(ia=ia,
+                                       composition_mode=self.composition_mode,
                                        pce_base=pce_base,
                                        pce_form=pce_form,
                                        transfer_base=transfer_base,
@@ -637,7 +667,7 @@ class EmulatorPredictor:
                                       where_a=self._where,
                                       where_b=other._where)
 
-  def _build_diag_decoder(self, pce_base, pce_form,
+  def _build_diag_decoder(self, composition_mode, pce_base, pce_form,
                           transfer_base=None, transfer_form=None,
                           transfer_space=None):
     """Pick the whitened-output -> physical map for a diagonal family.
@@ -652,6 +682,7 @@ class EmulatorPredictor:
     (byte-identical to the pre-NPCE path).
 
     Arguments:
+      composition_mode = validated plain / npce / transfer fact.
       pce_base      = the frozen PCEEmulator rebuilt off the h5, or None.
       pce_form      = the persisted combine form; a diagonal family
                       persists only "residual" (else a corrupt file).
@@ -665,12 +696,11 @@ class EmulatorPredictor:
       closure ignores x_enc, the NPCE / transfer decodes evaluate their
       base from it.
     """
-    if transfer_base is not None and pce_base is not None:
-      raise ValueError(
-        "the saved emulator carries both a transfer base and an NPCE "
-        "base; the two are mutually exclusive (transfer excludes pce), "
-        "so the file is inconsistent")
-    if transfer_base is not None:
+    pce_base, transfer_base = _select_composition(
+      composition_mode=composition_mode,
+      pce_base=pce_base,
+      transfer_base=transfer_base)
+    if composition_mode == "transfer":
       from .losses.transfer import TransferDiagChi2
       chi2 = TransferDiagChi2(
         geom=self.geom,
@@ -681,7 +711,7 @@ class EmulatorPredictor:
       # TransferDiagChi2.decode(pred, params_whitened) matches the
       # predictor's (pred, x_enc) decoder convention.
       return chi2.decode
-    if pce_base is None:
+    if composition_mode == "plain":
       def _diag_plain_decode(pred, x_enc):
         # the module output is the whitened row itself; no base.
         return self.geom.decode(pred)
@@ -740,7 +770,7 @@ class EmulatorPredictor:
     # predictor's (pred, x_enc) decoder convention.
     return chi2.decode
 
-  def _build_decoder(self, ia, pce_base, pce_form,
+  def _build_decoder(self, ia, composition_mode, pce_base, pce_form,
                      transfer_base=None, transfer_form=None,
                      transfer_space=None):
     """Pick the whitened-output -> physical-dv map for this run's branch.
@@ -753,6 +783,7 @@ class EmulatorPredictor:
 
     Arguments:
       ia             = the factored design name (nla / tatt) or None.
+      composition_mode = validated plain / npce / transfer fact.
       pce_base       = the frozen PCEEmulator base or None.
       pce_form       = the NPCE form (residual / ratio) or None.
       transfer_base  = the rebuilt frozen transfer base bundle ({model, pgeom,
@@ -769,7 +800,11 @@ class EmulatorPredictor:
       amplitudes / evaluate the base from it.
     """
     geom = self.geom
-    if transfer_base is not None:
+    pce_base, transfer_base = _select_composition(
+      composition_mode=composition_mode,
+      pce_base=pce_base,
+      transfer_base=transfer_base)
+    if composition_mode == "transfer":
       # the transfer decoder composes the frozen base with the correction
       # on the base's own column slice, exactly as training did
       # (TransferChi2.decode single-sourced). The base family (plain vs
@@ -812,7 +847,7 @@ class EmulatorPredictor:
                                   n_amps=self.pgeom.n_amps)
       return chi2.decode
 
-    if pce_base is not None:
+    if composition_mode == "npce":
       from .losses.pce import PCEResidualChi2, PCERatioChi2
       if pce_form == "residual":
         chi2 = PCEResidualChi2(geom=geom, pce=pce_base)

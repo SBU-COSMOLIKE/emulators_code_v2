@@ -204,6 +204,10 @@ def save_synthetic_dv(root, device, label, support, seed=11):
                              "thresholds": torch.tensor([0.2, 1.0, 10.0])},
                   train_args={"nepochs": 1}, resolved_train={"nepochs": 1},
                   resolved_model=recipe,
+                  composition_mode="plain",
+                  transfer_refined=False,
+                  resolved_pce=None,
+                  resolved_transfer=None,
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
@@ -257,6 +261,10 @@ def save_synthetic_scalar(root, device, label, seed=31):
                              "thresholds": torch.tensor([0.2, 1.0])},
                   train_args={"nepochs": 1}, resolved_train={"nepochs": 1},
                   resolved_model=recipe,
+                  composition_mode="plain",
+                  transfer_refined=False,
+                  resolved_pce=None,
+                  resolved_transfer=None,
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,

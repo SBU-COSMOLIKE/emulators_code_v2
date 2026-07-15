@@ -1122,12 +1122,27 @@ def save_synthetic_grid2d(
     # the double is for, and it fixes the identity the record holds: doubles
     # that belong to one dataset are handed the same label, doubles that must
     # be told apart are handed different ones.
+    composition_mode = "transfer" if transfer_base is not None else "plain"
+    transfer_refined = (
+        transfer_base is not None
+        and transfer_base.get("drifted_state") is not None)
+    resolved_transfer = None
+    if transfer_base is not None:
+        resolved_transfer = {"form": transfer_base["form"],
+                             "space": transfer_base["space"]}
+        if transfer_refined:
+            resolved_transfer["refine"] = {
+                "fixture": "embedded-drifted-state"}
     save_emulator(path_root=str(root), model=model, param_geometry=pgeom,
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=grid2d_recipe(z.size * k.size),
                   transfer_base=transfer_base,
+                  composition_mode=composition_mode,
+                  transfer_refined=transfer_refined,
+                  resolved_pce=None,
+                  resolved_transfer=resolved_transfer,
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label=label,
@@ -1584,6 +1599,10 @@ def check_head(tmp, device):
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1},
                   resolved_model=grid2d_head_recipe(width),
+                  composition_mode="plain",
+                  transfer_refined=False,
+                  resolved_pce=None,
+                  resolved_transfer=None,
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label="mps-identity/correction-head",
@@ -1691,6 +1710,16 @@ def check_npce(tmp, device):
                   resolved_train={"nepochs": 1},
                   resolved_model=grid2d_recipe(width),
                   pce=pce, pce_form="residual",
+                  composition_mode="npce",
+                  transfer_refined=False,
+                  resolved_pce={"form": "residual",
+                                "p_max": 2,
+                                "r_max": 2,
+                                "q": 0.5,
+                                "k_max": 4,
+                                "loo_max": 0.9,
+                                "max_terms": 8},
+                  resolved_transfer=None,
                   facts_yaml=fixed_facts.synthetic_sidecar(
                       names=pgeom.state()["names"],
                       label="mps-identity/npce-power",

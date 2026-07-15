@@ -217,6 +217,8 @@ def save_plain_base(root, device, label):
                 geometry=geom, config=base_config(), histories=histories(),
                 train_args=base_config()["train_args"],
                 resolved_train={"nepochs": 1}, resolved_model=recipe,
+                composition_mode="plain", transfer_refined=False,
+                resolved_pce=None, resolved_transfer=None,
                 facts_yaml=fixed_facts.synthetic_sidecar(
                   names=pg.state()["names"],
                   label=label,
@@ -260,6 +262,8 @@ def save_factored_base(root, device, label):
                 geometry=geom, config=base_config(), histories=histories(),
                 train_args=base_config()["train_args"],
                 resolved_train={"nepochs": 1}, resolved_model=recipe,
+                composition_mode="plain", transfer_refined=False,
+                resolved_pce=None, resolved_transfer=None,
                 facts_yaml=fixed_facts.synthetic_sidecar(
                   names=pg.state()["names"],
                   label=label,
@@ -558,6 +562,9 @@ def check_lifecycle(device, tmp):
                 train_args=base_config()["train_args"],
                 resolved_train={"nepochs": 1}, resolved_model=corr_recipe,
                 transfer_base=transfer_base,
+                composition_mode="transfer", transfer_refined=False,
+                resolved_pce=None,
+                resolved_transfer={"form": "gain", "space": "physical"},
                 facts_yaml=fixed_facts.synthetic_sidecar(
                   names=new_pgeom.state()["names"],
                   label="transfer-identity/lifecycle-transfer-run",
@@ -693,6 +700,12 @@ def check_refined_lifecycle(device, tmp):
                 train_args=base_config()["train_args"],
                 resolved_train={"nepochs": 1}, resolved_model=corr_recipe,
                 transfer_base=transfer_base,
+                composition_mode="transfer", transfer_refined=True,
+                resolved_pce=None,
+                resolved_transfer={
+                  "form": "gain",
+                  "space": "physical",
+                  "refine": {"fixture": "synthetic-drift"}},
                 facts_yaml=fixed_facts.synthetic_sidecar(
                   names=new_pgeom.state()["names"],
                   label="transfer-identity/refined-transfer-run",
@@ -922,6 +935,9 @@ def check_diagonal(device, tmp):
                                "dv_geometry": geom,
                                "form": "sum",
                                "space": "whitened"},
+                composition_mode="transfer", transfer_refined=False,
+                resolved_pce=None,
+                resolved_transfer={"form": "sum", "space": "whitened"},
                 facts_yaml=fixed_facts.synthetic_sidecar(
                   names=pg.state()["names"],
                   label="transfer-identity/diagonal-transfer-run",
@@ -970,6 +986,8 @@ def check_diagonal(device, tmp):
                 train_args=plain_cfg["train_args"],
                 resolved_train={"nepochs": 1},
                 resolved_model=grid_base_recipe(names, int(z.size)),
+                composition_mode="plain", transfer_refined=False,
+                resolved_pce=None, resolved_transfer=None,
                 facts_yaml=fixed_facts.synthetic_sidecar(
                   names=pg.state()["names"],
                   label="transfer-identity/cross-family-base",

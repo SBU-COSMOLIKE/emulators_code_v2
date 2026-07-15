@@ -89,7 +89,7 @@ import os
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.experiment import EmulatorExperiment
-from emulator.results import save_emulator
+from emulator.results import executed_composition, save_emulator
 
 
 def run_tag(cfg, exp):
@@ -217,6 +217,9 @@ def main():
            "outputs":      " ".join(exp.outputs),
            "train_params": os.path.basename(cfg["data"]["train_params"]),
            "val_params":   os.path.basename(cfg["data"]["val_params"])}
+  pce = exp.chi2fn.pce if exp.pce_opts is not None else None
+  composition_mode, transfer_refined = executed_composition(
+    pce=pce, transfer_base=None)
   emul_path, h5_path = save_emulator(
     path_root=save_root,
     model=model,
@@ -231,13 +234,18 @@ def main():
     train_args=exp.train_args,
     # the NPCE base rides every family (the 2026-07-12 ruling); a scalar
     # run still has no transfer base (a recorded ruling).
-    pce=(exp.chi2fn.pce if exp.pce_opts is not None else None),
+    pce=pce,
     pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
     # schema v2: the resolved recipes (consumed view), so the saved run
     # rebuilds bit-exactly even if code defaults later drift.
     resolved_train=exp.resolved_train,
     resolved_model=exp.resolved_model,
     transfer_base=None,
+    composition_mode=composition_mode,
+    transfer_refined=transfer_refined,
+    resolved_pce=(dict(exp.pce_opts)
+                  if exp.pce_opts is not None else None),
+    resolved_transfer=None,
     # the generator's scientific record, carried here verbatim from the staged
     # training source (data_staging.read_facts_sidecar put it there): the
     # cosmology the dataset was generated under and the parameter region it was

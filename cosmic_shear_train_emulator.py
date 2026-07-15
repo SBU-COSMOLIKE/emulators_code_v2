@@ -187,7 +187,7 @@ import re
 from emulator.cocoa import (
   add_cocoa_path_args, resolve_cocoa_config, cocoa_output)
 from emulator.experiment import EmulatorExperiment
-from emulator.results import save_emulator
+from emulator.results import executed_composition, save_emulator
 
 
 def run_tag(cfg, exp):
@@ -432,7 +432,6 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
       drifted    = tb.model.state_dict()          # the drifted base (stage 2)
       transfer_base["state"]         = pretrained
       transfer_base["drifted_state"] = drifted
-      attrs["transfer_refined"] = True
       # relative drift ||W_drift - W_0|| / ||W_0|| per parameter and overall.
       import math
       sq_num = 0.0
@@ -449,6 +448,9 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
                                    if sq_den > 0.0 else 0.0)
       log(f"transfer refine: base relative drift "
           f"{attrs['base_drift_total']:.3e} (total)")
+  pce = exp.chi2fn.pce if exp.pce_opts is not None else None
+  composition_mode, transfer_refined = executed_composition(
+    pce=pce, transfer_base=transfer_base)
   emul_path, h5_path = save_emulator(
     path_root=save_root,
     model=model,
@@ -463,7 +465,7 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
     train_args=exp.train_args,
     # NPCE runs: persist the fitted base + its combine form (from_state
     # rebuilds base + refiner off the h5); None for a plain run.
-    pce=(exp.chi2fn.pce if exp.pce_opts is not None else None),
+    pce=pce,
     pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
     # schema v2: the resolved recipes (consumed view), so the saved run
     # rebuilds bit-exactly even if code defaults later drift.
@@ -471,6 +473,12 @@ def main(prog="cosmic_shear_train_emulator", family="cosmolike"):
     resolved_model=exp.resolved_model,
     # transfer runs: the frozen base embedded whole (None for every other run).
     transfer_base=transfer_base,
+    composition_mode=composition_mode,
+    transfer_refined=transfer_refined,
+    resolved_pce=(dict(exp.pce_opts)
+                  if exp.pce_opts is not None else None),
+    resolved_transfer=(exp.resolved_train.get("transfer")
+                       if transfer_base is not None else None),
     # the generator's scientific record, carried here verbatim from the staged
     # training source (data_staging.read_facts_sidecar put it there): the
     # cosmology the dataset was generated under and the parameter region it was

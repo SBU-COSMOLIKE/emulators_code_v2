@@ -14,6 +14,7 @@ drifted weights, then confirm the typed reader refuses it) needs a real HDF5
 artifact and is owned by the workstation artifact-integrity gate; this leg
 proves the read-boundary type contract with no file.
 """
+import ast
 import os
 import sys
 
@@ -80,8 +81,25 @@ def check_no_truthiness_census():
     hits = [p for p in bad_patterns if p in src]
     report("no artifact boolean attribute is read by truthiness coercion",
            len(hits) == 0, "offending patterns: " + repr(hits))
+    tree = ast.parse(src)
+    typed_calls = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id != "_read_native_bool" or not node.args:
+            continue
+        first = node.args[0]
+        if (isinstance(first, ast.Attribute)
+                and first.attr == "attrs"
+                and isinstance(first.value, ast.Name)
+                and first.value.id == "f"):
+            typed_calls.append(node.lineno)
     report("the typed reader _read_native_bool is the read boundary",
-           "_read_native_bool(f.attrs" in src, "transfer_refined routed through it")
+           len(typed_calls) > 0,
+           "transfer_refined routed through it at lines "
+           + repr(typed_calls))
 
 
 def check_scalar_records_rescale():

@@ -244,6 +244,9 @@ def train_save(cfg, device, save_root, label, persist_root=None):
   with torch.no_grad():
     live_out = model(exp.pgeom.encode(probe)).detach().clone()
 
+  composition_mode = "npce" if exp.pce_opts is not None else "plain"
+  resolved_pce = (dict(exp.pce_opts)
+                  if exp.pce_opts is not None else None)
   save_kwargs = dict(
     model=model,
     param_geometry=exp.pgeom,
@@ -259,6 +262,10 @@ def train_save(cfg, device, save_root, label, persist_root=None):
     pce_form=(exp.pce_opts["form"] if exp.pce_opts is not None else None),
     resolved_train=exp.resolved_train,
     resolved_model=exp.resolved_model,
+    composition_mode=composition_mode,
+    transfer_refined=False,
+    resolved_pce=resolved_pce,
+    resolved_transfer=None,
     facts_yaml=fixed_facts.synthetic_sidecar(
       names=exp.pgeom.state()["names"],
       label=label,

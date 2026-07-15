@@ -218,6 +218,10 @@ def save_synthetic_source(root, device):
                 train_args=config["train_args"],
                 resolved_train={"nepochs": 1},
                 resolved_model=source_recipe(),
+                composition_mode="plain",
+                transfer_refined=False,
+                resolved_pce=None,
+                resolved_transfer=None,
                 attrs={"rescale": "none"})
   return pgeom, geom
 

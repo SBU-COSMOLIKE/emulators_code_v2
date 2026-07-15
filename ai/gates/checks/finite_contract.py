@@ -711,7 +711,10 @@ def _save_source(root):
                 geometry=geom, config=config, histories=histories,
                 train_args=config["train_args"],
                 resolved_train={"nepochs": 1},
-                resolved_model=_source_recipe(), attrs={"rescale": "none"})
+                resolved_model=_source_recipe(),
+                composition_mode="plain", transfer_refined=False,
+                resolved_pce=None, resolved_transfer=None,
+                attrs={"rescale": "none"})
 
 
 def _write_covmat(path, names, seed):

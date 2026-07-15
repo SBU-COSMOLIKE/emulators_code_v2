@@ -27,6 +27,10 @@ class Grid2DConstMaskDeclarationTests(unittest.TestCase):
                     config={},
                     histories={},
                     attrs={_GRID2D_MASK_DECLARATION: "forged"},
+                    composition_mode="plain",
+                    transfer_refined=False,
+                    resolved_pce=None,
+                    resolved_transfer=None,
                 )
             self.assertFalse(os.path.exists(root + ".emul"))
             self.assertFalse(os.path.exists(root + ".h5"))

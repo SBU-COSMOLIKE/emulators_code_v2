@@ -41,6 +41,12 @@ from . import fixed_facts
 
 _GRID2D_CLASS = "emulator.geometries.grid2d.Grid2DGeometry"
 _GRID2D_MASK_DECLARATION = "dv_geometry_const_mask_sha256"
+_COMPOSITION_MODE_ATTR = "composition_mode"
+_TRANSFER_REFINED_ATTR = "transfer_refined"
+_COMPOSITION_MODES = ("plain", "npce", "transfer")
+_PCE_FORMS = ("residual", "ratio")
+_TRANSFER_FORMS = ("gain", "sum")
+_TRANSFER_SPACES = ("physical", "whitened")
 
 
 def _grid2d_const_mask_digest(const_mask):
@@ -282,6 +288,133 @@ def save_sweep_table(path, param, values, fracs, meta=None):
     f.write("\n".join(lines) + "\n")
 
 
+def executed_composition(pce, transfer_base):
+  """Return the composition facts selected by one executed run.
+
+  This helper belongs to the writer side only. It derives the declarations
+  from the live objects the trainer is about to persist; readers never call it
+  and never infer a missing artifact declaration from group presence.
+  """
+  if pce is not None and transfer_base is not None:
+    raise ValueError(
+      "an executed run cannot carry both an NPCE base and a transfer base")
+  if transfer_base is not None:
+    if not isinstance(transfer_base, dict):
+      raise TypeError("transfer_base must be a mapping when transfer is on")
+    refined = transfer_base.get("drifted_state") is not None
+    return "transfer", refined
+  if pce is not None:
+    return "npce", False
+  return "plain", False
+
+
+def _validate_executed_composition(
+    *, composition_mode, transfer_refined, pce, pce_form, transfer_base,
+    resolved_pce, resolved_transfer, where):
+  """Validate writer declarations against every composition payload surface.
+
+  Validation runs before either output file is touched. The native enum and
+  boolean come from the executed trainer; the payload groups and resolved
+  records must corroborate them in both directions.
+  """
+  if type(composition_mode) is not str or composition_mode not in \
+      _COMPOSITION_MODES:
+    raise ValueError(
+      where + ": composition_mode must be one native string in "
+      + repr(_COMPOSITION_MODES) + ", got " + repr(composition_mode))
+  if type(transfer_refined) is not bool:
+    raise ValueError(
+      where + ": transfer_refined must be a native boolean, got "
+      + repr(transfer_refined))
+
+  derived_mode, derived_refined = executed_composition(
+    pce=pce, transfer_base=transfer_base)
+  if composition_mode != derived_mode:
+    raise ValueError(
+      where + ": composition_mode=" + repr(composition_mode)
+      + " disagrees with the executed payload, which is "
+      + repr(derived_mode))
+  if transfer_refined != derived_refined:
+    raise ValueError(
+      where + ": transfer_refined=" + repr(transfer_refined)
+      + " disagrees with transfer_base/drifted_state="
+      + repr(derived_refined))
+
+  if composition_mode == "plain":
+    if pce_form is not None:
+      raise ValueError(where + ": plain composition forbids pce_form")
+    if resolved_pce is not None or resolved_transfer is not None:
+      raise ValueError(
+        where + ": plain composition forbids resolved pce/transfer records")
+  elif composition_mode == "npce":
+    if type(pce_form) is not str or pce_form not in _PCE_FORMS:
+      raise ValueError(
+        where + ": npce composition requires one native pce_form in "
+        + repr(_PCE_FORMS))
+    if not isinstance(resolved_pce, dict) or resolved_transfer is not None:
+      raise ValueError(
+        where + ": npce composition requires resolved_pce and forbids "
+        "resolved_transfer")
+    resolved_pce_form = resolved_pce.get("form")
+    if type(resolved_pce_form) is not str \
+        or resolved_pce_form not in _PCE_FORMS:
+      raise ValueError(
+        where + ": resolved_pce.form must be one native string in "
+        + repr(_PCE_FORMS))
+    if resolved_pce_form != pce_form:
+      raise ValueError(
+        where + ": resolved_pce.form disagrees with the persisted pce form")
+  else:
+    if pce_form is not None:
+      raise ValueError(where + ": transfer composition forbids pce_form")
+    if resolved_pce is not None or not isinstance(resolved_transfer, dict):
+      raise ValueError(
+        where + ": transfer composition requires resolved_transfer and "
+        "forbids resolved_pce")
+    transfer_form = transfer_base.get("form")
+    if type(transfer_form) is not str \
+        or transfer_form not in _TRANSFER_FORMS:
+      raise ValueError(
+        where + ": transfer_base.form must be one native string in "
+        + repr(_TRANSFER_FORMS))
+    transfer_space = transfer_base.get("space")
+    if type(transfer_space) is not str \
+        or transfer_space not in _TRANSFER_SPACES:
+      raise ValueError(
+        where + ": transfer_base.space must be one native string in "
+        + repr(_TRANSFER_SPACES))
+    resolved_transfer_form = resolved_transfer.get("form")
+    if (type(resolved_transfer_form) is not str
+        or resolved_transfer_form not in _TRANSFER_FORMS):
+      raise ValueError(
+        where + ": resolved_transfer.form must be one native string in "
+        + repr(_TRANSFER_FORMS))
+    resolved_transfer_space = resolved_transfer.get("space")
+    if (type(resolved_transfer_space) is not str
+        or resolved_transfer_space not in _TRANSFER_SPACES):
+      raise ValueError(
+        where + ": resolved_transfer.space must be one native string in "
+        + repr(_TRANSFER_SPACES))
+    if resolved_transfer_form != transfer_form:
+      raise ValueError(
+        where + ": resolved_transfer.form disagrees with transfer_base.form")
+    if resolved_transfer_space != transfer_space:
+      raise ValueError(
+        where + ": resolved_transfer.space disagrees with "
+        "transfer_base.space")
+    resolved_refine = resolved_transfer.get("refine")
+    if resolved_refine is not None and type(resolved_refine) is not dict:
+      raise ValueError(
+        where + ": resolved_transfer.refine must be a mapping when present")
+    resolved_refined = resolved_refine is not None
+    if resolved_refined != transfer_refined:
+      raise ValueError(
+        where + ": resolved_transfer.refine presence disagrees with "
+        "transfer_refined=" + repr(transfer_refined))
+
+  return composition_mode, transfer_refined
+
+
 def save_emulator(path_root,
                   model,
                   param_geometry,
@@ -295,7 +428,12 @@ def save_emulator(path_root,
                   resolved_train=None,
                   resolved_model=None,
                   transfer_base=None,
-                  facts_yaml=None):
+                  facts_yaml=None,
+                  *,
+                  composition_mode,
+                  transfer_refined,
+                  resolved_pce,
+                  resolved_transfer):
   """
   Persist a trained emulator as <path_root>.emul + <path_root>.h5.
 
@@ -341,8 +479,9 @@ def save_emulator(path_root,
                      epoch, one column per threshold), thresholds.
     config_yaml      the driver's resolved config (data + train_args
                      blocks), as YAML text.
-    config_resolved_yaml  the consumed config, defaults materialized
-                     (resolved_train + the data block), so a saved run
+    config_resolved_yaml  the consumed config, defaults materialized: native
+                     composition facts, resolved pce / transfer records,
+                     resolved_train, and data. A saved run therefore
                      reconstructs even if code defaults drift.
     model_recipe     the serializable model rebuild recipe (class qualname,
                      dims, every constructor kwarg, the act / norm / head
@@ -376,7 +515,7 @@ def save_emulator(path_root,
     checked line by line. The house rule is that a saved run
     reconstructs from the file alone, so the read side never falls
     back to a code default: every key it needs is fetched through the
-    _need / _read_native_bool helpers, which raise a named error when
+    _need / _read_artifact_composition helpers, which raise a named error when
     the key is absent instead of substituting a value. The rows marked
     "not read (provenance)" are written on purpose as a paper trail
     (plots, audits, git history); rebuild_emulator does not consume
@@ -397,21 +536,24 @@ def save_emulator(path_root,
                                     |   grid2d facts below are read off
                                     |   this rebuilt geometry object, not
                                     |   from separate h5 keys
-      pce/ group (NPCE runs) +      | PCEEmulator.from_state(pce_grp) and
+      root composition_mode +      | _read_artifact_composition validates
+        transfer_refined attrs;    |   the root facts, exact group matrix,
+        composition fields in      |   resolved record, and declared raw
+        config_resolved_yaml;       |   config before construction; returns
+        config_yaml declarations   |   info composition_mode / refined
+      pce/ group (NPCE runs) +      | mode == "npce" selects the group;
         its "form" attr             |   _need(pce_grp, "form") -> pce_base,
                                     |   pce_form
-      transfer_base/ group          | read whole when "transfer_base" in f:
+      transfer_base/ group          | mode == "transfer" reads the whole:
         (transfer runs):            |   tb_recipe / tb_state / tb_pgeom /
         model_recipe, state/,       |   tb_geom rebuilt, then _rebuild_model
         param_geometry/,            |   builds the frozen base; form / space
         dv_geometry/,               |   -> transfer_form / transfer_space;
         "form" + "space" attrs,     |   an embedded Grid2D declaration is
         Grid2D mask declaration     |   validated before its output geometry
-      transfer_base/drifted_state/  | _read_group(tb["drifted_state"])
-        (refined runs only) +       |   replaces tb_state; the root attr is
-        root attr transfer_refined  |   read as a native bool by
-                                    |   _read_native_bool, then cross-checked
-                                    |   two-way against the group's presence
+      transfer_base/drifted_state/  | validated transfer_refined == True
+        (refined runs only)         |   selects _read_group(drifted_state);
+                                    |   membership never selects the mode
       model_recipe (YAML)           | yaml.safe_load(f["model_recipe"]) ->
                                     |   recipe; drives _rebuild_model (cls,
                                     |   dims, kwargs, act / norm / head
@@ -431,16 +573,18 @@ def save_emulator(path_root,
       history/ group (train_losses, | not read (provenance): per-epoch
         val_medians, val_means,     |   training curves for plots and audit
         val_fracs, thresholds)      |
-      config_yaml,                  | not read (provenance): the verbatim and
-        train_args_yaml,            |   resolved config text, kept so a saved
-        config_resolved_yaml        |   run documents what it consumed
+      config_yaml,                  | composition declarations are checked;
+        config_resolved_yaml        |   the rest remains provenance / consumed
+                                    |   history for later recipe-totality work
+      train_args_yaml               | not read (provenance)
       attrs entries, created,       | not read (provenance): run identity,
         torch_version, git_commit   |   timestamp, and build marks
     (legend: "<root>" = path_root; "cls" = a "module.QualName" string
      naming the class to reconstruct; state_dict = PyTorch's name -> tensor
      map of registered parameters, including frozen parameters, and
      persistent registered buffers; _need / _read_group
-     / _read_native_bool / _rebuild_geometry / _rebuild_model = the reader
+     / _read_artifact_composition / _read_native_bool / _rebuild_geometry
+     / _rebuild_model = the reader
      helpers defined inside rebuild_emulator; read_artifact_schema = the one
      shared reader of the schema version and the scientific record, defined
      below at module level because the warm-start loader calls it too;
@@ -464,7 +608,12 @@ def save_emulator(path_root,
                      (search ranges resolved), or None to omit.
     attrs          = optional mapping of scalar run metadata, each
                      written as one h5 root attribute. It may not replace the
-                     writer-owned Grid2D mask declaration.
+                     writer-owned Grid2D mask or composition declarations.
+    pce            = fitted PCEEmulator base for an NPCE run, else None.
+    pce_form       = NPCE recombination form, required with pce, else None.
+    resolved_train = materialized training recipe consumed by the run.
+    resolved_model = materialized model-construction recipe.
+    transfer_base  = embedded transfer payload mapping, else None.
     facts_yaml     = the producer sidecar's text, the generator's own
                      <paramsf>.facts.yaml, carried here verbatim by the
                      training loader (data_staging.read_facts_sidecar). Given,
@@ -474,13 +623,20 @@ def save_emulator(path_root,
                      records no science at all. It is never re-derived here:
                      two authors of one scientific fact is how the two copies
                      of that fact drift apart.
+    composition_mode = required writer-derived native string: plain, npce, or
+                     transfer. It must match pce / transfer_base exactly.
+    transfer_refined = required native bool; true exactly when transfer_base
+                     carries drifted_state.
+    resolved_pce   = consumed pce mapping for NPCE, else None.
+    resolved_transfer = consumed transfer mapping for transfer, else None.
 
   Returns:
     (emul_path, h5_path), the two files written.
 
   Raises:
-    KeyError when attrs tries to replace the writer-owned Grid2D declaration.
-    ValueError when facts_yaml arrives without the resolved recipes (the file
+    KeyError when attrs tries to replace a writer-owned declaration.
+    ValueError when the composition facts, payload, and consumed records
+    disagree; when facts_yaml arrives without the resolved recipes (the file
     would say which cosmology it was trained under but not how to rebuild the
     network), when the sidecar breaks any law in fixed_facts.validate, or when
     the whitening geometry and the sidecar disagree on the sampled parameters.
@@ -490,6 +646,16 @@ def save_emulator(path_root,
   # h5py lives only here: the training machines (cocoa) ship it, the
   # plotting/train paths never need it.
   import h5py
+
+  composition_mode, transfer_refined = _validate_executed_composition(
+    composition_mode=composition_mode,
+    transfer_refined=transfer_refined,
+    pce=pce,
+    pce_form=pce_form,
+    transfer_base=transfer_base,
+    resolved_pce=resolved_pce,
+    resolved_transfer=resolved_transfer,
+    where=path_root)
 
   # --- the version this file will announce: one decision, before any write ---
   # The version is a statement about the payload, so it is decided once, from
@@ -529,11 +695,17 @@ def save_emulator(path_root,
       blocks=record,
       where=path_root + ".h5")
 
-  if attrs is not None and _GRID2D_MASK_DECLARATION in attrs:
+  reserved_attrs = {
+    _GRID2D_MASK_DECLARATION,
+    _COMPOSITION_MODE_ATTR,
+    _TRANSFER_REFINED_ATTR,
+  }
+  if attrs is not None and reserved_attrs.intersection(attrs):
+    forged = sorted(reserved_attrs.intersection(attrs))
     raise KeyError(
-      "save_emulator: attrs cannot set reserved key "
-      + repr(_GRID2D_MASK_DECLARATION) + ". Remove that key; save_emulator "
-      "derives the declaration from the executed Grid2D geometry.")
+      "save_emulator: attrs cannot set reserved key(s) " + repr(forged)
+      + ". Remove them; save_emulator derives these declarations from the "
+      "executed run.")
 
   # --- <root>.emul: the weights, cpu, unprefixed ---
   sd = {}
@@ -669,7 +841,6 @@ def save_emulator(path_root,
         drift_grp = tb.create_group("drifted_state")
         for k, v in drifted.items():
           drift_grp.create_dataset(k, data=v.detach().cpu().numpy())
-        f.attrs["transfer_refined"] = True
 
     # per-epoch histories; fracs stack to (nepochs, n_thresholds).
     hg = f.create_group("history")
@@ -705,8 +876,14 @@ def save_emulator(path_root,
     if resolved_train is not None:
       f.create_dataset(
         "config_resolved_yaml",
-        data=yaml.safe_dump({"train_args": resolved_train,
-                             "data": config.get("data", {})},
+        data=yaml.safe_dump({
+          "composition_mode": composition_mode,
+          "transfer_refined": transfer_refined,
+          "pce": resolved_pce,
+          "transfer": resolved_transfer,
+          "train_args": resolved_train,
+          "data": config.get("data", {}),
+        },
                             sort_keys=False),
         dtype=str_dt)
     if resolved_model is not None:
@@ -725,6 +902,8 @@ def save_emulator(path_root,
     if attrs is not None:
       for k, v in attrs.items():
         f.attrs[k] = str(v) if isinstance(v, str) else v
+    f.attrs[_COMPOSITION_MODE_ATTR] = composition_mode
+    f.attrs[_TRANSFER_REFINED_ATTR] = transfer_refined
     f.attrs["created"]       = time.strftime("%Y-%m-%d %H:%M:%S")
     f.attrs["torch_version"] = str(torch.__version__)
     # the version decided at the top of this function, written once, here. It
@@ -779,6 +958,319 @@ def _read_native_bool(attrs, key, *, default, where):
     "attributes are weakly typed, so a string or integer is refused rather "
     "than coerced by truthiness. The string 'False' would read as True and "
     "select the wrong branch. Re-save the artifact with a real boolean.")
+
+
+def _read_native_enum(attrs, key, *, allowed, where):
+  """Read one required native UTF-8 HDF5 enum attribute.
+
+  h5py decodes both native UTF-8 and byte-string attributes to Python strings
+  on some versions.  The stored dtype is therefore part of this boundary: a
+  byte payload cannot impersonate a writer-owned native declaration.
+  """
+  if key not in attrs:
+    raise KeyError(
+      where + " is missing required native attribute " + repr(key))
+  value = attrs[key]
+  dtype = attrs.get_id(key).dtype
+  storage = (dtype.metadata or {}).get("vlen")
+  if storage is not str or type(value) is not str or value not in allowed:
+    raise ValueError(
+      where + ": the attribute " + repr(key)
+      + " must be one native HDF5 string in " + repr(allowed)
+      + ", got " + repr(value) + " (type " + type(value).__name__ + ").")
+  return value
+
+
+def _read_artifact_composition(f, where):
+  """Read and validate the artifact's authoritative composition facts.
+
+  The main network has the same state-dict shape for a plain emulator, an
+  NPCE refiner, and a transfer correction.  Group absence therefore cannot
+  select the plain decoder.  The writer-owned root enum and native refined
+  boolean select the mode; the payload groups and consumed YAML record must
+  corroborate those facts in both directions before any geometry or model is
+  constructed.
+
+  ``config_yaml`` is provenance.  When it declares a non-null ``pce`` or
+  ``transfer`` block, that declaration must agree too, but it can never
+  replace either required root fact.
+
+  Returns:
+    ``(composition_mode, transfer_refined)`` as plain Python values.
+
+  Raises:
+    KeyError / ValueError for a missing, mistyped, unknown, or contradictory
+    fact, group, or resolved record.  Presence-only legacy artifacts receive
+    an explicit re-save/migration instruction rather than defaulting to plain.
+  """
+  if _COMPOSITION_MODE_ATTR not in f.attrs:
+    raise KeyError(
+      where + " is a presence-only artifact with no required "
+      + repr(_COMPOSITION_MODE_ATTR) + " root attribute. Absence never means "
+      "plain. Re-save the artifact with the current save_emulator, or migrate "
+      "it by reconstructing the executed plain/npce/transfer mode explicitly.")
+  composition_mode = _read_native_enum(
+    f.attrs,
+    _COMPOSITION_MODE_ATTR,
+    allowed=_COMPOSITION_MODES,
+    where=where)
+
+  if _TRANSFER_REFINED_ATTR not in f.attrs:
+    raise KeyError(
+      where + " is a presence-only artifact with no required "
+      + repr(_TRANSFER_REFINED_ATTR) + " root attribute. Re-save the artifact "
+      "with the current save_emulator; refined state is never inferred from "
+      "a nested group.")
+  transfer_refined = _read_native_bool(
+    f.attrs,
+    _TRANSFER_REFINED_ATTR,
+    default=False,
+    where=where)
+
+  have_pce = "pce" in f
+  have_transfer = "transfer_base" in f
+  expected_pce = composition_mode == "npce"
+  expected_transfer = composition_mode == "transfer"
+  if have_pce != expected_pce or have_transfer != expected_transfer:
+    raise KeyError(
+      where + ": composition_mode=" + repr(composition_mode)
+      + " requires pce=" + repr(expected_pce)
+      + " and transfer_base=" + repr(expected_transfer)
+      + ", but the artifact carries pce=" + repr(have_pce)
+      + " and transfer_base=" + repr(have_transfer)
+      + ". Required and forbidden composition groups are checked in both "
+      "directions; re-save an internally consistent artifact.")
+  payload_pce_form = None
+  if have_pce:
+    pce_group = f["pce"]
+    if not hasattr(pce_group, "keys"):
+      raise ValueError(where + ": pce must be an HDF5 group")
+    payload_pce_form = _read_native_enum(
+      pce_group.attrs,
+      "form",
+      allowed=_PCE_FORMS,
+      where=where + " pce group")
+  have_drifted = False
+  payload_transfer_form = None
+  payload_transfer_space = None
+  if have_transfer:
+    transfer_group = f["transfer_base"]
+    if not hasattr(transfer_group, "keys"):
+      raise ValueError(where + ": transfer_base must be an HDF5 group")
+    payload_transfer_form = _read_native_enum(
+      transfer_group.attrs,
+      "form",
+      allowed=_TRANSFER_FORMS,
+      where=where + " transfer_base group")
+    payload_transfer_space = _read_native_enum(
+      transfer_group.attrs,
+      "space",
+      allowed=_TRANSFER_SPACES,
+      where=where + " transfer_base group")
+    have_drifted = "drifted_state" in transfer_group
+    if have_drifted and not hasattr(transfer_group["drifted_state"], "keys"):
+      raise ValueError(
+        where + ": transfer_base/drifted_state must be an HDF5 group")
+  expected_drifted = expected_transfer and transfer_refined
+  if have_drifted != expected_drifted:
+    raise KeyError(
+      where + ": composition_mode=" + repr(composition_mode)
+      + " and transfer_refined=" + repr(transfer_refined)
+      + " require transfer_base/drifted_state=" + repr(expected_drifted)
+      + ", but it is " + ("present" if have_drifted else "absent") + ".")
+  if composition_mode != "transfer" and transfer_refined:
+    raise ValueError(
+      where + ": transfer_refined=True is forbidden for composition_mode="
+      + repr(composition_mode))
+
+  def _read_yaml_mapping(dataset_name, *, required):
+    if dataset_name not in f:
+      if required:
+        raise KeyError(
+          where + " is missing required " + dataset_name
+          + "; re-save the artifact with its consumed composition record")
+      return None
+    value = f[dataset_name][()]
+    if isinstance(value, bytes):
+      try:
+        value = value.decode("utf-8")
+      except UnicodeDecodeError as exc:
+        raise ValueError(
+          where + ": " + dataset_name + " is not valid UTF-8") from exc
+    if type(value) is not str:
+      raise ValueError(
+        where + ": " + dataset_name + " must be scalar UTF-8 YAML text, got "
+        + type(value).__name__)
+    try:
+      parsed = yaml.safe_load(value)
+    except yaml.YAMLError as exc:
+      raise ValueError(
+        where + ": " + dataset_name + " is invalid YAML") from exc
+    if type(parsed) is not dict:
+      raise ValueError(
+        where + ": " + dataset_name + " must decode to a mapping")
+    return parsed
+
+  resolved = _read_yaml_mapping("config_resolved_yaml", required=True)
+  for key in ("composition_mode", "transfer_refined", "pce", "transfer"):
+    if key not in resolved:
+      raise KeyError(
+        where + ": config_resolved_yaml is missing required " + repr(key))
+  resolved_mode = resolved["composition_mode"]
+  if type(resolved_mode) is not str or resolved_mode not in _COMPOSITION_MODES:
+    raise ValueError(
+      where + ": config_resolved_yaml composition_mode must be one native "
+      "string in " + repr(_COMPOSITION_MODES))
+  if resolved_mode != composition_mode:
+    raise ValueError(
+      where + ": config_resolved_yaml composition_mode="
+      + repr(resolved_mode) + " disagrees with the authoritative root "
+      + repr(composition_mode))
+  resolved_refined = resolved["transfer_refined"]
+  if type(resolved_refined) is not bool:
+    raise ValueError(
+      where + ": config_resolved_yaml transfer_refined must be a native "
+      "boolean")
+  if resolved_refined != transfer_refined:
+    raise ValueError(
+      where + ": config_resolved_yaml transfer_refined="
+      + repr(resolved_refined) + " disagrees with the authoritative root "
+      + repr(transfer_refined))
+
+  resolved_pce = resolved["pce"]
+  resolved_transfer = resolved["transfer"]
+  if composition_mode == "plain":
+    if resolved_pce is not None:
+      raise ValueError(
+        where + ": plain config_resolved_yaml requires pce: null")
+    if resolved_transfer is not None:
+      raise ValueError(
+        where + ": plain config_resolved_yaml requires transfer: null")
+  elif composition_mode == "npce":
+    if type(resolved_pce) is not dict:
+      raise ValueError(
+        where + ": npce config_resolved_yaml requires a pce mapping")
+    if resolved_transfer is not None:
+      raise ValueError(
+        where + ": npce config_resolved_yaml requires transfer: null")
+    resolved_pce_form = resolved_pce.get("form")
+    if type(resolved_pce_form) is not str \
+        or resolved_pce_form not in _PCE_FORMS:
+      raise ValueError(
+        where + ": config_resolved_yaml pce.form must be one native string in "
+        + repr(_PCE_FORMS))
+    if resolved_pce_form != payload_pce_form:
+      raise ValueError(
+        where + ": config_resolved_yaml pce.form="
+        + repr(resolved_pce_form) + " disagrees with pce/form="
+        + repr(payload_pce_form))
+  else:
+    if resolved_pce is not None:
+      raise ValueError(
+        where + ": transfer config_resolved_yaml requires pce: null")
+    if type(resolved_transfer) is not dict:
+      raise ValueError(
+        where + ": transfer config_resolved_yaml requires a transfer mapping")
+    resolved_transfer_form = resolved_transfer.get("form")
+    if type(resolved_transfer_form) is not str \
+        or resolved_transfer_form not in _TRANSFER_FORMS:
+      raise ValueError(
+        where + ": config_resolved_yaml transfer.form must be one native "
+        "string in " + repr(_TRANSFER_FORMS))
+    resolved_transfer_space = resolved_transfer.get("space")
+    if type(resolved_transfer_space) is not str \
+        or resolved_transfer_space not in _TRANSFER_SPACES:
+      raise ValueError(
+        where + ": config_resolved_yaml transfer.space must be one native "
+        "string in " + repr(_TRANSFER_SPACES))
+    if resolved_transfer_form != payload_transfer_form:
+      raise ValueError(
+        where + ": config_resolved_yaml transfer.form="
+        + repr(resolved_transfer_form) + " disagrees with "
+        "transfer_base/form=" + repr(payload_transfer_form))
+    if resolved_transfer_space != payload_transfer_space:
+      raise ValueError(
+        where + ": config_resolved_yaml transfer.space="
+        + repr(resolved_transfer_space) + " disagrees with "
+        "transfer_base/space=" + repr(payload_transfer_space))
+    resolved_refine = resolved_transfer.get("refine")
+    if resolved_refine is not None and type(resolved_refine) is not dict:
+      raise ValueError(
+        where + ": config_resolved_yaml transfer.refine must be a mapping "
+        "when present")
+    resolved_has_refine = resolved_refine is not None
+    if resolved_has_refine != transfer_refined:
+      raise ValueError(
+        where + ": config_resolved_yaml transfer.refine presence disagrees "
+        "with transfer_refined=" + repr(transfer_refined))
+
+  raw = _read_yaml_mapping("config_yaml", required=False)
+  if raw is not None:
+    raw_pce = raw.get("pce")
+    raw_transfer = raw.get("transfer")
+    if raw_pce is not None and raw_transfer is not None:
+      raise ValueError(
+        where + ": config_yaml declares both pce and transfer")
+    if raw_pce is not None and composition_mode != "npce":
+      raise ValueError(
+        where + ": config_yaml pce declaration disagrees with "
+        "composition_mode=" + repr(composition_mode))
+    if raw_transfer is not None and composition_mode != "transfer":
+      raise ValueError(
+        where + ": config_yaml transfer declaration disagrees with "
+        "composition_mode=" + repr(composition_mode))
+    if raw_pce is not None:
+      if type(raw_pce) is not dict:
+        raise ValueError(where + ": config_yaml pce must be a mapping")
+      raw_pce_form = raw_pce.get("form")
+      if type(raw_pce_form) is not str or raw_pce_form not in _PCE_FORMS:
+        raise ValueError(
+          where + ": config_yaml pce.form must be one native string in "
+          + repr(_PCE_FORMS))
+      if raw_pce_form != payload_pce_form:
+        raise ValueError(
+          where + ": config_yaml pce.form=" + repr(raw_pce_form)
+          + " disagrees with the executed pce/form="
+          + repr(payload_pce_form))
+    if raw_transfer is not None:
+      if type(raw_transfer) is not dict:
+        raise ValueError(where + ": config_yaml transfer must be a mapping")
+      raw_transfer_form = raw_transfer.get("form")
+      if (type(raw_transfer_form) is not str
+          or raw_transfer_form not in _TRANSFER_FORMS):
+        raise ValueError(
+          where + ": config_yaml transfer.form must be one native string in "
+          + repr(_TRANSFER_FORMS))
+      if raw_transfer_form != payload_transfer_form:
+        raise ValueError(
+          where + ": config_yaml transfer.form=" + repr(raw_transfer_form)
+          + " disagrees with the executed transfer_base/form="
+          + repr(payload_transfer_form))
+      raw_transfer_space = raw_transfer.get("space")
+      if raw_transfer_space is not None:
+        if (type(raw_transfer_space) is not str
+            or raw_transfer_space not in _TRANSFER_SPACES):
+          raise ValueError(
+            where + ": config_yaml transfer.space must be null or one "
+            "native string in " + repr(_TRANSFER_SPACES))
+        if raw_transfer_space != payload_transfer_space:
+          raise ValueError(
+            where + ": config_yaml transfer.space="
+            + repr(raw_transfer_space)
+            + " disagrees with the executed transfer_base/space="
+            + repr(payload_transfer_space))
+      raw_refine = raw_transfer.get("refine")
+      if raw_refine is not None and type(raw_refine) is not dict:
+        raise ValueError(
+          where + ": config_yaml transfer.refine must be a mapping when "
+          "present")
+      raw_refined = raw_refine is not None
+      if raw_refined != transfer_refined:
+        raise ValueError(
+          where + ": config_yaml transfer.refine presence disagrees with "
+          "transfer_refined=" + repr(transfer_refined))
+
+  return composition_mode, transfer_refined
 
 
 def read_artifact_schema(f, where):
@@ -885,6 +1377,8 @@ def rebuild_emulator(path_root, device, compile_model=True):
                        order it declared, with the interval each was drawn
                        from, which is the region this emulator may be asked
                        about;
+      "composition_mode" = required plain / npce / transfer artifact mode;
+      "transfer_refined" = required native refined-transfer fact;
       "ia"           = the factored-IA design name (nla / tatt) or None;
       "pce_base"     = the reconstructed frozen PCEEmulator when the run used
                        an NPCE base (h5 pce group), else None;
@@ -965,6 +1459,12 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # plain Python, so they survive this file being closed and travel out in
     # the info dict below.
     record = read_artifact_schema(f=f, where=path_root + ".h5")
+    # The authoritative composition facts are the next read.  This validates
+    # the complete required/forbidden group matrix and its consumed record
+    # before recipe parsing, geometry construction, model construction, or
+    # torch.load can reinterpret a damaged NPCE/transfer artifact as plain.
+    composition_mode, transfer_refined = _read_artifact_composition(
+      f=f, where=path_root + ".h5")
     if "model_recipe" not in f:
       raise KeyError(f"{path_root}.h5 is missing the model_recipe")
     recipe = yaml.safe_load(f["model_recipe"][()])
@@ -985,7 +1485,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
     geom  = _rebuild_geometry(f["dv_geometry"], "dv_geometry group")
     pce_base = None
     pce_form = None
-    if "pce" in f:
+    if composition_mode == "npce":
       from .designs.pce import PCEEmulator
       pce_grp  = _read_group(f["pce"])
       pce_form = _need(pce_grp, "form", "pce group")
@@ -1001,7 +1501,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
     tb_geom   = None
     tb_form   = None
     tb_space  = None
-    if "transfer_base" in f:
+    if composition_mode == "transfer":
       tb        = f["transfer_base"]
       tb_recipe = yaml.safe_load(tb["model_recipe"][()])
       tb_state  = _read_group(tb["state"])
@@ -1015,23 +1515,10 @@ def rebuild_emulator(path_root, device, compile_model=True):
                                     "transfer_base dv_geometry group")
       tb_form   = tb.attrs.get("form")
       tb_space  = tb.attrs.get("space")
-      # refined artifact (transfer.refine): the drifted base weights + the
-      # transfer_refined root attr are two-way consistent (either half alone is
-      # a corrupt file). When present the predictor composes with the DRIFTED
-      # base (silently, no flag); the pretrained tb_state stays the provenance.
-      # The marker is read as a NATIVE boolean, never truthiness-coerced: a
-      # forged string "False" would otherwise read True and load the drifted
-      # weights from a file whose marker says false.
-      refined  = _read_native_bool(f.attrs, "transfer_refined",
-                                   default=False, where=path_root + ".h5")
-      have_dr  = "drifted_state" in tb
-      if refined != have_dr:
-        raise KeyError(
-          path_root + ".h5 transfer_base is inconsistent: transfer_refined="
-          + repr(refined) + " but drifted_state "
-          + ("present" if have_dr else "absent")
-          + "; a refined artifact must carry both, a frozen-only run neither")
-      if have_dr:
+      # The root fact and nested-group presence were already validated before
+      # any geometry construction.  Route solely by that validated fact; group
+      # membership is never a second mode-selection algorithm.
+      if transfer_refined:
         tb_state = _read_group(tb["drifted_state"])
 
   def _rebuild_model(rc, geom_for_needs, state, want_compile):
@@ -1099,7 +1586,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
   # the frozen transfer base, rebuilt from the embedded recipe + weights +
   # geometries (never compiled: a batch-1 no_grad component of the predictor).
   transfer_base = None
-  if tb_recipe is not None:
+  if composition_mode == "transfer":
     base_model = _rebuild_model(rc=tb_recipe, geom_for_needs=tb_geom,
                                 state=tb_state, want_compile=False)
     transfer_base = {"model": base_model,
@@ -1113,6 +1600,8 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # rebuilt emulator instead of sending the consumer back to the file.
     "fixed_facts":    record[fixed_facts.FIXED_FACTS_GROUP],
     "input_domain":   record[fixed_facts.INPUT_DOMAIN_GROUP],
+    "composition_mode": composition_mode,
+    "transfer_refined": transfer_refined,
     "ia":             _need(recipe, "ia", "model_recipe"),
     "pce_base":       pce_base,
     "pce_form":       pce_form,

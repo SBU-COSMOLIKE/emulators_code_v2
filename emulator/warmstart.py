@@ -349,15 +349,16 @@ def load_source(
     raise ValueError(
       "source is a factored intrinsic-alignment emulator (ia="
       + repr(info["ia"]) + "); this path supports only a plain source")
-  if info.get("pce_base") is not None:
+  if info["composition_mode"] == "npce":
     raise ValueError(
       "source carries an NPCE base; V1 warm start / transfer does not compose "
       "with PCE")
 
   # Second HDF5 open: read metadata that rebuild_emulator consumes internally
   # or does not return. The warm-start path needs these values for validation
-  # and for the new run's resolved record. A transfer_base group marks the
-  # artifact as a transfer output, which this version cannot chain.
+  # and for the new run's resolved record. The already validated authoritative
+  # composition mode, not transfer_base presence, marks a transfer output,
+  # which this version cannot chain.
   with h5py.File(root + ".h5", "r") as f:
     # the schema version and both blocks of the scientific record, through the
     # one shared reader (results.read_artifact_schema), the same reader
@@ -369,7 +370,7 @@ def load_source(
     recipe   = yaml.safe_load(f["model_recipe"][()])
     src_resc = f.attrs.get("rescale")
     resolved = yaml.safe_load(f["config_resolved_yaml"][()])
-    if "transfer_base" in f:
+    if info["composition_mode"] == "transfer":
       raise ValueError(
         "source " + root + ".h5 is itself a transfer artifact (it embeds a "
         "transfer_base group); chaining a transfer over a transfer is out of "

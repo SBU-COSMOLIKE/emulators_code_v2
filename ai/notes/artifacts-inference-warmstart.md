@@ -763,7 +763,7 @@ unrelated repo commit with unchanged semantic ids still rebuilds; a
 registered migration selects the old implementation and reproduces a
 stored known-answer prediction; a deleted manifest key fails loudly.
 
-## 25M-09 (Red Team CONFIRMED, awaiting Architect adjudication): deleting an optional composition group silently changes an NPCE artifact into a plain emulator
+## Unit 96 closed (25M-09): artifact composition is declared, not inferred
 
 Schema-v2 save/rebuild infers scientific composition solely from optional HDF5
 group presence. `save_emulator` writes `pce` only when its argument is non-None
@@ -826,6 +826,32 @@ forge the refined half; and a mutation restoring presence-only inference must
 strict-load the same-shaped net yet fail the known-answer prediction. Run the
 Torch/HDF5 legs on Vivian's workstation; enum/group validation also has a pure
 HDF5 CPU surface.
+
+<a id="artifact-composition-contract"></a>
+**artifact-composition (ACM-A) — the required mode is authoritative before
+construction.** Current saves derive and persist native root facts
+`composition_mode` (`plain`, `npce`, or `transfer`) and `transfer_refined`
+from the executed run. Callers cannot replace either fact through `attrs`.
+
+The resolved record carries top-level `composition_mode`, `transfer_refined`,
+`pce`, and `transfer`. The raw config corroborates any non-null `pce` or
+`transfer` block, but neither YAML surface can substitute for a missing root
+fact. A presence-only artifact receives an explicit re-save/migration refusal.
+
+Immediately after the scientific schema record is read, rebuild validates the
+four legal rows: plain has neither base group; NPCE has only `pce`; frozen
+transfer has only `transfer_base`; refined transfer additionally has
+`transfer_base/drifted_state`. Every required and forbidden edge is checked in
+both directions before recipe parsing, geometry/model construction, or
+`torch.load`. Rebuild, inference, and warm-start then route on the validated
+enum, never on optional-group presence.
+
+The CPU/HDF5 gate proves the four valid rows, thirty focused forgeries,
+writer/read agreement on the native form/space grammar, and the
+pre-construction call order under the single terminal
+`artifact-composition.contract`. Whole-pair cryptographic binding remains the
+separate artifact-integrity unit; this enum contract does not claim that an
+attacker cannot rewrite every corroborating HDF5 surface together.
 
 ## config_resolved_yaml does not record what the run consumed (red-team 45M-19, 2026-07-12, Architect-VERIFIED; queue 41)
 

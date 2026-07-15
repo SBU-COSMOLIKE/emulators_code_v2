@@ -100,13 +100,13 @@ resume map); a crash loses only the in-flight test.
 ## The tests
 
 The `BOARD` list in `ai/gates/board.py` is the authoritative registry — count and
-name the tests from it, never from a number in prose (40 gates at this
+name the tests from it, never from a number in prose (43 gates at this
 writing). Run `python ai/gates/run_board.py --list` for the live set with each
 gate's current resume state. The table below describes the core tests; the
 most recent board-integrity and family gates (for example board-selftest,
 cli-strict, family-first, stage-ram, artifact-readback, generator-seed,
-diagnostics-domain) are registered in `board.py` and may not all appear here
-yet.
+artifact-composition, diagnostics-domain) are registered in `board.py` and may
+not all appear here yet.
 
 | Test | What it confirms |
 |------|------------------|
@@ -127,6 +127,7 @@ yet.
 | relu-tanh-norm | tanh with the per_feature / affine norm knob; the banner names the norm and the loss descends |
 | weight-decay-census | weight decay touches exactly the Linear / Conv1d / BinLinear weight matrices |
 | npce-training | NPCE residual and ratio train, the exclusivity errors fire, a 2-point n_train sweep refits per point |
+| artifact-composition | required plain / NPCE / transfer mode and refined fact agree with exact HDF5 groups and resolved YAML before construction; presence-only artifacts refuse |
 | save-rebuild-drift | a saved emulator rebuilds bitwise-equal (plain, factored, NPCE, and the conv-head save whose persisted bin split reconstructs the ResCNN), survives a drifted code default, refuses a v1 file and a pre-persistence head file |
 | cobaya-adapter | the inference predictor matches the training side to rtol 1e-6, including the factored round-trip |
 | finetune-identity | warm-start mechanics: source validation, input-geometry extension, the output pin, epoch-0 parity, anchor masks, the loud config errors |

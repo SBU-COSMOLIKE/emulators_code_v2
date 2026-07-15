@@ -122,6 +122,8 @@ def save_fixture(root, device, tmp):
                   geometry=geom, config=config, histories=histories,
                   train_args=config["train_args"],
                   resolved_train={"nepochs": 1}, resolved_model=recipe,
+                  composition_mode="plain", transfer_refined=False,
+                  resolved_pce=None, resolved_transfer=None,
                   attrs={"rescale": "none",
                          "outputs": " ".join(OUT_NAMES)})
 

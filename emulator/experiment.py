@@ -4788,6 +4788,12 @@ class EmulatorExperiment:
         "compile_mode": compile_mode,
         "extra_names":  " ".join(self._finetune_extra_names),
       }
+    # NPCE: retain the resolved block separately from the generic training
+    # recipe so save_emulator can bind the authoritative composition fact to
+    # the exact consumed recombination form.  None remains an explicit plain
+    # or transfer fact at the artifact boundary.
+    if self.pce_opts is not None:
+      self.resolved_train["pce"] = dict(self.pce_opts)
     # transfer: record the resolved transfer block (form + the materialized
     # space), so the saved run states what it composed (persist-resolved-values).
     if self._transfer_base is not None:

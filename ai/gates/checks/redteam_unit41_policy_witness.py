@@ -257,7 +257,11 @@ def check_amp_artifact():
       config={"data": {}, "train_args": {}},
       histories=histories,
       resolved_train=resolved,
-      resolved_model={"class": "red-team-fixture"})
+      resolved_model={"class": "red-team-fixture"},
+      composition_mode="plain",
+      transfer_refined=False,
+      resolved_pce=None,
+      resolved_transfer=None)
     with h5py.File(root + ".h5", "r") as artifact:
       payload = artifact["config_resolved_yaml"][()]
     if isinstance(payload, bytes):

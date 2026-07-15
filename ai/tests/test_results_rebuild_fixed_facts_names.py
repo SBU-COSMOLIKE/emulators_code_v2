@@ -15,6 +15,7 @@ from unittest import mock
 import h5py
 import numpy as np
 import torch
+import yaml
 
 from emulator import fixed_facts
 from emulator import results
@@ -58,9 +59,26 @@ class RebuildFixedFactsNamesTest(unittest.TestCase):
     h5_path = path_root + ".h5"
     with h5py.File(h5_path, "w") as artifact:
       artifact.attrs["schema_version"] = fixed_facts.SCHEMA_VERSION
+      artifact.attrs["composition_mode"] = "plain"
+      artifact.attrs["transfer_refined"] = False
       artifact.create_dataset(
         "model_recipe",
         data="{}",
+        dtype=string_dtype)
+      artifact.create_dataset(
+        "config_yaml",
+        data=yaml.safe_dump({"data": {}, "train_args": {},
+                             "pce": None, "transfer": None},
+                            sort_keys=False),
+        dtype=string_dtype)
+      artifact.create_dataset(
+        "config_resolved_yaml",
+        data=yaml.safe_dump({"data": {}, "train_args": {},
+                             "composition_mode": "plain",
+                             "transfer_refined": False,
+                             "pce": None,
+                             "transfer": None},
+                            sort_keys=False),
         dtype=string_dtype)
       self._write_geometry(
         parent=artifact,
