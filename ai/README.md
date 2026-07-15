@@ -84,24 +84,21 @@ Agents work inside those boundaries.
 
 ## Start here
 
-You do not need prior AI-agent or Git-worktree experience. Keep this mental
-model:
+You do not need prior AI-agent or Git-worktree experience. Start with one
+request moving through four steps:
 
 ```mermaid
 flowchart LR
-  Q["Physics or software question"] --> N["Source note"]
-  N --> A["Architect: complete plan and gates"]
-  A --> I["Implementer: follow plan and produce evidence"]
-  I --> A
-  A -.-> R["Optional Red Team challenge and repair proposal"]
-  R -.-> A
-  A --> D{"GO or NO-GO"}
-  D -->|"GO"| L["One audited landing"]
-  D -->|"NO-GO"| F["Complete repair directive"]
-  F --> I
+  U["You write down one change"] --> A["Architect writes the plan"]
+  A --> I["Implementer changes and tests the code"]
+  I --> C["Architect checks the result"]
 ```
 
-Three objects make this reliable:
+If the check finds a problem, the Architect writes repair instructions and
+the Implementer tries again. The optional Red Team adds another review; its
+place in the loop is explained later.
+
+The tool keeps this sequence organized with three objects:
 
 | Object | Plain-language meaning |
 | --- | --- |
